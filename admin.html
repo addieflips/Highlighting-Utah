@@ -699,6 +699,7 @@
                 <option value="Normal Schedule">Normal Schedule</option>
                 <option value="October">October</option>
                 <option value="November">November</option>
+                <option value="After Thanksgiving">After Thanksgiving (employees only)</option>
               </select>
             </div>
           </div>
@@ -1450,6 +1451,7 @@ Highlighting Utah</textarea>
               <option value="all">All Messages</option>
               <option value="unread">Unread</option>
               <option value="important">Important</option>
+              <option value="awaiting">Awaiting Response (all folders)</option>
             </select>
             <strong id="currentFolderLabel" style="font-size:13.5px; margin-left:auto;">Inbox</strong>
           </div>
@@ -2475,12 +2477,13 @@ document.getElementById('quickEmailFillBtn').addEventListener('click', async fun
   if(d.email !== email){
     await updateDoc(doc(db,'invoices',invId), {email: email});
   }
-  const amount = fmtMoney((d.install||0)+(d.removal||0));
+  const amount = fmtMoney(balanceDueAmount(d));
   const template = document.getElementById('copyEmailTemplate').value;
   const message = template
     .replace(/\{\{name\}\}/g, d.name||'there')
     .replace(/\{\{amount\}\}/g, amount)
-    + buildOutgoingEmailFooter();
+    + partialPaymentNote(d)
+    + await buildOutgoingEmailFooter(d.phone, amount);
   resultEl.innerHTML =
     '<label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:6px;">Edit before sending if you want:</label>'+
     '<textarea id="quickEmailEditable" rows="9" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:13.5px; margin-bottom:10px;">'+esc(message)+'</textarea>'+
@@ -2530,9 +2533,34 @@ document.getElementById('quickEmailFillBtn').addEventListener('click', async fun
   });
 });
 
-function buildOutgoingEmailFooter(){
-  return '\n\n\uD83D\uDC49 Make a Payment: https://highlightingutah.com/#/payment'+
-    '\n\nPlease do not reply to this email \u2014 to reach us, use the Messaging section on our website: https://highlightingutah.com/#/payment';
+function balanceDueAmount(d){
+  return Math.max((Number(d.install)||0)+(Number(d.removal)||0)-(Number(d.deposit)||0), 0);
+}
+function partialPaymentNote(d){
+  return (Number(d.deposit)||0) > 0 ? ('\n\nYou\'ve already paid ' + fmtMoney(Number(d.deposit)) + ' \u2014 the amount above is what\'s left.') : '';
+}
+async function getOrCreatePortalToken(phone){
+  const phoneDigits = (phone||'').replace(/\D/g,'');
+  if(!phoneDigits) return null;
+  const match = jobAddresses.find(a => (a.data.phone||'').replace(/\D/g,'') === phoneDigits);
+  if(!match) return null;
+  let token = match.data.portalToken;
+  if(!token){
+    token = generatePortalToken();
+    try{ await updateDoc(doc(db,'jobAddresses',match.id), {portalToken: token}); match.data.portalToken = token; } catch(err){ /* still use the generated token even if the save failed */ }
+  }
+  return token;
+}
+async function buildOutgoingEmailFooter(phone, amount){
+  const token = await getOrCreatePortalToken(phone);
+  const portalUrl = 'https://highlightingutah.com/#/payment' + (token ? ('?token='+token) : '');
+  const messagesUrl = 'https://highlightingutah.com/#/payment' + (token ? ('?token='+token+'&focus=message') : '');
+  const venmoAmount = (Number(String(amount||0).replace(/[^0-9.]/g,'')) || 0).toFixed(2);
+  const venmoUrl = 'https://venmo.com/HighLightingUtah?txn=pay&amount='+venmoAmount+'&note='+encodeURIComponent('Christmas Lights');
+  return '\n\n\uD83D\uDC49 Log Into Your Portal: ' + portalUrl +
+    '\n\n\uD83D\uDCB3 Pay With Venmo (amount pre-filled): ' + venmoUrl +
+    '\n\n\uD83D\uDCAC Send Us a Message: ' + messagesUrl +
+    '\n\nPlease do not reply to this email \u2014 to reach us, use the Messaging link above.';
 }
 document.getElementById('saveEmailjsSettingsBtn').addEventListener('click', async function(){
   const statusEl = document.getElementById('emailjsSettingsStatus');
@@ -2593,19 +2621,21 @@ document.getElementById('loadCopyEmailListBtn').addEventListener('click', functi
   }
   listEl.innerHTML = html;
   listEl.querySelectorAll('.copy-email-btn').forEach(function(btn){
-    btn.addEventListener('click', function(){
+    btn.addEventListener('click', async function(){
       const inv = withEmail.find(i => i.id === btn.dataset.id);
       const d = inv.data;
       const panel = document.getElementById('bulkemailpanel-'+inv.id);
       const isOpen = panel.style.display !== 'none';
       if(isOpen){ panel.style.display = 'none'; return; }
-      const amount = fmtMoney((d.install||0)+(d.removal||0));
+      const amount = fmtMoney(balanceDueAmount(d));
       const template = document.getElementById('copyEmailTemplate').value;
       const message = template
         .replace(/\{\{name\}\}/g, d.name||'there')
         .replace(/\{\{amount\}\}/g, amount)
-        + buildOutgoingEmailFooter();
+        + partialPaymentNote(d)
+        + await buildOutgoingEmailFooter(d.phone, amount);
       panel.innerHTML =
+        '<label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:6px;">Edit before sending if you want:</label>'+
         '<textarea class="bulk-email-editable" rows="8" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:13.5px; margin-bottom:10px;">'+esc(message)+'</textarea>'+
         '<div style="display:flex; gap:8px; flex-wrap:wrap;">'+
           '<button type="button" class="btn btn-gold btn-sm bulk-email-send">Send Email</button>'+
@@ -2726,7 +2756,7 @@ document.getElementById('loadBulkTextListBtn').addEventListener('click', async f
   });
 });
 
-document.getElementById('previewSeasonEmailBtn').addEventListener('click', function(){
+document.getElementById('previewSeasonEmailBtn').addEventListener('click', async function(){
   const withEmailAll = allInvoicesCache.filter(inv => inv.data.email);
   const needsReview = withEmailAll.filter(inv => inv.data.priceReviewed === false);
   const withEmail = withEmailAll.filter(inv => inv.data.priceReviewed !== false);
@@ -2747,6 +2777,21 @@ document.getElementById('previewSeasonEmailBtn').addEventListener('click', funct
       '<strong>'+withoutEmail.length+' customer(s)</strong> have no email on file and will be skipped: '+
       withoutEmail.map(inv => esc(inv.data.name||inv.data.phone)).join(', ')+
       '. Add their email by editing their invoice.'+
+    '</div>';
+  }
+  if(withEmail.length){
+    const sample = withEmail.find(inv => (Number(inv.data.deposit)||0) > 0) || withEmail[0];
+    const sd = sample.data;
+    const sampleAmount = fmtMoney(balanceDueAmount(sd));
+    const sampleTemplate = document.getElementById('seasonEmailTemplate').value;
+    const sampleMessage = sampleTemplate
+      .replace(/\{\{name\}\}/g, sd.name||'there')
+      .replace(/\{\{amount\}\}/g, sampleAmount)
+      + partialPaymentNote(sd)
+      + await buildOutgoingEmailFooter(sd.phone, sampleAmount);
+    html += '<div style="margin-bottom:14px;">'+
+      '<label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:6px;">Exactly what '+esc(sd.name||'this customer')+' will receive (each customer gets their own version):</label>'+
+      '<pre style="white-space:pre-wrap; font-family:inherit; font-size:13.5px; background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:14px; margin:0;">'+esc(sampleMessage)+'</pre>'+
     '</div>';
   }
   html += '<button type="button" class="btn btn-gold" id="sendSeasonEmailsBtn" '+(withEmail.length?'':'disabled')+'>Send to All '+withEmail.length+' Customer(s)</button>'+
@@ -2772,11 +2817,12 @@ document.getElementById('previewSeasonEmailBtn').addEventListener('click', funct
     let sent = 0, failed = 0;
     for(const inv of withEmail){
       const d = inv.data;
-      const amount = fmtMoney((d.install||0)+(d.removal||0));
+      const amount = fmtMoney(balanceDueAmount(d));
       const message = template
         .replace(/\{\{name\}\}/g, d.name||'there')
         .replace(/\{\{amount\}\}/g, amount)
-        + buildOutgoingEmailFooter();
+        + partialPaymentNote(d)
+        + await buildOutgoingEmailFooter(d.phone, amount);
       statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + withEmail.length + '…';
       try{
         await emailjs.send(serviceId, templateId, {
@@ -2900,6 +2946,11 @@ function colorComboKey(colors){
   if(!colors || !colors.length) return '';
   return colors.slice().sort().join(' + ');
 }
+function hasOpenQuote(phone){
+  const phoneDigits = (phone||'').replace(/\D/g,'');
+  if(!phoneDigits) return false;
+  return quotesCache.some(q => (q.data.phone||'').replace(/\D/g,'') === phoneDigits && (q.data.status||'new') !== 'closed');
+}
 async function syncCustomerToOpenQuote(phone, fields){
   const phoneDigits = (phone||'').replace(/\D/g,'');
   if(!phoneDigits) return;
@@ -2966,7 +3017,7 @@ function renderQuotesList(){
     const colorCombo = colorComboKey(d.lightColors);
     html += '<div class="row-item">'+
       '<div class="rmain">'+
-        '<div class="row-name-line">'+esc(d.name)+' <span class="status-pill status-'+status+'">'+status+'</span>'+(d.frontPhotoFlagged ? ' <span class="status-pill status-due">&#9888; No Front Photo</span>' : '')+'</div>'+
+        '<div class="row-name-line">'+esc(d.name)+' <span class="status-pill status-'+status+'">'+status+'</span>'+(d.frontPhotoFlagged ? ' <span class="status-pill status-due">&#9888; No Front Photo</span>' : '')+(d.existingCustomerAddressChange ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Existing Customer &mdash; Address Changed</span>' : '')+'</div>'+
         '<button type="button" class="address-link-btn" data-previewquoteaddr="'+esc(d.address)+'">'+esc(d.address)+'</button>'+
         '<div class="row-phone-line">'+esc(d.phone)+' &middot; '+esc(d.email)+' &middot; '+fmtDate(d.createdAt)+'</div>'+
         (d.houseAreas && d.houseAreas.length ? '<div class="rtext" style="margin-top:6px;"><strong>Areas:</strong> '+d.houseAreas.map(esc).join(', ')+'</div>' : '')+
@@ -3288,15 +3339,23 @@ function openContextMenu(x, y, messageId){
 }
 document.addEventListener('click', function(){ contextMenuEl.classList.remove('open'); });
 
+function messageAddressLookup(d){
+  const phoneDigits = (d.phone||'').replace(/\D/g,'');
+  if(!phoneDigits) return '';
+  const match = jobAddresses.find(a => (a.data.phone||'').replace(/\D/g,'') === phoneDigits);
+  return match ? (match.data.address || '') : '';
+}
 function renderMessagesList(){
   const list = document.getElementById('messagesList');
   if(selectedEmployee){
     renderEmployeeNotesInList(list);
     return;
   }
-  let filtered = allMessages.filter(m => (m.data.folder || 'Inbox') === selectedFolder);
+  let filtered = msgFilter === 'awaiting' ? allMessages.slice() : allMessages.filter(m => (m.data.folder || 'Inbox') === selectedFolder);
   if(msgFilter === 'unread') filtered = filtered.filter(m => !m.data.read);
   if(msgFilter === 'important') filtered = filtered.filter(m => m.data.important);
+  if(msgFilter === 'awaiting') filtered = filtered.filter(m => !m.data.responded);
+  document.getElementById('currentFolderLabel').textContent = msgFilter === 'awaiting' ? 'Awaiting Response (all folders)' : selectedFolder;
   const unreadCount = allMessages.filter(m => !m.data.read).length;
   document.getElementById('badgeMessages').style.display = unreadCount ? 'inline-block' : 'none';
   document.getElementById('badgeMessages').textContent = unreadCount;
@@ -3305,9 +3364,12 @@ function renderMessagesList(){
   filtered.forEach(function(item){
     const d = item.data;
     const isUnread = !d.read;
+    const isResponded = !!d.responded;
+    const address = messageAddressLookup(d);
     html += '<div class="row-item'+(isUnread ? ' unread' : '')+'" draggable="true" data-msgid="'+item.id+'">'+
       '<div class="rmain">'+
-        '<h4>'+esc(d.name)+(d.topic ? ' <span class="status-pill status-new">'+esc(d.topic)+'</span>' : '')+'</h4>'+
+        '<h4>'+esc(d.name)+(d.topic ? ' <span class="status-pill status-new">'+esc(d.topic)+'</span>' : '')+' <span class="status-pill '+(isResponded?'status-paid':'status-due')+'">'+(isResponded?'Responded':'Awaiting Response')+'</span></h4>'+
+        (address ? '<div class="row-phone-line">'+esc(address)+'</div>' : '')+
         '<div class="rmeta">'+esc(d.phone)+(d.email ? ' &middot; '+esc(d.email) : '')+(d.contactMethod ? ' &middot; Prefers '+esc(d.contactMethod) : '')+' &middot; '+fmtDate(d.createdAt)+'</div>'+
         '<div class="rtext">'+esc(d.message)+'</div>'+
         (d.colors && d.colors.length ? '<div class="rtext" style="margin-top:4px;"><strong>Colors requested:</strong> '+d.colors.map(esc).join(', ')+'</div>' : '')+
@@ -3315,6 +3377,7 @@ function renderMessagesList(){
       '<div class="row-actions" style="align-items:center;">'+
         '<button class="star-btn'+(d.important ? ' on' : '')+'" data-star="'+item.id+'" title="Mark important">'+starIcon()+'</button>'+
         '<button class="icon-btn" data-readtoggle="'+item.id+'" data-current="'+(d.read?1:0)+'" title="'+(isUnread?'Mark as read':'Mark as unread')+'">'+(isUnread ? mailIcon() : mailOpenIcon())+'</button>'+
+        '<button type="button" class="btn btn-outline btn-sm" data-respondtoggle="'+item.id+'" data-current="'+(isResponded?1:0)+'">'+(isResponded ? 'Mark Awaiting' : 'Mark Responded')+'</button>'+
         '<button class="icon-btn danger" data-del="messages" data-id="'+item.id+'">'+trashIcon()+'</button>'+
       '</div>'+
     '</div>';
@@ -3330,6 +3393,12 @@ function renderMessagesList(){
     btn.addEventListener('click', function(){
       const current = btn.dataset.current === '1';
       updateDoc(doc(db,'messages',btn.dataset.readtoggle), {read: !current});
+    });
+  });
+  list.querySelectorAll('[data-respondtoggle]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      const current = btn.dataset.current === '1';
+      updateDoc(doc(db,'messages',btn.dataset.respondtoggle), {responded: !current});
     });
   });
   list.querySelectorAll('.row-item').forEach(function(row){
@@ -4818,6 +4887,30 @@ function haversine(lat1, lng1, lat2, lng2){
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
+// Returns the Date of Thanksgiving (4th Thursday of November) for the given year
+function thanksgivingDate(year){
+  const nov1 = new Date(year, 10, 1);
+  const dayOfWeek = nov1.getDay(); // 0=Sun...4=Thu
+  const firstThursday = 1 + ((4 - dayOfWeek + 7) % 7);
+  return new Date(year, 10, firstThursday + 21);
+}
+// Houses set to November stay hidden until Nov 1; "After Thanksgiving" houses stay hidden until the day after Thanksgiving.
+// Normal Schedule and October houses are never locked.
+function isInstallPrefLocked(installPreference){
+  const now = new Date();
+  const year = now.getFullYear();
+  if(installPreference === 'November'){
+    const nov1 = new Date(year, 10, 1);
+    return now < nov1;
+  }
+  if(installPreference === 'After Thanksgiving'){
+    const tg = thanksgivingDate(year);
+    const dayAfter = new Date(tg.getFullYear(), tg.getMonth(), tg.getDate() + 1);
+    return now < dayAfter;
+  }
+  return false;
+}
+
 function switchRouteTab(tabName){
   document.querySelectorAll('#routeSectionTabs .route-tab-btn[data-routetab]').forEach(function(b){
     b.classList.toggle('active', b.dataset.routetab === tabName);
@@ -5405,7 +5498,12 @@ function buildAddressRowHtml(item){
   const needsRemoval = completed && !d.removalDone;
   const hasHouseDetails = !!(d.housePhotoUrl || d.lightsDescription || d.phone2 || d.email2 || (d.houseAreas && d.houseAreas.length));
   const matchedInvoice = d.phone ? allInvoicesCache.find(inv => inv.data.phone === d.phone) : null;
-  const priceLine = matchedInvoice ? '<div class="row-phone-line">Price: '+fmtMoney((matchedInvoice.data.install||0)+(matchedInvoice.data.removal||0))+' &middot; <span class="status-pill '+statusClass(computeInvoiceStatus(matchedInvoice.data.install, matchedInvoice.data.removal, matchedInvoice.data.deposit))+'" style="font-size:10.5px; padding:2px 8px;">'+computeInvoiceStatus(matchedInvoice.data.install, matchedInvoice.data.removal, matchedInvoice.data.deposit)+'</span></div>' : '';
+  const seasonStatusLabels = {confirmed: 'Confirmed', needs_changes: 'Needs Changes', address_changed: 'Address Changed'};
+  const seasonStatusClasses = {confirmed: 'status-paid', needs_changes: 'status-due', address_changed: 'diff-Fix'};
+  const seasonStatusLabel = seasonStatusLabels[d.seasonStatus] || '';
+  const needsQuote = hasOpenQuote(d.phone);
+  const invStatus = matchedInvoice ? computeInvoiceStatus(matchedInvoice.data.install, matchedInvoice.data.removal, matchedInvoice.data.deposit) : '';
+  const priceLine = matchedInvoice ? '<div class="row-phone-line">Price: '+fmtMoney((matchedInvoice.data.install||0)+(matchedInvoice.data.removal||0))+(invStatus==='Partial Payment' ? ' &mdash; Paid so far: '+fmtMoney(matchedInvoice.data.deposit||0)+', Balance: '+fmtMoney(balanceDueAmount(matchedInvoice.data)) : '')+' &middot; <span class="status-pill '+statusClass(invStatus)+'" style="font-size:10.5px; padding:2px 8px;">'+invStatus+'</span></div>' : '';
   const crewLines = [];
   if(d.scheduled && d.assignedCrew){
     const names = getEffectiveCrewNames(d.assignedCrew, d.scheduledDate);
@@ -5425,7 +5523,7 @@ function buildAddressRowHtml(item){
       '<button type="button" class="address-link-btn" data-previewaddr="'+item.id+'">'+esc(d.address)+'</button>'+
       '<button type="button" class="fix-toggle-btn" data-toggledetails="'+item.id+'" style="margin-top:8px;">Show Details &#9662;</button>'+
       '<div id="rowdetails-'+item.id+'" style="display:none; margin-top:10px;">'+
-        '<div style="margin-bottom:8px;"><span class="status-pill diff-'+diff+'">'+diff+'</span>'+(d.scheduled ? ' <span class="status-pill status-paid">Install Scheduled</span>' : '')+(needsFix ? ' <span class="status-pill diff-Fix">Needs Fix</span>'+(d.fixScheduled ? ' <span class="status-pill status-paid">Fix Scheduled</span>' : '') : '')+(completed ? ' <span class="status-pill status-paid">&#10003; Done</span>' : '')+(needsRemoval ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Needs Removal</span>' : '')+(d.removalDone ? ' <span class="status-pill status-paid">&#10003; Removed</span>' : '')+'</div>'+
+        '<div style="margin-bottom:8px;"><span class="status-pill diff-'+diff+'">'+diff+'</span>'+(d.scheduled ? ' <span class="status-pill status-paid">Install Scheduled</span>' : '')+(needsFix ? ' <span class="status-pill diff-Fix">Needs Fix</span>'+(d.fixScheduled ? ' <span class="status-pill status-paid">Fix Scheduled</span>' : '') : '')+(completed ? ' <span class="status-pill status-paid">&#10003; Done</span>' : '')+(needsRemoval ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Needs Removal</span>' : '')+(d.removalDone ? ' <span class="status-pill status-paid">&#10003; Removed</span>' : '')+(seasonStatusLabel ? ' <span class="status-pill '+seasonStatusClasses[d.seasonStatus]+'">'+seasonStatusLabel+'</span>' : '')+(needsQuote ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Needs Quote</span>' : '')+'</div>'+
         (d.phone ? '<div class="row-phone-line">'+esc(d.phone)+'</div>' : '')+
         (d.phone2 ? '<div class="row-phone-line">'+esc(d.phone2)+' (secondary)</div>' : '')+
         (d.email2 ? '<div class="row-phone-line">'+esc(d.email2)+' (secondary)</div>' : '')+
@@ -5440,6 +5538,11 @@ function buildAddressRowHtml(item){
           '<select class="diff-select" data-setdiff="'+item.id+'" style="border-radius:8px; border:1px solid var(--line); padding:6px 10px; font-size:13px; font-weight:600; background:var(--snow); color:var(--ink);">'+
             ['Unrated','Easy','Medium','Hard'].map(function(opt){
               return '<option value="'+opt+'"'+(diff===opt?' selected':'')+'>'+opt+'</option>';
+            }).join('')+
+          '</select>'+
+          '<select class="installpref-select" data-setinstallpref="'+item.id+'" style="border-radius:8px; border:1px solid var(--line); padding:6px 10px; font-size:13px; font-weight:600; background:var(--snow); color:var(--ink);">'+
+            ['Normal Schedule','October','November','After Thanksgiving'].map(function(opt){
+              return '<option value="'+opt+'"'+((d.installPreference||'Normal Schedule')===opt?' selected':'')+'>'+opt+'</option>';
             }).join('')+
           '</select>'+
           '<div style="position:relative; display:inline-block;">'+
@@ -5481,6 +5584,11 @@ function attachAddressRowHandlers(container){
   container.querySelectorAll('[data-setdiff]').forEach(function(sel){
     sel.addEventListener('change', function(){
       updateDoc(doc(db,'jobAddresses',sel.dataset.setdiff), {difficulty: sel.value});
+    });
+  });
+  container.querySelectorAll('[data-setinstallpref]').forEach(function(sel){
+    sel.addEventListener('change', function(){
+      updateDoc(doc(db,'jobAddresses',sel.dataset.setinstallpref), {installPreference: sel.value});
     });
   });
   container.querySelectorAll('[data-openstatus]').forEach(function(btn){
@@ -6157,7 +6265,7 @@ function renderAllCustomersTable(){
 
   body.innerHTML = rows.map(function(r){
     const invCell = r.inv
-      ? '<span class="status-pill '+statusClass(r.invStatus)+'">'+r.invStatus+'</span><br><span style="font-size:11.5px; color:var(--slate);">'+fmtMoney((r.inv.data.install||0)+(r.inv.data.removal||0))+'</span>'
+      ? '<span class="status-pill '+statusClass(r.invStatus)+'">'+r.invStatus+'</span><br><span style="font-size:11.5px; color:var(--slate);">'+(r.invStatus==='Partial Payment' ? 'Paid '+fmtMoney(r.inv.data.deposit||0)+' &middot; Bal '+fmtMoney(balanceDueAmount(r.inv.data)) : fmtMoney((r.inv.data.install||0)+(r.inv.data.removal||0)))+'</span>'
       : '<span style="color:var(--slate); font-size:12px;">No invoice</span>';
     const routeCell = '<span class="status-pill diff-'+(r.d.difficulty||'Unrated')+'">'+(r.d.difficulty||'Unrated')+'</span><br><span style="font-size:11.5px; color:var(--slate);">'+r.routeStatus+'</span>';
     const mapCell = r.hasMap ? '<button type="button" class="btn btn-outline btn-sm" data-openmapfor="'+r.item.id+'">View Map</button>' : '<span style="color:var(--slate); font-size:12px;">No map yet</span>';
@@ -6212,6 +6320,7 @@ document.getElementById('allCustExportBtn').addEventListener('click', function()
       Name: d.name||'', Phone: d.phone||'', Email: d.email||'', Address: d.address||'',
       Enrolled: memberExportDateAdded(d), 'Route Status': allCustRouteStatus(d), Difficulty: d.difficulty||'Unrated',
       'Invoice Status': invStatus, 'Invoice Total': inv ? ((inv.data.install||0)+(inv.data.removal||0)) : '',
+      'Paid So Far': inv ? (inv.data.deposit||0) : '', 'Balance Due': inv ? balanceDueAmount(inv.data) : '',
       'Has House Map': houseMapsIdSet.has(item.id) ? 'Yes' : 'No'
     };
   });
@@ -6283,6 +6392,7 @@ function findNearbyMissedHouses(selectedStops, pool){
   pool.forEach(function(item){
     if(selectedIds.has(item.id)) return;
     if(item.data.scheduled || item.data.completed) return;
+    if(isInstallPrefLocked(item.data.installPreference)) return;
     if(typeof item.data.lat !== 'number' || typeof item.data.lng !== 'number') return;
     let closestDist = Infinity;
     selectedStops.forEach(function(stop){
@@ -6521,7 +6631,7 @@ async function runGenerateInstallRoute(){
   const crewChoice = document.getElementById('genCrewSelect').value;
   const seedPref = document.getElementById('routeSeedPref').value;
   const statusEl = document.getElementById('generateRouteStatus');
-  let available = jobAddresses.filter(a => !a.data.scheduled && !a.data.completed && typeof a.data.lat === 'number');
+  let available = jobAddresses.filter(a => !a.data.scheduled && !a.data.completed && typeof a.data.lat === 'number' && !isInstallPrefLocked(a.data.installPreference));
   if(cityChoice !== 'all') available = available.filter(a => extractCleanCity(a.data.city) === cityChoice);
 
   const startText = document.getElementById('routeStartInput').value.trim();
@@ -6657,8 +6767,8 @@ function renderRouteMap(ordered, startPoint){
   (currentMissedHouses || []).forEach(function(item){
     const marker = new google.maps.Marker({
       position:{lat:item.lat, lng:item.lng}, map:map,
-      icon:{path: google.maps.SymbolPath.CIRCLE, fillColor:'#B91C1C', fillOpacity:1, strokeColor:'#fff', strokeWeight:2, scale:9},
-      title: (item.name ? item.name+' — ' : '') + item.address + ' (nearby, not in route — click to add)'
+      icon:{path: google.maps.SymbolPath.BACKWARD_CLOSED_ARROW, rotation:180, fillColor:'#B91C1C', fillOpacity:1, strokeColor:'#fff', strokeWeight:2, scale:6},
+      title: (item.name ? item.name+' — ' : '') + item.address + ' (' + (item.difficulty || 'Unrated') + ') — nearby, not in route — click to add'
     });
     marker.addListener('click', function(){ addStopToRoute(item); });
     routeMapMarkers.push(marker);
