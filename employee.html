@@ -1,0 +1,1516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Crew Portal | Highlighting Utah</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#1E3B2C; --dusk:#3E7A5B; --gold:#F4BE55; --gold-dim:#D89F3D; --ember:#E0574B;
+    --snow:#FFFBF3; --paper:#F1F5EB; --slate:#6E6858; --line:#E3E8DA;
+    --radius:14px; --shadow:0 16px 40px -20px rgba(30,59,44,.35);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; font-family:'Inter',system-ui,sans-serif; color:var(--ink); background:var(--paper); -webkit-font-smoothing:antialiased;}
+  h1,h2,h3{font-family:'Fraunces',serif; font-weight:600; margin:0 0 .3em;}
+  p{margin:0 0 .8em; color:var(--slate); line-height:1.5;}
+  button{font-family:inherit; cursor:pointer;}
+  a{color:inherit;}
+  .btn{
+    display:inline-flex; align-items:center; justify-content:center; gap:8px;
+    padding:13px 20px; border-radius:999px; font-weight:700; font-size:15px;
+    border:1px solid transparent; cursor:pointer; text-decoration:none; width:100%;
+  }
+  .btn-gold{ background:var(--gold); color:var(--ink); }
+  .btn-ember{ background:var(--ember); color:#fff; }
+  .btn-outline{ background:none; border-color:var(--line); color:var(--ink); }
+  .btn[disabled]{ opacity:.35; cursor:not-allowed; }
+  .clock-card .btn{ width:auto; flex:1; }
+  .who-name-btn{
+    display:block; width:100%; padding:14px; border-radius:12px; border:1px solid var(--line);
+    background:var(--snow); color:var(--ink); font-weight:700; font-size:15px; cursor:pointer;
+  }
+  .who-name-btn:hover{ border-color:var(--gold); background:#FFF7E7; }
+  #switchPersonBtn{ background:none; border:none; color:var(--slate); font-size:13px; text-decoration:underline; }
+
+  /* Login */
+  #loginScreen{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; background:linear-gradient(150deg,var(--ink),var(--dusk)); }
+  .login-card{ background:#fff; border-radius:20px; padding:40px 30px; width:100%; max-width:360px; box-shadow:0 30px 60px -20px rgba(0,0,0,.4); text-align:center; }
+  .login-card h1{ font-size:22px; margin-bottom:4px; }
+  .field{ margin-bottom:14px; text-align:left; }
+  .field label{ display:block; font-size:12.5px; font-weight:600; margin-bottom:6px; }
+  .field input{ width:100%; padding:12px 13px; border-radius:9px; border:1px solid var(--line); background:var(--snow); font-size:15px; }
+  #loginError{ color:var(--ember); font-size:13px; margin-top:10px; min-height:16px; }
+
+  /* App */
+  #app{ display:none; max-width:640px; margin:0 auto; padding:16px 16px 100px; }
+  #app.show{ display:block; }
+  .topbar{ display:flex; justify-content:space-between; align-items:center; padding:10px 4px 18px; }
+  .topbar .brand{ font-family:'Fraunces',serif; font-weight:600; font-size:18px; }
+  .topbar button{ background:none; border:none; color:var(--slate); font-size:13px; text-decoration:underline; }
+
+  .bottom-nav{
+    position:fixed; bottom:0; left:0; right:0; z-index:100;
+    display:flex; background:#fff; border-top:1px solid var(--line);
+    padding:6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
+    box-shadow:0 -6px 20px rgba(0,0,0,.06);
+  }
+  .bottom-nav-btn{
+    flex:1; background:none; border:none; display:flex; flex-direction:column; align-items:center; gap:3px;
+    padding:6px 2px; color:var(--slate); font-size:11px; font-weight:600; position:relative; cursor:pointer;
+  }
+  .bottom-nav-btn svg{ width:22px; height:22px; stroke:currentColor; }
+  .bottom-nav-btn.active{ color:var(--dusk); }
+  .bottom-nav-badge{
+    position:absolute; top:2px; right:22%; background:var(--ember); color:#fff;
+    font-size:9px; font-weight:800; min-width:15px; height:15px; border-radius:999px;
+    display:flex; align-items:center; justify-content:center; padding:0 3px;
+  }
+  .tab-panel-content{ min-height:50vh; }
+
+  .clock-card{
+    background:var(--ink); color:#fff; border-radius:18px; padding:22px; text-align:center; margin-bottom:18px;
+  }
+  .clock-status{ font-size:13.5px; color:rgba(255,255,255,.7); margin-bottom:14px; }
+  .clock-time{ font-family:'Fraunces',serif; font-size:15px; color:var(--gold); }
+
+  .date-nav{ display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; }
+  .date-nav button{ background:#fff; border:1px solid var(--line); border-radius:999px; padding:9px 16px; font-weight:600; font-size:13.5px; }
+  .date-nav strong{ font-family:'Fraunces',serif; font-size:16px; }
+
+  .route-section{ margin-bottom:26px; }
+  .route-section h2{ font-size:16px; display:flex; align-items:center; gap:8px; }
+  .route-section h2 .tag{ font-size:11px; padding:3px 10px; border-radius:999px; font-weight:700; text-transform:uppercase; }
+  .tag-install{ background:#FFF3D6; color:var(--gold-dim); }
+  .tag-fix{ background:#FDECEA; color:var(--ember); }
+
+  .stop-card{
+    background:#fff; border:1px solid var(--line); border-radius:14px; padding:16px; margin-bottom:12px; box-shadow:var(--shadow);
+  }
+  .stop-head{ display:flex; gap:12px; align-items:flex-start; }
+  .stop-num{
+    width:28px; height:28px; border-radius:50%; background:var(--gold); color:var(--ink);
+    display:flex; align-items:center; justify-content:center; font-weight:700; font-size:13px; flex-shrink:0;
+  }
+  .stop-name{ font-weight:700; font-size:15.5px; }
+  .stop-address-link{
+    display:inline-flex; align-items:center; gap:6px; color:var(--dusk); font-weight:600; font-size:14px;
+    text-decoration:none; margin-top:2px;
+  }
+  .stop-address-link svg{ width:15px; height:15px; stroke:var(--dusk); flex-shrink:0; }
+  .stop-status-row{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+  .stop-badge{
+    display:inline-flex; align-items:center; gap:5px; font-size:11.5px; font-weight:700;
+    padding:4px 10px; border-radius:999px;
+  }
+  .badge-done{ background:#E6F2EA; color:#2E6B3E; }
+  .badge-flag{ background:#FDECEA; color:var(--ember); }
+  .stop-actions{ display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
+  .stop-action-btn{
+    flex:1; min-width:130px; border-radius:10px; border:1px solid var(--line); background:var(--snow);
+    padding:11px; font-weight:700; font-size:13px; cursor:pointer;
+  }
+  .done-btn{ color:#2E6B3E; border-color:#bfe0c8; }
+  .done-btn:hover{ background:#E6F2EA; }
+  .flag-btn{ color:var(--ember); border-color:#f0b3ac; }
+  .flag-btn:hover{ background:#FDECEA; }
+  .stop-onetime-note{
+    margin-top:12px; padding:10px 12px; background:#FDECEA; border:1px solid #f0b3ac;
+    border-radius:10px; font-size:13px; font-weight:600; color:var(--ember);
+  }
+  .stop-notes{ margin-top:12px; }
+  .stop-notes textarea{
+    width:100%; padding:10px 12px; border-radius:9px; border:1px solid var(--line); background:var(--snow);
+    font-family:inherit; font-size:13.5px; resize:vertical;
+  }
+  .stop-notes button{
+    margin-top:8px; background:var(--paper); border:1px solid var(--line); border-radius:8px;
+    padding:8px 14px; font-size:12.5px; font-weight:600; color:var(--ink);
+  }
+  .empty-note{ text-align:center; padding:30px; color:var(--slate); font-size:14px; background:#fff; border-radius:14px; border:1px dashed var(--line); }
+</style>
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyByI2wHguK1JLNdUFJQKiA_gunoVtTkyqM"></script>
+</head>
+<body>
+
+<div id="loginScreen">
+  <div class="login-card">
+    <h1>Crew Login</h1>
+    <p style="font-size:13px;">Highlighting Utah</p>
+    <form id="loginForm">
+      <div class="field"><label>Email</label><input type="email" id="loginEmail" required autocomplete="username"></div>
+      <div class="field"><label>Password</label><input type="password" id="loginPassword" required autocomplete="current-password"></div>
+      <button type="submit" class="btn btn-gold">Log In</button>
+      <div id="loginError"></div>
+    </form>
+  </div>
+</div>
+
+<div id="whoScreen" style="display:none; min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; background:linear-gradient(150deg,var(--ink),var(--dusk));">
+  <div class="login-card">
+    <h1>Who's clocking in?</h1>
+    <p style="font-size:13px;">Type your first name &mdash; this device will remember it.</p>
+    <form id="whoForm" style="margin-top:16px;">
+      <div class="field"><input type="text" id="whoNameInput" placeholder="Your name" autocomplete="off"></div>
+      <button type="submit" class="btn btn-gold">Continue</button>
+      <div id="whoError" style="color:#E0574B; font-size:13px; margin-top:10px; min-height:16px;"></div>
+    </form>
+  </div>
+</div>
+
+<div id="app">
+  <div class="topbar">
+    <div class="brand" id="topbarTitle">Clock In</div>
+    <div style="display:flex; gap:14px; align-items:center;">
+      <button id="switchPersonBtn" style="font-size:13px;">Not <span id="currentPersonName"></span>?</button>
+      <button id="logoutBtn">Log Out</button>
+    </div>
+  </div>
+
+  <div class="tab-panel-content" id="tabpanel-clockin">
+    <div class="clock-card">
+      <div class="clock-status" id="clockStatus">Not clocked in</div>
+      <div style="display:flex; gap:10px;">
+        <button class="btn btn-gold" id="clockInBtn">Clock In</button>
+        <button class="btn btn-ember" id="clockOutBtn" disabled>Clock Out</button>
+      </div>
+      <div id="clockLocationMsg" style="font-size:12px; color:rgba(255,255,255,.6); margin-top:10px; min-height:16px;"></div>
+    </div>
+
+    <div style="margin-top:24px;">
+      <h2 style="font-size:16px;">Your Timecard</h2>
+      <p style="font-size:13px; color:var(--slate); margin-top:-8px;" id="myTimecardPeriodLabel">Current pay period</p>
+      <p style="font-size:13px; color:var(--slate); margin-top:-4px;">Got a time wrong? Request a fix &mdash; it needs an admin's approval before it changes.</p>
+      <div id="myTimecardList"></div>
+    </div>
+
+    <div id="adminApprovalsWrap" style="display:none; margin-top:28px; padding-top:20px; border-top:1px solid var(--line);">
+      <h2 style="font-size:16px;">Approvals</h2>
+      <p style="font-size:13px; color:var(--slate); margin-top:-8px;">Pending timecard fixes and requests from the team.</p>
+      <div id="adminApprovalsList"></div>
+      <div id="adminEmpRequestsList" style="margin-top:16px;"></div>
+    </div>
+  </div>
+
+  <div class="tab-panel-content" id="tabpanel-route" style="display:none;">
+    <div id="crewOnlyWrap">
+      <div id="crewLabel" style="text-align:center; font-family:'Fraunces',serif; font-weight:600; font-size:14px; color:var(--dusk); margin-bottom:10px;"></div>
+
+      <div class="date-nav">
+        <button id="datePrev">&larr; Prev Day</button>
+        <strong id="dateLabel"></strong>
+        <button id="dateNext">Next Day &rarr;</button>
+      </div>
+
+      <div id="dayMapWrap" style="margin-bottom:20px;">
+        <div id="dayMap" style="width:100%; height:260px; border-radius:14px; border:1px solid var(--line); background:var(--snow);"></div>
+      </div>
+
+      <div id="routesWrap"></div>
+    </div>
+  </div>
+
+  <div class="tab-panel-content" id="tabpanel-checklist" style="display:none;">
+    <div id="dailyChecklistWrap" style="display:none;">
+      <h2 id="checklistHeading">Today's Checklist</h2>
+      <div id="checklistAdminNote" style="display:none;"></div>
+      <div id="checklistItemsList"></div>
+    </div>
+    <div style="margin-top:24px; padding-top:20px; border-top:1px solid var(--line);">
+      <h2 style="font-size:16px;">Add a Note</h2>
+      <p style="font-size:13px; color:var(--slate); margin-top:-8px;">Leave a note for the office &mdash; for anything urgent, text us directly.</p>
+      <textarea id="checklistNoteInputEmp" rows="2" placeholder="Type a note here..." style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea>
+      <button type="button" class="btn btn-gold" id="sendChecklistNoteBtn" style="margin-top:10px;">Send to Office</button>
+      <div id="checklistNoteStatus" style="font-size:13px; color:var(--slate); margin-top:8px;"></div>
+    </div>
+    <div style="margin-top:24px; padding-top:20px; border-top:1px solid var(--line);">
+      <h2 style="font-size:16px;">Submit a Request</h2>
+      <p style="font-size:13px; color:var(--slate); margin-top:-8px;">Needs an admin's approval before it's final.</p>
+      <select id="empRequestType" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px; margin-bottom:8px;">
+        <option value="Day Off">Day Off</option>
+        <option value="Schedule Change">Schedule Change</option>
+        <option value="Supplies">Supplies</option>
+        <option value="Other">Other</option>
+      </select>
+      <textarea id="empRequestDesc" rows="2" placeholder="Details..." style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea>
+      <button type="button" class="btn btn-gold" id="sendEmpRequestBtn" style="margin-top:10px;">Submit Request</button>
+      <div id="empRequestStatus" style="font-size:13px; color:var(--slate); margin-top:8px;"></div>
+      <div id="myRequestsList" style="margin-top:16px;"></div>
+    </div>
+  </div>
+
+  <div class="tab-panel-content" id="tabpanel-addcustomer" style="display:none;">
+    <h2>Add a Customer</h2>
+    <div class="form-row"><label>Name</label><input type="text" id="ecName"></div>
+    <div class="form-row"><label>Phone</label><input type="tel" id="ecPhone"></div>
+    <div class="form-row"><label>Email</label><input type="email" id="ecEmail"></div>
+    <div class="form-row"><label>Street Address</label><input type="text" id="ecStreet"></div>
+    <div class="form-row"><label>City</label><input type="text" id="ecCity"></div>
+    <div class="form-row"><label>Zip</label><input type="text" id="ecZip"></div>
+    <button type="button" class="btn btn-gold" id="ecSaveBtn" style="margin-top:10px;">Add Customer</button>
+    <div id="ecStatus" style="font-size:13px; color:var(--slate); margin-top:8px;"></div>
+  </div>
+
+  <div class="tab-panel-content" id="tabpanel-quotes" style="display:none;">
+    <h2>Quote Requests</h2>
+    <p style="font-size:13px; color:var(--slate); margin-top:-8px;">Most recent requests, view only.</p>
+    <div id="empQuotesList" style="margin-top:12px;"></div>
+  </div>
+
+  <div class="tab-panel-content" id="tabpanel-custmessages" style="display:none;">
+    <h2 id="custMessagesHeading">Customer Messages</h2>
+    <p style="font-size:13px; color:var(--slate); margin-top:-8px;">Most recent messages, view only.</p>
+    <div id="empInboxEmployeeWrap" style="display:none; margin:12px 0;">
+      <select id="empInboxEmployeeSelect" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;">
+        <option value="">-- Contact Messages --</option>
+      </select>
+    </div>
+    <div id="empCustMessagesList" style="margin-top:12px;"></div>
+  </div>
+
+  <div class="tab-panel-content" id="tabpanel-routesadmin" style="display:none;">
+    <h2>Routes (Full List)</h2>
+    <input type="text" id="empRoutesSearch" placeholder="Search by name or address..." style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px; margin:10px 0;">
+    <div id="empRoutesList"></div>
+  </div>
+
+  <div class="tab-panel-content" id="tabpanel-housemaps" style="display:none;">
+    <h2>House Maps</h2>
+    <p style="font-size:13px; color:var(--slate); margin-top:-8px;">Search a customer to view their saved installer map.</p>
+    <input type="text" id="empHmSearch" placeholder="Search by name or address..." style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px; margin:10px 0;">
+    <div id="empHmResults"></div>
+    <div id="empHmViewer" style="margin-top:16px;"></div>
+  </div>
+
+  <div class="tab-panel-content" id="tabpanel-responsibilities" style="display:none;">
+    <h2>Crew Assignments</h2>
+    <p style="font-size:13px; color:var(--slate); margin-top:-8px;">Who's on which crew.</p>
+    <div id="empCrewList" style="margin-top:12px;"></div>
+  </div>
+
+  <div class="tab-panel-content" id="tabpanel-financedash" style="display:none;">
+    <h2>Dashboard</h2>
+    <p style="font-size:13px; color:var(--slate); margin-top:-8px;">Key numbers, view only. For editing, use the full admin dashboard.</p>
+    <div id="empFinSummary" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(120px,1fr)); gap:8px; margin:12px 0;"></div>
+  </div>
+
+  <div class="tab-panel-content" id="tabpanel-perfootpricing" style="display:none;">
+    <h2>Per Foot Pricing</h2>
+    <p style="font-size:13px; color:var(--slate); margin-top:-8px;">Current rate, plus a quick calculator.</p>
+    <div style="font-family:'Fraunces',serif; font-weight:700; font-size:28px; margin:10px 0;" id="empPfRate">$0.00/ft</div>
+    <input type="number" id="empPfCalcFeet" placeholder="Enter feet" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;">
+    <div style="font-family:'Fraunces',serif; font-weight:700; font-size:20px; margin-top:10px;" id="empPfCalcResult">$0.00</div>
+  </div>
+
+  <div class="tab-panel-content" id="tabpanel-timelogsadmin" style="display:none;">
+    <h2>Time Logs</h2>
+    <p style="font-size:13px; color:var(--slate); margin-top:-8px;">Every employee's recent clock-ins, view only.</p>
+    <input type="text" id="empTlSearch" placeholder="Search by employee name..." style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px; margin:10px 0;">
+    <div id="empTlList"></div>
+  </div>
+
+  <div class="bottom-nav" id="bottomNav">
+    <button class="bottom-nav-btn active" data-tab="clockin">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+      <span>Clock In</span>
+    </button>
+    <button class="bottom-nav-btn" data-tab="route" id="routeNavBtn">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 20l-5.447-2.724A1 1 0 0 1 3 16.382V5.618a1 1 0 0 1 1.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0 0 21 18.382V7.618a1 1 0 0 0-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>
+      <span>Route</span>
+    </button>
+    <button class="bottom-nav-btn" data-tab="checklist" id="checklistNavBtn">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      <span>Checklist</span>
+      <span class="bottom-nav-badge" id="checklistNavBadge" style="display:none;"></span>
+    </button>
+    <button class="bottom-nav-btn" data-tab="addcustomer" id="addcustomerNavBtn" style="display:none;">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>
+      <span>Add Customer</span>
+    </button>
+    <button class="bottom-nav-btn" data-tab="quotes" id="quotesNavBtn" style="display:none;">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+      <span>Quotes</span>
+    </button>
+    <button class="bottom-nav-btn" data-tab="custmessages" id="custmessagesNavBtn" style="display:none;">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      <span>Messages</span>
+    </button>
+    <button class="bottom-nav-btn" data-tab="routesadmin" id="routesadminNavBtn" style="display:none;">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 20l-5.447-2.724A1 1 0 0 1 3 16.382V5.618a1 1 0 0 1 1.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0 0 21 18.382V7.618a1 1 0 0 0-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>
+      <span>All Routes</span>
+    </button>
+    <button class="bottom-nav-btn" data-tab="housemaps" id="housemapsNavBtn" style="display:none;">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z"/><path d="M9 3v15M15 6v15"/></svg>
+      <span>House Maps</span>
+    </button>
+    <button class="bottom-nav-btn" data-tab="responsibilities" id="responsibilitiesNavBtn" style="display:none;">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      <span>Crew</span>
+    </button>
+    <button class="bottom-nav-btn" data-tab="financedash" id="financedashNavBtn" style="display:none;">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
+      <span>Dashboard</span>
+    </button>
+    <button class="bottom-nav-btn" data-tab="perfootpricing" id="perfootpricingNavBtn" style="display:none;">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+      <span>Pricing</span>
+    </button>
+    <button class="bottom-nav-btn" data-tab="timelogsadmin" id="timelogsadminNavBtn" style="display:none;">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+      <span>Time Logs</span>
+    </button>
+  </div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {
+  getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import {
+  getFirestore, collection, doc, addDoc, getDoc, getDocs, updateDoc, deleteDoc, onSnapshot, query, where, serverTimestamp, orderBy, limit
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBf0u9ZvXQiYsV8l_bMQNW6tjgF74oZRaE",
+  authDomain: "highlighting-utah.firebaseapp.com",
+  projectId: "highlighting-utah",
+  storageBucket: "highlighting-utah.firebasestorage.app",
+  messagingSenderId: "634466847637",
+  appId: "1:634466847637:web:bb52f5c57ce63de99c049c",
+  measurementId: "G-44SCT38S6E"
+};
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+/* ---------------- AUTH ---------------- */
+const loginScreen = document.getElementById('loginScreen');
+const whoScreen = document.getElementById('whoScreen');
+const appEl = document.getElementById('app');
+let currentUserEmail = '';
+let currentPersonName = '';
+
+document.getElementById('loginForm').addEventListener('submit', function(e){
+  e.preventDefault();
+  const email = document.getElementById('loginEmail').value;
+  const pass = document.getElementById('loginPassword').value;
+  document.getElementById('loginError').textContent = '';
+  signInWithEmailAndPassword(auth, email, pass).catch(function(){
+    document.getElementById('loginError').textContent = 'Login failed — check your email and password.';
+  });
+});
+document.getElementById('logoutBtn').addEventListener('click', function(){ signOut(auth); });
+
+onAuthStateChanged(auth, function(user){
+  if(user){
+    currentUserEmail = user.email;
+    loginScreen.style.display = 'none';
+    const remembered = localStorage.getItem('huEmployeeName');
+    if(remembered){
+      startAppAs(remembered);
+    } else {
+      showWhoScreen();
+    }
+  } else {
+    loginScreen.style.display = 'flex';
+    whoScreen.style.display = 'none';
+    appEl.classList.remove('show');
+  }
+});
+
+let knownEmployeeNames = [];
+function showWhoScreen(){
+  whoScreen.style.display = 'flex';
+  appEl.classList.remove('show');
+  document.getElementById('whoError').textContent = '';
+  document.getElementById('whoNameInput').value = '';
+  onSnapshot(collection(db,'employeeNames'), function(snap){
+    knownEmployeeNames = [];
+    snap.forEach(function(d){ knownEmployeeNames.push(d.data().name); });
+  }, function(err){
+    document.getElementById('whoError').textContent = 'Couldn\'t load names (' + err.message + '). Ask your manager to check the Firestore rules.';
+  });
+  setTimeout(function(){ document.getElementById('whoNameInput').focus(); }, 100);
+}
+document.getElementById('whoForm').addEventListener('submit', function(e){
+  e.preventDefault();
+  const typed = document.getElementById('whoNameInput').value.trim();
+  const errEl = document.getElementById('whoError');
+  if(!typed){ errEl.textContent = 'Type your name first.'; return; }
+  if(!knownEmployeeNames.length){ errEl.textContent = 'No names have been added yet — ask your manager to add employee names in the admin panel.'; return; }
+  const typedFirst = typed.split(/\s+/)[0].toLowerCase();
+  const match = knownEmployeeNames.find(function(n){
+    return n.split(/\s+/)[0].toLowerCase() === typedFirst;
+  });
+  if(!match){
+    errEl.textContent = 'That name isn\'t recognized — ask your manager to add you in the admin panel.';
+    return;
+  }
+  errEl.textContent = '';
+  localStorage.setItem('huEmployeeName', match);
+  startAppAs(match);
+});
+let crewConfigCache = { count: 1, members: {} };
+async function loadCrewConfigOnce(){
+  try{
+    const snap = await getDoc(doc(db,'crews','config'));
+    if(snap.exists()) crewConfigCache = snap.data();
+  } catch(err){ /* fall back to defaults */ }
+}
+function crewFromConfig(name){
+  const members = crewConfigCache.members || {};
+  for(const crewNum of Object.keys(members)){
+    if((members[crewNum]||[]).includes(name)) return crewNum;
+  }
+  return '1';
+}
+async function getCrewForDate(name, dateStr){
+  try{
+    const overrideSnap = await getDoc(doc(db,'crewOverrides',dateStr+'_'+name));
+    if(overrideSnap.exists()) return overrideSnap.data().crew;
+  } catch(err){ /* no override, fall through */ }
+  return crewFromConfig(name);
+}
+
+let currentEmployeeRole = 'Crew';
+let currentIsAdmin = false;
+async function startAppAs(name){
+  currentPersonName = name;
+  document.getElementById('currentPersonName').textContent = name;
+  whoScreen.style.display = 'none';
+  appEl.classList.add('show');
+  initClockState();
+
+  let visibleTabs = null;
+  currentIsAdmin = false;
+  try{
+    const empSnap = await getDocs(query(collection(db,'employeeNames'), where('name','==',name)));
+    const empData = !empSnap.empty ? empSnap.docs[0].data() : {};
+    currentEmployeeRole = empData.role || 'Crew';
+    visibleTabs = empData.visibleTabs || null;
+    currentIsAdmin = !!empData.isAdmin;
+  } catch(err){
+    currentEmployeeRole = 'Crew';
+  }
+
+  const isCrew = currentEmployeeRole === 'Crew';
+  const vt = visibleTabs || {route: isCrew, checklist: true};
+  document.getElementById('checklistHeading').textContent = isCrew ? "Today's Extra Checklist" : "Today's Checklist";
+  document.getElementById('routeNavBtn').style.display = vt.route ? 'flex' : 'none';
+  document.getElementById('checklistNavBtn').style.display = vt.checklist ? 'flex' : 'none';
+  document.getElementById('addcustomerNavBtn').style.display = vt.addcustomer ? 'flex' : 'none';
+  document.getElementById('quotesNavBtn').style.display = vt.quotes ? 'flex' : 'none';
+  document.getElementById('custmessagesNavBtn').style.display = (vt.custmessages || vt.allmessages) ? 'flex' : 'none';
+  document.getElementById('routesadminNavBtn').style.display = vt.routesadmin ? 'flex' : 'none';
+  document.getElementById('housemapsNavBtn').style.display = vt.housemaps ? 'flex' : 'none';
+  document.getElementById('responsibilitiesNavBtn').style.display = vt.responsibilities ? 'flex' : 'none';
+  document.getElementById('financedashNavBtn').style.display = vt.financedash ? 'flex' : 'none';
+  document.getElementById('perfootpricingNavBtn').style.display = vt.perfootpricing ? 'flex' : 'none';
+  document.getElementById('timelogsadminNavBtn').style.display = vt.timelogsadmin ? 'flex' : 'none';
+
+  loadMyTimecard();
+  loadMyRequests();
+  if(currentIsAdmin){
+    document.getElementById('adminApprovalsWrap').style.display = 'block';
+    loadTimecardApprovals();
+    loadEmpRequestApprovals();
+  }
+  if(vt.route){
+    loadCrewConfigOnce().then(function(){
+      renderDateNav();
+      loadRoutesForDate();
+    });
+  }
+  if(vt.checklist) loadDailyChecklist();
+  if(vt.quotes) loadEmpQuotes();
+  if(vt.custmessages || vt.allmessages) loadEmpCustMessages(!!vt.allmessages);
+  if(vt.routesadmin) loadEmpRoutesAdmin();
+  if(vt.responsibilities) loadEmpCrewList();
+  if(vt.financedash) loadEmpFinanceDash();
+  if(vt.perfootpricing) loadEmpPerFootPricing();
+  if(vt.timelogsadmin) loadEmpTimeLogsAdmin();
+
+  const defaultTab = vt.route ? 'route' : (vt.checklist ? 'checklist' : 'clockin');
+  switchTab(defaultTab);
+}
+document.getElementById('switchPersonBtn').addEventListener('click', function(){
+  localStorage.removeItem('huEmployeeName');
+  showWhoScreen();
+});
+
+const TAB_TITLES = {clockin:'Clock In', route:'Today\'s Route', checklist:'Checklist', addcustomer:'Add a Customer', quotes:'Quote Requests', custmessages:'Customer Messages', routesadmin:'Routes', housemaps:'House Maps', responsibilities:'Crew Assignments', financedash:'Dashboard', perfootpricing:'Per Foot Pricing', timelogsadmin:'Time Logs'};
+function switchTab(tabName){
+  document.querySelectorAll('.tab-panel-content').forEach(function(p){ p.style.display = 'none'; });
+  document.getElementById('tabpanel-'+tabName).style.display = 'block';
+  document.querySelectorAll('.bottom-nav-btn').forEach(function(b){
+    b.classList.toggle('active', b.dataset.tab === tabName);
+  });
+  document.getElementById('topbarTitle').textContent = TAB_TITLES[tabName] || '';
+  window.scrollTo({top:0, behavior:'instant'});
+}
+document.querySelectorAll('.bottom-nav-btn').forEach(function(btn){
+  btn.addEventListener('click', function(){ switchTab(btn.dataset.tab); });
+});
+
+function updateChecklistNavBadge(hasContent){
+  const badge = document.getElementById('checklistNavBadge');
+  if(!badge) return;
+  badge.style.display = hasContent ? 'flex' : 'none';
+  badge.textContent = '!';
+}
+async function loadDailyChecklist(){
+  const wrap = document.getElementById('dailyChecklistWrap');
+  const todayStr = toDateStr(new Date());
+  const docId = todayStr + '_' + currentPersonName;
+  try{
+    const snap = await getDoc(doc(db,'dailyChecklists',docId));
+    if(!snap.exists()){
+      updateChecklistNavBadge(false);
+      if(currentEmployeeRole !== 'Crew'){
+        wrap.style.display = 'block';
+        document.getElementById('checklistAdminNote').style.display = 'none';
+        document.getElementById('checklistItemsList').innerHTML = '<p style="color:var(--slate); font-size:14px;">Nothing assigned for today yet.</p>';
+      } else {
+        wrap.style.display = 'none';
+      }
+      return;
+    }
+    const d = snap.data();
+    wrap.style.display = 'block';
+    const noteEl = document.getElementById('checklistAdminNote');
+    if(d.adminNote){
+      noteEl.style.display = 'block';
+      noteEl.innerHTML = '<div style="background:#FFF8E9; border:1px solid var(--gold-dim); border-radius:10px; padding:12px 14px; font-size:14px; margin-bottom:14px;"><strong>Note from the office:</strong> '+esc(d.adminNote)+'</div>';
+    } else {
+      noteEl.style.display = 'none';
+    }
+    const items = d.items || [];
+    const unfinishedCount = items.filter(function(i){ return !i.done; }).length;
+    updateChecklistNavBadge(!!d.adminNote || unfinishedCount > 0);
+    const itemsEl = document.getElementById('checklistItemsList');
+    if(!items.length){
+      itemsEl.innerHTML = '<p style="color:var(--slate); font-size:14px;">No checklist items for today.</p>';
+      return;
+    }
+    itemsEl.innerHTML = items.map(function(item, i){
+      return '<label style="display:flex; align-items:center; gap:10px; padding:12px 0; border-bottom:1px solid var(--line); font-size:15px; cursor:pointer;">'+
+        '<input type="checkbox" class="checklist-check" data-idx="'+i+'" '+(item.done?'checked':'')+' style="width:20px; height:20px;">'+
+        '<span style="'+(item.done?'text-decoration:line-through; color:var(--slate);':'')+'">'+esc(item.text)+'</span>'+
+      '</label>';
+    }).join('');
+    itemsEl.querySelectorAll('.checklist-check').forEach(function(cb){
+      cb.addEventListener('change', async function(){
+        const idx = Number(cb.dataset.idx);
+        items[idx].done = cb.checked;
+        await updateDoc(doc(db,'dailyChecklists',docId), {items: items});
+        loadDailyChecklist();
+      });
+    });
+  } catch(err){
+    wrap.style.display = currentEmployeeRole !== 'Crew' ? 'block' : 'none';
+    document.getElementById('checklistItemsList').innerHTML = '<p style="color:var(--ember); font-size:14px;">Couldn\'t load checklist.</p>';
+  }
+}
+
+document.getElementById('sendChecklistNoteBtn').addEventListener('click', async function(){
+  const input = document.getElementById('checklistNoteInputEmp');
+  const statusEl = document.getElementById('checklistNoteStatus');
+  const text = input.value.trim();
+  if(!text){ statusEl.textContent = 'Type a note first.'; return; }
+  statusEl.textContent = 'Sending…';
+  try{
+    await addDoc(collection(db,'employeeNotes'), {
+      employeeName: currentPersonName, text: text, createdAt: serverTimestamp()
+    });
+    input.value = '';
+    statusEl.textContent = 'Sent to the office!';
+    setTimeout(function(){ statusEl.textContent = ''; }, 4000);
+  } catch(err){
+    statusEl.textContent = 'Couldn\'t send — check your connection and try again.';
+  }
+});
+
+document.getElementById('sendEmpRequestBtn').addEventListener('click', async function(){
+  const type = document.getElementById('empRequestType').value;
+  const descInput = document.getElementById('empRequestDesc');
+  const desc = descInput.value.trim();
+  const statusEl = document.getElementById('empRequestStatus');
+  if(!desc){ statusEl.textContent = 'Add a few details first.'; return; }
+  statusEl.textContent = 'Submitting…';
+  try{
+    await addDoc(collection(db,'employeeRequests'), {
+      employeeName: currentPersonName, type: type, description: desc, status: 'pending', createdAt: serverTimestamp()
+    });
+    descInput.value = '';
+    statusEl.textContent = 'Sent — waiting on approval.';
+    setTimeout(function(){ statusEl.textContent = ''; }, 4000);
+  } catch(err){
+    statusEl.textContent = 'Couldn\'t send — check your connection and try again.';
+  }
+});
+function requestStatusPill(status){
+  const colors = {pending:'#F4BE55', approved:'#2E6B3E', denied:'#E0574B'};
+  const labels = {pending:'Pending', approved:'Approved', denied:'Denied'};
+  return '<span style="display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:700; color:#fff; background:'+(colors[status]||'#94A3B8')+';">'+(labels[status]||status)+'</span>';
+}
+function loadMyRequests(){
+  const wrap = document.getElementById('myRequestsList');
+  if(!wrap) return;
+  const q1 = query(collection(db,'employeeRequests'), where('employeeName','==',currentPersonName), orderBy('createdAt','desc'), limit(20));
+  const q2 = query(collection(db,'timecardChangeRequests'), where('employeeName','==',currentPersonName), orderBy('createdAt','desc'), limit(20));
+  let genRequests = [], tcRequests = [];
+  function render(){
+    const combined = genRequests.concat(tcRequests).sort(function(a,b){
+      const at = a.createdAt && a.createdAt.toDate ? a.createdAt.toDate().getTime() : 0;
+      const bt = b.createdAt && b.createdAt.toDate ? b.createdAt.toDate().getTime() : 0;
+      return bt - at;
+    });
+    if(!combined.length){ wrap.innerHTML = ''; return; }
+    wrap.innerHTML = '<h3 style="font-size:14px; margin-bottom:8px;">My Requests</h3>' + combined.map(function(r){
+      return '<div style="border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-bottom:8px;">'+
+        '<div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">'+
+          '<strong style="font-size:13.5px;">'+esc(r.label)+'</strong>'+requestStatusPill(r.status)+
+        '</div>'+
+        (r.description ? '<div style="font-size:13px; color:var(--slate); margin-top:4px;">'+esc(r.description)+'</div>' : '')+
+      '</div>';
+    }).join('');
+  }
+  onSnapshot(q1, function(snap){
+    genRequests = [];
+    snap.forEach(function(docSnap){
+      const d = docSnap.data();
+      genRequests.push({label: d.type || 'Request', description: d.description, status: d.status, createdAt: d.createdAt});
+    });
+    render();
+  });
+  onSnapshot(q2, function(snap){
+    tcRequests = [];
+    snap.forEach(function(docSnap){
+      const d = docSnap.data();
+      tcRequests.push({label: 'Timecard Fix', description: d.reason, status: d.status, createdAt: d.createdAt});
+    });
+    render();
+  });
+}
+
+/* ---------------- ADD A CUSTOMER (permission-gated) ---------------- */
+document.getElementById('ecSaveBtn').addEventListener('click', async function(){
+  const statusEl = document.getElementById('ecStatus');
+  const name = document.getElementById('ecName').value.trim();
+  const phone = document.getElementById('ecPhone').value.replace(/\D/g,'');
+  const email = document.getElementById('ecEmail').value.trim();
+  const street = document.getElementById('ecStreet').value.trim();
+  const city = document.getElementById('ecCity').value.trim();
+  const zip = document.getElementById('ecZip').value.trim();
+  if(!street){ statusEl.textContent = 'Street address is required.'; return; }
+  statusEl.textContent = 'Locating address…';
+  try{
+    const fullAddress = street + ', ' + city + ', UT ' + zip;
+    const g = new google.maps.Geocoder();
+    g.geocode({address: fullAddress, componentRestrictions:{country:'US'}}, async function(results, status){
+      if(status !== 'OK' || !results[0]){
+        statusEl.textContent = 'Could not locate that address — check spelling and try again.';
+        return;
+      }
+      const loc = results[0].geometry.location;
+      await addDoc(collection(db,'jobAddresses'), {
+        street: street, city: city, state: 'UT', zip: zip,
+        address: fullAddress, name: name, phone: phone, email: email, difficulty: 'Unrated',
+        lat: loc.lat(), lng: loc.lng(), scheduled: false, createdAt: serverTimestamp()
+      });
+      statusEl.textContent = 'Added!';
+      ['ecName','ecPhone','ecEmail','ecStreet','ecCity','ecZip'].forEach(function(id){ document.getElementById(id).value = ''; });
+      setTimeout(function(){ statusEl.textContent = ''; }, 3000);
+    });
+  } catch(err){
+    statusEl.textContent = 'Something went wrong — try again.';
+  }
+});
+
+/* ---------------- QUOTES (view only, permission-gated) ---------------- */
+function loadEmpQuotes(){
+  const wrap = document.getElementById('empQuotesList');
+  if(!wrap) return;
+  const q = query(collection(db,'quotes'), orderBy('createdAt','desc'), limit(30));
+  onSnapshot(q, function(snap){
+    if(snap.empty){ wrap.innerHTML = '<p style="color:var(--slate); font-size:13.5px;">No quotes yet.</p>'; return; }
+    let html = '';
+    snap.forEach(function(docSnap){
+      const d = docSnap.data();
+      const status = d.status || 'new';
+      html += '<div style="border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:10px;">'+
+        '<div style="font-size:13.5px;"><strong>'+esc(d.name||'')+'</strong></div>'+
+        '<div style="font-size:13px; color:var(--slate); margin-top:2px;">'+esc(d.address||'')+'</div>'+
+        '<div style="font-size:13px; margin-top:2px;">'+esc(d.phone||'')+(d.email?' &middot; '+esc(d.email):'')+'</div>'+
+        (d.lightsDescription ? '<div style="font-size:13px; margin-top:4px;">&#127875; '+esc(d.lightsDescription)+'</div>' : '')+
+        '<div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px;">'+
+          '<select class="eq-status" data-id="'+docSnap.id+'" style="padding:6px 8px; border-radius:8px; border:1px solid var(--line); font-size:13px;">'+
+            ['new','contacted','closed'].map(function(s){ return '<option value="'+s+'"'+(status===s?' selected':'')+'>'+(s==='new'?'New':s==='contacted'?'Contacted':'Closed')+'</option>'; }).join('')+
+          '</select>'+
+          '<button type="button" class="btn btn-outline btn-sm eq-convert" data-id="'+docSnap.id+'">Convert to Customer</button>'+
+        '</div>'+
+      '</div>';
+    });
+    wrap.innerHTML = html;
+    wrap.querySelectorAll('.eq-status').forEach(function(sel){
+      sel.addEventListener('change', function(){
+        updateDoc(doc(db,'quotes',sel.dataset.id), {status: sel.value});
+      });
+    });
+    wrap.querySelectorAll('.eq-convert').forEach(function(btn){
+      btn.addEventListener('click', async function(){
+        const snap2 = await getDoc(doc(db,'quotes',btn.dataset.id));
+        const d = snap2.data();
+        document.getElementById('ecName').value = d.name || '';
+        document.getElementById('ecPhone').value = d.phone || '';
+        document.getElementById('ecEmail').value = d.email || '';
+        document.getElementById('ecStreet').value = d.street || '';
+        document.getElementById('ecCity').value = d.city || '';
+        document.getElementById('ecZip').value = d.zip || '';
+        if(document.getElementById('addcustomerNavBtn').style.display !== 'none'){
+          switchTab('addcustomer');
+          toast('Quote details filled in — review and Add Customer');
+        } else {
+          toast('Filled in, but you don\'t have Add a Customer access to save it — ask an admin.');
+        }
+      });
+    });
+  });
+}
+
+/* ---------------- CUSTOMER MESSAGES (view only, permission-gated) ---------------- */
+let empSelectedEmployee = '';
+function renderEmpContactMessages(){
+  const wrap = document.getElementById('empCustMessagesList');
+  onSnapshot(query(collection(db,'messages'), orderBy('createdAt','desc'), limit(30)), function(snap){
+    if(empSelectedEmployee) return; // an employee is currently selected, don't overwrite that view
+    if(snap.empty){ wrap.innerHTML = '<p style="color:var(--slate); font-size:13.5px;">No messages yet.</p>'; return; }
+    let html = '';
+    snap.forEach(function(docSnap){
+      const d = docSnap.data();
+      const isUnread = !d.read;
+      html += '<div style="border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:10px;'+(isUnread?' background:var(--paper);':'')+'">'+
+        '<div style="font-size:13.5px;"><strong>'+esc(d.name||'Unknown')+'</strong>'+(d.email?' &middot; '+esc(d.email):'')+(d.important?' &middot; <span style="color:var(--gold-dim);">&#9733; Important</span>':'')+'</div>'+
+        '<div style="font-size:13px; margin-top:4px;">'+esc(d.message||d.text||'')+'</div>'+
+        '<div style="display:flex; gap:8px; margin-top:8px;">'+
+          '<button type="button" class="btn btn-outline btn-sm em-star" data-id="'+docSnap.id+'" data-current="'+(d.important?1:0)+'">'+(d.important?'Unstar':'Star')+'</button>'+
+          '<button type="button" class="btn btn-outline btn-sm em-read" data-id="'+docSnap.id+'" data-current="'+(d.read?1:0)+'">'+(isUnread?'Mark Read':'Mark Unread')+'</button>'+
+          '<button type="button" class="btn btn-outline btn-sm em-delete" data-id="'+docSnap.id+'">Delete</button>'+
+        '</div>'+
+      '</div>';
+    });
+    wrap.innerHTML = html;
+    wireEmpMessageActions(wrap);
+  });
+}
+function wireEmpMessageActions(wrap){
+  wrap.querySelectorAll('.em-star').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      updateDoc(doc(db,'messages',btn.dataset.id), {important: btn.dataset.current !== '1'});
+    });
+  });
+  wrap.querySelectorAll('.em-read').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      updateDoc(doc(db,'messages',btn.dataset.id), {read: btn.dataset.current !== '1'});
+    });
+  });
+  wrap.querySelectorAll('.em-delete').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      if(!confirm('Delete this message?')) return;
+      deleteDoc(doc(db,'messages',btn.dataset.id));
+    });
+  });
+}
+function renderEmpEmployeeNotes(name){
+  const wrap = document.getElementById('empCustMessagesList');
+  onSnapshot(query(collection(db,'employeeNotes'), where('employeeName','==',name), orderBy('createdAt','desc'), limit(50)), function(snap){
+    if(empSelectedEmployee !== name) return;
+    if(snap.empty){ wrap.innerHTML = '<p style="color:var(--slate); font-size:13.5px;">No notes from '+esc(name)+' yet.</p>'; return; }
+    let html = '';
+    snap.forEach(function(docSnap){
+      const d = docSnap.data();
+      html += '<div style="border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:10px;">'+
+        '<div style="font-size:13.5px;"><strong>'+esc(d.employeeName||'')+'</strong></div>'+
+        '<div style="font-size:13px; margin-top:4px;">'+esc(d.text||'')+'</div>'+
+      '</div>';
+    });
+    wrap.innerHTML = html;
+  });
+}
+async function loadEmpCustMessages(hasAllMessages){
+  const wrap = document.getElementById('empCustMessagesList');
+  if(!wrap) return;
+  document.getElementById('custMessagesHeading').textContent = hasAllMessages ? 'Inbox' : 'Customer Messages';
+  renderEmpContactMessages();
+  if(hasAllMessages){
+    const empWrap = document.getElementById('empInboxEmployeeWrap');
+    const sel = document.getElementById('empInboxEmployeeSelect');
+    empWrap.style.display = 'block';
+    const snap = await getDocs(collection(db,'employeeNames'));
+    let opts = '<option value="">-- Contact Messages --</option>';
+    snap.forEach(function(docSnap){ opts += '<option value="'+esc(docSnap.data().name)+'">'+esc(docSnap.data().name)+'</option>'; });
+    sel.innerHTML = opts;
+    sel.addEventListener('change', function(){
+      empSelectedEmployee = this.value;
+      if(empSelectedEmployee){
+        renderEmpEmployeeNotes(empSelectedEmployee);
+      } else {
+        renderEmpContactMessages();
+      }
+    });
+  }
+}
+
+/* ---------------- ALL ROUTES (view only, permission-gated) ---------------- */
+let empRoutesCache = [];
+function loadEmpRoutesAdmin(){
+  const wrap = document.getElementById('empRoutesList');
+  if(!wrap) return;
+  onSnapshot(collection(db,'jobAddresses'), function(snap){
+    empRoutesCache = [];
+    snap.forEach(function(docSnap){ empRoutesCache.push(Object.assign({id:docSnap.id}, docSnap.data())); });
+    renderEmpRoutesList();
+  });
+}
+function renderEmpRoutesList(){
+  const wrap = document.getElementById('empRoutesList');
+  if(!wrap) return;
+  const term = (document.getElementById('empRoutesSearch').value||'').trim().toLowerCase();
+  let list = empRoutesCache;
+  if(term) list = list.filter(function(d){ return (d.name||'').toLowerCase().indexOf(term)!==-1 || (d.address||'').toLowerCase().indexOf(term)!==-1; });
+  if(!list.length){ wrap.innerHTML = '<p style="color:var(--slate); font-size:13.5px;">No matches.</p>'; return; }
+  wrap.innerHTML = list.slice(0,100).map(function(d){
+    return '<div style="border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-bottom:8px;">'+
+      '<div style="font-size:13.5px;">'+(d.name?'<strong>'+esc(d.name)+'</strong> &middot; ':'')+esc(d.address||'')+'</div>'+
+      '<div style="font-size:12.5px; color:var(--slate); margin-top:2px;">'+(d.phone?esc(d.phone):'')+'</div>'+
+      '<div style="display:flex; gap:8px; align-items:center; margin-top:8px; flex-wrap:wrap;">'+
+        '<select class="er-diff" data-id="'+d.id+'" style="padding:6px 8px; border-radius:8px; border:1px solid var(--line); font-size:13px;">'+
+          ['Unrated','Easy','Medium','Hard'].map(function(opt){ return '<option value="'+opt+'"'+((d.difficulty||'Unrated')===opt?' selected':'')+'>'+opt+'</option>'; }).join('')+
+        '</select>'+
+        '<button type="button" class="btn btn-outline btn-sm er-notes-toggle" data-id="'+d.id+'">'+(d.notes?'Edit Note':'Add Note')+'</button>'+
+      '</div>'+
+      '<div id="ernotes-'+d.id+'" style="display:none; margin-top:8px;"></div>'+
+    '</div>';
+  }).join('');
+  wrap.querySelectorAll('.er-diff').forEach(function(sel){
+    sel.addEventListener('change', function(){
+      updateDoc(doc(db,'jobAddresses',sel.dataset.id), {difficulty: sel.value});
+      toast('Difficulty updated');
+    });
+  });
+  wrap.querySelectorAll('.er-notes-toggle').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      const panel = document.getElementById('ernotes-'+btn.dataset.id);
+      const isOpen = panel.style.display !== 'none';
+      if(isOpen){ panel.style.display = 'none'; return; }
+      const item = empRoutesCache.find(x => x.id === btn.dataset.id);
+      panel.innerHTML =
+        '<textarea rows="2" class="er-notes-input" style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--line); font-family:inherit; font-size:13px;">'+esc(item.notes||'')+'</textarea>'+
+        '<button type="button" class="btn btn-gold btn-sm er-notes-save" data-id="'+btn.dataset.id+'" style="margin-top:6px;">Save Note</button>';
+      panel.querySelector('.er-notes-save').addEventListener('click', async function(){
+        const text = panel.querySelector('.er-notes-input').value;
+        await updateDoc(doc(db,'jobAddresses',btn.dataset.id), {notes: text});
+        toast('Note saved');
+        panel.style.display = 'none';
+      });
+      panel.style.display = 'block';
+    });
+  });
+}
+document.getElementById('empRoutesSearch').addEventListener('input', renderEmpRoutesList);
+
+/* ---------------- HOUSE MAPS (view only, permission-gated) ---------------- */
+document.getElementById('empHmSearch').addEventListener('input', function(){
+  const term = this.value.trim().toLowerCase();
+  const resultsEl = document.getElementById('empHmResults');
+  document.getElementById('empHmViewer').innerHTML = '';
+  if(!term){ resultsEl.innerHTML = ''; return; }
+  const matches = empRoutesCache.length ? empRoutesCache : [];
+  // fall back to a fresh query if the full routes list hasn't loaded (this employee may not have Routes access)
+  if(!matches.length){
+    getDocs(collection(db,'jobAddresses')).then(function(snap){
+      empRoutesCache = [];
+      snap.forEach(function(docSnap){ empRoutesCache.push(Object.assign({id:docSnap.id}, docSnap.data())); });
+      renderEmpHmResults(term);
+    });
+  } else {
+    renderEmpHmResults(term);
+  }
+});
+function renderEmpHmResults(term){
+  const resultsEl = document.getElementById('empHmResults');
+  const matches = empRoutesCache.filter(function(d){ return (d.name||'').toLowerCase().indexOf(term)!==-1 || (d.address||'').toLowerCase().indexOf(term)!==-1; }).slice(0,8);
+  if(!matches.length){ resultsEl.innerHTML = '<p style="color:var(--slate); font-size:13.5px;">No matches.</p>'; return; }
+  resultsEl.innerHTML = matches.map(function(d){
+    return '<button type="button" class="btn btn-outline btn-sm emp-hm-pick" data-id="'+esc(d.id||'')+'" style="margin:3px;">'+esc(d.name||d.address)+'</button>';
+  }).join('');
+  resultsEl.querySelectorAll('.emp-hm-pick').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      const viewer = document.getElementById('empHmViewer');
+      viewer.innerHTML = '<p style="color:var(--slate); font-size:13.5px;">Loading…</p>';
+      const snap = await getDoc(doc(db,'houseMaps', btn.dataset.id));
+      if(!snap.exists()){ viewer.innerHTML = '<p style="color:var(--slate); font-size:13.5px;">No saved map for this customer yet.</p>'; return; }
+      const hm = snap.data();
+      const imgUrl = (hm.images && (hm.images.outline || hm.images.house || hm.images.front)) || '';
+      const strandRows = (hm.strands||[]).map(function(s){
+        return '<tr><td><span style="display:inline-block; width:10px; height:10px; border-radius:3px; background:'+esc(s.color)+'; margin-right:6px;"></span>'+esc(s.letter)+'</td><td>'+(s.note?esc(s.note):'')+'</td></tr>';
+      }).join('');
+      const hsRows = (hm.highlightSections||[]).map(function(h){
+        return '<tr><td>'+esc(h.letter)+'</td><td>'+esc(h.label||'')+'</td></tr>';
+      }).join('');
+      viewer.innerHTML =
+        (imgUrl ? '<img src="'+esc(imgUrl)+'" style="width:100%; border-radius:10px; border:1px solid var(--line); display:block; margin-bottom:12px;">' : '<p style="color:var(--slate); font-size:13.5px;">No photo on this map.</p>')+
+        (hsRows ? '<h3 style="font-size:14px; margin:12px 0 6px;">Highlighted Sections</h3><table style="width:100%; font-size:13px; border-collapse:collapse;">'+hsRows+'</table>' : '')+
+        (strandRows ? '<h3 style="font-size:14px; margin:12px 0 6px;">Strands</h3><table style="width:100%; font-size:13px; border-collapse:collapse;">'+strandRows+'</table>' : '');
+    });
+  });
+}
+
+/* ---------------- CREW ASSIGNMENTS (view only, permission-gated) ---------------- */
+function loadEmpCrewList(){
+  const wrap = document.getElementById('empCrewList');
+  if(!wrap) return;
+  onSnapshot(doc(db,'crews','config'), function(snap){
+    if(!snap.exists()){ wrap.innerHTML = '<p style="color:var(--slate); font-size:13.5px;">No crews set up yet.</p>'; return; }
+    const cfg = snap.data();
+    const count = Number(cfg.count) || 1;
+    const members = cfg.members || {};
+    let html = '';
+    for(let i=1;i<=count;i++){
+      const names = members[String(i)] || [];
+      html += '<div style="border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:10px;">'+
+        '<div style="font-size:13.5px; font-weight:700;">Crew '+i+'</div>'+
+        '<div style="font-size:13px; color:var(--slate); margin-top:4px;">'+(names.length ? names.map(esc).join(', ') : 'Unassigned')+'</div>'+
+      '</div>';
+    }
+    wrap.innerHTML = html;
+  });
+}
+
+/* ---------------- FINANCE PERMISSIONS (Dashboard / Per Foot Pricing / Time Logs) ---------------- */
+function empStatCard(label, value){
+  return '<div style="border:1px solid var(--line); border-radius:10px; padding:12px; text-align:center;">'+
+    '<div style="font-size:11px; font-weight:700; text-transform:uppercase; color:var(--slate);">'+label+'</div>'+
+    '<div style="font-family:\'Fraunces\',serif; font-weight:700; font-size:20px; margin-top:4px;">'+value+'</div></div>';
+}
+function empFmtMoney(n){ return '$'+(Number(n)||0).toLocaleString(); }
+async function loadEmpFinanceDash(){
+  const wrap = document.getElementById('empFinSummary');
+  if(!wrap) return;
+  wrap.innerHTML = '<p style="color:var(--slate); font-size:13px;">Loading…</p>';
+  try{
+    const [invSnap, expSnap, debtSnap] = await Promise.all([
+      getDocs(collection(db,'invoices')),
+      getDocs(collection(db,'expenses')),
+      getDocs(collection(db,'debtAccounts'))
+    ]);
+    let revenue = 0;
+    invSnap.forEach(function(d){ revenue += Number(d.data().deposit)||0; });
+    let expensesTotal = 0;
+    expSnap.forEach(function(d){ expensesTotal += Number(d.data().amount)||0; });
+    let debt = 0; debtSnap.forEach(function(d){ debt += Number(d.data().balance)||0; });
+    const cash = revenue - expensesTotal;
+    const netWorth = cash - debt;
+    wrap.innerHTML = empStatCard('Net Worth', empFmtMoney(netWorth)) + empStatCard('Cash', empFmtMoney(cash)) +
+      empStatCard('Debt', empFmtMoney(debt));
+  } catch(err){
+    wrap.innerHTML = '<p style="color:var(--slate); font-size:13px;">Could not load — try again.</p>';
+  }
+}
+
+let empPfRateVal = 0;
+function loadEmpPerFootPricing(){
+  onSnapshot(doc(db,'pricing','config'), function(snap){
+    empPfRateVal = snap.exists() ? (snap.data().perFootRate||0) : 0;
+    document.getElementById('empPfRate').textContent = '$'+empPfRateVal.toFixed(2)+'/ft';
+    empUpdatePfCalc();
+  });
+}
+function empUpdatePfCalc(){
+  const feet = Number(document.getElementById('empPfCalcFeet').value) || 0;
+  document.getElementById('empPfCalcResult').textContent = empFmtMoney(feet * empPfRateVal);
+}
+document.getElementById('empPfCalcFeet').addEventListener('input', empUpdatePfCalc);
+
+let empTlCache = [];
+function loadEmpTimeLogsAdmin(){
+  onSnapshot(query(collection(db,'timeLogs'), orderBy('createdAt','desc'), limit(100)), function(snap){
+    empTlCache = [];
+    snap.forEach(function(d){ empTlCache.push(d.data()); });
+    renderEmpTlList();
+  });
+}
+function renderEmpTlList(){
+  const wrap = document.getElementById('empTlList');
+  if(!wrap) return;
+  const term = (document.getElementById('empTlSearch').value||'').trim().toLowerCase();
+  let list = empTlCache;
+  if(term) list = list.filter(t => (t.employeeName||'').toLowerCase().indexOf(term)!==-1);
+  if(!list.length){ wrap.innerHTML = '<p style="color:var(--slate); font-size:13.5px;">No time logs found.</p>'; return; }
+  wrap.innerHTML = list.slice(0,100).map(function(d){
+    const inTime = d.clockInAt && d.clockInAt.toDate ? d.clockInAt.toDate().toLocaleString([], {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : '—';
+    const outTime = d.clockOutAt && d.clockOutAt.toDate ? d.clockOutAt.toDate().toLocaleString([], {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : 'still clocked in';
+    return '<div style="border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-bottom:8px;">'+
+      '<div style="font-size:13.5px; font-weight:700;">'+esc(d.employeeName||'Unknown')+'</div>'+
+      '<div style="font-size:12.5px; color:var(--slate); margin-top:2px;">In: '+inTime+' &middot; Out: '+outTime+'</div>'+
+    '</div>';
+  }).join('');
+}
+document.getElementById('empTlSearch').addEventListener('input', renderEmpTlList);
+
+
+/* ---------------- TIMECARD & CHANGE REQUESTS ---------------- */
+let myTimecardCache = [];
+function fmtLogTime(ts){
+  if(!ts || !ts.toDate) return '—';
+  return ts.toDate().toLocaleString([], {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'});
+}
+function getMyPayPeriodBounds(){
+  // Matches the office's payroll week: Saturday through Friday
+  const today = new Date();
+  const dayOfWeek = today.getDay();
+  const daysSinceSaturday = (dayOfWeek + 1) % 7;
+  const saturday = new Date(today);
+  saturday.setHours(0,0,0,0);
+  saturday.setDate(today.getDate() - daysSinceSaturday);
+  const friday = new Date(saturday);
+  friday.setDate(saturday.getDate() + 6);
+  friday.setHours(23,59,59,999);
+  return {start: saturday, end: friday};
+}
+async function loadMyTimecard(){
+  const wrap = document.getElementById('myTimecardList');
+  if(!wrap) return;
+  try{
+    const {start, end} = getMyPayPeriodBounds();
+    const labelEl = document.getElementById('myTimecardPeriodLabel');
+    if(labelEl){
+      labelEl.textContent = 'Current pay period: ' + start.toLocaleDateString('en-US',{month:'short',day:'numeric'}) + ' – ' + end.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+    }
+    const snap = await getDocs(query(collection(db,'timeLogs'), where('employeeName','==',currentPersonName), orderBy('createdAt','desc'), limit(60)));
+    myTimecardCache = [];
+    snap.forEach(function(docSnap){
+      const d = docSnap.data();
+      const inTime = d.clockInAt && d.clockInAt.toDate ? d.clockInAt.toDate() : null;
+      if(inTime && inTime >= start && inTime <= end){ myTimecardCache.push({id:docSnap.id, data:d}); }
+    });
+    const pendingSnap = await getDocs(query(collection(db,'timecardChangeRequests'), where('employeeName','==',currentPersonName), where('status','==','pending')));
+    const pendingLogIds = new Set();
+    pendingSnap.forEach(function(docSnap){ pendingLogIds.add(docSnap.data().timeLogId); });
+    if(!myTimecardCache.length){ wrap.innerHTML = '<p style="color:var(--slate); font-size:13.5px;">No clock-ins in this pay period yet.</p>'; return; }
+    wrap.innerHTML = myTimecardCache.map(function(item){
+      const d = item.data;
+      const isPending = pendingLogIds.has(item.id);
+      return '<div style="border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:10px;">'+
+        '<div style="font-size:13.5px;"><strong>In:</strong> '+fmtLogTime(d.clockInAt)+' &nbsp; <strong>Out:</strong> '+(d.clockOutAt?fmtLogTime(d.clockOutAt):'still clocked in')+'</div>'+
+        (isPending ? '<div style="font-size:12px; color:var(--gold-dim); font-weight:700; margin-top:4px;">&#9203; Fix requested — pending admin approval</div>' : '')+
+        '<button type="button" class="btn btn-outline btn-sm tc-request-toggle" data-id="'+item.id+'" style="margin-top:8px;">Request a Fix</button>'+
+        '<div id="tcrequest-'+item.id+'" style="display:none; margin-top:10px;"></div>'+
+      '</div>';
+    }).join('');
+    wrap.querySelectorAll('.tc-request-toggle').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        const panel = document.getElementById('tcrequest-'+btn.dataset.id);
+        const isOpen = panel.style.display !== 'none';
+        if(isOpen){ panel.style.display = 'none'; return; }
+        const item = myTimecardCache.find(i => i.id === btn.dataset.id);
+        const d = item.data;
+        function toLocalInput(ts){
+          if(!ts || !ts.toDate) return '';
+          const dt = ts.toDate();
+          const pad = n => String(n).padStart(2,'0');
+          return dt.getFullYear()+'-'+pad(dt.getMonth()+1)+'-'+pad(dt.getDate())+'T'+pad(dt.getHours())+':'+pad(dt.getMinutes());
+        }
+        panel.innerHTML =
+          '<div class="form-row"><label>Corrected Clock In</label><input type="datetime-local" class="tc-in" value="'+toLocalInput(d.clockInAt)+'"></div>'+
+          '<div class="form-row" style="margin-top:8px;"><label>Corrected Clock Out</label><input type="datetime-local" class="tc-out" value="'+toLocalInput(d.clockOutAt)+'"></div>'+
+          '<div class="form-row" style="margin-top:8px;"><label>What happened?</label><textarea class="tc-reason" rows="2" placeholder="e.g. Forgot to clock out until an hour later"></textarea></div>'+
+          '<button type="button" class="btn btn-gold btn-sm tc-submit" data-id="'+item.id+'" style="margin-top:8px;">Submit for Approval</button>'+
+          '<div class="tc-status" style="font-size:12.5px; color:var(--slate); margin-top:6px;"></div>';
+        panel.querySelector('.tc-submit').addEventListener('click', async function(){
+          const statusEl = panel.querySelector('.tc-status');
+          const newIn = panel.querySelector('.tc-in').value;
+          const newOut = panel.querySelector('.tc-out').value;
+          const reason = panel.querySelector('.tc-reason').value.trim();
+          if(!newIn || !reason){ statusEl.textContent = 'Fill in the corrected time and a quick reason.'; return; }
+          statusEl.textContent = 'Submitting…';
+          try{
+            await addDoc(collection(db,'timecardChangeRequests'), {
+              timeLogId: item.id, employeeName: currentPersonName,
+              originalIn: d.clockInAt || null, originalOut: d.clockOutAt || null,
+              requestedIn: new Date(newIn), requestedOut: newOut ? new Date(newOut) : null,
+              reason: reason, status: 'pending', createdAt: serverTimestamp()
+            });
+            statusEl.textContent = 'Sent — waiting on approval.';
+          } catch(err){
+            statusEl.textContent = 'Something went wrong — try again.';
+          }
+        });
+        panel.style.display = 'block';
+      });
+    });
+  } catch(err){
+    wrap.innerHTML = '<p style="color:var(--slate); font-size:13.5px;">Couldn\'t load your timecard.</p>';
+  }
+}
+function loadTimecardApprovals(){
+  const wrap = document.getElementById('adminApprovalsList');
+  if(!wrap) return;
+  const q = query(collection(db,'timecardChangeRequests'), where('status','==','pending'), orderBy('createdAt','desc'));
+  onSnapshot(q, function(snap){
+    if(snap.empty){ wrap.innerHTML = '<p style="color:var(--slate); font-size:13.5px;">Nothing pending.</p>'; return; }
+    let html = '';
+    snap.forEach(function(docSnap){
+      const d = docSnap.data();
+      html += '<div style="border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:10px;">'+
+        '<div style="font-size:13.5px;"><strong>'+esc(d.employeeName)+'</strong></div>'+
+        '<div style="font-size:13px; color:var(--slate); margin-top:4px;">Was: '+fmtLogTime(d.originalIn)+' &ndash; '+(d.originalOut?fmtLogTime(d.originalOut):'—')+'</div>'+
+        '<div style="font-size:13px; margin-top:2px;">Requesting: '+fmtLogTime(d.requestedIn)+' &ndash; '+(d.requestedOut?fmtLogTime(d.requestedOut):'—')+'</div>'+
+        '<div style="font-size:13px; margin-top:4px; font-style:italic;">"'+esc(d.reason||'')+'"</div>'+
+        '<div style="display:flex; gap:8px; margin-top:8px;">'+
+          '<button type="button" class="btn btn-gold btn-sm tc-approve" data-id="'+docSnap.id+'">Approve</button>'+
+          '<button type="button" class="btn btn-outline btn-sm tc-deny" data-id="'+docSnap.id+'">Deny</button>'+
+        '</div>'+
+      '</div>';
+    });
+    wrap.innerHTML = html;
+    wrap.querySelectorAll('.tc-approve').forEach(function(btn){
+      btn.addEventListener('click', async function(){
+        const reqSnap = await getDoc(doc(db,'timecardChangeRequests',btn.dataset.id));
+        const d = reqSnap.data();
+        await updateDoc(doc(db,'timeLogs',d.timeLogId), {
+          clockInAt: d.requestedIn, clockOutAt: d.requestedOut || null
+        });
+        await updateDoc(doc(db,'timecardChangeRequests',btn.dataset.id), {status: 'approved'});
+      });
+    });
+    wrap.querySelectorAll('.tc-deny').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        updateDoc(doc(db,'timecardChangeRequests',btn.dataset.id), {status: 'denied'});
+      });
+    });
+  });
+}
+function loadEmpRequestApprovals(){
+  const wrap = document.getElementById('adminEmpRequestsList');
+  if(!wrap) return;
+  const q = query(collection(db,'employeeRequests'), where('status','==','pending'), orderBy('createdAt','desc'));
+  onSnapshot(q, function(snap){
+    if(snap.empty){ wrap.innerHTML = ''; return; }
+    let html = '';
+    snap.forEach(function(docSnap){
+      const d = docSnap.data();
+      html += '<div style="border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:10px;">'+
+        '<div style="font-size:13.5px;"><strong>'+esc(d.employeeName)+'</strong> &middot; '+esc(d.type||'Request')+'</div>'+
+        '<div style="font-size:13px; margin-top:4px;">'+esc(d.description||'')+'</div>'+
+        '<div style="display:flex; gap:8px; margin-top:8px;">'+
+          '<button type="button" class="btn btn-gold btn-sm er-approve" data-id="'+docSnap.id+'">Approve</button>'+
+          '<button type="button" class="btn btn-outline btn-sm er-deny" data-id="'+docSnap.id+'">Deny</button>'+
+        '</div>'+
+      '</div>';
+    });
+    wrap.innerHTML = html;
+    wrap.querySelectorAll('.er-approve').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        updateDoc(doc(db,'employeeRequests',btn.dataset.id), {status: 'approved'});
+      });
+    });
+    wrap.querySelectorAll('.er-deny').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        updateDoc(doc(db,'employeeRequests',btn.dataset.id), {status: 'denied'});
+      });
+    });
+  });
+}
+
+/* ---------------- CLOCK IN / OUT (geofenced to shop address) ---------------- */
+const CLOCK_ADDRESS = '209 S 850 W, Lehi, UT 84043';
+const CLOCK_RADIUS_METERS = 300; // ~0.2 miles — generous enough for GPS drift
+let clockLat = null, clockLng = null;
+(function geocodeClockLocation(){
+  if(!window.google) return;
+  const g = new google.maps.Geocoder();
+  g.geocode({address: CLOCK_ADDRESS}, function(results, status){
+    if(status === 'OK' && results[0]){
+      clockLat = results[0].geometry.location.lat();
+      clockLng = results[0].geometry.location.lng();
+    }
+  });
+})();
+function haversineMeters(lat1, lng1, lat2, lng2){
+  const R = 6371000;
+  const dLat = (lat2-lat1) * Math.PI/180;
+  const dLng = (lng2-lng1) * Math.PI/180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+function verifyAtClockLocation(){
+  return new Promise(function(resolve){
+    const msgEl = document.getElementById('clockLocationMsg');
+    if(!navigator.geolocation){
+      msgEl.textContent = 'Your device doesn\'t support location — can\'t verify.';
+      resolve(false); return;
+    }
+    if(clockLat === null){
+      msgEl.textContent = 'Still locating the shop address — try again in a moment.';
+      resolve(false); return;
+    }
+    msgEl.textContent = 'Checking your location…';
+    navigator.geolocation.getCurrentPosition(function(pos){
+      const dist = haversineMeters(pos.coords.latitude, pos.coords.longitude, clockLat, clockLng);
+      if(dist <= CLOCK_RADIUS_METERS){
+        msgEl.textContent = '';
+        resolve(true);
+      } else {
+        msgEl.textContent = 'You\'re about ' + Math.round(dist * 0.000621371 * 10)/10 + ' mi from the shop — clock in/out only works there.';
+        resolve(false);
+      }
+    }, function(){
+      msgEl.textContent = 'Location permission denied — allow location access to clock in/out.';
+      resolve(false);
+    }, {enableHighAccuracy:true, timeout:10000});
+  });
+}
+
+let activeShiftId = null;
+async function initClockState(){
+  const q = query(collection(db,'timeLogs'), where('employeeEmail','==',currentUserEmail), where('employeeName','==',currentPersonName), where('clockOutAt','==',null));
+  onSnapshot(q, function(snap){
+    const inBtn = document.getElementById('clockInBtn');
+    const outBtn = document.getElementById('clockOutBtn');
+    if(!snap.empty){
+      const d = snap.docs[0];
+      activeShiftId = d.id;
+      const clockInTime = d.data().clockInAt && d.data().clockInAt.toDate ? d.data().clockInAt.toDate() : null;
+      document.getElementById('clockStatus').innerHTML = clockInTime
+        ? 'Clocked in at <span class="clock-time">'+clockInTime.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})+'</span>'
+        : 'Clocked in';
+      inBtn.disabled = true;
+      outBtn.disabled = false;
+    } else {
+      activeShiftId = null;
+      document.getElementById('clockStatus').textContent = 'Not clocked in';
+      inBtn.disabled = false;
+      outBtn.disabled = true;
+    }
+  });
+}
+document.getElementById('clockInBtn').addEventListener('click', async function(){
+  const ok = await verifyAtClockLocation();
+  if(!ok) return;
+  await addDoc(collection(db,'timeLogs'), {
+    employeeEmail: currentUserEmail,
+    employeeName: currentPersonName,
+    clockInAt: serverTimestamp(),
+    clockOutAt: null,
+    date: toDateStr(new Date()),
+    createdAt: serverTimestamp()
+  });
+});
+document.getElementById('clockOutBtn').addEventListener('click', async function(){
+  if(!activeShiftId) return;
+  const ok = await verifyAtClockLocation();
+  if(!ok) return;
+  await updateDoc(doc(db,'timeLogs',activeShiftId), { clockOutAt: serverTimestamp() });
+});
+
+/* ---------------- DATE NAV ---------------- */
+let dayOffset = 0;
+function toDateStr(dt){
+  return dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0') + '-' + String(dt.getDate()).padStart(2,'0');
+}
+function currentSelectedDate(){
+  const dt = new Date();
+  dt.setDate(dt.getDate() + dayOffset);
+  return dt;
+}
+function renderDateNav(){
+  const dt = currentSelectedDate();
+  document.getElementById('dateLabel').textContent = dt.toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric'});
+}
+document.getElementById('datePrev').addEventListener('click', function(){ dayOffset--; renderDateNav(); loadRoutesForDate(); });
+document.getElementById('dateNext').addEventListener('click', function(){ dayOffset++; renderDateNav(); loadRoutesForDate(); });
+
+/* ---------------- ROUTES ---------------- */
+function mapsLink(lat, lng){
+  return 'https://www.google.com/maps/dir/?api=1&destination=' + lat + ',' + lng;
+}
+let dayMapInstance = null;
+function renderDayMap(stops){
+  const mapDiv = document.getElementById('dayMap');
+  if(!mapDiv) return;
+  if(!window.google || !stops.length){
+    mapDiv.innerHTML = '<div style="height:100%; display:flex; align-items:center; justify-content:center; color:var(--slate); font-size:13px; text-align:center; padding:16px;">No stops to show on the map for this day.</div>';
+    dayMapInstance = null;
+    return;
+  }
+  if(mapDiv.querySelector('div')) mapDiv.innerHTML = '';
+  const bounds = new google.maps.LatLngBounds();
+  dayMapInstance = new google.maps.Map(mapDiv, {zoom:12, center:{lat:stops[0].lat, lng:stops[0].lng}});
+  stops.forEach(function(stop, i){
+    const isFix = stop.routeType === 'fix';
+    const marker = new google.maps.Marker({
+      position:{lat:stop.lat, lng:stop.lng}, map:dayMapInstance,
+      label:{text:String(i+1), color: isFix ? '#fff' : '#1E3B2C', fontWeight:'700'},
+      icon:{path: google.maps.SymbolPath.CIRCLE, fillColor: isFix ? '#E0574B' : '#F4BE55', fillOpacity:1, strokeColor: isFix ? '#fff' : '#1E3B2C', strokeWeight:1.5, scale:13},
+      title: (stop.name ? stop.name+' — ' : '') + stop.address
+    });
+    marker.addListener('click', function(){ window.open(mapsLink(stop.lat, stop.lng), '_blank'); });
+    bounds.extend({lat:stop.lat, lng:stop.lng});
+  });
+  dayMapInstance.fitBounds(bounds);
+}
+function pinIcon(){
+  return '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>';
+}
+async function loadRoutesForDate(){
+  const dateStr = toDateStr(currentSelectedDate());
+  const wrap = document.getElementById('routesWrap');
+  wrap.innerHTML = '<div class="empty-note">Loading…</div>';
+  const crew = await getCrewForDate(currentPersonName, dateStr);
+  const crewLabelEl = document.getElementById('crewLabel');
+  if(crewLabelEl) crewLabelEl.textContent = 'Crew ' + crew;
+  const types = ['install','fix'];
+  let anyFound = false;
+  let html = '';
+  let allStopsForMap = [];
+  try{
+    for(const type of types){
+      const snap = await getDoc(doc(db,'scheduledRoutes',dateStr+'_'+type+'_'+crew));
+      if(snap.exists()){
+        anyFound = true;
+        const route = snap.data();
+        route.stops.forEach(function(s){ allStopsForMap.push(Object.assign({}, s, {routeType:type})); });
+        html += '<div class="route-section">'+
+          '<h2>'+(type==='fix' ? 'Fix Visits' : 'Installs')+' <span class="tag tag-'+type+'">'+route.stops.length+' stop'+(route.stops.length===1?'':'s')+'</span></h2>'+
+          route.stops.map(function(stop, i){
+            return '<div class="stop-card" id="stopcard-'+stop.id+'">'+
+              '<div class="stop-head">'+
+                '<div class="stop-num">'+(i+1)+'</div>'+
+                '<div style="flex:1;">'+
+                  (stop.name ? '<div class="stop-name">'+esc(stop.name)+'</div>' : '')+
+                  '<a class="stop-address-link" href="'+mapsLink(stop.lat, stop.lng)+'" target="_blank" rel="noopener">'+pinIcon()+esc(stop.address)+'</a>'+
+                '</div>'+
+              '</div>'+
+              '<div class="stop-status-row" id="stopstatus-'+stop.id+'"></div>'+
+              '<div class="stop-onetime-note" id="onetimenote-'+stop.id+'" style="display:none;"></div>'+
+              '<div id="fixnote-'+stop.id+'" style="display:none; margin-top:10px;"></div>'+
+              '<div id="housephoto-'+stop.id+'" style="display:none; margin-top:10px;"></div>'+
+              '<div class="stop-actions">'+
+                '<button type="button" class="stop-action-btn done-btn" data-markdone="'+stop.id+'">&#10003; Mark Done</button>'+
+                '<button type="button" class="stop-action-btn flag-btn" data-flagissue="'+stop.id+'">&#9873; Flag Issue</button>'+
+              '</div>'+
+              '<div class="stop-notes">'+
+                '<textarea rows="2" placeholder="Notes for this house (gate code, dog, ladder spot, etc.)" data-noteid="'+stop.id+'">Loading…</textarea>'+
+                '<button type="button" data-savenote="'+stop.id+'">Save Note</button>'+
+              '</div>'+
+          '</div>';
+        }).join('')+
+      '</div>';
+      }
+    }
+    wrap.innerHTML = anyFound ? html : '<div class="empty-note">No route scheduled for this day.</div>';
+    renderDayMap(allStopsForMap);
+  } catch(err){
+    wrap.innerHTML = '<div class="empty-note">Couldn\'t load the route (' + err.message + '). Check your connection and try again.</div>';
+    return;
+  }
+  if(anyFound){
+    wrap.querySelectorAll('[data-noteid]').forEach(async function(ta){
+      const id = ta.dataset.noteid;
+      try{
+        const addrSnap = await getDoc(doc(db,'jobAddresses',id));
+        const d = addrSnap.exists() ? addrSnap.data() : {};
+        ta.value = d.notes || '';
+        const oneTimeEl = document.getElementById('onetimenote-'+id);
+        if(oneTimeEl && d.oneTimeNote){
+          oneTimeEl.style.display = 'block';
+          oneTimeEl.textContent = '\u26A0\uFE0F This visit only: ' + d.oneTimeNote;
+        }
+        const fixNoteEl = document.getElementById('fixnote-'+id);
+        if(fixNoteEl && d.needsFix && (d.fixNote || d.fixPhotoUrl)){
+          fixNoteEl.style.display = 'block';
+          fixNoteEl.innerHTML = '<div style="background:#FDECEA; border:1px solid #f0b3ac; border-radius:10px; padding:12px 14px;">'+
+            '<strong style="font-size:12.5px; color:#8a3b32;">What needs fixing:</strong>'+
+            (d.fixNote ? '<div style="font-size:14px; margin-top:4px;">'+esc(d.fixNote)+'</div>' : '')+
+            (d.fixPhotoUrl ? '<img src="'+esc(d.fixPhotoUrl)+'" style="max-width:100%; border-radius:8px; margin-top:8px; display:block;">' : '')+
+          '</div>';
+        }
+        const photoEl = document.getElementById('housephoto-'+id);
+        if(photoEl && d.housePhotoUrl){
+          const HL_COLORS = ['#F4BE55','#E0574B','#2E6B3E','#4338CA','#F97316','#3E7A5B'];
+          const boxes = (d.houseHighlights||[]).map(function(h,i){
+            const c = HL_COLORS[i%HL_COLORS.length];
+            return '<div style="position:absolute; left:'+(h.x*100)+'%; top:'+(h.y*100)+'%; width:'+(h.w*100)+'%; height:'+(h.h*100)+'%; background:'+c+'55; border:2px solid '+c+'; box-sizing:border-box;"><span style="position:absolute; top:1px; left:1px; background:'+c+'; color:#fff; font-size:10px; font-weight:700; padding:1px 5px; border-radius:3px;">'+esc(h.label)+'</span></div>';
+          }).join('');
+          photoEl.style.display = 'block';
+          photoEl.innerHTML = '<div style="position:relative; border-radius:10px; overflow:hidden; border:1px solid var(--line);"><img src="'+esc(d.housePhotoUrl)+'" style="width:100%; display:block;">'+boxes+'</div>';
+        }
+        renderStopStatus(id, d);
+      } catch(err){ ta.value = ''; }
+    });
+    wrap.querySelectorAll('[data-savenote]').forEach(function(btn){
+      btn.addEventListener('click', async function(){
+        const id = btn.dataset.savenote;
+        const ta = wrap.querySelector('[data-noteid="'+id+'"]');
+        btn.textContent = 'Saving…';
+        try{
+          await updateDoc(doc(db,'jobAddresses',id), {notes: ta.value});
+          btn.textContent = 'Saved!';
+        } catch(err){
+          btn.textContent = 'Failed — try again';
+        }
+        setTimeout(function(){ btn.textContent = 'Save Note'; }, 2000);
+      });
+    });
+    wrap.querySelectorAll('[data-markdone]').forEach(function(btn){
+      btn.addEventListener('click', async function(){
+        const id = btn.dataset.markdone;
+        await updateDoc(doc(db,'jobAddresses',id), {completed: true, completedAt: serverTimestamp()});
+        const snap = await getDoc(doc(db,'jobAddresses',id));
+        renderStopStatus(id, snap.data());
+      });
+    });
+    wrap.querySelectorAll('[data-flagissue]').forEach(function(btn){
+      btn.addEventListener('click', async function(){
+        const id = btn.dataset.flagissue;
+        await updateDoc(doc(db,'jobAddresses',id), {needsFix: true});
+        const snap = await getDoc(doc(db,'jobAddresses',id));
+        renderStopStatus(id, snap.data());
+      });
+    });
+  }
+}
+function renderStopStatus(id, d){
+  const el = document.getElementById('stopstatus-'+id);
+  if(!el) return;
+  let badges = '';
+  if(d.completed) badges += '<span class="stop-badge badge-done">&#10003; Done</span>';
+  if(d.needsFix) badges += '<span class="stop-badge badge-flag">&#9873; Flagged for Fix</span>';
+  el.innerHTML = badges;
+}
+function esc(s){
+  return (s||'').toString().replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+function toast(msg){
+  let el = document.getElementById('empToast');
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'empToast';
+    el.style.cssText = 'position:fixed; left:50%; bottom:90px; transform:translateX(-50%); background:var(--ink); color:#fff; padding:10px 18px; border-radius:999px; font-size:13.5px; z-index:999; box-shadow:0 6px 20px rgba(0,0,0,.25); opacity:0; transition:opacity .2s;';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.style.opacity = '1';
+  clearTimeout(el._hideTimer);
+  el._hideTimer = setTimeout(function(){ el.style.opacity = '0'; }, 3000);
+}
+</script>
+</body>
+</html>
