@@ -1224,9 +1224,29 @@
             </div>
             <div id="s1GoodMsg" class="portal-confirm-msg" style="display:none;">&#10003; Thanks for confirming &mdash; we'll see you soon!</div>
             <div id="requestChangeForm" style="display:none; margin-top:18px; padding-top:18px; border-top:1px solid var(--line);">
-              <p class="form-note" style="margin-top:0;">Tell us what you'd like changed &mdash; colors, adding an area, taking something down, anything. We'll reach out to confirm.</p>
-              <textarea id="requestChangeText" rows="3" placeholder="e.g. Can we switch to all red and green this year?" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea>
-              <button type="button" class="btn btn-gold btn-block" id="requestChangeSubmit" style="margin-top:10px;">Send Request</button>
+              <p class="form-note" style="margin-top:0;">Update anything below and save &mdash; we'll use this for this season and remember it for next season too.</p>
+              <div class="form-row"><label>Name</label><input type="text" id="rcName"></div>
+              <div class="form-row"><label>Phone Number</label><input type="tel" id="rcPhone" placeholder="(801) 555-0123"></div>
+              <div class="form-row"><label>Email</label><input type="email" id="rcEmail"></div>
+              <div class="form-row"><label>Address</label><input type="text" id="rcAddress"></div>
+              <div class="form-row"><label>Light Color</label>
+                <select id="rcColor">
+                  <option value="Warm White">Warm White</option>
+                  <option value="Cool White">Cool White</option>
+                  <option value="Red">Red</option>
+                  <option value="Green">Green</option>
+                  <option value="Blue">Blue</option>
+                  <option value="Multi-Color">Multi-Color</option>
+                </select>
+              </div>
+              <div class="form-row"><label>Installation Month</label>
+                <select id="rcInstallMonth">
+                  <option value="Normal Schedule">Normal Schedule</option>
+                  <option value="October">October</option>
+                  <option value="November">November</option>
+                </select>
+              </div>
+              <button type="button" class="btn btn-gold btn-block" id="requestChangeSubmit" style="margin-top:10px;">Save Changes</button>
               <div id="requestChangeStatus" style="font-size:13px; color:var(--slate); margin-top:8px; text-align:center;"></div>
             </div>
           </div>
@@ -1251,7 +1271,7 @@
             </div>
           </div>
 
-          <div class="invoice-line total"><span>Amount Due</span><span id="invAmount">$0</span></div>
+          <div class="invoice-line total"><span>Current Balance</span><span id="invAmount">$0</span></div>
 
           <div id="invPaidMsg" style="display:none; text-align:center; background:#E6F2EA; border:1px solid #b8d9c2; border-radius:12px; padding:16px; margin-top:16px; font-weight:600; color:#2E6B3E;">
             &#10003; Paid in full &mdash; thank you!
@@ -1299,7 +1319,7 @@
           </div>
 
           <div id="payButtonsWrap">
-          <a href="#" id="venmoPayBtn" class="btn btn-gold btn-block" style="margin-top:20px; text-align:center; display:block;" target="_blank" rel="noopener">Pay Now <span id="venmoPayAmt">$0</span></a>
+          <a href="#" id="venmoPayBtn" class="btn btn-gold btn-block" style="margin-top:20px; text-align:center; display:block;" target="_blank" rel="noopener">&#128179; Pay Online <span id="venmoPayAmt" style="display:none;"></span></a>
           <p class="form-note" style="margin-top:10px; text-align:center;">Opens Venmo with the amount and your name pre-filled &mdash; just confirm and send. If you scan the QR code below instead, you'll need to type the amount in yourself.</p>
 
           <div style="text-align:center; margin-top:24px; padding-top:20px; border-top:1px solid var(--line);">
@@ -1309,6 +1329,55 @@
         </div>
       </div>
       </div>
+
+      <div class="form-shell" style="margin-top:28px;">
+        <div class="portal-welcome" style="text-align:left;">
+          <h2 style="font-size:19px;">Contact Us</h2>
+          <p style="margin:0;">Have a question about your account? Send us a message.</p>
+        </div>
+        <button type="button" class="btn btn-outline btn-block" id="portalMsgToggle">&#128172; Send a Message</button>
+        <form id="portalMsgForm" style="display:none; margin-top:16px;">
+          <div class="form-row">
+            <label>What's this about? <span class="req">*</span></label>
+            <select name="topic" id="portalMsgTopic" required>
+              <option value="" disabled selected>Select a category&hellip;</option>
+              <option value="Payment Question">Payment Question</option>
+              <option value="Address Change">Address Change</option>
+              <option value="Installation Question">Installation Question</option>
+              <option value="Light Color Change">Light Color Change</option>
+              <option value="Other Question">Other Question</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label>Your Name <span class="req">*</span></label>
+            <input type="text" name="name" id="portalMsgName" required>
+          </div>
+          <div class="form-row">
+            <label>Phone Number or Email <span class="req">*</span></label>
+            <input type="text" name="contact" id="portalMsgContact" placeholder="(801) 555-0123 or you@email.com" required>
+          </div>
+          <div class="form-row">
+            <label>Preferred Response Method <span class="req">*</span></label>
+            <div class="radio-row">
+              <label class="radio-pill"><input type="radio" name="contact_method" value="Text" required> Text</label>
+              <label class="radio-pill"><input type="radio" name="contact_method" value="Phone Call"> Phone Call</label>
+              <label class="radio-pill"><input type="radio" name="contact_method" value="Email"> Email</label>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>Message <span class="req">*</span></label>
+            <textarea name="message" id="portalMsgText" rows="4" required placeholder="Tell us what's going on..."></textarea>
+          </div>
+          <button type="submit" class="btn btn-gold btn-block">Send Message</button>
+          <div id="portalMsgStatus" style="font-size:13px; color:var(--slate); margin-top:8px; text-align:center;"></div>
+        </form>
+        <div class="form-success" id="portalMsgSuccess" style="display:none;">
+          <div class="check">&#10003;</div>
+          <h3>Message Sent</h3>
+          <p>Thanks &mdash; we'll get back to you soon.</p>
+        </div>
+      </div>
+
     </div>
   </section>
 </div>
@@ -1359,7 +1428,7 @@
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
-  getFirestore, collection, doc, addDoc, getDoc, updateDoc, onSnapshot, query, orderBy, serverTimestamp, where, getDocs, limit
+  getFirestore, collection, doc, addDoc, getDoc, updateDoc, setDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp, where, getDocs, limit
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -1620,7 +1689,8 @@ function navigate(){
   if(hash === '/payment' && queryString){
     var params = new URLSearchParams(queryString);
     var token = params.get('token');
-    if(token && typeof loadPortalByToken === 'function') loadPortalByToken(token);
+    var focusMessage = params.get('focus') === 'message';
+    if(token && typeof loadPortalByToken === 'function') loadPortalByToken(token, focusMessage);
   }
 }
 window.addEventListener('hashchange', navigate);
@@ -1862,6 +1932,7 @@ if(heroCheckForm){
 ========================================================= */
 var currentLookupRecord = null;
 var currentJobAddressId = null;
+var currentJobAddressData = null;
 
 var emailjsSettings = null;
 getDoc(doc(db,'settings','emailjs')).then(function(snap){
@@ -1888,6 +1959,7 @@ async function hmLoadHouseMapForInvoice(phoneDigits){
   document.getElementById('invCustAddressRow').style.display = 'none';
   document.getElementById('s1AreasRow').style.display = 'none';
   currentJobAddressId = null;
+  currentJobAddressData = null;
   document.getElementById('s2KeepMsg').style.display = 'none';
   document.getElementById('s2ChangeForm').style.display = 'none';
   try{
@@ -1896,6 +1968,7 @@ async function hmLoadHouseMapForInvoice(phoneDigits){
     if(snap.empty) return;
     currentJobAddressId = snap.docs[0].id;
     var addrDoc = snap.docs[0].data();
+    currentJobAddressData = addrDoc;
 
     if(addrDoc.address){
       document.getElementById('invCustAddressRow').style.display = 'block';
@@ -2013,6 +2086,15 @@ function renderCustomerInvoicePage(raw, opts){
     document.getElementById('requestChangeText').value = '';
     document.getElementById('requestChangeStatus').textContent = '';
     card.classList.add('show');
+    if(opts.focusMessage){
+      var msgForm = document.getElementById('portalMsgForm');
+      var msgToggle = document.getElementById('portalMsgToggle');
+      if(msgForm && msgForm.style.display === 'none' && msgToggle) msgToggle.click();
+      setTimeout(function(){
+        var target = document.getElementById('portalMsgForm') || document.getElementById('portalMsgToggle');
+        if(target) target.scrollIntoView({behavior:'smooth', block:'center'});
+      }, 150);
+    }
   }).catch(function(){
     card.classList.remove('show');
     empty.style.display='block';
@@ -2020,7 +2102,7 @@ function renderCustomerInvoicePage(raw, opts){
 }
 
 /* ---- Personalized portal link (no password needed) ---- */
-function loadPortalByToken(token){
+function loadPortalByToken(token, focusMessage){
   var lookupFormWrap = document.getElementById('lookupFormWrap');
   getDocs(query(collection(db,'jobAddresses'), where('portalToken','==',token), limit(1))).then(function(snap){
     if(snap.empty){
@@ -2031,7 +2113,7 @@ function loadPortalByToken(token){
     var phone = (addrData.phone||'').replace(/\D/g,'');
     if(!phone){ document.getElementById('lookupEmpty').style.display = 'block'; return; }
     if(lookupFormWrap) lookupFormWrap.style.display = 'none';
-    renderCustomerInvoicePage(phone, {skipLastNameCheck: true});
+    renderCustomerInvoicePage(phone, {skipLastNameCheck: true, focusMessage: !!focusMessage});
   }).catch(function(){
     document.getElementById('lookupEmpty').style.display = 'block';
   });
@@ -2139,6 +2221,9 @@ function parseLightsDescription(text){
 document.getElementById('s1GoodBtn').addEventListener('click', function(){
   document.getElementById('requestChangeForm').style.display = 'none';
   document.getElementById('s1GoodMsg').style.display = 'block';
+  if(currentJobAddressId){
+    updateDoc(doc(db,'jobAddresses',currentJobAddressId), {seasonStatus: 'confirmed'}).catch(function(){ /* confirmation still shown locally either way */ });
+  }
 });
 
 document.getElementById('s2KeepBtn').addEventListener('click', function(){
@@ -2169,29 +2254,104 @@ document.getElementById('s2SaveBtn').addEventListener('click', async function(){
 document.getElementById('requestChangeToggle').addEventListener('click', function(){
   var form = document.getElementById('requestChangeForm');
   document.getElementById('s1GoodMsg').style.display = 'none';
-  form.style.display = form.style.display === 'none' ? 'block' : 'none';
+  var opening = form.style.display === 'none';
+  form.style.display = opening ? 'block' : 'none';
+  if(opening && currentLookupRecord){
+    var nameParts = (currentLookupRecord.name || '').trim().split(/\s+/);
+    document.getElementById('rcName').value = nameParts.length > 1 ? nameParts.slice(1).join(' ') + ' ' + nameParts[0] : (currentLookupRecord.name || '');
+    document.getElementById('rcPhone').value = currentLookupRecord.phone ? formatPhoneDisplay(currentLookupRecord.phone) : '';
+    document.getElementById('rcEmail').value = currentLookupRecord.email || '';
+    document.getElementById('rcAddress').value = (currentJobAddressData && currentJobAddressData.address) || '';
+    var lightsParsed = parseLightsDescription(currentLookupRecord.lightsDescription);
+    if(lightsParsed.color) document.getElementById('rcColor').value = lightsParsed.color;
+    document.getElementById('rcInstallMonth').value = (currentJobAddressData && currentJobAddressData.installPreference) || 'Normal Schedule';
+  }
 });
-document.getElementById('requestChangeSubmit').addEventListener('click', function(){
+document.getElementById('requestChangeSubmit').addEventListener('click', async function(){
   var statusEl = document.getElementById('requestChangeStatus');
-  var text = document.getElementById('requestChangeText').value.trim();
-  if(!text){ statusEl.textContent = 'Type what you\'d like changed first.'; return; }
   if(!currentLookupRecord){ statusEl.textContent = 'Please look up your invoice first.'; return; }
+  var newName = document.getElementById('rcName').value.trim();
+  var newPhoneRaw = document.getElementById('rcPhone').value.replace(/\D/g,'');
+  var newEmail = document.getElementById('rcEmail').value.trim();
+  var newAddress = document.getElementById('rcAddress').value.trim();
+  var newColor = document.getElementById('rcColor').value;
+  var newInstallMonth = document.getElementById('rcInstallMonth').value;
+  if(!newName || !newPhoneRaw || !newAddress){ statusEl.textContent = 'Name, phone, and address are required.'; return; }
+
+  var oldAddress = (currentJobAddressData && currentJobAddressData.address) || '';
+  var addressChanged = oldAddress && newAddress !== oldAddress;
+  var oldPhone = currentLookupRecord.phone || '';
+  var lightsParsed = parseLightsDescription(currentLookupRecord.lightsDescription);
+  var newLightsDescription = lightsParsed.notes ? (newColor + ' (' + lightsParsed.notes + ')') : newColor;
+
+  statusEl.textContent = 'Saving…';
+  try{
+    var invoiceUpdates = {name: newName, phone: newPhoneRaw, email: newEmail, lightsDescription: newLightsDescription};
+    if(newPhoneRaw !== oldPhone){
+      await setDoc(doc(db,'invoices', newPhoneRaw), invoiceUpdates, {merge:true});
+      await deleteDoc(doc(db,'invoices', oldPhone));
+    } else {
+      await updateDoc(doc(db,'invoices', oldPhone), invoiceUpdates);
+    }
+    if(currentJobAddressId){
+      var addrUpdates = {
+        name: newName, phone: newPhoneRaw, email: newEmail, address: newAddress,
+        lightsDescription: newLightsDescription, installPreference: newInstallMonth,
+        seasonStatus: addressChanged ? 'address_changed' : 'needs_changes'
+      };
+      await updateDoc(doc(db,'jobAddresses', currentJobAddressId), addrUpdates);
+    }
+    if(addressChanged){
+      await addDoc(collection(db,'quotes'), {
+        name: newName, phone: newPhoneRaw, email: newEmail, address: newAddress,
+        notes: 'Existing Customer - Address Changed', existingCustomerAddressChange: true,
+        status: 'new', createdAt: serverTimestamp()
+      });
+      notifyBusinessOfMessage({
+        customer_name: newName, customer_phone: newPhoneRaw, customer_email: newEmail,
+        topic: 'Existing Customer - Address Changed',
+        message: 'Existing customer changed their address from "' + oldAddress + '" to "' + newAddress + '". A new quote is required.'
+      });
+    }
+    currentLookupRecord.name = newName; currentLookupRecord.phone = newPhoneRaw; currentLookupRecord.email = newEmail;
+    currentLookupRecord.lightsDescription = newLightsDescription;
+    if(currentJobAddressData) currentJobAddressData.address = newAddress;
+    statusEl.textContent = addressChanged ? 'Saved! Since your address changed, we\'ll be in touch with a new quote.' : 'Saved! We\'ll use this for this season and remember it going forward.';
+  } catch(err){
+    statusEl.textContent = 'Something went wrong — please call (801) 901-0011 instead.';
+  }
+});
+
+document.getElementById('portalMsgToggle').addEventListener('click', function(){
+  var form = document.getElementById('portalMsgForm');
+  form.style.display = form.style.display === 'none' ? 'block' : 'none';
+  if(form.style.display === 'block' && currentLookupRecord && currentLookupRecord.name){
+    var nameParts = currentLookupRecord.name.trim().split(/\s+/);
+    document.getElementById('portalMsgName').value = nameParts.length > 1 ? nameParts.slice(1).join(' ') + ' ' + nameParts[0] : currentLookupRecord.name;
+  }
+  if(form.style.display === 'block' && currentLookupRecord && currentLookupRecord.phone){
+    document.getElementById('portalMsgContact').value = formatPhoneDisplay(currentLookupRecord.phone);
+  }
+});
+document.getElementById('portalMsgForm').addEventListener('submit', function(e){
+  e.preventDefault();
+  var form = e.target;
+  var fd = new FormData(form);
+  var statusEl = document.getElementById('portalMsgStatus');
+  var contactVal = fd.get('contact') || '';
+  var isEmail = contactVal.indexOf('@') !== -1;
   statusEl.textContent = 'Sending…';
   addDoc(collection(db,'messages'), {
-    topic: 'Christmas Light Change Request', folder: 'Inbox',
-    name: currentLookupRecord.name || '', phone: currentLookupRecord.phone || '',
-    email: currentLookupRecord.email || '', contactMethod: '',
-    message: text, colors: [], important: true,
+    topic: fd.get('topic'), folder: 'Inbox',
+    name: fd.get('name'), phone: isEmail ? '' : contactVal, email: isEmail ? contactVal : '',
+    contactMethod: fd.get('contact_method'), message: fd.get('message'),
     createdAt: serverTimestamp()
   }).then(function(){
-    statusEl.textContent = 'Sent! We\'ll reach out to confirm the change.';
-    document.getElementById('requestChangeText').value = '';
-    notifyBusinessOfMessage({
-      customer_name: currentLookupRecord.name || '', customer_phone: currentLookupRecord.phone || '',
-      customer_email: currentLookupRecord.email || '', topic: 'Christmas Light Change Request', message: text
-    });
+    statusEl.textContent = '';
+    form.style.display = 'none';
+    document.getElementById('portalMsgSuccess').style.display = 'block';
   }).catch(function(){
-    statusEl.textContent = 'Something went wrong — please call (801) 901-0011 instead.';
+    statusEl.textContent = 'Something went wrong — please call/text us at (801) 901-0011.';
   });
 });
 </script>
