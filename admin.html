@@ -683,11 +683,10 @@
               <select id="addCustLightsColor">
                 <option value="">-- Select --</option>
                 <option value="Warm White">Warm White</option>
-                <option value="Cool White">Cool White</option>
+                <option value="Pure White">Pure White</option>
                 <option value="Red">Red</option>
                 <option value="Green">Green</option>
                 <option value="Blue">Blue</option>
-                <option value="Multicolor">Multicolor</option>
               </select>
             </div>
             <div class="form-row"><label>Additional Notes (optional)</label><input type="text" id="addCustLightsNotes" placeholder="e.g. 2 trees out front, watch for low peak"></div>
@@ -3108,11 +3107,13 @@ function renderQuotesList(){
       const colors = d.lightColors || [];
       let colorVal = '';
       if(colors.length === 1 && LIGHTS_COLOR_OPTIONS.includes(colors[0])) colorVal = colors[0];
-      else if(colors.length > 1) colorVal = 'Multicolor';
       document.getElementById('addCustLightsColor').value = colorVal;
-      document.getElementById('addCustLightsNotes').value = d.lightsDescription || '';
+      document.getElementById('addCustLightsNotes').value = colors.length > 1
+        ? colors.join(', ') + (d.lightsDescription ? ' — ' + d.lightsDescription : '')
+        : (d.lightsDescription || '');
       const quoteAreas = d.houseAreas || [];
       document.querySelectorAll('.addCustAreaCheck').forEach(function(cb){ cb.checked = quoteAreas.includes(cb.value); });
+      document.getElementById('addCustInstallPref').value = d.installPreference || 'Normal Schedule';
       if(d.estimatedFeet && perFootRate){
         document.getElementById('addCustPrice').value = Math.round(d.estimatedFeet * perFootRate);
       }
@@ -4791,7 +4792,7 @@ async function showMapPreviewByAddress(containerId, addressText){
     if(box) box.innerHTML = '<div class="map-preview-placeholder">Couldn\'t locate this address.</div>';
   }
 }
-const LIGHTS_COLOR_OPTIONS = ['Warm White','Cool White','Red','Green','Blue','Multicolor'];
+const LIGHTS_COLOR_OPTIONS = ['Warm White','Pure White','Red','Green','Blue'];
 function compileLightsDescription(color, notes){
   let result = color || '';
   if(notes) result = result ? result + ' (' + notes + ')' : notes;
@@ -5498,8 +5499,8 @@ function buildAddressRowHtml(item){
   const needsRemoval = completed && !d.removalDone;
   const hasHouseDetails = !!(d.housePhotoUrl || d.lightsDescription || d.phone2 || d.email2 || (d.houseAreas && d.houseAreas.length));
   const matchedInvoice = d.phone ? allInvoicesCache.find(inv => inv.data.phone === d.phone) : null;
-  const seasonStatusLabels = {confirmed: 'Confirmed', needs_changes: 'Needs Changes', address_changed: 'Address Changed'};
-  const seasonStatusClasses = {confirmed: 'status-paid', needs_changes: 'status-due', address_changed: 'diff-Fix'};
+  const seasonStatusLabels = {confirmed: 'Confirmed', needs_changes: 'Needs Changes', address_changed: 'Address Changed', cancellation_requested: 'Cancellation Requested'};
+  const seasonStatusClasses = {confirmed: 'status-paid', needs_changes: 'status-due', address_changed: 'diff-Fix', cancellation_requested: 'status-due'};
   const seasonStatusLabel = seasonStatusLabels[d.seasonStatus] || '';
   const needsQuote = hasOpenQuote(d.phone);
   const invStatus = matchedInvoice ? computeInvoiceStatus(matchedInvoice.data.install, matchedInvoice.data.removal, matchedInvoice.data.deposit) : '';
