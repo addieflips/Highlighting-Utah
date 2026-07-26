@@ -588,6 +588,10 @@
     <div class="nav-section" data-section="reports">
     <div class="nav-section-heading collapsible">Reports<svg class="nav-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></div>
     <div class="nav-section-body">
+    <button class="nav-item" data-panel="importcenter" title="">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      <span class="nav-label">Import Center</span>
+    <span class="nav-pin-icon" data-pinpanel="importcenter" data-pinlabel="Import Center" title="Pin to Favorites"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l1 6 3 2v2H5v-2l3-2z"/></svg></span></button>
     <button class="nav-item" data-panel="memberexport" title="">
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       <span class="nav-label">Member Export</span>
@@ -911,6 +915,21 @@
     </div>
 
     <!-- QUOTES -->
+    <!-- DASHBOARD -->
+    <!-- IMPORT CENTER -->
+    <div class="panel" id="panel-importcenter">
+      <div class="panel-head"><div><h2>Import Center</h2><p>For getting data from an Excel file into the app.</p></div></div>
+      <div class="card">
+        <h3>Bulk-Pasting Customers, Routes &amp; Invoices</h3>
+        <p style="font-size:13px;">That tool lives under <strong>Business &gt; Customers &gt; Bulk Updates</strong> &mdash; paste in columns for names, phones, addresses, and pricing all at once.</p>
+        <button type="button" class="btn btn-outline btn-sm" id="goToBulkUpdatesBtn">Go to Bulk Updates</button>
+      </div>
+      <div class="card">
+        <h3>One-Off Excel Imports</h3>
+        <p style="font-size:13px;">For anything else &mdash; a one-time list, an unusual spreadsheet, whatever doesn't fit the Bulk Updates columns &mdash; just share the file directly in a chat with Claude and describe where each column should go. No need to reformat it to match a template first.</p>
+      </div>
+    </div>
+
     <!-- DASHBOARD -->
     <div class="panel" id="panel-dashboard">
       <div class="panel-head"><div><h2>Dashboard</h2><p>Money in, money out, all in one place.</p></div></div>
@@ -3152,7 +3171,7 @@ function initData(){
   loadSavedEmailTemplates();
   setupEmailTemplateExtras('quickEmailTemplateExtras', 'quickEmailTemplate');
   setupEmailTemplateExtras('seasonEmailTemplateExtras', 'seasonEmailTemplate');
-  setupEmailTemplateExtras('bulkAutoTemplateExtras', 'bulkUpdateEmailTemplate');
+  setupEmailTemplateExtras('bulkAutoTemplateExtras', 'bulkUpdateEmailTemplate', {supportsAmount: false});
   loadInventory();
   loadScheduledRoutes();
   loadTimeLogs();
@@ -5656,6 +5675,10 @@ document.getElementById('bulkUpdatesToggle').addEventListener('click', function(
   panel.style.display = isOpen ? 'none' : 'block';
   chevron.innerHTML = isOpen ? '&#9662;' : '&#9652;';
 });
+document.getElementById('goToBulkUpdatesBtn').addEventListener('click', function(){
+  document.querySelector('.nav-item[data-panel="addcustomer"]').click();
+  setTimeout(function(){ document.querySelector('#custSectionTabs [data-custtab="bulk"]').click(); }, 50);
+});
 function countRows(text){
   return text.split('\n').filter(function(l){ return l.trim() !== ''; }).length;
 }
@@ -6532,9 +6555,12 @@ function renderSavedTemplateOptions(select, filterText){
     filtered.map(function(t){ return '<option value="'+t.id+'">'+esc(t.data.name||'(untitled)')+'</option>'; }).join('');
   if(filtered.some(t => t.id === current)) select.value = current;
 }
-function setupEmailTemplateExtras(extrasContainerId, textareaId){
+function setupEmailTemplateExtras(extrasContainerId, textareaId, opts){
+  opts = opts || {};
+  const supportsAmount = opts.supportsAmount !== false;
   const container = document.getElementById(extrasContainerId);
   if(!container) return;
+  const tokenList = ['{{name}}'].concat(supportsAmount ? ['{{amount}}'] : []).concat(['{{portal_link}}','{{messages_link}}','{{venmo_link}}']);
   container.innerHTML =
     '<div style="margin-top:12px; padding-top:12px; border-top:1px solid var(--line);">'+
       '<div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px;">'+
@@ -6553,6 +6579,12 @@ function setupEmailTemplateExtras(extrasContainerId, textareaId){
         '<button type="button" class="btn btn-outline btn-sm insert-link-btn">Insert Link at Cursor</button>'+
       '</div>'+
       '<p style="font-size:11.5px; color:var(--slate); margin:6px 0 0;">Puts a clickable link right in your sentence, wherever your cursor is &mdash; e.g. "you can message us here" with just "here" as the link.</p>'+
+      '<div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:10px;">'+
+        '<span style="font-size:11.5px; color:var(--slate);">Copy a token to paste anywhere in your message:</span>'+
+        tokenList.map(function(t){ return '<button type="button" class="btn btn-outline btn-sm copy-token-btn" data-token="'+t+'" style="font-family:monospace; font-size:12px;">'+t+'</button>'; }).join('')+
+        '<span class="copy-token-status" style="font-size:12px; color:var(--slate);"></span>'+
+      '</div>'+
+      (supportsAmount ? '' : '<p style="font-size:11.5px; color:var(--slate); margin:6px 0 0;">No {{amount}} here &mdash; this tool isn\'t tied to an invoice, so there\'s no balance to fill in.</p>')+
     '</div>';
   const select = container.querySelector('.saved-template-select');
   const filterInput = container.querySelector('.saved-template-filter');
@@ -6590,6 +6622,15 @@ function setupEmailTemplateExtras(extrasContainerId, textareaId){
     textarea.focus();
     textarea.selectionStart = textarea.selectionEnd = start + snippet.length;
     textInput.value = '';
+  });
+  container.querySelectorAll('.copy-token-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      const statusEl = container.querySelector('.copy-token-status');
+      navigator.clipboard.writeText(btn.dataset.token).then(function(){
+        statusEl.textContent = 'Copied ' + btn.dataset.token + ' — paste it anywhere in your message.';
+        setTimeout(function(){ statusEl.textContent = ''; }, 2500);
+      });
+    });
   });
 }
 function computeColorDemand(){
