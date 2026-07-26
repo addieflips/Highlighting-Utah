@@ -534,10 +534,6 @@
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>
       <span class="nav-label">Customers</span>
     <span class="nav-pin-icon" data-pinpanel="addcustomer" data-pinlabel="Customers" title="Pin to Favorites"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l1 6 3 2v2H5v-2l3-2z"/></svg></span></button>
-    <button class="nav-item" data-panel="importcenter" title="">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-      <span class="nav-label">Import Center</span>
-    <span class="nav-pin-icon" data-pinpanel="importcenter" data-pinlabel="Import Center" title="Pin to Favorites"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l1 6 3 2v2H5v-2l3-2z"/></svg></span></button>
     <button class="nav-item active" data-panel="quotes" title="">
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
       <span class="nav-label">Quote Requests</span> <span class="nav-badge" id="badgeQuotes" style="display:none;"></span>
@@ -564,6 +560,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
       <span class="nav-label">Responsibilities</span>
     <span class="nav-pin-icon" data-pinpanel="responsibilities" data-pinlabel="Responsibilities" title="Pin to Favorites"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l1 6 3 2v2H5v-2l3-2z"/></svg></span></button>
+    <button class="nav-item" data-panel="warehouse" title="">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-6 9 6v11a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1v-5H9v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/></svg>
+      <span class="nav-label">Warehouse</span>
+    <span class="nav-pin-icon" data-pinpanel="warehouse" data-pinlabel="Warehouse" title="Pin to Favorites"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l1 6 3 2v2H5v-2l3-2z"/></svg></span></button>
     </div>
     </div>
 
@@ -588,6 +588,10 @@
     <div class="nav-section" data-section="reports">
     <div class="nav-section-heading collapsible">Reports<svg class="nav-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></div>
     <div class="nav-section-body">
+    <button class="nav-item" data-panel="importcenter" title="">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      <span class="nav-label">Import Center</span>
+    <span class="nav-pin-icon" data-pinpanel="importcenter" data-pinlabel="Import Center" title="Pin to Favorites"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l1 6 3 2v2H5v-2l3-2z"/></svg></span></button>
     <button class="nav-item" data-panel="memberexport" title="">
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       <span class="nav-label">Member Export</span>
@@ -924,11 +928,20 @@
         <button class="route-tab-btn active" data-dashtab="overview" draggable="true">Financial Overview</button>
         <button class="route-tab-btn" data-dashtab="invoices" draggable="true">Invoices</button>
         <button class="route-tab-btn" data-dashtab="creditcards" draggable="true">Business Credit Cards</button>
+        <button class="route-tab-btn" data-dashtab="inventory" draggable="true">Inventory</button>
       </div>
 
       <!-- FINANCIAL OVERVIEW -->
       <div class="route-tab-panel active" id="dashtab-overview">
 
+        <div class="route-tabs" id="fovSubTabs" style="margin-bottom:20px;">
+          <button type="button" class="route-tab-btn active" data-fovtab="overview">Overview</button>
+          <button type="button" class="route-tab-btn" data-fovtab="budget">Budget &amp; Goals</button>
+          <button type="button" class="route-tab-btn" data-fovtab="debt">Debt &amp; Bills</button>
+          <button type="button" class="route-tab-btn" data-fovtab="manage">Manage &amp; Expenses</button>
+        </div>
+
+        <div class="fov-subtab active" id="fovtab-overview">
         <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:12px; margin-bottom:20px;">
           <div class="card dash-stat" style="text-align:center; padding:16px;">
             <div class="dash-stat-label">Net Worth</div>
@@ -951,7 +964,6 @@
             <div class="dash-stat-value" id="fovBills">$0</div>
           </div>
         </div>
-
         <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:16px; margin-bottom:16px;">
           <div class="card">
             <h3 style="font-size:14.5px;">Income Trend</h3>
@@ -963,6 +975,16 @@
             <p style="font-size:12.5px; color:var(--slate); margin-top:-6px;">Cash &minus; Debt, last 6 months.</p>
             <div id="fovNetWorthTrend"></div>
           </div>
+        </div>
+        <div class="card" style="background:#FFF8E9; border-color:var(--gold-dim); margin-bottom:16px;">
+          <h3 style="font-size:14.5px;">AI Insights</h3>
+          <p style="font-size:11.5px; color:var(--slate); margin-top:-6px;">Auto-generated from your numbers below &mdash; simple pattern-based observations, not a live AI service.</p>
+          <div id="fovInsights"></div>
+        </div>
+        </div>
+
+        <div class="fov-subtab" id="fovtab-budget" style="display:none;">
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:16px; margin-bottom:16px;">
           <div class="card">
             <h3 style="font-size:14.5px;">Budget Progress</h3>
             <p style="font-size:12.5px; color:var(--slate); margin-top:-6px;">This month, by category.</p>
@@ -974,12 +996,17 @@
             <div id="fovSpendingCategory"></div>
           </div>
           <div class="card">
-            <h3 style="font-size:14.5px;">Bills Due</h3>
-            <div id="fovBillsDue"></div>
-          </div>
-          <div class="card">
             <h3 style="font-size:14.5px;">Savings Goals</h3>
             <div id="fovSavingsGoals"></div>
+          </div>
+        </div>
+        </div>
+
+        <div class="fov-subtab" id="fovtab-debt" style="display:none;">
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:16px; margin-bottom:16px;">
+          <div class="card">
+            <h3 style="font-size:14.5px;">Bills Due</h3>
+            <div id="fovBillsDue"></div>
           </div>
           <div class="card">
             <h3 style="font-size:14.5px;">Debt Tracker</h3>
@@ -991,13 +1018,9 @@
             <div id="fovPayroll"></div>
           </div>
         </div>
-
-        <div class="card" style="background:#FFF8E9; border-color:var(--gold-dim); margin-bottom:16px;">
-          <h3 style="font-size:14.5px;">AI Insights</h3>
-          <p style="font-size:11.5px; color:var(--slate); margin-top:-6px;">Auto-generated from your numbers below &mdash; simple pattern-based observations, not a live AI service.</p>
-          <div id="fovInsights"></div>
         </div>
 
+        <div class="fov-subtab" id="fovtab-manage" style="display:none;">
         <div class="card" style="background:#FFF8E9; border-color:var(--gold-dim); margin-bottom:16px;">
           <button type="button" id="fovManageToggle" style="display:flex; justify-content:space-between; align-items:center; width:100%; background:none; border:none; cursor:pointer; padding:0;">
             <h3 style="margin:0; font-size:14.5px;">Manage Your Numbers</h3>
@@ -1050,7 +1073,7 @@
 
             <div style="border-top:1px solid var(--line); padding-top:14px; margin-top:16px;">
               <h4 style="font-size:13.5px; margin-bottom:8px;">Yearly Snapshots</h4>
-              <p style="font-size:12px; color:var(--slate); margin:0 0 8px;">One compact record per year &mdash; revenue, expenses, credit card totals, and more &mdash; saved permanently for comparing year to year later. Doesn't store individual transactions, just each year's totals.</p>
+              <p style="font-size:12px; color:var(--slate); margin:0 0 8px;">One compact record per year &mdash; revenue, expenses, credit card totals, and more. Past years save themselves automatically once they're complete; use the button below to save or refresh the current year early, or fix an old one.</p>
               <div style="display:flex; gap:8px; align-items:center;">
                 <input type="number" id="yearlySnapshotYearInput" style="width:90px; padding:8px 10px; border-radius:8px; border:1px solid var(--line);">
                 <button type="button" class="btn btn-gold btn-sm" id="saveYearlySnapshotBtn">Save Snapshot for This Year</button>
@@ -1111,9 +1134,9 @@
           <h3>All Expenses</h3>
           <div class="row-list" id="expensesList"><div class="empty-note">Loading…</div></div>
         </div>
-      </div>
+        </div>
 
-      <!-- INVOICES (moved in from its own tab) -->
+      </div>
       <div class="route-tab-panel" id="dashtab-invoices">
         <div class="route-tabs" id="invSectionTabs" style="margin-bottom:20px;">
           <button class="route-tab-btn active" data-invtab="list" draggable="true">Invoice List</button>
@@ -1422,6 +1445,36 @@ Highlighting Utah</textarea>
           <div class="row-list" id="ccTxnList"><div class="empty-note">No transactions yet.</div></div>
         </div>
       </div>
+
+      <!-- INVENTORY -->
+      <div class="route-tab-panel" id="dashtab-inventory">
+        <div id="inventoryAlerts" style="margin-bottom:16px;"></div>
+        <div class="card" style="margin-bottom:20px;">
+          <h3 style="margin:0 0 10px;">Add Inventory Item</h3>
+          <p class="form-note" style="margin:0 0 10px;">Add anything you want to track &mdash; a light color, clips, wire, ends, sockets, or something else entirely.</p>
+          <div class="form-grid-2">
+            <div class="form-row"><label>Item Name</label><input type="text" id="invItemName" placeholder="e.g. Clips"></div>
+            <div class="form-row"><label>Current Quantity on Hand</label><input type="number" id="invItemQty" min="0" step="1" value="0"></div>
+          </div>
+          <div class="form-grid-2">
+            <div class="form-row"><label>Linked Light Color (optional)</label>
+              <select id="invItemColor">
+                <option value="" selected>Not a light color</option>
+                <option value="Warm White">Warm White</option>
+                <option value="Pure White">Pure White</option>
+                <option value="Red">Red</option>
+                <option value="Green">Green</option>
+                <option value="Blue">Blue</option>
+              </select>
+            </div>
+            <div class="form-row"><label>Used Per House Being Built (if not a light color)</label><input type="number" id="invItemPerHouse" min="0" step="1" placeholder="e.g. 40"></div>
+          </div>
+          <div class="form-row" style="max-width:200px;"><label>Safety Buffer %</label><input type="number" id="invItemBuffer" min="0" step="1" value="15"></div>
+          <button type="button" class="btn btn-gold" id="invAddItemBtn">Add Item</button>
+          <span id="invAddItemStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
+        </div>
+        <div id="inventoryList" class="row-list"><div class="empty-note">Loading…</div></div>
+      </div>
     </div>
 
     <div class="panel active" id="panel-quotes">
@@ -1430,6 +1483,7 @@ Highlighting Utah</textarea>
         <span style="font-size:13.5px; color:var(--ember); font-weight:600;" id="quoteFlaggedBannerText"></span>
         <button type="button" class="btn btn-outline btn-sm" id="quoteFlaggedBannerBtn">Review Them Now</button>
       </div>
+      <div id="quoteFolderToggle" style="margin-bottom:14px; display:flex; gap:8px;"></div>
       <div id="quoteApprovalStats" style="margin-bottom:16px; display:flex; gap:10px; flex-wrap:wrap;"></div>
       <div style="margin-bottom:16px; display:flex; gap:10px; flex-wrap:wrap;">
         <select id="quoteFilterSelect" style="border-radius:999px; border:1px solid var(--line); padding:8px 14px; font-size:13.5px; font-weight:600; color:var(--ink); background:var(--snow);">
@@ -1444,7 +1498,7 @@ Highlighting Utah</textarea>
         </select>
         <select id="quoteApprovalFilterSelect" style="border-radius:999px; border:1px solid var(--line); padding:8px 14px; font-size:13.5px; font-weight:600; color:var(--ink); background:var(--snow);">
           <option value="all">All Approval Status</option>
-          <option value="awaiting">Awaiting Response</option>
+          <option value="awaiting">Unresponsive (10+ Days)</option>
           <option value="approved">Approved</option>
           <option value="declined">Declined</option>
         </select>
@@ -2127,6 +2181,25 @@ Highlighting Utah</textarea>
       </div>
     </div>
 
+    <!-- WAREHOUSE -->
+    <div class="panel" id="panel-warehouse">
+      <div class="panel-head"><div><h2>Warehouse</h2><p>What needs to be built &mdash; new customers and anyone who changed their light color/pattern, grouped by exactly what's needed. This same list is what warehouse employees see in the Crew Portal.</p></div></div>
+
+      <div class="card" style="margin-bottom:20px;">
+        <h3 style="margin:0 0 10px;">Add Extra Stock</h3>
+        <p class="form-note" style="margin:0 0 10px;">For a rebuild, a late addition, or just buffer stock &mdash; doesn't need to be tied to a real customer.</p>
+        <div class="form-grid-2">
+          <div class="form-row"><label>Pattern</label><input type="text" id="whExtraPattern" placeholder="e.g. Warm White, Red, Red, Warm White"></div>
+          <div class="form-row"><label>How Many</label><input type="number" id="whExtraQty" min="1" step="1" value="1"></div>
+        </div>
+        <div class="form-row"><label>Label (optional &mdash; leave blank for a generic extra)</label><input type="text" id="whExtraLabel" placeholder="e.g. Replacement for the Petersen house"></div>
+        <button type="button" class="btn btn-outline" id="whAddExtraBtn">Add to Queue</button>
+        <span id="whAddExtraStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
+      </div>
+
+      <div id="warehouseQueueList" class="row-list"><div class="empty-note">Loading…</div></div>
+    </div>
+
     <!-- TEAM MESSAGES -->
     <!-- MEMBER EXPORT -->
     <div class="panel" id="panel-memberexport">
@@ -2414,6 +2487,18 @@ function fmtDate(ts){
 function daysSince(ts){
   if(!ts || !ts.toDate) return null;
   return Math.floor((Date.now() - ts.toDate().getTime()) / 86400000);
+}
+function isFreshAwaiting(d){
+  if(typeof d.quotedPrice !== 'number') return false;
+  if((d.approvalStatus||'pending') !== 'pending') return false;
+  const days = daysSince(d.quoteSentAt);
+  return days === null || days < 10;
+}
+function isStaleUnresponsive(d){
+  if(typeof d.quotedPrice !== 'number') return false;
+  if((d.approvalStatus||'pending') !== 'pending') return false;
+  const days = daysSince(d.quoteSentAt);
+  return days !== null && days >= 10;
 }
 function fmtMoney(n){ return '$' + (Number(n)||0).toLocaleString(); }
 function trashIcon(){ return '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0l-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/></svg>'; }
@@ -2937,6 +3022,8 @@ function initData(){
   loadFAQ();
   loadSettings();
   loadJobAddresses();
+  loadWarehouseExtras();
+  loadInventory();
   loadScheduledRoutes();
   loadTimeLogs();
   loadEmployeeNames();
@@ -2986,6 +3073,7 @@ let quotesCache = [];
 let quoteFilter = 'all';
 let quoteStatusFilter = 'all';
 let quoteApprovalFilter = 'all';
+let quoteFolderView = 'main';
 let quoteColorFilter = 'all';
 function colorComboKey(colors){
   if(!colors || !colors.length) return '';
@@ -3050,18 +3138,38 @@ function populateQuoteColorFilter(){
 }
 function renderQuotesList(){
   const list = document.getElementById('quotesList');
+  const toggleEl = document.getElementById('quoteFolderToggle');
+  const freshAwaiting = quotesCache.filter(q => isFreshAwaiting(q.data));
+  const staleUnresponsive = quotesCache.filter(q => isStaleUnresponsive(q.data));
+  if(toggleEl){
+    toggleEl.innerHTML =
+      '<button type="button" class="btn '+(quoteFolderView==='main'?'btn-gold':'btn-outline')+' btn-sm" data-folderview="main">Main Quotes</button>'+
+      '<button type="button" class="btn '+(quoteFolderView==='awaiting'?'btn-gold':'btn-outline')+' btn-sm" data-folderview="awaiting">Awaiting Response ('+freshAwaiting.length+')</button>';
+    toggleEl.querySelectorAll('[data-folderview]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        quoteFolderView = btn.dataset.folderview;
+        renderQuotesList();
+      });
+    });
+  }
   const statsEl = document.getElementById('quoteApprovalStats');
   if(statsEl){
-    const sentQuotes = quotesCache.filter(q => typeof q.data.quotedPrice === 'number');
-    const awaitingCount = sentQuotes.filter(q => (q.data.approvalStatus||'pending') === 'pending').length;
-    const approvedCount = sentQuotes.filter(q => q.data.approvalStatus === 'approved').length;
-    const declinedCount = sentQuotes.filter(q => q.data.approvalStatus === 'declined').length;
+    const approvedCount = quotesCache.filter(q => q.data.approvalStatus === 'approved').length;
+    const declinedCount = quotesCache.filter(q => q.data.approvalStatus === 'declined').length;
     statsEl.innerHTML =
-      '<div style="background:var(--paper); border-radius:10px; padding:10px 16px;"><div style="font-size:11px; text-transform:uppercase; color:var(--slate); letter-spacing:.04em;">Awaiting Response</div><div style="font-size:20px; font-weight:700; color:var(--ink);">'+awaitingCount+'</div></div>'+
+      '<div style="background:var(--paper); border-radius:10px; padding:10px 16px;"><div style="font-size:11px; text-transform:uppercase; color:var(--slate); letter-spacing:.04em;">Awaiting Response</div><div style="font-size:20px; font-weight:700; color:var(--ink);">'+freshAwaiting.length+'</div></div>'+
+      '<div style="background:var(--paper); border-radius:10px; padding:10px 16px;"><div style="font-size:11px; text-transform:uppercase; color:var(--slate); letter-spacing:.04em;">10 Day Unresponsive</div><div style="font-size:20px; font-weight:700; color:var(--ember);">'+staleUnresponsive.length+'</div></div>'+
       '<div style="background:var(--paper); border-radius:10px; padding:10px 16px;"><div style="font-size:11px; text-transform:uppercase; color:var(--slate); letter-spacing:.04em;">Approved</div><div style="font-size:20px; font-weight:700; color:#2E6B3E;">'+approvedCount+'</div></div>'+
       '<div style="background:var(--paper); border-radius:10px; padding:10px 16px;"><div style="font-size:11px; text-transform:uppercase; color:var(--slate); letter-spacing:.04em;">Declined</div><div style="font-size:20px; font-weight:700; color:var(--ember);">'+declinedCount+'</div></div>';
   }
-  let filtered = quotesCache;
+
+  if(quoteFolderView === 'awaiting'){
+    if(!freshAwaiting.length){ list.innerHTML = '<div class="empty-note">Nothing awaiting response right now.</div>'; return; }
+    renderQuoteRows(freshAwaiting);
+    return;
+  }
+
+  let filtered = quotesCache.filter(item => !isFreshAwaiting(item.data));
   if(quoteFilter === 'flagged') filtered = filtered.filter(item => item.data.frontPhotoFlagged);
   if(quoteStatusFilter !== 'all') filtered = filtered.filter(item => (item.data.status||'new') === quoteStatusFilter);
   if(quoteColorFilter !== 'all') filtered = filtered.filter(item => colorComboKey(item.data.lightColors) === quoteColorFilter);
@@ -3074,6 +3182,10 @@ function renderQuotesList(){
     });
   }
   if(!filtered.length){ list.innerHTML = '<div class="empty-note">'+(quoteFilter==='flagged' ? 'Nothing flagged right now.' : 'No quote requests match this view.')+'</div>'; return; }
+  renderQuoteRows(filtered);
+}
+function renderQuoteRows(filtered){
+  const list = document.getElementById('quotesList');
   let html = '';
   filtered.forEach(function(item){
     const d = item.data;
@@ -3081,7 +3193,7 @@ function renderQuotesList(){
     const colorCombo = colorComboKey(d.lightColors);
     html += '<div class="row-item">'+
       '<div class="rmain">'+
-        '<div class="row-name-line">'+esc(d.name)+' <span class="status-pill status-'+status+'">'+status+'</span>'+(d.frontPhotoFlagged ? ' <span class="status-pill status-due">&#9888; No Front Photo</span>' : '')+(d.existingCustomerAddressChange ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Existing Customer &mdash; Address Changed</span>' : '')+(d.approvalStatus === 'approved' ? ' <span class="status-pill status-paid">&#10003; Approved</span>' : '')+(d.approvalStatus === 'declined' ? ' <span class="status-pill status-due">Declined</span>' : '')+'</div>'+
+        '<div class="row-name-line">'+esc(d.name)+' <span class="status-pill status-'+status+'">'+status+'</span>'+(d.frontPhotoFlagged ? ' <span class="status-pill status-due">&#9888; No Front Photo</span>' : '')+(d.existingCustomerAddressChange ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Existing Customer &mdash; Address Changed</span>' : '')+(d.approvalStatus === 'approved' ? ' <span class="status-pill status-paid">&#10003; Approved</span>' : '')+(d.approvalStatus === 'declined' ? ' <span class="status-pill status-due">Declined</span>' : '')+(isStaleUnresponsive(d) ? ' <span class="status-pill" style="background:#FDECEA; color:#B91C1C; font-weight:700;">&#9200; 10 Day Unresponsive</span>' : '')+'</div>'+
         '<button type="button" class="address-link-btn" data-previewquoteaddr="'+esc(d.address)+'">'+esc(d.address)+'</button>'+
         '<div class="row-phone-line">'+esc(d.phone)+' &middot; '+esc(d.email)+' &middot; '+fmtDate(d.createdAt)+'</div>'+
         (d.houseAreas && d.houseAreas.length ? '<div class="rtext" style="margin-top:6px;"><strong>Areas:</strong> '+d.houseAreas.map(esc).join(', ')+'</div>' : '')+
@@ -3111,7 +3223,8 @@ function renderQuotesList(){
           if(st === 'declined') return '<div class="rtext" style="margin-top:8px; color:var(--ember); font-weight:600;">Declined'+(d.quoteRespondedAt ? ' &mdash; '+fmtDate(d.quoteRespondedAt) : '')+'</div>'+
             '<button type="button" class="btn btn-outline btn-sm" data-markapproval="'+item.id+'" data-value="approved" style="margin-top:6px;">Actually, Mark Approved</button>';
           const days = daysSince(d.quoteSentAt);
-          return '<div class="rtext" style="margin-top:8px; color:var(--slate);">Awaiting response'+(days !== null ? ' &mdash; sent '+days+(days===1?' day':' days')+' ago' : '')+'</div>'+
+          const isStale = days !== null && days >= 10;
+          return '<div class="rtext" style="margin-top:8px; color:'+(isStale?'#B91C1C; font-weight:700;':'var(--slate);')+'">'+(isStale ? "10 Day Unresponsive — give them a call or send another email" : 'Awaiting response'+(days !== null ? ' &mdash; sent '+days+(days===1?' day':' days')+' ago' : ''))+'</div>'+
             '<div style="display:flex; gap:8px; margin-top:6px;">'+
               '<button type="button" class="btn btn-gold btn-sm" data-markapproval="'+item.id+'" data-value="approved">Mark Approved</button>'+
               '<button type="button" class="btn btn-outline btn-sm" data-markapproval="'+item.id+'" data-value="declined">Mark Declined</button>'+
@@ -4170,6 +4283,7 @@ function loadFinancialTrackers(){
     yearlySnapshotsCache = [];
     snap.forEach(d => yearlySnapshotsCache.push({id:d.id, data:d.data()}));
     renderYearlySnapshots();
+    setTimeout(autoSaveYearlySnapshotIfNeeded, 4000);
   });
 }
 function fovMonthKey(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
@@ -4494,9 +4608,7 @@ function renderYearlySnapshots(){
     }).join('') + '</table>';
   attachDeleteHandlers(wrap);
 }
-document.getElementById('saveYearlySnapshotBtn').addEventListener('click', async function(){
-  const year = document.getElementById('yearlySnapshotYearInput').value.trim();
-  if(!year){ toast('Enter a year first'); return; }
+function computeYearTotals(year){
   const revenue = allInvoicesCache.reduce((s,i) => {
     const ts = i.data.createdAt;
     return (ts && ts.toDate && String(ts.toDate().getFullYear()) === year) ? s + (Number(i.data.deposit)||0) : s;
@@ -4506,10 +4618,23 @@ document.getElementById('saveYearlySnapshotBtn').addEventListener('click', async
   const debt = debtAccountsCache.reduce((s,i) => s + (Number(i.data.balance)||0), 0);
   const cash = allInvoicesCache.reduce((s,i) => s + (Number(i.data.deposit)||0), 0) + financeArchiveRevenue - expensesCache.reduce((s,i) => s + (Number(i.data.amount)||0), 0);
   const netWorth = cash - debt;
+  return {revenue, expenses, ccSpending, debt, netWorth};
+}
+async function autoSaveYearlySnapshotIfNeeded(){
+  const lastYear = String(new Date().getFullYear() - 1);
+  if(yearlySnapshotsCache.some(item => item.id === lastYear)) return;
+  const totals = computeYearTotals(lastYear);
+  try{
+    await setDoc(doc(db,'yearlySnapshots',lastYear), Object.assign({year: Number(lastYear), savedAt: serverTimestamp(), autoSaved: true}, totals));
+    toast('Automatically saved your ' + lastYear + ' yearly snapshot');
+  } catch(err){ /* will retry next time the dashboard loads */ }
+}
+document.getElementById('saveYearlySnapshotBtn').addEventListener('click', async function(){
+  const year = document.getElementById('yearlySnapshotYearInput').value.trim();
+  if(!year){ toast('Enter a year first'); return; }
+  const totals = computeYearTotals(year);
   if(!confirm('Save a ' + year + ' snapshot with today\'s totals? This can be updated again later by saving over it.')) return;
-  await setDoc(doc(db,'yearlySnapshots',year), {
-    year: Number(year), revenue, expenses, ccSpending, debt, netWorth, savedAt: serverTimestamp()
-  });
+  await setDoc(doc(db,'yearlySnapshots',year), Object.assign({year: Number(year), savedAt: serverTimestamp()}, totals));
   toast('Saved ' + year + ' snapshot');
 });
 
@@ -4519,6 +4644,13 @@ setupDraggableTabBar('dashSectionTabs', 'dashtab', 'huDashTabOrder', function(ta
     Array.from(panel.children).forEach(function(p){
       if(p.classList && p.classList.contains('route-tab-panel')) p.classList.toggle('active', p.id === 'dashtab-'+tabName);
     });
+  });
+});
+
+document.querySelectorAll('#fovSubTabs [data-fovtab]').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    document.querySelectorAll('#fovSubTabs [data-fovtab]').forEach(function(b){ b.classList.toggle('active', b === btn); });
+    document.querySelectorAll('.fov-subtab').forEach(function(p){ p.style.display = (p.id === 'fovtab-'+btn.dataset.fovtab) ? 'block' : 'none'; });
   });
 });
 
@@ -5338,7 +5470,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
       address: fullAddress, difficulty: difficulty, name: name, phone: phone, email: email,
       phone2: phone2, email2: email2, lightsDescription: lightsDescription, houseAreas: houseAreas,
       housePhotoUrl: addCustPhotoUrl, portalToken: generatePortalToken(), installPreference: installPreference,
-      lat: coords.lat, lng: coords.lng,
+      lat: coords.lat, lng: coords.lng, needsLightBuild: !!lightsDescription,
       scheduled: false, createdAt: serverTimestamp()
     });
     if(addCustPhotoUrl){
@@ -6234,8 +6366,257 @@ function loadJobAddresses(){
     if(typeof updateMemberExportCount === 'function') updateMemberExportCount();
     if(typeof hmRenderCustomerList === 'function') hmRenderCustomerList();
     if(currentRouteStops.length && typeof renderRouteOrderedList === 'function') renderRouteOrderedList(currentRouteStops);
+    if(typeof renderWarehouseQueue === 'function') renderWarehouseQueue();
+    if(typeof renderInventoryList === 'function') renderInventoryList();
   });
 }
+let warehouseExtras = [];
+function loadWarehouseExtras(){
+  onSnapshot(collection(db,'warehouseExtras'), function(snap){
+    warehouseExtras = [];
+    snap.forEach(function(docSnap){ warehouseExtras.push({ id: docSnap.id, data: docSnap.data() }); });
+    if(typeof renderWarehouseQueue === 'function') renderWarehouseQueue();
+    if(typeof renderInventoryList === 'function') renderInventoryList();
+  });
+}
+let inventoryCache = [];
+function loadInventory(){
+  onSnapshot(collection(db,'inventoryItems'), function(snap){
+    inventoryCache = [];
+    snap.forEach(function(docSnap){ inventoryCache.push({ id: docSnap.id, data: docSnap.data() }); });
+    renderInventoryList();
+  });
+}
+function computeColorDemand(){
+  const colorCounts = {};
+  function addPattern(pattern, multiplier){
+    if(!pattern || !multiplier) return;
+    pattern.split(',').map(function(s){ return s.trim(); }).filter(Boolean).forEach(function(color){
+      colorCounts[color] = (colorCounts[color]||0) + multiplier;
+    });
+  }
+  jobAddresses.forEach(function(item){
+    if(item.data.needsLightBuild && item.data.lightsDescription) addPattern(item.data.lightsDescription, 1);
+  });
+  warehouseExtras.forEach(function(item){
+    addPattern(item.data.pattern, Number(item.data.quantity)||0);
+  });
+  return colorCounts;
+}
+function computePendingHouseCount(){
+  let total = jobAddresses.filter(function(item){ return item.data.needsLightBuild && item.data.lightsDescription; }).length;
+  warehouseExtras.forEach(function(item){ total += Number(item.data.quantity)||0; });
+  return total;
+}
+function renderInventoryList(){
+  const list = document.getElementById('inventoryList');
+  const alertsEl = document.getElementById('inventoryAlerts');
+  if(!list) return;
+  const colorDemand = computeColorDemand();
+  const pendingHouses = computePendingHouseCount();
+  const alerts = [];
+  let html = '';
+  inventoryCache.forEach(function(item){
+    const d = item.data;
+    const buffer = 1 + ((Number(d.bufferPercent)||0)/100);
+    let needed = 0;
+    if(d.linkedColor){
+      needed = Math.ceil((colorDemand[d.linkedColor]||0) * buffer);
+    } else if(d.perHouseUsage){
+      needed = Math.ceil(pendingHouses * Number(d.perHouseUsage) * buffer);
+    }
+    const onHand = Number(d.quantityOnHand)||0;
+    const short = needed > onHand;
+    if(short) alerts.push({name: d.name, onHand: onHand, needed: needed});
+    html += '<div class="row-item">'+
+      '<div class="rmain">'+
+        '<h4 style="margin:0;">'+esc(d.name)+(d.linkedColor ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">'+esc(d.linkedColor)+'</span>' : '')+(short ? ' <span class="status-pill status-due">&#9888; Need More</span>' : ' <span class="status-pill status-paid">&#10003; OK</span>')+'</h4>'+
+        '<div class="rtext">On hand: '+onHand+(needed ? ' &middot; Needed (with buffer): '+needed : '')+'</div>'+
+      '</div>'+
+      '<div class="row-actions">'+
+        '<input type="number" class="invqtyinput" data-id="'+item.id+'" value="'+onHand+'" min="0" step="1" style="width:80px; padding:6px 8px; border-radius:8px; border:1px solid var(--line);">'+
+        '<button type="button" class="btn btn-outline btn-sm" data-invsave="'+item.id+'">Update</button>'+
+        '<button class="icon-btn danger" data-invdelete="'+item.id+'">'+trashIcon()+'</button>'+
+      '</div>'+
+    '</div>';
+  });
+  list.innerHTML = html || '<div class="empty-note">No inventory items yet — add one above.</div>';
+
+  if(alerts.length){
+    alertsEl.innerHTML = '<div style="background:#FDECEA; border:1px solid #f0b3ac; border-radius:10px; padding:14px 16px;">'+
+      '<strong style="color:#8a3b32;">&#9888; Running low:</strong> '+
+      alerts.map(function(a){ return esc(a.name)+' (have '+a.onHand+', need '+a.needed+')'; }).join(' &middot; ')+
+    '</div>';
+  } else if(alertsEl){
+    alertsEl.innerHTML = '';
+  }
+
+  list.querySelectorAll('[data-invsave]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      const id = btn.dataset.invsave;
+      const input = list.querySelector('.invqtyinput[data-id="'+id+'"]');
+      updateDoc(doc(db,'inventoryItems', id), {quantityOnHand: Number(input.value)||0}).catch(function(){});
+    });
+  });
+  list.querySelectorAll('[data-invdelete]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      if(!confirm('Remove this inventory item?')) return;
+      deleteDoc(doc(db,'inventoryItems', btn.dataset.invdelete)).catch(function(){});
+    });
+  });
+}
+document.getElementById('invAddItemBtn').addEventListener('click', async function(){
+  const statusEl = document.getElementById('invAddItemStatus');
+  const name = document.getElementById('invItemName').value.trim();
+  const qty = Number(document.getElementById('invItemQty').value) || 0;
+  const color = document.getElementById('invItemColor').value;
+  const perHouse = Number(document.getElementById('invItemPerHouse').value) || 0;
+  const bufferInput = Number(document.getElementById('invItemBuffer').value);
+  if(!name){ statusEl.textContent = 'Enter an item name.'; return; }
+  statusEl.textContent = 'Adding…';
+  try{
+    await addDoc(collection(db,'inventoryItems'), {
+      name: name, quantityOnHand: qty, linkedColor: color || null,
+      perHouseUsage: perHouse || null, bufferPercent: (isNaN(bufferInput) ? 15 : bufferInput),
+      createdAt: serverTimestamp()
+    });
+    document.getElementById('invItemName').value = '';
+    document.getElementById('invItemQty').value = 0;
+    document.getElementById('invItemColor').value = '';
+    document.getElementById('invItemPerHouse').value = '';
+    document.getElementById('invItemBuffer').value = 15;
+    statusEl.textContent = 'Added!';
+    setTimeout(function(){ statusEl.textContent = ''; }, 1500);
+  } catch(err){
+    statusEl.textContent = 'Something went wrong — try again.';
+  }
+});
+function renderWarehouseQueue(){
+  const list = document.getElementById('warehouseQueueList');
+  if(!list) return;
+  const groups = {};
+  jobAddresses.forEach(function(item){
+    const d = item.data;
+    if(!d.needsLightBuild || !d.lightsDescription) return;
+    const key = d.lightsDescription;
+    if(!groups[key]) groups[key] = {houses:[], extras:[]};
+    groups[key].houses.push(item);
+  });
+  warehouseExtras.forEach(function(item){
+    const key = item.data.pattern;
+    if(!key) return;
+    if(!groups[key]) groups[key] = {houses:[], extras:[]};
+    groups[key].extras.push(item);
+  });
+  const keys = Object.keys(groups).filter(function(key){
+    const g = groups[key];
+    const extraTotal = g.extras.reduce(function(s,e){ return s+(Number(e.data.quantity)||0); }, 0);
+    return g.houses.length + extraTotal > 0;
+  });
+  if(!keys.length){ list.innerHTML = '<div class="empty-note">Nothing needs to be built right now.</div>'; return; }
+  keys.sort(function(a,b){
+    const totalA = groups[a].houses.length + groups[a].extras.reduce(function(s,e){ return s+(Number(e.data.quantity)||0); },0);
+    const totalB = groups[b].houses.length + groups[b].extras.reduce(function(s,e){ return s+(Number(e.data.quantity)||0); },0);
+    return totalB - totalA;
+  });
+  let html = '';
+  keys.forEach(function(pattern, gi){
+    const g = groups[pattern];
+    const extraTotal = g.extras.reduce(function(s,e){ return s+(Number(e.data.quantity)||0); },0);
+    const total = g.houses.length + extraTotal;
+    const listId = 'whlist-' + gi;
+    html += '<div class="row-item" style="display:block;">'+
+      '<div style="display:flex; justify-content:space-between; align-items:center; cursor:pointer;" data-whtoggle="'+listId+'">'+
+        '<div><strong style="font-size:15px;">'+esc(pattern)+'</strong><div style="font-size:12.5px; color:var(--slate);">Need '+total+'</div></div>'+
+        '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:20px; height:20px; color:var(--slate);"><polyline points="6 9 12 15 18 9"/></svg>'+
+      '</div>'+
+      '<div id="'+listId+'" style="display:none; margin-top:12px; padding-top:12px; border-top:1px solid var(--line);">'+
+        g.houses.map(function(h){
+          return '<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0;">'+
+            '<span style="font-size:13.5px;">'+esc(h.data.name||'(no name)')+' &mdash; '+esc(h.data.address||'')+'</span>'+
+            '<button type="button" class="btn btn-outline btn-sm" data-whdonehouse="'+h.id+'">Mark Done</button>'+
+          '</div>';
+        }).join('')+
+        g.extras.map(function(e){
+          return '<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0;">'+
+            '<span style="font-size:13.5px;">'+esc(e.data.label || 'Extra stock')+' &times; '+(e.data.quantity||1)+'</span>'+
+            '<button type="button" class="btn btn-outline btn-sm" data-whdoneextra="'+e.id+'">Mark Done</button>'+
+          '</div>';
+        }).join('')+
+      '</div>'+
+      '<div style="display:flex; gap:8px; align-items:center; margin-top:10px;">'+
+        '<input type="number" min="0" max="'+total+'" placeholder="# completed" class="whcompleteinput" style="width:110px; padding:8px 10px; border-radius:8px; border:1px solid var(--line);">'+
+        '<button type="button" class="btn btn-gold btn-sm" data-whcompletebtn="'+esc(pattern)+'">Mark Completed</button>'+
+      '</div>'+
+    '</div>';
+  });
+  list.innerHTML = html;
+
+  list.querySelectorAll('[data-whtoggle]').forEach(function(row){
+    row.addEventListener('click', function(){
+      const target = document.getElementById(row.dataset.whtoggle);
+      target.style.display = target.style.display === 'none' ? 'block' : 'none';
+    });
+  });
+  list.querySelectorAll('[data-whdonehouse]').forEach(function(btn){
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      updateDoc(doc(db,'jobAddresses', btn.dataset.whdonehouse), {needsLightBuild:false}).catch(function(){});
+    });
+  });
+  list.querySelectorAll('[data-whdoneextra]').forEach(function(btn){
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      deleteDoc(doc(db,'warehouseExtras', btn.dataset.whdoneextra)).catch(function(){});
+    });
+  });
+  list.querySelectorAll('[data-whcompletebtn]').forEach(function(btn){
+    btn.addEventListener('click', async function(e){
+      e.stopPropagation();
+      const pattern = btn.dataset.whcompletebtn;
+      const row = btn.closest('.row-item');
+      const input = row.querySelector('.whcompleteinput');
+      let remaining = Number(input.value);
+      if(!remaining || remaining <= 0) return;
+      const g = groups[pattern];
+      if(!g) return;
+      for(const h of g.houses){
+        if(remaining <= 0) break;
+        await updateDoc(doc(db,'jobAddresses', h.id), {needsLightBuild:false});
+        remaining--;
+      }
+      for(const ex of g.extras){
+        if(remaining <= 0) break;
+        const q = Number(ex.data.quantity)||0;
+        if(q <= remaining){
+          await deleteDoc(doc(db,'warehouseExtras', ex.id));
+          remaining -= q;
+        } else {
+          await updateDoc(doc(db,'warehouseExtras', ex.id), {quantity: q - remaining});
+          remaining = 0;
+        }
+      }
+    });
+  });
+}
+document.getElementById('whAddExtraBtn').addEventListener('click', async function(){
+  const statusEl = document.getElementById('whAddExtraStatus');
+  const pattern = document.getElementById('whExtraPattern').value.trim();
+  const qty = Number(document.getElementById('whExtraQty').value) || 0;
+  const label = document.getElementById('whExtraLabel').value.trim();
+  if(!pattern || qty <= 0){ statusEl.textContent = 'Enter a pattern and quantity.'; return; }
+  statusEl.textContent = 'Adding…';
+  try{
+    await addDoc(collection(db,'warehouseExtras'), {pattern: pattern, quantity: qty, label: label, createdAt: serverTimestamp()});
+    document.getElementById('whExtraPattern').value = '';
+    document.getElementById('whExtraQty').value = 1;
+    document.getElementById('whExtraLabel').value = '';
+    statusEl.textContent = 'Added!';
+    setTimeout(function(){ statusEl.textContent = ''; }, 1500);
+  } catch(err){
+    statusEl.textContent = 'Something went wrong — try again.';
+  }
+});
 document.getElementById('overviewCityFilter').addEventListener('change', renderOverviewMap);
 document.getElementById('fixCitySelect').addEventListener('change', updateFixAvailableCount);
 document.getElementById('wantFixAll').addEventListener('change', function(){
