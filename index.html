@@ -733,17 +733,9 @@
       <div class="hero-check">
         <div style="margin-bottom:14px;">
           <div class="eyebrow" style="margin-bottom:4px;">Get a Free Quote</div>
-          <p style="margin:0; font-size:14px; color:var(--slate);">Get your free quote in about two minutes, or check your service area first below.</p>
+          <p style="margin:0; font-size:14px; color:var(--slate);">Get your free quote in about two minutes.</p>
         </div>
         <a href="#/quote" class="btn btn-gold btn-block" style="margin-bottom:14px;">Get a Free Quote</a>
-        <form id="heroCheckForm">
-          <label for="heroCheckInput">Put in your information &mdash; we'll check if you're in our service area</label>
-          <div class="hero-check-row">
-            <input type="text" id="heroCheckInput" placeholder="Enter your city or address" required>
-            <button type="submit" class="btn btn-gold">Check My Area</button>
-          </div>
-        </form>
-        <div class="hero-check-result" id="heroCheckResult"></div>
         <a href="#/payment" class="btn btn-outline-dark btn-block hero-check-payment-btn">Existing Customer? Make a Payment</a>
       </div>
 
@@ -812,17 +804,13 @@
           </div>
           <div class="form-grid-2">
             <input type="text" name="name" placeholder="Full Name" required>
-            <input type="tel" name="phone" placeholder="Phone Number" required>
+            <input type="text" name="contact" id="quickContactInput" placeholder="Phone Number or Email" required>
           </div>
-          <div class="form-grid-2">
-            <input type="email" name="email" placeholder="Email Address" required>
-            <select name="contact_method" required>
-              <option value="" disabled selected>Select&hellip;</option>
-              <option value="Call">Call</option>
-              <option value="Text">Text</option>
-              <option value="Email">Email</option>
-            </select>
-          </div>
+          <select name="contact_method" id="quickContactMethod" style="display:none;">
+            <option value="" disabled selected>Select&hellip;</option>
+            <option value="Call">Call</option>
+            <option value="Text">Text</option>
+          </select>
           <textarea name="message" rows="3" placeholder="Your message..." required></textarea>
           <button type="submit" class="btn btn-gold btn-block">Send Message</button>
         </form>
@@ -1078,17 +1066,16 @@
               <p class="form-note">Hold Ctrl (Windows) or Cmd (Mac) to pick more than one.</p>
             </div>
             <div class="form-row"><label>Full Name <span class="req">*</span></label><input type="text" name="name" required></div>
-            <div class="form-grid-2">
-              <div class="form-row"><label>Email <span class="req">*</span></label><input type="email" name="email" required></div>
-              <div class="form-row"><label>Phone <span class="req">*</span></label><input type="tel" name="phone" required></div>
-            </div>
             <div class="form-row">
-              <label>Preferred Contact Method <span class="req">*</span></label>
-              <select name="contact_method" id="contactMethodRow2" required>
+              <label>Phone Number or Email <span class="req">*</span></label>
+              <input type="text" name="contact" id="contactContactInput" required>
+            </div>
+            <div class="form-row" id="contactMethodWrap" style="display:none;">
+              <label>How should we reach you? <span class="req">*</span></label>
+              <select name="contact_method" id="contactMethodRow2">
                 <option value="" disabled selected>Select&hellip;</option>
                 <option value="Call">Call</option>
                 <option value="Text">Text</option>
-                <option value="Email">Email</option>
               </select>
             </div>
             <div class="form-row"><label>Message <span class="req">*</span></label><textarea name="message" rows="4" required placeholder="Tell us a bit more..."></textarea></div>
@@ -1299,18 +1286,34 @@
             </div>
 
             <div id="tabPanel-lights" style="display:none;">
-              <p class="form-note" style="margin:0 0 8px;">Tap colors to build your pattern &mdash; it repeats along your roofline. Saves automatically.</p>
-              <div id="rcSequenceRow" style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; min-height:40px; padding:10px; border:1px solid var(--line); border-radius:10px; margin-bottom:10px;"></div>
-              <div style="display:flex; gap:10px; margin-bottom:8px;">
-                <button type="button" class="rc-swatch" data-color="Warm White" title="Warm White" style="width:32px; height:32px; border-radius:50%; background:#F5EFDD; border:1px solid var(--line); padding:0;"></button>
-                <button type="button" class="rc-swatch" data-color="Pure White" title="Pure White" style="width:32px; height:32px; border-radius:50%; background:#FFFFFF; border:1px solid var(--line); padding:0;"></button>
-                <button type="button" class="rc-swatch" data-color="Red" title="Red" style="width:32px; height:32px; border-radius:50%; background:#C23B2E; border:none; padding:0;"></button>
-                <button type="button" class="rc-swatch" data-color="Green" title="Green" style="width:32px; height:32px; border-radius:50%; background:#3E7D46; border:none; padding:0;"></button>
-                <button type="button" class="rc-swatch" data-color="Blue" title="Blue" style="width:32px; height:32px; border-radius:50%; background:#2E5FA3; border:none; padding:0;"></button>
-                <button type="button" class="btn btn-outline btn-sm" id="rcClearPattern" style="margin-left:auto;">Clear</button>
+              <p class="form-note" style="margin:0 0 8px;">Tap the color(s) you want. Saves automatically.</p>
+              <div id="rcSimpleColorsRow" style="display:flex; gap:10px; margin-bottom:12px;">
+                <button type="button" class="rc-simple-swatch" data-color="Warm White" title="Warm White" style="width:36px; height:36px; border-radius:50%; background:#F5EFDD; border:2px solid var(--line); padding:0;"></button>
+                <button type="button" class="rc-simple-swatch" data-color="Pure White" title="Pure White" style="width:36px; height:36px; border-radius:50%; background:#FFFFFF; border:2px solid var(--line); padding:0;"></button>
+                <button type="button" class="rc-simple-swatch" data-color="Red" title="Red" style="width:36px; height:36px; border-radius:50%; background:#C23B2E; border:2px solid transparent; padding:0;"></button>
+                <button type="button" class="rc-simple-swatch" data-color="Green" title="Green" style="width:36px; height:36px; border-radius:50%; background:#3E7D46; border:2px solid transparent; padding:0;"></button>
+                <button type="button" class="rc-simple-swatch" data-color="Blue" title="Blue" style="width:36px; height:36px; border-radius:50%; background:#2E5FA3; border:2px solid transparent; padding:0;"></button>
               </div>
-              <div id="rcPatternReadout" style="font-size:12.5px; color:var(--slate);"></div>
-              <div id="lightsSaveStatus" style="font-size:13px; color:var(--slate); margin-top:8px;"></div>
+              <div id="lightsSaveStatus" style="font-size:13px; color:var(--slate); margin-bottom:4px;"></div>
+
+              <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:var(--slate); cursor:pointer; margin-top:10px; padding-top:14px; border-top:1px solid var(--line);">
+                <input type="checkbox" id="rcSpecificPatternToggle" style="width:auto;">
+                Want a specific pattern? (e.g. White, White, Red, Red, repeating)
+              </label>
+
+              <div id="rcSequenceBuilderWrap" style="display:none; margin-top:12px;">
+                <p class="form-note" style="margin:0 0 8px;">Tap colors in order to build your exact pattern &mdash; it repeats along your roofline.</p>
+                <div id="rcSequenceRow" style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; min-height:40px; padding:10px; border:1px solid var(--line); border-radius:10px; margin-bottom:10px;"></div>
+                <div style="display:flex; gap:10px; margin-bottom:8px;">
+                  <button type="button" class="rc-swatch" data-color="Warm White" title="Warm White" style="width:32px; height:32px; border-radius:50%; background:#F5EFDD; border:1px solid var(--line); padding:0;"></button>
+                  <button type="button" class="rc-swatch" data-color="Pure White" title="Pure White" style="width:32px; height:32px; border-radius:50%; background:#FFFFFF; border:1px solid var(--line); padding:0;"></button>
+                  <button type="button" class="rc-swatch" data-color="Red" title="Red" style="width:32px; height:32px; border-radius:50%; background:#C23B2E; border:none; padding:0;"></button>
+                  <button type="button" class="rc-swatch" data-color="Green" title="Green" style="width:32px; height:32px; border-radius:50%; background:#3E7D46; border:none; padding:0;"></button>
+                  <button type="button" class="rc-swatch" data-color="Blue" title="Blue" style="width:32px; height:32px; border-radius:50%; background:#2E5FA3; border:none; padding:0;"></button>
+                  <button type="button" class="btn btn-outline btn-sm" id="rcClearPattern" style="margin-left:auto;">Clear</button>
+                </div>
+                <div id="rcPatternReadout" style="font-size:12.5px; color:var(--slate);"></div>
+              </div>
             </div>
 
             <div id="tabPanel-sched" style="display:none;">
@@ -1851,28 +1854,58 @@ quoteFormEl.addEventListener('submit', async function(e){
   });
 });
 
+function splitPhoneOrEmail(raw){
+  raw = (raw||'').trim();
+  if(raw.indexOf('@') !== -1) return {phone:'', email:raw};
+  return {phone:raw, email:''};
+}
+var contactContactInputEl = document.getElementById('contactContactInput');
+var contactMethodWrapEl = document.getElementById('contactMethodWrap');
+var contactMethodRow2El = document.getElementById('contactMethodRow2');
+if(contactContactInputEl){
+  contactContactInputEl.addEventListener('input', function(){
+    var isEmail = contactContactInputEl.value.indexOf('@') !== -1;
+    contactMethodWrapEl.style.display = isEmail ? 'none' : 'block';
+    contactMethodRow2El.required = !isEmail;
+    if(isEmail) contactMethodRow2El.value = '';
+  });
+}
+
 var contactFormEl = document.getElementById('contactForm');
 contactFormEl.addEventListener('submit', function(e){
   e.preventDefault();
   var fd = new FormData(contactFormEl);
   var topicVal = fd.get('topic') || 'General Question';
+  var split = splitPhoneOrEmail(fd.get('contact'));
+  var methodVal = split.email ? 'Email' : (fd.get('contact_method') || '');
   addDoc(collection(db,'messages'), {
     topic: topicVal, folder: 'Inbox',
-    name: fd.get('name'), email: fd.get('email') || '', phone: fd.get('phone'),
-    contactMethod: fd.get('contact_method') || '', message: fd.get('message'),
+    name: fd.get('name'), email: split.email, phone: split.phone,
+    contactMethod: methodVal, message: fd.get('message'),
     colors: fd.getAll('colors'),
     createdAt: serverTimestamp()
   }).then(function(){
     contactFormEl.style.display = 'none';
     document.getElementById('contactSuccess').classList.add('show');
     notifyBusinessOfMessage({
-      customer_name: fd.get('name') || '', customer_phone: fd.get('phone') || '',
-      customer_email: fd.get('email') || '', topic: topicVal, message: fd.get('message') || ''
+      customer_name: fd.get('name') || '', customer_phone: split.phone,
+      customer_email: split.email, topic: topicVal, message: fd.get('message') || ''
     });
   }).catch(function(){
     alert('Something went wrong sending your message. Please call (801) 901-0011 instead.');
   });
 });
+
+var quickContactInputEl = document.getElementById('quickContactInput');
+var quickContactMethodEl = document.getElementById('quickContactMethod');
+if(quickContactInputEl){
+  quickContactInputEl.addEventListener('input', function(){
+    var isEmail = quickContactInputEl.value.indexOf('@') !== -1;
+    quickContactMethodEl.style.display = isEmail ? 'none' : 'block';
+    quickContactMethodEl.required = !isEmail;
+    if(isEmail) quickContactMethodEl.value = '';
+  });
+}
 
 var quickMessageFormEl = document.getElementById('quickMessageForm');
 if(quickMessageFormEl){
@@ -1880,18 +1913,20 @@ if(quickMessageFormEl){
     e.preventDefault();
     var fd = new FormData(quickMessageFormEl);
     var topicVal = fd.get('topic') || 'General Question';
+    var split = splitPhoneOrEmail(fd.get('contact'));
+    var methodVal = split.email ? 'Email' : (fd.get('contact_method') || '');
     addDoc(collection(db,'messages'), {
       topic: topicVal, folder: 'Inbox',
-      name: fd.get('name'), email: fd.get('email') || '', phone: fd.get('phone'),
-      contactMethod: fd.get('contact_method') || '', message: fd.get('message'),
+      name: fd.get('name'), email: split.email, phone: split.phone,
+      contactMethod: methodVal, message: fd.get('message'),
       colors: fd.getAll('colors'),
       createdAt: serverTimestamp()
     }).then(function(){
       quickMessageFormEl.style.display = 'none';
       document.getElementById('quickMessageSuccess').classList.add('show');
       notifyBusinessOfMessage({
-        customer_name: fd.get('name') || '', customer_phone: fd.get('phone') || '',
-        customer_email: fd.get('email') || '', topic: topicVal, message: fd.get('message') || ''
+        customer_name: fd.get('name') || '', customer_phone: split.phone,
+        customer_email: split.email, topic: topicVal, message: fd.get('message') || ''
       });
     }).catch(function(){
       alert('Something went wrong sending your message. Please call (801) 901-0011 instead.');
@@ -1902,29 +1937,6 @@ if(quickMessageFormEl){
 /* =========================================================
    HERO SERVICE AREA CHECKER
 ========================================================= */
-var heroCheckForm = document.getElementById('heroCheckForm');
-if(heroCheckForm){
-  heroCheckForm.addEventListener('submit', function(e){
-    e.preventDefault();
-    var rawInput = document.getElementById('heroCheckInput').value;
-    var input = rawInput.toLowerCase();
-    var result = document.getElementById('heroCheckResult');
-    var match = SERVICE_CITIES.find(function(city){
-      return input.indexOf(city.toLowerCase()) !== -1;
-    });
-    if(match){
-      var quoteAddr = document.getElementById('quoteAddressInput');
-      if(quoteAddr) quoteAddr.value = rawInput;
-      result.className = 'hero-check-result show yes';
-      result.innerHTML = '<p style="margin:0 0 12px;">&#10003; Good news &mdash; we service ' + match + '.</p>' +
-        '<a href="#/quote" class="btn btn-gold btn-block">Get a Free Quote Today</a>';
-    } else {
-      result.className = 'hero-check-result show no';
-      result.innerHTML = 'We couldn\'t confirm that address is in our current service area. <a href="#/contact">Reach out</a> and we\'ll double check, or call (801) 901-0011.';
-    }
-  });
-}
-
 /* =========================================================
    PAYMENT LOOKUP — reads live invoice from Firestore
 ========================================================= */
@@ -1984,8 +1996,23 @@ async function hmLoadHouseMapForInvoice(phoneDigits){
       document.getElementById('addEmail2Link').style.display = 'none';
     }
     document.getElementById('schedSelect').value = addrDoc.installPreference || 'Normal Schedule';
-    rcSequence = parseSequenceFromLightsDescription(addrDoc.lightsDescription || currentLookupRecord.lightsDescription);
-    renderRcSequence();
+    var parsedColors = parseSequenceFromLightsDescription(addrDoc.lightsDescription || currentLookupRecord.lightsDescription);
+    var hasRepeats = new Set(parsedColors).size !== parsedColors.length;
+    var patternToggle = document.getElementById('rcSpecificPatternToggle');
+    if(hasRepeats){
+      rcSequence = parsedColors;
+      patternToggle.checked = true;
+      document.getElementById('rcSequenceBuilderWrap').style.display = 'block';
+      document.getElementById('rcSimpleColorsRow').style.display = 'none';
+      renderRcSequence();
+    } else {
+      rcSimpleColors = parsedColors;
+      rcSequence = parsedColors.slice();
+      patternToggle.checked = false;
+      document.getElementById('rcSequenceBuilderWrap').style.display = 'none';
+      document.getElementById('rcSimpleColorsRow').style.display = 'flex';
+      renderRcSimpleColors();
+    }
 
     var photoUrl = addrDoc.housePhotoUrl;
     var highlights = addrDoc.houseHighlights || [];
@@ -2262,6 +2289,7 @@ var RC_VALID_COLORS = ['Warm White','Pure White','Red','Green','Blue'];
 var RC_COLOR_HEX = {'Warm White':'#F5EFDD','Pure White':'#FFFFFF','Red':'#C23B2E','Green':'#3E7D46','Blue':'#2E5FA3'};
 var RC_COLOR_BORDER = {'Warm White':'1px solid var(--line)','Pure White':'1px solid var(--line)'};
 var rcSequence = [];
+var rcSimpleColors = [];
 function parseSequenceFromLightsDescription(text){
   if(!text) return [];
   var candidate = text.split('(')[0].trim();
@@ -2269,22 +2297,79 @@ function parseSequenceFromLightsDescription(text){
     .map(function(p){ return p === 'Cool White' ? 'Pure White' : p; })
     .filter(function(p){ return RC_VALID_COLORS.indexOf(p) !== -1; });
 }
+var lightsNotifyTimer = null;
 async function saveLightsPattern(){
   var statusEl = document.getElementById('lightsSaveStatus');
   if(!currentJobAddressId || !currentLookupRecord){ return; }
-  var newLightsDescription = rcSequence.join(', ');
+  var isSpecific = document.getElementById('rcSpecificPatternToggle').checked;
+  var newLightsDescription = isSpecific ? rcSequence.join(', ') : rcSimpleColors.join(', ');
   statusEl.textContent = 'Saving…';
   try{
-    await updateDoc(doc(db,'jobAddresses', currentJobAddressId), {lightsDescription: newLightsDescription});
+    await updateDoc(doc(db,'jobAddresses', currentJobAddressId), {lightsDescription: newLightsDescription, needsLightBuild: true});
     var oldPhone = currentLookupRecord.phone || '';
     if(oldPhone) await updateDoc(doc(db,'invoices', oldPhone), {lightsDescription: newLightsDescription});
     currentLookupRecord.lightsDescription = newLightsDescription;
     statusEl.textContent = 'Saved!';
     setTimeout(function(){ statusEl.textContent = ''; }, 1500);
+    clearTimeout(lightsNotifyTimer);
+    lightsNotifyTimer = setTimeout(function(){ notifyLightsChange(newLightsDescription); }, 3000);
   } catch(err){
     statusEl.textContent = 'Something went wrong — please try again.';
   }
 }
+async function notifyLightsChange(finalDescription){
+  if(!currentLookupRecord) return;
+  var messageText = 'Updated their light color/pattern to: ' + (finalDescription || '(none selected)');
+  try{
+    await addDoc(collection(db,'messages'), {
+      topic: 'Light Color Change', folder: 'Inbox',
+      name: currentLookupRecord.name || '', phone: currentLookupRecord.phone || '', email: currentLookupRecord.email || '',
+      contactMethod: '', message: messageText,
+      createdAt: serverTimestamp()
+    });
+    notifyBusinessOfMessage({
+      customer_name: currentLookupRecord.name || '', customer_phone: currentLookupRecord.phone || '',
+      customer_email: currentLookupRecord.email || '', topic: 'Light Color Change', message: messageText
+    });
+  } catch(err){ /* Firestore already has the updated color either way */ }
+}
+function rcReadoutText(seq){
+  if(seq.length === 1) return 'Solid ' + seq[0];
+  var hasDuplicates = new Set(seq).size !== seq.length;
+  return hasDuplicates ? seq.join(', ') + ' — repeating' : seq.join(', ');
+}
+function renderRcSimpleColors(){
+  document.querySelectorAll('.rc-simple-swatch').forEach(function(btn){
+    var selected = rcSimpleColors.indexOf(btn.dataset.color) !== -1;
+    btn.style.borderColor = selected ? 'var(--gold)' : (RC_COLOR_BORDER[btn.dataset.color] ? 'var(--line)' : 'transparent');
+    btn.style.boxShadow = selected ? '0 0 0 2px var(--gold)' : 'none';
+  });
+}
+document.querySelectorAll('.rc-simple-swatch').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    var color = btn.dataset.color;
+    var idx = rcSimpleColors.indexOf(color);
+    if(idx === -1) rcSimpleColors.push(color); else rcSimpleColors.splice(idx, 1);
+    renderRcSimpleColors();
+    saveLightsPattern();
+  });
+});
+document.getElementById('rcSpecificPatternToggle').addEventListener('change', function(){
+  var wrap = document.getElementById('rcSequenceBuilderWrap');
+  var simpleRow = document.getElementById('rcSimpleColorsRow');
+  if(this.checked){
+    if(!rcSequence.length) rcSequence = rcSimpleColors.slice();
+    wrap.style.display = 'block';
+    simpleRow.style.display = 'none';
+    renderRcSequence();
+  } else {
+    rcSimpleColors = Array.from(new Set(rcSequence));
+    renderRcSimpleColors();
+    wrap.style.display = 'none';
+    simpleRow.style.display = 'flex';
+    saveLightsPattern();
+  }
+});
 function renderRcSequence(){
   var row = document.getElementById('rcSequenceRow');
   if(!rcSequence.length){
@@ -2295,7 +2380,7 @@ function renderRcSequence(){
   row.innerHTML = rcSequence.map(function(c, i){
     return '<button type="button" class="rc-dot" data-idx="'+i+'" title="Tap to remove" style="width:28px; height:28px; border-radius:50%; background:'+RC_COLOR_HEX[c]+'; border:'+(RC_COLOR_BORDER[c]||'none')+'; padding:0; cursor:pointer;"></button>';
   }).join('');
-  document.getElementById('rcPatternReadout').textContent = rcSequence.join(', ') + ' — repeating';
+  document.getElementById('rcPatternReadout').textContent = rcReadoutText(rcSequence);
   row.querySelectorAll('.rc-dot').forEach(function(btn){
     btn.addEventListener('click', function(){
       rcSequence.splice(Number(btn.dataset.idx), 1);
