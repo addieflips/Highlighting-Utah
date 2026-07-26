@@ -588,14 +588,20 @@
     <div class="nav-section" data-section="reports">
     <div class="nav-section-heading collapsible">Reports<svg class="nav-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></div>
     <div class="nav-section-body">
-    <button class="nav-item" data-panel="importcenter" title="">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-      <span class="nav-label">Import Center</span>
-    <span class="nav-pin-icon" data-pinpanel="importcenter" data-pinlabel="Import Center" title="Pin to Favorites"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l1 6 3 2v2H5v-2l3-2z"/></svg></span></button>
     <button class="nav-item" data-panel="memberexport" title="">
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       <span class="nav-label">Member Export</span>
     <span class="nav-pin-icon" data-pinpanel="memberexport" data-pinlabel="Member Export" title="Pin to Favorites"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l1 6 3 2v2H5v-2l3-2z"/></svg></span></button>
+    </div>
+    </div>
+
+    <div class="nav-section" data-section="automation">
+    <div class="nav-section-heading collapsible">Automation<svg class="nav-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></div>
+    <div class="nav-section-body">
+    <button class="nav-item" data-panel="automation" title="">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M22 6l-10 7L2 6"/></svg>
+      <span class="nav-label">Automation Emails</span>
+    <span class="nav-pin-icon" data-pinpanel="automation" data-pinlabel="Automation Emails" title="Pin to Favorites"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l1 6 3 2v2H5v-2l3-2z"/></svg></span></button>
     </div>
     </div>
 
@@ -640,6 +646,7 @@
       <div class="route-tabs" id="custSectionTabs" style="margin-bottom:20px;">
         <button class="route-tab-btn active" data-custtab="add" draggable="true">Add a Customer</button>
         <button class="route-tab-btn" data-custtab="all" draggable="true">All Customers</button>
+        <button class="route-tab-btn" data-custtab="bulk" draggable="true">Bulk Updates</button>
         <button class="route-tab-btn" data-custtab="danger" draggable="true">Danger Zone</button>
       </div>
 
@@ -682,18 +689,19 @@
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
             <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Which Part(s) of the House?</label>
             <p style="font-size:12px; color:var(--slate); margin:0 0 8px;">Same options customers choose when requesting a quote &mdash; adjustable anytime.</p>
-            <div class="color-check-row">
-              <label class="color-check"><input type="checkbox" class="addCustAreaCheck" value="Front of House"> Front of House</label>
-              <label class="color-check"><input type="checkbox" class="addCustAreaCheck" value="Right Side"> Right Side</label>
-              <label class="color-check"><input type="checkbox" class="addCustAreaCheck" value="Left Side"> Left Side</label>
-              <label class="color-check"><input type="checkbox" class="addCustAreaCheck" value="Back of House"> Back of House</label>
-            </div>
+            <select id="addCustAreas" multiple size="5" style="max-width:260px;">
+              <option value="" disabled selected>Select&hellip;</option>
+              <option value="Front of House">Front of House</option>
+              <option value="Right Side">Right Side</option>
+              <option value="Left Side">Left Side</option>
+              <option value="Back of House">Back of House</option>
+            </select>
           </div>
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
             <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">What Lights Are They Getting?</label>
-            <div class="form-row" style="max-width:260px;"><label>Color</label>
-              <select id="addCustLightsColor">
-                <option value="">-- Select --</option>
+            <div class="form-row" style="max-width:260px;"><label>Color(s)</label>
+              <select id="addCustLightsColor" multiple size="6">
+                <option value="" disabled selected>Select&hellip;</option>
                 <option value="Warm White">Warm White</option>
                 <option value="Pure White">Pure White</option>
                 <option value="Red">Red</option>
@@ -728,99 +736,9 @@
         </form>
       </div>
 
-      <div class="card" style="background:#FFF8E9; border-color:var(--gold-dim);">
-        <h3>Bulk Import</h3>
-        <p style="font-size:13px;">Bulk-paste tools for Routes and Invoice fields have moved to their own place, alongside every other import tool in the app.</p>
-        <button type="button" class="btn btn-outline btn-sm" id="goToImportCenterBtn">Go to Import Center</button>
-      </div>
       </div>
 
-      <div class="route-tab-panel" id="custtab-danger">
-        <div class="card" style="background:#2a1210; border-color:#5c2820;">
-          <h3 style="color:#fff;">Danger Zone</h3>
-          <p style="font-size:13px; color:rgba(255,255,255,.7);">Permanently deletes every customer &mdash; their Route entry, their House Map, and their Invoice, all together. This cannot be undone.</p>
-          <p style="font-size:13px; color:rgba(255,255,255,.7);">Money already collected stays on the Dashboard permanently, even after a customer is deleted &mdash; it's saved separately the moment a payment comes in, so deleting old records never changes what you actually made.</p>
-          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-            <input type="text" id="deleteAllConfirmInput" placeholder="Type DELETE to unlock" style="padding:10px 12px; border-radius:9px; border:1px solid #5c2820; background:#3a1a16; color:#fff; font-size:13.5px;">
-            <button type="button" class="btn btn-ember" id="deleteAllAddressesBtn" disabled style="opacity:.4;">Delete All Customers</button>
-          </div>
-          <span id="deleteAllStatus" style="font-size:13px; color:rgba(255,255,255,.7); display:block; margin-top:10px;"></span>
-        </div>
-      </div>
-
-      <div class="route-tab-panel" id="custtab-all">
-        <div class="card">
-          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:14px;">
-            <input type="text" id="allCustSearchInput" placeholder="Search by name, phone, email, or address..." style="flex:1; min-width:220px; padding:10px 14px; border-radius:10px; border:1px solid var(--line); background:var(--snow); font-size:14px;">
-            <button type="button" class="btn btn-outline btn-sm" id="allCustFilterToggle">Filters &#9662;</button>
-            <button type="button" class="btn btn-outline btn-sm" id="allCustExportBtn">Export to Excel</button>
-          </div>
-          <div id="allCustFilterPanel" style="display:none; background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:14px; margin-bottom:14px;">
-            <div class="form-grid-3">
-              <div class="form-row"><label>City</label><select id="allCustFilterCity"><option value="all">All Cities</option></select></div>
-              <div class="form-row"><label>Difficulty</label><select id="allCustFilterDifficulty"><option value="all">All Difficulties</option><option value="Unrated">Unrated</option><option value="Easy">Easy</option><option value="Medium">Medium</option><option value="Hard">Hard</option></select></div>
-              <div class="form-row"><label>Invoice Status</label><select id="allCustFilterInvStatus"><option value="all">Any / No Invoice</option><option value="none">No Invoice</option><option value="Unpaid">Unpaid</option><option value="Partial Payment">Partial Payment</option><option value="Paid in Full">Paid in Full</option></select></div>
-            </div>
-            <div class="form-grid-3">
-              <div class="form-row"><label>Route Status</label><select id="allCustFilterRoute"><option value="all">Any</option><option value="scheduled">Scheduled</option><option value="unscheduled">Unscheduled</option><option value="completed">Install Complete</option><option value="needsfix">Needs Fix</option></select></div>
-              <div class="form-row"><label>House Map</label><select id="allCustFilterMap"><option value="all">Any</option><option value="has">Has a Map</option><option value="none">No Map Yet</option></select></div>
-              <div class="form-row"><label>Enrolled</label>
-                <div style="display:flex; gap:6px;">
-                  <input type="date" id="allCustFilterDateStart" style="flex:1;">
-                  <input type="date" id="allCustFilterDateEnd" style="flex:1;">
-                </div>
-              </div>
-            </div>
-            <button type="button" class="btn btn-outline btn-sm" id="allCustFilterClear">Clear Filters</button>
-          </div>
-          <p id="allCustCount" style="font-size:12.5px; color:var(--slate); margin:0 0 10px;"></p>
-          <div style="overflow-x:auto;">
-            <table style="width:100%; border-collapse:collapse; font-size:13px;" id="allCustTable">
-              <thead>
-                <tr style="text-align:left; border-bottom:2px solid var(--line);">
-                  <th style="padding:8px 10px; cursor:pointer;" data-sortcol="name">Name &amp; Address</th>
-                  <th style="padding:8px 10px; cursor:pointer;" data-sortcol="enrolled">Enrolled</th>
-                  <th style="padding:8px 10px;">Route</th>
-                  <th style="padding:8px 10px;">Timing</th>
-                  <th style="padding:8px 10px;">Invoice</th>
-                  <th style="padding:8px 10px;">House Map</th>
-                  <th style="padding:8px 10px;"></th>
-                </tr>
-              </thead>
-              <tbody id="allCustTableBody"></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      <div class="editcust-popup-overlay" id="editCustOverlay">
-        <div class="editcust-popup">
-          <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:19px;">Edit Customer Info</h3>
-          <p style="margin:0 0 16px; font-size:13px; color:var(--slate);">Personal info only &mdash; payments live on Invoices, difficulty and photos live on Routes.</p>
-          <div class="form-row"><label>Name</label><input type="text" id="editCustName"></div>
-          <div class="form-grid-2">
-            <div class="form-row"><label>Phone</label><input type="tel" id="editCustPhone"></div>
-            <div class="form-row"><label>Secondary Phone</label><input type="tel" id="editCustPhone2"></div>
-          </div>
-          <div class="form-grid-2">
-            <div class="form-row"><label>Email</label><input type="email" id="editCustEmail"></div>
-            <div class="form-row"><label>Secondary Email</label><input type="email" id="editCustEmail2"></div>
-          </div>
-          <div class="form-row"><label>Address</label><input type="text" id="editCustAddress"></div>
-          <div class="form-row"><label>Enrolled Date</label><input type="date" id="editCustEnrolled"></div>
-          <div style="display:flex; gap:10px; margin-top:16px;">
-            <button type="button" class="btn btn-outline" id="editCustCancelBtn" style="flex:1;">Cancel</button>
-            <button type="button" class="btn btn-gold" id="editCustSaveBtn" style="flex:1;">Save Changes</button>
-          </div>
-          <div id="editCustStatus" style="font-size:13px; color:var(--slate); margin-top:8px; text-align:center;"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- IMPORT CENTER -->
-    <div class="panel" id="panel-importcenter">
-      <div class="panel-head"><div><h2>Import Center</h2><p>One place for every bulk import in the app &mdash; each one automatically syncs to the right sections (Customers, Routes, Invoices) so nothing has to be entered twice.</p></div></div>
-
+      <div class="route-tab-panel" id="custtab-bulk">
       <div class="card" style="background:#FFF8E9; border-color:var(--gold-dim);">
         <button type="button" id="bulkUpdatesToggle" style="display:flex; justify-content:space-between; align-items:center; width:100%; background:none; border:none; cursor:pointer; padding:0;">
           <h3 style="margin:0;">Customers &amp; Routes</h3>
@@ -905,17 +823,88 @@
           </div>
         </div>
       </div>
-
-      <div class="card">
-        <h3>Credit Card Data</h3>
-        <p style="font-size:13px;">Import your business credit cards and their transaction history &mdash; this lives with the rest of the Credit Cards tools since it also needs your card list set up first.</p>
-        <button type="button" class="btn btn-outline btn-sm" id="goToCreditCardsBtn">Go to Business Credit Cards</button>
       </div>
 
-      <div class="card">
-        <h3>Expenses</h3>
-        <p style="font-size:13px;">Import a credit card statement or add expenses one at a time &mdash; lives on the main Dashboard alongside the rest of your financial tools.</p>
-        <button type="button" class="btn btn-outline btn-sm" id="goToExpensesBtn">Go to Dashboard</button>
+
+      <div class="route-tab-panel" id="custtab-danger">
+        <div class="card" style="background:#2a1210; border-color:#5c2820;">
+          <h3 style="color:#fff;">Danger Zone</h3>
+          <p style="font-size:13px; color:rgba(255,255,255,.7);">Permanently deletes every customer &mdash; their Route entry, their House Map, and their Invoice, all together. This cannot be undone.</p>
+          <p style="font-size:13px; color:rgba(255,255,255,.7);">Money already collected stays on the Dashboard permanently, even after a customer is deleted &mdash; it's saved separately the moment a payment comes in, so deleting old records never changes what you actually made.</p>
+          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+            <input type="text" id="deleteAllConfirmInput" placeholder="Type DELETE to unlock" style="padding:10px 12px; border-radius:9px; border:1px solid #5c2820; background:#3a1a16; color:#fff; font-size:13.5px;">
+            <button type="button" class="btn btn-ember" id="deleteAllAddressesBtn" disabled style="opacity:.4;">Delete All Customers</button>
+          </div>
+          <span id="deleteAllStatus" style="font-size:13px; color:rgba(255,255,255,.7); display:block; margin-top:10px;"></span>
+        </div>
+      </div>
+
+      <div class="route-tab-panel" id="custtab-all">
+        <div class="card">
+          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:14px;">
+            <input type="text" id="allCustSearchInput" placeholder="Search by name, phone, email, or address..." style="flex:1; min-width:220px; padding:10px 14px; border-radius:10px; border:1px solid var(--line); background:var(--snow); font-size:14px;">
+            <button type="button" class="btn btn-outline btn-sm" id="allCustFilterToggle">Filters &#9662;</button>
+            <button type="button" class="btn btn-outline btn-sm" id="allCustExportBtn">Export to Excel</button>
+          </div>
+          <div id="allCustFilterPanel" style="display:none; background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:14px; margin-bottom:14px;">
+            <div class="form-grid-3">
+              <div class="form-row"><label>City</label><select id="allCustFilterCity"><option value="all">All Cities</option></select></div>
+              <div class="form-row"><label>Difficulty</label><select id="allCustFilterDifficulty"><option value="all">All Difficulties</option><option value="Unrated">Unrated</option><option value="Easy">Easy</option><option value="Medium">Medium</option><option value="Hard">Hard</option></select></div>
+              <div class="form-row"><label>Invoice Status</label><select id="allCustFilterInvStatus"><option value="all">Any / No Invoice</option><option value="none">No Invoice</option><option value="Unpaid">Unpaid</option><option value="Partial Payment">Partial Payment</option><option value="Paid in Full">Paid in Full</option></select></div>
+            </div>
+            <div class="form-grid-3">
+              <div class="form-row"><label>Route Status</label><select id="allCustFilterRoute"><option value="all">Any</option><option value="scheduled">Scheduled</option><option value="unscheduled">Unscheduled</option><option value="completed">Install Complete</option><option value="needsfix">Needs Fix</option></select></div>
+              <div class="form-row"><label>House Map</label><select id="allCustFilterMap"><option value="all">Any</option><option value="has">Has a Map</option><option value="none">No Map Yet</option></select></div>
+              <div class="form-row"><label>Enrolled</label>
+                <div style="display:flex; gap:6px;">
+                  <input type="date" id="allCustFilterDateStart" style="flex:1;">
+                  <input type="date" id="allCustFilterDateEnd" style="flex:1;">
+                </div>
+              </div>
+            </div>
+            <button type="button" class="btn btn-outline btn-sm" id="allCustFilterClear">Clear Filters</button>
+          </div>
+          <p id="allCustCount" style="font-size:12.5px; color:var(--slate); margin:0 0 10px;"></p>
+          <div style="overflow-x:auto;">
+            <table style="width:100%; border-collapse:collapse; font-size:13px;" id="allCustTable">
+              <thead>
+                <tr style="text-align:left; border-bottom:2px solid var(--line);">
+                  <th style="padding:8px 10px; cursor:pointer;" data-sortcol="name">Name &amp; Address</th>
+                  <th style="padding:8px 10px; cursor:pointer;" data-sortcol="enrolled">Enrolled</th>
+                  <th style="padding:8px 10px;">Route</th>
+                  <th style="padding:8px 10px;">Timing</th>
+                  <th style="padding:8px 10px;">Invoice</th>
+                  <th style="padding:8px 10px;">House Map</th>
+                  <th style="padding:8px 10px;"></th>
+                </tr>
+              </thead>
+              <tbody id="allCustTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="editcust-popup-overlay" id="editCustOverlay">
+        <div class="editcust-popup">
+          <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:19px;">Edit Customer Info</h3>
+          <p style="margin:0 0 16px; font-size:13px; color:var(--slate);">Personal info only &mdash; payments live on Invoices, difficulty and photos live on Routes.</p>
+          <div class="form-row"><label>Name</label><input type="text" id="editCustName"></div>
+          <div class="form-grid-2">
+            <div class="form-row"><label>Phone</label><input type="tel" id="editCustPhone"></div>
+            <div class="form-row"><label>Secondary Phone</label><input type="tel" id="editCustPhone2"></div>
+          </div>
+          <div class="form-grid-2">
+            <div class="form-row"><label>Email</label><input type="email" id="editCustEmail"></div>
+            <div class="form-row"><label>Secondary Email</label><input type="email" id="editCustEmail2"></div>
+          </div>
+          <div class="form-row"><label>Address</label><input type="text" id="editCustAddress"></div>
+          <div class="form-row"><label>Enrolled Date</label><input type="date" id="editCustEnrolled"></div>
+          <div style="display:flex; gap:10px; margin-top:16px;">
+            <button type="button" class="btn btn-outline" id="editCustCancelBtn" style="flex:1;">Cancel</button>
+            <button type="button" class="btn btn-gold" id="editCustSaveBtn" style="flex:1;">Save Changes</button>
+          </div>
+          <div id="editCustStatus" style="font-size:13px; color:var(--slate); margin-top:8px; text-align:center;"></div>
+        </div>
       </div>
     </div>
 
@@ -1166,7 +1155,7 @@
         <!-- IMPORT / EXPORT -->
         <div class="route-tab-panel" id="invtab-importexport">
           <div class="card" style="background:#FFF8E9; border-color:var(--gold-dim);">
-            <p style="font-size:13px; margin:0;">Looking to bulk-add or bulk-update invoices? That's now under <strong>Business &gt; Add a Customer &gt; Bulk Updates</strong>, so customer info stays in sync across Routes, Invoices, and Quotes.</p>
+            <p style="font-size:13px; margin:0;">Looking to bulk-add or bulk-update invoices? That's under <strong>Business &gt; Customers &gt; Bulk Updates</strong>, so customer info stays in sync across Routes, Invoices, and Quotes.</p>
           </div>
           <div class="card">
             <h3>Export to Excel</h3>
@@ -1177,66 +1166,7 @@
 
         <!-- SEASON BILLING EMAILS -->
         <div class="route-tab-panel" id="invtab-seasonemail">
-          <div class="card" style="background:#E6F2EA; border-color:#b8d9c2;">
-            <h3>&#127876; Bulk Customer Update (Email)</h3>
-            <p style="font-size:13px;">Sends every customer with an email on file the same simple message, with one clear button that opens their customer portal &mdash; no extra links to confuse anyone.</p>
-            <div class="form-row"><label>Message (use {{name}} &mdash; the button is added automatically, don't add your own links)</label>
-              <textarea id="bulkUpdateEmailTemplate" rows="5">Hi {{name}} 🎄
-
-It's almost time for the Christmas lighting season! Tap the button below to update your info, check your invoice, or send us a message anytime.</textarea>
-            </div>
-            <button type="button" class="btn btn-gold" id="sendBulkUpdateEmailBtn">Send to All Customers</button>
-            <span id="bulkUpdateEmailStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
-            <p style="font-size:12px; color:var(--slate); margin-top:10px;">Uses the Email Setup above, and only sends to customers who have an email address on file.</p>
-          </div>
-
-          <div class="card" style="background:#FDECEA; border-color:#f0b3ac;">
-            <h3>&#127876; Bulk Customer Update (Text)</h3>
-            <p style="font-size:13px;">True automatic bulk texting needs a real text-messaging service (like Twilio) connected, which isn't set up yet &mdash; ask me in chat if you want that built. In the meantime, here's the same message ready to copy for each customer with a phone number, so you can paste it into your own texting app.</p>
-            <button type="button" class="btn btn-outline" id="loadBulkTextListBtn">Show Customers to Text</button>
-            <div id="bulkTextList" style="margin-top:16px;"></div>
-          </div>
-
-          <div class="card" style="background:#FFF8E9; border-color:var(--gold-dim);">
-            <h3>Quick One-Person Email</h3>
-            <p style="font-size:13px;">Pick a customer, add their email if it's missing, and everything else &mdash; name, price, payment link, contact link &mdash; fills in automatically.</p>
-            <div class="form-grid-2">
-              <div class="form-row"><label>Customer</label><select id="quickEmailCustomerSelect"><option value="">-- Select a customer --</option></select></div>
-              <div class="form-row"><label>Their Email</label><input type="email" id="quickEmailInput" placeholder="customer@email.com"></div>
-            </div>
-            <button type="button" class="btn btn-gold" id="quickEmailFillBtn">Fill In Email</button>
-            <div id="quickEmailResult" style="margin-top:16px;"></div>
-          </div>
-
-          <div class="card">
-            <h3>Copy &amp; Paste Emails (works right now, no setup needed)</h3>
-            <p style="font-size:13px;">Click a customer below to copy their email, ready to paste into your own email app. It includes their name, their balance, a payment link, and a "please don't reply, message us on the site instead" footer &mdash; all added automatically.</p>
-            <div class="form-row"><label>Email Message (use {{name}} and {{amount}})</label>
-              <textarea id="copyEmailTemplate" rows="5">Hi {{name}},
-
-The Christmas lighting season is here! Your balance for this season is {{amount}}. You can view and pay your invoice anytime at the link below.
-
-Thanks for being a customer!
-Highlighting Utah</textarea>
-          </div>
-          <button type="button" class="btn btn-gold" id="loadCopyEmailListBtn">Show Customer List</button>
-            <div id="copyEmailList" style="margin-top:16px;"></div>
-          </div>
-
-          <div class="card" style="background:#FFF8E9; border-color:var(--gold-dim);">
-            <h3>Email Setup (EmailJS)</h3>
-            <p style="font-size:13px;">One-time setup, saved here so you don't have to re-enter it. This powers both the billing emails below and the "email me when a customer messages the site" notifications.</p>
-            <p style="font-size:13px; color:var(--ember);" id="emailjsSetupNote">Needs a free EmailJS account. Ask me in chat and I'll walk you through it.</p>
-            <div class="form-grid-3">
-              <div class="form-row"><label>EmailJS Service ID</label><input type="text" id="emailjsServiceId" placeholder="service_xxxxxxx"></div>
-              <div class="form-row"><label>Billing Email Template ID</label><input type="text" id="emailjsTemplateId" placeholder="template_xxxxxxx"></div>
-              <div class="form-row"><label>EmailJS Public Key</label><input type="text" id="emailjsPublicKey" placeholder="xxxxxxxxxxxxxxxx"></div>
-            </div>
-            <div class="form-row" style="max-width:340px;"><label>Message Notification Template ID (optional)</label><input type="text" id="emailjsNotifyTemplateId" placeholder="template_xxxxxxx"></div>
-            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">This second template controls the email you get whenever a customer sends a message through the site (Quick Message, Want a Change to Your Lights, etc.). Set its "To" address to your own inbox in the EmailJS dashboard. Leave blank to skip these notifications.</p>
-            <button type="button" class="btn btn-gold btn-sm" id="saveEmailjsSettingsBtn" style="margin-top:10px;">Save Email Settings</button>
-            <span id="emailjsSettingsStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
-          </div>
+          
 
           <div class="card" style="background:#FFF8E9; border-color:var(--gold-dim);">
             <h3>Send Everyone Their Billing Info Automatically</h3>
@@ -1249,8 +1179,21 @@ The Christmas lighting season is here! Your balance for this season is {{amount}
 Thanks for being a customer!
 Highlighting Utah</textarea>
             </div>
+            <div style="display:flex; gap:16px; margin-bottom:10px; font-size:13px;">
+              <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" id="seasonEmailIncludePortal" checked style="width:auto;"> Include portal link</label>
+              <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" id="seasonEmailIncludeVenmo" checked style="width:auto;"> Include Venmo link</label>
+            </div>
             <button type="button" class="btn btn-outline" id="previewSeasonEmailBtn">Preview Recipient List</button>
             <div id="seasonEmailPreview" style="margin-top:16px;"></div>
+            <div style="margin-top:16px; padding-top:16px; border-top:1px solid var(--line);">
+              <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:6px;">Send a Test Email First</label>
+              <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                <input type="email" id="seasonEmailTestAddress" placeholder="your@email.com" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-size:13px;">
+                <button type="button" class="btn btn-outline btn-sm" id="seasonEmailTestBtn">Send Test to This Address</button>
+              </div>
+              <span id="seasonEmailTestStatus" style="font-size:12.5px; color:var(--slate);"></span>
+            </div>
+            <div id="seasonEmailTemplateExtras"></div>
           </div>
         </div>
       </div>
@@ -1474,6 +1417,102 @@ Highlighting Utah</textarea>
           <span id="invAddItemStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
         </div>
         <div id="inventoryList" class="row-list"><div class="empty-note">Loading…</div></div>
+      </div>
+    </div>
+
+
+    <!-- AUTOMATION -->
+    <div class="panel" id="panel-automation">
+      <div class="panel-head"><div><h2>Automation Emails</h2><p>One-time and recurring communication tools &mdash; all in one place.</p></div></div>
+
+      <div class="card" style="background:#FFF8E9; border-color:var(--gold-dim);">
+            <h3>Email Setup (EmailJS)</h3>
+            <p style="font-size:13px;">One-time setup, saved here so you don't have to re-enter it. This powers both the billing emails below and the "email me when a customer messages the site" notifications.</p>
+            <p style="font-size:13px; color:var(--ember);" id="emailjsSetupNote">Needs a free EmailJS account. Ask me in chat and I'll walk you through it.</p>
+            <div class="form-grid-3">
+              <div class="form-row"><label>EmailJS Service ID</label><input type="text" id="emailjsServiceId" placeholder="service_xxxxxxx"></div>
+              <div class="form-row"><label>Billing Email Template ID</label><input type="text" id="emailjsTemplateId" placeholder="template_xxxxxxx"></div>
+              <div class="form-row"><label>EmailJS Public Key</label><input type="text" id="emailjsPublicKey" placeholder="xxxxxxxxxxxxxxxx"></div>
+            </div>
+            <div class="form-row" style="max-width:340px;"><label>Message Notification Template ID (optional)</label><input type="text" id="emailjsNotifyTemplateId" placeholder="template_xxxxxxx"></div>
+            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">This second template controls the email you get whenever a customer sends a message through the site (Quick Message, Want a Change to Your Lights, etc.). Set its "To" address to your own inbox in the EmailJS dashboard. Leave blank to skip these notifications.</p>
+            <button type="button" class="btn btn-gold btn-sm" id="saveEmailjsSettingsBtn" style="margin-top:10px;">Save Email Settings</button>
+            <span id="emailjsSettingsStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
+          </div>
+
+      <div class="route-tabs" id="automationSectionTabs" style="margin-bottom:20px;">
+        <button class="route-tab-btn active" data-autotab="one" draggable="true">One Person</button>
+        <button class="route-tab-btn" data-autotab="text" draggable="true">Text Automation</button>
+        <button class="route-tab-btn" data-autotab="bulk" draggable="true">Bulk Automation</button>
+      </div>
+
+      <div class="route-tab-panel active" id="autotab-one">
+        <div class="card" style="background:#FFF8E9; border-color:var(--gold-dim);">
+            <h3>Quick One-Person Email</h3>
+            <p style="font-size:13px;">Pick a customer, add their email if it's missing, and everything else &mdash; name, price, payment link, contact link &mdash; fills in automatically.</p>
+            <div class="form-row"><label>Email Message (use {{name}} and {{amount}})</label>
+              <textarea id="quickEmailTemplate" rows="5">Hi {{name}},
+
+The Christmas lighting season is here! Your balance for this season is {{amount}}. You can view and pay your invoice anytime at the link below.
+
+Thanks for being a customer!
+Highlighting Utah</textarea>
+            </div>
+            <div style="display:flex; gap:16px; margin-bottom:10px; font-size:13px;">
+              <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" id="quickEmailIncludePortal" checked style="width:auto;"> Include portal link</label>
+              <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" id="quickEmailIncludeVenmo" checked style="width:auto;"> Include Venmo link</label>
+            </div>
+            <div class="form-grid-2">
+              <div class="form-row"><label>Customer</label><select id="quickEmailCustomerSelect"><option value="">-- Select a customer --</option></select></div>
+              <div class="form-row"><label>Their Email</label><input type="email" id="quickEmailInput" placeholder="customer@email.com"></div>
+            </div>
+            <button type="button" class="btn btn-gold" id="quickEmailFillBtn">Fill In Email</button>
+            <div id="quickEmailResult" style="margin-top:16px;"></div>
+            <div id="quickEmailTemplateExtras"></div>
+          </div>
+      </div>
+
+      <div class="route-tab-panel" id="autotab-text">
+        <div class="card" style="background:#FDECEA; border-color:#f0b3ac;">
+            <h3>&#127876; Bulk Customer Update (Text)</h3>
+            <p style="font-size:13px;">True automatic bulk texting needs a real text-messaging service (like Twilio) connected, which isn't set up yet &mdash; ask me in chat if you want that built. In the meantime, here's the same message ready to copy for each customer with a phone number, so you can paste it into your own texting app.</p>
+            <button type="button" class="btn btn-outline" id="loadBulkTextListBtn">Show Customers to Text</button>
+            <div id="bulkTextList" style="margin-top:16px;"></div>
+          </div>
+      </div>
+
+      <div class="route-tab-panel" id="autotab-bulk">
+        <div class="card" style="background:#E6F2EA; border-color:#b8d9c2;">
+            <h3>&#127876; Bulk Automation</h3>
+            <p style="font-size:13px;">Write a simple message and send it to every customer at once &mdash; a season announcement, a heads up, whatever you need. Not tied to billing or an amount.</p>
+            <div class="form-row"><label>Message (use {{name}} &mdash; a link to their portal is added automatically, don't add your own links)</label>
+              <textarea id="bulkUpdateEmailTemplate" rows="5">Hi {{name}} 🎄
+
+It's almost time for the Christmas lighting season! Tap the button below to update your info, check your invoice, or send us a message anytime.</textarea>
+            </div>
+            <div style="display:flex; gap:16px; margin-bottom:10px; font-size:13px; flex-wrap:wrap;">
+              <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" id="bulkAutoIncludePortal" checked style="width:auto;"> Include portal link</label>
+              <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" id="bulkAutoIncludeVenmo" style="width:auto;"> Include Venmo link (uses their current balance, if any)</label>
+              <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" id="bulkAutoIncludeMessages" checked style="width:auto;"> Include "send us a message" link</label>
+            </div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button type="button" class="btn btn-gold" id="sendBulkUpdateEmailBtn">Send to All Customers</button>
+              <button type="button" class="btn btn-outline" id="loadBulkAutoCopyListBtn">Show List to Copy/Paste Instead</button>
+            </div>
+            <span id="bulkUpdateEmailStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
+            <p style="font-size:12px; color:var(--slate); margin-top:10px;">Sending automatically uses the Email Setup above, and only reaches customers who have an email address on file. This will mostly come up for one-time sends, not a recurring thing.</p>
+            <div id="bulkAutoCopyList" style="margin-top:16px;"></div>
+            <div style="margin-top:16px; padding-top:16px; border-top:1px solid var(--line);">
+              <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:6px;">Send a Test Email First</label>
+              <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                <input type="email" id="bulkAutoTestAddress" placeholder="your@email.com" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-size:13px;">
+                <button type="button" class="btn btn-outline btn-sm" id="bulkAutoTestBtn">Send Test to This Address</button>
+              </div>
+              <span id="bulkAutoTestStatus" style="font-size:12.5px; color:var(--slate);"></span>
+            </div>
+            <div id="bulkAutoTemplateExtras"></div>
+          </div>
+
       </div>
     </div>
 
@@ -2607,12 +2646,15 @@ document.getElementById('quickEmailFillBtn').addEventListener('click', async fun
     await updateDoc(doc(db,'invoices',invId), {email: email});
   }
   const amount = fmtMoney(balanceDueAmount(d));
-  const template = document.getElementById('copyEmailTemplate').value;
-  const message = template
+  const template = document.getElementById('quickEmailTemplate').value;
+  const message = await resolveLinkTokens(template
     .replace(/\{\{name\}\}/g, d.name||'there')
-    .replace(/\{\{amount\}\}/g, amount)
+    .replace(/\{\{amount\}\}/g, amount), d.phone, amount)
     + partialPaymentNote(d)
-    + await buildOutgoingEmailFooter(d.phone, amount);
+    + await buildOutgoingEmailFooter(d.phone, amount, {
+        includePortal: document.getElementById('quickEmailIncludePortal').checked,
+        includeVenmo: document.getElementById('quickEmailIncludeVenmo').checked
+      });
   resultEl.innerHTML =
     '<label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:6px;">Edit before sending if you want:</label>'+
     '<textarea id="quickEmailEditable" rows="9" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:13.5px; margin-bottom:10px;">'+esc(message)+'</textarea>'+
@@ -2680,16 +2722,39 @@ async function getOrCreatePortalToken(phone){
   }
   return token;
 }
-async function buildOutgoingEmailFooter(phone, amount){
+async function resolveLinkTokens(text, phone, amount){
+  let out = text;
+  if(out.indexOf('{{portal_link}}') !== -1){
+    const token = await getOrCreatePortalToken(phone);
+    const portalUrl = 'https://highlightingutah.com/#/payment' + (token ? ('?token='+token) : '');
+    out = out.split('{{portal_link}}').join(portalUrl);
+  }
+  if(out.indexOf('{{messages_link}}') !== -1){
+    out = out.split('{{messages_link}}').join('https://highlightingutah.com/#/contact');
+  }
+  if(out.indexOf('{{venmo_link}}') !== -1){
+    const venmoAmount = (Number(String(amount||0).replace(/[^0-9.]/g,'')) || 0).toFixed(2);
+    const venmoUrl = 'https://venmo.com/HighLightingUtah?txn=pay&amount='+venmoAmount+'&note='+encodeURIComponent('Christmas Lights');
+    out = out.split('{{venmo_link}}').join(venmoUrl);
+  }
+  return out;
+}
+async function buildOutgoingEmailFooter(phone, amount, opts){
+  opts = opts || {};
+  const includePortal = opts.includePortal !== false;
+  const includeVenmo = opts.includeVenmo !== false;
+  const includeMessages = opts.includeMessages !== false;
   const token = await getOrCreatePortalToken(phone);
   const portalUrl = 'https://highlightingutah.com/#/payment' + (token ? ('?token='+token) : '');
   const messagesUrl = 'https://highlightingutah.com/#/contact';
   const venmoAmount = (Number(String(amount||0).replace(/[^0-9.]/g,'')) || 0).toFixed(2);
   const venmoUrl = 'https://venmo.com/HighLightingUtah?txn=pay&amount='+venmoAmount+'&note='+encodeURIComponent('Christmas Lights');
-  return '\n\n\uD83D\uDC49 Log Into Your Portal: ' + portalUrl +
-    '\n\n\uD83D\uDCB3 Pay With Venmo (amount pre-filled): ' + venmoUrl +
-    '\n\n\uD83D\uDCAC Send Us a Message: ' + messagesUrl +
-    '\n\nPlease do not reply to this email \u2014 to reach us, use the Messaging link above.';
+  let out = '';
+  if(includePortal) out += '\n\n\uD83D\uDC49 Log Into Your Portal: ' + portalUrl;
+  if(includeVenmo) out += '\n\n\uD83D\uDCB3 Pay With Venmo (amount pre-filled): ' + venmoUrl;
+  if(includeMessages) out += '\n\n\uD83D\uDCAC Send Us a Message: ' + messagesUrl;
+  if(includePortal || includeVenmo || includeMessages) out += '\n\nPlease do not reply to this email \u2014 to reach us, use the Messaging link above.';
+  return out;
 }
 document.getElementById('saveEmailjsSettingsBtn').addEventListener('click', async function(){
   const statusEl = document.getElementById('emailjsSettingsStatus');
@@ -2714,55 +2779,49 @@ async function loadEmailjsSettings(){
     if(s.notifyTemplateId) document.getElementById('emailjsNotifyTemplateId').value = s.notifyTemplateId;
   } catch(err){ /* settings not saved yet, fine */ }
 }
-document.getElementById('loadCopyEmailListBtn').addEventListener('click', function(){
-  const withEmailAll = allInvoicesCache.filter(inv => inv.data.email);
-  const needsReview = withEmailAll.filter(inv => inv.data.priceReviewed === false);
-  const withEmail = withEmailAll.filter(inv => inv.data.priceReviewed !== false);
-  const withoutEmail = allInvoicesCache.filter(inv => !inv.data.email);
-  const listEl = document.getElementById('copyEmailList');
-  if(!withEmail.length && !needsReview.length){
-    listEl.innerHTML = '<div class="empty-note">No customers have an email on file yet. Add one when editing an invoice.</div>';
+document.getElementById('loadBulkAutoCopyListBtn').addEventListener('click', function(){
+  const withEmail = jobAddresses.filter(a => a.data.email);
+  const withoutEmail = jobAddresses.filter(a => !a.data.email);
+  const listEl = document.getElementById('bulkAutoCopyList');
+  if(!withEmail.length){
+    listEl.innerHTML = '<div class="empty-note">No customers have an email on file yet.</div>';
     return;
   }
   let html = '';
-  if(needsReview.length){
-    html += '<div style="background:#FDECEA; border:1px solid #f0b3ac; border-radius:10px; padding:12px 14px; font-size:13px; margin-bottom:14px;">'+
-      '<strong>'+needsReview.length+' price(s) need review before they can be emailed</strong> &mdash; from the house photo tool, not yet approved: '+
-      needsReview.map(inv => esc(inv.data.name||inv.data.phone)).join(', ')+
-      '. Go to Invoice List and click "Approve Price" for each.'+
-    '</div>';
-  }
-  withEmail.forEach(function(inv){
-    const d = inv.data;
+  withEmail.forEach(function(item){
+    const d = item.data;
     html += '<div class="row-item">'+
       '<div class="rmain">'+
         '<h4 style="margin:0;">'+esc(d.name||'')+'</h4>'+
         '<div class="rmeta">'+esc(d.email)+'</div>'+
-        '<div id="bulkemailpanel-'+inv.id+'" style="display:none; margin-top:10px;"></div>'+
+        '<div id="bulkautopanel-'+item.id+'" style="display:none; margin-top:10px;"></div>'+
       '</div>'+
       '<div class="row-actions">'+
-        '<button type="button" class="btn btn-outline btn-sm copy-email-btn" data-id="'+inv.id+'">Open Email</button>'+
+        '<button type="button" class="btn btn-outline btn-sm bulk-auto-open-btn" data-id="'+item.id+'">Open Email</button>'+
       '</div>'+
     '</div>';
   });
   if(withoutEmail.length){
-    html += '<p style="font-size:12.5px; color:var(--slate); margin-top:10px;">'+withoutEmail.length+' customer(s) have no email on file and aren\'t shown: '+withoutEmail.map(inv => esc(inv.data.name||inv.data.phone)).join(', ')+'.</p>';
+    html += '<p style="font-size:12.5px; color:var(--slate); margin-top:10px;">'+withoutEmail.length+' customer(s) have no email on file and aren\'t shown: '+withoutEmail.map(a => esc(a.data.name||a.data.phone)).join(', ')+'.</p>';
   }
   listEl.innerHTML = html;
-  listEl.querySelectorAll('.copy-email-btn').forEach(function(btn){
+  listEl.querySelectorAll('.bulk-auto-open-btn').forEach(function(btn){
     btn.addEventListener('click', async function(){
-      const inv = withEmail.find(i => i.id === btn.dataset.id);
-      const d = inv.data;
-      const panel = document.getElementById('bulkemailpanel-'+inv.id);
+      const item = withEmail.find(a => a.id === btn.dataset.id);
+      const d = item.data;
+      const panel = document.getElementById('bulkautopanel-'+item.id);
       const isOpen = panel.style.display !== 'none';
       if(isOpen){ panel.style.display = 'none'; return; }
-      const amount = fmtMoney(balanceDueAmount(d));
-      const template = document.getElementById('copyEmailTemplate').value;
-      const message = template
-        .replace(/\{\{name\}\}/g, d.name||'there')
-        .replace(/\{\{amount\}\}/g, amount)
-        + partialPaymentNote(d)
-        + await buildOutgoingEmailFooter(d.phone, amount);
+      const includeVenmo = document.getElementById('bulkAutoIncludeVenmo').checked;
+      const inv = includeVenmo ? allInvoicesCache.find(i => i.data.phone === d.phone) : null;
+      const amount = inv ? balanceDueAmount(inv.data) : 0;
+      const template = document.getElementById('bulkUpdateEmailTemplate').value;
+      const message = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, d.name||'there'), d.phone, amount) +
+        await buildOutgoingEmailFooter(d.phone, amount, {
+          includePortal: document.getElementById('bulkAutoIncludePortal').checked,
+          includeVenmo: includeVenmo,
+          includeMessages: document.getElementById('bulkAutoIncludeMessages').checked
+        });
       panel.innerHTML =
         '<label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:6px;">Edit before sending if you want:</label>'+
         '<textarea class="bulk-email-editable" rows="8" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:13.5px; margin-bottom:10px;">'+esc(message)+'</textarea>'+
@@ -2791,7 +2850,7 @@ document.getElementById('loadCopyEmailListBtn').addEventListener('click', functi
         const templateId = document.getElementById('emailjsTemplateId').value.trim();
         const publicKey = document.getElementById('emailjsPublicKey').value.trim();
         if(!serviceId || !templateId || !publicKey){
-          statusEl.textContent = 'Set up EmailJS below first, or just use Copy Email instead.';
+          statusEl.textContent = 'Set up EmailJS above first, or just use Copy Email instead.';
           return;
         }
         if(!window.emailjs){
@@ -2803,8 +2862,7 @@ document.getElementById('loadCopyEmailListBtn').addEventListener('click', functi
           emailjs.init(publicKey);
           await emailjs.send(serviceId, templateId, {
             to_email: d.email, to_name: d.name || '',
-            message: text, amount: amount,
-            payment_link: 'https://highlightingutah.com/#/payment'
+            message: text
           });
           statusEl.textContent = 'Sent to ' + d.email + '!';
         } catch(err){
@@ -2830,30 +2888,59 @@ document.getElementById('sendBulkUpdateEmailBtn').addEventListener('click', asyn
   }
   const withEmail = jobAddresses.filter(a => a.data.email);
   if(!withEmail.length){ statusEl.textContent = 'No customers have an email address on file yet.'; return; }
-  if(!confirm('Send each of the ' + withEmail.length + ' customer(s) with an email their own personal portal link now? This cannot be undone.')) return;
+  if(!confirm('Send each of the ' + withEmail.length + ' customer(s) with an email this message now? This cannot be undone.')) return;
   emailjs.init(publicKey);
   const template = document.getElementById('bulkUpdateEmailTemplate').value;
+  const includePortal = document.getElementById('bulkAutoIncludePortal').checked;
+  const includeVenmo = document.getElementById('bulkAutoIncludeVenmo').checked;
   let sent = 0, failed = 0;
   for(const item of withEmail){
     const d = item.data;
-    let token = d.portalToken;
-    if(!token){
-      token = generatePortalToken();
-      try{ await updateDoc(doc(db,'jobAddresses',item.id), {portalToken: token}); } catch(err){ /* still send with what we have */ }
-    }
-    const portalUrl = 'https://highlightingutah.com/#/payment?token=' + token;
-    const message = template.replace(/\{\{name\}\}/g, d.name || 'there') +
-      '\n\n\uD83C\uDF84 Update My Christmas Lights: ' + portalUrl;
+    const inv = includeVenmo ? allInvoicesCache.find(i => i.data.phone === d.phone) : null;
+    const amount = inv ? balanceDueAmount(inv.data) : 0;
+    const includeMessages = document.getElementById('bulkAutoIncludeMessages').checked;
+    const footer = await buildOutgoingEmailFooter(d.phone, amount, {includePortal: includePortal, includeVenmo: includeVenmo, includeMessages: includeMessages});
+    const message = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, d.name || 'there'), d.phone, amount) + footer;
     statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + withEmail.length + '…';
     try{
       await emailjs.send(serviceId, templateId, {
         to_email: d.email, to_name: d.name || '',
-        message: message, button_url: portalUrl, button_label: '🎄 Update My Christmas Lights'
+        message: message, button_url: 'https://highlightingutah.com/#/payment', button_label: '🎄 Update My Christmas Lights'
       });
       sent++;
     } catch(err){ failed++; }
   }
-  statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '. Each link opens straight to that customer\'s own portal — no password needed.';
+  statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.';
+});
+
+document.getElementById('bulkAutoTestBtn').addEventListener('click', async function(){
+  const statusEl = document.getElementById('bulkAutoTestStatus');
+  const testAddress = document.getElementById('bulkAutoTestAddress').value.trim();
+  const serviceId = document.getElementById('emailjsServiceId').value.trim();
+  const templateId = document.getElementById('emailjsTemplateId').value.trim();
+  const publicKey = document.getElementById('emailjsPublicKey').value.trim();
+  if(!testAddress){ statusEl.textContent = 'Enter an address to send the test to first.'; return; }
+  if(!serviceId || !templateId || !publicKey){ statusEl.textContent = 'Fill in Email Setup above first.'; return; }
+  if(!window.emailjs){ statusEl.textContent = 'Email service failed to load — check your internet connection.'; return; }
+  statusEl.textContent = 'Sending test…';
+  try{
+    const template = document.getElementById('bulkUpdateEmailTemplate').value;
+    const includeVenmo = document.getElementById('bulkAutoIncludeVenmo').checked;
+    const testAmount = includeVenmo ? 100 : 0;
+    const footer = await buildOutgoingEmailFooter('8015550123', testAmount, {
+      includePortal: document.getElementById('bulkAutoIncludePortal').checked,
+      includeVenmo: includeVenmo,
+      includeMessages: document.getElementById('bulkAutoIncludeMessages').checked
+    });
+    const message = '[TEST EMAIL — sample data below]\n\n' + await resolveLinkTokens(template.replace(/\{\{name\}\}/g, 'Test Customer'), '8015550123', testAmount) + footer;
+    emailjs.init(publicKey);
+    await emailjs.send(serviceId, templateId, {
+      to_email: testAddress, to_name: 'Test Customer', message: message
+    });
+    statusEl.textContent = 'Test sent to ' + testAddress + ' — check your inbox to see exactly what customers will get.';
+  } catch(err){
+    statusEl.textContent = 'Test send failed — double check your Email Setup above.';
+  }
 });
 
 document.getElementById('loadBulkTextListBtn').addEventListener('click', async function(){
@@ -2871,7 +2958,7 @@ document.getElementById('loadBulkTextListBtn').addEventListener('click', async f
       try{ await updateDoc(doc(db,'jobAddresses',item.id), {portalToken: token}); } catch(err){ /* use what we have */ }
     }
     const portalUrl = 'https://highlightingutah.com/#/payment?token=' + token;
-    const msg = template.replace(/\{\{name\}\}/g, d.name || 'there') + '\n\n\uD83C\uDF84 Update My Christmas Lights: ' + portalUrl;
+    const msg = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, d.name || 'there'), d.phone, 0) + '\n\n\uD83C\uDF84 Update My Christmas Lights: ' + portalUrl;
     rows.push('<div class="row-item" style="padding:10px 12px;">'+
       '<div class="rmain"><h4 style="margin:0; font-size:13.5px;">'+esc(d.name||'(no name)')+'</h4><div class="rmeta">'+esc(d.phone)+'</div></div>'+
       '<button type="button" class="btn btn-outline btn-sm bulk-text-copy" data-msg="'+esc(msg)+'">Copy Message</button>'+
@@ -2913,11 +3000,14 @@ document.getElementById('previewSeasonEmailBtn').addEventListener('click', async
     const sd = sample.data;
     const sampleAmount = fmtMoney(balanceDueAmount(sd));
     const sampleTemplate = document.getElementById('seasonEmailTemplate').value;
-    const sampleMessage = sampleTemplate
+    const sampleMessage = await resolveLinkTokens(sampleTemplate
       .replace(/\{\{name\}\}/g, sd.name||'there')
-      .replace(/\{\{amount\}\}/g, sampleAmount)
+      .replace(/\{\{amount\}\}/g, sampleAmount), sd.phone, sampleAmount)
       + partialPaymentNote(sd)
-      + await buildOutgoingEmailFooter(sd.phone, sampleAmount);
+      + await buildOutgoingEmailFooter(sd.phone, sampleAmount, {
+          includePortal: document.getElementById('seasonEmailIncludePortal').checked,
+          includeVenmo: document.getElementById('seasonEmailIncludeVenmo').checked
+        });
     html += '<div style="margin-bottom:14px;">'+
       '<label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:6px;">Exactly what '+esc(sd.name||'this customer')+' will receive (each customer gets their own version):</label>'+
       '<pre style="white-space:pre-wrap; font-family:inherit; font-size:13.5px; background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:14px; margin:0;">'+esc(sampleMessage)+'</pre>'+
@@ -2947,11 +3037,14 @@ document.getElementById('previewSeasonEmailBtn').addEventListener('click', async
     for(const inv of withEmail){
       const d = inv.data;
       const amount = fmtMoney(balanceDueAmount(d));
-      const message = template
+      const message = await resolveLinkTokens(template
         .replace(/\{\{name\}\}/g, d.name||'there')
-        .replace(/\{\{amount\}\}/g, amount)
+        .replace(/\{\{amount\}\}/g, amount), d.phone, amount)
         + partialPaymentNote(d)
-        + await buildOutgoingEmailFooter(d.phone, amount);
+        + await buildOutgoingEmailFooter(d.phone, amount, {
+            includePortal: document.getElementById('seasonEmailIncludePortal').checked,
+            includeVenmo: document.getElementById('seasonEmailIncludeVenmo').checked
+          });
       statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + withEmail.length + '…';
       try{
         await emailjs.send(serviceId, templateId, {
@@ -2968,6 +3061,37 @@ document.getElementById('previewSeasonEmailBtn').addEventListener('click', async
     }
     statusEl.textContent = 'Done — ' + sent + ' sent' + (failed ? ', ' + failed + ' failed' : '') + '.';
   });
+});
+
+document.getElementById('seasonEmailTestBtn').addEventListener('click', async function(){
+  const statusEl = document.getElementById('seasonEmailTestStatus');
+  const testAddress = document.getElementById('seasonEmailTestAddress').value.trim();
+  const serviceId = document.getElementById('emailjsServiceId').value.trim();
+  const templateId = document.getElementById('emailjsTemplateId').value.trim();
+  const publicKey = document.getElementById('emailjsPublicKey').value.trim();
+  if(!testAddress){ statusEl.textContent = 'Enter an address to send the test to first.'; return; }
+  if(!serviceId || !templateId || !publicKey){ statusEl.textContent = 'Fill in Email Setup above first.'; return; }
+  if(!window.emailjs){ statusEl.textContent = 'Email service failed to load — check your internet connection.'; return; }
+  statusEl.textContent = 'Sending test…';
+  try{
+    const sampleAmount = fmtMoney(125);
+    const template = document.getElementById('seasonEmailTemplate').value;
+    const message = '[TEST EMAIL — sample data below]\n\n' + await resolveLinkTokens(template
+      .replace(/\{\{name\}\}/g, 'Test Customer')
+      .replace(/\{\{amount\}\}/g, sampleAmount), '8015550123', sampleAmount)
+      + await buildOutgoingEmailFooter('8015550123', sampleAmount, {
+          includePortal: document.getElementById('seasonEmailIncludePortal').checked,
+          includeVenmo: document.getElementById('seasonEmailIncludeVenmo').checked
+        });
+    emailjs.init(publicKey);
+    await emailjs.send(serviceId, templateId, {
+      to_email: testAddress, to_name: 'Test Customer',
+      message: message, amount: sampleAmount, payment_link: 'https://highlightingutah.com/#/payment'
+    });
+    statusEl.textContent = 'Test sent to ' + testAddress + ' — check your inbox to see exactly what customers will get.';
+  } catch(err){
+    statusEl.textContent = 'Test send failed — double check your Email Setup above.';
+  }
 });
 
 document.getElementById('downloadBackupBtn').addEventListener('click', async function(){
@@ -3023,6 +3147,10 @@ function initData(){
   loadSettings();
   loadJobAddresses();
   loadWarehouseExtras();
+  loadSavedEmailTemplates();
+  setupEmailTemplateExtras('quickEmailTemplateExtras', 'quickEmailTemplate');
+  setupEmailTemplateExtras('seasonEmailTemplateExtras', 'seasonEmailTemplate');
+  setupEmailTemplateExtras('bulkAutoTemplateExtras', 'bulkUpdateEmailTemplate');
   loadInventory();
   loadScheduledRoutes();
   loadTimeLogs();
@@ -3337,14 +3465,14 @@ function renderQuoteRows(filtered){
       document.getElementById('routeZipInput').value = d.zip || '';
       document.getElementById('addCustEmail').value = d.email || '';
       const colors = d.lightColors || [];
-      let colorVal = '';
-      if(colors.length === 1 && LIGHTS_COLOR_OPTIONS.includes(colors[0])) colorVal = colors[0];
-      document.getElementById('addCustLightsColor').value = colorVal;
-      document.getElementById('addCustLightsNotes').value = colors.length > 1
-        ? colors.join(', ') + (d.lightsDescription ? ' — ' + d.lightsDescription : '')
-        : (d.lightsDescription || '');
+      Array.from(document.getElementById('addCustLightsColor').options).forEach(function(opt){
+        opt.selected = colors.includes(opt.value);
+      });
+      document.getElementById('addCustLightsNotes').value = d.lightsDescription || '';
       const quoteAreas = d.houseAreas || [];
-      document.querySelectorAll('.addCustAreaCheck').forEach(function(cb){ cb.checked = quoteAreas.includes(cb.value); });
+      Array.from(document.getElementById('addCustAreas').options).forEach(function(opt){
+        opt.selected = quoteAreas.includes(opt.value);
+      });
       document.getElementById('addCustInstallPref').value = d.installPreference || 'Normal Schedule';
       if(d.estimatedFeet && perFootRate){
         document.getElementById('addCustPrice').value = Math.round(d.estimatedFeet * perFootRate);
@@ -5341,6 +5469,12 @@ function switchInvTab(tabName){
 }
 setupDraggableTabBar('invSectionTabs', 'invtab', 'huInvTabOrder', switchInvTab);
 
+function switchAutoTab(tabName){
+  document.querySelectorAll('#automationSectionTabs .route-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.autotab === tabName));
+  document.querySelectorAll('#panel-automation .route-tab-panel').forEach(p => p.classList.toggle('active', p.id === 'autotab-'+tabName));
+}
+setupDraggableTabBar('automationSectionTabs', 'autotab', 'huAutoTabOrder', switchAutoTab);
+
 function switchTlTab(tabName){
   document.querySelectorAll('#tlSectionTabs .route-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tltab === tabName));
   document.querySelectorAll('#tlSingleView .gen-subtab-panel').forEach(p => p.classList.toggle('active', p.id === 'tltab-'+tabName));
@@ -5447,11 +5581,12 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
   const email = document.getElementById('addCustEmail').value.trim();
   const phone2 = document.getElementById('addCustPhone2').value.replace(/\D/g,'');
   const email2 = document.getElementById('addCustEmail2').value.trim();
+  const selectedColors = Array.from(document.getElementById('addCustLightsColor').selectedOptions).map(o => o.value).filter(Boolean);
   const lightsDescription = compileLightsDescription(
-    document.getElementById('addCustLightsColor').value,
+    selectedColors.join(', '),
     document.getElementById('addCustLightsNotes').value.trim()
   );
-  const houseAreas = Array.from(document.querySelectorAll('.addCustAreaCheck:checked')).map(cb => cb.value);
+  const houseAreas = Array.from(document.getElementById('addCustAreas').selectedOptions).map(o => o.value).filter(Boolean);
   const installPreference = document.getElementById('addCustInstallPref').value;
   const wantsBilling = price > 0;
   const statusEl = document.getElementById('routeAddStatus');
@@ -5497,10 +5632,10 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
     document.getElementById('addCustEmail').value = '';
     document.getElementById('addCustPhone2').value = '';
     document.getElementById('addCustEmail2').value = '';
-    document.getElementById('addCustLightsColor').value = '';
+    Array.from(document.getElementById('addCustLightsColor').options).forEach(opt => opt.selected = false);
     document.getElementById('addCustLightsNotes').value = '';
     document.getElementById('addCustInstallPref').value = 'Normal Schedule';
-    document.querySelectorAll('.addCustAreaCheck').forEach(cb => cb.checked = false);
+    Array.from(document.getElementById('addCustAreas').options).forEach(opt => opt.selected = false);
     document.getElementById('addCustPhoto').value = '';
     document.getElementById('addCustPhotoThumb').innerHTML = '';
     addCustPhotoUrl = '';
@@ -5518,17 +5653,6 @@ document.getElementById('bulkUpdatesToggle').addEventListener('click', function(
   const isOpen = panel.style.display !== 'none';
   panel.style.display = isOpen ? 'none' : 'block';
   chevron.innerHTML = isOpen ? '&#9662;' : '&#9652;';
-});
-document.getElementById('goToImportCenterBtn').addEventListener('click', function(){
-  document.querySelector('.nav-item[data-panel="importcenter"]').click();
-});
-document.getElementById('goToCreditCardsBtn').addEventListener('click', function(){
-  document.querySelector('.nav-item[data-panel="dashboard"]').click();
-  setTimeout(function(){ document.querySelector('#dashSectionTabs [data-dashtab="creditcards"]').click(); }, 50);
-});
-document.getElementById('goToExpensesBtn').addEventListener('click', function(){
-  document.querySelector('.nav-item[data-panel="dashboard"]').click();
-  setTimeout(function(){ document.querySelector('#dashSectionTabs [data-dashtab="overview"]').click(); }, 50);
 });
 function countRows(text){
   return text.split('\n').filter(function(l){ return l.trim() !== ''; }).length;
@@ -6385,6 +6509,85 @@ function loadInventory(){
     inventoryCache = [];
     snap.forEach(function(docSnap){ inventoryCache.push({ id: docSnap.id, data: docSnap.data() }); });
     renderInventoryList();
+  });
+}
+let savedEmailTemplatesCache = [];
+function loadSavedEmailTemplates(){
+  onSnapshot(query(collection(db,'savedEmailTemplates'), orderBy('createdAt','desc')), function(snap){
+    savedEmailTemplatesCache = [];
+    snap.forEach(function(docSnap){ savedEmailTemplatesCache.push({ id: docSnap.id, data: docSnap.data() }); });
+    document.querySelectorAll('.saved-template-select').forEach(function(select){
+      const filterInput = select.closest('div').querySelector('.saved-template-filter');
+      renderSavedTemplateOptions(select, filterInput ? filterInput.value : '');
+    });
+  });
+}
+function renderSavedTemplateOptions(select, filterText){
+  const current = select.value;
+  const filter = (filterText||'').trim().toLowerCase();
+  const filtered = filter ? savedEmailTemplatesCache.filter(t => (t.data.name||'').toLowerCase().includes(filter)) : savedEmailTemplatesCache;
+  select.innerHTML = '<option value="">Load a saved template&hellip;</option>' +
+    filtered.map(function(t){ return '<option value="'+t.id+'">'+esc(t.data.name||'(untitled)')+'</option>'; }).join('');
+  if(filtered.some(t => t.id === current)) select.value = current;
+}
+function setupEmailTemplateExtras(extrasContainerId, textareaId){
+  const container = document.getElementById(extrasContainerId);
+  if(!container) return;
+  container.innerHTML =
+    '<div style="margin-top:12px; padding-top:12px; border-top:1px solid var(--line);">'+
+      '<div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px;">'+
+        '<input type="text" class="saved-template-filter" placeholder="Search saved templates&hellip;" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-size:13px; max-width:180px;">'+
+        '<select class="saved-template-select" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-size:13px;"><option value="">Load a saved template&hellip;</option></select>'+
+        '<button type="button" class="btn btn-outline btn-sm saved-template-save-btn">Save This Message As&hellip;</button>'+
+        '<span class="saved-template-status" style="font-size:12.5px; color:var(--slate);"></span>'+
+      '</div>'+
+      '<div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">'+
+        '<input type="text" class="insert-link-text" placeholder="Link text (e.g. here)" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-size:13px; max-width:160px;">'+
+        '<select class="insert-link-dest" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-size:13px;">'+
+          '<option value="portal_link">Member Portal</option>'+
+          '<option value="messages_link">Send a Message</option>'+
+          '<option value="venmo_link">Pay with Venmo</option>'+
+        '</select>'+
+        '<button type="button" class="btn btn-outline btn-sm insert-link-btn">Insert Link at Cursor</button>'+
+      '</div>'+
+      '<p style="font-size:11.5px; color:var(--slate); margin:6px 0 0;">Puts a clickable link right in your sentence, wherever your cursor is &mdash; e.g. "you can message us here" with just "here" as the link.</p>'+
+    '</div>';
+  const select = container.querySelector('.saved-template-select');
+  const filterInput = container.querySelector('.saved-template-filter');
+  const textarea = document.getElementById(textareaId);
+  renderSavedTemplateOptions(select);
+  filterInput.addEventListener('input', function(){
+    renderSavedTemplateOptions(select, filterInput.value);
+  });
+  select.addEventListener('change', function(){
+    if(!select.value) return;
+    const t = savedEmailTemplatesCache.find(x => x.id === select.value);
+    if(t) textarea.value = t.data.message || '';
+  });
+  container.querySelector('.saved-template-save-btn').addEventListener('click', async function(){
+    const statusEl = container.querySelector('.saved-template-status');
+    const name = prompt('Name this template (e.g. "Season Kickoff Announcement"):');
+    if(!name) return;
+    statusEl.textContent = 'Saving…';
+    try{
+      await addDoc(collection(db,'savedEmailTemplates'), {name: name, message: textarea.value, createdAt: serverTimestamp()});
+      statusEl.textContent = 'Saved!';
+      setTimeout(function(){ statusEl.textContent = ''; }, 1500);
+    } catch(err){
+      statusEl.textContent = 'Something went wrong — try again.';
+    }
+  });
+  container.querySelector('.insert-link-btn').addEventListener('click', function(){
+    const textInput = container.querySelector('.insert-link-text');
+    const linkText = textInput.value.trim() || 'here';
+    const dest = container.querySelector('.insert-link-dest').value;
+    const snippet = '<a href="{{'+dest+'}}">'+linkText+'</a>';
+    const start = textarea.selectionStart != null ? textarea.selectionStart : textarea.value.length;
+    const end = textarea.selectionEnd != null ? textarea.selectionEnd : textarea.value.length;
+    textarea.value = textarea.value.slice(0, start) + snippet + textarea.value.slice(end);
+    textarea.focus();
+    textarea.selectionStart = textarea.selectionEnd = start + snippet.length;
+    textInput.value = '';
   });
 }
 function computeColorDemand(){
