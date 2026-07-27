@@ -1514,3 +1514,14 @@ function toast(msg){
 </script>
 </body>
 </html>
+<link rel="manifest" href="/manifest-crew.json">
+<meta name="theme-color" content="#0b1e3d">
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw-crew.js').catch((err) => {
+        console.warn('Service worker registration failed:', err);
+      });
+    });
+  }
+</script>
