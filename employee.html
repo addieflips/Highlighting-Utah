@@ -381,7 +381,7 @@ import {
   getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  getFirestore, collection, doc, addDoc, getDoc, getDocs, updateDoc, deleteDoc, onSnapshot, query, where, serverTimestamp, orderBy, limit
+  getFirestore, enableIndexedDbPersistence, collection, doc, addDoc, getDoc, getDocs, updateDoc, deleteDoc, onSnapshot, query, where, serverTimestamp, orderBy, limit
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -396,7 +396,13 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-
+enableIndexedDbPersistence(db).catch((err) => {
+  if (err.code === 'failed-precondition') {
+    console.warn('Offline persistence needs a single open tab.');
+  } else if (err.code === 'unimplemented') {
+    console.warn("This browser doesn't support offline persistence.");
+  }
+});
 /* ---------------- AUTH ---------------- */
 const loginScreen = document.getElementById('loginScreen');
 const whoScreen = document.getElementById('whoScreen');
