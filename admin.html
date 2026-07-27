@@ -197,6 +197,7 @@
 
   /* House Maps */
   #hmActiveImg.hm-blueprint{ filter:grayscale(1) contrast(2.1) brightness(1.25); }
+  #addCustPhotoImg.hm-blueprint{ filter:grayscale(1) contrast(2.1) brightness(1.25); }
   [data-hmtool].hm-tool-active{ background:var(--ink); color:#fff; border-color:var(--ink); }
   .hm-point{ cursor:grab; }
   .hm-point:active{ cursor:grabbing; }
@@ -685,10 +686,30 @@
             </div>
           </div>
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
-            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">House Photo (optional)</label>
-            <p style="font-size:12px; color:var(--slate); margin:0 0 8px;">Shared automatically with Routes and House Maps &mdash; one photo, kept in sync everywhere.</p>
+            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">House Photo, Measuring &amp; Areas to Light</label>
+            <p style="font-size:12px; color:var(--slate); margin:0 0 8px;">Upload a photo (a Google Maps/satellite screenshot works great), then drag on it to outline each section they want lit. Feet and price per section are calculated automatically, and the total feeds straight into Measured Feet and Total Price below &mdash; shared automatically with Routes and House Maps.</p>
             <input type="file" accept="image/*" id="addCustPhoto">
-            <div id="addCustPhotoThumb" style="margin-top:8px;"></div>
+            <div class="addcust-view-toggle" id="addCustViewToggle" style="display:none; gap:8px; margin:10px 0;">
+              <button type="button" class="btn btn-outline btn-sm" id="addCustViewOriginal" style="background:var(--ink); color:#fff;">Original Photo</button>
+              <button type="button" class="btn btn-outline btn-sm" id="addCustViewBlueprint">Blueprint View</button>
+            </div>
+            <div class="addcust-photo-wrap" id="addCustPhotoWrap" style="position:relative; display:none; max-width:480px; margin-bottom:10px; border-radius:10px; overflow:hidden; border:1px solid var(--line); cursor:crosshair; user-select:none;">
+              <img class="addcust-photo-img" id="addCustPhotoImg" style="width:100%; display:block; pointer-events:none;">
+              <div id="addCustHighlightLayer" style="position:absolute; inset:0;"></div>
+            </div>
+            <div id="addCustNewHighlightForm" style="display:none; background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:10px;">
+              <div class="form-grid-2">
+                <div class="form-row"><label>Section (e.g. Front of House, Full House, Left Side)</label><input type="text" id="addCustNewHLabel" placeholder="Front of House"></div>
+                <div class="form-row"><label>Linear Feet</label><input type="number" id="addCustNewHFeet" min="0" step="0.5" placeholder="40"></div>
+              </div>
+              <p id="addCustNewHCalc" style="font-size:13px; font-weight:600; color:var(--dusk); margin:4px 0 10px;"></p>
+              <button type="button" class="btn btn-gold btn-sm" id="addCustNewHAdd">Add This Section</button>
+              <button type="button" class="btn btn-outline btn-sm" id="addCustNewHCancel">Cancel</button>
+            </div>
+            <div id="addCustHighlightList"></div>
+            <div id="addCustHighlightTotal" style="font-weight:700; margin:10px 0;"></div>
+            <button type="button" class="btn btn-outline btn-sm" id="addCustUseTotalBtn" style="display:none;">Use This Total for Measured Feet &amp; Price</button>
+            <span id="addCustPhotoStatus" style="font-size:12px; color:var(--slate); display:block; margin-top:6px;"></span>
           </div>
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
             <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Which Part(s) of the House?</label>
@@ -5001,6 +5022,69 @@ async function uploadOneToCloudinary(file){
   return data.secure_url;
 }
 
+function hexToRgba(hex, alpha){
+  const h = hex.replace('#','');
+  const r = parseInt(h.substring(0,2),16), g = parseInt(h.substring(2,4),16), b = parseInt(h.substring(4,6),16);
+  return 'rgba('+r+','+g+','+b+','+alpha+')';
+}
+const HIGHLIGHT_BAKE_COLORS = ['#F4BE55','#E0574B','#2E6B3E','#4338CA','#F97316','#3E7A5B'];
+async function getHighlightedPhotoUrl(imageUrl, highlights, opts){
+  const result = await bakeHighlightsIntoPhoto(imageUrl, highlights, opts);
+  if(result instanceof Blob){
+    try{
+      return await uploadOneToCloudinary(result);
+    } catch(err){
+      return imageUrl;
+    }
+  }
+  return result;
+}
+async function bakeHighlightsIntoPhoto(imageUrl, highlights, opts){
+  if(!imageUrl || !highlights || !highlights.length) return imageUrl;
+  const showLetters = !(opts && opts.showLetters === false);
+  return new Promise(function(resolve){
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = function(){
+      try{
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        const fontSize = Math.max(14, Math.round(canvas.width * 0.018));
+        highlights.forEach(function(h, i){
+          const color = HIGHLIGHT_BAKE_COLORS[i % HIGHLIGHT_BAKE_COLORS.length];
+          const letter = String.fromCharCode(65 + (i % 26));
+          const x = h.x*canvas.width, y = h.y*canvas.height, w = h.w*canvas.width, hgt = h.h*canvas.height;
+          ctx.fillStyle = hexToRgba(color, 0.33);
+          ctx.fillRect(x, y, w, hgt);
+          ctx.lineWidth = Math.max(2, canvas.width*0.003);
+          ctx.strokeStyle = color;
+          ctx.strokeRect(x, y, w, hgt);
+          const label = showLetters ? (letter + ' — ' + (h.label||'')) : (h.label||'');
+          ctx.font = 'bold '+fontSize+'px sans-serif';
+          const padX = 6, padY = 4;
+          const textW = ctx.measureText(label).width;
+          ctx.fillStyle = color;
+          ctx.fillRect(x+2, y+2, textW+padX*2, fontSize+padY*2);
+          ctx.fillStyle = '#fff';
+          ctx.textBaseline = 'top';
+          ctx.fillText(label, x+2+padX, y+2+padY);
+        });
+        canvas.toBlob(function(blob){
+          if(!blob){ resolve(imageUrl); return; }
+          resolve(blob);
+        }, 'image/png');
+      } catch(err){
+        resolve(imageUrl);
+      }
+    };
+    img.onerror = function(){ resolve(imageUrl); };
+    img.src = imageUrl;
+  });
+}
+
 document.getElementById('galleryBulkUploadBtn').addEventListener('click', async function(){
   const fileInput = document.getElementById('galleryFileBulk');
   const files = Array.from(fileInput.files || []);
@@ -5560,18 +5644,144 @@ function pitchPercent(angleDeg){
   return Math.round(Math.tan(a * Math.PI / 180) * 100);
 }
 let addCustPhotoUrl = '';
+let addCustHighlights = [];
+const ACH_COLORS = ['#F4BE55','#E0574B','#2E6B3E','#4338CA','#F97316','#3E7A5B'];
+function renderAddCustHighlights(){
+  const layer = document.getElementById('addCustHighlightLayer');
+  const listEl = document.getElementById('addCustHighlightList');
+  const totalEl = document.getElementById('addCustHighlightTotal');
+  const useBtn = document.getElementById('addCustUseTotalBtn');
+  layer.innerHTML = addCustHighlights.map(function(h, i){
+    const color = ACH_COLORS[i % ACH_COLORS.length];
+    const letter = String.fromCharCode(65 + (i % 26));
+    return '<div style="position:absolute; left:'+(h.x*100)+'%; top:'+(h.y*100)+'%; width:'+(h.w*100)+'%; height:'+(h.h*100)+'%; background:'+color+'55; border:2px solid '+color+'; box-sizing:border-box;">'+
+      '<span style="position:absolute; top:2px; left:2px; background:'+color+'; color:#fff; font-size:10.5px; font-weight:700; padding:1px 6px; border-radius:4px;">'+letter+' &mdash; '+esc(h.label)+'</span>'+
+    '</div>';
+  }).join('');
+  listEl.innerHTML = addCustHighlights.map(function(h, i){
+    const color = ACH_COLORS[i % ACH_COLORS.length];
+    const letter = String.fromCharCode(65 + (i % 26));
+    const feetPart = h.feet ? h.feet+' ft &times; '+fmtMoney(perFootRate)+'/ft = ' : '';
+    return '<div class="row-item" style="padding:8px 12px;">'+
+      '<div class="rmain"><span style="display:inline-block; width:10px; height:10px; background:'+color+'; border-radius:3px; margin-right:6px;"></span><strong>'+letter+'</strong> &mdash; '+esc(h.label)+' &mdash; '+feetPart+fmtMoney(h.price)+'</div>'+
+      '<div class="row-actions"><button type="button" class="icon-btn danger addcust-remove-highlight" data-idx="'+i+'">'+trashIcon()+'</button></div>'+
+    '</div>';
+  }).join('');
+  listEl.querySelectorAll('.addcust-remove-highlight').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      addCustHighlights.splice(Number(btn.dataset.idx), 1);
+      renderAddCustHighlights();
+    });
+  });
+  const total = addCustHighlights.reduce((s,h) => s + (Number(h.price)||0), 0);
+  totalEl.textContent = addCustHighlights.length ? 'Total from Sections: ' + fmtMoney(total) : '';
+  useBtn.style.display = addCustHighlights.length ? 'inline-flex' : 'none';
+}
+document.getElementById('addCustViewOriginal').addEventListener('click', function(){
+  const img = document.getElementById('addCustPhotoImg');
+  img.classList.remove('hm-blueprint');
+  this.style.background = 'var(--ink)'; this.style.color = '#fff';
+  const bp = document.getElementById('addCustViewBlueprint');
+  bp.style.background = ''; bp.style.color = '';
+});
+document.getElementById('addCustViewBlueprint').addEventListener('click', function(){
+  const img = document.getElementById('addCustPhotoImg');
+  img.classList.add('hm-blueprint');
+  this.style.background = 'var(--ink)'; this.style.color = '#fff';
+  const orig = document.getElementById('addCustViewOriginal');
+  orig.style.background = ''; orig.style.color = '';
+});
 document.getElementById('addCustPhoto').addEventListener('change', async function(e){
   const file = e.target.files[0];
   if(!file) return;
-  const thumbEl = document.getElementById('addCustPhotoThumb');
-  thumbEl.innerHTML = '<span style="font-size:12.5px; color:var(--slate);">Uploading…</span>';
+  const statusEl = document.getElementById('addCustPhotoStatus');
+  statusEl.textContent = 'Uploading…';
   try{
     addCustPhotoUrl = await uploadOneToCloudinary(file);
-    thumbEl.innerHTML = '<img src="'+esc(addCustPhotoUrl)+'" style="max-width:220px; border-radius:8px; border:1px solid var(--line);">';
+    const img = document.getElementById('addCustPhotoImg');
+    img.src = addCustPhotoUrl;
+    img.classList.remove('hm-blueprint');
+    document.getElementById('addCustPhotoWrap').style.display = 'block';
+    document.getElementById('addCustViewToggle').style.display = 'flex';
+    document.getElementById('addCustViewOriginal').style.background = 'var(--ink)';
+    document.getElementById('addCustViewOriginal').style.color = '#fff';
+    statusEl.textContent = 'Photo uploaded — drag on it to outline a section.';
   } catch(err){
-    thumbEl.innerHTML = '<span style="font-size:12.5px; color:var(--ember);">Upload failed — try again.</span>';
+    statusEl.textContent = 'Upload failed — try again.';
     addCustPhotoUrl = '';
   }
+});
+(function(){
+  const photoWrap = document.getElementById('addCustPhotoWrap');
+  const layer = document.getElementById('addCustHighlightLayer');
+  const newForm = document.getElementById('addCustNewHighlightForm');
+  let dragStart = null, dragBox = null;
+  photoWrap.addEventListener('mousedown', function(e){
+    if(e.target.closest('#addCustHighlightLayer') && e.target !== layer) return;
+    const rect = photoWrap.getBoundingClientRect();
+    dragStart = {x: (e.clientX-rect.left)/rect.width, y: (e.clientY-rect.top)/rect.height};
+    dragBox = document.createElement('div');
+    dragBox.style.cssText = 'position:absolute; border:2px dashed var(--gold-dim); background:rgba(244,190,85,.25); pointer-events:none;';
+    layer.appendChild(dragBox);
+  });
+  photoWrap.addEventListener('mousemove', function(e){
+    if(!dragStart) return;
+    const rect = photoWrap.getBoundingClientRect();
+    const curX = (e.clientX-rect.left)/rect.width, curY = (e.clientY-rect.top)/rect.height;
+    const x = Math.min(dragStart.x, curX), y = Math.min(dragStart.y, curY);
+    const w = Math.abs(curX - dragStart.x), h = Math.abs(curY - dragStart.y);
+    dragBox.style.left = (x*100)+'%'; dragBox.style.top = (y*100)+'%';
+    dragBox.style.width = (w*100)+'%'; dragBox.style.height = (h*100)+'%';
+    dragBox.dataset.x = x; dragBox.dataset.y = y; dragBox.dataset.w = w; dragBox.dataset.h = h;
+  });
+  photoWrap.addEventListener('mouseup', function(){
+    if(!dragStart) return;
+    dragStart = null;
+    if(!dragBox) return;
+    const w = Number(dragBox.dataset.w)||0, h = Number(dragBox.dataset.h)||0;
+    if(w < 0.03 || h < 0.03){ dragBox.remove(); dragBox = null; return; }
+    newForm.style.display = 'block';
+    newForm.dataset.x = dragBox.dataset.x;
+    newForm.dataset.y = dragBox.dataset.y;
+    newForm.dataset.w = dragBox.dataset.w;
+    newForm.dataset.h = dragBox.dataset.h;
+    document.getElementById('addCustNewHFeet').value = '';
+    document.getElementById('addCustNewHCalc').textContent = perFootRate ? 'At '+fmtMoney(perFootRate)+'/ft: $0.00' : 'Set a per-foot rate under Finance > Per Foot Pricing first.';
+    document.getElementById('addCustNewHLabel').focus();
+  });
+  document.getElementById('addCustNewHFeet').addEventListener('input', function(){
+    const feet = Number(this.value) || 0;
+    document.getElementById('addCustNewHCalc').textContent = perFootRate
+      ? 'At '+fmtMoney(perFootRate)+'/ft: '+fmtMoney(feet * perFootRate)
+      : 'Set a per-foot rate under Finance > Per Foot Pricing first.';
+  });
+  document.getElementById('addCustNewHAdd').addEventListener('click', function(){
+    const label = document.getElementById('addCustNewHLabel').value.trim();
+    const feet = Number(document.getElementById('addCustNewHFeet').value) || 0;
+    const price = feet * perFootRate;
+    if(!label) return;
+    addCustHighlights.push({
+      label: label, feet: feet, price: price,
+      x: Number(newForm.dataset.x), y: Number(newForm.dataset.y),
+      w: Number(newForm.dataset.w), h: Number(newForm.dataset.h)
+    });
+    document.getElementById('addCustNewHLabel').value = '';
+    document.getElementById('addCustNewHFeet').value = '';
+    newForm.style.display = 'none';
+    if(dragBox){ dragBox.remove(); dragBox = null; }
+    renderAddCustHighlights();
+  });
+  document.getElementById('addCustNewHCancel').addEventListener('click', function(){
+    newForm.style.display = 'none';
+    if(dragBox){ dragBox.remove(); dragBox = null; }
+  });
+})();
+document.getElementById('addCustUseTotalBtn').addEventListener('click', function(){
+  const totalFeet = addCustHighlights.reduce((s,h) => s + (Number(h.feet)||0), 0);
+  const totalPrice = addCustHighlights.reduce((s,h) => s + (Number(h.price)||0), 0);
+  document.getElementById('addCustFeet').value = totalFeet;
+  document.getElementById('addCustPrice').value = totalPrice.toFixed(2);
+  toast('Filled in Measured Feet and Total Price from your sections.');
 });
 document.getElementById('addCustFeet').addEventListener('input', function(){
   const feet = Number(this.value) || 0;
@@ -5621,11 +5831,16 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
   try{
     const fullAddress = buildFullAddress(street, city, zip);
     const coords = await geocodeAddress(fullAddress);
+    if(addCustHighlights.length){
+      statusEl.textContent = 'Saving highlighted photo…';
+      addCustPhotoUrl = await getHighlightedPhotoUrl(addCustPhotoUrl, addCustHighlights, {showLetters: false});
+      statusEl.textContent = 'Locating address…';
+    }
     const newAddrRef = await addDoc(collection(db,'jobAddresses'), {
       street: street, city: city, state: 'UT', zip: zip,
       address: fullAddress, difficulty: difficulty, name: name, phone: phone, email: email,
       phone2: phone2, email2: email2, lightsDescription: lightsDescription, houseAreas: houseAreas,
-      housePhotoUrl: addCustPhotoUrl, portalToken: generatePortalToken(), installPreference: installPreference,
+      housePhotoUrl: addCustPhotoUrl, houseHighlights: addCustHighlights, portalToken: generatePortalToken(), installPreference: installPreference,
       lat: coords.lat, lng: coords.lng, needsLightBuild: !!lightsDescription,
       scheduled: false, createdAt: serverTimestamp()
     });
@@ -5658,8 +5873,12 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
     document.getElementById('addCustInstallPref').value = 'Normal Schedule';
     Array.from(document.getElementById('addCustAreas').options).forEach(opt => opt.selected = false);
     document.getElementById('addCustPhoto').value = '';
-    document.getElementById('addCustPhotoThumb').innerHTML = '';
+    document.getElementById('addCustPhotoWrap').style.display = 'none';
+    document.getElementById('addCustViewToggle').style.display = 'none';
+    document.getElementById('addCustPhotoStatus').textContent = '';
     addCustPhotoUrl = '';
+    addCustHighlights = [];
+    renderAddCustHighlights();
     statusEl.textContent = 'Added!' + invoiceMsg;
     setTimeout(function(){ statusEl.textContent = ''; }, 3000);
   } catch(err){
@@ -6235,6 +6454,10 @@ function attachAddressRowHandlers(container){
         const newLights = readLightsPicker(panel, 'hd-lights');
         const newAreas = Array.from(panel.querySelectorAll('.hd-area-check:checked')).map(cb => cb.value);
         const diffSelect = document.querySelector('.diff-select[data-setdiff="'+id+'"]');
+        if(currentHighlights.length){
+          statusEl2.textContent = 'Saving highlighted photo…';
+          currentPhotoUrl = await getHighlightedPhotoUrl(currentPhotoUrl, currentHighlights);
+        }
         const updates = {
           phone2: newPhone2, email2: newEmail2, lightsDescription: newLights, houseAreas: newAreas,
           housePhotoUrl: currentPhotoUrl, houseHighlights: currentHighlights
@@ -6560,7 +6783,12 @@ function setupEmailTemplateExtras(extrasContainerId, textareaId, opts){
   const supportsAmount = opts.supportsAmount !== false;
   const container = document.getElementById(extrasContainerId);
   if(!container) return;
-  const tokenList = ['{{name}}'].concat(supportsAmount ? ['{{amount}}'] : []).concat(['{{portal_link}}','{{messages_link}}','{{venmo_link}}']);
+  const plainTokens = ['{{name}}'].concat(supportsAmount ? ['{{amount}}'] : []);
+  const linkTokens = [
+    {label: 'Member Portal', token: 'portal_link'},
+    {label: 'Send a Message', token: 'messages_link'},
+    {label: 'Pay with Venmo', token: 'venmo_link'}
+  ];
   container.innerHTML =
     '<div style="margin-top:12px; padding-top:12px; border-top:1px solid var(--line);">'+
       '<div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px;">'+
@@ -6579,9 +6807,13 @@ function setupEmailTemplateExtras(extrasContainerId, textareaId, opts){
         '<button type="button" class="btn btn-outline btn-sm insert-link-btn">Insert Link at Cursor</button>'+
       '</div>'+
       '<p style="font-size:11.5px; color:var(--slate); margin:6px 0 0;">Puts a clickable link right in your sentence, wherever your cursor is &mdash; e.g. "you can message us here" with just "here" as the link.</p>'+
-      '<div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:10px;">'+
-        '<span style="font-size:11.5px; color:var(--slate);">Copy a token to paste anywhere in your message:</span>'+
-        tokenList.map(function(t){ return '<button type="button" class="btn btn-outline btn-sm copy-token-btn" data-token="'+t+'" style="font-family:monospace; font-size:12px;">'+t+'</button>'; }).join('')+
+      '<div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:12px;">'+
+        '<span style="font-size:11.5px; color:var(--slate);">Or copy a link snippet to paste yourself:</span>'+
+        linkTokens.map(function(lt){ return '<button type="button" class="btn btn-outline btn-sm copy-token-btn" data-token=\'<a href="{{'+lt.token+'}}">here</a>\' style="font-size:12px;">'+lt.label+'</button>'; }).join('')+
+      '</div>'+
+      '<div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:8px;">'+
+        '<span style="font-size:11.5px; color:var(--slate);">Copy a plain token:</span>'+
+        plainTokens.map(function(t){ return '<button type="button" class="btn btn-outline btn-sm copy-token-btn" data-token="'+t+'" style="font-family:monospace; font-size:12px;">'+t+'</button>'; }).join('')+
         '<span class="copy-token-status" style="font-size:12px; color:var(--slate);"></span>'+
       '</div>'+
       (supportsAmount ? '' : '<p style="font-size:11.5px; color:var(--slate); margin:6px 0 0;">No {{amount}} here &mdash; this tool isn\'t tied to an invoice, so there\'s no balance to fill in.</p>')+
