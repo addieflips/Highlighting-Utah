@@ -6146,7 +6146,7 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
   }
   // Validate any amounts that were actually typed in before starting
   for(let i = 0; i < amounts.length; i++){
-    if(amounts[i] && isNaN(Number(amounts[i]))){
+    if(amounts[i] && isNaN(Number(amounts[i].replace(/[,$]/g,'')))){
       statusEl.textContent = 'Row ' + (i+1) + ' of Payment Amount ("' + amounts[i] + '") isn\'t a number — enter just digits, like 650.';
       return;
     }
@@ -6165,7 +6165,7 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
     const enrolledDate = dateTypedIn ? Timestamp.fromDate(new Date(dateTypedIn)) : null;
     const colors = rbNormalizeColors(colorsRaw[i] || '');
     const amountTypedIn = amounts[i] || '';
-    const price = amountTypedIn ? Number(amountTypedIn) : null;
+    const price = amountTypedIn ? Number(amountTypedIn.replace(/[,$]/g,'')) : null;
     try{
       const fullAddress = buildFullAddress(street, city, zip);
       const coords = await geocodeAddress(fullAddress);
