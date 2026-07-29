@@ -834,6 +834,11 @@
                 <textarea id="rbAmountsArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="650&#10;780&#10;(blank if unknown)"></textarea>
                 <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">Fill this in and an invoice is created/updated automatically under that row's phone number &mdash; no need for the Invoice Fields box below unless you're billing someone to a different phone.</p>
               </div>
+              <div class="form-row">
+                <label>Install Month (optional) <span class="bulk-count" id="rbCountInstallPref">0 rows</span></label>
+                <textarea id="rbInstallPrefArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="October&#10;November&#10;(blank = Normal Schedule)"></textarea>
+                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">Type October or November for which month they're installed &mdash; not case-sensitive. Leave blank for Normal Schedule.</p>
+              </div>
             </div>
             <button type="button" class="btn btn-gold" id="rbImportBtn" style="margin-top:6px;">Import / Update Customers</button>
             <span id="rbImportStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
@@ -6095,15 +6100,21 @@ function wireBulkCounts(areaIds, anchorId, countIdMap){
 }
 
 // --- Routes Bulk Update ---
-const rbAreaIds = ['rbNamesArea','rbPhonesArea','rbEmailsArea','rbStreetsArea','rbCitiesArea','rbStatesArea','rbZipsArea','rbDatesArea','rbColorsArea','rbAmountsArea'];
+const rbAreaIds = ['rbNamesArea','rbPhonesArea','rbEmailsArea','rbStreetsArea','rbCitiesArea','rbStatesArea','rbZipsArea','rbDatesArea','rbColorsArea','rbAmountsArea','rbInstallPrefArea'];
 const rbCountIds = {
   rbNamesArea:'rbCountNames', rbPhonesArea:'rbCountPhones', rbEmailsArea:'rbCountEmails',
   rbStreetsArea:'rbCountStreets', rbCitiesArea:'rbCountCities', rbStatesArea:'rbCountStates', rbZipsArea:'rbCountZips', rbDatesArea:'rbCountDates',
-  rbColorsArea:'rbCountColors', rbAmountsArea:'rbCountAmounts'
+  rbColorsArea:'rbCountColors', rbAmountsArea:'rbCountAmounts', rbInstallPrefArea:'rbCountInstallPref'
 };
-const RB_LIGHT_COLOR_OPTIONS = ['Warm White','Pure White','Red','Green','Blue'];
+const RB_INSTALL_PREF_OPTIONS = ['Normal Schedule','October','November','November - Before Thanksgiving','After Thanksgiving'];
+function rbNormalizeInstallPref(raw){
+  if(!raw) return '';
+  const match = RB_INSTALL_PREF_OPTIONS.find(function(opt){ return opt.toLowerCase() === raw.trim().toLowerCase(); });
+  return match || raw.trim();
+}
 function rbNormalizeColors(raw){
   if(!raw) return [];
+  const RB_LIGHT_COLOR_OPTIONS = ['Warm White','Pure White','Red','Green','Blue'];
   return raw.split(',').map(function(c){ return c.trim(); }).filter(Boolean).map(function(c){
     const match = RB_LIGHT_COLOR_OPTIONS.find(function(opt){ return opt.toLowerCase() === c.toLowerCase(); });
     return match || c;
@@ -6124,11 +6135,12 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
   const dates = alignBulkRows(document.getElementById('rbDatesArea').value.split('\n').map(s => s.trim()), streets.length);
   const colorsRaw = alignBulkRows(document.getElementById('rbColorsArea').value.split('\n').map(s => s.trim()), streets.length);
   const amounts = alignBulkRows(document.getElementById('rbAmountsArea').value.split('\n').map(s => s.trim()), streets.length);
+  const installPrefRaw = alignBulkRows(document.getElementById('rbInstallPrefArea').value.split('\n').map(s => s.trim()), streets.length);
 
   const checks = [
     ['Name', names],
     ['Phone Number', phones], ['Email', emails], ['City', cities], ['State', states], ['Zip Code', zips], ['Date Added', dates],
-    ['Light Color(s)', colorsRaw], ['Payment Amount', amounts]
+    ['Light Color(s)', colorsRaw], ['Payment Amount', amounts], ['Install Month', installPrefRaw]
   ];
   for(const [label, arr] of checks){
     const nonEmptyCount = arr.filter(Boolean).length;
@@ -6164,6 +6176,7 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
     const dateTypedIn = dates[i] || '';
     const enrolledDate = dateTypedIn ? Timestamp.fromDate(new Date(dateTypedIn)) : null;
     const colors = rbNormalizeColors(colorsRaw[i] || '');
+    const installPref = rbNormalizeInstallPref(installPrefRaw[i] || '');
     const amountTypedIn = amounts[i] || '';
     const price = amountTypedIn ? Number(amountTypedIn.replace(/[,$]/g,'')) : null;
     try{
@@ -6177,6 +6190,7 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
         if(email) updates.email = email;
         if(enrolledDate) updates.createdAt = enrolledDate;
         if(colors.length) updates.lightColors = colors;
+        if(installPref) updates.installPreference = installPref;
         await updateDoc(doc(db,'jobAddresses',existing.id), updates);
         updated++;
       } else {
@@ -6184,6 +6198,7 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
           street: street, city: city, state: state, zip: zip,
           address: fullAddress, name: name, phone: phone, email: email, difficulty: 'Unrated',
           lightColors: colors,
+          installPreference: installPref || 'Normal Schedule',
           portalToken: generatePortalToken(),
           lat: coords.lat, lng: coords.lng,
           scheduled: false, createdAt: enrolledDate || serverTimestamp()
