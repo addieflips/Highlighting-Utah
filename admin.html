@@ -6072,7 +6072,13 @@ document.getElementById('goToBulkUpdatesBtn').addEventListener('click', function
   setTimeout(function(){ document.querySelector('#custSectionTabs [data-custtab="bulk"]').click(); }, 50);
 });
 function countRows(text){
-  return text.split('\n').filter(function(l){ return l.trim() !== ''; }).length;
+  return text.trim() === '' ? 0 : text.split('\n').length;
+}
+function alignBulkRows(arr, targetLen){
+  const out = arr.slice();
+  while(out.length < targetLen) out.push('');
+  while(out.length > targetLen && !out[out.length-1]) out.pop();
+  return out;
 }
 function wireBulkCounts(areaIds, anchorId, countIdMap){
   function update(){
@@ -6106,21 +6112,21 @@ function rbNormalizeColors(raw){
 wireBulkCounts(rbAreaIds, 'rbStreetsArea', rbCountIds);
 document.getElementById('rbImportBtn').addEventListener('click', async function(){
   const statusEl = document.getElementById('rbImportStatus');
-  const names = document.getElementById('rbNamesArea').value.split('\n').map(s => s.trim());
-  const phones = document.getElementById('rbPhonesArea').value.split('\n').map(s => s.trim());
-  const emails = document.getElementById('rbEmailsArea').value.split('\n').map(s => s.trim());
   const streets = document.getElementById('rbStreetsArea').value.split('\n').map(s => s.trim()).filter(Boolean);
-  const cities = document.getElementById('rbCitiesArea').value.split('\n').map(s => s.trim());
-  const states = document.getElementById('rbStatesArea').value.split('\n').map(s => s.trim());
-  const zips = document.getElementById('rbZipsArea').value.split('\n').map(s => s.trim());
-  const dates = document.getElementById('rbDatesArea').value.split('\n').map(s => s.trim());
-  const colorsRaw = document.getElementById('rbColorsArea').value.split('\n').map(s => s.trim());
-  const amounts = document.getElementById('rbAmountsArea').value.split('\n').map(s => s.trim());
-
   if(!streets.length){ statusEl.textContent = 'Paste at least the Street Address column.'; return; }
 
+  const names = alignBulkRows(document.getElementById('rbNamesArea').value.split('\n').map(s => s.trim()), streets.length);
+  const phones = alignBulkRows(document.getElementById('rbPhonesArea').value.split('\n').map(s => s.trim()), streets.length);
+  const emails = alignBulkRows(document.getElementById('rbEmailsArea').value.split('\n').map(s => s.trim()), streets.length);
+  const cities = alignBulkRows(document.getElementById('rbCitiesArea').value.split('\n').map(s => s.trim()), streets.length);
+  const states = alignBulkRows(document.getElementById('rbStatesArea').value.split('\n').map(s => s.trim()), streets.length);
+  const zips = alignBulkRows(document.getElementById('rbZipsArea').value.split('\n').map(s => s.trim()), streets.length);
+  const dates = alignBulkRows(document.getElementById('rbDatesArea').value.split('\n').map(s => s.trim()), streets.length);
+  const colorsRaw = alignBulkRows(document.getElementById('rbColorsArea').value.split('\n').map(s => s.trim()), streets.length);
+  const amounts = alignBulkRows(document.getElementById('rbAmountsArea').value.split('\n').map(s => s.trim()), streets.length);
+
   const checks = [
-    ['Name', document.getElementById('rbNamesArea').value.split('\n').map(s => s.trim())],
+    ['Name', names],
     ['Phone Number', phones], ['Email', emails], ['City', cities], ['State', states], ['Zip Code', zips], ['Date Added', dates],
     ['Light Color(s)', colorsRaw], ['Payment Amount', amounts]
   ];
@@ -6232,15 +6238,15 @@ const ibCountIds = { ibNamesArea:'ibCountNames', ibPhonesArea:'ibCountPhones', i
 wireBulkCounts(ibAreaIds, 'ibPhonesArea', ibCountIds);
 document.getElementById('ibImportBtn').addEventListener('click', async function(){
   const statusEl = document.getElementById('ibImportStatus');
-  const names = document.getElementById('ibNamesArea').value.split('\n').map(s => s.trim());
   const phones = document.getElementById('ibPhonesArea').value.split('\n').map(s => s.trim()).filter(Boolean);
-  const emails = document.getElementById('ibEmailsArea').value.split('\n').map(s => s.trim());
-  const amounts = document.getElementById('ibAmountsArea').value.split('\n').map(s => s.trim());
-
   if(!phones.length){ statusEl.textContent = 'Paste at least the Phone Number column.'; return; }
 
+  const names = alignBulkRows(document.getElementById('ibNamesArea').value.split('\n').map(s => s.trim()), phones.length);
+  const emails = alignBulkRows(document.getElementById('ibEmailsArea').value.split('\n').map(s => s.trim()), phones.length);
+  const amounts = alignBulkRows(document.getElementById('ibAmountsArea').value.split('\n').map(s => s.trim()), phones.length);
+
   const checks = [
-    ['Name', document.getElementById('ibNamesArea').value.split('\n').map(s => s.trim())],
+    ['Name', names],
     ['Email', emails], ['Payment Amount', amounts]
   ];
   for(const [label, arr] of checks){
