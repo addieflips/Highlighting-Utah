@@ -829,6 +829,11 @@
                 <textarea id="rbColorsArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="Warm White&#10;Red, Green&#10;(blank if unknown)"></textarea>
                 <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">Same 5 options as the Add Customer form &mdash; Warm White, Pure White, Red, Green, Blue. Separate multiple colors on one line with a comma.</p>
               </div>
+              <div class="form-row">
+                <label>Payment Amount ($, optional) <span class="bulk-count" id="rbCountAmounts">0 rows</span></label>
+                <textarea id="rbAmountsArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="650&#10;780&#10;(blank if unknown)"></textarea>
+                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">Fill this in and an invoice is created/updated automatically under that row's phone number &mdash; no need for the Invoice Fields box below unless you're billing someone to a different phone.</p>
+              </div>
             </div>
             <button type="button" class="btn btn-gold" id="rbImportBtn" style="margin-top:6px;">Import / Update Customers</button>
             <span id="rbImportStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
@@ -1552,7 +1557,7 @@ Highlighting Utah</textarea>
         <div class="card" style="background:#E6F2EA; border-color:#b8d9c2;">
             <h3>&#127876; Bulk Automation</h3>
             <p style="font-size:13px;">Write a simple message and send it to every customer at once &mdash; a season announcement, a heads up, whatever you need. Not tied to billing or an amount.</p>
-            <div class="form-row"><label>Message (use {{name}} &mdash; a link to their portal is added automatically, don't add your own links)</label>
+            <div class="form-row"><label>Message (use {{name}} and {{amount}} &mdash; a link to their portal is added automatically, don't add your own links)</label>
               <textarea id="bulkUpdateEmailTemplate" rows="5">Hi {{name}} 🎄
 
 It's almost time for the Christmas lighting season! Tap the button below to update your info, check your invoice, or send us a message anytime.</textarea>
@@ -2917,10 +2922,10 @@ document.getElementById('loadBulkAutoCopyListBtn').addEventListener('click', fun
       const isOpen = panel.style.display !== 'none';
       if(isOpen){ panel.style.display = 'none'; return; }
       const includeVenmo = document.getElementById('bulkAutoIncludeVenmo').checked;
-      const inv = includeVenmo ? allInvoicesCache.find(i => i.data.phone === d.phone) : null;
+      const inv = allInvoicesCache.find(i => i.data.phone === d.phone);
       const amount = inv ? balanceDueAmount(inv.data) : 0;
       const template = document.getElementById('bulkUpdateEmailTemplate').value;
-      const message = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, d.name||'there'), d.phone, amount) +
+      const message = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, d.name||'there').replace(/\{\{amount\}\}/g, fmtMoney(amount)), d.phone, amount) +
         await buildOutgoingEmailFooter(d.phone, amount, {
           includePortal: document.getElementById('bulkAutoIncludePortal').checked,
           includeVenmo: includeVenmo,
@@ -3000,11 +3005,11 @@ document.getElementById('sendBulkUpdateEmailBtn').addEventListener('click', asyn
   let sent = 0, failed = 0;
   for(const item of withEmail){
     const d = item.data;
-    const inv = includeVenmo ? allInvoicesCache.find(i => i.data.phone === d.phone) : null;
+    const inv = allInvoicesCache.find(i => i.data.phone === d.phone);
     const amount = inv ? balanceDueAmount(inv.data) : 0;
     const includeMessages = document.getElementById('bulkAutoIncludeMessages').checked;
     const footer = await buildOutgoingEmailFooter(d.phone, amount, {includePortal: includePortal, includeVenmo: includeVenmo, includeMessages: includeMessages});
-    const message = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, d.name || 'there'), d.phone, amount) + footer;
+    const message = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, d.name || 'there').replace(/\{\{amount\}\}/g, fmtMoney(amount)), d.phone, amount) + footer;
     statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + withEmail.length + '…';
     try{
       await emailjs.send(serviceId, templateId, {
@@ -3030,13 +3035,13 @@ document.getElementById('bulkAutoTestBtn').addEventListener('click', async funct
   try{
     const template = document.getElementById('bulkUpdateEmailTemplate').value;
     const includeVenmo = document.getElementById('bulkAutoIncludeVenmo').checked;
-    const testAmount = includeVenmo ? 100 : 0;
+    const testAmount = 100;
     const footer = await buildOutgoingEmailFooter('8015550123', testAmount, {
       includePortal: document.getElementById('bulkAutoIncludePortal').checked,
       includeVenmo: includeVenmo,
       includeMessages: document.getElementById('bulkAutoIncludeMessages').checked
     });
-    const message = '[TEST EMAIL — sample data below]\n\n' + await resolveLinkTokens(template.replace(/\{\{name\}\}/g, 'Test Customer'), '8015550123', testAmount) + footer;
+    const message = '[TEST EMAIL — sample data below]\n\n' + await resolveLinkTokens(template.replace(/\{\{name\}\}/g, 'Test Customer').replace(/\{\{amount\}\}/g, fmtMoney(testAmount)), '8015550123', testAmount) + footer;
     emailjs.init(publicKey);
     await emailjs.send(serviceId, templateId, {
       to_email: testAddress, to_name: 'Test Customer', message: message
@@ -3312,7 +3317,7 @@ function initData(){
   loadSavedEmailTemplates();
   setupEmailTemplateExtras('quickEmailTemplateExtras', 'quickEmailTemplate');
   setupEmailTemplateExtras('seasonEmailTemplateExtras', 'seasonEmailTemplate');
-  setupEmailTemplateExtras('bulkAutoTemplateExtras', 'bulkUpdateEmailTemplate', {supportsAmount: false});
+  setupEmailTemplateExtras('bulkAutoTemplateExtras', 'bulkUpdateEmailTemplate');
   loadInventory();
   loadScheduledRoutes();
   loadTimeLogs();
@@ -6084,11 +6089,11 @@ function wireBulkCounts(areaIds, anchorId, countIdMap){
 }
 
 // --- Routes Bulk Update ---
-const rbAreaIds = ['rbNamesArea','rbPhonesArea','rbEmailsArea','rbStreetsArea','rbCitiesArea','rbStatesArea','rbZipsArea','rbDatesArea','rbColorsArea'];
+const rbAreaIds = ['rbNamesArea','rbPhonesArea','rbEmailsArea','rbStreetsArea','rbCitiesArea','rbStatesArea','rbZipsArea','rbDatesArea','rbColorsArea','rbAmountsArea'];
 const rbCountIds = {
   rbNamesArea:'rbCountNames', rbPhonesArea:'rbCountPhones', rbEmailsArea:'rbCountEmails',
   rbStreetsArea:'rbCountStreets', rbCitiesArea:'rbCountCities', rbStatesArea:'rbCountStates', rbZipsArea:'rbCountZips', rbDatesArea:'rbCountDates',
-  rbColorsArea:'rbCountColors'
+  rbColorsArea:'rbCountColors', rbAmountsArea:'rbCountAmounts'
 };
 const RB_LIGHT_COLOR_OPTIONS = ['Warm White','Pure White','Red','Green','Blue'];
 function rbNormalizeColors(raw){
@@ -6110,13 +6115,14 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
   const zips = document.getElementById('rbZipsArea').value.split('\n').map(s => s.trim());
   const dates = document.getElementById('rbDatesArea').value.split('\n').map(s => s.trim());
   const colorsRaw = document.getElementById('rbColorsArea').value.split('\n').map(s => s.trim());
+  const amounts = document.getElementById('rbAmountsArea').value.split('\n').map(s => s.trim());
 
   if(!streets.length){ statusEl.textContent = 'Paste at least the Street Address column.'; return; }
 
   const checks = [
     ['Name', document.getElementById('rbNamesArea').value.split('\n').map(s => s.trim())],
     ['Phone Number', phones], ['Email', emails], ['City', cities], ['State', states], ['Zip Code', zips], ['Date Added', dates],
-    ['Light Color(s)', colorsRaw]
+    ['Light Color(s)', colorsRaw], ['Payment Amount', amounts]
   ];
   for(const [label, arr] of checks){
     const nonEmptyCount = arr.filter(Boolean).length;
@@ -6132,8 +6138,24 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
       return;
     }
   }
+  // Validate any amounts that were actually typed in before starting
+  for(let i = 0; i < amounts.length; i++){
+    if(amounts[i] && isNaN(Number(amounts[i]))){
+      statusEl.textContent = 'Row ' + (i+1) + ' of Payment Amount ("' + amounts[i] + '") isn\'t a number — enter just digits, like 650.';
+      return;
+    }
+  }
+  const anyAmountTyped = amounts.some(Boolean);
+  if(anyAmountTyped){
+    for(let i = 0; i < streets.length; i++){
+      if(amounts[i] && !(phones[i] || '').replace(/\D/g,'')){
+        statusEl.textContent = 'Row ' + (i+1) + ' has a Payment Amount but no Phone Number — a phone is required to create that invoice.';
+        return;
+      }
+    }
+  }
 
-  let added = 0, updated = 0, failed = 0;
+  let added = 0, updated = 0, failed = 0, billed = 0;
   for(let i = 0; i < streets.length; i++){
     statusEl.textContent = 'Locating ' + (i+1) + ' of ' + streets.length + '…';
     const street = streets[i];
@@ -6146,6 +6168,8 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
     const dateTypedIn = dates[i] || '';
     const enrolledDate = dateTypedIn ? Timestamp.fromDate(new Date(dateTypedIn)) : null;
     const colors = rbNormalizeColors(colorsRaw[i] || '');
+    const amountTypedIn = amounts[i] || '';
+    const price = amountTypedIn ? Number(amountTypedIn) : null;
     try{
       const fullAddress = buildFullAddress(street, city, zip);
       const coords = await geocodeAddress(fullAddress);
@@ -6176,7 +6200,20 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
           const invUpdates = {};
           if(name) invUpdates.name = name;
           if(email) invUpdates.email = email;
+          if(price !== null){
+            const existingInv = invSnap.data();
+            invUpdates.install = price;
+            invUpdates.status = computeInvoiceStatus(price, existingInv.removal||0, existingInv.deposit||0);
+            billed++;
+          }
           if(Object.keys(invUpdates).length) await updateDoc(doc(db,'invoices',phone), invUpdates);
+        } else if(price !== null){
+          await setDoc(doc(db,'invoices',phone), {
+            name: name, phone: phone, email: email,
+            install: price, removal: 0, deposit: 0,
+            status: computeInvoiceStatus(price, 0, 0), priceReviewed: true, updatedAt: serverTimestamp()
+          }, {merge:true});
+          billed++;
         }
         await syncCustomerToOpenQuote(phone, {name: name, email: email});
       }
@@ -6184,7 +6221,7 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
       failed++;
     }
   }
-  statusEl.textContent = added + ' added, ' + updated + ' updated' + (failed ? ', ' + failed + ' failed' : '') + '.';
+  statusEl.textContent = added + ' added, ' + updated + ' updated' + (billed ? ', ' + billed + ' invoice(s) billed' : '') + (failed ? ', ' + failed + ' failed' : '') + '.';
   rbAreaIds.forEach(function(id){ document.getElementById(id).value = ''; });
   wireBulkCounts(rbAreaIds, 'rbStreetsArea', rbCountIds)();
 });
