@@ -2106,7 +2106,8 @@ document.getElementById('lookupBtn').addEventListener('click', function(){
   var contactRaw = document.getElementById('lookupPhone').value.trim();
   var lastNameInput = document.getElementById('lookupLastName').value.trim().toLowerCase();
   if(!contactRaw || !lastNameInput){ return; }
-  var newTab = window.open('', '_blank');
+  var newTab = null;
+  try{ newTab = window.open('', '_blank'); } catch(err){ newTab = null; }
   if(newTab) watchForPortalOutcome(newTab);
   if(contactRaw.indexOf('@') !== -1){
     var emailLower = contactRaw.toLowerCase();
