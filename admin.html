@@ -6151,17 +6151,7 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
       return;
     }
   }
-  const anyAmountTyped = amounts.some(Boolean);
-  if(anyAmountTyped){
-    for(let i = 0; i < streets.length; i++){
-      if(amounts[i] && !(phones[i] || '').replace(/\D/g,'')){
-        statusEl.textContent = 'Row ' + (i+1) + ' has a Payment Amount but no Phone Number — a phone is required to create that invoice.';
-        return;
-      }
-    }
-  }
-
-  let added = 0, updated = 0, failed = 0, billed = 0;
+  let added = 0, updated = 0, failed = 0, billed = 0, noPhoneNoInvoice = 0;
   for(let i = 0; i < streets.length; i++){
     statusEl.textContent = 'Locating ' + (i+1) + ' of ' + streets.length + '…';
     const street = streets[i];
@@ -6200,6 +6190,7 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
         });
         added++;
       }
+      if(!phone && price !== null){ noPhoneNoInvoice++; }
       if(phone){
         const invSnap = await getDoc(doc(db,'invoices',phone));
         if(invSnap.exists()){
@@ -6227,7 +6218,7 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
       failed++;
     }
   }
-  statusEl.textContent = added + ' added, ' + updated + ' updated' + (billed ? ', ' + billed + ' invoice(s) billed' : '') + (failed ? ', ' + failed + ' failed' : '') + '.';
+  statusEl.textContent = added + ' added, ' + updated + ' updated' + (billed ? ', ' + billed + ' invoice(s) billed' : '') + (noPhoneNoInvoice ? ', ' + noPhoneNoInvoice + ' amount(s) skipped (no phone on file)' : '') + (failed ? ', ' + failed + ' failed' : '') + '.';
   rbAreaIds.forEach(function(id){ document.getElementById(id).value = ''; });
   wireBulkCounts(rbAreaIds, 'rbStreetsArea', rbCountIds)();
 });
