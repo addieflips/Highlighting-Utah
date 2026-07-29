@@ -1184,23 +1184,24 @@
     <div class="wrap">
       <div class="form-shell">
         <div id="lookupFormWrap">
-          <div class="form-row">
-            <label>Phone Number or Email on File <span class="req">*</span></label>
-            <input type="text" id="lookupPhone" placeholder="(801) 555-0123 or you@email.com">
+          <form id="lookupForm" target="_blank">
+            <div class="form-row">
+              <label>Phone Number or Email on File <span class="req">*</span></label>
+              <input type="text" id="lookupPhone" placeholder="(801) 555-0123 or you@email.com">
+            </div>
+            <div class="form-row">
+              <label>Last Name on File <span class="req">*</span></label>
+              <input type="text" id="lookupLastName" placeholder="Petersen">
+              <p class="form-note">Try demo number <strong>(801) 555-0123</strong> with whatever last name is on that invoice in your system to preview it.</p>
+            </div>
+            <button type="submit" class="btn btn-gold btn-block" id="lookupBtn">Sign In</button>
+          </form>
+          <div class="invoice-empty" id="loginNewTabMsg" style="display:none; text-align:center;">
+            <div style="font-size:16px; font-weight:600; margin-bottom:6px;">Opened in a new tab</div>
+            <p class="form-note" style="margin:0;">Your portal is open in the new tab &mdash; you can close this one.</p>
           </div>
-          <div class="form-row">
-            <label>Last Name on File <span class="req">*</span></label>
-            <input type="text" id="lookupLastName" placeholder="Petersen">
-            <p class="form-note">Try demo number <strong>(801) 555-0123</strong> with whatever last name is on that invoice in your system to preview it.</p>
-          </div>
-          <button class="btn btn-gold btn-block" id="lookupBtn">Sign In</button>
         </div>
         <div class="invoice-empty" id="lookupEmpty" style="display:none;">We couldn't find an account matching that phone number and last name. Please call or text us at <span id="lookupEmptyPhone">(801) 901-0011</span> and we'll help you out.</div>
-
-        <div class="invoice-empty" id="loginNewTabMsg" style="display:none; text-align:center;">
-          <div style="font-size:16px; font-weight:600; margin-bottom:6px;">Opened in a new tab</div>
-          <p class="form-note" style="margin:0;">Your portal is open in the new tab &mdash; you can close this one.</p>
-        </div>
 
         <div class="invoice-empty" id="rsvpConfirmCard" style="display:none; text-align:center;">
           <div id="rsvpConfirmMsg" style="font-size:16px; font-weight:600; margin-bottom:14px;"></div>
@@ -1718,10 +1719,16 @@ function navigate(){
     var params = new URLSearchParams(queryString);
     var token = params.get('token');
     var rsvp = params.get('rsvp');
+    var contactParam = params.get('c');
+    var lastNameParam = params.get('ln');
     if(token && (rsvp === 'yes' || rsvp === 'no') && typeof handleRsvpLink === 'function'){
       handleRsvpLink(token, rsvp);
     } else if(token && typeof loadPortalByToken === 'function'){
       loadPortalByToken(token);
+    } else if(contactParam && lastNameParam && typeof performSignInLookup === 'function'){
+      var lookupFormWrapEl = document.getElementById('lookupFormWrap');
+      if(lookupFormWrapEl) lookupFormWrapEl.style.display = 'none';
+      performSignInLookup(contactParam, lastNameParam.toLowerCase());
     }
   }
 }
@@ -2069,46 +2076,7 @@ async function hmLoadHouseMapForInvoice(phoneDigits){
     // If this lookup fails for any reason, just skip showing the house map — the rest of the invoice still works
   }
 }
-function watchForPortalOutcome(newTab){
-  if(!newTab){ return; }
-  var card = document.getElementById('invoiceCard');
-  var emptyEl = document.getElementById('lookupEmpty');
-  var quoteCard = document.getElementById('quoteReviewCard');
-  var resolvedMsg = document.getElementById('quoteResolvedMsg');
-  var attempts = 0;
-  var timer = setInterval(function(){
-    attempts++;
-    if(newTab.closed){
-      clearInterval(timer);
-      return;
-    }
-    if(card.classList.contains('show') && currentJobAddressData && currentJobAddressData.portalToken){
-      clearInterval(timer);
-      var token = currentJobAddressData.portalToken;
-      newTab.location.href = window.location.origin + window.location.pathname + '#/payment?token=' + token;
-      card.classList.remove('show');
-      document.getElementById('lookupFormWrap').style.display = 'none';
-      document.getElementById('loginNewTabMsg').style.display = 'block';
-      return;
-    }
-    if(emptyEl.style.display === 'block' || quoteCard.classList.contains('show') || resolvedMsg.style.display === 'block'){
-      clearInterval(timer);
-      newTab.close();
-      return;
-    }
-    if(attempts > 50){
-      clearInterval(timer);
-      newTab.close();
-    }
-  }, 100);
-}
-document.getElementById('lookupBtn').addEventListener('click', function(){
-  var contactRaw = document.getElementById('lookupPhone').value.trim();
-  var lastNameInput = document.getElementById('lookupLastName').value.trim().toLowerCase();
-  if(!contactRaw || !lastNameInput){ return; }
-  var newTab = null;
-  try{ newTab = window.open('', '_blank'); } catch(err){ newTab = null; }
-  if(newTab) watchForPortalOutcome(newTab);
+function performSignInLookup(contactRaw, lastNameInput){
   if(contactRaw.indexOf('@') !== -1){
     var emailLower = contactRaw.toLowerCase();
     getDocs(collection(db,'jobAddresses')).then(function(snap){
@@ -2144,6 +2112,14 @@ document.getElementById('lookupBtn').addEventListener('click', function(){
   }
   var raw = contactRaw.replace(/\D/g,'');
   renderCustomerInvoicePage(raw, {lastNameInput: lastNameInput});
+}
+document.getElementById('lookupForm').addEventListener('submit', function(e){
+  var contactRaw = document.getElementById('lookupPhone').value.trim();
+  var lastNameInput = document.getElementById('lookupLastName').value.trim();
+  if(!contactRaw || !lastNameInput){ e.preventDefault(); return; }
+  this.action = window.location.origin + window.location.pathname + '#/payment?c=' + encodeURIComponent(contactRaw) + '&ln=' + encodeURIComponent(lastNameInput);
+  document.getElementById('lookupForm').style.display = 'none';
+  document.getElementById('loginNewTabMsg').style.display = 'block';
 });
 function renderCustomerInvoicePage(raw, opts){
   opts = opts || {};
