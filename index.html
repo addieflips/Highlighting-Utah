@@ -1156,7 +1156,8 @@
             </select>
             <p class="form-note">Hold Ctrl (Windows) or Cmd (Mac) to pick more than one &mdash; for example, Warm White + Red + Green for a classic Christmas look.</p>
           </div>
-          <div class="form-row"><label>Additional Notes</label><textarea name="notes" rows="4" placeholder="Roof height, gate access, specific requests, etc."></textarea></div>
+          <div class="form-row"><label>Gate Code (optional)</label><input type="text" name="gate_code" placeholder="If your community or property is gated"></div>
+          <div class="form-row"><label>Additional Notes</label><textarea name="notes" rows="4" placeholder="Roof height, specific requests, etc."></textarea></div>
           <button type="submit" class="btn btn-gold btn-block">Submit Quote Request</button>
           <p class="form-note">No obligation. We'll follow up by your preferred contact method with your custom estimate.</p>
         </form>
@@ -1196,6 +1197,16 @@
         </div>
         <div class="invoice-empty" id="lookupEmpty" style="display:none;">We couldn't find an account matching that phone number and last name. Please call or text us at <span id="lookupEmptyPhone">(801) 901-0011</span> and we'll help you out.</div>
 
+        <div class="invoice-empty" id="loginNewTabMsg" style="display:none; text-align:center;">
+          <div style="font-size:16px; font-weight:600; margin-bottom:6px;">Opened in a new tab</div>
+          <p class="form-note" style="margin:0;">Your portal is open in the new tab &mdash; you can close this one.</p>
+        </div>
+
+        <div class="invoice-empty" id="rsvpConfirmCard" style="display:none; text-align:center;">
+          <div id="rsvpConfirmMsg" style="font-size:16px; font-weight:600; margin-bottom:14px;"></div>
+          <button type="button" class="btn btn-gold" id="rsvpOpenPortalBtn" style="display:none;">Open My Portal</button>
+        </div>
+
         <div class="invoice-card" id="invoiceCard">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; font-size:13px; flex-wrap:wrap; gap:8px;">
             <a href="#/" style="color:var(--slate); text-decoration:none;">&larr; Back to site</a>
@@ -1209,6 +1220,16 @@
           <div class="portal-welcome">
             <h2>Welcome Back, <span id="invName">Customer Name</span>!</h2>
             <p>Please review your Christmas light information for this season.</p>
+          </div>
+          <div class="portal-card" id="rsvpStatusCard" style="border-top:4px solid var(--gold-dim); margin-bottom:16px;">
+            <div style="text-align:center; margin-bottom:10px;">
+              <span style="font-size:12.5px; letter-spacing:.05em; text-transform:uppercase; color:var(--slate); font-weight:600;">Getting Lights This Year?</span>
+            </div>
+            <p id="rsvpStatusNote" style="font-size:13px; text-align:center; color:var(--slate); margin:0 0 14px;">Let us know so we can plan your install.</p>
+            <div style="display:flex; gap:10px;">
+              <button type="button" class="btn btn-outline btn-block" id="rsvpYesBtn" style="flex:1;">&#9989; Yes, Hang My Lights</button>
+              <button type="button" class="btn btn-outline btn-block" id="rsvpNoBtn" style="flex:1;">&#10060; No, Not This Year</button>
+            </div>
           </div>
           <div class="invoice-status" id="invStatus" style="display:none;">Balance Due</div>
           <div class="portal-card" id="portalPaymentCard" style="border-top:4px solid var(--gold); box-shadow:var(--shadow);">
@@ -1281,6 +1302,8 @@
               <div class="form-row" id="infoEmail2Row" style="display:none;"><label>Second Email</label><input type="email" id="infoEmail2"></div>
               <a href="#" id="addEmail2Link" style="display:block; font-size:12.5px; color:var(--gold-dim); margin:-10px 0 20px;">+ Add a second email</a>
               <div class="form-row"><label>Address</label><input type="text" id="infoAddress"></div>
+              <div class="form-row"><label>Gate Code (optional)</label><input type="text" id="infoGateCode" placeholder="e.g. #4521"></div>
+              <p class="form-note" style="margin:-10px 0 20px;">If your community or property is gated, this lets our crew get in without calling ahead.</p>
               <button type="button" class="btn btn-gold btn-block" id="infoSaveBtn">Save Information</button>
               <div id="infoSaveStatus" style="font-size:13px; color:var(--slate); margin-top:8px; text-align:center;"></div>
             </div>
@@ -1694,7 +1717,12 @@ function navigate(){
   if(hash === '/payment' && queryString){
     var params = new URLSearchParams(queryString);
     var token = params.get('token');
-    if(token && typeof loadPortalByToken === 'function') loadPortalByToken(token);
+    var rsvp = params.get('rsvp');
+    if(token && (rsvp === 'yes' || rsvp === 'no') && typeof handleRsvpLink === 'function'){
+      handleRsvpLink(token, rsvp);
+    } else if(token && typeof loadPortalByToken === 'function'){
+      loadPortalByToken(token);
+    }
   }
 }
 (function(){
@@ -1840,7 +1868,7 @@ quoteFormEl.addEventListener('submit', async function(e){
     address: street + ', ' + city + ' ' + zip,
     houseAreas: houseAreas,
     lightColors: lightColors,
-    contactMethod: fd.get('contact_method'), notes: fd.get('notes') || '',
+    contactMethod: fd.get('contact_method'), notes: fd.get('notes') || '', gateCode: fd.get('gate_code') || '',
     installPreference: fd.get('install_month') || 'Normal Schedule',
     frontPhotoUrl: frontPhotoUrl, frontPhotoFlagged: frontPhotoFlagged, frontPhotoFlagReason: frontPhotoFlagReason,
     status: 'new', createdAt: serverTimestamp()
@@ -1975,6 +2003,7 @@ async function hmLoadHouseMapForInvoice(phoneDigits){
     currentJobAddressId = snap.docs[0].id;
     var addrDoc = snap.docs[0].data();
     currentJobAddressData = addrDoc;
+    setRsvpStatusButtons(addrDoc.rsvpStatus || '');
     if(addrDoc.portalToken){
       savePortalLogin(addrDoc.portalToken);
     } else {
@@ -1985,6 +2014,7 @@ async function hmLoadHouseMapForInvoice(phoneDigits){
     }
 
     document.getElementById('infoAddress').value = addrDoc.address || '';
+    document.getElementById('infoGateCode').value = addrDoc.gateCode || '';
     if(addrDoc.phone2){
       document.getElementById('infoPhone2').value = formatPhoneDisplay(addrDoc.phone2);
       document.getElementById('infoPhone2Row').style.display = 'block';
@@ -2039,10 +2069,42 @@ async function hmLoadHouseMapForInvoice(phoneDigits){
     // If this lookup fails for any reason, just skip showing the house map — the rest of the invoice still works
   }
 }
+function watchForPortalOutcome(newTab){
+  var card = document.getElementById('invoiceCard');
+  var emptyEl = document.getElementById('lookupEmpty');
+  var quoteCard = document.getElementById('quoteReviewCard');
+  var resolvedMsg = document.getElementById('quoteResolvedMsg');
+  var attempts = 0;
+  var timer = setInterval(function(){
+    attempts++;
+    if(card.classList.contains('show') && currentJobAddressData && currentJobAddressData.portalToken){
+      clearInterval(timer);
+      var token = currentJobAddressData.portalToken;
+      if(newTab && !newTab.closed){
+        newTab.location.href = window.location.origin + window.location.pathname + '#/payment?token=' + token;
+      }
+      card.classList.remove('show');
+      document.getElementById('lookupFormWrap').style.display = 'none';
+      document.getElementById('loginNewTabMsg').style.display = 'block';
+      return;
+    }
+    if(emptyEl.style.display === 'block' || quoteCard.classList.contains('show') || resolvedMsg.style.display === 'block'){
+      clearInterval(timer);
+      if(newTab && !newTab.closed) newTab.close();
+      return;
+    }
+    if(attempts > 50){
+      clearInterval(timer);
+      if(newTab && !newTab.closed) newTab.close();
+    }
+  }, 100);
+}
 document.getElementById('lookupBtn').addEventListener('click', function(){
   var contactRaw = document.getElementById('lookupPhone').value.trim();
   var lastNameInput = document.getElementById('lookupLastName').value.trim().toLowerCase();
   if(!contactRaw || !lastNameInput){ return; }
+  var newTab = window.open('', '_blank');
+  watchForPortalOutcome(newTab);
   if(contactRaw.indexOf('@') !== -1){
     var emailLower = contactRaw.toLowerCase();
     getDocs(collection(db,'jobAddresses')).then(function(snap){
@@ -2223,6 +2285,68 @@ function loadPortalByToken(token){
     document.getElementById('lookupEmpty').style.display = 'block';
   });
 }
+
+function handleRsvpLink(token, rsvpValue){
+  var lookupFormWrap = document.getElementById('lookupFormWrap');
+  var confirmCard = document.getElementById('rsvpConfirmCard');
+  var confirmMsg = document.getElementById('rsvpConfirmMsg');
+  var openPortalBtn = document.getElementById('rsvpOpenPortalBtn');
+  getDocs(query(collection(db,'jobAddresses'), where('portalToken','==',token), limit(1))).then(function(snap){
+    if(snap.empty){
+      document.getElementById('lookupEmpty').style.display = 'block';
+      return;
+    }
+    var docId = snap.docs[0].id;
+    updateDoc(doc(db,'jobAddresses', docId), {
+      rsvpStatus: rsvpValue,
+      rsvpRespondedAt: serverTimestamp(),
+      needsLightRecycle: rsvpValue === 'no'
+    }).catch(function(){});
+    if(lookupFormWrap) lookupFormWrap.style.display = 'none';
+    if(confirmCard) confirmCard.style.display = 'block';
+    if(rsvpValue === 'yes'){
+      confirmMsg.textContent = "You're confirmed for this season! \uD83C\uDF84 Want to make any changes from last year?";
+      openPortalBtn.style.display = 'inline-flex';
+      openPortalBtn.onclick = function(){
+        confirmCard.style.display = 'none';
+        loadPortalByToken(token);
+      };
+    } else {
+      confirmMsg.textContent = 'Got it \u2014 no lights this year, thanks for letting us know.';
+      openPortalBtn.style.display = 'none';
+    }
+  }).catch(function(){
+    document.getElementById('lookupEmpty').style.display = 'block';
+  });
+}
+function setRsvpStatusButtons(status){
+  var yesBtn = document.getElementById('rsvpYesBtn');
+  var noBtn = document.getElementById('rsvpNoBtn');
+  var note = document.getElementById('rsvpStatusNote');
+  if(!yesBtn || !noBtn) return;
+  yesBtn.classList.toggle('btn-gold', status === 'yes');
+  yesBtn.classList.toggle('btn-outline', status !== 'yes');
+  noBtn.classList.toggle('btn-gold', status === 'no');
+  noBtn.classList.toggle('btn-outline', status !== 'no');
+  if(note){
+    if(status === 'yes') note.textContent = "You're confirmed \u2014 we'll be hanging your lights this year.";
+    else if(status === 'no') note.textContent = "You've let us know you're skipping this year. Change your mind anytime.";
+    else note.textContent = 'Let us know so we can plan your install.';
+  }
+}
+function saveRsvpStatus(status){
+  if(!currentJobAddressId) return;
+  currentJobAddressData = currentJobAddressData || {};
+  currentJobAddressData.rsvpStatus = status;
+  setRsvpStatusButtons(status);
+  updateDoc(doc(db,'jobAddresses', currentJobAddressId), {
+    rsvpStatus: status,
+    rsvpRespondedAt: serverTimestamp(),
+    needsLightRecycle: status === 'no'
+  }).catch(function(){});
+}
+document.getElementById('rsvpYesBtn').addEventListener('click', function(){ saveRsvpStatus('yes'); });
+document.getElementById('rsvpNoBtn').addEventListener('click', function(){ saveRsvpStatus('no'); });
 
 /* ---- Portal token helpers ---- */
 function generatePortalToken(){
@@ -2446,6 +2570,7 @@ document.getElementById('infoSaveBtn').addEventListener('click', async function(
   var newAddress = document.getElementById('infoAddress').value.trim();
   var newPhone2Raw = document.getElementById('infoPhone2').value.replace(/\D/g,'');
   var newEmail2 = document.getElementById('infoEmail2').value.trim();
+  var newGateCode = document.getElementById('infoGateCode').value.trim();
   if(!newName || !newPhoneRaw || !newAddress){ statusEl.textContent = 'Name, phone, and address are required.'; return; }
 
   var oldAddress = (currentJobAddressData && currentJobAddressData.address) || '';
@@ -2464,7 +2589,7 @@ document.getElementById('infoSaveBtn').addEventListener('click', async function(
     if(currentJobAddressId){
       var addrUpdates = {
         name: newName, phone: newPhoneRaw, email: newEmail, address: newAddress,
-        phone2: newPhone2Raw, email2: newEmail2,
+        phone2: newPhone2Raw, email2: newEmail2, gateCode: newGateCode,
         seasonStatus: addressChanged ? 'address_changed' : 'needs_changes'
       };
       await updateDoc(doc(db,'jobAddresses', currentJobAddressId), addrUpdates);
@@ -2482,7 +2607,7 @@ document.getElementById('infoSaveBtn').addEventListener('click', async function(
       });
     }
     currentLookupRecord.name = newName; currentLookupRecord.phone = newPhoneRaw; currentLookupRecord.email = newEmail;
-    if(currentJobAddressData){ currentJobAddressData.address = newAddress; currentJobAddressData.phone2 = newPhone2Raw; currentJobAddressData.email2 = newEmail2; }
+    if(currentJobAddressData){ currentJobAddressData.address = newAddress; currentJobAddressData.phone2 = newPhone2Raw; currentJobAddressData.email2 = newEmail2; currentJobAddressData.gateCode = newGateCode; }
     statusEl.textContent = addressChanged ? 'Saved! Since your address changed, we\'ll be in touch with a new quote.' : 'Saved!';
   } catch(err){
     statusEl.textContent = 'Something went wrong — please call (801) 901-0011 instead.';
