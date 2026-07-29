@@ -2070,6 +2070,7 @@ async function hmLoadHouseMapForInvoice(phoneDigits){
   }
 }
 function watchForPortalOutcome(newTab){
+  if(!newTab){ return; }
   var card = document.getElementById('invoiceCard');
   var emptyEl = document.getElementById('lookupEmpty');
   var quoteCard = document.getElementById('quoteReviewCard');
@@ -2077,12 +2078,14 @@ function watchForPortalOutcome(newTab){
   var attempts = 0;
   var timer = setInterval(function(){
     attempts++;
+    if(newTab.closed){
+      clearInterval(timer);
+      return;
+    }
     if(card.classList.contains('show') && currentJobAddressData && currentJobAddressData.portalToken){
       clearInterval(timer);
       var token = currentJobAddressData.portalToken;
-      if(newTab && !newTab.closed){
-        newTab.location.href = window.location.origin + window.location.pathname + '#/payment?token=' + token;
-      }
+      newTab.location.href = window.location.origin + window.location.pathname + '#/payment?token=' + token;
       card.classList.remove('show');
       document.getElementById('lookupFormWrap').style.display = 'none';
       document.getElementById('loginNewTabMsg').style.display = 'block';
@@ -2090,12 +2093,12 @@ function watchForPortalOutcome(newTab){
     }
     if(emptyEl.style.display === 'block' || quoteCard.classList.contains('show') || resolvedMsg.style.display === 'block'){
       clearInterval(timer);
-      if(newTab && !newTab.closed) newTab.close();
+      newTab.close();
       return;
     }
     if(attempts > 50){
       clearInterval(timer);
-      if(newTab && !newTab.closed) newTab.close();
+      newTab.close();
     }
   }, 100);
 }
@@ -2104,7 +2107,7 @@ document.getElementById('lookupBtn').addEventListener('click', function(){
   var lastNameInput = document.getElementById('lookupLastName').value.trim().toLowerCase();
   if(!contactRaw || !lastNameInput){ return; }
   var newTab = window.open('', '_blank');
-  watchForPortalOutcome(newTab);
+  if(newTab) watchForPortalOutcome(newTab);
   if(contactRaw.indexOf('@') !== -1){
     var emailLower = contactRaw.toLowerCase();
     getDocs(collection(db,'jobAddresses')).then(function(snap){
