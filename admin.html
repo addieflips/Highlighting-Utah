@@ -1234,7 +1234,6 @@
           <button class="route-tab-btn active" data-invtab="list" draggable="true">Invoice List</button>
           <button class="route-tab-btn" data-invtab="importexport" draggable="true">Import / Export</button>
           <button class="route-tab-btn" data-invtab="seasonemail" draggable="true">Season Billing Emails</button>
-          <button class="route-tab-btn" data-invtab="postinstall" draggable="true">Post-Install Billing</button>
         </div>
 
         <!-- INVOICE LIST -->
@@ -1300,44 +1299,6 @@ Highlighting Utah</textarea>
               <span id="seasonEmailTestStatus" style="font-size:12.5px; color:var(--slate);"></span>
             </div>
             <div id="seasonEmailTemplateExtras"></div>
-          </div>
-        </div>
-
-        <!-- POST-INSTALL BILLING -->
-        <div class="route-tab-panel" id="invtab-postinstall">
-          <div class="card" style="background:#FFF8E9; border-color:var(--gold-dim);">
-            <h3>Bill Customers After Their Lights Are Hung</h3>
-            <p style="font-size:13px;">Pick the date you ran installs on &mdash; this pulls up every house marked Done that day. Houses that still owe money get the Invoice email below; houses already paid in full get the Thank You email instead. Anyone marked "wants invoice mailed" (or with no email/invoice on file) is skipped so you can mail them yourself.</p>
-            <div class="form-row" style="max-width:220px;"><label>Install Date</label><input type="date" id="postInstallDateInput"></div>
-            <button type="button" class="btn btn-outline" id="loadPostInstallBtn">Load Completed Installs for This Date</button>
-            <div id="postInstallResults" style="margin-top:16px;"></div>
-          </div>
-          <div class="card">
-            <h3>Invoice Email <span style="font-weight:400; color:var(--slate); font-size:13px;">&mdash; for houses that still owe money</span></h3>
-            <div class="form-row"><label>Message (use {{name}} and {{amount}} &mdash; a payment link and "please don't reply" footer are added automatically)</label>
-              <textarea id="postInstallInvoiceTemplate" rows="6">Hi {{name}} &#127877;
-
-Your Christmas lights are up! Your balance for this season is {{amount}}. You can pay with Venmo or through your portal using the link below.
-
-Thanks for choosing Highlighting Utah!</textarea>
-            </div>
-            <div style="display:flex; gap:16px; margin-bottom:10px; font-size:13px;">
-              <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" id="postInstallIncludePortal" checked style="width:auto;"> Include portal link</label>
-              <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" id="postInstallIncludeVenmo" checked style="width:auto;"> Include Venmo link</label>
-            </div>
-            <div id="postInstallTemplateExtras"></div>
-          </div>
-          <div class="card">
-            <h3>Thank You Email <span style="font-weight:400; color:var(--slate); font-size:13px;">&mdash; for houses already paid in full</span></h3>
-            <div class="form-row"><label>Message (use {{name}} and {{amount}} for what they already paid)</label>
-              <textarea id="postInstallThanksTemplate" rows="6">Hi {{name}} &#127877;
-
-Your Christmas lights are up, and you're already paid in full ({{amount}}) &mdash; nothing else needed from you!
-
-Thank you so much for being a Highlighting Utah customer. We hope your lights bring you joy all season long.
-
-Highlighting Utah</textarea>
-            </div>
           </div>
         </div>
       </div>
@@ -1618,6 +1579,14 @@ Highlighting Utah</textarea>
             </div>
             <button type="button" class="btn btn-gold" id="quickEmailFillBtn">Fill In Email</button>
             <div id="quickEmailResult" style="margin-top:16px;"></div>
+            <div style="margin-top:16px; padding-top:16px; border-top:1px solid var(--line);">
+              <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:6px;">Send a Test Email First</label>
+              <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                <input type="email" id="quickEmailTestAddress" placeholder="your@email.com" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-size:13px;">
+                <button type="button" class="btn btn-outline btn-sm" id="quickEmailTestBtn">Send Test to This Address</button>
+              </div>
+              <span id="quickEmailTestStatus" style="font-size:12.5px; color:var(--slate);"></span>
+            </div>
             <div id="quickEmailTemplateExtras"></div>
           </div>
       </div>
@@ -1719,6 +1688,15 @@ Highlighting Utah</textarea>
           <div id="pibUnpaidList" style="margin-top:10px;"></div>
           <button type="button" class="btn btn-gold" id="pibSendUnpaidBtn" style="margin-top:12px;">Send Invoice Emails</button>
           <span id="pibUnpaidSendStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
+          <div style="margin-top:16px; padding-top:16px; border-top:1px solid var(--line);">
+            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:6px;">Send a Test Email First</label>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+              <input type="email" id="pibUnpaidTestAddress" placeholder="your@email.com" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-size:13px;">
+              <button type="button" class="btn btn-outline btn-sm" id="pibUnpaidTestBtn">Send Test to This Address</button>
+            </div>
+            <span id="pibUnpaidTestStatus" style="font-size:12.5px; color:var(--slate);"></span>
+          </div>
+          <div id="pibUnpaidTemplateExtras"></div>
         </div>
 
         <div class="card" id="pibPaidCard" style="display:none;">
@@ -1735,6 +1713,15 @@ Highlighting Utah</textarea>
           <div id="pibPaidList" style="margin-top:10px;"></div>
           <button type="button" class="btn btn-gold" id="pibSendPaidBtn" style="margin-top:12px;">Send Thank You Emails</button>
           <span id="pibPaidSendStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
+          <div style="margin-top:16px; padding-top:16px; border-top:1px solid var(--line);">
+            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:6px;">Send a Test Email First</label>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+              <input type="email" id="pibPaidTestAddress" placeholder="your@email.com" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-size:13px;">
+              <button type="button" class="btn btn-outline btn-sm" id="pibPaidTestBtn">Send Test to This Address</button>
+            </div>
+            <span id="pibPaidTestStatus" style="font-size:12.5px; color:var(--slate);"></span>
+          </div>
+          <div id="pibPaidTemplateExtras"></div>
         </div>
       </div>
     </div>
@@ -2965,6 +2952,34 @@ document.getElementById('quickEmailFillBtn').addEventListener('click', async fun
   });
 });
 
+document.getElementById('quickEmailTestBtn').addEventListener('click', async function(){
+  const statusEl = document.getElementById('quickEmailTestStatus');
+  const testAddress = document.getElementById('quickEmailTestAddress').value.trim();
+  const serviceId = document.getElementById('emailjsServiceId').value.trim();
+  const templateId = document.getElementById('emailjsTemplateId').value.trim();
+  const publicKey = document.getElementById('emailjsPublicKey').value.trim();
+  if(!testAddress){ statusEl.textContent = 'Enter an address to send the test to first.'; return; }
+  if(!serviceId || !templateId || !publicKey){ statusEl.textContent = 'Fill in Email Setup above first.'; return; }
+  if(!window.emailjs){ statusEl.textContent = 'Email service failed to load — check your internet connection.'; return; }
+  statusEl.textContent = 'Sending test…';
+  try{
+    const template = document.getElementById('quickEmailTemplate').value;
+    const testAmount = fmtMoney(250);
+    const footer = await buildOutgoingEmailFooter('8015550123', 250, {
+      includePortal: document.getElementById('quickEmailIncludePortal').checked,
+      includeVenmo: document.getElementById('quickEmailIncludeVenmo').checked
+    });
+    const message = '[TEST EMAIL — sample data below]\n\n' + await resolveLinkTokens(template.replace(/\{\{name\}\}/g, 'Test Customer').replace(/\{\{amount\}\}/g, testAmount), '8015550123', 250) + footer;
+    emailjs.init(publicKey);
+    await emailjs.send(serviceId, templateId, {
+      to_email: testAddress, to_name: 'Test Customer', message: message
+    });
+    statusEl.textContent = 'Test sent to ' + testAddress + ' — check your inbox to see exactly what customers will get.';
+  } catch(err){
+    statusEl.textContent = 'Test send failed: ' + (err && (err.text || err.message) ? (err.text || err.message) : 'double check your Email Setup above.');
+  }
+});
+
 function balanceDueAmount(d){
   return Math.max((Number(d.install)||0)+(Number(d.removal)||0)-(Number(d.deposit)||0), 0);
 }
@@ -3202,11 +3217,12 @@ document.getElementById('bulkAutoTestBtn').addEventListener('click', async funct
     const message = '[TEST EMAIL — sample data below]\n\n' + await resolveLinkTokens(template.replace(/\{\{name\}\}/g, 'Test Customer').replace(/\{\{amount\}\}/g, fmtMoney(testAmount)), '8015550123', testAmount) + footer;
     emailjs.init(publicKey);
     await emailjs.send(serviceId, templateId, {
-      to_email: testAddress, to_name: 'Test Customer', message: message
+      to_email: testAddress, to_name: 'Test Customer', message: message,
+      button_url: 'https://highlightingutah.com/#/payment', button_label: '🎄 Update My Christmas Lights'
     });
     statusEl.textContent = 'Test sent to ' + testAddress + ' — check your inbox to see exactly what customers will get.';
   } catch(err){
-    statusEl.textContent = 'Test send failed — double check your Email Setup above.';
+    statusEl.textContent = 'Test send failed: ' + (err && (err.text || err.message) ? (err.text || err.message) : 'double check your Email Setup above.');
   }
 });
 
@@ -3260,11 +3276,12 @@ document.getElementById('rsvpEmailTestBtn').addEventListener('click', async func
     const message = '[TEST EMAIL — sample data below]\n\n' + await resolveLinkTokens(template.replace(/\{\{name\}\}/g, 'Test Customer'), '8015550123', 0) + footer;
     emailjs.init(publicKey);
     await emailjs.send(serviceId, templateId, {
-      to_email: testAddress, to_name: 'Test Customer', message: message
+      to_email: testAddress, to_name: 'Test Customer', message: message,
+      button_url: 'https://highlightingutah.com/#/payment', button_label: '🎄 RSVP Now'
     });
     statusEl.textContent = 'Test sent to ' + testAddress + ' — check your inbox to see exactly what customers will get.';
   } catch(err){
-    statusEl.textContent = 'Test send failed — double check your Email Setup above.';
+    statusEl.textContent = 'Test send failed: ' + (err && (err.text || err.message) ? (err.text || err.message) : 'double check your Email Setup above.');
   }
 });
 
@@ -3346,7 +3363,7 @@ document.getElementById('pibSendUnpaidBtn').addEventListener('click', async func
   let sent = 0, failed = 0;
   for(const row of withEmail){
     const footer = await buildOutgoingEmailFooter(row.phone, row.amount, {includePortal: true, includeVenmo: true, includeMessages: true});
-    const message = template.replace(/\{\{name\}\}/g, row.name || 'there').replace(/\{\{amount\}\}/g, row.amount) + footer;
+    const message = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, row.name || 'there').replace(/\{\{amount\}\}/g, row.amount), row.phone, row.amount) + footer;
     statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + withEmail.length + '…';
     try{
       await emailjs.send(serviceId, templateId, { to_email: row.email, to_name: row.name || '', message: message });
@@ -3354,6 +3371,30 @@ document.getElementById('pibSendUnpaidBtn').addEventListener('click', async func
     } catch(err){ failed++; }
   }
   statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.';
+});
+document.getElementById('pibUnpaidTestBtn').addEventListener('click', async function(){
+  const statusEl = document.getElementById('pibUnpaidTestStatus');
+  const testAddress = document.getElementById('pibUnpaidTestAddress').value.trim();
+  const serviceId = document.getElementById('emailjsServiceId').value.trim();
+  const templateId = document.getElementById('emailjsTemplateId').value.trim();
+  const publicKey = document.getElementById('emailjsPublicKey').value.trim();
+  if(!testAddress){ statusEl.textContent = 'Enter an address to send the test to first.'; return; }
+  if(!serviceId || !templateId || !publicKey){ statusEl.textContent = 'Fill in Email Setup above first.'; return; }
+  if(!window.emailjs){ statusEl.textContent = 'Email service failed to load — check your internet connection.'; return; }
+  statusEl.textContent = 'Sending test…';
+  try{
+    const template = document.getElementById('pibUnpaidTemplate').value;
+    const testAmount = fmtMoney(250);
+    const footer = await buildOutgoingEmailFooter('8015550123', 250, {includePortal: true, includeVenmo: true, includeMessages: true});
+    const message = '[TEST EMAIL — sample data below]\n\n' + await resolveLinkTokens(template.replace(/\{\{name\}\}/g, 'Test Customer').replace(/\{\{amount\}\}/g, testAmount), '8015550123', 250) + footer;
+    emailjs.init(publicKey);
+    await emailjs.send(serviceId, templateId, {
+      to_email: testAddress, to_name: 'Test Customer', message: message
+    });
+    statusEl.textContent = 'Test sent to ' + testAddress + ' — check your inbox to see exactly what customers will get.';
+  } catch(err){
+    statusEl.textContent = 'Test send failed: ' + (err && (err.text || err.message) ? (err.text || err.message) : 'double check your Email Setup above.');
+  }
 });
 document.getElementById('pibSendPaidBtn').addEventListener('click', async function(){
   const serviceId = document.getElementById('emailjsServiceId').value.trim();
@@ -3371,7 +3412,7 @@ document.getElementById('pibSendPaidBtn').addEventListener('click', async functi
   let sent = 0, failed = 0;
   for(const row of withEmail){
     const footer = await buildOutgoingEmailFooter(row.phone, 0, {includePortal: false, includeVenmo: false, includeMessages: true});
-    const message = template.replace(/\{\{name\}\}/g, row.name || 'there').replace(/\{\{amount\}\}/g, row.amount) + footer;
+    const message = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, row.name || 'there').replace(/\{\{amount\}\}/g, row.amount), row.phone, 0) + footer;
     statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + withEmail.length + '…';
     try{
       await emailjs.send(serviceId, templateId, { to_email: row.email, to_name: row.name || '', message: message });
@@ -3380,7 +3421,30 @@ document.getElementById('pibSendPaidBtn').addEventListener('click', async functi
   }
   statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.';
 });
-
+document.getElementById('pibPaidTestBtn').addEventListener('click', async function(){
+  const statusEl = document.getElementById('pibPaidTestStatus');
+  const testAddress = document.getElementById('pibPaidTestAddress').value.trim();
+  const serviceId = document.getElementById('emailjsServiceId').value.trim();
+  const templateId = document.getElementById('emailjsTemplateId').value.trim();
+  const publicKey = document.getElementById('emailjsPublicKey').value.trim();
+  if(!testAddress){ statusEl.textContent = 'Enter an address to send the test to first.'; return; }
+  if(!serviceId || !templateId || !publicKey){ statusEl.textContent = 'Fill in Email Setup above first.'; return; }
+  if(!window.emailjs){ statusEl.textContent = 'Email service failed to load — check your internet connection.'; return; }
+  statusEl.textContent = 'Sending test…';
+  try{
+    const template = document.getElementById('pibPaidTemplate').value;
+    const testAmount = fmtMoney(250);
+    const footer = await buildOutgoingEmailFooter('8015550123', 0, {includePortal: false, includeVenmo: false, includeMessages: true});
+    const message = '[TEST EMAIL — sample data below]\n\n' + await resolveLinkTokens(template.replace(/\{\{name\}\}/g, 'Test Customer').replace(/\{\{amount\}\}/g, testAmount), '8015550123', 0) + footer;
+    emailjs.init(publicKey);
+    await emailjs.send(serviceId, templateId, {
+      to_email: testAddress, to_name: 'Test Customer', message: message
+    });
+    statusEl.textContent = 'Test sent to ' + testAddress + ' — check your inbox to see exactly what customers will get.';
+  } catch(err){
+    statusEl.textContent = 'Test send failed: ' + (err && (err.text || err.message) ? (err.text || err.message) : 'double check your Email Setup above.');
+  }
+});
 document.getElementById('loadBulkTextListBtn').addEventListener('click', async function(){
   const wrap = document.getElementById('bulkTextList');
   const withPhone = jobAddresses.filter(a => a.data.phone);
@@ -3528,7 +3592,7 @@ document.getElementById('seasonEmailTestBtn').addEventListener('click', async fu
     });
     statusEl.textContent = 'Test sent to ' + testAddress + ' — check your inbox to see exactly what customers will get.';
   } catch(err){
-    statusEl.textContent = 'Test send failed — double check your Email Setup above.';
+    statusEl.textContent = 'Test send failed: ' + (err && (err.text || err.message) ? (err.text || err.message) : 'double check your Email Setup above.');
   }
 });
 
@@ -3589,6 +3653,8 @@ function initData(){
   setupEmailTemplateExtras('quickEmailTemplateExtras', 'quickEmailTemplate');
   setupEmailTemplateExtras('seasonEmailTemplateExtras', 'seasonEmailTemplate');
   setupEmailTemplateExtras('bulkAutoTemplateExtras', 'bulkUpdateEmailTemplate');
+  setupEmailTemplateExtras('pibUnpaidTemplateExtras', 'pibUnpaidTemplate');
+  setupEmailTemplateExtras('pibPaidTemplateExtras', 'pibPaidTemplate');
   loadInventory();
   loadScheduledRoutes();
   loadTimeLogs();
