@@ -1639,14 +1639,14 @@ It's almost time for the Christmas lighting season! Tap the button below to upda
       <div class="route-tab-panel" id="autotab-rsvp">
         <div class="card" style="background:#FFF8E9; border-color:var(--gold-dim);">
             <h3>&#127877; RSVP Email</h3>
-            <p style="font-size:13px;">Sends every customer a Yes/No RSVP for this season. Yes takes them to their portal to review or change anything; No asks for an optional reason, then just says thanks &mdash; nothing else opens.</p>
-            <div class="form-row"><label>Message (use {{name}}, {{rsvp_yes_button}}, {{rsvp_no_button}} &mdash; leave the footer links below unchecked to keep the buttons as the very last thing in the email)</label>
+            <p style="font-size:13px;">Sends every customer three options for this season: Yes, No, or Back Next Year. Yes shows a popup asking if they want to make changes &mdash; yes takes them to their portal logged in, no just says thanks. No asks for an optional reason, then says goodbye &mdash; and their portal access is deactivated afterward since they're not continuing. Back Next Year just says we'll see them next season &mdash; no portal, no deactivation.</p>
+            <div class="form-row"><label>Message (use {{name}}, {{rsvp_yes_button}}, {{rsvp_back_button}}, {{rsvp_no_button}} &mdash; leave the footer links below unchecked to keep the buttons as the very last thing in the email)</label>
               <textarea id="rsvpEmailTemplate" rows="7">Hi {{name}} 🎄
 
 It's almost time for the Christmas lighting season! Will you be getting lights hung again this year?
 
 
-{{rsvp_yes_button}} {{rsvp_no_button}}</textarea>
+{{rsvp_yes_button}}{{rsvp_back_button}}{{rsvp_no_button}}</textarea>
             </div>
             <div style="display:flex; gap:16px; margin-bottom:10px; font-size:13px; flex-wrap:wrap;">
               <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" id="rsvpIncludePortal" style="width:auto;"> Include portal link</label>
@@ -3035,16 +3035,19 @@ async function resolveLinkTokens(text, phone, amount){
     out = out.split('{{venmo_link}}').join(venmoUrl);
     out = out.split('{{venmo_button}}').join('<a href="'+venmoUrl+'" style="'+btnStyleGold+'">Pay with Venmo</a>');
   }
-  if(out.indexOf('{{rsvp_yes_link}}') !== -1 || out.indexOf('{{rsvp_no_link}}') !== -1 || out.indexOf('{{rsvp_yes_button}}') !== -1 || out.indexOf('{{rsvp_no_button}}') !== -1){
+  if(out.indexOf('{{rsvp_yes_link}}') !== -1 || out.indexOf('{{rsvp_no_link}}') !== -1 || out.indexOf('{{rsvp_back_link}}') !== -1 || out.indexOf('{{rsvp_yes_button}}') !== -1 || out.indexOf('{{rsvp_no_button}}') !== -1 || out.indexOf('{{rsvp_back_button}}') !== -1){
     const rsvpToken = await getOrCreatePortalToken(phone);
     const rsvpBase = 'https://highlightingutah.com/#/payment' + (rsvpToken ? ('?token='+rsvpToken) : '');
     const rsvpYesUrl = rsvpBase + (rsvpToken ? '&rsvp=yes' : '');
     const rsvpNoUrl = rsvpBase + (rsvpToken ? '&rsvp=no' : '');
+    const rsvpBackUrl = 'https://highlightingutah.com/#/' + (rsvpToken ? ('?token='+rsvpToken+'&rsvp=back') : '');
     out = out.split('{{rsvp_yes_link}}').join(rsvpYesUrl);
     out = out.split('{{rsvp_no_link}}').join(rsvpNoUrl);
-    const btnStyle = 'display:inline-block; padding:12px 32px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:15px; margin:6px 8px 6px 0;';
+    out = out.split('{{rsvp_back_link}}').join(rsvpBackUrl);
+    const btnStyle = 'display:inline-block; padding:11px 18px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:14px; margin:6px 4px;';
     out = out.split('{{rsvp_yes_button}}').join('<a href="'+rsvpYesUrl+'" style="'+btnStyle+' background:#2E6B3E; color:#ffffff;">Yes</a>');
     out = out.split('{{rsvp_no_button}}').join('<a href="'+rsvpNoUrl+'" style="'+btnStyle+' background:#8A8F9C; color:#ffffff;">No</a>');
+    out = out.split('{{rsvp_back_button}}').join('<a href="'+rsvpBackUrl+'" style="'+btnStyle+' background:#D89F3D; color:#1E3B2C;">Back Next Year</a>');
   }
   out = out.replace(/\n/g, '<br>');
   return out;
