@@ -1287,6 +1287,7 @@ Highlighting Utah</textarea>
             <div style="display:flex; gap:16px; margin-bottom:10px; font-size:13px;">
               <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" id="seasonEmailIncludePortal" checked style="width:auto;"> Include portal link</label>
               <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" id="seasonEmailIncludeVenmo" checked style="width:auto;"> Include Venmo link</label>
+              <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" id="seasonEmailIncludeMessages" checked style="width:auto;"> Include "send us a message" link</label>
             </div>
             <button type="button" class="btn btn-outline" id="previewSeasonEmailBtn">Preview Recipient List</button>
             <div id="seasonEmailPreview" style="margin-top:16px;"></div>
@@ -1572,6 +1573,7 @@ Highlighting Utah</textarea>
             <div style="display:flex; gap:16px; margin-bottom:10px; font-size:13px;">
               <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" id="quickEmailIncludePortal" checked style="width:auto;"> Include portal link</label>
               <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" id="quickEmailIncludeVenmo" checked style="width:auto;"> Include Venmo link</label>
+              <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" id="quickEmailIncludeMessages" checked style="width:auto;"> Include "send us a message" link</label>
             </div>
             <div class="form-grid-2">
               <div class="form-row"><label>Customer</label><select id="quickEmailCustomerSelect"><option value="">-- Select a customer --</option></select></div>
@@ -1637,13 +1639,18 @@ It's almost time for the Christmas lighting season! Tap the button below to upda
       <div class="route-tab-panel" id="autotab-rsvp">
         <div class="card" style="background:#FFF8E9; border-color:var(--gold-dim);">
             <h3>&#127877; RSVP Email</h3>
-            <p style="font-size:13px;">Sends every customer a Yes/No RSVP for this season. Yes takes them to their portal to review or change anything; No just records their answer and stops there &mdash; nothing else opens.</p>
-            <div class="form-row"><label>Message (use {{name}}, {{rsvp_yes_button}}, {{rsvp_no_button}} &mdash; a portal link is added automatically in the footer)</label>
+            <p style="font-size:13px;">Sends every customer a Yes/No RSVP for this season. Yes takes them to their portal to review or change anything; No asks for an optional reason, then just says thanks &mdash; nothing else opens.</p>
+            <div class="form-row"><label>Message (use {{name}}, {{rsvp_yes_button}}, {{rsvp_no_button}} &mdash; leave the footer links below unchecked to keep the buttons as the very last thing in the email)</label>
               <textarea id="rsvpEmailTemplate" rows="7">Hi {{name}} 🎄
 
 It's almost time for the Christmas lighting season! Will you be getting lights hung again this year?
 
+
 {{rsvp_yes_button}} {{rsvp_no_button}}</textarea>
+            </div>
+            <div style="display:flex; gap:16px; margin-bottom:10px; font-size:13px; flex-wrap:wrap;">
+              <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" id="rsvpIncludePortal" style="width:auto;"> Include portal link</label>
+              <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" id="rsvpIncludeMessages" style="width:auto;"> Include "send us a message" link</label>
             </div>
             <button type="button" class="btn btn-gold" id="sendRsvpEmailBtn">Send RSVP Email to All Customers</button>
             <span id="rsvpEmailStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
@@ -1656,6 +1663,7 @@ It's almost time for the Christmas lighting season! Will you be getting lights h
               </div>
               <span id="rsvpEmailTestStatus" style="font-size:12.5px; color:var(--slate);"></span>
             </div>
+            <div id="rsvpEmailTemplateExtras"></div>
           </div>
       </div>
 
@@ -1683,6 +1691,11 @@ Thanks for being a customer!
 Highlighting Utah</textarea>
           </div>
           <p style="font-size:12px; color:var(--slate); margin-top:-6px;">&#128235; marks anyone who also wants a paper invoice mailed. By default sending below still emails them too — check "Skip customers who want their invoice mailed" above if you'd rather handle those separately.</p>
+          <div style="display:flex; gap:16px; margin-bottom:10px; font-size:13px; flex-wrap:wrap;">
+            <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" id="pibUnpaidIncludePortal" checked style="width:auto;"> Include portal link</label>
+            <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" id="pibUnpaidIncludeVenmo" checked style="width:auto;"> Include Venmo link</label>
+            <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" id="pibUnpaidIncludeMessages" checked style="width:auto;"> Include "send us a message" link</label>
+          </div>
           <div id="pibUnpaidList" style="margin-top:10px;"></div>
           <button type="button" class="btn btn-gold" id="pibSendUnpaidBtn" style="margin-top:12px;">Send Invoice Emails</button>
           <span id="pibUnpaidSendStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
@@ -1700,6 +1713,10 @@ Highlighting Utah</textarea>
         <div class="card" id="pibPaidCard" style="display:none;">
           <h3>&#127881; Already Paid &mdash; Say Thanks (<span id="pibPaidCount">0</span>)</h3>
           <p style="font-size:13px;">These customers already paid in full before install &mdash; this just confirms what they paid and says thanks. No payment links are included since there's nothing left to pay.</p>
+          <div style="display:flex; gap:16px; margin-bottom:10px; font-size:13px; flex-wrap:wrap;">
+            <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" id="pibPaidIncludePortal" style="width:auto;"> Include portal link</label>
+            <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" id="pibPaidIncludeMessages" checked style="width:auto;"> Include "send us a message" link</label>
+          </div>
           <div class="form-row"><label>Thank You Email (use {{name}} and {{amount}})</label>
             <textarea id="pibPaidTemplate" rows="6">Hi {{name}},
 
@@ -2899,11 +2916,12 @@ document.getElementById('quickEmailFillBtn').addEventListener('click', async fun
     + partialPaymentNote(d)
     + await buildOutgoingEmailFooter(d.phone, amount, {
         includePortal: document.getElementById('quickEmailIncludePortal').checked,
-        includeVenmo: document.getElementById('quickEmailIncludeVenmo').checked
+        includeVenmo: document.getElementById('quickEmailIncludeVenmo').checked,
+        includeMessages: document.getElementById('quickEmailIncludeMessages').checked
       });
   resultEl.innerHTML =
     '<label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:6px;">Edit before sending if you want:</label>'+
-    '<textarea id="quickEmailEditable" rows="9" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:13.5px; margin-bottom:10px;">'+esc(message)+'</textarea>'+
+    '<textarea id="quickEmailEditable" rows="9" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:13.5px; margin-bottom:10px;">'+esc(message.replace(/<br>/g, '\n'))+'</textarea>'+
     '<div style="display:flex; gap:8px; flex-wrap:wrap;">'+
       '<button type="button" class="btn btn-gold btn-sm" id="quickEmailSendBtn">Send Email</button>'+
       '<button type="button" class="btn btn-outline btn-sm" id="quickEmailCopyBtn">Copy Email</button>'+
@@ -2940,7 +2958,7 @@ document.getElementById('quickEmailFillBtn').addEventListener('click', async fun
       emailjs.init(publicKey);
       await emailjs.send(serviceId, templateId, {
         to_email: email, to_name: d.name || '',
-        message: currentText, amount: amount,
+        message: currentText.replace(/\n/g, '<br>'), amount: amount,
         payment_link: 'https://highlightingutah.com/#/payment'
       });
       statusEl.textContent = 'Sent to ' + email + '!';
@@ -2965,9 +2983,10 @@ document.getElementById('quickEmailTestBtn').addEventListener('click', async fun
     const testAmount = fmtMoney(250);
     const footer = await buildOutgoingEmailFooter('8015550123', 250, {
       includePortal: document.getElementById('quickEmailIncludePortal').checked,
-      includeVenmo: document.getElementById('quickEmailIncludeVenmo').checked
+      includeVenmo: document.getElementById('quickEmailIncludeVenmo').checked,
+      includeMessages: document.getElementById('quickEmailIncludeMessages').checked
     });
-    const message = '[TEST EMAIL — sample data below]\n\n' + await resolveLinkTokens(template.replace(/\{\{name\}\}/g, 'Test Customer').replace(/\{\{amount\}\}/g, testAmount), '8015550123', 250) + footer;
+    const message = '[TEST EMAIL — sample data below]<br><br>' + await resolveLinkTokens(template.replace(/\{\{name\}\}/g, 'Test Customer').replace(/\{\{amount\}\}/g, testAmount), '8015550123', 250) + footer;
     emailjs.init(publicKey);
     await emailjs.send(serviceId, templateId, {
       to_email: testAddress, to_name: 'Test Customer', message: message
@@ -2998,18 +3017,23 @@ async function getOrCreatePortalToken(phone){
 }
 async function resolveLinkTokens(text, phone, amount){
   let out = text;
-  if(out.indexOf('{{portal_link}}') !== -1){
+  const btnStyleGold = 'display:inline-block; padding:12px 28px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:15px; margin:6px 8px 6px 0; background:#D89F3D; color:#1E3B2C;';
+  if(out.indexOf('{{portal_link}}') !== -1 || out.indexOf('{{portal_button}}') !== -1){
     const token = await getOrCreatePortalToken(phone);
     const portalUrl = 'https://highlightingutah.com/#/payment' + (token ? ('?token='+token) : '');
     out = out.split('{{portal_link}}').join(portalUrl);
+    out = out.split('{{portal_button}}').join('<a href="'+portalUrl+'" style="'+btnStyleGold+'">Log Into Your Portal</a>');
   }
-  if(out.indexOf('{{messages_link}}') !== -1){
-    out = out.split('{{messages_link}}').join('https://highlightingutah.com/#/contact');
+  if(out.indexOf('{{messages_link}}') !== -1 || out.indexOf('{{messages_button}}') !== -1){
+    const messagesUrl = 'https://highlightingutah.com/#/contact';
+    out = out.split('{{messages_link}}').join(messagesUrl);
+    out = out.split('{{messages_button}}').join('<a href="'+messagesUrl+'" style="'+btnStyleGold+'">Send Us a Message</a>');
   }
-  if(out.indexOf('{{venmo_link}}') !== -1){
+  if(out.indexOf('{{venmo_link}}') !== -1 || out.indexOf('{{venmo_button}}') !== -1){
     const venmoAmount = (Number(String(amount||0).replace(/[^0-9.]/g,'')) || 0).toFixed(2);
     const venmoUrl = 'https://venmo.com/HighLightingUtah?txn=pay&amount='+venmoAmount+'&note='+encodeURIComponent('Christmas Lights');
     out = out.split('{{venmo_link}}').join(venmoUrl);
+    out = out.split('{{venmo_button}}').join('<a href="'+venmoUrl+'" style="'+btnStyleGold+'">Pay with Venmo</a>');
   }
   if(out.indexOf('{{rsvp_yes_link}}') !== -1 || out.indexOf('{{rsvp_no_link}}') !== -1 || out.indexOf('{{rsvp_yes_button}}') !== -1 || out.indexOf('{{rsvp_no_button}}') !== -1){
     const rsvpToken = await getOrCreatePortalToken(phone);
@@ -3022,6 +3046,7 @@ async function resolveLinkTokens(text, phone, amount){
     out = out.split('{{rsvp_yes_button}}').join('<a href="'+rsvpYesUrl+'" style="'+btnStyle+' background:#2E6B3E; color:#ffffff;">Yes</a>');
     out = out.split('{{rsvp_no_button}}').join('<a href="'+rsvpNoUrl+'" style="'+btnStyle+' background:#8A8F9C; color:#ffffff;">No</a>');
   }
+  out = out.replace(/\n/g, '<br>');
   return out;
 }
 async function buildOutgoingEmailFooter(phone, amount, opts){
@@ -3035,10 +3060,10 @@ async function buildOutgoingEmailFooter(phone, amount, opts){
   const venmoAmount = (Number(String(amount||0).replace(/[^0-9.]/g,'')) || 0).toFixed(2);
   const venmoUrl = 'https://venmo.com/HighLightingUtah?txn=pay&amount='+venmoAmount+'&note='+encodeURIComponent('Christmas Lights');
   let out = '';
-  if(includePortal) out += '\n\n\uD83D\uDC49 Log Into Your Portal: ' + portalUrl;
-  if(includeVenmo) out += '\n\n\uD83D\uDCB3 Pay With Venmo (amount pre-filled): ' + venmoUrl;
-  if(includeMessages) out += '\n\n\uD83D\uDCAC Send Us a Message: ' + messagesUrl;
-  if(includePortal || includeVenmo || includeMessages) out += '\n\nPlease do not reply to this email \u2014 to reach us, use the Messaging link above.';
+  if(includePortal) out += '<br><br>\uD83D\uDC49 Log Into Your Portal: ' + portalUrl;
+  if(includeVenmo) out += '<br><br>\uD83D\uDCB3 Pay With Venmo (amount pre-filled): ' + venmoUrl;
+  if(includeMessages) out += '<br><br>\uD83D\uDCAC Send Us a Message: ' + messagesUrl;
+  if(includePortal || includeVenmo || includeMessages) out += '<br><br>Please do not reply to this email \u2014 to reach us, use the Messaging link above.';
   return out;
 }
 document.getElementById('saveEmailjsSettingsBtn').addEventListener('click', async function(){
@@ -3049,9 +3074,14 @@ document.getElementById('saveEmailjsSettingsBtn').addEventListener('click', asyn
     publicKey: document.getElementById('emailjsPublicKey').value.trim(),
     notifyTemplateId: document.getElementById('emailjsNotifyTemplateId').value.trim()
   };
-  await setDoc(doc(db,'settings','emailjs'), settings, {merge:true});
-  statusEl.textContent = 'Saved!';
-  setTimeout(function(){ statusEl.textContent = ''; }, 3000);
+  statusEl.textContent = 'Saving…';
+  try{
+    await setDoc(doc(db,'settings','emailjs'), settings, {merge:true});
+    statusEl.textContent = 'Saved!';
+    setTimeout(function(){ statusEl.textContent = ''; }, 3000);
+  } catch(err){
+    statusEl.textContent = 'Save failed: ' + (err && err.message ? err.message : 'unknown error') + ' — your codes are NOT saved yet, try again.';
+  }
 });
 async function loadEmailjsSettings(){
   try{
@@ -3217,7 +3247,7 @@ document.getElementById('bulkAutoTestBtn').addEventListener('click', async funct
       includeVenmo: includeVenmo,
       includeMessages: document.getElementById('bulkAutoIncludeMessages').checked
     });
-    const message = '[TEST EMAIL — sample data below]\n\n' + await resolveLinkTokens(template.replace(/\{\{name\}\}/g, 'Test Customer').replace(/\{\{amount\}\}/g, fmtMoney(testAmount)), '8015550123', testAmount) + footer;
+    const message = '[TEST EMAIL — sample data below]<br><br>' + await resolveLinkTokens(template.replace(/\{\{name\}\}/g, 'Test Customer').replace(/\{\{amount\}\}/g, fmtMoney(testAmount)), '8015550123', testAmount) + footer;
     emailjs.init(publicKey);
     await emailjs.send(serviceId, templateId, {
       to_email: testAddress, to_name: 'Test Customer', message: message,
@@ -3250,7 +3280,7 @@ document.getElementById('sendRsvpEmailBtn').addEventListener('click', async func
   let sent = 0, failed = 0;
   for(const item of withEmail){
     const d = item.data;
-    const footer = await buildOutgoingEmailFooter(d.phone, 0, {includePortal: true, includeVenmo: false, includeMessages: true});
+    const footer = await buildOutgoingEmailFooter(d.phone, 0, {includePortal: document.getElementById('rsvpIncludePortal').checked, includeVenmo: false, includeMessages: document.getElementById('rsvpIncludeMessages').checked});
     const message = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, d.name || 'there'), d.phone, 0) + footer;
     statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + withEmail.length + '…';
     try{
@@ -3275,8 +3305,8 @@ document.getElementById('rsvpEmailTestBtn').addEventListener('click', async func
   statusEl.textContent = 'Sending test…';
   try{
     const template = document.getElementById('rsvpEmailTemplate').value;
-    const footer = await buildOutgoingEmailFooter('8015550123', 0, {includePortal: true, includeVenmo: false, includeMessages: true});
-    const message = '[TEST EMAIL — sample data below]\n\n' + await resolveLinkTokens(template.replace(/\{\{name\}\}/g, 'Test Customer'), '8015550123', 0) + footer;
+    const footer = await buildOutgoingEmailFooter('8015550123', 0, {includePortal: document.getElementById('rsvpIncludePortal').checked, includeVenmo: false, includeMessages: document.getElementById('rsvpIncludeMessages').checked});
+    const message = '[TEST EMAIL — sample data below]<br><br>' + await resolveLinkTokens(template.replace(/\{\{name\}\}/g, 'Test Customer'), '8015550123', 0) + footer;
     emailjs.init(publicKey);
     await emailjs.send(serviceId, templateId, {
       to_email: testAddress, to_name: 'Test Customer', message: message,
@@ -3365,7 +3395,7 @@ document.getElementById('pibSendUnpaidBtn').addEventListener('click', async func
   const template = document.getElementById('pibUnpaidTemplate').value;
   let sent = 0, failed = 0;
   for(const row of withEmail){
-    const footer = await buildOutgoingEmailFooter(row.phone, row.amount, {includePortal: true, includeVenmo: true, includeMessages: true});
+    const footer = await buildOutgoingEmailFooter(row.phone, row.amount, {includePortal: document.getElementById('pibUnpaidIncludePortal').checked, includeVenmo: document.getElementById('pibUnpaidIncludeVenmo').checked, includeMessages: document.getElementById('pibUnpaidIncludeMessages').checked});
     const message = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, row.name || 'there').replace(/\{\{amount\}\}/g, row.amount), row.phone, row.amount) + footer;
     statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + withEmail.length + '…';
     try{
@@ -3388,8 +3418,8 @@ document.getElementById('pibUnpaidTestBtn').addEventListener('click', async func
   try{
     const template = document.getElementById('pibUnpaidTemplate').value;
     const testAmount = fmtMoney(250);
-    const footer = await buildOutgoingEmailFooter('8015550123', 250, {includePortal: true, includeVenmo: true, includeMessages: true});
-    const message = '[TEST EMAIL — sample data below]\n\n' + await resolveLinkTokens(template.replace(/\{\{name\}\}/g, 'Test Customer').replace(/\{\{amount\}\}/g, testAmount), '8015550123', 250) + footer;
+    const footer = await buildOutgoingEmailFooter('8015550123', 250, {includePortal: document.getElementById('pibUnpaidIncludePortal').checked, includeVenmo: document.getElementById('pibUnpaidIncludeVenmo').checked, includeMessages: document.getElementById('pibUnpaidIncludeMessages').checked});
+    const message = '[TEST EMAIL — sample data below]<br><br>' + await resolveLinkTokens(template.replace(/\{\{name\}\}/g, 'Test Customer').replace(/\{\{amount\}\}/g, testAmount), '8015550123', 250) + footer;
     emailjs.init(publicKey);
     await emailjs.send(serviceId, templateId, {
       to_email: testAddress, to_name: 'Test Customer', message: message
@@ -3414,7 +3444,7 @@ document.getElementById('pibSendPaidBtn').addEventListener('click', async functi
   const template = document.getElementById('pibPaidTemplate').value;
   let sent = 0, failed = 0;
   for(const row of withEmail){
-    const footer = await buildOutgoingEmailFooter(row.phone, 0, {includePortal: false, includeVenmo: false, includeMessages: true});
+    const footer = await buildOutgoingEmailFooter(row.phone, 0, {includePortal: document.getElementById('pibPaidIncludePortal').checked, includeVenmo: false, includeMessages: document.getElementById('pibPaidIncludeMessages').checked});
     const message = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, row.name || 'there').replace(/\{\{amount\}\}/g, row.amount), row.phone, 0) + footer;
     statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + withEmail.length + '…';
     try{
@@ -3437,8 +3467,8 @@ document.getElementById('pibPaidTestBtn').addEventListener('click', async functi
   try{
     const template = document.getElementById('pibPaidTemplate').value;
     const testAmount = fmtMoney(250);
-    const footer = await buildOutgoingEmailFooter('8015550123', 0, {includePortal: false, includeVenmo: false, includeMessages: true});
-    const message = '[TEST EMAIL — sample data below]\n\n' + await resolveLinkTokens(template.replace(/\{\{name\}\}/g, 'Test Customer').replace(/\{\{amount\}\}/g, testAmount), '8015550123', 0) + footer;
+    const footer = await buildOutgoingEmailFooter('8015550123', 0, {includePortal: document.getElementById('pibPaidIncludePortal').checked, includeVenmo: false, includeMessages: document.getElementById('pibPaidIncludeMessages').checked});
+    const message = '[TEST EMAIL — sample data below]<br><br>' + await resolveLinkTokens(template.replace(/\{\{name\}\}/g, 'Test Customer').replace(/\{\{amount\}\}/g, testAmount), '8015550123', 0) + footer;
     emailjs.init(publicKey);
     await emailjs.send(serviceId, templateId, {
       to_email: testAddress, to_name: 'Test Customer', message: message
@@ -3511,7 +3541,8 @@ document.getElementById('previewSeasonEmailBtn').addEventListener('click', async
       + partialPaymentNote(sd)
       + await buildOutgoingEmailFooter(sd.phone, sampleAmount, {
           includePortal: document.getElementById('seasonEmailIncludePortal').checked,
-          includeVenmo: document.getElementById('seasonEmailIncludeVenmo').checked
+          includeVenmo: document.getElementById('seasonEmailIncludeVenmo').checked,
+          includeMessages: document.getElementById('seasonEmailIncludeMessages').checked
         });
     html += '<div style="margin-bottom:14px;">'+
       '<label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:6px;">Exactly what '+esc(sd.name||'this customer')+' will receive (each customer gets their own version):</label>'+
@@ -3548,7 +3579,8 @@ document.getElementById('previewSeasonEmailBtn').addEventListener('click', async
         + partialPaymentNote(d)
         + await buildOutgoingEmailFooter(d.phone, amount, {
             includePortal: document.getElementById('seasonEmailIncludePortal').checked,
-            includeVenmo: document.getElementById('seasonEmailIncludeVenmo').checked
+            includeVenmo: document.getElementById('seasonEmailIncludeVenmo').checked,
+            includeMessages: document.getElementById('seasonEmailIncludeMessages').checked
           });
       statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + withEmail.length + '…';
       try{
@@ -3581,12 +3613,13 @@ document.getElementById('seasonEmailTestBtn').addEventListener('click', async fu
   try{
     const sampleAmount = fmtMoney(125);
     const template = document.getElementById('seasonEmailTemplate').value;
-    const message = '[TEST EMAIL — sample data below]\n\n' + await resolveLinkTokens(template
+    const message = '[TEST EMAIL — sample data below]<br><br>' + await resolveLinkTokens(template
       .replace(/\{\{name\}\}/g, 'Test Customer')
       .replace(/\{\{amount\}\}/g, sampleAmount), '8015550123', sampleAmount)
       + await buildOutgoingEmailFooter('8015550123', sampleAmount, {
           includePortal: document.getElementById('seasonEmailIncludePortal').checked,
-          includeVenmo: document.getElementById('seasonEmailIncludeVenmo').checked
+          includeVenmo: document.getElementById('seasonEmailIncludeVenmo').checked,
+          includeMessages: document.getElementById('seasonEmailIncludeMessages').checked
         });
     emailjs.init(publicKey);
     await emailjs.send(serviceId, templateId, {
@@ -3658,6 +3691,7 @@ function initData(){
   setupEmailTemplateExtras('bulkAutoTemplateExtras', 'bulkUpdateEmailTemplate');
   setupEmailTemplateExtras('pibUnpaidTemplateExtras', 'pibUnpaidTemplate');
   setupEmailTemplateExtras('pibPaidTemplateExtras', 'pibPaidTemplate');
+  setupEmailTemplateExtras('rsvpEmailTemplateExtras', 'rsvpEmailTemplate', {supportsAmount: false});
   loadInventory();
   loadScheduledRoutes();
   loadTimeLogs();
@@ -7505,8 +7539,23 @@ function renderSavedTemplateOptions(select, filterText){
   const current = select.value;
   const filter = (filterText||'').trim().toLowerCase();
   const filtered = filter ? savedEmailTemplatesCache.filter(t => (t.data.name||'').toLowerCase().includes(filter)) : savedEmailTemplatesCache;
-  select.innerHTML = '<option value="">Load a saved template&hellip;</option>' +
-    filtered.map(function(t){ return '<option value="'+t.id+'">'+esc(t.data.name||'(untitled)')+'</option>'; }).join('');
+  const noFolder = filtered.filter(t => !t.data.folder);
+  const byFolder = {};
+  filtered.forEach(function(t){
+    if(t.data.folder){
+      if(!byFolder[t.data.folder]) byFolder[t.data.folder] = [];
+      byFolder[t.data.folder].push(t);
+    }
+  });
+  const folderNames = Object.keys(byFolder).sort(function(a,b){ return a.localeCompare(b); });
+  let html = '<option value="">Load a saved template&hellip;</option>' +
+    noFolder.map(function(t){ return '<option value="'+t.id+'">'+esc(t.data.name||'(untitled)')+'</option>'; }).join('');
+  folderNames.forEach(function(fname){
+    html += '<optgroup label="\uD83D\uDCC1 '+esc(fname)+'">' +
+      byFolder[fname].map(function(t){ return '<option value="'+t.id+'">'+esc(t.data.name||'(untitled)')+'</option>'; }).join('') +
+      '</optgroup>';
+  });
+  select.innerHTML = html;
   if(filtered.some(t => t.id === current)) select.value = current;
 }
 function setupEmailTemplateExtras(extrasContainerId, textareaId, opts){
@@ -7529,19 +7578,15 @@ function setupEmailTemplateExtras(extrasContainerId, textareaId, opts){
         '<span class="saved-template-status" style="font-size:12.5px; color:var(--slate);"></span>'+
       '</div>'+
       '<div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">'+
-        '<input type="text" class="insert-link-text" placeholder="Link text (e.g. here)" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-size:13px; max-width:160px;">'+
-        '<select class="insert-link-dest" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-size:13px;">'+
-          '<option value="portal_link">Member Portal</option>'+
-          '<option value="messages_link">Send a Message</option>'+
-          '<option value="venmo_link">Pay with Venmo</option>'+
+        '<span style="font-size:11.5px; color:var(--slate); font-weight:600;">Format:</span>'+
+        '<select class="link-format-select" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-size:13px;">'+
+          '<option value="link">Word Link (e.g. "here")</option>'+
+          '<option value="button">Button</option>'+
         '</select>'+
-        '<button type="button" class="btn btn-outline btn-sm insert-link-btn">Insert Link at Cursor</button>'+
       '</div>'+
-      '<p style="font-size:11.5px; color:var(--slate); margin:6px 0 0;">Puts a clickable link right in your sentence, wherever your cursor is &mdash; e.g. "you can message us here" with just "here" as the link.</p>'+
-      '<div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:12px;">'+
-        '<span style="font-size:11.5px; color:var(--slate);">Or copy a link snippet to paste yourself:</span>'+
-        linkTokens.map(function(lt){ return '<button type="button" class="btn btn-outline btn-sm copy-token-btn" data-token=\'<a href="{{'+lt.token+'}}">here</a>\' style="font-size:12px;">'+lt.label+'</button>'; }).join('')+
-      '</div>'+
+      '<p style="font-size:11.5px; color:var(--slate); margin:6px 0 0;">Tap a bubble below to copy its code, then paste it anywhere in your message. Word Link copies a short snippet you drop into a sentence (e.g. "...log in here"); Button copies a token that becomes a full styled button, like the Yes/No RSVP buttons.</p>'+
+      '<div class="link-bubble-row" style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:10px;"></div>'+
+      '<span class="link-bubble-status" style="font-size:12px; color:var(--slate);"></span>'+
       '<div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:8px;">'+
         '<span style="font-size:11.5px; color:var(--slate);">Copy a plain token:</span>'+
         plainTokens.map(function(t){ return '<button type="button" class="btn btn-outline btn-sm copy-token-btn" data-token="'+t+'" style="font-family:monospace; font-size:12px;">'+t+'</button>'; }).join('')+
@@ -7565,27 +7610,38 @@ function setupEmailTemplateExtras(extrasContainerId, textareaId, opts){
     const statusEl = container.querySelector('.saved-template-status');
     const name = prompt('Name this template (e.g. "Season Kickoff Announcement"):');
     if(!name) return;
+    const existingFolders = Array.from(new Set(savedEmailTemplatesCache.map(t => t.data.folder).filter(Boolean))).sort();
+    const folderHint = existingFolders.length ? (' Existing folders: ' + existingFolders.join(', ') + '.') : ' No folders yet — type a name to create one.';
+    const folder = prompt('Which folder should this go in? Leave blank for none.' + folderHint, '');
     statusEl.textContent = 'Saving…';
     try{
-      await addDoc(collection(db,'savedEmailTemplates'), {name: name, message: textarea.value, createdAt: serverTimestamp()});
+      await addDoc(collection(db,'savedEmailTemplates'), {name: name, message: textarea.value, folder: (folder||'').trim(), createdAt: serverTimestamp()});
       statusEl.textContent = 'Saved!';
       setTimeout(function(){ statusEl.textContent = ''; }, 1500);
     } catch(err){
       statusEl.textContent = 'Something went wrong — try again.';
     }
   });
-  container.querySelector('.insert-link-btn').addEventListener('click', function(){
-    const textInput = container.querySelector('.insert-link-text');
-    const linkText = textInput.value.trim() || 'here';
-    const dest = container.querySelector('.insert-link-dest').value;
-    const snippet = '<a href="{{'+dest+'}}">'+linkText+'</a>';
-    const start = textarea.selectionStart != null ? textarea.selectionStart : textarea.value.length;
-    const end = textarea.selectionEnd != null ? textarea.selectionEnd : textarea.value.length;
-    textarea.value = textarea.value.slice(0, start) + snippet + textarea.value.slice(end);
-    textarea.focus();
-    textarea.selectionStart = textarea.selectionEnd = start + snippet.length;
-    textInput.value = '';
-  });
+  const formatSelect = container.querySelector('.link-format-select');
+  const bubbleRow = container.querySelector('.link-bubble-row');
+  const bubbleStatus = container.querySelector('.link-bubble-status');
+  function renderLinkBubbles(){
+    const format = formatSelect.value;
+    bubbleRow.innerHTML = linkTokens.map(function(lt){
+      const code = format === 'button' ? ('{{'+lt.token.replace('_link','_button')+'}}') : ('<a href="{{'+lt.token+'}}">here</a>');
+      return '<button type="button" class="btn btn-outline btn-sm link-bubble-btn" data-code=\''+code+'\' style="border-radius:999px; font-size:12px;">'+lt.label+'</button>';
+    }).join('');
+    bubbleRow.querySelectorAll('.link-bubble-btn').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        navigator.clipboard.writeText(btn.dataset.code).then(function(){
+          bubbleStatus.textContent = 'Copied — paste it anywhere in your message.';
+          setTimeout(function(){ bubbleStatus.textContent = ''; }, 2500);
+        });
+      });
+    });
+  }
+  formatSelect.addEventListener('change', renderLinkBubbles);
+  renderLinkBubbles();
   container.querySelectorAll('.copy-token-btn').forEach(function(btn){
     btn.addEventListener('click', function(){
       const statusEl = container.querySelector('.copy-token-status');
