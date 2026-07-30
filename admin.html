@@ -1638,14 +1638,12 @@ It's almost time for the Christmas lighting season! Tap the button below to upda
         <div class="card" style="background:#FFF8E9; border-color:var(--gold-dim);">
             <h3>&#127877; RSVP Email</h3>
             <p style="font-size:13px;">Sends every customer a Yes/No RSVP for this season. Yes takes them to their portal to review or change anything; No just records their answer and stops there &mdash; nothing else opens.</p>
-            <div class="form-row"><label>Message (use {{name}}, {{rsvp_yes_link}}, {{rsvp_no_link}} &mdash; a portal link is added automatically in the footer)</label>
+            <div class="form-row"><label>Message (use {{name}}, {{rsvp_yes_button}}, {{rsvp_no_button}} &mdash; a portal link is added automatically in the footer)</label>
               <textarea id="rsvpEmailTemplate" rows="7">Hi {{name}} 🎄
 
 It's almost time for the Christmas lighting season! Will you be getting lights hung again this year?
 
-✅ Yes, Hang My Lights: {{rsvp_yes_link}}
-
-❌ No, Not This Year: {{rsvp_no_link}}</textarea>
+{{rsvp_yes_button}} {{rsvp_no_button}}</textarea>
             </div>
             <button type="button" class="btn btn-gold" id="sendRsvpEmailBtn">Send RSVP Email to All Customers</button>
             <span id="rsvpEmailStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
@@ -3013,11 +3011,16 @@ async function resolveLinkTokens(text, phone, amount){
     const venmoUrl = 'https://venmo.com/HighLightingUtah?txn=pay&amount='+venmoAmount+'&note='+encodeURIComponent('Christmas Lights');
     out = out.split('{{venmo_link}}').join(venmoUrl);
   }
-  if(out.indexOf('{{rsvp_yes_link}}') !== -1 || out.indexOf('{{rsvp_no_link}}') !== -1){
+  if(out.indexOf('{{rsvp_yes_link}}') !== -1 || out.indexOf('{{rsvp_no_link}}') !== -1 || out.indexOf('{{rsvp_yes_button}}') !== -1 || out.indexOf('{{rsvp_no_button}}') !== -1){
     const rsvpToken = await getOrCreatePortalToken(phone);
     const rsvpBase = 'https://highlightingutah.com/#/payment' + (rsvpToken ? ('?token='+rsvpToken) : '');
-    out = out.split('{{rsvp_yes_link}}').join(rsvpBase + (rsvpToken ? '&rsvp=yes' : ''));
-    out = out.split('{{rsvp_no_link}}').join(rsvpBase + (rsvpToken ? '&rsvp=no' : ''));
+    const rsvpYesUrl = rsvpBase + (rsvpToken ? '&rsvp=yes' : '');
+    const rsvpNoUrl = rsvpBase + (rsvpToken ? '&rsvp=no' : '');
+    out = out.split('{{rsvp_yes_link}}').join(rsvpYesUrl);
+    out = out.split('{{rsvp_no_link}}').join(rsvpNoUrl);
+    const btnStyle = 'display:inline-block; padding:12px 32px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:15px; margin:6px 8px 6px 0;';
+    out = out.split('{{rsvp_yes_button}}').join('<a href="'+rsvpYesUrl+'" style="'+btnStyle+' background:#2E6B3E; color:#ffffff;">Yes</a>');
+    out = out.split('{{rsvp_no_button}}').join('<a href="'+rsvpNoUrl+'" style="'+btnStyle+' background:#8A8F9C; color:#ffffff;">No</a>');
   }
   return out;
 }
