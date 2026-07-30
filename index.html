@@ -94,6 +94,11 @@
   .btn-block{ width:100%; }
   .btn[disabled]{ opacity:.5; cursor:not-allowed; }
 
+  /* ---------- RSVP minimal mode: hides site chrome for a Google-Forms-style confirmation ---------- */
+  body.rsvp-minimal header, body.rsvp-minimal footer, body.rsvp-minimal .page-hero{ display:none !important; }
+  body.rsvp-minimal #page-payment{ display:flex !important; min-height:100vh; align-items:center; }
+  body.rsvp-minimal #page-payment .wrap{ width:100%; }
+
   /* ---------- Header ---------- */
   header{
     position:sticky; top:0; z-index:100;
@@ -1272,6 +1277,14 @@
 
         <div class="invoice-empty" id="rsvpConfirmCard" style="display:none; text-align:center;">
           <div id="rsvpConfirmMsg" style="font-size:16px; font-weight:600; margin-bottom:14px;"></div>
+          <div id="rsvpReasonWrap" style="display:none; text-align:left; max-width:360px; margin:0 auto 14px;">
+            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:6px;">Mind telling us why? (optional)</label>
+            <textarea id="rsvpReasonInput" rows="3" style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--line); font-family:inherit; font-size:13.5px;" placeholder="e.g. Moving, budget, doing it ourselves this year..."></textarea>
+            <div style="display:flex; gap:8px; margin-top:10px;">
+              <button type="button" class="btn btn-gold" id="rsvpReasonSubmitBtn" style="flex:1;">Submit</button>
+              <button type="button" class="btn btn-outline" id="rsvpReasonSkipBtn" style="flex:1;">Skip</button>
+            </div>
+          </div>
           <button type="button" class="btn btn-gold" id="rsvpOpenPortalBtn" style="display:none;">Open My Portal</button>
         </div>
 
@@ -1812,6 +1825,7 @@ function navigate(){
   document.querySelector('.nav-dropdown').classList.remove('open');
   document.getElementById('mMoreToggle').classList.remove('open');
   document.getElementById('mMoreSubmenu').classList.remove('open');
+  document.body.classList.remove('rsvp-minimal');
   if(hash === '/payment' && queryString){
     var params = new URLSearchParams(queryString);
     var token = params.get('token');
@@ -1819,6 +1833,7 @@ function navigate(){
     var contactParam = params.get('c');
     var lastNameParam = params.get('ln');
     if(token && (rsvp === 'yes' || rsvp === 'no') && typeof handleRsvpLink === 'function'){
+      document.body.classList.add('rsvp-minimal');
       handleRsvpLink(token, rsvp);
     } else if(token && typeof loadPortalByToken === 'function'){
       loadPortalByToken(token);
@@ -2171,6 +2186,8 @@ async function hmLoadHouseMapForInvoice(phoneDigits){
     var addrDoc = snap.docs[0].data();
     currentJobAddressData = addrDoc;
     setRsvpStatusButtons(addrDoc.rsvpStatus || '');
+    var rsvpCardEl = document.getElementById('rsvpStatusCard');
+    if(rsvpCardEl) rsvpCardEl.style.display = addrDoc.rsvpStatus ? 'none' : '';
     if(addrDoc.portalToken){
       savePortalLogin(addrDoc.portalToken);
     } else {
@@ -2432,31 +2449,69 @@ function handleRsvpLink(token, rsvpValue){
   var confirmCard = document.getElementById('rsvpConfirmCard');
   var confirmMsg = document.getElementById('rsvpConfirmMsg');
   var openPortalBtn = document.getElementById('rsvpOpenPortalBtn');
+  var reasonWrap = document.getElementById('rsvpReasonWrap');
+  if(lookupFormWrap) lookupFormWrap.style.display = 'none';
+  if(confirmCard) confirmCard.style.display = 'block';
+  if(reasonWrap) reasonWrap.style.display = 'none';
+  if(openPortalBtn) openPortalBtn.style.display = 'none';
+  confirmMsg.textContent = 'One moment\u2026';
   getDocs(query(collection(db,'jobAddresses'), where('portalToken','==',token), limit(1))).then(function(snap){
     if(snap.empty){
+      if(confirmCard) confirmCard.style.display = 'none';
       document.getElementById('lookupEmpty').style.display = 'block';
       return;
     }
     var docId = snap.docs[0].id;
-    updateDoc(doc(db,'jobAddresses', docId), {
-      rsvpStatus: rsvpValue,
-      rsvpRespondedAt: serverTimestamp(),
-      needsLightRecycle: rsvpValue === 'no'
-    }).catch(function(){});
-    if(lookupFormWrap) lookupFormWrap.style.display = 'none';
-    if(confirmCard) confirmCard.style.display = 'block';
+    var record = snap.docs[0].data();
     if(rsvpValue === 'yes'){
+      updateDoc(doc(db,'jobAddresses', docId), {
+        rsvpStatus: 'yes',
+        rsvpRespondedAt: serverTimestamp(),
+        needsLightRecycle: false
+      }).catch(function(){});
       confirmMsg.textContent = "You're confirmed for this season! \uD83C\uDF84 Want to make any changes from last year?";
       openPortalBtn.style.display = 'inline-flex';
       openPortalBtn.onclick = function(){
+        document.body.classList.remove('rsvp-minimal');
         confirmCard.style.display = 'none';
         loadPortalByToken(token);
       };
     } else {
-      confirmMsg.textContent = 'Hope to see you next year!';
-      openPortalBtn.style.display = 'none';
+      confirmMsg.textContent = "We're sorry to hear that.";
+      if(reasonWrap) reasonWrap.style.display = 'block';
+      function finishNoRsvp(reasonText){
+        updateDoc(doc(db,'jobAddresses', docId), {
+          rsvpStatus: 'no',
+          rsvpRespondedAt: serverTimestamp(),
+          needsLightRecycle: true,
+          rsvpDeclineReason: reasonText || ''
+        }).catch(function(){});
+        if(reasonText){
+          addDoc(collection(db,'messages'), {
+            topic: 'RSVP: Not This Year', folder: 'Inbox',
+            name: record.name || '', phone: record.phone || '', email: record.email || '',
+            contactMethod: '', message: reasonText,
+            createdAt: serverTimestamp()
+          }).catch(function(){});
+          notifyBusinessOfMessage({
+            customer_name: record.name || '', customer_phone: record.phone || '',
+            customer_email: record.email || '', topic: 'RSVP: Not This Year', message: reasonText
+          });
+        }
+        if(reasonWrap) reasonWrap.style.display = 'none';
+        confirmMsg.textContent = 'Hope to see you next year!';
+      }
+      var reasonSubmitBtn = document.getElementById('rsvpReasonSubmitBtn');
+      var reasonSkipBtn = document.getElementById('rsvpReasonSkipBtn');
+      if(reasonSubmitBtn) reasonSubmitBtn.onclick = function(){
+        finishNoRsvp(document.getElementById('rsvpReasonInput').value.trim());
+      };
+      if(reasonSkipBtn) reasonSkipBtn.onclick = function(){
+        finishNoRsvp('');
+      };
     }
   }).catch(function(){
+    if(confirmCard) confirmCard.style.display = 'none';
     document.getElementById('lookupEmpty').style.display = 'block';
   });
 }
