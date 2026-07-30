@@ -732,15 +732,22 @@
                 <option value="Red">Red</option>
                 <option value="Green">Green</option>
                 <option value="Blue">Blue</option>
+                <option value="Multi">Multi</option>
               </select>
             </div>
             <div class="form-row"><label>Additional Notes (optional)</label><input type="text" id="addCustLightsNotes" placeholder="e.g. 2 trees out front, watch for low peak"></div>
+            <div class="form-row" style="max-width:180px; margin-top:10px;"><label>Wire Color</label>
+              <select id="addCustWireColor">
+                <option value="White">White</option>
+                <option value="Green">Green</option>
+              </select>
+            </div>
           </div>
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
             <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Installation Timing Preference</label>
             <div class="form-row" style="max-width:260px;"><label>Preference</label>
               <select id="addCustInstallPref">
-                <option value="Normal Schedule">Normal Schedule</option>
+                <option value="Normal Schedule">Any</option>
                 <option value="October">October</option>
                 <option value="November">November</option>
                 <option value="November - Before Thanksgiving">November &mdash; Before Thanksgiving (employees only)</option>
@@ -758,6 +765,8 @@
             <div class="form-row" style="max-width:280px; margin-top:10px;"><label>Bill To Phone (optional)</label><input type="tel" id="addCustBillTo" placeholder="Leave blank to bill this house"></div>
             <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">If someone else is paying for this house too (e.g. a landlord with multiple properties), enter their phone number here &mdash; this house's price gets added to their invoice instead of creating a separate one.</p>
             <div class="form-row" style="max-width:220px; margin-top:10px;"><label>Gate Code (optional)</label><input type="text" id="addCustGateCode" placeholder="e.g. #4521"></div>
+            <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin-top:10px;"><input type="checkbox" id="addCustWantsMailed" style="width:auto;"> Also wants their invoice mailed (postal mail)</label>
+            <label style="display:flex; align-items:center; gap:6px; font-size:13px; margin-top:6px;"><input type="checkbox" id="addCustWantsMail" style="width:auto;"> Wants their invoice mailed (not emailed)</label>
             <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">If entered, this house is automatically flagged as gated on Routes and Maps, visible to you and your crew.</p>
           </div>
           <button type="submit" class="btn btn-gold">Add Customer</button>
@@ -827,7 +836,7 @@
               <div class="form-row">
                 <label>Light Color(s) (optional) <span class="bulk-count" id="rbCountColors">0 rows</span></label>
                 <textarea id="rbColorsArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="Warm White&#10;Red, Green&#10;(blank if unknown)"></textarea>
-                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">Same 5 options as the Add Customer form &mdash; Warm White, Pure White, Red, Green, Blue. Separate multiple colors on one line with a comma.</p>
+                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">Same 6 options as the Add Customer form &mdash; Warm White, Pure White, Red, Green, Blue, Multi. Separate multiple colors on one line with a comma.</p>
               </div>
               <div class="form-row">
                 <label>Payment Amount ($, optional) <span class="bulk-count" id="rbCountAmounts">0 rows</span></label>
@@ -836,8 +845,8 @@
               </div>
               <div class="form-row">
                 <label>Install Month (optional) <span class="bulk-count" id="rbCountInstallPref">0 rows</span></label>
-                <textarea id="rbInstallPrefArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="October&#10;November&#10;(blank = Normal Schedule)"></textarea>
-                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">Type October or November for which month they're installed &mdash; not case-sensitive. Leave blank for Normal Schedule.</p>
+                <textarea id="rbInstallPrefArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="October&#10;November&#10;(blank = Any)"></textarea>
+                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">Type October, November, or Any &mdash; not case-sensitive. Leave blank for Any.</p>
               </div>
             </div>
             <button type="button" class="btn btn-gold" id="rbImportBtn" style="margin-top:6px;">Import / Update Customers</button>
@@ -954,12 +963,25 @@
               <option value="no">No — Skip This Year</option>
             </select>
           </div>
+          <div class="form-row"><label>Don't Install Before This Date (optional, staff only)</label><input type="date" id="editCustEarliestInstall"></div>
+          <p class="form-note" style="margin:-10px 0 20px;">Customers never see or can change this &mdash; use it when someone needs us to hold off until a specific date (e.g. they're out of town until then). Leave blank for no restriction.</p>
           <div class="form-grid-2">
+            <div class="form-row"><label>Measured Feet</label><input type="number" id="editCustFeet" min="0" step="0.5" placeholder="0"></div>
             <div class="form-row"><label>This House's Price ($)</label><input type="number" id="editCustHousePrice" min="0" step="1" placeholder="0"></div>
+          </div>
+          <div class="form-grid-2">
+            <div class="form-row"><label>Wire Color</label>
+              <select id="editCustWireColor">
+                <option value="White">White</option>
+                <option value="Green">Green</option>
+              </select>
+            </div>
             <div class="form-row"><label>Bill To Phone (optional)</label><input type="tel" id="editCustBillTo" placeholder="Leave blank to bill this house"></div>
           </div>
           <p style="font-size:11.5px; color:var(--slate); margin:-8px 0 0;">If someone else pays for this house, enter their phone number &mdash; this house's price rolls into their invoice instead.</p>
           <div class="form-row"><label>Gate Code (optional)</label><input type="text" id="editCustGateCode" placeholder="e.g. #4521"></div>
+          <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin-top:-6px; margin-bottom:16px;"><input type="checkbox" id="editCustWantsMailed" style="width:auto;"> Also wants their invoice mailed (postal mail)</label>
+          <label style="display:flex; align-items:center; gap:6px; font-size:13px; margin-top:-8px; margin-bottom:14px;"><input type="checkbox" id="editCustWantsMail" style="width:auto;"> Wants their invoice mailed (not emailed)</label>
           <div style="display:flex; gap:10px; margin-top:16px;">
             <button type="button" class="btn btn-outline" id="editCustCancelBtn" style="flex:1;">Cancel</button>
             <button type="button" class="btn btn-gold" id="editCustSaveBtn" style="flex:1;">Save Changes</button>
@@ -1207,10 +1229,13 @@
           <button class="route-tab-btn active" data-invtab="list" draggable="true">Invoice List</button>
           <button class="route-tab-btn" data-invtab="importexport" draggable="true">Import / Export</button>
           <button class="route-tab-btn" data-invtab="seasonemail" draggable="true">Season Billing Emails</button>
+          <button class="route-tab-btn" data-invtab="postinstall" draggable="true">Post-Install Billing</button>
         </div>
 
         <!-- INVOICE LIST -->
         <div class="route-tab-panel active" id="invtab-list">
+          <a href="https://squareup.com/dashboard" target="_blank" rel="noopener" class="btn btn-outline btn-sm" style="margin-bottom:4px; display:inline-flex;">&#128222; Charge a Card by Phone (Square)</a>
+          <p class="form-note" style="margin:0 0 14px;">Opens your Square Dashboard &mdash; once signed in, go to Orders &amp; Payments &rarr; Virtual Terminal &rarr; Take a Payment.</p>
           <div class="form-row"><input type="text" id="invoiceSearchInput" placeholder="Search by customer name..." style="padding:12px 14px; border-radius:10px; border:1px solid var(--line); background:var(--snow); font-size:14.5px;"></div>
           <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:16px; position:relative;">
             <button type="button" class="btn btn-outline btn-sm" id="openInvFilterBtn">Filter &#9662;</button>
@@ -1270,6 +1295,44 @@ Highlighting Utah</textarea>
               <span id="seasonEmailTestStatus" style="font-size:12.5px; color:var(--slate);"></span>
             </div>
             <div id="seasonEmailTemplateExtras"></div>
+          </div>
+        </div>
+
+        <!-- POST-INSTALL BILLING -->
+        <div class="route-tab-panel" id="invtab-postinstall">
+          <div class="card" style="background:#FFF8E9; border-color:var(--gold-dim);">
+            <h3>Bill Customers After Their Lights Are Hung</h3>
+            <p style="font-size:13px;">Pick the date you ran installs on &mdash; this pulls up every house marked Done that day. Houses that still owe money get the Invoice email below; houses already paid in full get the Thank You email instead. Anyone marked "wants invoice mailed" (or with no email/invoice on file) is skipped so you can mail them yourself.</p>
+            <div class="form-row" style="max-width:220px;"><label>Install Date</label><input type="date" id="postInstallDateInput"></div>
+            <button type="button" class="btn btn-outline" id="loadPostInstallBtn">Load Completed Installs for This Date</button>
+            <div id="postInstallResults" style="margin-top:16px;"></div>
+          </div>
+          <div class="card">
+            <h3>Invoice Email <span style="font-weight:400; color:var(--slate); font-size:13px;">&mdash; for houses that still owe money</span></h3>
+            <div class="form-row"><label>Message (use {{name}} and {{amount}} &mdash; a payment link and "please don't reply" footer are added automatically)</label>
+              <textarea id="postInstallInvoiceTemplate" rows="6">Hi {{name}} &#127877;
+
+Your Christmas lights are up! Your balance for this season is {{amount}}. You can pay with Venmo or through your portal using the link below.
+
+Thanks for choosing Highlighting Utah!</textarea>
+            </div>
+            <div style="display:flex; gap:16px; margin-bottom:10px; font-size:13px;">
+              <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" id="postInstallIncludePortal" checked style="width:auto;"> Include portal link</label>
+              <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" id="postInstallIncludeVenmo" checked style="width:auto;"> Include Venmo link</label>
+            </div>
+            <div id="postInstallTemplateExtras"></div>
+          </div>
+          <div class="card">
+            <h3>Thank You Email <span style="font-weight:400; color:var(--slate); font-size:13px;">&mdash; for houses already paid in full</span></h3>
+            <div class="form-row"><label>Message (use {{name}} and {{amount}} for what they already paid)</label>
+              <textarea id="postInstallThanksTemplate" rows="6">Hi {{name}} &#127877;
+
+Your Christmas lights are up, and you're already paid in full ({{amount}}) &mdash; nothing else needed from you!
+
+Thank you so much for being a Highlighting Utah customer. We hope your lights bring you joy all season long.
+
+Highlighting Utah</textarea>
+            </div>
           </div>
         </div>
       </div>
@@ -1484,6 +1547,7 @@ Highlighting Utah</textarea>
                 <option value="Red">Red</option>
                 <option value="Green">Green</option>
                 <option value="Blue">Blue</option>
+                <option value="Multi">Multi</option>
               </select>
             </div>
             <div class="form-row"><label>Used Per House Being Built (if not a light color)</label><input type="number" id="invItemPerHouse" min="0" step="1" placeholder="e.g. 40"></div>
@@ -1521,6 +1585,7 @@ Highlighting Utah</textarea>
         <button class="route-tab-btn" data-autotab="text" draggable="true">Text Automation</button>
         <button class="route-tab-btn" data-autotab="bulk" draggable="true">Bulk Automation</button>
         <button class="route-tab-btn" data-autotab="rsvp" draggable="true">RSVP Email</button>
+        <button class="route-tab-btn" data-autotab="postinstall" draggable="true">Post-Install Billing</button>
       </div>
 
       <div class="route-tab-panel active" id="autotab-one">
@@ -1617,6 +1682,52 @@ It's almost time for the Christmas lighting season! Will you be getting lights h
               <span id="rsvpEmailTestStatus" style="font-size:12.5px; color:var(--slate);"></span>
             </div>
           </div>
+      </div>
+
+      <div class="route-tab-panel" id="autotab-postinstall">
+        <div class="card" style="background:#FFF8E9; border-color:var(--gold-dim);">
+          <h3>&#128231; Post-Install Billing</h3>
+          <p style="font-size:13px;">Pick the day you hung lights and load it below &mdash; everyone marked Done that day splits automatically into two lists: people who still owe, and people who already paid. Remove anyone you don't want included, then send each list its own email.</p>
+          <div class="form-grid-2">
+            <div class="form-row"><label>Date Installed</label><input type="date" id="pibDateInput"></div>
+            <div class="form-row" style="display:flex; align-items:flex-end;"><button type="button" class="btn btn-gold" id="pibLoadBtn" style="width:100%;">Load That Day's Completed Installs</button></div>
+          </div>
+          <span id="pibLoadStatus" style="font-size:13px; color:var(--slate);"></span>
+          <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin-top:12px;"><input type="checkbox" id="pibSkipMailedFilter" style="width:auto;"> Skip customers who want their invoice mailed instead (handle those separately)</label>
+        </div>
+
+        <div class="card" id="pibUnpaidCard" style="display:none;">
+          <h3>&#128179; Needs to Pay (<span id="pibUnpaidCount">0</span>)</h3>
+          <p style="font-size:13px;">Their balance fills in automatically, and both a Member Portal link and a Venmo link are added so they can pay however's easiest.</p>
+          <div class="form-row"><label>Invoice Email (use {{name}} and {{amount}})</label>
+            <textarea id="pibUnpaidTemplate" rows="6">Hi {{name}},
+
+Thanks for having us out — your lights are up! Your balance for this season is {{amount}}. You can pay through your Member Portal or with Venmo using the links below.
+
+Thanks for being a customer!
+Highlighting Utah</textarea>
+          </div>
+          <p style="font-size:12px; color:var(--slate); margin-top:-6px;">&#128235; marks anyone who also wants a paper invoice mailed. By default sending below still emails them too — check "Skip customers who want their invoice mailed" above if you'd rather handle those separately.</p>
+          <div id="pibUnpaidList" style="margin-top:10px;"></div>
+          <button type="button" class="btn btn-gold" id="pibSendUnpaidBtn" style="margin-top:12px;">Send Invoice Emails</button>
+          <span id="pibUnpaidSendStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
+        </div>
+
+        <div class="card" id="pibPaidCard" style="display:none;">
+          <h3>&#127881; Already Paid &mdash; Say Thanks (<span id="pibPaidCount">0</span>)</h3>
+          <p style="font-size:13px;">These customers already paid in full before install &mdash; this just confirms what they paid and says thanks. No payment links are included since there's nothing left to pay.</p>
+          <div class="form-row"><label>Thank You Email (use {{name}} and {{amount}})</label>
+            <textarea id="pibPaidTemplate" rows="6">Hi {{name}},
+
+Your lights are up! Just confirming we received your payment of {{amount}} for this season — you're all set.
+
+Thanks so much for being a customer!
+Highlighting Utah</textarea>
+          </div>
+          <div id="pibPaidList" style="margin-top:10px;"></div>
+          <button type="button" class="btn btn-gold" id="pibSendPaidBtn" style="margin-top:12px;">Send Thank You Emails</button>
+          <span id="pibPaidSendStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
+        </div>
       </div>
     </div>
 
@@ -1794,6 +1905,21 @@ It's almost time for the Christmas lighting season! Will you be getting lights h
       <!-- LIST VIEW -->
       <div class="route-tab-panel active" id="routetab-list">
         <div class="card">
+          <button type="button" class="btn btn-outline btn-sm" id="timingLegendToggle" style="margin-bottom:12px;">Color Code Key &#9662;</button>
+          <div id="timingLegendPanel" style="display:none; margin-bottom:16px; padding:14px; border:1px solid var(--line); border-radius:10px; background:var(--paper);">
+            <div style="display:flex; flex-wrap:wrap; gap:8px;">
+              <span class="status-pill" style="background:#EEF1F5; color:#5B6472; font-weight:600;">Any</span>
+              <span class="status-pill" style="background:#FFF3B0; color:#8A6D00; font-weight:600;">October</span>
+              <span class="status-pill" style="background:#FDEBD3; color:#B45309; font-weight:600;">⚠ October — Due by Oct 31</span>
+              <span class="status-pill" style="background:#E0E7FF; color:#4338CA; font-weight:600;">November</span>
+              <span class="status-pill" style="background:#F3E8FF; color:#7C3AED; font-weight:600;">Before Thanksgiving</span>
+              <span class="status-pill" style="background:#F4E1E6; color:#9F1239; font-weight:600;">⚠ Before Thanksgiving — Due Soon</span>
+              <span class="status-pill" style="background:#CCFBF1; color:#0F766E; font-weight:600;">After Thanksgiving</span>
+              <span class="status-pill" style="background:#FCE7F3; color:#BE185D; font-weight:700;">⚠ New Hang — Install ASAP</span>
+              <span class="status-pill diff-Fix" style="font-weight:600;">Needs Fix (separate from timing)</span>
+            </div>
+            <p class="form-note" style="margin:10px 0 0;">These show on every house's row below, and as a colored ring around its pin on the Map View. The &#9888; warning icon marks anything that needs action soon. New Hang can appear alongside a timing badge — they're separate reasons for urgency. Needs Fix is a completely separate system (shown in its own reddish pill) and won't be confused with these.</p>
+          </div>
           <div class="form-row"><input type="text" id="routeSearchInput" placeholder="Search by name, house number, or street..." style="padding:12px 14px; border-radius:10px; border:1px solid var(--line); background:var(--snow); font-size:14.5px;"></div>
           <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:16px; position:relative;">
             <button type="button" class="btn btn-outline btn-sm" id="openFilterBtn">Filter &#9662;</button>
@@ -2406,6 +2532,25 @@ It's almost time for the Christmas lighting season! Will you be getting lights h
           <div class="form-row"><label>Email</label><input type="email" id="setEmail"></div>
           <button type="submit" class="btn btn-gold">Save Contact Info</button>
         </form>
+      </div>
+      <div class="card">
+        <h3>&#128179; Payment Integrations</h3>
+        <p style="font-size:13px;">Choose what the "Pay Online" button in the Member Portal does. With PayPal selected, customers pay their balance plus an optional tip in one PayPal transaction right on the site, and it's automatically recorded on their invoice the moment they pay — no manual "Mark Paid" needed.</p>
+        <form id="settingsPaymentForm">
+          <div class="form-row"><label>Payment Method Customers See</label>
+            <select id="setPaymentProvider">
+              <option value="venmo">Venmo</option>
+              <option value="paypal">PayPal</option>
+            </select>
+          </div>
+          <div class="form-row"><label>PayPal Client ID</label><input type="text" id="setPaypalClientId" placeholder="From your PayPal Developer app"></div>
+          <p class="form-note" style="margin:-10px 0 20px;">This is the public Client ID from your PayPal Developer app (developer.paypal.com &rarr; Apps &amp; Credentials) &mdash; safe to store here since it's meant to be public. Your Client <strong>Secret</strong> and Webhook ID are never entered here; those get set up once in Cloud Functions (ask Claude Code to walk you through the terminal commands when you're ready to deploy).</p>
+          <button type="submit" class="btn btn-gold">Save Payment Settings</button>
+        </form>
+        <div style="margin-top:18px; padding-top:16px; border-top:1px solid var(--line); display:flex; gap:10px; flex-wrap:wrap;">
+          <a href="https://www.paypal.com/signin" target="_blank" rel="noopener" class="btn btn-outline btn-sm">Log In to PayPal</a>
+          <a href="https://squareup.com/dashboard" target="_blank" rel="noopener" class="btn btn-outline btn-sm">Log In to Square</a>
+        </div>
       </div>
       <div class="card">
         <h3>&#9733; Google Business</h3>
@@ -3115,6 +3260,119 @@ document.getElementById('rsvpEmailTestBtn').addEventListener('click', async func
   }
 });
 
+/* ---------------- POST-INSTALL BILLING ---------------- */
+document.getElementById('pibDateInput').value = toDateStr(new Date());
+let pibUnpaidRows = [];
+let pibPaidRows = [];
+document.getElementById('pibLoadBtn').addEventListener('click', function(){
+  const dateStr = document.getElementById('pibDateInput').value;
+  const statusEl = document.getElementById('pibLoadStatus');
+  if(!dateStr){ statusEl.textContent = 'Pick a date first.'; return; }
+  const completedThatDay = jobAddresses.filter(function(a){
+    const ts = a.data.completedAt;
+    if(!a.data.completed || !ts || !ts.toDate) return false;
+    return toDateStr(ts.toDate()) === dateStr;
+  });
+  pibUnpaidRows = [];
+  pibPaidRows = [];
+  let noInvoiceCount = 0;
+  completedThatDay.forEach(function(item){
+    const d = item.data;
+    const inv = d.phone ? allInvoicesCache.find(function(i){ return i.data.phone === d.phone; }) : null;
+    if(!inv){ noInvoiceCount++; return; }
+    const status = computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit);
+    const row = {
+      jobId: item.id, phone: d.phone || inv.data.phone || '',
+      name: d.name || inv.data.name || '', email: inv.data.email || d.email || '',
+      wantsMailed: !!d.wantsMailedInvoice,
+      amount: status === 'Paid in Full' ? fmtMoney(inv.data.deposit||0) : fmtMoney(balanceDueAmount(inv.data))
+    };
+    if(status === 'Paid in Full') pibPaidRows.push(row); else pibUnpaidRows.push(row);
+  });
+  renderPibLists();
+  statusEl.textContent = completedThatDay.length
+    ? (noInvoiceCount ? noInvoiceCount + ' house(s) had no invoice on file, so were skipped.' : '')
+    : 'No completed installs found for that date.';
+});
+function renderPibRow(row, listName){
+  return '<div class="row-item" style="padding:10px 14px;">'+
+    '<div class="rmain">'+
+      '<div style="font-weight:600;">'+esc(row.name || '(no name)')+'</div>'+
+      '<div style="font-size:12.5px; color:var(--slate);">'+esc(row.phone||'')+(row.email ? ' &middot; '+esc(row.email) : ' &middot; <span style="color:var(--ember);">No email on file</span>')+' &middot; '+row.amount+'</div>'+
+      (row.wantsMailed ? '<div style="font-size:12px; color:var(--ember); font-weight:600; margin-top:2px;">&#128235; Also wants this mailed</div>' : '')+
+    '</div>'+
+    '<div class="row-actions">'+
+      '<button type="button" class="icon-btn" data-pibremove="'+listName+'" data-jobid="'+row.jobId+'" title="Remove from this list" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:var(--ember);">Remove</button>'+
+    '</div>'+
+  '</div>';
+}
+function renderPibLists(){
+  document.getElementById('pibUnpaidCard').style.display = pibUnpaidRows.length ? 'block' : 'none';
+  document.getElementById('pibPaidCard').style.display = pibPaidRows.length ? 'block' : 'none';
+  document.getElementById('pibUnpaidCount').textContent = pibUnpaidRows.length;
+  document.getElementById('pibPaidCount').textContent = pibPaidRows.length;
+  document.getElementById('pibUnpaidList').innerHTML = pibUnpaidRows.length ? pibUnpaidRows.map(r => renderPibRow(r,'unpaid')).join('') : '<div class="empty-note">Nobody in this list.</div>';
+  document.getElementById('pibPaidList').innerHTML = pibPaidRows.length ? pibPaidRows.map(r => renderPibRow(r,'paid')).join('') : '<div class="empty-note">Nobody in this list.</div>';
+  document.querySelectorAll('[data-pibremove]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      const listName = btn.dataset.pibremove, jobId = btn.dataset.jobid;
+      if(listName === 'unpaid') pibUnpaidRows = pibUnpaidRows.filter(r => r.jobId !== jobId);
+      else pibPaidRows = pibPaidRows.filter(r => r.jobId !== jobId);
+      renderPibLists();
+    });
+  });
+}
+document.getElementById('pibSendUnpaidBtn').addEventListener('click', async function(){
+  const serviceId = document.getElementById('emailjsServiceId').value.trim();
+  const templateId = document.getElementById('emailjsTemplateId').value.trim();
+  const publicKey = document.getElementById('emailjsPublicKey').value.trim();
+  const statusEl = document.getElementById('pibUnpaidSendStatus');
+  if(!serviceId || !templateId || !publicKey){ statusEl.textContent = 'Fill in your Email Setup (RSVP Email tab) first.'; return; }
+  if(!window.emailjs){ statusEl.textContent = 'Email service failed to load — check your internet connection.'; return; }
+  const skipMailed = document.getElementById('pibSkipMailedFilter').checked;
+  const withEmail = pibUnpaidRows.filter(r => r.email && !(skipMailed && r.wantsMailed));
+  if(!withEmail.length){ statusEl.textContent = skipMailed ? 'Nobody left after skipping mailed-invoice customers.' : 'Nobody in this list has an email on file.'; return; }
+  if(!confirm('Send invoice emails to ' + withEmail.length + ' customer(s) now?')) return;
+  emailjs.init(publicKey);
+  const template = document.getElementById('pibUnpaidTemplate').value;
+  let sent = 0, failed = 0;
+  for(const row of withEmail){
+    const footer = await buildOutgoingEmailFooter(row.phone, row.amount, {includePortal: true, includeVenmo: true, includeMessages: true});
+    const message = template.replace(/\{\{name\}\}/g, row.name || 'there').replace(/\{\{amount\}\}/g, row.amount) + footer;
+    statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + withEmail.length + '…';
+    try{
+      await emailjs.send(serviceId, templateId, { to_email: row.email, to_name: row.name || '', message: message });
+      sent++;
+    } catch(err){ failed++; }
+  }
+  statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.';
+});
+document.getElementById('pibSendPaidBtn').addEventListener('click', async function(){
+  const serviceId = document.getElementById('emailjsServiceId').value.trim();
+  const templateId = document.getElementById('emailjsTemplateId').value.trim();
+  const publicKey = document.getElementById('emailjsPublicKey').value.trim();
+  const statusEl = document.getElementById('pibPaidSendStatus');
+  if(!serviceId || !templateId || !publicKey){ statusEl.textContent = 'Fill in your Email Setup (RSVP Email tab) first.'; return; }
+  if(!window.emailjs){ statusEl.textContent = 'Email service failed to load — check your internet connection.'; return; }
+  const skipMailed = document.getElementById('pibSkipMailedFilter').checked;
+  const withEmail = pibPaidRows.filter(r => r.email && !(skipMailed && r.wantsMailed));
+  if(!withEmail.length){ statusEl.textContent = skipMailed ? 'Nobody left after skipping mailed-invoice customers.' : 'Nobody in this list has an email on file.'; return; }
+  if(!confirm('Send thank-you emails to ' + withEmail.length + ' customer(s) now?')) return;
+  emailjs.init(publicKey);
+  const template = document.getElementById('pibPaidTemplate').value;
+  let sent = 0, failed = 0;
+  for(const row of withEmail){
+    const footer = await buildOutgoingEmailFooter(row.phone, 0, {includePortal: false, includeVenmo: false, includeMessages: true});
+    const message = template.replace(/\{\{name\}\}/g, row.name || 'there').replace(/\{\{amount\}\}/g, row.amount) + footer;
+    statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + withEmail.length + '…';
+    try{
+      await emailjs.send(serviceId, templateId, { to_email: row.email, to_name: row.name || '', message: message });
+      sent++;
+    } catch(err){ failed++; }
+  }
+  statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.';
+});
+
 document.getElementById('loadBulkTextListBtn').addEventListener('click', async function(){
   const wrap = document.getElementById('bulkTextList');
   const withPhone = jobAddresses.filter(a => a.data.phone);
@@ -3498,6 +3756,9 @@ function renderQuoteRows(filtered){
         '<div class="row-phone-line">'+esc(d.phone)+' &middot; '+esc(d.email)+' &middot; '+fmtDate(d.createdAt)+'</div>'+
         (d.houseAreas && d.houseAreas.length ? '<div class="rtext" style="margin-top:6px;"><strong>Areas:</strong> '+d.houseAreas.map(esc).join(', ')+'</div>' : '')+
         (colorCombo ? '<div class="rtext"><strong>Colors:</strong> '+esc(colorCombo)+'</div>' : '')+
+        (d.wireColor ? '<div class="rtext"><strong>Wire Color:</strong> '+esc(d.wireColor)+'</div>' : '')+
+        (d.outletTimer ? '<div class="rtext"><strong>Outlet Timer:</strong> '+esc(d.outletTimer)+'</div>' : '')+
+        (d.specificOutlet === 'Yes' ? '<div class="rtext"><strong>Specific Outlet:</strong> Yes'+(d.specificOutletNotes ? ' &mdash; '+esc(d.specificOutletNotes) : '')+'</div>' : '')+
         '<div class="rtext">Prefers: '+esc(d.contactMethod)+(d.notes ? ' &mdash; '+esc(d.notes) : '')+'</div>'+
         (d.frontPhotoUrl ? '<img src="'+esc(d.frontPhotoUrl)+'" style="max-width:240px; border-radius:8px; border:1px solid var(--line); display:block; margin-top:8px;">' : (d.frontPhotoFlagged ? '<div style="margin-top:8px;">'+
           '<p style="font-size:12.5px; color:var(--ember); margin:0;">'+(d.frontPhotoFlagReason === 'no_coverage'
@@ -3641,6 +3902,7 @@ function renderQuoteRows(filtered){
         opt.selected = colors.includes(opt.value);
       });
       document.getElementById('addCustLightsNotes').value = d.lightsDescription || '';
+      document.getElementById('addCustWireColor').value = d.wireColor || 'White';
       const quoteAreas = d.houseAreas || [];
       Array.from(document.getElementById('addCustAreas').options).forEach(function(opt){
         opt.selected = quoteAreas.includes(opt.value);
@@ -4071,6 +4333,8 @@ function renderInvoicesList(){
           (d.email ? ' &middot; <span>'+esc(d.email)+'</span><button type="button" class="copy-field-btn" data-copyval="'+esc(d.email)+'" title="Copy email">'+copyIcon()+'</button>' : '')+
         '</div>'+
         '<div class="rtext">Amount: '+fmtMoney((d.install||0)+(d.removal||0))+(liveStatus==='Partial Payment' ? ' &mdash; Paid so far: '+fmtMoney(d.deposit||0)+', Balance: '+fmtMoney(balance) : '')+(needsReview ? ' <span style="color:var(--ember); font-weight:600;">&mdash; calculated from house photo, not yet confirmed</span>' : '')+'</div>'+
+        (d.tipTotal ? '<div class="rtext" style="color:#2E6B3E;">&#128179; Tip received: '+fmtMoney(d.tipTotal)+(d.lastPaymentMethod === 'paypal' ? ' (via PayPal)' : '')+'</div>' : '')+
+        (d.lastPaymentMethod === 'paypal' && !d.tipTotal ? '<div class="rtext" style="color:var(--slate); font-size:12px;">Last payment: PayPal'+(d.lastPaymentAt && d.lastPaymentAt.toDate ? ', '+fmtDate(d.lastPaymentAt) : '')+'</div>' : '')+
         billedNote+
         '<div id="invoiceeditpanel-'+item.id+'" style="display:none; margin-top:12px; padding-top:12px; border-top:1px solid var(--line);"></div>'+
       '</div>'+
@@ -5426,7 +5690,7 @@ async function showMapPreviewByAddress(containerId, addressText){
     if(box) box.innerHTML = '<div class="map-preview-placeholder">Couldn\'t locate this address.</div>';
   }
 }
-const LIGHTS_COLOR_OPTIONS = ['Warm White','Pure White','Red','Green','Blue'];
+const LIGHTS_COLOR_OPTIONS = ['Warm White','Pure White','Red','Green','Blue','Multi'];
 function compileLightsDescription(color, notes){
   let result = color || '';
   if(notes) result = result ? result + ' (' + notes + ')' : notes;
@@ -5544,6 +5808,74 @@ function isInstallPrefLocked(installPreference){
     return now < dayAfter;
   }
   return false;
+}
+// Staff-only date restriction, independent of Install Timing — set from Edit Customer, never visible/editable by the customer.
+function isEarliestInstallDateLocked(data){
+  if(!data || !data.earliestInstallDate) return false;
+  const d = data.earliestInstallDate.toDate ? data.earliestInstallDate.toDate() : new Date(data.earliestInstallDate);
+  return new Date() < d;
+}
+
+// ---- Install-timing urgency flags (used in Routes list + Overview Map) ----
+// New Hang: a first-time customer (proxied by how recently they enrolled) who still isn't scheduled/completed 2+ weeks after signing up.
+function isNewHangUrgent(d){
+  if(!d || d.completed || d.scheduled) return false;
+  const days = daysSince(d.createdAt);
+  return days !== null && days >= 14;
+}
+// October houses need to be done before Oct 31 — flag starting 2 weeks out (Oct 17).
+function isOctoberUrgent(d){
+  if(!d || d.completed || d.scheduled) return false;
+  if(d.installPreference !== 'October') return false;
+  const now = new Date();
+  const oct31 = new Date(now.getFullYear(), 9, 31);
+  const daysLeft = Math.ceil((oct31 - now) / 86400000);
+  return daysLeft <= 14 && daysLeft >= -60; // within the final 2 weeks, or recently overdue
+}
+// "November - Before Thanksgiving" houses need to be done before Thanksgiving — flag starting 2 weeks out, once unlocked (Nov 1+).
+function isBeforeThanksgivingUrgent(d){
+  if(!d || d.completed || d.scheduled) return false;
+  if(d.installPreference !== 'November - Before Thanksgiving') return false;
+  if(isInstallPrefLocked(d.installPreference)) return false;
+  const now = new Date();
+  const tg = thanksgivingDate(now.getFullYear());
+  const daysLeft = Math.ceil((tg - now) / 86400000);
+  return daysLeft <= 14 && daysLeft >= -30;
+}
+// Base color-coded badge for a house's Install Timing, reflecting locked/urgent state. See color legend in the Routes tab.
+function installTimingBadge(d){
+  const pref = (d && d.installPreference) || 'Normal Schedule';
+  if(pref === 'October'){
+    return isOctoberUrgent(d)
+      ? {label:'⚠ October — Due by Oct 31', bg:'#FDEBD3', color:'#B45309'}
+      : {label:'October', bg:'#FFF3B0', color:'#8A6D00'};
+  }
+  if(pref === 'November'){
+    return isInstallPrefLocked(pref)
+      ? {label:'November — Opens Nov 1', bg:'#E0E7FF', color:'#4338CA'}
+      : {label:'November', bg:'#E0E7FF', color:'#4338CA'};
+  }
+  if(pref === 'November - Before Thanksgiving'){
+    if(isInstallPrefLocked(pref)) return {label:'Before Thanksgiving — Opens Nov 1', bg:'#F3E8FF', color:'#7C3AED'};
+    return isBeforeThanksgivingUrgent(d)
+      ? {label:'⚠ Before Thanksgiving — Due Soon', bg:'#F4E1E6', color:'#9F1239'}
+      : {label:'Before Thanksgiving', bg:'#F3E8FF', color:'#7C3AED'};
+  }
+  if(pref === 'After Thanksgiving'){
+    if(isInstallPrefLocked(pref)){
+      const tg = thanksgivingDate(new Date().getFullYear());
+      const dayAfter = new Date(tg.getFullYear(), tg.getMonth(), tg.getDate() + 1);
+      return {label:'After Thanksgiving — Opens '+dayAfter.toLocaleDateString('en-US',{month:'short',day:'numeric'}), bg:'#CCFBF1', color:'#0F766E'};
+    }
+    return {label:'After Thanksgiving', bg:'#CCFBF1', color:'#0F766E'};
+  }
+  return {label:'Any', bg:'#EEF1F5', color:'#5B6472'};
+}
+// New Hang badge is separate from (and can appear alongside) the timing badge above — different color on purpose so the two reasons for urgency are never confused.
+function newHangBadge(d){
+  if(!isNewHangUrgent(d)) return null;
+  const days = daysSince(d.createdAt);
+  return {label:'⚠ New Hang — Install ASAP ('+days+'d waiting)', bg:'#FCE7F3', color:'#BE185D'};
 }
 
 function switchRouteTab(tabName){
@@ -5979,6 +6311,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
   const name = document.getElementById('routeNameInput').value.trim();
   const phone = document.getElementById('routePhoneInput').value.replace(/\D/g,'');
   const price = Number(document.getElementById('addCustPrice').value) || 0;
+  const measuredFeet = Number(document.getElementById('addCustFeet').value) || 0;
   const email = document.getElementById('addCustEmail').value.trim();
   const phone2 = document.getElementById('addCustPhone2').value.replace(/\D/g,'');
   const email2 = document.getElementById('addCustEmail2').value.trim();
@@ -5987,10 +6320,12 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
     selectedColors.join(', '),
     document.getElementById('addCustLightsNotes').value.trim()
   );
+  const wireColor = document.getElementById('addCustWireColor').value;
   const houseAreas = Array.from(document.getElementById('addCustAreas').selectedOptions).map(o => o.value).filter(Boolean);
   const installPreference = document.getElementById('addCustInstallPref').value;
   const billToPhone = document.getElementById('addCustBillTo').value.replace(/\D/g,'');
   const gateCode = document.getElementById('addCustGateCode').value.trim();
+  const wantsMailedInvoice = document.getElementById('addCustWantsMailed').checked;
   const wantsBilling = price > 0;
   const statusEl = document.getElementById('routeAddStatus');
 
@@ -6014,8 +6349,9 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
       address: fullAddress, difficulty: difficulty, name: name, phone: phone, email: email,
       phone2: phone2, email2: email2, lightsDescription: lightsDescription, houseAreas: houseAreas,
       housePhotoUrl: addCustPhotoUrl, houseHighlights: addCustHighlights, portalToken: generatePortalToken(), installPreference: installPreference,
+      wireColor: wireColor,
       lat: coords.lat, lng: coords.lng, needsLightBuild: !!lightsDescription,
-      scheduled: false, createdAt: serverTimestamp(), housePrice: price, gateCode: gateCode
+      scheduled: false, createdAt: serverTimestamp(), housePrice: price, measuredFeet: measuredFeet, gateCode: gateCode, wantsMailedInvoice: wantsMailedInvoice
     }, billingElsewhere ? {billToPhone: billToPhone} : {}));
     if(addCustPhotoUrl){
       await setDoc(doc(db,'houseMaps',newAddrRef.id), {'images.house': addCustPhotoUrl}, {merge:true});
@@ -6041,6 +6377,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
     document.getElementById('addCustPrice').value = '';
     document.getElementById('addCustBillTo').value = '';
     document.getElementById('addCustGateCode').value = '';
+    document.getElementById('addCustWantsMailed').checked = false;
     document.getElementById('addCustFeet').value = '';
     document.getElementById('addCustFeetNote').textContent = 'Enter Measured Feet to bill automatically at your Per Foot Pricing rate — you can still adjust Total Price by hand afterward. Deposit and removal fee can be added later from the Invoices tab if needed.';
     document.getElementById('addCustEmail').value = '';
@@ -6048,6 +6385,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
     document.getElementById('addCustEmail2').value = '';
     Array.from(document.getElementById('addCustLightsColor').options).forEach(opt => opt.selected = false);
     document.getElementById('addCustLightsNotes').value = '';
+    document.getElementById('addCustWireColor').value = 'White';
     document.getElementById('addCustInstallPref').value = 'Normal Schedule';
     Array.from(document.getElementById('addCustAreas').options).forEach(opt => opt.selected = false);
     document.getElementById('addCustPhoto').value = '';
@@ -6109,12 +6447,13 @@ const rbCountIds = {
 const RB_INSTALL_PREF_OPTIONS = ['Normal Schedule','October','November','November - Before Thanksgiving','After Thanksgiving'];
 function rbNormalizeInstallPref(raw){
   if(!raw) return '';
+  if(raw.trim().toLowerCase() === 'any') return 'Normal Schedule';
   const match = RB_INSTALL_PREF_OPTIONS.find(function(opt){ return opt.toLowerCase() === raw.trim().toLowerCase(); });
   return match || raw.trim();
 }
 function rbNormalizeColors(raw){
   if(!raw) return [];
-  const RB_LIGHT_COLOR_OPTIONS = ['Warm White','Pure White','Red','Green','Blue'];
+  const RB_LIGHT_COLOR_OPTIONS = ['Warm White','Pure White','Red','Green','Blue','Multi'];
   return raw.split(',').map(function(c){ return c.trim(); }).filter(Boolean).map(function(c){
     const match = RB_LIGHT_COLOR_OPTIONS.find(function(opt){ return opt.toLowerCase() === c.toLowerCase(); });
     return match || c;
@@ -6372,10 +6711,20 @@ function buildAddressRowHtml(item){
     const names = getEffectiveCrewNames(d.removalCrew, d.removalScheduledDate);
     crewLines.push('Removal: '+(names.length ? names.map(esc).join(', ') : 'Crew '+esc(String(d.removalCrew))));
   }
+  const timingBadge = completed ? null : installTimingBadge(d);
+  const newHangFlag = completed ? null : newHangBadge(d);
+  const timingBadgesHtml = (timingBadge || newHangFlag || d.wantsMailedInvoice)
+    ? '<div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">'+
+        (timingBadge ? '<span class="status-pill" style="background:'+timingBadge.bg+'; color:'+timingBadge.color+'; font-weight:600;">'+esc(timingBadge.label)+'</span>' : '')+
+        (newHangFlag ? '<span class="status-pill" style="background:'+newHangFlag.bg+'; color:'+newHangFlag.color+'; font-weight:700;">'+esc(newHangFlag.label)+'</span>' : '')+
+        (d.wantsMailedInvoice ? '<span class="status-pill" style="background:var(--paper); color:var(--slate); font-weight:600;">&#128235; Wants Invoice Mailed</span>' : '')+
+      '</div>'
+    : '';
   return '<div class="row-item">'+
     '<div class="rmain">'+
       (d.name ? '<div class="row-name-line">'+esc(d.name)+'</div>' : '')+
       '<button type="button" class="address-link-btn" data-previewaddr="'+item.id+'">'+esc(d.address)+'</button>'+
+      timingBadgesHtml+
       '<button type="button" class="fix-toggle-btn" data-toggledetails="'+item.id+'" style="margin-top:8px;">Show Details &#9662;</button>'+
       '<div id="rowdetails-'+item.id+'" style="display:none; margin-top:10px;">'+
         '<div style="margin-bottom:8px;"><span class="status-pill diff-'+diff+'">'+diff+'</span>'+(d.scheduled ? ' <span class="status-pill status-paid">Install Scheduled</span>' : '')+(needsFix ? ' <span class="status-pill diff-Fix">Needs Fix</span>'+(d.fixScheduled ? ' <span class="status-pill status-paid">Fix Scheduled</span>' : '') : '')+(completed ? ' <span class="status-pill status-paid">&#10003; Done</span>' : '')+(needsRemoval ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Needs Removal</span>' : '')+(d.removalDone ? ' <span class="status-pill status-paid">&#10003; Removed</span>' : '')+(seasonStatusLabel ? ' <span class="status-pill '+seasonStatusClasses[d.seasonStatus]+'">'+seasonStatusLabel+'</span>' : '')+(needsQuote ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Needs Quote</span>' : '')+'</div>'+
@@ -6388,6 +6737,7 @@ function buildAddressRowHtml(item){
         (crewLines.length ? '<div class="row-phone-line">'+crewLines.join(' &middot; ')+'</div>' : '')+
         (d.notes ? '<div class="row-phone-line">&#128221; '+esc(d.notes)+'</div>' : '')+
         (d.oneTimeNote ? '<div class="row-phone-line" style="color:var(--ember);">&#128221; (this visit only) '+esc(d.oneTimeNote)+'</div>' : '')+
+        (isEarliestInstallDateLocked(d) ? '<div class="row-phone-line" style="color:var(--ember); font-weight:600;">&#128197; Don\'t install before '+fmtDate(d.earliestInstallDate)+'</div>' : '')+
         (d.housePhotoUrl ? '<div class="row-phone-line">&#128247; Photo on file'+(d.houseHighlights && d.houseHighlights.length ? ' &middot; '+d.houseHighlights.length+' section(s), '+fmtMoney(d.houseHighlights.reduce((s,h)=>s+(Number(h.price)||0),0)) : '')+'</div>' : '')+
         '<div class="diff-pick-row">'+
           '<select class="diff-select" data-setdiff="'+item.id+'" style="border-radius:8px; border:1px solid var(--line); padding:6px 10px; font-size:13px; font-weight:600; background:var(--snow); color:var(--ink);">'+
@@ -6397,7 +6747,7 @@ function buildAddressRowHtml(item){
           '</select>'+
           '<select class="installpref-select" data-setinstallpref="'+item.id+'" style="border-radius:8px; border:1px solid var(--line); padding:6px 10px; font-size:13px; font-weight:600; background:var(--snow); color:var(--ink);">'+
             ['Normal Schedule','October','November','November - Before Thanksgiving','After Thanksgiving'].map(function(opt){
-              const label = opt === 'November - Before Thanksgiving' ? 'November — Before Thanksgiving' : opt;
+              const label = opt === 'November - Before Thanksgiving' ? 'November — Before Thanksgiving' : (opt === 'Normal Schedule' ? 'Any' : opt);
               return '<option value="'+opt+'"'+((d.installPreference||'Normal Schedule')===opt?' selected':'')+'>'+label+'</option>';
             }).join('')+
           '</select>'+
@@ -6851,6 +7201,12 @@ document.getElementById('openFilterBtn').addEventListener('click', function(e){
   e.stopPropagation();
   document.getElementById('filterDropdown').classList.toggle('open');
 });
+document.getElementById('timingLegendToggle').addEventListener('click', function(){
+  const panel = document.getElementById('timingLegendPanel');
+  const isOpen = panel.style.display !== 'none';
+  panel.style.display = isOpen ? 'none' : 'block';
+  this.innerHTML = isOpen ? 'Color Code Key &#9662;' : 'Color Code Key &#9652;';
+});
 document.addEventListener('click', function(e){
   const dropdown = document.getElementById('filterDropdown');
   if(dropdown.classList.contains('open') && !dropdown.contains(e.target) && e.target.id !== 'openFilterBtn'){
@@ -6912,9 +7268,12 @@ function renderOverviewMap(){
   withCoords.forEach(function(item){
     const diff = item.data.difficulty || 'Unrated';
     const pos = {lat:item.data.lat, lng:item.data.lng};
+    const flag = item.data.completed ? null : (newHangBadge(item.data) || (isBeforeThanksgivingUrgent(item.data) ? {label:'⚠ Before Thanksgiving — Due Soon', color:'#9F1239'} : null) || (isOctoberUrgent(item.data) ? {label:'⚠ October — Due by Oct 31', color:'#B45309'} : null));
+    const strokeColor = item.data.completed ? '#2E6B3E' : (flag ? flag.color : '#fff');
+    const strokeWeight = (item.data.completed || flag) ? 3 : 1.5;
     const marker = new google.maps.Marker({
-      position:pos, map:overviewMapInstance, title:item.data.address + (item.data.gateCode ? ' — GATED, code '+item.data.gateCode : ''),
-      icon:{path: google.maps.SymbolPath.CIRCLE, fillColor:colors[diff], fillOpacity:1, strokeColor:(item.data.completed?'#2E6B3E':'#fff'), strokeWeight:(item.data.completed?3:1.5), scale:9}
+      position:pos, map:overviewMapInstance, title:item.data.address + (item.data.gateCode ? ' — GATED, code '+item.data.gateCode : '') + (flag ? ' — ' + flag.label : ''),
+      icon:{path: google.maps.SymbolPath.CIRCLE, fillColor:colors[diff], fillOpacity:1, strokeColor:strokeColor, strokeWeight:strokeWeight, scale:9}
     });
     overviewMapMarkers.push(marker);
     bounds.extend(pos);
@@ -7534,7 +7893,7 @@ function renderAllCustomersTable(){
     const rsvpLabel = r.d.rsvpStatus === 'yes' ? 'RSVP: Yes' : (r.d.rsvpStatus === 'no' ? 'RSVP: No' : 'RSVP: Pending');
     const rsvpColor = r.d.rsvpStatus === 'yes' ? '#2E6B3E' : (r.d.rsvpStatus === 'no' ? '#E0574B' : 'var(--slate)');
     const routeCell = '<span class="status-pill diff-'+(r.d.difficulty||'Unrated')+'">'+(r.d.difficulty||'Unrated')+'</span><br><span style="font-size:11.5px; color:var(--slate);">'+r.routeStatus+'</span><br><span style="font-size:11px; color:'+rsvpColor+'; font-weight:600;">'+rsvpLabel+'</span>';
-    const timingLabel = r.d.installPreference === 'November - Before Thanksgiving' ? 'November — Before Thanksgiving' : (r.d.installPreference || 'Normal Schedule');
+    const timingLabel = r.d.installPreference === 'November - Before Thanksgiving' ? 'November — Before Thanksgiving' : (r.d.installPreference === 'Normal Schedule' || !r.d.installPreference ? 'Any' : r.d.installPreference);
     const mapCell = r.hasMap ? '<button type="button" class="btn btn-outline btn-sm" data-openmapfor="'+r.item.id+'">View Map</button>' : '<span style="color:var(--slate); font-size:12px;">No map yet</span>';
     return '<tr style="border-bottom:1px solid var(--line);">'+
       '<td style="padding:8px 10px;"><strong>'+esc(r.d.name||'(no name)')+'</strong><br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.address||'')+'</span>'+(r.d.phone?'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.phone)+'</span>':'')+'</td>'+
@@ -7572,9 +7931,13 @@ function openEditCustomerModal(id){
   document.getElementById('editCustAddress').value = d.address || '';
   document.getElementById('editCustEnrolled').value = (d.createdAt && d.createdAt.toDate) ? toDateStr(d.createdAt.toDate()) : '';
   document.getElementById('editCustRsvp').value = d.rsvpStatus || '';
+  document.getElementById('editCustEarliestInstall').value = (d.earliestInstallDate && d.earliestInstallDate.toDate) ? toDateStr(d.earliestInstallDate.toDate()) : '';
+  document.getElementById('editCustFeet').value = d.measuredFeet || '';
   document.getElementById('editCustHousePrice').value = d.housePrice || '';
+  document.getElementById('editCustWireColor').value = d.wireColor || 'White';
   document.getElementById('editCustBillTo').value = d.billToPhone || '';
   document.getElementById('editCustGateCode').value = d.gateCode || '';
+  document.getElementById('editCustWantsMailed').checked = !!d.wantsMailedInvoice;
   document.getElementById('editCustStatus').textContent = '';
   document.getElementById('editCustOverlay').style.display = 'flex';
 }
@@ -7595,15 +7958,19 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const newAddress = document.getElementById('editCustAddress').value.trim();
   const newEnrolledStr = document.getElementById('editCustEnrolled').value;
   const newRsvp = document.getElementById('editCustRsvp').value;
+  const newEarliestInstallStr = document.getElementById('editCustEarliestInstall').value;
   const newHousePrice = Number(document.getElementById('editCustHousePrice').value) || 0;
+  const newMeasuredFeet = Number(document.getElementById('editCustFeet').value) || 0;
+  const newWireColor = document.getElementById('editCustWireColor').value;
   const newBillTo = document.getElementById('editCustBillTo').value.replace(/\D/g,'');
   const newGateCode = document.getElementById('editCustGateCode').value.trim();
+  const newWantsMailed = document.getElementById('editCustWantsMailed').checked;
   if(!newName || !newPhone){ statusEl.textContent = 'Name and phone are required.'; return; }
   const oldPhone = item.data.phone || '';
   const oldBillTo = item.data.billToPhone || '';
   statusEl.textContent = 'Saving…';
   try{
-    const addrUpdates = {name: newName, phone: newPhone, phone2: newPhone2, email: newEmail, email2: newEmail2, address: newAddress, rsvpStatus: newRsvp, needsLightRecycle: newRsvp === 'no', housePrice: newHousePrice, billToPhone: newBillTo, gateCode: newGateCode};
+    const addrUpdates = {name: newName, phone: newPhone, phone2: newPhone2, email: newEmail, email2: newEmail2, address: newAddress, rsvpStatus: newRsvp, needsLightRecycle: newRsvp === 'no', housePrice: newHousePrice, measuredFeet: newMeasuredFeet, wireColor: newWireColor, billToPhone: newBillTo, gateCode: newGateCode, wantsMailedInvoice: newWantsMailed, earliestInstallDate: newEarliestInstallStr ? new Date(newEarliestInstallStr + 'T00:00:00') : null};
     if(newEnrolledStr) addrUpdates.createdAt = new Date(newEnrolledStr + 'T12:00:00');
     await updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates);
     const inv = allCustInvoiceFor(item);
@@ -7734,6 +8101,7 @@ function findNearbyMissedHouses(selectedStops, pool){
     if(selectedIds.has(item.id)) return;
     if(item.data.scheduled || item.data.completed) return;
     if(isInstallPrefLocked(item.data.installPreference)) return;
+    if(isEarliestInstallDateLocked(item.data)) return;
     if(typeof item.data.lat !== 'number' || typeof item.data.lng !== 'number') return;
     let closestDist = Infinity;
     selectedStops.forEach(function(stop){
@@ -7972,7 +8340,7 @@ async function runGenerateInstallRoute(){
   const crewChoice = document.getElementById('genCrewSelect').value;
   const seedPref = document.getElementById('routeSeedPref').value;
   const statusEl = document.getElementById('generateRouteStatus');
-  let available = jobAddresses.filter(a => !a.data.scheduled && !a.data.completed && typeof a.data.lat === 'number' && !isInstallPrefLocked(a.data.installPreference) && a.data.rsvpStatus === 'yes');
+  let available = jobAddresses.filter(a => !a.data.scheduled && !a.data.completed && typeof a.data.lat === 'number' && !isInstallPrefLocked(a.data.installPreference) && !isEarliestInstallDateLocked(a.data) && a.data.rsvpStatus === 'yes');
   if(cityChoice !== 'all') available = available.filter(a => extractCleanCity(a.data.city) === cityChoice || a.data.installPreference === 'November - Before Thanksgiving');
 
   const startText = document.getElementById('routeStartInput').value.trim();
@@ -9164,6 +9532,8 @@ function loadSettings(){
     if(d.areasImageUrl){ const p=document.getElementById('areasPreview'); p.src=d.areasImageUrl; p.style.display='block'; }
     document.getElementById('setGoogleReviewLink').value = d.googleReviewLink || '';
     document.getElementById('setGoogleBusinessUrl').value = d.googleBusinessUrl || '';
+    document.getElementById('setPaymentProvider').value = d.paymentProvider || 'venmo';
+    document.getElementById('setPaypalClientId').value = d.paypalClientId || '';
     const openBtn = document.getElementById('openGoogleBusinessBtn');
     openBtn.href = d.googleBusinessUrl || 'https://business.google.com/';
   });
@@ -9178,6 +9548,17 @@ document.getElementById('settingsGoogleForm').addEventListener('submit', functio
   }, {merge:true}).then(function(){
     document.getElementById('openGoogleBusinessBtn').href = businessUrl || 'https://business.google.com/';
     toast('Google Business info saved');
+  });
+});
+document.getElementById('settingsPaymentForm').addEventListener('submit', function(e){
+  e.preventDefault();
+  const provider = document.getElementById('setPaymentProvider').value;
+  const paypalClientId = document.getElementById('setPaypalClientId').value.trim();
+  setDoc(doc(db,'siteContent','main'), {
+    paymentProvider: provider,
+    paypalClientId: paypalClientId
+  }, {merge:true}).then(function(){
+    toast('Payment settings saved');
   });
 });
 document.getElementById('howImageUploadBtn').addEventListener('click', async function(){
