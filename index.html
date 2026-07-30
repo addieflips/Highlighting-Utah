@@ -1162,89 +1162,137 @@
               <option value="Email">Email</option>
             </select>
           </div>
-          <div class="form-row">
-            <label>Installation Timing</label>
-            <select name="install_month">
-              <option value="Normal Schedule" selected>Any</option>
-              <option value="October">October</option>
-              <option value="November">November</option>
-            </select>
-            <p class="form-note">Not sure? Leave it on Any &mdash; we'll reach out with timing options.</p>
-          </div>
-          <div class="form-row">
-            <label>Which part(s) of your house? <span class="req">*</span></label>
-            <div class="multiselect-dropdown" id="quoteAreasDropdown">
-              <button type="button" class="multiselect-toggle" id="quoteAreasToggle">
-                <span id="quoteAreasToggleText">Select area(s)&hellip;</span>
-                <span class="arrow">&#9662;</span>
-              </button>
-              <div class="multiselect-panel" id="quoteAreasPanel" style="display:none;">
-                <label class="color-check"><input type="checkbox" name="house_areas" value="Front of House">Front of House</label>
-                <label class="color-check"><input type="checkbox" name="house_areas" value="Right Side">Right Side</label>
-                <label class="color-check"><input type="checkbox" name="house_areas" value="Left Side">Left Side</label>
-                <label class="color-check"><input type="checkbox" name="house_areas" value="Back of House">Back of House</label>
-              </div>
-            </div>
-            <p class="form-note">Tap to pick one or more.</p>
-          </div>
-          <div class="form-row">
-            <label>Which light color(s) would you like?</label>
-            <div class="multiselect-dropdown" id="quoteColorsDropdown">
-              <button type="button" class="multiselect-toggle" id="quoteColorsToggle">
-                <span id="quoteColorsToggleText">Select color(s)&hellip;</span>
-                <span class="arrow">&#9662;</span>
-              </button>
-              <div class="multiselect-panel" id="quoteColorsPanel" style="display:none;">
-                <label class="color-check"><input type="checkbox" name="colors" value="Warm White"><span class="color-dot" style="background:#F5EFDD; border:1px solid var(--line);"></span>Warm White</label>
-                <label class="color-check"><input type="checkbox" name="colors" value="Pure White"><span class="color-dot" style="background:#FFFFFF; border:1px solid var(--line);"></span>Pure White</label>
-                <label class="color-check"><input type="checkbox" name="colors" value="Red"><span class="color-dot" style="background:#C23B2E;"></span>Red</label>
-                <label class="color-check"><input type="checkbox" name="colors" value="Green"><span class="color-dot" style="background:#3E7D46;"></span>Green</label>
-                <label class="color-check"><input type="checkbox" name="colors" value="Blue"><span class="color-dot" style="background:#2E5FA3;"></span>Blue</label>
-                <label class="color-check"><input type="checkbox" name="colors" value="Purple"><span class="color-dot" style="background:#6B4A8F;"></span>Purple</label>
-                <label class="color-check"><input type="checkbox" name="colors" value="Orange"><span class="color-dot" style="background:#D97D2B;"></span>Orange</label>
-                <label class="color-check"><input type="checkbox" name="colors" value="Pink"><span class="color-dot" style="background:#D97BA0;"></span>Pink</label>
-                <label class="color-check"><input type="checkbox" name="colors" value="Multi"><span class="color-dot" style="background:linear-gradient(45deg, #C23B2E 0 25%, #3E7D46 25% 50%, #2E5FA3 50% 75%, #F4BE55 75% 100%);"></span>Multi</label>
-              </div>
-            </div>
-            <p class="form-note">Tap to pick one or more &mdash; for example, Warm White + Red + Green for a classic Christmas look.</p>
-          </div>
-          <div class="form-row">
-            <label>Wire Color</label>
-            <select name="wire_color">
-              <option value="White" selected>White</option>
-              <option value="Green">Green</option>
-              <option value="Not Sure — You Pick">Not Sure &mdash; You Pick</option>
-            </select>
-            <p class="form-note">The color of the cord itself, not the bulbs &mdash; pick whichever blends best with your roofline, or let us pick for you.</p>
-          </div>
-          <div class="form-row">
-            <label>Would you like an outlet timer?</label>
-            <div class="radio-row">
-              <label class="radio-pill selected"><input type="radio" name="outlet_timer" value="No" checked> No</label>
-              <label class="radio-pill"><input type="radio" name="outlet_timer" value="Yes"> Yes</label>
-            </div>
-            <p class="form-note">Automatically turns your lights on and off at set times each night.</p>
-          </div>
-          <div class="form-row">
-            <label>Do you have a specific outlet you want us to use?</label>
-            <div class="radio-row">
-              <label class="radio-pill selected"><input type="radio" name="specific_outlet" value="No" checked> No</label>
-              <label class="radio-pill"><input type="radio" name="specific_outlet" value="Yes"> Yes</label>
-            </div>
-            <div class="form-row" id="specificOutletNotesWrap" style="display:none; margin-top:12px;">
-              <label>Which outlet?</label>
-              <textarea name="specific_outlet_notes" rows="3" placeholder="e.g. the outlet on the back patio, or under the eave near the garage"></textarea>
-            </div>
-          </div>
-          <div class="form-row"><label>Gate Code (optional)</label><input type="text" name="gate_code" placeholder="If your community or property is gated"></div>
-          <div class="form-row"><label>Additional Notes</label><textarea name="notes" rows="4" placeholder="Roof height, specific requests, etc."></textarea></div>
           <button type="submit" class="btn btn-gold btn-block">Submit Quote Request</button>
           <p class="form-note">No obligation. We'll follow up by your preferred contact method with your custom estimate.</p>
         </form>
         <div class="form-success" id="quoteSuccess">
           <div class="check">&#10003;</div>
           <h3>Quote Request Received</h3>
-          <p>Thanks! We'll review your home's details and follow up with your custom estimate soon.</p>
+          <p>Thanks! We'll follow up by your preferred contact method with your custom estimate soon.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- ============ QUOTE DETAILS PAGE (reached after Approve on the Member Portal quote card) ============ -->
+<div id="page-quote-details" class="page">
+  <div class="page-hero">
+    <div class="wrap">
+      <div class="eyebrow" style="color:var(--gold); justify-content:center;">Almost Done</div>
+      <h1>Your Install Details</h1>
+      <p>Thanks for approving! Just a few more details and we're all set.</p>
+    </div>
+  </div>
+  <section class="page-block">
+    <div class="wrap">
+      <div class="form-shell">
+        <div id="quoteDetailFormWrap">
+          <form id="quoteDetailForm">
+            <div class="form-row">
+              <label>Installation Timing</label>
+              <select name="install_month">
+                <option value="Normal Schedule" selected>Any</option>
+                <option value="October">October</option>
+                <option value="November">November</option>
+              </select>
+              <p class="form-note">Not sure? Leave it on Any &mdash; we'll reach out with timing options.</p>
+            </div>
+            <div class="form-row">
+              <label>Which part(s) of your house? <span class="req">*</span></label>
+              <div class="multiselect-dropdown" id="quoteAreasDropdown">
+                <button type="button" class="multiselect-toggle" id="quoteAreasToggle">
+                  <span id="quoteAreasToggleText">Select area(s)&hellip;</span>
+                  <span class="arrow">&#9662;</span>
+                </button>
+                <div class="multiselect-panel" id="quoteAreasPanel" style="display:none;">
+                  <label class="color-check"><input type="checkbox" name="house_areas" value="Front of House">Front of House</label>
+                  <label class="color-check"><input type="checkbox" name="house_areas" value="Right Side">Right Side</label>
+                  <label class="color-check"><input type="checkbox" name="house_areas" value="Left Side">Left Side</label>
+                  <label class="color-check"><input type="checkbox" name="house_areas" value="Back of House">Back of House</label>
+                </div>
+              </div>
+              <p class="form-note">Tap to pick one or more.</p>
+            </div>
+            <div class="form-row">
+              <label>Which light color(s) would you like?</label>
+              <div class="form-grid-2" style="gap:10px;">
+                <select name="color_1" id="qdColor1">
+                  <option value="">Color 1 &mdash; none</option>
+                  <option value="Warm White">Warm White</option>
+                  <option value="Pure White">Pure White</option>
+                  <option value="Red">Red</option>
+                  <option value="Green">Green</option>
+                  <option value="Blue">Blue</option>
+                  <option value="Purple">Purple</option>
+                  <option value="Orange">Orange</option>
+                  <option value="Pink">Pink</option>
+                  <option value="Multi">Multi</option>
+                </select>
+                <select name="color_2" id="qdColor2">
+                  <option value="">Color 2 &mdash; none</option>
+                  <option value="Warm White">Warm White</option>
+                  <option value="Pure White">Pure White</option>
+                  <option value="Red">Red</option>
+                  <option value="Green">Green</option>
+                  <option value="Blue">Blue</option>
+                  <option value="Purple">Purple</option>
+                  <option value="Orange">Orange</option>
+                  <option value="Pink">Pink</option>
+                  <option value="Multi">Multi</option>
+                </select>
+              </div>
+              <select name="color_3" id="qdColor3" style="margin-top:10px;">
+                <option value="">Color 3 &mdash; none</option>
+                <option value="Warm White">Warm White</option>
+                <option value="Pure White">Pure White</option>
+                <option value="Red">Red</option>
+                <option value="Green">Green</option>
+                <option value="Blue">Blue</option>
+                <option value="Purple">Purple</option>
+                <option value="Orange">Orange</option>
+                <option value="Pink">Pink</option>
+                <option value="Multi">Multi</option>
+              </select>
+              <p class="form-note">Pick up to three &mdash; for example, Warm White + Red + Green for a classic Christmas look.</p>
+            </div>
+            <div class="form-row">
+              <label>Wire Color</label>
+              <select name="wire_color">
+                <option value="White" selected>White</option>
+                <option value="Green">Green</option>
+                <option value="Not Sure — You Pick">Not Sure &mdash; You Pick</option>
+              </select>
+              <p class="form-note">The color of the cord itself, not the bulbs &mdash; pick whichever blends best with your roofline, or let us pick for you.</p>
+            </div>
+            <div class="form-row">
+              <label>Would you like an outlet timer?</label>
+              <div class="radio-row">
+                <label class="radio-pill selected"><input type="radio" name="outlet_timer" value="No" checked> No</label>
+                <label class="radio-pill"><input type="radio" name="outlet_timer" value="Yes"> Yes</label>
+              </div>
+              <p class="form-note">Automatically turns your lights on and off at set times each night.</p>
+            </div>
+            <div class="form-row">
+              <label>Do you have a specific outlet you want us to use?</label>
+              <div class="radio-row">
+                <label class="radio-pill selected"><input type="radio" name="specific_outlet" value="No" checked> No</label>
+                <label class="radio-pill"><input type="radio" name="specific_outlet" value="Yes"> Yes</label>
+              </div>
+              <div class="form-row" id="specificOutletNotesWrap" style="display:none; margin-top:12px;">
+                <label>Which outlet?</label>
+                <textarea name="specific_outlet_notes" rows="3" placeholder="e.g. the outlet on the back patio, or under the eave near the garage"></textarea>
+              </div>
+            </div>
+            <div class="form-row"><label>Gate Code (optional)</label><input type="text" name="gate_code" placeholder="If your community or property is gated"></div>
+            <div class="form-row"><label>Additional Notes</label><textarea name="notes" rows="4" placeholder="Roof height, specific requests, etc."></textarea></div>
+            <button type="submit" class="btn btn-gold btn-block">Submit Details</button>
+          </form>
+        </div>
+        <div class="form-success" id="quoteDetailSuccess" style="display:none;">
+          <div class="check">&#10003;</div>
+          <h3>You're All Set!</h3>
+          <p>Thanks! We've got everything we need and will be in touch to schedule your install.</p>
         </div>
       </div>
     </div>
@@ -1443,6 +1491,8 @@
                 </div>
                 <div id="rcPatternReadout" style="font-size:12.5px; color:var(--slate);"></div>
               </div>
+
+              <button type="button" class="btn btn-gold btn-sm" id="lightsSaveBtn" style="margin-top:14px;">Save Light Choice</button>
 
               <div style="margin-top:14px; padding-top:14px; border-top:1px solid var(--line);">
                 <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:8px;">Wire Color</label>
@@ -1816,10 +1866,10 @@ onSnapshot(doc(db,'siteContent','main'), function(snap){
 /* =========================================================
    ROUTING
 ========================================================= */
-var routes = ['/', '/how-it-works', '/gallery', '/reviews', '/areas', '/faq', '/contact', '/quote', '/payment'];
+var routes = ['/', '/how-it-works', '/gallery', '/reviews', '/areas', '/faq', '/contact', '/quote', '/quote-details', '/payment'];
 var pageIds = {
   '/': 'page-home', '/how-it-works':'page-how', '/gallery':'page-gallery', '/reviews':'page-reviews',
-  '/areas':'page-areas', '/faq':'page-faq', '/contact':'page-contact', '/quote':'page-quote', '/payment':'page-payment'
+  '/areas':'page-areas', '/faq':'page-faq', '/contact':'page-contact', '/quote':'page-quote', '/quote-details':'page-quote-details', '/payment':'page-payment'
 };
 function navigate(){
   var fullHash = window.location.hash.replace('#','') || '/';
@@ -1969,43 +2019,22 @@ async function geocodeForStreetView(addressText){
 }
 
 var quoteFormEl = document.getElementById('quoteForm');
-quoteFormEl.querySelectorAll('input[name="outlet_timer"]').forEach(function(radio){
+var quoteDetailFormEl = document.getElementById('quoteDetailForm');
+quoteDetailFormEl.querySelectorAll('input[name="outlet_timer"]').forEach(function(radio){
   radio.addEventListener('change', function(){
-    quoteFormEl.querySelectorAll('input[name="outlet_timer"]').forEach(function(r){
+    quoteDetailFormEl.querySelectorAll('input[name="outlet_timer"]').forEach(function(r){
       r.closest('.radio-pill').classList.toggle('selected', r.checked);
     });
   });
 });
-quoteFormEl.querySelectorAll('input[name="specific_outlet"]').forEach(function(radio){
+quoteDetailFormEl.querySelectorAll('input[name="specific_outlet"]').forEach(function(radio){
   radio.addEventListener('change', function(){
-    quoteFormEl.querySelectorAll('input[name="specific_outlet"]').forEach(function(r){
+    quoteDetailFormEl.querySelectorAll('input[name="specific_outlet"]').forEach(function(r){
       r.closest('.radio-pill').classList.toggle('selected', r.checked);
     });
     document.getElementById('specificOutletNotesWrap').style.display = (radio.value === 'Yes' && radio.checked) ? 'block' : 'none';
   });
 });
-(function(){
-  var toggle = document.getElementById('quoteColorsToggle');
-  var panel = document.getElementById('quoteColorsPanel');
-  var toggleText = document.getElementById('quoteColorsToggleText');
-  if(!toggle || !panel) return;
-  function updateToggleText(){
-    var checked = Array.from(panel.querySelectorAll('input[type="checkbox"]:checked')).map(function(c){ return c.value; });
-    toggleText.textContent = checked.length ? checked.join(', ') : 'Select color(s)…';
-  }
-  toggle.addEventListener('click', function(e){
-    e.stopPropagation();
-    panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
-  });
-  panel.querySelectorAll('input[type="checkbox"]').forEach(function(cb){
-    cb.addEventListener('change', updateToggleText);
-  });
-  document.addEventListener('click', function(e){
-    if(panel.style.display !== 'none' && !panel.contains(e.target) && e.target !== toggle){
-      panel.style.display = 'none';
-    }
-  });
-})();
 (function(){
   var toggle = document.getElementById('quoteAreasToggle');
   var panel = document.getElementById('quoteAreasPanel');
@@ -2031,12 +2060,6 @@ quoteFormEl.querySelectorAll('input[name="specific_outlet"]').forEach(function(r
 quoteFormEl.addEventListener('submit', async function(e){
   e.preventDefault();
   var fd = new FormData(quoteFormEl);
-  var houseAreas = fd.getAll('house_areas');
-  if(!houseAreas.length){
-    alert('Please select at least one part of your house.');
-    return;
-  }
-  var lightColors = fd.getAll('colors');
   var street = fd.get('street'), city = fd.get('city'), zip = fd.get('zip');
   var fullAddress = street + ', ' + city + ' ' + zip;
   var submitBtn = quoteFormEl.querySelector('button[type="submit"]');
@@ -2064,15 +2087,10 @@ quoteFormEl.addEventListener('submit', async function(e){
     name: fd.get('name'), phone: fd.get('phone'), email: fd.get('email'),
     street: street, city: city, zip: zip,
     address: street + ', ' + city + ' ' + zip,
-    houseAreas: houseAreas,
-    lightColors: lightColors,
-    wireColor: fd.get('wire_color') || 'White',
-    outletTimer: fd.get('outlet_timer') || 'No',
-    specificOutlet: fd.get('specific_outlet') || 'No',
-    specificOutletNotes: fd.get('specific_outlet') === 'Yes' ? (fd.get('specific_outlet_notes') || '').trim() : '',
-    contactMethod: fd.get('contact_method'), notes: fd.get('notes') || '', gateCode: fd.get('gate_code') || '',
-    installPreference: fd.get('install_month') || 'Normal Schedule',
+    contactMethod: fd.get('contact_method'),
     frontPhotoUrl: frontPhotoUrl, frontPhotoFlagged: frontPhotoFlagged, frontPhotoFlagReason: frontPhotoFlagReason,
+    quoteToken: generatePortalToken(),
+    formCompleted: false,
     status: 'new', createdAt: serverTimestamp()
   }).then(function(){
     quoteFormEl.style.display = 'none';
@@ -2082,6 +2100,42 @@ quoteFormEl.addEventListener('submit', async function(e){
     submitBtn.textContent = originalBtnText;
     alert('Something went wrong submitting your quote request. Please call (801) 901-0011 instead.');
   });
+});
+
+/* ---- Quote details form, reached after Approve on the Member Portal quote card ---- */
+var quoteDetailQuoteId = null;
+quoteDetailFormEl.addEventListener('submit', async function(e){
+  e.preventDefault();
+  if(!quoteDetailQuoteId){ alert('Something went wrong — please call/text us at (801) 901-0011.'); return; }
+  var fd = new FormData(quoteDetailFormEl);
+  var houseAreas = fd.getAll('house_areas');
+  if(!houseAreas.length){
+    alert('Please select at least one part of your house.');
+    return;
+  }
+  var lightColors = [fd.get('color_1'), fd.get('color_2'), fd.get('color_3')].filter(function(c){ return c; });
+  var submitBtn = quoteDetailFormEl.querySelector('button[type="submit"]');
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Submitting…';
+  try{
+    await updateDoc(doc(db,'quotes', quoteDetailQuoteId), {
+      houseAreas: houseAreas,
+      lightColors: lightColors,
+      wireColor: fd.get('wire_color') || 'White',
+      outletTimer: fd.get('outlet_timer') || 'No',
+      specificOutlet: fd.get('specific_outlet') || 'No',
+      specificOutletNotes: fd.get('specific_outlet') === 'Yes' ? (fd.get('specific_outlet_notes') || '').trim() : '',
+      notes: fd.get('notes') || '', gateCode: fd.get('gate_code') || '',
+      installPreference: fd.get('install_month') || 'Normal Schedule',
+      formCompleted: true, formCompletedAt: serverTimestamp()
+    });
+    document.getElementById('quoteDetailFormWrap').style.display = 'none';
+    document.getElementById('quoteDetailSuccess').style.display = 'block';
+  } catch(err){
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Submit Details';
+    alert('Something went wrong — please call/text us at (801) 901-0011.');
+  }
 });
 
 function splitPhoneOrEmail(raw){
@@ -2439,6 +2493,13 @@ function tryShowQuoteReview(raw, opts){
     }
     quoteCard.classList.remove('show');
     if(resolved){
+      if(resolved.data.approvalStatus === 'approved' && !resolved.data.formCompleted){
+        currentQuoteId = resolved.id;
+        currentQuoteData = resolved.data;
+        quoteDetailQuoteId = resolved.id;
+        window.location.hash = '/quote-details';
+        return;
+      }
       empty.style.display = 'none';
       resolvedMsg.textContent = resolved.data.approvalStatus === 'approved'
         ? "You've already approved this quote — we'll be in touch to schedule!"
@@ -2779,12 +2840,13 @@ function parseSequenceFromLightsDescription(text){
     .map(function(p){ return p === 'Cool White' ? 'Pure White' : p; })
     .filter(function(p){ return RC_VALID_COLORS.indexOf(p) !== -1; });
 }
-var lightsNotifyTimer = null;
 async function saveLightsPattern(){
   var statusEl = document.getElementById('lightsSaveStatus');
+  var saveBtn = document.getElementById('lightsSaveBtn');
   if(!currentJobAddressId || !currentLookupRecord){ return; }
   var isSpecific = document.getElementById('rcSpecificPatternToggle').checked;
   var newLightsDescription = isSpecific ? rcSequence.join(', ') : rcSimpleColors.join(', ');
+  if(saveBtn) saveBtn.disabled = true;
   statusEl.textContent = 'Saving…';
   try{
     await updateDoc(doc(db,'jobAddresses', currentJobAddressId), {lightsDescription: newLightsDescription, needsLightBuild: true});
@@ -2792,11 +2854,12 @@ async function saveLightsPattern(){
     if(oldPhone) await updateDoc(doc(db,'invoices', oldPhone), {lightsDescription: newLightsDescription});
     currentLookupRecord.lightsDescription = newLightsDescription;
     statusEl.textContent = 'Saved!';
-    setTimeout(function(){ statusEl.textContent = ''; }, 1500);
-    clearTimeout(lightsNotifyTimer);
-    lightsNotifyTimer = setTimeout(function(){ notifyLightsChange(newLightsDescription); }, 3000);
+    setTimeout(function(){ statusEl.textContent = ''; }, 2000);
+    notifyLightsChange(newLightsDescription);
   } catch(err){
     statusEl.textContent = 'Something went wrong — please try again.';
+  } finally {
+    if(saveBtn) saveBtn.disabled = false;
   }
 }
 async function notifyLightsChange(finalDescription){
@@ -2833,7 +2896,6 @@ document.querySelectorAll('.rc-simple-swatch').forEach(function(btn){
     var idx = rcSimpleColors.indexOf(color);
     if(idx === -1) rcSimpleColors.push(color); else rcSimpleColors.splice(idx, 1);
     renderRcSimpleColors();
-    saveLightsPattern();
   });
 });
 document.getElementById('rcSpecificPatternToggle').addEventListener('change', function(){
@@ -2849,7 +2911,6 @@ document.getElementById('rcSpecificPatternToggle').addEventListener('change', fu
     renderRcSimpleColors();
     wrap.style.display = 'none';
     simpleRow.style.display = 'flex';
-    saveLightsPattern();
   }
 });
 function renderRcSequence(){
@@ -2867,7 +2928,6 @@ function renderRcSequence(){
     btn.addEventListener('click', function(){
       rcSequence.splice(Number(btn.dataset.idx), 1);
       renderRcSequence();
-      saveLightsPattern();
     });
   });
 }
@@ -2875,14 +2935,13 @@ document.querySelectorAll('.rc-swatch').forEach(function(btn){
   btn.addEventListener('click', function(){
     rcSequence.push(btn.dataset.color);
     renderRcSequence();
-    saveLightsPattern();
   });
 });
 document.getElementById('rcClearPattern').addEventListener('click', function(){
   rcSequence = [];
   renderRcSequence();
-  saveLightsPattern();
 });
+document.getElementById('lightsSaveBtn').addEventListener('click', saveLightsPattern);
 renderRcSequence();
 
 document.querySelectorAll('.portal-tab-btn').forEach(function(btn){
@@ -3078,10 +3137,8 @@ document.getElementById('quoteApproveBtn').addEventListener('click', async funct
       customer_email: currentQuoteData.email || '', topic: 'Quote Approved',
       message: 'Approved quote of ' + fmt(currentQuoteData.quotedPrice) + ' for ' + (currentQuoteData.address || 'their address') + '.'
     });
-    statusEl.textContent = '';
-    document.getElementById('quoteApproveBtn').style.display = 'none';
-    document.getElementById('quoteDeclineBtn').style.display = 'none';
-    document.getElementById('quoteApprovedMsg').style.display = 'block';
+    quoteDetailQuoteId = currentQuoteId;
+    window.location.hash = '/quote-details';
   } catch(err){
     statusEl.textContent = 'Something went wrong — please call/text us at (801) 901-0011.';
   }
