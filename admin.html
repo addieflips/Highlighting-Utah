@@ -837,14 +837,9 @@
             </div>
             <div class="form-grid-3">
               <div class="form-row">
-                <label>Light Color(s) (optional) <span class="bulk-count" id="rbCountColors">0 rows</span></label>
-                <textarea id="rbColorsArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="Warm White&#10;Red, Green&#10;(blank if unknown)"></textarea>
-                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">Same 9 options as the Add Customer form &mdash; Warm White, Pure White, Red, Green, Blue, Purple, Orange, Pink, Multi. Separate multiple colors on one line with a comma or a slash (e.g. Red, Green or Red/Green).</p>
-              </div>
-              <div class="form-row">
-                <label>Light Pattern (optional) <span class="bulk-count" id="rbCountPattern">0 rows</span></label>
-                <textarea id="rbPatternArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="Red, Red, Pure White, Pure White&#10;Red/Red/Warm White/Warm White&#10;(blank if unknown)"></textarea>
-                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">For a specific alternating pattern &mdash; type colors in order, separated by commas or slashes, using the same color names as above. Shows on that customer's Routes &amp; Customers row. Leave blank to leave their existing pattern untouched.</p>
+                <label>Light Color(s) / Pattern (optional) <span class="bulk-count" id="rbCountColors">0 rows</span></label>
+                <textarea id="rbColorsArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="Warm White&#10;Red, Green&#10;Red, Red, Warm White, Warm White&#10;(blank if unknown)"></textarea>
+                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">Same 9 options as the Add Customer form &mdash; Warm White, Pure White, Red, Green, Blue, Purple, Orange, Pink, Multi. Separate multiple colors on one line with a comma or a slash. Just list the colors for a plain mix (e.g. Red, Green). Repeat a color to specify an exact alternating pattern (e.g. Red, Red, Warm White, Warm White) &mdash; it's detected automatically and shows as a badge on that customer's Routes &amp; Customers row. Leave blank to leave their existing colors/pattern untouched.</p>
               </div>
             </div>
             <div class="form-grid-3">
@@ -6451,11 +6446,11 @@ function wireBulkCounts(areaIds, anchorId, countIdMap){
 }
 
 // --- Routes Bulk Update ---
-const rbAreaIds = ['rbNamesArea','rbPhonesArea','rbEmailsArea','rbStreetsArea','rbCitiesArea','rbStatesArea','rbZipsArea','rbDatesArea','rbColorsArea','rbPatternArea','rbAmountsArea','rbInstallPrefArea'];
+const rbAreaIds = ['rbNamesArea','rbPhonesArea','rbEmailsArea','rbStreetsArea','rbCitiesArea','rbStatesArea','rbZipsArea','rbDatesArea','rbColorsArea','rbAmountsArea','rbInstallPrefArea'];
 const rbCountIds = {
   rbNamesArea:'rbCountNames', rbPhonesArea:'rbCountPhones', rbEmailsArea:'rbCountEmails',
   rbStreetsArea:'rbCountStreets', rbCitiesArea:'rbCountCities', rbStatesArea:'rbCountStates', rbZipsArea:'rbCountZips', rbDatesArea:'rbCountDates',
-  rbColorsArea:'rbCountColors', rbPatternArea:'rbCountPattern', rbAmountsArea:'rbCountAmounts', rbInstallPrefArea:'rbCountInstallPref'
+  rbColorsArea:'rbCountColors', rbAmountsArea:'rbCountAmounts', rbInstallPrefArea:'rbCountInstallPref'
 };
 const RB_INSTALL_PREF_OPTIONS = ['Normal Schedule','October','November','November - Before Thanksgiving','After Thanksgiving'];
 function rbNormalizeInstallPref(raw){
@@ -6472,13 +6467,13 @@ function rbNormalizeColors(raw){
     return match || c;
   });
 }
-function rbNormalizePattern(raw){
-  if(!raw) return '';
-  const RB_LIGHT_COLOR_OPTIONS = ['Warm White','Pure White','Red','Green','Blue','Purple','Orange','Pink','Multi'];
-  return raw.split(/[,/]/).map(function(c){ return c.trim(); }).filter(Boolean).map(function(c){
-    const match = RB_LIGHT_COLOR_OPTIONS.find(function(opt){ return opt.toLowerCase() === c.toLowerCase(); });
-    return match || c;
-  }).join(', ');
+// A repeated color in the list means it's a specific alternating pattern (order + repeats matter);
+// no repeats means it's just a plain set of colors. Detected automatically from one merged field.
+function rbDetectColorsAndPattern(raw){
+  const list = rbNormalizeColors(raw);
+  if(!list.length) return {colors: [], pattern: ''};
+  const hasRepeat = new Set(list).size !== list.length;
+  return hasRepeat ? {colors: Array.from(new Set(list)), pattern: list.join(', ')} : {colors: list, pattern: ''};
 }
 wireBulkCounts(rbAreaIds, 'rbStreetsArea', rbCountIds);
 document.getElementById('rbImportBtn').addEventListener('click', async function(){
@@ -6494,14 +6489,13 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
   const zips = alignBulkRows(document.getElementById('rbZipsArea').value.split('\n').map(s => s.trim()), streets.length);
   const dates = alignBulkRows(document.getElementById('rbDatesArea').value.split('\n').map(s => s.trim()), streets.length);
   const colorsRaw = alignBulkRows(document.getElementById('rbColorsArea').value.split('\n').map(s => s.trim()), streets.length);
-  const patternRaw = alignBulkRows(document.getElementById('rbPatternArea').value.split('\n').map(s => s.trim()), streets.length);
   const amounts = alignBulkRows(document.getElementById('rbAmountsArea').value.split('\n').map(s => s.trim()), streets.length);
   const installPrefRaw = alignBulkRows(document.getElementById('rbInstallPrefArea').value.split('\n').map(s => s.trim()), streets.length);
 
   const checks = [
     ['Name', names],
     ['Phone Number', phones], ['Email', emails], ['City', cities], ['State', states], ['Zip Code', zips], ['Date Added', dates],
-    ['Light Color(s)', colorsRaw], ['Light Pattern', patternRaw], ['Payment Amount', amounts], ['Install Month', installPrefRaw]
+    ['Light Color(s)', colorsRaw], ['Payment Amount', amounts], ['Install Month', installPrefRaw]
   ];
   for(const [label, arr] of checks){
     const nonEmptyCount = arr.filter(Boolean).length;
@@ -6536,8 +6530,10 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
     const zip = zips[i] || '';
     const dateTypedIn = dates[i] || '';
     const enrolledDate = dateTypedIn ? Timestamp.fromDate(new Date(dateTypedIn)) : null;
-    const colors = rbNormalizeColors(colorsRaw[i] || '');
-    const pattern = rbNormalizePattern(patternRaw[i] || '');
+    const colorsInput = colorsRaw[i] || '';
+    const detected = rbDetectColorsAndPattern(colorsInput);
+    const colors = detected.colors;
+    const pattern = detected.pattern;
     const installPref = rbNormalizeInstallPref(installPrefRaw[i] || '');
     const amountTypedIn = amounts[i] || '';
     const price = amountTypedIn ? Number(amountTypedIn.replace(/[,$]/g,'')) : null;
@@ -6551,8 +6547,11 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
         if(phone) updates.phone = phone;
         if(email) updates.email = email;
         if(enrolledDate) updates.createdAt = enrolledDate;
-        if(colors.length) updates.lightColors = colors;
-        if(pattern){ updates.lightsDescription = pattern; updates.needsLightBuild = true; }
+        if(colors.length){
+          updates.lightColors = colors;
+          updates.lightsDescription = pattern;
+          updates.needsLightBuild = !!pattern;
+        }
         if(installPref) updates.installPreference = installPref;
         await updateDoc(doc(db,'jobAddresses',existing.id), updates);
         updated++;
