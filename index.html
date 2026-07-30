@@ -98,6 +98,9 @@
   body.rsvp-minimal header, body.rsvp-minimal footer, body.rsvp-minimal .page-hero{ display:none !important; }
   body.rsvp-minimal #page-payment{ display:flex !important; min-height:100vh; align-items:center; }
   body.rsvp-minimal #page-payment .wrap{ width:100%; }
+  body.rsvp-minimal #page-home{ display:flex !important; min-height:100vh; align-items:center; }
+  body.rsvp-minimal #page-home > *:not(#backNextYearConfirm){ display:none !important; }
+  body.rsvp-minimal #backNextYearConfirm{ display:block !important; width:100%; }
 
   /* ---------- Header ---------- */
   header{
@@ -679,6 +682,11 @@
 
 <!-- ============ HOME ============ -->
 <main id="page-home" class="page">
+
+  <div id="backNextYearConfirm" style="display:none; text-align:center; padding:60px 20px; max-width:480px; margin:0 auto;">
+    <div style="font-size:38px; margin-bottom:14px;">🎄</div>
+    <div id="backNextYearConfirmMsg" style="font-size:20px; font-weight:700; color:var(--ink);">One moment&hellip;</div>
+  </div>
 
   <!-- HERO -->
   <section class="hero">
@@ -1274,6 +1282,7 @@
           </div>
         </div>
         <div class="invoice-empty" id="lookupEmpty" style="display:none;">We couldn't find an account matching that phone number and last name. Please call or text us at <span id="lookupEmptyPhone">(801) 901-0011</span> and we'll help you out.</div>
+        <div class="invoice-empty" id="portalDeactivatedMsg" style="display:none;">Your portal access has been turned off since you let us know you're not continuing service this season. If that was a mistake, please call or text us at <span id="portalDeactivatedPhone">(801) 901-0011</span> and we'll get it sorted out.</div>
 
         <div class="invoice-empty" id="rsvpConfirmCard" style="display:none; text-align:center;">
           <div id="rsvpConfirmMsg" style="font-size:16px; font-weight:600; margin-bottom:14px;"></div>
@@ -1285,7 +1294,10 @@
               <button type="button" class="btn btn-outline" id="rsvpReasonSkipBtn" style="flex:1;">Skip</button>
             </div>
           </div>
-          <button type="button" class="btn btn-gold" id="rsvpOpenPortalBtn" style="display:none;">Open My Portal</button>
+          <div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">
+            <button type="button" class="btn btn-gold" id="rsvpOpenPortalBtn" style="display:none;">Yes, Take Me to My Portal</button>
+            <button type="button" class="btn btn-outline" id="rsvpNoChangesBtn" style="display:none;">No, I'm All Set</button>
+          </div>
         </div>
 
         <div class="invoice-card" id="invoiceCard">
@@ -1842,6 +1854,14 @@ function navigate(){
       if(lookupFormWrapEl) lookupFormWrapEl.style.display = 'none';
       performSignInLookup(contactParam, lastNameParam.toLowerCase());
     }
+  } else if(hash === '/' && queryString){
+    var homeParams = new URLSearchParams(queryString);
+    var backToken = homeParams.get('token');
+    var backRsvp = homeParams.get('rsvp');
+    if(backToken && backRsvp === 'back' && typeof handleBackNextYear === 'function'){
+      document.body.classList.add('rsvp-minimal');
+      handleBackNextYear(backToken);
+    }
   }
 }
 (function(){
@@ -2303,6 +2323,25 @@ function renderCustomerInvoicePage(raw, opts){
   opts = opts || {};
   var card = document.getElementById('invoiceCard');
   var empty = document.getElementById('lookupEmpty');
+  var deactivatedMsg = document.getElementById('portalDeactivatedMsg');
+  if(deactivatedMsg) deactivatedMsg.style.display = 'none';
+  getDocs(collection(db,'jobAddresses')).then(function(addrSnap){
+    var isDeactivated = false;
+    addrSnap.forEach(function(docSnap){
+      var d = docSnap.data();
+      if(d.phone && d.phone.replace(/\D/g,'') === raw && d.rsvpStatus === 'no') isDeactivated = true;
+    });
+    if(isDeactivated){
+      card.classList.remove('show');
+      empty.style.display = 'none';
+      if(deactivatedMsg) deactivatedMsg.style.display = 'block';
+      return;
+    }
+    loadInvoiceForPortal();
+  }).catch(function(){
+    loadInvoiceForPortal();
+  });
+  function loadInvoiceForPortal(){
   getDoc(doc(db,'invoices',raw)).then(function(snap){
     if(!snap.exists()){
       card.classList.remove('show');
@@ -2356,6 +2395,7 @@ function renderCustomerInvoicePage(raw, opts){
     card.classList.remove('show');
     empty.style.display='block';
   });
+  }
 }
 
 /* ---- Personalized portal link (no password needed) ---- */
@@ -2449,11 +2489,13 @@ function handleRsvpLink(token, rsvpValue){
   var confirmCard = document.getElementById('rsvpConfirmCard');
   var confirmMsg = document.getElementById('rsvpConfirmMsg');
   var openPortalBtn = document.getElementById('rsvpOpenPortalBtn');
+  var noChangesBtn = document.getElementById('rsvpNoChangesBtn');
   var reasonWrap = document.getElementById('rsvpReasonWrap');
   if(lookupFormWrap) lookupFormWrap.style.display = 'none';
   if(confirmCard) confirmCard.style.display = 'block';
   if(reasonWrap) reasonWrap.style.display = 'none';
   if(openPortalBtn) openPortalBtn.style.display = 'none';
+  if(noChangesBtn) noChangesBtn.style.display = 'none';
   confirmMsg.textContent = 'One moment\u2026';
   getDocs(query(collection(db,'jobAddresses'), where('portalToken','==',token), limit(1))).then(function(snap){
     if(snap.empty){
@@ -2469,24 +2511,36 @@ function handleRsvpLink(token, rsvpValue){
         rsvpRespondedAt: serverTimestamp(),
         needsLightRecycle: false
       }).catch(function(){});
-      confirmMsg.textContent = "You're confirmed for this season! \uD83C\uDF84 Want to make any changes from last year?";
-      openPortalBtn.style.display = 'inline-flex';
-      openPortalBtn.onclick = function(){
-        document.body.classList.remove('rsvp-minimal');
-        confirmCard.style.display = 'none';
-        loadPortalByToken(token);
-      };
+      confirmMsg.textContent = "You're confirmed for this season! \uD83C\uDF84 Do you want to make any changes?";
+      if(openPortalBtn){
+        openPortalBtn.style.display = 'inline-flex';
+        openPortalBtn.onclick = function(){
+          document.body.classList.remove('rsvp-minimal');
+          confirmCard.style.display = 'none';
+          loadPortalByToken(token);
+        };
+      }
+      if(noChangesBtn){
+        noChangesBtn.style.display = 'inline-flex';
+        noChangesBtn.onclick = function(){
+          if(openPortalBtn) openPortalBtn.style.display = 'none';
+          noChangesBtn.style.display = 'none';
+          confirmMsg.innerHTML = 'Thank you for choosing HighlightingUtah!<br>We\'ll get you scheduled!';
+        };
+      }
     } else {
       confirmMsg.textContent = "We're sorry to hear that.";
+      updateDoc(doc(db,'jobAddresses', docId), {
+        rsvpStatus: 'no',
+        rsvpRespondedAt: serverTimestamp(),
+        needsLightRecycle: true
+      }).catch(function(){});
       if(reasonWrap) reasonWrap.style.display = 'block';
       function finishNoRsvp(reasonText){
-        updateDoc(doc(db,'jobAddresses', docId), {
-          rsvpStatus: 'no',
-          rsvpRespondedAt: serverTimestamp(),
-          needsLightRecycle: true,
-          rsvpDeclineReason: reasonText || ''
-        }).catch(function(){});
         if(reasonText){
+          updateDoc(doc(db,'jobAddresses', docId), {
+            rsvpDeclineReason: reasonText
+          }).catch(function(){});
           addDoc(collection(db,'messages'), {
             topic: 'RSVP: Not This Year', folder: 'Inbox',
             name: record.name || '', phone: record.phone || '', email: record.email || '',
@@ -2513,6 +2567,30 @@ function handleRsvpLink(token, rsvpValue){
   }).catch(function(){
     if(confirmCard) confirmCard.style.display = 'none';
     document.getElementById('lookupEmpty').style.display = 'block';
+  });
+}
+function handleBackNextYear(token){
+  var wrap = document.getElementById('backNextYearConfirm');
+  var msg = document.getElementById('backNextYearConfirmMsg');
+  if(wrap) wrap.style.display = 'block';
+  if(msg) msg.textContent = 'One moment\u2026';
+  getDocs(query(collection(db,'jobAddresses'), where('portalToken','==',token), limit(1))).then(function(snap){
+    if(snap.empty){
+      if(msg) msg.textContent = "We couldn't find your account \u2014 please call or text us at (801) 901-0011 and we'll help you out.";
+      return;
+    }
+    var docId = snap.docs[0].id;
+    updateDoc(doc(db,'jobAddresses', docId), {
+      rsvpStatus: 'backnextyear',
+      rsvpRespondedAt: serverTimestamp(),
+      needsLightRecycle: false
+    }).then(function(){
+      if(msg) msg.textContent = 'We look forward to seeing you next year!';
+    }).catch(function(){
+      if(msg) msg.textContent = "Something went wrong \u2014 please call or text us at (801) 901-0011 and we'll get it sorted out.";
+    });
+  }).catch(function(){
+    if(msg) msg.textContent = "Something went wrong \u2014 please call or text us at (801) 901-0011 and we'll get it sorted out.";
   });
 }
 function setRsvpStatusButtons(status){
