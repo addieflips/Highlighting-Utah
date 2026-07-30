@@ -1556,6 +1556,7 @@ Highlighting Utah</textarea>
         <button class="route-tab-btn" data-autotab="bulk" draggable="true">Bulk Automation</button>
         <button class="route-tab-btn" data-autotab="rsvp" draggable="true">RSVP Email</button>
         <button class="route-tab-btn" data-autotab="postinstall" draggable="true">Post-Install Billing</button>
+        <button class="route-tab-btn" data-autotab="templates" draggable="true">Templates</button>
       </div>
 
       <div class="route-tab-panel active" id="autotab-one">
@@ -1594,12 +1595,71 @@ Highlighting Utah</textarea>
       </div>
 
       <div class="route-tab-panel" id="autotab-text">
-        <div class="card" style="background:#FDECEA; border-color:#f0b3ac;">
-            <h3>&#127876; Bulk Customer Update (Text)</h3>
-            <p style="font-size:13px;">True automatic bulk texting needs a real text-messaging service (like Twilio) connected, which isn't set up yet &mdash; ask me in chat if you want that built. In the meantime, here's the same message ready to copy for each customer with a phone number, so you can paste it into your own texting app.</p>
-            <button type="button" class="btn btn-outline" id="loadBulkTextListBtn">Show Customers to Text</button>
-            <div id="bulkTextList" style="margin-top:16px;"></div>
+        <div class="card" style="background:#FFF8E9; border-color:var(--gold-dim);">
+          <h3>&#128241; Text Setup (Twilio)</h3>
+          <p style="font-size:13px;">Connected through a secure Cloud Function &mdash; your Twilio Account SID and Auth Token are never entered here or stored in the site itself, only in Firebase's secret manager. If texts start failing, it usually means the Cloud Function needs to be (re)deployed or the secrets need to be set — ask me in chat if that comes up.</p>
+        </div>
+        <div class="card">
+          <h3>Text Templates</h3>
+          <p style="font-size:13px;">Same idea as your email templates, organized the same way. Use <code>{{name}}</code>, <code>{{price}}</code>, and <code>{{link}}</code> as placeholders.</p>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px;">
+            <input type="text" id="smsNewFolderInput" placeholder="New folder name" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-size:13px;">
+            <button type="button" class="btn btn-outline btn-sm" id="smsAddFolderBtn">+ Add Folder</button>
           </div>
+          <div id="smsFolderList" class="row-list"></div>
+        </div>
+        <div class="card">
+          <h3>Add / Edit a Text Template</h3>
+          <input type="hidden" id="smsEditingId" value="">
+          <div class="form-grid-2">
+            <div class="form-row"><label>Template Name</label><input type="text" id="smsTemplateName" placeholder="e.g. RSVP Reminder"></div>
+            <div class="form-row"><label>Folder</label>
+              <select id="smsTemplateFolder"><option value="">(No folder — top level)</option></select>
+            </div>
+          </div>
+          <div class="form-row"><label>Text Message (use {{name}}, {{price}}, {{link}})</label>
+            <textarea id="smsTemplateBody" rows="4" placeholder="Hi {{name}}, this is Highlighting Utah — just a reminder about {{price}}. {{link}}"></textarea>
+            <p style="font-size:12px; color:var(--slate); margin-top:4px;">Keep it short — standard texts are ~160 characters before they split into multiple messages (still fine, just costs a bit more per send).</p>
+          </div>
+          <button type="button" class="btn btn-gold btn-sm" id="smsSaveTemplateBtn">Save Template</button>
+          <button type="button" class="btn btn-outline btn-sm" id="smsCancelEditBtn" style="display:none;">Cancel Edit</button>
+          <span id="smsSaveStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
+        </div>
+        <div class="card">
+          <h3>All Text Templates</h3>
+          <div id="smsTemplateList" class="row-list"><div class="empty-note">No text templates yet.</div></div>
+        </div>
+        <div class="card">
+          <h3>Preview &amp; Send</h3>
+          <div class="form-grid-2">
+            <div class="form-row"><label>Template</label>
+              <select id="smsSendTemplateSelect"><option value="">-- Choose a template --</option></select>
+            </div>
+            <div class="form-row"><label>Preview As</label>
+              <select id="smsPreviewMemberSelect"><option value="">-- Choose a member to preview --</option></select>
+            </div>
+          </div>
+          <div class="form-row"><label>Preview</label>
+            <div id="smsPreviewBox" style="white-space:pre-wrap; background:var(--paper); border-radius:10px; padding:14px; font-size:13.5px; min-height:60px;">Pick a template and a member above to see the preview.</div>
+          </div>
+          <div class="form-row">
+            <label>Send To</label>
+            <div style="display:flex; gap:10px; margin-bottom:8px; align-items:center; flex-wrap:wrap;">
+              <input type="text" id="smsRecipientSearch" placeholder="Search members…" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-size:13px; flex:1; min-width:180px;">
+              <button type="button" class="btn btn-outline btn-sm" id="smsSelectAllBtn">Select All</button>
+              <button type="button" class="btn btn-outline btn-sm" id="smsSelectNoneBtn">Select None</button>
+            </div>
+            <div id="smsRecipientList" style="max-height:260px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:8px;"></div>
+          </div>
+          <button type="button" class="btn btn-gold btn-sm" id="smsSendToSelectedBtn" style="margin-top:10px;">Send Text to Selected</button>
+          <span id="smsSendStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
+        </div>
+        <div class="card">
+          <h3>Copy-Paste Fallback</h3>
+          <p style="font-size:13px;">If you'd rather text someone manually, this still works the same as before.</p>
+          <button type="button" class="btn btn-outline" id="loadBulkTextListBtn">Show Customers to Text</button>
+          <div id="bulkTextList" style="margin-top:16px;"></div>
+        </div>
       </div>
 
       <div class="route-tab-panel" id="autotab-bulk">
@@ -1652,7 +1712,22 @@ It's almost time for the Christmas lighting season! Will you be getting lights h
               <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" id="rsvpIncludePortal" style="width:auto;"> Include portal link</label>
               <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" id="rsvpIncludeMessages" style="width:auto;"> Include "send us a message" link</label>
             </div>
-            <button type="button" class="btn btn-gold" id="sendRsvpEmailBtn">Send RSVP Email to All Customers</button>
+            <div class="form-row"><label>Preview As</label>
+              <select id="rsvpPreviewMemberSelect"><option value="">-- Choose a member to preview --</option></select>
+            </div>
+            <div class="form-row"><label>Preview</label>
+              <div id="rsvpPreviewBox" style="white-space:pre-wrap; background:var(--paper); border-radius:10px; padding:14px; font-size:13.5px; min-height:60px;">Pick a member above to see the preview.</div>
+            </div>
+            <div class="form-row">
+              <label>Send To</label>
+              <div style="display:flex; gap:10px; margin-bottom:8px; align-items:center; flex-wrap:wrap;">
+                <input type="text" id="rsvpRecipientSearch" placeholder="Search members…" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-size:13px; flex:1; min-width:180px;">
+                <button type="button" class="btn btn-outline btn-sm" id="rsvpSelectAllBtn">Select All</button>
+                <button type="button" class="btn btn-outline btn-sm" id="rsvpSelectNoneBtn">Select None</button>
+              </div>
+              <div id="rsvpRecipientList" style="max-height:260px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:8px;"></div>
+            </div>
+            <button type="button" class="btn btn-gold" id="sendRsvpEmailBtn">Send RSVP Email to Selected</button>
             <span id="rsvpEmailStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
             <p style="font-size:12px; color:var(--slate); margin-top:10px;">Only reaches customers who have an email address on file.</p>
             <div style="margin-top:16px; padding-top:16px; border-top:1px solid var(--line);">
@@ -1739,6 +1814,77 @@ Highlighting Utah</textarea>
           <div id="pibPaidTemplateExtras"></div>
         </div>
       </div>
+
+      <div class="route-tab-panel" id="autotab-templates">
+        <div class="card">
+          <h3>Email Templates</h3>
+          <p style="font-size:13px;">Build reusable templates for any automated or copy-paste email — organize them into folders so they're easy to find. Use <code>{{name}}</code>, <code>{{price}}</code>, and <code>{{link}}</code> as placeholders; they're filled in wherever a template is used.</p>
+        </div>
+        <div class="card">
+          <h3>Folders</h3>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px;">
+            <input type="text" id="etNewFolderInput" placeholder="New folder name" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-size:13px;">
+            <button type="button" class="btn btn-outline btn-sm" id="etAddFolderBtn">+ Add Folder</button>
+          </div>
+          <div id="etFolderList" class="row-list"></div>
+        </div>
+        <div class="card">
+          <h3>Add / Edit a Template</h3>
+          <input type="hidden" id="etEditingId" value="">
+          <div class="form-grid-2">
+            <div class="form-row"><label>Template Name</label><input type="text" id="etTemplateName" placeholder="e.g. Quote Email"></div>
+            <div class="form-row"><label>Folder</label>
+              <select id="etTemplateFolder"><option value="">(No folder — top level)</option></select>
+            </div>
+          </div>
+          <div class="form-row"><label>Email Body (use {{name}}, {{price}}, {{link}})</label>
+            <textarea id="etTemplateBody" rows="8" placeholder="Hi {{name}},
+
+Here's your quote from Highlighting Utah: {{price}}.
+
+Click here to approve or let us know it's not a fit: {{link}}
+
+Don't forget to attach a photo of their house before sending!
+
+Thanks,
+Highlighting Utah"></textarea>
+          </div>
+          <button type="button" class="btn btn-gold btn-sm" id="etSaveTemplateBtn">Save Template</button>
+          <button type="button" class="btn btn-outline btn-sm" id="etCancelEditBtn" style="display:none;">Cancel Edit</button>
+          <span id="etSaveStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
+        </div>
+        <div class="card">
+          <h3>All Templates</h3>
+          <div id="etTemplateList" class="row-list"><div class="empty-note">No templates yet.</div></div>
+        </div>
+        <div class="card">
+          <h3>Preview &amp; Send</h3>
+          <p style="font-size:13px;">Pick a template and a member to see exactly what they'll receive with their real name and price/balance filled in.</p>
+          <div class="form-grid-2">
+            <div class="form-row"><label>Template</label>
+              <select id="etSendTemplateSelect"><option value="">-- Choose a template --</option></select>
+            </div>
+            <div class="form-row"><label>Preview As</label>
+              <select id="etPreviewMemberSelect"><option value="">-- Choose a member to preview --</option></select>
+            </div>
+          </div>
+          <div class="form-row"><label>Preview</label>
+            <div id="etPreviewBox" style="white-space:pre-wrap; background:var(--paper); border-radius:10px; padding:14px; font-size:13.5px; min-height:80px;">Pick a template and a member above to see the preview.</div>
+          </div>
+          <div class="form-row">
+            <label>Send To</label>
+            <div style="display:flex; gap:10px; margin-bottom:8px; align-items:center; flex-wrap:wrap;">
+              <input type="text" id="etRecipientSearch" placeholder="Search members…" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-size:13px; flex:1; min-width:180px;">
+              <button type="button" class="btn btn-outline btn-sm" id="etSelectAllBtn">Select All</button>
+              <button type="button" class="btn btn-outline btn-sm" id="etSelectNoneBtn">Select None</button>
+            </div>
+            <div id="etRecipientList" style="max-height:260px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:8px;"></div>
+          </div>
+          <button type="button" class="btn btn-gold btn-sm" id="etSendToSelectedBtn" style="margin-top:10px;">Send Email to Selected</button>
+          <button type="button" class="btn btn-outline btn-sm" id="etCopyForPreviewBtn" style="margin-top:10px;">Copy Email for Previewed Member</button>
+          <span id="etSendStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
+        </div>
+      </div>
     </div>
 
     <div class="panel active" id="panel-quotes">
@@ -1746,6 +1892,11 @@ Highlighting Utah</textarea>
       <div id="quoteFlaggedBanner" style="display:none; background:#FDECEA; border:1px solid #f0b3ac; border-radius:10px; padding:12px 16px; margin-bottom:16px; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
         <span style="font-size:13.5px; color:var(--ember); font-weight:600;" id="quoteFlaggedBannerText"></span>
         <button type="button" class="btn btn-outline btn-sm" id="quoteFlaggedBannerBtn">Review Them Now</button>
+      </div>
+      <div id="quoteStageTabs" style="margin-bottom:16px; display:flex; gap:8px; flex-wrap:wrap; border-bottom:1px solid var(--line); padding-bottom:14px;">
+        <button type="button" class="btn btn-sm" data-quotestage="new" style="font-weight:700;">New Quotes<span id="quoteStageCountNew" class="folder-count"></span></button>
+        <button type="button" class="btn btn-sm" data-quotestage="pricing" style="font-weight:700;">Price the Quote<span id="quoteStageCountPricing" class="folder-count"></span></button>
+        <button type="button" class="btn btn-sm" data-quotestage="completed" style="font-weight:700;">Filled Out Form<span id="quoteStageCountCompleted" class="folder-count"></span></button>
       </div>
       <div id="quoteFolderToggle" style="margin-bottom:14px; display:flex; gap:8px;"></div>
       <div id="quoteApprovalStats" style="margin-bottom:16px; display:flex; gap:10px; flex-wrap:wrap;"></div>
@@ -2624,6 +2775,7 @@ import {
   getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
   onSnapshot, query, orderBy, serverTimestamp, getDoc, getDocs, limit, Timestamp, increment
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBf0u9ZvXQiYsV8l_bMQNW6tjgF74oZRaE",
@@ -2637,6 +2789,8 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
+const fbFunctions = getFunctions(app);
+const sendSmsFn = httpsCallable(fbFunctions, 'sendSms');
 
 const CLOUDINARY_CLOUD = "highlighting-utah";
 const CLOUDINARY_PRESET = "highlighting_utah";
@@ -3275,9 +3429,10 @@ document.getElementById('sendRsvpEmailBtn').addEventListener('click', async func
     statusEl.textContent = 'Email service failed to load — check your internet connection and try again.';
     return;
   }
-  const withEmail = jobAddresses.filter(a => a.data.email);
-  if(!withEmail.length){ statusEl.textContent = 'No customers have an email address on file yet.'; return; }
-  if(!confirm('Send each of the ' + withEmail.length + ' customer(s) with an email this RSVP request now?')) return;
+  const selectedIds = Array.from(document.querySelectorAll('.rsvp-recipient-cb:checked')).map(cb => cb.value);
+  const withEmail = jobAddresses.filter(a => a.data.email && selectedIds.includes(a.id));
+  if(!withEmail.length){ statusEl.textContent = 'Select at least one member with an email address.'; return; }
+  if(!confirm('Send each of the ' + withEmail.length + ' selected member(s) this RSVP request now?')) return;
   emailjs.init(publicKey);
   const template = document.getElementById('rsvpEmailTemplate').value;
   let sent = 0, failed = 0;
@@ -3295,6 +3450,57 @@ document.getElementById('sendRsvpEmailBtn').addEventListener('click', async func
     } catch(err){ failed++; }
   }
   statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.';
+});
+
+/* ---- RSVP preview + recipient picker ---- */
+let rsvpRecipientSearchTerm = '';
+function rsvpPopulateMemberSelect(){
+  const sel = document.getElementById('rsvpPreviewMemberSelect');
+  if(!sel) return;
+  const currentVal = sel.value;
+  const members = etGetMembers();
+  sel.innerHTML = '<option value="">-- Choose a member to preview --</option>' +
+    members.map(m => '<option value="'+m.id+'">'+esc(m.data.name||'(no name)')+'</option>').join('');
+  if(members.some(m => m.id === currentVal)) sel.value = currentVal;
+}
+function rsvpUpdatePreview(){
+  const box = document.getElementById('rsvpPreviewBox');
+  const memberId = document.getElementById('rsvpPreviewMemberSelect').value;
+  if(!box) return;
+  if(!memberId){ box.textContent = 'Pick a member above to see the preview.'; return; }
+  const member = jobAddresses.find(m => m.id === memberId);
+  if(!member){ box.textContent = 'Pick a member above to see the preview.'; return; }
+  const template = document.getElementById('rsvpEmailTemplate').value;
+  box.textContent = template.replace(/\{\{name\}\}/g, member.data.name || 'there')
+    .replace(/\{\{rsvp_yes_button\}\}/g, '[Yes button]')
+    .replace(/\{\{rsvp_back_button\}\}/g, '[Back Next Year button]')
+    .replace(/\{\{rsvp_no_button\}\}/g, '[No button]');
+}
+function rsvpRenderRecipientList(){
+  const list = document.getElementById('rsvpRecipientList');
+  if(!list) return;
+  const term = rsvpRecipientSearchTerm.toLowerCase();
+  const members = etGetMembers().filter(m => m.data.email && (!term || (m.data.name||'').toLowerCase().indexOf(term) !== -1));
+  if(!members.length){ list.innerHTML = '<div class="empty-note">No members with an email match this search.</div>'; return; }
+  const existingCbs = list.querySelectorAll('.rsvp-recipient-cb');
+  const isFirstRender = existingCbs.length === 0;
+  const previouslyChecked = new Set(Array.from(existingCbs).filter(cb => cb.checked).map(el => el.value));
+  list.innerHTML = members.map(function(m){
+    const checked = isFirstRender ? 'checked' : (previouslyChecked.has(m.id) ? 'checked' : '');
+    return '<label style="display:flex; align-items:center; gap:8px; padding:5px 0; font-size:13.5px;"><input type="checkbox" class="rsvp-recipient-cb" value="'+m.id+'" '+checked+' style="width:auto;">'+esc(m.data.name||'(no name)')+' <span style="color:var(--slate); font-size:12px;">'+esc(m.data.email||'')+'</span></label>';
+  }).join('');
+}
+document.getElementById('rsvpPreviewMemberSelect').addEventListener('change', rsvpUpdatePreview);
+document.getElementById('rsvpEmailTemplate').addEventListener('input', rsvpUpdatePreview);
+document.getElementById('rsvpRecipientSearch').addEventListener('input', function(){
+  rsvpRecipientSearchTerm = this.value.trim();
+  rsvpRenderRecipientList();
+});
+document.getElementById('rsvpSelectAllBtn').addEventListener('click', function(){
+  document.querySelectorAll('.rsvp-recipient-cb').forEach(cb => { cb.checked = true; });
+});
+document.getElementById('rsvpSelectNoneBtn').addEventListener('click', function(){
+  document.querySelectorAll('.rsvp-recipient-cb').forEach(cb => { cb.checked = false; });
 });
 document.getElementById('rsvpEmailTestBtn').addEventListener('click', async function(){
   const statusEl = document.getElementById('rsvpEmailTestStatus');
@@ -3679,6 +3885,10 @@ function initData(){
   initialized = true;
   loadQuotes();
   loadMessageFolders();
+  loadEmailTemplateFolders();
+  loadEmailTemplates();
+  loadSmsTemplateFolders();
+  loadSmsTemplates();
   loadMessages();
   loadInvoices();
   loadReviews();
@@ -3747,6 +3957,12 @@ let quoteStatusFilter = 'all';
 let quoteApprovalFilter = 'all';
 let quoteFolderView = 'main';
 let quoteColorFilter = 'all';
+let quoteStageFilter = 'new';
+function quoteStage(d){
+  if(d.approvalStatus === 'approved' && d.formCompleted) return 'completed';
+  if(typeof d.quotedPrice !== 'number') return 'new';
+  return 'pricing';
+}
 function colorComboKey(colors){
   if(!colors || !colors.length) return '';
   return colors.slice().sort().join(' + ');
@@ -3835,6 +4051,23 @@ function renderQuotesList(){
       '<div style="background:var(--paper); border-radius:10px; padding:10px 16px;"><div style="font-size:11px; text-transform:uppercase; color:var(--slate); letter-spacing:.04em;">Declined</div><div style="font-size:20px; font-weight:700; color:var(--ember);">'+declinedCount+'</div></div>';
   }
 
+  const stageTabsEl = document.getElementById('quoteStageTabs');
+  if(stageTabsEl){
+    const stageCounts = {new:0, pricing:0, completed:0};
+    quotesCache.forEach(function(item){ stageCounts[quoteStage(item.data)]++; });
+    document.getElementById('quoteStageCountNew').textContent = ' (' + stageCounts.new + ')';
+    document.getElementById('quoteStageCountPricing').textContent = ' (' + stageCounts.pricing + ')';
+    document.getElementById('quoteStageCountCompleted').textContent = ' (' + stageCounts.completed + ')';
+    stageTabsEl.querySelectorAll('[data-quotestage]').forEach(function(btn){
+      const active = btn.dataset.quotestage === quoteStageFilter;
+      btn.classList.toggle('btn-gold', active);
+      btn.classList.toggle('btn-outline', !active);
+      btn.onclick = function(){
+        quoteStageFilter = btn.dataset.quotestage;
+        renderQuotesList();
+      };
+    });
+  }
   if(quoteFolderView === 'awaiting'){
     if(!freshAwaiting.length){ list.innerHTML = '<div class="empty-note">Nothing awaiting response right now.</div>'; return; }
     renderQuoteRows(freshAwaiting);
@@ -3842,6 +4075,7 @@ function renderQuotesList(){
   }
 
   let filtered = quotesCache.filter(item => !isFreshAwaiting(item.data));
+  filtered = filtered.filter(item => quoteStage(item.data) === quoteStageFilter);
   if(quoteFilter === 'flagged') filtered = filtered.filter(item => item.data.frontPhotoFlagged);
   if(quoteStatusFilter !== 'all') filtered = filtered.filter(item => (item.data.status||'new') === quoteStatusFilter);
   if(quoteColorFilter !== 'all') filtered = filtered.filter(item => colorComboKey(item.data.lightColors) === quoteColorFilter);
@@ -3892,6 +4126,7 @@ function renderQuoteRows(filtered){
         '<button type="button" class="btn btn-outline btn-sm" data-getquotelink="'+item.id+'">Get Approval Link</button>'+
         '<div class="quotelink-status" data-statusfor="'+item.id+'" style="font-size:12px; color:var(--slate); margin-top:6px;"></div>'+
         (d.quoteToken ? '<div class="quotelink-box" data-linkfor="'+item.id+'" style="margin-top:6px; font-size:12.5px; word-break:break-all; background:var(--paper); border-radius:8px; padding:8px 10px;">https://highlightingutah.com/#/payment?token='+esc(d.quoteToken)+'</div>' : '<div class="quotelink-box" data-linkfor="'+item.id+'"></div>')+
+        (d.quoteToken && typeof d.quotedPrice === 'number' ? '<button type="button" class="btn btn-outline btn-sm" data-copyquoteemail="'+item.id+'" style="margin-top:6px;">Copy Quote Email</button><div class="quoteemail-result" data-resultfor="'+item.id+'" style="margin-top:8px;"></div>' : '')+
         (typeof d.quotedPrice === 'number' ? (function(){
           const st = d.approvalStatus || 'pending';
           if(st === 'approved') return '<div class="rtext" style="margin-top:8px; color:#2E6B3E; font-weight:600;">&#10003; Approved'+(d.quoteRespondedAt ? ' &mdash; '+fmtDate(d.quoteRespondedAt) : '')+'</div>';
@@ -3975,6 +4210,31 @@ function renderQuoteRows(filtered){
       } catch(err){
         if(statusEl) statusEl.textContent = 'Something went wrong — try again.';
       }
+    });
+  });
+  list.querySelectorAll('[data-copyquoteemail]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      const id = btn.dataset.copyquoteemail;
+      const item = quotesCache.find(q => q.id === id);
+      const resultEl = list.querySelector('.quoteemail-result[data-resultfor="'+id+'"]');
+      if(!item || !resultEl) return;
+      const d = item.data;
+      const template = getEmailTemplateByName('Quote Email');
+      const body = template ? template.data.body : DEFAULT_QUOTE_TEMPLATE_BODY;
+      const link = 'https://highlightingutah.com/#/payment?token=' + d.quoteToken;
+      const message = fillEmailTemplate(body, {name: d.name || 'there', price: fmtMoney(d.quotedPrice), link: link});
+      resultEl.innerHTML =
+        '<label style="display:block; font-size:11.5px; font-weight:600; margin-bottom:6px;">Edit before sending if you want:</label>'+
+        '<textarea class="quoteemail-editable" rows="8" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:13.5px; margin-bottom:8px;">'+esc(message)+'</textarea>'+
+        '<button type="button" class="btn btn-outline btn-sm quoteemail-copy-btn">Copy Email</button>'+
+        '<p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Paste into your email client, attach their house photo, then send.</p>';
+      resultEl.querySelector('.quoteemail-copy-btn').addEventListener('click', function(){
+        const text = resultEl.querySelector('.quoteemail-editable').value;
+        navigator.clipboard.writeText(text).then(function(){
+          this.textContent = 'Copied!';
+          setTimeout(() => { this.textContent = 'Copy Email'; }, 2000);
+        }.bind(this));
+      });
     });
   });
   list.querySelectorAll('[data-markapproval]').forEach(function(btn){
@@ -4080,6 +4340,470 @@ let allMessages = [];
 let msgFilter = 'all';
 let selectedFolder = 'Inbox';
 let selectedEmployee = '';
+/* ---------------- EMAIL TEMPLATES (Automation > Templates) ---------------- */
+let emailTemplateFolders = [];
+let emailTemplates = [];
+let etTemplatesSeeded = false;
+const DEFAULT_QUOTE_TEMPLATE_BODY = 'Hi {{name}},\n\n' +
+  'Here\'s your quote from Highlighting Utah: {{price}}.\n\n' +
+  'Click here to approve or let us know it\'s not a fit right now: {{link}}\n\n' +
+  '(Don\'t forget to attach a photo of their house before sending!)\n\n' +
+  'Thanks,\nHighlighting Utah';
+
+function loadEmailTemplateFolders(){
+  onSnapshot(collection(db,'emailTemplateFolders'), function(snap){
+    emailTemplateFolders = [];
+    snap.forEach(function(docSnap){ emailTemplateFolders.push({id: docSnap.id, name: docSnap.data().name}); });
+    renderEmailTemplateFolders();
+    renderEmailTemplateList();
+  });
+}
+function loadEmailTemplates(){
+  onSnapshot(collection(db,'emailTemplates'), async function(snap){
+    emailTemplates = [];
+    snap.forEach(function(docSnap){ emailTemplates.push({id: docSnap.id, data: docSnap.data()}); });
+    if(!etTemplatesSeeded){
+      etTemplatesSeeded = true;
+      const hasQuoteTemplate = emailTemplates.some(t => t.data.name === 'Quote Email');
+      if(!hasQuoteTemplate){
+        await addDoc(collection(db,'emailTemplates'), {name: 'Quote Email', folderId: null, body: DEFAULT_QUOTE_TEMPLATE_BODY, createdAt: serverTimestamp()});
+      }
+    }
+    renderEmailTemplateList();
+  });
+}
+function getEmailTemplateByName(name){
+  return emailTemplates.find(t => t.data.name === name);
+}
+function fillEmailTemplate(body, vars){
+  return (body||'')
+    .replace(/\{\{name\}\}/g, vars.name || 'there')
+    .replace(/\{\{price\}\}/g, vars.price || '')
+    .replace(/\{\{link\}\}/g, vars.link || '');
+}
+function renderEmailTemplateFolders(){
+  const list = document.getElementById('etFolderList');
+  const sel = document.getElementById('etTemplateFolder');
+  if(!list || !sel) return;
+  if(!emailTemplateFolders.length){
+    list.innerHTML = '<div class="empty-note">No folders yet — add one above to start sorting your templates.</div>';
+  } else {
+    list.innerHTML = emailTemplateFolders.map(function(f){
+      const count = emailTemplates.filter(t => t.data.folderId === f.id).length;
+      return '<div class="row-item"><div class="rmain"><h4 style="margin:0;">'+esc(f.name)+'</h4><div class="rmeta">'+count+' template'+(count===1?'':'s')+'</div></div>'+
+        '<div class="row-actions"><button type="button" class="btn btn-outline btn-sm" data-delfolder="'+f.id+'">Delete</button></div></div>';
+    }).join('');
+    list.querySelectorAll('[data-delfolder]').forEach(function(btn){
+      btn.addEventListener('click', async function(){
+        const fid = btn.dataset.delfolder;
+        if(!confirm('Delete this folder? Templates inside will move back to top level.')) return;
+        const affected = emailTemplates.filter(t => t.data.folderId === fid);
+        for(const t of affected){ await updateDoc(doc(db,'emailTemplates', t.id), {folderId: null}); }
+        await deleteDoc(doc(db,'emailTemplateFolders', fid));
+      });
+    });
+  }
+  const currentVal = sel.value;
+  sel.innerHTML = '<option value="">(No folder — top level)</option>' +
+    emailTemplateFolders.map(f => '<option value="'+f.id+'">'+esc(f.name)+'</option>').join('');
+  if(emailTemplateFolders.some(f => f.id === currentVal)) sel.value = currentVal;
+}
+document.getElementById('etAddFolderBtn').addEventListener('click', async function(){
+  const input = document.getElementById('etNewFolderInput');
+  const name = input.value.trim();
+  if(!name) return;
+  await addDoc(collection(db,'emailTemplateFolders'), {name: name, createdAt: serverTimestamp()});
+  input.value = '';
+});
+function renderEmailTemplateList(){
+  const list = document.getElementById('etTemplateList');
+  if(!list) return;
+  if(!emailTemplates.length){ list.innerHTML = '<div class="empty-note">No templates yet.</div>'; return; }
+  const folderName = function(fid){
+    const f = emailTemplateFolders.find(f => f.id === fid);
+    return f ? f.name : '(No folder)';
+  };
+  const groups = {};
+  emailTemplates.forEach(function(t){
+    const key = t.data.folderId || '';
+    if(!groups[key]) groups[key] = [];
+    groups[key].push(t);
+  });
+  let html = '';
+  Object.keys(groups).forEach(function(key){
+    html += '<div class="city-group-heading">'+esc(key ? folderName(key) : '(No folder)')+'</div>';
+    groups[key].forEach(function(t){
+      html += '<div class="row-item"><div class="rmain"><h4 style="margin:0;">'+esc(t.data.name)+'</h4>'+
+        '<div class="rtext" style="white-space:pre-wrap; font-size:12.5px; color:var(--slate); max-width:520px;">'+esc((t.data.body||'').slice(0,140))+((t.data.body||'').length>140?'…':'')+'</div></div>'+
+        '<div class="row-actions"><button type="button" class="btn btn-outline btn-sm" data-edittemplate="'+t.id+'">Edit</button>'+
+        '<button type="button" class="btn btn-outline btn-sm" data-deltemplate="'+t.id+'" style="color:var(--ember); border-color:#f0b3ac;">Delete</button></div></div>';
+    });
+  });
+  list.innerHTML = html;
+  if(typeof etPopulateTemplateSelect === 'function') etPopulateTemplateSelect();
+  list.querySelectorAll('[data-edittemplate]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      const t = emailTemplates.find(t => t.id === btn.dataset.edittemplate);
+      if(!t) return;
+      document.getElementById('etEditingId').value = t.id;
+      document.getElementById('etTemplateName').value = t.data.name || '';
+      document.getElementById('etTemplateFolder').value = t.data.folderId || '';
+      document.getElementById('etTemplateBody').value = t.data.body || '';
+      document.getElementById('etCancelEditBtn').style.display = 'inline-flex';
+      document.getElementById('etTemplateName').scrollIntoView({behavior:'smooth', block:'center'});
+    });
+  });
+  list.querySelectorAll('[data-deltemplate]').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      if(!confirm('Delete this template?')) return;
+      await deleteDoc(doc(db,'emailTemplates', btn.dataset.deltemplate));
+    });
+  });
+}
+document.getElementById('etSaveTemplateBtn').addEventListener('click', async function(){
+  const statusEl = document.getElementById('etSaveStatus');
+  const name = document.getElementById('etTemplateName').value.trim();
+  const folderId = document.getElementById('etTemplateFolder').value || null;
+  const body = document.getElementById('etTemplateBody').value;
+  if(!name){ statusEl.textContent = 'Give the template a name first.'; return; }
+  const editingId = document.getElementById('etEditingId').value;
+  try{
+    if(editingId){
+      await updateDoc(doc(db,'emailTemplates', editingId), {name: name, folderId: folderId, body: body});
+    } else {
+      await addDoc(collection(db,'emailTemplates'), {name: name, folderId: folderId, body: body, createdAt: serverTimestamp()});
+    }
+    statusEl.textContent = 'Saved!';
+    setTimeout(() => { statusEl.textContent = ''; }, 2000);
+    document.getElementById('etEditingId').value = '';
+    document.getElementById('etTemplateName').value = '';
+    document.getElementById('etTemplateFolder').value = '';
+    document.getElementById('etTemplateBody').value = '';
+    document.getElementById('etCancelEditBtn').style.display = 'none';
+  } catch(err){
+    statusEl.textContent = 'Something went wrong — try again.';
+  }
+});
+document.getElementById('etCancelEditBtn').addEventListener('click', function(){
+  document.getElementById('etEditingId').value = '';
+  document.getElementById('etTemplateName').value = '';
+  document.getElementById('etTemplateFolder').value = '';
+  document.getElementById('etTemplateBody').value = '';
+  document.getElementById('etCancelEditBtn').style.display = 'none';
+});
+
+/* ---- Preview & Send (Templates tab) ---- */
+let etRecipientSearchTerm = '';
+function etGetMembers(){
+  return (jobAddresses||[]).slice().sort((a,b) => (a.data.name||'').localeCompare(b.data.name||''));
+}
+function etResolveVars(item){
+  const d = item.data;
+  const phoneDigits = (d.phone||'').replace(/\D/g,'');
+  const inv = allInvoicesCache.find(i => i.id === phoneDigits);
+  const price = inv ? fmtMoney(balanceDueAmount(inv.data)) : '—';
+  const link = d.portalToken ? ('https://highlightingutah.com/#/payment?token='+d.portalToken) : '—';
+  return {name: d.name || 'there', price: price, link: link};
+}
+function etPopulateTemplateSelect(){
+  const sel = document.getElementById('etSendTemplateSelect');
+  if(!sel) return;
+  const currentVal = sel.value;
+  sel.innerHTML = '<option value="">-- Choose a template --</option>' +
+    emailTemplates.map(t => '<option value="'+t.id+'">'+esc(t.data.name)+'</option>').join('');
+  if(emailTemplates.some(t => t.id === currentVal)) sel.value = currentVal;
+}
+function etPopulateMemberSelect(){
+  const sel = document.getElementById('etPreviewMemberSelect');
+  if(!sel) return;
+  const currentVal = sel.value;
+  const members = etGetMembers();
+  sel.innerHTML = '<option value="">-- Choose a member to preview --</option>' +
+    members.map(m => '<option value="'+m.id+'">'+esc(m.data.name||'(no name)')+'</option>').join('');
+  if(members.some(m => m.id === currentVal)) sel.value = currentVal;
+}
+function etUpdatePreview(){
+  const box = document.getElementById('etPreviewBox');
+  const templateId = document.getElementById('etSendTemplateSelect').value;
+  const memberId = document.getElementById('etPreviewMemberSelect').value;
+  if(!box) return;
+  if(!templateId || !memberId){ box.textContent = 'Pick a template and a member above to see the preview.'; return; }
+  const template = emailTemplates.find(t => t.id === templateId);
+  const member = jobAddresses.find(m => m.id === memberId);
+  if(!template || !member){ box.textContent = 'Pick a template and a member above to see the preview.'; return; }
+  box.textContent = fillEmailTemplate(template.data.body, etResolveVars(member));
+}
+function etRenderRecipientList(){
+  const list = document.getElementById('etRecipientList');
+  if(!list) return;
+  const term = etRecipientSearchTerm.toLowerCase();
+  const members = etGetMembers().filter(m => (m.data.email) && (!term || (m.data.name||'').toLowerCase().indexOf(term) !== -1));
+  if(!members.length){ list.innerHTML = '<div class="empty-note">No members with an email match this search.</div>'; return; }
+  const previouslyChecked = new Set(Array.from(list.querySelectorAll('input:checked')).map(el => el.value));
+  list.innerHTML = members.map(function(m){
+    const checked = previouslyChecked.has(m.id) ? 'checked' : '';
+    return '<label style="display:flex; align-items:center; gap:8px; padding:5px 0; font-size:13.5px;"><input type="checkbox" class="et-recipient-cb" value="'+m.id+'" '+checked+' style="width:auto;">'+esc(m.data.name||'(no name)')+' <span style="color:var(--slate); font-size:12px;">'+esc(m.data.email||'')+'</span></label>';
+  }).join('');
+}
+document.getElementById('etSendTemplateSelect').addEventListener('change', etUpdatePreview);
+document.getElementById('etPreviewMemberSelect').addEventListener('change', etUpdatePreview);
+document.getElementById('etRecipientSearch').addEventListener('input', function(){
+  etRecipientSearchTerm = this.value.trim();
+  etRenderRecipientList();
+});
+document.getElementById('etSelectAllBtn').addEventListener('click', function(){
+  document.querySelectorAll('.et-recipient-cb').forEach(cb => { cb.checked = true; });
+});
+document.getElementById('etSelectNoneBtn').addEventListener('click', function(){
+  document.querySelectorAll('.et-recipient-cb').forEach(cb => { cb.checked = false; });
+});
+document.getElementById('etCopyForPreviewBtn').addEventListener('click', function(){
+  const statusEl = document.getElementById('etSendStatus');
+  const box = document.getElementById('etPreviewBox');
+  const text = box.textContent;
+  if(!text || text.indexOf('Pick a template') === 0){ statusEl.textContent = 'Pick a template and a member to preview first.'; return; }
+  navigator.clipboard.writeText(text).then(function(){
+    statusEl.textContent = 'Copied!';
+    setTimeout(() => { statusEl.textContent = ''; }, 2000);
+  });
+});
+document.getElementById('etSendToSelectedBtn').addEventListener('click', async function(){
+  const statusEl = document.getElementById('etSendStatus');
+  const templateId = document.getElementById('etSendTemplateSelect').value;
+  const template = emailTemplates.find(t => t.id === templateId);
+  if(!template){ statusEl.textContent = 'Pick a template first.'; return; }
+  const selectedIds = Array.from(document.querySelectorAll('.et-recipient-cb:checked')).map(cb => cb.value);
+  if(!selectedIds.length){ statusEl.textContent = 'Select at least one recipient.'; return; }
+  const serviceId = document.getElementById('emailjsServiceId').value.trim();
+  const templateJsId = document.getElementById('emailjsTemplateId').value.trim();
+  const publicKey = document.getElementById('emailjsPublicKey').value.trim();
+  if(!serviceId || !templateJsId || !publicKey){ statusEl.textContent = 'Set up EmailJS (Email Setup card above) first.'; return; }
+  if(!window.emailjs){ statusEl.textContent = 'Email service failed to load — check your connection.'; return; }
+  if(!confirm('Send "'+template.data.name+'" to '+selectedIds.length+' member(s) now?')) return;
+  emailjs.init(publicKey);
+  let sent = 0, failed = 0;
+  for(const id of selectedIds){
+    const member = jobAddresses.find(m => m.id === id);
+    if(!member || !member.data.email) { failed++; continue; }
+    const message = fillEmailTemplate(template.data.body, etResolveVars(member));
+    statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + selectedIds.length + '…';
+    try{
+      await emailjs.send(serviceId, templateJsId, { to_email: member.data.email, to_name: member.data.name || '', message: message });
+      sent++;
+    } catch(err){ failed++; }
+  }
+  statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.';
+});
+
+/* ---------------- SMS TEMPLATES (Automation > Text Automation, via Twilio Cloud Function) ---------------- */
+let smsTemplateFolders = [];
+let smsTemplates = [];
+
+function loadSmsTemplateFolders(){
+  onSnapshot(collection(db,'smsTemplateFolders'), function(snap){
+    smsTemplateFolders = [];
+    snap.forEach(function(docSnap){ smsTemplateFolders.push({id: docSnap.id, name: docSnap.data().name}); });
+    renderSmsTemplateFolders();
+    renderSmsTemplateList();
+  });
+}
+function loadSmsTemplates(){
+  onSnapshot(collection(db,'smsTemplates'), function(snap){
+    smsTemplates = [];
+    snap.forEach(function(docSnap){ smsTemplates.push({id: docSnap.id, data: docSnap.data()}); });
+    renderSmsTemplateList();
+  });
+}
+function getSmsTemplateByName(name){
+  return smsTemplates.find(t => t.data.name === name);
+}
+function renderSmsTemplateFolders(){
+  const list = document.getElementById('smsFolderList');
+  const sel = document.getElementById('smsTemplateFolder');
+  if(!list || !sel) return;
+  if(!smsTemplateFolders.length){
+    list.innerHTML = '<div class="empty-note">No folders yet — add one above to start sorting your text templates.</div>';
+  } else {
+    list.innerHTML = smsTemplateFolders.map(function(f){
+      const count = smsTemplates.filter(t => t.data.folderId === f.id).length;
+      return '<div class="row-item"><div class="rmain"><h4 style="margin:0;">'+esc(f.name)+'</h4><div class="rmeta">'+count+' template'+(count===1?'':'s')+'</div></div>'+
+        '<div class="row-actions"><button type="button" class="btn btn-outline btn-sm" data-delsmsfolder="'+f.id+'">Delete</button></div></div>';
+    }).join('');
+    list.querySelectorAll('[data-delsmsfolder]').forEach(function(btn){
+      btn.addEventListener('click', async function(){
+        const fid = btn.dataset.delsmsfolder;
+        if(!confirm('Delete this folder? Templates inside will move back to top level.')) return;
+        const affected = smsTemplates.filter(t => t.data.folderId === fid);
+        for(const t of affected){ await updateDoc(doc(db,'smsTemplates', t.id), {folderId: null}); }
+        await deleteDoc(doc(db,'smsTemplateFolders', fid));
+      });
+    });
+  }
+  const currentVal = sel.value;
+  sel.innerHTML = '<option value="">(No folder — top level)</option>' +
+    smsTemplateFolders.map(f => '<option value="'+f.id+'">'+esc(f.name)+'</option>').join('');
+  if(smsTemplateFolders.some(f => f.id === currentVal)) sel.value = currentVal;
+}
+document.getElementById('smsAddFolderBtn').addEventListener('click', async function(){
+  const input = document.getElementById('smsNewFolderInput');
+  const name = input.value.trim();
+  if(!name) return;
+  await addDoc(collection(db,'smsTemplateFolders'), {name: name, createdAt: serverTimestamp()});
+  input.value = '';
+});
+function renderSmsTemplateList(){
+  const list = document.getElementById('smsTemplateList');
+  if(!list) return;
+  if(!smsTemplates.length){ list.innerHTML = '<div class="empty-note">No text templates yet.</div>'; return; }
+  const folderName = function(fid){
+    const f = smsTemplateFolders.find(f => f.id === fid);
+    return f ? f.name : '(No folder)';
+  };
+  const groups = {};
+  smsTemplates.forEach(function(t){
+    const key = t.data.folderId || '';
+    if(!groups[key]) groups[key] = [];
+    groups[key].push(t);
+  });
+  let html = '';
+  Object.keys(groups).forEach(function(key){
+    html += '<div class="city-group-heading">'+esc(key ? folderName(key) : '(No folder)')+'</div>';
+    groups[key].forEach(function(t){
+      html += '<div class="row-item"><div class="rmain"><h4 style="margin:0;">'+esc(t.data.name)+'</h4>'+
+        '<div class="rtext" style="white-space:pre-wrap; font-size:12.5px; color:var(--slate); max-width:520px;">'+esc(t.data.body||'')+'</div></div>'+
+        '<div class="row-actions"><button type="button" class="btn btn-outline btn-sm" data-editsmstemplate="'+t.id+'">Edit</button>'+
+        '<button type="button" class="btn btn-outline btn-sm" data-delsmstemplate="'+t.id+'" style="color:var(--ember); border-color:#f0b3ac;">Delete</button></div></div>';
+    });
+  });
+  list.innerHTML = html;
+  if(typeof smsPopulateTemplateSelect === 'function') smsPopulateTemplateSelect();
+  list.querySelectorAll('[data-editsmstemplate]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      const t = smsTemplates.find(t => t.id === btn.dataset.editsmstemplate);
+      if(!t) return;
+      document.getElementById('smsEditingId').value = t.id;
+      document.getElementById('smsTemplateName').value = t.data.name || '';
+      document.getElementById('smsTemplateFolder').value = t.data.folderId || '';
+      document.getElementById('smsTemplateBody').value = t.data.body || '';
+      document.getElementById('smsCancelEditBtn').style.display = 'inline-flex';
+      document.getElementById('smsTemplateName').scrollIntoView({behavior:'smooth', block:'center'});
+    });
+  });
+  list.querySelectorAll('[data-delsmstemplate]').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      if(!confirm('Delete this text template?')) return;
+      await deleteDoc(doc(db,'smsTemplates', btn.dataset.delsmstemplate));
+    });
+  });
+}
+document.getElementById('smsSaveTemplateBtn').addEventListener('click', async function(){
+  const statusEl = document.getElementById('smsSaveStatus');
+  const name = document.getElementById('smsTemplateName').value.trim();
+  const folderId = document.getElementById('smsTemplateFolder').value || null;
+  const body = document.getElementById('smsTemplateBody').value;
+  if(!name){ statusEl.textContent = 'Give the template a name first.'; return; }
+  const editingId = document.getElementById('smsEditingId').value;
+  try{
+    if(editingId){
+      await updateDoc(doc(db,'smsTemplates', editingId), {name: name, folderId: folderId, body: body});
+    } else {
+      await addDoc(collection(db,'smsTemplates'), {name: name, folderId: folderId, body: body, createdAt: serverTimestamp()});
+    }
+    statusEl.textContent = 'Saved!';
+    setTimeout(() => { statusEl.textContent = ''; }, 2000);
+    document.getElementById('smsEditingId').value = '';
+    document.getElementById('smsTemplateName').value = '';
+    document.getElementById('smsTemplateFolder').value = '';
+    document.getElementById('smsTemplateBody').value = '';
+    document.getElementById('smsCancelEditBtn').style.display = 'none';
+  } catch(err){
+    statusEl.textContent = 'Something went wrong — try again.';
+  }
+});
+document.getElementById('smsCancelEditBtn').addEventListener('click', function(){
+  document.getElementById('smsEditingId').value = '';
+  document.getElementById('smsTemplateName').value = '';
+  document.getElementById('smsTemplateFolder').value = '';
+  document.getElementById('smsTemplateBody').value = '';
+  document.getElementById('smsCancelEditBtn').style.display = 'none';
+});
+
+/* ---- SMS Preview & Send ---- */
+let smsRecipientSearchTerm = '';
+function smsPopulateTemplateSelect(){
+  const sel = document.getElementById('smsSendTemplateSelect');
+  if(!sel) return;
+  const currentVal = sel.value;
+  sel.innerHTML = '<option value="">-- Choose a template --</option>' +
+    smsTemplates.map(t => '<option value="'+t.id+'">'+esc(t.data.name)+'</option>').join('');
+  if(smsTemplates.some(t => t.id === currentVal)) sel.value = currentVal;
+}
+function smsPopulateMemberSelect(){
+  const sel = document.getElementById('smsPreviewMemberSelect');
+  if(!sel) return;
+  const currentVal = sel.value;
+  const members = etGetMembers();
+  sel.innerHTML = '<option value="">-- Choose a member to preview --</option>' +
+    members.map(m => '<option value="'+m.id+'">'+esc(m.data.name||'(no name)')+'</option>').join('');
+  if(members.some(m => m.id === currentVal)) sel.value = currentVal;
+}
+function smsUpdatePreview(){
+  const box = document.getElementById('smsPreviewBox');
+  const templateId = document.getElementById('smsSendTemplateSelect').value;
+  const memberId = document.getElementById('smsPreviewMemberSelect').value;
+  if(!box) return;
+  if(!templateId || !memberId){ box.textContent = 'Pick a template and a member above to see the preview.'; return; }
+  const template = smsTemplates.find(t => t.id === templateId);
+  const member = jobAddresses.find(m => m.id === memberId);
+  if(!template || !member){ box.textContent = 'Pick a template and a member above to see the preview.'; return; }
+  box.textContent = fillEmailTemplate(template.data.body, etResolveVars(member));
+}
+function smsRenderRecipientList(){
+  const list = document.getElementById('smsRecipientList');
+  if(!list) return;
+  const term = smsRecipientSearchTerm.toLowerCase();
+  const members = etGetMembers().filter(m => m.data.phone && (!term || (m.data.name||'').toLowerCase().indexOf(term) !== -1));
+  if(!members.length){ list.innerHTML = '<div class="empty-note">No members with a phone number match this search.</div>'; return; }
+  const previouslyChecked = new Set(Array.from(list.querySelectorAll('input:checked')).map(el => el.value));
+  list.innerHTML = members.map(function(m){
+    const checked = previouslyChecked.has(m.id) ? 'checked' : '';
+    return '<label style="display:flex; align-items:center; gap:8px; padding:5px 0; font-size:13.5px;"><input type="checkbox" class="sms-recipient-cb" value="'+m.id+'" '+checked+' style="width:auto;">'+esc(m.data.name||'(no name)')+' <span style="color:var(--slate); font-size:12px;">'+esc(m.data.phone||'')+'</span></label>';
+  }).join('');
+}
+document.getElementById('smsSendTemplateSelect').addEventListener('change', smsUpdatePreview);
+document.getElementById('smsPreviewMemberSelect').addEventListener('change', smsUpdatePreview);
+document.getElementById('smsRecipientSearch').addEventListener('input', function(){
+  smsRecipientSearchTerm = this.value.trim();
+  smsRenderRecipientList();
+});
+document.getElementById('smsSelectAllBtn').addEventListener('click', function(){
+  document.querySelectorAll('.sms-recipient-cb').forEach(cb => { cb.checked = true; });
+});
+document.getElementById('smsSelectNoneBtn').addEventListener('click', function(){
+  document.querySelectorAll('.sms-recipient-cb').forEach(cb => { cb.checked = false; });
+});
+document.getElementById('smsSendToSelectedBtn').addEventListener('click', async function(){
+  const statusEl = document.getElementById('smsSendStatus');
+  const templateId = document.getElementById('smsSendTemplateSelect').value;
+  const template = smsTemplates.find(t => t.id === templateId);
+  if(!template){ statusEl.textContent = 'Pick a template first.'; return; }
+  const selectedIds = Array.from(document.querySelectorAll('.sms-recipient-cb:checked')).map(cb => cb.value);
+  if(!selectedIds.length){ statusEl.textContent = 'Select at least one recipient.'; return; }
+  if(!confirm('Text "'+template.data.name+'" to '+selectedIds.length+' member(s) now? This uses your Twilio balance.')) return;
+  let sent = 0, failed = 0;
+  for(const id of selectedIds){
+    const member = jobAddresses.find(m => m.id === id);
+    if(!member || !member.data.phone){ failed++; continue; }
+    const message = fillEmailTemplate(template.data.body, etResolveVars(member));
+    statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + selectedIds.length + '…';
+    try{
+      await sendSmsFn({ to: member.data.phone, body: message });
+      sent++;
+    } catch(err){ failed++; }
+  }
+  statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.';
+});
+
 const DEFAULT_TOPIC_FOLDERS = ['Billing / Payment Question','Change My Light Colors','Report an Issue','Reschedule Install or Removal','General Question','Something Else'];
 let messageFolders = [];
 let foldersSeeded = false;
@@ -7508,6 +8232,15 @@ function loadJobAddresses(){
     if(typeof renderWarehouseQueue === 'function') renderWarehouseQueue();
     if(typeof renderWarehouseRecycleQueue === 'function') renderWarehouseRecycleQueue();
     if(typeof renderInventoryList === 'function') renderInventoryList();
+    if(typeof etPopulateMemberSelect === 'function') etPopulateMemberSelect();
+    if(typeof etRenderRecipientList === 'function') etRenderRecipientList();
+    if(typeof etUpdatePreview === 'function') etUpdatePreview();
+    if(typeof rsvpPopulateMemberSelect === 'function') rsvpPopulateMemberSelect();
+    if(typeof rsvpRenderRecipientList === 'function') rsvpRenderRecipientList();
+    if(typeof rsvpUpdatePreview === 'function') rsvpUpdatePreview();
+    if(typeof smsPopulateMemberSelect === 'function') smsPopulateMemberSelect();
+    if(typeof smsRenderRecipientList === 'function') smsRenderRecipientList();
+    if(typeof smsUpdatePreview === 'function') smsUpdatePreview();
   });
 }
 let warehouseExtras = [];
@@ -8654,6 +9387,7 @@ function renderRouteOrderedList(ordered){
         (hd.gateCode ? ' <span class="status-pill" style="background:#FAEEDA; color:#633806;">&#128274; Gated &middot; '+esc(hd.gateCode)+'</span>' : '')+
       '</div>'+
       (hd.notes ? '<div style="font-size:12.5px; color:var(--slate); margin-top:2px;">&#128221; '+esc(hd.notes)+'</div>' : '')+
+      (hd.lightsDescription ? '<div style="font-size:12.5px; color:var(--dusk); font-weight:600; margin-top:2px;">&#127875; '+esc(hd.lightsDescription)+'</div>' : '')+
       (hd.oneTimeNote ? '<div style="font-size:12.5px; color:var(--ember); margin-top:2px;">&#128221; (this visit only) '+esc(hd.oneTimeNote)+'</div>' : '')+
       (needsFix && (hd.fixNote || hd.fixPhotoUrl) ? (
         '<div style="background:#FDECEA; border:1px solid #f0b3ac; border-radius:8px; padding:10px 12px; margin-top:8px;">'+
