@@ -160,7 +160,67 @@ exports.paypalCaptureOrder = onCall(
   }
 );
 
-// Safety net: PayPal calls this on its own if the browser never confirms the
+/**
+ * Twilio integration: sends a single SMS through a Cloud Function so the
+ * Account SID and Auth Token never touch the browser. Called from
+ * admin.html's Automation > Text Automation tab.
+ *
+ * Setup (run once from the project root, after `firebase login`):
+ *   firebase functions:secrets:set TWILIO_ACCOUNT_SID
+ *   firebase functions:secrets:set TWILIO_AUTH_TOKEN
+ *   firebase functions:secrets:set TWILIO_PHONE_NUMBER   (your Twilio number, e.g. +18015551234)
+ *
+ * Then deploy with:
+ *   firebase deploy --only functions
+ */
+
+const TWILIO_ACCOUNT_SID = defineSecret('TWILIO_ACCOUNT_SID');
+const TWILIO_AUTH_TOKEN = defineSecret('TWILIO_AUTH_TOKEN');
+const TWILIO_PHONE_NUMBER = defineSecret('TWILIO_PHONE_NUMBER');
+
+function toE164(raw) {
+  const digits = String(raw || '').replace(/\D/g, '');
+  if (digits.length === 10) return '+1' + digits;
+  if (digits.length === 11 && digits.startsWith('1')) return '+' + digits;
+  return null;
+}
+
+// Called from admin.html only — sends one text to one recipient.
+// The admin panel loops over selected recipients and calls this once each.
+exports.sendSms = onCall(
+  { secrets: [TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER] },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'Must be signed in.');
+    const { to, body } = request.data || {};
+    if (!to || !body) throw new HttpsError('invalid-argument', 'Missing to or body.');
+    const toNumber = toE164(to);
+    if (!toNumber) throw new HttpsError('invalid-argument', 'That phone number doesn\'t look valid.');
+
+    const sid = TWILIO_ACCOUNT_SID.value();
+    const authToken = TWILIO_AUTH_TOKEN.value();
+    const from = TWILIO_PHONE_NUMBER.value();
+    const basicAuth = Buffer.from(sid + ':' + authToken).toString('base64');
+
+    const params = new URLSearchParams();
+    params.append('To', toNumber);
+    params.append('From', from);
+    params.append('Body', body);
+
+    const res = await fetch('https://api.twilio.com/2010-04-01/Accounts/' + sid + '/Messages.json', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Basic ' + basicAuth,
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: params.toString()
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new HttpsError('internal', 'Twilio send failed: ' + (data.message || JSON.stringify(data)));
+    }
+    return { success: true, sid: data.sid, status: data.status };
+  }
+);
 // capture (e.g. the customer closed the tab right after paying). Verifies the
 // signature before trusting anything, and never double-counts a payment that
 // the browser-side call already recorded.
