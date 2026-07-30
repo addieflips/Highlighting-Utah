@@ -815,6 +815,9 @@
               <option value="Red">Red</option>
               <option value="Green">Green</option>
               <option value="Blue">Blue</option>
+              <option value="Purple">Purple</option>
+              <option value="Orange">Orange</option>
+              <option value="Pink">Pink</option>
               <option value="Multi">Multi</option>
             </select>
             <p class="form-note">Hold Ctrl (Windows) or Cmd (Mac) to pick more than one.</p>
@@ -1079,6 +1082,9 @@
                 <option value="Red">Red</option>
                 <option value="Green">Green</option>
                 <option value="Blue">Blue</option>
+                <option value="Purple">Purple</option>
+                <option value="Orange">Orange</option>
+                <option value="Pink">Pink</option>
                 <option value="Multi">Multi</option>
               </select>
               <p class="form-note">Hold Ctrl (Windows) or Cmd (Mac) to pick more than one.</p>
@@ -1181,6 +1187,9 @@
                 <label class="color-check"><input type="checkbox" name="colors" value="Red"><span class="color-dot" style="background:#C23B2E;"></span>Red</label>
                 <label class="color-check"><input type="checkbox" name="colors" value="Green"><span class="color-dot" style="background:#3E7D46;"></span>Green</label>
                 <label class="color-check"><input type="checkbox" name="colors" value="Blue"><span class="color-dot" style="background:#2E5FA3;"></span>Blue</label>
+                <label class="color-check"><input type="checkbox" name="colors" value="Purple"><span class="color-dot" style="background:#6B4A8F;"></span>Purple</label>
+                <label class="color-check"><input type="checkbox" name="colors" value="Orange"><span class="color-dot" style="background:#D97D2B;"></span>Orange</label>
+                <label class="color-check"><input type="checkbox" name="colors" value="Pink"><span class="color-dot" style="background:#D97BA0;"></span>Pink</label>
                 <label class="color-check"><input type="checkbox" name="colors" value="Multi"><span class="color-dot" style="background:linear-gradient(45deg, #C23B2E 0 25%, #3E7D46 25% 50%, #2E5FA3 50% 75%, #F4BE55 75% 100%);"></span>Multi</label>
               </div>
             </div>
@@ -1191,8 +1200,9 @@
             <select name="wire_color">
               <option value="White" selected>White</option>
               <option value="Green">Green</option>
+              <option value="Not Sure — You Pick">Not Sure &mdash; You Pick</option>
             </select>
-            <p class="form-note">The color of the cord itself, not the bulbs &mdash; pick whichever blends best with your roofline.</p>
+            <p class="form-note">The color of the cord itself, not the bulbs &mdash; pick whichever blends best with your roofline, or let us pick for you.</p>
           </div>
           <div class="form-row">
             <label>Would you like an outlet timer?</label>
@@ -1379,6 +1389,9 @@
                 <button type="button" class="rc-simple-swatch" data-color="Red" title="Red" style="width:36px; height:36px; border-radius:50%; background:#C23B2E; border:2px solid transparent; padding:0;"></button>
                 <button type="button" class="rc-simple-swatch" data-color="Green" title="Green" style="width:36px; height:36px; border-radius:50%; background:#3E7D46; border:2px solid transparent; padding:0;"></button>
                 <button type="button" class="rc-simple-swatch" data-color="Blue" title="Blue" style="width:36px; height:36px; border-radius:50%; background:#2E5FA3; border:2px solid transparent; padding:0;"></button>
+                <button type="button" class="rc-simple-swatch" data-color="Purple" title="Purple" style="width:36px; height:36px; border-radius:50%; background:#6B4A8F; border:2px solid transparent; padding:0;"></button>
+                <button type="button" class="rc-simple-swatch" data-color="Orange" title="Orange" style="width:36px; height:36px; border-radius:50%; background:#D97D2B; border:2px solid transparent; padding:0;"></button>
+                <button type="button" class="rc-simple-swatch" data-color="Pink" title="Pink" style="width:36px; height:36px; border-radius:50%; background:#D97BA0; border:2px solid transparent; padding:0;"></button>
                 <button type="button" class="rc-simple-swatch" data-color="Multi" title="Multi" style="width:36px; height:36px; border-radius:50%; background:linear-gradient(45deg, #C23B2E 0 25%, #3E7D46 25% 50%, #2E5FA3 50% 75%, #F4BE55 75% 100%); border:2px solid transparent; padding:0;"></button>
               </div>
               <div id="lightsSaveStatus" style="font-size:13px; color:var(--slate); margin-bottom:4px;"></div>
@@ -1397,6 +1410,9 @@
                   <button type="button" class="rc-swatch" data-color="Red" title="Red" style="width:32px; height:32px; border-radius:50%; background:#C23B2E; border:none; padding:0;"></button>
                   <button type="button" class="rc-swatch" data-color="Green" title="Green" style="width:32px; height:32px; border-radius:50%; background:#3E7D46; border:none; padding:0;"></button>
                   <button type="button" class="rc-swatch" data-color="Blue" title="Blue" style="width:32px; height:32px; border-radius:50%; background:#2E5FA3; border:none; padding:0;"></button>
+                  <button type="button" class="rc-swatch" data-color="Purple" title="Purple" style="width:32px; height:32px; border-radius:50%; background:#6B4A8F; border:none; padding:0;"></button>
+                  <button type="button" class="rc-swatch" data-color="Orange" title="Orange" style="width:32px; height:32px; border-radius:50%; background:#D97D2B; border:none; padding:0;"></button>
+                  <button type="button" class="rc-swatch" data-color="Pink" title="Pink" style="width:32px; height:32px; border-radius:50%; background:#D97BA0; border:none; padding:0;"></button>
                   <button type="button" class="rc-swatch" data-color="Multi" title="Multi" style="width:32px; height:32px; border-radius:50%; background:linear-gradient(45deg, #C23B2E 0 25%, #3E7D46 25% 50%, #2E5FA3 50% 75%, #F4BE55 75% 100%); border:none; padding:0;"></button>
                   <button type="button" class="btn btn-outline btn-sm" id="rcClearPattern" style="margin-left:auto;">Clear</button>
                 </div>
@@ -2437,7 +2453,7 @@ function handleRsvpLink(token, rsvpValue){
         loadPortalByToken(token);
       };
     } else {
-      confirmMsg.textContent = 'Got it \u2014 no lights this year, thanks for letting us know.';
+      confirmMsg.textContent = 'Hope to see you next year!';
       openPortalBtn.style.display = 'none';
     }
   }).catch(function(){
@@ -2618,8 +2634,8 @@ function parseLightsDescription(text){
   return {color: main, notes: notes};
 }
 
-var RC_VALID_COLORS = ['Warm White','Pure White','Red','Green','Blue','Multi'];
-var RC_COLOR_HEX = {'Warm White':'#F5EFDD','Pure White':'#FFFFFF','Red':'#C23B2E','Green':'#3E7D46','Blue':'#2E5FA3','Multi':'linear-gradient(45deg, #C23B2E 0 25%, #3E7D46 25% 50%, #2E5FA3 50% 75%, #F4BE55 75% 100%)'};
+var RC_VALID_COLORS = ['Warm White','Pure White','Red','Green','Blue','Purple','Orange','Pink','Multi'];
+var RC_COLOR_HEX = {'Warm White':'#F5EFDD','Pure White':'#FFFFFF','Red':'#C23B2E','Green':'#3E7D46','Blue':'#2E5FA3','Purple':'#6B4A8F','Orange':'#D97D2B','Pink':'#D97BA0','Multi':'linear-gradient(45deg, #C23B2E 0 25%, #3E7D46 25% 50%, #2E5FA3 50% 75%, #F4BE55 75% 100%)'};
 var RC_COLOR_BORDER = {'Warm White':'1px solid var(--line)','Pure White':'1px solid var(--line)'};
 var rcSequence = [];
 var rcSimpleColors = [];
