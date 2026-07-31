@@ -576,6 +576,26 @@
     background:#fff; border:1px solid var(--line); border-radius:18px; padding:28px;
     margin-top:22px;
   }
+  .portal-tabs-layout{ display:flex; gap:16px; margin-top:20px; align-items:flex-start; }
+  .portal-tabs{
+    display:flex; flex-direction:column; gap:4px;
+    background:var(--paper); border-radius:12px; padding:8px;
+    width:190px; flex-shrink:0;
+  }
+  .portal-tab-btn{
+    display:block; width:100%; text-align:left; border:none; border-radius:9px;
+    padding:12px 14px; font-size:13.5px; font-weight:600; cursor:pointer;
+    background:transparent; color:var(--slate);
+    transition:background .15s ease, color .15s ease;
+  }
+  .portal-tab-btn:hover{ background:rgba(30,59,44,.06); }
+  .portal-tab-btn.active{ background:var(--ink); color:var(--snow); }
+  .portal-tab-btn.active:hover{ background:var(--ink); }
+  .portal-tabs-layout .portal-card{ flex:1; min-width:0; margin-top:0; }
+  @media (max-width:640px){
+    .portal-tabs-layout{ flex-direction:column; gap:12px; }
+    .portal-tabs{ width:100%; }
+  }
   .portal-card h3{ margin:0 0 18px; font-size:19px; display:flex; align-items:center; gap:10px; }
   .portal-field{ display:flex; justify-content:space-between; gap:16px; padding:13px 0; border-bottom:1px solid var(--line); font-size:14.5px; }
   .portal-field:last-of-type{ border-bottom:none; }
@@ -1401,15 +1421,16 @@
         </div>
           </div>
 
-          <div class="portal-tabs" id="portalTabs" style="display:flex; flex-wrap:wrap; background:var(--paper); border-radius:12px; padding:4px; margin-top:20px; gap:4px;">
-            <button type="button" class="portal-tab-btn active" data-tab="info" style="flex:1 1 30%; min-width:100px; border:none; background:var(--ink); color:var(--snow); border-radius:9px; padding:10px 4px; font-size:12.5px; font-weight:600; cursor:pointer;">Information</button>
-            <button type="button" class="portal-tab-btn" data-tab="lights" style="flex:1 1 30%; min-width:100px; border:none; background:transparent; color:var(--slate); border-radius:9px; padding:10px 4px; font-size:12.5px; font-weight:600; cursor:pointer;">Light Colors</button>
-            <button type="button" class="portal-tab-btn" data-tab="changes" style="flex:1 1 30%; min-width:100px; border:none; background:transparent; color:var(--slate); border-radius:9px; padding:10px 4px; font-size:12.5px; font-weight:600; cursor:pointer;">Changes</button>
-            <button type="button" class="portal-tab-btn" data-tab="contact" style="flex:1 1 30%; min-width:100px; border:none; background:transparent; color:var(--slate); border-radius:9px; padding:10px 4px; font-size:12.5px; font-weight:600; cursor:pointer;">Contact</button>
-            <button type="button" class="portal-tab-btn" data-tab="cancel" style="flex:1 1 30%; min-width:100px; border:none; background:transparent; color:var(--slate); border-radius:9px; padding:10px 4px; font-size:12.5px; font-weight:600; cursor:pointer;">Cancel</button>
+          <div class="portal-tabs-layout">
+          <div class="portal-tabs" id="portalTabs">
+            <button type="button" class="portal-tab-btn active" data-tab="info">Information</button>
+            <button type="button" class="portal-tab-btn" data-tab="lights">Light Colors</button>
+            <button type="button" class="portal-tab-btn" data-tab="changes">Changes</button>
+            <button type="button" class="portal-tab-btn" data-tab="contact">Contact</button>
+            <button type="button" class="portal-tab-btn" data-tab="cancel">Cancel</button>
           </div>
 
-          <div class="portal-card" id="portalTabPanelCard" style="margin-top:14px;">
+          <div class="portal-card" id="portalTabPanelCard">
 
             <div id="tabPanel-info">
               <p class="form-note" style="margin-top:0;">Update anything below and save &mdash; we'll use this for this season and remember it for next season too.</p>
@@ -1536,6 +1557,7 @@
               <div id="cancelConfirmMsg" style="display:none; text-align:center; padding-top:16px; margin-top:16px; border-top:1px solid var(--line); color:#2E6B3E; font-weight:600; font-size:13.5px;">&#10003; We've received your cancellation request &mdash; we'll be in touch.</div>
             </div>
 
+          </div>
           </div>
 
 
@@ -3004,10 +3026,7 @@ renderRcSequence();
 var PORTAL_TAB_NAMES = ['info','lights','changes','contact','cancel'];
 function activatePortalTab(tabName){
   document.querySelectorAll('.portal-tab-btn').forEach(function(b){
-    var isActive = b.dataset.tab === tabName;
-    b.classList.toggle('active', isActive);
-    b.style.background = isActive ? 'var(--ink)' : 'transparent';
-    b.style.color = isActive ? 'var(--snow)' : 'var(--slate)';
+    b.classList.toggle('active', b.dataset.tab === tabName);
   });
   PORTAL_TAB_NAMES.forEach(function(name){
     var panel = document.getElementById('tabPanel-'+name);
