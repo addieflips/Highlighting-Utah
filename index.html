@@ -578,11 +578,8 @@
   }
   .portal-tabs-layout{ display:flex; gap:16px; margin-top:20px; align-items:flex-start; width:100%; }
   @media (min-width:900px){
-    .portal-tabs-layout{
-      max-width:920px;
-      margin-left:50%;
-      transform:translateX(-50%);
-    }
+    #page-payment .form-shell{ max-width:960px; }
+    #page-payment #lookupFormWrap{ max-width:480px; margin:0 auto; }
   }
   .portal-tabs{
     display:flex; flex-direction:column; gap:4px;
@@ -1252,15 +1249,15 @@
               <label>Which light color(s) would you like?</label>
               <p class="form-note" style="margin:0 0 8px;">Tap the color(s) you want.</p>
               <div id="qdSimpleColorsRow" style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
-                <button type="button" class="qd-simple-swatch" data-color="Warm White" title="Warm White" style="width:36px; height:36px; border-radius:50%; background:#F5EFDD; border:2px solid var(--line); padding:0;"></button>
-                <button type="button" class="qd-simple-swatch" data-color="Pure White" title="Pure White" style="width:36px; height:36px; border-radius:50%; background:#FFFFFF; border:2px solid var(--line); padding:0;"></button>
-                <button type="button" class="qd-simple-swatch" data-color="Red" title="Red" style="width:36px; height:36px; border-radius:50%; background:#C23B2E; border:2px solid transparent; padding:0;"></button>
-                <button type="button" class="qd-simple-swatch" data-color="Green" title="Green" style="width:36px; height:36px; border-radius:50%; background:#3E7D46; border:2px solid transparent; padding:0;"></button>
-                <button type="button" class="qd-simple-swatch" data-color="Blue" title="Blue" style="width:36px; height:36px; border-radius:50%; background:#2E5FA3; border:2px solid transparent; padding:0;"></button>
-                <button type="button" class="qd-simple-swatch" data-color="Purple" title="Purple" style="width:36px; height:36px; border-radius:50%; background:#6B4A8F; border:2px solid transparent; padding:0;"></button>
-                <button type="button" class="qd-simple-swatch" data-color="Orange" title="Orange" style="width:36px; height:36px; border-radius:50%; background:#D97D2B; border:2px solid transparent; padding:0;"></button>
-                <button type="button" class="qd-simple-swatch" data-color="Pink" title="Pink" style="width:36px; height:36px; border-radius:50%; background:#D97BA0; border:2px solid transparent; padding:0;"></button>
-                <button type="button" class="qd-simple-swatch" data-color="Multi" title="Multi" style="width:36px; height:36px; border-radius:50%; background:linear-gradient(45deg, #C23B2E 0 25%, #3E7D46 25% 50%, #2E5FA3 50% 75%, #F4BE55 75% 100%); border:2px solid transparent; padding:0;"></button>
+                <button type="button" class="qd-simple-swatch" data-color="Warm White" title="Warm White" style="width:36px; height:36px; border-radius:50%; flex-shrink:0; background:#F5EFDD; border:2px solid var(--line); padding:0;"></button>
+                <button type="button" class="qd-simple-swatch" data-color="Pure White" title="Pure White" style="width:36px; height:36px; border-radius:50%; flex-shrink:0; background:#FFFFFF; border:2px solid var(--line); padding:0;"></button>
+                <button type="button" class="qd-simple-swatch" data-color="Red" title="Red" style="width:36px; height:36px; border-radius:50%; flex-shrink:0; background:#C23B2E; border:2px solid transparent; padding:0;"></button>
+                <button type="button" class="qd-simple-swatch" data-color="Green" title="Green" style="width:36px; height:36px; border-radius:50%; flex-shrink:0; background:#3E7D46; border:2px solid transparent; padding:0;"></button>
+                <button type="button" class="qd-simple-swatch" data-color="Blue" title="Blue" style="width:36px; height:36px; border-radius:50%; flex-shrink:0; background:#2E5FA3; border:2px solid transparent; padding:0;"></button>
+                <button type="button" class="qd-simple-swatch" data-color="Purple" title="Purple" style="width:36px; height:36px; border-radius:50%; flex-shrink:0; background:#6B4A8F; border:2px solid transparent; padding:0;"></button>
+                <button type="button" class="qd-simple-swatch" data-color="Orange" title="Orange" style="width:36px; height:36px; border-radius:50%; flex-shrink:0; background:#D97D2B; border:2px solid transparent; padding:0;"></button>
+                <button type="button" class="qd-simple-swatch" data-color="Pink" title="Pink" style="width:36px; height:36px; border-radius:50%; flex-shrink:0; background:#D97BA0; border:2px solid transparent; padding:0;"></button>
+                <button type="button" class="qd-simple-swatch" data-color="Multi" title="Multi" style="width:36px; height:36px; border-radius:50%; flex-shrink:0; background:linear-gradient(45deg, #C23B2E 0 25%, #3E7D46 25% 50%, #2E5FA3 50% 75%, #F4BE55 75% 100%); border:2px solid transparent; padding:0;"></button>
               </div>
 
               <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:var(--slate); cursor:pointer; margin-top:10px; padding-top:14px; border-top:1px solid var(--line);">
@@ -1272,15 +1269,15 @@
                 <p class="form-note" style="margin:0 0 8px;">Tap colors in order to build your exact pattern &mdash; it repeats along your roofline.</p>
                 <div id="qdSequenceRow" style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; min-height:40px; padding:10px; border:1px solid var(--line); border-radius:10px; margin-bottom:10px;"></div>
                 <div style="display:flex; gap:10px; margin-bottom:8px; flex-wrap:wrap;">
-                  <button type="button" class="qd-swatch" data-color="Warm White" title="Warm White" style="width:32px; height:32px; border-radius:50%; background:#F5EFDD; border:1px solid var(--line); padding:0;"></button>
-                  <button type="button" class="qd-swatch" data-color="Pure White" title="Pure White" style="width:32px; height:32px; border-radius:50%; background:#FFFFFF; border:1px solid var(--line); padding:0;"></button>
-                  <button type="button" class="qd-swatch" data-color="Red" title="Red" style="width:32px; height:32px; border-radius:50%; background:#C23B2E; border:none; padding:0;"></button>
-                  <button type="button" class="qd-swatch" data-color="Green" title="Green" style="width:32px; height:32px; border-radius:50%; background:#3E7D46; border:none; padding:0;"></button>
-                  <button type="button" class="qd-swatch" data-color="Blue" title="Blue" style="width:32px; height:32px; border-radius:50%; background:#2E5FA3; border:none; padding:0;"></button>
-                  <button type="button" class="qd-swatch" data-color="Purple" title="Purple" style="width:32px; height:32px; border-radius:50%; background:#6B4A8F; border:none; padding:0;"></button>
-                  <button type="button" class="qd-swatch" data-color="Orange" title="Orange" style="width:32px; height:32px; border-radius:50%; background:#D97D2B; border:none; padding:0;"></button>
-                  <button type="button" class="qd-swatch" data-color="Pink" title="Pink" style="width:32px; height:32px; border-radius:50%; background:#D97BA0; border:none; padding:0;"></button>
-                  <button type="button" class="qd-swatch" data-color="Multi" title="Multi" style="width:32px; height:32px; border-radius:50%; background:linear-gradient(45deg, #C23B2E 0 25%, #3E7D46 25% 50%, #2E5FA3 50% 75%, #F4BE55 75% 100%); border:none; padding:0;"></button>
+                  <button type="button" class="qd-swatch" data-color="Warm White" title="Warm White" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:#F5EFDD; border:1px solid var(--line); padding:0;"></button>
+                  <button type="button" class="qd-swatch" data-color="Pure White" title="Pure White" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:#FFFFFF; border:1px solid var(--line); padding:0;"></button>
+                  <button type="button" class="qd-swatch" data-color="Red" title="Red" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:#C23B2E; border:none; padding:0;"></button>
+                  <button type="button" class="qd-swatch" data-color="Green" title="Green" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:#3E7D46; border:none; padding:0;"></button>
+                  <button type="button" class="qd-swatch" data-color="Blue" title="Blue" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:#2E5FA3; border:none; padding:0;"></button>
+                  <button type="button" class="qd-swatch" data-color="Purple" title="Purple" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:#6B4A8F; border:none; padding:0;"></button>
+                  <button type="button" class="qd-swatch" data-color="Orange" title="Orange" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:#D97D2B; border:none; padding:0;"></button>
+                  <button type="button" class="qd-swatch" data-color="Pink" title="Pink" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:#D97BA0; border:none; padding:0;"></button>
+                  <button type="button" class="qd-swatch" data-color="Multi" title="Multi" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:linear-gradient(45deg, #C23B2E 0 25%, #3E7D46 25% 50%, #2E5FA3 50% 75%, #F4BE55 75% 100%); border:none; padding:0;"></button>
                   <button type="button" class="btn btn-outline btn-sm" id="qdClearPattern" style="margin-left:auto;">Clear</button>
                 </div>
                 <div id="qdPatternReadout" style="font-size:12.5px; color:var(--slate);"></div>
@@ -1493,15 +1490,15 @@
             <div id="tabPanel-lights" style="display:none;">
               <p class="form-note" style="margin:0 0 8px;">Tap the color(s) you want, then save below.</p>
               <div id="rcSimpleColorsRow" style="display:flex; gap:10px; margin-bottom:12px;">
-                <button type="button" class="rc-simple-swatch" data-color="Warm White" title="Warm White" style="width:36px; height:36px; border-radius:50%; background:#F5EFDD; border:2px solid var(--line); padding:0;"></button>
-                <button type="button" class="rc-simple-swatch" data-color="Pure White" title="Pure White" style="width:36px; height:36px; border-radius:50%; background:#FFFFFF; border:2px solid var(--line); padding:0;"></button>
-                <button type="button" class="rc-simple-swatch" data-color="Red" title="Red" style="width:36px; height:36px; border-radius:50%; background:#C23B2E; border:2px solid transparent; padding:0;"></button>
-                <button type="button" class="rc-simple-swatch" data-color="Green" title="Green" style="width:36px; height:36px; border-radius:50%; background:#3E7D46; border:2px solid transparent; padding:0;"></button>
-                <button type="button" class="rc-simple-swatch" data-color="Blue" title="Blue" style="width:36px; height:36px; border-radius:50%; background:#2E5FA3; border:2px solid transparent; padding:0;"></button>
-                <button type="button" class="rc-simple-swatch" data-color="Purple" title="Purple" style="width:36px; height:36px; border-radius:50%; background:#6B4A8F; border:2px solid transparent; padding:0;"></button>
-                <button type="button" class="rc-simple-swatch" data-color="Orange" title="Orange" style="width:36px; height:36px; border-radius:50%; background:#D97D2B; border:2px solid transparent; padding:0;"></button>
-                <button type="button" class="rc-simple-swatch" data-color="Pink" title="Pink" style="width:36px; height:36px; border-radius:50%; background:#D97BA0; border:2px solid transparent; padding:0;"></button>
-                <button type="button" class="rc-simple-swatch" data-color="Multi" title="Multi" style="width:36px; height:36px; border-radius:50%; background:linear-gradient(45deg, #C23B2E 0 25%, #3E7D46 25% 50%, #2E5FA3 50% 75%, #F4BE55 75% 100%); border:2px solid transparent; padding:0;"></button>
+                <button type="button" class="rc-simple-swatch" data-color="Warm White" title="Warm White" style="width:36px; height:36px; border-radius:50%; flex-shrink:0; background:#F5EFDD; border:2px solid var(--line); padding:0;"></button>
+                <button type="button" class="rc-simple-swatch" data-color="Pure White" title="Pure White" style="width:36px; height:36px; border-radius:50%; flex-shrink:0; background:#FFFFFF; border:2px solid var(--line); padding:0;"></button>
+                <button type="button" class="rc-simple-swatch" data-color="Red" title="Red" style="width:36px; height:36px; border-radius:50%; flex-shrink:0; background:#C23B2E; border:2px solid transparent; padding:0;"></button>
+                <button type="button" class="rc-simple-swatch" data-color="Green" title="Green" style="width:36px; height:36px; border-radius:50%; flex-shrink:0; background:#3E7D46; border:2px solid transparent; padding:0;"></button>
+                <button type="button" class="rc-simple-swatch" data-color="Blue" title="Blue" style="width:36px; height:36px; border-radius:50%; flex-shrink:0; background:#2E5FA3; border:2px solid transparent; padding:0;"></button>
+                <button type="button" class="rc-simple-swatch" data-color="Purple" title="Purple" style="width:36px; height:36px; border-radius:50%; flex-shrink:0; background:#6B4A8F; border:2px solid transparent; padding:0;"></button>
+                <button type="button" class="rc-simple-swatch" data-color="Orange" title="Orange" style="width:36px; height:36px; border-radius:50%; flex-shrink:0; background:#D97D2B; border:2px solid transparent; padding:0;"></button>
+                <button type="button" class="rc-simple-swatch" data-color="Pink" title="Pink" style="width:36px; height:36px; border-radius:50%; flex-shrink:0; background:#D97BA0; border:2px solid transparent; padding:0;"></button>
+                <button type="button" class="rc-simple-swatch" data-color="Multi" title="Multi" style="width:36px; height:36px; border-radius:50%; flex-shrink:0; background:linear-gradient(45deg, #C23B2E 0 25%, #3E7D46 25% 50%, #2E5FA3 50% 75%, #F4BE55 75% 100%); border:2px solid transparent; padding:0;"></button>
               </div>
               <div id="lightsSaveStatus" style="font-size:13px; color:var(--slate); margin-bottom:4px;"></div>
 
@@ -1514,15 +1511,15 @@
                 <p class="form-note" style="margin:0 0 8px;">Tap colors in order to build your exact pattern &mdash; it repeats along your roofline.</p>
                 <div id="rcSequenceRow" style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; min-height:40px; padding:10px; border:1px solid var(--line); border-radius:10px; margin-bottom:10px;"></div>
                 <div style="display:flex; gap:10px; margin-bottom:8px;">
-                  <button type="button" class="rc-swatch" data-color="Warm White" title="Warm White" style="width:32px; height:32px; border-radius:50%; background:#F5EFDD; border:1px solid var(--line); padding:0;"></button>
-                  <button type="button" class="rc-swatch" data-color="Pure White" title="Pure White" style="width:32px; height:32px; border-radius:50%; background:#FFFFFF; border:1px solid var(--line); padding:0;"></button>
-                  <button type="button" class="rc-swatch" data-color="Red" title="Red" style="width:32px; height:32px; border-radius:50%; background:#C23B2E; border:none; padding:0;"></button>
-                  <button type="button" class="rc-swatch" data-color="Green" title="Green" style="width:32px; height:32px; border-radius:50%; background:#3E7D46; border:none; padding:0;"></button>
-                  <button type="button" class="rc-swatch" data-color="Blue" title="Blue" style="width:32px; height:32px; border-radius:50%; background:#2E5FA3; border:none; padding:0;"></button>
-                  <button type="button" class="rc-swatch" data-color="Purple" title="Purple" style="width:32px; height:32px; border-radius:50%; background:#6B4A8F; border:none; padding:0;"></button>
-                  <button type="button" class="rc-swatch" data-color="Orange" title="Orange" style="width:32px; height:32px; border-radius:50%; background:#D97D2B; border:none; padding:0;"></button>
-                  <button type="button" class="rc-swatch" data-color="Pink" title="Pink" style="width:32px; height:32px; border-radius:50%; background:#D97BA0; border:none; padding:0;"></button>
-                  <button type="button" class="rc-swatch" data-color="Multi" title="Multi" style="width:32px; height:32px; border-radius:50%; background:linear-gradient(45deg, #C23B2E 0 25%, #3E7D46 25% 50%, #2E5FA3 50% 75%, #F4BE55 75% 100%); border:none; padding:0;"></button>
+                  <button type="button" class="rc-swatch" data-color="Warm White" title="Warm White" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:#F5EFDD; border:1px solid var(--line); padding:0;"></button>
+                  <button type="button" class="rc-swatch" data-color="Pure White" title="Pure White" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:#FFFFFF; border:1px solid var(--line); padding:0;"></button>
+                  <button type="button" class="rc-swatch" data-color="Red" title="Red" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:#C23B2E; border:none; padding:0;"></button>
+                  <button type="button" class="rc-swatch" data-color="Green" title="Green" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:#3E7D46; border:none; padding:0;"></button>
+                  <button type="button" class="rc-swatch" data-color="Blue" title="Blue" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:#2E5FA3; border:none; padding:0;"></button>
+                  <button type="button" class="rc-swatch" data-color="Purple" title="Purple" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:#6B4A8F; border:none; padding:0;"></button>
+                  <button type="button" class="rc-swatch" data-color="Orange" title="Orange" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:#D97D2B; border:none; padding:0;"></button>
+                  <button type="button" class="rc-swatch" data-color="Pink" title="Pink" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:#D97BA0; border:none; padding:0;"></button>
+                  <button type="button" class="rc-swatch" data-color="Multi" title="Multi" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:linear-gradient(45deg, #C23B2E 0 25%, #3E7D46 25% 50%, #2E5FA3 50% 75%, #F4BE55 75% 100%); border:none; padding:0;"></button>
                   <button type="button" class="btn btn-outline btn-sm" id="rcClearPattern" style="margin-left:auto;">Clear</button>
                 </div>
                 <div id="rcPatternReadout" style="font-size:12.5px; color:var(--slate);"></div>
@@ -2497,6 +2494,12 @@ document.getElementById('lookupForm').addEventListener('submit', function(e){
   performSignInLookup(contactRaw, lastNameInput.toLowerCase());
   window.scrollTo({top:0, behavior:'smooth'});
 });
+function hideLoginPrompt(){
+  var heroEl = document.getElementById('paymentPageHero');
+  if(heroEl) heroEl.style.display = 'none';
+  var lookupWrapEl = document.getElementById('lookupFormWrap');
+  if(lookupWrapEl) lookupWrapEl.style.display = 'none';
+}
 function renderCustomerInvoicePage(raw, opts){
   opts = opts || {};
   var card = document.getElementById('invoiceCard');
@@ -2513,6 +2516,7 @@ function renderCustomerInvoicePage(raw, opts){
       card.classList.remove('show');
       empty.style.display = 'none';
       if(deactivatedMsg) deactivatedMsg.style.display = 'block';
+      hideLoginPrompt();
       return;
     }
     loadInvoiceForPortal();
@@ -2569,10 +2573,7 @@ function renderCustomerInvoicePage(raw, opts){
       tipRow.style.display = 'none';
     }
     card.classList.add('show');
-    var heroEl2 = document.getElementById('paymentPageHero');
-    if(heroEl2) heroEl2.style.display = 'none';
-    var lookupWrapEl2 = document.getElementById('lookupFormWrap');
-    if(lookupWrapEl2) lookupWrapEl2.style.display = 'none';
+    hideLoginPrompt();
     if(opts.activateTab) activatePortalTab(opts.activateTab);
   }).catch(function(){
     card.classList.remove('show');
@@ -2618,6 +2619,7 @@ function tryShowQuoteReview(raw, opts){
       }
       document.getElementById('quotePriceAmount').textContent = fmt(pending.data.quotedPrice);
       quoteCard.classList.add('show');
+      hideLoginPrompt();
       return;
     }
     quoteCard.classList.remove('show');
@@ -2634,6 +2636,7 @@ function tryShowQuoteReview(raw, opts){
         ? "You've already approved this quote — we'll be in touch to schedule!"
         : "You've already let us know this isn't a fit right now. Reach out any time if that changes.";
       resolvedMsg.style.display = 'block';
+      hideLoginPrompt();
       return;
     }
     resolvedMsg.style.display = 'none';
