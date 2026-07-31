@@ -2705,7 +2705,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
-  onSnapshot, query, orderBy, serverTimestamp, getDoc, getDocs, limit, Timestamp, increment
+  onSnapshot, query, orderBy, where, serverTimestamp, getDoc, getDocs, limit, Timestamp, increment
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
 
@@ -2719,6 +2719,16 @@ const firebaseConfig = {
   measurementId: "G-44SCT38S6E"
 };
 const app = initializeApp(firebaseConfig);
+
+/* Safe write helper: no-ops when the target element isn't on the page */
+function __setEl(id, path, val){
+  const el = document.getElementById(id);
+  if(!el) return;
+  const parts = path.split('.');
+  let o = el;
+  for(let i=0; i<parts.length-1; i++){ o = o[parts[i]]; if(!o) return; }
+  o[parts[parts.length-1]] = val;
+}
 
 /* ===== ALL TOP-LEVEL VARIABLES ===== */
 let perFootRate = 0;
@@ -2950,7 +2960,7 @@ onAuthStateChanged(auth, function(user){
     loginScreen.style.display = 'none';
     appEl.classList.add('show');
     document.getElementById('whoAmI').textContent = user.email;
-    initData();
+    setTimeout(initData, 0);
   } else {
     loginScreen.style.display = 'flex';
     appEl.classList.remove('show');
@@ -3170,13 +3180,17 @@ function populateQuickEmailSelect(){
     }).join('');
   if(current) sel.value = current;
 }
-document.getElementById('quickEmailCustomerSelect').addEventListener('change', function(){
-  const inv = allInvoicesCache.find(i => i.id === this.value);
-  document.getElementById('quickEmailInput').value = inv && inv.data.email ? inv.data.email : '';
-});
-document.getElementById('quickEmailFillBtn').addEventListener('click', async function(){
-  const invId = document.getElementById('quickEmailCustomerSelect').value;
-  const email = document.getElementById('quickEmailInput').value.trim();
+const quickEmailCustSelEl = document.getElementById('quickEmailCustomerSelect');
+if(quickEmailCustSelEl){
+  quickEmailCustSelEl.addEventListener('change', function(){
+    const inv = allInvoicesCache.find(i => i.id === this.value);
+    const inpEl = document.getElementById('quickEmailInput');
+    if(inpEl) inpEl.value = inv && inv.data.email ? inv.data.email : '';
+  });
+}
+document.getElementById('quickEmailFillBtn')?.addEventListener('click', async function(){
+  const invId = document.getElementById('quickEmailCustomerSelect')?.value;
+  const email = document.getElementById('quickEmailInput')?.value.trim();
   const resultEl = document.getElementById('quickEmailResult');
   if(!invId){ resultEl.innerHTML = '<p style="color:var(--ember); font-size:13px;">Pick a customer first.</p>'; return; }
   if(!email){ resultEl.innerHTML = '<p style="color:var(--ember); font-size:13px;">Add their email first.</p>'; return; }
@@ -3190,15 +3204,15 @@ document.getElementById('quickEmailFillBtn').addEventListener('click', async fun
     await updateDoc(doc(db,'invoices',invId), {email: email});
   }
   const amount = fmtMoney(balanceDueAmount(d));
-  const template = document.getElementById('quickEmailTemplate').value;
+  const template = document.getElementById('quickEmailTemplate')?.value;
   const message = await resolveLinkTokens(template
     .replace(/\{\{name\}\}/g, d.name||'there')
     .replace(/\{\{amount\}\}/g, amount), d.phone, amount)
     + partialPaymentNote(d)
     + await buildOutgoingEmailFooter(d.phone, amount, {
-        includePortal: document.getElementById('quickEmailIncludePortal').checked,
-        includeVenmo: document.getElementById('quickEmailIncludeVenmo').checked,
-        includeMessages: document.getElementById('quickEmailIncludeMessages').checked
+        includePortal: document.getElementById('quickEmailIncludePortal')?.checked,
+        includeVenmo: document.getElementById('quickEmailIncludeVenmo')?.checked,
+        includeMessages: document.getElementById('quickEmailIncludeMessages')?.checked
       });
   resultEl.innerHTML =
     '<label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:6px;">Edit before sending if you want:</label>'+
@@ -3249,9 +3263,9 @@ document.getElementById('quickEmailFillBtn').addEventListener('click', async fun
   });
 });
 
-document.getElementById('quickEmailTestBtn').addEventListener('click', async function(){
+document.getElementById('quickEmailTestBtn')?.addEventListener('click', async function(){
   const statusEl = document.getElementById('quickEmailTestStatus');
-  const testAddress = document.getElementById('quickEmailTestAddress').value.trim();
+  const testAddress = document.getElementById('quickEmailTestAddress')?.value.trim();
   const serviceId = document.getElementById('emailjsServiceId').value.trim();
   const templateId = document.getElementById('emailjsTemplateId').value.trim();
   const publicKey = document.getElementById('emailjsPublicKey').value.trim();
@@ -3260,12 +3274,12 @@ document.getElementById('quickEmailTestBtn').addEventListener('click', async fun
   if(!window.emailjs){ statusEl.textContent = 'Email service failed to load — check your internet connection.'; return; }
   statusEl.textContent = 'Sending test…';
   try{
-    const template = document.getElementById('quickEmailTemplate').value;
+    const template = document.getElementById('quickEmailTemplate')?.value;
     const testAmount = fmtMoney(250);
     const footer = await buildOutgoingEmailFooter('8015550123', 250, {
-      includePortal: document.getElementById('quickEmailIncludePortal').checked,
-      includeVenmo: document.getElementById('quickEmailIncludeVenmo').checked,
-      includeMessages: document.getElementById('quickEmailIncludeMessages').checked
+      includePortal: document.getElementById('quickEmailIncludePortal')?.checked,
+      includeVenmo: document.getElementById('quickEmailIncludeVenmo')?.checked,
+      includeMessages: document.getElementById('quickEmailIncludeMessages')?.checked
     });
     const message = '[TEST EMAIL — sample data below]<br><br>' + await resolveLinkTokens(template.replace(/\{\{name\}\}/g, 'Test Customer').replace(/\{\{amount\}\}/g, testAmount), '8015550123', 250) + footer;
     emailjs.init(publicKey);
@@ -3413,7 +3427,7 @@ async function loadEmailjsSettings(){
     if(s.notifyTemplateId) document.getElementById('emailjsNotifyTemplateId').value = s.notifyTemplateId;
   } catch(err){ /* settings not saved yet, fine */ }
 }
-document.getElementById('loadBulkAutoCopyListBtn').addEventListener('click', function(){
+document.getElementById('loadBulkAutoCopyListBtn')?.addEventListener('click', function(){
   const withEmail = jobAddresses.filter(a => a.data.email);
   const withoutEmail = jobAddresses.filter(a => !a.data.email);
   const listEl = document.getElementById('bulkAutoCopyList');
@@ -3446,15 +3460,15 @@ document.getElementById('loadBulkAutoCopyListBtn').addEventListener('click', fun
       const panel = document.getElementById('bulkautopanel-'+item.id);
       const isOpen = panel.style.display !== 'none';
       if(isOpen){ panel.style.display = 'none'; return; }
-      const includeVenmo = document.getElementById('bulkAutoIncludeVenmo').checked;
+      const includeVenmo = document.getElementById('bulkAutoIncludeVenmo')?.checked;
       const inv = allInvoicesCache.find(i => i.data.phone === d.phone);
       const amount = inv ? balanceDueAmount(inv.data) : 0;
-      const template = document.getElementById('bulkUpdateEmailTemplate').value;
+      const template = document.getElementById('bulkUpdateEmailTemplate')?.value;
       const message = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, d.name||'there').replace(/\{\{amount\}\}/g, fmtMoney(amount)), d.phone, amount) +
         await buildOutgoingEmailFooter(d.phone, amount, {
-          includePortal: document.getElementById('bulkAutoIncludePortal').checked,
+          includePortal: document.getElementById('bulkAutoIncludePortal')?.checked,
           includeVenmo: includeVenmo,
-          includeMessages: document.getElementById('bulkAutoIncludeMessages').checked
+          includeMessages: document.getElementById('bulkAutoIncludeMessages')?.checked
         });
       panel.innerHTML =
         '<label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:6px;">Edit before sending if you want:</label>'+
@@ -3507,7 +3521,7 @@ document.getElementById('loadBulkAutoCopyListBtn').addEventListener('click', fun
   });
 });
 
-document.getElementById('sendBulkUpdateEmailBtn').addEventListener('click', async function(){
+document.getElementById('sendBulkUpdateEmailBtn')?.addEventListener('click', async function(){
   const serviceId = document.getElementById('emailjsServiceId').value.trim();
   const templateId = document.getElementById('emailjsTemplateId').value.trim();
   const publicKey = document.getElementById('emailjsPublicKey').value.trim();
@@ -3524,15 +3538,15 @@ document.getElementById('sendBulkUpdateEmailBtn').addEventListener('click', asyn
   if(!withEmail.length){ statusEl.textContent = 'No customers have an email address on file yet.'; return; }
   if(!confirm('Send each of the ' + withEmail.length + ' customer(s) with an email this message now? This cannot be undone.')) return;
   emailjs.init(publicKey);
-  const template = document.getElementById('bulkUpdateEmailTemplate').value;
-  const includePortal = document.getElementById('bulkAutoIncludePortal').checked;
-  const includeVenmo = document.getElementById('bulkAutoIncludeVenmo').checked;
+  const template = document.getElementById('bulkUpdateEmailTemplate')?.value;
+  const includePortal = document.getElementById('bulkAutoIncludePortal')?.checked;
+  const includeVenmo = document.getElementById('bulkAutoIncludeVenmo')?.checked;
   let sent = 0, failed = 0;
   for(const item of withEmail){
     const d = item.data;
     const inv = allInvoicesCache.find(i => i.data.phone === d.phone);
     const amount = inv ? balanceDueAmount(inv.data) : 0;
-    const includeMessages = document.getElementById('bulkAutoIncludeMessages').checked;
+    const includeMessages = document.getElementById('bulkAutoIncludeMessages')?.checked;
     const footer = await buildOutgoingEmailFooter(d.phone, amount, {includePortal: includePortal, includeVenmo: includeVenmo, includeMessages: includeMessages});
     const message = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, d.name || 'there').replace(/\{\{amount\}\}/g, fmtMoney(amount)), d.phone, amount) + footer;
     statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + withEmail.length + '…';
@@ -3547,9 +3561,9 @@ document.getElementById('sendBulkUpdateEmailBtn').addEventListener('click', asyn
   statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.';
 });
 
-document.getElementById('bulkAutoTestBtn').addEventListener('click', async function(){
+document.getElementById('bulkAutoTestBtn')?.addEventListener('click', async function(){
   const statusEl = document.getElementById('bulkAutoTestStatus');
-  const testAddress = document.getElementById('bulkAutoTestAddress').value.trim();
+  const testAddress = document.getElementById('bulkAutoTestAddress')?.value.trim();
   const serviceId = document.getElementById('emailjsServiceId').value.trim();
   const templateId = document.getElementById('emailjsTemplateId').value.trim();
   const publicKey = document.getElementById('emailjsPublicKey').value.trim();
@@ -3558,13 +3572,13 @@ document.getElementById('bulkAutoTestBtn').addEventListener('click', async funct
   if(!window.emailjs){ statusEl.textContent = 'Email service failed to load — check your internet connection.'; return; }
   statusEl.textContent = 'Sending test…';
   try{
-    const template = document.getElementById('bulkUpdateEmailTemplate').value;
-    const includeVenmo = document.getElementById('bulkAutoIncludeVenmo').checked;
+    const template = document.getElementById('bulkUpdateEmailTemplate')?.value;
+    const includeVenmo = document.getElementById('bulkAutoIncludeVenmo')?.checked;
     const testAmount = 100;
     const footer = await buildOutgoingEmailFooter('8015550123', testAmount, {
-      includePortal: document.getElementById('bulkAutoIncludePortal').checked,
+      includePortal: document.getElementById('bulkAutoIncludePortal')?.checked,
       includeVenmo: includeVenmo,
-      includeMessages: document.getElementById('bulkAutoIncludeMessages').checked
+      includeMessages: document.getElementById('bulkAutoIncludeMessages')?.checked
     });
     const message = '[TEST EMAIL — sample data below]<br><br>' + await resolveLinkTokens(template.replace(/\{\{name\}\}/g, 'Test Customer').replace(/\{\{amount\}\}/g, fmtMoney(testAmount)), '8015550123', testAmount) + footer;
     emailjs.init(publicKey);
@@ -3584,7 +3598,7 @@ function rsvpFirstNameOnly(fullName){
   const parts = (fullName || '').trim().split(/\s+/).filter(Boolean);
   return parts.length > 1 ? parts[parts.length - 1] : (parts[0] || '');
 }
-document.getElementById('sendRsvpEmailBtn').addEventListener('click', async function(){
+document.getElementById('sendRsvpEmailBtn')?.addEventListener('click', async function(){
   const serviceId = document.getElementById('emailjsServiceId').value.trim();
   const templateId = document.getElementById('emailjsTemplateId').value.trim();
   const publicKey = document.getElementById('emailjsPublicKey').value.trim();
@@ -3602,11 +3616,11 @@ document.getElementById('sendRsvpEmailBtn').addEventListener('click', async func
   if(!withEmail.length){ statusEl.textContent = 'Select at least one member with an email address.'; return; }
   if(!confirm('Send each of the ' + withEmail.length + ' selected member(s) this RSVP request now?')) return;
   emailjs.init(publicKey);
-  const template = document.getElementById('rsvpEmailTemplate').value;
+  const template = document.getElementById('rsvpEmailTemplate')?.value;
   let sent = 0, failed = 0;
   for(const item of withEmail){
     const d = item.data;
-    const footer = await buildOutgoingEmailFooter(d.phone, 0, {includePortal: document.getElementById('rsvpIncludePortal').checked, includeVenmo: false, includeMessages: document.getElementById('rsvpIncludeMessages').checked});
+    const footer = await buildOutgoingEmailFooter(d.phone, 0, {includePortal: document.getElementById('rsvpIncludePortal')?.checked, includeVenmo: false, includeMessages: document.getElementById('rsvpIncludeMessages')?.checked});
     const message = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, rsvpFirstNameOnly(d.name) || 'there'), d.phone, 0) + footer;
     statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + withEmail.length + '…';
     try{
@@ -3633,12 +3647,12 @@ function rsvpPopulateMemberSelect(){
 }
 function rsvpUpdatePreview(){
   const box = document.getElementById('rsvpPreviewBox');
-  const memberId = document.getElementById('rsvpPreviewMemberSelect').value;
+  const memberId = document.getElementById('rsvpPreviewMemberSelect')?.value;
   if(!box) return;
   if(!memberId){ box.textContent = 'Pick a member above to see the preview.'; return; }
   const member = jobAddresses.find(m => m.id === memberId);
   if(!member){ box.textContent = 'Pick a member above to see the preview.'; return; }
-  const template = document.getElementById('rsvpEmailTemplate').value;
+  const template = document.getElementById('rsvpEmailTemplate')?.value;
   box.textContent = template.replace(/\{\{name\}\}/g, rsvpFirstNameOnly(member.data.name) || 'there')
     .replace(/\{\{rsvp_yes_button\}\}/g, '[Yes button]')
     .replace(/\{\{rsvp_back_button\}\}/g, '[Back Next Year button]')
@@ -3658,21 +3672,21 @@ function rsvpRenderRecipientList(){
     return '<label style="display:flex; align-items:center; gap:8px; padding:5px 0; font-size:13.5px;"><input type="checkbox" class="rsvp-recipient-cb" value="'+m.id+'" '+checked+' style="width:auto;">'+esc(m.data.name||'(no name)')+' <span style="color:var(--slate); font-size:12px;">'+esc(m.data.email||'')+'</span></label>';
   }).join('');
 }
-document.getElementById('rsvpPreviewMemberSelect').addEventListener('change', rsvpUpdatePreview);
-document.getElementById('rsvpEmailTemplate').addEventListener('input', rsvpUpdatePreview);
-document.getElementById('rsvpRecipientSearch').addEventListener('input', function(){
+document.getElementById('rsvpPreviewMemberSelect')?.addEventListener('change', rsvpUpdatePreview);
+document.getElementById('rsvpEmailTemplate')?.addEventListener('input', rsvpUpdatePreview);
+document.getElementById('rsvpRecipientSearch')?.addEventListener('input', function(){
   rsvpRecipientSearchTerm = this.value.trim();
   rsvpRenderRecipientList();
 });
-document.getElementById('rsvpSelectAllBtn').addEventListener('click', function(){
+document.getElementById('rsvpSelectAllBtn')?.addEventListener('click', function(){
   document.querySelectorAll('.rsvp-recipient-cb').forEach(cb => { cb.checked = true; });
 });
-document.getElementById('rsvpSelectNoneBtn').addEventListener('click', function(){
+document.getElementById('rsvpSelectNoneBtn')?.addEventListener('click', function(){
   document.querySelectorAll('.rsvp-recipient-cb').forEach(cb => { cb.checked = false; });
 });
-document.getElementById('rsvpEmailTestBtn').addEventListener('click', async function(){
+document.getElementById('rsvpEmailTestBtn')?.addEventListener('click', async function(){
   const statusEl = document.getElementById('rsvpEmailTestStatus');
-  const testAddress = document.getElementById('rsvpEmailTestAddress').value.trim();
+  const testAddress = document.getElementById('rsvpEmailTestAddress')?.value.trim();
   const serviceId = document.getElementById('emailjsServiceId').value.trim();
   const templateId = document.getElementById('emailjsTemplateId').value.trim();
   const publicKey = document.getElementById('emailjsPublicKey').value.trim();
@@ -3681,8 +3695,8 @@ document.getElementById('rsvpEmailTestBtn').addEventListener('click', async func
   if(!window.emailjs){ statusEl.textContent = 'Email service failed to load — check your internet connection.'; return; }
   statusEl.textContent = 'Sending test…';
   try{
-    const template = document.getElementById('rsvpEmailTemplate').value;
-    const footer = await buildOutgoingEmailFooter('8015550123', 0, {includePortal: document.getElementById('rsvpIncludePortal').checked, includeVenmo: false, includeMessages: document.getElementById('rsvpIncludeMessages').checked});
+    const template = document.getElementById('rsvpEmailTemplate')?.value;
+    const footer = await buildOutgoingEmailFooter('8015550123', 0, {includePortal: document.getElementById('rsvpIncludePortal')?.checked, includeVenmo: false, includeMessages: document.getElementById('rsvpIncludeMessages')?.checked});
     const message = '[TEST EMAIL — sample data below]<br><br>' + await resolveLinkTokens(template.replace(/\{\{name\}\}/g, 'Test Customer'), '8015550123', 0) + footer;
     emailjs.init(publicKey);
     await emailjs.send(serviceId, templateId, {
@@ -3696,11 +3710,11 @@ document.getElementById('rsvpEmailTestBtn').addEventListener('click', async func
 });
 
 /* ---------------- POST-INSTALL BILLING ---------------- */
-document.getElementById('pibDateInput').value = toDateStr(new Date());
+__setEl('pibDateInput','value', toDateStr(new Date()));
 let pibUnpaidRows = [];
 let pibPaidRows = [];
-document.getElementById('pibLoadBtn').addEventListener('click', function(){
-  const dateStr = document.getElementById('pibDateInput').value;
+document.getElementById('pibLoadBtn')?.addEventListener('click', function(){
+  const dateStr = document.getElementById('pibDateInput')?.value;
   const statusEl = document.getElementById('pibLoadStatus');
   if(!dateStr){ statusEl.textContent = 'Pick a date first.'; return; }
   const completedThatDay = jobAddresses.filter(function(a){
@@ -3742,12 +3756,12 @@ function renderPibRow(row, listName){
   '</div>';
 }
 function renderPibLists(){
-  document.getElementById('pibUnpaidCard').style.display = pibUnpaidRows.length ? 'block' : 'none';
-  document.getElementById('pibPaidCard').style.display = pibPaidRows.length ? 'block' : 'none';
-  document.getElementById('pibUnpaidCount').textContent = pibUnpaidRows.length;
-  document.getElementById('pibPaidCount').textContent = pibPaidRows.length;
-  document.getElementById('pibUnpaidList').innerHTML = pibUnpaidRows.length ? pibUnpaidRows.map(r => renderPibRow(r,'unpaid')).join('') : '<div class="empty-note">Nobody in this list.</div>';
-  document.getElementById('pibPaidList').innerHTML = pibPaidRows.length ? pibPaidRows.map(r => renderPibRow(r,'paid')).join('') : '<div class="empty-note">Nobody in this list.</div>';
+  __setEl('pibUnpaidCard','style.display', pibUnpaidRows.length ? 'block' : 'none');
+  __setEl('pibPaidCard','style.display', pibPaidRows.length ? 'block' : 'none');
+  __setEl('pibUnpaidCount','textContent', pibUnpaidRows.length);
+  __setEl('pibPaidCount','textContent', pibPaidRows.length);
+  __setEl('pibUnpaidList','innerHTML', pibUnpaidRows.length ? pibUnpaidRows.map(r => renderPibRow(r,'unpaid')).join('') : '<div class="empty-note">Nobody in this list.</div>');
+  __setEl('pibPaidList','innerHTML', pibPaidRows.length ? pibPaidRows.map(r => renderPibRow(r,'paid')).join('') : '<div class="empty-note">Nobody in this list.</div>');
   document.querySelectorAll('[data-pibremove]').forEach(function(btn){
     btn.addEventListener('click', function(){
       const listName = btn.dataset.pibremove, jobId = btn.dataset.jobid;
@@ -3757,22 +3771,22 @@ function renderPibLists(){
     });
   });
 }
-document.getElementById('pibSendUnpaidBtn').addEventListener('click', async function(){
+document.getElementById('pibSendUnpaidBtn')?.addEventListener('click', async function(){
   const serviceId = document.getElementById('emailjsServiceId').value.trim();
   const templateId = document.getElementById('emailjsTemplateId').value.trim();
   const publicKey = document.getElementById('emailjsPublicKey').value.trim();
   const statusEl = document.getElementById('pibUnpaidSendStatus');
   if(!serviceId || !templateId || !publicKey){ statusEl.textContent = 'Fill in your Email Setup (RSVP Email tab) first.'; return; }
   if(!window.emailjs){ statusEl.textContent = 'Email service failed to load — check your internet connection.'; return; }
-  const skipMailed = document.getElementById('pibSkipMailedFilter').checked;
+  const skipMailed = document.getElementById('pibSkipMailedFilter')?.checked;
   const withEmail = pibUnpaidRows.filter(r => r.email && !(skipMailed && r.wantsMailed));
   if(!withEmail.length){ statusEl.textContent = skipMailed ? 'Nobody left after skipping mailed-invoice customers.' : 'Nobody in this list has an email on file.'; return; }
   if(!confirm('Send invoice emails to ' + withEmail.length + ' customer(s) now?')) return;
   emailjs.init(publicKey);
-  const template = document.getElementById('pibUnpaidTemplate').value;
+  const template = document.getElementById('pibUnpaidTemplate')?.value;
   let sent = 0, failed = 0;
   for(const row of withEmail){
-    const footer = await buildOutgoingEmailFooter(row.phone, row.amount, {includePortal: document.getElementById('pibUnpaidIncludePortal').checked, includeVenmo: document.getElementById('pibUnpaidIncludeVenmo').checked, includeMessages: document.getElementById('pibUnpaidIncludeMessages').checked});
+    const footer = await buildOutgoingEmailFooter(row.phone, row.amount, {includePortal: document.getElementById('pibUnpaidIncludePortal')?.checked, includeVenmo: document.getElementById('pibUnpaidIncludeVenmo')?.checked, includeMessages: document.getElementById('pibUnpaidIncludeMessages')?.checked});
     const message = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, row.name || 'there').replace(/\{\{amount\}\}/g, row.amount), row.phone, row.amount) + footer;
     statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + withEmail.length + '…';
     try{
@@ -3782,9 +3796,9 @@ document.getElementById('pibSendUnpaidBtn').addEventListener('click', async func
   }
   statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.';
 });
-document.getElementById('pibUnpaidTestBtn').addEventListener('click', async function(){
+document.getElementById('pibUnpaidTestBtn')?.addEventListener('click', async function(){
   const statusEl = document.getElementById('pibUnpaidTestStatus');
-  const testAddress = document.getElementById('pibUnpaidTestAddress').value.trim();
+  const testAddress = document.getElementById('pibUnpaidTestAddress')?.value.trim();
   const serviceId = document.getElementById('emailjsServiceId').value.trim();
   const templateId = document.getElementById('emailjsTemplateId').value.trim();
   const publicKey = document.getElementById('emailjsPublicKey').value.trim();
@@ -3793,9 +3807,9 @@ document.getElementById('pibUnpaidTestBtn').addEventListener('click', async func
   if(!window.emailjs){ statusEl.textContent = 'Email service failed to load — check your internet connection.'; return; }
   statusEl.textContent = 'Sending test…';
   try{
-    const template = document.getElementById('pibUnpaidTemplate').value;
+    const template = document.getElementById('pibUnpaidTemplate')?.value;
     const testAmount = fmtMoney(250);
-    const footer = await buildOutgoingEmailFooter('8015550123', 250, {includePortal: document.getElementById('pibUnpaidIncludePortal').checked, includeVenmo: document.getElementById('pibUnpaidIncludeVenmo').checked, includeMessages: document.getElementById('pibUnpaidIncludeMessages').checked});
+    const footer = await buildOutgoingEmailFooter('8015550123', 250, {includePortal: document.getElementById('pibUnpaidIncludePortal')?.checked, includeVenmo: document.getElementById('pibUnpaidIncludeVenmo')?.checked, includeMessages: document.getElementById('pibUnpaidIncludeMessages')?.checked});
     const message = '[TEST EMAIL — sample data below]<br><br>' + await resolveLinkTokens(template.replace(/\{\{name\}\}/g, 'Test Customer').replace(/\{\{amount\}\}/g, testAmount), '8015550123', 250) + footer;
     emailjs.init(publicKey);
     await emailjs.send(serviceId, templateId, {
@@ -3806,22 +3820,22 @@ document.getElementById('pibUnpaidTestBtn').addEventListener('click', async func
     statusEl.textContent = 'Test send failed: ' + (err && (err.text || err.message) ? (err.text || err.message) : 'double check your Email Setup above.');
   }
 });
-document.getElementById('pibSendPaidBtn').addEventListener('click', async function(){
+document.getElementById('pibSendPaidBtn')?.addEventListener('click', async function(){
   const serviceId = document.getElementById('emailjsServiceId').value.trim();
   const templateId = document.getElementById('emailjsTemplateId').value.trim();
   const publicKey = document.getElementById('emailjsPublicKey').value.trim();
   const statusEl = document.getElementById('pibPaidSendStatus');
   if(!serviceId || !templateId || !publicKey){ statusEl.textContent = 'Fill in your Email Setup (RSVP Email tab) first.'; return; }
   if(!window.emailjs){ statusEl.textContent = 'Email service failed to load — check your internet connection.'; return; }
-  const skipMailed = document.getElementById('pibSkipMailedFilter').checked;
+  const skipMailed = document.getElementById('pibSkipMailedFilter')?.checked;
   const withEmail = pibPaidRows.filter(r => r.email && !(skipMailed && r.wantsMailed));
   if(!withEmail.length){ statusEl.textContent = skipMailed ? 'Nobody left after skipping mailed-invoice customers.' : 'Nobody in this list has an email on file.'; return; }
   if(!confirm('Send thank-you emails to ' + withEmail.length + ' customer(s) now?')) return;
   emailjs.init(publicKey);
-  const template = document.getElementById('pibPaidTemplate').value;
+  const template = document.getElementById('pibPaidTemplate')?.value;
   let sent = 0, failed = 0;
   for(const row of withEmail){
-    const footer = await buildOutgoingEmailFooter(row.phone, 0, {includePortal: document.getElementById('pibPaidIncludePortal').checked, includeVenmo: false, includeMessages: document.getElementById('pibPaidIncludeMessages').checked});
+    const footer = await buildOutgoingEmailFooter(row.phone, 0, {includePortal: document.getElementById('pibPaidIncludePortal')?.checked, includeVenmo: false, includeMessages: document.getElementById('pibPaidIncludeMessages')?.checked});
     const message = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, row.name || 'there').replace(/\{\{amount\}\}/g, row.amount), row.phone, 0) + footer;
     statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + withEmail.length + '…';
     try{
@@ -3831,9 +3845,9 @@ document.getElementById('pibSendPaidBtn').addEventListener('click', async functi
   }
   statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.';
 });
-document.getElementById('pibPaidTestBtn').addEventListener('click', async function(){
+document.getElementById('pibPaidTestBtn')?.addEventListener('click', async function(){
   const statusEl = document.getElementById('pibPaidTestStatus');
-  const testAddress = document.getElementById('pibPaidTestAddress').value.trim();
+  const testAddress = document.getElementById('pibPaidTestAddress')?.value.trim();
   const serviceId = document.getElementById('emailjsServiceId').value.trim();
   const templateId = document.getElementById('emailjsTemplateId').value.trim();
   const publicKey = document.getElementById('emailjsPublicKey').value.trim();
@@ -3842,9 +3856,9 @@ document.getElementById('pibPaidTestBtn').addEventListener('click', async functi
   if(!window.emailjs){ statusEl.textContent = 'Email service failed to load — check your internet connection.'; return; }
   statusEl.textContent = 'Sending test…';
   try{
-    const template = document.getElementById('pibPaidTemplate').value;
+    const template = document.getElementById('pibPaidTemplate')?.value;
     const testAmount = fmtMoney(250);
-    const footer = await buildOutgoingEmailFooter('8015550123', 0, {includePortal: document.getElementById('pibPaidIncludePortal').checked, includeVenmo: false, includeMessages: document.getElementById('pibPaidIncludeMessages').checked});
+    const footer = await buildOutgoingEmailFooter('8015550123', 0, {includePortal: document.getElementById('pibPaidIncludePortal')?.checked, includeVenmo: false, includeMessages: document.getElementById('pibPaidIncludeMessages')?.checked});
     const message = '[TEST EMAIL — sample data below]<br><br>' + await resolveLinkTokens(template.replace(/\{\{name\}\}/g, 'Test Customer').replace(/\{\{amount\}\}/g, testAmount), '8015550123', 0) + footer;
     emailjs.init(publicKey);
     await emailjs.send(serviceId, templateId, {
@@ -3855,12 +3869,12 @@ document.getElementById('pibPaidTestBtn').addEventListener('click', async functi
     statusEl.textContent = 'Test send failed: ' + (err && (err.text || err.message) ? (err.text || err.message) : 'double check your Email Setup above.');
   }
 });
-document.getElementById('loadBulkTextListBtn').addEventListener('click', async function(){
+document.getElementById('loadBulkTextListBtn')?.addEventListener('click', async function(){
   const wrap = document.getElementById('bulkTextList');
   const withPhone = jobAddresses.filter(a => a.data.phone);
   if(!withPhone.length){ wrap.innerHTML = '<p style="color:var(--slate); font-size:13px;">No customers have a phone number on file.</p>'; return; }
   wrap.innerHTML = '<p style="color:var(--slate); font-size:13px;">Preparing personal links…</p>';
-  const template = document.getElementById('bulkUpdateEmailTemplate').value;
+  const template = document.getElementById('bulkUpdateEmailTemplate')?.value;
   const rows = [];
   for(const item of withPhone){
     const d = item.data;
@@ -4836,7 +4850,6 @@ document.getElementById('etSendTestBtn').addEventListener('click', async functio
 });
 
 /* ---- Insert Codes modal (search, tabs, cursor placement) ---- */
-const IC_CODES = {
   general: [
     {token:'{{name}}', label:'Customer name'},
     {token:'{{price}}', label:'Balance / price'},
@@ -10272,7 +10285,6 @@ function loadEmployeeNames(){
     if(typeof fovRenderAll === 'function') fovRenderAll();
   });
 }
-const ASSIGNABLE_SECTIONS = [
   {group:'Crew Portal', items:[
     {key:'route', label:'Route/Map'},
     {key:'checklist', label:'Checklist'},
