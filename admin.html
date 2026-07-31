@@ -241,10 +241,6 @@
     #hmPrintAllPreview.printing, #hmPrintAllPreview.printing *{ visibility:visible !important; }
     #hmPrintAllPreview.printing{ display:block !important; position:absolute; top:0; left:0; width:100%; }
   }
-  @media print{
-    #cnPrintArea.printing, #cnPrintArea.printing *{ visibility:visible !important; }
-    #cnPrintArea.printing{ display:block !important; position:absolute; top:0; left:0; width:100%; }
-  }
   .filter-dropdown{
     display:none; position:absolute; top:calc(100% + 6px); left:0; z-index:20;
     background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px;
@@ -569,10 +565,6 @@
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-6 9 6v11a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1v-5H9v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/></svg>
       <span class="nav-label">Warehouse</span>
     <span class="nav-pin-icon" data-pinpanel="warehouse" data-pinlabel="Warehouse" title="Pin to Favorites"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l1 6 3 2v2H5v-2l3-2z"/></svg></span></button>
-    <button class="nav-item" data-panel="customer-numbers" title="">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h1v6H9zM14 9h1v6h-1z"/></svg>
-      <span class="nav-label">Customer Numbers</span>
-    <span class="nav-pin-icon" data-pinpanel="customer-numbers" data-pinlabel="Customer Numbers" title="Pin to Favorites"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l1 6 3 2v2H5v-2l3-2z"/></svg></span></button>
     </div>
     </div>
 
@@ -777,6 +769,7 @@
             <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">If someone else is paying for this house too (e.g. a landlord with multiple properties), enter their phone number here &mdash; this house's price gets added to their invoice instead of creating a separate one.</p>
             <div class="form-row" style="max-width:220px; margin-top:10px;"><label>Gate Code (optional)</label><input type="text" id="addCustGateCode" placeholder="e.g. #4521"></div>
             <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin-top:10px;"><input type="checkbox" id="addCustWantsMailed" style="width:auto;"> Also wants their invoice mailed (postal mail)</label>
+            <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin-top:6px;"><input type="checkbox" id="addCustIsTestAccount" style="width:auto;"> Test account &mdash; won't appear on maps/routes or receive bulk emails</label>
             <label style="display:flex; align-items:center; gap:6px; font-size:13px; margin-top:6px;"><input type="checkbox" id="addCustWantsMail" style="width:auto;"> Wants their invoice mailed (not emailed)</label>
             <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">If entered, this house is automatically flagged as gated on Routes and Maps, visible to you and your crew.</p>
           </div>
@@ -993,7 +986,8 @@
           </div>
           <p style="font-size:11.5px; color:var(--slate); margin:-8px 0 0;">If someone else pays for this house, enter their phone number &mdash; this house's price rolls into their invoice instead.</p>
           <div class="form-row"><label>Gate Code (optional)</label><input type="text" id="editCustGateCode" placeholder="e.g. #4521"></div>
-          <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin-top:-6px; margin-bottom:16px;"><input type="checkbox" id="editCustWantsMailed" style="width:auto;"> Also wants their invoice mailed (postal mail)</label>
+          <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin-top:-6px; margin-bottom:6px;"><input type="checkbox" id="editCustWantsMailed" style="width:auto;"> Also wants their invoice mailed (postal mail)</label>
+          <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin-bottom:16px;"><input type="checkbox" id="editCustIsTestAccount" style="width:auto;"> Test account &mdash; won't appear on maps/routes or receive bulk emails</label>
           <label style="display:flex; align-items:center; gap:6px; font-size:13px; margin-top:-8px; margin-bottom:14px;"><input type="checkbox" id="editCustWantsMail" style="width:auto;"> Wants their invoice mailed (not emailed)</label>
           <div style="display:flex; gap:10px; margin-top:16px;">
             <button type="button" class="btn btn-outline" id="editCustCancelBtn" style="flex:1;">Cancel</button>
@@ -1564,7 +1558,6 @@ Highlighting Utah</textarea>
         <button class="route-tab-btn" data-autotab="bulk" draggable="true">Bulk Automation</button>
         <button class="route-tab-btn" data-autotab="rsvp" draggable="true">RSVP Email</button>
         <button class="route-tab-btn" data-autotab="postinstall" draggable="true">Post-Install Billing</button>
-        <button class="route-tab-btn" data-autotab="templates" draggable="true">Templates</button>
       </div>
 
       <div class="route-tab-panel active" id="autotab-one">
@@ -1605,7 +1598,7 @@ Highlighting Utah</textarea>
       <div class="route-tab-panel" id="autotab-text">
         <div class="card" style="background:#FDECEA; border-color:#f0b3ac;">
             <h3>&#127876; Bulk Customer Update (Text)</h3>
-            <p style="font-size:13px;">Automated texting is paused for now. Here's the same message ready to copy for each customer with a phone number, so you can paste it into your own texting app.</p>
+            <p style="font-size:13px;">True automatic bulk texting needs a real text-messaging service (like Twilio) connected, which isn't set up yet &mdash; ask me in chat if you want that built. In the meantime, here's the same message ready to copy for each customer with a phone number, so you can paste it into your own texting app.</p>
             <button type="button" class="btn btn-outline" id="loadBulkTextListBtn">Show Customers to Text</button>
             <div id="bulkTextList" style="margin-top:16px;"></div>
           </div>
@@ -1661,22 +1654,7 @@ It's almost time for the Christmas lighting season! Will you be getting lights h
               <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" id="rsvpIncludePortal" style="width:auto;"> Include portal link</label>
               <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" id="rsvpIncludeMessages" style="width:auto;"> Include "send us a message" link</label>
             </div>
-            <div class="form-row"><label>Preview As</label>
-              <select id="rsvpPreviewMemberSelect"><option value="">-- Choose a member to preview --</option></select>
-            </div>
-            <div class="form-row"><label>Preview</label>
-              <div id="rsvpPreviewBox" style="white-space:pre-wrap; background:var(--paper); border-radius:10px; padding:14px; font-size:13.5px; min-height:60px;">Pick a member above to see the preview.</div>
-            </div>
-            <div class="form-row">
-              <label>Send To</label>
-              <div style="display:flex; gap:10px; margin-bottom:8px; align-items:center; flex-wrap:wrap;">
-                <input type="text" id="rsvpRecipientSearch" placeholder="Search members…" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-size:13px; flex:1; min-width:180px;">
-                <button type="button" class="btn btn-outline btn-sm" id="rsvpSelectAllBtn">Select All</button>
-                <button type="button" class="btn btn-outline btn-sm" id="rsvpSelectNoneBtn">Select None</button>
-              </div>
-              <div id="rsvpRecipientList" style="max-height:260px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:8px;"></div>
-            </div>
-            <button type="button" class="btn btn-gold" id="sendRsvpEmailBtn">Send RSVP Email to Selected</button>
+            <button type="button" class="btn btn-gold" id="sendRsvpEmailBtn">Send RSVP Email to All Customers</button>
             <span id="rsvpEmailStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
             <p style="font-size:12px; color:var(--slate); margin-top:10px;">Only reaches customers who have an email address on file.</p>
             <div style="margin-top:16px; padding-top:16px; border-top:1px solid var(--line);">
@@ -1763,77 +1741,6 @@ Highlighting Utah</textarea>
           <div id="pibPaidTemplateExtras"></div>
         </div>
       </div>
-
-      <div class="route-tab-panel" id="autotab-templates">
-        <div class="card">
-          <h3>Email Templates</h3>
-          <p style="font-size:13px;">Build reusable templates for any automated or copy-paste email — organize them into folders so they're easy to find. Use <code>{{name}}</code>, <code>{{price}}</code>, and <code>{{link}}</code> as placeholders; they're filled in wherever a template is used.</p>
-        </div>
-        <div class="card">
-          <h3>Folders</h3>
-          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px;">
-            <input type="text" id="etNewFolderInput" placeholder="New folder name" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-size:13px;">
-            <button type="button" class="btn btn-outline btn-sm" id="etAddFolderBtn">+ Add Folder</button>
-          </div>
-          <div id="etFolderList" class="row-list"></div>
-        </div>
-        <div class="card">
-          <h3>Add / Edit a Template</h3>
-          <input type="hidden" id="etEditingId" value="">
-          <div class="form-grid-2">
-            <div class="form-row"><label>Template Name</label><input type="text" id="etTemplateName" placeholder="e.g. Quote Email"></div>
-            <div class="form-row"><label>Folder</label>
-              <select id="etTemplateFolder"><option value="">(No folder — top level)</option></select>
-            </div>
-          </div>
-          <div class="form-row"><label>Email Body (use {{name}}, {{price}}, {{link}})</label>
-            <textarea id="etTemplateBody" rows="8" placeholder="Hi {{name}},
-
-Here's your quote from Highlighting Utah: {{price}}.
-
-Click here to approve or let us know it's not a fit: {{link}}
-
-Don't forget to attach a photo of their house before sending!
-
-Thanks,
-Highlighting Utah"></textarea>
-          </div>
-          <button type="button" class="btn btn-gold btn-sm" id="etSaveTemplateBtn">Save Template</button>
-          <button type="button" class="btn btn-outline btn-sm" id="etCancelEditBtn" style="display:none;">Cancel Edit</button>
-          <span id="etSaveStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
-        </div>
-        <div class="card">
-          <h3>All Templates</h3>
-          <div id="etTemplateList" class="row-list"><div class="empty-note">No templates yet.</div></div>
-        </div>
-        <div class="card">
-          <h3>Preview &amp; Send</h3>
-          <p style="font-size:13px;">Pick a template and a member to see exactly what they'll receive with their real name and price/balance filled in.</p>
-          <div class="form-grid-2">
-            <div class="form-row"><label>Template</label>
-              <select id="etSendTemplateSelect"><option value="">-- Choose a template --</option></select>
-            </div>
-            <div class="form-row"><label>Preview As</label>
-              <select id="etPreviewMemberSelect"><option value="">-- Choose a member to preview --</option></select>
-            </div>
-          </div>
-          <div class="form-row"><label>Preview</label>
-            <div id="etPreviewBox" style="white-space:pre-wrap; background:var(--paper); border-radius:10px; padding:14px; font-size:13.5px; min-height:80px;">Pick a template and a member above to see the preview.</div>
-          </div>
-          <div class="form-row">
-            <label>Send To</label>
-            <div style="display:flex; gap:10px; margin-bottom:8px; align-items:center; flex-wrap:wrap;">
-              <input type="text" id="etRecipientSearch" placeholder="Search members…" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-size:13px; flex:1; min-width:180px;">
-              <button type="button" class="btn btn-outline btn-sm" id="etSelectAllBtn">Select All</button>
-              <button type="button" class="btn btn-outline btn-sm" id="etSelectNoneBtn">Select None</button>
-            </div>
-            <div id="etRecipientList" style="max-height:260px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:8px;"></div>
-          </div>
-          <button type="button" class="btn btn-gold btn-sm" id="etSendToSelectedBtn" style="margin-top:10px;">Send Email to Selected</button>
-          <button type="button" class="btn btn-outline btn-sm" id="etCopyForPreviewBtn" style="margin-top:10px;">Copy Email for Previewed Member</button>
-          <span id="etSendStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
-        </div>
-      </div>
     </div>
 
     <div class="panel active" id="panel-quotes">
@@ -1841,11 +1748,6 @@ Highlighting Utah"></textarea>
       <div id="quoteFlaggedBanner" style="display:none; background:#FDECEA; border:1px solid #f0b3ac; border-radius:10px; padding:12px 16px; margin-bottom:16px; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
         <span style="font-size:13.5px; color:var(--ember); font-weight:600;" id="quoteFlaggedBannerText"></span>
         <button type="button" class="btn btn-outline btn-sm" id="quoteFlaggedBannerBtn">Review Them Now</button>
-      </div>
-      <div id="quoteStageTabs" style="margin-bottom:16px; display:flex; gap:8px; flex-wrap:wrap; border-bottom:1px solid var(--line); padding-bottom:14px;">
-        <button type="button" class="btn btn-sm" data-quotestage="new" style="font-weight:700;">New Quotes<span id="quoteStageCountNew" class="folder-count"></span></button>
-        <button type="button" class="btn btn-sm" data-quotestage="pricing" style="font-weight:700;">Price the Quote<span id="quoteStageCountPricing" class="folder-count"></span></button>
-        <button type="button" class="btn btn-sm" data-quotestage="completed" style="font-weight:700;">Filled Out Form<span id="quoteStageCountCompleted" class="folder-count"></span></button>
       </div>
       <div id="quoteFolderToggle" style="margin-bottom:14px; display:flex; gap:8px;"></div>
       <div id="quoteApprovalStats" style="margin-bottom:16px; display:flex; gap:10px; flex-wrap:wrap;"></div>
@@ -2270,15 +2172,25 @@ Highlighting Utah"></textarea>
             </div>
           </div>
           <div id="missedHousesNote"></div>
+          <div id="urgentOnWayHomeNote"></div>
           <div id="driveEstimateNote" style="font-size:13.5px; font-weight:600; color:var(--dusk); margin-bottom:10px;"></div>
-          <div style="display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--slate); margin-bottom:14px;">
-            <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#2E6B3E; margin-right:4px;"></span>Easy</span>
-            <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#D89F3D; margin-right:4px;"></span>Medium</span>
-            <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#E0574B; margin-right:4px;"></span>Hard</span>
-            <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#9a9488; margin-right:4px;"></span>Unrated</span>
-            <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#F97316; margin-right:4px;"></span>Fix Visit</span>
-            <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#4338CA; margin-right:4px;"></span>Removal Visit</span>
-            <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#B91C1C; margin-right:4px;"></span>Nearby, Not Included</span>
+          <div style="margin-bottom:14px;">
+            <div style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--slate); margin-bottom:6px;">Map Dot Colors &mdash; Difficulty &amp; Visit Type</div>
+            <div style="display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--slate);">
+              <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#2E6B3E; margin-right:4px;"></span>Easy</span>
+              <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#D89F3D; margin-right:4px;"></span>Medium</span>
+              <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#E0574B; margin-right:4px;"></span>Hard</span>
+              <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#9a9488; margin-right:4px;"></span>Unrated</span>
+              <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#F97316; margin-right:4px;"></span>Fix Visit</span>
+              <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#4338CA; margin-right:4px;"></span>Removal Visit</span>
+              <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#B91C1C; margin-right:4px;"></span>Nearby, Not Included</span>
+            </div>
+            <div style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--slate); margin:12px 0 6px;">New Hang Hearts &mdash; How Long They've Been Waiting</div>
+            <div style="display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--slate);">
+              <span>&#129399; Under 7 days &mdash; just added, not urgent yet</span>
+              <span>&#10084;&#65039; 7&ndash;13 days &mdash; getting urgent</span>
+              <span>&#128420; 14+ days &mdash; very overdue, top priority</span>
+            </div>
           </div>
           <div class="list-with-map">
             <div class="list-with-map-list">
@@ -2545,7 +2457,18 @@ Highlighting Utah"></textarea>
         <p style="font-size:13px;">For Crew employees, this adds an optional extra checklist on top of their route map. For other roles (Warehouse, Receptionist, etc.), this is their whole day &mdash; they'll see just this checklist when they log in.</p>
         <div class="form-grid-2">
           <div class="form-row"><label>Date</label><input type="date" id="checklistDateInput"></div>
-          <div class="form-row"><label>Employee</label><select id="checklistEmployeeSelect"></select></div>
+          <div class="form-row"><label>Send To</label>
+            <select id="checklistSendModeSelect">
+              <option value="person">One Person</option>
+              <option value="category">A Whole Category</option>
+              <option value="crew">A Crew (or more than one, for everyone)</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row" id="checklistPersonRow"><label>Employee</label><select id="checklistEmployeeSelect"></select></div>
+        <div class="form-row" id="checklistCategoryRow" style="display:none;"><label>Category</label><select id="checklistCategorySelect"></select></div>
+        <div class="form-row" id="checklistCrewRow" style="display:none;"><label>Crew(s) &mdash; check more than one to send to all of them</label>
+          <div id="checklistCrewCheckboxes" style="display:flex; gap:16px; flex-wrap:wrap; padding-top:6px;"></div>
         </div>
         <div class="form-row"><label>Note to This Employee (optional)</label>
           <textarea id="checklistNoteInput" rows="2" placeholder="e.g. Please come in 30 minutes early today, or: great job this week!"></textarea>
@@ -2583,64 +2506,8 @@ Highlighting Utah"></textarea>
       <div id="warehouseRecycleQueueList" class="row-list"><div class="empty-note">Loading…</div></div>
     </div>
 
-    <!-- CUSTOMER NUMBERS -->
-    <div class="panel" id="panel-customer-numbers">
-      <div class="panel-head"><div><h2>Customer Numbers</h2><p>Every customer's permanent bin number &mdash; single-bin houses pull from the regular sequence, double-bin houses pull from the 5000 series. When a customer is recycled, their number automatically goes back into the available pool.</p></div></div>
-
-      <div class="form-grid-2" style="margin-bottom:20px;">
-        <div class="card">
-          <h3 style="margin:0 0 10px;">Available &mdash; Regular</h3>
-          <p id="cnNextRegular" class="form-note" style="margin:0 0 8px;"></p>
-          <div id="cnAvailableRegularList" style="max-height:160px; overflow-y:auto; font-size:13px;"></div>
-        </div>
-        <div class="card">
-          <h3 style="margin:0 0 10px;">Available &mdash; Double Bin (5000s)</h3>
-          <p id="cnNextDouble" class="form-note" style="margin:0 0 8px;"></p>
-          <div id="cnAvailableDoubleList" style="max-height:160px; overflow-y:auto; font-size:13px;"></div>
-        </div>
-      </div>
-
-      <div class="card" style="margin-bottom:20px;">
-        <h3 style="margin:0 0 10px;">Assign a Number</h3>
-        <div class="form-grid-2">
-          <div class="form-row"><label>Customer (without a number yet)</label>
-            <select id="cnAssignCustomerSelect"><option value="">-- Choose a customer --</option></select>
-          </div>
-          <div class="form-row"><label>How many bins?</label>
-            <select id="cnAssignBinType">
-              <option value="regular">One bin (regular number)</option>
-              <option value="double">Two bins (5000 series)</option>
-            </select>
-          </div>
-        </div>
-        <button type="button" class="btn btn-gold btn-sm" id="cnAssignBtn">Assign Next Available</button>
-        <span id="cnAssignStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
-      </div>
-
-      <div class="card" style="margin-bottom:20px;">
-        <h3 style="margin:0 0 10px;">Manually Add a Number to the Pool</h3>
-        <p class="form-note" style="margin:0 0 8px;">For warehouse audits &mdash; if you find a bin whose number isn't tracked as available anywhere.</p>
-        <div class="form-grid-2">
-          <div class="form-row"><label>Number</label><input type="text" id="cnManualNumber" placeholder="e.g. 1017 or 5012"></div>
-          <div class="form-row"><label>Type</label>
-            <select id="cnManualType"><option value="regular">Regular</option><option value="double">Double Bin (5000s)</option></select>
-          </div>
-        </div>
-        <button type="button" class="btn btn-outline btn-sm" id="cnManualAddBtn">Add to Available Pool</button>
-      </div>
-
-      <div class="card">
-        <h3 style="margin:0 0 10px;">All Customer Numbers</h3>
-        <div style="display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
-          <button type="button" class="btn btn-outline btn-sm" id="cnPrintByNumberBtn">Print &mdash; Sorted by Number</button>
-          <button type="button" class="btn btn-outline btn-sm" id="cnPrintByNameBtn">Print &mdash; Sorted by Name</button>
-        </div>
-        <div id="cnFullList" class="row-list"><div class="empty-note">Loading…</div></div>
-      </div>
-
-      <div id="cnPrintArea" style="display:none;"></div>
-    </div>
-
+    <!-- TEAM MESSAGES -->
+    <!-- MEMBER EXPORT -->
     <div class="panel" id="panel-memberexport">
       <div class="panel-head"><div><h2>Member Export</h2><p>Export new customers to Excel &mdash; one row per member, every stored field included.</p></div></div>
       <div class="card">
@@ -2780,7 +2647,6 @@ import {
   getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
   onSnapshot, query, orderBy, serverTimestamp, getDoc, getDocs, limit, Timestamp, increment
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBf0u9ZvXQiYsV8l_bMQNW6tjgF74oZRaE",
@@ -2794,8 +2660,6 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const fbFunctions = getFunctions(app);
-const sendSmsFn = httpsCallable(fbFunctions, 'sendSms');
 
 const CLOUDINARY_CLOUD = "highlighting-utah";
 const CLOUDINARY_PRESET = "highlighting_utah";
@@ -3174,26 +3038,9 @@ async function getOrCreatePortalToken(phone){
   }
   return token;
 }
-// Converts the HTML an email template produces (with real <a> buttons and <br> line breaks)
-// into clean, readable plain text — used wherever the result will be copy-pasted rather
-// than sent as an actual HTML email, since plain text can never render a clickable button.
-function htmlEmailToPlainText(html){
-  return (html||'')
-    .replace(/<a\s+href="([^"]*)"[^>]*>(.*?)<\/a>/gi, function(m, url, label){ return label + ': ' + url; })
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
-}
-async function resolveLinkTokens(text, phone, amount, opts){
-  opts = opts || {};
+async function resolveLinkTokens(text, phone, amount){
   let out = text;
   const btnStyleGold = 'display:inline-block; padding:12px 28px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:15px; margin:6px 8px 6px 0; background:#D89F3D; color:#1E3B2C;';
-  if(opts.name !== undefined) out = out.split('{{name}}').join(opts.name || 'there');
-  if(opts.price !== undefined) out = out.split('{{price}}').join(opts.price || '');
-  if(opts.link){
-    out = out.split('{{link}}').join(opts.link);
-    out = out.split('{{link_button}}').join('<a href="'+opts.link+'" style="'+btnStyleGold+'">'+(opts.linkLabel || 'View & Respond')+'</a>');
-  }
   if(out.indexOf('{{portal_link}}') !== -1 || out.indexOf('{{portal_button}}') !== -1){
     const token = await getOrCreatePortalToken(phone);
     const portalUrl = 'https://highlightingutah.com/#/payment' + (token ? ('?token='+token) : '');
@@ -3274,7 +3121,7 @@ async function loadEmailjsSettings(){
   } catch(err){ /* settings not saved yet, fine */ }
 }
 document.getElementById('loadBulkAutoCopyListBtn').addEventListener('click', function(){
-  const withEmail = jobAddresses.filter(a => a.data.email);
+  const withEmail = jobAddresses.filter(a => a.data.email && !a.data.isTestAccount);
   const withoutEmail = jobAddresses.filter(a => !a.data.email);
   const listEl = document.getElementById('bulkAutoCopyList');
   if(!withEmail.length){
@@ -3380,7 +3227,7 @@ document.getElementById('sendBulkUpdateEmailBtn').addEventListener('click', asyn
     statusEl.textContent = 'Email service failed to load — check your internet connection and try again.';
     return;
   }
-  const withEmail = jobAddresses.filter(a => a.data.email);
+  const withEmail = jobAddresses.filter(a => a.data.email && !a.data.isTestAccount);
   if(!withEmail.length){ statusEl.textContent = 'No customers have an email address on file yet.'; return; }
   if(!confirm('Send each of the ' + withEmail.length + ' customer(s) with an email this message now? This cannot be undone.')) return;
   emailjs.init(publicKey);
@@ -3451,10 +3298,9 @@ document.getElementById('sendRsvpEmailBtn').addEventListener('click', async func
     statusEl.textContent = 'Email service failed to load — check your internet connection and try again.';
     return;
   }
-  const selectedIds = Array.from(document.querySelectorAll('.rsvp-recipient-cb:checked')).map(cb => cb.value);
-  const withEmail = jobAddresses.filter(a => a.data.email && selectedIds.includes(a.id));
-  if(!withEmail.length){ statusEl.textContent = 'Select at least one member with an email address.'; return; }
-  if(!confirm('Send each of the ' + withEmail.length + ' selected member(s) this RSVP request now?')) return;
+  const withEmail = jobAddresses.filter(a => a.data.email && !a.data.isTestAccount);
+  if(!withEmail.length){ statusEl.textContent = 'No customers have an email address on file yet.'; return; }
+  if(!confirm('Send each of the ' + withEmail.length + ' customer(s) with an email this RSVP request now?')) return;
   emailjs.init(publicKey);
   const template = document.getElementById('rsvpEmailTemplate').value;
   let sent = 0, failed = 0;
@@ -3472,57 +3318,6 @@ document.getElementById('sendRsvpEmailBtn').addEventListener('click', async func
     } catch(err){ failed++; }
   }
   statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.';
-});
-
-/* ---- RSVP preview + recipient picker ---- */
-let rsvpRecipientSearchTerm = '';
-function rsvpPopulateMemberSelect(){
-  const sel = document.getElementById('rsvpPreviewMemberSelect');
-  if(!sel) return;
-  const currentVal = sel.value;
-  const members = etGetMembers();
-  sel.innerHTML = '<option value="">-- Choose a member to preview --</option>' +
-    members.map(m => '<option value="'+m.id+'">'+esc(m.data.name||'(no name)')+'</option>').join('');
-  if(members.some(m => m.id === currentVal)) sel.value = currentVal;
-}
-function rsvpUpdatePreview(){
-  const box = document.getElementById('rsvpPreviewBox');
-  const memberId = document.getElementById('rsvpPreviewMemberSelect').value;
-  if(!box) return;
-  if(!memberId){ box.textContent = 'Pick a member above to see the preview.'; return; }
-  const member = jobAddresses.find(m => m.id === memberId);
-  if(!member){ box.textContent = 'Pick a member above to see the preview.'; return; }
-  const template = document.getElementById('rsvpEmailTemplate').value;
-  box.textContent = template.replace(/\{\{name\}\}/g, member.data.name || 'there')
-    .replace(/\{\{rsvp_yes_button\}\}/g, '[Yes button]')
-    .replace(/\{\{rsvp_back_button\}\}/g, '[Back Next Year button]')
-    .replace(/\{\{rsvp_no_button\}\}/g, '[No button]');
-}
-function rsvpRenderRecipientList(){
-  const list = document.getElementById('rsvpRecipientList');
-  if(!list) return;
-  const term = rsvpRecipientSearchTerm.toLowerCase();
-  const members = etGetMembers().filter(m => m.data.email && (!term || (m.data.name||'').toLowerCase().indexOf(term) !== -1));
-  if(!members.length){ list.innerHTML = '<div class="empty-note">No members with an email match this search.</div>'; return; }
-  const existingCbs = list.querySelectorAll('.rsvp-recipient-cb');
-  const isFirstRender = existingCbs.length === 0;
-  const previouslyChecked = new Set(Array.from(existingCbs).filter(cb => cb.checked).map(el => el.value));
-  list.innerHTML = members.map(function(m){
-    const checked = isFirstRender ? 'checked' : (previouslyChecked.has(m.id) ? 'checked' : '');
-    return '<label style="display:flex; align-items:center; gap:8px; padding:5px 0; font-size:13.5px;"><input type="checkbox" class="rsvp-recipient-cb" value="'+m.id+'" '+checked+' style="width:auto;">'+esc(m.data.name||'(no name)')+' <span style="color:var(--slate); font-size:12px;">'+esc(m.data.email||'')+'</span></label>';
-  }).join('');
-}
-document.getElementById('rsvpPreviewMemberSelect').addEventListener('change', rsvpUpdatePreview);
-document.getElementById('rsvpEmailTemplate').addEventListener('input', rsvpUpdatePreview);
-document.getElementById('rsvpRecipientSearch').addEventListener('input', function(){
-  rsvpRecipientSearchTerm = this.value.trim();
-  rsvpRenderRecipientList();
-});
-document.getElementById('rsvpSelectAllBtn').addEventListener('click', function(){
-  document.querySelectorAll('.rsvp-recipient-cb').forEach(cb => { cb.checked = true; });
-});
-document.getElementById('rsvpSelectNoneBtn').addEventListener('click', function(){
-  document.querySelectorAll('.rsvp-recipient-cb').forEach(cb => { cb.checked = false; });
 });
 document.getElementById('rsvpEmailTestBtn').addEventListener('click', async function(){
   const statusEl = document.getElementById('rsvpEmailTestStatus');
@@ -3558,6 +3353,7 @@ document.getElementById('pibLoadBtn').addEventListener('click', function(){
   const statusEl = document.getElementById('pibLoadStatus');
   if(!dateStr){ statusEl.textContent = 'Pick a date first.'; return; }
   const completedThatDay = jobAddresses.filter(function(a){
+    if(a.data.isTestAccount) return false;
     const ts = a.data.completedAt;
     if(!a.data.completed || !ts || !ts.toDate) return false;
     return toDateStr(ts.toDate()) === dateStr;
@@ -3739,10 +3535,12 @@ document.getElementById('loadBulkTextListBtn').addEventListener('click', async f
 });
 
 document.getElementById('previewSeasonEmailBtn').addEventListener('click', async function(){
-  const withEmailAll = allInvoicesCache.filter(inv => inv.data.email);
+  const testAccountPhones = new Set(jobAddresses.filter(a => a.data.isTestAccount).map(a => a.data.phone));
+  const nonTestInvoices = allInvoicesCache.filter(inv => !testAccountPhones.has(inv.data.phone));
+  const withEmailAll = nonTestInvoices.filter(inv => inv.data.email);
   const needsReview = withEmailAll.filter(inv => inv.data.priceReviewed === false);
   const withEmail = withEmailAll.filter(inv => inv.data.priceReviewed !== false);
-  const withoutEmail = allInvoicesCache.filter(inv => !inv.data.email);
+  const withoutEmail = nonTestInvoices.filter(inv => !inv.data.email);
   const previewEl = document.getElementById('seasonEmailPreview');
   let html = '<div style="background:#E6F2EA; border:1px solid #b8d9c2; border-radius:10px; padding:12px 14px; font-size:13.5px; margin-bottom:14px;">'+
     '<strong>'+withEmail.length+' customer(s)</strong> have an email on file and will receive their own personalized email.'+
@@ -3907,9 +3705,6 @@ function initData(){
   initialized = true;
   loadQuotes();
   loadMessageFolders();
-  loadAvailableCustomerNumbers();
-  loadEmailTemplateFolders();
-  loadEmailTemplates();
   loadMessages();
   loadInvoices();
   loadReviews();
@@ -3978,12 +3773,6 @@ let quoteStatusFilter = 'all';
 let quoteApprovalFilter = 'all';
 let quoteFolderView = 'main';
 let quoteColorFilter = 'all';
-let quoteStageFilter = 'new';
-function quoteStage(d){
-  if(d.approvalStatus === 'approved' && d.formCompleted) return 'completed';
-  if(typeof d.quotedPrice !== 'number') return 'new';
-  return 'pricing';
-}
 function colorComboKey(colors){
   if(!colors || !colors.length) return '';
   return colors.slice().sort().join(' + ');
@@ -4072,23 +3861,6 @@ function renderQuotesList(){
       '<div style="background:var(--paper); border-radius:10px; padding:10px 16px;"><div style="font-size:11px; text-transform:uppercase; color:var(--slate); letter-spacing:.04em;">Declined</div><div style="font-size:20px; font-weight:700; color:var(--ember);">'+declinedCount+'</div></div>';
   }
 
-  const stageTabsEl = document.getElementById('quoteStageTabs');
-  if(stageTabsEl){
-    const stageCounts = {new:0, pricing:0, completed:0};
-    quotesCache.forEach(function(item){ stageCounts[quoteStage(item.data)]++; });
-    document.getElementById('quoteStageCountNew').textContent = ' (' + stageCounts.new + ')';
-    document.getElementById('quoteStageCountPricing').textContent = ' (' + stageCounts.pricing + ')';
-    document.getElementById('quoteStageCountCompleted').textContent = ' (' + stageCounts.completed + ')';
-    stageTabsEl.querySelectorAll('[data-quotestage]').forEach(function(btn){
-      const active = btn.dataset.quotestage === quoteStageFilter;
-      btn.classList.toggle('btn-gold', active);
-      btn.classList.toggle('btn-outline', !active);
-      btn.onclick = function(){
-        quoteStageFilter = btn.dataset.quotestage;
-        renderQuotesList();
-      };
-    });
-  }
   if(quoteFolderView === 'awaiting'){
     if(!freshAwaiting.length){ list.innerHTML = '<div class="empty-note">Nothing awaiting response right now.</div>'; return; }
     renderQuoteRows(freshAwaiting);
@@ -4096,7 +3868,6 @@ function renderQuotesList(){
   }
 
   let filtered = quotesCache.filter(item => !isFreshAwaiting(item.data));
-  filtered = filtered.filter(item => quoteStage(item.data) === quoteStageFilter);
   if(quoteFilter === 'flagged') filtered = filtered.filter(item => item.data.frontPhotoFlagged);
   if(quoteStatusFilter !== 'all') filtered = filtered.filter(item => (item.data.status||'new') === quoteStatusFilter);
   if(quoteColorFilter !== 'all') filtered = filtered.filter(item => colorComboKey(item.data.lightColors) === quoteColorFilter);
@@ -4147,7 +3918,6 @@ function renderQuoteRows(filtered){
         '<button type="button" class="btn btn-outline btn-sm" data-getquotelink="'+item.id+'">Get Approval Link</button>'+
         '<div class="quotelink-status" data-statusfor="'+item.id+'" style="font-size:12px; color:var(--slate); margin-top:6px;"></div>'+
         (d.quoteToken ? '<div class="quotelink-box" data-linkfor="'+item.id+'" style="margin-top:6px; font-size:12.5px; word-break:break-all; background:var(--paper); border-radius:8px; padding:8px 10px;">https://highlightingutah.com/#/payment?token='+esc(d.quoteToken)+'</div>' : '<div class="quotelink-box" data-linkfor="'+item.id+'"></div>')+
-        (d.quoteToken && typeof d.quotedPrice === 'number' ? '<button type="button" class="btn btn-outline btn-sm" data-copyquoteemail="'+item.id+'" style="margin-top:6px;">Copy Quote Email</button><div class="quoteemail-result" data-resultfor="'+item.id+'" style="margin-top:8px;"></div>' : '')+
         (typeof d.quotedPrice === 'number' ? (function(){
           const st = d.approvalStatus || 'pending';
           if(st === 'approved') return '<div class="rtext" style="margin-top:8px; color:#2E6B3E; font-weight:600;">&#10003; Approved'+(d.quoteRespondedAt ? ' &mdash; '+fmtDate(d.quoteRespondedAt) : '')+'</div>';
@@ -4231,32 +4001,6 @@ function renderQuoteRows(filtered){
       } catch(err){
         if(statusEl) statusEl.textContent = 'Something went wrong — try again.';
       }
-    });
-  });
-  list.querySelectorAll('[data-copyquoteemail]').forEach(function(btn){
-    btn.addEventListener('click', async function(){
-      const id = btn.dataset.copyquoteemail;
-      const item = quotesCache.find(q => q.id === id);
-      const resultEl = list.querySelector('.quoteemail-result[data-resultfor="'+id+'"]');
-      if(!item || !resultEl) return;
-      const d = item.data;
-      const template = getEmailTemplateByName('Quote Email');
-      const body = template ? template.data.body : DEFAULT_QUOTE_TEMPLATE_BODY;
-      const link = 'https://highlightingutah.com/#/payment?token=' + d.quoteToken;
-      const html = await resolveLinkTokens(body, d.phone, 0, {name: d.name || 'there', price: fmtMoney(d.quotedPrice), link: link, linkLabel: 'Approve or Decline Your Quote'});
-      const message = htmlEmailToPlainText(html);
-      resultEl.innerHTML =
-        '<label style="display:block; font-size:11.5px; font-weight:600; margin-bottom:6px;">Edit before sending if you want:</label>'+
-        '<textarea class="quoteemail-editable" rows="8" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:13.5px; margin-bottom:8px;">'+esc(message)+'</textarea>'+
-        '<button type="button" class="btn btn-outline btn-sm quoteemail-copy-btn">Copy Email</button>'+
-        '<p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Paste into your email client, attach their house photo, then send. (Plain-text emails can\'t show a real clickable button — the approve/decline link is spelled out clearly instead.)</p>';
-      resultEl.querySelector('.quoteemail-copy-btn').addEventListener('click', function(){
-        const text = resultEl.querySelector('.quoteemail-editable').value;
-        navigator.clipboard.writeText(text).then(function(){
-          this.textContent = 'Copied!';
-          setTimeout(() => { this.textContent = 'Copy Email'; }, 2000);
-        }.bind(this));
-      });
     });
   });
   list.querySelectorAll('[data-markapproval]').forEach(function(btn){
@@ -4362,257 +4106,6 @@ let allMessages = [];
 let msgFilter = 'all';
 let selectedFolder = 'Inbox';
 let selectedEmployee = '';
-/* ---------------- EMAIL TEMPLATES (Automation > Templates) ---------------- */
-let emailTemplateFolders = [];
-let emailTemplates = [];
-let etTemplatesSeeded = false;
-const DEFAULT_QUOTE_TEMPLATE_BODY = 'Hi {{name}},\n\n' +
-  'Here\'s your quote from Highlighting Utah: {{price}}.\n\n' +
-  '{{link_button}}\n\n' +
-  '(Don\'t forget to attach a photo of their house before sending!)\n\n' +
-  'Thanks,\nHighlighting Utah';
-
-function loadEmailTemplateFolders(){
-  onSnapshot(collection(db,'emailTemplateFolders'), function(snap){
-    emailTemplateFolders = [];
-    snap.forEach(function(docSnap){ emailTemplateFolders.push({id: docSnap.id, name: docSnap.data().name}); });
-    renderEmailTemplateFolders();
-    renderEmailTemplateList();
-  });
-}
-function loadEmailTemplates(){
-  onSnapshot(collection(db,'emailTemplates'), async function(snap){
-    emailTemplates = [];
-    snap.forEach(function(docSnap){ emailTemplates.push({id: docSnap.id, data: docSnap.data()}); });
-    if(!etTemplatesSeeded){
-      etTemplatesSeeded = true;
-      const hasQuoteTemplate = emailTemplates.some(t => t.data.name === 'Quote Email');
-      if(!hasQuoteTemplate){
-        await addDoc(collection(db,'emailTemplates'), {name: 'Quote Email', folderId: null, body: DEFAULT_QUOTE_TEMPLATE_BODY, createdAt: serverTimestamp()});
-      }
-    }
-    renderEmailTemplateList();
-  });
-}
-function getEmailTemplateByName(name){
-  return emailTemplates.find(t => t.data.name === name);
-}
-function renderEmailTemplateFolders(){
-  const list = document.getElementById('etFolderList');
-  const sel = document.getElementById('etTemplateFolder');
-  if(!list || !sel) return;
-  if(!emailTemplateFolders.length){
-    list.innerHTML = '<div class="empty-note">No folders yet — add one above to start sorting your templates.</div>';
-  } else {
-    list.innerHTML = emailTemplateFolders.map(function(f){
-      const count = emailTemplates.filter(t => t.data.folderId === f.id).length;
-      return '<div class="row-item"><div class="rmain"><h4 style="margin:0;">'+esc(f.name)+'</h4><div class="rmeta">'+count+' template'+(count===1?'':'s')+'</div></div>'+
-        '<div class="row-actions"><button type="button" class="btn btn-outline btn-sm" data-delfolder="'+f.id+'">Delete</button></div></div>';
-    }).join('');
-    list.querySelectorAll('[data-delfolder]').forEach(function(btn){
-      btn.addEventListener('click', async function(){
-        const fid = btn.dataset.delfolder;
-        if(!confirm('Delete this folder? Templates inside will move back to top level.')) return;
-        const affected = emailTemplates.filter(t => t.data.folderId === fid);
-        for(const t of affected){ await updateDoc(doc(db,'emailTemplates', t.id), {folderId: null}); }
-        await deleteDoc(doc(db,'emailTemplateFolders', fid));
-      });
-    });
-  }
-  const currentVal = sel.value;
-  sel.innerHTML = '<option value="">(No folder — top level)</option>' +
-    emailTemplateFolders.map(f => '<option value="'+f.id+'">'+esc(f.name)+'</option>').join('');
-  if(emailTemplateFolders.some(f => f.id === currentVal)) sel.value = currentVal;
-}
-document.getElementById('etAddFolderBtn').addEventListener('click', async function(){
-  const input = document.getElementById('etNewFolderInput');
-  const name = input.value.trim();
-  if(!name) return;
-  await addDoc(collection(db,'emailTemplateFolders'), {name: name, createdAt: serverTimestamp()});
-  input.value = '';
-});
-function renderEmailTemplateList(){
-  const list = document.getElementById('etTemplateList');
-  if(!list) return;
-  if(!emailTemplates.length){ list.innerHTML = '<div class="empty-note">No templates yet.</div>'; return; }
-  const folderName = function(fid){
-    const f = emailTemplateFolders.find(f => f.id === fid);
-    return f ? f.name : '(No folder)';
-  };
-  const groups = {};
-  emailTemplates.forEach(function(t){
-    const key = t.data.folderId || '';
-    if(!groups[key]) groups[key] = [];
-    groups[key].push(t);
-  });
-  let html = '';
-  Object.keys(groups).forEach(function(key){
-    html += '<div class="city-group-heading">'+esc(key ? folderName(key) : '(No folder)')+'</div>';
-    groups[key].forEach(function(t){
-      html += '<div class="row-item"><div class="rmain"><h4 style="margin:0;">'+esc(t.data.name)+'</h4>'+
-        '<div class="rtext" style="white-space:pre-wrap; font-size:12.5px; color:var(--slate); max-width:520px;">'+esc((t.data.body||'').slice(0,140))+((t.data.body||'').length>140?'…':'')+'</div></div>'+
-        '<div class="row-actions"><button type="button" class="btn btn-outline btn-sm" data-edittemplate="'+t.id+'">Edit</button>'+
-        '<button type="button" class="btn btn-outline btn-sm" data-deltemplate="'+t.id+'" style="color:var(--ember); border-color:#f0b3ac;">Delete</button></div></div>';
-    });
-  });
-  list.innerHTML = html;
-  if(typeof etPopulateTemplateSelect === 'function') etPopulateTemplateSelect();
-  list.querySelectorAll('[data-edittemplate]').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      const t = emailTemplates.find(t => t.id === btn.dataset.edittemplate);
-      if(!t) return;
-      document.getElementById('etEditingId').value = t.id;
-      document.getElementById('etTemplateName').value = t.data.name || '';
-      document.getElementById('etTemplateFolder').value = t.data.folderId || '';
-      document.getElementById('etTemplateBody').value = t.data.body || '';
-      document.getElementById('etCancelEditBtn').style.display = 'inline-flex';
-      document.getElementById('etTemplateName').scrollIntoView({behavior:'smooth', block:'center'});
-    });
-  });
-  list.querySelectorAll('[data-deltemplate]').forEach(function(btn){
-    btn.addEventListener('click', async function(){
-      if(!confirm('Delete this template?')) return;
-      await deleteDoc(doc(db,'emailTemplates', btn.dataset.deltemplate));
-    });
-  });
-}
-document.getElementById('etSaveTemplateBtn').addEventListener('click', async function(){
-  const statusEl = document.getElementById('etSaveStatus');
-  const name = document.getElementById('etTemplateName').value.trim();
-  const folderId = document.getElementById('etTemplateFolder').value || null;
-  const body = document.getElementById('etTemplateBody').value;
-  if(!name){ statusEl.textContent = 'Give the template a name first.'; return; }
-  const editingId = document.getElementById('etEditingId').value;
-  try{
-    if(editingId){
-      await updateDoc(doc(db,'emailTemplates', editingId), {name: name, folderId: folderId, body: body});
-    } else {
-      await addDoc(collection(db,'emailTemplates'), {name: name, folderId: folderId, body: body, createdAt: serverTimestamp()});
-    }
-    statusEl.textContent = 'Saved!';
-    setTimeout(() => { statusEl.textContent = ''; }, 2000);
-    document.getElementById('etEditingId').value = '';
-    document.getElementById('etTemplateName').value = '';
-    document.getElementById('etTemplateFolder').value = '';
-    document.getElementById('etTemplateBody').value = '';
-    document.getElementById('etCancelEditBtn').style.display = 'none';
-  } catch(err){
-    statusEl.textContent = 'Something went wrong — try again.';
-  }
-});
-document.getElementById('etCancelEditBtn').addEventListener('click', function(){
-  document.getElementById('etEditingId').value = '';
-  document.getElementById('etTemplateName').value = '';
-  document.getElementById('etTemplateFolder').value = '';
-  document.getElementById('etTemplateBody').value = '';
-  document.getElementById('etCancelEditBtn').style.display = 'none';
-});
-
-/* ---- Preview & Send (Templates tab) ---- */
-let etRecipientSearchTerm = '';
-function etGetMembers(){
-  return (jobAddresses||[]).slice().sort((a,b) => (a.data.name||'').localeCompare(b.data.name||''));
-}
-function etResolveVars(item){
-  const d = item.data;
-  const phoneDigits = (d.phone||'').replace(/\D/g,'');
-  const inv = allInvoicesCache.find(i => i.id === phoneDigits);
-  const price = inv ? fmtMoney(balanceDueAmount(inv.data)) : '—';
-  const link = d.portalToken ? ('https://highlightingutah.com/#/payment?token='+d.portalToken) : '';
-  return {name: d.name || 'there', price: price, phone: d.phone || '', link: link, linkLabel: 'Log Into Your Portal'};
-}
-function etPopulateTemplateSelect(){
-  const sel = document.getElementById('etSendTemplateSelect');
-  if(!sel) return;
-  const currentVal = sel.value;
-  sel.innerHTML = '<option value="">-- Choose a template --</option>' +
-    emailTemplates.map(t => '<option value="'+t.id+'">'+esc(t.data.name)+'</option>').join('');
-  if(emailTemplates.some(t => t.id === currentVal)) sel.value = currentVal;
-}
-function etPopulateMemberSelect(){
-  const sel = document.getElementById('etPreviewMemberSelect');
-  if(!sel) return;
-  const currentVal = sel.value;
-  const members = etGetMembers();
-  sel.innerHTML = '<option value="">-- Choose a member to preview --</option>' +
-    members.map(m => '<option value="'+m.id+'">'+esc(m.data.name||'(no name)')+'</option>').join('');
-  if(members.some(m => m.id === currentVal)) sel.value = currentVal;
-}
-async function etUpdatePreview(){
-  const box = document.getElementById('etPreviewBox');
-  const templateId = document.getElementById('etSendTemplateSelect').value;
-  const memberId = document.getElementById('etPreviewMemberSelect').value;
-  if(!box) return;
-  if(!templateId || !memberId){ box.textContent = 'Pick a template and a member above to see the preview.'; return; }
-  const template = emailTemplates.find(t => t.id === templateId);
-  const member = jobAddresses.find(m => m.id === memberId);
-  if(!template || !member){ box.textContent = 'Pick a template and a member above to see the preview.'; return; }
-  const vars = etResolveVars(member);
-  box.innerHTML = await resolveLinkTokens(template.data.body, vars.phone, 0, vars);
-}
-function etRenderRecipientList(){
-  const list = document.getElementById('etRecipientList');
-  if(!list) return;
-  const term = etRecipientSearchTerm.toLowerCase();
-  const members = etGetMembers().filter(m => (m.data.email) && (!term || (m.data.name||'').toLowerCase().indexOf(term) !== -1));
-  if(!members.length){ list.innerHTML = '<div class="empty-note">No members with an email match this search.</div>'; return; }
-  const previouslyChecked = new Set(Array.from(list.querySelectorAll('input:checked')).map(el => el.value));
-  list.innerHTML = members.map(function(m){
-    const checked = previouslyChecked.has(m.id) ? 'checked' : '';
-    return '<label style="display:flex; align-items:center; gap:8px; padding:5px 0; font-size:13.5px;"><input type="checkbox" class="et-recipient-cb" value="'+m.id+'" '+checked+' style="width:auto;">'+esc(m.data.name||'(no name)')+' <span style="color:var(--slate); font-size:12px;">'+esc(m.data.email||'')+'</span></label>';
-  }).join('');
-}
-document.getElementById('etSendTemplateSelect').addEventListener('change', etUpdatePreview);
-document.getElementById('etPreviewMemberSelect').addEventListener('change', etUpdatePreview);
-document.getElementById('etRecipientSearch').addEventListener('input', function(){
-  etRecipientSearchTerm = this.value.trim();
-  etRenderRecipientList();
-});
-document.getElementById('etSelectAllBtn').addEventListener('click', function(){
-  document.querySelectorAll('.et-recipient-cb').forEach(cb => { cb.checked = true; });
-});
-document.getElementById('etSelectNoneBtn').addEventListener('click', function(){
-  document.querySelectorAll('.et-recipient-cb').forEach(cb => { cb.checked = false; });
-});
-document.getElementById('etCopyForPreviewBtn').addEventListener('click', function(){
-  const statusEl = document.getElementById('etSendStatus');
-  const box = document.getElementById('etPreviewBox');
-  const text = box.innerText;
-  if(!text || text.indexOf('Pick a template') === 0){ statusEl.textContent = 'Pick a template and a member to preview first.'; return; }
-  navigator.clipboard.writeText(text).then(function(){
-    statusEl.textContent = 'Copied!';
-    setTimeout(() => { statusEl.textContent = ''; }, 2000);
-  });
-});
-document.getElementById('etSendToSelectedBtn').addEventListener('click', async function(){
-  const statusEl = document.getElementById('etSendStatus');
-  const templateId = document.getElementById('etSendTemplateSelect').value;
-  const template = emailTemplates.find(t => t.id === templateId);
-  if(!template){ statusEl.textContent = 'Pick a template first.'; return; }
-  const selectedIds = Array.from(document.querySelectorAll('.et-recipient-cb:checked')).map(cb => cb.value);
-  if(!selectedIds.length){ statusEl.textContent = 'Select at least one recipient.'; return; }
-  const serviceId = document.getElementById('emailjsServiceId').value.trim();
-  const templateJsId = document.getElementById('emailjsTemplateId').value.trim();
-  const publicKey = document.getElementById('emailjsPublicKey').value.trim();
-  if(!serviceId || !templateJsId || !publicKey){ statusEl.textContent = 'Set up EmailJS (Email Setup card above) first.'; return; }
-  if(!window.emailjs){ statusEl.textContent = 'Email service failed to load — check your connection.'; return; }
-  if(!confirm('Send "'+template.data.name+'" to '+selectedIds.length+' member(s) now?')) return;
-  emailjs.init(publicKey);
-  let sent = 0, failed = 0;
-  for(const id of selectedIds){
-    const member = jobAddresses.find(m => m.id === id);
-    if(!member || !member.data.email) { failed++; continue; }
-    const vars = etResolveVars(member);
-    const message = await resolveLinkTokens(template.data.body, vars.phone, 0, vars);
-    statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + selectedIds.length + '…';
-    try{
-      await emailjs.send(serviceId, templateJsId, { to_email: member.data.email, to_name: member.data.name || '', message: message });
-      sent++;
-    } catch(err){ failed++; }
-  }
-  statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.';
-});
-
 const DEFAULT_TOPIC_FOLDERS = ['Billing / Payment Question','Change My Light Colors','Report an Issue','Reschedule Install or Removal','General Question','Something Else'];
 let messageFolders = [];
 let foldersSeeded = false;
@@ -6403,6 +5896,14 @@ function geocodeAddress(addressText){
   });
 }
 const STREETVIEW_KEY = "AIzaSyByI2wHguK1JLNdUFJQKiA_gunoVtTkyqM";
+const SHOP_ADDRESS = '209 S 850 W, Lehi, UT 84043';
+let shopCoords = null;
+let shopCoordsPromise = null;
+function getShopCoords(){
+  if(shopCoords) return Promise.resolve(shopCoords);
+  if(!shopCoordsPromise) shopCoordsPromise = geocodeAddress(SHOP_ADDRESS).then(function(c){ shopCoords = c; return c; }).catch(function(err){ shopCoordsPromise = null; throw err; });
+  return shopCoordsPromise;
+}
 async function getStreetViewFrontUrlAdmin(lat, lng){
   try{
     const metaRes = await fetch('https://maps.googleapis.com/maps/api/streetview/metadata?location='+lat+','+lng+'&key='+STREETVIEW_KEY);
@@ -6464,11 +5965,12 @@ function isEarliestInstallDateLocked(data){
 }
 
 // ---- Install-timing urgency flags (used in Routes list + Overview Map) ----
-// New Hang: a first-time customer (proxied by how recently they enrolled) who still isn't scheduled/completed 2+ weeks after signing up.
+// New Hang: a first-time customer (proxied by how recently they enrolled) who still isn't scheduled/completed a week+ after signing up.
+// Heart color escalates with how long they've waited — see newHangHeart() below and the color legend in the Routes tab.
 function isNewHangUrgent(d){
   if(!d || d.completed || d.scheduled) return false;
   const days = daysSince(d.createdAt);
-  return days !== null && days >= 14;
+  return days !== null && days >= 7;
 }
 // October houses need to be done before Oct 31 — flag starting 2 weeks out (Oct 17).
 function isOctoberUrgent(d){
@@ -6518,11 +6020,17 @@ function installTimingBadge(d){
   }
   return {label:'Any', bg:'#EEF1F5', color:'#5B6472'};
 }
-// New Hang badge is separate from (and can appear alongside) the timing badge above — different color on purpose so the two reasons for urgency are never confused.
-function newHangBadge(d){
-  if(!isNewHangUrgent(d)) return null;
+// New Hang heart: separate from (and can appear alongside) the timing badge above — a heart whose color escalates the longer a new customer waits unscheduled.
+//   Pink heart  = just added, under 7 days waiting (not yet urgent)
+//   Red heart   = 7-13 days waiting (getting urgent)
+//   Black heart = 14+ days waiting (very overdue, top priority)
+function newHangHeart(d){
+  if(!d || d.completed || d.scheduled) return null;
   const days = daysSince(d.createdAt);
-  return {label:'⚠ New Hang — Install ASAP ('+days+'d waiting)', bg:'#FCE7F3', color:'#BE185D'};
+  if(days === null) return null;
+  if(days >= 14) return {emoji:'\uD83D\uDDA4', tier:'black', label:'\uD83D\uDDA4 New Hang \u2014 14+ Days Waiting ('+days+'d)', bg:'#3A3A3A', color:'#FFFFFF'};
+  if(days >= 7) return {emoji:'\u2764\uFE0F', tier:'red', label:'\u2764\uFE0F New Hang \u2014 7+ Days Waiting ('+days+'d)', bg:'#FDE0E0', color:'#B91C1C'};
+  return {emoji:'\uD83E\uDE77', tier:'pink', label:'\uD83E\uDE77 New Hang \u2014 Just Added ('+days+'d)', bg:'#FCE7F3', color:'#BE185D'};
 }
 
 function switchRouteTab(tabName){
@@ -6973,6 +6481,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
   const billToPhone = document.getElementById('addCustBillTo').value.replace(/\D/g,'');
   const gateCode = document.getElementById('addCustGateCode').value.trim();
   const wantsMailedInvoice = document.getElementById('addCustWantsMailed').checked;
+  const isTestAccount = document.getElementById('addCustIsTestAccount').checked;
   const wantsBilling = price > 0;
   const statusEl = document.getElementById('routeAddStatus');
 
@@ -6998,7 +6507,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
       housePhotoUrl: addCustPhotoUrl, houseHighlights: addCustHighlights, portalToken: generatePortalToken(), installPreference: installPreference,
       wireColor: wireColor,
       lat: coords.lat, lng: coords.lng, needsLightBuild: !!lightsDescription,
-      scheduled: false, createdAt: serverTimestamp(), housePrice: price, measuredFeet: measuredFeet, gateCode: gateCode, wantsMailedInvoice: wantsMailedInvoice
+      scheduled: false, createdAt: serverTimestamp(), housePrice: price, measuredFeet: measuredFeet, gateCode: gateCode, wantsMailedInvoice: wantsMailedInvoice, isTestAccount: isTestAccount
     }, billingElsewhere ? {billToPhone: billToPhone} : {}));
     if(addCustPhotoUrl){
       await setDoc(doc(db,'houseMaps',newAddrRef.id), {'images.house': addCustPhotoUrl}, {merge:true});
@@ -7375,9 +6884,10 @@ function buildAddressRowHtml(item){
     crewLines.push('Removal: '+(names.length ? names.map(esc).join(', ') : 'Crew '+esc(String(d.removalCrew))));
   }
   const timingBadge = completed ? null : installTimingBadge(d);
-  const newHangFlag = completed ? null : newHangBadge(d);
-  const timingBadgesHtml = (timingBadge || newHangFlag || d.wantsMailedInvoice || d.lightsDescription)
+  const newHangFlag = completed ? null : newHangHeart(d);
+  const timingBadgesHtml = (timingBadge || newHangFlag || d.wantsMailedInvoice || d.lightsDescription || d.isTestAccount)
     ? '<div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">'+
+        (d.isTestAccount ? '<span class="status-pill" style="background:#1E1E1E; color:#fff; font-weight:700;">&#129513; Test Account</span>' : '')+
         (timingBadge ? '<span class="status-pill" style="background:'+timingBadge.bg+'; color:'+timingBadge.color+'; font-weight:600;">'+esc(timingBadge.label)+'</span>' : '')+
         (newHangFlag ? '<span class="status-pill" style="background:'+newHangFlag.bg+'; color:'+newHangFlag.color+'; font-weight:700;">'+esc(newHangFlag.label)+'</span>' : '')+
         (d.wantsMailedInvoice ? '<span class="status-pill" style="background:var(--paper); color:var(--slate); font-weight:600;">&#128235; Wants Invoice Mailed</span>' : '')+
@@ -7908,7 +7418,7 @@ function renderOverviewMap(){
   const mapDiv = document.getElementById('overviewMap');
   if(!mapDiv || !window.google) return;
   const cityFilter = document.getElementById('overviewCityFilter') ? document.getElementById('overviewCityFilter').value : 'all';
-  let filtered = jobAddresses.filter(a => typeof a.data.lat === 'number');
+  let filtered = jobAddresses.filter(a => typeof a.data.lat === 'number' && !a.data.isTestAccount);
   if(cityFilter !== 'all') filtered = filtered.filter(a => extractCleanCity(a.data.city) === cityFilter);
   if(activeMapDiffFilters.length) filtered = filtered.filter(a => activeMapDiffFilters.includes(a.data.difficulty || 'Unrated'));
   if(activeMapNeedsFixFilter) filtered = filtered.filter(a => a.data.needsFix);
@@ -7931,7 +7441,8 @@ function renderOverviewMap(){
   withCoords.forEach(function(item){
     const diff = item.data.difficulty || 'Unrated';
     const pos = {lat:item.data.lat, lng:item.data.lng};
-    const flag = item.data.completed ? null : (newHangBadge(item.data) || (isBeforeThanksgivingUrgent(item.data) ? {label:'⚠ Before Thanksgiving — Due Soon', color:'#9F1239'} : null) || (isOctoberUrgent(item.data) ? {label:'⚠ October — Due by Oct 31', color:'#B45309'} : null));
+    const newHang = newHangHeart(item.data);
+    const flag = item.data.completed ? null : ((newHang && newHang.tier !== 'pink') ? newHang : (isBeforeThanksgivingUrgent(item.data) ? {label:'⚠ Before Thanksgiving — Due Soon', color:'#9F1239'} : null) || (isOctoberUrgent(item.data) ? {label:'⚠ October — Due by Oct 31', color:'#B45309'} : null));
     const strokeColor = item.data.completed ? '#2E6B3E' : (flag ? flag.color : '#fff');
     const strokeWeight = (item.data.completed || flag) ? 3 : 1.5;
     const marker = new google.maps.Marker({
@@ -7975,7 +7486,7 @@ function updateFixAvailableCount(){
   const el = document.getElementById('fixAvailableCount');
   if(!el) return;
   const cityChoice = document.getElementById('fixCitySelect').value;
-  let available = jobAddresses.filter(a => a.data.needsFix && !a.data.fixScheduled);
+  let available = jobAddresses.filter(a => a.data.needsFix && !a.data.fixScheduled && !a.data.isTestAccount);
   if(cityChoice !== 'all') available = available.filter(a => extractCleanCity(a.data.city) === cityChoice);
   el.textContent = available.length + ' house' + (available.length===1?'':'s') + ' currently need' + (available.length===1?'s':'') + ' a fix' + (cityChoice !== 'all' ? ' in ' + cityChoice : '') + '.';
 }
@@ -8020,18 +7531,9 @@ function renderWarehouseRecycleQueue(){
     });
   });
   list.querySelectorAll('[data-whrecycledone]').forEach(function(btn){
-    btn.addEventListener('click', async function(e){
+    btn.addEventListener('click', function(e){
       e.stopPropagation();
-      const custId = btn.dataset.whrecycledone;
-      const item = jobAddresses.find(a => a.id === custId);
-      try{
-        await updateDoc(doc(db,'jobAddresses', custId), {needsLightRecycle:false});
-        const num = item && item.data.customerNumber;
-        if(num){
-          const type = parseInt(num,10) >= 5000 ? 'double' : 'regular';
-          await setDoc(doc(db,'availableCustomerNumbers', String(num)), {type: type, releasedAt: serverTimestamp()});
-        }
-      } catch(err){}
+      updateDoc(doc(db,'jobAddresses', btn.dataset.whrecycledone), {needsLightRecycle:false}).catch(function(){});
     });
   });
 }
@@ -8049,14 +7551,7 @@ function loadJobAddresses(){
     if(currentRouteStops.length && typeof renderRouteOrderedList === 'function') renderRouteOrderedList(currentRouteStops);
     if(typeof renderWarehouseQueue === 'function') renderWarehouseQueue();
     if(typeof renderWarehouseRecycleQueue === 'function') renderWarehouseRecycleQueue();
-    if(typeof renderCustomerNumbersPanel === 'function') renderCustomerNumbersPanel();
     if(typeof renderInventoryList === 'function') renderInventoryList();
-    if(typeof etPopulateMemberSelect === 'function') etPopulateMemberSelect();
-    if(typeof etRenderRecipientList === 'function') etRenderRecipientList();
-    if(typeof etUpdatePreview === 'function') etUpdatePreview();
-    if(typeof rsvpPopulateMemberSelect === 'function') rsvpPopulateMemberSelect();
-    if(typeof rsvpRenderRecipientList === 'function') rsvpRenderRecipientList();
-    if(typeof rsvpUpdatePreview === 'function') rsvpUpdatePreview();
   });
 }
 let warehouseExtras = [];
@@ -8069,115 +7564,6 @@ function loadWarehouseExtras(){
   });
 }
 let inventoryCache = [];
-
-/* ---------------- CUSTOMER NUMBERS ---------------- */
-let availableCustomerNumbers = [];
-function loadAvailableCustomerNumbers(){
-  onSnapshot(collection(db,'availableCustomerNumbers'), function(snap){
-    availableCustomerNumbers = [];
-    snap.forEach(function(docSnap){ availableCustomerNumbers.push({id: docSnap.id, data: docSnap.data()}); });
-    renderCustomerNumbersPanel();
-  });
-}
-function cnHighestAssigned(type){
-  let highest = type === 'double' ? 5000 : 0;
-  jobAddresses.forEach(function(item){
-    const n = parseInt(item.data.customerNumber, 10);
-    if(isNaN(n)) return;
-    if(type === 'double' && n >= 5000 && n > highest) highest = n;
-    if(type === 'regular' && n < 5000 && n > highest) highest = n;
-  });
-  return highest;
-}
-function cnNextAvailable(type){
-  const pooled = availableCustomerNumbers.filter(n => n.data.type === type)
-    .sort((a,b) => parseInt(a.id,10) - parseInt(b.id,10));
-  if(pooled.length) return {number: pooled[0].id, fromPool: true};
-  return {number: String(cnHighestAssigned(type) + 1), fromPool: false};
-}
-function renderCustomerNumbersPanel(){
-  const regList = document.getElementById('cnAvailableRegularList');
-  const dblList = document.getElementById('cnAvailableDoubleList');
-  if(!regList || !dblList) return;
-  const regPooled = availableCustomerNumbers.filter(n => n.data.type === 'regular').sort((a,b)=>parseInt(a.id,10)-parseInt(b.id,10));
-  const dblPooled = availableCustomerNumbers.filter(n => n.data.type === 'double').sort((a,b)=>parseInt(a.id,10)-parseInt(b.id,10));
-  regList.innerHTML = regPooled.length ? regPooled.map(n => '<span class="status-pill" style="margin:2px;">'+esc(n.id)+'</span>').join('') : '<span class="empty-note">No recycled numbers waiting &mdash; next new one auto-assigns.</span>';
-  dblList.innerHTML = dblPooled.length ? dblPooled.map(n => '<span class="status-pill" style="margin:2px;">'+esc(n.id)+'</span>').join('') : '<span class="empty-note">No recycled numbers waiting &mdash; next new one auto-assigns.</span>';
-  const nextReg = cnNextAvailable('regular');
-  const nextDbl = cnNextAvailable('double');
-  document.getElementById('cnNextRegular').textContent = 'Next assigned will be: ' + nextReg.number + (nextReg.fromPool ? ' (recycled)' : ' (new)');
-  document.getElementById('cnNextDouble').textContent = 'Next assigned will be: ' + nextDbl.number + (nextDbl.fromPool ? ' (recycled)' : ' (new)');
-
-  const sel = document.getElementById('cnAssignCustomerSelect');
-  if(sel){
-    const currentVal = sel.value;
-    const unassigned = jobAddresses.filter(item => !item.data.customerNumber).sort((a,b) => (a.data.name||'').localeCompare(b.data.name||''));
-    sel.innerHTML = '<option value="">-- Choose a customer --</option>' +
-      unassigned.map(item => '<option value="'+item.id+'">'+esc(item.data.name||'(no name)')+'</option>').join('');
-    if(unassigned.some(item => item.id === currentVal)) sel.value = currentVal;
-  }
-
-  const fullList = document.getElementById('cnFullList');
-  if(fullList){
-    const numbered = jobAddresses.filter(item => item.data.customerNumber).sort((a,b) => parseInt(a.data.customerNumber,10) - parseInt(b.data.customerNumber,10));
-    fullList.innerHTML = numbered.length ? numbered.map(item => {
-      const d = item.data;
-      return '<div class="row-item"><div class="rmain"><h4 style="margin:0;">#'+esc(d.customerNumber)+' &mdash; '+esc(d.name||'(no name)')+'</h4>'+
-        '<div class="rmeta">'+esc(d.address||'')+'</div></div></div>';
-    }).join('') : '<div class="empty-note">No customer numbers assigned yet.</div>';
-  }
-}
-document.getElementById('cnAssignBtn').addEventListener('click', async function(){
-  const statusEl = document.getElementById('cnAssignStatus');
-  const custId = document.getElementById('cnAssignCustomerSelect').value;
-  const type = document.getElementById('cnAssignBinType').value;
-  if(!custId){ statusEl.textContent = 'Pick a customer first.'; return; }
-  const next = cnNextAvailable(type);
-  try{
-    await updateDoc(doc(db,'jobAddresses', custId), {customerNumber: next.number});
-    if(next.fromPool) await deleteDoc(doc(db,'availableCustomerNumbers', next.number));
-    statusEl.textContent = 'Assigned #' + next.number + '!';
-    setTimeout(() => { statusEl.textContent = ''; }, 2500);
-  } catch(err){
-    statusEl.textContent = 'Something went wrong — try again.';
-  }
-});
-document.getElementById('cnManualAddBtn').addEventListener('click', async function(){
-  const numInput = document.getElementById('cnManualNumber');
-  const num = numInput.value.trim();
-  const type = document.getElementById('cnManualType').value;
-  if(!num || isNaN(parseInt(num,10))) return;
-  await setDoc(doc(db,'availableCustomerNumbers', num), {type: type, releasedAt: serverTimestamp()});
-  numInput.value = '';
-});
-function cnBuildPrintTable(sortedItems, title){
-  let rows = sortedItems.map(function(item){
-    const d = item.data;
-    return '<tr><td>'+esc(d.customerNumber)+'</td><td>'+esc(d.name||'')+'</td><td>'+esc(d.address||'')+'</td></tr>';
-  }).join('');
-  return '<div style="padding:24px; font-family:Arial,sans-serif;">'+
-    '<h2>'+esc(title)+'</h2>'+
-    '<table style="width:100%; border-collapse:collapse;">'+
-      '<thead><tr><th style="text-align:left; border-bottom:2px solid #333; padding:6px;">#</th><th style="text-align:left; border-bottom:2px solid #333; padding:6px;">Name</th><th style="text-align:left; border-bottom:2px solid #333; padding:6px;">Address</th></tr></thead>'+
-      '<tbody>'+rows+'</tbody>'+
-    '</table>'+
-  '</div>';
-}
-function cnPrint(sortedItems, title){
-  const area = document.getElementById('cnPrintArea');
-  area.innerHTML = cnBuildPrintTable(sortedItems, title);
-  area.classList.add('printing');
-  window.print();
-  setTimeout(function(){ area.classList.remove('printing'); area.innerHTML = ''; }, 500);
-}
-document.getElementById('cnPrintByNumberBtn').addEventListener('click', function(){
-  const numbered = jobAddresses.filter(item => item.data.customerNumber).sort((a,b) => parseInt(a.data.customerNumber,10) - parseInt(b.data.customerNumber,10));
-  cnPrint(numbered, 'Customer Numbers — Sorted by Number');
-});
-document.getElementById('cnPrintByNameBtn').addEventListener('click', function(){
-  const numbered = jobAddresses.filter(item => item.data.customerNumber).sort((a,b) => (a.data.name||'').localeCompare(b.data.name||''));
-  cnPrint(numbered, 'Customer Numbers — Sorted by Name');
-});
 function loadInventory(){
   onSnapshot(collection(db,'inventoryItems'), function(snap){
     inventoryCache = [];
@@ -8748,6 +8134,7 @@ function openEditCustomerModal(id){
   document.getElementById('editCustBillTo').value = d.billToPhone || '';
   document.getElementById('editCustGateCode').value = d.gateCode || '';
   document.getElementById('editCustWantsMailed').checked = !!d.wantsMailedInvoice;
+  document.getElementById('editCustIsTestAccount').checked = !!d.isTestAccount;
   document.getElementById('editCustStatus').textContent = '';
   document.getElementById('editCustOverlay').style.display = 'flex';
 }
@@ -8775,12 +8162,13 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const newBillTo = document.getElementById('editCustBillTo').value.replace(/\D/g,'');
   const newGateCode = document.getElementById('editCustGateCode').value.trim();
   const newWantsMailed = document.getElementById('editCustWantsMailed').checked;
+  const newIsTestAccount = document.getElementById('editCustIsTestAccount').checked;
   if(!newName || !newPhone){ statusEl.textContent = 'Name and phone are required.'; return; }
   const oldPhone = item.data.phone || '';
   const oldBillTo = item.data.billToPhone || '';
   statusEl.textContent = 'Saving…';
   try{
-    const addrUpdates = {name: newName, phone: newPhone, phone2: newPhone2, email: newEmail, email2: newEmail2, address: newAddress, rsvpStatus: newRsvp, needsLightRecycle: newRsvp === 'no', housePrice: newHousePrice, measuredFeet: newMeasuredFeet, wireColor: newWireColor, billToPhone: newBillTo, gateCode: newGateCode, wantsMailedInvoice: newWantsMailed, earliestInstallDate: newEarliestInstallStr ? new Date(newEarliestInstallStr + 'T00:00:00') : null};
+    const addrUpdates = {name: newName, phone: newPhone, phone2: newPhone2, email: newEmail, email2: newEmail2, address: newAddress, rsvpStatus: newRsvp, needsLightRecycle: newRsvp === 'no', housePrice: newHousePrice, measuredFeet: newMeasuredFeet, wireColor: newWireColor, billToPhone: newBillTo, gateCode: newGateCode, wantsMailedInvoice: newWantsMailed, isTestAccount: newIsTestAccount, earliestInstallDate: newEarliestInstallStr ? new Date(newEarliestInstallStr + 'T00:00:00') : null};
     if(newEnrolledStr) addrUpdates.createdAt = new Date(newEnrolledStr + 'T12:00:00');
     await updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates);
     const inv = allCustInvoiceFor(item);
@@ -8835,7 +8223,7 @@ document.getElementById('allCustExportBtn').addEventListener('click', function()
     const inv = allCustInvoiceFor(item);
     const invStatus = inv ? computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit) : 'No Invoice';
     return {
-      Name: d.name||'', Phone: d.phone||'', Email: d.email||'', Address: d.address||'', 'Customer #': d.customerNumber||'',
+      Name: d.name||'', Phone: d.phone||'', Email: d.email||'', Address: d.address||'',
       Enrolled: memberExportDateAdded(d), 'Route Status': allCustRouteStatus(d), Difficulty: d.difficulty||'Unrated',
       'Invoice Status': invStatus, 'Invoice Total': inv ? ((inv.data.install||0)+(inv.data.removal||0)) : '',
       'Paid So Far': inv ? (inv.data.deposit||0) : '', 'Balance Due': inv ? balanceDueAmount(inv.data) : '',
@@ -8904,12 +8292,43 @@ function nearestNeighborOrder(selectedAddresses, startPoint){
 }
 
 const NEARBY_MISS_RADIUS_MILES = 0.3;
+const URGENT_DETOUR_MILES = 1.0;
+async function findUrgentOnTheWayHome(routeStops, pool){
+  if(!routeStops.length) return [];
+  let shop;
+  try{ shop = await getShopCoords(); } catch(err){ return []; }
+  const lastStop = routeStops[routeStops.length - 1];
+  const directHome = haversine(lastStop.lat, lastStop.lng, shop.lat, shop.lng);
+  const selectedIds = new Set(routeStops.map(s => s.id));
+  const candidates = [];
+  pool.forEach(function(item){
+    if(selectedIds.has(item.id)) return;
+    if(item.data.completed) return;
+    if(item.data.isTestAccount) return;
+    if(typeof item.data.lat !== 'number' || typeof item.data.lng !== 'number') return;
+    const reasons = [];
+    if(item.data.needsFix && !item.data.fixScheduled) reasons.push('Needs Fix');
+    if(!item.data.scheduled){
+      if(isOctoberUrgent(item.data)) reasons.push('October \u2014 Due Soon');
+      if(isBeforeThanksgivingUrgent(item.data)) reasons.push('Before Thanksgiving \u2014 Due Soon');
+      if(isNewHangUrgent(item.data)) reasons.push('New Hang \u2014 Waiting 7+ Days');
+    }
+    if(!reasons.length) return;
+    const detour = haversine(lastStop.lat, lastStop.lng, item.data.lat, item.data.lng) + haversine(item.data.lat, item.data.lng, shop.lat, shop.lng) - directHome;
+    if(detour <= URGENT_DETOUR_MILES){
+      candidates.push({id:item.id, address:item.data.address, name:item.data.name||'', phone:item.data.phone||'', difficulty:item.data.difficulty||'Unrated', lat:item.data.lat, lng:item.data.lng, gateCode:item.data.gateCode||'', reason: reasons.join(', '), _detour: detour});
+    }
+  });
+  candidates.sort((a,b) => a._detour - b._detour);
+  return candidates;
+}
 function findNearbyMissedHouses(selectedStops, pool){
   const selectedIds = new Set(selectedStops.map(s => s.id));
   const candidates = [];
   pool.forEach(function(item){
     if(selectedIds.has(item.id)) return;
     if(item.data.scheduled || item.data.completed) return;
+    if(item.data.isTestAccount) return;
     if(isInstallPrefLocked(item.data.installPreference)) return;
     if(isEarliestInstallDateLocked(item.data)) return;
     if(typeof item.data.lat !== 'number' || typeof item.data.lng !== 'number') return;
@@ -8933,6 +8352,7 @@ function findNearbyNeedsFixHouses(selectedStops, pool){
     pool.forEach(function(item){
       if(selectedIds.has(item.id) || found.has(item.id)) return;
       if(!item.data.needsFix || item.data.fixScheduled) return;
+      if(item.data.isTestAccount) return;
       if(typeof item.data.lat !== 'number' || typeof item.data.lng !== 'number') return;
       const distMiles = haversine(stop.lat, stop.lng, item.data.lat, item.data.lng);
       if(distMiles <= NEARBY_MISS_RADIUS_MILES){
@@ -8994,6 +8414,7 @@ function finalizeRoute(ordered, startPoint, dateVal, type, crew){
   renderRouteOrderedList(ordered);
   renderTextOutSection(ordered);
   renderMissedHousesNote();
+  renderUrgentOnWayHomeNote();
   renderDriveEstimate(ordered, startPoint);
   document.getElementById('routeResultCard').style.display = 'block';
   document.getElementById('routeResultCard').scrollIntoView({behavior:'smooth'});
@@ -9064,11 +8485,33 @@ function renderMissedHousesNote(){
     '<strong>'+currentMissedHouses.length+' nearby house(s) not included</strong> &mdash; shown as red dots on the map. Click a red dot to add it to this route.'+
   '</div>';
 }
+async function renderUrgentOnWayHomeNote(){
+  const el = document.getElementById('urgentOnWayHomeNote');
+  if(!el) return;
+  if(!currentRouteStops.length){ el.innerHTML = ''; return; }
+  let houses;
+  try{ houses = await findUrgentOnTheWayHome(currentRouteStops, jobAddresses); } catch(err){ el.innerHTML = ''; return; }
+  if(!houses.length){ el.innerHTML = ''; return; }
+  el.innerHTML = '<div style="background:#FFF3B0; border:1px solid #e8cf6a; border-radius:10px; padding:12px 14px; font-size:13px; margin-bottom:14px;">'+
+    '<strong>\uD83C\uDFE0 '+houses.length+' urgent house(s) barely out of the way heading home</strong>'+
+    '<ul style="margin:8px 0 0; padding-left:18px;">'+
+      houses.map(function(h){ return '<li style="margin-bottom:4px;">'+(h.name ? esc(h.name)+' \u2014 ' : '')+esc(h.address)+' <span style="color:var(--slate);">('+esc(h.reason)+')</span> '+
+        '<button type="button" class="btn btn-outline btn-sm add-urgent-home-stop" data-stopid="'+h.id+'" style="margin-left:6px; padding:2px 8px; font-size:11.5px;">Add</button></li>'; }).join('')+
+    '</ul>'+
+  '</div>';
+  el.querySelectorAll('.add-urgent-home-stop').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      const house = houses.find(h => h.id === btn.dataset.stopid);
+      if(house && typeof addStopToRoute === 'function') addStopToRoute(house);
+    });
+  });
+}
 function refreshCurrentRoute(){
   renderRouteMap(currentRouteStops, currentRouteStartPoint);
   renderRouteOrderedList(currentRouteStops);
   renderTextOutSection(currentRouteStops);
   renderMissedHousesNote();
+  renderUrgentOnWayHomeNote();
   renderDriveEstimate(currentRouteStops, currentRouteStartPoint);
   currentRouteIds = currentRouteStops.map(s => s.id);
 }
@@ -9150,7 +8593,7 @@ async function runGenerateInstallRoute(){
   const crewChoice = document.getElementById('genCrewSelect').value;
   const seedPref = document.getElementById('routeSeedPref').value;
   const statusEl = document.getElementById('generateRouteStatus');
-  let available = jobAddresses.filter(a => !a.data.scheduled && !a.data.completed && typeof a.data.lat === 'number' && !isInstallPrefLocked(a.data.installPreference) && !isEarliestInstallDateLocked(a.data) && a.data.rsvpStatus === 'yes');
+  let available = jobAddresses.filter(a => !a.data.scheduled && !a.data.completed && typeof a.data.lat === 'number' && !isInstallPrefLocked(a.data.installPreference) && !isEarliestInstallDateLocked(a.data) && a.data.rsvpStatus === 'yes' && !a.data.isTestAccount);
   if(cityChoice !== 'all') available = available.filter(a => extractCleanCity(a.data.city) === cityChoice || a.data.installPreference === 'November - Before Thanksgiving');
 
   const startText = document.getElementById('routeStartInput').value.trim();
@@ -9197,7 +8640,7 @@ document.getElementById('generateFixBtn').addEventListener('click', async functi
   const crewChoice = document.getElementById('fixCrewSelect').value;
   const seedPref = document.getElementById('fixSeedPref').value;
   const statusEl = document.getElementById('generateFixStatus');
-  let available = jobAddresses.filter(a => a.data.needsFix && !a.data.fixScheduled && typeof a.data.lat === 'number');
+  let available = jobAddresses.filter(a => a.data.needsFix && !a.data.fixScheduled && typeof a.data.lat === 'number' && !a.data.isTestAccount);
   if(cityChoice !== 'all') available = available.filter(a => extractCleanCity(a.data.city) === cityChoice);
   const wantFix = document.getElementById('wantFixAll').checked ? available.length : (Number(document.getElementById('wantFix').value) || 0);
 
@@ -9220,7 +8663,7 @@ document.getElementById('generateRemovalBtn').addEventListener('click', async fu
   const crewChoice = document.getElementById('removalCrewSelect').value;
   const seedPref = document.getElementById('removalSeedPref').value;
   const statusEl = document.getElementById('generateRemovalStatus');
-  let available = jobAddresses.filter(a => a.data.completed && !a.data.removalDone && !a.data.removalScheduled && typeof a.data.lat === 'number');
+  let available = jobAddresses.filter(a => a.data.completed && !a.data.removalDone && !a.data.removalScheduled && typeof a.data.lat === 'number' && !a.data.isTestAccount);
   if(cityChoice !== 'all') available = available.filter(a => extractCleanCity(a.data.city) === cityChoice);
 
   const startText = document.getElementById('removalStartInput').value.trim();
@@ -9312,7 +8755,6 @@ function renderRouteOrderedList(ordered){
         (hd.gateCode ? ' <span class="status-pill" style="background:#FAEEDA; color:#633806;">&#128274; Gated &middot; '+esc(hd.gateCode)+'</span>' : '')+
       '</div>'+
       (hd.notes ? '<div style="font-size:12.5px; color:var(--slate); margin-top:2px;">&#128221; '+esc(hd.notes)+'</div>' : '')+
-      (hd.lightsDescription ? '<div style="font-size:12.5px; color:var(--dusk); font-weight:600; margin-top:2px;">&#127875; '+esc(hd.lightsDescription)+'</div>' : '')+
       (hd.oneTimeNote ? '<div style="font-size:12.5px; color:var(--ember); margin-top:2px;">&#128221; (this visit only) '+esc(hd.oneTimeNote)+'</div>' : '')+
       (needsFix && (hd.fixNote || hd.fixPhotoUrl) ? (
         '<div style="background:#FDECEA; border:1px solid #f0b3ac; border-radius:8px; padding:10px 12px; margin-top:8px;">'+
@@ -9551,6 +8993,7 @@ function loadRouteIntoView(route, dateStr){
   renderRouteOrderedList(route.stops);
   renderTextOutSection(route.stops);
   renderMissedHousesNote();
+  renderUrgentOnWayHomeNote();
   renderDriveEstimate(route.stops, route.startPoint);
   document.getElementById('routeResultCard').style.display = 'block';
   document.getElementById('routeResultCard').scrollIntoView({behavior:'smooth'});
@@ -9764,7 +9207,9 @@ function loadEmployeeNames(){
         id:docSnap.id, name:d.name, hourlyRate:d.hourlyRate||0, role:d.role||'Crew',
         visibleTabs:d.visibleTabs||null, isAdmin:!!d.isAdmin,
         position:d.position||'', payType:d.payType||'hourly', salaryAmount:d.salaryAmount||0,
-        categoryIds:d.categoryIds||[]
+        categoryIds:d.categoryIds||[],
+        getsCommission:!!d.getsCommission, commissionPerHouse:d.commissionPerHouse||0,
+        commissionQuota:d.commissionQuota||0, commissionPeriod:d.commissionPeriod||'week'
       });
     });
     renderEmployeeChips();
@@ -9832,6 +9277,19 @@ function renderEmployeeChips(){
           '<button type="button" data-delemployee="'+e.id+'" title="Remove" style="background:none; border:none; color:var(--ember); font-size:16px; cursor:pointer; padding:0 4px;">&times;</button>'+
         '</div>'+
       '</div>'+
+      (payType === 'hourly'
+        ? '<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:8px 10px; background:var(--paper); border-radius:8px;">'+
+            '<label style="display:flex; align-items:center; gap:6px; font-size:12.5px; font-weight:600;"><input type="checkbox" class="commission-check" data-empid="'+e.id+'" '+(e.getsCommission?'checked':'')+' style="width:auto;"> Also Gets Commission</label>'+
+            (e.getsCommission
+              ? '<span style="font-size:12.5px; color:var(--slate);">$</span><input type="number" min="0" step="0.5" value="'+(e.commissionPerHouse||0)+'" data-commissionamt="'+e.id+'" title="Commission per house" style="width:70px; padding:6px 8px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:13px;"><span style="font-size:12.5px; color:var(--slate);">/house, once they hit</span>'+
+                '<input type="number" min="0" step="1" value="'+(e.commissionQuota||0)+'" data-commissionquota="'+e.id+'" title="House quota" style="width:60px; padding:6px 8px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:13px;"><span style="font-size:12.5px; color:var(--slate);">houses per</span>'+
+                '<select data-commissionperiod="'+e.id+'" style="padding:6px 8px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:13px;">'+
+                  '<option value="day"'+(e.commissionPeriod==='day'?' selected':'')+'>Day</option>'+
+                  '<option value="week"'+(e.commissionPeriod!=='day'?' selected':'')+'>Week</option>'+
+                '</select>'
+              : '')+
+          '</div>'
+        : '')+
       (employeeCategories.length ? '<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">'+
         '<span style="font-size:11.5px; font-weight:700; text-transform:uppercase; color:var(--slate);">Categories:</span>'+
         employeeCategories.map(function(cat){
@@ -9920,6 +9378,42 @@ function renderEmployeeChips(){
     sel.addEventListener('change', function(){
       updateDoc(doc(db,'employeeNames',sel.dataset.paytypeinput), {payType: sel.value}).then(function(){
         toast('Pay type updated');
+      });
+    });
+  });
+  wrap.querySelectorAll('.commission-check').forEach(function(cb){
+    cb.addEventListener('change', function(){
+      updateDoc(doc(db,'employeeNames',cb.dataset.empid), {getsCommission: cb.checked}).then(function(){
+        toast(cb.checked ? 'Commission enabled' : 'Commission turned off');
+      });
+    });
+  });
+  wrap.querySelectorAll('[data-commissionamt]').forEach(function(input){
+    let debounceTimer;
+    input.addEventListener('input', function(){
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(function(){
+        updateDoc(doc(db,'employeeNames',input.dataset.commissionamt), {commissionPerHouse: Number(input.value)||0}).then(function(){
+          toast('Commission amount updated');
+        });
+      }, 600);
+    });
+  });
+  wrap.querySelectorAll('[data-commissionquota]').forEach(function(input){
+    let debounceTimer;
+    input.addEventListener('input', function(){
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(function(){
+        updateDoc(doc(db,'employeeNames',input.dataset.commissionquota), {commissionQuota: Number(input.value)||0}).then(function(){
+          toast('House quota updated');
+        });
+      }, 600);
+    });
+  });
+  wrap.querySelectorAll('[data-commissionperiod]').forEach(function(sel){
+    sel.addEventListener('change', function(){
+      updateDoc(doc(db,'employeeNames',sel.dataset.commissionperiod), {commissionPeriod: sel.value}).then(function(){
+        toast('Commission period updated');
       });
     });
   });
@@ -10049,6 +9543,7 @@ function loadCrewConfig(){
     renderCrewAssignList();
     renderGenCrewSelects();
     renderOverrideCrewSelect();
+    if(typeof renderChecklistEmployeeSelect === 'function') renderChecklistEmployeeSelect();
     if(typeof renderConversationList === 'function') renderConversationList();
   });
 }
@@ -10114,12 +9609,35 @@ function renderOverrideEmployeeSelect(){
 
 /* ---------------- DAILY ASSIGNMENTS (checklists + notes) ---------------- */
 function renderChecklistEmployeeSelect(){
-  const sel = document.getElementById('checklistEmployeeSelect');
-  if(!sel) return;
-  const current = sel.value;
-  sel.innerHTML = employeeNames.map(function(e){ return '<option value="'+esc(e.name)+'">'+esc(e.name)+' ('+esc(e.role||'Crew')+')</option>'; }).join('');
-  if(current) sel.value = current;
+  const personSel = document.getElementById('checklistEmployeeSelect');
+  const categorySel = document.getElementById('checklistCategorySelect');
+  const crewWrap = document.getElementById('checklistCrewCheckboxes');
+  if(!personSel || !categorySel || !crewWrap) return;
+  const personCurrent = personSel.value;
+  const categoryCurrent = categorySel.value;
+  const roles = Array.from(new Set(employeeNames.map(e => e.role || 'Crew'))).sort();
+  const crewCount = Number(crewConfig.count) || 1;
+  personSel.innerHTML = employeeNames.map(function(e){ return '<option value="'+esc(e.name)+'">'+esc(e.name)+' ('+esc(e.role||'Crew')+')</option>'; }).join('');
+  if(personCurrent) personSel.value = personCurrent;
+  categorySel.innerHTML = roles.map(function(r){ return '<option value="'+esc(r)+'">Everyone: '+esc(r)+'</option>'; }).join('');
+  if(categoryCurrent) categorySel.value = categoryCurrent;
+  let crewHtml = '';
+  for(let i=1;i<=crewCount;i++){
+    crewHtml += '<label style="display:flex; align-items:center; gap:6px; font-size:13.5px;"><input type="checkbox" class="checklist-crew-check" value="'+i+'" style="width:auto;"> Crew '+i+'</label>';
+  }
+  crewWrap.innerHTML = crewHtml;
+  crewWrap.querySelectorAll('.checklist-crew-check').forEach(function(cb){
+    cb.addEventListener('change', loadChecklistForSelection);
+  });
 }
+function switchChecklistSendMode(){
+  const mode = document.getElementById('checklistSendModeSelect').value;
+  document.getElementById('checklistPersonRow').style.display = mode === 'person' ? '' : 'none';
+  document.getElementById('checklistCategoryRow').style.display = mode === 'category' ? '' : 'none';
+  document.getElementById('checklistCrewRow').style.display = mode === 'crew' ? '' : 'none';
+  loadChecklistForSelection();
+}
+document.getElementById('checklistSendModeSelect').addEventListener('change', switchChecklistSendMode);
 function renderChecklistItemInputs(items){
   const wrap = document.getElementById('checklistItemsWrap');
   const list = items && items.length ? items : [{text:'', done:false}];
@@ -10142,11 +9660,41 @@ document.getElementById('addChecklistItemBtn').addEventListener('click', functio
   currentItems.push({text:'', done:false});
   renderChecklistItemInputs(currentItems);
 });
+// Reads whichever Send To mode is currently active and returns the resolved list of employee names.
+function resolveChecklistTargets(){
+  const mode = document.getElementById('checklistSendModeSelect').value;
+  if(mode === 'person'){
+    const name = document.getElementById('checklistEmployeeSelect').value;
+    return name ? [name] : [];
+  }
+  if(mode === 'category'){
+    const role = document.getElementById('checklistCategorySelect').value;
+    if(!role) return [];
+    return employeeNames.filter(e => (e.role||'Crew') === role).map(e => e.name);
+  }
+  if(mode === 'crew'){
+    const checked = Array.from(document.querySelectorAll('.checklist-crew-check:checked')).map(cb => cb.value);
+    const names = new Set();
+    checked.forEach(function(crewNum){
+      ((crewConfig.members && crewConfig.members[crewNum]) || []).forEach(function(n){ names.add(n); });
+    });
+    return Array.from(names);
+  }
+  return [];
+}
 async function loadChecklistForSelection(){
   const dateStr = document.getElementById('checklistDateInput').value;
-  const empName = document.getElementById('checklistEmployeeSelect').value;
-  if(!dateStr || !empName) return;
-  const docId = dateStr + '_' + empName;
+  const saveBtn = document.getElementById('saveChecklistBtn');
+  if(!dateStr) return;
+  const targets = resolveChecklistTargets();
+  if(saveBtn) saveBtn.textContent = targets.length === 1 ? 'Save for This Employee' : (targets.length ? 'Save for '+targets.length+' Employees' : 'Save');
+  if(targets.length !== 1){
+    // Multiple people are selected — different people may already have different checklists, so start blank.
+    document.getElementById('checklistNoteInput').value = '';
+    renderChecklistItemInputs([]);
+    return;
+  }
+  const docId = dateStr + '_' + targets[0];
   try{
     const snap = await getDoc(doc(db,'dailyChecklists',docId));
     if(snap.exists()){
@@ -10163,33 +9711,43 @@ async function loadChecklistForSelection(){
 }
 document.getElementById('checklistDateInput').addEventListener('change', loadChecklistForSelection);
 document.getElementById('checklistEmployeeSelect').addEventListener('change', loadChecklistForSelection);
+document.getElementById('checklistCategorySelect').addEventListener('change', loadChecklistForSelection);
 document.getElementById('saveChecklistBtn').addEventListener('click', async function(){
   const dateStr = document.getElementById('checklistDateInput').value;
-  const empName = document.getElementById('checklistEmployeeSelect').value;
   const statusEl = document.getElementById('checklistSaveStatus');
-  if(!dateStr || !empName){ statusEl.textContent = 'Pick a date and employee first.'; return; }
+  if(!dateStr){ statusEl.textContent = 'Pick a date first.'; return; }
+  const targets = resolveChecklistTargets();
+  if(!targets.length){ statusEl.textContent = "No employees found in that group \u2014 nothing was saved."; return; }
   const note = document.getElementById('checklistNoteInput').value.trim();
   const items = Array.from(document.querySelectorAll('.checklist-item-input'))
     .map(inp => inp.value.trim())
     .filter(Boolean)
     .map(text => ({text: text, done: false}));
-  const docId = dateStr + '_' + empName;
-  // preserve existing done-state for items whose text didn't change
+  statusEl.textContent = 'Saving\u2026';
   try{
-    const existing = await getDoc(doc(db,'dailyChecklists',docId));
-    if(existing.exists() && existing.data().items){
-      const oldItems = existing.data().items;
-      items.forEach(function(item){
-        const match = oldItems.find(o => o.text === item.text);
-        if(match) item.done = match.done;
+    for(const empName of targets){
+      const docId = dateStr + '_' + empName;
+      const itemsForThisEmployee = items.map(function(item){ return {text: item.text, done: item.done}; });
+      // preserve existing done-state for items whose text didn't change, per employee
+      try{
+        const existing = await getDoc(doc(db,'dailyChecklists',docId));
+        if(existing.exists() && existing.data().items){
+          const oldItems = existing.data().items;
+          itemsForThisEmployee.forEach(function(item){
+            const match = oldItems.find(o => o.text === item.text);
+            if(match) item.done = match.done;
+          });
+        }
+      } catch(err){ /* proceed anyway */ }
+      await setDoc(doc(db,'dailyChecklists',docId), {
+        date: dateStr, employeeName: empName, adminNote: note, items: itemsForThisEmployee, updatedAt: serverTimestamp()
       });
     }
-  } catch(err){ /* proceed anyway */ }
-  await setDoc(doc(db,'dailyChecklists',docId), {
-    date: dateStr, employeeName: empName, adminNote: note, items: items, updatedAt: serverTimestamp()
-  });
-  statusEl.textContent = 'Saved for ' + empName + '.';
-  setTimeout(function(){ statusEl.textContent = ''; }, 3000);
+    statusEl.textContent = targets.length === 1 ? ('Saved for ' + targets[0] + '.') : ('Saved for ' + targets.length + ' employees: ' + targets.join(', ') + '.');
+  } catch(err){
+    statusEl.textContent = 'Something went wrong saving \u2014 try again.';
+  }
+  setTimeout(function(){ statusEl.textContent = ''; }, 4000);
 });
 renderChecklistItemInputs([]);
 
@@ -11209,7 +10767,7 @@ document.getElementById('memberExportBtn').addEventListener('click', function(){
   const excelRows = rows.map(function(item){
     const d = item.data;
     return {
-      Name: d.name || '', Phone: d.phone || '', Email: d.email || '', 'Customer #': d.customerNumber || '',
+      Name: d.name || '', Phone: d.phone || '', Email: d.email || '',
       Street: d.street || '', City: d.city || '', State: d.state || '', ZIP: d.zip || '',
       'Date Added': memberExportDateAdded(d), Status: memberExportStatus(d),
       Route: d.scheduledDate || '', Crew: d.assignedCrew ? ('Crew ' + d.assignedCrew) : '',
