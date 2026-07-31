@@ -712,7 +712,7 @@
         <a href="#/payment" class="btn btn-outline btn-sm">Member Portal</a>
         <a href="#/quote" class="btn btn-gold btn-sm">Get a Free Quote</a>
       </div>
-      <a href="#/quote" class="btn btn-gold btn-sm nav-mobile-quote-btn">Get a Quote</a>
+      <a href="#/payment" class="btn btn-outline btn-sm nav-mobile-quote-btn">Member Portal</a>
       <button class="menu-toggle" id="menuToggle" aria-label="Toggle menu"><span></span><span></span><span></span></button>
     </div>
   </div>
@@ -1426,16 +1426,15 @@
           <div id="invTipRow" style="display:none; margin-top:18px; padding-top:18px; border-top:1px solid var(--line);">
             <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:8px;">Add a Tip? (optional)</label>
             <p class="form-note" style="margin:0 0 10px;">If our crew went above and beyond, a tip is always appreciated. 🎄</p>
-            <div id="tipOptionRow" style="display:flex; gap:8px; flex-wrap:wrap;">
-              <button type="button" class="btn btn-outline btn-sm tip-option-btn" data-tip="0">No Tip</button>
-              <button type="button" class="btn btn-outline btn-sm tip-option-btn" data-tip="10">10%</button>
-              <button type="button" class="btn btn-outline btn-sm tip-option-btn" data-tip="15">15%</button>
-              <button type="button" class="btn btn-outline btn-sm tip-option-btn" data-tip="20">20%</button>
-              <button type="button" class="btn btn-outline btn-sm tip-option-btn" data-tip="custom">Custom</button>
+            <div id="tipOptionRow" style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
+              <button type="button" class="btn btn-outline-dark btn-sm tip-option-btn" data-tip="0">No Tip</button>
+              <button type="button" class="btn btn-outline-dark btn-sm tip-option-btn" data-tip="10">10%</button>
+              <button type="button" class="btn btn-outline-dark btn-sm tip-option-btn" data-tip="15">15%</button>
+              <button type="button" class="btn btn-outline-dark btn-sm tip-option-btn" data-tip="20">20%</button>
             </div>
-            <div id="customTipWrap" style="display:none; margin-top:10px; max-width:200px;">
-              <label style="display:block; font-size:12px; font-weight:600; margin-bottom:4px;">Custom Tip ($)</label>
-              <input type="number" id="customTipInput" min="0" step="1" placeholder="0">
+            <div style="max-width:200px;">
+              <label style="display:block; font-size:12px; font-weight:600; margin-bottom:4px;">Tip Amount ($)</label>
+              <input type="number" id="customTipInput" min="0" step="1" placeholder="0" inputmode="decimal">
             </div>
             <div style="margin-top:16px; padding-top:14px; border-top:1px dashed var(--line);">
               <div class="invoice-line"><span>Service Amount</span><span id="tipBreakdownService">$0</span></div>
@@ -1976,7 +1975,9 @@ function navigate(){
   var savedPortalToken = null;
   try{ savedPortalToken = localStorage.getItem('huPortalToken'); } catch(e){}
   var initialHash = window.location.hash.replace('#','').split('?')[0];
-  if(savedPortalToken && (!initialHash || initialHash === '/')){
+  var initialQuery = window.location.hash.split('?')[1] || '';
+  var onBarePaymentPage = initialHash === '/payment' && !initialQuery;
+  if(savedPortalToken && (!initialHash || initialHash === '/' || onBarePaymentPage)){
     window.location.hash = '/payment?token=' + savedPortalToken;
   }
 })();
@@ -2565,8 +2566,6 @@ function renderCustomerInvoicePage(raw, opts){
       currentServiceDue = totalDue;
       currentTipAmount = 0;
       tipRow.style.display = 'block';
-      document.querySelectorAll('.tip-option-btn').forEach(function(b){ b.classList.remove('btn-gold'); b.classList.add('btn-outline'); });
-      document.getElementById('customTipWrap').style.display = 'none';
       document.getElementById('customTipInput').value = '';
       updateTipBreakdown();
     } else {
@@ -2876,21 +2875,11 @@ function renderPaypalButtons(){
 }
 document.querySelectorAll('.tip-option-btn').forEach(function(btn){
   btn.addEventListener('click', function(){
-    document.querySelectorAll('.tip-option-btn').forEach(function(b){ b.classList.remove('btn-gold'); b.classList.add('btn-outline'); });
-    btn.classList.remove('btn-outline');
-    btn.classList.add('btn-gold');
-    var tipVal = btn.dataset.tip;
-    var customWrap = document.getElementById('customTipWrap');
-    if(tipVal === 'custom'){
-      customWrap.style.display = 'block';
-      var customVal = Number(document.getElementById('customTipInput').value) || 0;
-      currentTipAmount = customVal;
-      document.getElementById('customTipInput').focus();
-    } else {
-      customWrap.style.display = 'none';
-      var pct = Number(tipVal) || 0;
-      currentTipAmount = Math.round(currentServiceDue * pct / 100 * 100) / 100;
-    }
+    var pct = Number(btn.dataset.tip) || 0;
+    var val = Math.round(currentServiceDue * pct / 100 * 100) / 100;
+    var input = document.getElementById('customTipInput');
+    input.value = val || '';
+    currentTipAmount = val;
     updateTipBreakdown();
   });
 });
