@@ -323,7 +323,7 @@
   </div>
 
   <div class="bottom-nav" id="bottomNav">
-    <button class="bottom-nav-btn active" data-tab="clockin">
+    <button class="bottom-nav-btn active" data-tab="clockin" id="clockinNavBtn">
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
       <span>Clock In</span>
     </button>
@@ -494,6 +494,7 @@ async function getCrewForDate(name, dateStr){
 
 let currentEmployeeRole = 'Crew';
 let currentIsAdmin = false;
+let currentPayType = 'hourly';
 async function startAppAs(name){
   currentPersonName = name;
   document.getElementById('currentPersonName').textContent = name;
@@ -509,13 +510,17 @@ async function startAppAs(name){
     currentEmployeeRole = empData.role || 'Crew';
     visibleTabs = empData.visibleTabs || null;
     currentIsAdmin = !!empData.isAdmin;
+    currentPayType = empData.payType || 'hourly';
   } catch(err){
     currentEmployeeRole = 'Crew';
+    currentPayType = 'hourly';
   }
 
   const isCrew = currentEmployeeRole === 'Crew';
+  const isSalary = currentPayType === 'salary';
   const vt = visibleTabs || {route: isCrew, checklist: true};
   document.getElementById('checklistHeading').textContent = isCrew ? "Today's Extra Checklist" : "Today's Checklist";
+  document.getElementById('clockinNavBtn').style.display = isSalary ? 'none' : 'flex';
   document.getElementById('routeNavBtn').style.display = vt.route ? 'flex' : 'none';
   document.getElementById('checklistNavBtn').style.display = vt.checklist ? 'flex' : 'none';
   document.getElementById('addcustomerNavBtn').style.display = vt.addcustomer ? 'flex' : 'none';
@@ -550,7 +555,7 @@ async function startAppAs(name){
   if(vt.perfootpricing) loadEmpPerFootPricing();
   if(vt.timelogsadmin) loadEmpTimeLogsAdmin();
 
-  const defaultTab = vt.route ? 'route' : (vt.checklist ? 'checklist' : 'clockin');
+  const defaultTab = vt.route ? 'route' : (vt.checklist ? 'checklist' : (isSalary ? 'route' : 'clockin'));
   switchTab(defaultTab);
 }
 document.getElementById('switchPersonBtn').addEventListener('click', function(){
