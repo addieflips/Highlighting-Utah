@@ -2720,6 +2720,27 @@ const firebaseConfig = {
 };
 const app = initializeApp(firebaseConfig);
 
+/* ===== ALL TOP-LEVEL VARIABLES ===== */
+let perFootRate = 0;
+const IC_CODES = {
+const contextMenuEl = document.getElementById('msgContextMenu');
+const reviewForm = document.getElementById('reviewForm');
+const LIGHTS_COLOR_OPTIONS = ['Warm White','Pure White','Red','Green','Blue','Purple','Orange','Pink','Multi'];
+const STREETVIEW_KEY = "AIzaSyByI2wHguK1JLNdUFJQKiA_gunoVtTkyqM";
+const ACH_COLORS = ['#F4BE55','#E0574B','#2E6B3E','#4338CA','#F97316','#3E7A5B'];
+const rbAreaIds = ['rbNamesArea','rbPhonesArea','rbEmailsArea','rbStreetsArea','rbCitiesArea','rbStatesArea','rbZipsArea','rbDatesArea','rbColorsArea','rbAmountsArea','rbInstallPrefArea'];
+const rbCountIds = {
+const RB_INSTALL_PREF_OPTIONS = ['Normal Schedule','October','November','November - Before Thanksgiving','After Thanksgiving'];
+const ibAreaIds = ['ibNamesArea','ibPhonesArea','ibEmailsArea','ibAmountsArea'];
+const ibCountIds = { ibNamesArea:'ibCountNames', ibPhonesArea:'ibCountPhones', ibEmailsArea:'ibCountEmails', ibAmountsArea:'ibCountAmounts' };
+const NEARBY_MISS_RADIUS_MILES = 0.3;
+const faqForm = document.getElementById('faqForm');
+const HM_STRAND_COLORS = ['#E0574B','#4338CA','#2E6B3E','#F4BE55','#F97316','#0EA5E9','#A855F7','#DB2777','#65A30D','#78716C'];
+const HM_LABEL_TYPES = ['Garage','Front Door','Windows','Peaks','Roof Section','Custom'];
+const hmImageWrap = document.getElementById('hmImageWrap');
+const hmSvgLayer = document.getElementById('hmSvgLayer');
+
+
 /* ===== CRITICAL CONSTANTS - MOVED TO TOP ===== */
 const OVERDUE_DAYS = 14;
 const TIMING_MARKER_COLORS = {
@@ -2754,7 +2775,6 @@ const ASSIGNABLE_SECTIONS = [
   ]}
 ];
 const DEFAULT_TOPIC_FOLDERS = ['Billing / Payment Question','Change My Light Colors','Report an Issue','Reschedule Install or Removal','General Question','Something Else'];
-const IC_CODES = {
   general: [
     {token:'{{name}}', label:'Customer name'},
     {token:'{{price}}', label:'Balance / price'},
@@ -4072,7 +4092,6 @@ function initData(){
   loadEmployeeRequestsAdmin();
   loadPerFootRate();
 }
-let perFootRate = 0;
 function loadPerFootRate(){
   onSnapshot(doc(db,'pricing','config'), function(snap){
     perFootRate = snap.exists() ? (snap.data().perFootRate || 0) : 0;
@@ -5042,7 +5061,6 @@ document.getElementById('ccSaveBtn').addEventListener('click', async function(){
   }
 });
 
-const DEFAULT_TOPIC_FOLDERS = ['Billing / Payment Question','Change My Light Colors','Report an Issue','Reschedule Install or Removal','General Question','Something Else'];
 
 function loadMessageFolders(){
   onSnapshot(collection(db,'messageFolders'), async function(snap){
@@ -5194,7 +5212,6 @@ document.getElementById('addFolderBtn').addEventListener('click', async function
 });
 
 /* ---------------- RIGHT-CLICK MOVE MENU ---------------- */
-const contextMenuEl = document.getElementById('msgContextMenu');
 function openContextMenu(x, y, messageId){
   const folders = [{name:'Inbox'}].concat(messageFolders);
   contextMenuEl.innerHTML = '<div class="context-menu-label">Move to&hellip;</div>' + folders.map(function(f){
@@ -5221,10 +5238,8 @@ function messageAddressLookup(d){
 // For "Light Color Change" inbox messages: since we don't get footage from a Member Portal color change,
 // estimate it from what's already on file — actual measured feet if we have it, otherwise back-calculated
 // from their price and the per-foot rate — so staff aren't guessing bundle counts from scratch.
-const FEET_PER_BUNDLE = 40;
 // 5% safety margin so a price-based estimate errs toward too many feet rather than too few —
 // better to have an extra bundle on hand before going up on someone's roof than to come up short.
-const FEET_ESTIMATE_SAFETY = 1.05;
 function estimateFeetFromPrice(price, rate){
   return Math.round((price / rate) * FEET_ESTIMATE_SAFETY);
 }
@@ -5365,7 +5380,6 @@ document.getElementById('invoiceExportBtn').addEventListener('click', function()
   XLSX.writeFile(wb, 'highlighting-utah-invoices.xlsx');
 });
 
-const OVERDUE_DAYS = 14;
 function isInvoiceOverdue(d){
   const status = computeInvoiceStatus(d.install, d.removal, d.deposit);
   if(status === 'Paid in Full') return false;
@@ -5557,7 +5571,6 @@ function renderInvoicesList(){
 }
 
 /* ---------------- ROOF MEASUREMENT TOOL (Quotes) ---------------- */
-const RM_COLORS = ['#F4BE55','#E0574B','#2E6B3E','#4338CA','#F97316','#3E7A5B'];
 function openRoofMeasureTool(panel, quoteId, d){
   const existing = d.roofMeasurement || null;
   let rmImageUrl = (existing && existing.imageUrl) || d.frontPhotoUrl || '';
@@ -6440,7 +6453,6 @@ document.getElementById('expenseImportBtn').addEventListener('click', async func
 });
 
 /* ---------------- REVIEWS ---------------- */
-const reviewForm = document.getElementById('reviewForm');
 reviewForm.addEventListener('submit', function(e){
   e.preventDefault();
   const editId = document.getElementById('revEditId').value;
@@ -6527,7 +6539,6 @@ function hexToRgba(hex, alpha){
   const r = parseInt(h.substring(0,2),16), g = parseInt(h.substring(2,4),16), b = parseInt(h.substring(4,6),16);
   return 'rgba('+r+','+g+','+b+','+alpha+')';
 }
-const HIGHLIGHT_BAKE_COLORS = ['#F4BE55','#E0574B','#2E6B3E','#4338CA','#F97316','#3E7A5B'];
 async function getHighlightedPhotoUrl(imageUrl, highlights, opts){
   const result = await bakeHighlightsIntoPhoto(imageUrl, highlights, opts);
   if(result instanceof Blob){
@@ -6765,7 +6776,6 @@ async function showMapPreviewByAddress(containerId, addressText){
     if(box) box.innerHTML = '<div class="map-preview-placeholder">Couldn\'t locate this address.</div>';
   }
 }
-const LIGHTS_COLOR_OPTIONS = ['Warm White','Pure White','Red','Green','Blue','Purple','Orange','Pink','Multi'];
 function compileLightsDescription(color, notes){
   let result = color || '';
   if(notes) result = result ? result + ' (' + notes + ')' : notes;
@@ -6830,7 +6840,6 @@ function geocodeAddress(addressText){
     });
   });
 }
-const STREETVIEW_KEY = "AIzaSyByI2wHguK1JLNdUFJQKiA_gunoVtTkyqM";
 async function getStreetViewFrontUrlAdmin(lat, lng){
   try{
     const metaRes = await fetch('https://maps.googleapis.com/maps/api/streetview/metadata?location='+lat+','+lng+'&key='+STREETVIEW_KEY);
@@ -6955,13 +6964,6 @@ function newHangBadge(d){
 
 // ---- Shared marker color-coding: pin color = install timing, ring = time-sensitive, corner badge = fix/new-hang.
 // Used by both the Overview Map and the Route Builder map so the two stay visually consistent.
-const TIMING_MARKER_COLORS = {
-  'October': '#EF9F27',
-  'November': '#6366F1',
-  'November - Before Thanksgiving': '#7F77DD',
-  'After Thanksgiving': '#1D9E75',
-  'Normal Schedule': '#888780'
-};
 function timingMarkerColor(installPreference){
   return TIMING_MARKER_COLORS[installPreference || 'Normal Schedule'] || TIMING_MARKER_COLORS['Normal Schedule'];
 }
@@ -7240,7 +7242,6 @@ function pitchPercent(angleDeg){
   if(a <= 0) return 0;
   return Math.round(Math.tan(a * Math.PI / 180) * 100);
 }
-const ACH_COLORS = ['#F4BE55','#E0574B','#2E6B3E','#4338CA','#F97316','#3E7A5B'];
 function renderAddCustHighlights(){
   const layer = document.getElementById('addCustHighlightLayer');
   const listEl = document.getElementById('addCustHighlightList');
@@ -7555,13 +7556,10 @@ function wireBulkCounts(areaIds, anchorId, countIdMap){
 }
 
 // --- Routes Bulk Update ---
-const rbAreaIds = ['rbNamesArea','rbPhonesArea','rbEmailsArea','rbStreetsArea','rbCitiesArea','rbStatesArea','rbZipsArea','rbDatesArea','rbColorsArea','rbAmountsArea','rbInstallPrefArea'];
-const rbCountIds = {
   rbNamesArea:'rbCountNames', rbPhonesArea:'rbCountPhones', rbEmailsArea:'rbCountEmails',
   rbStreetsArea:'rbCountStreets', rbCitiesArea:'rbCountCities', rbStatesArea:'rbCountStates', rbZipsArea:'rbCountZips', rbDatesArea:'rbCountDates',
   rbColorsArea:'rbCountColors', rbAmountsArea:'rbCountAmounts', rbInstallPrefArea:'rbCountInstallPref'
 };
-const RB_INSTALL_PREF_OPTIONS = ['Normal Schedule','October','November','November - Before Thanksgiving','After Thanksgiving'];
 function rbNormalizeInstallPref(raw){
   if(!raw) return '';
   if(raw.trim().toLowerCase() === 'any') return 'Normal Schedule';
@@ -7710,8 +7708,6 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
 });
 
 // --- Invoice Bulk Update ---
-const ibAreaIds = ['ibNamesArea','ibPhonesArea','ibEmailsArea','ibAmountsArea'];
-const ibCountIds = { ibNamesArea:'ibCountNames', ibPhonesArea:'ibCountPhones', ibEmailsArea:'ibCountEmails', ibAmountsArea:'ibCountAmounts' };
 wireBulkCounts(ibAreaIds, 'ibPhonesArea', ibCountIds);
 document.getElementById('ibImportBtn').addEventListener('click', async function(){
   const statusEl = document.getElementById('ibImportStatus');
@@ -9400,7 +9396,6 @@ function nearestNeighborOrder(selectedAddresses, startPoint){
   return reorderFlatStops(flat, startPoint);
 }
 
-const NEARBY_MISS_RADIUS_MILES = 0.3;
 function findNearbyMissedHouses(selectedStops, pool){
   const selectedIds = new Set(selectedStops.map(s => s.id));
   const candidates = [];
@@ -10014,8 +10009,7 @@ document.getElementById('textOutToggle').addEventListener('click', function(){
   chevron.innerHTML = isOpen ? '&#9662;' : '&#9652;';
 });
 
-/* ---------------- CALENDAR ---------------- */
-let scheduledRoutesCache = {}; // keyed by date -> array of route docs (each has type + crew)
+/* ---------------- CALENDAR ---------------- */ // keyed by date -> array of route docs (each has type + crew)
 function formatDateNice(dateStr){
   const [y,m,d] = dateStr.split('-').map(Number);
   const dt = new Date(y, m-1, d);
@@ -10772,7 +10766,6 @@ document.getElementById('addOverrideBtn').addEventListener('click', async functi
 });
 
 /* ---------------- FAQ ---------------- */
-const faqForm = document.getElementById('faqForm');
 faqForm.addEventListener('submit', function(e){
   e.preventDefault();
   const editId = document.getElementById('faqEditId').value;
@@ -10919,8 +10912,6 @@ document.getElementById('settingsSLForm').addEventListener('submit', function(e)
 
 /* ---------------- Shared delete handler ---------------- */
 /* ==================== HOUSE MAPS ==================== */
-const HM_STRAND_COLORS = ['#E0574B','#4338CA','#2E6B3E','#F4BE55','#F97316','#0EA5E9','#A855F7','#DB2777','#65A30D','#78716C'];
-const HM_LABEL_TYPES = ['Garage','Front Door','Windows','Peaks','Roof Section','Custom'];
 
 function hmEmptyData(){
   return { images:{house:'', maps:'', front:'', outline:''}, scalePxPerFoot:0, strands:[], structureLines:[], labels:[], notes:[], highlightSections:[], updatedAt:null };
@@ -11213,8 +11204,6 @@ document.getElementById('hmFinishStrandBtn').addEventListener('click', function(
 });
 
 /* ---- Canvas interaction ---- */
-const hmImageWrap = document.getElementById('hmImageWrap');
-const hmSvgLayer = document.getElementById('hmSvgLayer');
 let hmDragPoint = null; // {strandId, pointIdx}
 
 hmImageWrap.addEventListener('click', function(e){
