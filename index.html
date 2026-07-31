@@ -1353,6 +1353,21 @@
             <h2>Welcome Back, <span id="invName">Customer Name</span>!</h2>
             <p>Please review your Christmas light information for this season.</p>
           </div>
+        </div>
+
+          <div class="portal-tabs-layout">
+          <div class="portal-tabs" id="portalTabs">
+            <button type="button" class="portal-tab-btn active" data-tab="payment">Payment</button>
+            <button type="button" class="portal-tab-btn" data-tab="info">Information</button>
+            <button type="button" class="portal-tab-btn" data-tab="lights">Light Colors</button>
+            <button type="button" class="portal-tab-btn" data-tab="changes">Changes</button>
+            <button type="button" class="portal-tab-btn" data-tab="contact">Contact</button>
+            <button type="button" class="portal-tab-btn" data-tab="cancel">Cancel</button>
+          </div>
+
+          <div class="portal-card" id="portalTabPanelCard">
+
+          <div id="tabPanel-payment">
           <div class="portal-card" id="rsvpStatusCard" style="border-top:4px solid var(--gold-dim); margin-bottom:16px;">
             <div style="text-align:center; margin-bottom:10px;">
               <span style="font-size:12.5px; letter-spacing:.05em; text-transform:uppercase; color:var(--slate); font-weight:600;">Getting Lights This Year?</span>
@@ -1420,19 +1435,9 @@
           </div>
         </div>
           </div>
-
-          <div class="portal-tabs-layout">
-          <div class="portal-tabs" id="portalTabs">
-            <button type="button" class="portal-tab-btn active" data-tab="info">Information</button>
-            <button type="button" class="portal-tab-btn" data-tab="lights">Light Colors</button>
-            <button type="button" class="portal-tab-btn" data-tab="changes">Changes</button>
-            <button type="button" class="portal-tab-btn" data-tab="contact">Contact</button>
-            <button type="button" class="portal-tab-btn" data-tab="cancel">Cancel</button>
           </div>
 
-          <div class="portal-card" id="portalTabPanelCard">
-
-            <div id="tabPanel-info">
+            <div id="tabPanel-info" style="display:none;">
               <p class="form-note" style="margin-top:0;">Update anything below and save &mdash; we'll use this for this season and remember it for next season too.</p>
               <div class="form-row"><label>Name</label><input type="text" id="infoName"></div>
               <div class="form-row"><label>Phone Number</label><input type="tel" id="infoPhone" placeholder="(801) 555-0123"></div>
@@ -1586,8 +1591,6 @@
           <div id="quoteDeclinedMsg" class="portal-confirm-msg" style="display:none;">Got it &mdash; thanks for letting us know. Reach out any time if you change your mind.</div>
         </div>
         <div id="quoteResolvedMsg" class="invoice-empty" style="display:none;"></div>
-
-      </div>
 
       <div style="text-align:center; margin-top:24px;">
         <p style="margin:0; font-size:14px; color:var(--slate);">Have a question? <a href="#/contact" style="color:var(--gold-dim); font-weight:600;">Send us a message</a></p>
@@ -3023,7 +3026,7 @@ document.getElementById('rcClearPattern').addEventListener('click', function(){
 document.getElementById('lightsSaveBtn').addEventListener('click', saveLightsPattern);
 renderRcSequence();
 
-var PORTAL_TAB_NAMES = ['info','lights','changes','contact','cancel'];
+var PORTAL_TAB_NAMES = ['payment','info','lights','changes','contact','cancel'];
 function activatePortalTab(tabName){
   document.querySelectorAll('.portal-tab-btn').forEach(function(b){
     b.classList.toggle('active', b.dataset.tab === tabName);
