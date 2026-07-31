@@ -252,6 +252,20 @@
     </div>
   </div>
 
+  <div class="tab-panel-content" id="tabpanel-warehouse" style="display:none;">
+    <div id="wh-toptabs" style="display:flex; flex-wrap:wrap; background:var(--paper); padding:4px; gap:4px; border-radius:12px;"></div>
+    <div id="wh-lights-filter" style="display:none; gap:6px; padding:12px 0 0; flex-wrap:wrap;"></div>
+    <div id="wh-crew-filter" style="display:none; gap:6px; padding:12px 0 0;"></div>
+    <div style="display:flex; align-items:center; justify-content:space-between; padding:14px 2px 6px;">
+      <span id="wh-progress" style="font-size:12.5px; color:var(--slate); font-weight:600;"></span>
+      <label id="wh-hide-done-wrap" style="display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--slate); cursor:pointer;">
+        <input type="checkbox" id="wh-hide-done" style="width:auto;">
+        Hide done
+      </label>
+    </div>
+    <div id="wh-list" style="padding:4px 0 18px; display:flex; flex-direction:column; gap:14px;"></div>
+  </div>
+
   <div class="tab-panel-content" id="tabpanel-addcustomer" style="display:none;">
     <h2>Add a Customer</h2>
     <div class="form-row"><label>Name</label><input type="text" id="ecName"></div>
@@ -323,7 +337,7 @@
   </div>
 
   <div class="bottom-nav" id="bottomNav">
-    <button class="bottom-nav-btn active" data-tab="clockin" id="clockinNavBtn">
+    <button class="bottom-nav-btn active" data-tab="clockin">
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
       <span>Clock In</span>
     </button>
@@ -335,6 +349,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
       <span>Checklist</span>
       <span class="bottom-nav-badge" id="checklistNavBadge" style="display:none;"></span>
+    </button>
+    <button class="bottom-nav-btn" data-tab="warehouse" id="warehouseNavBtn" style="display:none;">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-6 9 6v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 21V12h6v9"/></svg>
+      <span>Warehouse</span>
     </button>
     <button class="bottom-nav-btn" data-tab="addcustomer" id="addcustomerNavBtn" style="display:none;">
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>
@@ -381,7 +399,7 @@ import {
   getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  getFirestore, enableIndexedDbPersistence, collection, doc, addDoc, getDoc, getDocs, updateDoc, deleteDoc, onSnapshot, query, where, serverTimestamp, orderBy, limit
+  getFirestore, enableIndexedDbPersistence, collection, doc, addDoc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot, query, where, serverTimestamp, orderBy, limit
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -494,7 +512,6 @@ async function getCrewForDate(name, dateStr){
 
 let currentEmployeeRole = 'Crew';
 let currentIsAdmin = false;
-let currentPayType = 'hourly';
 async function startAppAs(name){
   currentPersonName = name;
   document.getElementById('currentPersonName').textContent = name;
@@ -510,19 +527,16 @@ async function startAppAs(name){
     currentEmployeeRole = empData.role || 'Crew';
     visibleTabs = empData.visibleTabs || null;
     currentIsAdmin = !!empData.isAdmin;
-    currentPayType = empData.payType || 'hourly';
   } catch(err){
     currentEmployeeRole = 'Crew';
-    currentPayType = 'hourly';
   }
 
   const isCrew = currentEmployeeRole === 'Crew';
-  const isSalary = currentPayType === 'salary';
   const vt = visibleTabs || {route: isCrew, checklist: true};
   document.getElementById('checklistHeading').textContent = isCrew ? "Today's Extra Checklist" : "Today's Checklist";
-  document.getElementById('clockinNavBtn').style.display = isSalary ? 'none' : 'flex';
   document.getElementById('routeNavBtn').style.display = vt.route ? 'flex' : 'none';
   document.getElementById('checklistNavBtn').style.display = vt.checklist ? 'flex' : 'none';
+  document.getElementById('warehouseNavBtn').style.display = vt.warehouse ? 'flex' : 'none';
   document.getElementById('addcustomerNavBtn').style.display = vt.addcustomer ? 'flex' : 'none';
   document.getElementById('quotesNavBtn').style.display = vt.quotes ? 'flex' : 'none';
   document.getElementById('custmessagesNavBtn').style.display = (vt.custmessages || vt.allmessages) ? 'flex' : 'none';
@@ -547,6 +561,7 @@ async function startAppAs(name){
     });
   }
   if(vt.checklist) loadDailyChecklist();
+  if(vt.warehouse) loadWarehouseTab();
   if(vt.quotes) loadEmpQuotes();
   if(vt.custmessages || vt.allmessages) loadEmpCustMessages(!!vt.allmessages);
   if(vt.routesadmin) loadEmpRoutesAdmin();
@@ -555,7 +570,7 @@ async function startAppAs(name){
   if(vt.perfootpricing) loadEmpPerFootPricing();
   if(vt.timelogsadmin) loadEmpTimeLogsAdmin();
 
-  const defaultTab = vt.route ? 'route' : (vt.checklist ? 'checklist' : (isSalary ? 'route' : 'clockin'));
+  const defaultTab = vt.route ? 'route' : (vt.checklist ? 'checklist' : 'clockin');
   switchTab(defaultTab);
 }
 document.getElementById('switchPersonBtn').addEventListener('click', function(){
@@ -563,7 +578,7 @@ document.getElementById('switchPersonBtn').addEventListener('click', function(){
   showWhoScreen();
 });
 
-const TAB_TITLES = {clockin:'Clock In', route:'Today\'s Route', checklist:'Checklist', addcustomer:'Add a Customer', quotes:'Quote Requests', custmessages:'Customer Messages', routesadmin:'Routes', housemaps:'House Maps', responsibilities:'Crew Assignments', financedash:'Dashboard', perfootpricing:'Per Foot Pricing', timelogsadmin:'Time Logs'};
+const TAB_TITLES = {clockin:'Clock In', route:'Today\'s Route', checklist:'Checklist', warehouse:'Warehouse', addcustomer:'Add a Customer', quotes:'Quote Requests', custmessages:'Customer Messages', routesadmin:'Routes', housemaps:'House Maps', responsibilities:'Crew Assignments', financedash:'Dashboard', perfootpricing:'Per Foot Pricing', timelogsadmin:'Time Logs'};
 function switchTab(tabName){
   document.querySelectorAll('.tab-panel-content').forEach(function(p){ p.style.display = 'none'; });
   document.getElementById('tabpanel-'+tabName).style.display = 'block';
@@ -673,6 +688,334 @@ document.getElementById('sendEmpRequestBtn').addEventListener('click', async fun
     statusEl.textContent = 'Couldn\'t send — check your connection and try again.';
   }
 });
+
+/* =========================================================
+   WAREHOUSE TAB — Checklist / Lights / Recycle / Timers / Pull
+========================================================= */
+const WH_TOP_TABS = [
+  {id:'checklist', label:'Checklist', badge:true},
+  {id:'lights', label:'Lights', badge:true},
+  {id:'recycle', label:'Recycle', badge:true},
+  {id:'timers', label:'Timers', badge:true},
+  {id:'pull', label:'Pull', badge:false}
+];
+let whActive = 'lights';
+let whHideDone = false;
+let whLightsFilter = 'all';
+let whPullCrew = null;
+let whLoaded = false;
+let whChecklistDoc = null;
+let whChecklistDocId = null;
+let whLightsNew = [];      // jobAddresses with needsLightBuild:true
+let whLightsOld = [];      // warehouseExtras docs
+let whRecycle = [];        // jobAddresses with needsLightRecycle:true
+let whTimers = [];         // jobAddresses with outletTimer:'Yes', built, not yet handled
+let whGoals = [];          // warehouseGoals docs (build-ahead targets)
+let whPullByCrew = {};     // {crewId: {docId, date, stops, pulledIds}}
+
+function whBadgeCountFor(tabId){
+  if(tabId === 'checklist'){
+    if(!whChecklistDoc) return 0;
+    const items = whChecklistDoc.items || [];
+    return items.filter(function(i){ return !i.done; }).length;
+  }
+  if(tabId === 'lights') return whLightsNew.filter(i => !i.done).length + whLightsOld.filter(i => !i.done).length;
+  if(tabId === 'recycle') return whRecycle.filter(i => !i.done).length;
+  if(tabId === 'timers') return whTimers.filter(i => !i.done).length;
+  return 0;
+}
+function whRenderTopTabs(){
+  const wrap = document.getElementById('wh-toptabs');
+  wrap.innerHTML = WH_TOP_TABS.map(function(t){
+    const isActive = t.id === whActive;
+    const count = t.badge ? whBadgeCountFor(t.id) : 0;
+    return '<button class="wh-subtab" data-tab="'+t.id+'" style="flex:1 1 30%; min-width:70px; position:relative; border:none; background:'+(isActive?'var(--ink)':'transparent')+'; color:'+(isActive?'var(--snow)':'var(--slate)')+'; border-radius:9px; padding:9px 4px; font-size:12px; font-weight:600; cursor:pointer;">'+t.label+
+      (count > 0 ? '<span style="position:absolute; top:-4px; right:2px; background:var(--ember); color:#fff; font-size:9.5px; font-weight:700; min-width:15px; height:15px; border-radius:8px; display:flex; align-items:center; justify-content:center; padding:0 4px; line-height:1;">'+count+'</span>' : '') +
+    '</button>';
+  }).join('');
+  wrap.querySelectorAll('.wh-subtab').forEach(function(btn){
+    btn.addEventListener('click', function(){ whActive = btn.dataset.tab; whRender(); });
+  });
+}
+function whKindBadge(kind){
+  if(kind === 'new') return '<span style="display:inline-block; background:#638922; color:#fff; font-size:9.5px; font-weight:700; letter-spacing:.04em; padding:2px 7px; border-radius:5px; margin-bottom:5px;">NEW</span>';
+  if(kind === 'old') return '<span style="display:inline-block; background:#7F77DD; color:#fff; font-size:9.5px; font-weight:700; letter-spacing:.04em; padding:2px 7px; border-radius:5px; margin-bottom:5px;">OLD</span>';
+  return '';
+}
+function whRow(item){
+  return '<label style="display:block; background:#fff; border:1px solid var(--line); border-radius:12px; padding:12px 14px; cursor:pointer;'+(item.done?' opacity:.55;':'')+'">'+
+    (item.kind ? whKindBadge(item.kind) : '')+
+    '<div style="display:flex; align-items:center; gap:12px;">'+
+      '<span style="width:24px; height:24px; border-radius:50%; background:var(--paper); color:var(--ink); display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; flex-shrink:0;">'+item.n+'</span>'+
+      '<span style="flex:1;">'+
+        '<span style="display:block; font-size:14.5px; font-weight:600; color:var(--ink);'+(item.done?' text-decoration:line-through;':'')+'">'+esc(item.name)+(item.bin ? ' <span style="font-weight:700; color:var(--gold-dim);">&mdash; Bin #'+esc(item.bin)+'</span>' : '')+'</span>'+
+        (item.sub ? '<span style="display:block; font-size:12.5px; color:var(--slate);">'+esc(item.sub)+'</span>' : '')+
+        (item.kind === 'new' ? '<span style="display:block; font-size:12px; font-weight:600; color:'+(item.timer?'var(--gold-dim)':'var(--slate)')+'; margin-top:3px;">'+(item.timer ? '\u23F0 Wants an outlet timer' : 'No outlet timer needed')+'</span>' : '')+
+      '</span>'+
+      '<input type="checkbox" class="wh-check" data-key="'+item.key+'" '+(item.done?'checked':'')+' style="width:22px; height:22px; flex-shrink:0;">'+
+    '</div>'+
+  '</label>';
+}
+function whGoalCard(g, i){
+  const pct = Math.max(0, Math.min(100, Math.round((g.progress / g.target) * 100)));
+  const isDone = g.progress >= g.target;
+  return '<div style="background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px;">'+
+    '<div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px;">'+
+      '<span style="font-size:14.5px; font-weight:600; color:var(--ink);">'+esc(g.pattern)+'</span>'+
+      '<span style="font-size:12.5px; font-weight:700; color:'+(isDone?'#638922':'var(--slate)')+';">'+g.progress+' of '+g.target+(isDone?' — goal met!':'')+'</span>'+
+    '</div>'+
+    '<div style="background:var(--paper); border-radius:999px; height:8px; overflow:hidden; margin-bottom:12px;"><div style="width:'+pct+'%; background:'+(isDone?'#638922':'var(--gold)')+'; height:100%;"></div></div>'+
+    (isDone ? '' :
+      '<div style="display:flex; gap:8px;">'+
+        '<input type="number" min="1" placeholder="# made today" class="wh-goal-input" data-idx="'+i+'" style="flex:1; padding:9px 10px; border-radius:8px; border:1px solid var(--line); font-size:13px;">'+
+        '<button type="button" class="wh-goal-log" data-idx="'+i+'" style="border:none; background:var(--ink); color:var(--snow); border-radius:8px; padding:9px 14px; font-size:12.5px; font-weight:600; cursor:pointer;">Log</button>'+
+      '</div>'
+    )+
+  '</div>';
+}
+async function whToggleLightsNew(key, checked){
+  await updateDoc(doc(db,'jobAddresses', key), {needsLightBuild: !checked});
+}
+async function whToggleLightsOld(key, checked){
+  if(checked){ await deleteDoc(doc(db,'warehouseExtras', key)); }
+}
+async function whToggleRecycle(key, checked){
+  await updateDoc(doc(db,'jobAddresses', key), {needsLightRecycle: !checked});
+  if(checked){
+    const item = whRecycle.find(function(i){ return i.key === key; });
+    const num = item && item.bin;
+    if(num){
+      const type = parseInt(num,10) >= 5000 ? 'double' : 'regular';
+      try{ await setDoc(doc(db,'availableCustomerNumbers', String(num)), {type: type, releasedAt: serverTimestamp()}); } catch(err){}
+    }
+  }
+}
+async function whToggleTimer(key, checked){
+  await updateDoc(doc(db,'jobAddresses', key), {timerHandled: checked});
+}
+async function whTogglePullStop(crewId, stopId, checked){
+  const entry = whPullByCrew[crewId];
+  if(!entry) return;
+  let pulled = entry.pulledIds.slice();
+  if(checked && pulled.indexOf(stopId) === -1) pulled.push(stopId);
+  if(!checked) pulled = pulled.filter(function(id){ return id !== stopId; });
+  entry.pulledIds = pulled;
+  await updateDoc(doc(db,'scheduledRoutes', entry.docId), {pulledIds: pulled});
+}
+function whCurrentLightsItems(){
+  const newItems = whLightsNew.map(function(d, i){
+    return {n:i+1, key:d.id, name:d.data.name||'(no name)', sub:d.data.lightsDescription||'', done:false, kind:'new', timer: d.data.outletTimer === 'Yes'};
+  });
+  const oldItems = whLightsOld.map(function(d, i){
+    return {n:i+1, key:d.id, name:d.data.label || 'Buffer stock', sub:d.data.pattern + (d.data.quantity>1 ? ' \u00d7 '+d.data.quantity : ''), done:false, kind:'old', bin: d.data.customerNumber || ''};
+  });
+  return newItems.concat(oldItems);
+}
+function whRender(){
+  whRenderTopTabs();
+  document.getElementById('wh-lights-filter').style.display = whActive === 'lights' ? 'flex' : 'none';
+  document.getElementById('wh-crew-filter').style.display = whActive === 'pull' ? 'flex' : 'none';
+  document.getElementById('wh-hide-done-wrap').style.display = (whActive === 'lights' && whLightsFilter === 'goals') ? 'none' : 'flex';
+
+  if(whActive === 'lights'){
+    document.getElementById('wh-lights-filter').innerHTML = ['all','new','old','goals'].map(function(f){
+      return '<button class="wh-lfilter" data-lf="'+f+'" style="border:1px solid var(--line); background:'+(whLightsFilter===f?'var(--ink)':'#fff')+'; color:'+(whLightsFilter===f?'var(--snow)':'var(--ink)')+'; border-radius:999px; padding:6px 14px; font-size:12px; font-weight:600; cursor:pointer;">'+(f==='all'?'All':f==='new'?'New Clients':f==='old'?'Old Clients':'Build Ahead')+'</button>';
+    }).join('');
+    document.querySelectorAll('.wh-lfilter').forEach(function(btn){ btn.addEventListener('click', function(){ whLightsFilter = btn.dataset.lf; whRender(); }); });
+  }
+  if(whActive === 'pull'){
+    const crewIds = Object.keys(whPullByCrew).sort();
+    document.getElementById('wh-crew-filter').innerHTML = crewIds.map(function(c){
+      return '<button class="wh-crewfilter" data-c="'+c+'" style="border:1px solid var(--line); background:'+(whPullCrew===c?'var(--ink)':'#fff')+'; color:'+(whPullCrew===c?'var(--snow)':'var(--ink)')+'; border-radius:999px; padding:6px 14px; font-size:12px; font-weight:600; cursor:pointer;">Crew '+esc(c)+'</button>';
+    }).join('');
+    document.querySelectorAll('.wh-crewfilter').forEach(function(btn){ btn.addEventListener('click', function(){ whPullCrew = btn.dataset.c; whRender(); }); });
+  }
+
+  const list = document.getElementById('wh-list');
+
+  if(whActive === 'checklist'){
+    const items = (whChecklistDoc && whChecklistDoc.items) || [];
+    document.getElementById('wh-progress').textContent = items.filter(function(i){ return i.done; }).length + ' of ' + items.length + ' done';
+    let visible = whHideDone ? items.filter(function(i){ return !i.done; }) : items;
+    if(!visible.length){ list.innerHTML = '<p style="text-align:center; color:var(--slate); font-size:13.5px; padding:20px 0;">Nothing assigned for today.</p>'; return; }
+    list.innerHTML = visible.map(function(item){
+      const realIdx = items.indexOf(item);
+      return '<label style="display:flex; align-items:center; gap:10px; padding:12px 0; border-bottom:1px solid var(--line); font-size:15px; cursor:pointer;">'+
+        '<input type="checkbox" class="wh-checklist-check" data-idx="'+realIdx+'" '+(item.done?'checked':'')+' style="width:20px; height:20px;">'+
+        '<span style="'+(item.done?'text-decoration:line-through; color:var(--slate);':'')+'">'+esc(item.text)+'</span>'+
+      '</label>';
+    }).join('');
+    list.querySelectorAll('.wh-checklist-check').forEach(function(cb){
+      cb.addEventListener('change', async function(){
+        const idx = Number(cb.dataset.idx);
+        whChecklistDoc.items[idx].done = cb.checked;
+        await updateDoc(doc(db,'dailyChecklists',whChecklistDocId), {items: whChecklistDoc.items});
+        whRender();
+      });
+    });
+    return;
+  }
+
+  if(whActive === 'lights' && whLightsFilter === 'goals'){
+    document.getElementById('wh-progress').textContent = whGoals.length + ' active goal(s)';
+    list.innerHTML = whGoals.length ? whGoals.map(whGoalCard).join('') : '<p style="text-align:center; color:var(--slate); font-size:13.5px; padding:20px 0;">No build-ahead goals right now.</p>';
+    list.querySelectorAll('.wh-goal-log').forEach(function(btn){
+      btn.addEventListener('click', async function(){
+        const i = Number(this.dataset.idx);
+        const input = list.querySelector('.wh-goal-input[data-idx="'+i+'"]');
+        const val = Number(input.value) || 0;
+        if(val <= 0) return;
+        const g = whGoals[i];
+        const newProgress = g.progress + val;
+        await updateDoc(doc(db,'warehouseGoals', g.id), {progress: newProgress});
+        g.progress = newProgress;
+        whRender();
+      });
+    });
+    return;
+  }
+
+  let items;
+  if(whActive === 'pull') items = (whPullCrew && whPullByCrew[whPullCrew]) ? whPullByCrew[whPullCrew].stops : [];
+  else if(whActive === 'lights') items = whCurrentLightsItems();
+  else if(whActive === 'recycle') items = whRecycle;
+  else if(whActive === 'timers') items = whTimers;
+  else items = [];
+
+  if(whActive === 'lights' && whLightsFilter !== 'all') items = items.filter(function(i){ return i.kind === whLightsFilter; });
+
+  const total = items.length;
+  const doneCount = items.filter(function(i){ return i.done; }).length;
+  document.getElementById('wh-progress').textContent = whActive === 'pull'
+    ? (whPullCrew ? 'Crew '+whPullCrew+' — '+doneCount+' of '+total+' pulled' : '')
+    : doneCount + ' of ' + total + ' done';
+
+  let visible = whHideDone ? items.filter(function(i){ return !i.done; }) : items;
+
+  if(!visible.length){
+    list.innerHTML = '<p style="text-align:center; color:var(--slate); font-size:13.5px; padding:20px 0;">'+(whActive==='pull' ? 'Nothing to pull.' : 'All done here!')+'</p>';
+  } else if(whActive === 'lights' && whLightsFilter === 'all'){
+    const newItems = visible.filter(function(i){ return i.kind === 'new'; });
+    const oldItems = visible.filter(function(i){ return i.kind === 'old'; });
+    let html = '';
+    if(newItems.length) html += '<div style="font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#638922; font-weight:700; margin:2px 0 -4px;">New clients</div>' + newItems.map(whRow).join('');
+    if(oldItems.length) html += '<div style="font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#7F77DD; font-weight:700; margin:8px 0 -4px;">Old clients</div>' + oldItems.map(whRow).join('');
+    list.innerHTML = html;
+  } else {
+    list.innerHTML = visible.map(whRow).join('');
+  }
+
+  list.querySelectorAll('.wh-check').forEach(function(cb){
+    cb.addEventListener('change', async function(){
+      const key = cb.dataset.key;
+      cb.disabled = true;
+      try{
+        if(whActive === 'lights'){
+          const item = whCurrentLightsItems().find(function(i){ return i.key === key; });
+          if(item.kind === 'new') await whToggleLightsNew(key, cb.checked);
+          else await whToggleLightsOld(key, cb.checked);
+        } else if(whActive === 'recycle'){
+          await whToggleRecycle(key, cb.checked);
+        } else if(whActive === 'timers'){
+          await whToggleTimer(key, cb.checked);
+        } else if(whActive === 'pull'){
+          await whTogglePullStop(whPullCrew, key, cb.checked);
+        }
+      } catch(err){ cb.checked = !cb.checked; }
+      cb.disabled = false;
+      await whLoadAll();
+    });
+  });
+}
+async function whLoadChecklist(){
+  const todayStr = toDateStr(new Date());
+  whChecklistDocId = todayStr + '_' + currentPersonName;
+  try{
+    const snap = await getDoc(doc(db,'dailyChecklists',whChecklistDocId));
+    whChecklistDoc = snap.exists() ? snap.data() : {items:[]};
+  } catch(err){ whChecklistDoc = {items:[]}; }
+}
+async function whLoadLightsAndRecycleAndTimers(){
+  try{
+    const newSnap = await getDocs(query(collection(db,'jobAddresses'), where('needsLightBuild','==',true)));
+    whLightsNew = []; newSnap.forEach(function(d){ whLightsNew.push({id:d.id, data:d.data()}); });
+  } catch(err){ whLightsNew = []; }
+  try{
+    const extraSnap = await getDocs(collection(db,'warehouseExtras'));
+    whLightsOld = []; extraSnap.forEach(function(d){ whLightsOld.push({id:d.id, data:d.data()}); });
+  } catch(err){ whLightsOld = []; }
+  try{
+    const recycleSnap = await getDocs(query(collection(db,'jobAddresses'), where('needsLightRecycle','==',true)));
+    whRecycle = [];
+    let i = 0;
+    recycleSnap.forEach(function(d){
+      const dd = d.data();
+      if(!dd.lightsDescription) return;
+      i++;
+      whRecycle.push({n:i, key:d.id, name:dd.name||'(no name)', sub:dd.lightsDescription+' \u2014 pull back into stock', done:false, bin:dd.customerNumber||''});
+    });
+  } catch(err){ whRecycle = []; }
+  try{
+    const timerSnap = await getDocs(query(collection(db,'jobAddresses'), where('outletTimer','==','Yes')));
+    whTimers = [];
+    let i = 0;
+    timerSnap.forEach(function(d){
+      const dd = d.data();
+      if(dd.needsLightBuild) return; // still a brand-new pending install — timer note already shows inline on their Lights card
+      if(dd.timerHandled) return;
+      i++;
+      whTimers.push({n:i, key:d.id, name:dd.name||'(no name)', sub:(dd.address||'')+' \u2014 existing customer, changed timer preference', done:false, bin:dd.customerNumber||''});
+    });
+  } catch(err){ whTimers = []; }
+}
+async function whLoadGoals(){
+  try{
+    const snap = await getDocs(collection(db,'warehouseGoals'));
+    whGoals = [];
+    snap.forEach(function(d){
+      const dd = d.data();
+      if((dd.progress||0) >= dd.target) return;
+      whGoals.push({id:d.id, pattern:dd.pattern||'', target:dd.target||0, progress:dd.progress||0});
+    });
+  } catch(err){ whGoals = []; }
+}
+async function whLoadPull(){
+  whPullByCrew = {};
+  try{
+    const todayStr = toDateStr(new Date());
+    const snap = await getDocs(query(collection(db,'scheduledRoutes'), where('date','>=',todayStr), where('type','==','install'), orderBy('date','asc'), limit(30)));
+    const rows = [];
+    snap.forEach(function(d){ rows.push({id:d.id, data:d.data()}); });
+    if(!rows.length) return;
+    let nextDate = rows[0].data.date;
+    rows.forEach(function(r){ if(r.data.date < nextDate) nextDate = r.data.date; });
+    rows.filter(function(r){ return r.data.date === nextDate; }).forEach(function(r){
+      const crewId = r.data.crew || '1';
+      const pulledIds = r.data.pulledIds || [];
+      const stops = (r.data.stops || []).map(function(s, i){
+        return {n:i+1, key:s.id, name:s.name || '(no name)', sub:'Stop '+(i+1)+' on Crew '+crewId+'\u2019s route', done: pulledIds.indexOf(s.id) !== -1, bin: s.customerNumber || ''};
+      });
+      whPullByCrew[crewId] = {docId:r.id, date:r.data.date, stops:stops, pulledIds:pulledIds};
+    });
+    if(!whPullCrew || !whPullByCrew[whPullCrew]){
+      const crewIds = Object.keys(whPullByCrew).sort();
+      whPullCrew = crewIds.length ? crewIds[0] : null;
+    }
+  } catch(err){ whPullByCrew = {}; }
+}
+async function whLoadAll(){
+  await Promise.all([whLoadChecklist(), whLoadLightsAndRecycleAndTimers(), whLoadGoals(), whLoadPull()]);
+  whRender();
+}
+function loadWarehouseTab(){
+  if(whLoaded) { whLoadAll(); return; }
+  whLoaded = true;
+  document.getElementById('wh-hide-done').addEventListener('change', function(){
+    whHideDone = this.checked;
+    whRender();
+  });
+  whLoadAll();
+}
 function requestStatusPill(status){
   const colors = {pending:'#F4BE55', approved:'#2E6B3E', denied:'#E0574B'};
   const labels = {pending:'Pending', approved:'Approved', denied:'Denied'};
