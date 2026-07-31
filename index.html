@@ -599,14 +599,18 @@
   .portal-bottom-nav{ display:none; }
   .portal-more-menu{ display:none; }
   @media (max-width:640px){
-    .form-shell{ padding:20px 16px; border-radius:14px; }
+    .wrap{ padding:0 12px; }
+    section.page-block{ padding:32px 0; }
+    #page-payment section.page-block{ padding-top:20px; }
+    .form-shell{ padding:14px 12px; border-radius:12px; }
     .portal-tabs-layout{ padding-bottom:88px; gap:0; }
-    .portal-tabs-layout .portal-card{ padding:22px 18px; border-radius:16px; }
-    .portal-welcome h2{ font-size:24px; }
-    #invAmount{ font-size:52px !important; }
+    .portal-tabs-layout .portal-card{ padding:16px 14px; border-radius:14px; }
+    .portal-welcome{ padding:2px 2px 6px; }
+    .portal-welcome h2{ font-size:22px; }
+    #invAmount{ font-size:48px !important; }
     .portal-actions{ flex-direction:column; }
     .portal-actions .btn{ min-width:0; }
-    .btn-block{ padding:16px; font-size:16px; }
+    .btn-block{ padding:14px; font-size:16px; }
     .portal-tabs{ display:none; }
     .portal-bottom-nav{
       display:flex; position:fixed; left:0; right:0; bottom:0; z-index:40;
@@ -1973,12 +1977,24 @@ function navigate(){
 }
 (function(){
   var savedPortalToken = null;
+  var savedCreds = null;
   try{ savedPortalToken = localStorage.getItem('huPortalToken'); } catch(e){}
+  try{
+    var rawCreds = localStorage.getItem('huPortalCreds');
+    if(rawCreds) savedCreds = JSON.parse(rawCreds);
+  } catch(e){}
   var initialHash = window.location.hash.replace('#','').split('?')[0];
   var initialQuery = window.location.hash.split('?')[1] || '';
   var onBarePaymentPage = initialHash === '/payment' && !initialQuery;
-  if(savedPortalToken && (!initialHash || initialHash === '/' || onBarePaymentPage)){
-    window.location.hash = '/payment?token=' + savedPortalToken;
+  var atRootOrEmpty = !initialHash || initialHash === '/';
+  if((savedCreds || savedPortalToken) && (atRootOrEmpty || onBarePaymentPage)){
+    if(atRootOrEmpty) window.location.hash = '/payment';
+    if(savedCreds && savedCreds.c && savedCreds.ln && typeof performSignInLookup === 'function'){
+      if(typeof hideLoginPrompt === 'function') hideLoginPrompt();
+      performSignInLookup(savedCreds.c, savedCreds.ln);
+    } else if(savedPortalToken && typeof loadPortalByToken === 'function'){
+      loadPortalByToken(savedPortalToken);
+    }
   }
 })();
 window.addEventListener('hashchange', navigate);
@@ -2489,10 +2505,12 @@ document.getElementById('lookupForm').addEventListener('submit', function(e){
   var contactRaw = document.getElementById('lookupPhone').value.trim();
   var lastNameInput = document.getElementById('lookupLastName').value.trim();
   if(!contactRaw || !lastNameInput){ return; }
+  var lastNameLower = lastNameInput.toLowerCase();
+  savePortalCreds(contactRaw, lastNameLower);
   var heroEl = document.getElementById('paymentPageHero');
   if(heroEl) heroEl.style.display = 'none';
   document.getElementById('lookupFormWrap').style.display = 'none';
-  performSignInLookup(contactRaw, lastNameInput.toLowerCase());
+  performSignInLookup(contactRaw, lastNameLower);
   window.scrollTo({top:0, behavior:'smooth'});
 });
 function hideLoginPrompt(){
@@ -2773,6 +2791,10 @@ function savePortalLogin(token){
 }
 function clearPortalLogin(){
   try{ localStorage.removeItem('huPortalToken'); } catch(e){}
+  try{ localStorage.removeItem('huPortalCreds'); } catch(e){}
+}
+function savePortalCreds(contactRaw, lastNameInput){
+  try{ localStorage.setItem('huPortalCreds', JSON.stringify({c: contactRaw, ln: lastNameInput})); } catch(e){}
 }
 
 var currentServiceDue = 0;
