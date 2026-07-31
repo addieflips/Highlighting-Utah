@@ -2720,6 +2720,75 @@ const firebaseConfig = {
 };
 const app = initializeApp(firebaseConfig);
 
+/* ===== CRITICAL CONSTANTS - MOVED TO TOP ===== */
+const OVERDUE_DAYS = 14;
+const TIMING_MARKER_COLORS = {
+  'October': '#EF9F27',
+  'November': '#6366F1',
+  'November - Before Thanksgiving': '#7F77DD',
+  'After Thanksgiving': '#1D9E75',
+  'Normal Schedule': '#888780'
+};
+let scheduledRoutesCache = {};
+const ASSIGNABLE_SECTIONS = [
+  {group:'Crew Portal', items:[
+    {key:'route', label:'Route/Map'},
+    {key:'checklist', label:'Checklist'},
+    {key:'warehouse', label:'Warehouse'}
+  ]},
+  {group:'Business', items:[
+    {key:'addcustomer', label:'Add a Customer'},
+    {key:'quotes', label:'Quote Requests'},
+    {key:'custmessages', label:'Customer Messages'},
+    {key:'allmessages', label:'All Messages (Full Inbox + Employee Notes)'}
+  ]},
+  {group:'Employee Tools', items:[
+    {key:'routesadmin', label:'Routes (Full List)'},
+    {key:'housemaps', label:'House Maps'},
+    {key:'responsibilities', label:'Responsibilities (Crew Assignments)'}
+  ]},
+  {group:'Finance', items:[
+    {key:'financedash', label:'Dashboard (Financial Overview, Invoices, Credit Cards)'},
+    {key:'perfootpricing', label:'Per Foot Pricing'},
+    {key:'timelogsadmin', label:'Time Logs (Full, All Employees)'}
+  ]}
+];
+const DEFAULT_TOPIC_FOLDERS = ['Billing / Payment Question','Change My Light Colors','Report an Issue','Reschedule Install or Removal','General Question','Something Else'];
+const IC_CODES = {
+  general: [
+    {token:'{{name}}', label:'Customer name'},
+    {token:'{{price}}', label:'Balance / price'},
+    {token:'{{amount}}', label:'Amount (billing)'},
+    {token:'{{portal_link}}', label:'Portal link (plain URL)'},
+    {token:'{{portal_button}}', label:'Portal link (button)'},
+    {token:'{{messages_link}}', label:'Send-us-a-message link (plain URL)'},
+    {token:'{{messages_button}}', label:'Send-us-a-message link (button)'},
+    {token:'{{venmo_link}}', label:'Venmo pay link (plain URL)'},
+    {token:'{{venmo_button}}', label:'Venmo pay link (button)'}
+  ],
+  rsvp: [
+    {token:'{{rsvp_yes_link}}', label:'RSVP Yes (plain URL)'},
+    {token:'{{rsvp_yes_button}}', label:'RSVP Yes (button)'},
+    {token:'{{rsvp_no_link}}', label:'RSVP No (plain URL)'},
+    {token:'{{rsvp_no_button}}', label:'RSVP No (button)'},
+    {token:'{{rsvp_back_link}}', label:'RSVP Back Next Year (plain URL)'},
+    {token:'{{rsvp_back_button}}', label:'RSVP Back Next Year (button)'}
+  ],
+  quote: [
+    {token:'{{name}}', label:'Customer name'},
+    {token:'{{price}}', label:'Quoted price'},
+    {token:'{{link}}', label:'Quote link (plain URL)'},
+    {token:'{{link_button}}', label:'Quote link (button)'},
+    {token:'{{quote_yes_button}}', label:'Quote Approve (button) — needs Quote Token step to fully work'},
+    {token:'{{quote_decline_button}}', label:'Quote Decline (button) — needs Quote Token step to fully work'}
+  ]
+};
+const FEET_PER_BUNDLE = 40;
+const FEET_ESTIMATE_SAFETY = 1.05;
+const RM_COLORS = ['#F4BE55','#E0574B','#2E6B3E','#4338CA','#F97316','#3E7A5B'];
+const HIGHLIGHT_BAKE_COLORS = ['#F4BE55','#E0574B','#2E6B3E','#4338CA','#F97316','#3E7A5B'];
+
+
 /* ===== CACHE VARIABLES - MOVED TO TOP ===== */
 let quotesCache = [];
 let quoteFilter = 'all';
