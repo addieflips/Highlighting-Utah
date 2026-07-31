@@ -576,7 +576,14 @@
     background:#fff; border:1px solid var(--line); border-radius:18px; padding:28px;
     margin-top:22px;
   }
-  .portal-tabs-layout{ display:flex; gap:16px; margin-top:20px; align-items:flex-start; }
+  .portal-tabs-layout{ display:flex; gap:16px; margin-top:20px; align-items:flex-start; width:100%; }
+  @media (min-width:900px){
+    .portal-tabs-layout{
+      max-width:920px;
+      margin-left:50%;
+      transform:translateX(-50%);
+    }
+  }
   .portal-tabs{
     display:flex; flex-direction:column; gap:4px;
     background:var(--paper); border-radius:12px; padding:8px;
@@ -592,6 +599,34 @@
   .portal-tab-btn.active{ background:var(--ink); color:var(--snow); }
   .portal-tab-btn.active:hover{ background:var(--ink); }
   .portal-tabs-layout .portal-card{ flex:1; min-width:0; margin-top:0; }
+  .portal-bottom-nav{ display:none; }
+  @media (max-width:640px){
+    .portal-tabs-layout{ padding-bottom:76px; }
+    .portal-tabs{ display:none; }
+    .portal-bottom-nav{
+      display:flex; position:fixed; left:0; right:0; bottom:0; z-index:40;
+      background:#fff; border-top:1px solid var(--line);
+      padding:6px 4px calc(6px + env(safe-area-inset-bottom));
+    }
+    .portal-bottom-nav-btn{
+      flex:1; display:flex; flex-direction:column; align-items:center; gap:3px;
+      border:none; background:transparent; color:var(--slate);
+      padding:6px 2px; font-size:10.5px; font-weight:600; cursor:pointer;
+    }
+    .portal-bottom-nav-btn.active{ color:var(--ink); }
+    .portal-bottom-nav-btn .pbn-icon{ font-size:19px; line-height:1; }
+    .portal-more-menu{
+      display:none; position:fixed; left:12px; right:12px; bottom:76px; z-index:41;
+      background:#fff; border:1px solid var(--line); border-radius:14px;
+      box-shadow:var(--shadow); overflow:hidden;
+    }
+    .portal-more-menu.open{ display:block; }
+    .portal-more-menu button{
+      display:block; width:100%; text-align:left; border:none; background:transparent;
+      padding:14px 16px; font-size:14.5px; font-weight:600; cursor:pointer; color:var(--ink);
+    }
+    .portal-more-menu button + button{ border-top:1px solid var(--line); }
+  }
   @media (max-width:640px){
     .portal-tabs-layout{ flex-direction:column; gap:12px; }
     .portal-tabs{ width:100%; }
@@ -1365,19 +1400,21 @@
             <button type="button" class="portal-tab-btn" data-tab="cancel">Cancel</button>
           </div>
 
+          <div class="portal-more-menu" id="portalMoreMenu">
+            <button type="button" data-tab="contact">Contact us</button>
+            <button type="button" data-tab="cancel">Cancel service</button>
+          </div>
+          <nav class="portal-bottom-nav" id="portalBottomNav">
+            <button type="button" class="portal-bottom-nav-btn active" data-tab="payment"><span class="pbn-icon">&#128179;</span>Payment</button>
+            <button type="button" class="portal-bottom-nav-btn" data-tab="info"><span class="pbn-icon">&#128100;</span>Info</button>
+            <button type="button" class="portal-bottom-nav-btn" data-tab="lights"><span class="pbn-icon">&#128161;</span>Lights</button>
+            <button type="button" class="portal-bottom-nav-btn" data-tab="changes"><span class="pbn-icon">&#9881;</span>Changes</button>
+            <button type="button" class="portal-bottom-nav-btn" id="portalMoreBtn"><span class="pbn-icon">&#8942;</span>More</button>
+          </nav>
+
           <div class="portal-card" id="portalTabPanelCard">
 
           <div id="tabPanel-payment">
-          <div class="portal-card" id="rsvpStatusCard" style="border-top:4px solid var(--gold-dim); margin-bottom:16px;">
-            <div style="text-align:center; margin-bottom:10px;">
-              <span style="font-size:12.5px; letter-spacing:.05em; text-transform:uppercase; color:var(--slate); font-weight:600;">Getting Lights This Year?</span>
-            </div>
-            <p id="rsvpStatusNote" style="font-size:13px; text-align:center; color:var(--slate); margin:0 0 14px;">Let us know so we can plan your install.</p>
-            <div style="display:flex; gap:10px;">
-              <button type="button" class="btn btn-outline btn-block" id="rsvpYesBtn" style="flex:1;">&#9989; Yes, Hang My Lights</button>
-              <button type="button" class="btn btn-outline btn-block" id="rsvpNoBtn" style="flex:1;">&#10060; No, Not This Year</button>
-            </div>
-          </div>
           <div class="invoice-status" id="invStatus" style="display:none;">Balance Due</div>
           <div class="portal-card" id="portalPaymentCard" style="border-top:4px solid var(--gold); box-shadow:var(--shadow);">
           <div style="text-align:center; margin-bottom:6px;">
@@ -2333,9 +2370,6 @@ async function hmLoadHouseMapForInvoice(phoneDigits){
     currentJobAddressId = snap.docs[0].id;
     var addrDoc = snap.docs[0].data();
     currentJobAddressData = addrDoc;
-    setRsvpStatusButtons(addrDoc.rsvpStatus || '');
-    var rsvpCardEl = document.getElementById('rsvpStatusCard');
-    if(rsvpCardEl) rsvpCardEl.style.display = addrDoc.rsvpStatus ? 'none' : '';
     if(addrDoc.portalToken){
       savePortalLogin(addrDoc.portalToken);
     } else {
@@ -2717,34 +2751,6 @@ function handleBackNextYear(token){
     if(msg) msg.textContent = "Something went wrong \u2014 please call or text us at (801) 901-0011 and we'll get it sorted out.";
   });
 }
-function setRsvpStatusButtons(status){
-  var yesBtn = document.getElementById('rsvpYesBtn');
-  var noBtn = document.getElementById('rsvpNoBtn');
-  var note = document.getElementById('rsvpStatusNote');
-  if(!yesBtn || !noBtn) return;
-  yesBtn.classList.toggle('btn-gold', status === 'yes');
-  yesBtn.classList.toggle('btn-outline', status !== 'yes');
-  noBtn.classList.toggle('btn-gold', status === 'no');
-  noBtn.classList.toggle('btn-outline', status !== 'no');
-  if(note){
-    if(status === 'yes') note.textContent = "You're confirmed \u2014 we'll be hanging your lights this year.";
-    else if(status === 'no') note.textContent = "You've let us know you're skipping this year. Change your mind anytime.";
-    else note.textContent = 'Let us know so we can plan your install.';
-  }
-}
-function saveRsvpStatus(status){
-  if(!currentJobAddressId) return;
-  currentJobAddressData = currentJobAddressData || {};
-  currentJobAddressData.rsvpStatus = status;
-  setRsvpStatusButtons(status);
-  updateDoc(doc(db,'jobAddresses', currentJobAddressId), {
-    rsvpStatus: status,
-    rsvpRespondedAt: serverTimestamp(),
-    needsLightRecycle: status === 'no'
-  }).catch(function(){});
-}
-document.getElementById('rsvpYesBtn').addEventListener('click', function(){ saveRsvpStatus('yes'); });
-document.getElementById('rsvpNoBtn').addEventListener('click', function(){ saveRsvpStatus('no'); });
 
 /* ---- Portal token helpers ---- */
 function generatePortalToken(){
@@ -3031,6 +3037,14 @@ function activatePortalTab(tabName){
   document.querySelectorAll('.portal-tab-btn').forEach(function(b){
     b.classList.toggle('active', b.dataset.tab === tabName);
   });
+  var isMoreTab = (tabName === 'contact' || tabName === 'cancel');
+  document.querySelectorAll('.portal-bottom-nav-btn[data-tab]').forEach(function(b){
+    b.classList.toggle('active', b.dataset.tab === tabName);
+  });
+  var moreBtn = document.getElementById('portalMoreBtn');
+  if(moreBtn) moreBtn.classList.toggle('active', isMoreTab);
+  var moreMenu = document.getElementById('portalMoreMenu');
+  if(moreMenu) moreMenu.classList.remove('open');
   PORTAL_TAB_NAMES.forEach(function(name){
     var panel = document.getElementById('tabPanel-'+name);
     if(panel) panel.style.display = name === tabName ? 'block' : 'none';
@@ -3038,6 +3052,21 @@ function activatePortalTab(tabName){
 }
 document.querySelectorAll('.portal-tab-btn').forEach(function(btn){
   btn.addEventListener('click', function(){ activatePortalTab(btn.dataset.tab); });
+});
+document.querySelectorAll('.portal-bottom-nav-btn[data-tab]').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    activatePortalTab(btn.dataset.tab);
+    window.scrollTo({top:0, behavior:'smooth'});
+  });
+});
+document.getElementById('portalMoreBtn').addEventListener('click', function(){
+  document.getElementById('portalMoreMenu').classList.toggle('open');
+});
+document.querySelectorAll('.portal-more-menu button[data-tab]').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    activatePortalTab(btn.dataset.tab);
+    window.scrollTo({top:0, behavior:'smooth'});
+  });
 });
 
 document.getElementById('qrToggleBtn').addEventListener('click', function(){
