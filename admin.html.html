@@ -365,6 +365,26 @@
     background:#fff; border-radius:16px; padding:26px 28px; max-width:480px; width:100%;
     box-shadow:0 30px 60px -15px rgba(0,0,0,.4); max-height:85vh; overflow-y:auto;
   }
+  .et-popup-overlay{
+    display:none; position:fixed; inset:0; background:rgba(30,20,15,.55); z-index:1000;
+    align-items:center; justify-content:center; padding:20px;
+  }
+  .et-popup{
+    background:#fff; border-radius:16px; padding:26px 28px; width:100%;
+    box-shadow:0 30px 60px -15px rgba(0,0,0,.4); max-height:90vh; overflow-y:auto;
+  }
+  .et-tab-row{ display:flex; gap:6px; border-bottom:1px solid var(--line); margin:0 0 14px; flex-wrap:wrap; }
+  .et-tab-btn{
+    background:none; border:none; padding:8px 12px; font-size:13px; font-weight:600; color:var(--slate);
+    cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px;
+  }
+  .et-tab-btn.active{ color:var(--dusk); border-bottom-color:var(--gold); }
+  .et-code-row{
+    display:flex; align-items:flex-start; gap:10px; padding:8px 6px; border-radius:8px; font-size:13px;
+  }
+  .et-code-row:hover{ background:var(--snow); }
+  .et-code-row input{ width:auto; margin-top:3px; }
+  .et-code-token{ font-family:monospace; font-size:11.5px; color:var(--slate); }
   .address-link-btn{
     background:none; border:none; padding:0; text-align:left; cursor:pointer;
     color:var(--dusk); font-weight:600; text-decoration:underline; font-size:14.5px;
@@ -1583,7 +1603,10 @@ Highlighting Utah</textarea>
         <div>
           <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
             <p style="font-weight:500; font-size:16px; margin:0;" id="etGridTitle">All templates</p>
-            <button type="button" class="btn" style="background:var(--fill-primary); color:var(--on-primary); border:none;"><i class="ti ti-plus" aria-hidden="true" style="margin-right:4px;"></i>New template</button>
+            <div style="display:flex; gap:8px;">
+              <button type="button" class="btn btn-outline" id="etOpenSendBtn"><i class="ti ti-send" aria-hidden="true" style="margin-right:4px;"></i>Preview &amp; Send</button>
+              <button type="button" class="btn" id="etNewTemplateBtn" style="background:var(--fill-primary); color:var(--on-primary); border:none;"><i class="ti ti-plus" aria-hidden="true" style="margin-right:4px;"></i>New template</button>
+            </div>
           </div>
           <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px;" id="etTemplateList">
             <div class="empty-note">No templates yet.</div>
@@ -1591,8 +1614,122 @@ Highlighting Utah</textarea>
         </div>
       </div>
 
-      <!-- ===== PHASE 2: HIDDEN MODALS (will add in next step) ===== -->
-      <!-- Placeholder for modals - will be added in Phase 2 -->
+      <!-- ===== TEMPLATE EDITOR MODAL ===== -->
+      <div class="et-popup-overlay" id="etEditorOverlay">
+        <div class="et-popup" style="max-width:640px;">
+          <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:19px;" id="etEditorTitle">New Template</h3>
+          <p style="margin:0 0 16px; font-size:13px; color:var(--slate);">Codes like <span class="et-code-token">{{name}}</span> get swapped for real info when this goes out.</p>
+          <input type="hidden" id="etEditingId">
+          <div class="form-row"><label>Template Name</label><input type="text" id="etTemplateName" placeholder="e.g. Quote Follow-Up"></div>
+          <div class="form-row"><label>Folder</label><select id="etTemplateFolder"><option value="">(No folder — top level)</option></select></div>
+          <div class="form-row">
+            <label>Body</label>
+            <textarea id="etTemplateBody" rows="10" placeholder="Hi {{name}}, ..."></textarea>
+          </div>
+          <button type="button" class="btn btn-outline btn-sm" id="etInsertCodeBtn" style="width:auto; margin:-8px 0 16px;"><i class="ti ti-code" aria-hidden="true" style="margin-right:4px;"></i>Insert Code</button>
+          <p id="etUnsavedNote" style="display:none; font-size:12px; color:var(--ember); margin:-12px 0 12px;">You have unsaved changes.</p>
+          <div style="display:flex; gap:10px;">
+            <button type="button" class="btn btn-outline" id="etCancelEditBtn" style="flex:1;">Cancel</button>
+            <button type="button" class="btn btn-gold" id="etSaveTemplateBtn" style="flex:1;">Save Template</button>
+          </div>
+          <div id="etSaveStatus" style="font-size:13px; color:var(--slate); margin-top:8px; text-align:center;"></div>
+        </div>
+      </div>
+
+      <!-- ===== INSERT CODES MODAL ===== -->
+      <div class="et-popup-overlay" id="icOverlay">
+        <div class="et-popup" style="max-width:560px;">
+          <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:19px;">Insert Codes</h3>
+          <p style="margin:0 0 12px; font-size:13px; color:var(--slate);">Check what you want, then insert &mdash; they'll drop in right where your cursor was in the body.</p>
+          <input type="text" id="icSearchInput" placeholder="Search codes..." style="margin-bottom:12px;">
+          <div class="et-tab-row" id="icTabs">
+            <button type="button" class="et-tab-btn active" data-ictab="general">General</button>
+            <button type="button" class="et-tab-btn" data-ictab="rsvp">RSVP</button>
+            <button type="button" class="et-tab-btn" data-ictab="quote">Quote</button>
+            <button type="button" class="et-tab-btn" data-ictab="custom">Custom</button>
+          </div>
+          <div style="display:flex; gap:8px; margin-bottom:10px;">
+            <button type="button" class="btn btn-outline btn-sm" id="icSelectAllBtn" style="width:auto;">Select All</button>
+            <button type="button" class="btn btn-outline btn-sm" id="icSelectNoneBtn" style="width:auto;">Select None</button>
+          </div>
+          <div id="icCodeList" style="max-height:280px; overflow-y:auto; margin-bottom:12px;"></div>
+          <div id="icManageLinkWrap" style="display:none; margin-bottom:14px;">
+            <button type="button" class="address-link-btn" id="icManageCustomBtn">Manage custom codes</button>
+          </div>
+          <div style="display:flex; gap:10px;">
+            <button type="button" class="btn btn-outline" id="icCancelBtn" style="flex:1;">Cancel</button>
+            <button type="button" class="btn btn-gold" id="icInsertBtn" style="flex:1;">Insert Selected</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== MANAGE CUSTOM CODES MODAL ===== -->
+      <div class="et-popup-overlay" id="mcOverlay">
+        <div class="et-popup" style="max-width:520px;">
+          <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:19px;">Manage Custom Codes</h3>
+          <p style="margin:0 0 14px; font-size:13px; color:var(--slate);">Your own codes that link out to wherever you need.</p>
+          <button type="button" class="btn btn-outline btn-sm" id="mcNewCodeBtn" style="width:auto; margin-bottom:14px;"><i class="ti ti-plus" aria-hidden="true" style="margin-right:4px;"></i>New Code</button>
+          <div id="mcCodeList" style="max-height:340px; overflow-y:auto; margin-bottom:16px;"></div>
+          <button type="button" class="btn btn-outline" id="mcCloseBtn" style="width:100%;">Close</button>
+        </div>
+      </div>
+
+      <!-- ===== NEW/EDIT CUSTOM CODE MODAL ===== -->
+      <div class="et-popup-overlay" id="ccOverlay">
+        <div class="et-popup" style="max-width:480px;">
+          <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:19px;" id="ccTitle">New Custom Code</h3>
+          <p style="margin:0 0 16px; font-size:13px; color:var(--slate);">Build your own code that links out to wherever you need.</p>
+          <input type="hidden" id="ccEditingId">
+          <div class="form-row"><label>Code Name</label><input type="text" id="ccName" placeholder="e.g. Newsletter Signup"></div>
+          <div class="form-row"><label>Group</label><input type="text" id="ccGroup" placeholder="e.g. Custom" list="ccGroupOptions"><datalist id="ccGroupOptions"></datalist></div>
+          <div class="form-row"><label>Destination</label>
+            <select id="ccDestination">
+              <option value="url">Custom URL</option>
+              <option value="portal">Member Portal</option>
+              <option value="homepage">Homepage</option>
+              <option value="message">Show Message Only</option>
+            </select>
+          </div>
+          <div class="form-row" id="ccUrlRow"><label>Target URL</label><input type="text" id="ccTargetUrl" placeholder="https://..."></div>
+          <div class="form-row" id="ccMessageRow" style="display:none;"><label>Success Message</label><textarea id="ccSuccessMessage" rows="3" placeholder="What they see after clicking"></textarea></div>
+          <div style="display:flex; gap:10px; margin-top:8px;">
+            <button type="button" class="btn btn-outline" id="ccCancelBtn" style="flex:1;">Cancel</button>
+            <button type="button" class="btn btn-gold" id="ccSaveBtn" style="flex:1;">Save Code</button>
+          </div>
+          <div id="ccStatus" style="font-size:13px; color:var(--slate); margin-top:8px; text-align:center;"></div>
+        </div>
+      </div>
+
+      <!-- ===== PREVIEW & SEND MODAL ===== -->
+      <div class="et-popup-overlay" id="etSendOverlay">
+        <div class="et-popup" style="max-width:700px;">
+          <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:19px;">Preview &amp; Send</h3>
+          <p style="margin:0 0 16px; font-size:13px; color:var(--slate);">Pick a template, preview it against a real member, then send to whoever you select.</p>
+          <div class="form-grid-2">
+            <div class="form-row"><label>Template</label><select id="etSendTemplateSelect"><option value="">-- Choose a template --</option></select></div>
+            <div class="form-row"><label>Preview Against</label><select id="etPreviewMemberSelect"><option value="">-- Choose a member to preview --</option></select></div>
+          </div>
+          <div class="form-row"><label>Preview</label>
+            <div id="etPreviewBox" style="border:1px solid var(--line); border-radius:10px; padding:14px; font-size:13.5px; min-height:80px; background:var(--snow);">Pick a template and a member above to see the preview.</div>
+          </div>
+          <div class="form-grid-2" style="align-items:end;">
+            <div class="form-row"><label>Test Email Address (optional)</label><input type="email" id="etTestEmailInput" placeholder="you@example.com"></div>
+            <button type="button" class="btn btn-outline" id="etSendTestBtn" style="margin-bottom:14px;">Send Test</button>
+          </div>
+          <button type="button" class="btn btn-outline btn-sm" id="etCopyForPreviewBtn" style="width:auto; margin:-8px 0 16px;">Copy Preview Text</button>
+          <div class="form-row"><label>Send To</label><input type="text" id="etRecipientSearch" placeholder="Search members by name..."></div>
+          <div style="display:flex; gap:8px; margin:-8px 0 10px;">
+            <button type="button" class="btn btn-outline btn-sm" id="etSelectAllBtn" style="width:auto;">Select All</button>
+            <button type="button" class="btn btn-outline btn-sm" id="etSelectNoneBtn" style="width:auto;">Select None</button>
+          </div>
+          <div id="etRecipientList" style="max-height:220px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:10px; margin-bottom:16px;"></div>
+          <div style="display:flex; gap:10px;">
+            <button type="button" class="btn btn-outline" id="etSendCloseBtn" style="flex:1;">Close</button>
+            <button type="button" class="btn btn-gold" id="etSendToSelectedBtn" style="flex:1;">Send to Selected</button>
+          </div>
+          <div id="etSendStatus" style="font-size:13px; color:var(--slate); margin-top:8px; text-align:center;"></div>
+        </div>
+      </div>
 
     </div>
 
@@ -3015,6 +3152,24 @@ async function resolveLinkTokens(text, phone, amount, opts){
     out = out.split('{{rsvp_no_button}}').join('<a href="'+rsvpNoUrl+'" style="'+btnStyle+' background:#8A8F9C; color:#ffffff;">No</a>');
     out = out.split('{{rsvp_back_button}}').join('<a href="'+rsvpBackUrl+'" style="'+btnStyle+' background:#D89F3D; color:#1E3B2C;">Back Next Year</a>');
   }
+  if(typeof customCodes !== 'undefined' && customCodes.length && out.indexOf('{{custom_') !== -1){
+    for(const c of customCodes){
+      const d = c.data;
+      if(d.destination === 'message'){
+        out = out.split('{{custom_'+d.slug+'}}').join(d.successMessage || '');
+        continue;
+      }
+      let destUrl = '';
+      if(d.destination === 'url') destUrl = d.targetUrl || '';
+      else if(d.destination === 'homepage') destUrl = 'https://highlightingutah.com';
+      else if(d.destination === 'portal'){
+        const token = await getOrCreatePortalToken(phone);
+        destUrl = 'https://highlightingutah.com/#/payment' + (token ? ('?token='+token) : '');
+      }
+      out = out.split('{{custom_'+d.slug+'_link}}').join(destUrl);
+      out = out.split('{{custom_'+d.slug+'_button}}').join('<a href="'+destUrl+'" style="'+btnStyleGold+'">'+d.name+'</a>');
+    }
+  }
   out = out.replace(/\n/g, '<br>');
   return out;
 }
@@ -3706,6 +3861,7 @@ function initData(){
   loadAvailableCustomerNumbers();
   loadEmailTemplateFolders();
   loadEmailTemplates();
+  loadCustomCodes();
   loadMessages();
   loadInvoices();
   loadReviews();
@@ -4163,12 +4319,33 @@ let selectedEmployee = '';
 let emailTemplateFolders = [];
 let emailTemplates = [];
 let etTemplatesSeeded = false;
+let etCurrentLinkedTokens = [];
+let etEditorDirty = false;
 const DEFAULT_QUOTE_TEMPLATE_BODY = 'Hi {{name}},\n\n' +
   'Here\'s your quote from Highlighting Utah: {{price}}.\n\n' +
   '{{link_button}}\n\n' +
   '(Don\'t forget to attach a photo of their house before sending!)\n\n' +
   'Thanks,\nHighlighting Utah';
-
+const ET_PREBUILT_TEMPLATES = [
+  {name:'RSVP Email', folderName:'RSVP', body:'Hi {{name}} \uD83C\uDF84\n\nIt\'s almost time for the Christmas lighting season! Will you be getting lights hung again this year?\n\n{{rsvp_yes_button}}{{rsvp_no_button}}{{rsvp_back_button}}', linkedTokens:[{code:'rsvp_yes_button', style:'button'},{code:'rsvp_no_button', style:'button'},{code:'rsvp_back_button', style:'button'}]},
+  {name:'Post-Install Invoice', folderName:'Billing', body:'Hi {{name}},\n\nThanks for having us out \u2014 your lights are up! Your balance for this season is {{amount}}. You can pay through your portal or Venmo using the links below.\n\n{{portal_link}}{{venmo_button}}', linkedTokens:[{code:'portal_link', style:'link'},{code:'venmo_button', style:'button'}]},
+  {name:'Already Paid - Say Thanks', folderName:'Billing', body:'Hi {{name}},\n\nYour lights are up! Just confirming we received your payment of {{amount}} for this season \u2014 you\'re all set.\n\n{{message_link}}', linkedTokens:[{code:'message_link', style:'link'}]},
+  {name:'Quick Announcement', folderName:'Announcements', body:'Hi {{name}} \uD83C\uDF84\n\nIt\'s almost time for the Christmas lighting season! Tap below to update your info, check your balance, or send us a message anytime.\n\n{{portal_link}}{{message_link}}', linkedTokens:[{code:'portal_link', style:'link'},{code:'message_link', style:'link'}]},
+  {name:'Quote Ready for Review', folderName:'Quotes', body:'Hi {{name}},\n\nGreat news, your quote is ready! Your quoted price is {{price}}. Let us know if you\'d like to move forward.\n\n{{quote_yes_button}}{{quote_decline_button}}', linkedTokens:[{code:'quote_yes_button', style:'button'},{code:'quote_decline_button', style:'button'}]}
+];
+async function etSeedPrebuiltTemplates(){
+  const folderIdByName = {};
+  for(const f of emailTemplateFolders){ folderIdByName[f.name] = f.id; }
+  for(const preset of ET_PREBUILT_TEMPLATES){
+    let folderId = folderIdByName[preset.folderName] || null;
+    if(!folderId){
+      const ref = await addDoc(collection(db,'emailTemplateFolders'), {name: preset.folderName, createdAt: serverTimestamp()});
+      folderId = ref.id;
+      folderIdByName[preset.folderName] = folderId;
+    }
+    await addDoc(collection(db,'emailTemplates'), {name: preset.name, folderId: folderId, body: preset.body, linkedTokens: preset.linkedTokens, createdAt: serverTimestamp()});
+  }
+}
 function loadEmailTemplateFolders(){
   onSnapshot(collection(db,'emailTemplateFolders'), function(snap){
     emailTemplateFolders = [];
@@ -4183,9 +4360,8 @@ function loadEmailTemplates(){
     snap.forEach(function(docSnap){ emailTemplates.push({id: docSnap.id, data: docSnap.data()}); });
     if(!etTemplatesSeeded){
       etTemplatesSeeded = true;
-      const hasQuoteTemplate = emailTemplates.some(t => t.data.name === 'Quote Email');
-      if(!hasQuoteTemplate){
-        await addDoc(collection(db,'emailTemplates'), {name: 'Quote Email', folderId: null, body: DEFAULT_QUOTE_TEMPLATE_BODY, createdAt: serverTimestamp()});
+      if(!emailTemplates.length){
+        await etSeedPrebuiltTemplates();
       }
     }
     renderEmailTemplateList();
@@ -4248,7 +4424,8 @@ function renderEmailTemplateList(){
     groups[key].forEach(function(t){
       html += '<div class="row-item"><div class="rmain"><h4 style="margin:0;">'+esc(t.data.name)+'</h4>'+
         '<div class="rtext" style="white-space:pre-wrap; font-size:12.5px; color:var(--slate); max-width:520px;">'+esc((t.data.body||'').slice(0,140))+((t.data.body||'').length>140?'…':'')+'</div></div>'+
-        '<div class="row-actions"><button type="button" class="btn btn-outline btn-sm" data-edittemplate="'+t.id+'">Edit</button>'+
+        '<div class="row-actions"><button type="button" class="btn btn-outline btn-sm" data-sendtemplate="'+t.id+'">Send</button>'+
+        '<button type="button" class="btn btn-outline btn-sm" data-edittemplate="'+t.id+'">Edit</button>'+
         '<button type="button" class="btn btn-outline btn-sm" data-deltemplate="'+t.id+'" style="color:var(--ember); border-color:#f0b3ac;">Delete</button></div></div>';
     });
   });
@@ -4262,8 +4439,11 @@ function renderEmailTemplateList(){
       document.getElementById('etTemplateName').value = t.data.name || '';
       document.getElementById('etTemplateFolder').value = t.data.folderId || '';
       document.getElementById('etTemplateBody').value = t.data.body || '';
-      document.getElementById('etCancelEditBtn').style.display = 'inline-flex';
-      document.getElementById('etTemplateName').scrollIntoView({behavior:'smooth', block:'center'});
+      etCurrentLinkedTokens = Array.isArray(t.data.linkedTokens) ? t.data.linkedTokens.slice() : [];
+      etEditorDirty = false;
+      document.getElementById('etUnsavedNote').style.display = 'none';
+      document.getElementById('etEditorTitle').textContent = 'Edit Template';
+      document.getElementById('etEditorOverlay').style.display = 'flex';
     });
   });
   list.querySelectorAll('[data-deltemplate]').forEach(function(btn){
@@ -4272,7 +4452,27 @@ function renderEmailTemplateList(){
       await deleteDoc(doc(db,'emailTemplates', btn.dataset.deltemplate));
     });
   });
+  list.querySelectorAll('[data-sendtemplate]').forEach(function(btn){
+    btn.addEventListener('click', function(){ openSendModal(btn.dataset.sendtemplate); });
+  });
 }
+document.getElementById('etNewTemplateBtn').addEventListener('click', function(){
+  document.getElementById('etEditingId').value = '';
+  document.getElementById('etTemplateName').value = '';
+  document.getElementById('etTemplateFolder').value = '';
+  document.getElementById('etTemplateBody').value = '';
+  etCurrentLinkedTokens = [];
+  etEditorDirty = false;
+  document.getElementById('etUnsavedNote').style.display = 'none';
+  document.getElementById('etEditorTitle').textContent = 'New Template';
+  document.getElementById('etEditorOverlay').style.display = 'flex';
+});
+['etTemplateName','etTemplateFolder','etTemplateBody'].forEach(function(id){
+  document.getElementById(id).addEventListener('input', function(){
+    etEditorDirty = true;
+    document.getElementById('etUnsavedNote').style.display = 'block';
+  });
+});
 document.getElementById('etSaveTemplateBtn').addEventListener('click', async function(){
   const statusEl = document.getElementById('etSaveStatus');
   const name = document.getElementById('etTemplateName').value.trim();
@@ -4282,27 +4482,34 @@ document.getElementById('etSaveTemplateBtn').addEventListener('click', async fun
   const editingId = document.getElementById('etEditingId').value;
   try{
     if(editingId){
-      await updateDoc(doc(db,'emailTemplates', editingId), {name: name, folderId: folderId, body: body});
+      await updateDoc(doc(db,'emailTemplates', editingId), {name: name, folderId: folderId, body: body, linkedTokens: etCurrentLinkedTokens});
     } else {
-      await addDoc(collection(db,'emailTemplates'), {name: name, folderId: folderId, body: body, createdAt: serverTimestamp()});
+      await addDoc(collection(db,'emailTemplates'), {name: name, folderId: folderId, body: body, linkedTokens: etCurrentLinkedTokens, createdAt: serverTimestamp()});
     }
     statusEl.textContent = 'Saved!';
-    setTimeout(() => { statusEl.textContent = ''; }, 2000);
-    document.getElementById('etEditingId').value = '';
-    document.getElementById('etTemplateName').value = '';
-    document.getElementById('etTemplateFolder').value = '';
-    document.getElementById('etTemplateBody').value = '';
-    document.getElementById('etCancelEditBtn').style.display = 'none';
+    etEditorDirty = false;
+    setTimeout(() => {
+      statusEl.textContent = '';
+      document.getElementById('etEditorOverlay').style.display = 'none';
+      document.getElementById('etEditingId').value = '';
+      document.getElementById('etTemplateName').value = '';
+      document.getElementById('etTemplateFolder').value = '';
+      document.getElementById('etTemplateBody').value = '';
+      etCurrentLinkedTokens = [];
+    }, 700);
   } catch(err){
     statusEl.textContent = 'Something went wrong — try again.';
   }
 });
 document.getElementById('etCancelEditBtn').addEventListener('click', function(){
+  if(etEditorDirty && !confirm('Discard unsaved changes to this template?')) return;
+  document.getElementById('etEditorOverlay').style.display = 'none';
   document.getElementById('etEditingId').value = '';
   document.getElementById('etTemplateName').value = '';
   document.getElementById('etTemplateFolder').value = '';
   document.getElementById('etTemplateBody').value = '';
-  document.getElementById('etCancelEditBtn').style.display = 'none';
+  etCurrentLinkedTokens = [];
+  etEditorDirty = false;
 });
 
 /* ---- Preview & Send (Templates tab) ---- */
@@ -4408,6 +4615,278 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
     } catch(err){ failed++; }
   }
   statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.';
+});
+function openSendModal(templateId){
+  etPopulateTemplateSelect();
+  etPopulateMemberSelect();
+  etRecipientSearchTerm = '';
+  document.getElementById('etRecipientSearch').value = '';
+  document.getElementById('etTestEmailInput').value = '';
+  etRenderRecipientList();
+  if(templateId) document.getElementById('etSendTemplateSelect').value = templateId;
+  etUpdatePreview();
+  document.getElementById('etSendStatus').textContent = '';
+  document.getElementById('etSendOverlay').style.display = 'flex';
+}
+document.getElementById('etOpenSendBtn').addEventListener('click', function(){ openSendModal(''); });
+document.getElementById('etSendCloseBtn').addEventListener('click', function(){
+  document.getElementById('etSendOverlay').style.display = 'none';
+});
+document.getElementById('etSendTestBtn').addEventListener('click', async function(){
+  const statusEl = document.getElementById('etSendStatus');
+  const testEmail = document.getElementById('etTestEmailInput').value.trim();
+  const templateId = document.getElementById('etSendTemplateSelect').value;
+  const template = emailTemplates.find(t => t.id === templateId);
+  if(!testEmail){ statusEl.textContent = 'Add a test email address first.'; return; }
+  if(!template){ statusEl.textContent = 'Pick a template first.'; return; }
+  const serviceId = document.getElementById('emailjsServiceId').value.trim();
+  const templateJsId = document.getElementById('emailjsTemplateId').value.trim();
+  const publicKey = document.getElementById('emailjsPublicKey').value.trim();
+  if(!serviceId || !templateJsId || !publicKey){ statusEl.textContent = 'Set up EmailJS (Email Setup card above) first.'; return; }
+  if(!window.emailjs){ statusEl.textContent = 'Email service failed to load — check your connection.'; return; }
+  const memberId = document.getElementById('etPreviewMemberSelect').value;
+  const member = jobAddresses.find(m => m.id === memberId);
+  const vars = member ? etResolveVars(member) : {name:'Test Customer', price:'$0.00', phone:''};
+  const message = '[TEST EMAIL — sample data below]<br><br>' + await resolveLinkTokens(template.data.body, vars.phone||'', 0, vars);
+  try{
+    emailjs.init(publicKey);
+    await emailjs.send(serviceId, templateJsId, { to_email: testEmail, to_name: 'Test', message: message });
+    statusEl.textContent = 'Test sent!';
+    setTimeout(() => { statusEl.textContent = ''; }, 2500);
+  } catch(err){
+    statusEl.textContent = 'Test send failed — try again.';
+  }
+});
+
+/* ---- Insert Codes modal (search, tabs, cursor placement) ---- */
+let etLastCursorPos = null;
+const IC_CODES = {
+  general: [
+    {token:'{{name}}', label:'Customer name'},
+    {token:'{{price}}', label:'Balance / price'},
+    {token:'{{amount}}', label:'Amount (billing)'},
+    {token:'{{portal_link}}', label:'Portal link (plain URL)'},
+    {token:'{{portal_button}}', label:'Portal link (button)'},
+    {token:'{{messages_link}}', label:'Send-us-a-message link (plain URL)'},
+    {token:'{{messages_button}}', label:'Send-us-a-message link (button)'},
+    {token:'{{venmo_link}}', label:'Venmo pay link (plain URL)'},
+    {token:'{{venmo_button}}', label:'Venmo pay link (button)'}
+  ],
+  rsvp: [
+    {token:'{{rsvp_yes_link}}', label:'RSVP Yes (plain URL)'},
+    {token:'{{rsvp_yes_button}}', label:'RSVP Yes (button)'},
+    {token:'{{rsvp_no_link}}', label:'RSVP No (plain URL)'},
+    {token:'{{rsvp_no_button}}', label:'RSVP No (button)'},
+    {token:'{{rsvp_back_link}}', label:'RSVP Back Next Year (plain URL)'},
+    {token:'{{rsvp_back_button}}', label:'RSVP Back Next Year (button)'}
+  ],
+  quote: [
+    {token:'{{name}}', label:'Customer name'},
+    {token:'{{price}}', label:'Quoted price'},
+    {token:'{{link}}', label:'Quote link (plain URL)'},
+    {token:'{{link_button}}', label:'Quote link (button)'},
+    {token:'{{quote_yes_button}}', label:'Quote Approve (button) — needs Quote Token step to fully work'},
+    {token:'{{quote_decline_button}}', label:'Quote Decline (button) — needs Quote Token step to fully work'}
+  ]
+};
+let icActiveTab = 'general';
+let icSelected = new Set();
+let icSearchTerm = '';
+function icGetCustomCodeList(){
+  const out = [];
+  customCodes.forEach(function(c){
+    if(c.data.destination === 'message'){
+      out.push({token:'{{custom_'+c.data.slug+'}}', label:c.data.name});
+    } else {
+      out.push({token:'{{custom_'+c.data.slug+'_link}}', label:c.data.name+' (plain URL)'});
+      out.push({token:'{{custom_'+c.data.slug+'_button}}', label:c.data.name+' (button)'});
+    }
+  });
+  return out;
+}
+function icRenderList(){
+  const box = document.getElementById('icCodeList');
+  const manageWrap = document.getElementById('icManageLinkWrap');
+  let codes = icActiveTab === 'custom' ? icGetCustomCodeList() : IC_CODES[icActiveTab];
+  manageWrap.style.display = (icActiveTab === 'custom') ? 'block' : 'none';
+  if(icSearchTerm){
+    const term = icSearchTerm.toLowerCase();
+    codes = codes.filter(c => c.label.toLowerCase().indexOf(term) !== -1 || c.token.toLowerCase().indexOf(term) !== -1);
+  }
+  let html = '';
+  if(!codes.length){
+    html = '<div class="empty-note">'+(icActiveTab==='custom' ? 'No custom codes yet — use "Manage custom codes" below to add one.' : 'No codes match.')+'</div>';
+  } else {
+    html = codes.map(function(c){
+      const checked = icSelected.has(c.token) ? 'checked' : '';
+      return '<label class="et-code-row"><input type="checkbox" class="ic-code-cb" value="'+c.token+'" '+checked+'><span><div>'+esc(c.label)+'</div><div class="et-code-token">'+esc(c.token)+'</div></span></label>';
+    }).join('');
+  }
+  box.innerHTML = html;
+  box.querySelectorAll('.ic-code-cb').forEach(function(cb){
+    cb.addEventListener('change', function(){
+      if(cb.checked) icSelected.add(cb.value); else icSelected.delete(cb.value);
+    });
+  });
+}
+document.getElementById('icSearchInput').addEventListener('input', function(){
+  icSearchTerm = this.value.trim();
+  icRenderList();
+});
+document.getElementById('icTabs').addEventListener('click', function(e){
+  const btn = e.target.closest('[data-ictab]');
+  if(!btn) return;
+  icActiveTab = btn.dataset.ictab;
+  document.querySelectorAll('#icTabs .et-tab-btn').forEach(b => b.classList.toggle('active', b === btn));
+  icRenderList();
+});
+document.getElementById('icSelectAllBtn').addEventListener('click', function(){
+  document.querySelectorAll('.ic-code-cb').forEach(function(cb){ cb.checked = true; icSelected.add(cb.value); });
+});
+document.getElementById('icSelectNoneBtn').addEventListener('click', function(){
+  document.querySelectorAll('.ic-code-cb').forEach(function(cb){ cb.checked = false; icSelected.delete(cb.value); });
+});
+document.getElementById('etInsertCodeBtn').addEventListener('click', function(){
+  const ta = document.getElementById('etTemplateBody');
+  etLastCursorPos = ta.selectionStart;
+  icSelected = new Set();
+  icSearchTerm = '';
+  document.getElementById('icSearchInput').value = '';
+  icActiveTab = 'general';
+  document.querySelectorAll('#icTabs .et-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.ictab === 'general'));
+  icRenderList();
+  document.getElementById('icOverlay').style.display = 'flex';
+});
+document.getElementById('icCancelBtn').addEventListener('click', function(){
+  document.getElementById('icOverlay').style.display = 'none';
+});
+document.getElementById('icManageCustomBtn').addEventListener('click', function(){
+  document.getElementById('icOverlay').style.display = 'none';
+  openManageCustomCodes();
+});
+document.getElementById('icInsertBtn').addEventListener('click', function(){
+  if(!icSelected.size){ document.getElementById('icOverlay').style.display = 'none'; return; }
+  const ta = document.getElementById('etTemplateBody');
+  const pos = (etLastCursorPos === null) ? ta.value.length : etLastCursorPos;
+  const tokens = Array.from(icSelected);
+  const insertText = tokens.join('');
+  ta.value = ta.value.slice(0, pos) + insertText + ta.value.slice(pos);
+  const newPos = pos + insertText.length;
+  ta.focus();
+  ta.setSelectionRange(newPos, newPos);
+  etEditorDirty = true;
+  document.getElementById('etUnsavedNote').style.display = 'block';
+  tokens.forEach(function(tok){
+    const bare = tok.replace(/^\{\{|\}\}$/g,'');
+    const style = bare.endsWith('_button') ? 'button' : (bare.endsWith('_link') ? 'link' : 'plain');
+    if(!etCurrentLinkedTokens.some(lt => lt.code === bare)) etCurrentLinkedTokens.push({code: bare, style: style});
+  });
+  document.getElementById('icOverlay').style.display = 'none';
+});
+
+/* ---- Custom Codes: Manage list + New/Edit ---- */
+let customCodes = [];
+function loadCustomCodes(){
+  onSnapshot(collection(db,'customCodes'), function(snap){
+    customCodes = [];
+    snap.forEach(function(docSnap){ customCodes.push({id: docSnap.id, data: docSnap.data()}); });
+    if(icActiveTab === 'custom') icRenderList();
+    if(document.getElementById('mcOverlay').style.display === 'flex') renderManageCustomCodesList();
+  });
+}
+function slugifyCode(name){
+  return (name||'').toLowerCase().trim().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'') || 'code';
+}
+function openManageCustomCodes(){
+  renderManageCustomCodesList();
+  document.getElementById('mcOverlay').style.display = 'flex';
+}
+function renderManageCustomCodesList(){
+  const list = document.getElementById('mcCodeList');
+  if(!customCodes.length){ list.innerHTML = '<div class="empty-note">No custom codes yet.</div>'; return; }
+  const destLabel = {url:'Custom URL', portal:'Member Portal', homepage:'Homepage', message:'Message Only'};
+  list.innerHTML = customCodes.map(function(c){
+    return '<div class="row-item"><div class="rmain"><h4 style="margin:0;">'+esc(c.data.name)+'</h4>'+
+      '<div class="rmeta">'+esc(c.data.group||'Custom')+' &middot; '+esc(destLabel[c.data.destination]||c.data.destination)+'</div></div>'+
+      '<div class="row-actions"><button type="button" class="btn btn-outline btn-sm" data-editcode="'+c.id+'">Edit</button>'+
+      '<button type="button" class="btn btn-outline btn-sm" data-delcode="'+c.id+'" style="color:var(--ember); border-color:#f0b3ac;">Delete</button></div></div>';
+  }).join('');
+  list.querySelectorAll('[data-editcode]').forEach(function(btn){
+    btn.addEventListener('click', function(){ openCustomCodeBuilder(btn.dataset.editcode); });
+  });
+  list.querySelectorAll('[data-delcode]').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      if(!confirm('Delete this custom code? Any templates using it will show a broken code.')) return;
+      await deleteDoc(doc(db,'customCodes', btn.dataset.delcode));
+    });
+  });
+}
+document.getElementById('mcNewCodeBtn').addEventListener('click', function(){ openCustomCodeBuilder(''); });
+document.getElementById('mcCloseBtn').addEventListener('click', function(){
+  document.getElementById('mcOverlay').style.display = 'none';
+});
+function openCustomCodeBuilder(editId){
+  const groupList = document.getElementById('ccGroupOptions');
+  const groups = Array.from(new Set(customCodes.map(c => c.data.group).filter(Boolean)));
+  groupList.innerHTML = groups.map(g => '<option value="'+esc(g)+'">').join('');
+  document.getElementById('ccEditingId').value = editId || '';
+  if(editId){
+    const c = customCodes.find(c => c.id === editId);
+    document.getElementById('ccTitle').textContent = 'Edit Custom Code';
+    document.getElementById('ccName').value = c ? c.data.name : '';
+    document.getElementById('ccGroup').value = c ? (c.data.group||'') : '';
+    document.getElementById('ccDestination').value = c ? c.data.destination : 'url';
+    document.getElementById('ccTargetUrl').value = c ? (c.data.targetUrl||'') : '';
+    document.getElementById('ccSuccessMessage').value = c ? (c.data.successMessage||'') : '';
+  } else {
+    document.getElementById('ccTitle').textContent = 'New Custom Code';
+    document.getElementById('ccName').value = '';
+    document.getElementById('ccGroup').value = '';
+    document.getElementById('ccDestination').value = 'url';
+    document.getElementById('ccTargetUrl').value = '';
+    document.getElementById('ccSuccessMessage').value = '';
+  }
+  document.getElementById('ccUrlRow').style.display = (document.getElementById('ccDestination').value === 'url') ? '' : 'none';
+  document.getElementById('ccMessageRow').style.display = (document.getElementById('ccDestination').value === 'message') ? '' : 'none';
+  document.getElementById('ccStatus').textContent = '';
+  document.getElementById('mcOverlay').style.display = 'none';
+  document.getElementById('ccOverlay').style.display = 'flex';
+}
+document.getElementById('ccDestination').addEventListener('change', function(){
+  const type = this.value;
+  document.getElementById('ccUrlRow').style.display = (type === 'url') ? '' : 'none';
+  document.getElementById('ccMessageRow').style.display = (type === 'message') ? '' : 'none';
+});
+document.getElementById('ccCancelBtn').addEventListener('click', function(){
+  document.getElementById('ccOverlay').style.display = 'none';
+  document.getElementById('mcOverlay').style.display = 'flex';
+});
+document.getElementById('ccSaveBtn').addEventListener('click', async function(){
+  const statusEl = document.getElementById('ccStatus');
+  const name = document.getElementById('ccName').value.trim();
+  const group = document.getElementById('ccGroup').value.trim() || 'Custom';
+  const destination = document.getElementById('ccDestination').value;
+  const targetUrl = document.getElementById('ccTargetUrl').value.trim();
+  const successMessage = document.getElementById('ccSuccessMessage').value;
+  const editingId = document.getElementById('ccEditingId').value;
+  if(!name){ statusEl.textContent = 'Give the code a name first.'; return; }
+  if(destination === 'url' && !targetUrl){ statusEl.textContent = 'Add a target URL first.'; return; }
+  if(destination === 'message' && !successMessage.trim()){ statusEl.textContent = 'Add the success message first.'; return; }
+  const slug = slugifyCode(name);
+  try{
+    if(editingId){
+      await updateDoc(doc(db,'customCodes', editingId), {name: name, group: group, slug: slug, destination: destination, targetUrl: targetUrl, successMessage: successMessage});
+    } else {
+      await addDoc(collection(db,'customCodes'), {name: name, group: group, slug: slug, destination: destination, targetUrl: targetUrl, successMessage: successMessage, createdAt: serverTimestamp()});
+    }
+    statusEl.textContent = 'Saved!';
+    setTimeout(() => {
+      document.getElementById('ccOverlay').style.display = 'none';
+      document.getElementById('mcOverlay').style.display = 'flex';
+    }, 600);
+  } catch(err){
+    statusEl.textContent = 'Something went wrong — try again.';
+  }
 });
 
 const DEFAULT_TOPIC_FOLDERS = ['Billing / Payment Question','Change My Light Colors','Report an Issue','Reschedule Install or Removal','General Question','Something Else'];
