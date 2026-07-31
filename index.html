@@ -600,36 +600,40 @@
   .portal-tab-btn.active:hover{ background:var(--ink); }
   .portal-tabs-layout .portal-card{ flex:1; min-width:0; margin-top:0; }
   .portal-bottom-nav{ display:none; }
+  .portal-more-menu{ display:none; }
   @media (max-width:640px){
-    .portal-tabs-layout{ padding-bottom:76px; }
+    .form-shell{ padding:20px 16px; border-radius:14px; }
+    .portal-tabs-layout{ padding-bottom:88px; gap:0; }
+    .portal-tabs-layout .portal-card{ padding:22px 18px; border-radius:16px; }
+    .portal-welcome h2{ font-size:24px; }
+    #invAmount{ font-size:52px !important; }
+    .portal-actions{ flex-direction:column; }
+    .portal-actions .btn{ min-width:0; }
+    .btn-block{ padding:16px; font-size:16px; }
     .portal-tabs{ display:none; }
     .portal-bottom-nav{
       display:flex; position:fixed; left:0; right:0; bottom:0; z-index:40;
       background:#fff; border-top:1px solid var(--line);
-      padding:6px 4px calc(6px + env(safe-area-inset-bottom));
+      padding:8px 4px calc(8px + env(safe-area-inset-bottom));
     }
     .portal-bottom-nav-btn{
-      flex:1; display:flex; flex-direction:column; align-items:center; gap:3px;
+      flex:1; display:flex; flex-direction:column; align-items:center; gap:4px;
       border:none; background:transparent; color:var(--slate);
-      padding:6px 2px; font-size:10.5px; font-weight:600; cursor:pointer;
+      padding:8px 2px; font-size:11px; font-weight:600; cursor:pointer;
     }
     .portal-bottom-nav-btn.active{ color:var(--ink); }
-    .portal-bottom-nav-btn .pbn-icon{ font-size:19px; line-height:1; }
+    .portal-bottom-nav-btn .pbn-icon{ font-size:21px; line-height:1; }
     .portal-more-menu{
-      display:none; position:fixed; left:12px; right:12px; bottom:76px; z-index:41;
+      position:fixed; left:12px; right:12px; bottom:84px; z-index:41;
       background:#fff; border:1px solid var(--line); border-radius:14px;
       box-shadow:var(--shadow); overflow:hidden;
     }
     .portal-more-menu.open{ display:block; }
     .portal-more-menu button{
       display:block; width:100%; text-align:left; border:none; background:transparent;
-      padding:14px 16px; font-size:14.5px; font-weight:600; cursor:pointer; color:var(--ink);
+      padding:16px 18px; font-size:16px; font-weight:600; cursor:pointer; color:var(--ink);
     }
     .portal-more-menu button + button{ border-top:1px solid var(--line); }
-  }
-  @media (max-width:640px){
-    .portal-tabs-layout{ flex-direction:column; gap:12px; }
-    .portal-tabs{ width:100%; }
   }
   .portal-card h3{ margin:0 0 18px; font-size:19px; display:flex; align-items:center; gap:10px; }
   .portal-field{ display:flex; justify-content:space-between; gap:16px; padding:13px 0; border-bottom:1px solid var(--line); font-size:14.5px; }
@@ -1337,7 +1341,7 @@
 
 <!-- ============ PAYMENT PAGE ============ -->
 <div id="page-payment" class="page">
-  <div class="page-hero">
+  <div class="page-hero" id="paymentPageHero">
     <div class="wrap">
       <div class="eyebrow" style="color:var(--gold); justify-content:center;">Member Portal</div>
       <h1>Sign In</h1>
@@ -1348,7 +1352,7 @@
     <div class="wrap">
       <div class="form-shell">
         <div id="lookupFormWrap">
-          <form id="lookupForm" target="_blank">
+          <form id="lookupForm">
             <div class="form-row">
               <label>Phone Number or Email on File <span class="req">*</span></label>
               <input type="text" id="lookupPhone" placeholder="(801) 555-0123 or you@email.com">
@@ -1360,10 +1364,6 @@
             </div>
             <button type="submit" class="btn btn-gold btn-block" id="lookupBtn">Sign In</button>
           </form>
-          <div class="invoice-empty" id="loginNewTabMsg" style="display:none; text-align:center;">
-            <div style="font-size:16px; font-weight:600; margin-bottom:6px;">Opened in a new tab</div>
-            <p class="form-note" style="margin:0;">Your portal is open in the new tab &mdash; you can close this one.</p>
-          </div>
         </div>
         <div class="invoice-empty" id="lookupEmpty" style="display:none;">We couldn't find an account matching that phone number and last name. Please call or text us at <span id="lookupEmptyPhone">(801) 901-0011</span> and we'll help you out.</div>
         <div class="invoice-empty" id="portalDeactivatedMsg" style="display:none;">Your portal access has been turned off since you let us know you're not continuing service this season. If that was a mistake, please call or text us at <span id="portalDeactivatedPhone">(801) 901-0011</span> and we'll get it sorted out.</div>
@@ -2487,12 +2487,15 @@ function performSignInLookup(contactRaw, lastNameInput){
   renderCustomerInvoicePage(raw, {lastNameInput: lastNameInput});
 }
 document.getElementById('lookupForm').addEventListener('submit', function(e){
+  e.preventDefault();
   var contactRaw = document.getElementById('lookupPhone').value.trim();
   var lastNameInput = document.getElementById('lookupLastName').value.trim();
-  if(!contactRaw || !lastNameInput){ e.preventDefault(); return; }
-  this.action = window.location.origin + window.location.pathname + '#/payment?c=' + encodeURIComponent(contactRaw) + '&ln=' + encodeURIComponent(lastNameInput);
-  document.getElementById('lookupForm').style.display = 'none';
-  document.getElementById('loginNewTabMsg').style.display = 'block';
+  if(!contactRaw || !lastNameInput){ return; }
+  var heroEl = document.getElementById('paymentPageHero');
+  if(heroEl) heroEl.style.display = 'none';
+  document.getElementById('lookupFormWrap').style.display = 'none';
+  performSignInLookup(contactRaw, lastNameInput.toLowerCase());
+  window.scrollTo({top:0, behavior:'smooth'});
 });
 function renderCustomerInvoicePage(raw, opts){
   opts = opts || {};
@@ -2566,6 +2569,10 @@ function renderCustomerInvoicePage(raw, opts){
       tipRow.style.display = 'none';
     }
     card.classList.add('show');
+    var heroEl2 = document.getElementById('paymentPageHero');
+    if(heroEl2) heroEl2.style.display = 'none';
+    var lookupWrapEl2 = document.getElementById('lookupFormWrap');
+    if(lookupWrapEl2) lookupWrapEl2.style.display = 'none';
     if(opts.activateTab) activatePortalTab(opts.activateTab);
   }).catch(function(){
     card.classList.remove('show');
