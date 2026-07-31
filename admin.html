@@ -2729,201 +2729,6 @@ function __setEl(id, path, val){
   for(let i=0; i<parts.length-1; i++){ o = o[parts[i]]; if(!o) return; }
   o[parts[parts.length-1]] = val;
 }
-
-/* ===== ALL TOP-LEVEL VARIABLES ===== */
-let perFootRate = 0;
-const IC_CODES = {
-const contextMenuEl = document.getElementById('msgContextMenu');
-const reviewForm = document.getElementById('reviewForm');
-const LIGHTS_COLOR_OPTIONS = ['Warm White','Pure White','Red','Green','Blue','Purple','Orange','Pink','Multi'];
-const STREETVIEW_KEY = "AIzaSyByI2wHguK1JLNdUFJQKiA_gunoVtTkyqM";
-const ACH_COLORS = ['#F4BE55','#E0574B','#2E6B3E','#4338CA','#F97316','#3E7A5B'];
-const rbAreaIds = ['rbNamesArea','rbPhonesArea','rbEmailsArea','rbStreetsArea','rbCitiesArea','rbStatesArea','rbZipsArea','rbDatesArea','rbColorsArea','rbAmountsArea','rbInstallPrefArea'];
-const rbCountIds = {
-const RB_INSTALL_PREF_OPTIONS = ['Normal Schedule','October','November','November - Before Thanksgiving','After Thanksgiving'];
-const ibAreaIds = ['ibNamesArea','ibPhonesArea','ibEmailsArea','ibAmountsArea'];
-const ibCountIds = { ibNamesArea:'ibCountNames', ibPhonesArea:'ibCountPhones', ibEmailsArea:'ibCountEmails', ibAmountsArea:'ibCountAmounts' };
-const NEARBY_MISS_RADIUS_MILES = 0.3;
-const faqForm = document.getElementById('faqForm');
-const HM_STRAND_COLORS = ['#E0574B','#4338CA','#2E6B3E','#F4BE55','#F97316','#0EA5E9','#A855F7','#DB2777','#65A30D','#78716C'];
-const HM_LABEL_TYPES = ['Garage','Front Door','Windows','Peaks','Roof Section','Custom'];
-const hmImageWrap = document.getElementById('hmImageWrap');
-const hmSvgLayer = document.getElementById('hmSvgLayer');
-
-
-/* ===== CRITICAL CONSTANTS - MOVED TO TOP ===== */
-const OVERDUE_DAYS = 14;
-const TIMING_MARKER_COLORS = {
-  'October': '#EF9F27',
-  'November': '#6366F1',
-  'November - Before Thanksgiving': '#7F77DD',
-  'After Thanksgiving': '#1D9E75',
-  'Normal Schedule': '#888780'
-};
-let scheduledRoutesCache = {};
-const ASSIGNABLE_SECTIONS = [
-  {group:'Crew Portal', items:[
-    {key:'route', label:'Route/Map'},
-    {key:'checklist', label:'Checklist'},
-    {key:'warehouse', label:'Warehouse'}
-  ]},
-  {group:'Business', items:[
-    {key:'addcustomer', label:'Add a Customer'},
-    {key:'quotes', label:'Quote Requests'},
-    {key:'custmessages', label:'Customer Messages'},
-    {key:'allmessages', label:'All Messages (Full Inbox + Employee Notes)'}
-  ]},
-  {group:'Employee Tools', items:[
-    {key:'routesadmin', label:'Routes (Full List)'},
-    {key:'housemaps', label:'House Maps'},
-    {key:'responsibilities', label:'Responsibilities (Crew Assignments)'}
-  ]},
-  {group:'Finance', items:[
-    {key:'financedash', label:'Dashboard (Financial Overview, Invoices, Credit Cards)'},
-    {key:'perfootpricing', label:'Per Foot Pricing'},
-    {key:'timelogsadmin', label:'Time Logs (Full, All Employees)'}
-  ]}
-];
-const DEFAULT_TOPIC_FOLDERS = ['Billing / Payment Question','Change My Light Colors','Report an Issue','Reschedule Install or Removal','General Question','Something Else'];
-  general: [
-    {token:'{{name}}', label:'Customer name'},
-    {token:'{{price}}', label:'Balance / price'},
-    {token:'{{amount}}', label:'Amount (billing)'},
-    {token:'{{portal_link}}', label:'Portal link (plain URL)'},
-    {token:'{{portal_button}}', label:'Portal link (button)'},
-    {token:'{{messages_link}}', label:'Send-us-a-message link (plain URL)'},
-    {token:'{{messages_button}}', label:'Send-us-a-message link (button)'},
-    {token:'{{venmo_link}}', label:'Venmo pay link (plain URL)'},
-    {token:'{{venmo_button}}', label:'Venmo pay link (button)'}
-  ],
-  rsvp: [
-    {token:'{{rsvp_yes_link}}', label:'RSVP Yes (plain URL)'},
-    {token:'{{rsvp_yes_button}}', label:'RSVP Yes (button)'},
-    {token:'{{rsvp_no_link}}', label:'RSVP No (plain URL)'},
-    {token:'{{rsvp_no_button}}', label:'RSVP No (button)'},
-    {token:'{{rsvp_back_link}}', label:'RSVP Back Next Year (plain URL)'},
-    {token:'{{rsvp_back_button}}', label:'RSVP Back Next Year (button)'}
-  ],
-  quote: [
-    {token:'{{name}}', label:'Customer name'},
-    {token:'{{price}}', label:'Quoted price'},
-    {token:'{{link}}', label:'Quote link (plain URL)'},
-    {token:'{{link_button}}', label:'Quote link (button)'},
-    {token:'{{quote_yes_button}}', label:'Quote Approve (button) — needs Quote Token step to fully work'},
-    {token:'{{quote_decline_button}}', label:'Quote Decline (button) — needs Quote Token step to fully work'}
-  ]
-};
-const FEET_PER_BUNDLE = 40;
-const FEET_ESTIMATE_SAFETY = 1.05;
-const RM_COLORS = ['#F4BE55','#E0574B','#2E6B3E','#4338CA','#F97316','#3E7A5B'];
-const HIGHLIGHT_BAKE_COLORS = ['#F4BE55','#E0574B','#2E6B3E','#4338CA','#F97316','#3E7A5B'];
-
-
-/* ===== CACHE VARIABLES - MOVED TO TOP ===== */
-let quotesCache = [];
-let quoteFilter = 'all';
-let quoteStatusFilter = 'all';
-let quoteApprovalFilter = 'all';
-let quoteFolderView = 'main';
-let quoteColorFilter = 'all';
-let quoteStageFilter = 'new';
-let allMessages = [];
-let msgFilter = 'all';
-let selectedFolder = 'Inbox';
-let selectedEmployee = '';
-let emailTemplateFolders = [];
-let emailTemplates = [];
-let etTemplatesSeeded = false;
-let etCurrentLinkedTokens = [];
-let etEditorDirty = false;
-let etRecipientSearchTerm = '';
-let etLastCursorPos = null;
-let icActiveTab = 'general';
-let icSelected = new Set();
-let icSearchTerm = '';
-let customCodes = [];
-let messageFolders = [];
-let foldersSeeded = false;
-let draggingFolderId = null;
-let currentInvoicesForExport = [];
-let allInvoicesCache = [];
-let activeInvFilters = { unpaid:false, partial:false, paid:false, overdue:false };
-let invoiceSearchTerm = '';
-let expensesCache = [];
-let debtAccountsCache = [], billsCache = [], savingsGoalsCache = [], budgetCategoriesCache = [];
-let financeArchiveRevenue = 0;
-let yearlySnapshotsCache = [];
-let addExpenseConnectedInvoices = [];
-let expenseImportRows = [], expenseImportHeaders = [];
-let heroImageOrderCount = 0;
-let heroImageDocs = [];
-let jobAddresses = [];
-let routeFilter = 'all';
-let currentRouteIds = [];
-let currentRouteStops = [];
-let currentRouteStartPoint = null;
-let currentRouteDate = null;
-let currentRouteType = 'install';
-let currentRouteCrew = '1';
-let currentRouteIsSaved = false;
-let currentRouteIsTest = false;
-let originalRouteDocId = null;
-let originalRouteStopIds = [];
-let geocoder = null;
-let mapPreviewInstances = {};
-let addCustPhotoUrl = '';
-let addCustHighlights = [];
-let activeDiffFilters = [];
-let activeNeedsFixFilter = false;
-let activeUnscheduledFilter = false;
-let activeCompletedFilter = false;
-let activeNotCompletedFilter = false;
-let activeNeedsRemovalFilter = false;
-let activeCityFilter = 'all';
-let searchTerm = '';
-let takedownSearchTerm = '';
-let activeMapDiffFilters = [];
-let activeMapNeedsFixFilter = false;
-let activeMapUnscheduledFilter = false;
-let activeMapCompletedFilter = false;
-let activeMapNotCompletedFilter = false;
-let activeMapNeedsRemovalFilter = false;
-let overviewMapInstance = null;
-let overviewMapMarkers = [];
-let warehouseExtras = [];
-let inventoryCache = [];
-let availableCustomerNumbers = [];
-let savedEmailTemplatesCache = [];
-let houseMapsIdSet = new Set();
-let allCustSortCol = 'name', allCustSortDir = 1;
-let editCustomerId = null;
-let currentMissedHouses = [];
-let routeMapInstance = null;
-let routeMapMarkers = [];
-let routeMapPolyline = null;
-let calWeekOffset = 0;
-let calCrewFilter = 'all';
-let allTimeLogsCache = [];
-let payrollWeekOffset = 0;
-let employeeNames = [];
-let employeeCategories = [];
-let crewConfig = { count: 1, members: {} };
-let employeeNotesCache = [];
-let crewOverrides = [];
-let hmCurrentCustomerId = null;
-let hmData = null;
-let hmActiveTool = null;
-let hmAppendTargetStrandId = null;
-let hmDraftStrandPoints = [];
-let hmViewMode = 'original';
-let hmScaleDragStart = null, hmScaleDragLineEl = null;
-let hmStructDragStart = null, hmStructDragLineEl = null;
-let hmHighlightDragStart = null, hmHighlightDragRectEl = null;
-let ccCardsCache = [], ccTxnCache = [];
-let ccRecurringOverridesCache = {};
-let ccCardImportRows = [];
-let ccTxnImportRows = [];
-
 const auth = getAuth(app);
 const db = getFirestore(app);
 const fbFunctions = getFunctions(app);
@@ -3180,14 +2985,10 @@ function populateQuickEmailSelect(){
     }).join('');
   if(current) sel.value = current;
 }
-const quickEmailCustSelEl = document.getElementById('quickEmailCustomerSelect');
-if(quickEmailCustSelEl){
-  quickEmailCustSelEl.addEventListener('change', function(){
-    const inv = allInvoicesCache.find(i => i.id === this.value);
-    const inpEl = document.getElementById('quickEmailInput');
-    if(inpEl) inpEl.value = inv && inv.data.email ? inv.data.email : '';
-  });
-}
+document.getElementById('quickEmailCustomerSelect')?.addEventListener('change', function(){
+  const inv = allInvoicesCache.find(i => i.id === this.value);
+  __setEl('quickEmailInput','value', inv && inv.data.email ? inv.data.email : '');
+});
 document.getElementById('quickEmailFillBtn')?.addEventListener('click', async function(){
   const invId = document.getElementById('quickEmailCustomerSelect')?.value;
   const email = document.getElementById('quickEmailInput')?.value.trim();
@@ -4106,6 +3907,7 @@ function initData(){
   loadEmployeeRequestsAdmin();
   loadPerFootRate();
 }
+let perFootRate = 0;
 function loadPerFootRate(){
   onSnapshot(doc(db,'pricing','config'), function(snap){
     perFootRate = snap.exists() ? (snap.data().perFootRate || 0) : 0;
@@ -4132,6 +3934,13 @@ document.getElementById('pfCalcFeet').addEventListener('input', updatePfCalcResu
 
 
 /* ---------------- QUOTES ---------------- */
+let quotesCache = [];
+let quoteFilter = 'all';
+let quoteStatusFilter = 'all';
+let quoteApprovalFilter = 'all';
+let quoteFolderView = 'main';
+let quoteColorFilter = 'all';
+let quoteStageFilter = 'new';
 function quoteStage(d){
   if(d.approvalStatus === 'approved' && d.formCompleted) return 'completed';
   if(typeof d.quotedPrice !== 'number') return 'new';
@@ -4512,7 +4321,16 @@ document.getElementById('quoteColorFilterSelect').addEventListener('change', fun
 function starIcon(){ return '<svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.9 6.3L22 9l-5 4.9L18.2 21 12 17.5 5.8 21 7 13.9 2 9l7.1-.7z"/></svg>'; }
 function mailIcon(){ return '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>'; }
 function mailOpenIcon(){ return '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6"/><path d="M2 12l10 6 10-6"/><path d="M2 12l10-6 10 6"/></svg>'; }
+let allMessages = [];
+let msgFilter = 'all';
+let selectedFolder = 'Inbox';
+let selectedEmployee = '';
 /* ---------------- EMAIL TEMPLATES (Automation > Templates) ---------------- */
+let emailTemplateFolders = [];
+let emailTemplates = [];
+let etTemplatesSeeded = false;
+let etCurrentLinkedTokens = [];
+let etEditorDirty = false;
 const DEFAULT_QUOTE_TEMPLATE_BODY = 'Hi {{name}},\n\n' +
   'Here\'s your quote from Highlighting Utah: {{price}}.\n\n' +
   '{{link_button}}\n\n' +
@@ -4705,6 +4523,7 @@ document.getElementById('etCancelEditBtn').addEventListener('click', function(){
 });
 
 /* ---- Preview & Send (Templates tab) ---- */
+let etRecipientSearchTerm = '';
 function etGetMembers(){
   return (jobAddresses||[]).slice().sort((a,b) => (a.data.name||'').localeCompare(b.data.name||''));
 }
@@ -4850,6 +4669,8 @@ document.getElementById('etSendTestBtn').addEventListener('click', async functio
 });
 
 /* ---- Insert Codes modal (search, tabs, cursor placement) ---- */
+let etLastCursorPos = null;
+const IC_CODES = {
   general: [
     {token:'{{name}}', label:'Customer name'},
     {token:'{{price}}', label:'Balance / price'},
@@ -4878,6 +4699,9 @@ document.getElementById('etSendTestBtn').addEventListener('click', async functio
     {token:'{{quote_decline_button}}', label:'Quote Decline (button) — needs Quote Token step to fully work'}
   ]
 };
+let icActiveTab = 'general';
+let icSelected = new Set();
+let icSearchTerm = '';
 function icGetCustomCodeList(){
   const out = [];
   customCodes.forEach(function(c){
@@ -4971,6 +4795,7 @@ document.getElementById('icInsertBtn').addEventListener('click', function(){
 });
 
 /* ---- Custom Codes: Manage list + New/Edit ---- */
+let customCodes = [];
 function loadCustomCodes(){
   onSnapshot(collection(db,'customCodes'), function(snap){
     customCodes = [];
@@ -5074,6 +4899,10 @@ document.getElementById('ccSaveBtn').addEventListener('click', async function(){
   }
 });
 
+const DEFAULT_TOPIC_FOLDERS = ['Billing / Payment Question','Change My Light Colors','Report an Issue','Reschedule Install or Removal','General Question','Something Else'];
+let messageFolders = [];
+let foldersSeeded = false;
+let draggingFolderId = null;
 
 function loadMessageFolders(){
   onSnapshot(collection(db,'messageFolders'), async function(snap){
@@ -5225,6 +5054,7 @@ document.getElementById('addFolderBtn').addEventListener('click', async function
 });
 
 /* ---------------- RIGHT-CLICK MOVE MENU ---------------- */
+const contextMenuEl = document.getElementById('msgContextMenu');
 function openContextMenu(x, y, messageId){
   const folders = [{name:'Inbox'}].concat(messageFolders);
   contextMenuEl.innerHTML = '<div class="context-menu-label">Move to&hellip;</div>' + folders.map(function(f){
@@ -5251,8 +5081,10 @@ function messageAddressLookup(d){
 // For "Light Color Change" inbox messages: since we don't get footage from a Member Portal color change,
 // estimate it from what's already on file — actual measured feet if we have it, otherwise back-calculated
 // from their price and the per-foot rate — so staff aren't guessing bundle counts from scratch.
+const FEET_PER_BUNDLE = 40;
 // 5% safety margin so a price-based estimate errs toward too many feet rather than too few —
 // better to have an extra bundle on hand before going up on someone's roof than to come up short.
+const FEET_ESTIMATE_SAFETY = 1.05;
 function estimateFeetFromPrice(price, rate){
   return Math.round((price / rate) * FEET_ESTIMATE_SAFETY);
 }
@@ -5377,6 +5209,7 @@ function statusClass(status){
 }
 
 /* ---------------- QUICK PASTE IMPORT (invoices) ---------------- */
+let currentInvoicesForExport = [];
 document.getElementById('invoiceExportBtn').addEventListener('click', function(){
   if(!currentInvoicesForExport.length){ toast('No invoices to export yet'); return; }
   const rows = currentInvoicesForExport.map(function(d){
@@ -5393,6 +5226,10 @@ document.getElementById('invoiceExportBtn').addEventListener('click', function()
   XLSX.writeFile(wb, 'highlighting-utah-invoices.xlsx');
 });
 
+let allInvoicesCache = [];
+let activeInvFilters = { unpaid:false, partial:false, paid:false, overdue:false };
+let invoiceSearchTerm = '';
+const OVERDUE_DAYS = 14;
 function isInvoiceOverdue(d){
   const status = computeInvoiceStatus(d.install, d.removal, d.deposit);
   if(status === 'Paid in Full') return false;
@@ -5584,6 +5421,7 @@ function renderInvoicesList(){
 }
 
 /* ---------------- ROOF MEASUREMENT TOOL (Quotes) ---------------- */
+const RM_COLORS = ['#F4BE55','#E0574B','#2E6B3E','#4338CA','#F97316','#3E7A5B'];
 function openRoofMeasureTool(panel, quoteId, d){
   const existing = d.roofMeasurement || null;
   let rmImageUrl = (existing && existing.imageUrl) || d.frontPhotoUrl || '';
@@ -5914,6 +5752,7 @@ function loadEmployeeRequestsAdmin(){
 }
 
 
+let expensesCache = [];
 function loadExpenses(){
   const q = query(collection(db,'expenses'), orderBy('date','desc'));
   onSnapshot(q, function(snap){
@@ -5953,6 +5792,9 @@ function renderExpensesList(){
   attachDeleteHandlers(list);
 }
 /* ---------------- FINANCIAL OVERVIEW ---------------- */
+let debtAccountsCache = [], billsCache = [], savingsGoalsCache = [], budgetCategoriesCache = [];
+let financeArchiveRevenue = 0;
+let yearlySnapshotsCache = [];
 function loadFinancialTrackers(){
   onSnapshot(collection(db,'debtAccounts'), function(snap){
     debtAccountsCache = []; snap.forEach(d => debtAccountsCache.push({id:d.id, data:d.data()}));
@@ -6352,6 +6194,7 @@ document.querySelectorAll('#fovSubTabs [data-fovtab]').forEach(function(btn){
   });
 });
 
+let addExpenseConnectedInvoices = [];
 function populateAddExpenseEmployeeSelect(){
   const sel = document.getElementById('addExpenseEmployee');
   if(!sel) return;
@@ -6423,6 +6266,7 @@ document.getElementById('addExpenseBtn').addEventListener('click', async functio
   toast('Expense added');
 });
 
+let expenseImportRows = [], expenseImportHeaders = [];
 document.getElementById('expenseImportFile').addEventListener('change', function(e){
   const file = e.target.files[0];
   if(!file) return;
@@ -6466,6 +6310,7 @@ document.getElementById('expenseImportBtn').addEventListener('click', async func
 });
 
 /* ---------------- REVIEWS ---------------- */
+const reviewForm = document.getElementById('reviewForm');
 reviewForm.addEventListener('submit', function(e){
   e.preventDefault();
   const editId = document.getElementById('revEditId').value;
@@ -6552,6 +6397,7 @@ function hexToRgba(hex, alpha){
   const r = parseInt(h.substring(0,2),16), g = parseInt(h.substring(2,4),16), b = parseInt(h.substring(4,6),16);
   return 'rgba('+r+','+g+','+b+','+alpha+')';
 }
+const HIGHLIGHT_BAKE_COLORS = ['#F4BE55','#E0574B','#2E6B3E','#4338CA','#F97316','#3E7A5B'];
 async function getHighlightedPhotoUrl(imageUrl, highlights, opts){
   const result = await bakeHighlightsIntoPhoto(imageUrl, highlights, opts);
   if(result instanceof Blob){
@@ -6703,6 +6549,8 @@ document.getElementById('heroUploadBtn').addEventListener('click', async functio
   fileInput.value = '';
   toast(done + ' hero photo(s) uploaded');
 });
+let heroImageOrderCount = 0;
+let heroImageDocs = [];
 function upIcon(){ return '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>'; }
 function downIcon(){ return '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>'; }
 function loadHeroImages(){
@@ -6752,10 +6600,24 @@ function loadHeroImages(){
 }
 
 /* ---------------- ROUTES (employee tool) ---------------- */
+let jobAddresses = [];
+let routeFilter = 'all';
+let currentRouteIds = [];
+let currentRouteStops = [];
+let currentRouteStartPoint = null;
+let currentRouteDate = null;
+let currentRouteType = 'install';
+let currentRouteCrew = '1';
+let currentRouteIsSaved = false;
+let currentRouteIsTest = false;
+let originalRouteDocId = null;
+let originalRouteStopIds = [];
+let geocoder = null;
 function getGeocoder(){
   if(!geocoder && window.google) geocoder = new google.maps.Geocoder();
   return geocoder;
 }
+let mapPreviewInstances = {};
 function showMapPreview(containerId, lat, lng, label){
   const box = document.getElementById(containerId);
   if(!box || !window.google) return;
@@ -6789,6 +6651,7 @@ async function showMapPreviewByAddress(containerId, addressText){
     if(box) box.innerHTML = '<div class="map-preview-placeholder">Couldn\'t locate this address.</div>';
   }
 }
+const LIGHTS_COLOR_OPTIONS = ['Warm White','Pure White','Red','Green','Blue','Purple','Orange','Pink','Multi'];
 function compileLightsDescription(color, notes){
   let result = color || '';
   if(notes) result = result ? result + ' (' + notes + ')' : notes;
@@ -6853,6 +6716,7 @@ function geocodeAddress(addressText){
     });
   });
 }
+const STREETVIEW_KEY = "AIzaSyByI2wHguK1JLNdUFJQKiA_gunoVtTkyqM";
 async function getStreetViewFrontUrlAdmin(lat, lng){
   try{
     const metaRes = await fetch('https://maps.googleapis.com/maps/api/streetview/metadata?location='+lat+','+lng+'&key='+STREETVIEW_KEY);
@@ -6977,6 +6841,13 @@ function newHangBadge(d){
 
 // ---- Shared marker color-coding: pin color = install timing, ring = time-sensitive, corner badge = fix/new-hang.
 // Used by both the Overview Map and the Route Builder map so the two stay visually consistent.
+const TIMING_MARKER_COLORS = {
+  'October': '#EF9F27',
+  'November': '#6366F1',
+  'November - Before Thanksgiving': '#7F77DD',
+  'After Thanksgiving': '#1D9E75',
+  'Normal Schedule': '#888780'
+};
 function timingMarkerColor(installPreference){
   return TIMING_MARKER_COLORS[installPreference || 'Normal Schedule'] || TIMING_MARKER_COLORS['Normal Schedule'];
 }
@@ -7255,6 +7126,9 @@ function pitchPercent(angleDeg){
   if(a <= 0) return 0;
   return Math.round(Math.tan(a * Math.PI / 180) * 100);
 }
+let addCustPhotoUrl = '';
+let addCustHighlights = [];
+const ACH_COLORS = ['#F4BE55','#E0574B','#2E6B3E','#4338CA','#F97316','#3E7A5B'];
 function renderAddCustHighlights(){
   const layer = document.getElementById('addCustHighlightLayer');
   const listEl = document.getElementById('addCustHighlightList');
@@ -7569,10 +7443,13 @@ function wireBulkCounts(areaIds, anchorId, countIdMap){
 }
 
 // --- Routes Bulk Update ---
+const rbAreaIds = ['rbNamesArea','rbPhonesArea','rbEmailsArea','rbStreetsArea','rbCitiesArea','rbStatesArea','rbZipsArea','rbDatesArea','rbColorsArea','rbAmountsArea','rbInstallPrefArea'];
+const rbCountIds = {
   rbNamesArea:'rbCountNames', rbPhonesArea:'rbCountPhones', rbEmailsArea:'rbCountEmails',
   rbStreetsArea:'rbCountStreets', rbCitiesArea:'rbCountCities', rbStatesArea:'rbCountStates', rbZipsArea:'rbCountZips', rbDatesArea:'rbCountDates',
   rbColorsArea:'rbCountColors', rbAmountsArea:'rbCountAmounts', rbInstallPrefArea:'rbCountInstallPref'
 };
+const RB_INSTALL_PREF_OPTIONS = ['Normal Schedule','October','November','November - Before Thanksgiving','After Thanksgiving'];
 function rbNormalizeInstallPref(raw){
   if(!raw) return '';
   if(raw.trim().toLowerCase() === 'any') return 'Normal Schedule';
@@ -7721,6 +7598,8 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
 });
 
 // --- Invoice Bulk Update ---
+const ibAreaIds = ['ibNamesArea','ibPhonesArea','ibEmailsArea','ibAmountsArea'];
+const ibCountIds = { ibNamesArea:'ibCountNames', ibPhonesArea:'ibCountPhones', ibEmailsArea:'ibCountEmails', ibAmountsArea:'ibCountAmounts' };
 wireBulkCounts(ibAreaIds, 'ibPhonesArea', ibCountIds);
 document.getElementById('ibImportBtn').addEventListener('click', async function(){
   const statusEl = document.getElementById('ibImportStatus');
@@ -7784,6 +7663,14 @@ document.getElementById('ibImportBtn').addEventListener('click', async function(
   wireBulkCounts(ibAreaIds, 'ibPhonesArea', ibCountIds)();
 });
 
+let activeDiffFilters = [];
+let activeNeedsFixFilter = false;
+let activeUnscheduledFilter = false;
+let activeCompletedFilter = false;
+let activeNotCompletedFilter = false;
+let activeNeedsRemovalFilter = false;
+let activeCityFilter = 'all';
+let searchTerm = '';
 
 function extractCleanCity(cityRaw){
   if(!cityRaw) return '';
@@ -8288,6 +8175,7 @@ function renderRouteAddressList(){
   attachAddressRowHandlers(list);
 }
 
+let takedownSearchTerm = '';
 function renderTakedownsList(){
   const list = document.getElementById('takedownsList');
   if(!list) return;
@@ -8364,7 +8252,15 @@ document.getElementById('applyFilterBtn').addEventListener('click', function(){
   renderRouteAddressList();
 });
 
+let activeMapDiffFilters = [];
+let activeMapNeedsFixFilter = false;
+let activeMapUnscheduledFilter = false;
+let activeMapCompletedFilter = false;
+let activeMapNotCompletedFilter = false;
+let activeMapNeedsRemovalFilter = false;
 
+let overviewMapInstance = null;
+let overviewMapMarkers = [];
 function renderOverviewMap(){
   const mapDiv = document.getElementById('overviewMap');
   if(!mapDiv || !window.google) return;
@@ -8531,6 +8427,7 @@ function loadJobAddresses(){
     if(typeof rsvpUpdatePreview === 'function') rsvpUpdatePreview();
   });
 }
+let warehouseExtras = [];
 function loadWarehouseExtras(){
   onSnapshot(collection(db,'warehouseExtras'), function(snap){
     warehouseExtras = [];
@@ -8539,8 +8436,10 @@ function loadWarehouseExtras(){
     if(typeof renderInventoryList === 'function') renderInventoryList();
   });
 }
+let inventoryCache = [];
 
 /* ---------------- CUSTOMER NUMBERS ---------------- */
+let availableCustomerNumbers = [];
 function loadAvailableCustomerNumbers(){
   onSnapshot(collection(db,'availableCustomerNumbers'), function(snap){
     availableCustomerNumbers = [];
@@ -8654,6 +8553,7 @@ function loadInventory(){
     renderInventoryList();
   });
 }
+let savedEmailTemplatesCache = [];
 function loadSavedEmailTemplates(){
   onSnapshot(query(collection(db,'savedEmailTemplates'), orderBy('createdAt','desc')), function(snap){
     savedEmailTemplatesCache = [];
@@ -9118,6 +9018,7 @@ setupDraggableTabBar('custSectionTabs', 'custtab', 'huCustTabOrder', function(ta
   if(tabName === 'all') renderAllCustomersTable();
 });
 
+let houseMapsIdSet = new Set();
 function loadHouseMapsIdSet(){
   onSnapshot(collection(db,'houseMaps'), function(snap){
     houseMapsIdSet = new Set();
@@ -9126,6 +9027,7 @@ function loadHouseMapsIdSet(){
   });
 }
 
+let allCustSortCol = 'name', allCustSortDir = 1;
 function populateAllCustFilterCities(){
   const sel = document.getElementById('allCustFilterCity');
   if(!sel) return;
@@ -9234,6 +9136,7 @@ function renderAllCustomersTable(){
     });
   });
 }
+let editCustomerId = null;
 function openEditCustomerModal(id){
   const item = jobAddresses.find(a => a.id === id);
   if(!item) return;
@@ -9409,6 +9312,7 @@ function nearestNeighborOrder(selectedAddresses, startPoint){
   return reorderFlatStops(flat, startPoint);
 }
 
+const NEARBY_MISS_RADIUS_MILES = 0.3;
 function findNearbyMissedHouses(selectedStops, pool){
   const selectedIds = new Set(selectedStops.map(s => s.id));
   const candidates = [];
@@ -9463,6 +9367,7 @@ function showNeedsFixPopup(houses){
   overlay.addEventListener('click', function(e){ if(e.target === overlay) overlay.remove(); });
 }
 
+let currentMissedHouses = [];
 function scheduledFieldForType(type, dateVal, crew){
   if(type === 'fix') return {fixScheduled: true, fixScheduledDate: dateVal, fixCrew: crew};
   if(type === 'removal') return {removalScheduled: true, removalScheduledDate: dateVal, removalCrew: crew};
@@ -9748,6 +9653,9 @@ document.getElementById('generateRemovalBtn').addEventListener('click', async fu
   finalizeRoute(ordered, startPoint, dateVal, 'removal', crewChoice);
 });
 
+let routeMapInstance = null;
+let routeMapMarkers = [];
+let routeMapPolyline = null;
 function renderRouteMap(ordered, startPoint){
   const mapDiv = document.getElementById('routeMap');
   const bounds = new google.maps.LatLngBounds();
@@ -10022,7 +9930,9 @@ document.getElementById('textOutToggle').addEventListener('click', function(){
   chevron.innerHTML = isOpen ? '&#9662;' : '&#9652;';
 });
 
-/* ---------------- CALENDAR ---------------- */ // keyed by date -> array of route docs (each has type + crew)
+/* ---------------- CALENDAR ---------------- */
+let scheduledRoutesCache = {}; // keyed by date -> array of route docs (each has type + crew)
+let calWeekOffset = 0;
 function formatDateNice(dateStr){
   const [y,m,d] = dateStr.split('-').map(Number);
   const dt = new Date(y, m-1, d);
@@ -10066,6 +9976,7 @@ function loadRouteIntoView(route, dateStr){
   document.getElementById('routeResultCard').style.display = 'block';
   document.getElementById('routeResultCard').scrollIntoView({behavior:'smooth'});
 }
+let calCrewFilter = 'all';
 function populateCalCrewFilter(){
   const sel = document.getElementById('calCrewFilterSelect');
   if(!sel) return;
@@ -10153,6 +10064,7 @@ document.getElementById('calPrevWeek').addEventListener('click', function(){ cal
 document.getElementById('calNextWeek').addEventListener('click', function(){ calWeekOffset++; renderCalendar(); });
 
 /* ---------------- TIME LOGS ---------------- */
+let allTimeLogsCache = [];
 function loadTimeLogs(){
   const q = query(collection(db,'timeLogs'), orderBy('createdAt','desc'), limit(300));
   onSnapshot(q, function(snap){
@@ -10192,6 +10104,7 @@ function loadTimeLogs(){
 }
 
 /* ---------------- WEEKLY PAYROLL ---------------- */
+let payrollWeekOffset = 0;
 function toDateStrPayroll(dt){
   return dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0') + '-' + String(dt.getDate()).padStart(2,'0');
 }
@@ -10262,6 +10175,7 @@ document.getElementById('payrollPrevWeek2').addEventListener('click', function()
 document.getElementById('payrollNextWeek2').addEventListener('click', function(){ payrollWeekOffset++; renderPayrollWeek(); });
 
 /* ---------------- EMPLOYEE NAMES ---------------- */
+let employeeNames = [];
 function loadEmployeeNames(){
   onSnapshot(collection(db,'employeeNames'), function(snap){
     employeeNames = [];
@@ -10285,6 +10199,7 @@ function loadEmployeeNames(){
     if(typeof fovRenderAll === 'function') fovRenderAll();
   });
 }
+const ASSIGNABLE_SECTIONS = [
   {group:'Crew Portal', items:[
     {key:'route', label:'Route/Map'},
     {key:'checklist', label:'Checklist'},
@@ -10470,6 +10385,7 @@ document.getElementById('addEmployeeBtn').addEventListener('click', async functi
 });
 
 /* ---------------- EMPLOYEE CATEGORIES ---------------- */
+let employeeCategories = [];
 function loadEmployeeCategories(){
   onSnapshot(collection(db,'employeeCategories'), function(snap){
     employeeCategories = [];
@@ -10528,6 +10444,7 @@ document.getElementById('addEmployeeCategoryBtn').addEventListener('click', asyn
 });
 
 /* ---------------- CREWS ---------------- */
+let crewConfig = { count: 1, members: {} };
 function getEffectiveCrewNames(crewNum, dateStr){
   if(!crewNum || !dateStr) return [];
   const members = crewConfig.members || {};
@@ -10699,6 +10616,7 @@ document.getElementById('saveChecklistBtn').addEventListener('click', async func
 renderChecklistItemInputs([]);
 
 /* ---------------- NOTES FROM EMPLOYEES (kept, simple one-way notes) ---------------- */
+let employeeNotesCache = [];
 function loadEmployeeNotes(){
   const q = query(collection(db,'employeeNotes'), orderBy('createdAt','desc'), limit(200));
   onSnapshot(q, function(snap){
@@ -10745,6 +10663,7 @@ function renderEmployeeNotesInList(list){
   attachDeleteHandlers(list);
 }
 
+let crewOverrides = [];
 function loadCrewOverrides(){
   onSnapshot(collection(db,'crewOverrides'), function(snap){
     crewOverrides = [];
@@ -10778,6 +10697,7 @@ document.getElementById('addOverrideBtn').addEventListener('click', async functi
 });
 
 /* ---------------- FAQ ---------------- */
+const faqForm = document.getElementById('faqForm');
 faqForm.addEventListener('submit', function(e){
   e.preventDefault();
   const editId = document.getElementById('faqEditId').value;
@@ -10924,6 +10844,14 @@ document.getElementById('settingsSLForm').addEventListener('submit', function(e)
 
 /* ---------------- Shared delete handler ---------------- */
 /* ==================== HOUSE MAPS ==================== */
+const HM_STRAND_COLORS = ['#E0574B','#4338CA','#2E6B3E','#F4BE55','#F97316','#0EA5E9','#A855F7','#DB2777','#65A30D','#78716C'];
+const HM_LABEL_TYPES = ['Garage','Front Door','Windows','Peaks','Roof Section','Custom'];
+let hmCurrentCustomerId = null;
+let hmData = null;
+let hmActiveTool = null;
+let hmAppendTargetStrandId = null;
+let hmDraftStrandPoints = [];
+let hmViewMode = 'original';
 
 function hmEmptyData(){
   return { images:{house:'', maps:'', front:'', outline:''}, scalePxPerFoot:0, strands:[], structureLines:[], labels:[], notes:[], highlightSections:[], updatedAt:null };
@@ -11216,7 +11144,12 @@ document.getElementById('hmFinishStrandBtn').addEventListener('click', function(
 });
 
 /* ---- Canvas interaction ---- */
+const hmImageWrap = document.getElementById('hmImageWrap');
+const hmSvgLayer = document.getElementById('hmSvgLayer');
 let hmDragPoint = null; // {strandId, pointIdx}
+let hmScaleDragStart = null, hmScaleDragLineEl = null;
+let hmStructDragStart = null, hmStructDragLineEl = null;
+let hmHighlightDragStart = null, hmHighlightDragRectEl = null;
 
 hmImageWrap.addEventListener('click', function(e){
   if(e.target.closest('.hm-point')) return; // clicks on points are handled by drag logic, not click-to-place
@@ -11715,6 +11648,7 @@ document.getElementById('memberExportBtn').addEventListener('click', function(){
 });
 
 /* ==================== BUSINESS CREDIT CARDS ==================== */
+let ccCardsCache = [], ccTxnCache = [];
 function loadCreditCards(){
   onSnapshot(collection(db,'creditCards'), function(snap){
     ccCardsCache = [];
@@ -12043,6 +11977,7 @@ function ccRenderTrendChart(){
 document.getElementById('ccTrendCardFilter').addEventListener('change', ccRenderTrendChart);
 
 /* ---- Recurring Charges ---- */
+let ccRecurringOverridesCache = {};
 function loadCcRecurringOverrides(){
   onSnapshot(collection(db,'ccRecurringOverrides'), function(snap){
     ccRecurringOverridesCache = {};
@@ -12179,6 +12114,7 @@ document.getElementById('ccImportToggle').addEventListener('click', function(){
   panel.style.display = isOpen ? 'none' : 'block';
   chevron.innerHTML = isOpen ? '&#9662;' : '&#9652;';
 });
+let ccCardImportRows = [];
 document.getElementById('ccCardImportFile').addEventListener('change', function(e){
   const file = e.target.files[0];
   if(!file) return;
@@ -12227,6 +12163,7 @@ document.getElementById('ccCardImportBtn').addEventListener('click', async funct
 });
 
 /* ---- Excel Import: Transactions ---- */
+let ccTxnImportRows = [];
 document.getElementById('ccTxnImportFile').addEventListener('change', function(e){
   const file = e.target.files[0];
   if(!file) return;
