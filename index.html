@@ -3165,7 +3165,7 @@ async function resolveLinkTokens(text, phone, amount, opts){
   }
   if(out.indexOf('{{quote_yes_button}}') !== -1 || out.indexOf('{{quote_decline_button}}') !== -1){
     const phoneDigits = (phone||'').replace(/\D/g,'');
-    const quote = quotesCache.find(q => (q.data.customerPhone||'').replace(/\D/g,'') === phoneDigits);
+    const quote = quotesCache.find(q => (q.data.phone||'').replace(/\D/g,'') === phoneDigits);
     if(quote && quote.data.quoteToken){
       const quoteToken = quote.data.quoteToken;
       const approveUrl = 'https://highlightingutah.com/#/quote-details?token='+quoteToken+'&action=approve';
@@ -4547,7 +4547,12 @@ function etResolveVars(item){
   const d = item.data;
   const phoneDigits = (d.phone||'').replace(/\D/g,'');
   const inv = allInvoicesCache.find(i => i.id === phoneDigits);
-  const price = inv ? fmtMoney(balanceDueAmount(inv.data)) : '—';
+  let price = inv ? fmtMoney(balanceDueAmount(inv.data)) : '';
+  if(!price){
+    const quote = quotesCache.find(q => (q.data.phone||'').replace(/\D/g,'') === phoneDigits);
+    if(quote && typeof quote.data.quotedPrice === 'number') price = fmtMoney(quote.data.quotedPrice);
+  }
+  if(!price) price = '—';
   const link = d.portalToken ? ('https://highlightingutah.com/#/payment?token='+d.portalToken) : '';
   return {name: d.name || 'there', price: price, phone: d.phone || '', link: link, linkLabel: 'Log Into Your Portal'};
 }
@@ -4580,7 +4585,7 @@ async function etUpdatePreview(){
   // Generate quote token if template uses quote buttons
   if(template.data.body.indexOf('{{quote_') !== -1){
     const phoneDigits = (member.data.phone||'').replace(/\D/g,'');
-    const quote = quotesCache.find(q => (q.data.customerPhone||'').replace(/\D/g,'') === phoneDigits);
+    const quote = quotesCache.find(q => (q.data.phone||'').replace(/\D/g,'') === phoneDigits);
     if(quote && !quote.data.quoteToken){
       const token = 'qt_' + Math.random().toString(36).substr(2,16) + '_' + Date.now();
       await updateDoc(doc(db,'quotes', quote.id), {quoteToken: token});
@@ -4644,7 +4649,7 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
     // Generate quote token if template uses quote buttons
     if(template.data.body.indexOf('{{quote_') !== -1){
       const phoneDigits = (member.data.phone||'').replace(/\D/g,'');
-      const quote = quotesCache.find(q => (q.data.customerPhone||'').replace(/\D/g,'') === phoneDigits);
+      const quote = quotesCache.find(q => (q.data.phone||'').replace(/\D/g,'') === phoneDigits);
       if(quote && !quote.data.quoteToken){
         const token = 'qt_' + Math.random().toString(36).substr(2,16) + '_' + Date.now();
         await updateDoc(doc(db,'quotes', quote.id), {quoteToken: token});
@@ -4693,7 +4698,7 @@ document.getElementById('etSendTestBtn').addEventListener('click', async functio
   const vars = member ? etResolveVars(member) : {name:'Test Customer', price:'$0.00', phone:''};
   if(template.data.body.indexOf('{{quote_') !== -1 && member){
     const phoneDigits = (member.data.phone||'').replace(/\D/g,'');
-    const quote = quotesCache.find(q => (q.data.customerPhone||'').replace(/\D/g,'') === phoneDigits);
+    const quote = quotesCache.find(q => (q.data.phone||'').replace(/\D/g,'') === phoneDigits);
     if(quote && !quote.data.quoteToken){
       const token = 'qt_' + Math.random().toString(36).substr(2,16) + '_' + Date.now();
       await updateDoc(doc(db,'quotes', quote.id), {quoteToken: token});
