@@ -1050,6 +1050,7 @@
         <button class="route-tab-btn" data-dashtab="invoices" draggable="true">Invoices</button>
         <button class="route-tab-btn" data-dashtab="creditcards" draggable="true">Business Credit Cards</button>
         <button class="route-tab-btn" data-dashtab="inventory" draggable="true">Inventory</button>
+        <button class="route-tab-btn" data-dashtab="rsvpresponses" draggable="true">RSVP Responses</button>
       </div>
 
       <!-- FINANCIAL OVERVIEW -->
@@ -1267,6 +1268,12 @@
 
         <!-- INVOICE LIST -->
         <div class="route-tab-panel active" id="invtab-list">
+          <div class="card" style="background:#FFF8E9; border-color:var(--gold-dim); margin-bottom:16px;">
+            <h3 style="margin-top:0;">Season Snapshot &mdash; Unpaid Last Season</h3>
+            <p style="font-size:13px;">Run this once, right before RSVP season starts (e.g. in July). It looks at every customer's current invoice balance and flags anyone who is Unpaid or Partial Payment as "Unpaid Last Season" &mdash; so you can filter them into their own RSVP email later, even after this year's invoices get created. Safe to re-run if needed.</p>
+            <button type="button" class="btn btn-outline btn-sm" id="snapshotUnpaidBtn">Snapshot Unpaid Balances Now</button>
+            <span id="snapshotUnpaidStatus" style="font-size:12.5px; color:var(--slate); margin-left:10px;"></span>
+          </div>
           <a href="https://squareup.com/dashboard" target="_blank" rel="noopener" class="btn btn-outline btn-sm" style="margin-bottom:4px; display:inline-flex;">&#128222; Charge a Card by Phone (Square)</a>
           <p class="form-note" style="margin:0 0 14px;">Opens your Square Dashboard &mdash; once signed in, go to Orders &amp; Payments &rarr; Virtual Terminal &rarr; Take a Payment.</p>
           <div class="form-row"><input type="text" id="invoiceSearchInput" placeholder="Search by customer name..." style="padding:12px 14px; border-radius:10px; border:1px solid var(--line); background:var(--snow); font-size:14.5px;"></div>
@@ -1557,6 +1564,13 @@ Highlighting Utah</textarea>
         </div>
         <div id="inventoryList" class="row-list"><div class="empty-note">Loading…</div></div>
       </div>
+
+      <!-- RSVP RESPONSES -->
+      <div class="route-tab-panel" id="dashtab-rsvpresponses">
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px;" id="dashRsvpStatCards"></div>
+        <div class="form-row" style="max-width:320px;"><input type="text" id="dashRsvpSearch" placeholder="Search by name..." style="padding:10px 12px; border-radius:10px; border:1px solid var(--line); background:var(--snow); font-size:13.5px;"></div>
+        <div class="row-list" id="dashRsvpList" style="margin-top:14px;"><div class="empty-note">Loading…</div></div>
+      </div>
     </div>
 
 
@@ -1719,10 +1733,36 @@ Highlighting Utah</textarea>
           </div>
           <button type="button" class="btn btn-outline btn-sm" id="etCopyForPreviewBtn" style="width:auto; margin:-8px 0 16px;">Copy Preview Text</button>
           <div class="form-row"><label>Send To</label><input type="text" id="etRecipientSearch" placeholder="Search members by name..."></div>
+          <div class="form-grid-3" style="margin:-6px 0 10px; gap:8px;">
+            <div class="form-row" style="margin:0;"><label style="font-size:11.5px;">Gate Code</label>
+              <select id="etFilterGateCode" style="padding:8px 10px; font-size:13px;">
+                <option value="all">All</option>
+                <option value="missing">Missing Gate Code</option>
+                <option value="has">Has Gate Code</option>
+              </select>
+            </div>
+            <div class="form-row" style="margin:0;"><label style="font-size:11.5px;">Payment</label>
+              <select id="etFilterPayment" style="padding:8px 10px; font-size:13px;">
+                <option value="all">All</option>
+                <option value="unpaid">Unpaid Last Season</option>
+                <option value="paid">Paid Last Season</option>
+              </select>
+            </div>
+            <div class="form-row" style="margin:0;"><label style="font-size:11.5px;">RSVP Status</label>
+              <select id="etFilterRsvp" style="padding:8px 10px; font-size:13px;">
+                <option value="all">All</option>
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+                <option value="backnextyear">Back Next Year</option>
+                <option value="pending">Pending</option>
+              </select>
+            </div>
+          </div>
           <div style="display:flex; gap:8px; margin:-8px 0 10px;">
             <button type="button" class="btn btn-outline btn-sm" id="etSelectAllBtn" style="width:auto;">Select All</button>
             <button type="button" class="btn btn-outline btn-sm" id="etSelectNoneBtn" style="width:auto;">Select None</button>
           </div>
+          <div id="etRecipientCount" style="font-size:12px; color:var(--slate); margin:-4px 0 8px;"></div>
           <div id="etRecipientList" style="max-height:220px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:10px; margin-bottom:16px;"></div>
           <div style="display:flex; gap:10px;">
             <button type="button" class="btn btn-outline" id="etSendCloseBtn" style="flex:1;">Close</button>
@@ -3165,7 +3205,7 @@ async function resolveLinkTokens(text, phone, amount, opts){
   }
   if(out.indexOf('{{quote_yes_button}}') !== -1 || out.indexOf('{{quote_decline_button}}') !== -1){
     const phoneDigits = (phone||'').replace(/\D/g,'');
-    const quote = quotesCache.find(q => (q.data.customerPhone||'').replace(/\D/g,'') === phoneDigits);
+    const quote = quotesCache.find(q => (q.data.phone||'').replace(/\D/g,'') === phoneDigits);
     if(quote && quote.data.quoteToken){
       const quoteToken = quote.data.quoteToken;
       const approveUrl = 'https://highlightingutah.com/#/quote-details?token='+quoteToken+'&action=approve';
@@ -4547,7 +4587,12 @@ function etResolveVars(item){
   const d = item.data;
   const phoneDigits = (d.phone||'').replace(/\D/g,'');
   const inv = allInvoicesCache.find(i => i.id === phoneDigits);
-  const price = inv ? fmtMoney(balanceDueAmount(inv.data)) : '—';
+  let price = inv ? fmtMoney(balanceDueAmount(inv.data)) : '';
+  if(!price){
+    const quote = quotesCache.find(q => (q.data.phone||'').replace(/\D/g,'') === phoneDigits);
+    if(quote && typeof quote.data.quotedPrice === 'number') price = fmtMoney(quote.data.quotedPrice);
+  }
+  if(!price) price = '—';
   const link = d.portalToken ? ('https://highlightingutah.com/#/payment?token='+d.portalToken) : '';
   return {name: d.name || 'there', price: price, phone: d.phone || '', link: link, linkLabel: 'Log Into Your Portal'};
 }
@@ -4577,25 +4622,61 @@ async function etUpdatePreview(){
   const template = emailTemplates.find(t => t.id === templateId);
   const member = jobAddresses.find(m => m.id === memberId);
   if(!template || !member){ box.textContent = 'Pick a template and a member above to see the preview.'; return; }
+  // Generate quote token if template uses quote buttons
+  if(template.data.body.indexOf('{{quote_') !== -1){
+    const phoneDigits = (member.data.phone||'').replace(/\D/g,'');
+    const quote = quotesCache.find(q => (q.data.phone||'').replace(/\D/g,'') === phoneDigits);
+    if(quote && !quote.data.quoteToken){
+      const token = 'qt_' + Math.random().toString(36).substr(2,16) + '_' + Date.now();
+      quote.data.quoteToken = token;
+      await updateDoc(doc(db,'quotes', quote.id), {quoteToken: token});
+    }
+  }
   const vars = etResolveVars(member);
   box.innerHTML = await resolveLinkTokens(template.data.body, vars.phone, 0, vars);
 }
+let etFilterGateCode = 'all';
+let etFilterPayment = 'all';
+let etFilterRsvp = 'all';
 function etRenderRecipientList(){
   const list = document.getElementById('etRecipientList');
+  const countEl = document.getElementById('etRecipientCount');
   if(!list) return;
   const term = etRecipientSearchTerm.toLowerCase();
-  const members = etGetMembers().filter(m => (m.data.email) && (!term || (m.data.name||'').toLowerCase().indexOf(term) !== -1));
-  if(!members.length){ list.innerHTML = '<div class="empty-note">No members with an email match this search.</div>'; return; }
+  let members = etGetMembers().filter(m => (m.data.email) && (!term || (m.data.name||'').toLowerCase().indexOf(term) !== -1));
+  if(etFilterGateCode === 'missing') members = members.filter(m => !m.data.gateCode);
+  else if(etFilterGateCode === 'has') members = members.filter(m => !!m.data.gateCode);
+  if(etFilterPayment === 'unpaid') members = members.filter(m => !!m.data.unpaidLastSeason);
+  else if(etFilterPayment === 'paid') members = members.filter(m => !m.data.unpaidLastSeason);
+  if(etFilterRsvp === 'yes') members = members.filter(m => m.data.rsvpStatus === 'yes');
+  else if(etFilterRsvp === 'no') members = members.filter(m => m.data.rsvpStatus === 'no');
+  else if(etFilterRsvp === 'backnextyear') members = members.filter(m => m.data.rsvpStatus === 'backnextyear');
+  else if(etFilterRsvp === 'pending') members = members.filter(m => !m.data.rsvpStatus);
+  if(countEl) countEl.textContent = members.length + ' member' + (members.length===1?'':'s') + ' match' + (members.length===1?'es':'') + ' these filters.';
+  if(!members.length){ list.innerHTML = '<div class="empty-note">No members match this search and these filters.</div>'; return; }
   const previouslyChecked = new Set(Array.from(list.querySelectorAll('input:checked')).map(el => el.value));
   list.innerHTML = members.map(function(m){
     const checked = previouslyChecked.has(m.id) ? 'checked' : '';
-    return '<label style="display:flex; align-items:center; gap:8px; padding:5px 0; font-size:13.5px;"><input type="checkbox" class="et-recipient-cb" value="'+m.id+'" '+checked+' style="width:auto;">'+esc(m.data.name||'(no name)')+' <span style="color:var(--slate); font-size:12px;">'+esc(m.data.email||'')+'</span></label>';
+    const badges = (!m.data.gateCode ? ' <span style="color:#9A2A1F;">&#128274;</span>' : '') + (m.data.unpaidLastSeason ? ' <span style="color:#9A2A1F;">&#128181;</span>' : '');
+    return '<label style="display:flex; align-items:center; gap:8px; padding:5px 0; font-size:13.5px;"><input type="checkbox" class="et-recipient-cb" value="'+m.id+'" '+checked+' style="width:auto;">'+esc(m.data.name||'(no name)')+badges+' <span style="color:var(--slate); font-size:12px;">'+esc(m.data.email||'')+'</span></label>';
   }).join('');
 }
 document.getElementById('etSendTemplateSelect').addEventListener('change', etUpdatePreview);
 document.getElementById('etPreviewMemberSelect').addEventListener('change', etUpdatePreview);
 document.getElementById('etRecipientSearch').addEventListener('input', function(){
   etRecipientSearchTerm = this.value.trim();
+  etRenderRecipientList();
+});
+document.getElementById('etFilterGateCode').addEventListener('change', function(){
+  etFilterGateCode = this.value;
+  etRenderRecipientList();
+});
+document.getElementById('etFilterPayment').addEventListener('change', function(){
+  etFilterPayment = this.value;
+  etRenderRecipientList();
+});
+document.getElementById('etFilterRsvp').addEventListener('change', function(){
+  etFilterRsvp = this.value;
   etRenderRecipientList();
 });
 document.getElementById('etSelectAllBtn').addEventListener('click', function(){
@@ -4632,6 +4713,16 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
   for(const id of selectedIds){
     const member = jobAddresses.find(m => m.id === id);
     if(!member || !member.data.email) { failed++; continue; }
+    // Generate quote token if template uses quote buttons
+    if(template.data.body.indexOf('{{quote_') !== -1){
+      const phoneDigits = (member.data.phone||'').replace(/\D/g,'');
+      const quote = quotesCache.find(q => (q.data.phone||'').replace(/\D/g,'') === phoneDigits);
+      if(quote && !quote.data.quoteToken){
+        const token = 'qt_' + Math.random().toString(36).substr(2,16) + '_' + Date.now();
+        quote.data.quoteToken = token;
+        await updateDoc(doc(db,'quotes', quote.id), {quoteToken: token});
+      }
+    }
     const vars = etResolveVars(member);
     const message = await resolveLinkTokens(template.data.body, vars.phone, 0, vars);
     statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + selectedIds.length + '…';
@@ -4648,6 +4739,12 @@ function openSendModal(templateId){
   etRecipientSearchTerm = '';
   document.getElementById('etRecipientSearch').value = '';
   document.getElementById('etTestEmailInput').value = '';
+  etFilterGateCode = 'all';
+  etFilterPayment = 'all';
+  etFilterRsvp = 'all';
+  document.getElementById('etFilterGateCode').value = 'all';
+  document.getElementById('etFilterPayment').value = 'all';
+  document.getElementById('etFilterRsvp').value = 'all';
   etRenderRecipientList();
   if(templateId) document.getElementById('etSendTemplateSelect').value = templateId;
   etUpdatePreview();
@@ -4673,6 +4770,15 @@ document.getElementById('etSendTestBtn').addEventListener('click', async functio
   const memberId = document.getElementById('etPreviewMemberSelect').value;
   const member = jobAddresses.find(m => m.id === memberId);
   const vars = member ? etResolveVars(member) : {name:'Test Customer', price:'$0.00', phone:''};
+  if(template.data.body.indexOf('{{quote_') !== -1 && member){
+    const phoneDigits = (member.data.phone||'').replace(/\D/g,'');
+    const quote = quotesCache.find(q => (q.data.phone||'').replace(/\D/g,'') === phoneDigits);
+    if(quote && !quote.data.quoteToken){
+      const token = 'qt_' + Math.random().toString(36).substr(2,16) + '_' + Date.now();
+      quote.data.quoteToken = token;
+      await updateDoc(doc(db,'quotes', quote.id), {quoteToken: token});
+    }
+  }
   const message = '[TEST EMAIL — sample data below]<br><br>' + await resolveLinkTokens(template.data.body, vars.phone||'', 0, vars);
   try{
     emailjs.init(publicKey);
@@ -4711,8 +4817,8 @@ const IC_CODES = {
     {token:'{{price}}', label:'Quoted price'},
     {token:'{{link}}', label:'Quote link (plain URL)'},
     {token:'{{link_button}}', label:'Quote link (button)'},
-    {token:'{{quote_yes_button}}', label:'Quote Approve (button) — needs Quote Token step to fully work'},
-    {token:'{{quote_decline_button}}', label:'Quote Decline (button) — needs Quote Token step to fully work'}
+    {token:'{{quote_yes_button}}', label:'Quote Approve (button)'},
+    {token:'{{quote_decline_button}}', label:'Quote Decline (button)'}
   ]
 };
 let icActiveTab = 'general';
@@ -5223,6 +5329,35 @@ function statusClass(status){
   if(status === 'Partial Payment') return 'status-partial';
   return 'status-due';
 }
+document.getElementById('snapshotUnpaidBtn').addEventListener('click', async function(){
+  const statusEl = document.getElementById('snapshotUnpaidStatus');
+  if(!confirm('This will check every customer\'s current invoice balance and flag anyone Unpaid or Partial Payment as "Unpaid Last Season." Continue?')) return;
+  const btn = this;
+  btn.disabled = true;
+  statusEl.textContent = 'Checking balances…';
+  try{
+    let flagged = 0, cleared = 0, checked = 0;
+    const withPhone = jobAddresses.filter(a => a.data.phone);
+    for(const item of withPhone){
+      const inv = allInvoicesCache.find(i => i.data.phone === item.data.phone);
+      if(!inv) continue;
+      checked++;
+      const balance = balanceDueAmount(inv.data);
+      if(balance > 0){
+        await updateDoc(doc(db,'jobAddresses', item.id), {unpaidLastSeason: true, unpaidLastSeasonAmount: balance});
+        flagged++;
+      } else {
+        await updateDoc(doc(db,'jobAddresses', item.id), {unpaidLastSeason: false, unpaidLastSeasonAmount: 0});
+        cleared++;
+      }
+    }
+    statusEl.textContent = 'Done — checked ' + checked + ', flagged ' + flagged + ' as unpaid, ' + cleared + ' confirmed paid.';
+  } catch(err){
+    statusEl.textContent = 'Something went wrong — try again.';
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 /* ---------------- QUICK PASTE IMPORT (invoices) ---------------- */
 let currentInvoicesForExport = [];
@@ -7768,6 +7903,8 @@ function buildAddressRowHtml(item){
         (d.phone ? '<div class="row-phone-line">'+esc(d.phone)+'</div>' : '')+
         (d.phone2 ? '<div class="row-phone-line">'+esc(d.phone2)+' (secondary)</div>' : '')+
         (d.email2 ? '<div class="row-phone-line">'+esc(d.email2)+' (secondary)</div>' : '')+
+        (!d.gateCode ? '<div style="margin-top:6px;"><span class="status-pill" style="background:#FDECEA; color:#9A2A1F; font-weight:600;">&#128274; No Gate Code on File</span></div>' : '')+
+        (d.unpaidLastSeason ? '<div style="margin-top:6px;"><span class="status-pill" style="background:#FDECEA; color:#9A2A1F; font-weight:600;">&#128181; Unpaid Last Season'+(d.unpaidLastSeasonAmount ? ' &mdash; '+fmtMoney(d.unpaidLastSeasonAmount) : '')+'</span></div>' : '')+
         priceLine+
         (d.houseAreas && d.houseAreas.length ? '<div class="row-phone-line">&#127968; '+esc(d.houseAreas.join(', '))+'</div>' : '')+
         (crewLines.length ? '<div class="row-phone-line">'+crewLines.join(' &middot; ')+'</div>' : '')+
@@ -8435,6 +8572,7 @@ function loadJobAddresses(){
     if(typeof renderWarehouseRecycleQueue === 'function') renderWarehouseRecycleQueue();
     if(typeof renderCustomerNumbersPanel === 'function') renderCustomerNumbersPanel();
     if(typeof renderInventoryList === 'function') renderInventoryList();
+    if(typeof renderDashRsvpPanel === 'function') renderDashRsvpPanel();
     if(typeof etPopulateMemberSelect === 'function') etPopulateMemberSelect();
     if(typeof etRenderRecipientList === 'function') etRenderRecipientList();
     if(typeof etUpdatePreview === 'function') etUpdatePreview();
@@ -8775,6 +8913,63 @@ function renderInventoryList(){
     });
   });
 }
+let dashRsvpFilter = 'all';
+let dashRsvpSearchTerm = '';
+function renderDashRsvpPanel(){
+  const cardsEl = document.getElementById('dashRsvpStatCards');
+  const listEl = document.getElementById('dashRsvpList');
+  if(!cardsEl || !listEl) return;
+  const withPhoneOrName = (jobAddresses||[]).filter(a => a.data.name || a.data.phone);
+  const yesList = withPhoneOrName.filter(a => a.data.rsvpStatus === 'yes');
+  const noList = withPhoneOrName.filter(a => a.data.rsvpStatus === 'no');
+  const backList = withPhoneOrName.filter(a => a.data.rsvpStatus === 'backnextyear');
+  const pendingList = withPhoneOrName.filter(a => !a.data.rsvpStatus);
+  const cardDefs = [
+    {key:'yes', label:'Yes', list:yesList, color:'#2E6B3E'},
+    {key:'no', label:'No', list:noList, color:'#9A2A1F'},
+    {key:'backnextyear', label:'Back Next Year', list:backList, color:'#8a6d1f'},
+    {key:'pending', label:'Pending', list:pendingList, color:'#5b6472'}
+  ];
+  cardsEl.innerHTML = cardDefs.map(function(c){
+    const active = dashRsvpFilter === c.key;
+    return '<button type="button" class="dash-rsvp-card" data-dashrsvpcard="'+c.key+'" style="flex:1; min-width:130px; text-align:left; border:1px solid '+(active?c.color:'var(--line)')+'; background:'+(active?'#FFF8E9':'var(--paper)')+'; border-radius:10px; padding:10px 16px; cursor:pointer;">'+
+      '<div style="font-size:11px; text-transform:uppercase; color:var(--slate); letter-spacing:.04em;">'+c.label+'</div>'+
+      '<div style="font-size:20px; font-weight:700; color:'+c.color+';">'+c.list.length+'</div>'+
+    '</button>';
+  }).join('');
+  cardsEl.querySelectorAll('[data-dashrsvpcard]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      dashRsvpFilter = (dashRsvpFilter === btn.dataset.dashrsvpcard) ? 'all' : btn.dataset.dashrsvpcard;
+      renderDashRsvpPanel();
+    });
+  });
+  let activeList = dashRsvpFilter === 'all' ? withPhoneOrName : (cardDefs.find(c => c.key === dashRsvpFilter) || {}).list || [];
+  const term = dashRsvpSearchTerm.toLowerCase();
+  if(term) activeList = activeList.filter(a => (a.data.name||'').toLowerCase().indexOf(term) !== -1);
+  activeList = activeList.slice().sort((a,b) => (a.data.name||'').localeCompare(b.data.name||''));
+  if(!activeList.length){
+    listEl.innerHTML = '<div class="empty-note">No members match this filter.</div>';
+    return;
+  }
+  listEl.innerHTML = activeList.map(function(item){
+    const d = item.data;
+    const statusLabel = d.rsvpStatus === 'yes' ? 'Yes' : (d.rsvpStatus === 'no' ? 'No' : (d.rsvpStatus === 'backnextyear' ? 'Back Next Year' : 'Pending'));
+    const statusColor = d.rsvpStatus === 'yes' ? '#2E6B3E' : (d.rsvpStatus === 'no' ? '#9A2A1F' : (d.rsvpStatus === 'backnextyear' ? '#8a6d1f' : '#5b6472'));
+    const respondedLine = d.rsvpRespondedAt ? '<div class="rtext">Responded '+fmtDate(d.rsvpRespondedAt)+'</div>' : '';
+    return '<div class="row-item">'+
+      '<div class="rmain">'+
+        '<h4 style="margin:0;">'+esc(d.name||'(no name)')+' <span class="status-pill" style="background:#FFF8E9; color:'+statusColor+'; font-weight:700;">'+statusLabel+'</span></h4>'+
+        (d.phone ? '<div class="rtext">'+esc(d.phone)+'</div>' : '')+
+        (d.address ? '<div class="rtext">'+esc(d.address)+'</div>' : '')+
+        respondedLine+
+      '</div>'+
+    '</div>';
+  }).join('');
+}
+document.getElementById('dashRsvpSearch').addEventListener('input', function(){
+  dashRsvpSearchTerm = this.value.trim();
+  renderDashRsvpPanel();
+});
 document.getElementById('invAddItemBtn').addEventListener('click', async function(){
   const statusEl = document.getElementById('invAddItemStatus');
   const name = document.getElementById('invItemName').value.trim();
@@ -9203,10 +9398,22 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   if(!newName || !newPhone){ statusEl.textContent = 'Name and phone are required.'; return; }
   const oldPhone = item.data.phone || '';
   const oldBillTo = item.data.billToPhone || '';
+  const oldAddress = item.data.address || '';
   statusEl.textContent = 'Saving…';
   try{
     const addrUpdates = {name: newName, phone: newPhone, phone2: newPhone2, email: newEmail, email2: newEmail2, address: newAddress, rsvpStatus: newRsvp, needsLightRecycle: newRsvp === 'no', housePrice: newHousePrice, measuredFeet: newMeasuredFeet, wireColor: newWireColor, billToPhone: newBillTo, gateCode: newGateCode, wantsMailedInvoice: newWantsMailed, earliestInstallDate: newEarliestInstallStr ? new Date(newEarliestInstallStr + 'T00:00:00') : null};
     if(newEnrolledStr) addrUpdates.createdAt = new Date(newEnrolledStr + 'T12:00:00');
+    let geocodeFailed = false;
+    if(newAddress && newAddress !== oldAddress){
+      statusEl.textContent = 'Address changed — relocating on map…';
+      try{
+        const coords = await geocodeAddress(newAddress);
+        addrUpdates.lat = coords.lat;
+        addrUpdates.lng = coords.lng;
+      } catch(geoErr){
+        geocodeFailed = true;
+      }
+    }
     await updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates);
     const inv = allCustInvoiceFor(item);
     if(inv && !newBillTo){
@@ -9222,7 +9429,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     if(newBillTo) await syncPayerInvoice(newBillTo);
     document.getElementById('editCustOverlay').style.display = 'none';
     editCustomerId = null;
-    toast('Customer info updated.');
+    toast(geocodeFailed ? 'Saved — but the new address could not be located on the map. Check it manually so routes stay accurate.' : 'Customer info updated.');
   } catch(err){
     statusEl.textContent = 'Something went wrong — try again.';
   }
@@ -9324,7 +9531,7 @@ function reorderFlatStops(flatStops, startPoint){
   return twoOptImprove(ordered, startPoint);
 }
 function nearestNeighborOrder(selectedAddresses, startPoint){
-  const flat = selectedAddresses.map(function(item){ return {id:item.id, address:item.data.address, name:item.data.name||'', phone:item.data.phone||'', difficulty:item.data.difficulty, lat:item.data.lat, lng:item.data.lng, gateCode:item.data.gateCode||'', customerNumber:item.data.customerNumber||''}; });
+  const flat = selectedAddresses.map(function(item){ return {id:item.id, address:item.data.address, name:item.data.name||'', phone:item.data.phone||'', difficulty:item.data.difficulty, lat:item.data.lat, lng:item.data.lng, gateCode:item.data.gateCode||'', specificOutlet:item.data.specificOutlet||'', specificOutletNotes:item.data.specificOutletNotes||'', customerNumber:item.data.customerNumber||''}; });
   return reorderFlatStops(flat, startPoint);
 }
 
@@ -9343,7 +9550,7 @@ function findNearbyMissedHouses(selectedStops, pool){
       const d = haversine(stop.lat, stop.lng, item.data.lat, item.data.lng);
       if(d < closestDist) closestDist = d;
     });
-    candidates.push({id:item.id, address:item.data.address, name:item.data.name||'', phone:item.data.phone||'', difficulty:item.data.difficulty||'Unrated', lat:item.data.lat, lng:item.data.lng, gateCode:item.data.gateCode||'', customerNumber:item.data.customerNumber||'', _dist: closestDist});
+    candidates.push({id:item.id, address:item.data.address, name:item.data.name||'', phone:item.data.phone||'', difficulty:item.data.difficulty||'Unrated', lat:item.data.lat, lng:item.data.lng, gateCode:item.data.gateCode||'', specificOutlet:item.data.specificOutlet||'', specificOutletNotes:item.data.specificOutletNotes||'', customerNumber:item.data.customerNumber||'', _dist: closestDist});
   });
   candidates.sort((a,b) => a._dist - b._dist);
   const MIN_ALWAYS_SHOW = 6;
@@ -9552,7 +9759,7 @@ function pickClustered(available, quotas, startPoint, seedPref){
     remaining.splice(remaining.indexOf(seed), 1);
     const seedDiff = seed.data.difficulty || 'Unrated';
     quotas[seedDiff]--;
-    selected.push({id:seed.id, address:seed.data.address, name:seed.data.name||'', phone:seed.data.phone||'', difficulty:seedDiff, lat:seed.data.lat, lng:seed.data.lng, gateCode:seed.data.gateCode||'', customerNumber:seed.data.customerNumber||''});
+    selected.push({id:seed.id, address:seed.data.address, name:seed.data.name||'', phone:seed.data.phone||'', difficulty:seedDiff, lat:seed.data.lat, lng:seed.data.lng, gateCode:seed.data.gateCode||'', specificOutlet:seed.data.specificOutlet||'', specificOutletNotes:seed.data.specificOutletNotes||'', customerNumber:seed.data.customerNumber||''});
     current = {lat:seed.data.lat, lng:seed.data.lng};
   }
   while(selected.length < totalWanted && remaining.length){
@@ -9567,7 +9774,7 @@ function pickClustered(available, quotas, startPoint, seedPref){
     const next = remaining.splice(bestIdx,1)[0];
     const nextDiff = next.data.difficulty || 'Unrated';
     quotas[nextDiff]--;
-    selected.push({id:next.id, address:next.data.address, name:next.data.name||'', phone:next.data.phone||'', difficulty:nextDiff, lat:next.data.lat, lng:next.data.lng, gateCode:next.data.gateCode||'', customerNumber:next.data.customerNumber||''});
+    selected.push({id:next.id, address:next.data.address, name:next.data.name||'', phone:next.data.phone||'', difficulty:nextDiff, lat:next.data.lat, lng:next.data.lng, gateCode:next.data.gateCode||'', specificOutlet:next.data.specificOutlet||'', specificOutletNotes:next.data.specificOutletNotes||'', customerNumber:next.data.customerNumber||''});
     current = {lat:next.data.lat, lng:next.data.lng};
   }
   return twoOptImprove(selected, startPoint);
@@ -9609,7 +9816,7 @@ function pickClusteredSimple(available, count, startPoint, seedPref){
   if(!current && remaining.length){
     const seed = pickSeedByPreference(remaining, seedPref || 'auto');
     remaining.splice(remaining.indexOf(seed), 1);
-    selected.push({id:seed.id, address:seed.data.address, name:seed.data.name||'', phone:seed.data.phone||'', difficulty:seed.data.difficulty||'Unrated', lat:seed.data.lat, lng:seed.data.lng, gateCode:seed.data.gateCode||'', customerNumber:seed.data.customerNumber||''});
+    selected.push({id:seed.id, address:seed.data.address, name:seed.data.name||'', phone:seed.data.phone||'', difficulty:seed.data.difficulty||'Unrated', lat:seed.data.lat, lng:seed.data.lng, gateCode:seed.data.gateCode||'', specificOutlet:seed.data.specificOutlet||'', specificOutletNotes:seed.data.specificOutletNotes||'', customerNumber:seed.data.customerNumber||''});
     current = {lat:seed.data.lat, lng:seed.data.lng};
   }
   while(selected.length < count && remaining.length){
@@ -9619,7 +9826,7 @@ function pickClusteredSimple(available, count, startPoint, seedPref){
       if(d < bestDist){ bestDist = d; bestIdx = i; }
     });
     const next = remaining.splice(bestIdx,1)[0];
-    selected.push({id:next.id, address:next.data.address, name:next.data.name||'', phone:next.data.phone||'', difficulty:next.data.difficulty||'Unrated', lat:next.data.lat, lng:next.data.lng, gateCode:next.data.gateCode||'', customerNumber:next.data.customerNumber||''});
+    selected.push({id:next.id, address:next.data.address, name:next.data.name||'', phone:next.data.phone||'', difficulty:next.data.difficulty||'Unrated', lat:next.data.lat, lng:next.data.lng, gateCode:next.data.gateCode||'', specificOutlet:next.data.specificOutlet||'', specificOutletNotes:next.data.specificOutletNotes||'', customerNumber:next.data.customerNumber||''});
     current = {lat:next.data.lat, lng:next.data.lng};
   }
   return twoOptImprove(selected, startPoint);
