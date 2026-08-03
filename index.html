@@ -2360,6 +2360,7 @@ if(quickMessageFormEl){
 var currentLookupRecord = null;
 var pendingPortalCreds = null;
 var currentPortalPhone = '';
+var lastLookupError = '';
 var currentJobAddressId = null;
 var currentJobAddressData = null;
 
@@ -2490,6 +2491,7 @@ async function hmLoadHouseMapForInvoice(phoneDigits, opts){
     row.style.display = 'block';
   } catch(err){
     console.error('[HU] account/house-map lookup failed:', err);
+    lastLookupError = (err && (err.code || err.message)) || 'unknown lookup error';
   }
 }
 function performSignInLookup(contactRaw, lastNameInput){
@@ -3059,7 +3061,7 @@ async function ensureJobAddressId(){
         if((docSnap.data().phone||'').replace(/\D/g,'') === phoneDigits) currentJobAddressId = docSnap.id;
       });
     }
-  } catch(err){ console.error('[HU] ensureJobAddressId failed:', err); }
+  } catch(err){ console.error('[HU] ensureJobAddressId failed:', err); lastLookupError = (err && (err.code || err.message)) || 'unknown ensure error'; }
   return currentJobAddressId;
 }
 async function saveLightsPattern(){
@@ -3073,7 +3075,7 @@ async function saveLightsPattern(){
     console.error('[HU] save blocked — no jobAddressId. currentJobAddressId:', currentJobAddressId,
       '| invoice phone:', currentLookupRecord && currentLookupRecord.phone,
       '| portal phone:', currentPortalPhone);
-    statusEl.textContent = "Couldn't find your account — please call/text us at (801) 901-0011.";
+    statusEl.textContent = "Couldn't find your account — please call/text us at (801) 901-0011." + " [debug: id=" + (currentJobAddressId||"none") + ", invPhone=" + ((currentLookupRecord&&currentLookupRecord.phone)||"none") + ", portalPhone=" + (currentPortalPhone||"none") + ", err=" + (lastLookupError||"none") + "]";
     if(saveBtn) saveBtn.disabled = false;
     return;
   }
@@ -3318,7 +3320,7 @@ document.getElementById('changesSaveBtn').addEventListener('click', async functi
   statusEl.textContent = 'Saving…';
   var jobId = await ensureJobAddressId();
   if(!jobId){
-    statusEl.textContent = "Couldn't find your account — please call/text us at (801) 901-0011.";
+    statusEl.textContent = "Couldn't find your account — please call/text us at (801) 901-0011." + " [debug: id=" + (currentJobAddressId||"none") + ", invPhone=" + ((currentLookupRecord&&currentLookupRecord.phone)||"none") + ", portalPhone=" + (currentPortalPhone||"none") + ", err=" + (lastLookupError||"none") + "]";
     btn.disabled = false;
     return;
   }
