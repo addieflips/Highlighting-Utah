@@ -1660,18 +1660,18 @@ Highlighting Utah</textarea>
 
       <!-- ===== PHASE 1: NEW TEMPLATES PANEL ===== -->
       <!-- Main Templates View -->
-      <div style="display:grid; grid-template-columns:180px 1fr; gap:20px; margin-bottom:30px;">
+      <div style="display:grid; grid-template-columns:200px 1fr; gap:20px; margin-bottom:30px;">
         <!-- Folders Sidebar -->
         <div>
           <p style="font-size:11px; color:var(--text-muted); margin:0 0 8px; text-transform:uppercase; letter-spacing:0.03em;">Folders</p>
           <div style="display:flex; flex-direction:column; gap:2px;">
-            <div style="display:flex; align-items:center; justify-content:space-between; padding:8px 10px; border-radius:var(--radius); background:var(--bg-accent);">
-              <span style="font-size:13px; color:var(--text-accent);"><i class="ti ti-mail" aria-hidden="true" style="margin-right:6px; vertical-align:-2px;"></i>All templates</span>
-              <span style="font-size:11px; color:var(--text-accent);" id="etFolderCountAll">0</span>
-            </div>
+            <button type="button" class="et-folder-btn active" data-folder="all" style="display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-radius:8px; background:#E6F2EA; color:#2E6B3E; border:1px solid #B8D9C2; font-weight:600; font-size:13px; width:100%; cursor:pointer;">
+              <span>📁 All templates</span>
+              <span id="etFolderCountAll" style="font-size:11px;">0</span>
+            </button>
             <div id="etFolderList"></div>
-            <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
-              <input type="text" id="etNewFolderInput" placeholder="New folder name" style="padding:8px 10px; border-radius:var(--radius); border:0.5px solid var(--border); font-size:12px; flex:1;">
+            <div style="display:flex; align-items:center; gap:8px; margin-top:12px;">
+              <input type="text" id="etNewFolderInput" placeholder="New folder" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-size:12px; flex:1;">
               <button type="button" class="btn btn-outline btn-sm" id="etAddFolderBtn" style="width:auto;">+</button>
             </div>
           </div>
@@ -1679,16 +1679,29 @@ Highlighting Utah</textarea>
 
         <!-- Templates Grid -->
         <div>
-          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
-            <p style="font-weight:500; font-size:16px; margin:0;" id="etGridTitle">All templates</p>
-            <div style="display:flex; gap:8px;">
-              <button type="button" class="btn btn-outline" id="etOpenSendBtn"><i class="ti ti-send" aria-hidden="true" style="margin-right:4px;"></i>Preview &amp; Send</button>
-              <button type="button" class="btn" id="etNewTemplateBtn" style="background:var(--fill-primary); color:var(--on-primary); border:none;"><i class="ti ti-plus" aria-hidden="true" style="margin-right:4px;"></i>New template</button>
-            </div>
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; gap:12px;">
+            <input type="text" id="etTemplateSearch" placeholder="Search templates..." style="flex:1; padding:10px 12px; border-radius:8px; border:1px solid var(--line); font-size:13px;">
+            <button type="button" class="btn" id="etNewTemplateBtn" style="background:var(--gold); color:var(--ink); border:none; white-space:nowrap;"><i class="ti ti-plus" aria-hidden="true" style="margin-right:4px;"></i>New template</button>
           </div>
-          <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px;" id="etTemplateList">
-            <div class="empty-note">No templates yet.</div>
+          <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:12px;" id="etTemplateList">
+            <div class="empty-note">Select a folder to view templates</div>
           </div>
+        </div>
+      </div>
+
+      <!-- ===== SEND MODAL ===== -->
+      <div class="et-popup-overlay" id="etSendOverlay" style="display:none;">
+        <div class="et-popup" style="max-width:660px;">
+          <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:19px;" id="etSendTitle">Send Template</h3>
+          <p style="margin:0 0 16px; font-size:13px; color:var(--slate);">Select customers to send this template to.</p>
+          <div id="etSendPreview" style="background:var(--paper); padding:12px; border-radius:8px; margin-bottom:16px; border:1px solid var(--line); max-height:150px; overflow-y:auto; font-size:12px; white-space:pre-wrap; color:var(--slate);"></div>
+          <input type="text" id="etSendSearch" placeholder="Search customers by name or phone..." style="width:100%; padding:10px 12px; border-radius:8px; border:1px solid var(--line); font-size:13px; margin-bottom:12px;">
+          <div id="etSendMemberList" style="max-height:280px; overflow-y:auto; border:1px solid var(--line); border-radius:8px; padding:8px; background:var(--snow); margin-bottom:16px;"></div>
+          <div style="display:flex; gap:10px;">
+            <button type="button" class="btn btn-outline" id="etSendCancelBtn" style="flex:1;">Cancel</button>
+            <button type="button" class="btn btn-gold" id="etSendConfirmBtn" style="flex:1;">Send to Selected</button>
+          </div>
+          <div id="etSendStatus" style="font-size:13px; color:var(--slate); margin-top:8px; text-align:center;"></div>
         </div>
       </div>
 
@@ -4494,39 +4507,66 @@ function loadEmailTemplates(){
         await etSeedPrebuiltTemplates();
       }
     }
+    renderEmailTemplateFolders();
     renderEmailTemplateList();
   });
 }
 function getEmailTemplateByName(name){
   return emailTemplates.find(t => t.data.name === name);
 }
+let etSelectedFolder = 'all';
+let etTemplateSearch = '';
+
 function renderEmailTemplateFolders(){
   const list = document.getElementById('etFolderList');
   const sel = document.getElementById('etTemplateFolder');
   if(!list || !sel) return;
+  
+  // Update count for "All templates"
+  document.getElementById('etFolderCountAll').textContent = emailTemplates.length;
+  
+  // Sidebar folder buttons
   if(!emailTemplateFolders.length){
-    list.innerHTML = '<div class="empty-note">No folders yet — add one above to start sorting your templates.</div>';
+    list.innerHTML = '';
   } else {
     list.innerHTML = emailTemplateFolders.map(function(f){
       const count = emailTemplates.filter(t => t.data.folderId === f.id).length;
-      return '<div class="row-item"><div class="rmain"><h4 style="margin:0;">'+esc(f.name)+'</h4><div class="rmeta">'+count+' template'+(count===1?'':'s')+'</div></div>'+
-        '<div class="row-actions"><button type="button" class="btn btn-outline btn-sm" data-delfolder="'+f.id+'">Delete</button></div></div>';
+      return '<button type="button" class="et-folder-btn" data-folder="'+f.id+'" style="display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-radius:8px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-weight:500; font-size:13px; width:100%; cursor:pointer; text-align:left; margin-top:4px;">'+
+        '<span>📁 '+esc(f.name)+'</span>'+
+        '<span style="font-size:11px; color:var(--slate);">'+count+'</span>'+
+      '</button>';
     }).join('');
-    list.querySelectorAll('[data-delfolder]').forEach(function(btn){
-      btn.addEventListener('click', async function(){
-        const fid = btn.dataset.delfolder;
-        if(!confirm('Delete this folder? Templates inside will move back to top level.')) return;
-        const affected = emailTemplates.filter(t => t.data.folderId === fid);
-        for(const t of affected){ await updateDoc(doc(db,'emailTemplates', t.id), {folderId: null}); }
-        await deleteDoc(doc(db,'emailTemplateFolders', fid));
+    
+    list.querySelectorAll('.et-folder-btn').forEach(btn => {
+      btn.addEventListener('click', function(){
+        etSelectedFolder = btn.dataset.folder;
+        document.querySelectorAll('.et-folder-btn').forEach(b => b.style.background = 'var(--snow)');
+        document.querySelectorAll('.et-folder-btn[data-folder="all"]').forEach(b => b.style.background = 'var(--snow)');
+        btn.style.background = '#E6F2EA';
+        renderEmailTemplateList();
       });
     });
   }
+  
+  // Folder select in editor
   const currentVal = sel.value;
   sel.innerHTML = '<option value="">(No folder — top level)</option>' +
     emailTemplateFolders.map(f => '<option value="'+f.id+'">'+esc(f.name)+'</option>').join('');
   if(emailTemplateFolders.some(f => f.id === currentVal)) sel.value = currentVal;
+  
+  // Setup "All templates" button handler
+  document.querySelectorAll('.et-folder-btn[data-folder="all"]').forEach(btn => {
+    btn.addEventListener('click', function(){
+      etSelectedFolder = 'all';
+      document.querySelectorAll('.et-folder-btn').forEach(b => {
+        if(b.dataset.folder === 'all') b.style.background = '#E6F2EA';
+        else b.style.background = 'var(--snow)';
+      });
+      renderEmailTemplateList();
+    });
+  });
 }
+
 document.getElementById('etAddFolderBtn').addEventListener('click', async function(){
   const input = document.getElementById('etNewFolderInput');
   const name = input.value.trim();
@@ -4536,33 +4576,60 @@ document.getElementById('etAddFolderBtn').addEventListener('click', async functi
   renderEmailTemplateFolders();
   renderEmailTemplateList();
 });
+
+// Search handler
+document.getElementById('etTemplateSearch').addEventListener('input', function(){
+  etTemplateSearch = this.value.toLowerCase();
+  renderEmailTemplateList();
+});
+
 function renderEmailTemplateList(){
   const list = document.getElementById('etTemplateList');
   if(!list) return;
-  if(!emailTemplates.length){ list.innerHTML = '<div class="empty-note">No templates yet.</div>'; return; }
-  const folderName = function(fid){
-    const f = emailTemplateFolders.find(f => f.id === fid);
-    return f ? f.name : '(No folder)';
-  };
-  const groups = {};
-  emailTemplates.forEach(function(t){
-    const key = t.data.folderId || '';
-    if(!groups[key]) groups[key] = [];
-    groups[key].push(t);
-  });
+  
+  let filtered = emailTemplates;
+  
+  // Filter by folder
+  if(etSelectedFolder !== 'all'){
+    filtered = filtered.filter(t => t.data.folderId === etSelectedFolder);
+  }
+  
+  // Filter by search
+  if(etTemplateSearch){
+    filtered = filtered.filter(t => (t.data.name||'').toLowerCase().indexOf(etTemplateSearch) !== -1);
+  }
+  
+  if(!filtered.length){ 
+    list.innerHTML = '<div class="empty-note">No templates found.</div>';
+    return; 
+  }
+  
   let html = '';
-  Object.keys(groups).forEach(function(key){
-    html += '<div class="city-group-heading">'+esc(key ? folderName(key) : '(No folder)')+'</div>';
-    groups[key].forEach(function(t){
-      html += '<div class="row-item"><div class="rmain"><h4 style="margin:0;">'+esc(t.data.name)+'</h4>'+
-        '<div class="rtext" style="white-space:pre-wrap; font-size:12.5px; color:var(--slate); max-width:520px;">'+esc((t.data.body||'').slice(0,140))+((t.data.body||'').length>140?'…':'')+'</div></div>'+
-        '<div class="row-actions"><button type="button" class="btn btn-outline btn-sm" data-sendtemplate="'+t.id+'">Send</button>'+
-        '<button type="button" class="btn btn-outline btn-sm" data-edittemplate="'+t.id+'">Edit</button>'+
-        '<button type="button" class="btn btn-outline btn-sm" data-deltemplate="'+t.id+'" style="color:var(--ember); border-color:#f0b3ac;">Delete</button></div></div>';
-    });
+  filtered.forEach(function(t){
+    html += '<div class="row-item" style="padding:12px;">'+
+      '<h4 style="margin:0 0 8px;">'+esc(t.data.name)+'</h4>'+
+      '<div class="rtext" style="white-space:pre-wrap; font-size:12px; color:var(--slate); margin-bottom:12px; max-height:80px; overflow:hidden;">'+esc((t.data.body||'').slice(0,120))+((t.data.body||'').length>120?'…':'')+'</div>'+
+      '<div style="display:flex; gap:6px;">'+
+        '<button type="button" class="btn btn-sm" data-sendtemplate="'+t.id+'" style="flex:1; background:#E6F2EA; color:#2E6B3E; border:none;">Send</button>'+
+        '<button type="button" class="btn btn-outline btn-sm" data-edittemplate="'+t.id+'" style="flex:1;">Edit</button>'+
+        '<button type="button" class="btn btn-outline btn-sm" data-deltemplate="'+t.id+'" style="flex:1; color:var(--ember); border-color:#f0b3ac;">Delete</button>'+
+      '</div>'+
+    '</div>';
   });
   list.innerHTML = html;
+  
   if(typeof etPopulateTemplateSelect === 'function') etPopulateTemplateSelect();
+  
+  // Send button handler
+  list.querySelectorAll('[data-sendtemplate]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      const t = emailTemplates.find(t => t.id === btn.dataset.sendtemplate);
+      if(!t) return;
+      openEmailSendModal(t);
+    });
+  });
+  
+  // Edit button handler
   list.querySelectorAll('[data-edittemplate]').forEach(function(btn){
     btn.addEventListener('click', function(){
       const t = emailTemplates.find(t => t.id === btn.dataset.edittemplate);
@@ -4578,16 +4645,98 @@ function renderEmailTemplateList(){
       document.getElementById('etEditorOverlay').style.display = 'flex';
     });
   });
+  
+  // Delete button handler
   list.querySelectorAll('[data-deltemplate]').forEach(function(btn){
     btn.addEventListener('click', async function(){
       if(!confirm('Delete this template?')) return;
       await deleteDoc(doc(db,'emailTemplates', btn.dataset.deltemplate));
     });
   });
-  list.querySelectorAll('[data-sendtemplate]').forEach(function(btn){
-    btn.addEventListener('click', function(){ openSendModal(btn.dataset.sendtemplate); });
-  });
 }
+
+// Send Modal Handler
+function openEmailSendModal(template){
+  const overlay = document.getElementById('etSendOverlay');
+  const preview = document.getElementById('etSendPreview');
+  const memberList = document.getElementById('etSendMemberList');
+  const title = document.getElementById('etSendTitle');
+  
+  title.textContent = 'Send: ' + template.data.name;
+  preview.textContent = template.data.body || '';
+  
+  // Build member list
+  let html = '';
+  jobAddresses.forEach(addr => {
+    if(!addr.data.phone) return;
+    html += '<label style="display:flex; align-items:center; padding:8px; border-bottom:1px solid var(--line); cursor:pointer;">'+
+      '<input type="checkbox" data-sendto="'+addr.data.phone+'" style="margin-right:8px;">'+
+      '<div style="flex:1;">'+
+        '<div style="font-weight:500;">'+esc(addr.data.name || 'Unknown')+'</div>'+
+        '<div style="font-size:11px; color:var(--slate);">'+esc(addr.data.phone)+'</div>'+
+      '</div>'+
+    '</label>';
+  });
+  memberList.innerHTML = html;
+  
+  // Search handler
+  document.getElementById('etSendSearch').value = '';
+  document.getElementById('etSendSearch').addEventListener('input', function(){
+    const term = this.value.toLowerCase();
+    memberList.querySelectorAll('label').forEach(lbl => {
+      const text = lbl.textContent.toLowerCase();
+      lbl.style.display = text.indexOf(term) !== -1 ? 'flex' : 'none';
+    });
+  });
+  
+  overlay.style.display = 'flex';
+  window.etSendingTemplate = template;
+}
+
+document.getElementById('etSendCancelBtn').addEventListener('click', function(){
+  document.getElementById('etSendOverlay').style.display = 'none';
+  document.getElementById('etSendMemberList').innerHTML = '';
+  window.etSendingTemplate = null;
+});
+
+document.getElementById('etSendConfirmBtn').addEventListener('click', async function(){
+  if(!window.etSendingTemplate) return;
+  const checked = document.querySelectorAll('#etSendMemberList input[type="checkbox"]:checked');
+  if(!checked.length){ alert('Select at least one customer'); return; }
+  
+  const phones = Array.from(checked).map(cb => cb.dataset.sendto);
+  const template = window.etSendingTemplate;
+  const statusEl = document.getElementById('etSendStatus');
+  statusEl.textContent = 'Sending...';
+  
+  let sent = 0;
+  for(const phone of phones){
+    const customer = jobAddresses.find(a => a.data.phone === phone);
+    if(!customer) continue;
+    const name = customer.data.name || 'there';
+    const body = template.data.body.replace(/{{name}}/g, name);
+    
+    try {
+      await emailjs.send(emailjsServiceId, emailjsTemplateId, {
+        from_name: 'Highlighting Utah',
+        to_email: customer.data.email || '',
+        customer_name: name,
+        message: body
+      });
+      sent++;
+    } catch(err){
+      console.error('Email send failed:', err);
+    }
+  }
+  
+  statusEl.textContent = 'Sent to '+sent+' customer'+(sent===1?'':'s');
+  setTimeout(() => {
+    document.getElementById('etSendOverlay').style.display = 'none';
+    document.getElementById('etSendMemberList').innerHTML = '';
+    window.etSendingTemplate = null;
+  }, 1500);
+});
+
 document.getElementById('etNewTemplateBtn').addEventListener('click', function(){
   document.getElementById('etEditingId').value = '';
   document.getElementById('etTemplateName').value = '';
