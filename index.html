@@ -2359,6 +2359,7 @@ if(quickMessageFormEl){
 ========================================================= */
 var currentLookupRecord = null;
 var pendingPortalCreds = null;
+var currentPortalPhone = '';
 var currentJobAddressId = null;
 var currentJobAddressData = null;
 
@@ -2488,7 +2489,7 @@ async function hmLoadHouseMapForInvoice(phoneDigits, opts){
     }).join('');
     row.style.display = 'block';
   } catch(err){
-    // If this lookup fails for any reason, just skip showing the house map — the rest of the invoice still works
+    console.error('[HU] account/house-map lookup failed:', err);
   }
 }
 function performSignInLookup(contactRaw, lastNameInput){
@@ -2557,6 +2558,7 @@ function hideLoginPrompt(){
 }
 function renderCustomerInvoicePage(raw, opts){
   opts = opts || {};
+  currentPortalPhone = (raw || '').replace(/\D/g,'');
   var card = document.getElementById('invoiceCard');
   var tabsLayout = document.getElementById('portalTabsLayout');
   var empty = document.getElementById('lookupEmpty');
@@ -3044,7 +3046,7 @@ function parseSequenceFromLightsDescription(text){
 // by phone so a save never silently no-ops just because of that timing race.
 async function ensureJobAddressId(){
   if(currentJobAddressId) return currentJobAddressId;
-  var phoneDigits = ((currentLookupRecord && currentLookupRecord.phone) || '').replace(/\D/g,'');
+  var phoneDigits = ((currentLookupRecord && currentLookupRecord.phone) || (currentJobAddressData && currentJobAddressData.phone) || currentPortalPhone || '').replace(/\D/g,'');
   if(!phoneDigits) return null;
   try{
     var snap = await getDocs(query(collection(db,'jobAddresses'), where('phone','==',phoneDigits), limit(1)));
@@ -3057,7 +3059,7 @@ async function ensureJobAddressId(){
         if((docSnap.data().phone||'').replace(/\D/g,'') === phoneDigits) currentJobAddressId = docSnap.id;
       });
     }
-  } catch(err){ /* caller shows its own error if this stays null */ }
+  } catch(err){ console.error('[HU] ensureJobAddressId failed:', err); }
   return currentJobAddressId;
 }
 async function saveLightsPattern(){
@@ -3068,6 +3070,9 @@ async function saveLightsPattern(){
   statusEl.textContent = 'Saving…';
   var jobId = await ensureJobAddressId();
   if(!jobId){
+    console.error('[HU] save blocked — no jobAddressId. currentJobAddressId:', currentJobAddressId,
+      '| invoice phone:', currentLookupRecord && currentLookupRecord.phone,
+      '| portal phone:', currentPortalPhone);
     statusEl.textContent = "Couldn't find your account — please call/text us at (801) 901-0011.";
     if(saveBtn) saveBtn.disabled = false;
     return;
