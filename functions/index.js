@@ -433,11 +433,38 @@ exports.portalLookup = onCall({ cors: true }, async (request) => {
   const phone = digitsOnly(body.phone);
   const email = body.email ? String(body.email).toLowerCase().trim() : '';
   const lastName = body.lastName ? String(body.lastName) : '';
+  const quoteToken = body.quoteToken ? String(body.quoteToken).trim() : '';
 
   let match = null;
 
   if (token) {
     match = await findByToken(token);
+    // Quote emails carry a quoteToken instead of a portalToken. If the token
+    // didn't match a customer, try it as a quote token before giving up.
+    if (!match && quoteToken) {
+      const qSnap = await db.collection('quotes')
+        .where('quoteToken', '==', quoteToken).limit(1).get();
+      if (!qSnap.empty) {
+        const qData = qSnap.docs[0].data();
+        const qPhone = digitsOnly(qData.phone);
+        if (qPhone) {
+          // Prefer the real customer record if one exists for that phone.
+          const byPhone = await findByPhone(qPhone);
+          if (byPhone) {
+            match = byPhone;
+          } else {
+            return {
+              found: true,
+              id: qSnap.docs[0].id,
+              token: quoteToken,
+              deactivated: false,
+              isQuote: true,
+              record: { name: qData.name || '', phone: qPhone, email: qData.email || '' }
+            };
+          }
+        }
+      }
+    }
   } else if (phone) {
     await checkRateLimit('phone_' + phone);
     match = await findByPhone(phone);
@@ -508,6 +535,16 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
   }
 
   await db.collection('jobAddresses').doc(match.id).update(updates);
+
+  // The Lights tab also mirrors the description onto the invoice record.
+  if (section === 'lights' && oldPhone && updates.lightsDescription !== undefined) {
+    try {
+      await db.collection('invoices').doc(oldPhone)
+        .set({ lightsDescription: updates.lightsDescription }, { merge: true });
+    } catch (err) {
+      console.error('[HU] invoice lights sync failed:', err);
+    }
+  }
 
   // The Info tab also keeps the customer's invoice record in sync. This write
   // used to fail silently from the browser because invoices are staff-only.
