@@ -1759,10 +1759,11 @@ async function loadRoutesForDate(){
                   (stop.name ? '<div class="stop-name">'+esc(stop.name)+'</div>' : '')+
                   '<a class="stop-address-link" href="'+mapsLink(stop.lat, stop.lng)+'" target="_blank" rel="noopener">'+pinIcon()+esc(stop.address)+'</a>'+
                   (stop.gateCode ? '<div class="tag" style="background:#FAEEDA; color:#633806; display:inline-block; margin-top:6px;">&#128274; Gated &middot; '+esc(stop.gateCode)+'</div>' : '')+
-                  (stop.specificOutlet === 'Yes' && stop.specificOutletNotes ? '<div class="tag" style="background:#E0E7FF; color:#4338CA; display:inline-block; margin-top:6px;">&#128268; Outlet: '+esc(stop.specificOutletNotes)+'</div>' : '')+
+                  '<div id="outletlive-'+stop.id+'"></div>'+
                 '</div>'+
               '</div>'+
               '<div class="stop-status-row" id="stopstatus-'+stop.id+'"></div>'+
+              '<div class="stop-perm-note" id="permnote-'+stop.id+'" style="display:none; font-size:13.5px; color:var(--slate); margin-top:8px;"></div>'+
               '<div class="stop-onetime-note" id="onetimenote-'+stop.id+'" style="display:none;"></div>'+
               '<div id="fixnote-'+stop.id+'" style="display:none; margin-top:10px;"></div>'+
               '<div id="housephoto-'+stop.id+'" style="display:none; margin-top:10px;"></div>'+
@@ -1792,6 +1793,17 @@ async function loadRoutesForDate(){
         const addrSnap = await getDoc(doc(db,'jobAddresses',id));
         const d = addrSnap.exists() ? addrSnap.data() : {};
         ta.value = d.notes || '';
+        // Permanent note and specific outlet come from the live customer record,
+        // so edits made after the route was built still reach the crew.
+        const permEl = document.getElementById('permnote-'+id);
+        if(permEl && d.notes){
+          permEl.style.display = 'block';
+          permEl.innerHTML = '&#128221; ' + esc(d.notes);
+        }
+        const outletEl = document.getElementById('outletlive-'+id);
+        if(outletEl && d.specificOutlet === 'Yes' && d.specificOutletNotes){
+          outletEl.innerHTML = '<div class="tag" style="background:#E0E7FF; color:#4338CA; display:inline-block; margin-top:6px;">&#128268; Outlet: '+esc(d.specificOutletNotes)+'</div>';
+        }
         const oneTimeEl = document.getElementById('onetimenote-'+id);
         if(oneTimeEl && d.oneTimeNote){
           oneTimeEl.style.display = 'block';
