@@ -1756,9 +1756,12 @@ async function loadRoutesForDate(){
               '<div class="stop-head">'+
                 '<div class="stop-num">'+(i+1)+'</div>'+
                 '<div style="flex:1;">'+
-                  (stop.name ? '<div class="stop-name">'+esc(stop.name)+'</div>' : '')+
+                  '<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">'+
+                    (stop.name ? '<div class="stop-name">'+esc(stop.name)+'</div>' : '<div></div>')+
+                    (stop.gateCode ? '<span class="tag" style="background:#FAEEDA; color:#633806; flex-shrink:0; white-space:nowrap;">&#128274; '+esc(stop.gateCode)+'</span>' : '')+
+                  '</div>'+
                   '<a class="stop-address-link" href="'+mapsLink(stop.lat, stop.lng)+'" target="_blank" rel="noopener">'+pinIcon()+esc(stop.address)+'</a>'+
-                  (stop.gateCode ? '<div class="tag" style="background:#FAEEDA; color:#633806; display:inline-block; margin-top:6px;">&#128274; Gated &middot; '+esc(stop.gateCode)+'</div>' : '')+
+
                   '<div id="outletlive-'+stop.id+'"></div>'+
                 '</div>'+
               '</div>'+
@@ -1802,7 +1805,7 @@ async function loadRoutesForDate(){
         }
         const outletEl = document.getElementById('outletlive-'+id);
         if(outletEl && d.specificOutlet === 'Yes' && d.specificOutletNotes){
-          outletEl.innerHTML = '<div class="tag" style="background:#E0E7FF; color:#4338CA; display:inline-block; margin-top:6px;">&#128268; Outlet: '+esc(d.specificOutletNotes)+'</div>';
+          outletEl.innerHTML = '<div style="font-size:13.5px; margin-top:8px;">&#128268; <strong>Specific outlet:</strong> '+esc(d.specificOutletNotes)+'</div>';
         }
         const oneTimeEl = document.getElementById('onetimenote-'+id);
         if(oneTimeEl && d.oneTimeNote){
