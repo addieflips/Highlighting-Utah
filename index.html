@@ -2380,7 +2380,8 @@ function formatPhoneDisplay(digits){
   if(d.length !== 10) return digits || '';
   return '(' + d.slice(0,3) + ') ' + d.slice(3,6) + '-' + d.slice(6);
 }
-async function hmLoadHouseMapForInvoice(phoneDigits){
+async function hmLoadHouseMapForInvoice(phoneDigits, opts){
+  opts = opts || {};
   var row = document.getElementById('invHouseMapRow');
   row.style.display = 'none';
   currentJobAddressId = null;
@@ -2389,8 +2390,13 @@ async function hmLoadHouseMapForInvoice(phoneDigits){
     var q = query(collection(db,'jobAddresses'), where('phone', '==', phoneDigits), limit(1));
     var snap = await getDocs(q);
     if(snap.empty) return;
-    currentJobAddressId = snap.docs[0].id;
     var addrDoc = snap.docs[0].data();
+    if(!opts.skipLastNameCheck){
+      var addrNameParts = (addrDoc.name || '').trim().split(/\s+/);
+      var addrLastName = addrNameParts.length ? addrNameParts[0].toLowerCase() : '';
+      if(addrLastName !== opts.lastNameInput) return;
+    }
+    currentJobAddressId = snap.docs[0].id;
     currentJobAddressData = addrDoc;
     if(addrDoc.portalToken){
       savePortalLogin(addrDoc.portalToken);
@@ -2551,7 +2557,7 @@ function renderCustomerInvoicePage(raw, opts){
     loadInvoiceForPortal();
   });
   function loadInvoiceForPortal(){
-  hmLoadHouseMapForInvoice(raw);
+  hmLoadHouseMapForInvoice(raw, opts);
   getDoc(doc(db,'invoices',raw)).then(function(snap){
     if(!snap.exists()){
       card.classList.remove('show');
