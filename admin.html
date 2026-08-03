@@ -5505,12 +5505,23 @@ function renderInvoicesList(){
       '</div>'+
       '<div class="row-actions">'+
         (needsReview ? '<button class="icon-btn" data-approveprice="'+item.id+'" title="Confirm this price is correct" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:#2E6B3E;">Approve Price</button>' : '')+
-        '<select class="payment-status-select" data-invoiceid="'+item.id+'" style="border-radius:6px; border:1px solid var(--line); padding:6px 10px; font-size:12px; font-weight:600; background:var(--snow); color:var(--ink); width:auto;"><option value="unpaid"'+(liveStatus==='Unpaid'?' selected':'')+'">Unpaid</option><option value="partial"'+(liveStatus==='Partial Payment'?' selected':'')+'">Partial Payment</option><option value="paid"'+(liveStatus==='Paid in Full'?' selected':'')+'">Paid in Full</option></select>'+
+        '<select class="paystatus-select" data-setpaystatus="'+item.id+'" data-total="'+((item.data.install||0)+(item.data.removal||0))+'" style="border-radius:8px; border:1px solid var(--line); padding:6px 10px; font-size:12px; font-weight:600; background:var(--snow); color:var(--ink);">'+
+          ['Unpaid','Partial Payment','Paid in Full'].map(function(opt){ return '<option value="'+opt+'"'+(liveStatus===opt?' selected':'')+'>'+opt+'</option>'; }).join('')+
+        '</select>'+
         '<button class="icon-btn" data-edit="invoices" data-id="'+item.id+'">'+editIcon()+'</button>'+
       '</div>'+
     '</div>';
   });
   list.innerHTML = html;
+  // Ensure dropdown values match current status
+  list.querySelectorAll('.paystatus-select').forEach(function(sel){
+    const invoiceId = sel.dataset.setpaystatus;
+    const inv = allInvoicesCache.find(i => i.id === invoiceId);
+    if(inv){
+      const status = computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit);
+      sel.value = status;
+    }
+  });
   list.querySelectorAll('.copy-field-btn').forEach(function(btn){
     btn.addEventListener('click', function(){
       navigator.clipboard.writeText(btn.dataset.copyval).then(function(){
@@ -5526,25 +5537,27 @@ function renderInvoicesList(){
       });
     });
   });
-  list.querySelectorAll('.payment-status-select').forEach(function(sel){
-    sel.addEventListener('change', async function(){
-      const invoiceId = sel.dataset.invoiceid;
-      const snap2 = await getDoc(doc(db,'invoices',invoiceId));
-      const d = snap2.data();
-      const total = (d.install||0) + (d.removal||0);
-      let updates = { updatedAt: serverTimestamp() };
-      if(sel.value === 'unpaid'){
-        updates.deposit = 0;
-        updates.status = 'Unpaid';
-      } else if(sel.value === 'paid'){
-        updates.deposit = total;
-        updates.status = 'Paid in Full';
-      } else if(sel.value === 'partial'){
-        updates.status = 'Partial Payment';
-        // Keep existing deposit for partial
+  list.querySelectorAll('.paystatus-select').forEach(function(sel){
+    sel.addEventListener('change', function(){
+      const invId = sel.dataset.setpaystatus;
+      const total = Number(sel.dataset.total) || 0;
+      let deposit;
+      if(sel.value === 'Paid in Full'){
+        deposit = total;
+      } else if(sel.value === 'Unpaid'){
+        deposit = 0;
+      } else {
+        const typed = prompt('How much have they paid so far?', '');
+        if(typed === null){ sel.value = sel.dataset.currentvalue || 'Unpaid'; return; }
+        deposit = Number(String(typed).replace(/[^0-9.]/g,'')) || 0;
+        if(deposit >= total && total > 0){
+          alert('That covers the full balance, so this will be marked Paid in Full.');
+        }
       }
-      await updateDoc(doc(db,'invoices',invoiceId), updates);
-      toast('Payment status updated');
+      updateDoc(doc(db,'invoices',invId), {deposit: deposit, updatedAt: serverTimestamp()}).then(() => {
+        toast('Payment status updated');
+        setTimeout(() => renderInvoicesList(), 500);
+      });
     });
   });
   list.querySelectorAll('[data-edit="invoices"]').forEach(function(btn){
@@ -7713,6 +7726,7 @@ document.getElementById('paymentImportBtn').addEventListener('click', async func
   paymentImportData = [];
   renderInvoicesList();
 });
+
 function countRows(text){
   return text.trim() === '' ? 0 : text.split('\n').length;
 }
@@ -8050,7 +8064,14 @@ function buildAddressRowHtml(item){
         (d.phone2 ? '<div class="row-phone-line">'+esc(d.phone2)+' (secondary)</div>' : '')+
         (d.email2 ? '<div class="row-phone-line">'+esc(d.email2)+' (secondary)</div>' : '')+
 
-        (matchedInvoice ? '<div style="margin-top:6px;"><select class="payment-status-select" data-invoiceid="'+matchedInvoice.id+'" style="border-radius:6px; border:1px solid var(--line); padding:6px 10px; font-size:13px; font-weight:600; background:var(--snow); color:var(--ink);"><option value="unpaid"'+(invStatus==='Unpaid'?' selected':'')+'">Unpaid</option><option value="partial"'+(invStatus==='Partial Payment'?' selected':'')+'">Partial Payment</option><option value="paid"'+(invStatus==='Paid in Full'?' selected':'')+'">Paid in Full</option></select></div>' : '')+
+        (matchedInvoice ? '<div style="margin-top:6px; display:flex; align-items:center; gap:8px;">'+
+          '<span style="font-size:12.5px; color:var(--slate);">Payment:</span>'+
+          '<select class="paystatus-select" data-setpaystatus="'+matchedInvoice.id+'" data-total="'+((matchedInvoice.data.install||0)+(matchedInvoice.data.removal||0))+'" style="border-radius:8px; border:1px solid var(--line); padding:6px 10px; font-size:13px; font-weight:600; background:var(--snow); color:var(--ink);">'+
+            ['Unpaid','Partial Payment','Paid in Full'].map(function(opt){
+              return '<option value="'+opt+'"'+(invStatus===opt?' selected':'')+'>'+opt+'</option>';
+            }).join('')+
+          '</select>'+
+        '</div>' : '')+
         priceLine+
         (d.houseAreas && d.houseAreas.length ? '<div class="row-phone-line">&#127968; '+esc(d.houseAreas.join(', '))+'</div>' : '')+
         (crewLines.length ? '<div class="row-phone-line">'+crewLines.join(' &middot; ')+'</div>' : '')+
@@ -8093,6 +8114,15 @@ function buildAddressRowHtml(item){
 }
 
 function attachAddressRowHandlers(container){
+  // Ensure payment status dropdown values match current status
+  container.querySelectorAll('.paystatus-select').forEach(function(sel){
+    const invoiceId = sel.dataset.setpaystatus;
+    const inv = allInvoicesCache.find(i => i.id === invoiceId);
+    if(inv){
+      const status = computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit);
+      sel.value = status;
+    }
+  });
   container.querySelectorAll('[data-toggledetails]').forEach(function(btn){
     btn.addEventListener('click', function(){
       const panel = document.getElementById('rowdetails-'+btn.dataset.toggledetails);
@@ -8117,24 +8147,25 @@ function attachAddressRowHandlers(container){
       updateDoc(doc(db,'jobAddresses',sel.dataset.setinstallpref), {installPreference: sel.value});
     });
   });
-  container.querySelectorAll('.payment-status-select').forEach(function(sel){
-    sel.addEventListener('change', async function(){
-      const invoiceId = sel.dataset.invoiceid;
-      const snap2 = await getDoc(doc(db,'invoices',invoiceId));
-      const d = snap2.data();
-      const total = (d.install||0) + (d.removal||0);
-      let updates = { updatedAt: serverTimestamp() };
-      if(sel.value === 'unpaid'){
-        updates.deposit = 0;
-        updates.status = 'Unpaid';
-      } else if(sel.value === 'paid'){
-        updates.deposit = total;
-        updates.status = 'Paid in Full';
-      } else if(sel.value === 'partial'){
-        updates.status = 'Partial Payment';
+  container.querySelectorAll('[data-setpaystatus]').forEach(function(sel){
+    sel.addEventListener('change', function(){
+      const invId = sel.dataset.setpaystatus;
+      const total = Number(sel.dataset.total) || 0;
+      let deposit;
+      if(sel.value === 'Paid in Full'){
+        deposit = total;
+      } else if(sel.value === 'Unpaid'){
+        deposit = 0;
+      } else {
+        const previous = sel.querySelector('option[selected]');
+        const typed = prompt('How much have they paid so far?', '');
+        if(typed === null){ sel.value = previous ? previous.value : 'Unpaid'; return; }
+        deposit = Number(String(typed).replace(/[^0-9.]/g,'')) || 0;
+        if(deposit >= total && total > 0){
+          alert('That covers the full balance, so this will be marked Paid in Full.');
+        }
       }
-      await updateDoc(doc(db,'invoices',invoiceId), updates);
-      toast('Payment status updated');
+      updateDoc(doc(db,'invoices',invId), {deposit: deposit});
     });
   });
   container.querySelectorAll('[data-openstatus]').forEach(function(btn){
@@ -10143,14 +10174,14 @@ function renderRouteOrderedList(ordered){
     const hd = live ? live.data : {};
     return '<li style="margin-bottom:16px; list-style:none;">'+
       '<div><strong>'+(stop.name ? esc(stop.name)+' &mdash; ' : '')+esc(stop.address)+'</strong>'+
-        (stop.phone ? ' <span style="color:var(--slate); font-size:12.5px;">'+esc(stop.phone)+'</span>' : '')+
         (completed ? ' <span class="status-pill status-paid">&#10003; Done</span>' : '')+
         (needsFix ? ' <span class="status-pill diff-Fix">Needs Fix</span>' : '')+
         (hd.gateCode ? ' <span class="status-pill" style="background:#FAEEDA; color:#633806;">&#128274; Gated &middot; '+esc(hd.gateCode)+'</span>' : '')+
       '</div>'+
       (hd.notes ? '<div style="font-size:12.5px; color:var(--slate); margin-top:2px;">&#128221; '+esc(hd.notes)+'</div>' : '')+
       (hd.specificOutlet === 'Yes' && hd.specificOutletNotes ? '<div style="font-size:12.5px; color:#4338CA; margin-top:2px;">&#128268; Outlet: '+esc(hd.specificOutletNotes)+'</div>' : '')+
-      (hd.lightsDescription ? '<div style="font-size:12.5px; color:var(--dusk); font-weight:600; margin-top:2px;">&#127875; '+esc(hd.lightsDescription)+'</div>' : '')+
+      (hd.lightsDescription ? '<div style="font-size:12.5px; color:var(--dusk); font-weight:600; margin-top:2px;">&#127875; Light Colors: '+esc(hd.lightsDescription)+'</div>' : '')+
+      '<div style="font-size:12.5px; color:var(--slate); margin-top:2px;">Wire: '+esc(hd.wireColor || 'White')+' &middot; Timer: '+(hd.outletTimer === 'Yes' ? 'Yes' : 'No')+'</div>'+
       (hd.oneTimeNote ? '<div style="font-size:12.5px; color:var(--ember); margin-top:2px;">&#128221; (this visit only) '+esc(hd.oneTimeNote)+'</div>' : '')+
       (needsFix && (hd.fixNote || hd.fixPhotoUrl) ? (
         '<div style="background:#FDECEA; border:1px solid #f0b3ac; border-radius:8px; padding:10px 12px; margin-top:8px;">'+
