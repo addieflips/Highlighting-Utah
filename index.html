@@ -2383,11 +2383,11 @@ function formatPhoneDisplay(digits){
 }
 async function hmLoadHouseMapForInvoice(phoneDigits, opts){
   opts = opts || {};
-  var row = document.getElementById('invHouseMapRow');
-  row.style.display = 'none';
   currentJobAddressId = null;
   currentJobAddressData = null;
   try{
+    var row = document.getElementById('invHouseMapRow');
+    if(row) row.style.display = 'none';
     var q = query(collection(db,'jobAddresses'), where('phone', '==', phoneDigits), limit(1));
     var snap = await getDocs(q);
     var foundDoc = null;
@@ -2405,8 +2405,10 @@ async function hmLoadHouseMapForInvoice(phoneDigits, opts){
     var addrDoc = foundDoc.data();
     if(!opts.skipLastNameCheck){
       var typedName = (opts.lastNameInput || '').toLowerCase().trim();
-      var storedWords = (addrDoc.name || '').toLowerCase().trim().split(/\s+/).filter(Boolean);
-      if(!typedName || storedWords.indexOf(typedName) === -1) return;
+      var storedName = (addrDoc.name || '').toLowerCase().trim();
+      var storedWords = storedName.split(/\s+/).filter(Boolean);
+      var nameOk = !!typedName && (storedWords.indexOf(typedName) !== -1 || storedName.indexOf(typedName) !== -1);
+      if(!nameOk) return;
     }
     currentJobAddressId = foundDoc.id;
     currentJobAddressData = addrDoc;
@@ -2579,7 +2581,7 @@ function renderCustomerInvoicePage(raw, opts){
     loadInvoiceForPortal();
   });
   function loadInvoiceForPortal(){
-  hmLoadHouseMapForInvoice(raw, opts).then(function(){
+  hmLoadHouseMapForInvoice(raw, opts).catch(function(){ /* fall through with no account matched */ }).then(function(){
     var accountMatched = !!currentJobAddressId;
     getDoc(doc(db,'invoices',raw)).then(function(snap){
       if(!snap.exists()){
@@ -2742,26 +2744,30 @@ function loadPortalByToken(token, extraOpts){
   getDocs(query(collection(db,'jobAddresses'), where('portalToken','==',token), limit(1))).then(function(snap){
     if(snap.empty){
       getDocs(query(collection(db,'quotes'), where('quoteToken','==',token), limit(1))).then(function(qsnap){
-        if(qsnap.empty){ document.getElementById('lookupEmpty').style.display = 'block'; return; }
+        if(qsnap.empty){ document.getElementById('lookupEmpty').style.display = 'block'; clearPortalLogin(); showLookupFormAgain(); return; }
         var qData = qsnap.docs[0].data();
         var qPhone = (qData.phone||'').replace(/\D/g,'');
-        if(!qPhone){ document.getElementById('lookupEmpty').style.display = 'block'; return; }
+        if(!qPhone){ document.getElementById('lookupEmpty').style.display = 'block'; clearPortalLogin(); showLookupFormAgain(); return; }
         savePortalLogin(token);
         if(lookupFormWrap) lookupFormWrap.style.display = 'none';
         renderCustomerInvoicePage(qPhone, Object.assign({skipLastNameCheck: true}, extraOpts));
       }).catch(function(){
         document.getElementById('lookupEmpty').style.display = 'block';
+        clearPortalLogin();
+        showLookupFormAgain();
       });
       return;
     }
     var addrData = snap.docs[0].data();
     var phone = (addrData.phone||'').replace(/\D/g,'');
-    if(!phone){ document.getElementById('lookupEmpty').style.display = 'block'; return; }
+    if(!phone){ document.getElementById('lookupEmpty').style.display = 'block'; clearPortalLogin(); showLookupFormAgain(); return; }
     savePortalLogin(token);
     if(lookupFormWrap) lookupFormWrap.style.display = 'none';
     renderCustomerInvoicePage(phone, Object.assign({skipLastNameCheck: true}, extraOpts));
   }).catch(function(){
     document.getElementById('lookupEmpty').style.display = 'block';
+    clearPortalLogin();
+    showLookupFormAgain();
   });
 }
 
