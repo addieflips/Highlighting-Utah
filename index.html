@@ -1391,7 +1391,7 @@
           </div>
         </div>
 
-          <div class="portal-tabs-layout">
+          <div class="portal-tabs-layout" id="portalTabsLayout" style="display:none;">
           <div class="portal-tabs" id="portalTabs">
             <button type="button" class="portal-tab-btn active" data-tab="payment">Payment</button>
             <button type="button" class="portal-tab-btn" data-tab="info">Information</button>
@@ -2536,6 +2536,7 @@ function hideLoginPrompt(){
 function renderCustomerInvoicePage(raw, opts){
   opts = opts || {};
   var card = document.getElementById('invoiceCard');
+  var tabsLayout = document.getElementById('portalTabsLayout');
   var empty = document.getElementById('lookupEmpty');
   var deactivatedMsg = document.getElementById('portalDeactivatedMsg');
   if(deactivatedMsg) deactivatedMsg.style.display = 'none';
@@ -2547,6 +2548,7 @@ function renderCustomerInvoicePage(raw, opts){
     });
     if(isDeactivated && !opts.bypassDeactivation){
       card.classList.remove('show');
+      if(tabsLayout) tabsLayout.style.display = 'none';
       empty.style.display = 'none';
       if(deactivatedMsg) deactivatedMsg.style.display = 'block';
       hideLoginPrompt();
@@ -2557,57 +2559,86 @@ function renderCustomerInvoicePage(raw, opts){
     loadInvoiceForPortal();
   });
   function loadInvoiceForPortal(){
-  hmLoadHouseMapForInvoice(raw, opts);
-  getDoc(doc(db,'invoices',raw)).then(function(snap){
-    if(!snap.exists()){
+  hmLoadHouseMapForInvoice(raw, opts).then(function(){
+    var accountMatched = !!currentJobAddressId;
+    getDoc(doc(db,'invoices',raw)).then(function(snap){
+      if(!snap.exists()){
+        if(!accountMatched){
+          card.classList.remove('show');
+          if(tabsLayout) tabsLayout.style.display = 'none';
+          tryShowQuoteReview(raw, opts);
+          return;
+        }
+        document.getElementById('quoteReviewCard').classList.remove('show');
+        document.getElementById('quoteResolvedMsg').style.display = 'none';
+        currentLookupRecord = null;
+        empty.style.display = 'none';
+        var jd = currentJobAddressData || {};
+        document.getElementById('invName').textContent = jd.name || '';
+        document.getElementById('infoName').value = jd.name || '';
+        document.getElementById('infoPhone').value = jd.phone ? formatPhoneDisplay(jd.phone) : '';
+        document.getElementById('infoEmail').value = jd.email || '';
+        var statusEl = document.getElementById('invStatus');
+        statusEl.textContent = 'No Invoice Yet';
+        statusEl.style.background = '#FFF4DE';
+        statusEl.style.color = '#8a6d1f';
+        document.getElementById('invAmount').textContent = fmt(0);
+        document.getElementById('invPaidMsg').style.display = 'none';
+        document.getElementById('payButtonsWrap').style.display = 'none';
+        document.getElementById('invTipRow').style.display = 'none';
+        card.classList.add('show');
+        if(tabsLayout) tabsLayout.style.display = 'flex';
+        hideLoginPrompt();
+        if(opts.activateTab) activatePortalTab(opts.activateTab);
+        return;
+      }
+      if(!accountMatched){
+        card.classList.remove('show');
+        if(tabsLayout) tabsLayout.style.display = 'none';
+        empty.style.display = 'block';
+        return;
+      }
+      document.getElementById('quoteReviewCard').classList.remove('show');
+      document.getElementById('quoteResolvedMsg').style.display = 'none';
+      var record = snap.data();
+      var nameParts = (record.name || '').trim().split(/\s+/);
+      var displayName = nameParts.length > 1 ? nameParts.slice(1).join(' ') + ' ' + nameParts[0] : (record.name || '');
+      currentLookupRecord = record;
+      empty.style.display='none';
+      var totalDue = Math.max((record.install + record.removal) - record.deposit, 0);
+      var isPaid = totalDue <= 0 && (record.install > 0 || record.removal > 0);
+      document.getElementById('invName').textContent = displayName;
+      document.getElementById('infoName').value = displayName;
+      document.getElementById('infoPhone').value = record.phone ? formatPhoneDisplay(record.phone) : '';
+      document.getElementById('infoEmail').value = record.email || '';
+      var statusEl = document.getElementById('invStatus');
+      statusEl.textContent = isPaid ? 'Paid in Full' : 'Balance Due';
+      statusEl.style.background = isPaid ? '#E6F2EA' : '#FDECEA';
+      statusEl.style.color = isPaid ? '#2E6B3E' : '#E0574B';
+      document.getElementById('invAmount').textContent = fmt(totalDue);
+
+      document.getElementById('invPaidMsg').style.display = isPaid ? 'block' : 'none';
+      document.getElementById('payButtonsWrap').style.display = isPaid ? 'none' : 'block';
+
+      var tipRow = document.getElementById('invTipRow');
+      if(!isPaid){
+        currentServiceDue = totalDue;
+        currentTipAmount = 0;
+        tipRow.style.display = 'block';
+        document.getElementById('customTipInput').value = '';
+        updateTipBreakdown();
+      } else {
+        tipRow.style.display = 'none';
+      }
+      card.classList.add('show');
+      if(tabsLayout) tabsLayout.style.display = 'flex';
+      hideLoginPrompt();
+      if(opts.activateTab) activatePortalTab(opts.activateTab);
+    }).catch(function(){
       card.classList.remove('show');
-      tryShowQuoteReview(raw, opts);
-      return;
-    }
-    document.getElementById('quoteReviewCard').classList.remove('show');
-    document.getElementById('quoteResolvedMsg').style.display = 'none';
-    var record = snap.data();
-    var nameParts = (record.name || '').trim().split(/\s+/);
-    var recordLastName = nameParts.length ? nameParts[0].toLowerCase() : '';
-    var displayName = nameParts.length > 1 ? nameParts.slice(1).join(' ') + ' ' + nameParts[0] : (record.name || '');
-    if(!opts.skipLastNameCheck && recordLastName !== opts.lastNameInput){
-      card.classList.remove('show');
+      if(tabsLayout) tabsLayout.style.display = 'none';
       empty.style.display='block';
-      return;
-    }
-    currentLookupRecord = record;
-    empty.style.display='none';
-    var totalDue = Math.max((record.install + record.removal) - record.deposit, 0);
-    var isPaid = totalDue <= 0 && (record.install > 0 || record.removal > 0);
-    document.getElementById('invName').textContent = displayName;
-    document.getElementById('infoName').value = displayName;
-    document.getElementById('infoPhone').value = record.phone ? formatPhoneDisplay(record.phone) : '';
-    document.getElementById('infoEmail').value = record.email || '';
-    var statusEl = document.getElementById('invStatus');
-    statusEl.textContent = isPaid ? 'Paid in Full' : 'Balance Due';
-    statusEl.style.background = isPaid ? '#E6F2EA' : '#FDECEA';
-    statusEl.style.color = isPaid ? '#2E6B3E' : '#E0574B';
-    document.getElementById('invAmount').textContent = fmt(totalDue);
-
-    document.getElementById('invPaidMsg').style.display = isPaid ? 'block' : 'none';
-    document.getElementById('payButtonsWrap').style.display = isPaid ? 'none' : 'block';
-
-    var tipRow = document.getElementById('invTipRow');
-    if(!isPaid){
-      currentServiceDue = totalDue;
-      currentTipAmount = 0;
-      tipRow.style.display = 'block';
-      document.getElementById('customTipInput').value = '';
-      updateTipBreakdown();
-    } else {
-      tipRow.style.display = 'none';
-    }
-    card.classList.add('show');
-    hideLoginPrompt();
-    if(opts.activateTab) activatePortalTab(opts.activateTab);
-  }).catch(function(){
-    card.classList.remove('show');
-    empty.style.display='block';
+    });
   });
   }
 }
