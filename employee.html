@@ -1762,6 +1762,7 @@ async function loadRoutesForDate(){
                   '</div>'+
                   '<a class="stop-address-link" href="'+mapsLink(stop.lat, stop.lng)+'" target="_blank" rel="noopener">'+pinIcon()+esc(stop.address)+'</a>'+
 
+                  '<div id="stopdetails-'+stop.id+'"></div>'+
                   '<div id="outletlive-'+stop.id+'"></div>'+
                 '</div>'+
               '</div>'+
@@ -1802,6 +1803,15 @@ async function loadRoutesForDate(){
         if(permEl && d.notes){
           permEl.style.display = 'block';
           permEl.innerHTML = '&#128221; ' + esc(d.notes);
+        }
+        const detailsEl = document.getElementById('stopdetails-'+id);
+        if(detailsEl){
+          let detailsHtml = '';
+          if(d.lightsDescription){
+            detailsHtml += '<div style="font-size:13.5px; margin-top:6px;"><span style="color:var(--slate);">Light Colors:</span> '+esc(d.lightsDescription)+'</div>';
+          }
+          detailsHtml += '<div style="font-size:13.5px; margin-top:4px;"><span style="color:var(--slate);">Wire:</span> '+esc(d.wireColor || 'White')+'</div>';
+          detailsEl.innerHTML = detailsHtml;
         }
         const outletEl = document.getElementById('outletlive-'+id);
         if(outletEl && d.specificOutlet === 'Yes' && d.specificOutletNotes){
