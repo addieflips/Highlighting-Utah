@@ -994,6 +994,7 @@
               <option value="">Pending (no response yet)</option>
               <option value="yes">Yes — Hanging Lights</option>
               <option value="no">No — Skip This Year</option>
+              <option value="backnextyear">Back Next Year</option>
             </select>
           </div>
           <div class="form-row"><label>Don't Install Before This Date (optional, staff only)</label><input type="date" id="editCustEarliestInstall"></div>
@@ -3161,6 +3162,21 @@ async function resolveLinkTokens(text, phone, amount, opts){
     out = out.split('{{rsvp_yes_button}}').join('<a href="'+rsvpYesUrl+'" style="'+btnStyle+' background:#2E6B3E; color:#ffffff;">Yes</a>');
     out = out.split('{{rsvp_no_button}}').join('<a href="'+rsvpNoUrl+'" style="'+btnStyle+' background:#8A8F9C; color:#ffffff;">No</a>');
     out = out.split('{{rsvp_back_button}}').join('<a href="'+rsvpBackUrl+'" style="'+btnStyle+' background:#D89F3D; color:#1E3B2C;">Back Next Year</a>');
+  }
+  if(out.indexOf('{{quote_yes_button}}') !== -1 || out.indexOf('{{quote_decline_button}}') !== -1){
+    const phoneDigits = (phone||'').replace(/\D/g,'');
+    const quote = quotesCache.find(q => (q.data.customerPhone||'').replace(/\D/g,'') === phoneDigits);
+    if(quote && quote.data.quoteToken){
+      const quoteToken = quote.data.quoteToken;
+      const approveUrl = 'https://highlightingutah.com/#/quote-details?token='+quoteToken+'&action=approve';
+      const declineUrl = 'https://highlightingutah.com/#/quote-details?token='+quoteToken+'&action=decline';
+      const btnStyleQuote = 'display:inline-block; padding:11px 18px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:14px; margin:6px 4px;';
+      out = out.split('{{quote_yes_button}}').join('<a href="'+approveUrl+'" style="'+btnStyleQuote+' background:#2E6B3E; color:#ffffff;">Approve Quote</a>');
+      out = out.split('{{quote_decline_button}}').join('<a href="'+declineUrl+'" style="'+btnStyleQuote+' background:#8A8F9C; color:#ffffff;">Decline Quote</a>');
+    } else {
+      out = out.split('{{quote_yes_button}}').join('(quote token not found)');
+      out = out.split('{{quote_decline_button}}').join('(quote token not found)');
+    }
   }
   if(typeof customCodes !== 'undefined' && customCodes.length && out.indexOf('{{custom_') !== -1){
     for(const c of customCodes){
@@ -9109,8 +9125,8 @@ function renderAllCustomersTable(){
     const invCell = r.inv
       ? '<span class="status-pill '+statusClass(r.invStatus)+'">'+r.invStatus+'</span><br><span style="font-size:11.5px; color:var(--slate);">'+(r.invStatus==='Partial Payment' ? 'Paid '+fmtMoney(r.inv.data.deposit||0)+' &middot; Bal '+fmtMoney(balanceDueAmount(r.inv.data)) : fmtMoney((r.inv.data.install||0)+(r.inv.data.removal||0)))+'</span>'
       : (r.d.billToPhone ? '<span style="color:var(--slate); font-size:12px;">Billed to '+esc((billedElsewhere && billedElsewhere.data.name) || r.d.billToPhone)+'</span>' : '<span style="color:var(--slate); font-size:12px;">No invoice</span>');
-    const rsvpLabel = r.d.rsvpStatus === 'yes' ? 'RSVP: Yes' : (r.d.rsvpStatus === 'no' ? 'RSVP: No' : 'RSVP: Pending');
-    const rsvpColor = r.d.rsvpStatus === 'yes' ? '#2E6B3E' : (r.d.rsvpStatus === 'no' ? '#E0574B' : 'var(--slate)');
+    const rsvpLabel = r.d.rsvpStatus === 'yes' ? 'RSVP: Yes' : (r.d.rsvpStatus === 'no' ? 'RSVP: No' : (r.d.rsvpStatus === 'backnextyear' ? 'RSVP: Back Next Year' : 'RSVP: Pending'));
+    const rsvpColor = r.d.rsvpStatus === 'yes' ? '#2E6B3E' : (r.d.rsvpStatus === 'no' ? '#E0574B' : (r.d.rsvpStatus === 'backnextyear' ? '#D89F3D' : 'var(--slate)'));
     const routeCell = '<span class="status-pill diff-'+(r.d.difficulty||'Unrated')+'">'+(r.d.difficulty||'Unrated')+'</span><br><span style="font-size:11.5px; color:var(--slate);">'+r.routeStatus+'</span><br><span style="font-size:11px; color:'+rsvpColor+'; font-weight:600;">'+rsvpLabel+'</span>';
     const timingLabel = r.d.installPreference === 'November - Before Thanksgiving' ? 'November — Before Thanksgiving' : (r.d.installPreference === 'Normal Schedule' || !r.d.installPreference ? 'Any' : r.d.installPreference);
     const mapCell = r.hasMap ? '<button type="button" class="btn btn-outline btn-sm" data-openmapfor="'+r.item.id+'">View Map</button>' : '<span style="color:var(--slate); font-size:12px;">No map yet</span>';
