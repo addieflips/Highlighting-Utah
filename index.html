@@ -2390,14 +2390,25 @@ async function hmLoadHouseMapForInvoice(phoneDigits, opts){
   try{
     var q = query(collection(db,'jobAddresses'), where('phone', '==', phoneDigits), limit(1));
     var snap = await getDocs(q);
-    if(snap.empty) return;
-    var addrDoc = snap.docs[0].data();
-    if(!opts.skipLastNameCheck){
-      var addrNameParts = (addrDoc.name || '').trim().split(/\s+/);
-      var addrLastName = addrNameParts.length ? addrNameParts[0].toLowerCase() : '';
-      if(addrLastName !== opts.lastNameInput) return;
+    var foundDoc = null;
+    if(!snap.empty){
+      foundDoc = snap.docs[0];
+    } else {
+      var allSnap = await getDocs(collection(db,'jobAddresses'));
+      allSnap.forEach(function(docSnap){
+        if(foundDoc) return;
+        var dd = docSnap.data();
+        if((dd.phone||'').replace(/\D/g,'') === phoneDigits) foundDoc = docSnap;
+      });
     }
-    currentJobAddressId = snap.docs[0].id;
+    if(!foundDoc) return;
+    var addrDoc = foundDoc.data();
+    if(!opts.skipLastNameCheck){
+      var typedName = (opts.lastNameInput || '').toLowerCase().trim();
+      var storedWords = (addrDoc.name || '').toLowerCase().trim().split(/\s+/).filter(Boolean);
+      if(!typedName || storedWords.indexOf(typedName) === -1) return;
+    }
+    currentJobAddressId = foundDoc.id;
     currentJobAddressData = addrDoc;
     if(addrDoc.portalToken){
       savePortalLogin(addrDoc.portalToken);
@@ -3056,7 +3067,15 @@ async function ensureJobAddressId(){
   if(!phoneDigits) return null;
   try{
     var snap = await getDocs(query(collection(db,'jobAddresses'), where('phone','==',phoneDigits), limit(1)));
-    if(!snap.empty) currentJobAddressId = snap.docs[0].id;
+    if(!snap.empty){
+      currentJobAddressId = snap.docs[0].id;
+    } else {
+      var allSnap = await getDocs(collection(db,'jobAddresses'));
+      allSnap.forEach(function(docSnap){
+        if(currentJobAddressId) return;
+        if((docSnap.data().phone||'').replace(/\D/g,'') === phoneDigits) currentJobAddressId = docSnap.id;
+      });
+    }
   } catch(err){ /* caller shows its own error if this stays null */ }
   return currentJobAddressId;
 }
