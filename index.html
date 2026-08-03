@@ -2596,6 +2596,8 @@ function renderCustomerInvoicePage(raw, opts){
         card.classList.remove('show');
         if(tabsLayout) tabsLayout.style.display = 'none';
         empty.style.display = 'block';
+        var lookupWrapRetry1 = document.getElementById('lookupFormWrap');
+        if(lookupWrapRetry1) lookupWrapRetry1.style.display = '';
         return;
       }
       document.getElementById('quoteReviewCard').classList.remove('show');
@@ -2638,6 +2640,8 @@ function renderCustomerInvoicePage(raw, opts){
       card.classList.remove('show');
       if(tabsLayout) tabsLayout.style.display = 'none';
       empty.style.display='block';
+      var lookupWrapRetry4 = document.getElementById('lookupFormWrap');
+      if(lookupWrapRetry4) lookupWrapRetry4.style.display = '';
     });
   });
   }
@@ -2702,10 +2706,14 @@ function tryShowQuoteReview(raw, opts){
     }
     resolvedMsg.style.display = 'none';
     empty.style.display = 'block';
+    var lookupWrapRetry2 = document.getElementById('lookupFormWrap');
+    if(lookupWrapRetry2) lookupWrapRetry2.style.display = '';
   }).catch(function(){
     quoteCard.classList.remove('show');
     resolvedMsg.style.display = 'none';
     empty.style.display = 'block';
+    var lookupWrapRetry3 = document.getElementById('lookupFormWrap');
+    if(lookupWrapRetry3) lookupWrapRetry3.style.display = '';
   });
 }
 var currentQuoteId = null;
