@@ -1701,6 +1701,22 @@ const db = getFirestore(fbApp);
 const fbFunctions = getFunctions(fbApp);
 
 /* =========================================================
+   MEMBER PORTAL — Cloud Function bridge
+   The public site has no Firebase Auth, so it cannot read or write
+   jobAddresses directly. These calls go through Cloud Functions that
+   run with admin rights on the server. The customer's portalToken is
+   the credential — the same one already in {{portal_link}} emails.
+========================================================= */
+async function callPortalFn(name, payload){
+  var fn = httpsCallable(fbFunctions, name);
+  var res = await fn(payload || {});
+  return res.data;
+}
+function getActivePortalToken(){
+  try{ return localStorage.getItem('huPortalToken') || null; }catch(e){ return null; }
+}
+
+/* =========================================================
    DATA (fallback defaults — shown until Firestore data loads,
    and if a collection is still empty)
 ========================================================= */
@@ -2390,37 +2406,24 @@ async function hmLoadHouseMapForInvoice(phoneDigits, opts){
   try{
     var row = document.getElementById('invHouseMapRow');
     if(row) row.style.display = 'none';
-    var q = query(collection(db,'jobAddresses'), where('phone', '==', phoneDigits), limit(1));
-    var snap = await getDocs(q);
-    var foundDoc = null;
-    if(!snap.empty){
-      foundDoc = snap.docs[0];
+    // Lookup runs server-side. When we already hold a portal token (arrived
+    // from an email link) we use it; otherwise we fall back to phone + last
+    // name, which the server rate limits to 5 tries per 15 minutes.
+    var savedToken = opts.portalToken || getActivePortalToken();
+    var lookupPayload;
+    if(opts.skipLastNameCheck && savedToken){
+      lookupPayload = {token: savedToken};
     } else {
-      var allSnap = await getDocs(collection(db,'jobAddresses'));
-      allSnap.forEach(function(docSnap){
-        if(foundDoc) return;
-        var dd = docSnap.data();
-        if((dd.phone||'').replace(/\D/g,'') === phoneDigits) foundDoc = docSnap;
-      });
+      lookupPayload = {phone: phoneDigits, lastName: opts.lastNameInput || ''};
     }
-    if(!foundDoc) return;
-    var addrDoc = foundDoc.data();
-    if(!opts.skipLastNameCheck){
-      var typedName = (opts.lastNameInput || '').toLowerCase().trim();
-      var storedName = (addrDoc.name || '').toLowerCase().trim();
-      var storedWords = storedName.split(/\s+/).filter(Boolean);
-      var nameOk = !!typedName && (storedWords.indexOf(typedName) !== -1 || storedName.indexOf(typedName) !== -1);
-      if(!nameOk) return;
-    }
-    currentJobAddressId = foundDoc.id;
+    var lookupRes = await callPortalFn('portalLookup', lookupPayload);
+    if(!lookupRes || !lookupRes.found) return;
+    var addrDoc = lookupRes.record || {};
+    currentJobAddressId = lookupRes.id;
     currentJobAddressData = addrDoc;
-    if(addrDoc.portalToken){
-      savePortalLogin(addrDoc.portalToken);
-    } else {
-      var newPortalToken = generatePortalToken();
-      currentJobAddressData.portalToken = newPortalToken;
-      savePortalLogin(newPortalToken);
-      updateDoc(doc(db,'jobAddresses', currentJobAddressId), {portalToken: newPortalToken}).catch(function(){});
+    if(lookupRes.token){
+      addrDoc.portalToken = lookupRes.token;
+      savePortalLogin(lookupRes.token);
     }
 
     document.getElementById('infoAddress').value = addrDoc.address || '';
@@ -2497,15 +2500,11 @@ async function hmLoadHouseMapForInvoice(phoneDigits, opts){
 function performSignInLookup(contactRaw, lastNameInput){
   if(contactRaw.indexOf('@') !== -1){
     var emailLower = contactRaw.toLowerCase();
-    getDocs(collection(db,'jobAddresses')).then(function(snap){
-      var match = null;
-      snap.forEach(function(docSnap){
-        if(match) return;
-        var d = docSnap.data();
-        if(d.email && d.email.toLowerCase() === emailLower) match = d;
-      });
+    callPortalFn('portalLookup', {email: emailLower, lastName: lastNameInput}).then(function(res){
+      var match = (res && res.found) ? res.record : null;
+      if(res && res.found && res.token) savePortalLogin(res.token);
       if(match && match.phone){
-        renderCustomerInvoicePage(match.phone.replace(/\D/g,''), {lastNameInput: lastNameInput});
+        renderCustomerInvoicePage(String(match.phone).replace(/\D/g,''), {lastNameInput: lastNameInput, skipLastNameCheck: true});
         return;
       }
       getDocs(collection(db,'quotes')).then(function(qsnap){
@@ -2566,12 +2565,19 @@ function renderCustomerInvoicePage(raw, opts){
   var empty = document.getElementById('lookupEmpty');
   var deactivatedMsg = document.getElementById('portalDeactivatedMsg');
   if(deactivatedMsg) deactivatedMsg.style.display = 'none';
-  getDocs(collection(db,'jobAddresses')).then(function(addrSnap){
-    var isDeactivated = false;
-    addrSnap.forEach(function(docSnap){
-      var d = docSnap.data();
-      if(d.phone && d.phone.replace(/\D/g,'') === raw && d.rsvpStatus === 'no') isDeactivated = true;
-    });
+  // Deactivation check now asks the server for just this one record instead
+  // of downloading every customer to find it.
+  var deactivateLookup;
+  var deactivateToken = opts.portalToken || getActivePortalToken();
+  if(deactivateToken){
+    deactivateLookup = callPortalFn('portalLookup', {token: deactivateToken});
+  } else if(opts.lastNameInput){
+    deactivateLookup = callPortalFn('portalLookup', {phone: raw, lastName: opts.lastNameInput});
+  } else {
+    deactivateLookup = Promise.resolve(null);
+  }
+  deactivateLookup.then(function(res){
+    var isDeactivated = !!(res && res.found && res.deactivated);
     if(isDeactivated && !opts.bypassDeactivation){
       card.classList.remove('show');
       if(tabsLayout) tabsLayout.style.display = 'none';
@@ -2720,29 +2726,20 @@ var currentQuoteData = null;
 function loadPortalByToken(token, extraOpts){
   extraOpts = extraOpts || {};
   var lookupFormWrap = document.getElementById('lookupFormWrap');
-  getDocs(query(collection(db,'jobAddresses'), where('portalToken','==',token), limit(1))).then(function(snap){
-    if(snap.empty){
-      getDocs(query(collection(db,'quotes'), where('quoteToken','==',token), limit(1))).then(function(qsnap){
-        if(qsnap.empty){ document.getElementById('lookupEmpty').style.display = 'block'; clearPortalLogin(); showLookupFormAgain(); return; }
-        var qData = qsnap.docs[0].data();
-        var qPhone = (qData.phone||'').replace(/\D/g,'');
-        if(!qPhone){ document.getElementById('lookupEmpty').style.display = 'block'; clearPortalLogin(); showLookupFormAgain(); return; }
-        savePortalLogin(token);
-        if(lookupFormWrap) lookupFormWrap.style.display = 'none';
-        renderCustomerInvoicePage(qPhone, Object.assign({skipLastNameCheck: true}, extraOpts));
-      }).catch(function(){
-        document.getElementById('lookupEmpty').style.display = 'block';
-        clearPortalLogin();
-        showLookupFormAgain();
-      });
+  // One server call handles both cases: a portal token belonging to an
+  // existing customer, or a quote token from a quote email.
+  callPortalFn('portalLookup', {token: token, quoteToken: token}).then(function(res){
+    if(!res || !res.found){
+      document.getElementById('lookupEmpty').style.display = 'block';
+      clearPortalLogin();
+      showLookupFormAgain();
       return;
     }
-    var addrData = snap.docs[0].data();
-    var phone = (addrData.phone||'').replace(/\D/g,'');
+    var phone = String((res.record && res.record.phone) || '').replace(/\D/g,'');
     if(!phone){ document.getElementById('lookupEmpty').style.display = 'block'; clearPortalLogin(); showLookupFormAgain(); return; }
-    savePortalLogin(token);
+    savePortalLogin(res.token || token);
     if(lookupFormWrap) lookupFormWrap.style.display = 'none';
-    renderCustomerInvoicePage(phone, Object.assign({skipLastNameCheck: true}, extraOpts));
+    renderCustomerInvoicePage(phone, Object.assign({skipLastNameCheck: true, portalToken: res.token || token}, extraOpts));
   }).catch(function(){
     document.getElementById('lookupEmpty').style.display = 'block';
     clearPortalLogin();
@@ -2763,20 +2760,16 @@ function handleRsvpLink(token, rsvpValue){
   if(openPortalBtn) openPortalBtn.style.display = 'none';
   if(noChangesBtn) noChangesBtn.style.display = 'none';
   confirmMsg.textContent = 'One moment\u2026';
-  getDocs(query(collection(db,'jobAddresses'), where('portalToken','==',token), limit(1))).then(function(snap){
-    if(snap.empty){
+  // The RSVP is recorded on the server FIRST, before any UI is shown, so a
+  // "No" is saved even if the customer closes the page immediately after.
+  savePortalLogin(token);
+  callPortalFn('portalRsvp', {token: token, response: rsvpValue === 'yes' ? 'yes' : 'no'}).then(function(res){
+    if(!res || !res.ok){
       if(confirmCard) confirmCard.style.display = 'none';
       document.getElementById('lookupEmpty').style.display = 'block';
       return;
     }
-    var docId = snap.docs[0].id;
-    var record = snap.docs[0].data();
     if(rsvpValue === 'yes'){
-      updateDoc(doc(db,'jobAddresses', docId), {
-        rsvpStatus: 'yes',
-        rsvpRespondedAt: serverTimestamp(),
-        needsLightRecycle: false
-      }).catch(function(){});
       confirmMsg.textContent = "You're confirmed for this season! \uD83C\uDF84 Do you want to make any changes?";
       if(openPortalBtn){
         openPortalBtn.style.display = 'inline-flex';
@@ -2795,11 +2788,6 @@ function handleRsvpLink(token, rsvpValue){
         };
       }
     } else {
-      updateDoc(doc(db,'jobAddresses', docId), {
-        rsvpStatus: 'no',
-        rsvpRespondedAt: serverTimestamp(),
-        needsLightRecycle: true
-      }).catch(function(){});
       document.body.classList.remove('rsvp-minimal');
       if(confirmCard) confirmCard.style.display = 'none';
       loadPortalByToken(token, {bypassDeactivation: true, activateTab: 'cancel'});
@@ -2814,21 +2802,13 @@ function handleBackNextYear(token){
   var msg = document.getElementById('backNextYearConfirmMsg');
   if(wrap) wrap.style.display = 'block';
   if(msg) msg.textContent = 'One moment\u2026';
-  getDocs(query(collection(db,'jobAddresses'), where('portalToken','==',token), limit(1))).then(function(snap){
-    if(snap.empty){
+  // "Back Next Year" gets its own status and never triggers light recycling.
+  callPortalFn('portalRsvp', {token: token, response: 'backnextyear'}).then(function(res){
+    if(!res || !res.ok){
       if(msg) msg.textContent = "We couldn't find your account \u2014 please call or text us at (801) 901-0011 and we'll help you out.";
       return;
     }
-    var docId = snap.docs[0].id;
-    updateDoc(doc(db,'jobAddresses', docId), {
-      rsvpStatus: 'backnextyear',
-      rsvpRespondedAt: serverTimestamp(),
-      needsLightRecycle: false
-    }).then(function(){
-      if(msg) msg.textContent = 'We look forward to seeing you next year!';
-    }).catch(function(){
-      if(msg) msg.textContent = "Something went wrong \u2014 please call or text us at (801) 901-0011 and we'll get it sorted out.";
-    });
+    if(msg) msg.textContent = 'We look forward to seeing you next year!';
   }).catch(function(){
     if(msg) msg.textContent = "Something went wrong \u2014 please call or text us at (801) 901-0011 and we'll get it sorted out.";
   });
@@ -2840,42 +2820,17 @@ function handleQuoteLink(token, action){
   if(!msg) msg = document.getElementById('rsvpConfirmMsg');
   if(wrap) wrap.style.display = 'block';
   if(msg) msg.textContent = 'One moment\u2026';
-  getDocs(query(collection(db,'quotes'), where('quoteToken','==',token), limit(1))).then(function(snap){
-    if(snap.empty){
+  // Quote approve/decline runs server-side; the quotes collection is not
+  // readable from the public site.
+  callPortalFn('quoteRespond', {quoteToken: token, action: action}).then(function(res){
+    if(!res || !res.ok){
       if(msg) msg.textContent = "We couldn't find your quote \u2014 please call or text us at (801) 901-0011 and we'll help you out.";
       return;
     }
-    var docId = snap.docs[0].id;
-    var quoteData = snap.docs[0].data();
-    var quoteAmount = quoteData.quotedPrice || 0;
     if(action === 'approve'){
-      updateDoc(doc(db,'quotes', docId), {
-        approvalStatus: 'approved',
-        approvalRespondedAt: serverTimestamp()
-      }).then(function(){
-        if(msg){
-          msg.textContent = 'Thank you! Your quote is approved. We\'ll get you scheduled soon!';
-        }
-        var jobAddressId = quoteData.jobAddressId;
-        if(jobAddressId){
-          updateDoc(doc(db,'jobAddresses', jobAddressId), {
-            quoteDetailQuoteId: docId
-          }).catch(function(){});
-        }
-      }).catch(function(){
-        if(msg) msg.textContent = "Something went wrong \u2014 please call or text us at (801) 901-0011 and we'll get it sorted out.";
-      });
-    } else if(action === 'decline'){
-      updateDoc(doc(db,'quotes', docId), {
-        approvalStatus: 'declined',
-        approvalRespondedAt: serverTimestamp()
-      }).then(function(){
-        if(msg){
-          msg.textContent = 'Got it \u2014 thanks for letting us know. Feel free to reach out anytime if you change your mind!';
-        }
-      }).catch(function(){
-        if(msg) msg.textContent = "Something went wrong \u2014 please call or text us at (801) 901-0011 and we'll get it sorted out.";
-      });
+      if(msg) msg.textContent = 'Thank you! Your quote is approved. We\'ll get you scheduled soon!';
+    } else {
+      if(msg) msg.textContent = 'Got it \u2014 thanks for letting us know. Feel free to reach out anytime if you change your mind!';
     }
   }).catch(function(){
     if(msg) msg.textContent = "Something went wrong \u2014 please call or text us at (801) 901-0011 and we'll get it sorted out.";
@@ -3049,17 +3004,16 @@ function parseSequenceFromLightsDescription(text){
 async function ensureJobAddressId(){
   if(currentJobAddressId) return currentJobAddressId;
   var phoneDigits = ((currentLookupRecord && currentLookupRecord.phone) || (currentJobAddressData && currentJobAddressData.phone) || currentPortalPhone || '').replace(/\D/g,'');
-  if(!phoneDigits) return null;
+  if(!phoneDigits && !getActivePortalToken()) return null;
   try{
-    var snap = await getDocs(query(collection(db,'jobAddresses'), where('phone','==',phoneDigits), limit(1)));
-    if(!snap.empty){
-      currentJobAddressId = snap.docs[0].id;
-    } else {
-      var allSnap = await getDocs(collection(db,'jobAddresses'));
-      allSnap.forEach(function(docSnap){
-        if(currentJobAddressId) return;
-        if((docSnap.data().phone||'').replace(/\D/g,'') === phoneDigits) currentJobAddressId = docSnap.id;
-      });
+    var ensureTok = getActivePortalToken();
+    var knownName = (currentLookupRecord && currentLookupRecord.name) || (currentJobAddressData && currentJobAddressData.name) || '';
+    var ensureRes = await callPortalFn('portalLookup',
+      ensureTok ? {token: ensureTok} : {phone: phoneDigits, lastName: knownName});
+    if(ensureRes && ensureRes.found){
+      currentJobAddressId = ensureRes.id;
+      if(!currentJobAddressData) currentJobAddressData = ensureRes.record;
+      if(ensureRes.token) savePortalLogin(ensureRes.token);
     }
   } catch(err){ console.error('[HU] ensureJobAddressId failed:', err); lastLookupError = (err && (err.code || err.message)) || 'unknown ensure error'; }
   return currentJobAddressId;
@@ -3082,9 +3036,11 @@ async function saveLightsPattern(){
   var isSpecific = document.getElementById('rcSpecificPatternToggle').checked;
   var newLightsDescription = isSpecific ? rcSequence.join(', ') : rcSimpleColors.join(', ');
   try{
-    await updateDoc(doc(db,'jobAddresses', jobId), {lightsDescription: newLightsDescription});
-    var oldPhone = (currentLookupRecord && currentLookupRecord.phone) || (currentJobAddressData && currentJobAddressData.phone) || '';
-    if(oldPhone) await setDoc(doc(db,'invoices', oldPhone), {lightsDescription: newLightsDescription}, {merge:true});
+    await callPortalFn('portalSave', {
+      token: getActivePortalToken(),
+      section: 'lights',
+      data: {lightsDescription: newLightsDescription}
+    });
     if(currentLookupRecord) currentLookupRecord.lightsDescription = newLightsDescription;
     if(currentJobAddressData) currentJobAddressData.lightsDescription = newLightsDescription;
     statusEl.textContent = 'Saved!';
@@ -3254,23 +3210,16 @@ document.getElementById('infoSaveBtn').addEventListener('click', async function(
 
   statusEl.textContent = 'Saving…';
   try{
-    if(oldPhone){
-      var invoiceUpdates = {name: newName, phone: newPhoneRaw, email: newEmail};
-      if(newPhoneRaw !== oldPhone){
-        await setDoc(doc(db,'invoices', newPhoneRaw), invoiceUpdates, {merge:true});
-        await deleteDoc(doc(db,'invoices', oldPhone));
-      } else {
-        await setDoc(doc(db,'invoices', oldPhone), invoiceUpdates, {merge:true});
-      }
-    }
-    if(currentJobAddressId){
-      var addrUpdates = {
+    // One server call updates the job address AND keeps the invoice record in
+    // sync. The invoice half used to fail silently from the browser.
+    await callPortalFn('portalSave', {
+      token: getActivePortalToken(),
+      section: 'info',
+      data: {
         name: newName, phone: newPhoneRaw, email: newEmail, address: newAddress,
-        phone2: newPhone2Raw, email2: newEmail2, gateCode: newGateCode,
-        seasonStatus: addressChanged ? 'address_changed' : 'needs_changes'
-      };
-      await updateDoc(doc(db,'jobAddresses', currentJobAddressId), addrUpdates);
-    }
+        phone2: newPhone2Raw, email2: newEmail2, gateCode: newGateCode
+      }
+    });
     if(addressChanged){
       await addDoc(collection(db,'quotes'), {
         name: newName, phone: newPhoneRaw, email: newEmail, address: newAddress,
@@ -3330,10 +3279,14 @@ document.getElementById('changesSaveBtn').addEventListener('click', async functi
   try{
     var wireColorChanged = currentJobAddressData && currentJobAddressData.wireColor !== newWireColor;
     var outletTimerChanged = currentJobAddressData && (currentJobAddressData.outletTimer || 'No') !== newOutletTimer;
-    await updateDoc(doc(db,'jobAddresses',jobId), {
-      installPreference: newPref, wireColor: newWireColor,
-      outletTimer: newOutletTimer, specificOutlet: newSpecificOutlet,
-      specificOutletNotes: newSpecificOutletNotes, notes: newNotes
+    await callPortalFn('portalSave', {
+      token: getActivePortalToken(),
+      section: 'preferences',
+      data: {
+        installPreference: newPref, wireColor: newWireColor,
+        outletTimer: newOutletTimer, specificOutlet: newSpecificOutlet,
+        specificOutletNotes: newSpecificOutletNotes, notes: newNotes
+      }
     });
     if(currentJobAddressData){
       currentJobAddressData.installPreference = newPref;
@@ -3402,9 +3355,13 @@ document.getElementById('cancelFinalBtn').addEventListener('click', async functi
       contactMethod: '', message: reason || 'No reason given',
       createdAt: serverTimestamp()
     });
-    if(currentJobAddressId){
-      await updateDoc(doc(db,'jobAddresses', currentJobAddressId), {seasonStatus: 'cancellation_requested', cancellationReason: reason || ''});
-    }
+    try{
+      await callPortalFn('portalSave', {
+        token: getActivePortalToken(),
+        section: 'cancel',
+        data: {cancellationReason: reason || ''}
+      });
+    }catch(cancelErr){ console.error('[HU] cancel status save failed:', cancelErr); }
     notifyBusinessOfMessage({
       customer_name: contactName, customer_phone: contactPhone,
       customer_email: contactEmail, topic: 'Cancellation Request', message: reason || 'No reason given'
