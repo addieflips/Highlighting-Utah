@@ -1039,6 +1039,25 @@
         <h3>One-Off Excel Imports</h3>
         <p style="font-size:13px;">For anything else &mdash; a one-time list, an unusual spreadsheet, whatever doesn't fit the Bulk Updates columns &mdash; just share the file directly in a chat with Claude and describe where each column should go. No need to reformat it to match a template first.</p>
       </div>
+      <div class="card">
+        <h3>&#128179; Payment & Credit Card Import</h3>
+        <p style="font-size:13px;">Upload an Excel or CSV file with payment data (phone numbers, amounts paid, etc.). Map your columns to customer fields, preview the changes, and import to update invoice payment statuses.</p>
+        <div style="margin-top:12px;">
+          <input type="file" id="paymentImportFile" accept=".xlsx,.xls,.csv" style="margin-bottom:10px;">
+          <button type="button" class="btn btn-gold" id="paymentImportLoadBtn">Load File</button>
+        </div>
+        <div id="paymentImportPanel" style="display:none; margin-top:16px; padding-top:16px; border-top:1px solid var(--line);">
+          <h4 style="font-size:13.5px; margin-bottom:12px;">Column Mapping</h4>
+          <p style="font-size:12px; color:var(--slate); margin-bottom:12px;">Select which column from your file corresponds to each field:</p>
+          <div class="form-grid-2" style="margin-bottom:16px;">
+            <div class="form-row"><label>Phone Number Column</label><select id="paymentImportPhoneCol" style="width:100%;"></select></div>
+            <div class="form-row"><label>Amount Paid Column</label><select id="paymentImportAmountCol" style="width:100%;"></select></div>
+          </div>
+          <div id="paymentImportPreview" style="margin-bottom:16px; max-height:400px; overflow-y:auto; border:1px solid var(--line); border-radius:8px; padding:12px; background:var(--paper);"></div>
+          <button type="button" class="btn btn-gold" id="paymentImportBtn">Import Payments</button>
+          <button type="button" class="btn btn-outline" id="paymentImportCancelBtn">Cancel</button>
+        </div>
+      </div>
     </div>
 
     <!-- DASHBOARD -->
@@ -5486,8 +5505,7 @@ function renderInvoicesList(){
       '</div>'+
       '<div class="row-actions">'+
         (needsReview ? '<button class="icon-btn" data-approveprice="'+item.id+'" title="Confirm this price is correct" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:#2E6B3E;">Approve Price</button>' : '')+
-        (liveStatus !== 'Paid in Full' ? '<button class="icon-btn" data-markpaid="'+item.id+'" title="Mark Paid in Full (e.g. paid via Venmo/cash)" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:#2E6B3E;">Mark Paid</button>' : '')+
-        (liveStatus !== 'Unpaid' ? '<button class="icon-btn" data-markunpaid="'+item.id+'" title="Reset to Unpaid" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:var(--ember);">Mark Unpaid</button>' : '')+
+        '<select class="payment-status-select" data-invoiceid="'+item.id+'" style="border-radius:6px; border:1px solid var(--line); padding:6px 10px; font-size:12px; font-weight:600; background:var(--snow); color:var(--ink); width:auto;"><option value="unpaid"'+(liveStatus==='Unpaid'?' selected':'')+'">Unpaid</option><option value="partial"'+(liveStatus==='Partial Payment'?' selected':'')+'">Partial Payment</option><option value="paid"'+(liveStatus==='Paid in Full'?' selected':'')+'">Paid in Full</option></select>'+
         '<button class="icon-btn" data-edit="invoices" data-id="'+item.id+'">'+editIcon()+'</button>'+
       '</div>'+
     '</div>';
@@ -5508,19 +5526,25 @@ function renderInvoicesList(){
       });
     });
   });
-  list.querySelectorAll('[data-markpaid]').forEach(function(btn){
-    btn.addEventListener('click', async function(){
-      const snap2 = await getDoc(doc(db,'invoices',btn.dataset.markpaid));
+  list.querySelectorAll('.payment-status-select').forEach(function(sel){
+    sel.addEventListener('change', async function(){
+      const invoiceId = sel.dataset.invoiceid;
+      const snap2 = await getDoc(doc(db,'invoices',invoiceId));
       const d = snap2.data();
       const total = (d.install||0) + (d.removal||0);
-      await updateDoc(doc(db,'invoices',btn.dataset.markpaid), { deposit: total, status: 'Paid in Full', updatedAt: serverTimestamp() });
-      toast('Marked as Paid in Full');
-    });
-  });
-  list.querySelectorAll('[data-markunpaid]').forEach(function(btn){
-    btn.addEventListener('click', async function(){
-      await updateDoc(doc(db,'invoices',btn.dataset.markunpaid), { deposit: 0, status: 'Unpaid', updatedAt: serverTimestamp() });
-      toast('Marked as Unpaid');
+      let updates = { updatedAt: serverTimestamp() };
+      if(sel.value === 'unpaid'){
+        updates.deposit = 0;
+        updates.status = 'Unpaid';
+      } else if(sel.value === 'paid'){
+        updates.deposit = total;
+        updates.status = 'Paid in Full';
+      } else if(sel.value === 'partial'){
+        updates.status = 'Partial Payment';
+        // Keep existing deposit for partial
+      }
+      await updateDoc(doc(db,'invoices',invoiceId), updates);
+      toast('Payment status updated');
     });
   });
   list.querySelectorAll('[data-edit="invoices"]').forEach(function(btn){
@@ -7605,6 +7629,90 @@ document.getElementById('goToBulkUpdatesBtn').addEventListener('click', function
   document.querySelector('.nav-item[data-panel="addcustomer"]').click();
   setTimeout(function(){ document.querySelector('#custSectionTabs [data-custtab="bulk"]').click(); }, 50);
 });
+
+/* ---- PAYMENT IMPORT ---- */
+let paymentImportData = [];
+document.getElementById('paymentImportLoadBtn').addEventListener('click', async function(){
+  const fileInput = document.getElementById('paymentImportFile');
+  if(!fileInput.files.length){ alert('Please select a file'); return; }
+  const file = fileInput.files[0];
+  const text = await file.text();
+  const isCSV = file.name.endsWith('.csv');
+  let rows = [];
+  if(isCSV){
+    rows = text.split('\n').map(line => line.split(',').map(cell => cell.trim())).filter(r => r.some(c => c));
+  } else {
+    const wb = XLSX.read(new Uint8Array(await file.arrayBuffer()), {type: 'array'});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    rows = XLSX.utils.sheet_to_json(ws, {header: 1});
+  }
+  if(!rows.length){ alert('No data found'); return; }
+  paymentImportData = rows.slice(1);
+  const header = rows[0];
+  const phoneSelect = document.getElementById('paymentImportPhoneCol');
+  const amountSelect = document.getElementById('paymentImportAmountCol');
+  phoneSelect.innerHTML = '';
+  amountSelect.innerHTML = '';
+  header.forEach((col, idx) => {
+    const opt1 = document.createElement('option');
+    opt1.value = idx;
+    opt1.textContent = col || 'Column ' + (idx + 1);
+    phoneSelect.appendChild(opt1);
+    const opt2 = document.createElement('option');
+    opt2.value = idx;
+    opt2.textContent = col || 'Column ' + (idx + 1);
+    amountSelect.appendChild(opt2);
+  });
+  document.getElementById('paymentImportPanel').style.display = 'block';
+  updatePaymentImportPreview();
+});
+function updatePaymentImportPreview(){
+  const phoneIdx = parseInt(document.getElementById('paymentImportPhoneCol').value);
+  const amountIdx = parseInt(document.getElementById('paymentImportAmountCol').value);
+  const preview = document.getElementById('paymentImportPreview');
+  let html = '<table style="width:100%; border-collapse:collapse; font-size:12px;"><tr style="border-bottom:1px solid var(--line); font-weight:600;"><th style="padding:6px; text-align:left;">Phone</th><th style="padding:6px; text-align:left;">Amount</th><th style="padding:6px; text-align:left;">Match</th></tr>';
+  paymentImportData.slice(0, 10).forEach(row => {
+    const phone = row[phoneIdx] || '';
+    const amount = row[amountIdx] || '';
+    const matchedInv = allInvoicesCache.find(inv => inv.data.phone === phone);
+    const matchStatus = matchedInv ? '<span style="color:#2E6B3E; font-weight:600;">✓ Found</span>' : '<span style="color:#E0574B;">✗ Not found</span>';
+    html += '<tr style="border-bottom:1px solid var(--line);"><td style="padding:6px;">'+esc(phone)+'</td><td style="padding:6px;">'+esc(amount)+'</td><td style="padding:6px;">'+matchStatus+'</td></tr>';
+  });
+  html += '</table>';
+  if(paymentImportData.length > 10) html += '<div style="margin-top:6px; font-size:11px; color:var(--slate);">... and '+(paymentImportData.length-10)+' more rows</div>';
+  preview.innerHTML = html;
+}
+document.getElementById('paymentImportPhoneCol').addEventListener('change', updatePaymentImportPreview);
+document.getElementById('paymentImportAmountCol').addEventListener('change', updatePaymentImportPreview);
+document.getElementById('paymentImportCancelBtn').addEventListener('click', function(){
+  document.getElementById('paymentImportPanel').style.display = 'none';
+  document.getElementById('paymentImportFile').value = '';
+  paymentImportData = [];
+});
+document.getElementById('paymentImportBtn').addEventListener('click', async function(){
+  const phoneIdx = parseInt(document.getElementById('paymentImportPhoneCol').value);
+  const amountIdx = parseInt(document.getElementById('paymentImportAmountCol').value);
+  let updated = 0, skipped = 0;
+  for(const row of paymentImportData){
+    const phone = row[phoneIdx];
+    const amount = parseFloat(row[amountIdx]) || 0;
+    if(!phone) continue;
+    const inv = allInvoicesCache.find(i => i.data.phone === phone);
+    if(!inv){ skipped++; continue; }
+    const d = inv.data;
+    const total = (d.install||0) + (d.removal||0);
+    const currentStatus = computeInvoiceStatus(d.install, d.removal, d.deposit);
+    if(currentStatus === 'Partial Payment' && amount > 0){
+      await updateDoc(doc(db,'invoices',inv.id), {deposit: amount, updatedAt: serverTimestamp()});
+      updated++;
+    }
+  }
+  toast('Updated '+updated+' invoices'+(skipped?' ('+skipped+' not found)':''));
+  document.getElementById('paymentImportPanel').style.display = 'none';
+  document.getElementById('paymentImportFile').value = '';
+  paymentImportData = [];
+  renderInvoicesList();
+});
 function countRows(text){
   return text.trim() === '' ? 0 : text.split('\n').length;
 }
@@ -7942,8 +8050,7 @@ function buildAddressRowHtml(item){
         (d.phone2 ? '<div class="row-phone-line">'+esc(d.phone2)+' (secondary)</div>' : '')+
         (d.email2 ? '<div class="row-phone-line">'+esc(d.email2)+' (secondary)</div>' : '')+
 
-        (invStatus === 'Unpaid' ? '<div style="margin-top:6px;"><span class="status-pill" style="background:#FDECEA; color:#9A2A1F; font-weight:600;">&#128181; Unpaid</span></div>' : '')+
-        (invStatus === 'Partial Payment' ? '<div style="margin-top:6px;"><span class="status-pill" style="background:#FFF4DE; color:#8a6d1f; font-weight:600;">&#128181; Partial Payment</span></div>' : '')+
+        (matchedInvoice ? '<div style="margin-top:6px;"><select class="payment-status-select" data-invoiceid="'+matchedInvoice.id+'" style="border-radius:6px; border:1px solid var(--line); padding:6px 10px; font-size:13px; font-weight:600; background:var(--snow); color:var(--ink);"><option value="unpaid"'+(invStatus==='Unpaid'?' selected':'')+'">Unpaid</option><option value="partial"'+(invStatus==='Partial Payment'?' selected':'')+'">Partial Payment</option><option value="paid"'+(invStatus==='Paid in Full'?' selected':'')+'">Paid in Full</option></select></div>' : '')+
         priceLine+
         (d.houseAreas && d.houseAreas.length ? '<div class="row-phone-line">&#127968; '+esc(d.houseAreas.join(', '))+'</div>' : '')+
         (crewLines.length ? '<div class="row-phone-line">'+crewLines.join(' &middot; ')+'</div>' : '')+
@@ -8008,6 +8115,26 @@ function attachAddressRowHandlers(container){
   container.querySelectorAll('[data-setinstallpref]').forEach(function(sel){
     sel.addEventListener('change', function(){
       updateDoc(doc(db,'jobAddresses',sel.dataset.setinstallpref), {installPreference: sel.value});
+    });
+  });
+  container.querySelectorAll('.payment-status-select').forEach(function(sel){
+    sel.addEventListener('change', async function(){
+      const invoiceId = sel.dataset.invoiceid;
+      const snap2 = await getDoc(doc(db,'invoices',invoiceId));
+      const d = snap2.data();
+      const total = (d.install||0) + (d.removal||0);
+      let updates = { updatedAt: serverTimestamp() };
+      if(sel.value === 'unpaid'){
+        updates.deposit = 0;
+        updates.status = 'Unpaid';
+      } else if(sel.value === 'paid'){
+        updates.deposit = total;
+        updates.status = 'Paid in Full';
+      } else if(sel.value === 'partial'){
+        updates.status = 'Partial Payment';
+      }
+      await updateDoc(doc(db,'invoices',invoiceId), updates);
+      toast('Payment status updated');
     });
   });
   container.querySelectorAll('[data-openstatus]').forEach(function(btn){
