@@ -1269,10 +1269,10 @@
         <!-- INVOICE LIST -->
         <div class="route-tab-panel active" id="invtab-list">
           <div class="card" style="background:#FFF8E9; border-color:var(--gold-dim); margin-bottom:16px;">
-            <h3 style="margin-top:0;">Season Snapshot &mdash; Unpaid Last Season</h3>
-            <p style="font-size:13px;">Run this once, right before RSVP season starts (e.g. in July). It looks at every customer's current invoice balance and flags anyone who is Unpaid or Partial Payment as "Unpaid Last Season" &mdash; so you can filter them into their own RSVP email later, even after this year's invoices get created. Safe to re-run if needed.</p>
-            <button type="button" class="btn btn-outline btn-sm" id="snapshotUnpaidBtn">Snapshot Unpaid Balances Now</button>
-            <span id="snapshotUnpaidStatus" style="font-size:12.5px; color:var(--slate); margin-left:10px;"></span>
+            <h3 style="margin-top:0;">Fix Missing Invoices</h3>
+            <p style="font-size:13px;">If a customer has a price set but no invoice ever got created for them (usually from adding/editing a price outside the normal quote flow), they won't show up here or be payable in their Member Portal. Click this to scan every customer and create any invoice that's missing.</p>
+            <button type="button" class="btn btn-outline btn-sm" id="fixMissingInvoicesBtn">Scan &amp; Create Missing Invoices</button>
+            <span id="fixMissingInvoicesStatus" style="font-size:12.5px; color:var(--slate); margin-left:10px;"></span>
           </div>
           <a href="https://squareup.com/dashboard" target="_blank" rel="noopener" class="btn btn-outline btn-sm" style="margin-bottom:4px; display:inline-flex;">&#128222; Charge a Card by Phone (Square)</a>
           <p class="form-note" style="margin:0 0 14px;">Opens your Square Dashboard &mdash; once signed in, go to Orders &amp; Payments &rarr; Virtual Terminal &rarr; Take a Payment.</p>
@@ -1568,7 +1568,24 @@ Highlighting Utah</textarea>
       <!-- RSVP RESPONSES -->
       <div class="route-tab-panel" id="dashtab-rsvpresponses">
         <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px;" id="dashRsvpStatCards"></div>
-        <div class="form-row" style="max-width:320px;"><input type="text" id="dashRsvpSearch" placeholder="Search by name..." style="padding:10px 12px; border-radius:10px; border:1px solid var(--line); background:var(--snow); font-size:13.5px;"></div>
+        <div class="form-grid-3" style="margin-bottom:12px; gap:8px;">
+          <div class="form-row" style="margin:0;"><label style="font-size:11.5px;">Search by Name</label><input type="text" id="dashRsvpSearch" placeholder="Search by name..." style="padding:10px 12px; border-radius:10px; border:1px solid var(--line); background:var(--snow); font-size:13.5px;"></div>
+          <div class="form-row" style="margin:0;"><label style="font-size:11.5px;">Gate Code</label>
+            <select id="dashRsvpFilterGateCode" style="padding:8px 10px; font-size:13px;">
+              <option value="all">All</option>
+              <option value="missing">Missing Gate Code</option>
+              <option value="has">Has Gate Code</option>
+            </select>
+          </div>
+          <div class="form-row" style="margin:0;"><label style="font-size:11.5px;">Payment</label>
+            <select id="dashRsvpFilterPayment" style="padding:8px 10px; font-size:13px;">
+              <option value="all">All</option>
+              <option value="unpaid">Unpaid</option>
+              <option value="partial">Partial Payment</option>
+              <option value="paid">Paid in Full</option>
+            </select>
+          </div>
+        </div>
         <div class="row-list" id="dashRsvpList" style="margin-top:14px;"><div class="empty-note">Loading…</div></div>
       </div>
     </div>
@@ -1744,8 +1761,9 @@ Highlighting Utah</textarea>
             <div class="form-row" style="margin:0;"><label style="font-size:11.5px;">Payment</label>
               <select id="etFilterPayment" style="padding:8px 10px; font-size:13px;">
                 <option value="all">All</option>
-                <option value="unpaid">Unpaid Last Season</option>
-                <option value="paid">Paid Last Season</option>
+                <option value="unpaid">Unpaid</option>
+                <option value="partial">Partial Payment</option>
+                <option value="paid">Paid in Full</option>
               </select>
             </div>
             <div class="form-row" style="margin:0;"><label style="font-size:11.5px;">RSVP Status</label>
@@ -4596,6 +4614,13 @@ function etResolveVars(item){
   const link = d.portalToken ? ('https://highlightingutah.com/#/payment?token='+d.portalToken) : '';
   return {name: d.name || 'there', price: price, phone: d.phone || '', link: link, linkLabel: 'Log Into Your Portal'};
 }
+function getLiveInvoiceStatus(phone){
+  const phoneDigits = (phone||'').replace(/\D/g,'');
+  if(!phoneDigits) return null;
+  const inv = allInvoicesCache.find(i => i.id === phoneDigits);
+  if(!inv) return null;
+  return computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit);
+}
 function etPopulateTemplateSelect(){
   const sel = document.getElementById('etSendTemplateSelect');
   if(!sel) return;
@@ -4646,8 +4671,9 @@ function etRenderRecipientList(){
   let members = etGetMembers().filter(m => (m.data.email) && (!term || (m.data.name||'').toLowerCase().indexOf(term) !== -1));
   if(etFilterGateCode === 'missing') members = members.filter(m => !m.data.gateCode);
   else if(etFilterGateCode === 'has') members = members.filter(m => !!m.data.gateCode);
-  if(etFilterPayment === 'unpaid') members = members.filter(m => !!m.data.unpaidLastSeason);
-  else if(etFilterPayment === 'paid') members = members.filter(m => !m.data.unpaidLastSeason);
+  if(etFilterPayment === 'unpaid') members = members.filter(m => getLiveInvoiceStatus(m.data.phone) === 'Unpaid');
+  else if(etFilterPayment === 'partial') members = members.filter(m => getLiveInvoiceStatus(m.data.phone) === 'Partial Payment');
+  else if(etFilterPayment === 'paid') members = members.filter(m => getLiveInvoiceStatus(m.data.phone) === 'Paid in Full');
   if(etFilterRsvp === 'yes') members = members.filter(m => m.data.rsvpStatus === 'yes');
   else if(etFilterRsvp === 'no') members = members.filter(m => m.data.rsvpStatus === 'no');
   else if(etFilterRsvp === 'backnextyear') members = members.filter(m => m.data.rsvpStatus === 'backnextyear');
@@ -4657,7 +4683,11 @@ function etRenderRecipientList(){
   const previouslyChecked = new Set(Array.from(list.querySelectorAll('input:checked')).map(el => el.value));
   list.innerHTML = members.map(function(m){
     const checked = previouslyChecked.has(m.id) ? 'checked' : '';
-    const badges = (!m.data.gateCode ? ' <span style="color:#9A2A1F;">&#128274;</span>' : '') + (m.data.unpaidLastSeason ? ' <span style="color:#9A2A1F;">&#128181;</span>' : '');
+    const payStatus = getLiveInvoiceStatus(m.data.phone);
+    let badges = '';
+    if(!m.data.gateCode) badges += ' <span style="color:#9A2A1F; font-size:11px; font-weight:600;">[No Gate Code]</span>';
+    if(payStatus === 'Unpaid') badges += ' <span style="color:#9A2A1F; font-size:11px; font-weight:600;">[Unpaid]</span>';
+    else if(payStatus === 'Partial Payment') badges += ' <span style="color:#8a6d1f; font-size:11px; font-weight:600;">[Partial]</span>';
     return '<label style="display:flex; align-items:center; gap:8px; padding:5px 0; font-size:13.5px;"><input type="checkbox" class="et-recipient-cb" value="'+m.id+'" '+checked+' style="width:auto;">'+esc(m.data.name||'(no name)')+badges+' <span style="color:var(--slate); font-size:12px;">'+esc(m.data.email||'')+'</span></label>';
   }).join('');
 }
@@ -5329,29 +5359,34 @@ function statusClass(status){
   if(status === 'Partial Payment') return 'status-partial';
   return 'status-due';
 }
-document.getElementById('snapshotUnpaidBtn').addEventListener('click', async function(){
-  const statusEl = document.getElementById('snapshotUnpaidStatus');
-  if(!confirm('This will check every customer\'s current invoice balance and flag anyone Unpaid or Partial Payment as "Unpaid Last Season." Continue?')) return;
+document.getElementById('fixMissingInvoicesBtn').addEventListener('click', async function(){
+  const statusEl = document.getElementById('fixMissingInvoicesStatus');
+  if(!confirm('This will scan every customer with a price set, and create an invoice for anyone who is missing one. Continue?')) return;
   const btn = this;
   btn.disabled = true;
-  statusEl.textContent = 'Checking balances…';
+  statusEl.textContent = 'Scanning…';
   try{
-    let flagged = 0, cleared = 0, checked = 0;
-    const withPhone = jobAddresses.filter(a => a.data.phone);
-    for(const item of withPhone){
-      const inv = allInvoicesCache.find(i => i.data.phone === item.data.phone);
-      if(!inv) continue;
-      checked++;
-      const balance = balanceDueAmount(inv.data);
-      if(balance > 0){
-        await updateDoc(doc(db,'jobAddresses', item.id), {unpaidLastSeason: true, unpaidLastSeasonAmount: balance});
-        flagged++;
-      } else {
-        await updateDoc(doc(db,'jobAddresses', item.id), {unpaidLastSeason: false, unpaidLastSeasonAmount: 0});
-        cleared++;
-      }
+    let created = 0, scanned = 0, skippedNoPhone = 0, skippedBilledElsewhere = 0;
+    const candidates = jobAddresses.filter(a => Number(a.data.housePrice) > 0);
+    const payersToRefresh = new Set();
+    for(const item of candidates){
+      scanned++;
+      const d = item.data;
+      const phoneDigits = (d.phone||'').replace(/\D/g,'');
+      if(d.billToPhone){ skippedBilledElsewhere++; payersToRefresh.add(d.billToPhone); continue; }
+      if(!phoneDigits){ skippedNoPhone++; continue; }
+      const existing = allInvoicesCache.find(i => i.id === phoneDigits);
+      if(existing) continue;
+      const price = Number(d.housePrice) || 0;
+      await setDoc(doc(db,'invoices', phoneDigits), {
+        name: d.name || '', phone: phoneDigits, email: d.email || '',
+        install: price, removal: 0, deposit: 0,
+        status: computeInvoiceStatus(price, 0, 0), priceReviewed: true, updatedAt: serverTimestamp()
+      }, {merge:true});
+      created++;
     }
-    statusEl.textContent = 'Done — checked ' + checked + ', flagged ' + flagged + ' as unpaid, ' + cleared + ' confirmed paid.';
+    for(const payerPhone of payersToRefresh){ await syncPayerInvoice(payerPhone); }
+    statusEl.textContent = 'Done — scanned ' + scanned + ', created ' + created + ' missing invoice(s)' + (skippedNoPhone ? ', ' + skippedNoPhone + ' skipped (no phone)' : '') + (skippedBilledElsewhere ? ', ' + skippedBilledElsewhere + ' billed-elsewhere account(s) refreshed' : '') + '.';
   } catch(err){
     statusEl.textContent = 'Something went wrong — try again.';
   } finally {
@@ -7903,8 +7938,9 @@ function buildAddressRowHtml(item){
         (d.phone ? '<div class="row-phone-line">'+esc(d.phone)+'</div>' : '')+
         (d.phone2 ? '<div class="row-phone-line">'+esc(d.phone2)+' (secondary)</div>' : '')+
         (d.email2 ? '<div class="row-phone-line">'+esc(d.email2)+' (secondary)</div>' : '')+
-        (!d.gateCode ? '<div style="margin-top:6px;"><span class="status-pill" style="background:#FDECEA; color:#9A2A1F; font-weight:600;">&#128274; No Gate Code on File</span></div>' : '')+
-        (d.unpaidLastSeason ? '<div style="margin-top:6px;"><span class="status-pill" style="background:#FDECEA; color:#9A2A1F; font-weight:600;">&#128181; Unpaid Last Season'+(d.unpaidLastSeasonAmount ? ' &mdash; '+fmtMoney(d.unpaidLastSeasonAmount) : '')+'</span></div>' : '')+
+        (d.gateCode ? '<div style="margin-top:6px;"><span class="status-pill" style="background:#E6F2EA; color:#2E6B3E; font-weight:600;">&#128275; Gate Code: '+esc(d.gateCode)+'</span></div>' : '<div style="margin-top:6px;"><span class="status-pill" style="background:#FDECEA; color:#9A2A1F; font-weight:600;">&#128274; No Gate Code on File</span></div>')+
+        (invStatus === 'Unpaid' ? '<div style="margin-top:6px;"><span class="status-pill" style="background:#FDECEA; color:#9A2A1F; font-weight:600;">&#128181; Unpaid</span></div>' : '')+
+        (invStatus === 'Partial Payment' ? '<div style="margin-top:6px;"><span class="status-pill" style="background:#FFF4DE; color:#8a6d1f; font-weight:600;">&#128181; Partial Payment</span></div>' : '')+
         priceLine+
         (d.houseAreas && d.houseAreas.length ? '<div class="row-phone-line">&#127968; '+esc(d.houseAreas.join(', '))+'</div>' : '')+
         (crewLines.length ? '<div class="row-phone-line">'+crewLines.join(' &middot; ')+'</div>' : '')+
@@ -8915,6 +8951,8 @@ function renderInventoryList(){
 }
 let dashRsvpFilter = 'all';
 let dashRsvpSearchTerm = '';
+let dashRsvpFilterGateCode = 'all';
+let dashRsvpFilterPayment = 'all';
 function renderDashRsvpPanel(){
   const cardsEl = document.getElementById('dashRsvpStatCards');
   const listEl = document.getElementById('dashRsvpList');
@@ -8946,6 +8984,11 @@ function renderDashRsvpPanel(){
   let activeList = dashRsvpFilter === 'all' ? withPhoneOrName : (cardDefs.find(c => c.key === dashRsvpFilter) || {}).list || [];
   const term = dashRsvpSearchTerm.toLowerCase();
   if(term) activeList = activeList.filter(a => (a.data.name||'').toLowerCase().indexOf(term) !== -1);
+  if(dashRsvpFilterGateCode === 'missing') activeList = activeList.filter(a => !a.data.gateCode);
+  else if(dashRsvpFilterGateCode === 'has') activeList = activeList.filter(a => !!a.data.gateCode);
+  if(dashRsvpFilterPayment === 'unpaid') activeList = activeList.filter(a => getLiveInvoiceStatus(a.data.phone) === 'Unpaid');
+  else if(dashRsvpFilterPayment === 'partial') activeList = activeList.filter(a => getLiveInvoiceStatus(a.data.phone) === 'Partial Payment');
+  else if(dashRsvpFilterPayment === 'paid') activeList = activeList.filter(a => getLiveInvoiceStatus(a.data.phone) === 'Paid in Full');
   activeList = activeList.slice().sort((a,b) => (a.data.name||'').localeCompare(b.data.name||''));
   if(!activeList.length){
     listEl.innerHTML = '<div class="empty-note">No members match this filter.</div>';
@@ -8956,9 +8999,12 @@ function renderDashRsvpPanel(){
     const statusLabel = d.rsvpStatus === 'yes' ? 'Yes' : (d.rsvpStatus === 'no' ? 'No' : (d.rsvpStatus === 'backnextyear' ? 'Back Next Year' : 'Pending'));
     const statusColor = d.rsvpStatus === 'yes' ? '#2E6B3E' : (d.rsvpStatus === 'no' ? '#9A2A1F' : (d.rsvpStatus === 'backnextyear' ? '#8a6d1f' : '#5b6472'));
     const respondedLine = d.rsvpRespondedAt ? '<div class="rtext">Responded '+fmtDate(d.rsvpRespondedAt)+'</div>' : '';
+    const payStatus = getLiveInvoiceStatus(d.phone);
+    const gateBadge = d.gateCode ? ' <span class="status-pill" style="background:#E6F2EA; color:#2E6B3E; font-size:10.5px;">Gate Code: '+esc(d.gateCode)+'</span>' : ' <span class="status-pill" style="background:#FDECEA; color:#9A2A1F; font-size:10.5px;">No Gate Code</span>';
+    const payBadge = payStatus === 'Unpaid' ? ' <span class="status-pill" style="background:#FDECEA; color:#9A2A1F; font-size:10.5px;">Unpaid</span>' : (payStatus === 'Partial Payment' ? ' <span class="status-pill" style="background:#FFF4DE; color:#8a6d1f; font-size:10.5px;">Partial</span>' : '');
     return '<div class="row-item">'+
       '<div class="rmain">'+
-        '<h4 style="margin:0;">'+esc(d.name||'(no name)')+' <span class="status-pill" style="background:#FFF8E9; color:'+statusColor+'; font-weight:700;">'+statusLabel+'</span></h4>'+
+        '<h4 style="margin:0;">'+esc(d.name||'(no name)')+' <span class="status-pill" style="background:#FFF8E9; color:'+statusColor+'; font-weight:700;">'+statusLabel+'</span>'+gateBadge+payBadge+'</h4>'+
         (d.phone ? '<div class="rtext">'+esc(d.phone)+'</div>' : '')+
         (d.address ? '<div class="rtext">'+esc(d.address)+'</div>' : '')+
         respondedLine+
@@ -8968,6 +9014,14 @@ function renderDashRsvpPanel(){
 }
 document.getElementById('dashRsvpSearch').addEventListener('input', function(){
   dashRsvpSearchTerm = this.value.trim();
+  renderDashRsvpPanel();
+});
+document.getElementById('dashRsvpFilterGateCode').addEventListener('change', function(){
+  dashRsvpFilterGateCode = this.value;
+  renderDashRsvpPanel();
+});
+document.getElementById('dashRsvpFilterPayment').addEventListener('change', function(){
+  dashRsvpFilterPayment = this.value;
   renderDashRsvpPanel();
 });
 document.getElementById('invAddItemBtn').addEventListener('click', async function(){
@@ -9416,13 +9470,21 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     }
     await updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates);
     const inv = allCustInvoiceFor(item);
-    if(inv && !newBillTo){
-      const invoiceUpdates = {name: newName, phone: newPhone, email: newEmail};
-      if(newPhone !== oldPhone){
-        await setDoc(doc(db,'invoices', newPhone), Object.assign({}, inv.data, invoiceUpdates), {merge:true});
-        await deleteDoc(doc(db,'invoices', oldPhone));
-      } else {
-        await updateDoc(doc(db,'invoices', oldPhone), invoiceUpdates);
+    if(!newBillTo){
+      if(inv){
+        const invoiceUpdates = {name: newName, phone: newPhone, email: newEmail};
+        if(newPhone !== oldPhone){
+          await setDoc(doc(db,'invoices', newPhone), Object.assign({}, inv.data, invoiceUpdates), {merge:true});
+          await deleteDoc(doc(db,'invoices', oldPhone));
+        } else {
+          await updateDoc(doc(db,'invoices', oldPhone), invoiceUpdates);
+        }
+      } else if(newHousePrice > 0 && newPhone){
+        await setDoc(doc(db,'invoices', newPhone), {
+          name: newName, phone: newPhone, email: newEmail,
+          install: newHousePrice, removal: 0, deposit: 0,
+          status: computeInvoiceStatus(newHousePrice, 0, 0), priceReviewed: true, updatedAt: serverTimestamp()
+        }, {merge:true});
       }
     }
     if(oldBillTo && oldBillTo !== newBillTo) await syncPayerInvoice(oldBillTo);
