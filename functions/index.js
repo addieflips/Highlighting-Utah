@@ -272,3 +272,340 @@ exports.paypalWebhook = onRequest(
     }
   }
 );
+
+/* ============================================================================
+ * MEMBER PORTAL — server-side lookup and save
+ * ----------------------------------------------------------------------------
+ * The public site (index.html) has no Firebase Auth, so it cannot read or write
+ * jobAddresses directly without opening that collection to the whole internet.
+ * These functions do that work here instead. They run with Admin privileges,
+ * which bypass Firestore rules, so jobAddresses can stay locked to staff.
+ *
+ * Every function takes the customer's portalToken as its credential — the same
+ * 20-character token already embedded in {{portal_link}} and the RSVP buttons.
+ *
+ * Deploy:  firebase deploy --only functions
+ * ==========================================================================*/
+
+// Fields the portal is allowed to change, grouped by which Save button sends
+// them. Anything not listed here can never be written from the public site.
+const PORTAL_WRITE_FIELDS = {
+  info:        ['name', 'phone', 'email', 'address', 'phone2', 'email2', 'gateCode'],
+  preferences: ['installPreference', 'wireColor', 'outletTimer', 'specificOutlet',
+                'specificOutletNotes', 'notes'],
+  lights:      ['lightsDescription'],
+  cancel:      ['cancellationReason']
+};
+
+// Fields the portal is allowed to READ. Everything else on the record —
+// pricing, customer number, bin assignments, difficulty rating, test-account
+// flag, don't-install-before date, crew notes — never leaves the server.
+const PORTAL_READ_FIELDS = [
+  'name', 'phone', 'email', 'address', 'phone2', 'email2', 'gateCode',
+  'lightsDescription', 'installPreference', 'wireColor', 'outletTimer',
+  'specificOutlet', 'specificOutletNotes', 'notes', 'rsvpStatus',
+  'seasonStatus', 'cancellationReason', 'housePhotoUrl', 'houseHighlights',
+  'quoteDetailQuoteId'
+];
+
+function generatePortalToken() {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let out = '';
+  for (let i = 0; i < 20; i++) out += chars.charAt(Math.floor(Math.random() * chars.length));
+  return out;
+}
+
+function digitsOnly(raw) {
+  return String(raw || '').replace(/\D/g, '');
+}
+
+// Strip a Firestore record down to only what the portal needs to render.
+function sanitizeRecord(data) {
+  const out = {};
+  PORTAL_READ_FIELDS.forEach(function (f) {
+    if (data[f] !== undefined) out[f] = data[f];
+  });
+  return out;
+}
+
+// Mirrors the last-name check the browser used to do, so behaviour is
+// unchanged for customers: the typed name must match a word in the stored
+// name, or appear inside it. Stored names are "Last First" format.
+function nameMatches(storedName, typedName) {
+  const stored = String(storedName || '').toLowerCase().trim();
+  const typed = String(typedName || '').toLowerCase().trim();
+  if (!typed || !stored) return false;
+  const words = stored.split(/\s+/).filter(Boolean);
+  return words.indexOf(typed) !== -1 || stored.indexOf(typed) !== -1;
+}
+
+/* --- Rate limiting --------------------------------------------------------
+ * Only applies to the phone/email + last name sign-in, which is guessable.
+ * Token links are not rate limited — a 20-character random token can't be
+ * brute forced, and rate limiting those would break legitimate email clicks.
+ * 5 attempts per identifier per 15 minutes.
+ */
+const RATE_LIMIT_MAX = 5;
+const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
+
+async function checkRateLimit(identifier) {
+  const key = String(identifier || '').replace(/[^a-zA-Z0-9]/g, '_').slice(0, 120);
+  if (!key) return;
+  const ref = db.collection('portalRateLimits').doc(key);
+  const now = Date.now();
+  await db.runTransaction(async function (tx) {
+    const snap = await tx.get(ref);
+    const data = snap.exists ? snap.data() : null;
+    if (!data || (now - (data.windowStart || 0)) > RATE_LIMIT_WINDOW_MS) {
+      tx.set(ref, { windowStart: now, count: 1 });
+      return;
+    }
+    if ((data.count || 0) >= RATE_LIMIT_MAX) {
+      throw new HttpsError(
+        'resource-exhausted',
+        "Too many sign-in attempts. Please wait 15 minutes, or call or text us at (801) 901-0011 and we'll help you out."
+      );
+    }
+    tx.update(ref, { count: (data.count || 0) + 1 });
+  });
+}
+
+/* --- Record finders ------------------------------------------------------- */
+
+async function findByToken(token) {
+  if (!token) return null;
+  const snap = await db.collection('jobAddresses')
+    .where('portalToken', '==', token).limit(1).get();
+  if (snap.empty) return null;
+  return { id: snap.docs[0].id, data: snap.docs[0].data() };
+}
+
+async function findByPhone(phoneDigits) {
+  if (!phoneDigits) return null;
+  const snap = await db.collection('jobAddresses')
+    .where('phone', '==', phoneDigits).limit(1).get();
+  if (!snap.empty) return { id: snap.docs[0].id, data: snap.docs[0].data() };
+  // Fallback for records whose stored phone has formatting characters in it.
+  const all = await db.collection('jobAddresses').get();
+  let found = null;
+  all.forEach(function (d) {
+    if (found) return;
+    if (digitsOnly(d.data().phone) === phoneDigits) found = { id: d.id, data: d.data() };
+  });
+  return found;
+}
+
+async function findByEmail(emailLower) {
+  if (!emailLower) return null;
+  const all = await db.collection('jobAddresses').get();
+  let found = null;
+  all.forEach(function (d) {
+    if (found) return;
+    const e = d.data().email;
+    if (e && String(e).toLowerCase() === emailLower) found = { id: d.id, data: d.data() };
+  });
+  return found;
+}
+
+// Make sure a record has a portalToken, minting one if it predates the system.
+async function ensureToken(id, data) {
+  if (data.portalToken) return data.portalToken;
+  const token = generatePortalToken();
+  try {
+    await db.collection('jobAddresses').doc(id).update({ portalToken: token });
+  } catch (err) {
+    // Use the token anyway — worst case they get a fresh one next visit.
+  }
+  return token;
+}
+
+/* --- portalLookup ---------------------------------------------------------
+ * Replaces every direct jobAddresses read the public site used to do,
+ * including the three full-collection downloads that made every portal
+ * visitor pull down the entire customer list.
+ *
+ * Input:  { token }  or  { phone, lastName }  or  { email, lastName }
+ * Output: { found, id, token, record, deactivated }
+ */
+exports.portalLookup = onCall({ cors: true }, async (request) => {
+  const body = request.data || {};
+  const token = body.token ? String(body.token).trim() : '';
+  const phone = digitsOnly(body.phone);
+  const email = body.email ? String(body.email).toLowerCase().trim() : '';
+  const lastName = body.lastName ? String(body.lastName) : '';
+
+  let match = null;
+
+  if (token) {
+    match = await findByToken(token);
+  } else if (phone) {
+    await checkRateLimit('phone_' + phone);
+    match = await findByPhone(phone);
+    if (match && !nameMatches(match.data.name, lastName)) match = null;
+  } else if (email) {
+    await checkRateLimit('email_' + email);
+    match = await findByEmail(email);
+    if (match && !nameMatches(match.data.name, lastName)) match = null;
+  } else {
+    throw new HttpsError('invalid-argument', 'No lookup information provided.');
+  }
+
+  if (!match) return { found: false };
+
+  const activeToken = await ensureToken(match.id, match.data);
+
+  return {
+    found: true,
+    id: match.id,
+    token: activeToken,
+    deactivated: match.data.rsvpStatus === 'no',
+    record: sanitizeRecord(match.data)
+  };
+});
+
+/* --- portalSave -----------------------------------------------------------
+ * Input: { token, section, data }
+ *   section = 'info' | 'preferences' | 'lights' | 'cancel'
+ * Only the fields listed in PORTAL_WRITE_FIELDS for that section are written.
+ */
+exports.portalSave = onCall({ cors: true }, async (request) => {
+  const body = request.data || {};
+  const token = body.token ? String(body.token).trim() : '';
+  const section = String(body.section || '');
+  const incoming = body.data || {};
+
+  if (!token) throw new HttpsError('invalid-argument', 'Missing portal token.');
+  const allowed = PORTAL_WRITE_FIELDS[section];
+  if (!allowed) throw new HttpsError('invalid-argument', 'Unknown save section.');
+
+  const match = await findByToken(token);
+  if (!match) throw new HttpsError('not-found', 'Account not found.');
+
+  const updates = {};
+  allowed.forEach(function (f) {
+    if (incoming[f] !== undefined) updates[f] = incoming[f];
+  });
+  if (Object.keys(updates).length === 0) {
+    throw new HttpsError('invalid-argument', 'Nothing to save.');
+  }
+
+  // Normalise phone fields so lookups keep working.
+  if (updates.phone !== undefined) updates.phone = digitsOnly(updates.phone);
+  if (updates.phone2 !== undefined) updates.phone2 = digitsOnly(updates.phone2);
+
+  const oldData = match.data;
+  const oldPhone = digitsOnly(oldData.phone);
+  let addressChanged = false;
+
+  if (section === 'info') {
+    addressChanged = !!(oldData.address && updates.address &&
+                        updates.address !== oldData.address);
+    updates.seasonStatus = addressChanged ? 'address_changed' : 'needs_changes';
+  }
+
+  if (section === 'cancel') {
+    updates.seasonStatus = 'cancellation_requested';
+  }
+
+  await db.collection('jobAddresses').doc(match.id).update(updates);
+
+  // The Info tab also keeps the customer's invoice record in sync. This write
+  // used to fail silently from the browser because invoices are staff-only.
+  if (section === 'info' && oldPhone) {
+    const invoiceUpdates = {
+      name: updates.name !== undefined ? updates.name : oldData.name,
+      phone: updates.phone !== undefined ? updates.phone : oldPhone,
+      email: updates.email !== undefined ? updates.email : oldData.email
+    };
+    try {
+      const newPhone = invoiceUpdates.phone;
+      if (newPhone && newPhone !== oldPhone) {
+        await db.collection('invoices').doc(newPhone).set(invoiceUpdates, { merge: true });
+        await db.collection('invoices').doc(oldPhone).delete();
+      } else if (oldPhone) {
+        await db.collection('invoices').doc(oldPhone).set(invoiceUpdates, { merge: true });
+      }
+    } catch (err) {
+      console.error('[HU] invoice sync failed:', err);
+    }
+  }
+
+  return {
+    ok: true,
+    addressChanged: addressChanged,
+    record: sanitizeRecord(Object.assign({}, oldData, updates))
+  };
+});
+
+/* --- portalRsvp -----------------------------------------------------------
+ * Input: { token, response }  where response = 'yes' | 'no' | 'backnextyear'
+ *
+ * The recycle flag is decided here, on the server, so it can't drift:
+ * ONLY a flat "no" marks lights for recycling. "backnextyear" never does.
+ */
+exports.portalRsvp = onCall({ cors: true }, async (request) => {
+  const body = request.data || {};
+  const token = body.token ? String(body.token).trim() : '';
+  const response = String(body.response || '').toLowerCase();
+
+  if (!token) throw new HttpsError('invalid-argument', 'Missing portal token.');
+  if (['yes', 'no', 'backnextyear'].indexOf(response) === -1) {
+    throw new HttpsError('invalid-argument', 'Unknown RSVP response.');
+  }
+
+  const match = await findByToken(token);
+  if (!match) throw new HttpsError('not-found', 'Account not found.');
+
+  await db.collection('jobAddresses').doc(match.id).update({
+    rsvpStatus: response,
+    rsvpRespondedAt: admin.firestore.FieldValue.serverTimestamp(),
+    needsLightRecycle: response === 'no'
+  });
+
+  return { ok: true, rsvpStatus: response };
+});
+
+/* --- quoteRespond ---------------------------------------------------------
+ * Input: { quoteToken, action }  where action = 'approve' | 'decline'
+ *
+ * Quote approval links have been failing silently from the public site because
+ * the quotes collection is read/update restricted to staff. This runs the whole
+ * flow server-side instead.
+ */
+exports.quoteRespond = onCall({ cors: true }, async (request) => {
+  const body = request.data || {};
+  const quoteToken = body.quoteToken ? String(body.quoteToken).trim() : '';
+  const action = String(body.action || '').toLowerCase();
+
+  if (!quoteToken) throw new HttpsError('invalid-argument', 'Missing quote token.');
+  if (action !== 'approve' && action !== 'decline') {
+    throw new HttpsError('invalid-argument', 'Unknown quote action.');
+  }
+
+  const snap = await db.collection('quotes')
+    .where('quoteToken', '==', quoteToken).limit(1).get();
+  if (snap.empty) throw new HttpsError('not-found', 'Quote not found.');
+
+  const quoteId = snap.docs[0].id;
+  const quoteData = snap.docs[0].data();
+
+  await db.collection('quotes').doc(quoteId).update({
+    approvalStatus: action === 'approve' ? 'approved' : 'declined',
+    approvalRespondedAt: admin.firestore.FieldValue.serverTimestamp()
+  });
+
+  if (action === 'approve' && quoteData.jobAddressId) {
+    try {
+      await db.collection('jobAddresses').doc(quoteData.jobAddressId)
+        .update({ quoteDetailQuoteId: quoteId });
+    } catch (err) {
+      console.error('[HU] quoteDetailQuoteId write failed:', err);
+    }
+  }
+
+  return {
+    ok: true,
+    action: action,
+    quotedPrice: quoteData.quotedPrice || 0
+  };
+});
