@@ -1973,6 +1973,14 @@ function navigate(){
       document.body.classList.add('rsvp-minimal');
       handleBackNextYear(backToken);
     }
+  } else if(hash === '/quote-details' && queryString){
+    var quoteParams = new URLSearchParams(queryString);
+    var quoteToken = quoteParams.get('token');
+    var quoteAction = quoteParams.get('action');
+    if(quoteToken && (quoteAction === 'approve' || quoteAction === 'decline') && typeof handleQuoteLink === 'function'){
+      document.body.classList.add('rsvp-minimal');
+      handleQuoteLink(quoteToken, quoteAction);
+    }
   }
 }
 (function(){
@@ -2774,6 +2782,54 @@ function handleBackNextYear(token){
     }).catch(function(){
       if(msg) msg.textContent = "Something went wrong \u2014 please call or text us at (801) 901-0011 and we'll get it sorted out.";
     });
+  }).catch(function(){
+    if(msg) msg.textContent = "Something went wrong \u2014 please call or text us at (801) 901-0011 and we'll get it sorted out.";
+  });
+}
+function handleQuoteLink(token, action){
+  var wrap = document.getElementById('quoteConfirm');
+  var msg = document.getElementById('quoteConfirmMsg');
+  if(!wrap) wrap = document.getElementById('rsvpConfirmCard');
+  if(!msg) msg = document.getElementById('rsvpConfirmMsg');
+  if(wrap) wrap.style.display = 'block';
+  if(msg) msg.textContent = 'One moment\u2026';
+  getDocs(query(collection(db,'quotes'), where('quoteToken','==',token), limit(1))).then(function(snap){
+    if(snap.empty){
+      if(msg) msg.textContent = "We couldn't find your quote \u2014 please call or text us at (801) 901-0011 and we'll help you out.";
+      return;
+    }
+    var docId = snap.docs[0].id;
+    var quoteData = snap.docs[0].data();
+    var quoteAmount = quoteData.quotedPrice || 0;
+    if(action === 'approve'){
+      updateDoc(doc(db,'quotes', docId), {
+        approvalStatus: 'approved',
+        approvalRespondedAt: serverTimestamp()
+      }).then(function(){
+        if(msg){
+          msg.textContent = 'Thank you! Your quote is approved. We\'ll get you scheduled soon!';
+        }
+        var jobAddressId = quoteData.jobAddressId;
+        if(jobAddressId){
+          updateDoc(doc(db,'jobAddresses', jobAddressId), {
+            quoteDetailQuoteId: docId
+          }).catch(function(){});
+        }
+      }).catch(function(){
+        if(msg) msg.textContent = "Something went wrong \u2014 please call or text us at (801) 901-0011 and we'll get it sorted out.";
+      });
+    } else if(action === 'decline'){
+      updateDoc(doc(db,'quotes', docId), {
+        approvalStatus: 'declined',
+        approvalRespondedAt: serverTimestamp()
+      }).then(function(){
+        if(msg){
+          msg.textContent = 'Got it \u2014 thanks for letting us know. Feel free to reach out anytime if you change your mind!';
+        }
+      }).catch(function(){
+        if(msg) msg.textContent = "Something went wrong \u2014 please call or text us at (801) 901-0011 and we'll get it sorted out.";
+      });
+    }
   }).catch(function(){
     if(msg) msg.textContent = "Something went wrong \u2014 please call or text us at (801) 901-0011 and we'll get it sorted out.";
   });
