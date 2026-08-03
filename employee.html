@@ -1759,6 +1759,7 @@ async function loadRoutesForDate(){
                   (stop.name ? '<div class="stop-name">'+esc(stop.name)+'</div>' : '')+
                   '<a class="stop-address-link" href="'+mapsLink(stop.lat, stop.lng)+'" target="_blank" rel="noopener">'+pinIcon()+esc(stop.address)+'</a>'+
                   (stop.gateCode ? '<div class="tag" style="background:#FAEEDA; color:#633806; display:inline-block; margin-top:6px;">&#128274; Gated &middot; '+esc(stop.gateCode)+'</div>' : '')+
+                  (stop.specificOutlet === 'Yes' && stop.specificOutletNotes ? '<div class="tag" style="background:#E0E7FF; color:#4338CA; display:inline-block; margin-top:6px;">&#128268; Outlet: '+esc(stop.specificOutletNotes)+'</div>' : '')+
                 '</div>'+
               '</div>'+
               '<div class="stop-status-row" id="stopstatus-'+stop.id+'"></div>'+
