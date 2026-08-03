@@ -2584,6 +2584,17 @@ function renderCustomerInvoicePage(raw, opts){
   hmLoadHouseMapForInvoice(raw, opts).catch(function(){ /* fall through with no account matched */ }).then(function(){
     var accountMatched = !!currentJobAddressId;
     getDoc(doc(db,'invoices',raw)).then(function(snap){
+      var invoiceMatched = false;
+      if(snap.exists()){
+        if(opts.skipLastNameCheck){
+          invoiceMatched = true;
+        } else {
+          var invWords = ((snap.data().name)||'').toLowerCase().trim().split(/\s+/).filter(Boolean);
+          var typed = (opts.lastNameInput||'').toLowerCase().trim();
+          invoiceMatched = !!typed && invWords.indexOf(typed) !== -1;
+        }
+      }
+      var authorized = accountMatched || invoiceMatched;
       if(!snap.exists()){
         if(!accountMatched){
           card.classList.remove('show');
@@ -2615,7 +2626,7 @@ function renderCustomerInvoicePage(raw, opts){
         if(opts.activateTab) activatePortalTab(opts.activateTab);
         return;
       }
-      if(!accountMatched){
+      if(!authorized){
         card.classList.remove('show');
         if(tabsLayout) tabsLayout.style.display = 'none';
         empty.style.display = 'block';
