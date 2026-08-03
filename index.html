@@ -3278,6 +3278,7 @@ document.getElementById('changesSaveBtn').addEventListener('click', async functi
   var contactEmail = (currentLookupRecord && currentLookupRecord.email) || (currentJobAddressData && currentJobAddressData.email) || '';
   try{
     var wireColorChanged = currentJobAddressData && currentJobAddressData.wireColor !== newWireColor;
+    var notesChanged = currentJobAddressData && (currentJobAddressData.notes || '') !== (newNotes || '');
     var outletTimerChanged = currentJobAddressData && (currentJobAddressData.outletTimer || 'No') !== newOutletTimer;
     await callPortalFn('portalSave', {
       token: getActivePortalToken(),
@@ -3309,6 +3310,19 @@ document.getElementById('changesSaveBtn').addEventListener('click', async functi
         customer_name: contactName, customer_phone: contactPhone,
         customer_email: contactEmail, topic: 'Wire Color Change',
         message: 'Changed their wire color to: ' + newWireColor
+      });
+    }
+    if(notesChanged && newNotes){
+      await addDoc(collection(db,'messages'), {
+        topic: 'Note Added', folder: 'Inbox', important: true,
+        name: contactName, phone: contactPhone, email: contactEmail,
+        contactMethod: '', message: newNotes,
+        createdAt: serverTimestamp()
+      });
+      notifyBusinessOfMessage({
+        customer_name: contactName, customer_phone: contactPhone,
+        customer_email: contactEmail, topic: 'Note Added',
+        message: newNotes
       });
     }
     if(outletTimerChanged){
