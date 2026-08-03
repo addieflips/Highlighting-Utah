@@ -2358,6 +2358,7 @@ if(quickMessageFormEl){
    PAYMENT LOOKUP — reads live invoice from Firestore
 ========================================================= */
 var currentLookupRecord = null;
+var pendingPortalCreds = null;
 var currentJobAddressId = null;
 var currentJobAddressData = null;
 
@@ -2502,12 +2503,15 @@ function performSignInLookup(contactRaw, lastNameInput){
           renderCustomerInvoicePage(qmatch.phone.replace(/\D/g,''), {lastNameInput: lastNameInput});
         } else {
           document.getElementById('lookupEmpty').style.display = 'block';
+          showLookupFormAgain();
         }
       }).catch(function(){
         document.getElementById('lookupEmpty').style.display = 'block';
+        showLookupFormAgain();
       });
     }).catch(function(){
       document.getElementById('lookupEmpty').style.display = 'block';
+      showLookupFormAgain();
     });
     return;
   }
@@ -2520,13 +2524,18 @@ document.getElementById('lookupForm').addEventListener('submit', function(e){
   var lastNameInput = document.getElementById('lookupLastName').value.trim();
   if(!contactRaw || !lastNameInput){ return; }
   var lastNameLower = lastNameInput.toLowerCase();
-  savePortalCreds(contactRaw, lastNameLower);
+  pendingPortalCreds = {c: contactRaw, ln: lastNameLower};
   var heroEl = document.getElementById('paymentPageHero');
   if(heroEl) heroEl.style.display = 'none';
   document.getElementById('lookupFormWrap').style.display = 'none';
   performSignInLookup(contactRaw, lastNameLower);
   window.scrollTo({top:0, behavior:'smooth'});
 });
+function showLookupFormAgain(){
+  clearPortalCreds();
+  var lookupWrapEl = document.getElementById('lookupFormWrap');
+  if(lookupWrapEl) lookupWrapEl.style.display = '';
+}
 function hideLoginPrompt(){
   var heroEl = document.getElementById('paymentPageHero');
   if(heroEl) heroEl.style.display = 'none';
@@ -2588,6 +2597,7 @@ function renderCustomerInvoicePage(raw, opts){
         document.getElementById('invTipRow').style.display = 'none';
         card.classList.add('show');
         if(tabsLayout) tabsLayout.style.display = 'flex';
+        commitPendingPortalCreds();
         hideLoginPrompt();
         if(opts.activateTab) activatePortalTab(opts.activateTab);
         return;
@@ -2596,8 +2606,7 @@ function renderCustomerInvoicePage(raw, opts){
         card.classList.remove('show');
         if(tabsLayout) tabsLayout.style.display = 'none';
         empty.style.display = 'block';
-        var lookupWrapRetry1 = document.getElementById('lookupFormWrap');
-        if(lookupWrapRetry1) lookupWrapRetry1.style.display = '';
+        showLookupFormAgain();
         return;
       }
       document.getElementById('quoteReviewCard').classList.remove('show');
@@ -2634,14 +2643,14 @@ function renderCustomerInvoicePage(raw, opts){
       }
       card.classList.add('show');
       if(tabsLayout) tabsLayout.style.display = 'flex';
+      commitPendingPortalCreds();
       hideLoginPrompt();
       if(opts.activateTab) activatePortalTab(opts.activateTab);
     }).catch(function(){
       card.classList.remove('show');
       if(tabsLayout) tabsLayout.style.display = 'none';
       empty.style.display='block';
-      var lookupWrapRetry4 = document.getElementById('lookupFormWrap');
-      if(lookupWrapRetry4) lookupWrapRetry4.style.display = '';
+      showLookupFormAgain();
     });
   });
   }
@@ -2706,14 +2715,12 @@ function tryShowQuoteReview(raw, opts){
     }
     resolvedMsg.style.display = 'none';
     empty.style.display = 'block';
-    var lookupWrapRetry2 = document.getElementById('lookupFormWrap');
-    if(lookupWrapRetry2) lookupWrapRetry2.style.display = '';
+    showLookupFormAgain();
   }).catch(function(){
     quoteCard.classList.remove('show');
     resolvedMsg.style.display = 'none';
     empty.style.display = 'block';
-    var lookupWrapRetry3 = document.getElementById('lookupFormWrap');
-    if(lookupWrapRetry3) lookupWrapRetry3.style.display = '';
+    showLookupFormAgain();
   });
 }
 var currentQuoteId = null;
@@ -2895,6 +2902,16 @@ function clearPortalLogin(){
 }
 function savePortalCreds(contactRaw, lastNameInput){
   try{ localStorage.setItem('huPortalCreds', JSON.stringify({c: contactRaw, ln: lastNameInput})); } catch(e){}
+}
+function clearPortalCreds(){
+  try{ localStorage.removeItem('huPortalCreds'); } catch(e){}
+  pendingPortalCreds = null;
+}
+function commitPendingPortalCreds(){
+  if(pendingPortalCreds && pendingPortalCreds.c && pendingPortalCreds.ln){
+    savePortalCreds(pendingPortalCreds.c, pendingPortalCreds.ln);
+    pendingPortalCreds = null;
+  }
 }
 
 var currentServiceDue = 0;
