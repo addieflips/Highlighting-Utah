@@ -1041,11 +1041,38 @@
       </div>
       <div class="card">
         <h3>&#128179; Payment & Credit Card Import</h3>
-        <p style="font-size:13px;">Upload an Excel or CSV file with payment data (phone numbers, amounts paid, etc.). Map your columns to customer fields, preview the changes, and import to update invoice payment statuses.</p>
-        <div style="margin-top:12px;">
-          <input type="file" id="paymentImportFile" accept=".xlsx,.xls,.csv" style="margin-bottom:10px;">
-          <button type="button" class="btn btn-gold" id="paymentImportLoadBtn">Load File</button>
+        <p style="font-size:13px;">Upload an Excel or CSV file with payment data (phone numbers, amounts paid, etc.). Organize imports by folder and search past imports.</p>
+        
+        <!-- Folder & Search Bar -->
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:12px 0;">
+          <div>
+            <label style="font-size:12px; font-weight:600; color:var(--slate); display:block; margin-bottom:6px;">Folder</label>
+            <select id="paymentImportFolder" style="width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:var(--snow);">
+              <option value="">All Folders</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:12px; font-weight:600; color:var(--slate); display:block; margin-bottom:6px;">Search</label>
+            <input type="text" id="paymentImportSearch" placeholder="Search imports..." style="width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:var(--snow);">
+          </div>
         </div>
+
+        <!-- Import History -->
+        <div id="paymentImportHistory" style="margin:16px 0; max-height:300px; overflow-y:auto; border:1px solid var(--line); border-radius:8px; padding:12px; background:var(--paper); font-size:12px;">
+          <div style="color:var(--slate); text-align:center; padding:20px;">No imports yet</div>
+        </div>
+
+        <!-- New Import Section -->
+        <div style="margin-top:16px; padding-top:16px; border-top:1px solid var(--line);">
+          <h4 style="font-size:13px; margin:0 0 12px;">New Import</h4>
+          <div style="display:grid; grid-template-columns:1fr auto; gap:10px; margin-bottom:12px;">
+            <input type="file" id="paymentImportFile" accept=".xlsx,.xls,.csv" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:var(--snow);">
+            <input type="text" id="paymentImportNewFolder" placeholder="Folder name (optional)" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:var(--snow); width:180px;">
+            <button type="button" class="btn btn-gold" id="paymentImportLoadBtn">Load File</button>
+          </div>
+        </div>
+
+        <!-- Column Mapping Panel -->
         <div id="paymentImportPanel" style="display:none; margin-top:16px; padding-top:16px; border-top:1px solid var(--line);">
           <h4 style="font-size:13.5px; margin-bottom:12px;">Column Mapping</h4>
           <p style="font-size:12px; color:var(--slate); margin-bottom:12px;">Select which column from your file corresponds to each field:</p>
@@ -4506,6 +4533,8 @@ document.getElementById('etAddFolderBtn').addEventListener('click', async functi
   if(!name) return;
   await addDoc(collection(db,'emailTemplateFolders'), {name: name, createdAt: serverTimestamp()});
   input.value = '';
+  renderEmailTemplateFolders();
+  renderEmailTemplateList();
 });
 function renderEmailTemplateList(){
   const list = document.getElementById('etTemplateList');
@@ -7645,6 +7674,71 @@ document.getElementById('goToBulkUpdatesBtn').addEventListener('click', function
 
 /* ---- PAYMENT IMPORT ---- */
 let paymentImportData = [];
+let paymentImportFolders = [];
+let paymentImportHistory = [];
+
+// Load folders and history
+async function loadPaymentImportFolders(){
+  const snap = await getDocs(collection(db,'paymentImportFolders'));
+  paymentImportFolders = [];
+  snap.forEach(doc => paymentImportFolders.push({id: doc.id, name: doc.data().name}));
+  const sel = document.getElementById('paymentImportFolder');
+  sel.innerHTML = '<option value="">All Folders</option>' + 
+    paymentImportFolders.map(f => '<option value="'+f.id+'">'+esc(f.name)+'</option>').join('');
+  renderPaymentImportHistory();
+}
+
+async function loadPaymentImportHistory(){
+  const snap = await getDocs(query(collection(db,'paymentImports'), orderBy('createdAt', 'desc')));
+  paymentImportHistory = [];
+  snap.forEach(doc => paymentImportHistory.push({id: doc.id, data: doc.data()}));
+  renderPaymentImportHistory();
+}
+
+function renderPaymentImportHistory(){
+  const historyDiv = document.getElementById('paymentImportHistory');
+  const folderFilter = document.getElementById('paymentImportFolder').value;
+  const searchTerm = document.getElementById('paymentImportSearch').value.toLowerCase();
+  
+  let filtered = paymentImportHistory;
+  if(folderFilter) filtered = filtered.filter(i => i.data.folderId === folderFilter);
+  if(searchTerm) filtered = filtered.filter(i => 
+    (i.data.folderName || '').toLowerCase().indexOf(searchTerm) !== -1 ||
+    (i.data.fileName || '').toLowerCase().indexOf(searchTerm) !== -1
+  );
+  
+  if(!filtered.length){
+    historyDiv.innerHTML = '<div style="color:var(--slate); text-align:center; padding:20px;">No imports yet</div>';
+    return;
+  }
+  
+  let html = '';
+  filtered.forEach(imp => {
+    const date = imp.data.createdAt && imp.data.createdAt.toDate ? fmtDate(imp.data.createdAt) : '';
+    html += '<div style="padding:10px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center;">'+
+      '<div>'+
+        '<div style="font-weight:600;">'+esc(imp.data.fileName || 'Import')+'</div>'+
+        '<div style="color:var(--slate); font-size:11px;">'+esc(imp.data.folderName || '(No folder)')+' • '+date+' • '+imp.data.updated+' updated</div>'+
+      '</div>'+
+      '<button type="button" class="btn btn-outline btn-sm" data-reimport="'+imp.id+'" style="width:auto;">Re-import</button>'+
+    '</div>';
+  });
+  historyDiv.innerHTML = html;
+  
+  historyDiv.querySelectorAll('[data-reimport]').forEach(btn => {
+    btn.addEventListener('click', async function(){
+      const impId = btn.dataset.reimport;
+      const imp = paymentImportHistory.find(i => i.id === impId);
+      if(!imp) return;
+      // Optionally reload and re-run the import
+      alert('Re-import of '+imp.data.fileName+' coming soon!');
+    });
+  });
+}
+
+document.getElementById('paymentImportFolder').addEventListener('change', renderPaymentImportHistory);
+document.getElementById('paymentImportSearch').addEventListener('input', renderPaymentImportHistory);
+
 document.getElementById('paymentImportLoadBtn').addEventListener('click', async function(){
   const fileInput = document.getElementById('paymentImportFile');
   if(!fileInput.files.length){ alert('Please select a file'); return; }
@@ -7661,6 +7755,8 @@ document.getElementById('paymentImportLoadBtn').addEventListener('click', async 
   }
   if(!rows.length){ alert('No data found'); return; }
   paymentImportData = rows.slice(1);
+  window.paymentImportFileName = file.name;
+  window.paymentImportFolderName = document.getElementById('paymentImportNewFolder').value || '(No folder)';
   const header = rows[0];
   const phoneSelect = document.getElementById('paymentImportPhoneCol');
   const amountSelect = document.getElementById('paymentImportAmountCol');
@@ -7679,6 +7775,7 @@ document.getElementById('paymentImportLoadBtn').addEventListener('click', async 
   document.getElementById('paymentImportPanel').style.display = 'block';
   updatePaymentImportPreview();
 });
+
 function updatePaymentImportPreview(){
   const phoneIdx = parseInt(document.getElementById('paymentImportPhoneCol').value);
   const amountIdx = parseInt(document.getElementById('paymentImportAmountCol').value);
@@ -7695,13 +7792,17 @@ function updatePaymentImportPreview(){
   if(paymentImportData.length > 10) html += '<div style="margin-top:6px; font-size:11px; color:var(--slate);">... and '+(paymentImportData.length-10)+' more rows</div>';
   preview.innerHTML = html;
 }
+
 document.getElementById('paymentImportPhoneCol').addEventListener('change', updatePaymentImportPreview);
 document.getElementById('paymentImportAmountCol').addEventListener('change', updatePaymentImportPreview);
+
 document.getElementById('paymentImportCancelBtn').addEventListener('click', function(){
   document.getElementById('paymentImportPanel').style.display = 'none';
   document.getElementById('paymentImportFile').value = '';
+  document.getElementById('paymentImportNewFolder').value = '';
   paymentImportData = [];
 });
+
 document.getElementById('paymentImportBtn').addEventListener('click', async function(){
   const phoneIdx = parseInt(document.getElementById('paymentImportPhoneCol').value);
   const amountIdx = parseInt(document.getElementById('paymentImportAmountCol').value);
@@ -7720,12 +7821,33 @@ document.getElementById('paymentImportBtn').addEventListener('click', async func
       updated++;
     }
   }
+  
+  // Save to import history
+  const folderName = window.paymentImportFolderName || '(No folder)';
+  await addDoc(collection(db,'paymentImports'), {
+    fileName: window.paymentImportFileName,
+    folderName: folderName,
+    folderId: '',
+    rowCount: paymentImportData.length,
+    updated: updated,
+    skipped: skipped,
+    createdAt: serverTimestamp()
+  });
+  
   toast('Updated '+updated+' invoices'+(skipped?' ('+skipped+' not found)':''));
   document.getElementById('paymentImportPanel').style.display = 'none';
   document.getElementById('paymentImportFile').value = '';
+  document.getElementById('paymentImportNewFolder').value = '';
   paymentImportData = [];
   renderInvoicesList();
+  loadPaymentImportHistory();
 });
+
+// Initialize
+loadPaymentImportFolders();
+if(typeof onSnapshot !== 'undefined'){
+  onSnapshot(collection(db,'paymentImports'), () => loadPaymentImportHistory());
+}
 
 function countRows(text){
   return text.trim() === '' ? 0 : text.split('\n').length;
