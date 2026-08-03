@@ -2428,7 +2428,7 @@ async function hmLoadHouseMapForInvoice(phoneDigits){
     document.getElementById('changesSpecificOutletNotesWrap').style.display = loadedSpecificOutlet === 'Yes' ? 'block' : 'none';
     document.getElementById('changesSpecificOutletNotes').value = addrDoc.specificOutletNotes || '';
     document.getElementById('changesNotes').value = addrDoc.notes || '';
-    var parsedColors = parseSequenceFromLightsDescription(addrDoc.lightsDescription || currentLookupRecord.lightsDescription);
+    var parsedColors = parseSequenceFromLightsDescription(addrDoc.lightsDescription || (currentLookupRecord && currentLookupRecord.lightsDescription) || '');
     var hasRepeats = new Set(parsedColors).size !== parsedColors.length;
     var patternToggle = document.getElementById('rcSpecificPatternToggle');
     if(hasRepeats){
@@ -2551,6 +2551,7 @@ function renderCustomerInvoicePage(raw, opts){
     loadInvoiceForPortal();
   });
   function loadInvoiceForPortal(){
+  hmLoadHouseMapForInvoice(raw);
   getDoc(doc(db,'invoices',raw)).then(function(snap){
     if(!snap.exists()){
       card.classList.remove('show');
@@ -2584,8 +2585,6 @@ function renderCustomerInvoicePage(raw, opts){
 
     document.getElementById('invPaidMsg').style.display = isPaid ? 'block' : 'none';
     document.getElementById('payButtonsWrap').style.display = isPaid ? 'none' : 'block';
-
-    hmLoadHouseMapForInvoice(raw);
 
     var tipRow = document.getElementById('invTipRow');
     if(!isPaid){
@@ -3002,7 +3001,7 @@ async function ensureJobAddressId(){
 async function saveLightsPattern(){
   var statusEl = document.getElementById('lightsSaveStatus');
   var saveBtn = document.getElementById('lightsSaveBtn');
-  if(!currentLookupRecord){ return; }
+  if(!currentLookupRecord && !currentJobAddressId){ return; }
   if(saveBtn) saveBtn.disabled = true;
   statusEl.textContent = 'Saving…';
   var jobId = await ensureJobAddressId();
@@ -3015,9 +3014,10 @@ async function saveLightsPattern(){
   var newLightsDescription = isSpecific ? rcSequence.join(', ') : rcSimpleColors.join(', ');
   try{
     await updateDoc(doc(db,'jobAddresses', jobId), {lightsDescription: newLightsDescription});
-    var oldPhone = currentLookupRecord.phone || '';
-    if(oldPhone) await updateDoc(doc(db,'invoices', oldPhone), {lightsDescription: newLightsDescription});
-    currentLookupRecord.lightsDescription = newLightsDescription;
+    var oldPhone = (currentLookupRecord && currentLookupRecord.phone) || (currentJobAddressData && currentJobAddressData.phone) || '';
+    if(oldPhone) await setDoc(doc(db,'invoices', oldPhone), {lightsDescription: newLightsDescription}, {merge:true});
+    if(currentLookupRecord) currentLookupRecord.lightsDescription = newLightsDescription;
+    if(currentJobAddressData) currentJobAddressData.lightsDescription = newLightsDescription;
     statusEl.textContent = 'Saved!';
     setTimeout(function(){ statusEl.textContent = ''; }, 2000);
     notifyLightsChange(newLightsDescription);
@@ -3028,18 +3028,21 @@ async function saveLightsPattern(){
   }
 }
 async function notifyLightsChange(finalDescription){
-  if(!currentLookupRecord) return;
+  if(!currentLookupRecord && !currentJobAddressData) return;
+  var name = (currentLookupRecord && currentLookupRecord.name) || (currentJobAddressData && currentJobAddressData.name) || '';
+  var phone = (currentLookupRecord && currentLookupRecord.phone) || (currentJobAddressData && currentJobAddressData.phone) || '';
+  var email = (currentLookupRecord && currentLookupRecord.email) || (currentJobAddressData && currentJobAddressData.email) || '';
   var messageText = 'Updated their light color/pattern to: ' + (finalDescription || '(none selected)');
   try{
     await addDoc(collection(db,'messages'), {
       topic: 'Light Color Change', folder: 'Inbox',
-      name: currentLookupRecord.name || '', phone: currentLookupRecord.phone || '', email: currentLookupRecord.email || '',
+      name: name, phone: phone, email: email,
       contactMethod: '', message: messageText,
       createdAt: serverTimestamp()
     });
     notifyBusinessOfMessage({
-      customer_name: currentLookupRecord.name || '', customer_phone: currentLookupRecord.phone || '',
-      customer_email: currentLookupRecord.email || '', topic: 'Light Color Change', message: messageText
+      customer_name: name, customer_phone: phone,
+      customer_email: email, topic: 'Light Color Change', message: messageText
     });
   } catch(err){ /* Firestore already has the updated color either way */ }
 }
@@ -3166,7 +3169,7 @@ document.getElementById('addEmail2Link').addEventListener('click', function(e){
 
 document.getElementById('infoSaveBtn').addEventListener('click', async function(){
   var statusEl = document.getElementById('infoSaveStatus');
-  if(!currentLookupRecord){ statusEl.textContent = 'Please look up your invoice first.'; return; }
+  if(!currentLookupRecord && !currentJobAddressId){ statusEl.textContent = 'Please look up your invoice first.'; return; }
   var newName = document.getElementById('infoName').value.trim();
   var newPhoneRaw = document.getElementById('infoPhone').value.replace(/\D/g,'');
   var newEmail = document.getElementById('infoEmail').value.trim();
@@ -3178,16 +3181,18 @@ document.getElementById('infoSaveBtn').addEventListener('click', async function(
 
   var oldAddress = (currentJobAddressData && currentJobAddressData.address) || '';
   var addressChanged = oldAddress && newAddress !== oldAddress;
-  var oldPhone = currentLookupRecord.phone || '';
+  var oldPhone = (currentLookupRecord && currentLookupRecord.phone) || (currentJobAddressData && currentJobAddressData.phone) || '';
 
   statusEl.textContent = 'Saving…';
   try{
-    var invoiceUpdates = {name: newName, phone: newPhoneRaw, email: newEmail};
-    if(newPhoneRaw !== oldPhone){
-      await setDoc(doc(db,'invoices', newPhoneRaw), invoiceUpdates, {merge:true});
-      await deleteDoc(doc(db,'invoices', oldPhone));
-    } else {
-      await updateDoc(doc(db,'invoices', oldPhone), invoiceUpdates);
+    if(oldPhone){
+      var invoiceUpdates = {name: newName, phone: newPhoneRaw, email: newEmail};
+      if(newPhoneRaw !== oldPhone){
+        await setDoc(doc(db,'invoices', newPhoneRaw), invoiceUpdates, {merge:true});
+        await deleteDoc(doc(db,'invoices', oldPhone));
+      } else {
+        await setDoc(doc(db,'invoices', oldPhone), invoiceUpdates, {merge:true});
+      }
     }
     if(currentJobAddressId){
       var addrUpdates = {
@@ -3209,7 +3214,7 @@ document.getElementById('infoSaveBtn').addEventListener('click', async function(
         message: 'Existing customer changed their address from "' + oldAddress + '" to "' + newAddress + '". A new quote is required.'
       });
     }
-    currentLookupRecord.name = newName; currentLookupRecord.phone = newPhoneRaw; currentLookupRecord.email = newEmail;
+    if(currentLookupRecord){ currentLookupRecord.name = newName; currentLookupRecord.phone = newPhoneRaw; currentLookupRecord.email = newEmail; }
     if(currentJobAddressData){ currentJobAddressData.address = newAddress; currentJobAddressData.phone2 = newPhone2Raw; currentJobAddressData.email2 = newEmail2; currentJobAddressData.gateCode = newGateCode; }
     statusEl.textContent = addressChanged ? 'Saved! Since your address changed, we\'ll be in touch with a new quote.' : 'Saved!';
   } catch(err){
@@ -3235,7 +3240,7 @@ document.querySelectorAll('input[name="changes_specific_outlet"]').forEach(funct
 document.getElementById('changesSaveBtn').addEventListener('click', async function(){
   var statusEl = document.getElementById('changesSaveStatus');
   var btn = document.getElementById('changesSaveBtn');
-  if(!currentLookupRecord){ statusEl.textContent = 'Please look up your invoice first.'; return; }
+  if(!currentLookupRecord && !currentJobAddressId){ statusEl.textContent = 'Please look up your invoice first.'; return; }
   var newPref = document.getElementById('schedSelect').value;
   var newWireColor = document.getElementById('wireColorSelect').value;
   var newOutletTimer = document.querySelector('input[name="changes_outlet_timer"]:checked').value;
@@ -3250,6 +3255,9 @@ document.getElementById('changesSaveBtn').addEventListener('click', async functi
     btn.disabled = false;
     return;
   }
+  var contactName = (currentLookupRecord && currentLookupRecord.name) || (currentJobAddressData && currentJobAddressData.name) || '';
+  var contactPhone = (currentLookupRecord && currentLookupRecord.phone) || (currentJobAddressData && currentJobAddressData.phone) || '';
+  var contactEmail = (currentLookupRecord && currentLookupRecord.email) || (currentJobAddressData && currentJobAddressData.email) || '';
   try{
     var wireColorChanged = currentJobAddressData && currentJobAddressData.wireColor !== newWireColor;
     var outletTimerChanged = currentJobAddressData && (currentJobAddressData.outletTimer || 'No') !== newOutletTimer;
@@ -3271,26 +3279,26 @@ document.getElementById('changesSaveBtn').addEventListener('click', async functi
     if(wireColorChanged){
       await addDoc(collection(db,'messages'), {
         topic: 'Wire Color Change', folder: 'Inbox',
-        name: currentLookupRecord.name || '', phone: currentLookupRecord.phone || '', email: currentLookupRecord.email || '',
+        name: contactName, phone: contactPhone, email: contactEmail,
         contactMethod: '', message: 'Changed their wire color to: ' + newWireColor,
         createdAt: serverTimestamp()
       });
       notifyBusinessOfMessage({
-        customer_name: currentLookupRecord.name || '', customer_phone: currentLookupRecord.phone || '',
-        customer_email: currentLookupRecord.email || '', topic: 'Wire Color Change',
+        customer_name: contactName, customer_phone: contactPhone,
+        customer_email: contactEmail, topic: 'Wire Color Change',
         message: 'Changed their wire color to: ' + newWireColor
       });
     }
     if(outletTimerChanged){
       await addDoc(collection(db,'messages'), {
         topic: 'Outlet Timer Change', folder: 'Inbox',
-        name: currentLookupRecord.name || '', phone: currentLookupRecord.phone || '', email: currentLookupRecord.email || '',
+        name: contactName, phone: contactPhone, email: contactEmail,
         contactMethod: '', message: 'Changed their outlet timer preference to: ' + newOutletTimer,
         createdAt: serverTimestamp()
       });
       notifyBusinessOfMessage({
-        customer_name: currentLookupRecord.name || '', customer_phone: currentLookupRecord.phone || '',
-        customer_email: currentLookupRecord.email || '', topic: 'Outlet Timer Change',
+        customer_name: contactName, customer_phone: contactPhone,
+        customer_email: contactEmail, topic: 'Outlet Timer Change',
         message: 'Changed their outlet timer preference to: ' + newOutletTimer
       });
     }
@@ -3309,16 +3317,19 @@ document.getElementById('portalLogoutLink').addEventListener('click', function(e
 });
 
 document.getElementById('cancelFinalBtn').addEventListener('click', async function(){
-  if(!currentLookupRecord){ return; }
+  if(!currentLookupRecord && !currentJobAddressId){ return; }
   var reason = document.getElementById('cancelReasonInput').value.trim();
   var statusEl = document.getElementById('cancelStatus');
   var btn = document.getElementById('cancelFinalBtn');
   btn.disabled = true;
   statusEl.textContent = 'Submitting…';
+  var contactName = (currentLookupRecord && currentLookupRecord.name) || (currentJobAddressData && currentJobAddressData.name) || '';
+  var contactPhone = (currentLookupRecord && currentLookupRecord.phone) || (currentJobAddressData && currentJobAddressData.phone) || '';
+  var contactEmail = (currentLookupRecord && currentLookupRecord.email) || (currentJobAddressData && currentJobAddressData.email) || '';
   try{
     await addDoc(collection(db,'messages'), {
       topic: 'Cancellation Request', folder: 'Inbox', important: true,
-      name: currentLookupRecord.name || '', phone: currentLookupRecord.phone || '', email: currentLookupRecord.email || '',
+      name: contactName, phone: contactPhone, email: contactEmail,
       contactMethod: '', message: reason || 'No reason given',
       createdAt: serverTimestamp()
     });
@@ -3326,8 +3337,8 @@ document.getElementById('cancelFinalBtn').addEventListener('click', async functi
       await updateDoc(doc(db,'jobAddresses', currentJobAddressId), {seasonStatus: 'cancellation_requested', cancellationReason: reason || ''});
     }
     notifyBusinessOfMessage({
-      customer_name: currentLookupRecord.name || '', customer_phone: currentLookupRecord.phone || '',
-      customer_email: currentLookupRecord.email || '', topic: 'Cancellation Request', message: reason || 'No reason given'
+      customer_name: contactName, customer_phone: contactPhone,
+      customer_email: contactEmail, topic: 'Cancellation Request', message: reason || 'No reason given'
     });
     btn.style.display = 'none';
     document.getElementById('cancelConfirmMsg').style.display = 'block';
@@ -3338,7 +3349,7 @@ document.getElementById('cancelFinalBtn').addEventListener('click', async functi
 });
 
 document.getElementById('portalContactSendBtn').addEventListener('click', async function(){
-  if(!currentLookupRecord){ return; }
+  if(!currentLookupRecord && !currentJobAddressId){ return; }
   var topic = document.getElementById('portalContactTopic').value;
   var msgText = document.getElementById('portalContactMessage').value.trim();
   var statusEl = document.getElementById('portalContactStatus');
@@ -3347,16 +3358,19 @@ document.getElementById('portalContactSendBtn').addEventListener('click', async 
   if(!msgText){ statusEl.textContent = 'Please enter a message.'; return; }
   btn.disabled = true;
   statusEl.textContent = 'Sending…';
+  var contactName = (currentLookupRecord && currentLookupRecord.name) || (currentJobAddressData && currentJobAddressData.name) || '';
+  var contactPhone = (currentLookupRecord && currentLookupRecord.phone) || (currentJobAddressData && currentJobAddressData.phone) || '';
+  var contactEmail = (currentLookupRecord && currentLookupRecord.email) || (currentJobAddressData && currentJobAddressData.email) || '';
   try{
     await addDoc(collection(db,'messages'), {
       topic: topic, folder: 'Inbox',
-      name: currentLookupRecord.name || '', phone: currentLookupRecord.phone || '', email: currentLookupRecord.email || '',
+      name: contactName, phone: contactPhone, email: contactEmail,
       contactMethod: '', message: msgText,
       createdAt: serverTimestamp()
     });
     notifyBusinessOfMessage({
-      customer_name: currentLookupRecord.name || '', customer_phone: currentLookupRecord.phone || '',
-      customer_email: currentLookupRecord.email || '', topic: topic, message: msgText
+      customer_name: contactName, customer_phone: contactPhone,
+      customer_email: contactEmail, topic: topic, message: msgText
     });
     btn.style.display = 'none';
     document.getElementById('portalContactSuccess').style.display = 'block';
