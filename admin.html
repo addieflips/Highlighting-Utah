@@ -7929,7 +7929,10 @@ function buildAddressRowHtml(item){
     : '';
   return '<div class="row-item">'+
     '<div class="rmain">'+
-      (d.name ? '<div class="row-name-line">'+esc(d.name)+'</div>' : '')+
+      '<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">'+
+        (d.name ? '<div class="row-name-line">'+esc(d.name)+'</div>' : '<div></div>')+
+        (d.gateCode ? '<span class="status-pill" style="background:#FAEEDA; color:#633806; font-weight:600; flex-shrink:0; white-space:nowrap;">&#128274; '+esc(d.gateCode)+'</span>' : '')+
+      '</div>'+
       '<button type="button" class="address-link-btn" data-previewaddr="'+item.id+'">'+esc(d.address)+'</button>'+
       timingBadgesHtml+
       '<button type="button" class="fix-toggle-btn" data-toggledetails="'+item.id+'" style="margin-top:8px;">Show Details &#9662;</button>'+
@@ -7938,12 +7941,13 @@ function buildAddressRowHtml(item){
         (d.phone ? '<div class="row-phone-line">'+esc(d.phone)+'</div>' : '')+
         (d.phone2 ? '<div class="row-phone-line">'+esc(d.phone2)+' (secondary)</div>' : '')+
         (d.email2 ? '<div class="row-phone-line">'+esc(d.email2)+' (secondary)</div>' : '')+
-        (d.gateCode ? '<div style="margin-top:6px;"><span class="status-pill" style="background:#E6F2EA; color:#2E6B3E; font-weight:600;">&#128275; Gate Code: '+esc(d.gateCode)+'</span></div>' : '<div style="margin-top:6px;"><span class="status-pill" style="background:#FDECEA; color:#9A2A1F; font-weight:600;">&#128274; No Gate Code on File</span></div>')+
+
         (invStatus === 'Unpaid' ? '<div style="margin-top:6px;"><span class="status-pill" style="background:#FDECEA; color:#9A2A1F; font-weight:600;">&#128181; Unpaid</span></div>' : '')+
         (invStatus === 'Partial Payment' ? '<div style="margin-top:6px;"><span class="status-pill" style="background:#FFF4DE; color:#8a6d1f; font-weight:600;">&#128181; Partial Payment</span></div>' : '')+
         priceLine+
         (d.houseAreas && d.houseAreas.length ? '<div class="row-phone-line">&#127968; '+esc(d.houseAreas.join(', '))+'</div>' : '')+
         (crewLines.length ? '<div class="row-phone-line">'+crewLines.join(' &middot; ')+'</div>' : '')+
+        (d.specificOutlet === 'Yes' && d.specificOutletNotes ? '<div class="row-phone-line">&#128268; <strong>Specific outlet:</strong> '+esc(d.specificOutletNotes)+'</div>' : '')+
         (d.notes ? '<div class="row-phone-line">&#128221; '+esc(d.notes)+'</div>' : '')+
         (d.oneTimeNote ? '<div class="row-phone-line" style="color:var(--ember);">&#128221; (this visit only) '+esc(d.oneTimeNote)+'</div>' : '')+
         (isEarliestInstallDateLocked(d) ? '<div class="row-phone-line" style="color:var(--ember); font-weight:600;">&#128197; Don\'t install before '+fmtDate(d.earliestInstallDate)+'</div>' : '')+
