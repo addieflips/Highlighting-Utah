@@ -1,3 +1,130 @@
+
+/
+Claude finished the response
+
+Reconciled initial hesitations and committed to manageable scope
+Reconciled initial hesitations and committed to manageable scope
+Let me verify GitHub matches what I have locally before I change anything.
+
+
+Identified UI components and mapped codebase exploration strategy
+Identified UI components and mapped codebase exploration strategy
+Routes work done. Field inventory confirms nothing got dropped by accident — address and name are still there, phone is gone as intended.
+
+Admin route list
+
+Phone removed
+Light colors now labeled 🎄 Light Colors:
+New line: Wire: White · Timer: No on every stop
+Crew stop cards
+
+Light Colors: and Wire: added, both read live from the customer record
+No timer, per your call about the bin
+Two things I couldn't do, and want to be straight about:
+
+Payment status isn't in the route render. I read the whole function — there's no paid/unpaid anywhere in it. The only pill that looks like it is "✓ Done," which is install completion, not payment. So either it's in a different view (printed route, map popup), or it was already removed. I need you to point me at where you're seeing it.
+
+Email isn't there either. Same situation — never rendered on routes.
+
+Fix info was already gated correctly. Both the "Needs Fix" pill and the fix-note block already check needsFix. Nothing to change.
+
+Commit these to routes-rework, open the PR, and test on the Netlify preview. When you spot the payment status, screenshot it and I'll find the right render.
+
+
+Admin
+Code · HTML 
+
+Employee
+Code · HTML 
+Yeah payment status was never made for unpaid or partial. I need you to build that
+
+
+Reconciled existing payment badges with new feature requirements
+Reconciled existing payment badges with new feature requirements
+Want to flag a contradiction before I build the wrong thing — earlier you said "we no longer need if they paid or not on routes," and I removed nothing because it was never there. Now it sounds like you want it added.
+
+Also worth knowing: payment status does already exist on the customer card, handling both cases — there's an "Unpaid" badge and a separate "Partial Payment" badge, driven by invStatus.
+
+So I'm not sure which of these you're after:
+
+Where do you want unpaid/partial payment status?
+Only on invoice and costumers
+What's broken about it now?
+unpaid and partial don't show on invoices and should just be a drop down to choose from on costumers
+
+Tracing invoice status calculation and rendering logic
+Tracing invoice status calculation and rendering logic
+Let me see how payment status currently works — whether it's stored or calculated matters a lot here.
+
+
+Identified design tension between dropdown selection and underlying payment calculations
+Identified design tension between dropdown selection and underlying payment calculations
+Found the important wrinkle: payment status isn't stored anywhere — it's calculated.
+
+computeInvoiceStatus derives it from the money: total is install + removal, paid is the deposit. Zero paid → Unpaid. Paid ≥ total → Paid in Full. Anything between → Partial Payment.
+
+That's why a dropdown is tricky. If you pick "Paid in Full" but the deposit field still says $0, the two disagree — and every other place that calculates status (the customer list, Excel export, invoice emails, balance-due amounts) would keep saying Unpaid, because they all recompute from the numbers.
+
+Three ways to handle it:
+
+1. Dropdown sets the money. Pick Paid in Full → deposit becomes the full total. Pick Unpaid → deposit becomes 0. Pick Partial → it asks for the amount. Status stays consistent everywhere because the underlying numbers stay true.
+
+2. Stored override. Add a field that wins over the calculation when set. Simple to build, but creates records where the status says Paid and the balance says $120 owing — and you'd have to remember which one is lying.
+
+3. Just make the deposit field easy to edit. No dropdown; you type what they paid and the status follows. Fewest moving parts, but more typing than picking from a list.
+
+I'd go with 1 — you get the dropdown you asked for, and nothing downstream breaks.
+
+Also, "doesn't show on invoices" — I need you to point me at that screen. There's a customer list showing status at line 9379, but I haven't found an invoices view that's missing it.
+
+Which approach for the payment dropdown?
+I want to do a dropdown. however this should automatically update after I import the members phone numbers and paid or partial
+Now or next session? This one touches money fields.
+Build it now
+
+Identified bug in cancel handler and prioritized immediate fix
+Identified bug in cancel handler and prioritized immediate fix
+Caught a bug in my own code — renderCustomers() doesn't exist, so cancelling the prompt would have thrown. Fixing it to just reset the dropdown instead.
+
+
+Ran a command, read a file
+Ran a command, read a file
+Both files done and syntax-checked.
+
+Payment dropdown on the customer card — Unpaid / Partial Payment / Paid in Full replaces the two badges. Picking an option writes the matching deposit, so every screen that recomputes status agrees:
+
+Choice	Deposit written
+Paid in Full	Full total
+Unpaid	0
+Partial Payment	Prompts for the amount
+The dropdown only appears when the customer has an invoice — no invoice means no total to compute against.
+
+Two things I have to be honest about:
+
+The import piece isn't done. You want paid/partial to update automatically when you import phone numbers with payment info. I found the invoice editor's "Amount Paid So Far" field, but I haven't traced the bulk import's column mapping to see whether it reads a payment column at all — that's a separate chunk of work, and I'd be guessing at your spreadsheet's column names.
+
+I still don't know where "doesn't show on invoices" is. I never located an invoices screen missing the status. Point me at it with a screenshot.
+
+Also — I'm deep into this session. I've been loading these files repeatedly and I'd rather hand off cleanly than stall halfway through the import work. Commit what you have to routes-rework, open the PR, and test on the preview.
+
+For next session: the import payment mapping, the invoices screen, the customer card rework, Notes-behind-map, and the RSVP rebuild.
+
+
+Admin
+Code · HTML 
+
+Employee
+Code · HTML 
+
+
+
+
+
+
+Claude is AI and can make mistakes. Please double-check responses.
+
+
+Employee · HTML
 <!DOCTYPE html>
 <html lang="en">
 <head><link rel="manifest" href="/manifest-crew.json">
@@ -45,7 +172,7 @@
   }
   .who-name-btn:hover{ border-color:var(--gold); background:#FFF7E7; }
   #switchPersonBtn{ background:none; border:none; color:var(--slate); font-size:13px; text-decoration:underline; }
-
+ 
   /* Login */
   #loginScreen{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; background:linear-gradient(150deg,var(--ink),var(--dusk)); }
   .login-card{ background:#fff; border-radius:20px; padding:40px 30px; width:100%; max-width:360px; box-shadow:0 30px 60px -20px rgba(0,0,0,.4); text-align:center; }
@@ -54,14 +181,14 @@
   .field label{ display:block; font-size:12.5px; font-weight:600; margin-bottom:6px; }
   .field input{ width:100%; padding:12px 13px; border-radius:9px; border:1px solid var(--line); background:var(--snow); font-size:15px; }
   #loginError{ color:var(--ember); font-size:13px; margin-top:10px; min-height:16px; }
-
+ 
   /* App */
   #app{ display:none; max-width:640px; margin:0 auto; padding:16px 16px 100px; }
   #app.show{ display:block; }
   .topbar{ display:flex; justify-content:space-between; align-items:center; padding:10px 4px 18px; }
   .topbar .brand{ font-family:'Fraunces',serif; font-weight:600; font-size:18px; }
   .topbar button{ background:none; border:none; color:var(--slate); font-size:13px; text-decoration:underline; }
-
+ 
   .bottom-nav{
     position:fixed; bottom:0; left:0; right:0; z-index:100;
     display:flex; background:#fff; border-top:1px solid var(--line);
@@ -80,23 +207,23 @@
     display:flex; align-items:center; justify-content:center; padding:0 3px;
   }
   .tab-panel-content{ min-height:50vh; }
-
+ 
   .clock-card{
     background:var(--ink); color:#fff; border-radius:18px; padding:22px; text-align:center; margin-bottom:18px;
   }
   .clock-status{ font-size:13.5px; color:rgba(255,255,255,.7); margin-bottom:14px; }
   .clock-time{ font-family:'Fraunces',serif; font-size:15px; color:var(--gold); }
-
+ 
   .date-nav{ display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; }
   .date-nav button{ background:#fff; border:1px solid var(--line); border-radius:999px; padding:9px 16px; font-weight:600; font-size:13.5px; }
   .date-nav strong{ font-family:'Fraunces',serif; font-size:16px; }
-
+ 
   .route-section{ margin-bottom:26px; }
   .route-section h2{ font-size:16px; display:flex; align-items:center; gap:8px; }
   .route-section h2 .tag{ font-size:11px; padding:3px 10px; border-radius:999px; font-weight:700; text-transform:uppercase; }
   .tag-install{ background:#FFF3D6; color:var(--gold-dim); }
   .tag-fix{ background:#FDECEA; color:var(--ember); }
-
+ 
   .stop-card{
     background:#fff; border:1px solid var(--line); border-radius:14px; padding:16px; margin-bottom:12px; box-shadow:var(--shadow);
   }
@@ -145,7 +272,7 @@
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyByI2wHguK1JLNdUFJQKiA_gunoVtTkyqM"></script>
 </head>
 <body>
-
+ 
 <div id="loginScreen">
   <div class="login-card">
     <h1>Crew Login</h1>
@@ -158,7 +285,7 @@
     </form>
   </div>
 </div>
-
+ 
 <div id="whoScreen" style="display:none; min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; background:linear-gradient(150deg,var(--ink),var(--dusk));">
   <div class="login-card">
     <h1>Who's clocking in?</h1>
@@ -170,7 +297,7 @@
     </form>
   </div>
 </div>
-
+ 
 <div id="app">
   <div class="topbar">
     <div class="brand" id="topbarTitle">Clock In</div>
@@ -179,7 +306,7 @@
       <button id="logoutBtn">Log Out</button>
     </div>
   </div>
-
+ 
   <div class="tab-panel-content" id="tabpanel-clockin">
     <div class="clock-card">
       <div class="clock-status" id="clockStatus">Not clocked in</div>
@@ -189,14 +316,14 @@
       </div>
       <div id="clockLocationMsg" style="font-size:12px; color:rgba(255,255,255,.6); margin-top:10px; min-height:16px;"></div>
     </div>
-
+ 
     <div style="margin-top:24px;">
       <h2 style="font-size:16px;">Your Timecard</h2>
       <p style="font-size:13px; color:var(--slate); margin-top:-8px;" id="myTimecardPeriodLabel">Current pay period</p>
       <p style="font-size:13px; color:var(--slate); margin-top:-4px;">Got a time wrong? Request a fix &mdash; it needs an admin's approval before it changes.</p>
       <div id="myTimecardList"></div>
     </div>
-
+ 
     <div id="adminApprovalsWrap" style="display:none; margin-top:28px; padding-top:20px; border-top:1px solid var(--line);">
       <h2 style="font-size:16px;">Approvals</h2>
       <p style="font-size:13px; color:var(--slate); margin-top:-8px;">Pending timecard fixes and requests from the team.</p>
@@ -204,25 +331,25 @@
       <div id="adminEmpRequestsList" style="margin-top:16px;"></div>
     </div>
   </div>
-
+ 
   <div class="tab-panel-content" id="tabpanel-route" style="display:none;">
     <div id="crewOnlyWrap">
       <div id="crewLabel" style="text-align:center; font-family:'Fraunces',serif; font-weight:600; font-size:14px; color:var(--dusk); margin-bottom:10px;"></div>
-
+ 
       <div class="date-nav">
         <button id="datePrev">&larr; Prev Day</button>
         <strong id="dateLabel"></strong>
         <button id="dateNext">Next Day &rarr;</button>
       </div>
-
+ 
       <div id="dayMapWrap" style="margin-bottom:20px;">
         <div id="dayMap" style="width:100%; height:260px; border-radius:14px; border:1px solid var(--line); background:var(--snow);"></div>
       </div>
-
+ 
       <div id="routesWrap"></div>
     </div>
   </div>
-
+ 
   <div class="tab-panel-content" id="tabpanel-checklist" style="display:none;">
     <div id="dailyChecklistWrap" style="display:none;">
       <h2 id="checklistHeading">Today's Checklist</h2>
@@ -251,7 +378,7 @@
       <div id="myRequestsList" style="margin-top:16px;"></div>
     </div>
   </div>
-
+ 
   <div class="tab-panel-content" id="tabpanel-warehouse" style="display:none;">
     <div id="wh-toptabs" style="display:flex; flex-wrap:wrap; background:var(--paper); padding:4px; gap:4px; border-radius:12px;"></div>
     <div id="wh-lights-filter" style="display:none; gap:6px; padding:12px 0 0; flex-wrap:wrap;"></div>
@@ -265,7 +392,7 @@
     </div>
     <div id="wh-list" style="padding:4px 0 18px; display:flex; flex-direction:column; gap:14px;"></div>
   </div>
-
+ 
   <div class="tab-panel-content" id="tabpanel-addcustomer" style="display:none;">
     <h2>Add a Customer</h2>
     <div class="form-row"><label>Name</label><input type="text" id="ecName"></div>
@@ -277,13 +404,13 @@
     <button type="button" class="btn btn-gold" id="ecSaveBtn" style="margin-top:10px;">Add Customer</button>
     <div id="ecStatus" style="font-size:13px; color:var(--slate); margin-top:8px;"></div>
   </div>
-
+ 
   <div class="tab-panel-content" id="tabpanel-quotes" style="display:none;">
     <h2>Quote Requests</h2>
     <p style="font-size:13px; color:var(--slate); margin-top:-8px;">Most recent requests, view only.</p>
     <div id="empQuotesList" style="margin-top:12px;"></div>
   </div>
-
+ 
   <div class="tab-panel-content" id="tabpanel-custmessages" style="display:none;">
     <h2 id="custMessagesHeading">Customer Messages</h2>
     <p style="font-size:13px; color:var(--slate); margin-top:-8px;">Most recent messages, view only.</p>
@@ -294,13 +421,13 @@
     </div>
     <div id="empCustMessagesList" style="margin-top:12px;"></div>
   </div>
-
+ 
   <div class="tab-panel-content" id="tabpanel-routesadmin" style="display:none;">
     <h2>Routes (Full List)</h2>
     <input type="text" id="empRoutesSearch" placeholder="Search by name or address..." style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px; margin:10px 0;">
     <div id="empRoutesList"></div>
   </div>
-
+ 
   <div class="tab-panel-content" id="tabpanel-housemaps" style="display:none;">
     <h2>House Maps</h2>
     <p style="font-size:13px; color:var(--slate); margin-top:-8px;">Search a customer to view their saved installer map.</p>
@@ -308,19 +435,19 @@
     <div id="empHmResults"></div>
     <div id="empHmViewer" style="margin-top:16px;"></div>
   </div>
-
+ 
   <div class="tab-panel-content" id="tabpanel-responsibilities" style="display:none;">
     <h2>Crew Assignments</h2>
     <p style="font-size:13px; color:var(--slate); margin-top:-8px;">Who's on which crew.</p>
     <div id="empCrewList" style="margin-top:12px;"></div>
   </div>
-
+ 
   <div class="tab-panel-content" id="tabpanel-financedash" style="display:none;">
     <h2>Dashboard</h2>
     <p style="font-size:13px; color:var(--slate); margin-top:-8px;">Key numbers, view only. For editing, use the full admin dashboard.</p>
     <div id="empFinSummary" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(120px,1fr)); gap:8px; margin:12px 0;"></div>
   </div>
-
+ 
   <div class="tab-panel-content" id="tabpanel-perfootpricing" style="display:none;">
     <h2>Per Foot Pricing</h2>
     <p style="font-size:13px; color:var(--slate); margin-top:-8px;">Current rate, plus a quick calculator.</p>
@@ -328,14 +455,14 @@
     <input type="number" id="empPfCalcFeet" placeholder="Enter feet" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;">
     <div style="font-family:'Fraunces',serif; font-weight:700; font-size:20px; margin-top:10px;" id="empPfCalcResult">$0.00</div>
   </div>
-
+ 
   <div class="tab-panel-content" id="tabpanel-timelogsadmin" style="display:none;">
     <h2>Time Logs</h2>
     <p style="font-size:13px; color:var(--slate); margin-top:-8px;">Every employee's recent clock-ins, view only.</p>
     <input type="text" id="empTlSearch" placeholder="Search by employee name..." style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px; margin:10px 0;">
     <div id="empTlList"></div>
   </div>
-
+ 
   <div class="bottom-nav" id="bottomNav">
     <button class="bottom-nav-btn active" data-tab="clockin">
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
@@ -392,7 +519,7 @@
     </button>
   </div>
 </div>
-
+ 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
@@ -401,7 +528,7 @@ import {
 import {
   getFirestore, enableIndexedDbPersistence, collection, doc, addDoc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot, query, where, serverTimestamp, orderBy, limit
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-
+ 
 const firebaseConfig = {
   apiKey: "AIzaSyBf0u9ZvXQiYsV8l_bMQNW6tjgF74oZRaE",
   authDomain: "highlighting-utah.firebaseapp.com",
@@ -427,7 +554,7 @@ const whoScreen = document.getElementById('whoScreen');
 const appEl = document.getElementById('app');
 let currentUserEmail = '';
 let currentPersonName = '';
-
+ 
 document.getElementById('loginForm').addEventListener('submit', function(e){
   e.preventDefault();
   const email = document.getElementById('loginEmail').value;
@@ -438,7 +565,7 @@ document.getElementById('loginForm').addEventListener('submit', function(e){
   });
 });
 document.getElementById('logoutBtn').addEventListener('click', function(){ signOut(auth); });
-
+ 
 onAuthStateChanged(auth, function(user){
   if(user){
     currentUserEmail = user.email;
@@ -455,7 +582,7 @@ onAuthStateChanged(auth, function(user){
     appEl.classList.remove('show');
   }
 });
-
+ 
 let knownEmployeeNames = [];
 function showWhoScreen(){
   whoScreen.style.display = 'flex';
@@ -509,7 +636,7 @@ async function getCrewForDate(name, dateStr){
   } catch(err){ /* no override, fall through */ }
   return crewFromConfig(name);
 }
-
+ 
 let currentEmployeeRole = 'Crew';
 let currentIsAdmin = false;
 async function startAppAs(name){
@@ -518,7 +645,7 @@ async function startAppAs(name){
   whoScreen.style.display = 'none';
   appEl.classList.add('show');
   initClockState();
-
+ 
   let visibleTabs = null;
   currentIsAdmin = false;
   try{
@@ -530,7 +657,7 @@ async function startAppAs(name){
   } catch(err){
     currentEmployeeRole = 'Crew';
   }
-
+ 
   const isCrew = currentEmployeeRole === 'Crew';
   const vt = visibleTabs || {route: isCrew, checklist: true};
   document.getElementById('checklistHeading').textContent = isCrew ? "Today's Extra Checklist" : "Today's Checklist";
@@ -546,7 +673,7 @@ async function startAppAs(name){
   document.getElementById('financedashNavBtn').style.display = vt.financedash ? 'flex' : 'none';
   document.getElementById('perfootpricingNavBtn').style.display = vt.perfootpricing ? 'flex' : 'none';
   document.getElementById('timelogsadminNavBtn').style.display = vt.timelogsadmin ? 'flex' : 'none';
-
+ 
   loadMyTimecard();
   loadMyRequests();
   if(currentIsAdmin){
@@ -569,7 +696,7 @@ async function startAppAs(name){
   if(vt.financedash) loadEmpFinanceDash();
   if(vt.perfootpricing) loadEmpPerFootPricing();
   if(vt.timelogsadmin) loadEmpTimeLogsAdmin();
-
+ 
   const defaultTab = vt.route ? 'route' : (vt.checklist ? 'checklist' : 'clockin');
   switchTab(defaultTab);
 }
@@ -577,7 +704,7 @@ document.getElementById('switchPersonBtn').addEventListener('click', function(){
   localStorage.removeItem('huEmployeeName');
   showWhoScreen();
 });
-
+ 
 const TAB_TITLES = {clockin:'Clock In', route:'Today\'s Route', checklist:'Checklist', warehouse:'Warehouse', addcustomer:'Add a Customer', quotes:'Quote Requests', custmessages:'Customer Messages', routesadmin:'Routes', housemaps:'House Maps', responsibilities:'Crew Assignments', financedash:'Dashboard', perfootpricing:'Per Foot Pricing', timelogsadmin:'Time Logs'};
 function switchTab(tabName){
   document.querySelectorAll('.tab-panel-content').forEach(function(p){ p.style.display = 'none'; });
@@ -591,7 +718,7 @@ function switchTab(tabName){
 document.querySelectorAll('.bottom-nav-btn').forEach(function(btn){
   btn.addEventListener('click', function(){ switchTab(btn.dataset.tab); });
 });
-
+ 
 function updateChecklistNavBadge(hasContent){
   const badge = document.getElementById('checklistNavBadge');
   if(!badge) return;
@@ -651,7 +778,7 @@ async function loadDailyChecklist(){
     document.getElementById('checklistItemsList').innerHTML = '<p style="color:var(--ember); font-size:14px;">Couldn\'t load checklist.</p>';
   }
 }
-
+ 
 document.getElementById('sendChecklistNoteBtn').addEventListener('click', async function(){
   const input = document.getElementById('checklistNoteInputEmp');
   const statusEl = document.getElementById('checklistNoteStatus');
@@ -669,7 +796,7 @@ document.getElementById('sendChecklistNoteBtn').addEventListener('click', async 
     statusEl.textContent = 'Couldn\'t send — check your connection and try again.';
   }
 });
-
+ 
 document.getElementById('sendEmpRequestBtn').addEventListener('click', async function(){
   const type = document.getElementById('empRequestType').value;
   const descInput = document.getElementById('empRequestDesc');
@@ -688,7 +815,7 @@ document.getElementById('sendEmpRequestBtn').addEventListener('click', async fun
     statusEl.textContent = 'Couldn\'t send — check your connection and try again.';
   }
 });
-
+ 
 /* =========================================================
    WAREHOUSE TAB — Checklist / Lights / Recycle / Timers / Pull
 ========================================================= */
@@ -712,7 +839,7 @@ let whRecycle = [];        // jobAddresses with needsLightRecycle:true
 let whTimers = [];         // jobAddresses with outletTimer:'Yes', built, not yet handled
 let whGoals = [];          // warehouseGoals docs (build-ahead targets)
 let whPullByCrew = {};     // {crewId: {docId, date, stops, pulledIds}}
-
+ 
 function whBadgeCountFor(tabId){
   if(tabId === 'checklist'){
     if(!whChecklistDoc) return 0;
@@ -816,7 +943,7 @@ function whRender(){
   document.getElementById('wh-lights-filter').style.display = whActive === 'lights' ? 'flex' : 'none';
   document.getElementById('wh-crew-filter').style.display = whActive === 'pull' ? 'flex' : 'none';
   document.getElementById('wh-hide-done-wrap').style.display = (whActive === 'lights' && whLightsFilter === 'goals') ? 'none' : 'flex';
-
+ 
   if(whActive === 'lights'){
     document.getElementById('wh-lights-filter').innerHTML = ['all','new','old','goals'].map(function(f){
       return '<button class="wh-lfilter" data-lf="'+f+'" style="border:1px solid var(--line); background:'+(whLightsFilter===f?'var(--ink)':'#fff')+'; color:'+(whLightsFilter===f?'var(--snow)':'var(--ink)')+'; border-radius:999px; padding:6px 14px; font-size:12px; font-weight:600; cursor:pointer;">'+(f==='all'?'All':f==='new'?'New Clients':f==='old'?'Old Clients':'Build Ahead')+'</button>';
@@ -830,9 +957,9 @@ function whRender(){
     }).join('');
     document.querySelectorAll('.wh-crewfilter').forEach(function(btn){ btn.addEventListener('click', function(){ whPullCrew = btn.dataset.c; whRender(); }); });
   }
-
+ 
   const list = document.getElementById('wh-list');
-
+ 
   if(whActive === 'checklist'){
     const items = (whChecklistDoc && whChecklistDoc.items) || [];
     document.getElementById('wh-progress').textContent = items.filter(function(i){ return i.done; }).length + ' of ' + items.length + ' done';
@@ -855,7 +982,7 @@ function whRender(){
     });
     return;
   }
-
+ 
   if(whActive === 'lights' && whLightsFilter === 'goals'){
     document.getElementById('wh-progress').textContent = whGoals.length + ' active goal(s)';
     list.innerHTML = whGoals.length ? whGoals.map(whGoalCard).join('') : '<p style="text-align:center; color:var(--slate); font-size:13.5px; padding:20px 0;">No build-ahead goals right now.</p>';
@@ -874,24 +1001,24 @@ function whRender(){
     });
     return;
   }
-
+ 
   let items;
   if(whActive === 'pull') items = (whPullCrew && whPullByCrew[whPullCrew]) ? whPullByCrew[whPullCrew].stops : [];
   else if(whActive === 'lights') items = whCurrentLightsItems();
   else if(whActive === 'recycle') items = whRecycle;
   else if(whActive === 'timers') items = whTimers;
   else items = [];
-
+ 
   if(whActive === 'lights' && whLightsFilter !== 'all') items = items.filter(function(i){ return i.kind === whLightsFilter; });
-
+ 
   const total = items.length;
   const doneCount = items.filter(function(i){ return i.done; }).length;
   document.getElementById('wh-progress').textContent = whActive === 'pull'
     ? (whPullCrew ? 'Crew '+whPullCrew+' — '+doneCount+' of '+total+' pulled' : '')
     : doneCount + ' of ' + total + ' done';
-
+ 
   let visible = whHideDone ? items.filter(function(i){ return !i.done; }) : items;
-
+ 
   if(!visible.length){
     list.innerHTML = '<p style="text-align:center; color:var(--slate); font-size:13.5px; padding:20px 0;">'+(whActive==='pull' ? 'Nothing to pull.' : 'All done here!')+'</p>';
   } else if(whActive === 'lights' && whLightsFilter === 'all'){
@@ -904,7 +1031,7 @@ function whRender(){
   } else {
     list.innerHTML = visible.map(whRow).join('');
   }
-
+ 
   list.querySelectorAll('.wh-check').forEach(function(cb){
     cb.addEventListener('change', async function(){
       const key = cb.dataset.key;
@@ -1060,7 +1187,7 @@ function loadMyRequests(){
     render();
   });
 }
-
+ 
 /* ---------------- ADD A CUSTOMER (permission-gated) ---------------- */
 document.getElementById('ecSaveBtn').addEventListener('click', async function(){
   const statusEl = document.getElementById('ecStatus');
@@ -1094,7 +1221,7 @@ document.getElementById('ecSaveBtn').addEventListener('click', async function(){
     statusEl.textContent = 'Something went wrong — try again.';
   }
 });
-
+ 
 /* ---------------- QUOTES (view only, permission-gated) ---------------- */
 function loadEmpQuotes(){
   const wrap = document.getElementById('empQuotesList');
@@ -1145,7 +1272,7 @@ function loadEmpQuotes(){
     });
   });
 }
-
+ 
 /* ---------------- CUSTOMER MESSAGES (view only, permission-gated) ---------------- */
 let empSelectedEmployee = '';
 function renderEmpContactMessages(){
@@ -1228,7 +1355,7 @@ async function loadEmpCustMessages(hasAllMessages){
     });
   }
 }
-
+ 
 /* ---------------- ALL ROUTES (view only, permission-gated) ---------------- */
 let empRoutesCache = [];
 function loadEmpRoutesAdmin(){
@@ -1286,7 +1413,7 @@ function renderEmpRoutesList(){
   });
 }
 document.getElementById('empRoutesSearch').addEventListener('input', renderEmpRoutesList);
-
+ 
 /* ---------------- HOUSE MAPS (view only, permission-gated) ---------------- */
 document.getElementById('empHmSearch').addEventListener('input', function(){
   const term = this.value.trim().toLowerCase();
@@ -1333,7 +1460,7 @@ function renderEmpHmResults(term){
     });
   });
 }
-
+ 
 /* ---------------- CREW ASSIGNMENTS (view only, permission-gated) ---------------- */
 function loadEmpCrewList(){
   const wrap = document.getElementById('empCrewList');
@@ -1354,7 +1481,7 @@ function loadEmpCrewList(){
     wrap.innerHTML = html;
   });
 }
-
+ 
 /* ---------------- FINANCE PERMISSIONS (Dashboard / Per Foot Pricing / Time Logs) ---------------- */
 function empStatCard(label, value){
   return '<div style="border:1px solid var(--line); border-radius:10px; padding:12px; text-align:center;">'+
@@ -1385,7 +1512,7 @@ async function loadEmpFinanceDash(){
     wrap.innerHTML = '<p style="color:var(--slate); font-size:13px;">Could not load — try again.</p>';
   }
 }
-
+ 
 let empPfRateVal = 0;
 function loadEmpPerFootPricing(){
   onSnapshot(doc(db,'pricing','config'), function(snap){
@@ -1399,7 +1526,7 @@ function empUpdatePfCalc(){
   document.getElementById('empPfCalcResult').textContent = empFmtMoney(feet * empPfRateVal);
 }
 document.getElementById('empPfCalcFeet').addEventListener('input', empUpdatePfCalc);
-
+ 
 let empTlCache = [];
 function loadEmpTimeLogsAdmin(){
   onSnapshot(query(collection(db,'timeLogs'), orderBy('createdAt','desc'), limit(100)), function(snap){
@@ -1425,8 +1552,8 @@ function renderEmpTlList(){
   }).join('');
 }
 document.getElementById('empTlSearch').addEventListener('input', renderEmpTlList);
-
-
+ 
+ 
 /* ---------------- TIMECARD & CHANGE REQUESTS ---------------- */
 let myTimecardCache = [];
 function fmtLogTime(ts){
@@ -1590,7 +1717,7 @@ function loadEmpRequestApprovals(){
     });
   });
 }
-
+ 
 /* ---------------- CLOCK IN / OUT (geofenced to shop address) ---------------- */
 const CLOCK_ADDRESS = '209 S 850 W, Lehi, UT 84043';
 const CLOCK_RADIUS_METERS = 300; // ~0.2 miles — generous enough for GPS drift
@@ -1639,7 +1766,7 @@ function verifyAtClockLocation(){
     }, {enableHighAccuracy:true, timeout:10000});
   });
 }
-
+ 
 let activeShiftId = null;
 async function initClockState(){
   const q = query(collection(db,'timeLogs'), where('employeeEmail','==',currentUserEmail), where('employeeName','==',currentPersonName), where('clockOutAt','==',null));
@@ -1681,7 +1808,7 @@ document.getElementById('clockOutBtn').addEventListener('click', async function(
   if(!ok) return;
   await updateDoc(doc(db,'timeLogs',activeShiftId), { clockOutAt: serverTimestamp() });
 });
-
+ 
 /* ---------------- DATE NAV ---------------- */
 let dayOffset = 0;
 function toDateStr(dt){
@@ -1698,7 +1825,7 @@ function renderDateNav(){
 }
 document.getElementById('datePrev').addEventListener('click', function(){ dayOffset--; renderDateNav(); loadRoutesForDate(); });
 document.getElementById('dateNext').addEventListener('click', function(){ dayOffset++; renderDateNav(); loadRoutesForDate(); });
-
+ 
 /* ---------------- ROUTES ---------------- */
 function mapsLink(lat, lng){
   return 'https://www.google.com/maps/dir/?api=1&destination=' + lat + ',' + lng;
@@ -1761,7 +1888,8 @@ async function loadRoutesForDate(){
                     (stop.gateCode ? '<span class="tag" style="background:#FAEEDA; color:#633806; flex-shrink:0; white-space:nowrap;">&#128274; '+esc(stop.gateCode)+'</span>' : '')+
                   '</div>'+
                   '<a class="stop-address-link" href="'+mapsLink(stop.lat, stop.lng)+'" target="_blank" rel="noopener">'+pinIcon()+esc(stop.address)+'</a>'+
-
+ 
+                  '<div id="stopdetails-'+stop.id+'"></div>'+
                   '<div id="outletlive-'+stop.id+'"></div>'+
                 '</div>'+
               '</div>'+
@@ -1802,6 +1930,15 @@ async function loadRoutesForDate(){
         if(permEl && d.notes){
           permEl.style.display = 'block';
           permEl.innerHTML = '&#128221; ' + esc(d.notes);
+        }
+        const detailsEl = document.getElementById('stopdetails-'+id);
+        if(detailsEl){
+          let detailsHtml = '';
+          if(d.lightsDescription){
+            detailsHtml += '<div style="font-size:13.5px; margin-top:6px;"><span style="color:var(--slate);">Light Colors:</span> '+esc(d.lightsDescription)+'</div>';
+          }
+          detailsHtml += '<div style="font-size:13.5px; margin-top:4px;"><span style="color:var(--slate);">Wire:</span> '+esc(d.wireColor || 'White')+'</div>';
+          detailsEl.innerHTML = detailsHtml;
         }
         const outletEl = document.getElementById('outletlive-'+id);
         if(outletEl && d.specificOutlet === 'Yes' && d.specificOutletNotes){
@@ -1895,3 +2032,6 @@ function toast(msg){
 </script>
 </body>
 </html>
+ 
+
+
