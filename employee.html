@@ -108,6 +108,12 @@
     display:flex; align-items:center; justify-content:center; padding:0 3px;
   }
   .tab-panel-content{ min-height:50vh; }
+  .approved-banner{
+    background:#EAF6EC; border:1px solid #9CCBA6; border-radius:12px;
+    padding:12px 14px; margin-bottom:16px;
+  }
+  .approved-banner h3{ margin:0 0 4px; font-size:14px; color:#2E6B3E; }
+  .approved-banner p{ margin:0; font-size:13px; color:var(--ink); }
   .tof-cal-head{ display:flex; align-items:center; justify-content:space-between; margin:10px 0; }
   .tof-cal-head button{
     background:var(--paper); border:1px solid var(--line); border-radius:8px;
@@ -240,6 +246,7 @@
   </div>
 
   <div class="tab-panel-content" id="tabpanel-clockin" style="display:none;">
+    <div id="approvedBanner" style="display:none;"></div>
     <div class="clock-card">
       <div class="clock-status" id="clockStatus">Not clocked in</div>
       <div style="display:flex; gap:10px;">
@@ -754,6 +761,7 @@ function switchTab(tabName){
   document.getElementById('topbarTitle').textContent = TAB_TITLES[tabName] || '';
   closeMoreSheet();
   if(tabName === 'home' && typeof renderHomeCards === 'function') renderHomeCards();
+  if(tabName === 'clockin' && typeof markApprovalsSeen === 'function') markApprovalsSeen();
   window.scrollTo({top:0, behavior:'instant'});
 }
 document.querySelectorAll('.bottom-nav-btn').forEach(function(btn){
@@ -838,7 +846,7 @@ document.getElementById('sendChecklistNoteBtn').addEventListener('click', async 
   statusEl.textContent = 'Sending…';
   try{
     await addDoc(collection(db,'employeeNotes'), {
-      employeeName: currentPersonName, text: text, createdAt: serverTimestamp()
+      employeeName: currentPersonName, text: text, read: false, createdAt: serverTimestamp()
     });
     input.value = '';
     statusEl.textContent = 'Sent to the office!';
@@ -873,7 +881,25 @@ document.getElementById('sendEmpRequestBtn').addEventListener('click', async fun
       payload.endDate = endDate;
       payload.halfDay = !!halfInput.checked;
     }
-    await addDoc(collection(db,'employeeRequests'), payload);
+    // seenByEmployee drives the Time Card badge once this is approved.
+    // Older requests have no such field and are treated as already seen.
+    payload.seenByEmployee = false;
+    const reqRef = await addDoc(collection(db,'employeeRequests'), payload);
+    // Dated requests also land in the office's notes inbox so they can be
+    // approved from wherever they're looking. Same underlying doc either way.
+    if(wantsDates && startDate){
+      const range = formatRequestRange({startDate: startDate, endDate: endDate, halfDay: !!halfInput.checked});
+      try{
+        await addDoc(collection(db,'employeeNotes'), {
+          employeeName: currentPersonName,
+          text: type+' requested: '+range+(desc ? ' \u2014 '+desc : ''),
+          kind: 'timeoff',
+          requestId: reqRef.id,
+          read: false,
+          createdAt: serverTimestamp()
+        });
+      } catch(noteErr){ /* the request itself saved; the inbox copy is a convenience */ }
+    }
     descInput.value = '';
     startInput.value = '';
     endInput.value = '';
@@ -915,6 +941,36 @@ function formatRequestRange(r){
 }
 let tofMonthCursor = new Date();
 let myTimeOffRequests = [];
+let unseenApprovals = [];
+function renderApprovalNotice(){
+  const badge = document.getElementById('timecardNavBadge');
+  const banner = document.getElementById('approvedBanner');
+  const count = unseenApprovals.length;
+  if(badge){
+    badge.style.display = count ? 'flex' : 'none';
+    badge.textContent = count > 9 ? '9+' : String(count);
+  }
+  if(!banner) return;
+  if(!count){ banner.style.display = 'none'; banner.innerHTML = ''; return; }
+  banner.style.display = 'block';
+  banner.innerHTML = unseenApprovals.map(function(r){
+    const range = formatRequestRange(r);
+    return '<div class="approved-banner">'+
+      '<h3>'+esc(r.label)+' approved</h3>'+
+      '<p>'+(range ? esc(range) : 'Approved by the office.')+'</p>'+
+    '</div>';
+  }).join('');
+}
+// Clearing happens when they actually open Time Card, so the badge survives
+// until it's been looked at.
+async function markApprovalsSeen(){
+  if(!unseenApprovals.length) return;
+  const toMark = unseenApprovals.slice();
+  for(const r of toMark){
+    try{ await updateDoc(doc(db,'employeeRequests',r.id), {seenByEmployee: true}); }
+    catch(err){ /* leave it unseen; it'll show again next time */ }
+  }
+}
 function renderTimeOffCalendar(){
   const grid = document.getElementById('tofCalendar');
   const label = document.getElementById('tofMonthLabel');
@@ -1363,15 +1419,22 @@ function loadMyRequests(){
   onSnapshot(q1, function(snap){
     genRequests = [];
     myTimeOffRequests = [];
+    unseenApprovals = [];
     snap.forEach(function(docSnap){
       const d = docSnap.data();
       genRequests.push({label: d.type || 'Request', description: d.description, status: d.status, createdAt: d.createdAt, startDate: d.startDate || '', endDate: d.endDate || '', halfDay: !!d.halfDay});
       if(d.startDate){
         myTimeOffRequests.push({startDate: d.startDate, endDate: d.endDate || d.startDate, halfDay: !!d.halfDay, status: d.status});
       }
+      // Only approved-and-not-yet-seen counts. Anything without the field
+      // predates this feature and is treated as already seen.
+      if(d.status === 'approved' && d.seenByEmployee === false){
+        unseenApprovals.push({id: docSnap.id, label: d.type || 'Request', startDate: d.startDate || '', endDate: d.endDate || '', halfDay: !!d.halfDay});
+      }
     });
     render();
     renderTimeOffCalendar();
+    renderApprovalNotice();
   });
   onSnapshot(q2, function(snap){
     tcRequests = [];
