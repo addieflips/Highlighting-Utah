@@ -1,0 +1,59 @@
+# Auto-deploys Firebase Cloud Functions whenever functions code changes on main.
+#
+# How this fits the workflow: uploading files to main on the GitHub website
+# already triggers Netlify to rebuild the site. This adds the missing half —
+# the same upload now also deploys the Cloud Functions, so index.html and the
+# functions it calls can never drift apart because one half was deployed and
+# the other forgotten.
+#
+# Requires one repository secret named FIREBASE_SERVICE_ACCOUNT containing the
+# JSON key of a Google Cloud service account with deploy permissions.
+# (Setup steps are in the accompanying instructions.)
+#
+# The "workflow_dispatch" trigger also adds a manual "Run workflow" button
+# under the repo's Actions tab, for redeploying without changing any files.
+
+name: Deploy Firebase Functions
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'functions/**'
+      - 'firebase.json'
+  workflow_dispatch: {}
+
+# If two uploads land close together, cancel the older deploy and run the
+# newest one only — deploying stale code after fresh code would roll it back.
+concurrency:
+  group: deploy-functions
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20 (matches functions/package.json engines)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install function dependencies
+        working-directory: functions
+        run: npm install
+
+      - name: Install Firebase tools
+        run: npm install -g firebase-tools
+
+      - name: Write service account key to a temp file
+        env:
+          SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: printf '%s' "$SA_JSON" > "$RUNNER_TEMP/firebase-sa.json"
+
+      - name: Deploy functions
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-sa.json
+        run: firebase deploy --only functions --project highlighting-utah --non-interactive --force
