@@ -127,6 +127,9 @@
   .done-btn:hover{ background:#E6F2EA; }
   .flag-btn{ color:var(--ember); border-color:#f0b3ac; }
   .flag-btn:hover{ background:#FDECEA; }
+  .notdone-btn{ color:#5F5E5A; border-color:#D3D1C7; }
+  .notdone-btn:hover{ background:#F1EFE8; }
+  .badge-notdone{ background:#F1EFE8; color:#5F5E5A; }
   .stop-onetime-note{
     margin-top:12px; padding:10px 12px; background:#FDECEA; border:1px solid #f0b3ac;
     border-radius:10px; font-size:13px; font-weight:600; color:var(--ember);
@@ -1810,6 +1813,7 @@ async function loadRoutesForDate(){
               '<div class="stop-actions">'+
                 '<button type="button" class="stop-action-btn done-btn" data-markdone="'+stop.id+'">&#10003; Mark Done</button>'+
                 '<button type="button" class="stop-action-btn flag-btn" data-flagissue="'+stop.id+'">&#9873; Flag Issue</button>'+
+                '<button type="button" class="stop-action-btn notdone-btn" data-notdone="'+stop.id+'" data-routetype="'+type+'">&#8635; Didn\'t Get To</button>'+
               '</div>'+
               '<div class="stop-notes">'+
                 '<textarea rows="2" placeholder="Notes for this house (gate code, dog, ladder spot, etc.)" data-noteid="'+stop.id+'">Loading…</textarea>'+
@@ -1910,6 +1914,18 @@ async function loadRoutesForDate(){
         renderStopStatus(id, snap.data());
       });
     });
+    wrap.querySelectorAll('[data-notdone]').forEach(function(btn){
+      btn.addEventListener('click', async function(){
+        const id = btn.dataset.notdone;
+        const rtype = btn.dataset.routetype;
+        if(!confirm('Mark this house as not completed today? It goes back into the schedule pool to be re-routed \u2014 no invoice will be sent.')) return;
+        const freeUpdates = rtype === 'fix' ? {fixScheduled:false, fixScheduledDate:null} : {scheduled:false, scheduledDate:null};
+        await updateDoc(doc(db,'jobAddresses',id), Object.assign({completed:false, needsFix:false, notCompletedAt: serverTimestamp()}, freeUpdates));
+        const snap = await getDoc(doc(db,'jobAddresses',id));
+        renderStopStatus(id, snap.data());
+        toast('Sent back to schedule pool');
+      });
+    });
   }
 }
 function renderStopStatus(id, d){
@@ -1918,6 +1934,7 @@ function renderStopStatus(id, d){
   let badges = '';
   if(d.completed) badges += '<span class="stop-badge badge-done">&#10003; Done</span>';
   if(d.needsFix) badges += '<span class="stop-badge badge-flag">&#9873; Flagged for Fix</span>';
+  if(!d.completed && !d.needsFix && d.notCompletedAt) badges += '<span class="stop-badge badge-notdone">&#8635; Sent Back to Schedule</span>';
   el.innerHTML = badges;
 }
 function esc(s){
