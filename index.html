@@ -2376,6 +2376,14 @@ if(quickMessageFormEl){
 var currentLookupRecord = null;
 var pendingPortalCreds = null;
 var currentPortalPhone = '';
+// The portal "key" is the invoice doc ID: phone digits for customers with a
+// phone, lowercase email for customers without one. Never run an email
+// through the digits-only cleaner — it would destroy it.
+function portalKeyClean(raw){
+  var s = String(raw || '').trim();
+  if(s.indexOf('@') !== -1) return s.toLowerCase();
+  return s.replace(/\D/g,'');
+}
 var lastLookupError = '';
 var currentJobAddressId = null;
 var currentJobAddressData = null;
@@ -2413,6 +2421,8 @@ async function hmLoadHouseMapForInvoice(phoneDigits, opts){
     var lookupPayload;
     if(opts.skipLastNameCheck && savedToken){
       lookupPayload = {token: savedToken};
+    } else if(String(phoneDigits||'').indexOf('@') !== -1){
+      lookupPayload = {email: String(phoneDigits).toLowerCase(), lastName: opts.lastNameInput || ''};
     } else {
       lookupPayload = {phone: phoneDigits, lastName: opts.lastNameInput || ''};
     }
@@ -2499,12 +2509,16 @@ async function hmLoadHouseMapForInvoice(phoneDigits, opts){
 }
 function performSignInLookup(contactRaw, lastNameInput){
   if(contactRaw.indexOf('@') !== -1){
-    var emailLower = contactRaw.toLowerCase();
+    var emailLower = contactRaw.toLowerCase().trim();
+    // The server checks both primary AND secondary email, so a spouse can sign
+    // in with their own address. res.invoiceKey is the invoice doc ID: phone
+    // digits if the account has a phone, otherwise the primary email.
     callPortalFn('portalLookup', {email: emailLower, lastName: lastNameInput}).then(function(res){
       var match = (res && res.found) ? res.record : null;
       if(res && res.found && res.token) savePortalLogin(res.token);
-      if(match && match.phone){
-        renderCustomerInvoicePage(String(match.phone).replace(/\D/g,''), {lastNameInput: lastNameInput, skipLastNameCheck: true});
+      var portalKey = (res && res.invoiceKey) || (match && match.phone ? String(match.phone).replace(/\D/g,'') : '');
+      if(match && portalKey){
+        renderCustomerInvoicePage(portalKey, {lastNameInput: lastNameInput, skipLastNameCheck: true});
         return;
       }
       getDocs(collection(db,'quotes')).then(function(qsnap){
@@ -2512,10 +2526,10 @@ function performSignInLookup(contactRaw, lastNameInput){
         qsnap.forEach(function(docSnap){
           if(qmatch) return;
           var d = docSnap.data();
-          if(d.email && d.email.toLowerCase() === emailLower) qmatch = d;
+          if(d.email && d.email.toLowerCase().trim() === emailLower) qmatch = d;
         });
-        if(qmatch && qmatch.phone){
-          renderCustomerInvoicePage(qmatch.phone.replace(/\D/g,''), {lastNameInput: lastNameInput});
+        if(qmatch && (qmatch.phone || qmatch.email)){
+          renderCustomerInvoicePage(qmatch.phone ? qmatch.phone.replace(/\D/g,'') : emailLower, {lastNameInput: lastNameInput});
         } else {
           document.getElementById('lookupEmpty').style.display = 'block';
           showLookupFormAgain();
@@ -2559,7 +2573,9 @@ function hideLoginPrompt(){
 }
 function renderCustomerInvoicePage(raw, opts){
   opts = opts || {};
-  currentPortalPhone = (raw || '').replace(/\D/g,'');
+  raw = portalKeyClean(raw);
+  currentPortalPhone = raw;
+  var keyIsEmail = raw.indexOf('@') !== -1;
   var card = document.getElementById('invoiceCard');
   var tabsLayout = document.getElementById('portalTabsLayout');
   var empty = document.getElementById('lookupEmpty');
@@ -2572,7 +2588,7 @@ function renderCustomerInvoicePage(raw, opts){
   if(deactivateToken){
     deactivateLookup = callPortalFn('portalLookup', {token: deactivateToken});
   } else if(opts.lastNameInput){
-    deactivateLookup = callPortalFn('portalLookup', {phone: raw, lastName: opts.lastNameInput});
+    deactivateLookup = callPortalFn('portalLookup', keyIsEmail ? {email: raw, lastName: opts.lastNameInput} : {phone: raw, lastName: opts.lastNameInput});
   } else {
     deactivateLookup = Promise.resolve(null);
   }
@@ -2661,10 +2677,15 @@ function tryShowQuoteReview(raw, opts){
   var empty = document.getElementById('lookupEmpty');
   getDocs(collection(db,'quotes')).then(function(snap){
     var pending = null, resolved = null;
+    var keyIsEmail = String(raw||'').indexOf('@') !== -1;
     snap.forEach(function(docSnap){
       var d = docSnap.data();
-      var phoneDigits = (d.phone||'').replace(/\D/g,'');
-      if(phoneDigits !== raw) return;
+      if(keyIsEmail){
+        if(!d.email || d.email.toLowerCase().trim() !== raw) return;
+      } else {
+        var phoneDigits = (d.phone||'').replace(/\D/g,'');
+        if(phoneDigits !== raw) return;
+      }
       if(typeof d.quotedPrice !== 'number') return;
       var nameParts = (d.name||'').trim().split(/\s+/);
       var lastName = nameParts.length ? nameParts[0].toLowerCase() : '';
@@ -2735,11 +2756,16 @@ function loadPortalByToken(token, extraOpts){
       showLookupFormAgain();
       return;
     }
-    var phone = String((res.record && res.record.phone) || '').replace(/\D/g,'');
-    if(!phone){ document.getElementById('lookupEmpty').style.display = 'block'; clearPortalLogin(); showLookupFormAgain(); return; }
+    // Prefer the server-computed invoice key: phone digits when the account
+    // has a phone, lowercase email when it doesn't. Falls back to the record
+    // fields for older function deployments.
+    var portalKey = res.invoiceKey
+      || String((res.record && res.record.phone) || '').replace(/\D/g,'')
+      || String((res.record && res.record.email) || '').toLowerCase().trim();
+    if(!portalKey){ document.getElementById('lookupEmpty').style.display = 'block'; clearPortalLogin(); showLookupFormAgain(); return; }
     savePortalLogin(res.token || token);
     if(lookupFormWrap) lookupFormWrap.style.display = 'none';
-    renderCustomerInvoicePage(phone, Object.assign({skipLastNameCheck: true, portalToken: res.token || token}, extraOpts));
+    renderCustomerInvoicePage(portalKey, Object.assign({skipLastNameCheck: true, portalToken: res.token || token}, extraOpts));
   }).catch(function(){
     document.getElementById('lookupEmpty').style.display = 'block';
     clearPortalLogin();
@@ -2938,7 +2964,10 @@ function renderPaypalButtons(){
     createOrder: function(){
       var errEl = document.getElementById('paypalErrorMsg');
       if(errEl) errEl.style.display = 'none';
-      var phone = currentLookupRecord ? currentLookupRecord.phone : '';
+      // currentPortalPhone holds the invoice doc key: phone digits, or the
+      // lowercase email for customers without a phone. The Cloud Function
+      // treats it as an opaque invoice ID either way.
+      var phone = currentPortalPhone || (currentLookupRecord ? currentLookupRecord.phone : '');
       return createOrderFn({ phone: phone, tipAmount: currentTipAmount }).then(function(result){
         return result.data.orderID;
       }).catch(function(err){
@@ -2947,7 +2976,7 @@ function renderPaypalButtons(){
       });
     },
     onApprove: function(data){
-      var phone = currentLookupRecord ? currentLookupRecord.phone : '';
+      var phone = currentPortalPhone || (currentLookupRecord ? currentLookupRecord.phone : '');
       return captureOrderFn({ orderID: data.orderID, phone: phone, tipAmount: currentTipAmount }).then(function(){
         var msg = document.getElementById('paypalPaidMsg');
         if(msg) msg.style.display = 'block';
@@ -3003,13 +3032,15 @@ function parseSequenceFromLightsDescription(text){
 // by phone so a save never silently no-ops just because of that timing race.
 async function ensureJobAddressId(){
   if(currentJobAddressId) return currentJobAddressId;
-  var phoneDigits = ((currentLookupRecord && currentLookupRecord.phone) || (currentJobAddressData && currentJobAddressData.phone) || currentPortalPhone || '').replace(/\D/g,'');
-  if(!phoneDigits && !getActivePortalToken()) return null;
+  var rawKey = ((currentLookupRecord && currentLookupRecord.phone) || (currentJobAddressData && currentJobAddressData.phone) || currentPortalPhone || '');
+  var fallbackKey = portalKeyClean(rawKey);
+  if(!fallbackKey && !getActivePortalToken()) return null;
   try{
     var ensureTok = getActivePortalToken();
     var knownName = (currentLookupRecord && currentLookupRecord.name) || (currentJobAddressData && currentJobAddressData.name) || '';
     var ensureRes = await callPortalFn('portalLookup',
-      ensureTok ? {token: ensureTok} : {phone: phoneDigits, lastName: knownName});
+      ensureTok ? {token: ensureTok}
+        : (fallbackKey.indexOf('@') !== -1 ? {email: fallbackKey, lastName: knownName} : {phone: fallbackKey, lastName: knownName}));
     if(ensureRes && ensureRes.found){
       currentJobAddressId = ensureRes.id;
       if(!currentJobAddressData) currentJobAddressData = ensureRes.record;
