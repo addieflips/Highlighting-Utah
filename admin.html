@@ -161,6 +161,19 @@
   }
   .ato-chip.approved{ background:var(--dusk); color:#fff; }
   .ato-chip.pending{ background:transparent; border:1px dashed var(--dusk); color:var(--dusk); }
+  .inbox-tabs{ display:flex; gap:6px; border-bottom:1px solid var(--line); margin-bottom:16px; }
+  .inbox-tab{
+    background:none; border:none; border-bottom:2px solid transparent; cursor:pointer;
+    padding:9px 14px; font-size:13.5px; font-weight:600; color:var(--slate);
+    display:flex; align-items:center; gap:7px;
+  }
+  .inbox-tab:hover{ color:var(--ink); }
+  .inbox-tab.active{ color:var(--ink); border-bottom-color:var(--gold); }
+  .inbox-tab-badge{
+    background:var(--ember); color:#fff; font-size:10.5px; font-weight:800;
+    min-width:17px; height:17px; border-radius:999px; padding:0 5px;
+    display:flex; align-items:center; justify-content:center;
+  }
   .panel-head h2{ font-size:24px; margin-bottom:2px; }
   .panel-head p{ margin:0; font-size:13.5px; }
 
@@ -1993,7 +2006,7 @@ Highlighting Utah</textarea>
     <div class="panel" id="panel-messages">
       <div class="panel-head"><div><h2>Inbox</h2><p>Contact messages from the site, and notes from employees. New messages always land in Inbox first &mdash; drag one onto a folder, or right-click it, to file it away. Drag a folder onto another folder to nest it underneath.</p></div></div>
       <div class="messages-layout">
-        <div class="messages-sidebar">
+        <div class="messages-sidebar" id="messagesSidebar">
           <div class="msg-sidebar-item active" data-folder="Inbox">Inbox</div>
           <div id="customFolderList"></div>
           <div style="margin-top:14px;">
@@ -2003,24 +2016,33 @@ Highlighting Utah</textarea>
             </select>
             <button type="button" class="btn btn-gold btn-sm" id="addFolderBtn" style="width:100%;">+ Add Folder</button>
           </div>
-          <div style="margin-top:18px; padding-top:14px; border-top:1px solid var(--line);">
-            <label style="display:block; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--slate); margin-bottom:6px;">Employees</label>
-            <select id="inboxEmployeeSelect" style="width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:12.5px;">
-              <option value="">-- Contact Messages --</option>
-            </select>
-          </div>
         </div>
         <div class="messages-content">
-          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:16px;">
-            <select id="msgFilterSelect" style="border-radius:999px; border:1px solid var(--line); padding:8px 14px; font-size:13.5px; font-weight:600; color:var(--ink); background:var(--snow);">
-              <option value="all">All Messages</option>
-              <option value="unread">Unread</option>
-              <option value="important">Important</option>
-              <option value="awaiting">Awaiting Response (all folders)</option>
-            </select>
-            <strong id="currentFolderLabel" style="font-size:13.5px; margin-left:auto;">Inbox</strong>
+          <div class="inbox-tabs">
+            <button type="button" class="inbox-tab active" data-inboxtab="customer">Customer Messages</button>
+            <button type="button" class="inbox-tab" data-inboxtab="employee">Employee Messages<span class="inbox-tab-badge" id="empNotesBadge" style="display:none;">0</span></button>
           </div>
-          <div class="row-list" id="messagesList"><div class="empty-note">Loading…</div></div>
+          <div id="inboxpane-customer">
+            <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:16px;">
+              <select id="msgFilterSelect" style="border-radius:999px; border:1px solid var(--line); padding:8px 14px; font-size:13.5px; font-weight:600; color:var(--ink); background:var(--snow);">
+                <option value="all">All Messages</option>
+                <option value="unread">Unread</option>
+                <option value="important">Important</option>
+                <option value="awaiting">Awaiting Response (all folders)</option>
+              </select>
+              <strong id="currentFolderLabel" style="font-size:13.5px; margin-left:auto;">Inbox</strong>
+            </div>
+            <div class="row-list" id="messagesList"><div class="empty-note">Loading…</div></div>
+          </div>
+          <div id="inboxpane-employee" style="display:none;">
+            <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:16px;">
+              <select id="inboxEmployeeSelect" style="border-radius:999px; border:1px solid var(--line); padding:8px 14px; font-size:13.5px; font-weight:600; color:var(--ink); background:var(--snow);">
+                <option value="">All Employees</option>
+              </select>
+              <button type="button" class="btn btn-outline btn-sm" id="markAllNotesReadBtn" style="margin-left:auto;">Mark all read</button>
+            </div>
+            <div class="row-list" id="employeeNotesList"><div class="empty-note">Loading…</div></div>
+          </div>
         </div>
       </div>
     </div>
@@ -2653,6 +2675,33 @@ Highlighting Utah</textarea>
         </div>
         <div id="atoCalendar"></div>
         <div id="atoDayDetail" style="margin-top:16px;"></div>
+      </div>
+      <div class="card" style="background:#FFF8E9; border-color:var(--gold-dim);">
+        <h3 style="font-size:14px; margin-bottom:10px;">Add Time Off</h3>
+        <p style="font-size:13px;">Put someone on the calendar yourself &mdash; for time off you already agreed to, or days the whole crew is out. Anything added here is approved automatically, and they'll get a notification on their Time Card.</p>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
+          <div style="flex:1; min-width:150px;">
+            <label style="display:block; font-size:11.5px; font-weight:700; text-transform:uppercase; color:var(--slate); margin-bottom:4px;">Employee</label>
+            <select id="atoAddEmployee" style="width:100%; padding:9px 10px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:13px;"></select>
+          </div>
+          <div style="flex:1; min-width:130px;">
+            <label style="display:block; font-size:11.5px; font-weight:700; text-transform:uppercase; color:var(--slate); margin-bottom:4px;">First Day</label>
+            <input type="date" id="atoAddStart" style="width:100%; padding:9px 10px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:13px;">
+          </div>
+          <div style="flex:1; min-width:130px;">
+            <label style="display:block; font-size:11.5px; font-weight:700; text-transform:uppercase; color:var(--slate); margin-bottom:4px;">Last Day</label>
+            <input type="date" id="atoAddEnd" style="width:100%; padding:9px 10px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:13px;">
+          </div>
+          <div style="flex:2; min-width:170px;">
+            <label style="display:block; font-size:11.5px; font-weight:700; text-transform:uppercase; color:var(--slate); margin-bottom:4px;">Reason (optional)</label>
+            <input type="text" id="atoAddNote" placeholder="e.g. Family trip" style="width:100%; padding:9px 10px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:13px;">
+          </div>
+        </div>
+        <div style="display:flex; gap:14px; align-items:center; flex-wrap:wrap; margin-top:12px;">
+          <label style="display:flex; align-items:center; gap:5px; font-size:12.5px;"><input type="checkbox" id="atoAddHalf"> Half day only</label>
+          <button type="button" class="btn btn-gold btn-sm" id="atoAddBtn">Add to Calendar</button>
+          <span style="font-size:12px; color:var(--slate);">Leave the last day blank for a single day.</span>
+        </div>
       </div>
       <div class="card">
         <h3 style="font-size:14px; margin-bottom:10px;">Requests Without Dates</h3>
@@ -5674,9 +5723,6 @@ function renderFolderSidebar(){
     item.addEventListener('click', function(e){
       if(e.target.closest('.folder-del')) return;
       selectedFolder = item.dataset.folder;
-      selectedEmployee = '';
-      const empSel = document.getElementById('inboxEmployeeSelect');
-      if(empSel) empSel.value = '';
       document.getElementById('currentFolderLabel').textContent = selectedFolder;
       renderFolderSidebar();
       renderMessagesList();
@@ -5796,10 +5842,6 @@ function messageFeetEstimate(d){
 }
 function renderMessagesList(){
   const list = document.getElementById('messagesList');
-  if(selectedEmployee){
-    renderEmployeeNotesInList(list);
-    return;
-  }
   let filtered = msgFilter === 'awaiting' ? allMessages.slice() : allMessages.filter(m => (m.data.folder || 'Inbox') === selectedFolder);
   if(msgFilter === 'unread') filtered = filtered.filter(m => !m.data.read);
   if(msgFilter === 'important') filtered = filtered.filter(m => m.data.important);
@@ -6484,13 +6526,13 @@ function loadEmployeeRequestsAdmin(){
     wrap.innerHTML = html;
     wrap.querySelectorAll('[data-erapprove]').forEach(function(btn){
       btn.addEventListener('click', function(){
-        updateDoc(doc(db,'employeeRequests',btn.dataset.erapprove), {status: 'approved'});
+        updateDoc(doc(db,'employeeRequests',btn.dataset.erapprove), {status: 'approved', seenByEmployee: false});
         toast('Request approved');
       });
     });
     wrap.querySelectorAll('[data-erdeny]').forEach(function(btn){
       btn.addEventListener('click', function(){
-        updateDoc(doc(db,'employeeRequests',btn.dataset.erdeny), {status: 'denied'});
+        updateDoc(doc(db,'employeeRequests',btn.dataset.erdeny), {status: 'denied', seenByEmployee: false});
         toast('Request denied');
       });
     });
@@ -11293,6 +11335,7 @@ function loadEmployeeNames(){
     if(typeof renderConversationList === 'function') renderConversationList();
     if(typeof populateAddExpenseEmployeeSelect === 'function') populateAddExpenseEmployeeSelect();
     if(typeof populateInboxEmployeeSelect === 'function') populateInboxEmployeeSelect();
+    if(typeof populateAtoEmployeeSelect === 'function') populateAtoEmployeeSelect();
     if(typeof fovRenderAll === 'function') fovRenderAll();
   });
 }
@@ -11652,6 +11695,7 @@ function loadTimeOffRequests(){
     });
     renderAdminTimeOffCalendar();
     renderAtoUndated();
+    if(typeof renderEmployeeNotesTab === 'function') renderEmployeeNotesTab();
   });
 }
 function atoDayMap(){
@@ -11737,13 +11781,13 @@ function renderAtoDayDetail(){
   }).join('');
   wrap.querySelectorAll('[data-atoapprove]').forEach(function(btn){
     btn.addEventListener('click', function(){
-      updateDoc(doc(db,'employeeRequests',btn.dataset.atoapprove), {status: 'approved'});
+      updateDoc(doc(db,'employeeRequests',btn.dataset.atoapprove), {status: 'approved', seenByEmployee: false});
       toast('Time off approved');
     });
   });
   wrap.querySelectorAll('[data-atodeny]').forEach(function(btn){
     btn.addEventListener('click', function(){
-      updateDoc(doc(db,'employeeRequests',btn.dataset.atodeny), {status: 'denied'});
+      updateDoc(doc(db,'employeeRequests',btn.dataset.atodeny), {status: 'denied', seenByEmployee: false});
       toast('Request denied');
     });
   });
@@ -11760,6 +11804,37 @@ function renderAtoUndated(){
     '</div></div>';
   }).join('');
 }
+function populateAtoEmployeeSelect(){
+  const sel = document.getElementById('atoAddEmployee');
+  if(!sel) return;
+  const current = sel.value;
+  sel.innerHTML = '<option value="">-- Pick someone --</option>' +
+    employeeNames.map(function(e){ return '<option value="'+esc(e.name)+'">'+esc(e.name)+'</option>'; }).join('');
+  if(employeeNames.some(e => e.name === current)) sel.value = current;
+}
+document.getElementById('atoAddBtn').addEventListener('click', async function(){
+  const name = document.getElementById('atoAddEmployee').value;
+  const startEl = document.getElementById('atoAddStart');
+  const endEl = document.getElementById('atoAddEnd');
+  const noteEl = document.getElementById('atoAddNote');
+  const halfEl = document.getElementById('atoAddHalf');
+  const start = startEl.value;
+  const end = endEl.value || start;
+  if(!name){ toast('Pick an employee'); return; }
+  if(!start){ toast('Pick a first day'); return; }
+  if(end < start){ toast('The last day is before the first day'); return; }
+  // Added by the office, so it skips approval entirely. seenByEmployee stays
+  // false so it still shows up as a notification on their Time Card.
+  await addDoc(collection(db,'employeeRequests'), {
+    employeeName: name, type: 'Day Off',
+    description: noteEl.value.trim() || 'Added by the office',
+    status: 'approved', addedByAdmin: true, seenByEmployee: false,
+    startDate: start, endDate: end, halfDay: !!halfEl.checked,
+    createdAt: serverTimestamp()
+  });
+  startEl.value = ''; endEl.value = ''; noteEl.value = ''; halfEl.checked = false;
+  toast('Added to the calendar');
+});
 document.getElementById('atoPrevMonth').addEventListener('click', function(){
   atoMonthCursor = new Date(atoMonthCursor.getFullYear(), atoMonthCursor.getMonth()-1, 1);
   renderAdminTimeOffCalendar();
@@ -12157,46 +12232,110 @@ function loadEmployeeNotes(){
   onSnapshot(q, function(snap){
     employeeNotesCache = [];
     snap.forEach(function(docSnap){ employeeNotesCache.push({id:docSnap.id, data:docSnap.data()}); });
-    if(selectedEmployee) renderMessagesList();
+    renderEmployeeNotesTab();
   });
 }
 function populateInboxEmployeeSelect(){
   const sel = document.getElementById('inboxEmployeeSelect');
   if(!sel) return;
   const current = sel.value;
-  sel.innerHTML = '<option value="">-- Contact Messages --</option>' +
+  sel.innerHTML = '<option value="">All Employees</option>' +
     employeeNames.map(function(e){ return '<option value="'+esc(e.name)+'">'+esc(e.name)+'</option>'; }).join('');
   if(employeeNames.some(e => e.name === current)) sel.value = current;
 }
 document.getElementById('inboxEmployeeSelect').addEventListener('change', function(){
   selectedEmployee = this.value;
-  if(selectedEmployee){
-    document.querySelectorAll('.msg-sidebar-item').forEach(item => item.classList.remove('active'));
-    document.getElementById('currentFolderLabel').textContent = selectedEmployee;
-  } else {
-    document.getElementById('currentFolderLabel').textContent = selectedFolder;
-    renderFolderSidebar();
-  }
-  renderMessagesList();
+  renderEmployeeNotesTab();
 });
-function renderEmployeeNotesInList(list){
-  const notes = employeeNotesCache.filter(item => item.data.employeeName === selectedEmployee);
-  if(!notes.length){ list.innerHTML = '<div class="empty-note">No notes from '+esc(selectedEmployee)+' yet.</div>'; return; }
+// Notes written before this feature have no read field. Treating those as read
+// keeps the badge meaningful instead of lighting up with the whole backlog.
+function noteIsUnread(d){ return d.read === false; }
+function switchInboxTab(which){
+  document.querySelectorAll('.inbox-tab').forEach(function(b){
+    b.classList.toggle('active', b.dataset.inboxtab === which);
+  });
+  document.getElementById('inboxpane-customer').style.display = which === 'customer' ? 'block' : 'none';
+  document.getElementById('inboxpane-employee').style.display = which === 'employee' ? 'block' : 'none';
+  // The folder sidebar only applies to customer messages.
+  const sidebar = document.getElementById('messagesSidebar');
+  if(sidebar) sidebar.style.display = which === 'customer' ? '' : 'none';
+  if(which === 'employee') renderEmployeeNotesTab();
+}
+document.querySelectorAll('.inbox-tab').forEach(function(btn){
+  btn.addEventListener('click', function(){ switchInboxTab(btn.dataset.inboxtab); });
+});
+function renderEmployeeNotesTab(){
+  const badge = document.getElementById('empNotesBadge');
+  const unreadTotal = employeeNotesCache.filter(function(i){ return noteIsUnread(i.data); }).length;
+  if(badge){
+    badge.style.display = unreadTotal ? 'flex' : 'none';
+    badge.textContent = unreadTotal > 99 ? '99+' : String(unreadTotal);
+  }
+  const list = document.getElementById('employeeNotesList');
+  if(!list) return;
+  const notes = selectedEmployee
+    ? employeeNotesCache.filter(function(i){ return i.data.employeeName === selectedEmployee; })
+    : employeeNotesCache;
+  if(!notes.length){
+    list.innerHTML = '<div class="empty-note">'+(selectedEmployee ? 'No notes from '+esc(selectedEmployee)+' yet.' : 'No employee messages yet.')+'</div>';
+    return;
+  }
   list.innerHTML = notes.map(function(item){
     const d = item.data;
-    return '<div class="row-item">'+
+    const unread = noteIsUnread(d);
+    // Time-off notes carry the request id so they can be actioned right here.
+    const req = d.requestId ? timeOffRequests.find(function(r){ return r.id === d.requestId; }) : null;
+    let actionHtml = '';
+    if(d.kind === 'timeoff'){
+      if(req && req.status === 'pending'){
+        actionHtml = '<button class="icon-btn" data-noteapprove="'+d.requestId+'" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:#2E6B3E;">Approve</button>'+
+                     '<button class="icon-btn" data-notedeny="'+d.requestId+'" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:var(--ember);">Deny</button>';
+      } else if(req && req.status === 'approved'){
+        actionHtml = '<span class="status-pill status-paid">Approved</span>';
+      } else {
+        actionHtml = '<span class="status-pill">Closed</span>';
+      }
+    }
+    return '<div class="row-item'+(unread ? ' unread' : '')+'">'+
       '<div class="rmain">'+
-        '<h4>'+esc(d.employeeName||'Unknown')+'</h4>'+
+        '<h4>'+esc(d.employeeName||'Unknown')+(d.kind === 'timeoff' ? ' <span class="status-pill status-due">Time Off</span>' : '')+'</h4>'+
         '<div class="rmeta">'+fmtDate(d.createdAt)+'</div>'+
         '<div class="rtext" style="margin-top:6px;">'+esc(d.text||'')+'</div>'+
       '</div>'+
       '<div class="row-actions">'+
+        actionHtml+
+        '<button class="icon-btn" data-noteread="'+item.id+'" data-current="'+(unread?0:1)+'" title="'+(unread?'Mark as read':'Mark as unread')+'">'+(unread ? mailIcon() : mailOpenIcon())+'</button>'+
         '<button class="icon-btn danger" data-del="employeeNotes" data-id="'+item.id+'">'+trashIcon()+'</button>'+
       '</div>'+
     '</div>';
   }).join('');
+  list.querySelectorAll('[data-noteread]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      updateDoc(doc(db,'employeeNotes',btn.dataset.noteread), {read: btn.dataset.current === '1' ? false : true});
+    });
+  });
+  list.querySelectorAll('[data-noteapprove]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      updateDoc(doc(db,'employeeRequests',btn.dataset.noteapprove), {status: 'approved', seenByEmployee: false});
+      toast('Time off approved');
+    });
+  });
+  list.querySelectorAll('[data-notedeny]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      updateDoc(doc(db,'employeeRequests',btn.dataset.notedeny), {status: 'denied', seenByEmployee: false});
+      toast('Request denied');
+    });
+  });
   attachDeleteHandlers(list);
 }
+document.getElementById('markAllNotesReadBtn').addEventListener('click', async function(){
+  const unread = employeeNotesCache.filter(function(i){ return noteIsUnread(i.data); });
+  if(!unread.length){ toast('Nothing unread'); return; }
+  for(const item of unread){
+    await updateDoc(doc(db,'employeeNotes',item.id), {read: true});
+  }
+  toast('Marked all read');
+});
 
 let crewOverrides = [];
 function loadCrewOverrides(){
