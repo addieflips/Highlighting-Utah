@@ -2489,7 +2489,23 @@ Highlighting Utah</textarea>
 
           <div style="margin-top:18px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
             <button type="button" class="btn btn-gold" id="hmSaveBtn">Save House Map</button>
+            <button type="button" class="btn btn-outline" id="hmPrintBtn">Print Installer Map</button>
             <span id="hmSaveStatus" style="font-size:13px; color:var(--slate);"></span>
+          </div>
+
+          <div id="hmPrintPreview" style="display:none;"></div>
+          <div id="hmPrintControls" style="display:none; align-items:center; gap:14px; flex-wrap:wrap; background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-top:12px;">
+            <label style="display:flex; align-items:center; gap:6px; font-size:13px;">Copies <input type="number" id="hmPrintCopies" value="1" min="1" max="20" style="width:60px; padding:5px 7px; border-radius:6px; border:1px solid var(--line);"></label>
+            <label style="display:flex; align-items:center; gap:6px; font-size:13px;">Print Size
+              <select id="hmPrintSize" style="padding:5px 7px; border-radius:6px; border:1px solid var(--line);">
+                <option value="full">Full Page (1 per sheet)</option>
+                <option value="half" selected>Half Page (2 per sheet)</option>
+                <option value="quarter">Quarter Page (4 per sheet)</option>
+                <option value="eighth">Small (8 per sheet)</option>
+                <option value="sixteenth">Tiny (16 per sheet)</option>
+              </select>
+            </label>
+            <span style="font-size:12px; color:var(--slate);">Copies defaults to the number of lettered sections/strands on this house &mdash; adjust anytime.</span>
           </div>
         </div>
       </div>
@@ -12068,6 +12084,26 @@ function hmToggleDrawingOnly(){
 }
 document.getElementById('hmDrawingOnlyToggle').addEventListener('change', hmToggleDrawingOnly);
 
+function hmSetViewMode(mode){
+  hmViewMode = mode;
+  const drawingArea = document.getElementById('hmDrawingArea');
+  const printPreview = document.getElementById('hmPrintPreview');
+  const printControls = document.getElementById('hmPrintControls');
+  if(mode === 'print'){
+    drawingArea.style.display = 'none';
+    printPreview.style.display = 'block';
+    printControls.style.display = 'flex';
+    const totalLetters = (hmData.strands||[]).length + (hmData.highlightSections||[]).length;
+    document.getElementById('hmPrintCopies').value = Math.max(1, totalLetters);
+    hmBuildPrintPreview();
+  } else {
+    drawingArea.style.display = 'block';
+    printPreview.style.display = 'none';
+    printControls.style.display = 'none';
+    hmRenderImage();
+  }
+}
+
 function hmRenderImage(){
   const img = document.getElementById('hmActiveImg');
   const emptyNote = document.getElementById('hmEmptyImageNote');
@@ -12574,6 +12610,12 @@ function hmBuildPrintPreview(){
   const block = hmBuildHouseBlockHtml(hmData, title, subtitle, hmBuildSvgMarkup(hmData), img);
   wrap.innerHTML = hmAssemblePrintPages(Array(copies).fill(block), size);
 }
+document.getElementById('hmPrintCopies').addEventListener('input', function(){ if(hmViewMode === 'print') hmBuildPrintPreview(); });
+document.getElementById('hmPrintSize').addEventListener('change', function(){ if(hmViewMode === 'print') hmBuildPrintPreview(); });
+document.getElementById('hmPrintBtn').addEventListener('click', function(){
+  hmSetViewMode('print');
+  setTimeout(function(){ window.print(); }, 200);
+});
 
 
 document.getElementById('hmPrintAllBtn').addEventListener('click', async function(){
