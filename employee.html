@@ -74,6 +74,28 @@
   }
   .bottom-nav-btn svg{ width:22px; height:22px; stroke:currentColor; }
   .bottom-nav-btn.active{ color:var(--dusk); }
+  .home-card{
+    background:#fff; border:1px solid var(--line); border-radius:14px; padding:16px;
+    margin-bottom:14px; cursor:pointer;
+  }
+  .home-card h3{ margin:0 0 6px; font-size:15px; }
+  .home-card p{ margin:0; font-size:13px; color:var(--slate); }
+  .home-card-stat{ font-size:26px; font-weight:700; color:var(--dusk); margin:4px 0 0; }
+  .more-sheet{
+    position:fixed; inset:0; z-index:200; background:rgba(0,0,0,.45);
+    display:none; align-items:flex-end;
+  }
+  .more-sheet.show{ display:flex; }
+  .more-sheet-inner{
+    background:#fff; width:100%; border-radius:18px 18px 0 0; padding:18px 16px calc(18px + env(safe-area-inset-bottom, 0px));
+    max-height:80vh; overflow-y:auto;
+  }
+  .more-item{
+    display:flex; align-items:center; gap:12px; width:100%; background:none; border:none;
+    padding:14px 6px; font-size:15px; font-weight:600; color:var(--ink); cursor:pointer;
+    border-bottom:1px solid var(--line); text-align:left;
+  }
+  .more-item svg{ width:20px; height:20px; stroke:currentColor; color:var(--slate); flex-shrink:0; }
   .bottom-nav-badge{
     position:absolute; top:2px; right:22%; background:var(--ember); color:#fff;
     font-size:9px; font-weight:800; min-width:15px; height:15px; border-radius:999px;
@@ -183,7 +205,19 @@
     </div>
   </div>
 
-  <div class="tab-panel-content" id="tabpanel-clockin">
+  <div class="tab-panel-content" id="tabpanel-home">
+    <div id="homeClockCard" class="clock-card" style="display:none;">
+      <div class="clock-status" id="homeClockStatus">Not clocked in</div>
+      <div style="display:flex; gap:10px;">
+        <button class="btn btn-gold" id="homeClockInBtn">Clock In</button>
+        <button class="btn btn-ember" id="homeClockOutBtn" disabled>Clock Out</button>
+      </div>
+      <div id="homeClockLocationMsg" style="font-size:12px; color:rgba(255,255,255,.6); margin-top:10px; min-height:16px;"></div>
+    </div>
+    <div id="homeCardsWrap" style="margin-top:18px;"></div>
+  </div>
+
+  <div class="tab-panel-content" id="tabpanel-clockin" style="display:none;">
     <div class="clock-card">
       <div class="clock-status" id="clockStatus">Not clocked in</div>
       <div style="display:flex; gap:10px;">
@@ -340,9 +374,9 @@
   </div>
 
   <div class="bottom-nav" id="bottomNav">
-    <button class="bottom-nav-btn active" data-tab="clockin">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
-      <span>Clock In</span>
+    <button class="bottom-nav-btn active" data-tab="home">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg>
+      <span>Home</span>
     </button>
     <button class="bottom-nav-btn" data-tab="route" id="routeNavBtn">
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 20l-5.447-2.724A1 1 0 0 1 3 16.382V5.618a1 1 0 0 1 1.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0 0 21 18.382V7.618a1 1 0 0 0-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>
@@ -353,46 +387,20 @@
       <span>Checklist</span>
       <span class="bottom-nav-badge" id="checklistNavBadge" style="display:none;"></span>
     </button>
-    <button class="bottom-nav-btn" data-tab="warehouse" id="warehouseNavBtn" style="display:none;">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-6 9 6v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 21V12h6v9"/></svg>
-      <span>Warehouse</span>
+    <button class="bottom-nav-btn" id="moreNavBtn">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+      <span>More</span>
     </button>
-    <button class="bottom-nav-btn" data-tab="addcustomer" id="addcustomerNavBtn" style="display:none;">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>
-      <span>Add Customer</span>
-    </button>
-    <button class="bottom-nav-btn" data-tab="quotes" id="quotesNavBtn" style="display:none;">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
-      <span>Quotes</span>
-    </button>
-    <button class="bottom-nav-btn" data-tab="custmessages" id="custmessagesNavBtn" style="display:none;">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-      <span>Messages</span>
-    </button>
-    <button class="bottom-nav-btn" data-tab="routesadmin" id="routesadminNavBtn" style="display:none;">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 20l-5.447-2.724A1 1 0 0 1 3 16.382V5.618a1 1 0 0 1 1.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0 0 21 18.382V7.618a1 1 0 0 0-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>
-      <span>All Routes</span>
-    </button>
-    <button class="bottom-nav-btn" data-tab="housemaps" id="housemapsNavBtn" style="display:none;">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z"/><path d="M9 3v15M15 6v15"/></svg>
-      <span>House Maps</span>
-    </button>
-    <button class="bottom-nav-btn" data-tab="responsibilities" id="responsibilitiesNavBtn" style="display:none;">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-      <span>Crew</span>
-    </button>
-    <button class="bottom-nav-btn" data-tab="financedash" id="financedashNavBtn" style="display:none;">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
-      <span>Dashboard</span>
-    </button>
-    <button class="bottom-nav-btn" data-tab="perfootpricing" id="perfootpricingNavBtn" style="display:none;">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-      <span>Pricing</span>
-    </button>
-    <button class="bottom-nav-btn" data-tab="timelogsadmin" id="timelogsadminNavBtn" style="display:none;">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
-      <span>Time Logs</span>
-    </button>
+  </div>
+
+  <div class="more-sheet" id="moreSheet">
+    <div class="more-sheet-inner">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <h2 style="margin:0; font-size:17px;">More</h2>
+        <button id="moreCloseBtn" style="background:none; border:none; font-size:22px; color:var(--slate); cursor:pointer; line-height:1;">&times;</button>
+      </div>
+      <div id="moreMenuList"></div>
+    </div>
   </div>
 </div>
 
@@ -513,8 +521,99 @@ async function getCrewForDate(name, dateStr){
   return crewFromConfig(name);
 }
 
+const MORE_MENU_ITEMS = [
+  {key:'clockin', tab:'clockin', label:'Time Clock', icon:'<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>'},
+  {key:'warehouse', tab:'warehouse', label:'Warehouse', icon:'<path d="M3 9l9-6 9 6v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 21V12h6v9"/>'},
+  {key:'addcustomer', tab:'addcustomer', label:'Add a Customer', icon:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/>'},
+  {key:'quotes', tab:'quotes', label:'Quotes', icon:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>'},
+  {key:'custmessages', tab:'custmessages', label:'Messages', icon:'<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>'},
+  {key:'routesadmin', tab:'routesadmin', label:'All Routes', icon:'<path d="M9 20l-5.447-2.724A1 1 0 0 1 3 16.382V5.618a1 1 0 0 1 1.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0 0 21 18.382V7.618a1 1 0 0 0-.553-.894L15 4m0 13V4m0 0L9 7"/>'},
+  {key:'housemaps', tab:'housemaps', label:'House Maps', icon:'<path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z"/><path d="M9 3v15M15 6v15"/>'},
+  {key:'responsibilities', tab:'responsibilities', label:'Crew Assignments', icon:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>'},
+  {key:'financedash', tab:'financedash', label:'Dashboard', icon:'<rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/>'},
+  {key:'perfootpricing', tab:'perfootpricing', label:'Per Foot Pricing', icon:'<path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>'},
+  {key:'timelogsadmin', tab:'timelogsadmin', label:'Time Logs', icon:'<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>'}
+];
+function moreItemVisible(key, vt){
+  // Time Clock follows pay type: salary employees never clock in/out.
+  if(key === 'clockin') return currentPayType !== 'salary';
+  if(key === 'custmessages') return !!(vt.custmessages || vt.allmessages);
+  return !!vt[key];
+}
+function buildMoreMenu(vt){
+  const wrap = document.getElementById('moreMenuList');
+  if(!wrap) return;
+  const items = MORE_MENU_ITEMS.filter(function(i){ return moreItemVisible(i.key, vt); });
+  if(!items.length){
+    wrap.innerHTML = '<p style="font-size:13px; color:var(--slate); padding:14px 6px;">Nothing else to show here.</p>';
+    return;
+  }
+  wrap.innerHTML = items.map(function(i){
+    return '<button type="button" class="more-item" data-moretab="'+i.tab+'">'+
+      '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+i.icon+'</svg>'+
+      '<span>'+i.label+'</span>'+
+    '</button>';
+  }).join('');
+  wrap.querySelectorAll('[data-moretab]').forEach(function(btn){
+    btn.addEventListener('click', function(){ switchTab(btn.dataset.moretab); });
+  });
+}
+const HOME_CARD_DEFS = [
+  {key:'route', tab:'route', label:'Today\u2019s Route', desc:'See your stops for today', needs:'route'},
+  {key:'checklist', tab:'checklist', label:'Checklist', desc:'Today\u2019s tasks', needs:'checklist'},
+  {key:'warehouse', tab:'warehouse', label:'Warehouse', desc:'Builds, recycle, pull lists', needs:'warehouse'},
+  {key:'messages', tab:'custmessages', label:'Messages', desc:'Customer messages', needs:'custmessages'},
+  {key:'quotes', tab:'quotes', label:'Quote Requests', desc:'New quote requests', needs:'quotes'},
+  {key:'crew', tab:'responsibilities', label:'Crew Assignments', desc:'Who\u2019s on which crew', needs:'responsibilities'},
+  {key:'financedash', tab:'financedash', label:'Dashboard', desc:'Business overview', needs:'financedash'},
+  {key:'timecard', tab:'clockin', label:'My Timecard', desc:'Hours and time requests', needs:'__clock'}
+];
+function defaultHomeCardsForRole(vt){
+  // Sensible starting point when an admin hasn't picked cards yet:
+  // crew land on their route, warehouse staff land on their checklist.
+  const out = {};
+  if(vt.route) out.route = true;
+  if(vt.checklist) out.checklist = true;
+  if(vt.warehouse) out.warehouse = true;
+  return out;
+}
+function homeCardAllowed(def, vt){
+  if(def.needs === '__clock') return currentPayType !== 'salary';
+  if(def.needs === 'custmessages') return !!(vt.custmessages || vt.allmessages);
+  return !!vt[def.needs];
+}
+function renderHomeCards(){
+  const vt = currentVisibleTabs || {};
+  const clockCard = document.getElementById('homeClockCard');
+  if(clockCard) clockCard.style.display = currentPayType === 'salary' ? 'none' : 'flex';
+
+  const wrap = document.getElementById('homeCardsWrap');
+  if(!wrap) return;
+  const picked = (currentHomeCards && Object.keys(currentHomeCards).length)
+    ? currentHomeCards
+    : defaultHomeCardsForRole(vt);
+  const cards = HOME_CARD_DEFS.filter(function(def){
+    return picked[def.key] && homeCardAllowed(def, vt);
+  });
+  if(!cards.length){
+    wrap.innerHTML = '<p style="font-size:13px; color:var(--slate);">Use the tabs below to get started.</p>';
+    return;
+  }
+  wrap.innerHTML = cards.map(function(def){
+    return '<div class="home-card" data-hometab="'+def.tab+'">'+
+      '<h3>'+esc(def.label)+'</h3>'+
+      '<p>'+esc(def.desc)+'</p>'+
+    '</div>';
+  }).join('');
+  wrap.querySelectorAll('[data-hometab]').forEach(function(card){
+    card.addEventListener('click', function(){ switchTab(card.dataset.hometab); });
+  });
+}
 let currentEmployeeRole = 'Crew';
 let currentIsAdmin = false;
+let currentVisibleTabs = {};
+let currentHomeCards = null;
+let currentPayType = 'hourly';
 async function startAppAs(name){
   currentPersonName = name;
   document.getElementById('currentPersonName').textContent = name;
@@ -523,12 +622,16 @@ async function startAppAs(name){
   initClockState();
 
   let visibleTabs = null;
+  let homeCards = null;
+  let payType = 'hourly';
   currentIsAdmin = false;
   try{
     const empSnap = await getDocs(query(collection(db,'employeeNames'), where('name','==',name)));
     const empData = !empSnap.empty ? empSnap.docs[0].data() : {};
     currentEmployeeRole = empData.role || 'Crew';
     visibleTabs = empData.visibleTabs || null;
+    homeCards = empData.homeCards || null;
+    payType = empData.payType || 'hourly';
     currentIsAdmin = !!empData.isAdmin;
   } catch(err){
     currentEmployeeRole = 'Crew';
@@ -536,19 +639,13 @@ async function startAppAs(name){
 
   const isCrew = currentEmployeeRole === 'Crew';
   const vt = visibleTabs || {route: isCrew, checklist: true};
+  currentVisibleTabs = vt;
+  currentHomeCards = homeCards;
+  currentPayType = payType;
   document.getElementById('checklistHeading').textContent = isCrew ? "Today's Extra Checklist" : "Today's Checklist";
   document.getElementById('routeNavBtn').style.display = vt.route ? 'flex' : 'none';
   document.getElementById('checklistNavBtn').style.display = vt.checklist ? 'flex' : 'none';
-  document.getElementById('warehouseNavBtn').style.display = vt.warehouse ? 'flex' : 'none';
-  document.getElementById('addcustomerNavBtn').style.display = vt.addcustomer ? 'flex' : 'none';
-  document.getElementById('quotesNavBtn').style.display = vt.quotes ? 'flex' : 'none';
-  document.getElementById('custmessagesNavBtn').style.display = (vt.custmessages || vt.allmessages) ? 'flex' : 'none';
-  document.getElementById('routesadminNavBtn').style.display = vt.routesadmin ? 'flex' : 'none';
-  document.getElementById('housemapsNavBtn').style.display = vt.housemaps ? 'flex' : 'none';
-  document.getElementById('responsibilitiesNavBtn').style.display = vt.responsibilities ? 'flex' : 'none';
-  document.getElementById('financedashNavBtn').style.display = vt.financedash ? 'flex' : 'none';
-  document.getElementById('perfootpricingNavBtn').style.display = vt.perfootpricing ? 'flex' : 'none';
-  document.getElementById('timelogsadminNavBtn').style.display = vt.timelogsadmin ? 'flex' : 'none';
+  buildMoreMenu(vt);
 
   loadMyTimecard();
   loadMyRequests();
@@ -573,26 +670,38 @@ async function startAppAs(name){
   if(vt.perfootpricing) loadEmpPerFootPricing();
   if(vt.timelogsadmin) loadEmpTimeLogsAdmin();
 
-  const defaultTab = vt.route ? 'route' : (vt.checklist ? 'checklist' : 'clockin');
-  switchTab(defaultTab);
+  switchTab('home');
 }
 document.getElementById('switchPersonBtn').addEventListener('click', function(){
   localStorage.removeItem('huEmployeeName');
   showWhoScreen();
 });
 
-const TAB_TITLES = {clockin:'Clock In', route:'Today\'s Route', checklist:'Checklist', warehouse:'Warehouse', addcustomer:'Add a Customer', quotes:'Quote Requests', custmessages:'Customer Messages', routesadmin:'Routes', housemaps:'House Maps', responsibilities:'Crew Assignments', financedash:'Dashboard', perfootpricing:'Per Foot Pricing', timelogsadmin:'Time Logs'};
+const TAB_TITLES = {home:'Home', clockin:'Clock In', route:'Today\'s Route', checklist:'Checklist', warehouse:'Warehouse', addcustomer:'Add a Customer', quotes:'Quote Requests', custmessages:'Customer Messages', routesadmin:'Routes', housemaps:'House Maps', responsibilities:'Crew Assignments', financedash:'Dashboard', perfootpricing:'Per Foot Pricing', timelogsadmin:'Time Logs'};
 function switchTab(tabName){
   document.querySelectorAll('.tab-panel-content').forEach(function(p){ p.style.display = 'none'; });
-  document.getElementById('tabpanel-'+tabName).style.display = 'block';
+  const panel = document.getElementById('tabpanel-'+tabName);
+  if(panel) panel.style.display = 'block';
   document.querySelectorAll('.bottom-nav-btn').forEach(function(b){
     b.classList.toggle('active', b.dataset.tab === tabName);
   });
   document.getElementById('topbarTitle').textContent = TAB_TITLES[tabName] || '';
+  closeMoreSheet();
+  if(tabName === 'home' && typeof renderHomeCards === 'function') renderHomeCards();
   window.scrollTo({top:0, behavior:'instant'});
 }
 document.querySelectorAll('.bottom-nav-btn').forEach(function(btn){
-  btn.addEventListener('click', function(){ switchTab(btn.dataset.tab); });
+  btn.addEventListener('click', function(){
+    if(!btn.dataset.tab) return; // the More button opens the sheet instead
+    switchTab(btn.dataset.tab);
+  });
+});
+function openMoreSheet(){ document.getElementById('moreSheet').classList.add('show'); }
+function closeMoreSheet(){ document.getElementById('moreSheet').classList.remove('show'); }
+document.getElementById('moreNavBtn').addEventListener('click', openMoreSheet);
+document.getElementById('moreCloseBtn').addEventListener('click', closeMoreSheet);
+document.getElementById('moreSheet').addEventListener('click', function(e){
+  if(e.target === this) closeMoreSheet();
 });
 
 function updateChecklistNavBadge(hasContent){
@@ -1174,7 +1283,7 @@ function loadEmpQuotes(){
         document.getElementById('ecStreet').value = d.street || '';
         document.getElementById('ecCity').value = d.city || '';
         document.getElementById('ecZip').value = d.zip || '';
-        if(document.getElementById('addcustomerNavBtn').style.display !== 'none'){
+        if(currentVisibleTabs && currentVisibleTabs.addcustomer){
           switchTab('addcustomer');
           toast('Quote details filled in — review and Add Customer');
         } else {
@@ -1651,29 +1760,36 @@ function haversineMeters(lat1, lng1, lat2, lng2){
   const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
+// Writes to both the Time Clock tab's message and the Home card's copy,
+// so whichever card the employee is looking at shows the same feedback.
+function setClockLocationMsg(text){
+  const a = document.getElementById('clockLocationMsg');
+  const b = document.getElementById('homeClockLocationMsg');
+  if(a) a.textContent = text;
+  if(b) b.textContent = text;
+}
 function verifyAtClockLocation(){
   return new Promise(function(resolve){
-    const msgEl = document.getElementById('clockLocationMsg');
     if(!navigator.geolocation){
-      msgEl.textContent = 'Your device doesn\'t support location — can\'t verify.';
+      setClockLocationMsg('Your device doesn\'t support location — can\'t verify.');
       resolve(false); return;
     }
     if(clockLat === null){
-      msgEl.textContent = 'Still locating the shop address — try again in a moment.';
+      setClockLocationMsg('Still locating the shop address — try again in a moment.');
       resolve(false); return;
     }
-    msgEl.textContent = 'Checking your location…';
+    setClockLocationMsg('Checking your location…');
     navigator.geolocation.getCurrentPosition(function(pos){
       const dist = haversineMeters(pos.coords.latitude, pos.coords.longitude, clockLat, clockLng);
       if(dist <= CLOCK_RADIUS_METERS){
-        msgEl.textContent = '';
+        setClockLocationMsg('');
         resolve(true);
       } else {
-        msgEl.textContent = 'You\'re about ' + Math.round(dist * 0.000621371 * 10)/10 + ' mi from the shop — clock in/out only works there.';
+        setClockLocationMsg('You\'re about ' + Math.round(dist * 0.000621371 * 10)/10 + ' mi from the shop — clock in/out only works there.');
         resolve(false);
       }
     }, function(){
-      msgEl.textContent = 'Location permission denied — allow location access to clock in/out.';
+      setClockLocationMsg('Location permission denied — allow location access to clock in/out.');
       resolve(false);
     }, {enableHighAccuracy:true, timeout:10000});
   });
@@ -1700,8 +1816,31 @@ async function initClockState(){
       inBtn.disabled = false;
       outBtn.disabled = true;
     }
+    syncHomeClockCard();
   });
 }
+// The Home card is a mirror of the Time Clock tab's card, so clock logic
+// stays in one place and the two can never drift out of sync.
+function syncHomeClockCard(){
+  const src = document.getElementById('clockStatus');
+  const homeStatus = document.getElementById('homeClockStatus');
+  const inBtn = document.getElementById('clockInBtn');
+  const outBtn = document.getElementById('clockOutBtn');
+  const homeIn = document.getElementById('homeClockInBtn');
+  const homeOut = document.getElementById('homeClockOutBtn');
+  if(homeStatus && src) homeStatus.innerHTML = src.innerHTML;
+  if(homeIn && inBtn) homeIn.disabled = inBtn.disabled;
+  if(homeOut && outBtn) homeOut.disabled = outBtn.disabled;
+  const srcMsg = document.getElementById('clockLocationMsg');
+  const homeMsg = document.getElementById('homeClockLocationMsg');
+  if(homeMsg && srcMsg) homeMsg.textContent = srcMsg.textContent;
+}
+document.getElementById('homeClockInBtn').addEventListener('click', function(){
+  document.getElementById('clockInBtn').click();
+});
+document.getElementById('homeClockOutBtn').addEventListener('click', function(){
+  document.getElementById('clockOutBtn').click();
+});
 document.getElementById('clockInBtn').addEventListener('click', async function(){
   const ok = await verifyAtClockLocation();
   if(!ok) return;
