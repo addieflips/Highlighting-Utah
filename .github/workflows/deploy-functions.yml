@@ -1,17 +1,12 @@
 # Auto-deploys Firebase Cloud Functions whenever functions code changes on main.
 #
-# How this fits the workflow: uploading files to main on the GitHub website
-# already triggers Netlify to rebuild the site. This adds the missing half —
-# the same upload now also deploys the Cloud Functions, so index.html and the
-# functions it calls can never drift apart because one half was deployed and
-# the other forgotten.
-#
 # Requires one repository secret named FIREBASE_SERVICE_ACCOUNT containing the
 # JSON key of a Google Cloud service account with deploy permissions.
-# (Setup steps are in the accompanying instructions.)
 #
-# The "workflow_dispatch" trigger also adds a manual "Run workflow" button
-# under the repo's Actions tab, for redeploying without changing any files.
+# The "Who am I deploying as?" step exists to debug permission errors: it
+# prints the service account email inside the secret and the roles that
+# account ACTUALLY holds on the project — as saved, not as intended. It never
+# prints the private key.
 
 name: Deploy Firebase Functions
 
@@ -23,8 +18,6 @@ on:
       - 'firebase.json'
   workflow_dispatch: {}
 
-# If two uploads land close together, cancel the older deploy and run the
-# newest one only — deploying stale code after fresh code would roll it back.
 concurrency:
   group: deploy-functions
   cancel-in-progress: true
@@ -36,7 +29,7 @@ jobs:
       - name: Get the code
         uses: actions/checkout@v4
 
-      - name: Set up Node 20 (matches functions/package.json engines)
+      - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -52,6 +45,20 @@ jobs:
         env:
           SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: printf '%s' "$SA_JSON" > "$RUNNER_TEMP/firebase-sa.json"
+
+      - name: Who am I deploying as?
+        run: |
+          echo "=== Identity inside the GitHub secret ==="
+          jq -r '"client_email: " + .client_email' "$RUNNER_TEMP/firebase-sa.json"
+          jq -r '"project_id:   " + .project_id' "$RUNNER_TEMP/firebase-sa.json"
+          echo ""
+          echo "=== Roles this identity ACTUALLY holds on highlighting-utah ==="
+          gcloud auth activate-service-account --key-file="$RUNNER_TEMP/firebase-sa.json" --quiet
+          SA_EMAIL=$(jq -r .client_email "$RUNNER_TEMP/firebase-sa.json")
+          gcloud projects get-iam-policy highlighting-utah \
+            --flatten="bindings[].members" \
+            --filter="bindings.members:serviceAccount:$SA_EMAIL" \
+            --format="value(bindings.role)" || echo "(could not read project IAM policy)"
 
       - name: Deploy functions
         env:
