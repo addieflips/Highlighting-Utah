@@ -5,7 +5,7 @@
 
 // Bump this version string on any change here. Changing it is what clears
 // out the old cache on everyone's phones.
-const CACHE_NAME = 'hu-crew-shell-v2';
+const CACHE_NAME = 'hu-crew-shell-v3';
 
 // The page itself. Always fetched fresh when there's signal, so a deploy
 // shows up on the very next open instead of the one after.
@@ -56,9 +56,11 @@ self.addEventListener('fetch', (event) => {
 
   const isPage = PAGE_PATHS.some((path) => url.pathname === path);
   const isStatic = STATIC_PATHS.some((path) => url.pathname === path);
-  // Navigations (opening the app, refreshing) should always try the network
-  // first so the newest deploy wins.
-  const isNavigation = event.request.mode === 'navigate';
+  // Only the crew portal's own page gets the network-first treatment.
+  // Matching every navigation here made this worker intercept admin.html
+  // and the public site too, with employee.html as the offline fallback —
+  // wrong page entirely. Scope it to our own paths.
+  const isNavigation = event.request.mode === 'navigate' && isPage;
 
   if (!isPage && !isStatic && !isNavigation) {
     return; // let the browser handle it normally
