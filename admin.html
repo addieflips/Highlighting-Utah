@@ -3458,6 +3458,12 @@ document.querySelectorAll('[data-automationtab]').forEach(function(btn){
     this.classList.add('active');
     const panelEl = document.getElementById('automationtab-' + tab);
     if(panelEl) panelEl.classList.add('active');
+    // Build the customer list fresh each time the Invoices tab is opened, so it
+    // never gets stuck on "Loading…" if an unrelated render failed earlier.
+    if(tab === 'invoices'){
+      if(typeof invRenderRecipientList === 'function') invRenderRecipientList();
+      if(typeof invUpdatePreview === 'function') invUpdatePreview();
+    }
   });
 });
 async function loadEmailjsSettings(){
@@ -5145,9 +5151,14 @@ let invRecipientSearchTerm = '';
 function invRenderRecipientList(){
   const list = document.getElementById('invRecipientList');
   if(!list) return;
+  const all = etGetMembers();
+  if(!all.length){
+    list.innerHTML = '<div class="empty-note">Customers haven\'t loaded yet — give it a moment, then reopen this tab. If it stays empty, refresh the page.</div>';
+    return;
+  }
   const term = invRecipientSearchTerm.toLowerCase();
-  const members = etGetMembers().filter(m => !term || (m.data.name||'').toLowerCase().indexOf(term) !== -1);
-  if(!members.length){ list.innerHTML = '<div class="empty-note">No customers match this search.</div>'; return; }
+  const members = all.filter(m => !term || (m.data.name||'').toLowerCase().indexOf(term) !== -1 || (m.data.address||'').toLowerCase().indexOf(term) !== -1);
+  if(!members.length){ list.innerHTML = '<div class="empty-note">No customers match "'+esc(invRecipientSearchTerm)+'".</div>'; return; }
   const existingCbs = list.querySelectorAll('.inv-recipient-cb');
   const previouslyChecked = new Set(Array.from(existingCbs).filter(cb => cb.checked).map(el => el.value));
   list.innerHTML = members.map(function(m){
