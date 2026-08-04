@@ -130,6 +130,23 @@
   .tof-day.approved{ background:var(--dusk); color:#fff; font-weight:700; }
   .tof-day.pending{ border-color:var(--dusk); border-style:dashed; font-weight:600; }
   .tof-day.half{ background:linear-gradient(135deg,var(--dusk) 50%,transparent 50%); color:var(--ink); font-weight:700; }
+  .tof-day.sel{ background:var(--gold); color:var(--ink); font-weight:800; }
+  .tof-day.selectable{ cursor:pointer; }
+  .tof-key{
+    display:inline-block; width:11px; height:11px; border-radius:3px; vertical-align:-1px; margin-right:2px;
+  }
+  .tof-key.approved{ background:var(--dusk); }
+  .tof-key.pending{ border:1px dashed var(--dusk); }
+  .tof-key.sel{ background:var(--gold); }
+  .tc-subtabs{
+    display:flex; gap:4px; background:var(--paper); padding:4px;
+    border-radius:12px; margin-bottom:18px;
+  }
+  .tc-subtab{
+    flex:1; border:none; background:transparent; color:var(--slate);
+    border-radius:9px; padding:10px 4px; font-size:12.5px; font-weight:600; cursor:pointer;
+  }
+  .tc-subtab.active{ background:var(--ink); color:var(--snow); }
 
   .clock-card{
     background:var(--ink); color:#fff; border-radius:18px; padding:22px; text-align:center; margin-bottom:18px;
@@ -247,67 +264,78 @@
 
   <div class="tab-panel-content" id="tabpanel-clockin" style="display:none;">
     <div id="approvedBanner" style="display:none;"></div>
-    <div class="clock-card">
-      <div class="clock-status" id="clockStatus">Not clocked in</div>
-      <div style="display:flex; gap:10px;">
-        <button class="btn btn-gold" id="clockInBtn">Clock In</button>
-        <button class="btn btn-ember" id="clockOutBtn" disabled>Clock Out</button>
-      </div>
-      <div id="clockLocationMsg" style="font-size:12px; color:rgba(255,255,255,.6); margin-top:10px; min-height:16px;"></div>
+
+    <div class="tc-subtabs" id="tcSubtabs">
+      <button type="button" class="tc-subtab active" data-tcsub="clock">Clock In</button>
+      <button type="button" class="tc-subtab" data-tcsub="timecard">Timecard</button>
+      <button type="button" class="tc-subtab" data-tcsub="timeoff">Time Off</button>
+      <button type="button" class="tc-subtab" data-tcsub="approvals" id="tcSubtabApprovals" style="display:none;">Approvals</button>
     </div>
 
-    <div style="margin-top:24px;">
+    <div class="tc-pane" id="tcpane-clock">
+      <div class="clock-card">
+        <div class="clock-status" id="clockStatus">Not clocked in</div>
+        <div style="display:flex; gap:10px;">
+          <button class="btn btn-gold" id="clockInBtn">Clock In</button>
+          <button class="btn btn-ember" id="clockOutBtn" disabled>Clock Out</button>
+        </div>
+        <div id="clockLocationMsg" style="font-size:12px; color:rgba(255,255,255,.6); margin-top:10px; min-height:16px;"></div>
+      </div>
+    </div>
+
+    <div class="tc-pane" id="tcpane-timecard" style="display:none;">
       <h2 style="font-size:16px;">Your Timecard</h2>
       <p style="font-size:13px; color:var(--slate); margin-top:-8px;" id="myTimecardPeriodLabel">Current pay period</p>
       <p style="font-size:13px; color:var(--slate); margin-top:-4px;">Got a time wrong? Request a fix &mdash; it needs an admin's approval before it changes.</p>
       <div id="myTimecardList"></div>
     </div>
 
-    <div id="adminApprovalsWrap" style="display:none; margin-top:28px; padding-top:20px; border-top:1px solid var(--line);">
-      <h2 style="font-size:16px;">Approvals</h2>
-      <p style="font-size:13px; color:var(--slate); margin-top:-8px;">Pending timecard fixes and requests from the team.</p>
-      <div id="adminApprovalsList"></div>
-      <div id="adminEmpRequestsList" style="margin-top:16px;"></div>
-    </div>
-
-    <div style="margin-top:28px; padding-top:20px; border-top:1px solid var(--line);">
+    <div class="tc-pane" id="tcpane-timeoff" style="display:none;">
       <h2 style="font-size:16px;">My Time Off</h2>
-      <p style="font-size:13px; color:var(--slate); margin-top:-8px;">Approved days are shaded. Pending days are outlined.</p>
+      <p style="font-size:13px; color:var(--slate); margin-top:-8px;" id="tofPickHint">Tap the first day you want off, then tap the last day. Tap one day twice for a single day.</p>
       <div class="tof-cal-head">
         <button type="button" id="tofPrevMonth">&larr;</button>
         <strong id="tofMonthLabel"></strong>
         <button type="button" id="tofNextMonth">&rarr;</button>
       </div>
       <div id="tofCalendar"></div>
-    </div>
+      <div id="tofLegend" style="display:flex; gap:14px; flex-wrap:wrap; font-size:11.5px; color:var(--slate); margin-top:10px;">
+        <span><span class="tof-key approved"></span> Approved</span>
+        <span><span class="tof-key pending"></span> Waiting</span>
+        <span><span class="tof-key sel"></span> Picking now</span>
+      </div>
 
-    <div style="margin-top:28px; padding-top:20px; border-top:1px solid var(--line);">
-      <h2 style="font-size:16px;">Submit a Request</h2>
-      <p style="font-size:13px; color:var(--slate); margin-top:-8px;">Needs an admin's approval before it's final.</p>
-      <select id="empRequestType" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px; margin-bottom:8px;">
-        <option value="Day Off">Day Off</option>
-        <option value="Schedule Change">Schedule Change</option>
-        <option value="Supplies">Supplies</option>
-        <option value="Other">Other</option>
-      </select>
-      <div id="empRequestDatesWrap" style="margin-bottom:8px;">
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <label style="flex:1; min-width:130px; font-size:12.5px; color:var(--slate);">First day
-            <input type="date" id="empRequestStartDate" style="width:100%; padding:10px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px; margin-top:4px;">
-          </label>
-          <label style="flex:1; min-width:130px; font-size:12.5px; color:var(--slate);">Last day
-            <input type="date" id="empRequestEndDate" style="width:100%; padding:10px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px; margin-top:4px;">
+      <div id="tofSelectionWrap" style="margin-top:18px;">
+        <div id="tofSelectionSummary" style="font-size:14px; font-weight:600; margin-bottom:10px;">No days picked yet.</div>
+        <div id="tofHalfWrap" style="display:none;">
+          <label style="display:flex; align-items:center; gap:6px; font-size:13px; margin-bottom:10px;">
+            <input type="checkbox" id="empRequestHalfDay"> Half day only
           </label>
         </div>
-        <label style="display:flex; align-items:center; gap:6px; font-size:13px; margin-top:8px;">
-          <input type="checkbox" id="empRequestHalfDay"> Half day only
-        </label>
-        <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Leave the last day blank for a single day.</p>
+        <select id="empRequestType" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px; margin-bottom:8px;">
+          <option value="Day Off">Day Off</option>
+          <option value="Schedule Change">Schedule Change</option>
+          <option value="Supplies">Supplies</option>
+          <option value="Other">Other</option>
+        </select>
+        <textarea id="empRequestDesc" rows="2" placeholder="Reason or details..." style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea>
+        <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap;">
+          <button type="button" class="btn btn-gold" id="sendEmpRequestBtn">Submit Request</button>
+          <button type="button" class="btn btn-outline" id="tofClearBtn">Clear Days</button>
+        </div>
+        <div id="empRequestStatus" style="font-size:13px; color:var(--slate); margin-top:8px;"></div>
       </div>
-      <textarea id="empRequestDesc" rows="2" placeholder="Details..." style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea>
-      <button type="button" class="btn btn-gold" id="sendEmpRequestBtn" style="margin-top:10px;">Submit Request</button>
-      <div id="empRequestStatus" style="font-size:13px; color:var(--slate); margin-top:8px;"></div>
-      <div id="myRequestsList" style="margin-top:16px;"></div>
+
+      <div id="myRequestsList" style="margin-top:20px;"></div>
+    </div>
+
+    <div class="tc-pane" id="tcpane-approvals" style="display:none;">
+      <div id="adminApprovalsWrap" style="display:none;">
+        <h2 style="font-size:16px;">Approvals</h2>
+        <p style="font-size:13px; color:var(--slate); margin-top:-8px;">Pending timecard fixes and requests from the team.</p>
+        <div id="adminApprovalsList"></div>
+        <div id="adminEmpRequestsList" style="margin-top:16px;"></div>
+      </div>
     </div>
   </div>
 
@@ -724,6 +752,7 @@ async function startAppAs(name){
   loadMyRequests();
   if(currentIsAdmin){
     document.getElementById('adminApprovalsWrap').style.display = 'block';
+    document.getElementById('tcSubtabApprovals').style.display = 'block';
     loadTimecardApprovals();
     loadEmpRequestApprovals();
   }
@@ -761,7 +790,10 @@ function switchTab(tabName){
   document.getElementById('topbarTitle').textContent = TAB_TITLES[tabName] || '';
   closeMoreSheet();
   if(tabName === 'home' && typeof renderHomeCards === 'function') renderHomeCards();
-  if(tabName === 'clockin' && typeof markApprovalsSeen === 'function') markApprovalsSeen();
+  if(tabName === 'clockin' && typeof markApprovalsSeen === 'function'){
+    markApprovalsSeen();
+    if(typeof switchTcSub === 'function') switchTcSub('clock');
+  }
   window.scrollTo({top:0, behavior:'instant'});
 }
 document.querySelectorAll('.bottom-nav-btn').forEach(function(btn){
@@ -861,16 +893,13 @@ document.getElementById('sendEmpRequestBtn').addEventListener('click', async fun
   const descInput = document.getElementById('empRequestDesc');
   const desc = descInput.value.trim();
   const statusEl = document.getElementById('empRequestStatus');
-  const startInput = document.getElementById('empRequestStartDate');
-  const endInput = document.getElementById('empRequestEndDate');
   const halfInput = document.getElementById('empRequestHalfDay');
   const wantsDates = requestTypeUsesDates(type);
-  const startDate = startInput.value || '';
-  // A blank end date means a single day, so it mirrors the start.
-  const endDate = endInput.value || startDate;
+  const startDate = tofSelStart || '';
+  // Tapping a single day twice, or picking one and submitting, means one day.
+  const endDate = tofSelEnd || startDate;
   if(!desc){ statusEl.textContent = 'Add a few details first.'; return; }
-  if(wantsDates && !startDate){ statusEl.textContent = 'Pick which day you need off.'; return; }
-  if(wantsDates && endDate < startDate){ statusEl.textContent = 'The last day is before the first day.'; return; }
+  if(wantsDates && !startDate){ statusEl.textContent = 'Tap the days you need off on the calendar first.'; return; }
   statusEl.textContent = 'Submitting…';
   try{
     const payload = {
@@ -901,9 +930,7 @@ document.getElementById('sendEmpRequestBtn').addEventListener('click', async fun
       } catch(noteErr){ /* the request itself saved; the inbox copy is a convenience */ }
     }
     descInput.value = '';
-    startInput.value = '';
-    endInput.value = '';
-    halfInput.checked = false;
+    tofClearSelection();
     statusEl.textContent = 'Sent — waiting on approval.';
     setTimeout(function(){ statusEl.textContent = ''; }, 4000);
   } catch(err){
@@ -912,17 +939,34 @@ document.getElementById('sendEmpRequestBtn').addEventListener('click', async fun
 });
 
 /* ---------------- TIME OFF CALENDAR ---------------- */
-// Only date-based request types show the date pickers; Supplies and Other don't.
+// Only date-based request types need days picked; Supplies and Other don't.
 function requestTypeUsesDates(type){
   return type === 'Day Off' || type === 'Schedule Change';
 }
+function switchTcSub(which){
+  document.querySelectorAll('.tc-subtab').forEach(function(b){
+    b.classList.toggle('active', b.dataset.tcsub === which);
+  });
+  ['clock','timecard','timeoff','approvals'].forEach(function(k){
+    const pane = document.getElementById('tcpane-'+k);
+    if(pane) pane.style.display = (k === which) ? 'block' : 'none';
+  });
+}
+document.querySelectorAll('.tc-subtab').forEach(function(btn){
+  btn.addEventListener('click', function(){ switchTcSub(btn.dataset.tcsub); });
+});
 function syncRequestDateFields(){
-  const wrap = document.getElementById('empRequestDatesWrap');
+  const hint = document.getElementById('tofPickHint');
+  const wrap = document.getElementById('tofSelectionWrap');
   const type = document.getElementById('empRequestType').value;
-  if(wrap) wrap.style.display = requestTypeUsesDates(type) ? 'block' : 'none';
+  const needs = requestTypeUsesDates(type);
+  if(hint) hint.textContent = needs
+    ? 'Tap the first day you want off, then tap the last day. Tap one day twice for a single day.'
+    : 'No days needed for this kind of request \u2014 just add the details below.';
+  if(wrap) wrap.style.display = 'block';
+  renderTimeOffCalendar();
 }
 document.getElementById('empRequestType').addEventListener('change', syncRequestDateFields);
-syncRequestDateFields();
 
 function tofDateStr(dt){
   return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');
@@ -940,6 +984,8 @@ function formatRequestRange(r){
   return base + (r.halfDay ? ' (half day)' : '');
 }
 let tofMonthCursor = new Date();
+let tofSelStart = '';
+let tofSelEnd = '';
 let myTimeOffRequests = [];
 let unseenApprovals = [];
 function renderApprovalNotice(){
@@ -997,6 +1043,7 @@ function renderTimeOffCalendar(){
     }
   });
 
+  const canPick = requestTypeUsesDates(document.getElementById('empRequestType').value);
   const first = new Date(year, month, 1);
   const startPad = first.getDay();
   const daysInMonth = new Date(year, month+1, 0).getDate();
@@ -1009,13 +1056,72 @@ function renderTimeOffCalendar(){
     const key = year+'-'+String(month+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
     const state = dayMap[key];
     let cls = 'tof-day';
-    if(state === 'approved') cls += dayMap[key+'_half'] ? ' half' : ' approved';
+    // An in-progress pick outranks existing requests visually.
+    const inSel = tofSelStart && key >= tofSelStart && key <= (tofSelEnd || tofSelStart);
+    if(inSel) cls += ' sel';
+    else if(state === 'approved') cls += dayMap[key+'_half'] ? ' half' : ' approved';
     else if(state === 'pending') cls += ' pending';
     if(key === todayStr) cls += ' today';
-    html += '<div class="'+cls+'">'+d+'</div>';
+    if(canPick) cls += ' selectable';
+    html += '<div class="'+cls+'"'+(canPick ? ' data-tofpick="'+key+'"' : '')+'>'+d+'</div>';
   }
   grid.innerHTML = '<div class="tof-grid">'+html+'</div>';
+  grid.querySelectorAll('[data-tofpick]').forEach(function(cell){
+    cell.addEventListener('click', function(){ tofPickDay(cell.dataset.tofpick); });
+  });
+  renderTofSelection();
 }
+// First tap sets the start. Second tap sets the end. Tapping earlier than the
+// start restarts the pick from there, so nobody gets stuck backwards.
+function tofPickDay(key){
+  if(!tofSelStart || tofSelEnd){
+    tofSelStart = key;
+    tofSelEnd = '';
+  } else if(key < tofSelStart){
+    tofSelStart = key;
+    tofSelEnd = '';
+  } else {
+    tofSelEnd = key;
+  }
+  renderTimeOffCalendar();
+}
+function tofDaysBetween(a, b){
+  const ms = new Date(b+'T12:00:00') - new Date(a+'T12:00:00');
+  return Math.round(ms / 86400000) + 1;
+}
+function renderTofSelection(){
+  const summary = document.getElementById('tofSelectionSummary');
+  const halfWrap = document.getElementById('tofHalfWrap');
+  if(!summary) return;
+  const needs = requestTypeUsesDates(document.getElementById('empRequestType').value);
+  if(!needs){
+    summary.textContent = '';
+    if(halfWrap) halfWrap.style.display = 'none';
+    return;
+  }
+  if(!tofSelStart){
+    summary.textContent = 'No days picked yet.';
+    if(halfWrap) halfWrap.style.display = 'none';
+    return;
+  }
+  if(!tofSelEnd){
+    summary.innerHTML = '<span style="color:var(--dusk);">'+esc(tofPretty(tofSelStart))+'</span> \u2014 now tap your last day.';
+    if(halfWrap) halfWrap.style.display = 'none';
+    return;
+  }
+  const days = tofDaysBetween(tofSelStart, tofSelEnd);
+  summary.innerHTML = '<span style="color:var(--dusk);">'+esc(formatRequestRange({startDate: tofSelStart, endDate: tofSelEnd}))+'</span> &middot; '+days+' day'+(days===1?'':'s');
+  // Half days only make sense on a single day.
+  if(halfWrap) halfWrap.style.display = (tofSelStart === tofSelEnd) ? 'block' : 'none';
+}
+function tofClearSelection(){
+  tofSelStart = '';
+  tofSelEnd = '';
+  const half = document.getElementById('empRequestHalfDay');
+  if(half) half.checked = false;
+  renderTimeOffCalendar();
+}
+document.getElementById('tofClearBtn').addEventListener('click', tofClearSelection);
 document.getElementById('tofPrevMonth').addEventListener('click', function(){
   tofMonthCursor = new Date(tofMonthCursor.getFullYear(), tofMonthCursor.getMonth()-1, 1);
   renderTimeOffCalendar();
