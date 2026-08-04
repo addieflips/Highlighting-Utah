@@ -2213,28 +2213,16 @@ quoteFormEl.addEventListener('submit', async function(e){
   submitBtn.disabled = true;
   submitBtn.textContent = 'Submitting…';
 
+  /* Automatic Street View photo lookup was retired — photos are added by hand
+     on the quote card in the admin, so a quote no longer waits on Google. */
   var frontPhotoUrl = null;
-  var frontPhotoFlagged = false;
-  var frontPhotoFlagReason = null;
-  var loc = await geocodeForStreetView(fullAddress + ', UT');
-  if(loc){
-    var svResult = await getStreetViewFrontUrl(loc.lat, loc.lng);
-    frontPhotoUrl = svResult.url;
-    if(!frontPhotoUrl){
-      frontPhotoFlagged = true;
-      frontPhotoFlagReason = svResult.reason || 'no_coverage';
-    }
-  } else {
-    frontPhotoFlagged = true;
-    frontPhotoFlagReason = 'geocode_failed';
-  }
 
   addDoc(collection(db,'quotes'), {
     name: fd.get('name'), phone: fd.get('phone'), email: fd.get('email'),
     street: street, city: city, zip: zip,
     address: street + ', ' + city + ' ' + zip,
     contactMethod: fd.get('contact_method'),
-    frontPhotoUrl: frontPhotoUrl, frontPhotoFlagged: frontPhotoFlagged, frontPhotoFlagReason: frontPhotoFlagReason,
+    frontPhotoUrl: frontPhotoUrl,
     quoteToken: generatePortalToken(),
     formCompleted: false,
     status: 'new', createdAt: serverTimestamp()
