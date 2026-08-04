@@ -821,6 +821,8 @@
             <div class="form-row" style="max-width:220px; margin-top:10px;"><label>Gate Code (optional)</label><input type="text" id="addCustGateCode" placeholder="e.g. #4521"></div>
             <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">If entered, this house is automatically flagged as gated on Routes and Maps, visible to you and your crew.</p>
             <div class="form-row" style="max-width:180px; margin-top:10px;"><label>Number of Bins</label><input type="number" id="addCustBins" min="1" step="1" value="1"></div>
+            <div class="form-row" style="max-width:220px; margin-top:10px;"><label>Customer # (optional)</label><input type="text" id="addCustNumber" placeholder="Leave blank to assign later"></div>
+            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">The permanent bin number. Leave it blank and you can assign the next available one from Customer Numbers. Anything 5000 or higher is a double-bin house and sets Number of Bins to 2 automatically.</p>
             <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin-top:10px;"><input type="checkbox" id="addCustWantsMailed" style="width:auto;"> Also wants their invoice mailed (postal mail)</label>
           </div>
           <button type="submit" class="btn btn-gold">Add Customer</button>
@@ -2685,6 +2687,35 @@ Highlighting Utah</textarea>
         </div>
         <button type="button" class="btn btn-gold btn-sm" id="cnAssignBtn">Assign Next Available</button>
         <span id="cnAssignStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
+      </div>
+
+      <div class="card" style="margin-bottom:20px;">
+        <h3 style="margin:0 0 6px;">Assign Numbers in Bulk</h3>
+        <p class="form-note" style="margin:0 0 10px;">For putting your master sheet's numbers onto customers who are already in the system. Paste three columns straight from Excel. This only sets the Customer # &mdash; addresses, prices, colors and dates are left exactly as they are, and nothing is re-looked-up, so it finishes in seconds.</p>
+        <div class="form-grid-3">
+          <div class="form-row"><label>Name <span id="cnBulkNameCount" class="form-note"></span></label>
+            <textarea id="cnBulkNamesArea" rows="8" placeholder="Cattani Julie&#10;Beckstead Lacey"></textarea>
+          </div>
+          <div class="form-row"><label>Street Address <span id="cnBulkStreetCount" class="form-note"></span></label>
+            <textarea id="cnBulkStreetsArea" rows="8" placeholder="6037 W 11860 N&#10;78 S River Way"></textarea>
+          </div>
+          <div class="form-row"><label>Customer # <span id="cnBulkNumberCount" class="form-note"></span></label>
+            <textarea id="cnBulkNumbersArea" rows="8" placeholder="144&#10;86"></textarea>
+          </div>
+        </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:6px;">
+          <button type="button" class="btn btn-outline btn-sm" id="cnBulkCheckBtn">Check First (changes nothing)</button>
+          <button type="button" class="btn btn-gold btn-sm" id="cnBulkAssignBtn">Assign Numbers</button>
+        </div>
+        <div id="cnBulkStatus" style="font-size:13px; color:var(--slate); margin-top:10px;"></div>
+        <div id="cnBulkReport" style="margin-top:10px;"></div>
+      </div>
+
+      <div class="card" style="margin-bottom:20px;">
+        <h3 style="margin:0 0 6px;">Unused Numbers</h3>
+        <p class="form-note" style="margin:0 0 10px;">Any number inside your existing range that nobody is using &mdash; usually freed up when a customer was recycled in a past year. Adding them to the pool means Dad reuses those bin numbers before anyone gets a brand new one.</p>
+        <button type="button" class="btn btn-outline btn-sm" id="cnFindGapsBtn">Find Unused Numbers</button>
+        <div id="cnGapsReport" style="margin-top:10px;"></div>
       </div>
 
       <div class="card" style="margin-bottom:20px;">
@@ -7894,8 +7925,23 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
   const installPreference = document.getElementById('addCustInstallPref').value;
   const billToPhone = document.getElementById('addCustBillTo').value.replace(/\D/g,'');
   const gateCode = document.getElementById('addCustGateCode').value.trim();
-  const numberOfBins = parseInt(document.getElementById('addCustBins').value, 10) || 1;
+  let numberOfBins = parseInt(document.getElementById('addCustBins').value, 10) || 1;
   const wantsMailedInvoice = document.getElementById('addCustWantsMailed').checked;
+  // Customer # is optional here — it can be assigned later from Customer Numbers.
+  const customerNumber = document.getElementById('addCustNumber').value.trim();
+  if(customerNumber){
+    if(!/^\d+$/.test(customerNumber)){
+      document.getElementById('routeAddStatus').textContent = 'Customer # should be just digits, like 1044 or 5048.';
+      return;
+    }
+    const taken = jobAddresses.find(function(item){ return String(item.data.customerNumber||'') === customerNumber; });
+    if(taken){
+      document.getElementById('routeAddStatus').textContent = 'Customer #' + customerNumber + ' already belongs to ' + (taken.data.name || 'another customer') + '.';
+      return;
+    }
+    // The 5000 series is reserved for double-bin houses.
+    if(parseInt(customerNumber, 10) >= 5000) numberOfBins = Math.max(numberOfBins, 2);
+  }
   const wantsBilling = price > 0;
   const statusEl = document.getElementById('routeAddStatus');
 
@@ -7922,8 +7968,12 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
       housePhotoUrl: addCustPhotoUrl, houseHighlights: addCustHighlights, portalToken: generatePortalToken(), installPreference: installPreference,
       wireColor: wireColor,
       lat: coords.lat, lng: coords.lng, needsLightBuild: !!lightsDescription,
-      scheduled: false, createdAt: serverTimestamp(), housePrice: price, measuredFeet: measuredFeet, gateCode: gateCode, wantsMailedInvoice: wantsMailedInvoice, numberOfBins: numberOfBins
+      scheduled: false, createdAt: serverTimestamp(), housePrice: price, measuredFeet: measuredFeet, gateCode: gateCode, wantsMailedInvoice: wantsMailedInvoice, numberOfBins: numberOfBins, customerNumber: customerNumber
     }, billingElsewhere ? {billToPhone: billToPhone} : {}));
+    // If this number was sitting in the available pool, it isn't available anymore.
+    if(customerNumber){
+      await deleteDoc(doc(db,'availableCustomerNumbers', customerNumber)).catch(function(){ /* fine if it was never pooled */ });
+    }
     if(addCustPhotoUrl){
     }
     let invoiceMsg = '';
@@ -7948,6 +7998,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
     document.getElementById('addCustBillTo').value = '';
     document.getElementById('addCustGateCode').value = '';
     document.getElementById('addCustBins').value = '1';
+    document.getElementById('addCustNumber').value = '';
     document.getElementById('addCustWantsMailed').checked = false;
     document.getElementById('addCustFeet').value = '';
     document.getElementById('addCustFeetNote').textContent = 'Enter Measured Feet to bill automatically at your Per Foot Pricing rate — you can still adjust Total Price by hand afterward. Deposit and removal fee can be added later from the Invoices tab if needed.';
@@ -9327,6 +9378,215 @@ document.getElementById('cnAssignBtn').addEventListener('click', async function(
     statusEl.textContent = 'Something went wrong — try again.';
   }
 });
+
+/* ---------------- BULK ASSIGN CUSTOMER NUMBERS ---------------- */
+/* One-time tool for stamping the master sheet's numbers onto customers who are
+   already in the system. Deliberately does NOT touch anything but customerNumber
+   (and bins, for the 5000 series) — no geocoding, no address rewrites. */
+wireBulkCounts(['cnBulkNamesArea','cnBulkStreetsArea','cnBulkNumbersArea'], 'cnBulkNumbersArea',
+  {cnBulkNamesArea:'cnBulkNameCount', cnBulkStreetsArea:'cnBulkStreetCount', cnBulkNumbersArea:'cnBulkNumberCount'});
+
+function cnNormName(s){
+  return String(s||'').toLowerCase().replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+}
+function cnNormStreet(s){
+  return String(s||'').toLowerCase()
+    .replace(/\([^)]*\)/g,' ')
+    .replace(/[^a-z0-9 ]/g,' ')
+    .replace(/\b(street|avenue|drive|lane|road|circle|court|place|boulevard|parkway|trail|terrace|cove)\b/g, function(w){
+      return {street:'st', avenue:'ave', drive:'dr', lane:'ln', road:'rd', circle:'cir', court:'ct', place:'pl', boulevard:'blvd', parkway:'pkwy', trail:'trl', terrace:'terr', cove:'cv'}[w];
+    })
+    .replace(/\s+/g,' ').trim();
+}
+/* Builds the full picture without writing anything, so Check and Assign agree. */
+function cnBulkAnalyze(){
+  const names = document.getElementById('cnBulkNamesArea').value.split('\n').map(function(s){ return s.trim(); });
+  const streets = document.getElementById('cnBulkStreetsArea').value.split('\n').map(function(s){ return s.trim(); });
+  const numbersRaw = document.getElementById('cnBulkNumbersArea').value.split('\n').map(function(s){ return s.trim(); });
+  while(numbersRaw.length && !numbersRaw[numbersRaw.length-1]) numbersRaw.pop();
+  if(!numbersRaw.length) return {error: 'Paste at least the Customer # column.'};
+  if(!names.filter(Boolean).length && !streets.filter(Boolean).length){
+    return {error: 'Paste the Name column, the Street Address column, or both — I need something to match on.'};
+  }
+  for(const pair of [[names,'Name'],[streets,'Street Address']]){
+    const arr = pair[0].slice();
+    while(arr.length && !arr[arr.length-1]) arr.pop();
+    if(arr.length && arr.length !== numbersRaw.length){
+      return {error: pair[1] + ' has ' + arr.length + ' row(s) but Customer # has ' + numbersRaw.length + '. Fix the row counts and try again.'};
+    }
+  }
+
+  const problems = [], plan = [], unmatched = [];
+  const seenNumbers = {};
+  const claimedCustomers = {};
+
+  for(let i = 0; i < numbersRaw.length; i++){
+    const rowNo = i + 1;
+    const num = numbersRaw[i];
+    const nm = names[i] || '';
+    const st = streets[i] || '';
+    if(!num) continue;
+    if(!/^\d+$/.test(num)){ problems.push('Row ' + rowNo + ': "' + num + '" isn\'t a number.'); continue; }
+    if(seenNumbers[num] !== undefined){
+      problems.push('Row ' + rowNo + ': #' + num + ' is also on row ' + seenNumbers[num] + ' — two customers can\'t share a number.');
+      continue;
+    }
+    seenNumbers[num] = rowNo;
+
+    const heldBy = jobAddresses.find(function(item){ return String(item.data.customerNumber||'') === num; });
+    const nName = cnNormName(nm), nStreet = cnNormStreet(st);
+    let match = null;
+    if(nName && nStreet) match = jobAddresses.find(function(it){ return cnNormName(it.data.name) === nName && cnNormStreet(it.data.street || (it.data.address||'').split(',')[0]) === nStreet; });
+    if(!match && nName){
+      const byName = jobAddresses.filter(function(it){ return cnNormName(it.data.name) === nName; });
+      if(byName.length === 1) match = byName[0];
+      else if(byName.length > 1){ unmatched.push('Row ' + rowNo + ': #' + num + ' — "' + (nm||st) + '" matches ' + byName.length + ' customers, so I left it alone.'); continue; }
+    }
+    if(!match && nStreet){
+      const byStreet = jobAddresses.filter(function(it){ return cnNormStreet(it.data.street || (it.data.address||'').split(',')[0]) === nStreet; });
+      if(byStreet.length === 1) match = byStreet[0];
+    }
+    if(!match){ unmatched.push('Row ' + rowNo + ': #' + num + ' — no customer found for "' + (nm || st) + '".'); continue; }
+
+    if(heldBy && heldBy.id !== match.id){
+      problems.push('Row ' + rowNo + ': #' + num + ' already belongs to ' + (heldBy.data.name||'another customer') + '.');
+      continue;
+    }
+    if(claimedCustomers[match.id]){
+      problems.push('Row ' + rowNo + ': ' + (match.data.name||'that customer') + ' was already given a number on row ' + claimedCustomers[match.id] + '.');
+      continue;
+    }
+    claimedCustomers[match.id] = rowNo;
+
+    const already = String(match.data.customerNumber||'');
+    plan.push({
+      id: match.id, num: num, name: match.data.name || '(no name)',
+      unchanged: already === num,
+      wasDifferent: already && already !== num ? already : '',
+      setsDoubleBin: parseInt(num,10) >= 5000 && (parseInt(match.data.numberOfBins,10)||1) < 2
+    });
+  }
+  return {problems: problems, plan: plan, unmatched: unmatched, total: numbersRaw.filter(Boolean).length};
+}
+function cnBulkRenderReport(res, didWrite){
+  const box = document.getElementById('cnBulkReport');
+  const changing = res.plan.filter(function(p){ return !p.unchanged; });
+  const dbl = res.plan.filter(function(p){ return p.setsDoubleBin; });
+  const overwrite = res.plan.filter(function(p){ return p.wasDifferent; });
+  let html = '';
+  if(res.problems.length){
+    html += '<div style="background:#FDECEA; border:1px solid #f0b3ac; border-radius:8px; padding:10px 12px; margin-bottom:8px;">'+
+      '<strong style="color:var(--ember); font-size:13px;">Fix these before assigning &mdash; nothing was changed:</strong>'+
+      '<ul style="margin:6px 0 0 16px; font-size:12.5px; color:var(--ember);">'+ res.problems.map(function(p){ return '<li>'+esc(p)+'</li>'; }).join('') +'</ul></div>';
+  }
+  if(res.unmatched.length){
+    html += '<div style="background:#FFF6E5; border:1px solid #f0d9a8; border-radius:8px; padding:10px 12px; margin-bottom:8px;">'+
+      '<strong style="font-size:13px;">Couldn\'t match these &mdash; add their numbers by hand:</strong>'+
+      '<ul style="margin:6px 0 0 16px; font-size:12.5px;">'+ res.unmatched.map(function(p){ return '<li>'+esc(p)+'</li>'; }).join('') +'</ul></div>';
+  }
+  html += '<div style="background:var(--mist); border-radius:8px; padding:10px 12px; font-size:13px;">'+
+    (didWrite ? '<strong>Done.</strong> ' : '<strong>Nothing has been changed yet.</strong> ')+
+    changing.length + (didWrite ? ' number(s) set' : ' number(s) ready to set') + ', '+
+    (res.plan.length - changing.length) + ' already correct, '+
+    res.unmatched.length + ' unmatched, '+
+    res.problems.length + ' problem(s).'+
+    (dbl.length ? '<br>' + dbl.length + ' house(s) ' + (didWrite ? 'were' : 'will be') + ' set to 2 bins for being in the 5000 series.' : '')+
+    (overwrite.length ? '<br><span style="color:var(--ember);">' + overwrite.length + ' customer(s) already had a different number: ' + esc(overwrite.slice(0,6).map(function(p){ return p.name+' #'+p.wasDifferent+'\u2192#'+p.num; }).join(', ')) + (overwrite.length>6?'\u2026':'') + '</span>' : '')+
+    '</div>';
+  box.innerHTML = html;
+}
+document.getElementById('cnBulkCheckBtn').addEventListener('click', function(){
+  const statusEl = document.getElementById('cnBulkStatus');
+  const res = cnBulkAnalyze();
+  if(res.error){ statusEl.textContent = res.error; document.getElementById('cnBulkReport').innerHTML = ''; return; }
+  statusEl.textContent = '';
+  cnBulkRenderReport(res, false);
+});
+document.getElementById('cnBulkAssignBtn').addEventListener('click', async function(){
+  const statusEl = document.getElementById('cnBulkStatus');
+  const res = cnBulkAnalyze();
+  if(res.error){ statusEl.textContent = res.error; return; }
+  if(res.problems.length){ cnBulkRenderReport(res, false); statusEl.textContent = 'Fix the problems listed below first — nothing was changed.'; return; }
+  const changing = res.plan.filter(function(p){ return !p.unchanged; });
+  if(!changing.length){ cnBulkRenderReport(res, false); statusEl.textContent = 'Every number is already correct — nothing to do.'; return; }
+  if(!confirm('Set ' + changing.length + ' customer number(s)? Nothing else on these records will be touched.')) return;
+
+  let done = 0;
+  for(const p of changing){
+    statusEl.textContent = 'Setting ' + (done+1) + ' of ' + changing.length + '…';
+    const updates = {customerNumber: p.num};
+    if(p.setsDoubleBin) updates.numberOfBins = 2;
+    try{
+      await updateDoc(doc(db,'jobAddresses', p.id), updates);
+      await deleteDoc(doc(db,'availableCustomerNumbers', p.num)).catch(function(){ /* fine if never pooled */ });
+      done++;
+    } catch(err){
+      res.problems.push('Could not save #' + p.num + ' for ' + p.name + '.');
+    }
+  }
+  statusEl.textContent = '';
+  cnBulkRenderReport(res, true);
+  toast(done + ' customer number(s) assigned');
+});
+
+/* Numbers inside the existing range that nobody holds — free bin labels. */
+document.getElementById('cnFindGapsBtn').addEventListener('click', function(){
+  const box = document.getElementById('cnGapsReport');
+  const used = {regular: [], double: []};
+  jobAddresses.forEach(function(item){
+    const n = parseInt(item.data.customerNumber, 10);
+    if(isNaN(n)) return;
+    used[n >= 5000 ? 'double' : 'regular'].push(n);
+  });
+  const pooled = {};
+  availableCustomerNumbers.forEach(function(p){ pooled[p.id] = true; });
+
+  function gapsFor(type){
+    const list = used[type];
+    if(!list.length) return [];
+    const set = new Set(list);
+    const start = type === 'double' ? 5000 : 1;
+    const out = [];
+    for(let n = start; n <= Math.max.apply(null, list); n++){
+      if(!set.has(n) && !pooled[String(n)]) out.push(n);
+    }
+    return out;
+  }
+  function compress(list){
+    if(!list.length) return '';
+    const out = []; let s = list[0], p = list[0];
+    list.slice(1).forEach(function(n){
+      if(n === p + 1){ p = n; return; }
+      out.push(s === p ? String(s) : s + '\u2013' + p); s = p = n;
+    });
+    out.push(s === p ? String(s) : s + '\u2013' + p);
+    return out.join(', ');
+  }
+  const rg = gapsFor('regular'), dg = gapsFor('double');
+  if(!rg.length && !dg.length){
+    box.innerHTML = '<div style="background:var(--mist); border-radius:8px; padding:10px 12px; font-size:13px;">No unused numbers inside your range — every number is either in use or already in the pool.</div>';
+    return;
+  }
+  box.innerHTML = '<div style="background:var(--mist); border-radius:8px; padding:10px 12px; font-size:13px;">'+
+    (rg.length ? '<strong>Regular &mdash; ' + rg.length + ' free:</strong><div style="margin:4px 0 10px; font-size:12.5px; line-height:1.7;">'+esc(compress(rg))+'</div>' : '')+
+    (dg.length ? '<strong>Double bin &mdash; ' + dg.length + ' free:</strong><div style="margin:4px 0 10px; font-size:12.5px; line-height:1.7;">'+esc(compress(dg))+'</div>' : '')+
+    '<button type="button" class="btn btn-gold btn-sm" id="cnAddGapsBtn">Add All ' + (rg.length + dg.length) + ' to the Available Pool</button>'+
+    '<span id="cnGapsStatus" style="font-size:12.5px; color:var(--slate); margin-left:10px;"></span></div>';
+  document.getElementById('cnAddGapsBtn').addEventListener('click', async function(){
+    if(!confirm('Add ' + (rg.length + dg.length) + ' number(s) to the available pool? They\'ll be handed out before any brand new number.')) return;
+    const st = document.getElementById('cnGapsStatus');
+    let n = 0;
+    for(const num of rg.concat(dg)){
+      st.textContent = 'Adding ' + (n+1) + ' of ' + (rg.length + dg.length) + '…';
+      await setDoc(doc(db,'availableCustomerNumbers', String(num)), {type: num >= 5000 ? 'double' : 'regular', releasedAt: serverTimestamp()});
+      n++;
+    }
+    st.textContent = '';
+    toast(n + ' number(s) added to the available pool');
+    document.getElementById('cnFindGapsBtn').click();
+  });
+});
+
 document.getElementById('cnManualAddBtn').addEventListener('click', async function(){
   const numInput = document.getElementById('cnManualNumber');
   const num = numInput.value.trim();
