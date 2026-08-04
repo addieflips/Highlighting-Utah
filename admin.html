@@ -1892,6 +1892,11 @@ Highlighting Utah</textarea>
               Send nightly invoice emails automatically
             </label>
             <span id="nightlyInvoiceStatus" style="font-size:13px; color:var(--slate); margin-top:8px; display:block;"></span>
+            <div style="margin-top:14px; padding-top:14px; border-top:1px solid var(--line);">
+              <button type="button" class="btn btn-gold" id="sendInvoicesNowBtn">Send Invoices Now</button>
+              <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Runs the same billing check right now, on demand \u2014 works whether the automatic toggle above is on or off. Use this to send tonight's invoices yourself if you've turned automatic sending off.</p>
+              <span id="sendInvoicesNowStatus" style="font-size:13px; margin-top:8px; display:block;"></span>
+            </div>
             <div style="margin-top:16px; border-top:1px solid var(--line); padding-top:12px;">
               <h4 style="margin:0 0 8px;">Last 10 nightly runs</h4>
               <div id="nightlyInvoiceLog" class="empty-note">Loading…</div>
@@ -2902,6 +2907,7 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const fbFunctions = getFunctions(app);
 const sendSmsFn = httpsCallable(fbFunctions, 'sendSms');
+const sendInvoicesNowFn = httpsCallable(fbFunctions, 'sendInvoicesNow');
 
 const CLOUDINARY_CLOUD = "highlighting-utah";
 const CLOUDINARY_PRESET = "highlighting_utah";
@@ -3469,6 +3475,31 @@ document.getElementById('nightlyInvoiceEnabled')?.addEventListener('change', asy
     statusEl.textContent = '\u2717 Couldn\'t save \u2014 try again';
     statusEl.style.color = 'var(--ember)';
     this.checked = !this.checked;
+  }
+});
+document.getElementById('sendInvoicesNowBtn')?.addEventListener('click', async function(){
+  if(!confirm('Send invoices now for every completed Install house that hasn\'t been billed yet? Houses flagged for a fix or marked "Didn\'t Get To" are skipped automatically.')) return;
+  const btn = this;
+  const statusEl = document.getElementById('sendInvoicesNowStatus');
+  btn.disabled = true;
+  btn.textContent = 'Sending…';
+  statusEl.textContent = '';
+  try{
+    const result = await sendInvoicesNowFn();
+    const r = result.data || {};
+    let msg = '\u2713 ' + (r.sentCount||0) + ' invoice(s) sent';
+    if(r.skippedNeedsFix) msg += ', ' + r.skippedNeedsFix + ' skipped (needs fix)';
+    if(r.skippedNotDone) msg += ', ' + r.skippedNotDone + ' skipped (not completed)';
+    if(r.errorCount){ msg += ', ' + r.errorCount + ' error(s)'; statusEl.style.color = 'var(--ember)'; }
+    else { statusEl.style.color = 'var(--emerald)'; }
+    statusEl.textContent = msg;
+    loadNightlyInvoiceLog();
+  } catch(err){
+    statusEl.style.color = 'var(--ember)';
+    statusEl.textContent = '\u2717 Send failed \u2014 ' + (err.message || 'try again');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Send Invoices Now';
   }
 });
 async function loadNightlyInvoiceLog(){
