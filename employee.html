@@ -416,8 +416,8 @@
   </div>
 
   <div class="tab-panel-content" id="tabpanel-housemaps" style="display:none;">
-    <h2>House Maps</h2>
-    <p style="font-size:13px; color:var(--slate); margin-top:-8px;">Search a customer to view their saved installer map.</p>
+    <h2>Layout Maps</h2>
+    <p style="font-size:13px; color:var(--slate); margin-top:-8px;">Search a customer to view their saved light layout.</p>
     <input type="text" id="empHmSearch" placeholder="Search by name or address..." style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px; margin:10px 0;">
     <div id="empHmResults"></div>
     <div id="empHmViewer" style="margin-top:16px;"></div>
@@ -609,7 +609,7 @@ const MORE_MENU_ITEMS = [
   {key:'quotes', tab:'quotes', label:'Quotes', icon:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>'},
   {key:'custmessages', tab:'custmessages', label:'Messages', icon:'<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>'},
   {key:'routesadmin', tab:'routesadmin', label:'All Routes', icon:'<path d="M9 20l-5.447-2.724A1 1 0 0 1 3 16.382V5.618a1 1 0 0 1 1.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0 0 21 18.382V7.618a1 1 0 0 0-.553-.894L15 4m0 13V4m0 0L9 7"/>'},
-  {key:'housemaps', tab:'housemaps', label:'House Maps', icon:'<path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z"/><path d="M9 3v15M15 6v15"/>'},
+  {key:'housemaps', tab:'housemaps', label:'Layout Maps', icon:'<path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z"/><path d="M9 3v15M15 6v15"/>'},
   {key:'responsibilities', tab:'responsibilities', label:'Crew Assignments', icon:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>'},
   {key:'financedash', tab:'financedash', label:'Dashboard', icon:'<rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/>'},
   {key:'perfootpricing', tab:'perfootpricing', label:'Per Foot Pricing', icon:'<path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>'},
@@ -773,7 +773,7 @@ document.getElementById('switchPersonBtn').addEventListener('click', function(){
   showWhoScreen();
 });
 
-const TAB_TITLES = {home:'Home', clockin:'Time Card', route:'Today\'s Route', checklist:'Checklist', warehouse:'Warehouse', addcustomer:'Add a Customer', quotes:'Quote Requests', custmessages:'Customer Messages', routesadmin:'Routes', housemaps:'House Maps', responsibilities:'Crew Assignments', financedash:'Dashboard', perfootpricing:'Per Foot Pricing', timelogsadmin:'Time Logs'};
+const TAB_TITLES = {home:'Home', clockin:'Time Card', route:'Today\'s Route', checklist:'Checklist', warehouse:'Warehouse', addcustomer:'Add a Customer', quotes:'Quote Requests', custmessages:'Customer Messages', routesadmin:'Routes', housemaps:'Layout Maps', responsibilities:'Crew Assignments', financedash:'Dashboard', perfootpricing:'Per Foot Pricing', timelogsadmin:'Time Logs'};
 function switchTab(tabName){
   document.querySelectorAll('.tab-panel-content').forEach(function(p){ p.style.display = 'none'; });
   const panel = document.getElementById('tabpanel-'+tabName);
@@ -1783,23 +1783,13 @@ function renderEmpHmResults(term){
     return '<button type="button" class="btn btn-outline btn-sm emp-hm-pick" data-id="'+esc(d.id||'')+'" style="margin:3px;">'+esc(d.name||d.address)+'</button>';
   }).join('');
   resultsEl.querySelectorAll('.emp-hm-pick').forEach(function(btn){
-    btn.addEventListener('click', async function(){
+    btn.addEventListener('click', function(){
       const viewer = document.getElementById('empHmViewer');
-      viewer.innerHTML = '<p style="color:var(--slate); font-size:13.5px;">Loading…</p>';
-      const snap = await getDoc(doc(db,'houseMaps', btn.dataset.id));
-      if(!snap.exists()){ viewer.innerHTML = '<p style="color:var(--slate); font-size:13.5px;">No saved map for this customer yet.</p>'; return; }
-      const hm = snap.data();
-      const imgUrl = (hm.images && (hm.images.outline || hm.images.house || hm.images.front)) || '';
-      const strandRows = (hm.strands||[]).map(function(s){
-        return '<tr><td><span style="display:inline-block; width:10px; height:10px; border-radius:3px; background:'+esc(s.color)+'; margin-right:6px;"></span>'+esc(s.letter)+'</td><td>'+(s.note?esc(s.note):'')+'</td></tr>';
-      }).join('');
-      const hsRows = (hm.highlightSections||[]).map(function(h){
-        return '<tr><td>'+esc(h.letter)+'</td><td>'+esc(h.label||'')+'</td></tr>';
-      }).join('');
-      viewer.innerHTML =
-        (imgUrl ? '<img src="'+esc(imgUrl)+'" style="width:100%; border-radius:10px; border:1px solid var(--line); display:block; margin-bottom:12px;">' : '<p style="color:var(--slate); font-size:13.5px;">No photo on this map.</p>')+
-        (hsRows ? '<h3 style="font-size:14px; margin:12px 0 6px;">Highlighted Sections</h3><table style="width:100%; font-size:13px; border-collapse:collapse;">'+hsRows+'</table>' : '')+
-        (strandRows ? '<h3 style="font-size:14px; margin:12px 0 6px;">Strands</h3><table style="width:100%; font-size:13px; border-collapse:collapse;">'+strandRows+'</table>' : '');
+      const cust = empRoutesCache.find(function(c){ return (c.id||'') === btn.dataset.id; });
+      const url = cust && cust.layoutMapUrl;
+      if(!url){ viewer.innerHTML = '<p style="color:var(--slate); font-size:13.5px;">No layout map saved for this customer yet.</p>'; return; }
+      viewer.innerHTML = '<img src="'+esc(url)+'" style="width:100%; border-radius:10px; border:1px solid var(--line); display:block; margin-bottom:10px;">'+
+        '<a class="btn btn-outline btn-sm" href="'+esc(url)+'" target="_blank" rel="noopener">Open Full Size</a>';
     });
   });
 }
