@@ -5623,27 +5623,27 @@ document.getElementById('fixMissingInvoicesBtn').addEventListener('click', async
   btn.disabled = true;
   statusEl.textContent = 'Scanning…';
   try{
-    let created = 0, scanned = 0, skippedNoPhone = 0, skippedBilledElsewhere = 0;
+    let created = 0, scanned = 0, skippedNoContact = 0, skippedBilledElsewhere = 0;
     const candidates = jobAddresses.filter(a => Number(a.data.housePrice) > 0);
     const payersToRefresh = new Set();
     for(const item of candidates){
       scanned++;
       const d = item.data;
-      const phoneDigits = (d.phone||'').replace(/\D/g,'');
+      const custKey = custInvoiceKey(d);
       if(d.billToPhone){ skippedBilledElsewhere++; payersToRefresh.add(d.billToPhone); continue; }
-      if(!phoneDigits){ skippedNoPhone++; continue; }
-      const existing = allInvoicesCache.find(i => i.id === phoneDigits);
+      if(!custKey){ skippedNoContact++; continue; }
+      const existing = allInvoicesCache.find(i => i.id === custKey);
       if(existing) continue;
       const price = Number(d.housePrice) || 0;
-      await setDoc(doc(db,'invoices', phoneDigits), {
-        name: d.name || '', phone: phoneDigits, email: d.email || '',
+      await setDoc(doc(db,'invoices', custKey), {
+        name: d.name || '', phone: (d.phone||'').replace(/\D/g,''), email: d.email || '',
         install: price, removal: 0, deposit: 0,
         status: computeInvoiceStatus(price, 0, 0), priceReviewed: true, updatedAt: serverTimestamp()
       }, {merge:true});
       created++;
     }
     for(const payerPhone of payersToRefresh){ await syncPayerInvoice(payerPhone); }
-    statusEl.textContent = 'Done — scanned ' + scanned + ', created ' + created + ' missing invoice(s)' + (skippedNoPhone ? ', ' + skippedNoPhone + ' skipped (no phone)' : '') + (skippedBilledElsewhere ? ', ' + skippedBilledElsewhere + ' billed-elsewhere account(s) refreshed' : '') + '.';
+    statusEl.textContent = 'Done — scanned ' + scanned + ', created ' + created + ' missing invoice(s)' + (skippedNoContact ? ', ' + skippedNoContact + ' skipped (no phone or email)' : '') + (skippedBilledElsewhere ? ', ' + skippedBilledElsewhere + ' billed-elsewhere account(s) refreshed' : '') + '.';
   } catch(err){
     statusEl.textContent = 'Something went wrong — try again.';
   } finally {
@@ -5825,7 +5825,7 @@ function renderInvoicesList(){
         '<div class="form-row" style="max-width:220px; margin-top:6px;"><label>Amount Paid So Far ($)</label><input type="number" class="ie-paid" min="0" step="1" value="'+(d.deposit||0)+'"></div>'+
         '<button type="button" class="btn btn-gold btn-sm ie-save" style="margin-top:12px;">Save Changes</button>'+
         '<div class="ie-photo-area" style="margin-top:14px;"></div>';
-      const matchedAddr = jobAddresses.find(a => (a.data.phone||'').replace(/\D/g,'') === (d.phone||'').replace(/\D/g,''));
+      const matchedAddr = jobAddresses.find(a => custInvoiceKey(a.data) === id);
       if(matchedAddr && matchedAddr.data.housePhotoUrl){
         const photoUrl = matchedAddr.data.housePhotoUrl;
         panel.querySelector('.ie-photo-area').innerHTML =
@@ -5856,16 +5856,18 @@ function renderInvoicesList(){
           status: computeInvoiceStatus(newAmount, 0, newDeposit),
           priceReviewed: true, updatedAt: serverTimestamp()
         };
-        // Invoice docs are keyed by phone number — if the phone changed, move the doc to the new key
-        if(newPhone && newPhone !== originalPhone){
-          await setDoc(doc(db,'invoices', newPhone), updates, {merge:true});
+        // Invoice docs are keyed by phone digits, or lowercase email when the
+        // customer has no phone. If the key changed, move the doc to the new key.
+        const newDocKey = newPhone || newEmail.toLowerCase();
+        if(newDocKey && newDocKey !== id){
+          await setDoc(doc(db,'invoices', newDocKey), updates, {merge:true});
           await deleteDoc(doc(db,'invoices', id));
         } else {
           await updateDoc(doc(db,'invoices', id), updates);
         }
         // Sync these fields back to the matching customer record (Routes/jobAddresses)
         let syncedNote = '';
-        const matched = jobAddresses.find(a => (a.data.phone||'').replace(/\D/g,'') === originalPhone);
+        const matched = jobAddresses.find(a => custInvoiceKey(a.data) === id);
         if(matched){
           await updateDoc(doc(db,'jobAddresses', matched.id), {
             name: newName, phone: newPhone, phone2: newPhone2, email2: newEmail2, lightsDescription: newLights
@@ -7151,6 +7153,14 @@ function generatePortalToken(){
   for(let i=0;i<20;i++){ out += chars.charAt(Math.floor(Math.random()*chars.length)); }
   return out;
 }
+/* Invoice doc IDs are the customer's phone digits — or, for customers with no
+   phone, their lowercase primary email. Matches invoiceKeyFor() in
+   functions/index.js; keep the two in sync. */
+function custInvoiceKey(d){
+  const phone = String((d && d.phone) || '').replace(/\D/g,'');
+  if(phone) return phone;
+  return String((d && d.email) || '').toLowerCase().trim();
+}
 function buildFullAddress(street, city, zip){
   var parts = [street];
   if(city) parts.push(city);
@@ -7741,8 +7751,11 @@ document.getElementById('addCustFeet').addEventListener('input', function(){
 });
 
 document.getElementById('addCustPrice').addEventListener('input', function(){
+  // Billing needs a phone OR an email now — only flag the phone as required
+  // when a price is entered and no email is on the form either.
   const anyFilled = Number(document.getElementById('addCustPrice').value) > 0;
-  document.getElementById('phoneRequiredMark').style.display = anyFilled ? 'inline' : 'none';
+  const hasEmail = !!document.getElementById('addCustEmail').value.trim();
+  document.getElementById('phoneRequiredMark').style.display = (anyFilled && !hasEmail) ? 'inline' : 'none';
 });
 async function syncPayerInvoice(payerPhone){
   if(!payerPhone) return;
@@ -7801,8 +7814,9 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
   const wantsBilling = price > 0;
   const statusEl = document.getElementById('routeAddStatus');
 
-  if(wantsBilling && !phone && !billToPhone){
-    statusEl.textContent = 'Add a phone number, or a Bill To phone, to also create the invoice.';
+  const custKey = phone || email.toLowerCase();
+  if(wantsBilling && !custKey && !billToPhone){
+    statusEl.textContent = 'Add a phone number or an email (or a Bill To phone) to also create the invoice.';
     return;
   }
 
@@ -7833,12 +7847,12 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
       await syncPayerInvoice(billToPhone);
       invoiceMsg = ' Billed to ' + billToPhone + ' instead of a separate invoice.';
     } else if(wantsBilling){
-      await setDoc(doc(db,'invoices',phone), {
+      await setDoc(doc(db,'invoices',custKey), {
         name: name, phone: phone, email: email, phone2: phone2, email2: email2,
         lightsDescription: lightsDescription, install: price, removal: 0, deposit: 0,
         status: computeInvoiceStatus(price, 0, 0), priceReviewed: true, updatedAt: serverTimestamp()
       }, {merge:true});
-      invoiceMsg = ' Invoice created too.';
+      invoiceMsg = phone ? ' Invoice created too.' : ' Invoice created too (keyed by email — they log in with their email).';
     }
     if(phone) await syncCustomerToOpenQuote(phone, {name: name, email: email});
     document.getElementById('routeStreetInput').value = '';
@@ -8757,12 +8771,13 @@ function attachAddressRowHandlers(container){
         if(currentPhotoUrl){
           await setDoc(doc(db,'houseMaps',id), {'images.house': currentPhotoUrl}, {merge:true});
         }
-        // Sync these fields to the matching invoice record (invoice doc ID = phone number)
-        const custPhone = (d.phone||'').replace(/\D/g,'');
-        if(custPhone){
-          const invSnap = await getDoc(doc(db,'invoices',custPhone));
+        // Sync these fields to the matching invoice record (invoice doc ID =
+        // phone digits, or lowercase email when the customer has no phone)
+        const custKey = custInvoiceKey(d);
+        if(custKey){
+          const invSnap = await getDoc(doc(db,'invoices',custKey));
           if(invSnap.exists()){
-            await updateDoc(doc(db,'invoices',custPhone), {phone2: newPhone2, email2: newEmail2, lightsDescription: newLights});
+            await updateDoc(doc(db,'invoices',custKey), {phone2: newPhone2, email2: newEmail2, lightsDescription: newLights});
           }
         }
         toast('House details saved');
@@ -9748,15 +9763,15 @@ document.getElementById('deleteAllAddressesBtn').addEventListener('click', async
   for(const item of jobAddresses.slice()){
     statusEl.textContent = 'Deleting ' + (deleted+failed+1) + ' of ' + jobAddresses.length + '…';
     try{
-      const custPhone = (item.data.phone||'').replace(/\D/g,'');
-      if(custPhone){
-        const invSnap = await getDoc(doc(db,'invoices',custPhone));
+      const custKey = custInvoiceKey(item.data);
+      if(custKey){
+        const invSnap = await getDoc(doc(db,'invoices',custKey));
         if(invSnap.exists()){
           const paidAmount = Number(invSnap.data().deposit)||0;
           if(paidAmount > 0){
             await setDoc(doc(db,'settings','financeArchive'), {archivedRevenue: increment(paidAmount)}, {merge:true});
           }
-          await deleteDoc(doc(db,'invoices',custPhone));
+          await deleteDoc(doc(db,'invoices',custKey));
         }
       }
       await deleteDoc(doc(db,'houseMaps',item.id)).catch(function(){ /* fine if there was never a map */ });
@@ -9802,9 +9817,9 @@ function populateAllCustFilterCities(){
   if([...sel.options].some(o => o.value === current)) sel.value = current;
 }
 function allCustInvoiceFor(addrItem){
-  const custPhone = (addrItem.data.phone||'').replace(/\D/g,'');
-  if(!custPhone) return null;
-  return allInvoicesCache.find(i => i.id === custPhone) || null;
+  const key = custInvoiceKey(addrItem.data);
+  if(!key) return null;
+  return allInvoicesCache.find(i => i.id === key) || null;
 }
 function allCustRouteStatus(d){
   if(d.removalDone) return 'Removed';
@@ -9952,8 +9967,10 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const newGateCode = document.getElementById('editCustGateCode').value.trim();
   const newBins = parseInt(document.getElementById('editCustBins').value, 10) || 1;
   const newWantsMailed = document.getElementById('editCustWantsMailed').checked;
-  if(!newName || !newPhone){ statusEl.textContent = 'Name and phone are required.'; return; }
+  if(!newName || (!newPhone && !newEmail)){ statusEl.textContent = 'Name plus a phone number or email are required.'; return; }
   const oldPhone = item.data.phone || '';
+  const oldKey = custInvoiceKey(item.data);
+  const newKey = newPhone || newEmail.toLowerCase();
   const oldBillTo = item.data.billToPhone || '';
   const oldAddress = item.data.address || '';
   statusEl.textContent = 'Saving…';
@@ -9976,14 +9993,18 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     if(!newBillTo){
       if(inv){
         const invoiceUpdates = {name: newName, phone: newPhone, email: newEmail};
-        if(newPhone !== oldPhone){
-          await setDoc(doc(db,'invoices', newPhone), Object.assign({}, inv.data, invoiceUpdates), {merge:true});
-          await deleteDoc(doc(db,'invoices', oldPhone));
+        // The invoice doc ID is the customer key (phone digits, or lowercase
+        // email when there's no phone). If the key changed — phone edited,
+        // phone added to an email-only customer, or their email changed —
+        // move the whole invoice to the new ID so payments stay attached.
+        if(newKey !== oldKey){
+          await setDoc(doc(db,'invoices', newKey), Object.assign({}, inv.data, invoiceUpdates), {merge:true});
+          await deleteDoc(doc(db,'invoices', inv.id));
         } else {
-          await updateDoc(doc(db,'invoices', oldPhone), invoiceUpdates);
+          await updateDoc(doc(db,'invoices', inv.id), invoiceUpdates);
         }
-      } else if(newHousePrice > 0 && newPhone){
-        await setDoc(doc(db,'invoices', newPhone), {
+      } else if(newHousePrice > 0 && newKey){
+        await setDoc(doc(db,'invoices', newKey), {
           name: newName, phone: newPhone, email: newEmail,
           install: newHousePrice, removal: 0, deposit: 0,
           status: computeInvoiceStatus(newHousePrice, 0, 0), priceReviewed: true, updatedAt: serverTimestamp()
