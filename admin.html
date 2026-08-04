@@ -1651,6 +1651,7 @@ Highlighting Utah</textarea>
       <!-- ===== AUTOMATION TABS ===== -->
       <div class="route-tabs" style="margin-bottom:20px;">
         <button type="button" class="route-tab-btn active" data-automationtab="templates">Templates</button>
+        <button type="button" class="route-tab-btn" data-automationtab="invoices">Invoices</button>
         <button type="button" class="route-tab-btn" data-automationtab="emailjs">EmailJS Setup</button>
       </div>
 
@@ -1845,6 +1846,19 @@ Highlighting Utah</textarea>
           <div id="etSendStatus" style="font-size:13px; color:var(--slate); margin-top:8px; text-align:center;"></div>
         </div>
       </div>
+      </div>
+
+      <!-- ===== INVOICES TAB ===== -->
+      <div class="route-tab-panel" id="automationtab-invoices">
+        <div class="card" style="background:#FFF8E9; border-color:var(--gold-dim);">
+          <h3 style="margin-top:0;">See exactly what a customer's invoice looks like</h3>
+          <p style="font-size:13px;">Pick a customer below to see the real, itemized invoice they'll get \u2014 footage, rate, new member fee, and total, pulled live from their actual record. This is exactly what the Nightly Invoice Automation sends, just shown as a real invoice instead of plain email text.</p>
+          <div class="form-row" style="max-width:340px;">
+            <label>Customer</label>
+            <select id="invPreviewMemberSelect"><option value="">-- Choose a customer --</option></select>
+          </div>
+        </div>
+        <div id="invPreviewDoc" style="margin-top:20px;"></div>
       </div>
 
       <!-- ===== EMAILJS TAB ===== -->
@@ -5058,6 +5072,94 @@ function etRenderRecipientList(){
 }
 document.getElementById('etSendTemplateSelect').addEventListener('change', etUpdatePreview);
 document.getElementById('etPreviewMemberSelect').addEventListener('change', etUpdatePreview);
+function invPopulateMemberSelect(){
+  const sel = document.getElementById('invPreviewMemberSelect');
+  if(!sel) return;
+  const currentVal = sel.value;
+  const members = etGetMembers();
+  sel.innerHTML = '<option value="">-- Choose a customer --</option>' +
+    members.map(m => '<option value="'+m.id+'">'+esc(m.data.name||'(no name)')+'</option>').join('');
+  if(members.some(m => m.id === currentVal)) sel.value = currentVal;
+}
+function invUpdatePreview(){
+  const box = document.getElementById('invPreviewDoc');
+  if(!box) return;
+  const memberId = document.getElementById('invPreviewMemberSelect').value;
+  if(!memberId){ box.innerHTML = ''; return; }
+  const member = jobAddresses.find(m => m.id === memberId);
+  if(!member){ box.innerHTML = ''; return; }
+  const d = member.data;
+  const phoneDigits = (d.phone||'').replace(/\D/g,'');
+  const invoiceKey = phoneDigits || (d.email||'').toLowerCase().trim();
+  const invEntry = allInvoicesCache.find(i => i.id === invoiceKey);
+  const inv = invEntry ? invEntry.data : null;
+
+  const feet = Number(d.measuredFeet) || 0;
+  const basePrice = Number(d.housePrice) || 0;
+  const enrollYear = d.createdAt && d.createdAt.toDate ? d.createdAt.toDate().getFullYear() : null;
+  const isNewMember = enrollYear === new Date().getFullYear();
+  const newMemberFeeAlreadyApplied = inv && inv.newMemberFeeApplied;
+  const install = inv ? Number(inv.install)||0 : (basePrice + (isNewMember && !newMemberFeeAlreadyApplied ? 30 : 0));
+  const removal = inv ? Number(inv.removal)||0 : 0;
+  const deposit = inv ? Number(inv.deposit)||0 : 0;
+  const total = install + removal;
+  const status = computeInvoiceStatus(install, removal, deposit);
+  const amountDue = Math.max(0, total - deposit);
+
+  const feetLineLabel = (feet && perFootRate)
+    ? ('Installation service \u2014 ' + feet + ' ft @ ' + fmtMoney(perFootRate) + '/ft')
+    : 'Installation service';
+  const feetLineAmount = fmtMoney(basePrice || (total - (isNewMember && !newMemberFeeAlreadyApplied ? 30 : 0)));
+  const showNewMemberLine = isNewMember && (!inv || newMemberFeeAlreadyApplied || (total - basePrice) === 30);
+
+  const statusColor = status === 'Paid in Full' ? 'var(--dusk)' : (status === 'Partial Payment' ? 'var(--gold-dim)' : 'var(--ember)');
+  const todayNice = fmtDate({toDate: () => new Date()});
+
+  box.innerHTML =
+    '<div style="max-width:640px; background:var(--snow); border:1px solid var(--line); border-radius:14px; padding:32px;">'+
+      '<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:24px; padding-bottom:20px; border-bottom:1px solid var(--line);">'+
+        '<div><h2 style="margin:0 0 4px; color:var(--ink);">Highlighting Utah</h2><p style="font-size:13px; color:var(--slate); margin:0;">Christmas Lights Installation</p></div>'+
+        '<div style="text-align:right;"><p style="font-size:13px; color:var(--slate); margin:0 0 4px;">Invoice for '+new Date().getFullYear()+' season</p><p style="font-size:13px; color:var(--slate); margin:0;">'+esc(todayNice)+'</p></div>'+
+      '</div>'+
+      '<div style="display:grid; grid-template-columns:1fr 1fr; gap:24px; margin-bottom:24px;">'+
+        '<div><p style="font-size:11.5px; color:var(--slate); font-weight:700; text-transform:uppercase; letter-spacing:0.5px; margin:0 0 8px;">Bill to</p>'+
+          '<p style="font-size:15px; font-weight:700; color:var(--ink); margin:0 0 4px;">'+esc(d.name||'(no name)')+'</p>'+
+          '<p style="font-size:13px; color:var(--slate); margin:0;">'+esc(d.address||'')+'</p>'+
+          '<p style="font-size:13px; color:var(--slate); margin:4px 0 0;">'+esc(d.phone||'')+'</p></div>'+
+        '<div><p style="font-size:11.5px; color:var(--slate); font-weight:700; text-transform:uppercase; letter-spacing:0.5px; margin:0 0 8px;">Details</p>'+
+          '<p style="font-size:13px; color:var(--slate); margin:0;">Customer #: '+esc(d.customerNumber||'\u2014')+'</p>'+
+          '<p style="font-size:13px; color:var(--slate); margin:0;">Status: '+(d.completed ? 'Installed' : 'Not yet installed')+'</p>'+
+          (isNewMember ? '<p style="font-size:13px; color:var(--dusk); margin:4px 0 0; font-weight:700;">New member this season</p>' : '')+
+        '</div>'+
+      '</div>'+
+      '<table style="width:100%; border-collapse:collapse; margin-bottom:20px;">'+
+        '<thead><tr style="border-bottom:1px solid var(--line);">'+
+          '<th style="text-align:left; padding:8px 0; font-size:11.5px; color:var(--slate); text-transform:uppercase; letter-spacing:0.5px;">Description</th>'+
+          '<th style="text-align:right; padding:8px 0; font-size:11.5px; color:var(--slate); text-transform:uppercase; letter-spacing:0.5px;">Amount</th>'+
+        '</tr></thead>'+
+        '<tbody>'+
+          '<tr style="border-bottom:1px solid var(--line);"><td style="padding:12px 0; font-size:14px; color:var(--ink);">'+esc(feetLineLabel)+'</td><td style="text-align:right; padding:12px 0; font-size:14px; color:var(--ink);">'+feetLineAmount+'</td></tr>'+
+          (showNewMemberLine ? '<tr style="border-bottom:1px solid var(--line);"><td style="padding:12px 0; font-size:14px; color:var(--ink);">New member installation fee</td><td style="text-align:right; padding:12px 0; font-size:14px; color:var(--ink);">$30</td></tr>' : '')+
+        '</tbody>'+
+      '</table>'+
+      '<div style="display:flex; justify-content:flex-end; margin-bottom:20px;">'+
+        '<div style="width:100%; max-width:260px;">'+
+          '<div style="display:flex; justify-content:space-between; padding:6px 0; font-size:14px; color:var(--slate);"><span>Total</span><span>'+fmtMoney(total)+'</span></div>'+
+          (deposit ? '<div style="display:flex; justify-content:space-between; padding:6px 0; font-size:14px; color:var(--slate);"><span>Paid so far</span><span>'+fmtMoney(deposit)+'</span></div>' : '')+
+          '<div style="display:flex; justify-content:space-between; padding:10px 0 0; margin-top:4px; border-top:1px solid var(--line); font-size:18px; font-weight:700; color:var(--ink);"><span>'+(status === 'Paid in Full' ? 'Amount paid' : 'Amount due')+'</span><span>'+(status === 'Paid in Full' ? fmtMoney(total) : fmtMoney(amountDue))+'</span></div>'+
+        '</div>'+
+      '</div>'+
+      '<div style="background:var(--paper); border-radius:10px; padding:14px 16px;">'+
+        '<p style="font-size:11.5px; color:var(--slate); font-weight:700; text-transform:uppercase; letter-spacing:0.5px; margin:0 0 6px;">Payment status</p>'+
+        '<p style="font-size:14px; margin:0; font-weight:700; color:'+statusColor+';">'+esc(status)+'</p>'+
+      '</div>'+
+      '<div style="margin-top:20px; padding-top:16px; border-top:1px solid var(--line);">'+
+        '<p style="font-size:12px; color:var(--slate); margin:0;">This is what the Nightly Auto-Invoice email sends automatically \u2014 use the button below to print or save it as a PDF.</p>'+
+      '</div>'+
+      '<button type="button" class="btn btn-outline btn-sm" style="margin-top:14px;" onclick="window.print()">Print / Save as PDF</button>'+
+    '</div>';
+}
+document.getElementById('invPreviewMemberSelect')?.addEventListener('change', invUpdatePreview);
 document.getElementById('etRecipientSearch').addEventListener('input', function(){
   etRecipientSearchTerm = this.value.trim();
   etRenderRecipientList();
@@ -9235,6 +9337,8 @@ function loadJobAddresses(){
     if(typeof etPopulateMemberSelect === 'function') etPopulateMemberSelect();
     if(typeof etRenderRecipientList === 'function') etRenderRecipientList();
     if(typeof etUpdatePreview === 'function') etUpdatePreview();
+    if(typeof invPopulateMemberSelect === 'function') invPopulateMemberSelect();
+    if(typeof invUpdatePreview === 'function') invUpdatePreview();
     if(typeof rsvpPopulateMemberSelect === 'function') rsvpPopulateMemberSelect();
     if(typeof rsvpRenderRecipientList === 'function') rsvpRenderRecipientList();
     if(typeof rsvpUpdatePreview === 'function') rsvpUpdatePreview();
