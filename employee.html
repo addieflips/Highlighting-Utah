@@ -633,6 +633,20 @@ async function startAppAs(name){
     homeCards = empData.homeCards || null;
     payType = empData.payType || 'hourly';
     currentIsAdmin = !!empData.isAdmin;
+
+    // Role Templates: if this person follows a template (and hasn't been
+    // individually customized), the template decides what they see. Anyone
+    // without a template keeps their own saved settings exactly as before.
+    if(empData.roleTemplateId && !empData.useCustomAccess){
+      try{
+        const tplSnap = await getDoc(doc(db,'roleTemplates',empData.roleTemplateId));
+        if(tplSnap.exists()){
+          const tpl = tplSnap.data();
+          if(tpl.visibleTabs) visibleTabs = tpl.visibleTabs;
+          homeCards = (tpl.homeCards && Object.keys(tpl.homeCards).length) ? tpl.homeCards : null;
+        }
+      } catch(tplErr){ /* template missing or unreadable — fall back to their own settings */ }
+    }
   } catch(err){
     currentEmployeeRole = 'Crew';
   }
