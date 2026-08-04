@@ -69,8 +69,14 @@
     box-shadow:0 -6px 20px rgba(0,0,0,.06);
   }
   .bottom-nav-btn{
-    flex:1; background:none; border:none; display:flex; flex-direction:column; align-items:center; gap:3px;
-    padding:6px 2px; color:var(--slate); font-size:11px; font-weight:600; position:relative; cursor:pointer;
+    flex:1; min-width:0; background:none; border:none; display:flex; flex-direction:column; align-items:center; gap:3px;
+    padding:6px 1px; color:var(--slate); font-size:11px; font-weight:600; position:relative; cursor:pointer;
+  }
+  .bottom-nav-btn span:not(.bottom-nav-badge){
+    max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  @media (max-width:359px){
+    .bottom-nav-btn{ font-size:10px; }
   }
   .bottom-nav-btn svg{ width:22px; height:22px; stroke:currentColor; }
   .bottom-nav-btn.active{ color:var(--dusk); }
@@ -102,6 +108,22 @@
     display:flex; align-items:center; justify-content:center; padding:0 3px;
   }
   .tab-panel-content{ min-height:50vh; }
+  .tof-cal-head{ display:flex; align-items:center; justify-content:space-between; margin:10px 0; }
+  .tof-cal-head button{
+    background:var(--paper); border:1px solid var(--line); border-radius:8px;
+    padding:6px 12px; font-size:14px; color:var(--ink); cursor:pointer;
+  }
+  .tof-grid{ display:grid; grid-template-columns:repeat(7,1fr); gap:3px; }
+  .tof-dow{ text-align:center; font-size:10px; font-weight:700; color:var(--slate); text-transform:uppercase; padding:2px 0; }
+  .tof-day{
+    aspect-ratio:1; display:flex; align-items:center; justify-content:center;
+    font-size:12.5px; border-radius:8px; border:1px solid transparent; color:var(--ink);
+  }
+  .tof-day.muted{ color:var(--line); }
+  .tof-day.today{ font-weight:800; text-decoration:underline; }
+  .tof-day.approved{ background:var(--dusk); color:#fff; font-weight:700; }
+  .tof-day.pending{ border-color:var(--dusk); border-style:dashed; font-weight:600; }
+  .tof-day.half{ background:linear-gradient(135deg,var(--dusk) 50%,transparent 50%); color:var(--ink); font-weight:700; }
 
   .clock-card{
     background:var(--ink); color:#fff; border-radius:18px; padding:22px; text-align:center; margin-bottom:18px;
@@ -240,6 +262,46 @@
       <div id="adminApprovalsList"></div>
       <div id="adminEmpRequestsList" style="margin-top:16px;"></div>
     </div>
+
+    <div style="margin-top:28px; padding-top:20px; border-top:1px solid var(--line);">
+      <h2 style="font-size:16px;">My Time Off</h2>
+      <p style="font-size:13px; color:var(--slate); margin-top:-8px;">Approved days are shaded. Pending days are outlined.</p>
+      <div class="tof-cal-head">
+        <button type="button" id="tofPrevMonth">&larr;</button>
+        <strong id="tofMonthLabel"></strong>
+        <button type="button" id="tofNextMonth">&rarr;</button>
+      </div>
+      <div id="tofCalendar"></div>
+    </div>
+
+    <div style="margin-top:28px; padding-top:20px; border-top:1px solid var(--line);">
+      <h2 style="font-size:16px;">Submit a Request</h2>
+      <p style="font-size:13px; color:var(--slate); margin-top:-8px;">Needs an admin's approval before it's final.</p>
+      <select id="empRequestType" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px; margin-bottom:8px;">
+        <option value="Day Off">Day Off</option>
+        <option value="Schedule Change">Schedule Change</option>
+        <option value="Supplies">Supplies</option>
+        <option value="Other">Other</option>
+      </select>
+      <div id="empRequestDatesWrap" style="margin-bottom:8px;">
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <label style="flex:1; min-width:130px; font-size:12.5px; color:var(--slate);">First day
+            <input type="date" id="empRequestStartDate" style="width:100%; padding:10px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px; margin-top:4px;">
+          </label>
+          <label style="flex:1; min-width:130px; font-size:12.5px; color:var(--slate);">Last day
+            <input type="date" id="empRequestEndDate" style="width:100%; padding:10px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px; margin-top:4px;">
+          </label>
+        </div>
+        <label style="display:flex; align-items:center; gap:6px; font-size:13px; margin-top:8px;">
+          <input type="checkbox" id="empRequestHalfDay"> Half day only
+        </label>
+        <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Leave the last day blank for a single day.</p>
+      </div>
+      <textarea id="empRequestDesc" rows="2" placeholder="Details..." style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea>
+      <button type="button" class="btn btn-gold" id="sendEmpRequestBtn" style="margin-top:10px;">Submit Request</button>
+      <div id="empRequestStatus" style="font-size:13px; color:var(--slate); margin-top:8px;"></div>
+      <div id="myRequestsList" style="margin-top:16px;"></div>
+    </div>
   </div>
 
   <div class="tab-panel-content" id="tabpanel-route" style="display:none;">
@@ -272,20 +334,6 @@
       <textarea id="checklistNoteInputEmp" rows="2" placeholder="Type a note here..." style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea>
       <button type="button" class="btn btn-gold" id="sendChecklistNoteBtn" style="margin-top:10px;">Send to Office</button>
       <div id="checklistNoteStatus" style="font-size:13px; color:var(--slate); margin-top:8px;"></div>
-    </div>
-    <div style="margin-top:24px; padding-top:20px; border-top:1px solid var(--line);">
-      <h2 style="font-size:16px;">Submit a Request</h2>
-      <p style="font-size:13px; color:var(--slate); margin-top:-8px;">Needs an admin's approval before it's final.</p>
-      <select id="empRequestType" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px; margin-bottom:8px;">
-        <option value="Day Off">Day Off</option>
-        <option value="Schedule Change">Schedule Change</option>
-        <option value="Supplies">Supplies</option>
-        <option value="Other">Other</option>
-      </select>
-      <textarea id="empRequestDesc" rows="2" placeholder="Details..." style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea>
-      <button type="button" class="btn btn-gold" id="sendEmpRequestBtn" style="margin-top:10px;">Submit Request</button>
-      <div id="empRequestStatus" style="font-size:13px; color:var(--slate); margin-top:8px;"></div>
-      <div id="myRequestsList" style="margin-top:16px;"></div>
     </div>
   </div>
 
@@ -386,6 +434,11 @@
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
       <span>Checklist</span>
       <span class="bottom-nav-badge" id="checklistNavBadge" style="display:none;"></span>
+    </button>
+    <button class="bottom-nav-btn" data-tab="clockin" id="timecardNavBtn" style="display:none;">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+      <span>Time Card</span>
+      <span class="bottom-nav-badge" id="timecardNavBadge" style="display:none;"></span>
     </button>
     <button class="bottom-nav-btn" id="moreNavBtn">
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
@@ -522,7 +575,6 @@ async function getCrewForDate(name, dateStr){
 }
 
 const MORE_MENU_ITEMS = [
-  {key:'clockin', tab:'clockin', label:'Time Clock', icon:'<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>'},
   {key:'warehouse', tab:'warehouse', label:'Warehouse', icon:'<path d="M3 9l9-6 9 6v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 21V12h6v9"/>'},
   {key:'addcustomer', tab:'addcustomer', label:'Add a Customer', icon:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/>'},
   {key:'quotes', tab:'quotes', label:'Quotes', icon:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>'},
@@ -535,8 +587,6 @@ const MORE_MENU_ITEMS = [
   {key:'timelogsadmin', tab:'timelogsadmin', label:'Time Logs', icon:'<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>'}
 ];
 function moreItemVisible(key, vt){
-  // Time Clock follows pay type: salary employees never clock in/out.
-  if(key === 'clockin') return currentPayType !== 'salary';
   if(key === 'custmessages') return !!(vt.custmessages || vt.allmessages);
   return !!vt[key];
 }
@@ -659,6 +709,8 @@ async function startAppAs(name){
   document.getElementById('checklistHeading').textContent = isCrew ? "Today's Extra Checklist" : "Today's Checklist";
   document.getElementById('routeNavBtn').style.display = vt.route ? 'flex' : 'none';
   document.getElementById('checklistNavBtn').style.display = vt.checklist ? 'flex' : 'none';
+  // Time Card follows Pay Type, same rule as the clock itself: salary never sees it.
+  document.getElementById('timecardNavBtn').style.display = payType === 'salary' ? 'none' : 'flex';
   buildMoreMenu(vt);
 
   loadMyTimecard();
@@ -691,7 +743,7 @@ document.getElementById('switchPersonBtn').addEventListener('click', function(){
   showWhoScreen();
 });
 
-const TAB_TITLES = {home:'Home', clockin:'Clock In', route:'Today\'s Route', checklist:'Checklist', warehouse:'Warehouse', addcustomer:'Add a Customer', quotes:'Quote Requests', custmessages:'Customer Messages', routesadmin:'Routes', housemaps:'House Maps', responsibilities:'Crew Assignments', financedash:'Dashboard', perfootpricing:'Per Foot Pricing', timelogsadmin:'Time Logs'};
+const TAB_TITLES = {home:'Home', clockin:'Time Card', route:'Today\'s Route', checklist:'Checklist', warehouse:'Warehouse', addcustomer:'Add a Customer', quotes:'Quote Requests', custmessages:'Customer Messages', routesadmin:'Routes', housemaps:'House Maps', responsibilities:'Crew Assignments', financedash:'Dashboard', perfootpricing:'Per Foot Pricing', timelogsadmin:'Time Logs'};
 function switchTab(tabName){
   document.querySelectorAll('.tab-panel-content').forEach(function(p){ p.style.display = 'none'; });
   const panel = document.getElementById('tabpanel-'+tabName);
@@ -801,18 +853,120 @@ document.getElementById('sendEmpRequestBtn').addEventListener('click', async fun
   const descInput = document.getElementById('empRequestDesc');
   const desc = descInput.value.trim();
   const statusEl = document.getElementById('empRequestStatus');
+  const startInput = document.getElementById('empRequestStartDate');
+  const endInput = document.getElementById('empRequestEndDate');
+  const halfInput = document.getElementById('empRequestHalfDay');
+  const wantsDates = requestTypeUsesDates(type);
+  const startDate = startInput.value || '';
+  // A blank end date means a single day, so it mirrors the start.
+  const endDate = endInput.value || startDate;
   if(!desc){ statusEl.textContent = 'Add a few details first.'; return; }
+  if(wantsDates && !startDate){ statusEl.textContent = 'Pick which day you need off.'; return; }
+  if(wantsDates && endDate < startDate){ statusEl.textContent = 'The last day is before the first day.'; return; }
   statusEl.textContent = 'Submitting…';
   try{
-    await addDoc(collection(db,'employeeRequests'), {
+    const payload = {
       employeeName: currentPersonName, type: type, description: desc, status: 'pending', createdAt: serverTimestamp()
-    });
+    };
+    if(wantsDates && startDate){
+      payload.startDate = startDate;
+      payload.endDate = endDate;
+      payload.halfDay = !!halfInput.checked;
+    }
+    await addDoc(collection(db,'employeeRequests'), payload);
     descInput.value = '';
+    startInput.value = '';
+    endInput.value = '';
+    halfInput.checked = false;
     statusEl.textContent = 'Sent — waiting on approval.';
     setTimeout(function(){ statusEl.textContent = ''; }, 4000);
   } catch(err){
     statusEl.textContent = 'Couldn\'t send — check your connection and try again.';
   }
+});
+
+/* ---------------- TIME OFF CALENDAR ---------------- */
+// Only date-based request types show the date pickers; Supplies and Other don't.
+function requestTypeUsesDates(type){
+  return type === 'Day Off' || type === 'Schedule Change';
+}
+function syncRequestDateFields(){
+  const wrap = document.getElementById('empRequestDatesWrap');
+  const type = document.getElementById('empRequestType').value;
+  if(wrap) wrap.style.display = requestTypeUsesDates(type) ? 'block' : 'none';
+}
+document.getElementById('empRequestType').addEventListener('change', syncRequestDateFields);
+syncRequestDateFields();
+
+function tofDateStr(dt){
+  return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');
+}
+function tofPretty(dateStr){
+  if(!dateStr) return '';
+  return new Date(dateStr+'T12:00:00').toLocaleDateString(undefined, {month:'short', day:'numeric'});
+}
+function formatRequestRange(r){
+  if(!r.startDate) return '';
+  const end = r.endDate || r.startDate;
+  const base = (end && end !== r.startDate)
+    ? tofPretty(r.startDate)+' \u2013 '+tofPretty(end)
+    : tofPretty(r.startDate);
+  return base + (r.halfDay ? ' (half day)' : '');
+}
+let tofMonthCursor = new Date();
+let myTimeOffRequests = [];
+function renderTimeOffCalendar(){
+  const grid = document.getElementById('tofCalendar');
+  const label = document.getElementById('tofMonthLabel');
+  if(!grid || !label) return;
+  const year = tofMonthCursor.getFullYear();
+  const month = tofMonthCursor.getMonth();
+  label.textContent = tofMonthCursor.toLocaleDateString(undefined, {month:'long', year:'numeric'});
+
+  // Flatten every approved/pending request into a day-by-day lookup.
+  const dayMap = {};
+  myTimeOffRequests.forEach(function(r){
+    if(!r.startDate) return;
+    if(r.status !== 'approved' && r.status !== 'pending') return;
+    let cur = new Date(r.startDate + 'T12:00:00');
+    const end = new Date((r.endDate || r.startDate) + 'T12:00:00');
+    let guard = 0;
+    while(cur <= end && guard < 400){
+      const key = tofDateStr(cur);
+      // Approved always wins over pending if they overlap.
+      if(dayMap[key] !== 'approved') dayMap[key] = r.status;
+      if(r.halfDay) dayMap[key+'_half'] = true;
+      cur.setDate(cur.getDate()+1);
+      guard++;
+    }
+  });
+
+  const first = new Date(year, month, 1);
+  const startPad = first.getDay();
+  const daysInMonth = new Date(year, month+1, 0).getDate();
+  const todayStr = tofDateStr(new Date());
+  let html = ['S','M','T','W','T','F','S'].map(function(d){
+    return '<div class="tof-dow">'+d+'</div>';
+  }).join('');
+  for(let i=0;i<startPad;i++) html += '<div class="tof-day muted"></div>';
+  for(let d=1; d<=daysInMonth; d++){
+    const key = year+'-'+String(month+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+    const state = dayMap[key];
+    let cls = 'tof-day';
+    if(state === 'approved') cls += dayMap[key+'_half'] ? ' half' : ' approved';
+    else if(state === 'pending') cls += ' pending';
+    if(key === todayStr) cls += ' today';
+    html += '<div class="'+cls+'">'+d+'</div>';
+  }
+  grid.innerHTML = '<div class="tof-grid">'+html+'</div>';
+}
+document.getElementById('tofPrevMonth').addEventListener('click', function(){
+  tofMonthCursor = new Date(tofMonthCursor.getFullYear(), tofMonthCursor.getMonth()-1, 1);
+  renderTimeOffCalendar();
+});
+document.getElementById('tofNextMonth').addEventListener('click', function(){
+  tofMonthCursor = new Date(tofMonthCursor.getFullYear(), tofMonthCursor.getMonth()+1, 1);
+  renderTimeOffCalendar();
 });
 
 /* =========================================================
@@ -1201,17 +1355,23 @@ function loadMyRequests(){
         '<div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">'+
           '<strong style="font-size:13.5px;">'+esc(r.label)+'</strong>'+requestStatusPill(r.status)+
         '</div>'+
+        (r.startDate ? '<div style="font-size:12.5px; color:var(--dusk); font-weight:600; margin-top:3px;">'+esc(formatRequestRange(r))+'</div>' : '')+
         (r.description ? '<div style="font-size:13px; color:var(--slate); margin-top:4px;">'+esc(r.description)+'</div>' : '')+
       '</div>';
     }).join('');
   }
   onSnapshot(q1, function(snap){
     genRequests = [];
+    myTimeOffRequests = [];
     snap.forEach(function(docSnap){
       const d = docSnap.data();
-      genRequests.push({label: d.type || 'Request', description: d.description, status: d.status, createdAt: d.createdAt});
+      genRequests.push({label: d.type || 'Request', description: d.description, status: d.status, createdAt: d.createdAt, startDate: d.startDate || '', endDate: d.endDate || '', halfDay: !!d.halfDay});
+      if(d.startDate){
+        myTimeOffRequests.push({startDate: d.startDate, endDate: d.endDate || d.startDate, halfDay: !!d.halfDay, status: d.status});
+      }
     });
     render();
+    renderTimeOffCalendar();
   });
   onSnapshot(q2, function(snap){
     tcRequests = [];
