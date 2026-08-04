@@ -819,7 +819,11 @@ exports.portalInvoice = onCall({ cors: true }, async (request) => {
   }
 
   if (!authorized && lastName) {
-    await checkRateLimit('invoice_' + key);
+    // Deliberately NOT rate limited. Every route into this function has
+    // already passed through portalLookup's limiter on the guessable
+    // phone/email + last name path, and this runs again on every portal
+    // render — a second limiter here locks customers out of their own
+    // invoice after a handful of ordinary page loads.
     if (nameMatches(data.name, lastName)) authorized = true;
   }
 
