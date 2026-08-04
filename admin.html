@@ -1876,7 +1876,26 @@ Highlighting Utah</textarea>
               <span class="emailjs-save-status" style="font-size:12px; color:var(--slate); margin-top:4px; display:none;"></span>
             </div>
             <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">This second template controls the email you get whenever a customer sends a message through the site (Quick Message, Want a Change to Your Lights, etc.). Set its "To" address to your own inbox in the EmailJS dashboard. Leave blank to skip these notifications.</p>
+            <div class="form-row" style="max-width:340px; margin-top:14px;">
+              <label>EmailJS Private Key (Access Token)</label>
+              <input type="text" id="emailjsPrivateKey" placeholder="xxxxxxxxxxxxxxxx" class="emailjs-auto-save">
+              <span class="emailjs-save-status" style="font-size:12px; color:var(--slate); margin-top:4px; display:none;"></span>
+            </div>
+            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Only needed for the Nightly Invoice Automation below \u2014 it lets our server send email on its own overnight, without your browser open. Find it in EmailJS under Account &gt; Security &gt; Private Key (sometimes called "API Key" or "Access Token"). This is different from the Public Key above.</p>
             <div id="emailjsSettingsStatus" style="font-size:13px; color:var(--slate); margin-top:12px; font-weight:600;"></div>
+          </div>
+          <div class="card" style="background:#FFF8E9; border-color:var(--gold-dim); margin-top:16px;">
+            <h3>Nightly Invoice Automation</h3>
+            <p style="font-size:13px;">Every night at 7:00 PM, this checks that day's completed Install routes and automatically emails an invoice \u2014 the "Nightly Auto-Invoice \u2014 Unpaid" template if they still owe money, or the "Nightly Auto-Invoice \u2014 Paid Receipt" template if they're already paid in full. Houses flagged for a fix, or marked "Didn't Get To" by the crew, are skipped and never billed. Edit either template's wording anytime under Templates &gt; Billing.</p>
+            <label style="display:flex; align-items:center; gap:8px; font-weight:600; cursor:pointer;">
+              <input type="checkbox" id="nightlyInvoiceEnabled" style="width:18px; height:18px;">
+              Send nightly invoice emails automatically
+            </label>
+            <span id="nightlyInvoiceStatus" style="font-size:13px; color:var(--slate); margin-top:8px; display:block;"></span>
+            <div style="margin-top:16px; border-top:1px solid var(--line); padding-top:12px;">
+              <h4 style="margin:0 0 8px;">Last 10 nightly runs</h4>
+              <div id="nightlyInvoiceLog" class="empty-note">Loading…</div>
+            </div>
           </div>
       </div>
       </div>
@@ -3281,6 +3300,19 @@ async function resolveLinkTokens(text, phone, amount, opts){
     out = out.split('{{link}}').join(opts.link);
     out = out.split('{{link_button}}').join('<a href="'+opts.link+'" style="'+btnStyleGold+'">'+(opts.linkLabel || 'View & Respond')+'</a>');
   }
+  if(out.indexOf('{{feet_line}}') !== -1 || out.indexOf('{{new_member_fee_line}}') !== -1 || out.indexOf('{{amount_due}}') !== -1 || out.indexOf('{{amount_paid}}') !== -1){
+    const phoneDigits = (phone||'').replace(/\D/g,'');
+    const cust = jobAddresses.find(a => (a.data.phone||'').replace(/\D/g,'') === phoneDigits);
+    const feet = cust ? Number(cust.data.measuredFeet) || 0 : 0;
+    const basePrice = cust ? Number(cust.data.housePrice) || 0 : 0;
+    const isNewMember = cust && cust.data.createdAt && cust.data.createdAt.toDate ? (cust.data.createdAt.toDate().getFullYear() === new Date().getFullYear()) : false;
+    const feetLine = feet && perFootRate ? ('Installation service \u2014 '+feet+' ft @ '+fmtMoney(perFootRate)+'/ft = '+fmtMoney(basePrice)) : ('Installation service = '+fmtMoney(basePrice));
+    const newMemberLine = isNewMember ? ('New member installation fee = '+fmtMoney(30)) : '';
+    out = out.split('{{feet_line}}').join(feetLine);
+    out = out.split('{{new_member_fee_line}}').join(newMemberLine);
+    out = out.split('{{amount_due}}').join(amount || fmtMoney(basePrice + (isNewMember?30:0)));
+    out = out.split('{{amount_paid}}').join(amount || fmtMoney(basePrice + (isNewMember?30:0)));
+  }
   if(out.indexOf('{{portal_link}}') !== -1 || out.indexOf('{{portal_button}}') !== -1){
     const token = await getOrCreatePortalToken(phone);
     const portalUrl = 'https://highlightingutah.com/#/payment' + (token ? ('?token='+token) : '');
@@ -3366,7 +3398,7 @@ async function buildOutgoingEmailFooter(phone, amount, opts){
   return out;
 }
 // Auto-save EmailJS settings on blur
-const emailjsAutoSaveInputs = ['emailjsServiceId', 'emailjsTemplateId', 'emailjsPublicKey', 'emailjsNotifyTemplateId'];
+const emailjsAutoSaveInputs = ['emailjsServiceId', 'emailjsTemplateId', 'emailjsPublicKey', 'emailjsNotifyTemplateId', 'emailjsPrivateKey'];
 emailjsAutoSaveInputs.forEach(function(inputId){
   const inputEl = document.getElementById(inputId);
   if(!inputEl) return;
@@ -3375,7 +3407,8 @@ emailjsAutoSaveInputs.forEach(function(inputId){
       serviceId: document.getElementById('emailjsServiceId').value.trim(),
       templateId: document.getElementById('emailjsTemplateId').value.trim(),
       publicKey: document.getElementById('emailjsPublicKey').value.trim(),
-      notifyTemplateId: document.getElementById('emailjsNotifyTemplateId').value.trim()
+      notifyTemplateId: document.getElementById('emailjsNotifyTemplateId').value.trim(),
+      privateKey: document.getElementById('emailjsPrivateKey').value.trim()
     };
     try{
       await setDoc(doc(db,'settings','emailjs'), settings, {merge:true});
@@ -3417,7 +3450,47 @@ async function loadEmailjsSettings(){
     if(s.templateId) document.getElementById('emailjsTemplateId').value = s.templateId;
     if(s.publicKey) document.getElementById('emailjsPublicKey').value = s.publicKey;
     if(s.notifyTemplateId) document.getElementById('emailjsNotifyTemplateId').value = s.notifyTemplateId;
+    if(s.privateKey) document.getElementById('emailjsPrivateKey').value = s.privateKey;
   } catch(err){ /* settings not saved yet, fine */ }
+}
+async function loadNightlyInvoiceSettings(){
+  try{
+    const snap = await getDoc(doc(db,'settings','nightlyInvoiceAutomation'));
+    document.getElementById('nightlyInvoiceEnabled').checked = snap.exists() ? !!snap.data().enabled : false;
+  } catch(err){ /* not saved yet, fine */ }
+}
+document.getElementById('nightlyInvoiceEnabled')?.addEventListener('change', async function(){
+  const statusEl = document.getElementById('nightlyInvoiceStatus');
+  try{
+    await setDoc(doc(db,'settings','nightlyInvoiceAutomation'), {enabled: this.checked}, {merge:true});
+    statusEl.textContent = this.checked ? '\u2713 On \u2014 invoices will go out automatically at 7:00 PM' : 'Off \u2014 no automatic invoices will be sent';
+    statusEl.style.color = this.checked ? 'var(--emerald)' : 'var(--slate)';
+  } catch(err){
+    statusEl.textContent = '\u2717 Couldn\'t save \u2014 try again';
+    statusEl.style.color = 'var(--ember)';
+    this.checked = !this.checked;
+  }
+});
+async function loadNightlyInvoiceLog(){
+  const el = document.getElementById('nightlyInvoiceLog');
+  if(!el) return;
+  try{
+    const q = query(collection(db,'nightlyInvoiceLog'), orderBy('runAt','desc'), limit(10));
+    const snap = await getDocs(q);
+    if(snap.empty){ el.innerHTML = '<div class="empty-note">No runs yet \u2014 the first run happens at 7:00 PM once this is deployed and turned on.</div>'; return; }
+    let html = '';
+    snap.forEach(function(d){
+      const r = d.data();
+      const when = r.runAt && r.runAt.toDate ? fmtDate(r.runAt) : (r.dateStr || '');
+      html += '<div style="padding:10px 0; border-bottom:1px solid var(--line); font-size:13px;">'+
+        '<strong>'+esc(when)+'</strong> \u2014 '+(r.sentCount||0)+' invoice(s) sent'+
+        ((r.skippedNeedsFix||0) ? ', '+r.skippedNeedsFix+' skipped (needs fix)' : '')+
+        ((r.skippedNotDone||0) ? ', '+r.skippedNotDone+' skipped (not completed)' : '')+
+        ((r.errorCount||0) ? ', <span style="color:var(--ember);">'+r.errorCount+' error(s)</span>' : '')+
+        '</div>';
+    });
+    el.innerHTML = html;
+  } catch(err){ el.innerHTML = '<div class="empty-note">Log not available yet.</div>'; }
 }
 document.getElementById('loadBulkAutoCopyListBtn')?.addEventListener('click', function(){
   const withEmail = jobAddresses.filter(a => a.data.email);
@@ -4094,6 +4167,8 @@ function initData(){
   loadCcTransactions();
   loadCcRecurringOverrides();
   loadEmailjsSettings();
+  loadNightlyInvoiceSettings();
+  loadNightlyInvoiceLog();
   loadTimecardApprovalsAdmin();
   loadEmployeeRequestsAdmin();
   loadPerFootRate();
@@ -4533,6 +4608,8 @@ const ET_PREBUILT_TEMPLATES = [
   {name:'RSVP Email', folderName:'RSVP', body:'Hi {{name}} \uD83C\uDF84\n\nIt\'s almost time for the Christmas lighting season! Will you be getting lights hung again this year?\n\n{{rsvp_yes_button}}{{rsvp_no_button}}{{rsvp_back_button}}', linkedTokens:[{code:'rsvp_yes_button', style:'button'},{code:'rsvp_no_button', style:'button'},{code:'rsvp_back_button', style:'button'}]},
   {name:'Post-Install Invoice', folderName:'Billing', body:'Hi {{name}},\n\nThanks for having us out \u2014 your lights are up! Your balance for this season is {{amount}}. You can pay through your portal or Venmo using the links below.\n\n{{portal_link}}{{venmo_button}}', linkedTokens:[{code:'portal_link', style:'link'},{code:'venmo_button', style:'button'}]},
   {name:'Already Paid - Say Thanks', folderName:'Billing', body:'Hi {{name}},\n\nYour lights are up! Just confirming we received your payment of {{amount}} for this season \u2014 you\'re all set.\n\n{{message_link}}', linkedTokens:[{code:'message_link', style:'link'}]},
+  {name:'Nightly Auto-Invoice \u2014 Unpaid', folderName:'Billing', body:'Hi {{name}},\n\nThanks for having us out today \u2014 your lights are up!\n\n{{feet_line}}\n{{new_member_fee_line}}\n\nAmount due: {{amount_due}}\n\nYou can pay through your portal or Venmo using the links below.\n\n{{portal_link}}{{venmo_button}}', linkedTokens:[{code:'portal_link', style:'link'},{code:'venmo_button', style:'button'}]},
+  {name:'Nightly Auto-Invoice \u2014 Paid Receipt', folderName:'Billing', body:'Hi {{name}},\n\nYour lights are up! This confirms we\'ve already received your payment in full for this season \u2014 you\'re all set, nothing more to do.\n\n{{feet_line}}\n{{new_member_fee_line}}\n\nAmount paid: {{amount_paid}}\n\nThank you for choosing Highlighting Utah!\n\n{{message_link}}', linkedTokens:[{code:'message_link', style:'link'}]},
   {name:'Quick Announcement', folderName:'Announcements', body:'Hi {{name}} \uD83C\uDF84\n\nIt\'s almost time for the Christmas lighting season! Tap below to update your info, check your balance, or send us a message anytime.\n\n{{portal_link}}{{message_link}}', linkedTokens:[{code:'portal_link', style:'link'},{code:'message_link', style:'link'}]},
   {name:'Quote Ready for Review', folderName:'Quotes', body:'Hi {{name}},\n\nGreat news, your quote is ready! Your quoted price is {{price}}. Let us know if you\'d like to move forward.\n\n{{quote_yes_button}}{{quote_decline_button}}', linkedTokens:[{code:'quote_yes_button', style:'button'},{code:'quote_decline_button', style:'button'}]}
 ];
