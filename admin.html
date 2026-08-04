@@ -257,13 +257,9 @@
   .pill-check input{ width:15px; height:15px; margin:0; flex-shrink:0; }
   .pill-check.checked{ background:var(--ink); color:#fff; border-color:var(--ink); }
 
-  /* House Maps */
-  #hmActiveImg.hm-blueprint{ filter:grayscale(1) contrast(2.1) brightness(1.25); }
-  #addCustPhotoImg.hm-blueprint{ filter:grayscale(1) contrast(2.1) brightness(1.25); }
-  [data-hmtool].hm-tool-active{ background:var(--ink); color:#fff; border-color:var(--ink); }
-  .hm-point{ cursor:grab; }
-  .hm-point:active{ cursor:grabbing; }
-  .hm-strand-swatch{ display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:6px; vertical-align:middle; }
+  /* Blueprint/line-art view toggle on customer + quote photos */
+  .hm-blueprint{ filter:grayscale(1) contrast(2.1) brightness(1.25); }
+
   .dash-stat-label{ font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; color:var(--slate); }
   .dash-stat-value{ font-family:'Fraunces',serif; font-weight:700; font-size:22px; color:var(--ink); margin-top:4px; }
   .fov-bar-row{ display:flex; align-items:center; gap:8px; margin-bottom:8px; font-size:12.5px; }
@@ -273,36 +269,6 @@
   .fov-mini-bar-col{ flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%; }
   .fov-mini-bar{ width:100%; border-radius:4px 4px 0 0; }
   .fov-mini-bar-label{ font-size:9.5px; color:var(--slate); margin-top:4px; }
-  .hm-print-page{ page-break-after:always; }
-  .hm-print-page:last-child{ page-break-after:auto; }
-  .hm-print-grid-full{ display:block; }
-  .hm-print-grid-half{ display:grid; grid-template-rows:1fr 1fr; gap:14px; height:9.5in; }
-  .hm-print-grid-quarter{ display:grid; grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; gap:10px; height:9.5in; }
-  .hm-print-grid-eighth{ display:grid; grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr 1fr 1fr; gap:6px; height:9.5in; }
-  .hm-print-grid-sixteenth{ display:grid; grid-template-columns:1fr 1fr 1fr 1fr; grid-template-rows:1fr 1fr 1fr 1fr; gap:4px; height:9.5in; }
-  .hm-print-block{ overflow:hidden; border-bottom:1px dashed #ccc; padding-bottom:8px; }
-  .hm-print-grid-full .hm-print-block{ border-bottom:none; }
-  .hm-print-block img{ max-height:45%; object-fit:contain; }
-  .hm-print-block table{ font-size:11px; }
-  .hm-print-block h2{ font-size:15px; margin:4px 0; }
-  .hm-print-block h3, .hm-print-block h4{ font-size:12px; margin:6px 0 4px; }
-  .hm-print-grid-eighth .hm-print-block, .hm-print-grid-sixteenth .hm-print-block{ padding-bottom:3px; }
-  .hm-print-grid-eighth .hm-print-block h2{ font-size:11px; margin:2px 0; }
-  .hm-print-grid-eighth .hm-print-block h4{ font-size:9px; margin:3px 0 2px; }
-  .hm-print-grid-eighth .hm-print-block table{ font-size:8px; }
-  .hm-print-grid-sixteenth .hm-print-block h2{ font-size:8px; margin:1px 0; }
-  .hm-print-grid-sixteenth .hm-print-block h4{ font-size:7px; margin:2px 0 1px; }
-  .hm-print-grid-sixteenth .hm-print-block table{ font-size:6px; }
-  @media print{
-    body *{ visibility:hidden; }
-    #hmPrintPreview, #hmPrintPreview *{ visibility:visible; }
-    #hmPrintPreview{ position:absolute; top:0; left:0; width:100%; }
-  }
-  #hmPrintAllPreview{ display:none; }
-  @media print{
-    #hmPrintAllPreview.printing, #hmPrintAllPreview.printing *{ visibility:visible !important; }
-    #hmPrintAllPreview.printing{ display:block !important; position:absolute; top:0; left:0; width:100%; }
-  }
   @media print{
     #cnPrintArea.printing, #cnPrintArea.printing *{ visibility:visible !important; }
     #cnPrintArea.printing{ display:block !important; position:absolute; top:0; left:0; width:100%; }
@@ -639,10 +605,6 @@
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 20l-5.447-2.724A1 1 0 0 1 3 16.382V5.618a1 1 0 0 1 1.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0 0 21 18.382V7.618a1 1 0 0 0-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>
       <span class="nav-label">Routes</span>
     <span class="nav-pin-icon" data-pinpanel="routes" data-pinlabel="Routes" title="Pin to Favorites"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l1 6 3 2v2H5v-2l3-2z"/></svg></span></button>
-    <button class="nav-item" data-panel="housemaps" title="">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z"/><path d="M9 3v15M15 6v15"/></svg>
-      <span class="nav-label">House Maps</span>
-    <span class="nav-pin-icon" data-pinpanel="housemaps" data-pinlabel="House Maps" title="Pin to Favorites"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l1 6 3 2v2H5v-2l3-2z"/></svg></span></button>
     <button class="nav-item" data-panel="responsibilities" title="">
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
       <span class="nav-label">Responsibilities</span>
@@ -1035,6 +997,27 @@
         </div>
       </div>
 
+      <div class="editcust-popup-overlay" id="quoteMarkupOverlay" style="display:none;">
+        <div class="editcust-popup" style="max-width:820px;">
+          <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:19px;">Mark Up Photo</h3>
+          <p style="font-size:12.5px; color:var(--slate); margin:0 0 10px;">Red highlighter drags a box over a section. Yellow pen draws freehand so you can circle things or write a note.</p>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
+            <button type="button" class="btn btn-outline btn-sm qm-tool" data-qmtool="red">Red Highlighter</button>
+            <button type="button" class="btn btn-outline btn-sm qm-tool" data-qmtool="yellow">Yellow Pen</button>
+            <button type="button" class="btn btn-outline btn-sm" id="qmUndoBtn">Undo</button>
+            <button type="button" class="btn btn-outline btn-sm" id="qmClearBtn">Clear All</button>
+          </div>
+          <div id="qmCanvasWrap" style="position:relative; max-width:760px; border:1px solid var(--line); border-radius:10px; overflow:hidden; user-select:none; touch-action:none;">
+            <img id="qmImg" style="width:100%; display:block; pointer-events:none;">
+            <svg id="qmLayer" style="position:absolute; inset:0; width:100%; height:100%; cursor:crosshair;"></svg>
+          </div>
+          <div style="display:flex; gap:10px; align-items:center; margin-top:14px; flex-wrap:wrap;">
+            <button type="button" class="btn btn-gold" id="qmSaveBtn">Save Markup</button>
+            <button type="button" class="btn btn-outline" id="qmCancelBtn">Cancel</button>
+            <span id="qmStatus" style="font-size:13px; color:var(--slate);"></span>
+          </div>
+        </div>
+      </div>
       <div class="editcust-popup-overlay" id="editCustOverlay">
         <div class="editcust-popup">
           <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:19px;">Edit Customer Info</h3>
@@ -1077,6 +1060,11 @@
           <div class="form-row"><label>Gate Code (optional)</label><input type="text" id="editCustGateCode" placeholder="e.g. #4521"></div>
           <div class="form-row" style="max-width:180px;"><label>Number of Bins</label><input type="number" id="editCustBins" min="1" step="1"></div>
           <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin-top:-6px; margin-bottom:16px;"><input type="checkbox" id="editCustWantsMailed" style="width:auto;"> Also wants their invoice mailed (postal mail)</label>
+          <div class="form-row">
+            <label>Layout Map <span style="font-weight:400; color:var(--slate);">(the hand-drawn light plan, scanned &mdash; stays on this house year after year)</span></label>
+            <input type="file" accept="image/*" id="editCustLayoutMapFile">
+            <div id="editCustLayoutMapThumb" style="margin-top:8px;"></div>
+          </div>
           <div style="display:flex; gap:10px; margin-top:16px;">
             <button type="button" class="btn btn-outline" id="editCustCancelBtn" style="flex:1;">Cancel</button>
             <button type="button" class="btn btn-gold" id="editCustSaveBtn" style="flex:1;">Save Changes</button>
@@ -1156,7 +1144,6 @@
         <button class="route-tab-btn active" data-dashtab="overview" draggable="true">Financial Overview</button>
         <button class="route-tab-btn" data-dashtab="invoices" draggable="true">Invoices</button>
         <button class="route-tab-btn" data-dashtab="creditcards" draggable="true">Business Credit Cards</button>
-        <button class="route-tab-btn" data-dashtab="inventory" draggable="true">Inventory</button>
         <button class="route-tab-btn" data-dashtab="rsvpresponses" draggable="true">RSVP Responses</button>
       </div>
 
@@ -1639,39 +1626,6 @@ Highlighting Utah</textarea>
       </div>
 
       <!-- INVENTORY -->
-      <div class="route-tab-panel" id="dashtab-inventory">
-        <div id="inventoryAlerts" style="margin-bottom:16px;"></div>
-        <div class="card" style="margin-bottom:20px;">
-          <h3 style="margin:0 0 10px;">Add Inventory Item</h3>
-          <p class="form-note" style="margin:0 0 10px;">Add anything you want to track &mdash; a light color, clips, wire, ends, sockets, or something else entirely.</p>
-          <div class="form-grid-2">
-            <div class="form-row"><label>Item Name</label><input type="text" id="invItemName" placeholder="e.g. Clips"></div>
-            <div class="form-row"><label>Current Quantity on Hand</label><input type="number" id="invItemQty" min="0" step="1" value="0"></div>
-          </div>
-          <div class="form-grid-2">
-            <div class="form-row"><label>Linked Light Color (optional)</label>
-              <select id="invItemColor">
-                <option value="" selected>Not a light color</option>
-                <option value="Warm White">Warm White</option>
-                <option value="Pure White">Pure White</option>
-                <option value="Red">Red</option>
-                <option value="Green">Green</option>
-                <option value="Blue">Blue</option>
-                <option value="Purple">Purple</option>
-                <option value="Orange">Orange</option>
-                <option value="Pink">Pink</option>
-                <option value="Multi">Multi</option>
-              </select>
-            </div>
-            <div class="form-row"><label>Used Per House Being Built (if not a light color)</label><input type="number" id="invItemPerHouse" min="0" step="1" placeholder="e.g. 40"></div>
-          </div>
-          <div class="form-row" style="max-width:200px;"><label>Safety Buffer %</label><input type="number" id="invItemBuffer" min="0" step="1" value="15"></div>
-          <button type="button" class="btn btn-gold" id="invAddItemBtn">Add Item</button>
-          <span id="invAddItemStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
-        </div>
-        <div id="inventoryList" class="row-list"><div class="empty-note">Loading…</div></div>
-      </div>
-
       <!-- RSVP RESPONSES -->
       <div class="route-tab-panel" id="dashtab-rsvpresponses">
         <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px;" id="dashRsvpStatCards"></div>
@@ -1974,10 +1928,6 @@ Highlighting Utah</textarea>
 
     <div class="panel active" id="panel-quotes">
       <div class="panel-head"><div><h2>Quote Requests</h2><p>Submitted from the homepage address checker and quote form. Click an address to preview it on the map.</p></div></div>
-      <div id="quoteFlaggedBanner" style="display:none; background:#FDECEA; border:1px solid #f0b3ac; border-radius:10px; padding:12px 16px; margin-bottom:16px; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
-        <span style="font-size:13.5px; color:var(--ember); font-weight:600;" id="quoteFlaggedBannerText"></span>
-        <button type="button" class="btn btn-outline btn-sm" id="quoteFlaggedBannerBtn">Review Them Now</button>
-      </div>
       <div id="quoteStageTabs" style="margin-bottom:16px; display:flex; gap:8px; flex-wrap:wrap; border-bottom:1px solid var(--line); padding-bottom:14px;">
         <button type="button" class="btn btn-sm" data-quotestage="new" style="font-weight:700;">New Quotes<span id="quoteStageCountNew" class="folder-count"></span></button>
         <button type="button" class="btn btn-sm" data-quotestage="pricing" style="font-weight:700;">Price the Quote<span id="quoteStageCountPricing" class="folder-count"></span></button>
@@ -1988,8 +1938,7 @@ Highlighting Utah</textarea>
       <div style="margin-bottom:16px; display:flex; gap:10px; flex-wrap:wrap;">
         <select id="quoteFilterSelect" style="border-radius:999px; border:1px solid var(--line); padding:8px 14px; font-size:13.5px; font-weight:600; color:var(--ink); background:var(--snow);">
           <option value="all">All Quotes</option>
-          <option value="flagged">Flagged &mdash; No Front Photo</option>
-        </select>
+          </select>
         <select id="quoteStatusFilterSelect" style="border-radius:999px; border:1px solid var(--line); padding:8px 14px; font-size:13.5px; font-weight:600; color:var(--ink); background:var(--snow);">
           <option value="all">All Statuses</option>
           <option value="new">New</option>
@@ -2458,116 +2407,6 @@ Highlighting Utah</textarea>
               <span id="textOutChevron">&#9662;</span>
             </button>
             <div id="textOutSection" style="display:none; margin-top:14px;"></div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- HOUSE MAPS -->
-    <div class="panel" id="panel-housemaps">
-      <div class="panel-head"><div><h2>House Maps</h2><p>Digital installer maps for strand placement and layout &mdash; saved per customer, year after year. Every customer from Add a Customer / Routes shows up here automatically. (For pricing/quoting, use Per Foot Pricing's Roof Measurement Tool instead.)</p></div></div>
-
-      <!-- LIST VIEW -->
-      <div id="hmListView">
-        <div class="card">
-          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-            <div class="form-row" style="flex:1; min-width:220px;"><input type="text" id="hmSearchInput" placeholder="Search by customer name or address..." style="padding:12px 14px; border-radius:10px; border:1px solid var(--line); background:var(--snow); font-size:14.5px;"></div>
-            <button type="button" class="btn btn-outline btn-sm" id="hmPrintAllBtn">Print All Saved Maps</button>
-          </div>
-          <div class="row-list" id="hmCustomerList" style="margin-top:14px;"><div class="empty-note">Loading…</div></div>
-        </div>
-      </div>
-      <div id="hmPrintAllPreview"></div>
-
-      <!-- EDITOR VIEW -->
-      <div id="hmEditorView" style="display:none;">
-        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:14px;">
-          <button type="button" class="btn btn-outline btn-sm" id="hmBackBtn">&larr; Back to House Maps</button>
-          <div style="display:flex; gap:8px;">
-            <button type="button" class="btn btn-outline btn-sm" id="hmPrevBtn">&larr; Previous House</button>
-            <button type="button" class="btn btn-outline btn-sm" id="hmNextBtn">Next House &rarr;</button>
-          </div>
-        </div>
-
-        <div class="card">
-          <h3 id="hmEditorTitle" style="margin-bottom:4px;">House Map</h3>
-          <p style="font-size:13px; color:var(--slate); margin-top:0;" id="hmEditorSubtitle"></p>
-
-          <div class="form-grid-2" style="max-width:640px;">
-            <div class="form-row">
-              <label>House Photo</label>
-              <input type="file" accept="image/*" id="hmUploadHouse">
-              <div id="hmThumbHouse" style="margin-top:6px;"></div>
-            </div>
-          </div>
-
-          <div style="display:flex; gap:10px; align-items:center; margin:16px 0 14px;">
-            <label style="display:flex; align-items:center; gap:8px; font-size:13px; margin:0;">
-              <input type="checkbox" id="hmDrawingOnlyToggle" style="width:18px; height:18px; cursor:pointer;">
-              <span>Drawing Only (hide photo)</span>
-            </label>
-          </div>
-
-          <div id="hmDrawingArea">
-            <div id="hmToolbar" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px;">
-              <button type="button" class="btn btn-outline btn-sm" data-hmtool="scale">Set Scale</button>
-              <button type="button" class="btn btn-outline btn-sm" data-hmtool="highlight">+ Highlight Section</button>
-              <button type="button" class="btn btn-outline btn-sm" data-hmtool="strand">+ New Strand</button>
-              <button type="button" class="btn btn-outline btn-sm" data-hmtool="structure">+ Structure Line</button>
-              <button type="button" class="btn btn-outline btn-sm" data-hmtool="label">+ Label</button>
-              <button type="button" class="btn btn-outline btn-sm" data-hmtool="note">+ Note</button>
-              <button type="button" class="btn btn-gold btn-sm" id="hmFinishStrandBtn" style="display:none;">Finish Strand</button>
-              <button type="button" class="btn btn-outline btn-sm" id="hmCancelToolBtn" style="display:none;">Cancel</button>
-              <span id="hmToolStatus" style="font-size:12.5px; color:var(--slate);"></span>
-            </div>
-
-            <div id="hmImageWrap" style="position:relative; max-width:640px; border-radius:10px; overflow:hidden; border:1px solid var(--line); user-select:none;">
-              <img id="hmActiveImg" style="width:100%; display:block; pointer-events:none;">
-              <svg id="hmSvgLayer" style="position:absolute; inset:0; width:100%; height:100%; cursor:crosshair;"></svg>
-              <div id="hmEmptyImageNote" class="empty-note" style="display:none;">Upload a House Photo or Front View image above to start drawing.</div>
-            </div>
-
-            <div id="hmInlineForm" style="display:none; background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:12px; margin-top:12px;"></div>
-          </div>
-
-
-
-          <div style="border-top:1px solid var(--line); margin-top:18px; padding-top:16px;">
-            <h4 style="margin:0 0 8px;">Highlighted Sections</h4>
-            <div id="hmHighlightSectionList"></div>
-          </div>
-          <div style="border-top:1px solid var(--line); margin-top:16px; padding-top:16px;">
-            <h4 style="margin:0 0 8px;">Strands <span id="hmStrandTotal" style="font-weight:400; font-size:12.5px; color:var(--slate);"></span></h4>
-            <div id="hmStrandList"></div>
-          </div>
-          <div style="border-top:1px solid var(--line); margin-top:16px; padding-top:16px;">
-            <h4 style="margin:0 0 8px;">Labels</h4>
-            <div id="hmLabelList"></div>
-          </div>
-          <div style="border-top:1px solid var(--line); margin-top:16px; padding-top:16px;">
-            <h4 style="margin:0 0 8px;">Installer Notes</h4>
-            <div id="hmNoteList"></div>
-          </div>
-
-          <div style="margin-top:18px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-            <button type="button" class="btn btn-gold" id="hmSaveBtn">Save House Map</button>
-            <button type="button" class="btn btn-outline" id="hmPrintBtn">Print Installer Map</button>
-            <span id="hmSaveStatus" style="font-size:13px; color:var(--slate);"></span>
-          </div>
-
-          <div id="hmPrintPreview" style="display:none;"></div>
-          <div id="hmPrintControls" style="display:none; align-items:center; gap:14px; flex-wrap:wrap; background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-top:12px;">
-            <label style="display:flex; align-items:center; gap:6px; font-size:13px;">Copies <input type="number" id="hmPrintCopies" value="1" min="1" max="20" style="width:60px; padding:5px 7px; border-radius:6px; border:1px solid var(--line);"></label>
-            <label style="display:flex; align-items:center; gap:6px; font-size:13px;">Print Size
-              <select id="hmPrintSize" style="padding:5px 7px; border-radius:6px; border:1px solid var(--line);">
-                <option value="full">Full Page (1 per sheet)</option>
-                <option value="half" selected>Half Page (2 per sheet)</option>
-                <option value="quarter">Quarter Page (4 per sheet)</option>
-                <option value="eighth">Small (8 per sheet)</option>
-                <option value="sixteenth">Tiny (16 per sheet)</option>
-              </select>
-            </label>
-            <span style="font-size:12px; color:var(--slate);">Copies defaults to the number of lettered sections/strands on this house &mdash; adjust anytime.</span>
           </div>
         </div>
       </div>
@@ -4319,7 +4158,6 @@ function initData(){
   setupEmailTemplateExtras('pibUnpaidTemplateExtras', 'pibUnpaidTemplate');
   setupEmailTemplateExtras('pibPaidTemplateExtras', 'pibPaidTemplate');
   setupEmailTemplateExtras('rsvpEmailTemplateExtras', 'rsvpEmailTemplate', {supportsAmount: false});
-  loadInventory();
   loadScheduledRoutes();
   loadTimeLogs();
   loadEmployeeNames();
@@ -4332,7 +4170,6 @@ function initData(){
   loadExpenses();
   loadFinancialTrackers();
   loadCreditCards();
-  loadHouseMapsIdSet();
   loadCcTransactions();
   loadCcRecurringOverrides();
   loadEmailjsSettings();
@@ -4409,25 +4246,10 @@ function loadQuotes(){
     quotesCache.forEach(function(item){ if((item.data.status||'new') === 'new') newCount++; });
     document.getElementById('badgeQuotes').style.display = newCount ? 'inline-block' : 'none';
     document.getElementById('badgeQuotes').textContent = newCount;
-    const flaggedCount = quotesCache.filter(item => item.data.frontPhotoFlagged && (item.data.status||'new') !== 'closed').length;
-    const banner = document.getElementById('quoteFlaggedBanner');
-    if(flaggedCount){
-      banner.style.display = 'flex';
-      document.getElementById('quoteFlaggedBannerText').textContent = flaggedCount === 1
-        ? '1 quote has no front photo — take a look when you can.'
-        : flaggedCount + ' quotes have no front photo — take a look when you can.';
-    } else {
-      banner.style.display = 'none';
-    }
     populateQuoteColorFilter();
     renderQuotesList();
   });
 }
-document.getElementById('quoteFlaggedBannerBtn').addEventListener('click', function(){
-  document.getElementById('quoteFilterSelect').value = 'flagged';
-  quoteFilter = 'flagged';
-  renderQuotesList();
-});
 function populateQuoteColorFilter(){
   const sel = document.getElementById('quoteColorFilterSelect');
   if(!sel) return;
@@ -4494,7 +4316,6 @@ function renderQuotesList(){
 
   let filtered = quotesCache.filter(item => !isFreshAwaiting(item.data));
   filtered = filtered.filter(item => quoteStage(item.data) === quoteStageFilter);
-  if(quoteFilter === 'flagged') filtered = filtered.filter(item => item.data.frontPhotoFlagged);
   if(quoteStatusFilter !== 'all') filtered = filtered.filter(item => (item.data.status||'new') === quoteStatusFilter);
   if(quoteColorFilter !== 'all') filtered = filtered.filter(item => colorComboKey(item.data.lightColors) === quoteColorFilter);
   if(quoteApprovalFilter !== 'all'){
@@ -4517,7 +4338,7 @@ function renderQuoteRows(filtered){
     const colorCombo = colorComboKey(d.lightColors);
     html += '<div class="row-item">'+
       '<div class="rmain">'+
-        '<div class="row-name-line">'+esc(d.name)+' <span class="status-pill status-'+status+'">'+status+'</span>'+(d.frontPhotoFlagged ? ' <span class="status-pill status-due">&#9888; No Front Photo</span>' : '')+(d.existingCustomerAddressChange ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Existing Customer &mdash; Address Changed</span>' : '')+(d.approvalStatus === 'approved' ? ' <span class="status-pill status-paid">&#10003; Approved</span>' : '')+(d.approvalStatus === 'declined' ? ' <span class="status-pill status-due">Declined</span>' : '')+(isStaleUnresponsive(d) ? ' <span class="status-pill" style="background:#FDECEA; color:#B91C1C; font-weight:700;">&#9200; 10 Day Unresponsive</span>' : '')+'</div>'+
+        '<div class="row-name-line">'+esc(d.name)+' <span class="status-pill status-'+status+'">'+status+'</span>'+(d.existingCustomerAddressChange ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Existing Customer &mdash; Address Changed</span>' : '')+(d.approvalStatus === 'approved' ? ' <span class="status-pill status-paid">&#10003; Approved</span>' : '')+(d.approvalStatus === 'declined' ? ' <span class="status-pill status-due">Declined</span>' : '')+(isStaleUnresponsive(d) ? ' <span class="status-pill" style="background:#FDECEA; color:#B91C1C; font-weight:700;">&#9200; 10 Day Unresponsive</span>' : '')+'</div>'+
         '<button type="button" class="address-link-btn" data-previewquoteaddr="'+esc(d.address)+'">'+esc(d.address)+'</button>'+
         '<div class="row-phone-line">'+esc(d.phone)+' &middot; '+esc(d.email)+' &middot; '+fmtDate(d.createdAt)+'</div>'+
         (d.houseAreas && d.houseAreas.length ? '<div class="rtext" style="margin-top:6px;"><strong>Areas:</strong> '+d.houseAreas.map(esc).join(', ')+'</div>' : '')+
@@ -4526,20 +4347,15 @@ function renderQuoteRows(filtered){
         (d.outletTimer ? '<div class="rtext"><strong>Outlet Timer:</strong> '+esc(d.outletTimer)+'</div>' : '')+
         (d.specificOutlet === 'Yes' ? '<div class="rtext"><strong>Specific Outlet:</strong> Yes'+(d.specificOutletNotes ? ' &mdash; '+esc(d.specificOutletNotes) : '')+'</div>' : '')+
         '<div class="rtext">Prefers: '+esc(d.contactMethod)+(d.notes ? ' &mdash; '+esc(d.notes) : '')+'</div>'+
-        (d.frontPhotoUrl ? '<img src="'+esc(d.frontPhotoUrl)+'" style="max-width:240px; border-radius:8px; border:1px solid var(--line); display:block; margin-top:8px;">' : (d.frontPhotoFlagged ? '<div style="margin-top:8px;">'+
-          '<p style="font-size:12.5px; color:var(--ember); margin:0;">'+(d.frontPhotoFlagReason === 'no_coverage'
-            ? 'Google Street View has no imagery near this address — take a photo yourself when you get a chance.'
-            : d.frontPhotoFlagReason === 'geocode_failed'
-              ? 'Could not locate this address to look up a photo — double check the address, or take a photo yourself.'
-              : 'The photo lookup failed (a temporary issue, not necessarily missing coverage) — try the retry button below.')+'</p>'+
-          '<button type="button" class="btn btn-outline btn-sm" data-retryphoto="'+item.id+'" style="margin-top:6px;">Retry Photo Lookup</button>'+
-          '<span class="retry-photo-status" data-statusfor="'+item.id+'" style="font-size:12px; color:var(--slate); margin-left:8px;"></span>'+
-        '</div>' : ''))+
+        '<div style="margin-top:8px;">'+
+          (d.frontPhotoUrl ? '<img src="'+esc(d.frontPhotoUrl)+'" class="quote-photo-img" data-photofor="'+item.id+'" style="max-width:240px; border-radius:8px; border:1px solid var(--line); display:block; margin-bottom:6px;">' : '')+
+          '<label class="btn btn-outline btn-sm" style="cursor:pointer;">'+(d.frontPhotoUrl ? 'Replace Photo' : 'Add Photo')+'<input type="file" accept="image/*" class="quote-photo-input" data-photofor="'+item.id+'" style="display:none;"></label>'+
+          (d.frontPhotoUrl ? '<button type="button" class="btn btn-outline btn-sm" data-markupphoto="'+item.id+'" style="margin-left:6px;">Mark Up Photo</button>' : '')+
+          '<span class="quote-photo-status" data-statusfor="'+item.id+'" style="font-size:12px; color:var(--slate); margin-left:8px;"></span>'+
+        '</div>'+
         '<div class="form-row" style="margin-top:8px;"><label style="font-size:11.5px;">What Lights Are They Getting?</label><input type="text" class="quoteLightsInput" data-id="'+item.id+'" value="'+esc(d.lightsDescription||'')+'" placeholder="e.g. Full roofline, warm white" style="font-size:13px; padding:8px 10px;"></div>'+
         '<div class="form-row" style="margin-top:8px; max-width:220px;"><label style="font-size:11.5px;">Estimated Feet (for pricing)</label><input type="number" class="quoteFeetInput" data-id="'+item.id+'" min="0" step="0.5" value="'+(d.estimatedFeet||'')+'" placeholder="e.g. 120" style="font-size:13px; padding:8px 10px;"></div>'+
         (d.estimatedFeet ? '<div class="rtext" style="font-weight:600; color:var(--dusk);">Estimated Price: '+(perFootRate ? fmtMoney(d.estimatedFeet*perFootRate) : 'Set a per-foot rate under Finance > Per Foot Pricing first.')+'</div>' : '')+
-        (d.roofMeasurement && d.roofMeasurement.sections && d.roofMeasurement.sections.length ? '<div class="rtext" style="font-size:12px; color:var(--slate);">Roof measurement saved: '+d.roofMeasurement.sections.length+' section(s), '+(d.roofMeasurement.totalFeet||0).toFixed(1)+' ft total</div>' : '')+
-        '<div id="roofmeasurepanel-'+item.id+'" style="display:none; margin-top:12px; padding-top:12px; border-top:1px solid var(--line);"></div>'+
         '<div class="form-row" style="margin-top:8px; max-width:220px;"><label style="font-size:11.5px;">Quoted Price ($) &mdash; what you\'ll ask them to approve</label><input type="number" class="quotePriceInput" data-id="'+item.id+'" min="0" step="1" value="'+(d.quotedPrice != null ? d.quotedPrice : (d.estimatedFeet && perFootRate ? Math.round(d.estimatedFeet*perFootRate) : ''))+'" placeholder="e.g. 450"></div>'+
         '<button type="button" class="btn btn-outline btn-sm" data-getquotelink="'+item.id+'">Get Approval Link</button>'+
         '<div class="quotelink-status" data-statusfor="'+item.id+'" style="font-size:12px; color:var(--slate); margin-top:6px;"></div>'+
@@ -4560,7 +4376,6 @@ function renderQuoteRows(filtered){
         })() : '')+
       '</div>'+
       '<div class="row-actions">'+
-        '<button type="button" class="icon-btn" data-measurequote="'+item.id+'" title="Roof Measurement Tool" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:var(--dusk);">Measure &amp; Price</button>'+
         '<button type="button" class="icon-btn" data-converttocust="'+item.id+'" title="Convert to Customer" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:var(--gold-dim);">Convert to Customer</button>'+
         '<select data-id="'+item.id+'" class="quoteStatusSelect" style="border-radius:8px; border:1px solid var(--line); padding:6px 8px; font-size:12.5px;">'+
           '<option value="new"'+(status==='new'?' selected':'')+'>New</option>'+
@@ -4577,33 +4392,24 @@ function renderQuoteRows(filtered){
       showMapPreviewByAddress('quoteListMap', btn.dataset.previewquoteaddr);
     });
   });
-  list.querySelectorAll('[data-retryphoto]').forEach(function(btn){
-    btn.addEventListener('click', async function(){
-      const id = btn.dataset.retryphoto;
-      const statusEl = list.querySelector('.retry-photo-status[data-statusfor="'+id+'"]');
-      const item = quotesCache.find(q => q.id === id);
-      if(!item) return;
-      const d = item.data;
-      btn.disabled = true;
-      if(statusEl) statusEl.textContent = 'Looking up address…';
+  list.querySelectorAll('.quote-photo-input').forEach(function(input){
+    input.addEventListener('change', async function(){
+      const id = input.dataset.photofor;
+      const file = input.files[0];
+      if(!file) return;
+      const statusEl = list.querySelector('.quote-photo-status[data-statusfor="'+id+'"]');
+      if(statusEl) statusEl.textContent = 'Uploading\u2026';
       try{
-        const fullAddr = d.address || buildFullAddress(d.street, d.city, d.zip);
-        const coords = await geocodeAddress(fullAddr);
-        if(statusEl) statusEl.textContent = 'Checking Street View…';
-        const result = await getStreetViewFrontUrlAdmin(coords.lat, coords.lng);
-        if(result.url){
-          await updateDoc(doc(db,'quotes', id), {frontPhotoUrl: result.url, frontPhotoFlagged: false, frontPhotoFlagReason: null});
-          toast('Front photo found!');
-        } else {
-          await updateDoc(doc(db,'quotes', id), {frontPhotoFlagReason: result.reason || 'no_coverage'});
-          if(statusEl) statusEl.textContent = result.reason === 'no_coverage' ? 'Still no coverage found for this address.' : 'Lookup failed again — try once more later.';
-          btn.disabled = false;
-        }
+        const url = await uploadOneToCloudinary(file);
+        await updateDoc(doc(db,'quotes', id), {frontPhotoUrl: url});
+        if(statusEl) statusEl.textContent = '';
       } catch(err){
-        if(statusEl) statusEl.textContent = 'Could not locate this address.';
-        btn.disabled = false;
+        if(statusEl) statusEl.textContent = 'Upload failed \u2014 try again.';
       }
     });
+  });
+  list.querySelectorAll('[data-markupphoto]').forEach(function(btn){
+    btn.addEventListener('click', function(){ openQuoteMarkup(btn.dataset.markupphoto); });
   });
   list.querySelectorAll('[data-getquotelink]').forEach(function(btn){
     btn.addEventListener('click', async function(){
@@ -4667,17 +4473,6 @@ function renderQuoteRows(filtered){
       } catch(err){
         toast('Something went wrong — try again.');
       }
-    });
-  });
-  list.querySelectorAll('[data-measurequote]').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      const id = btn.dataset.measurequote;
-      const panel = document.getElementById('roofmeasurepanel-'+id);
-      const isOpen = panel.style.display !== 'none';
-      if(isOpen){ panel.style.display = 'none'; return; }
-      const item = quotesCache.find(q => q.id === id);
-      if(item) openRoofMeasureTool(panel, id, item.data);
-      panel.style.display = 'block';
     });
   });
   list.querySelectorAll('[data-converttocust]').forEach(function(btn){
@@ -6230,222 +6025,6 @@ function renderInvoicesList(){
 
 /* ---------------- ROOF MEASUREMENT TOOL (Quotes) ---------------- */
 const RM_COLORS = ['#F4BE55','#E0574B','#2E6B3E','#4338CA','#F97316','#3E7A5B'];
-function openRoofMeasureTool(panel, quoteId, d){
-  const existing = d.roofMeasurement || null;
-  let rmImageUrl = (existing && existing.imageUrl) || d.frontPhotoUrl || '';
-  let rmPxPerFoot = (existing && existing.pxPerFoot) || 0;
-  let rmSections = (existing && existing.sections) ? existing.sections.slice() : [];
-  let rmMode = null;
-  let rmPendingLine = null;
-
-  panel.innerHTML =
-    '<div class="card" style="background:#FFF8E9; border-color:var(--gold-dim);">'+
-      '<h4 style="margin:0 0 8px;">Roof Measurement Tool</h4>'+
-      '<p style="font-size:12.5px; color:var(--slate); margin:0 0 10px;">Upload a house photo, draw a line over something of known length to set your scale, then draw a line along each area to be lit. Feet are calculated automatically but always editable.</p>'+
-      '<input type="file" accept="image/*" class="rm-photo-input">'+
-      '<div class="rm-photo-wrap" style="position:relative; display:'+(rmImageUrl?'block':'none')+'; max-width:480px; margin:10px 0; border-radius:10px; overflow:hidden; border:1px solid var(--line); cursor:crosshair; user-select:none;">'+
-        '<img class="rm-photo-img" src="'+esc(rmImageUrl)+'" style="width:100%; display:block; pointer-events:none;">'+
-        '<svg class="rm-svg-layer" style="position:absolute; inset:0; width:100%; height:100%;"></svg>'+
-      '</div>'+
-      '<div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">'+
-        '<button type="button" class="btn btn-outline btn-sm rm-mode-scale">'+(rmPxPerFoot?'1. Reset Scale':'1. Set Scale')+'</button>'+
-        '<button type="button" class="btn btn-outline btn-sm rm-mode-section"'+(rmPxPerFoot?'':' disabled')+'>2. Add Section</button>'+
-        '<span class="rm-scale-status" style="font-size:12.5px; color:var(--slate);">'+(rmPxPerFoot?('Scale set — about '+rmPxPerFoot.toFixed(1)+' px/ft.'):'')+'</span>'+
-      '</div>'+
-      '<div class="rm-newsection-form" style="display:none; background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:10px;">'+
-        '<div class="form-grid-2">'+
-          '<div class="form-row"><label>Section Label</label><input type="text" class="rm-newsection-label" placeholder="Front of House"></div>'+
-          '<div class="form-row"><label>Feet (auto-calculated, editable)</label><input type="number" class="rm-newsection-feet" min="0" step="0.5"></div>'+
-        '</div>'+
-        '<button type="button" class="btn btn-gold btn-sm rm-newsection-add">Add Section</button>'+
-        '<button type="button" class="btn btn-outline btn-sm rm-newsection-cancel">Cancel</button>'+
-      '</div>'+
-      '<div class="rm-section-list"></div>'+
-      '<div class="rm-totals" style="font-weight:700; margin:10px 0;"></div>'+
-      '<div style="border-top:1px solid var(--line); margin-top:4px; padding-top:12px;">'+
-        '<button type="button" class="btn btn-outline btn-sm rm-ai-btn">Get AI Suggestions (optional)</button>'+
-        '<span class="rm-ai-status" style="font-size:12.5px; color:var(--slate); margin-left:8px;"></span>'+
-        '<div class="rm-ai-result" style="margin-top:8px; font-size:13px;"></div>'+
-      '</div>'+
-      '<button type="button" class="btn btn-gold rm-save-btn" style="margin-top:14px;">Save Measurement &amp; Update Quote Price</button>'+
-      '<span class="rm-save-status" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>'+
-    '</div>';
-
-  const photoWrap = panel.querySelector('.rm-photo-wrap');
-  const photoImg = panel.querySelector('.rm-photo-img');
-  const svgLayer = panel.querySelector('.rm-svg-layer');
-
-  function redrawLines(){
-    svgLayer.innerHTML = rmSections.map(function(s, i){
-      const color = RM_COLORS[i % RM_COLORS.length];
-      const mx = (s.x1+s.x2)/2*100, my = (s.y1+s.y2)/2*100;
-      return '<line x1="'+(s.x1*100)+'%" y1="'+(s.y1*100)+'%" x2="'+(s.x2*100)+'%" y2="'+(s.y2*100)+'%" stroke="'+color+'" stroke-width="3" stroke-linecap="round"/>'+
-        '<text x="'+mx+'%" y="'+my+'%" fill="'+color+'" font-size="12" font-weight="700" text-anchor="middle" dy="-6">'+esc(s.label)+'</text>';
-    }).join('');
-  }
-  function updateTotals(){
-    const totalFeet = rmSections.reduce((s,x) => s + (Number(x.feet)||0), 0);
-    const totalPrice = totalFeet * perFootRate;
-    panel.querySelector('.rm-totals').textContent = rmSections.length ? ('Total: '+totalFeet.toFixed(1)+' ft = '+fmtMoney(totalPrice)) : '';
-  }
-  function renderSectionList(){
-    const listEl = panel.querySelector('.rm-section-list');
-    listEl.innerHTML = rmSections.map(function(s, i){
-      const color = RM_COLORS[i % RM_COLORS.length];
-      return '<div class="row-item" style="padding:8px 12px;">'+
-        '<div class="rmain"><span style="display:inline-block; width:10px; height:10px; background:'+color+'; border-radius:3px; margin-right:6px;"></span>'+esc(s.label)+' &mdash; '+(Number(s.feet)||0)+' ft &times; '+fmtMoney(perFootRate)+'/ft = '+fmtMoney((Number(s.feet)||0)*perFootRate)+'</div>'+
-        '<div class="row-actions"><button type="button" class="icon-btn danger rm-remove-section" data-idx="'+i+'">'+trashIcon()+'</button></div>'+
-      '</div>';
-    }).join('');
-    listEl.querySelectorAll('.rm-remove-section').forEach(function(btn){
-      btn.addEventListener('click', function(){
-        rmSections.splice(Number(btn.dataset.idx), 1);
-        redrawLines(); renderSectionList(); updateTotals();
-      });
-    });
-    updateTotals();
-  }
-  redrawLines();
-  renderSectionList();
-
-  panel.querySelector('.rm-photo-input').addEventListener('change', async function(e){
-    const file = e.target.files[0];
-    if(!file) return;
-    try{
-      const url = await uploadOneToCloudinary(file);
-      rmImageUrl = url;
-      photoImg.src = url;
-      photoWrap.style.display = 'block';
-      toast('Photo uploaded');
-    } catch(err){ toast('Upload failed — try again'); }
-  });
-
-  panel.querySelector('.rm-mode-scale').addEventListener('click', function(){
-    if(!rmImageUrl){ toast('Upload a photo first'); return; }
-    rmMode = 'scale';
-    panel.querySelector('.rm-scale-status').textContent = 'Draw a line over something of known length (like a garage door or window).';
-  });
-  panel.querySelector('.rm-mode-section').addEventListener('click', function(){
-    if(!rmPxPerFoot){ toast('Set a scale first'); return; }
-    rmMode = 'section';
-    panel.querySelector('.rm-scale-status').textContent = 'Draw a line along the area you want to light.';
-  });
-
-  let dragStart = null, dragLineEl = null;
-  photoWrap.addEventListener('mousedown', function(e){
-    if(!rmMode) return;
-    const rect = photoWrap.getBoundingClientRect();
-    dragStart = {xpx: e.clientX-rect.left, ypx: e.clientY-rect.top};
-    dragLineEl = document.createElementNS('http://www.w3.org/2000/svg','line');
-    dragLineEl.setAttribute('stroke', rmMode==='scale' ? '#4338CA' : '#F4BE55');
-    dragLineEl.setAttribute('stroke-width','3');
-    if(rmMode==='scale') dragLineEl.setAttribute('stroke-dasharray','6,4');
-    dragLineEl.setAttribute('x1', dragStart.xpx); dragLineEl.setAttribute('y1', dragStart.ypx);
-    dragLineEl.setAttribute('x2', dragStart.xpx); dragLineEl.setAttribute('y2', dragStart.ypx);
-    svgLayer.appendChild(dragLineEl);
-  });
-  photoWrap.addEventListener('mousemove', function(e){
-    if(!dragStart) return;
-    const rect = photoWrap.getBoundingClientRect();
-    dragLineEl.setAttribute('x2', e.clientX-rect.left);
-    dragLineEl.setAttribute('y2', e.clientY-rect.top);
-  });
-  photoWrap.addEventListener('mouseup', function(e){
-    if(!dragStart) return;
-    const rect = photoWrap.getBoundingClientRect();
-    const xpx = e.clientX-rect.left, ypx = e.clientY-rect.top;
-    const dxpx = xpx-dragStart.xpx, dypx = ypx-dragStart.ypx;
-    const pxDist = Math.sqrt(dxpx*dxpx + dypx*dypx);
-    if(pxDist < 8){
-      dragLineEl.remove(); dragStart = null; dragLineEl = null; return;
-    }
-    const naturalScale = (photoImg.naturalWidth && rect.width) ? (photoImg.naturalWidth/rect.width) : 1;
-    const naturalDist = pxDist * naturalScale;
-    const x1f = dragStart.xpx/rect.width, y1f = dragStart.ypx/rect.height;
-    const x2f = xpx/rect.width, y2f = ypx/rect.height;
-
-    if(rmMode === 'scale'){
-      dragLineEl.remove();
-      const feetStr = prompt('How many feet is this reference line in real life? (e.g. a garage door is about 7 ft tall, 16 ft wide)');
-      const feet = Number(feetStr);
-      if(feet && feet > 0){
-        rmPxPerFoot = naturalDist / feet;
-        panel.querySelector('.rm-scale-status').textContent = 'Scale set — about '+rmPxPerFoot.toFixed(1)+' px/ft. You can now add sections.';
-        panel.querySelector('.rm-mode-scale').textContent = '1. Reset Scale';
-        panel.querySelector('.rm-mode-section').disabled = false;
-      } else {
-        panel.querySelector('.rm-scale-status').textContent = 'Scale not set — try again.';
-      }
-      rmMode = null;
-    } else if(rmMode === 'section'){
-      const autoFeet = rmPxPerFoot ? (naturalDist / rmPxPerFoot) : 0;
-      rmPendingLine = {x1:x1f, y1:y1f, x2:x2f, y2:y2f};
-      dragLineEl.remove();
-      redrawLines();
-      const previewLine = document.createElementNS('http://www.w3.org/2000/svg','line');
-      previewLine.setAttribute('x1', (x1f*100)+'%'); previewLine.setAttribute('y1', (y1f*100)+'%');
-      previewLine.setAttribute('x2', (x2f*100)+'%'); previewLine.setAttribute('y2', (y2f*100)+'%');
-      previewLine.setAttribute('stroke','#F4BE55'); previewLine.setAttribute('stroke-width','3'); previewLine.setAttribute('stroke-dasharray','6,4');
-      svgLayer.appendChild(previewLine);
-
-      const form = panel.querySelector('.rm-newsection-form');
-      form.style.display = 'block';
-      panel.querySelector('.rm-newsection-label').value = 'Section '+(rmSections.length+1);
-      panel.querySelector('.rm-newsection-feet').value = autoFeet ? autoFeet.toFixed(1) : '';
-      rmMode = null;
-    }
-    dragStart = null; dragLineEl = null;
-  });
-
-  panel.querySelector('.rm-newsection-add').addEventListener('click', function(){
-    if(!rmPendingLine) return;
-    const label = panel.querySelector('.rm-newsection-label').value.trim() || ('Section '+(rmSections.length+1));
-    const feet = Number(panel.querySelector('.rm-newsection-feet').value) || 0;
-    rmSections.push(Object.assign({}, rmPendingLine, {label: label, feet: feet, id: 's'+Date.now()}));
-    rmPendingLine = null;
-    panel.querySelector('.rm-newsection-form').style.display = 'none';
-    redrawLines();
-    renderSectionList();
-  });
-  panel.querySelector('.rm-newsection-cancel').addEventListener('click', function(){
-    rmPendingLine = null;
-    panel.querySelector('.rm-newsection-form').style.display = 'none';
-    redrawLines();
-  });
-
-  panel.querySelector('.rm-ai-btn').addEventListener('click', async function(){
-    const statusEl = panel.querySelector('.rm-ai-status');
-    const resultEl = panel.querySelector('.rm-ai-result');
-    resultEl.innerHTML = '';
-    statusEl.textContent = 'Looking up the address…';
-    try{
-      const fullAddr = d.address || buildFullAddress(d.street, d.city, d.zip);
-      const coords = await geocodeAddress(fullAddr);
-      statusEl.textContent = 'Analyzing roof…';
-      const roof = await fetchRoofDetails(coords.lat, coords.lng);
-      statusEl.textContent = '';
-      resultEl.innerHTML = '<strong>AI Suggestion (a guide only — not applied automatically):</strong> about '+roof.peakCount+' roof peak(s), suggested difficulty <strong>'+roof.suggestedDifficulty+'</strong>, roughly '+roof.squareFeet+' sq ft of roof area. Use alongside your manual measurements above.';
-    } catch(err){
-      statusEl.textContent = 'Could not get AI roof data for this address — measure manually above.';
-    }
-  });
-
-  panel.querySelector('.rm-save-btn').addEventListener('click', async function(){
-    const statusEl = panel.querySelector('.rm-save-status');
-    if(!rmImageUrl){ statusEl.textContent = 'Upload a photo first.'; return; }
-    const totalFeet = rmSections.reduce((s,x) => s + (Number(x.feet)||0), 0);
-    const totalPrice = totalFeet * perFootRate;
-    await updateDoc(doc(db,'quotes', quoteId), {
-      roofMeasurement: {
-        imageUrl: rmImageUrl, pxPerFoot: rmPxPerFoot, sections: rmSections,
-        totalFeet: totalFeet, totalPrice: totalPrice, updatedAt: new Date().toISOString()
-      },
-      estimatedFeet: totalFeet
-    });
-    statusEl.textContent = 'Saved!';
-    toast('Roof measurement saved — quote price updated to '+fmtMoney(totalPrice));
-  });
-}
 
 document.getElementById('openInvFilterBtn').addEventListener('click', function(e){
   e.stopPropagation();
@@ -6477,6 +6056,156 @@ document.getElementById('invoiceSearchInput').addEventListener('input', function
   invoiceSearchTerm = this.value.trim();
   renderInvoicesList();
 });
+
+
+/* ---------------- QUOTE PHOTO MARKUP ---------------- */
+/* Red = drag a translucent box over a section. Yellow = freehand pen for
+   circling or writing. Strokes are flattened into the saved image so the crew
+   and the customer both see exactly what was drawn. */
+let qmQuoteId = null;
+let qmTool = 'red';
+let qmShapes = [];
+let qmDrawing = null;
+
+function qmRender(){
+  const layer = document.getElementById('qmLayer');
+  if(!layer) return;
+  layer.innerHTML = qmShapes.concat(qmDrawing ? [qmDrawing] : []).map(function(sh){
+    if(sh.type === 'box'){
+      const x = Math.min(sh.x1, sh.x2)*100, y = Math.min(sh.y1, sh.y2)*100;
+      const w = Math.abs(sh.x2-sh.x1)*100, h = Math.abs(sh.y2-sh.y1)*100;
+      return '<rect x="'+x+'%" y="'+y+'%" width="'+w+'%" height="'+h+'%" fill="rgba(224,87,75,.32)" stroke="#E0574B" stroke-width="2"/>';
+    }
+    const pts = sh.points.map(function(p){ return (p.x*100)+','+(p.y*100); }).join(' ');
+    return '<polyline points="'+pts+'" fill="none" stroke="#F4BE55" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>';
+  }).join('');
+}
+function qmPoint(e){
+  const wrap = document.getElementById('qmCanvasWrap');
+  const r = wrap.getBoundingClientRect();
+  const cx = (e.touches ? e.touches[0].clientX : e.clientX);
+  const cy = (e.touches ? e.touches[0].clientY : e.clientY);
+  return { x: Math.min(1, Math.max(0, (cx-r.left)/r.width)), y: Math.min(1, Math.max(0, (cy-r.top)/r.height)) };
+}
+function qmStart(e){
+  e.preventDefault();
+  const p = qmPoint(e);
+  qmDrawing = qmTool === 'red'
+    ? {type:'box', x1:p.x, y1:p.y, x2:p.x, y2:p.y}
+    : {type:'pen', points:[p]};
+  qmRender();
+}
+function qmMove(e){
+  if(!qmDrawing) return;
+  e.preventDefault();
+  const p = qmPoint(e);
+  if(qmDrawing.type === 'box'){ qmDrawing.x2 = p.x; qmDrawing.y2 = p.y; }
+  else { qmDrawing.points.push(p); }
+  qmRender();
+}
+function qmEnd(){
+  if(!qmDrawing) return;
+  // Ignore accidental taps that didn't actually draw anything
+  const isTinyBox = qmDrawing.type === 'box' && Math.abs(qmDrawing.x2-qmDrawing.x1) < .01 && Math.abs(qmDrawing.y2-qmDrawing.y1) < .01;
+  const isTinyPen = qmDrawing.type === 'pen' && qmDrawing.points.length < 2;
+  if(!isTinyBox && !isTinyPen) qmShapes.push(qmDrawing);
+  qmDrawing = null;
+  qmRender();
+}
+function qmSetTool(tool){
+  qmTool = tool;
+  document.querySelectorAll('.qm-tool').forEach(function(b){
+    const on = b.dataset.qmtool === tool;
+    b.style.background = on ? 'var(--ink)' : '';
+    b.style.color = on ? '#fff' : '';
+  });
+}
+function openQuoteMarkup(quoteId){
+  const item = quotesCache.find(function(q){ return q.id === quoteId; });
+  if(!item || !item.data.frontPhotoUrl) return;
+  qmQuoteId = quoteId;
+  qmShapes = [];
+  qmDrawing = null;
+  document.getElementById('qmImg').src = item.data.frontPhotoUrl;
+  document.getElementById('qmStatus').textContent = '';
+  qmSetTool('red');
+  qmRender();
+  document.getElementById('quoteMarkupOverlay').style.display = 'flex';
+}
+function qmFlattenToBlob(imageUrl){
+  return new Promise(function(resolve){
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = function(){
+      try{
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        qmShapes.forEach(function(sh){
+          if(sh.type === 'box'){
+            const x = Math.min(sh.x1, sh.x2)*canvas.width, y = Math.min(sh.y1, sh.y2)*canvas.height;
+            const w = Math.abs(sh.x2-sh.x1)*canvas.width, h = Math.abs(sh.y2-sh.y1)*canvas.height;
+            ctx.fillStyle = 'rgba(224,87,75,.32)';
+            ctx.fillRect(x, y, w, h);
+            ctx.strokeStyle = '#E0574B';
+            ctx.lineWidth = Math.max(2, canvas.width*.003);
+            ctx.strokeRect(x, y, w, h);
+          } else {
+            ctx.strokeStyle = '#F4BE55';
+            ctx.lineWidth = Math.max(3, canvas.width*.005);
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.beginPath();
+            sh.points.forEach(function(p, i){
+              const px = p.x*canvas.width, py = p.y*canvas.height;
+              if(i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+            });
+            ctx.stroke();
+          }
+        });
+        canvas.toBlob(function(blob){ resolve(blob); }, 'image/png');
+      } catch(err){ resolve(null); }
+    };
+    img.onerror = function(){ resolve(null); };
+    img.src = imageUrl;
+  });
+}
+(function wireQuoteMarkup(){
+  const wrap = document.getElementById('qmCanvasWrap');
+  if(!wrap) return;
+  wrap.addEventListener('mousedown', qmStart);
+  wrap.addEventListener('mousemove', qmMove);
+  window.addEventListener('mouseup', qmEnd);
+  wrap.addEventListener('touchstart', qmStart, {passive:false});
+  wrap.addEventListener('touchmove', qmMove, {passive:false});
+  wrap.addEventListener('touchend', qmEnd);
+  document.querySelectorAll('.qm-tool').forEach(function(b){
+    b.addEventListener('click', function(){ qmSetTool(b.dataset.qmtool); });
+  });
+  document.getElementById('qmUndoBtn').addEventListener('click', function(){ qmShapes.pop(); qmRender(); });
+  document.getElementById('qmClearBtn').addEventListener('click', function(){ qmShapes = []; qmRender(); });
+  document.getElementById('qmCancelBtn').addEventListener('click', function(){
+    document.getElementById('quoteMarkupOverlay').style.display = 'none';
+  });
+  document.getElementById('qmSaveBtn').addEventListener('click', async function(){
+    const statusEl = document.getElementById('qmStatus');
+    if(!qmShapes.length){ statusEl.textContent = 'Nothing drawn yet.'; return; }
+    statusEl.textContent = 'Saving\u2026';
+    try{
+      const item = quotesCache.find(function(q){ return q.id === qmQuoteId; });
+      const blob = await qmFlattenToBlob(item.data.frontPhotoUrl);
+      if(!blob){ statusEl.textContent = 'Could not save the markup \u2014 try again.'; return; }
+      const url = await uploadOneToCloudinary(blob);
+      await updateDoc(doc(db,'quotes', qmQuoteId), {frontPhotoUrl: url});
+      document.getElementById('quoteMarkupOverlay').style.display = 'none';
+      toast('Markup saved');
+    } catch(err){
+      statusEl.textContent = 'Could not save the markup \u2014 try again.';
+    }
+  });
+})();
 
 /* ---------------- DASHBOARD & EXPENSES ---------------- */
 function fmtLogTimeAdmin(ts){
@@ -8196,7 +7925,6 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
       scheduled: false, createdAt: serverTimestamp(), housePrice: price, measuredFeet: measuredFeet, gateCode: gateCode, wantsMailedInvoice: wantsMailedInvoice, numberOfBins: numberOfBins
     }, billingElsewhere ? {billToPhone: billToPhone} : {}));
     if(addCustPhotoUrl){
-      await setDoc(doc(db,'houseMaps',newAddrRef.id), {'images.house': addCustPhotoUrl}, {merge:true});
     }
     let invoiceMsg = '';
     if(wantsBilling && billingElsewhere){
@@ -8531,7 +8259,7 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
       return;
     }
   }
-  let added = 0, updated = 0, failed = 0, billed = 0, noPhoneNoInvoice = 0;
+  let added = 0, updated = 0, failed = 0, billed = 0, noPhoneNoInvoice = 0, noPin = 0;
   for(let i = 0; i < streets.length; i++){
     statusEl.textContent = 'Locating ' + (i+1) + ' of ' + streets.length + '…';
     const street = streets[i];
@@ -8552,10 +8280,26 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
     const price = amountTypedIn ? Number(amountTypedIn.replace(/[,$]/g,'')) : null;
     try{
       const fullAddress = buildFullAddress(street, city, zip);
-      const coords = await geocodeAddress(fullAddress);
-      const existing = findExistingAddressMatch(street, phone);
+      // Google throttles long runs with OVER_QUERY_LIMIT. A pin we can't find is
+      // never a reason to lose the customer — add them anyway and flag the pin
+      // so it can be fixed from the customer list afterward.
+      let coords = null;
+      for(let attempt = 0; attempt < 3 && !coords; attempt++){
+        try{
+          coords = await geocodeAddress(fullAddress);
+        } catch(geoErr){
+          if(String(geoErr && geoErr.message).indexOf('OVER_QUERY_LIMIT') !== -1){
+            await new Promise(function(r){ setTimeout(r, 600 * (attempt + 1)); });
+          } else {
+            break;
+          }
+        }
+      }
+      if(!coords){ coords = {lat: null, lng: null}; noPin++; }
+      const existing = findExistingAddressMatch(street, phone, city, zip);
       if(existing){
-        const updates = { street: street, city: city, state: state, zip: zip, address: fullAddress, lat: coords.lat, lng: coords.lng };
+        const updates = { street: street, city: city, state: state, zip: zip, address: fullAddress };
+        if(coords.lat !== null){ updates.lat = coords.lat; updates.lng = coords.lng; updates.needsGeocode = false; }
         if(name) updates.name = name;
         if(phone) updates.phone = phone;
         if(email) updates.email = email;
@@ -8576,6 +8320,7 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
           installPreference: installPref || 'Normal Schedule',
           portalToken: generatePortalToken(),
           lat: coords.lat, lng: coords.lng,
+          needsGeocode: coords.lat === null,
           scheduled: false, createdAt: enrolledDate || serverTimestamp()
         });
         added++;
@@ -8608,7 +8353,7 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
       failed++;
     }
   }
-  statusEl.textContent = added + ' added, ' + updated + ' updated' + (billed ? ', ' + billed + ' invoice(s) billed' : '') + (noPhoneNoInvoice ? ', ' + noPhoneNoInvoice + ' amount(s) skipped (no phone on file)' : '') + (failed ? ', ' + failed + ' failed' : '') + '.';
+  statusEl.textContent = streets.length + ' row(s) read \u2014 ' + added + ' added, ' + updated + ' updated' + (billed ? ', ' + billed + ' invoice(s) billed' : '') + (noPhoneNoInvoice ? ', ' + noPhoneNoInvoice + ' amount(s) skipped (no phone on file)' : '') + (noPin ? ', ' + noPin + ' added without a map pin (search "Needs Pin" in the customer list to fix)' : '') + (failed ? ', ' + failed + ' failed' : '') + '.';
   rbAreaIds.forEach(function(id){ document.getElementById(id).value = ''; });
   wireBulkCounts(rbAreaIds, 'rbStreetsArea', rbCountIds)();
 });
@@ -9139,7 +8884,6 @@ function attachAddressRowHandlers(container){
         if(diffSelect) updates.difficulty = diffSelect.value;
         await updateDoc(doc(db,'jobAddresses',id), updates);
         if(currentPhotoUrl){
-          await setDoc(doc(db,'houseMaps',id), {'images.house': currentPhotoUrl}, {merge:true});
         }
         // Sync these fields to the matching invoice record (invoice doc ID =
         // phone digits, or lowercase email when the customer has no phone)
@@ -9487,12 +9231,10 @@ function loadJobAddresses(){
     renderOverviewMap();
     updateFixAvailableCount();
     if(typeof updateMemberExportCount === 'function') updateMemberExportCount();
-    if(typeof hmRenderCustomerList === 'function') hmRenderCustomerList();
     if(currentRouteStops.length && typeof renderRouteOrderedList === 'function') renderRouteOrderedList(currentRouteStops);
     if(typeof renderWarehouseQueue === 'function') renderWarehouseQueue();
     if(typeof renderWarehouseRecycleQueue === 'function') renderWarehouseRecycleQueue();
     if(typeof renderCustomerNumbersPanel === 'function') renderCustomerNumbersPanel();
-    if(typeof renderInventoryList === 'function') renderInventoryList();
     if(typeof renderDashRsvpPanel === 'function') renderDashRsvpPanel();
     if(typeof etPopulateMemberSelect === 'function') etPopulateMemberSelect();
     if(typeof etRenderRecipientList === 'function') etRenderRecipientList();
@@ -9510,10 +9252,8 @@ function loadWarehouseExtras(){
     warehouseExtras = [];
     snap.forEach(function(docSnap){ warehouseExtras.push({ id: docSnap.id, data: docSnap.data() }); });
     if(typeof renderWarehouseQueue === 'function') renderWarehouseQueue();
-    if(typeof renderInventoryList === 'function') renderInventoryList();
   });
 }
-let inventoryCache = [];
 
 /* ---------------- CUSTOMER NUMBERS ---------------- */
 let availableCustomerNumbers = [];
@@ -9623,13 +9363,6 @@ document.getElementById('cnPrintByNameBtn').addEventListener('click', function()
   const numbered = jobAddresses.filter(item => item.data.customerNumber).sort((a,b) => (a.data.name||'').localeCompare(b.data.name||''));
   cnPrint(numbered, 'Customer Numbers — Sorted by Name');
 });
-function loadInventory(){
-  onSnapshot(collection(db,'inventoryItems'), function(snap){
-    inventoryCache = [];
-    snap.forEach(function(docSnap){ inventoryCache.push({ id: docSnap.id, data: docSnap.data() }); });
-    renderInventoryList();
-  });
-}
 let savedEmailTemplatesCache = [];
 function loadSavedEmailTemplates(){
   onSnapshot(query(collection(db,'savedEmailTemplates'), orderBy('createdAt','desc')), function(snap){
@@ -9779,63 +9512,6 @@ function computePendingHouseCount(){
   warehouseExtras.forEach(function(item){ total += Number(item.data.quantity)||0; });
   return total;
 }
-function renderInventoryList(){
-  const list = document.getElementById('inventoryList');
-  const alertsEl = document.getElementById('inventoryAlerts');
-  if(!list) return;
-  const colorDemand = computeColorDemand();
-  const pendingHouses = computePendingHouseCount();
-  const alerts = [];
-  let html = '';
-  inventoryCache.forEach(function(item){
-    const d = item.data;
-    const buffer = 1 + ((Number(d.bufferPercent)||0)/100);
-    let needed = 0;
-    if(d.linkedColor){
-      needed = Math.ceil((colorDemand[d.linkedColor]||0) * buffer);
-    } else if(d.perHouseUsage){
-      needed = Math.ceil(pendingHouses * Number(d.perHouseUsage) * buffer);
-    }
-    const onHand = Number(d.quantityOnHand)||0;
-    const short = needed > onHand;
-    if(short) alerts.push({name: d.name, onHand: onHand, needed: needed});
-    html += '<div class="row-item">'+
-      '<div class="rmain">'+
-        '<h4 style="margin:0;">'+esc(d.name)+(d.linkedColor ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">'+esc(d.linkedColor)+'</span>' : '')+(short ? ' <span class="status-pill status-due">&#9888; Need More</span>' : ' <span class="status-pill status-paid">&#10003; OK</span>')+'</h4>'+
-        '<div class="rtext">On hand: '+onHand+(needed ? ' &middot; Needed (with buffer): '+needed : '')+'</div>'+
-      '</div>'+
-      '<div class="row-actions">'+
-        '<input type="number" class="invqtyinput" data-id="'+item.id+'" value="'+onHand+'" min="0" step="1" style="width:80px; padding:6px 8px; border-radius:8px; border:1px solid var(--line);">'+
-        '<button type="button" class="btn btn-outline btn-sm" data-invsave="'+item.id+'">Update</button>'+
-        '<button class="icon-btn danger" data-invdelete="'+item.id+'">'+trashIcon()+'</button>'+
-      '</div>'+
-    '</div>';
-  });
-  list.innerHTML = html || '<div class="empty-note">No inventory items yet — add one above.</div>';
-
-  if(alerts.length){
-    alertsEl.innerHTML = '<div style="background:#FDECEA; border:1px solid #f0b3ac; border-radius:10px; padding:14px 16px;">'+
-      '<strong style="color:#8a3b32;">&#9888; Running low:</strong> '+
-      alerts.map(function(a){ return esc(a.name)+' (have '+a.onHand+', need '+a.needed+')'; }).join(' &middot; ')+
-    '</div>';
-  } else if(alertsEl){
-    alertsEl.innerHTML = '';
-  }
-
-  list.querySelectorAll('[data-invsave]').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      const id = btn.dataset.invsave;
-      const input = list.querySelector('.invqtyinput[data-id="'+id+'"]');
-      updateDoc(doc(db,'inventoryItems', id), {quantityOnHand: Number(input.value)||0}).catch(function(){});
-    });
-  });
-  list.querySelectorAll('[data-invdelete]').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      if(!confirm('Remove this inventory item?')) return;
-      deleteDoc(doc(db,'inventoryItems', btn.dataset.invdelete)).catch(function(){});
-    });
-  });
-}
 let dashRsvpFilter = 'all';
 let dashRsvpSearchTerm = '';
 let dashRsvpFilterGateCode = 'all';
@@ -9910,32 +9586,6 @@ document.getElementById('dashRsvpFilterGateCode').addEventListener('change', fun
 document.getElementById('dashRsvpFilterPayment').addEventListener('change', function(){
   dashRsvpFilterPayment = this.value;
   renderDashRsvpPanel();
-});
-document.getElementById('invAddItemBtn').addEventListener('click', async function(){
-  const statusEl = document.getElementById('invAddItemStatus');
-  const name = document.getElementById('invItemName').value.trim();
-  const qty = Number(document.getElementById('invItemQty').value) || 0;
-  const color = document.getElementById('invItemColor').value;
-  const perHouse = Number(document.getElementById('invItemPerHouse').value) || 0;
-  const bufferInput = Number(document.getElementById('invItemBuffer').value);
-  if(!name){ statusEl.textContent = 'Enter an item name.'; return; }
-  statusEl.textContent = 'Adding…';
-  try{
-    await addDoc(collection(db,'inventoryItems'), {
-      name: name, quantityOnHand: qty, linkedColor: color || null,
-      perHouseUsage: perHouse || null, bufferPercent: (isNaN(bufferInput) ? 15 : bufferInput),
-      createdAt: serverTimestamp()
-    });
-    document.getElementById('invItemName').value = '';
-    document.getElementById('invItemQty').value = 0;
-    document.getElementById('invItemColor').value = '';
-    document.getElementById('invItemPerHouse').value = '';
-    document.getElementById('invItemBuffer').value = 15;
-    statusEl.textContent = 'Added!';
-    setTimeout(function(){ statusEl.textContent = ''; }, 1500);
-  } catch(err){
-    statusEl.textContent = 'Something went wrong — try again.';
-  }
 });
 function renderWarehouseQueue(){
   const list = document.getElementById('warehouseQueueList');
@@ -10111,13 +9761,29 @@ document.getElementById('wantFixAll').addEventListener('change', function(){
 function normalizeStreetForMatch(s){
   return (s||'').toLowerCase().trim().replace(/[.,#]/g,'').replace(/\s+/g,' ');
 }
-function findExistingAddressMatch(street, phone){
+function findExistingAddressMatch(street, phone, city, zip){
+  // A duplicate is the SAME HOUSE, not just the same street text. Utah County
+  // repeats street names constantly (Main St, Center St, 100 N) across cities,
+  // and families share one phone across two different houses. Matching on either
+  // one alone silently merged separate customers during bulk import.
   const normStreet = normalizeStreetForMatch(street);
+  if(!normStreet) return undefined;
+  const normCity = normalizeStreetForMatch(city);
+  const normZip = (zip||'').replace(/\D/g,'').slice(0,5);
   const phoneDigits = (phone||'').replace(/\D/g,'');
   return jobAddresses.find(function(item){
-    if(phoneDigits && item.data.phone && item.data.phone === phoneDigits) return true;
     const existingStreet = normalizeStreetForMatch(item.data.street || (item.data.address||'').split(',')[0]);
-    return existingStreet && existingStreet === normStreet;
+    if(!existingStreet || existingStreet !== normStreet) return false;
+    // Street matches — now confirm it's really the same house.
+    const existingCity = normalizeStreetForMatch(item.data.city);
+    const existingZip = (item.data.zip||'').replace(/\D/g,'').slice(0,5);
+    if(normCity && existingCity && normCity !== existingCity) return false;
+    if(normZip && existingZip && normZip !== existingZip) return false;
+    // If neither side gave us a city or zip to compare, fall back to the phone.
+    if(!(normCity && existingCity) && !(normZip && existingZip)){
+      if(phoneDigits && item.data.phone) return item.data.phone === phoneDigits;
+    }
+    return true;
   });
 }
 
@@ -10146,7 +9812,6 @@ document.getElementById('deleteAllAddressesBtn').addEventListener('click', async
           await deleteDoc(doc(db,'invoices',custKey));
         }
       }
-      await deleteDoc(doc(db,'houseMaps',item.id)).catch(function(){ /* fine if there was never a map */ });
       await deleteDoc(doc(db,'jobAddresses',item.id));
       deleted++;
     } catch(err){
@@ -10170,13 +9835,9 @@ setupDraggableTabBar('custSectionTabs', 'custtab', 'huCustTabOrder', function(ta
   if(tabName === 'all') renderAllCustomersTable();
 });
 
-let houseMapsIdSet = new Set();
 function loadHouseMapsIdSet(){
-  onSnapshot(collection(db,'houseMaps'), function(snap){
-    houseMapsIdSet = new Set();
-    snap.forEach(d => houseMapsIdSet.add(d.id));
-    if(document.getElementById('custtab-all') && document.getElementById('custtab-all').classList.contains('active')) renderAllCustomersTable();
-  });
+  /* House Maps was retired. Dad's scanned hand-drawn layout now lives directly on
+     the customer record as layoutMapUrl, so there's no separate collection to watch. */
 }
 
 let allCustSortCol = 'name', allCustSortDir = 1;
@@ -10217,7 +9878,7 @@ function renderAllCustomersTable(){
     const d = item.data;
     const inv = allCustInvoiceFor(item);
     const invStatus = inv ? computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit) : null;
-    const hasMap = houseMapsIdSet.has(item.id);
+    const hasMap = !!d.layoutMapUrl;
     const enrolled = memberExportDateAdded(d);
     return {item, d, inv, invStatus, hasMap, enrolled, routeStatus: allCustRouteStatus(d)};
   });
@@ -10265,7 +9926,7 @@ function renderAllCustomersTable(){
     const rsvpColor = r.d.rsvpStatus === 'yes' ? '#2E6B3E' : (r.d.rsvpStatus === 'no' ? '#E0574B' : (r.d.rsvpStatus === 'backnextyear' ? '#D89F3D' : 'var(--slate)'));
     const routeCell = '<span class="status-pill diff-'+(r.d.difficulty||'Unrated')+'">'+(r.d.difficulty||'Unrated')+'</span><br><span style="font-size:11.5px; color:var(--slate);">'+r.routeStatus+'</span><br><span style="font-size:11px; color:'+rsvpColor+'; font-weight:600;">'+rsvpLabel+'</span>';
     const timingLabel = r.d.installPreference === 'November - Before Thanksgiving' ? 'November — Before Thanksgiving' : (r.d.installPreference === 'Normal Schedule' || !r.d.installPreference ? 'Any' : r.d.installPreference);
-    const mapCell = r.hasMap ? '<button type="button" class="btn btn-outline btn-sm" data-openmapfor="'+r.item.id+'">View Map</button>' : '<span style="color:var(--slate); font-size:12px;">No map yet</span>';
+    const mapCell = r.hasMap ? '<a class="btn btn-outline btn-sm" href="'+esc(r.d.layoutMapUrl)+'" target="_blank" rel="noopener">View Map</a>' : '<span style="color:var(--slate); font-size:12px;">No map yet</span>';
     const binBadge = (r.d.numberOfBins && r.d.numberOfBins > 1) ? ' <span style="display:inline-block; background:#EAF1FA; color:#2B5C8A; border:1px solid #C3D8EC; border-radius:999px; padding:1px 8px; font-size:11px; font-weight:600; vertical-align:middle;">'+r.d.numberOfBins+' bins</span>' : '';
     return '<tr style="border-bottom:1px solid var(--line);">'+
       '<td style="padding:8px 10px;"><strong>'+esc(r.d.name||'(no name)')+'</strong>'+binBadge+'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.address||'')+'</span>'+(r.d.phone?'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.phone)+'</span>':'')+'</td>'+
@@ -10277,12 +9938,6 @@ function renderAllCustomersTable(){
       '<td style="padding:8px 10px;"><button type="button" class="icon-btn" data-editcust="'+r.item.id+'" title="Edit Personal Info">'+editIcon()+'</button></td>'+
     '</tr>';
   }).join('');
-  body.querySelectorAll('[data-openmapfor]').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      document.querySelector('.nav-item[data-panel="housemaps"]').click();
-      setTimeout(function(){ if(typeof hmOpenEditor === 'function') hmOpenEditor(btn.dataset.openmapfor); }, 100);
-    });
-  });
   body.querySelectorAll('[data-editcust]').forEach(function(btn){
     btn.addEventListener('click', function(){
       openEditCustomerModal(btn.dataset.editcust);
@@ -10311,9 +9966,38 @@ function openEditCustomerModal(id){
   document.getElementById('editCustGateCode').value = d.gateCode || '';
   document.getElementById('editCustBins').value = d.numberOfBins || 1;
   document.getElementById('editCustWantsMailed').checked = !!d.wantsMailedInvoice;
+  editCustLayoutMapUrl = d.layoutMapUrl || '';
+  document.getElementById('editCustLayoutMapFile').value = '';
+  renderEditCustLayoutMapThumb();
   document.getElementById('editCustStatus').textContent = '';
   document.getElementById('editCustOverlay').style.display = 'flex';
 }
+let editCustLayoutMapUrl = '';
+function renderEditCustLayoutMapThumb(){
+  const wrap = document.getElementById('editCustLayoutMapThumb');
+  if(!wrap) return;
+  if(!editCustLayoutMapUrl){
+    wrap.innerHTML = '<span style="font-size:12.5px; color:var(--slate);">No layout map saved yet.</span>';
+    return;
+  }
+  wrap.innerHTML = '<a href="'+esc(editCustLayoutMapUrl)+'" target="_blank" rel="noopener"><img src="'+esc(editCustLayoutMapUrl)+'" style="max-width:220px; border-radius:8px; border:1px solid var(--line); display:block;"></a>'+
+    '<button type="button" class="btn btn-outline btn-sm" id="editCustLayoutMapRemove" style="margin-top:6px;">Remove Map</button>';
+  const rm = document.getElementById('editCustLayoutMapRemove');
+  if(rm) rm.addEventListener('click', function(){ editCustLayoutMapUrl = ''; renderEditCustLayoutMapThumb(); });
+}
+document.getElementById('editCustLayoutMapFile').addEventListener('change', async function(e){
+  const file = e.target.files[0];
+  if(!file) return;
+  const wrap = document.getElementById('editCustLayoutMapThumb');
+  wrap.innerHTML = '<span style="font-size:12.5px; color:var(--slate);">Uploading\u2026</span>';
+  try{
+    editCustLayoutMapUrl = await uploadOneToCloudinary(file);
+  } catch(err){
+    wrap.innerHTML = '<span style="font-size:12.5px; color:var(--ember);">Upload failed \u2014 try again.</span>';
+    return;
+  }
+  renderEditCustLayoutMapThumb();
+});
 document.getElementById('editCustCancelBtn').addEventListener('click', function(){
   document.getElementById('editCustOverlay').style.display = 'none';
   editCustomerId = null;
@@ -10347,7 +10031,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const oldAddress = item.data.address || '';
   statusEl.textContent = 'Saving…';
   try{
-    const addrUpdates = {name: newName, phone: newPhone, phone2: newPhone2, email: newEmail, email2: newEmail2, address: newAddress, rsvpStatus: newRsvp, needsLightRecycle: newRsvp === 'no', housePrice: newHousePrice, measuredFeet: newMeasuredFeet, wireColor: newWireColor, billToPhone: newBillTo, gateCode: newGateCode, numberOfBins: newBins, wantsMailedInvoice: newWantsMailed, earliestInstallDate: newEarliestInstallStr ? new Date(newEarliestInstallStr + 'T00:00:00') : null};
+    const addrUpdates = {name: newName, phone: newPhone, phone2: newPhone2, email: newEmail, email2: newEmail2, address: newAddress, rsvpStatus: newRsvp, needsLightRecycle: newRsvp === 'no', housePrice: newHousePrice, measuredFeet: newMeasuredFeet, wireColor: newWireColor, billToPhone: newBillTo, gateCode: newGateCode, numberOfBins: newBins, wantsMailedInvoice: newWantsMailed, layoutMapUrl: editCustLayoutMapUrl, earliestInstallDate: newEarliestInstallStr ? new Date(newEarliestInstallStr + 'T00:00:00') : null};
     if(newEnrolledStr) addrUpdates.createdAt = new Date(newEnrolledStr + 'T12:00:00');
     let geocodeFailed = false;
     if(newAddress && newAddress !== oldAddress){
@@ -10429,7 +10113,7 @@ document.getElementById('allCustExportBtn').addEventListener('click', function()
       Enrolled: memberExportDateAdded(d), 'Route Status': allCustRouteStatus(d), Difficulty: d.difficulty||'Unrated',
       'Invoice Status': invStatus, 'Invoice Total': inv ? ((inv.data.install||0)+(inv.data.removal||0)) : '',
       'Paid So Far': inv ? (inv.data.deposit||0) : '', 'Balance Due': inv ? balanceDueAmount(inv.data) : '',
-      'Has House Map': houseMapsIdSet.has(item.id) ? 'Yes' : 'No'
+      'Has Layout Map': d.layoutMapUrl ? 'Yes' : 'No'
     };
   });
   const ws = XLSX.utils.json_to_sheet(rows);
@@ -11439,7 +11123,6 @@ const ASSIGNABLE_SECTIONS = [
   ]},
   {group:'Employee Tools', items:[
     {key:'routesadmin', label:'Routes (Full List)'},
-    {key:'housemaps', label:'House Maps'},
     {key:'responsibilities', label:'Responsibilities (Crew Assignments)'}
   ]},
   {group:'Finance', items:[
@@ -11449,7 +11132,7 @@ const ASSIGNABLE_SECTIONS = [
   ]}
 ];
 function defaultVisibleTabs(isCrew){
-  return {route:isCrew, checklist:true, warehouse:false, addcustomer:false, quotes:false, custmessages:false, allmessages:false, routesadmin:false, housemaps:false, responsibilities:false, financedash:false, perfootpricing:false, timelogsadmin:false};
+  return {route:isCrew, checklist:true, warehouse:false, addcustomer:false, quotes:false, custmessages:false, allmessages:false, routesadmin:false, responsibilities:false, financedash:false, perfootpricing:false, timelogsadmin:false};
 }
 // Cards that can show on an employee's Home screen in the Crew Portal.
 // "needs" is the matching permission — a card only appears if they can see that section.
@@ -12692,741 +12375,6 @@ document.getElementById('settingsSLForm').addEventListener('submit', function(e)
 });
 
 /* ---------------- Shared delete handler ---------------- */
-/* ==================== HOUSE MAPS ==================== */
-const HM_STRAND_COLORS = ['#000000'];
-const HM_LABEL_TYPES = ['Garage','Front Door','Windows','Peaks','Roof Section','Custom'];
-let hmCurrentCustomerId = null;
-let hmData = null;
-let hmActiveTool = null;
-let hmAppendTargetStrandId = null;
-let hmDraftStrandPoints = [];
-let hmViewMode = 'original';
-
-function hmEmptyData(){
-  return { images:{house:'', maps:'', front:'', outline:''}, scalePxPerFoot:0, strands:[], structureLines:[], labels:[], notes:[], highlightSections:[], updatedAt:null };
-}
-function hmStrandLetterFor(index){
-  // A, B, C ... Z, then AA, AB, ...
-  let n = index, letters = '';
-  do{ letters = String.fromCharCode(65 + (n % 26)) + letters; n = Math.floor(n/26) - 1; } while(n >= 0);
-  return letters;
-}
-function hmNextColor(index){ return HM_STRAND_COLORS[index % HM_STRAND_COLORS.length]; }
-function hmPointDistFeet(p1, p2, imgEl){
-  if(!hmData.scalePxPerFoot || !imgEl.naturalWidth) return 0;
-  const dx = (p2.x - p1.x) * imgEl.naturalWidth;
-  const dy = (p2.y - p1.y) * imgEl.naturalHeight;
-  return Math.sqrt(dx*dx + dy*dy) / hmData.scalePxPerFoot;
-}
-function hmStrandLengthFeet(strand, imgEl){
-  let total = 0;
-  for(let i=1; i<strand.points.length; i++){ total += hmPointDistFeet(strand.points[i-1], strand.points[i], imgEl); }
-  return total;
-}
-
-/* ---- List view ---- */
-let hmVisibleList = []; // ordered list of {id, name, address} currently shown, used for Prev/Next
-function hmRenderCustomerList(){
-  const term = document.getElementById('hmSearchInput').value.trim().toLowerCase();
-  const wrap = document.getElementById('hmCustomerList');
-  let list = (jobAddresses||[]).slice().sort(function(a,b){ return (a.data.name||'').localeCompare(b.data.name||''); });
-  if(term){
-    list = list.filter(function(a){
-      const d = a.data;
-      return (d.name||'').toLowerCase().indexOf(term) !== -1 || (d.address||'').toLowerCase().indexOf(term) !== -1;
-    });
-  }
-  hmVisibleList = list.map(item => ({id:item.id, name:item.data.name, address:item.data.address}));
-  if(!list.length){ wrap.innerHTML = '<div class="empty-note">'+(term?'No matching customers.':'No customers yet — add one under Add a Customer.')+'</div>'; return; }
-  wrap.innerHTML = list.map(function(item){
-    const d = item.data;
-    return '<div class="row-item"><div class="rmain"><h4 style="margin:0;">'+esc(d.name||'(no name)')+'</h4><div class="rmeta">'+esc(d.address||'')+'</div></div>'+
-      '<div class="row-actions"><button type="button" class="btn btn-outline btn-sm" data-openhm="'+item.id+'">Open Map</button></div></div>';
-  }).join('');
-  wrap.querySelectorAll('[data-openhm]').forEach(function(btn){
-    btn.addEventListener('click', function(){ hmOpenEditor(btn.dataset.openhm); });
-  });
-}
-document.getElementById('hmSearchInput').addEventListener('input', hmRenderCustomerList);
-
-async function hmOpenEditor(customerId){
-  hmCurrentCustomerId = customerId;
-  const custItem = jobAddresses.find(a => a.id === customerId);
-  document.getElementById('hmEditorTitle').textContent = (custItem ? custItem.data.name : 'House Map') || 'House Map';
-  document.getElementById('hmEditorSubtitle').textContent = custItem ? (custItem.data.address||'') : '';
-  document.getElementById('hmListView').style.display = 'none';
-  document.getElementById('hmEditorView').style.display = 'block';
-  document.getElementById('hmSaveStatus').textContent = 'Loading…';
-
-  const idx = hmVisibleList.findIndex(x => x.id === customerId);
-  document.getElementById('hmPrevBtn').disabled = idx <= 0;
-  document.getElementById('hmNextBtn').disabled = idx === -1 || idx >= hmVisibleList.length - 1;
-
-  const snap = await getDoc(doc(db,'houseMaps', customerId));
-  hmData = snap.exists() ? Object.assign(hmEmptyData(), snap.data()) : hmEmptyData();
-  if(!hmData.images) hmData.images = {house:'', maps:'', front:'', outline:''};
-  if(hmData.images.outline === undefined) hmData.images.outline = '';
-  if(!hmData.highlightSections) hmData.highlightSections = [];
-  let reusedNote = '';
-  if(!hmData.images.house && custItem && custItem.data.housePhotoUrl){
-    // House Maps is missing the photo but Routes has one — pull it in and save immediately so this doesn't have to be re-fixed on every visit
-    hmData.images.house = custItem.data.housePhotoUrl;
-    await setDoc(doc(db,'houseMaps',customerId), {'images.house': custItem.data.housePhotoUrl}, {merge:true});
-    reusedNote = ' Reused the House Details photo from Routes as the starting photo.';
-  } else if(hmData.images.house && custItem && !custItem.data.housePhotoUrl){
-    // Routes is missing the photo but House Maps has one — push it back so Routes matches too
-    await updateDoc(doc(db,'jobAddresses',customerId), {housePhotoUrl: hmData.images.house});
-  }
-  hmActiveTool = null; hmDraftStrandPoints = []; hmAppendTargetStrandId = null;
-  hmSetViewMode('original');
-  hmRenderThumbs();
-  hmRenderImage();
-  hmRenderAll();
-  document.getElementById('hmSaveStatus').textContent = (snap.exists() ? 'Loaded saved map.' : 'No map saved yet — start by uploading photos.') + reusedNote;
-}
-document.getElementById('hmBackBtn').addEventListener('click', function(){
-  document.getElementById('hmEditorView').style.display = 'none';
-  document.getElementById('hmListView').style.display = 'block';
-  hmCurrentCustomerId = null; hmData = null;
-  hmRenderCustomerList();
-});
-document.getElementById('hmPrevBtn').addEventListener('click', function(){
-  const idx = hmVisibleList.findIndex(x => x.id === hmCurrentCustomerId);
-  if(idx > 0) hmOpenEditor(hmVisibleList[idx-1].id);
-});
-document.getElementById('hmNextBtn').addEventListener('click', function(){
-  const idx = hmVisibleList.findIndex(x => x.id === hmCurrentCustomerId);
-  if(idx !== -1 && idx < hmVisibleList.length - 1) hmOpenEditor(hmVisibleList[idx+1].id);
-});
-
-/* ---- Image uploads ---- */
-function hmRenderThumbs(){
-  const houseEl = document.getElementById('hmThumbHouse');
-  houseEl.innerHTML = hmData.images.house ? '<img src="'+esc(hmData.images.house)+'" style="max-width:100%; border-radius:8px; border:1px solid var(--line);">' : '';
-}
-document.getElementById('hmUploadHouse').addEventListener('change', async function(e){
-  const file = e.target.files[0];
-  if(!file || !hmData) return;
-  try{
-    const url = await uploadOneToCloudinary(file);
-    hmData.images.house = url;
-    hmRenderThumbs();
-    hmRenderImage();
-    if(hmCurrentCustomerId){
-      await updateDoc(doc(db,'jobAddresses',hmCurrentCustomerId), {housePhotoUrl: url});
-    }
-    toast('Photo uploaded');
-  } catch(err){ toast('Upload failed — try again'); }
-});
-
-function hmActiveImageUrl(){
-  return hmData.images.house || hmData.images.front || hmData.images.maps || '';
-}
-
-/* ---- View mode ---- */
-let hmDrawingOnlyMode = false;
-function hmToggleDrawingOnly(){
-  hmDrawingOnlyMode = document.getElementById('hmDrawingOnlyToggle').checked;
-  hmRenderImage();
-}
-document.getElementById('hmDrawingOnlyToggle').addEventListener('change', hmToggleDrawingOnly);
-
-function hmSetViewMode(mode){
-  hmViewMode = mode;
-  const drawingArea = document.getElementById('hmDrawingArea');
-  const printPreview = document.getElementById('hmPrintPreview');
-  const printControls = document.getElementById('hmPrintControls');
-  if(mode === 'print'){
-    drawingArea.style.display = 'none';
-    printPreview.style.display = 'block';
-    printControls.style.display = 'flex';
-    const totalLetters = (hmData.strands||[]).length + (hmData.highlightSections||[]).length;
-    document.getElementById('hmPrintCopies').value = Math.max(1, totalLetters);
-    hmBuildPrintPreview();
-  } else {
-    drawingArea.style.display = 'block';
-    printPreview.style.display = 'none';
-    printControls.style.display = 'none';
-    hmRenderImage();
-  }
-}
-
-function hmRenderImage(){
-  const img = document.getElementById('hmActiveImg');
-  const emptyNote = document.getElementById('hmEmptyImageNote');
-  const url = hmActiveImageUrl();
-  if(url && !hmDrawingOnlyMode){
-    img.src = url; img.style.display = 'block'; emptyNote.style.display = 'none';
-  } else if(!url){
-    img.style.display = 'none'; emptyNote.style.display = 'block';
-  } else {
-    img.style.display = 'none'; emptyNote.style.display = 'none';
-  }
-}
-
-/* ---- Free line-art outline (Sobel edge detection, runs entirely in-browser) ---- */
-function hmSobelOutline(imgEl, threshold){
-  const w = imgEl.naturalWidth, h = imgEl.naturalHeight;
-  const canvas = document.createElement('canvas');
-  canvas.width = w; canvas.height = h;
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(imgEl, 0, 0, w, h);
-  const src = ctx.getImageData(0, 0, w, h);
-  const gray = new Float32Array(w*h);
-  for(let i=0; i<w*h; i++){
-    const r = src.data[i*4], g = src.data[i*4+1], b = src.data[i*4+2];
-    gray[i] = 0.299*r + 0.587*g + 0.114*b;
-  }
-  const out = ctx.createImageData(w, h);
-  // fill white by default
-  for(let i=0; i<out.data.length; i+=4){ out.data[i]=255; out.data[i+1]=255; out.data[i+2]=255; out.data[i+3]=255; }
-  const gxK = [-1,0,1,-2,0,2,-1,0,1], gyK = [-1,-2,-1,0,0,0,1,2,1];
-  for(let y=1; y<h-1; y++){
-    for(let x=1; x<w-1; x++){
-      let sx=0, sy=0, k=0;
-      for(let ky=-1; ky<=1; ky++){
-        for(let kx=-1; kx<=1; kx++){
-          const val = gray[(y+ky)*w + (x+kx)];
-          sx += val*gxK[k]; sy += val*gyK[k]; k++;
-        }
-      }
-      const mag = Math.sqrt(sx*sx + sy*sy);
-      if(mag > threshold){
-        const p = (y*w + x)*4;
-        out.data[p] = 30; out.data[p+1] = 40; out.data[p+2] = 46; out.data[p+3] = 255; // dark ink line
-      }
-    }
-  }
-  ctx.putImageData(out, 0, 0);
-  return canvas;
-}
-// The outline button was removed from the House Maps UI, but this handler
-// stayed behind. Binding to a missing element throws and kills the rest of
-// the script, so it's guarded — if the button ever comes back, this works again.
-const hmOutlineBtnEl = document.getElementById('hmGenerateOutlineBtn');
-if(hmOutlineBtnEl) hmOutlineBtnEl.addEventListener('click', async function(){
-  const statusEl = document.getElementById('hmOutlineStatus');
-  const sourceUrl = hmActiveImageUrl();
-  if(!sourceUrl){ toast('Upload a photo first'); return; }
-  const thresholdEl = document.getElementById('hmOutlineThreshold');
-  const threshold = Number(thresholdEl ? thresholdEl.value : 0) || 80;
-  statusEl.textContent = 'Tracing outline…';
-  try{
-    const srcImg = new Image();
-    srcImg.crossOrigin = 'anonymous';
-    await new Promise(function(resolve, reject){
-      srcImg.onload = resolve;
-      srcImg.onerror = function(){ reject(new Error('Could not load image for processing')); };
-      srcImg.src = sourceUrl;
-    });
-    const canvas = hmSobelOutline(srcImg, threshold);
-    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
-    const file = new File([blob], 'outline.png', {type:'image/png'});
-    statusEl.textContent = 'Saving outline…';
-    const url = await uploadOneToCloudinary(file);
-    hmData.images.outline = url;
-    hmRenderImage();
-    statusEl.textContent = 'Outline generated! Try adjusting Sensitivity and regenerating if it looks too sparse or too busy.';
-  } catch(err){
-    statusEl.textContent = 'Could not generate an outline for this photo (it may be blocking cross-origin access) — the filtered view will be used instead.';
-  }
-});
-
-/* ---- Tools ---- */
-function hmSetTool(tool){
-  hmActiveTool = tool;
-  hmDraftStrandPoints = [];
-  document.querySelectorAll('[data-hmtool]').forEach(function(b){ b.classList.toggle('hm-tool-active', b.dataset.hmtool === tool); });
-  document.getElementById('hmFinishStrandBtn').style.display = 'none';
-  document.getElementById('hmCancelToolBtn').style.display = tool ? 'inline-flex' : 'none';
-  document.getElementById('hmInlineForm').style.display = 'none';
-  const statusMap = {
-    scale: 'Draw a line over something of known length, then enter its real feet.',
-    highlight: 'Drag a box around the section you want to highlight — it\'ll be lettered automatically.',
-    strand: 'Click points along the house to trace this strand — click "Finish Strand" when done.',
-    structure: 'Draw structure lines one at a time — click the button again to stop.',
-    label: 'Click a spot on the photo to place a label.',
-    note: 'Click a spot on the photo to place a note.',
-    appendpoint: 'Click a spot on the photo to add a point to this strand.'
-  };
-  document.getElementById('hmToolStatus').textContent = tool ? (statusMap[tool] || '') : '';
-  hmRedrawSvg();
-}
-document.querySelectorAll('[data-hmtool]').forEach(function(btn){
-  btn.addEventListener('click', function(){
-    if(!hmActiveImageUrl()){ toast('Upload a photo first'); return; }
-    hmSetTool(hmActiveTool === btn.dataset.hmtool ? null : btn.dataset.hmtool);
-  });
-});
-document.getElementById('hmCancelToolBtn').addEventListener('click', function(){ hmSetTool(null); });
-document.getElementById('hmFinishStrandBtn').addEventListener('click', function(){
-  if(hmDraftStrandPoints.length < 2){ toast('Add at least 2 points first'); return; }
-  const form = document.getElementById('hmInlineForm');
-  form.style.display = 'block';
-  form.innerHTML =
-    '<div class="form-row"><label>Which end is the Male connector?</label>'+
-      '<div class="radio-row"><label class="radio-pill"><input type="radio" name="hmMaleEnd" value="start" checked> Start point</label>'+
-      '<label class="radio-pill"><input type="radio" name="hmMaleEnd" value="end"> End point</label></div></div>'+
-    '<div class="form-row"><label>Note for this strand (optional)</label><input type="text" id="hmDraftStrandNote" placeholder="e.g. Runs along the gutter, watch for low peak"></div>'+
-    '<button type="button" class="btn btn-gold btn-sm" id="hmSaveDraftStrandBtn">Save Strand</button>';
-  document.getElementById('hmSaveDraftStrandBtn').addEventListener('click', function(){
-    const maleEnd = form.querySelector('input[name="hmMaleEnd"]:checked').value;
-    const note = document.getElementById('hmDraftStrandNote').value.trim();
-    const idx = hmData.strands.length;
-    hmData.strands.push({
-      id: 's'+Date.now(), letter: hmStrandLetterFor(idx), color: hmNextColor(idx),
-      points: hmDraftStrandPoints.slice(), maleEnd: maleEnd, note: note
-    });
-    hmSetTool(null);
-    hmRenderAll();
-    toast('Strand ' + hmStrandLetterFor(idx) + ' saved');
-  });
-});
-
-/* ---- Canvas interaction ---- */
-const hmImageWrap = document.getElementById('hmImageWrap');
-const hmSvgLayer = document.getElementById('hmSvgLayer');
-let hmDragPoint = null; // {strandId, pointIdx}
-let hmScaleDragStart = null, hmScaleDragLineEl = null;
-let hmStructDragStart = null, hmStructDragLineEl = null;
-let hmHighlightDragStart = null, hmHighlightDragRectEl = null;
-
-hmImageWrap.addEventListener('click', function(e){
-  if(e.target.closest('.hm-point')) return; // clicks on points are handled by drag logic, not click-to-place
-  if(!hmData || !hmActiveTool) return;
-  if(hmActiveTool === 'scale' || hmActiveTool === 'structure' || hmActiveTool === 'highlight') return; // these use drag, not click
-  const rect = hmImageWrap.getBoundingClientRect();
-  const xf = (e.clientX - rect.left) / rect.width;
-  const yf = (e.clientY - rect.top) / rect.height;
-
-  if(hmActiveTool === 'strand'){
-    hmDraftStrandPoints.push({x:xf, y:yf});
-    document.getElementById('hmFinishStrandBtn').style.display = hmDraftStrandPoints.length >= 2 ? 'inline-flex' : 'none';
-    hmRedrawSvg();
-  } else if(hmActiveTool === 'appendpoint'){
-    const strand = hmData.strands.find(s => s.id === hmAppendTargetStrandId);
-    if(strand){ strand.points.push({x:xf, y:yf}); hmRenderAll(); toast('Point added'); }
-    hmSetTool(null);
-  } else if(hmActiveTool === 'label'){
-    hmOpenLabelForm(xf, yf);
-  } else if(hmActiveTool === 'note'){
-    hmOpenNoteForm(xf, yf);
-  }
-});
-
-hmImageWrap.addEventListener('mousedown', function(e){
-  if(!hmData) return;
-  const rect = hmImageWrap.getBoundingClientRect();
-  if(hmActiveTool === 'scale'){
-    hmScaleDragStart = {xpx: e.clientX-rect.left, ypx: e.clientY-rect.top};
-    hmScaleDragLineEl = document.createElementNS('http://www.w3.org/2000/svg','line');
-    hmScaleDragLineEl.setAttribute('stroke','#4338CA'); hmScaleDragLineEl.setAttribute('stroke-width','3'); hmScaleDragLineEl.setAttribute('stroke-dasharray','6,4');
-    hmScaleDragLineEl.setAttribute('x1', hmScaleDragStart.xpx); hmScaleDragLineEl.setAttribute('y1', hmScaleDragStart.ypx);
-    hmScaleDragLineEl.setAttribute('x2', hmScaleDragStart.xpx); hmScaleDragLineEl.setAttribute('y2', hmScaleDragStart.ypx);
-    hmSvgLayer.appendChild(hmScaleDragLineEl);
-  } else if(hmActiveTool === 'structure'){
-    hmStructDragStart = {xpx: e.clientX-rect.left, ypx: e.clientY-rect.top};
-    hmStructDragLineEl = document.createElementNS('http://www.w3.org/2000/svg','line');
-    hmStructDragLineEl.setAttribute('stroke','#94A3B8'); hmStructDragLineEl.setAttribute('stroke-width','2'); hmStructDragLineEl.setAttribute('stroke-dasharray','4,3');
-    hmStructDragLineEl.setAttribute('x1', hmStructDragStart.xpx); hmStructDragLineEl.setAttribute('y1', hmStructDragStart.ypx);
-    hmStructDragLineEl.setAttribute('x2', hmStructDragStart.xpx); hmStructDragLineEl.setAttribute('y2', hmStructDragStart.ypx);
-    hmSvgLayer.appendChild(hmStructDragLineEl);
-  } else if(hmActiveTool === 'highlight'){
-    hmHighlightDragStart = {xpx: e.clientX-rect.left, ypx: e.clientY-rect.top};
-    hmHighlightDragRectEl = document.createElementNS('http://www.w3.org/2000/svg','rect');
-    hmHighlightDragRectEl.setAttribute('fill', '#F4BE5555'); hmHighlightDragRectEl.setAttribute('stroke', '#F4BE55'); hmHighlightDragRectEl.setAttribute('stroke-width', '2');
-    hmHighlightDragRectEl.setAttribute('x', hmHighlightDragStart.xpx); hmHighlightDragRectEl.setAttribute('y', hmHighlightDragStart.ypx);
-    hmHighlightDragRectEl.setAttribute('width', 0); hmHighlightDragRectEl.setAttribute('height', 0);
-    hmSvgLayer.appendChild(hmHighlightDragRectEl);
-  } else if(!hmActiveTool && e.target.closest('.hm-point')){
-    const ptEl = e.target.closest('.hm-point');
-    hmDragPoint = {strandId: ptEl.dataset.strandid, pointIdx: Number(ptEl.dataset.pointidx)};
-  }
-});
-document.addEventListener('mousemove', function(e){
-  const rect = hmImageWrap.getBoundingClientRect();
-  if(hmScaleDragStart){
-    hmScaleDragLineEl.setAttribute('x2', e.clientX-rect.left);
-    hmScaleDragLineEl.setAttribute('y2', e.clientY-rect.top);
-  } else if(hmStructDragStart){
-    hmStructDragLineEl.setAttribute('x2', e.clientX-rect.left);
-    hmStructDragLineEl.setAttribute('y2', e.clientY-rect.top);
-  } else if(hmHighlightDragStart){
-    const xpx = e.clientX-rect.left, ypx = e.clientY-rect.top;
-    hmHighlightDragRectEl.setAttribute('x', Math.min(xpx, hmHighlightDragStart.xpx));
-    hmHighlightDragRectEl.setAttribute('y', Math.min(ypx, hmHighlightDragStart.ypx));
-    hmHighlightDragRectEl.setAttribute('width', Math.abs(xpx-hmHighlightDragStart.xpx));
-    hmHighlightDragRectEl.setAttribute('height', Math.abs(ypx-hmHighlightDragStart.ypx));
-  } else if(hmDragPoint){
-    const xf = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-    const yf = Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height));
-    const strand = hmData.strands.find(s => s.id === hmDragPoint.strandId);
-    if(strand){ strand.points[hmDragPoint.pointIdx] = {x:xf, y:yf}; hmRedrawSvg(); }
-  }
-});
-document.addEventListener('mouseup', function(e){
-  const rect = hmImageWrap.getBoundingClientRect();
-  if(hmScaleDragStart){
-    const xpx = e.clientX-rect.left, ypx = e.clientY-rect.top;
-    const pxDist = Math.hypot(xpx-hmScaleDragStart.xpx, ypx-hmScaleDragStart.ypx);
-    hmScaleDragLineEl.remove();
-    if(pxDist >= 8){
-      const img = document.getElementById('hmActiveImg');
-      const naturalScale = img.naturalWidth ? img.naturalWidth/rect.width : 1;
-      const naturalDist = pxDist * naturalScale;
-      const feetStr = prompt('How many feet is this reference line in real life?');
-      const feet = Number(feetStr);
-      if(feet && feet > 0){
-        hmData.scalePxPerFoot = naturalDist / feet;
-        toast('Scale set — ' + hmData.scalePxPerFoot.toFixed(1) + ' px/ft');
-        hmSetTool(null);
-        hmRenderAll();
-      }
-    }
-    hmScaleDragStart = null; hmScaleDragLineEl = null;
-  } else if(hmStructDragStart){
-    const xpx = e.clientX-rect.left, ypx = e.clientY-rect.top;
-    const pxDist = Math.hypot(xpx-hmStructDragStart.xpx, ypx-hmStructDragStart.ypx);
-    hmStructDragLineEl.remove();
-    if(pxDist >= 8){
-      hmData.structureLines.push({
-        x1: hmStructDragStart.xpx/rect.width, y1: hmStructDragStart.ypx/rect.height,
-        x2: xpx/rect.width, y2: ypx/rect.height
-      });
-      hmRedrawSvg();
-    }
-    hmStructDragStart = null; hmStructDragLineEl = null;
-  } else if(hmHighlightDragStart){
-    const xpx = e.clientX-rect.left, ypx = e.clientY-rect.top;
-    const w = Math.abs(xpx-hmHighlightDragStart.xpx), h = Math.abs(ypx-hmHighlightDragStart.ypx);
-    hmHighlightDragRectEl.remove();
-    if(w >= 10 && h >= 10){
-      const x = Math.min(xpx, hmHighlightDragStart.xpx)/rect.width, y = Math.min(ypx, hmHighlightDragStart.ypx)/rect.height;
-      hmData.highlightSections.push({
-        id: 'h'+Date.now(), letter: hmStrandLetterFor(hmData.highlightSections.length),
-        x:x, y:y, w:w/rect.width, h:h/rect.height, label:''
-      });
-      hmSetTool(null);
-      hmRenderAll();
-    }
-    hmHighlightDragStart = null; hmHighlightDragRectEl = null;
-  } else if(hmDragPoint){
-    hmDragPoint = null;
-    hmRenderAll();
-  }
-});
-
-function hmOpenLabelForm(xf, yf){
-  const form = document.getElementById('hmInlineForm');
-  form.style.display = 'block';
-  form.innerHTML =
-    '<div class="form-row"><label>Label Type</label><select id="hmLabelTypeSelect">'+HM_LABEL_TYPES.map(t => '<option value="'+t+'">'+t+'</option>').join('')+'</select></div>'+
-    '<div class="form-row"><label>Text (optional, e.g. for Custom)</label><input type="text" id="hmLabelTextInput" placeholder="e.g. Bay Window"></div>'+
-    '<button type="button" class="btn btn-gold btn-sm" id="hmSaveLabelBtn">Save Label</button>'+
-    '<button type="button" class="btn btn-outline btn-sm" id="hmCancelLabelBtn">Cancel</button>';
-  document.getElementById('hmSaveLabelBtn').addEventListener('click', function(){
-    const type = document.getElementById('hmLabelTypeSelect').value;
-    const text = document.getElementById('hmLabelTextInput').value.trim();
-    hmData.labels.push({x:xf, y:yf, type:type, text:text});
-    hmSetTool(null);
-    hmRenderAll();
-  });
-  document.getElementById('hmCancelLabelBtn').addEventListener('click', function(){ hmSetTool(null); });
-}
-function hmOpenNoteForm(xf, yf){
-  const form = document.getElementById('hmInlineForm');
-  form.style.display = 'block';
-  form.innerHTML =
-    '<div class="form-row"><label>Installer Note</label><textarea id="hmNoteTextInput" rows="2" placeholder="e.g. Extra staples needed here, steep section"></textarea></div>'+
-    '<button type="button" class="btn btn-gold btn-sm" id="hmSaveNoteBtn">Save Note</button>'+
-    '<button type="button" class="btn btn-outline btn-sm" id="hmCancelNoteBtn">Cancel</button>';
-  document.getElementById('hmSaveNoteBtn').addEventListener('click', function(){
-    const text = document.getElementById('hmNoteTextInput').value.trim();
-    if(!text){ toast('Enter a note first'); return; }
-    hmData.notes.push({x:xf, y:yf, text:text});
-    hmSetTool(null);
-    hmRenderAll();
-  });
-  document.getElementById('hmCancelNoteBtn').addEventListener('click', function(){ hmSetTool(null); });
-}
-
-/* ---- Rendering ---- */
-function hmRedrawSvg(){
-  if(!hmData) return;
-  let svg = '';
-  hmData.highlightSections.forEach(function(h){
-    svg += '<rect x="'+(h.x*100)+'%" y="'+(h.y*100)+'%" width="'+(h.w*100)+'%" height="'+(h.h*100)+'%" fill="#F4BE5540" stroke="#F4BE55" stroke-width="2"/>'+
-      '<text x="'+(h.x*100)+'%" y="'+(h.y*100)+'%" fill="#1E3B2C" font-size="13" font-weight="800" dx="4" dy="16">'+esc(h.letter)+'</text>';
-  });
-  hmData.structureLines.forEach(function(l){
-    svg += '<line x1="'+(l.x1*100)+'%" y1="'+(l.y1*100)+'%" x2="'+(l.x2*100)+'%" y2="'+(l.y2*100)+'%" stroke="#94A3B8" stroke-width="2" stroke-dasharray="4,3"/>';
-  });
-  hmData.strands.forEach(function(strand){
-    const pts = strand.points;
-    if(pts.length >= 2){
-      const pointStr = pts.map(p => (p.x*100)+'%,'+(p.y*100)+'%').join(' ');
-      svg += '<polyline points="'+pointStr+'" fill="none" stroke="'+strand.color+'" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>';
-    }
-    pts.forEach(function(p, i){
-      svg += '<circle class="hm-point" data-strandid="'+strand.id+'" data-pointidx="'+i+'" cx="'+(p.x*100)+'%" cy="'+(p.y*100)+'%" r="5" fill="'+strand.color+'" stroke="#fff" stroke-width="1.5"/>';
-    });
-    if(pts.length){
-      const startP = pts[0], endP = pts[pts.length-1];
-      const maleP = strand.maleEnd === 'end' ? endP : startP;
-      const femaleP = strand.maleEnd === 'end' ? startP : endP;
-      svg += '<rect x="'+(maleP.x*100-2.2)+'%" y="'+(maleP.y*100-2.2)+'%" width="4.4%" height="4.4%" fill="none" stroke="'+strand.color+'" stroke-width="2"/>';
-      svg += '<circle cx="'+(femaleP.x*100)+'%" cy="'+(femaleP.y*100)+'%" r="8" fill="none" stroke="'+strand.color+'" stroke-width="2"/>';
-      const midIdx = Math.floor(pts.length/2);
-      const midP = pts[midIdx];
-      svg += '<text x="'+(midP.x*100)+'%" y="'+(midP.y*100)+'%" fill="'+strand.color+'" font-size="14" font-weight="800" text-anchor="middle" dy="-8" stroke="#fff" stroke-width="3" paint-order="stroke">'+esc(strand.letter)+'</text>';
-    }
-  });
-  if(hmDraftStrandPoints.length){
-    const pointStr = hmDraftStrandPoints.map(p => (p.x*100)+'%,'+(p.y*100)+'%').join(' ');
-    if(hmDraftStrandPoints.length >= 2) svg += '<polyline points="'+pointStr+'" fill="none" stroke="#F4BE55" stroke-width="3" stroke-dasharray="6,4"/>';
-    hmDraftStrandPoints.forEach(function(p){ svg += '<circle cx="'+(p.x*100)+'%" cy="'+(p.y*100)+'%" r="5" fill="#F4BE55" stroke="#fff" stroke-width="1.5"/>'; });
-  }
-  hmData.labels.forEach(function(l, i){
-    svg += '<circle cx="'+(l.x*100)+'%" cy="'+(l.y*100)+'%" r="6" fill="#EF4444" stroke="#fff" stroke-width="1.5"/>'+
-      '<text x="'+(l.x*100)+'%" y="'+(l.y*100)+'%" fill="#EF4444" font-size="12" font-weight="700" text-anchor="middle" dy="-10" stroke="#fff" stroke-width="3" paint-order="stroke">'+esc(l.type==='Custom' && l.text ? l.text : l.type)+'</text>';
-  });
-  hmData.notes.forEach(function(n){
-    svg += '<circle cx="'+(n.x*100)+'%" cy="'+(n.y*100)+'%" r="7" fill="#F4BE55" stroke="#1E3B2C" stroke-width="1.5"/>'+
-      '<text x="'+(n.x*100)+'%" y="'+(n.y*100)+'%" fill="#1E3B2C" font-size="10" font-weight="800" text-anchor="middle" dy="3.5">!</text>';
-  });
-  hmSvgLayer.innerHTML = svg;
-}
-function hmRenderStrandList(){
-  const wrap = document.getElementById('hmStrandList');
-  const img = document.getElementById('hmActiveImg');
-  if(!hmData.strands.length){ wrap.innerHTML = '<p style="font-size:12.5px; color:var(--slate);">No strands yet — use "+ New Strand" above.</p>'; document.getElementById('hmStrandTotal').textContent = ''; return; }
-  let totalFeet = 0;
-  wrap.innerHTML = hmData.strands.map(function(strand){
-    const feet = hmStrandLengthFeet(strand, img);
-    totalFeet += feet;
-    return '<div class="row-item" style="padding:10px 12px;">'+
-      '<div class="rmain"><h4 style="margin:0;"><span class="hm-strand-swatch" style="background:'+strand.color+';"></span>Strand '+esc(strand.letter)+' &mdash; '+feet.toFixed(1)+' ft</h4>'+
-      '<div class="rmeta">Male end: '+(strand.maleEnd==='end'?'end point (square)':'start point (square)')+' &middot; Female end: circle'+(strand.note ? ' &middot; '+esc(strand.note) : '')+'</div></div>'+
-      '<div class="row-actions">'+
-        '<button type="button" class="btn btn-outline btn-sm" data-hmaddpoint="'+strand.id+'">Add Point</button>'+
-        '<button type="button" class="icon-btn danger" data-hmdelstrand="'+strand.id+'">'+trashIcon()+'</button>'+
-      '</div>'+
-    '</div>';
-  }).join('');
-  document.getElementById('hmStrandTotal').textContent = '(' + totalFeet.toFixed(1) + ' ft total across ' + hmData.strands.length + ' strand' + (hmData.strands.length===1?'':'s') + ')';
-  wrap.querySelectorAll('[data-hmaddpoint]').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      hmAppendTargetStrandId = btn.dataset.hmaddpoint;
-      hmSetTool('appendpoint');
-    });
-  });
-  wrap.querySelectorAll('[data-hmdelstrand]').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      if(!confirm('Delete this strand?')) return;
-      hmData.strands = hmData.strands.filter(s => s.id !== btn.dataset.hmdelstrand);
-      // re-letter and re-color remaining strands in order so labels stay A, B, C...
-      hmData.strands.forEach(function(s, i){ s.letter = hmStrandLetterFor(i); s.color = hmNextColor(i); });
-      hmRenderAll();
-    });
-  });
-}
-function hmRenderLabelList(){
-  const wrap = document.getElementById('hmLabelList');
-  if(!hmData.labels.length){ wrap.innerHTML = '<p style="font-size:12.5px; color:var(--slate);">No labels yet.</p>'; return; }
-  wrap.innerHTML = hmData.labels.map(function(l, i){
-    return '<div class="row-item" style="padding:8px 12px;"><div class="rmain">'+esc(l.type==='Custom' && l.text ? l.text : l.type)+'</div>'+
-      '<div class="row-actions"><button type="button" class="icon-btn danger" data-hmdellabel="'+i+'">'+trashIcon()+'</button></div></div>';
-  }).join('');
-  wrap.querySelectorAll('[data-hmdellabel]').forEach(function(btn){
-    btn.addEventListener('click', function(){ hmData.labels.splice(Number(btn.dataset.hmdellabel), 1); hmRenderAll(); });
-  });
-}
-function hmRenderNoteList(){
-  const wrap = document.getElementById('hmNoteList');
-  if(!hmData.notes.length){ wrap.innerHTML = '<p style="font-size:12.5px; color:var(--slate);">No notes yet.</p>'; return; }
-  wrap.innerHTML = hmData.notes.map(function(n, i){
-    return '<div class="row-item" style="padding:8px 12px;"><div class="rmain">'+esc(n.text)+'</div>'+
-      '<div class="row-actions"><button type="button" class="icon-btn danger" data-hmdelnote="'+i+'">'+trashIcon()+'</button></div></div>';
-  }).join('');
-  wrap.querySelectorAll('[data-hmdelnote]').forEach(function(btn){
-    btn.addEventListener('click', function(){ hmData.notes.splice(Number(btn.dataset.hmdelnote), 1); hmRenderAll(); });
-  });
-}
-function hmRenderHighlightSectionList(){
-  const wrap = document.getElementById('hmHighlightSectionList');
-  if(!hmData.highlightSections.length){ wrap.innerHTML = '<p style="font-size:12.5px; color:var(--slate);">No highlighted sections yet — use "+ Highlight Section" above.</p>'; return; }
-  wrap.innerHTML = hmData.highlightSections.map(function(h){
-    return '<div class="row-item" style="padding:8px 12px;">'+
-      '<div class="rmain"><strong>'+esc(h.letter)+'</strong>'+(h.label ? ' — <input type="text" class="hm-hs-label" data-hsid="'+h.id+'" value="'+esc(h.label)+'" style="border:none; background:none; font-size:13px; font-family:inherit;">' : ' <input type="text" class="hm-hs-label" data-hsid="'+h.id+'" placeholder="Add a name (optional)" style="border:1px solid var(--line); border-radius:6px; padding:3px 6px; font-size:12.5px; font-family:inherit;">')+'</div>'+
-      '<div class="row-actions"><button type="button" class="icon-btn danger" data-hmdelhs="'+h.id+'">'+trashIcon()+'</button></div>'+
-    '</div>';
-  }).join('');
-  wrap.querySelectorAll('.hm-hs-label').forEach(function(input){
-    let debounceTimer;
-    input.addEventListener('input', function(){
-      clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(function(){
-        const h = hmData.highlightSections.find(x => x.id === input.dataset.hsid);
-        if(h) h.label = input.value.trim();
-      }, 500);
-    });
-  });
-  wrap.querySelectorAll('[data-hmdelhs]').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      hmData.highlightSections = hmData.highlightSections.filter(h => h.id !== btn.dataset.hmdelhs);
-      hmData.highlightSections.forEach(function(h, i){ h.letter = hmStrandLetterFor(i); });
-      hmRenderAll();
-    });
-  });
-}
-function hmRenderAll(){
-  hmRedrawSvg();
-  hmRenderHighlightSectionList();
-  hmRenderStrandList();
-  hmRenderLabelList();
-  hmRenderNoteList();
-}
-
-/* ---- Print view ---- */
-function hmBuildSvgMarkup(hmObj){
-  let svg = '';
-  (hmObj.highlightSections||[]).forEach(function(h){
-    svg += '<rect x="'+(h.x*100)+'%" y="'+(h.y*100)+'%" width="'+(h.w*100)+'%" height="'+(h.h*100)+'%" fill="#F4BE5540" stroke="#F4BE55" stroke-width="2"/>'+
-      '<text x="'+(h.x*100)+'%" y="'+(h.y*100)+'%" fill="#1E3B2C" font-size="13" font-weight="800" dx="4" dy="16">'+esc(h.letter)+'</text>';
-  });
-  (hmObj.structureLines||[]).forEach(function(l){
-    svg += '<line x1="'+(l.x1*100)+'%" y1="'+(l.y1*100)+'%" x2="'+(l.x2*100)+'%" y2="'+(l.y2*100)+'%" stroke="#94A3B8" stroke-width="2" stroke-dasharray="4,3"/>';
-  });
-  (hmObj.strands||[]).forEach(function(strand){
-    const pts = strand.points||[];
-    if(pts.length >= 2){
-      const pointStr = pts.map(p => (p.x*100)+'%,'+(p.y*100)+'%').join(' ');
-      svg += '<polyline points="'+pointStr+'" fill="none" stroke="'+strand.color+'" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>';
-    }
-    if(pts.length){
-      const startP = pts[0], endP = pts[pts.length-1];
-      const maleP = strand.maleEnd === 'end' ? endP : startP;
-      const femaleP = strand.maleEnd === 'end' ? startP : endP;
-      svg += '<rect x="'+(maleP.x*100-2.2)+'%" y="'+(maleP.y*100-2.2)+'%" width="4.4%" height="4.4%" fill="none" stroke="'+strand.color+'" stroke-width="2"/>';
-      svg += '<circle cx="'+(femaleP.x*100)+'%" cy="'+(femaleP.y*100)+'%" r="8" fill="none" stroke="'+strand.color+'" stroke-width="2"/>';
-      const midP = pts[Math.floor(pts.length/2)];
-      svg += '<text x="'+(midP.x*100)+'%" y="'+(midP.y*100)+'%" fill="'+strand.color+'" font-size="14" font-weight="800" text-anchor="middle" dy="-8" stroke="#fff" stroke-width="3" paint-order="stroke">'+esc(strand.letter)+'</text>';
-    }
-  });
-  (hmObj.labels||[]).forEach(function(l){
-    svg += '<circle cx="'+(l.x*100)+'%" cy="'+(l.y*100)+'%" r="6" fill="#1E3B2C" stroke="#fff" stroke-width="1.5"/>'+
-      '<text x="'+(l.x*100)+'%" y="'+(l.y*100)+'%" fill="#1E3B2C" font-size="12" font-weight="700" text-anchor="middle" dy="-10" stroke="#fff" stroke-width="3" paint-order="stroke">'+esc(l.type==='Custom' && l.text ? l.text : l.type)+'</text>';
-  });
-  (hmObj.notes||[]).forEach(function(n){
-    svg += '<circle cx="'+(n.x*100)+'%" cy="'+(n.y*100)+'%" r="7" fill="#F4BE55" stroke="#1E3B2C" stroke-width="1.5"/>'+
-      '<text x="'+(n.x*100)+'%" y="'+(n.y*100)+'%" fill="#1E3B2C" font-size="10" font-weight="800" text-anchor="middle" dy="3.5">!</text>';
-  });
-  return svg;
-}
-function hmBuildHouseBlockHtml(hmObj, title, subtitle, svgContent, imgRefEl){
-  const url = (hmObj.images && hmObj.images.outline) || '';
-  const hsRows = (hmObj.highlightSections||[]).map(function(h){
-    return '<tr><td>'+esc(h.letter)+'</td><td>'+esc(h.label||'')+'</td></tr>';
-  }).join('');
-  const legendRows = (hmObj.strands||[]).map(function(s){
-    const feet = hmStrandLengthFeet(s, imgRefEl);
-    return '<tr><td><span class="hm-strand-swatch" style="background:'+s.color+';"></span>'+esc(s.letter)+'</td><td>'+feet.toFixed(1)+' ft</td>'+
-      '<td>'+(s.maleEnd==='end'?'End':'Start')+' (&#9633;)</td><td>'+(s.maleEnd==='end'?'Start':'End')+' (&#9675;)</td><td>'+esc(s.note||'')+'</td></tr>';
-  }).join('');
-  const notesHtml = (hmObj.notes||[]).length ? '<ul>'+hmObj.notes.map(n => '<li>'+esc(n.text)+'</li>').join('')+'</ul>' : '<p>None</p>';
-  return '<div class="hm-print-block">'+
-    '<h2>'+esc(title)+'</h2><p>'+esc(subtitle)+'</p>'+
-    (url ? '<div style="position:relative; max-width:100%;"><img src="'+esc(url)+'" style="width:100%; display:block;"><svg style="position:absolute; inset:0; width:100%; height:100%;">'+svgContent+'</svg></div>' : '<p>No blueprint photo yet &mdash; go to Blueprint View and generate or upload one before printing. The regular photo is never used for printing.</p>')+
-    (hsRows ? '<h4>Highlighted Sections</h4><table border="1" cellpadding="4" style="border-collapse:collapse;"><tr><th>Letter</th><th>Name</th></tr>'+hsRows+'</table>' : '')+
-    '<h4>Strand Legend</h4><table border="1" cellpadding="4" style="border-collapse:collapse;"><tr><th>Strand</th><th>Length</th><th>Male</th><th>Female</th><th>Note</th></tr>'+legendRows+'</table>'+
-    '<h4>Notes</h4>'+notesHtml+
-  '</div>';
-}
-function hmAssemblePrintPages(blocksArr, size){
-  const perPageMap = {full:1, half:2, quarter:4, eighth:8, sixteenth:16};
-  const perPage = perPageMap[size] || 1;
-  const gridClass = 'hm-print-grid-' + size;
-  let pages = [];
-  for(let i=0; i<blocksArr.length; i+=perPage){
-    pages.push('<div class="hm-print-page '+gridClass+'">'+blocksArr.slice(i, i+perPage).join('')+'</div>');
-  }
-  return pages.join('');
-}
-function hmBuildPrintPreview(){
-  const img = document.getElementById('hmActiveImg');
-  const wrap = document.getElementById('hmPrintPreview');
-  const title = document.getElementById('hmEditorTitle').textContent;
-  const subtitle = document.getElementById('hmEditorSubtitle').textContent;
-  const copies = Math.max(1, Number(document.getElementById('hmPrintCopies').value) || 1);
-  const size = document.getElementById('hmPrintSize').value;
-  const block = hmBuildHouseBlockHtml(hmData, title, subtitle, hmBuildSvgMarkup(hmData), img);
-  wrap.innerHTML = hmAssemblePrintPages(Array(copies).fill(block), size);
-}
-document.getElementById('hmPrintCopies').addEventListener('input', function(){ if(hmViewMode === 'print') hmBuildPrintPreview(); });
-document.getElementById('hmPrintSize').addEventListener('change', function(){ if(hmViewMode === 'print') hmBuildPrintPreview(); });
-document.getElementById('hmPrintBtn').addEventListener('click', function(){
-  hmSetViewMode('print');
-  setTimeout(function(){ window.print(); }, 200);
-});
-
-
-document.getElementById('hmPrintAllBtn').addEventListener('click', async function(){
-  const btn = this;
-  btn.disabled = true;
-  btn.textContent = 'Preparing…';
-  try{
-    const snap = await getDocs(collection(db,'houseMaps'));
-    if(snap.empty){ toast('No saved house maps yet'); return; }
-    const size = 'half';
-    let blocks = [];
-    for(const docSnap of snap.docs){
-      const hmObj = docSnap.data();
-      const custItem = jobAddresses.find(a => a.id === docSnap.id);
-      const title = custItem ? (custItem.data.name || 'House Map') : 'House Map';
-      const subtitle = custItem ? (custItem.data.address || '') : '';
-      const url = (hmObj.images && hmObj.images.outline) || '';
-      let imgEl = {naturalWidth:0, naturalHeight:0};
-      if(url){
-        imgEl = await new Promise(function(resolve){
-          const im = new Image();
-          im.onload = function(){ resolve(im); };
-          im.onerror = function(){ resolve({naturalWidth:0, naturalHeight:0}); };
-          im.src = url;
-        });
-      }
-      const block = hmBuildHouseBlockHtml(hmObj, title, subtitle, hmBuildSvgMarkup(hmObj), imgEl);
-      const totalLetters = Math.max(1, (hmObj.strands||[]).length + (hmObj.highlightSections||[]).length);
-      for(let i=0; i<totalLetters; i++){ blocks.push(block); }
-    }
-    const preview = document.getElementById('hmPrintAllPreview');
-    preview.innerHTML = hmAssemblePrintPages(blocks, size);
-    preview.classList.add('printing');
-    btn.textContent = 'Print All Saved Maps';
-    btn.disabled = false;
-    setTimeout(function(){
-      window.print();
-      setTimeout(function(){ preview.classList.remove('printing'); }, 500);
-    }, 300);
-  } catch(err){
-    toast('Something went wrong preparing the batch print');
-    btn.textContent = 'Print All Saved Maps';
-    btn.disabled = false;
-  }
-});
-
-/* ---- Save ---- */
-document.getElementById('hmSaveBtn').addEventListener('click', async function(){
-  if(!hmCurrentCustomerId || !hmData) return;
-  const statusEl = document.getElementById('hmSaveStatus');
-  statusEl.textContent = 'Saving…';
-  try{
-    await setDoc(doc(db,'houseMaps', hmCurrentCustomerId), Object.assign({}, hmData, {updatedAt: serverTimestamp()}));
-    statusEl.textContent = 'Saved!';
-  } catch(err){
-    statusEl.textContent = 'Something went wrong saving — try again.';
-  }
-});
-
 /* ---------------- MEMBER EXPORT (Reports) ---------------- */
 function memberExportStatus(d){
   if(d.removalDone) return 'Removed';
