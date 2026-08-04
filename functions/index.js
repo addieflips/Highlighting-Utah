@@ -719,157 +719,183 @@ function computeInvoiceStatusServer(install, removal, deposit) {
   return 'Partial Payment';
 }
 
+async function runInvoiceBatch(triggeredBy) {
+  const todayStr = todayStrInDenver();
+  let sentCount = 0, skippedNeedsFix = 0, skippedNotDone = 0, errorCount = 0;
+  const errors = [];
+
+  try {
+    const emailSettingsSnap = await db.collection('settings').doc('emailjs').get();
+    const emailSettings = emailSettingsSnap.exists ? emailSettingsSnap.data() : {};
+    const { serviceId, templateId, privateKey, publicKey } = emailSettings;
+    if (!serviceId || !templateId || !privateKey) {
+      const result = {
+        dateStr: todayStr, sentCount: 0, skippedNeedsFix: 0, skippedNotDone: 0,
+        errorCount: 1, errors: ['EmailJS not fully set up yet \u2014 need Service ID, Template ID, and Private Key under Automation > EmailJS Setup.'],
+        triggeredBy
+      };
+      await logNightlyInvoiceRun(result);
+      return result;
+    }
+
+    const pricingSnap = await db.collection('pricing').doc('config').get();
+    const perFootRate = pricingSnap.exists ? (pricingSnap.data().perFootRate || 0) : 0;
+
+    const routesSnap = await db.collection('scheduledRoutes')
+      .where('date', '==', todayStr)
+      .where('type', '==', 'install')
+      .get();
+
+    const stopIds = new Set();
+    routesSnap.forEach((docSnap) => {
+      (docSnap.data().stops || []).forEach((s) => { if (s.id) stopIds.add(s.id); });
+    });
+
+    for (const id of stopIds) {
+      try {
+        const custRef = db.collection('jobAddresses').doc(id);
+        const custSnap = await custRef.get();
+        if (!custSnap.exists) continue;
+        const cust = custSnap.data();
+
+        if (cust.needsFix) { skippedNeedsFix++; continue; }
+        if (!cust.completed) { skippedNotDone++; continue; }
+        if (cust.invoiceEmailSent) { continue; } // already billed for this install
+
+        const email = cust.email;
+        if (!email) { continue; } // nothing to send to
+
+        const phone = digitsOnly(cust.phone);
+        const invoiceKey = phone || String(cust.email || '').toLowerCase().trim();
+        const invRef = db.collection('invoices').doc(invoiceKey);
+        const invSnap = await invRef.get();
+        const inv = invSnap.exists
+          ? invSnap.data()
+          : { install: Number(cust.housePrice) || 0, removal: 0, deposit: 0, name: cust.name, phone, email };
+
+        const enrollYear = cust.createdAt && cust.createdAt.toDate ? cust.createdAt.toDate().getFullYear() : null;
+        const isNewMember = enrollYear === new Date().getFullYear();
+        if (isNewMember && !inv.newMemberFeeApplied) {
+          inv.install = (Number(inv.install) || 0) + 30;
+          inv.newMemberFeeApplied = true;
+        }
+        if (inv.install == null) inv.install = Number(cust.housePrice) || 0;
+
+        const status = computeInvoiceStatusServer(inv.install, inv.removal || 0, inv.deposit || 0);
+        inv.status = status;
+        inv.name = inv.name || cust.name || '';
+        inv.email = inv.email || cust.email || '';
+        inv.phone = inv.phone || phone;
+        inv.updatedAt = admin.firestore.FieldValue.serverTimestamp();
+        await invRef.set(inv, { merge: true });
+
+        const feet = Number(cust.measuredFeet) || 0;
+        const basePrice = Number(cust.housePrice) || 0;
+        const feetLine = (feet && perFootRate)
+          ? ('Installation service \u2014 ' + feet + ' ft @ $' + perFootRate.toFixed(2) + '/ft = $' + basePrice.toFixed(2))
+          : ('Installation service = $' + basePrice.toFixed(2));
+        const newMemberLine = isNewMember ? 'New member installation fee = $30.00' : '';
+
+        const total = (Number(inv.install) || 0) + (Number(inv.removal) || 0);
+        const paid = Number(inv.deposit) || 0;
+        const amountDue = Math.max(0, total - paid);
+
+        const templateName = status === 'Paid in Full'
+          ? 'Nightly Auto-Invoice \u2014 Paid Receipt'
+          : 'Nightly Auto-Invoice \u2014 Unpaid';
+        const tplSnap = await db.collection('emailTemplates').where('name', '==', templateName).limit(1).get();
+        if (tplSnap.empty) {
+          errors.push('Missing template: ' + templateName);
+          errorCount++;
+          continue;
+        }
+        let body = tplSnap.docs[0].data().body || '';
+
+        const token = await ensureToken(id, cust);
+        const portalUrl = 'https://highlightingutah.com/#/payment' + (token ? ('?token=' + token) : '');
+        const messagesUrl = 'https://highlightingutah.com/#/contact';
+        const venmoUrl = 'https://venmo.com/HighLightingUtah?txn=pay&amount=' + amountDue.toFixed(2) + '&note=' + encodeURIComponent('Christmas Lights');
+        const btnStyleGold = 'display:inline-block; padding:12px 28px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:15px; margin:6px 8px 6px 0; background:#D89F3D; color:#1E3B2C;';
+
+        body = body.split('{{name}}').join(cust.name || 'there');
+        body = body.split('{{feet_line}}').join(feetLine);
+        body = body.split('{{new_member_fee_line}}').join(newMemberLine);
+        body = body.split('{{amount_due}}').join('$' + amountDue.toFixed(2));
+        body = body.split('{{amount_paid}}').join('$' + total.toFixed(2));
+        body = body.split('{{portal_link}}').join(portalUrl);
+        body = body.split('{{portal_button}}').join('<a href="' + portalUrl + '" style="' + btnStyleGold + '">Log Into Your Portal</a>');
+        body = body.split('{{venmo_link}}').join(venmoUrl);
+        body = body.split('{{venmo_button}}').join('<a href="' + venmoUrl + '" style="' + btnStyleGold + '">Pay with Venmo</a>');
+        body = body.split('{{message_link}}').join(messagesUrl);
+        body = body.replace(/\n/g, '<br>');
+
+        const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            service_id: serviceId,
+            template_id: templateId,
+            user_id: publicKey || '',
+            accessToken: privateKey,
+            template_params: { to_email: email, body: body }
+          })
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error('EmailJS send failed: ' + text);
+        }
+
+        await custRef.update({
+          invoiceEmailSent: true,
+          invoiceEmailSentAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+        sentCount++;
+      } catch (err) {
+        errorCount++;
+        errors.push(String((err && err.message) || err));
+      }
+    }
+
+    const result = {
+      dateStr: todayStr, sentCount, skippedNeedsFix, skippedNotDone,
+      errorCount, errors: errors.slice(0, 10), triggeredBy
+    };
+    await logNightlyInvoiceRun(result);
+    return result;
+  } catch (err) {
+    const result = {
+      dateStr: todayStr, sentCount, skippedNeedsFix, skippedNotDone,
+      errorCount: errorCount + 1, errors: errors.concat([String((err && err.message) || err)]).slice(0, 10),
+      triggeredBy
+    };
+    await logNightlyInvoiceRun(result);
+    return result;
+  }
+}
+
+// Runs automatically every night at 7:00 PM Mountain Time \u2014 but only if the
+// "Send nightly invoice emails automatically" toggle is on in Admin > Automation.
 exports.sendNightlyInvoices = onSchedule(
   { schedule: '0 19 * * *', timeZone: 'America/Denver', memory: '512MiB' },
   async () => {
-    const todayStr = todayStrInDenver();
-    let sentCount = 0, skippedNeedsFix = 0, skippedNotDone = 0, errorCount = 0;
-    const errors = [];
-
-    try {
-      const autoSnap = await db.collection('settings').doc('nightlyInvoiceAutomation').get();
-      if (!autoSnap.exists || !autoSnap.data().enabled) {
-        return; // automation turned off — do nothing, don't even log
-      }
-
-      const emailSettingsSnap = await db.collection('settings').doc('emailjs').get();
-      const emailSettings = emailSettingsSnap.exists ? emailSettingsSnap.data() : {};
-      const { serviceId, templateId, privateKey, publicKey } = emailSettings;
-      if (!serviceId || !templateId || !privateKey) {
-        await logNightlyInvoiceRun({
-          dateStr: todayStr, sentCount: 0, skippedNeedsFix: 0, skippedNotDone: 0,
-          errorCount: 1, errors: ['EmailJS not fully set up yet — need Service ID, Template ID, and Private Key under Automation > EmailJS Setup.']
-        });
-        return;
-      }
-
-      const pricingSnap = await db.collection('pricing').doc('config').get();
-      const perFootRate = pricingSnap.exists ? (pricingSnap.data().perFootRate || 0) : 0;
-
-      const routesSnap = await db.collection('scheduledRoutes')
-        .where('date', '==', todayStr)
-        .where('type', '==', 'install')
-        .get();
-
-      const stopIds = new Set();
-      routesSnap.forEach((docSnap) => {
-        (docSnap.data().stops || []).forEach((s) => { if (s.id) stopIds.add(s.id); });
-      });
-
-      for (const id of stopIds) {
-        try {
-          const custRef = db.collection('jobAddresses').doc(id);
-          const custSnap = await custRef.get();
-          if (!custSnap.exists) continue;
-          const cust = custSnap.data();
-
-          if (cust.needsFix) { skippedNeedsFix++; continue; }
-          if (!cust.completed) { skippedNotDone++; continue; }
-          if (cust.invoiceEmailSent) { continue; } // already billed for this install
-
-          const email = cust.email;
-          if (!email) { continue; } // nothing to send to
-
-          const phone = digitsOnly(cust.phone);
-          const invoiceKey = phone || String(cust.email || '').toLowerCase().trim();
-          const invRef = db.collection('invoices').doc(invoiceKey);
-          const invSnap = await invRef.get();
-          const inv = invSnap.exists
-            ? invSnap.data()
-            : { install: Number(cust.housePrice) || 0, removal: 0, deposit: 0, name: cust.name, phone, email };
-
-          const enrollYear = cust.createdAt && cust.createdAt.toDate ? cust.createdAt.toDate().getFullYear() : null;
-          const isNewMember = enrollYear === new Date().getFullYear();
-          if (isNewMember && !inv.newMemberFeeApplied) {
-            inv.install = (Number(inv.install) || 0) + 30;
-            inv.newMemberFeeApplied = true;
-          }
-          if (inv.install == null) inv.install = Number(cust.housePrice) || 0;
-
-          const status = computeInvoiceStatusServer(inv.install, inv.removal || 0, inv.deposit || 0);
-          inv.status = status;
-          inv.name = inv.name || cust.name || '';
-          inv.email = inv.email || cust.email || '';
-          inv.phone = inv.phone || phone;
-          inv.updatedAt = admin.firestore.FieldValue.serverTimestamp();
-          await invRef.set(inv, { merge: true });
-
-          const feet = Number(cust.measuredFeet) || 0;
-          const basePrice = Number(cust.housePrice) || 0;
-          const feetLine = (feet && perFootRate)
-            ? ('Installation service \u2014 ' + feet + ' ft @ $' + perFootRate.toFixed(2) + '/ft = $' + basePrice.toFixed(2))
-            : ('Installation service = $' + basePrice.toFixed(2));
-          const newMemberLine = isNewMember ? 'New member installation fee = $30.00' : '';
-
-          const total = (Number(inv.install) || 0) + (Number(inv.removal) || 0);
-          const paid = Number(inv.deposit) || 0;
-          const amountDue = Math.max(0, total - paid);
-
-          const templateName = status === 'Paid in Full'
-            ? 'Nightly Auto-Invoice \u2014 Paid Receipt'
-            : 'Nightly Auto-Invoice \u2014 Unpaid';
-          const tplSnap = await db.collection('emailTemplates').where('name', '==', templateName).limit(1).get();
-          if (tplSnap.empty) {
-            errors.push('Missing template: ' + templateName);
-            errorCount++;
-            continue;
-          }
-          let body = tplSnap.docs[0].data().body || '';
-
-          const token = await ensureToken(id, cust);
-          const portalUrl = 'https://highlightingutah.com/#/payment' + (token ? ('?token=' + token) : '');
-          const messagesUrl = 'https://highlightingutah.com/#/contact';
-          const venmoUrl = 'https://venmo.com/HighLightingUtah?txn=pay&amount=' + amountDue.toFixed(2) + '&note=' + encodeURIComponent('Christmas Lights');
-          const btnStyleGold = 'display:inline-block; padding:12px 28px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:15px; margin:6px 8px 6px 0; background:#D89F3D; color:#1E3B2C;';
-
-          body = body.split('{{name}}').join(cust.name || 'there');
-          body = body.split('{{feet_line}}').join(feetLine);
-          body = body.split('{{new_member_fee_line}}').join(newMemberLine);
-          body = body.split('{{amount_due}}').join('$' + amountDue.toFixed(2));
-          body = body.split('{{amount_paid}}').join('$' + total.toFixed(2));
-          body = body.split('{{portal_link}}').join(portalUrl);
-          body = body.split('{{portal_button}}').join('<a href="' + portalUrl + '" style="' + btnStyleGold + '">Log Into Your Portal</a>');
-          body = body.split('{{venmo_link}}').join(venmoUrl);
-          body = body.split('{{venmo_button}}').join('<a href="' + venmoUrl + '" style="' + btnStyleGold + '">Pay with Venmo</a>');
-          body = body.split('{{message_link}}').join(messagesUrl);
-          body = body.replace(/\n/g, '<br>');
-
-          const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              service_id: serviceId,
-              template_id: templateId,
-              user_id: publicKey || '',
-              accessToken: privateKey,
-              template_params: { to_email: email, body: body }
-            })
-          });
-          if (!res.ok) {
-            const text = await res.text();
-            throw new Error('EmailJS send failed: ' + text);
-          }
-
-          await custRef.update({
-            invoiceEmailSent: true,
-            invoiceEmailSentAt: admin.firestore.FieldValue.serverTimestamp()
-          });
-          sentCount++;
-        } catch (err) {
-          errorCount++;
-          errors.push(String((err && err.message) || err));
-        }
-      }
-
-      await logNightlyInvoiceRun({
-        dateStr: todayStr, sentCount, skippedNeedsFix, skippedNotDone,
-        errorCount, errors: errors.slice(0, 10)
-      });
-    } catch (err) {
-      await logNightlyInvoiceRun({
-        dateStr: todayStr, sentCount, skippedNeedsFix, skippedNotDone,
-        errorCount: errorCount + 1, errors: errors.concat([String((err && err.message) || err)]).slice(0, 10)
-      });
+    const autoSnap = await db.collection('settings').doc('nightlyInvoiceAutomation').get();
+    if (!autoSnap.exists || !autoSnap.data().enabled) {
+      return; // automation turned off \u2014 do nothing, don't even log
     }
+    await runInvoiceBatch('schedule');
   }
 );
+
+/* --- sendInvoicesNow -------------------------------------------------------
+ * Manual "Send Invoices Now" button in Admin > Automation > EmailJS Setup.
+ * Runs the exact same billing logic as the 7:00 PM automation, on demand \u2014
+ * works whether the automatic toggle is on or off, so this is the way to send
+ * invoices out on a night the automation is turned off. Requires the caller
+ * to be signed in (same Firebase Auth already used across admin.html).
+ * ------------------------------------------------------------------------- */
+exports.sendInvoicesNow = onCall({ memory: '512MiB', timeoutSeconds: 300 }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Sign in required.');
+  }
+  return await runInvoiceBatch('manual');
+});
