@@ -2610,8 +2610,14 @@ function renderCustomerInvoicePage(raw, opts){
     loadInvoiceForPortal();
   });
   function loadInvoiceForPortal(){
-  getDoc(doc(db,'invoices',raw)).then(function(snap){
-    if(!snap.exists()){
+  // invoices is no longer publicly readable. The server checks the portal
+  // token, or the typed last name, before returning anything.
+  callPortalFn('portalInvoice', {
+    key: raw,
+    token: opts.portalToken || getActivePortalToken() || '',
+    lastName: opts.skipLastNameCheck ? '' : (opts.lastNameInput || '')
+  }).then(function(res){
+    if(!res || !res.found){
       card.classList.remove('show');
       if(tabsLayout) tabsLayout.style.display = 'none';
       tryShowQuoteReview(raw, opts);
@@ -2619,7 +2625,7 @@ function renderCustomerInvoicePage(raw, opts){
     }
     document.getElementById('quoteReviewCard').classList.remove('show');
     document.getElementById('quoteResolvedMsg').style.display = 'none';
-    var record = snap.data();
+    var record = res.record || {};
     var nameParts = (record.name || '').trim().split(/\s+/);
     var recordWords = (record.name || '').toLowerCase().trim().split(/\s+/).filter(Boolean);
     var typedName = (opts.lastNameInput || '').toLowerCase().trim();
