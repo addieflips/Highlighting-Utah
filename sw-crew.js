@@ -3,14 +3,24 @@
 // Firestore's own offline persistence (enabled in employee.html) handles
 // the actual checklist/route data — this worker only handles the page itself.
 
-const CACHE_NAME = 'hu-crew-shell-v1';
+// Bump this version string on any change here. Changing it is what clears
+// out the old cache on everyone's phones.
+const CACHE_NAME = 'hu-crew-shell-v2';
 
-const APP_SHELL = [
-  '/employee.html',
+// The page itself. Always fetched fresh when there's signal, so a deploy
+// shows up on the very next open instead of the one after.
+const PAGE_PATHS = [
+  '/employee.html'
+];
+
+// Supporting files that almost never change. Cache-first is fine for these.
+const STATIC_PATHS = [
   '/manifest-crew.json',
   '/icons/icon-192.png',
   '/icons/icon-512.png'
 ];
+
+const APP_SHELL = PAGE_PATHS.concat(STATIC_PATHS);
 
 // Install: pre-cache the app shell
 self.addEventListener('install', (event) => {
@@ -34,33 +44,56 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Fetch: cache-first for the app shell only.
-// Everything else (Firestore, Firebase Auth, Cloudinary, Google Maps,
-// EmailJS, etc.) passes straight through to the network untouched —
-// those need to be live, not cached.
+// Fetch strategy depends on what's being asked for.
+// Everything not listed in APP_SHELL (Firestore, Firebase Auth, Cloudinary,
+// Google Maps, EmailJS, etc.) passes straight through to the network untouched.
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  const isAppShellRequest =
-    event.request.method === 'GET' &&
-    url.origin === self.location.origin &&
-    APP_SHELL.some((path) => url.pathname === path);
+  if (event.request.method !== 'GET' || url.origin !== self.location.origin) {
+    return;
+  }
 
-  if (!isAppShellRequest) {
+  const isPage = PAGE_PATHS.some((path) => url.pathname === path);
+  const isStatic = STATIC_PATHS.some((path) => url.pathname === path);
+  // Navigations (opening the app, refreshing) should always try the network
+  // first so the newest deploy wins.
+  const isNavigation = event.request.mode === 'navigate';
+
+  if (!isPage && !isStatic && !isNavigation) {
     return; // let the browser handle it normally
   }
 
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const networkFetch = fetch(event.request)
+  if (isPage || isNavigation) {
+    // NETWORK-FIRST: fresh page when online, cached page when not.
+    event.respondWith(
+      fetch(event.request)
         .then((response) => {
           const copy = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
           return response;
         })
-        .catch(() => cached); // offline: fall back to cached shell
+        .catch(() =>
+          caches.match(event.request).then((cached) =>
+            cached || caches.match('/employee.html')
+          )
+        )
+    );
+    return;
+  }
 
-      return cached || networkFetch;
+  // CACHE-FIRST for icons and the manifest — these rarely change, and the
+  // version bump above is what refreshes them.
+  event.respondWith(
+    caches.match(event.request).then((cached) => {
+      return (
+        cached ||
+        fetch(event.request).then((response) => {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+          return response;
+        })
+      );
     })
   );
 });
