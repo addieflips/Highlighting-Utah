@@ -679,13 +679,17 @@ exports.quoteRespond = onCall({ cors: true }, async (request) => {
 /* ---------------------------------------------------------------------------
  * sendNightlyInvoices — runs every night at 7:00 PM Mountain Time.
  *
- * Looks at today's Install routes, and for every house the crew marked
- * "Done" (and did NOT flag for a fix), sends an automatic invoice email:
+ * Checks every house marked "Done" by the crew that hasn't been billed yet
+ * (regardless of which day it was actually completed \u2014 so a house marked
+ * Done late, after 7pm or the next morning, still gets caught on the very
+ * next run instead of being missed) and sends an automatic invoice email:
  *   - already paid in full  -> "Nightly Auto-Invoice — Paid Receipt" template
  *   - still owes money      -> "Nightly Auto-Invoice — Unpaid" template
  * Houses flagged "needs fix" or marked "Didn't Get To" by the crew are
  * skipped entirely and never billed. Each house is only ever billed once
- * (guarded by invoiceEmailSent on the jobAddresses doc).
+ * (guarded by invoiceEmailSent on the jobAddresses doc) \u2014 there's no
+ * "today vs yesterday" distinction at all, which is what keeps this from
+ * ever double-billing or silently skipping a late completion.
  *
  * Turn this on/off anytime from Admin > Automation > EmailJS Setup >
  * "Send nightly invoice emails automatically" — no redeploy needed.
@@ -741,26 +745,24 @@ async function runInvoiceBatch(triggeredBy) {
     const pricingSnap = await db.collection('pricing').doc('config').get();
     const perFootRate = pricingSnap.exists ? (pricingSnap.data().perFootRate || 0) : 0;
 
-    const routesSnap = await db.collection('scheduledRoutes')
-      .where('date', '==', todayStr)
-      .where('type', '==', 'install')
+    // Bills any house marked Done that hasn't been invoiced yet \u2014 no matter
+    // which calendar day it was actually completed on. This avoids ever missing
+    // a house that gets marked Done late (after 7pm, or the next morning): it
+    // simply gets caught on the very next nightly run instead of being skipped.
+    // invoiceEmailSent is the only guard that matters, so each house is only
+    // ever billed once, exactly once, whenever it first becomes eligible.
+    const custsSnap = await db.collection('jobAddresses')
+      .where('completed', '==', true)
       .get();
 
-    const stopIds = new Set();
-    routesSnap.forEach((docSnap) => {
-      (docSnap.data().stops || []).forEach((s) => { if (s.id) stopIds.add(s.id); });
-    });
-
-    for (const id of stopIds) {
+    for (const custDoc of custsSnap.docs) {
+      const id = custDoc.id;
       try {
-        const custRef = db.collection('jobAddresses').doc(id);
-        const custSnap = await custRef.get();
-        if (!custSnap.exists) continue;
-        const cust = custSnap.data();
+        const custRef = custDoc.ref;
+        const cust = custDoc.data();
 
         if (cust.needsFix) { skippedNeedsFix++; continue; }
-        if (!cust.completed) { skippedNotDone++; continue; }
-        if (cust.invoiceEmailSent) { continue; } // already billed for this install
+        if (cust.invoiceEmailSent) { skippedNotDone++; continue; } // already billed previously
 
         const email = cust.email;
         if (!email) { continue; } // nothing to send to
