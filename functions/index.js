@@ -676,6 +676,93 @@ exports.quoteRespond = onCall({ cors: true }, async (request) => {
   };
 });
 
+/* --- publicQuoteLookup ----------------------------------------------------
+ * The quotes collection is create-only for the public site: anyone may submit
+ * a quote request, but reads require auth. index.html was still reading it
+ * directly in two places, and both reads were failing with permission-denied.
+ * Because those reads sat behind .catch() blocks that showed the generic
+ * "we couldn't find your account" message, the failure was invisible — the
+ * email sign-in path and the quote review card had simply stopped working.
+ *
+ * This returns ONLY the quotes matching the phone or email supplied. The old
+ * client code downloaded the entire collection and filtered in the browser.
+ *
+ * Deliberately NOT rate limited. Every caller has already passed through
+ * portalLookup's limiter on the guessable phone/email + last name path, and
+ * tryShowQuoteReview re-runs on every portal load for customers who have a
+ * quote but no invoice yet — limiting here would lock those customers out of
+ * their own portal after a few refreshes.
+ *
+ * Input:  { phone } or { email }
+ * Output: { quotes: [ { id, data } ] }
+ * ------------------------------------------------------------------------- */
+
+// Fields the public quote card needs. Anything else on a quote — internal
+// pricing notes, staff comments, measurements — stays on the server.
+const QUOTE_READ_FIELDS = [
+  'name', 'phone', 'email', 'address', 'houseAreas', 'lightColors',
+  'installPreference', 'quotedPrice', 'approvalStatus', 'formCompleted',
+  'quoteToken'
+];
+
+function sanitizeQuote(data) {
+  const out = {};
+  QUOTE_READ_FIELDS.forEach(function (f) {
+    if (data[f] !== undefined) out[f] = data[f];
+  });
+  return out;
+}
+
+exports.publicQuoteLookup = onCall({ cors: true }, async (request) => {
+  const body = request.data || {};
+  const phone = digitsOnly(body.phone);
+  const email = body.email ? String(body.email).toLowerCase().trim() : '';
+
+  if (!phone && !email) {
+    throw new HttpsError('invalid-argument', 'No lookup information provided.');
+  }
+
+  const all = await db.collection('quotes').get();
+  const out = [];
+  all.forEach(function (d) {
+    const data = d.data();
+    if (phone) {
+      if (digitsOnly(data.phone) !== phone) return;
+    } else {
+      const e = data.email;
+      if (!e || String(e).toLowerCase().trim() !== email) return;
+    }
+    out.push({ id: d.id, data: sanitizeQuote(data) });
+  });
+
+  return { quotes: out };
+});
+
+/* --- publicConfig ---------------------------------------------------------
+ * settings/emailjs is staff-only, so the public site's read of it was being
+ * denied. emailjsSettings stayed null, notifyBusinessOfMessage returned early
+ * every time, and no notification email was ever sent when a customer used
+ * the contact form or requested a quote. The messages themselves always saved
+ * correctly — only the heads-up email was lost.
+ *
+ * Returns only the three public-safe EmailJS identifiers. The privateKey
+ * (EmailJS "Access Token") is what sendNightlyInvoices uses to send mail
+ * unattended, and it is never included here.
+ *
+ * Output: { serviceId, notifyTemplateId, publicKey }
+ * ------------------------------------------------------------------------- */
+exports.publicConfig = onCall({ cors: true }, async (request) => {
+  const snap = await db.collection('settings').doc('emailjs').get();
+  if (!snap.exists) return { configured: false };
+  const data = snap.data() || {};
+  return {
+    configured: !!(data.serviceId && data.notifyTemplateId && data.publicKey),
+    serviceId: data.serviceId || '',
+    notifyTemplateId: data.notifyTemplateId || '',
+    publicKey: data.publicKey || ''
+  };
+});
+
 /* ---------------------------------------------------------------------------
  * sendNightlyInvoices — runs every night at 7:00 PM Mountain Time.
  *
