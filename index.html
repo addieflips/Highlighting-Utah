@@ -2612,10 +2612,14 @@ function renderCustomerInvoicePage(raw, opts){
   function loadInvoiceForPortal(){
   // invoices is no longer publicly readable. The server checks the portal
   // token, or the typed last name, before returning anything.
+  // Send both credentials whenever we have them. The server tries the token
+  // first and only falls back to the name — passing the name even when the
+  // caller set skipLastNameCheck means a stale or mismatched saved token
+  // can't lock a customer out of their own invoice.
   callPortalFn('portalInvoice', {
     key: raw,
     token: opts.portalToken || getActivePortalToken() || '',
-    lastName: opts.skipLastNameCheck ? '' : (opts.lastNameInput || '')
+    lastName: opts.lastNameInput || ''
   }).then(function(res){
     if(!res || !res.found){
       card.classList.remove('show');
