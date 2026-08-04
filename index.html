@@ -2389,8 +2389,11 @@ var currentJobAddressId = null;
 var currentJobAddressData = null;
 
 var emailjsSettings = null;
-getDoc(doc(db,'settings','emailjs')).then(function(snap){
-  if(snap.exists()) emailjsSettings = snap.data();
+// settings/emailjs is staff-only. Reading it directly from the public site was
+// being denied, which silently disabled every "you have a new message" email.
+// publicConfig returns just the three public-safe EmailJS identifiers.
+callPortalFn('publicConfig', {}).then(function(res){
+  if(res && res.configured) emailjsSettings = res;
 }).catch(function(){ /* not configured yet, notifications just won't send */ });
 function notifyBusinessOfMessage(params){
   if(!emailjsSettings || !emailjsSettings.serviceId || !emailjsSettings.notifyTemplateId || !emailjsSettings.publicKey) return;
@@ -2521,11 +2524,11 @@ function performSignInLookup(contactRaw, lastNameInput){
         renderCustomerInvoicePage(portalKey, {lastNameInput: lastNameInput, skipLastNameCheck: true});
         return;
       }
-      getDocs(collection(db,'quotes')).then(function(qsnap){
+      callPortalFn('publicQuoteLookup', {email: emailLower}).then(function(qres){
         var qmatch = null;
-        qsnap.forEach(function(docSnap){
+        ((qres && qres.quotes) || []).forEach(function(entry){
           if(qmatch) return;
-          var d = docSnap.data();
+          var d = entry.data;
           if(d.email && d.email.toLowerCase().trim() === emailLower) qmatch = d;
         });
         if(qmatch && (qmatch.phone || qmatch.email)){
@@ -2675,11 +2678,15 @@ function tryShowQuoteReview(raw, opts){
   var quoteCard = document.getElementById('quoteReviewCard');
   var resolvedMsg = document.getElementById('quoteResolvedMsg');
   var empty = document.getElementById('lookupEmpty');
-  getDocs(collection(db,'quotes')).then(function(snap){
+  var keyIsEmail = String(raw||'').indexOf('@') !== -1;
+  // The quotes collection is not readable from the public site. This used to
+  // download every quote and filter in the browser; the server now returns
+  // only the ones matching this phone or email. The pending/resolved logic
+  // below is unchanged.
+  callPortalFn('publicQuoteLookup', keyIsEmail ? {email: raw} : {phone: raw}).then(function(qres){
     var pending = null, resolved = null;
-    var keyIsEmail = String(raw||'').indexOf('@') !== -1;
-    snap.forEach(function(docSnap){
-      var d = docSnap.data();
+    ((qres && qres.quotes) || []).forEach(function(entry){
+      var d = entry.data;
       if(keyIsEmail){
         if(!d.email || d.email.toLowerCase().trim() !== raw) return;
       } else {
@@ -2691,9 +2698,9 @@ function tryShowQuoteReview(raw, opts){
       var lastName = nameParts.length ? nameParts[0].toLowerCase() : '';
       if(!opts.skipLastNameCheck && lastName !== opts.lastNameInput) return;
       if(d.approvalStatus === 'approved' || d.approvalStatus === 'declined'){
-        if(!resolved) resolved = {id: docSnap.id, data: d};
+        if(!resolved) resolved = {id: entry.id, data: d};
       } else if(!pending){
-        pending = {id: docSnap.id, data: d};
+        pending = {id: entry.id, data: d};
       }
     });
     if(pending){
