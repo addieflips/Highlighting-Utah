@@ -195,6 +195,15 @@
   .route-tabs .route-tab-btn.dragging{ opacity:.4; }
   .route-tabs .route-tab-btn.drag-over{ outline:2px dashed var(--gold-dim); outline-offset:2px; }
 
+  .pill-check-row{ display:flex; flex-wrap:wrap; gap:8px; }
+  .pill-check{
+    display:inline-flex; align-items:center; gap:6px; background:#fff; border:1px solid var(--line);
+    color:var(--ink); border-radius:999px; padding:8px 14px; font-size:13px; font-weight:600; cursor:pointer;
+    user-select:none;
+  }
+  .pill-check input{ width:15px; height:15px; margin:0; flex-shrink:0; }
+  .pill-check.checked{ background:var(--ink); color:#fff; border-color:var(--ink); }
+
   /* House Maps */
   #hmActiveImg.hm-blueprint{ filter:grayscale(1) contrast(2.1) brightness(1.25); }
   #addCustPhotoImg.hm-blueprint{ filter:grayscale(1) contrast(2.1) brightness(1.25); }
@@ -742,29 +751,27 @@
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
             <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Which Part(s) of the House?</label>
             <p style="font-size:12px; color:var(--slate); margin:0 0 8px;">Same options customers choose when requesting a quote &mdash; adjustable anytime.</p>
-            <select id="addCustAreas" multiple size="5" style="max-width:260px;">
-              <option value="" disabled selected>Select&hellip;</option>
-              <option value="Front of House">Front of House</option>
-              <option value="Right Side">Right Side</option>
-              <option value="Left Side">Left Side</option>
-              <option value="Back of House">Back of House</option>
-            </select>
+            <div class="pill-check-row" id="addCustAreas">
+              <label class="pill-check"><input type="checkbox" class="addcust-area-check" value="Front of House"> Front of House</label>
+              <label class="pill-check"><input type="checkbox" class="addcust-area-check" value="Right Side"> Right Side</label>
+              <label class="pill-check"><input type="checkbox" class="addcust-area-check" value="Left Side"> Left Side</label>
+              <label class="pill-check"><input type="checkbox" class="addcust-area-check" value="Back of House"> Back of House</label>
+            </div>
           </div>
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
             <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">What Lights Are They Getting?</label>
             <div class="form-row" style="max-width:260px;"><label>Color(s)</label>
-              <select id="addCustLightsColor" multiple size="9">
-                <option value="" disabled selected>Select&hellip;</option>
-                <option value="Warm White">Warm White</option>
-                <option value="Pure White">Pure White</option>
-                <option value="Red">Red</option>
-                <option value="Green">Green</option>
-                <option value="Blue">Blue</option>
-                <option value="Purple">Purple</option>
-                <option value="Orange">Orange</option>
-                <option value="Pink">Pink</option>
-                <option value="Multi">Multi</option>
-              </select>
+              <div class="pill-check-row" id="addCustLightsColor">
+                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Warm White"> Warm White</label>
+                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Pure White"> Pure White</label>
+                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Red"> Red</label>
+                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Green"> Green</label>
+                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Blue"> Blue</label>
+                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Purple"> Purple</label>
+                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Orange"> Orange</label>
+                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Pink"> Pink</label>
+                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Multi"> Multi</label>
+              </div>
             </div>
             <div class="form-row"><label>Additional Notes (optional)</label><input type="text" id="addCustLightsNotes" placeholder="e.g. 2 trees out front, watch for low peak"></div>
             <div class="form-row" style="max-width:180px; margin-top:10px;"><label>Wire Color</label>
@@ -796,9 +803,9 @@
             <div class="form-row" style="max-width:280px; margin-top:10px;"><label>Bill To Phone (optional)</label><input type="tel" id="addCustBillTo" placeholder="Leave blank to bill this house"></div>
             <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">If someone else is paying for this house too (e.g. a landlord with multiple properties), enter their phone number here &mdash; this house's price gets added to their invoice instead of creating a separate one.</p>
             <div class="form-row" style="max-width:220px; margin-top:10px;"><label>Gate Code (optional)</label><input type="text" id="addCustGateCode" placeholder="e.g. #4521"></div>
-            <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin-top:10px;"><input type="checkbox" id="addCustWantsMailed" style="width:auto;"> Also wants their invoice mailed (postal mail)</label>
-            <label style="display:flex; align-items:center; gap:6px; font-size:13px; margin-top:6px;"><input type="checkbox" id="addCustWantsMail" style="width:auto;"> Wants their invoice mailed (not emailed)</label>
             <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">If entered, this house is automatically flagged as gated on Routes and Maps, visible to you and your crew.</p>
+            <div class="form-row" style="max-width:180px; margin-top:10px;"><label>Number of Bins</label><input type="number" id="addCustBins" min="1" step="1" value="1"></div>
+            <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin-top:10px;"><input type="checkbox" id="addCustWantsMailed" style="width:auto;"> Also wants their invoice mailed (postal mail)</label>
           </div>
           <button type="submit" class="btn btn-gold">Add Customer</button>
           <span id="routeAddStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
@@ -1014,8 +1021,8 @@
           </div>
           <p style="font-size:11.5px; color:var(--slate); margin:-8px 0 0;">If someone else pays for this house, enter their phone number &mdash; this house's price rolls into their invoice instead.</p>
           <div class="form-row"><label>Gate Code (optional)</label><input type="text" id="editCustGateCode" placeholder="e.g. #4521"></div>
+          <div class="form-row" style="max-width:180px;"><label>Number of Bins</label><input type="number" id="editCustBins" min="1" step="1"></div>
           <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin-top:-6px; margin-bottom:16px;"><input type="checkbox" id="editCustWantsMailed" style="width:auto;"> Also wants their invoice mailed (postal mail)</label>
-          <label style="display:flex; align-items:center; gap:6px; font-size:13px; margin-top:-8px; margin-bottom:14px;"><input type="checkbox" id="editCustWantsMail" style="width:auto;"> Wants their invoice mailed (not emailed)</label>
           <div style="display:flex; gap:10px; margin-top:16px;">
             <button type="button" class="btn btn-outline" id="editCustCancelBtn" style="flex:1;">Cancel</button>
             <button type="button" class="btn btn-gold" id="editCustSaveBtn" style="flex:1;">Save Changes</button>
@@ -4440,14 +4447,16 @@ function renderQuoteRows(filtered){
       document.getElementById('routeZipInput').value = d.zip || '';
       document.getElementById('addCustEmail').value = d.email || '';
       const colors = d.lightColors || [];
-      Array.from(document.getElementById('addCustLightsColor').options).forEach(function(opt){
-        opt.selected = colors.includes(opt.value);
+      document.querySelectorAll('.addcust-color-check').forEach(function(cb){
+        cb.checked = colors.includes(cb.value);
+        cb.closest('.pill-check').classList.toggle('checked', cb.checked);
       });
       document.getElementById('addCustLightsNotes').value = d.lightsDescription || '';
       document.getElementById('addCustWireColor').value = d.wireColor || 'White';
       const quoteAreas = d.houseAreas || [];
-      Array.from(document.getElementById('addCustAreas').options).forEach(function(opt){
-        opt.selected = quoteAreas.includes(opt.value);
+      document.querySelectorAll('.addcust-area-check').forEach(function(cb){
+        cb.checked = quoteAreas.includes(cb.value);
+        cb.closest('.pill-check').classList.toggle('checked', cb.checked);
       });
       document.getElementById('addCustInstallPref').value = d.installPreference || 'Normal Schedule';
       document.getElementById('addCustGateCode').value = d.gateCode || '';
@@ -7759,6 +7768,11 @@ async function syncPayerInvoice(payerPhone){
     billedHouseIds: linked.map(h => h.id)
   }, {merge:true});
 }
+document.addEventListener('change', function(e){
+  if(e.target.matches && e.target.matches('.pill-check input[type="checkbox"]')){
+    e.target.closest('.pill-check').classList.toggle('checked', e.target.checked);
+  }
+});
 document.getElementById('routeAddressForm').addEventListener('submit', async function(e){
   e.preventDefault();
   const street = document.getElementById('routeStreetInput').value.trim();
@@ -7772,16 +7786,17 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
   const email = document.getElementById('addCustEmail').value.trim();
   const phone2 = document.getElementById('addCustPhone2').value.replace(/\D/g,'');
   const email2 = document.getElementById('addCustEmail2').value.trim();
-  const selectedColors = Array.from(document.getElementById('addCustLightsColor').selectedOptions).map(o => o.value).filter(Boolean);
+  const selectedColors = Array.from(document.querySelectorAll('.addcust-color-check:checked')).map(el => el.value);
   const lightsDescription = compileLightsDescription(
     selectedColors.join(', '),
     document.getElementById('addCustLightsNotes').value.trim()
   );
   const wireColor = document.getElementById('addCustWireColor').value;
-  const houseAreas = Array.from(document.getElementById('addCustAreas').selectedOptions).map(o => o.value).filter(Boolean);
+  const houseAreas = Array.from(document.querySelectorAll('.addcust-area-check:checked')).map(el => el.value);
   const installPreference = document.getElementById('addCustInstallPref').value;
   const billToPhone = document.getElementById('addCustBillTo').value.replace(/\D/g,'');
   const gateCode = document.getElementById('addCustGateCode').value.trim();
+  const numberOfBins = parseInt(document.getElementById('addCustBins').value, 10) || 1;
   const wantsMailedInvoice = document.getElementById('addCustWantsMailed').checked;
   const wantsBilling = price > 0;
   const statusEl = document.getElementById('routeAddStatus');
@@ -7808,7 +7823,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
       housePhotoUrl: addCustPhotoUrl, houseHighlights: addCustHighlights, portalToken: generatePortalToken(), installPreference: installPreference,
       wireColor: wireColor,
       lat: coords.lat, lng: coords.lng, needsLightBuild: !!lightsDescription,
-      scheduled: false, createdAt: serverTimestamp(), housePrice: price, measuredFeet: measuredFeet, gateCode: gateCode, wantsMailedInvoice: wantsMailedInvoice
+      scheduled: false, createdAt: serverTimestamp(), housePrice: price, measuredFeet: measuredFeet, gateCode: gateCode, wantsMailedInvoice: wantsMailedInvoice, numberOfBins: numberOfBins
     }, billingElsewhere ? {billToPhone: billToPhone} : {}));
     if(addCustPhotoUrl){
       await setDoc(doc(db,'houseMaps',newAddrRef.id), {'images.house': addCustPhotoUrl}, {merge:true});
@@ -7834,17 +7849,18 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
     document.getElementById('addCustPrice').value = '';
     document.getElementById('addCustBillTo').value = '';
     document.getElementById('addCustGateCode').value = '';
+    document.getElementById('addCustBins').value = '1';
     document.getElementById('addCustWantsMailed').checked = false;
     document.getElementById('addCustFeet').value = '';
     document.getElementById('addCustFeetNote').textContent = 'Enter Measured Feet to bill automatically at your Per Foot Pricing rate — you can still adjust Total Price by hand afterward. Deposit and removal fee can be added later from the Invoices tab if needed.';
     document.getElementById('addCustEmail').value = '';
     document.getElementById('addCustPhone2').value = '';
     document.getElementById('addCustEmail2').value = '';
-    Array.from(document.getElementById('addCustLightsColor').options).forEach(opt => opt.selected = false);
+    document.querySelectorAll('.addcust-color-check').forEach(function(cb){ cb.checked = false; cb.closest('.pill-check').classList.remove('checked'); });
     document.getElementById('addCustLightsNotes').value = '';
     document.getElementById('addCustWireColor').value = 'White';
     document.getElementById('addCustInstallPref').value = 'Normal Schedule';
-    Array.from(document.getElementById('addCustAreas').options).forEach(opt => opt.selected = false);
+    document.querySelectorAll('.addcust-area-check').forEach(function(cb){ cb.checked = false; cb.closest('.pill-check').classList.remove('checked'); });
     document.getElementById('addCustPhoto').value = '';
     document.getElementById('addCustPhotoWrap').style.display = 'none';
     document.getElementById('addCustViewToggle').style.display = 'none';
@@ -9863,8 +9879,9 @@ function renderAllCustomersTable(){
     const routeCell = '<span class="status-pill diff-'+(r.d.difficulty||'Unrated')+'">'+(r.d.difficulty||'Unrated')+'</span><br><span style="font-size:11.5px; color:var(--slate);">'+r.routeStatus+'</span><br><span style="font-size:11px; color:'+rsvpColor+'; font-weight:600;">'+rsvpLabel+'</span>';
     const timingLabel = r.d.installPreference === 'November - Before Thanksgiving' ? 'November — Before Thanksgiving' : (r.d.installPreference === 'Normal Schedule' || !r.d.installPreference ? 'Any' : r.d.installPreference);
     const mapCell = r.hasMap ? '<button type="button" class="btn btn-outline btn-sm" data-openmapfor="'+r.item.id+'">View Map</button>' : '<span style="color:var(--slate); font-size:12px;">No map yet</span>';
+    const binBadge = (r.d.numberOfBins && r.d.numberOfBins > 1) ? ' <span style="display:inline-block; background:#EAF1FA; color:#2B5C8A; border:1px solid #C3D8EC; border-radius:999px; padding:1px 8px; font-size:11px; font-weight:600; vertical-align:middle;">'+r.d.numberOfBins+' bins</span>' : '';
     return '<tr style="border-bottom:1px solid var(--line);">'+
-      '<td style="padding:8px 10px;"><strong>'+esc(r.d.name||'(no name)')+'</strong><br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.address||'')+'</span>'+(r.d.phone?'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.phone)+'</span>':'')+'</td>'+
+      '<td style="padding:8px 10px;"><strong>'+esc(r.d.name||'(no name)')+'</strong>'+binBadge+'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.address||'')+'</span>'+(r.d.phone?'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.phone)+'</span>':'')+'</td>'+
       '<td style="padding:8px 10px; font-size:12.5px;">'+esc(r.enrolled||'—')+'</td>'+
       '<td style="padding:8px 10px;">'+routeCell+'</td>'+
       '<td style="padding:8px 10px; font-size:12.5px;">'+esc(timingLabel)+'</td>'+
@@ -9905,6 +9922,7 @@ function openEditCustomerModal(id){
   document.getElementById('editCustWireColor').value = d.wireColor || 'White';
   document.getElementById('editCustBillTo').value = d.billToPhone || '';
   document.getElementById('editCustGateCode').value = d.gateCode || '';
+  document.getElementById('editCustBins').value = d.numberOfBins || 1;
   document.getElementById('editCustWantsMailed').checked = !!d.wantsMailedInvoice;
   document.getElementById('editCustStatus').textContent = '';
   document.getElementById('editCustOverlay').style.display = 'flex';
@@ -9932,6 +9950,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const newWireColor = document.getElementById('editCustWireColor').value;
   const newBillTo = document.getElementById('editCustBillTo').value.replace(/\D/g,'');
   const newGateCode = document.getElementById('editCustGateCode').value.trim();
+  const newBins = parseInt(document.getElementById('editCustBins').value, 10) || 1;
   const newWantsMailed = document.getElementById('editCustWantsMailed').checked;
   if(!newName || !newPhone){ statusEl.textContent = 'Name and phone are required.'; return; }
   const oldPhone = item.data.phone || '';
@@ -9939,7 +9958,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const oldAddress = item.data.address || '';
   statusEl.textContent = 'Saving…';
   try{
-    const addrUpdates = {name: newName, phone: newPhone, phone2: newPhone2, email: newEmail, email2: newEmail2, address: newAddress, rsvpStatus: newRsvp, needsLightRecycle: newRsvp === 'no', housePrice: newHousePrice, measuredFeet: newMeasuredFeet, wireColor: newWireColor, billToPhone: newBillTo, gateCode: newGateCode, wantsMailedInvoice: newWantsMailed, earliestInstallDate: newEarliestInstallStr ? new Date(newEarliestInstallStr + 'T00:00:00') : null};
+    const addrUpdates = {name: newName, phone: newPhone, phone2: newPhone2, email: newEmail, email2: newEmail2, address: newAddress, rsvpStatus: newRsvp, needsLightRecycle: newRsvp === 'no', housePrice: newHousePrice, measuredFeet: newMeasuredFeet, wireColor: newWireColor, billToPhone: newBillTo, gateCode: newGateCode, numberOfBins: newBins, wantsMailedInvoice: newWantsMailed, earliestInstallDate: newEarliestInstallStr ? new Date(newEarliestInstallStr + 'T00:00:00') : null};
     if(newEnrolledStr) addrUpdates.createdAt = new Date(newEnrolledStr + 'T12:00:00');
     let geocodeFailed = false;
     if(newAddress && newAddress !== oldAddress){
