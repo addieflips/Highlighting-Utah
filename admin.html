@@ -138,6 +138,29 @@
   .panel{ display:none; }
   .panel.active{ display:block; }
   .panel-head{ display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:24px; flex-wrap:wrap; gap:12px; }
+  .ato-cal-head{ display:flex; align-items:center; justify-content:space-between; margin:12px 0; gap:10px; }
+  .ato-cal-head button{
+    background:var(--paper); border:1px solid var(--line); border-radius:8px;
+    padding:7px 14px; font-size:13px; color:var(--ink); cursor:pointer;
+  }
+  .ato-cal-head button:hover{ background:var(--snow); }
+  .ato-grid{ display:grid; grid-template-columns:repeat(7,1fr); gap:4px; }
+  .ato-dow{ text-align:center; font-size:10.5px; font-weight:700; color:var(--slate); text-transform:uppercase; padding:3px 0; }
+  .ato-day{
+    min-height:62px; border:1px solid var(--line); border-radius:9px; padding:5px 6px;
+    font-size:12px; background:var(--snow); cursor:pointer; overflow:hidden;
+  }
+  .ato-day.empty{ background:transparent; border-color:transparent; cursor:default; }
+  .ato-day:not(.empty):hover{ border-color:var(--dusk); }
+  .ato-day.selected{ border-color:var(--dusk); box-shadow:0 0 0 2px rgba(90,90,150,.18); }
+  .ato-daynum{ font-weight:700; font-size:11.5px; color:var(--slate); }
+  .ato-day.today .ato-daynum{ color:var(--dusk); text-decoration:underline; }
+  .ato-chip{
+    display:block; font-size:10.5px; font-weight:600; border-radius:5px;
+    padding:1px 4px; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .ato-chip.approved{ background:var(--dusk); color:#fff; }
+  .ato-chip.pending{ background:transparent; border:1px dashed var(--dusk); color:var(--dusk); }
   .panel-head h2{ font-size:24px; margin-bottom:2px; }
   .panel-head p{ margin:0; font-size:13.5px; }
 
@@ -2580,6 +2603,7 @@ Highlighting Utah</textarea>
       <div class="route-tabs" id="respSectionTabs" style="margin-bottom:20px;">
         <button class="route-tab-btn active" data-resptab="names" draggable="true">Employee Names</button>
         <button class="route-tab-btn" data-resptab="roletemplates" draggable="true">Role Templates</button>
+        <button class="route-tab-btn" data-resptab="timeoff" draggable="true">Time Off</button>
         <button class="route-tab-btn" data-resptab="crews" draggable="true">Crews</button>
         <button class="route-tab-btn" data-resptab="reassign" draggable="true">One-Day Reassignment</button>
         <button class="route-tab-btn" data-resptab="assignments" draggable="true">Daily Responsibilities</button>
@@ -2615,6 +2639,25 @@ Highlighting Utah</textarea>
           <button type="button" class="btn btn-gold btn-sm" id="addRoleTemplateBtn">Add</button>
         </div>
         <div id="roleTemplatesList"></div>
+      </div>
+      </div>
+
+      <div class="gen-subtab-panel" id="resptab-timeoff">
+      <div class="card">
+        <h3 style="font-size:14px; margin-bottom:10px;">Time Off Calendar</h3>
+        <p style="font-size:13px;">Everyone's requested and approved days off in one place. Approved days are filled in, pending days are outlined &mdash; click any day to see who's out and approve or deny right there.</p>
+        <div class="ato-cal-head">
+          <button type="button" id="atoPrevMonth">&larr; Prev</button>
+          <strong id="atoMonthLabel"></strong>
+          <button type="button" id="atoNextMonth">Next &rarr;</button>
+        </div>
+        <div id="atoCalendar"></div>
+        <div id="atoDayDetail" style="margin-top:16px;"></div>
+      </div>
+      <div class="card">
+        <h3 style="font-size:14px; margin-bottom:10px;">Requests Without Dates</h3>
+        <p style="font-size:13px;">Older requests submitted before dates were added, plus anything that isn't day-based. These still need approving from the Approvals list above &mdash; they just can't show on the calendar.</p>
+        <div id="atoUndatedList"></div>
       </div>
       </div>
 
@@ -4212,6 +4255,7 @@ function initData(){
   loadEmployeeNames();
   loadEmployeeCategories();
   loadRoleTemplates();
+  loadTimeOffRequests();
   loadCrewConfig();
   loadCrewOverrides();
   loadEmployeeNotes();
@@ -6428,6 +6472,7 @@ function loadEmployeeRequestsAdmin(){
       html += '<div class="row-item">'+
         '<div class="rmain">'+
           '<h4>'+esc(d.employeeName)+' <span class="status-pill status-due">'+esc(d.type||'Request')+'</span></h4>'+
+          (d.startDate ? '<div class="rtext" style="color:var(--dusk); font-weight:600;">'+esc(formatTimeOffRange(d))+'</div>' : '')+
           '<div class="rtext">'+esc(d.description||'')+'</div>'+
         '</div>'+
         '<div class="row-actions">'+
@@ -11581,6 +11626,149 @@ document.getElementById('addEmployeeBtn').addEventListener('click', async functi
 });
 
 /* ---------------- EMPLOYEE CATEGORIES ---------------- */
+/* ---------------- TIME OFF CALENDAR ---------------- */
+let timeOffRequests = [];
+let atoMonthCursor = new Date();
+let atoSelectedDay = '';
+function formatTimeOffRange(d){
+  if(!d.startDate) return '';
+  const end = d.endDate || d.startDate;
+  const pretty = function(s){ return new Date(s+'T12:00:00').toLocaleDateString(undefined, {month:'short', day:'numeric'}); };
+  const base = (end && end !== d.startDate) ? pretty(d.startDate)+' \u2013 '+pretty(end) : pretty(d.startDate);
+  return base + (d.halfDay ? ' (half day)' : '');
+}
+function loadTimeOffRequests(){
+  // Pending AND approved, so the calendar shows the whole picture. Denied drops off.
+  onSnapshot(collection(db,'employeeRequests'), function(snap){
+    timeOffRequests = [];
+    snap.forEach(function(docSnap){
+      const d = docSnap.data();
+      if(d.status !== 'pending' && d.status !== 'approved') return;
+      timeOffRequests.push({
+        id: docSnap.id, employeeName: d.employeeName || '', type: d.type || 'Request',
+        description: d.description || '', status: d.status,
+        startDate: d.startDate || '', endDate: d.endDate || d.startDate || '', halfDay: !!d.halfDay
+      });
+    });
+    renderAdminTimeOffCalendar();
+    renderAtoUndated();
+  });
+}
+function atoDayMap(){
+  // Expand each dated request across every day it covers.
+  const map = {};
+  timeOffRequests.forEach(function(r){
+    if(!r.startDate) return;
+    let cur = new Date(r.startDate + 'T12:00:00');
+    const end = new Date((r.endDate || r.startDate) + 'T12:00:00');
+    let guard = 0;
+    while(cur <= end && guard < 400){
+      const key = cur.getFullYear()+'-'+String(cur.getMonth()+1).padStart(2,'0')+'-'+String(cur.getDate()).padStart(2,'0');
+      if(!map[key]) map[key] = [];
+      map[key].push(r);
+      cur.setDate(cur.getDate()+1);
+      guard++;
+    }
+  });
+  return map;
+}
+function renderAdminTimeOffCalendar(){
+  const grid = document.getElementById('atoCalendar');
+  const label = document.getElementById('atoMonthLabel');
+  if(!grid || !label) return;
+  const year = atoMonthCursor.getFullYear();
+  const month = atoMonthCursor.getMonth();
+  label.textContent = atoMonthCursor.toLocaleDateString(undefined, {month:'long', year:'numeric'});
+  const map = atoDayMap();
+  const todayStr = toDateStr(new Date());
+  const startPad = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month+1, 0).getDate();
+
+  let html = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(function(d){
+    return '<div class="ato-dow">'+d+'</div>';
+  }).join('');
+  for(let i=0;i<startPad;i++) html += '<div class="ato-day empty"></div>';
+  for(let d=1; d<=daysInMonth; d++){
+    const key = year+'-'+String(month+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+    const list = map[key] || [];
+    let cls = 'ato-day';
+    if(key === todayStr) cls += ' today';
+    if(key === atoSelectedDay) cls += ' selected';
+    const shown = list.slice(0,2).map(function(r){
+      return '<span class="ato-chip '+(r.status === 'approved' ? 'approved' : 'pending')+'">'+esc(r.employeeName)+'</span>';
+    }).join('');
+    const more = list.length > 2 ? '<span class="ato-chip" style="color:var(--slate);">+'+(list.length-2)+' more</span>' : '';
+    html += '<div class="'+cls+'" data-atoday="'+key+'"><div class="ato-daynum">'+d+'</div>'+shown+more+'</div>';
+  }
+  grid.innerHTML = '<div class="ato-grid">'+html+'</div>';
+  grid.querySelectorAll('[data-atoday]').forEach(function(cell){
+    cell.addEventListener('click', function(){
+      atoSelectedDay = (atoSelectedDay === cell.dataset.atoday) ? '' : cell.dataset.atoday;
+      renderAdminTimeOffCalendar();
+      renderAtoDayDetail();
+    });
+  });
+  renderAtoDayDetail();
+}
+function renderAtoDayDetail(){
+  const wrap = document.getElementById('atoDayDetail');
+  if(!wrap) return;
+  if(!atoSelectedDay){ wrap.innerHTML = ''; return; }
+  const list = atoDayMap()[atoSelectedDay] || [];
+  const pretty = new Date(atoSelectedDay+'T12:00:00').toLocaleDateString(undefined, {weekday:'long', month:'long', day:'numeric'});
+  if(!list.length){
+    wrap.innerHTML = '<h4 style="font-size:13.5px; margin-bottom:6px;">'+esc(pretty)+'</h4><p style="font-size:13px; color:var(--slate);">Nobody is off this day.</p>';
+    return;
+  }
+  wrap.innerHTML = '<h4 style="font-size:13.5px; margin-bottom:8px;">'+esc(pretty)+'</h4>' + list.map(function(r){
+    return '<div class="row-item">'+
+      '<div class="rmain">'+
+        '<h4>'+esc(r.employeeName)+' <span class="status-pill '+(r.status==='approved'?'status-paid':'status-due')+'">'+esc(r.status==='approved'?'Approved':'Pending')+'</span></h4>'+
+        '<div class="rtext">'+esc(r.type)+' &middot; '+esc(formatTimeOffRange(r))+'</div>'+
+        (r.description ? '<div class="rtext">'+esc(r.description)+'</div>' : '')+
+      '</div>'+
+      (r.status === 'pending'
+        ? '<div class="row-actions">'+
+            '<button class="icon-btn" data-atoapprove="'+r.id+'" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:#2E6B3E;">Approve</button>'+
+            '<button class="icon-btn" data-atodeny="'+r.id+'" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:var(--ember);">Deny</button>'+
+          '</div>'
+        : '')+
+    '</div>';
+  }).join('');
+  wrap.querySelectorAll('[data-atoapprove]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      updateDoc(doc(db,'employeeRequests',btn.dataset.atoapprove), {status: 'approved'});
+      toast('Time off approved');
+    });
+  });
+  wrap.querySelectorAll('[data-atodeny]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      updateDoc(doc(db,'employeeRequests',btn.dataset.atodeny), {status: 'denied'});
+      toast('Request denied');
+    });
+  });
+}
+function renderAtoUndated(){
+  const wrap = document.getElementById('atoUndatedList');
+  if(!wrap) return;
+  const undated = timeOffRequests.filter(function(r){ return !r.startDate; });
+  if(!undated.length){ wrap.innerHTML = '<p style="font-size:12.5px; color:var(--slate);">Nothing here — every open request has dates.</p>'; return; }
+  wrap.innerHTML = undated.map(function(r){
+    return '<div class="row-item"><div class="rmain">'+
+      '<h4>'+esc(r.employeeName)+' <span class="status-pill '+(r.status==='approved'?'status-paid':'status-due')+'">'+esc(r.type)+'</span></h4>'+
+      '<div class="rtext">'+esc(r.description)+'</div>'+
+    '</div></div>';
+  }).join('');
+}
+document.getElementById('atoPrevMonth').addEventListener('click', function(){
+  atoMonthCursor = new Date(atoMonthCursor.getFullYear(), atoMonthCursor.getMonth()-1, 1);
+  renderAdminTimeOffCalendar();
+});
+document.getElementById('atoNextMonth').addEventListener('click', function(){
+  atoMonthCursor = new Date(atoMonthCursor.getFullYear(), atoMonthCursor.getMonth()+1, 1);
+  renderAdminTimeOffCalendar();
+});
+
 /* ---------------- ROLE TEMPLATES ---------------- */
 let roleTemplates = [];
 function loadRoleTemplates(){
