@@ -697,7 +697,8 @@ const WH_TOP_TABS = [
   {id:'lights', label:'Lights', badge:true},
   {id:'recycle', label:'Recycle', badge:true},
   {id:'timers', label:'Timers', badge:true},
-  {id:'pull', label:'Pull', badge:false}
+  {id:'pull', label:'Pull', badge:false},
+  {id:'tomorrow', label:'Tomorrow', badge:false}
 ];
 let whActive = 'lights';
 let whHideDone = false;
@@ -712,6 +713,7 @@ let whRecycle = [];        // jobAddresses with needsLightRecycle:true
 let whTimers = [];         // jobAddresses with outletTimer:'Yes', built, not yet handled
 let whGoals = [];          // warehouseGoals docs (build-ahead targets)
 let whPullByCrew = {};     // {crewId: {docId, date, stops, pulledIds}}
+let whTomorrow = [];       // jobAddresses scheduled for tomorrow, regardless of route build status
 
 function whBadgeCountFor(tabId){
   if(tabId === 'checklist'){
@@ -755,6 +757,18 @@ function whRow(item){
       '<input type="checkbox" class="wh-check" data-key="'+item.key+'" '+(item.done?'checked':'')+' style="width:22px; height:22px; flex-shrink:0;">'+
     '</div>'+
   '</label>';
+}
+function whTomorrowRow(item){
+  const binsBadge = item.bins > 1 ? '<span style="display:inline-block; background:#EAF1FA; color:#2B5C8A; border:1px solid #C3D8EC; border-radius:999px; padding:2px 9px; font-size:11.5px; font-weight:700; margin-left:8px; vertical-align:middle;">'+item.bins+' bins</span>' : '';
+  return '<div style="background:#fff; border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin-bottom:8px;">'+
+    '<div style="display:flex; align-items:center; gap:12px;">'+
+      '<span style="width:24px; height:24px; border-radius:50%; background:var(--paper); color:var(--ink); display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; flex-shrink:0;">'+item.n+'</span>'+
+      '<span style="flex:1;">'+
+        '<span style="display:block; font-size:14.5px; font-weight:600; color:var(--ink);">'+esc(item.name)+(item.bin ? ' <span style="font-weight:700; color:var(--gold-dim);">&mdash; Bin #'+esc(item.bin)+'</span>' : '')+binsBadge+'</span>'+
+        (item.sub ? '<span style="display:block; font-size:12.5px; color:var(--slate);">'+esc(item.sub)+'</span>' : '')+
+      '</span>'+
+    '</div>'+
+  '</div>';
 }
 function whGoalCard(g, i){
   const pct = Math.max(0, Math.min(100, Math.round((g.progress / g.target) * 100)));
@@ -815,7 +829,7 @@ function whRender(){
   whRenderTopTabs();
   document.getElementById('wh-lights-filter').style.display = whActive === 'lights' ? 'flex' : 'none';
   document.getElementById('wh-crew-filter').style.display = whActive === 'pull' ? 'flex' : 'none';
-  document.getElementById('wh-hide-done-wrap').style.display = (whActive === 'lights' && whLightsFilter === 'goals') ? 'none' : 'flex';
+  document.getElementById('wh-hide-done-wrap').style.display = (whActive === 'tomorrow' || (whActive === 'lights' && whLightsFilter === 'goals')) ? 'none' : 'flex';
 
   if(whActive === 'lights'){
     document.getElementById('wh-lights-filter').innerHTML = ['all','new','old','goals'].map(function(f){
@@ -880,20 +894,24 @@ function whRender(){
   else if(whActive === 'lights') items = whCurrentLightsItems();
   else if(whActive === 'recycle') items = whRecycle;
   else if(whActive === 'timers') items = whTimers;
+  else if(whActive === 'tomorrow') items = whTomorrow;
   else items = [];
 
   if(whActive === 'lights' && whLightsFilter !== 'all') items = items.filter(function(i){ return i.kind === whLightsFilter; });
 
   const total = items.length;
   const doneCount = items.filter(function(i){ return i.done; }).length;
+  const totalBins = items.reduce(function(sum, i){ return sum + (i.bins || 1); }, 0);
   document.getElementById('wh-progress').textContent = whActive === 'pull'
     ? (whPullCrew ? 'Crew '+whPullCrew+' — '+doneCount+' of '+total+' pulled' : '')
-    : doneCount + ' of ' + total + ' done';
+    : whActive === 'tomorrow'
+      ? (total ? total+' house'+(total===1?'':'s')+' — '+totalBins+' bin'+(totalBins===1?'':'s')+' to pull for tomorrow' : '')
+      : doneCount + ' of ' + total + ' done';
 
   let visible = whHideDone ? items.filter(function(i){ return !i.done; }) : items;
 
   if(!visible.length){
-    list.innerHTML = '<p style="text-align:center; color:var(--slate); font-size:13.5px; padding:20px 0;">'+(whActive==='pull' ? 'Nothing to pull.' : 'All done here!')+'</p>';
+    list.innerHTML = '<p style="text-align:center; color:var(--slate); font-size:13.5px; padding:20px 0;">'+(whActive==='pull' ? 'Nothing to pull.' : whActive==='tomorrow' ? 'Nothing scheduled for tomorrow yet.' : 'All done here!')+'</p>';
   } else if(whActive === 'lights' && whLightsFilter === 'all'){
     const newItems = visible.filter(function(i){ return i.kind === 'new'; });
     const oldItems = visible.filter(function(i){ return i.kind === 'old'; });
@@ -901,6 +919,8 @@ function whRender(){
     if(newItems.length) html += '<div style="font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#638922; font-weight:700; margin:2px 0 -4px;">New clients</div>' + newItems.map(whRow).join('');
     if(oldItems.length) html += '<div style="font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#7F77DD; font-weight:700; margin:8px 0 -4px;">Old clients</div>' + oldItems.map(whRow).join('');
     list.innerHTML = html;
+  } else if(whActive === 'tomorrow'){
+    list.innerHTML = visible.map(whTomorrowRow).join('');
   } else {
     list.innerHTML = visible.map(whRow).join('');
   }
@@ -1003,8 +1023,24 @@ async function whLoadPull(){
     }
   } catch(err){ whPullByCrew = {}; }
 }
+async function whLoadTomorrow(){
+  whTomorrow = [];
+  try{
+    const tmrw = new Date();
+    tmrw.setDate(tmrw.getDate() + 1);
+    const tomorrowStr = toDateStr(tmrw);
+    const snap = await getDocs(query(collection(db,'jobAddresses'), where('scheduled','==',true), where('scheduledDate','==',tomorrowStr)));
+    const rows = [];
+    snap.forEach(function(d){ rows.push({id:d.id, data:d.data()}); });
+    rows.sort(function(a,b){ return (a.data.name||'').localeCompare(b.data.name||''); });
+    whTomorrow = rows.map(function(r, i){
+      const d = r.data;
+      return {n:i+1, key:r.id, name:d.name||'(no name)', sub:d.address||'', bin:d.customerNumber||'', bins:d.numberOfBins||1};
+    });
+  } catch(err){ whTomorrow = []; }
+}
 async function whLoadAll(){
-  await Promise.all([whLoadChecklist(), whLoadLightsAndRecycleAndTimers(), whLoadGoals(), whLoadPull()]);
+  await Promise.all([whLoadChecklist(), whLoadLightsAndRecycleAndTimers(), whLoadGoals(), whLoadPull(), whLoadTomorrow()]);
   whRender();
 }
 function loadWarehouseTab(){
