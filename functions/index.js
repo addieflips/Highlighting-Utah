@@ -763,6 +763,71 @@ exports.publicConfig = onCall({ cors: true }, async (request) => {
   };
 });
 
+/* --- portalInvoice --------------------------------------------------------
+ * The last direct Firestore read the public site did. invoices carried
+ * `allow read: if true` purely to support it, which meant every invoice in
+ * the business — names, addresses, amounts owed, payment status — was
+ * readable by anyone. Invoice doc IDs are phone numbers, so they were
+ * guessable too, and the collection-level read allowed listing them all.
+ *
+ * Authorization mirrors portalLookup exactly, so customer-facing behaviour
+ * is unchanged:
+ *   - a portalToken proves identity outright (came from their own email)
+ *   - otherwise the typed last name must match the invoice's stored name,
+ *     rate limited the same way the sign-in form is
+ *
+ * Returns { found: false } for a missing invoice AND for a failed
+ * authorization. The caller already falls through to the quote card when no
+ * invoice exists, so this keeps that path working — and it avoids confirming
+ * to a guesser that a given phone number has an invoice at all.
+ *
+ * Input:  { key, token }  or  { key, lastName }
+ * Output: { found, record }
+ * ------------------------------------------------------------------------- */
+
+// Only the fields the invoice card renders. Internal costing, crew notes and
+// anything else on the invoice document stay on the server.
+const INVOICE_READ_FIELDS = ['name', 'phone', 'email', 'install', 'removal', 'deposit'];
+
+function sanitizeInvoice(data) {
+  const out = {};
+  INVOICE_READ_FIELDS.forEach(function (f) {
+    if (data[f] !== undefined) out[f] = data[f];
+  });
+  return out;
+}
+
+exports.portalInvoice = onCall({ cors: true }, async (request) => {
+  const body = request.data || {};
+  const key = String(body.key || '').trim();
+  const token = body.token ? String(body.token).trim() : '';
+  const lastName = body.lastName ? String(body.lastName) : '';
+
+  if (!key) throw new HttpsError('invalid-argument', 'No invoice key provided.');
+
+  const snap = await db.collection('invoices').doc(key).get();
+  if (!snap.exists) return { found: false };
+  const data = snap.data() || {};
+
+  let authorized = false;
+
+  if (token) {
+    const match = await findByToken(token);
+    // The token must belong to the customer this invoice is for — holding
+    // any valid token must not grant access to somebody else's invoice.
+    if (match && invoiceKeyFor(match.data) === key) authorized = true;
+  }
+
+  if (!authorized && lastName) {
+    await checkRateLimit('invoice_' + key);
+    if (nameMatches(data.name, lastName)) authorized = true;
+  }
+
+  if (!authorized) return { found: false };
+
+  return { found: true, record: sanitizeInvoice(data) };
+});
+
 /* ---------------------------------------------------------------------------
  * sendNightlyInvoices — runs every night at 7:00 PM Mountain Time.
  *
