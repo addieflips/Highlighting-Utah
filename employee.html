@@ -292,7 +292,7 @@
 
     <div class="tc-pane" id="tcpane-timeoff" style="display:none;">
       <h2 style="font-size:16px;">My Time Off</h2>
-      <p style="font-size:13px; color:var(--slate); margin-top:-8px;" id="tofPickHint">Tap the first day you want off, then tap the last day. Tap one day twice for a single day.</p>
+      <p style="font-size:13px; color:var(--slate); margin-top:-8px;" id="tofPickHint">Tap the days you want off. Tap two days and everything between them fills in.</p>
       <div class="tof-cal-head">
         <button type="button" id="tofPrevMonth">&larr;</button>
         <strong id="tofMonthLabel"></strong>
@@ -938,6 +938,9 @@ function switchTcSub(which){
     const pane = document.getElementById('tcpane-'+k);
     if(pane) pane.style.display = (k === which) ? 'block' : 'none';
   });
+  // Draw immediately on open. The calendar shouldn't wait on the requests
+  // query — an empty month is still a usable month.
+  if(which === 'timeoff') renderTimeOffCalendar();
 }
 document.querySelectorAll('.tc-subtab').forEach(function(btn){
   btn.addEventListener('click', function(){ switchTcSub(btn.dataset.tcsub); });
@@ -1045,15 +1048,20 @@ function renderTimeOffCalendar(){
   });
   renderTofSelection();
 }
-// First tap sets the start. Second tap sets the end. Tapping earlier than the
-// start restarts the pick from there, so nobody gets stuck backwards.
+// Every tap grows the range to cover the day tapped, so all of these work:
+//   tap 1 then 8            -> 1 through 8
+//   tap 1,2,3 then 8        -> 1 through 8
+//   tap 1,2,3,4,5,6,7,8     -> 1 through 8
+// Tapping a day already inside the range trims the end back to it, which is
+// how you shrink a pick without starting over.
 function tofPickDay(key){
-  if(!tofSelStart || tofSelEnd){
+  if(!tofSelStart){
     tofSelStart = key;
-    tofSelEnd = '';
+    tofSelEnd = key;
   } else if(key < tofSelStart){
     tofSelStart = key;
-    tofSelEnd = '';
+  } else if(key > tofSelEnd){
+    tofSelEnd = key;
   } else {
     tofSelEnd = key;
   }
@@ -1072,11 +1080,6 @@ function renderTofSelection(){
     if(halfWrap) halfWrap.style.display = 'none';
     return;
   }
-  if(!tofSelEnd){
-    summary.innerHTML = '<span style="color:var(--dusk);">'+esc(tofPretty(tofSelStart))+'</span> \u2014 now tap your last day.';
-    if(halfWrap) halfWrap.style.display = 'none';
-    return;
-  }
   const days = tofDaysBetween(tofSelStart, tofSelEnd);
   summary.innerHTML = '<span style="color:var(--dusk);">'+esc(formatRequestRange({startDate: tofSelStart, endDate: tofSelEnd}))+'</span> &middot; '+days+' day'+(days===1?'':'s');
   // Half days only make sense on a single day.
@@ -1090,6 +1093,9 @@ function tofClearSelection(){
   renderTimeOffCalendar();
 }
 document.getElementById('tofClearBtn').addEventListener('click', tofClearSelection);
+// Paint an empty calendar as soon as the page is ready. Requests fill in
+// on top of it whenever they arrive.
+renderTimeOffCalendar();
 document.getElementById('tofPrevMonth').addEventListener('click', function(){
   tofMonthCursor = new Date(tofMonthCursor.getFullYear(), tofMonthCursor.getMonth()-1, 1);
   renderTimeOffCalendar();
@@ -1509,6 +1515,11 @@ function loadMyRequests(){
     render();
     renderTimeOffCalendar();
     renderApprovalNotice();
+  }, function(err){
+    // Usually a missing composite index. The calendar and picker still work;
+    // only the shading of existing requests is unavailable.
+    myTimeOffRequests = [];
+    renderTimeOffCalendar();
   });
   onSnapshot(q2, function(snap){
     tcRequests = [];
