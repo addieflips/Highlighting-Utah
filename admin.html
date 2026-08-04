@@ -10539,7 +10539,16 @@ function routeTypeLabel(type){
 function renderTimeOffWarningForRoute(dateVal, crewNum){
   const wrap = document.getElementById('routeTimeOffWarn');
   if(!wrap) return;
-  if(!dateVal || typeof whoIsOffOn !== 'function'){ wrap.style.display = 'none'; return; }
+  if(typeof whoIsOffOn !== 'function'){ wrap.style.display = 'none'; return; }
+  // No date means there's nothing to check against. Say so rather than
+  // silently skipping, which looks the same as the check being broken.
+  if(!dateVal){
+    wrap.style.display = 'block';
+    wrap.innerHTML = '<div class="route-warn" style="background:var(--paper); border-color:var(--line);">'+
+      'No date set for this route, so time off wasn\'t checked. Pick a date above to see if anyone\'s off.'+
+    '</div>';
+    return;
+  }
   const off = whoIsOffOn(dateVal);
   if(!off.length){ wrap.style.display = 'none'; wrap.innerHTML = ''; return; }
   const onThisCrew = off.filter(function(p){ return String(p.crew) === String(crewNum); });
@@ -10556,6 +10565,13 @@ function renderTimeOffWarningForRoute(dateVal, crewNum){
   }
   wrap.style.display = 'block';
   wrap.innerHTML = '<div class="route-warn">'+html+'</div>';
+  // The card sits below the generate form, so a toast makes sure this is
+  // seen without scrolling.
+  if(onThisCrew.length){
+    toast(nameList(onThisCrew).replace(/<[^>]*>/g,'') + ' is off this day — check crews');
+  } else if(others.length){
+    toast('Someone is off this day — see the note on the route');
+  }
 }
 function finalizeRoute(ordered, startPoint, dateVal, type, crew, isTest){
   routeMapInstance = null;
@@ -12854,11 +12870,16 @@ function hmSobelOutline(imgEl, threshold){
   ctx.putImageData(out, 0, 0);
   return canvas;
 }
-document.getElementById('hmGenerateOutlineBtn').addEventListener('click', async function(){
+// The outline button was removed from the House Maps UI, but this handler
+// stayed behind. Binding to a missing element throws and kills the rest of
+// the script, so it's guarded — if the button ever comes back, this works again.
+const hmOutlineBtnEl = document.getElementById('hmGenerateOutlineBtn');
+if(hmOutlineBtnEl) hmOutlineBtnEl.addEventListener('click', async function(){
   const statusEl = document.getElementById('hmOutlineStatus');
   const sourceUrl = hmActiveImageUrl();
   if(!sourceUrl){ toast('Upload a photo first'); return; }
-  const threshold = Number(document.getElementById('hmOutlineThreshold').value) || 80;
+  const thresholdEl = document.getElementById('hmOutlineThreshold');
+  const threshold = Number(thresholdEl ? thresholdEl.value : 0) || 80;
   statusEl.textContent = 'Tracing outline…';
   try{
     const srcImg = new Image();
