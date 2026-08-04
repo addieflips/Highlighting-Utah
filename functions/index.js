@@ -399,12 +399,32 @@ async function findByEmail(emailLower) {
   if (!emailLower) return null;
   const all = await db.collection('jobAddresses').get();
   let found = null;
+  // Primary email matches win over secondary matches if both exist somewhere.
   all.forEach(function (d) {
     if (found) return;
     const e = d.data().email;
-    if (e && String(e).toLowerCase() === emailLower) found = { id: d.id, data: d.data() };
+    if (e && String(e).toLowerCase().trim() === emailLower) found = { id: d.id, data: d.data() };
+  });
+  if (found) return found;
+  all.forEach(function (d) {
+    if (found) return;
+    const e2 = d.data().email2;
+    if (e2 && String(e2).toLowerCase().trim() === emailLower) found = { id: d.id, data: d.data() };
   });
   return found;
+}
+
+/* --- Invoice key ----------------------------------------------------------
+ * Invoices are stored with the customer's phone digits as the doc ID. For
+ * customers with no phone, the lowercase primary email is the ID instead.
+ * A customer's key can change (e.g. a phone gets added later) — portalSave
+ * below moves the invoice doc when that happens.
+ */
+function invoiceKeyFor(data) {
+  const phone = digitsOnly(data && data.phone);
+  if (phone) return phone;
+  const email = String((data && data.email) || '').toLowerCase().trim();
+  return email || '';
 }
 
 // Make sure a record has a portalToken, minting one if it predates the system.
@@ -486,6 +506,7 @@ exports.portalLookup = onCall({ cors: true }, async (request) => {
     id: match.id,
     token: activeToken,
     deactivated: match.data.rsvpStatus === 'no',
+    invoiceKey: invoiceKeyFor(match.data),
     record: sanitizeRecord(match.data)
   };
 });
@@ -522,6 +543,7 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
 
   const oldData = match.data;
   const oldPhone = digitsOnly(oldData.phone);
+  const oldKey = invoiceKeyFor(oldData);
   let addressChanged = false;
 
   if (section === 'info') {
@@ -537,9 +559,9 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
   await db.collection('jobAddresses').doc(match.id).update(updates);
 
   // The Lights tab also mirrors the description onto the invoice record.
-  if (section === 'lights' && oldPhone && updates.lightsDescription !== undefined) {
+  if (section === 'lights' && oldKey && updates.lightsDescription !== undefined) {
     try {
-      await db.collection('invoices').doc(oldPhone)
+      await db.collection('invoices').doc(oldKey)
         .set({ lightsDescription: updates.lightsDescription }, { merge: true });
     } catch (err) {
       console.error('[HU] invoice lights sync failed:', err);
@@ -548,19 +570,25 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
 
   // The Info tab also keeps the customer's invoice record in sync. This write
   // used to fail silently from the browser because invoices are staff-only.
-  if (section === 'info' && oldPhone) {
+  // Invoices are keyed by phone digits, or by lowercase email when the
+  // customer has no phone. If this save changes the key (phone added/changed,
+  // or an email-only customer changes their email) the invoice doc moves.
+  if (section === 'info' && oldKey) {
     const invoiceUpdates = {
       name: updates.name !== undefined ? updates.name : oldData.name,
       phone: updates.phone !== undefined ? updates.phone : oldPhone,
       email: updates.email !== undefined ? updates.email : oldData.email
     };
     try {
-      const newPhone = invoiceUpdates.phone;
-      if (newPhone && newPhone !== oldPhone) {
-        await db.collection('invoices').doc(newPhone).set(invoiceUpdates, { merge: true });
-        await db.collection('invoices').doc(oldPhone).delete();
-      } else if (oldPhone) {
-        await db.collection('invoices').doc(oldPhone).set(invoiceUpdates, { merge: true });
+      const newKey = invoiceKeyFor(Object.assign({}, oldData, updates));
+      if (newKey && newKey !== oldKey) {
+        const oldInvSnap = await db.collection('invoices').doc(oldKey).get();
+        const carried = oldInvSnap.exists ? oldInvSnap.data() : {};
+        await db.collection('invoices').doc(newKey)
+          .set(Object.assign({}, carried, invoiceUpdates), { merge: true });
+        await db.collection('invoices').doc(oldKey).delete();
+      } else if (oldKey) {
+        await db.collection('invoices').doc(oldKey).set(invoiceUpdates, { merge: true });
       }
     } catch (err) {
       console.error('[HU] invoice sync failed:', err);
