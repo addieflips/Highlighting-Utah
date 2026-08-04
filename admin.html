@@ -185,10 +185,10 @@
   .conflict-alert h4{ margin:0 0 6px; font-size:14px; color:#9A4C1C; }
   .conflict-alert p{ margin:0; font-size:13px; color:var(--ink); }
   .route-warn{
-    background:#FDF0E7; border:1px solid #E0A87E; border-radius:10px;
-    padding:11px 14px; margin-bottom:14px; font-size:13px; color:var(--ink);
+    background:#FFF8E9; border:1px solid var(--gold-dim); border-left:4px solid var(--gold);
+    border-radius:10px; padding:11px 14px; margin-bottom:14px; font-size:13px; color:var(--ink);
   }
-  .route-warn strong{ color:#9A4C1C; }
+  .route-warn strong{ color:#7A5A12; }
   .panel-head h2{ font-size:24px; margin-bottom:2px; }
   .panel-head p{ margin:0; font-size:13.5px; }
 
@@ -780,6 +780,7 @@
             <div class="addcust-view-toggle" id="addCustViewToggle" style="display:none; gap:8px; margin:10px 0;">
               <button type="button" class="btn btn-outline btn-sm" id="addCustViewOriginal" style="background:var(--ink); color:#fff;">Original Photo</button>
               <button type="button" class="btn btn-outline btn-sm" id="addCustViewBlueprint">Blueprint View</button>
+              <button type="button" class="btn btn-outline btn-sm" id="addCustPhotoRemove" style="color:var(--ember); margin-left:auto;">Remove Photo</button>
             </div>
             <div class="addcust-photo-wrap" id="addCustPhotoWrap" style="position:relative; display:none; max-width:480px; margin-bottom:10px; border-radius:10px; overflow:hidden; border:1px solid var(--line); cursor:crosshair; user-select:none;">
               <img class="addcust-photo-img" id="addCustPhotoImg" style="width:100%; display:block; pointer-events:none;">
@@ -8009,6 +8010,17 @@ document.getElementById('addCustPhoto').addEventListener('change', async functio
     addCustPhotoUrl = '';
   }
 });
+document.getElementById('addCustPhotoRemove').addEventListener('click', function(){
+  if(!confirm('Remove this photo?\n\nAny sections you outlined stay in the list below with their feet and prices.')) return;
+  addCustPhotoUrl = '';
+  const img = document.getElementById('addCustPhotoImg');
+  img.src = '';
+  img.classList.remove('hm-blueprint');
+  document.getElementById('addCustPhotoWrap').style.display = 'none';
+  document.getElementById('addCustViewToggle').style.display = 'none';
+  document.getElementById('addCustPhoto').value = '';
+  document.getElementById('addCustPhotoStatus').textContent = 'Photo removed.';
+});
 (function(){
   const photoWrap = document.getElementById('addCustPhotoWrap');
   const layer = document.getElementById('addCustHighlightLayer');
@@ -8932,6 +8944,7 @@ function attachAddressRowHandlers(container){
           '<div class="hd-view-toggle" style="display:'+(housePhotoUrl?'flex':'none')+'; gap:8px; margin-bottom:10px;">'+
             '<button type="button" class="btn btn-outline btn-sm hd-view-original" style="background:var(--ink); color:#fff;">Original Photo</button>'+
             '<button type="button" class="btn btn-outline btn-sm hd-view-blueprint">Blueprint View</button>'+
+            '<button type="button" class="btn btn-outline btn-sm hd-photo-remove" style="color:var(--ember); margin-left:auto;">Remove Photo</button>'+
           '</div>'+
           '<div class="hd-photo-wrap" style="position:relative; display:'+(housePhotoUrl?'block':'none')+'; max-width:480px; margin-bottom:10px; border-radius:10px; overflow:hidden; border:1px solid var(--line); cursor:crosshair; user-select:none;">'+
             '<img class="hd-photo-img" src="'+esc(housePhotoUrl)+'" style="width:100%; display:block; pointer-events:none;">'+
@@ -8968,6 +8981,19 @@ function attachAddressRowHandlers(container){
       const viewToggleWrap = panel.querySelector('.hd-view-toggle');
       const viewOriginalBtn = panel.querySelector('.hd-view-original');
       const viewBlueprintBtn = panel.querySelector('.hd-view-blueprint');
+      const removePhotoBtn = panel.querySelector('.hd-photo-remove');
+      if(removePhotoBtn) removePhotoBtn.addEventListener('click', function(){
+        if(!confirm('Remove this house photo?\n\nThe sections you outlined stay saved with their feet and prices — they\'ll show again if you upload a new photo. Nothing is final until you press Save.')) return;
+        currentPhotoUrl = '';
+        photoImg.src = '';
+        photoImg.classList.remove('hm-blueprint');
+        photoWrap.style.display = 'none';
+        viewToggleWrap.style.display = 'none';
+        newHighlightForm.style.display = 'none';
+        const fileInput = panel.querySelector('.hd-photo-input');
+        if(fileInput) fileInput.value = '';
+        statusEl2.textContent = 'Photo removed — press Save to make it stick.';
+      });
       viewOriginalBtn.addEventListener('click', function(){
         photoImg.classList.remove('hm-blueprint');
         viewOriginalBtn.style.background = 'var(--ink)'; viewOriginalBtn.style.color = '#fff';
@@ -10671,8 +10697,8 @@ function renderMissedHousesNote(){
   const el = document.getElementById('missedHousesNote');
   if(!el) return;
   if(!currentMissedHouses.length){ el.innerHTML = ''; return; }
-  el.innerHTML = '<div style="background:#FDECEA; border:1px solid #f0b3ac; border-radius:10px; padding:12px 14px; font-size:13px; margin-bottom:14px;">'+
-    '<strong>'+currentMissedHouses.length+' nearby house(s) not included</strong> &mdash; shown as red dots on the map. Click a red dot to add it to this route.'+
+  el.innerHTML = '<div style="background:#EDF3FC; border:1px solid #A9C4E8; border-radius:10px; padding:12px 14px; font-size:13px; margin-bottom:14px;">'+
+    '<strong style="color:#1B4C8C;">'+currentMissedHouses.length+' nearby house(s) not included</strong> &mdash; shown as red markers on the map. Click one to add it to this route.'+
   '</div>';
 }
 function refreshCurrentRoute(){
