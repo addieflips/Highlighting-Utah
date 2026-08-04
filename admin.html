@@ -174,6 +174,17 @@
     min-width:17px; height:17px; border-radius:999px; padding:0 5px;
     display:flex; align-items:center; justify-content:center;
   }
+  .conflict-alert{
+    background:#FDF0E7; border:1px solid #E0A87E; border-left:4px solid var(--ember);
+    border-radius:12px; padding:14px 16px; margin-bottom:20px;
+  }
+  .conflict-alert h4{ margin:0 0 6px; font-size:14px; color:#9A4C1C; }
+  .conflict-alert p{ margin:0; font-size:13px; color:var(--ink); }
+  .route-warn{
+    background:#FDF0E7; border:1px solid #E0A87E; border-radius:10px;
+    padding:11px 14px; margin-bottom:14px; font-size:13px; color:var(--ink);
+  }
+  .route-warn strong{ color:#9A4C1C; }
   .panel-head h2{ font-size:24px; margin-bottom:2px; }
   .panel-head p{ margin:0; font-size:13.5px; }
 
@@ -2405,6 +2416,7 @@ Highlighting Utah</textarea>
 
         <div class="card" id="routeResultCard" style="display:none;">
           <div id="routeTestBanner" style="display:none; background:#FDECEA; border:1px solid #f0b3ac; border-radius:10px; padding:10px 14px; font-size:13px; font-weight:700; color:#9F1239; margin-bottom:12px;">TEST ROUTE — includes houses that haven't RSVP'd yes. This cannot be saved to the calendar.</div>
+          <div id="routeTimeOffWarn" style="display:none;"></div>
           <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
             <h3 style="margin:0;" id="routeResultTitle">Route</h3>
             <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -2665,6 +2677,7 @@ Highlighting Utah</textarea>
       </div>
 
       <div class="gen-subtab-panel" id="resptab-timeoff">
+      <div id="atoConflictAlert" style="display:none;"></div>
       <div class="card">
         <h3 style="font-size:14px; margin-bottom:10px;">Time Off Calendar</h3>
         <p style="font-size:13px;">Everyone's requested and approved days off in one place. Approved days are filled in, pending days are outlined &mdash; click any day to see who's out and approve or deny right there.</p>
@@ -2724,14 +2737,17 @@ Highlighting Utah</textarea>
 
       <div class="gen-subtab-panel" id="resptab-reassign">
       <div class="card">
-        <h3 style="font-size:14px; margin-bottom:10px;">One-Day Crew Reassignment</h3>
-        <p style="font-size:13px;">Move someone to a different crew for just one day, without changing their usual (saved) crew.</p>
+        <h3 style="font-size:14px; margin-bottom:10px;">Crew Reassignment</h3>
+        <p style="font-size:13px;">Move someone to a different crew without changing their usual (saved) crew. Leave "Through" blank for a single day, or set it to keep the change in place for as long as you need &mdash; handy when you're covering someone's time off.</p>
         <div class="form-grid-3">
-          <div class="form-row"><label>Date</label><input type="date" id="overrideDateInput"></div>
+          <div class="form-row"><label>From Date</label><input type="date" id="overrideDateInput"></div>
+          <div class="form-row"><label>Through (optional)</label><input type="date" id="overrideEndDateInput"></div>
           <div class="form-row"><label>Employee</label><select id="overrideEmployeeSelect"></select></div>
-          <div class="form-row"><label>Crew for that day</label><select id="overrideCrewSelect"></select></div>
         </div>
-        <button type="button" class="btn btn-gold btn-sm" id="addOverrideBtn">Assign for This Day</button>
+        <div class="form-grid-3">
+          <div class="form-row"><label>Crew for those days</label><select id="overrideCrewSelect"></select></div>
+        </div>
+        <button type="button" class="btn btn-gold btn-sm" id="addOverrideBtn">Assign These Days</button>
         <div id="overrideList" style="margin-top:14px;"></div>
       </div>
       </div>
@@ -6526,8 +6542,7 @@ function loadEmployeeRequestsAdmin(){
     wrap.innerHTML = html;
     wrap.querySelectorAll('[data-erapprove]').forEach(function(btn){
       btn.addEventListener('click', function(){
-        updateDoc(doc(db,'employeeRequests',btn.dataset.erapprove), {status: 'approved', seenByEmployee: false});
-        toast('Request approved');
+        approveTimeOffRequest(btn.dataset.erapprove);
       });
     });
     wrap.querySelectorAll('[data-erdeny]').forEach(function(btn){
@@ -10519,6 +10534,29 @@ function routeTypeLabel(type){
   if(type === 'removal') return 'Removal Route';
   return 'Install Route';
 }
+// Shown when a route is generated for a day someone is already approved off.
+// This is the "quiet until you generate" half of the notification rule.
+function renderTimeOffWarningForRoute(dateVal, crewNum){
+  const wrap = document.getElementById('routeTimeOffWarn');
+  if(!wrap) return;
+  if(!dateVal || typeof whoIsOffOn !== 'function'){ wrap.style.display = 'none'; return; }
+  const off = whoIsOffOn(dateVal);
+  if(!off.length){ wrap.style.display = 'none'; wrap.innerHTML = ''; return; }
+  const onThisCrew = off.filter(function(p){ return String(p.crew) === String(crewNum); });
+  const others = off.filter(function(p){ return String(p.crew) !== String(crewNum); });
+  const nameList = function(arr){
+    return arr.map(function(p){ return esc(p.name) + (p.halfDay ? ' (half day)' : ''); }).join(', ');
+  };
+  let html = '';
+  if(onThisCrew.length){
+    html += '<p><strong>Heads up:</strong> '+nameList(onThisCrew)+' '+(onThisCrew.length===1?'is':'are')+' off this day and normally on Crew '+esc(String(crewNum))+'. Assign cover before saving.</p>';
+  }
+  if(others.length){
+    html += '<p'+(html?' style="margin-top:6px;"':'')+'>Also off this day: '+nameList(others)+'.</p>';
+  }
+  wrap.style.display = 'block';
+  wrap.innerHTML = '<div class="route-warn">'+html+'</div>';
+}
 function finalizeRoute(ordered, startPoint, dateVal, type, crew, isTest){
   routeMapInstance = null;
   currentRouteIds = ordered.map(o => o.id);
@@ -10544,6 +10582,7 @@ function finalizeRoute(ordered, startPoint, dateVal, type, crew, isTest){
   if(testNote) testNote.style.display = currentRouteIsTest ? 'block' : 'none';
   renderRouteMap(ordered, startPoint);
   renderRouteOrderedList(ordered);
+  renderTimeOffWarningForRoute(dateVal, currentRouteCrew);
   renderTextOutSection(ordered);
   renderMissedHousesNote();
   renderDriveEstimate(ordered, startPoint);
@@ -11107,6 +11146,7 @@ function loadRouteIntoView(route, dateStr){
   document.getElementById('routeResultTitle').textContent = label + ' — ' + formatDateNice(dateStr);
   renderRouteMap(route.stops, route.startPoint);
   renderRouteOrderedList(route.stops);
+  renderTimeOffWarningForRoute(dateStr, currentRouteCrew);
   renderTextOutSection(route.stops);
   renderMissedHousesNote();
   renderDriveEstimate(route.stops, route.startPoint);
@@ -11673,6 +11713,89 @@ document.getElementById('addEmployeeBtn').addEventListener('click', async functi
 let timeOffRequests = [];
 let atoMonthCursor = new Date();
 let atoSelectedDay = '';
+// Every date from a to b inclusive, as YYYY-MM-DD strings.
+function eachDateInRange(a, b){
+  const out = [];
+  let cur = new Date(a + 'T12:00:00');
+  const end = new Date((b || a) + 'T12:00:00');
+  let guard = 0;
+  while(cur <= end && guard < 400){
+    out.push(cur.getFullYear()+'-'+String(cur.getMonth()+1).padStart(2,'0')+'-'+String(cur.getDate()).padStart(2,'0'));
+    cur.setDate(cur.getDate()+1);
+    guard++;
+  }
+  return out;
+}
+// Who is approved off on a given day, and which crew they'd normally be on.
+function whoIsOffOn(dateStr){
+  const out = [];
+  timeOffRequests.forEach(function(r){
+    if(r.status !== 'approved' || !r.startDate) return;
+    const end = r.endDate || r.startDate;
+    if(dateStr < r.startDate || dateStr > end) return;
+    out.push({name: r.employeeName, halfDay: r.halfDay, crew: usualCrewFor(r.employeeName)});
+  });
+  return out;
+}
+function usualCrewFor(name){
+  const members = (crewConfig && crewConfig.members) || {};
+  const found = Object.keys(members).find(function(c){ return (members[c] || []).indexOf(name) !== -1; });
+  return found || '';
+}
+function routeExistsFor(dateStr){
+  return !!(scheduledRoutesCache[dateStr] && scheduledRoutesCache[dateStr].length);
+}
+// Days in this request's range that ALREADY have a route built. Those are the
+// ones worth interrupting over — the rest get flagged at generation time instead.
+function builtRouteConflicts(startDate, endDate){
+  return eachDateInRange(startDate, endDate).filter(routeExistsFor);
+}
+// Single approval path, so every Approve button behaves identically no matter
+// which screen it was pressed from.
+async function approveTimeOffRequest(id){
+  const req = timeOffRequests.find(function(r){ return r.id === id; });
+  await updateDoc(doc(db,'employeeRequests',id), {status: 'approved', seenByEmployee: false});
+  if(!req || !req.startDate){ toast('Request approved'); return; }
+  const conflicts = builtRouteConflicts(req.startDate, req.endDate || req.startDate);
+  if(!conflicts.length){
+    // No maps built for those days yet — stay quiet. The warning shows up
+    // when the route for that day actually gets generated.
+    toast('Time off approved');
+    return;
+  }
+  toast('Approved — route already built, check crews');
+  showRouteConflictAlert(req, conflicts);
+}
+function showRouteConflictAlert(req, conflicts){
+  const wrap = document.getElementById('atoConflictAlert');
+  if(!wrap) return;
+  const pretty = conflicts.map(function(d){
+    return new Date(d+'T12:00:00').toLocaleDateString(undefined, {weekday:'short', month:'short', day:'numeric'});
+  }).join(', ');
+  const crew = usualCrewFor(req.employeeName);
+  wrap.style.display = 'block';
+  wrap.innerHTML = '<div class="conflict-alert">'+
+    '<h4>Route already built &mdash; crews may need changing</h4>'+
+    '<p><strong>'+esc(req.employeeName)+'</strong>'+(crew ? ' (normally Crew '+esc(crew)+')' : '')+' is now off on: '+esc(pretty)+'.</p>'+
+    '<p style="margin-top:6px;">Those days already have a route saved, so whoever is covering needs assigning. Use Crew Reassignment and set a "Through" date to cover the whole stretch.</p>'+
+    '<div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">'+
+      '<button type="button" class="btn btn-gold btn-sm" id="atoGoReassign">Go to Crew Reassignment</button>'+
+      '<button type="button" class="btn btn-outline btn-sm" id="atoDismissConflict">Dismiss</button>'+
+    '</div>'+
+  '</div>';
+  const go = document.getElementById('atoGoReassign');
+  if(go) go.addEventListener('click', function(){
+    switchRespTab('reassign');
+    const startEl = document.getElementById('overrideDateInput');
+    const endEl = document.getElementById('overrideEndDateInput');
+    if(startEl) startEl.value = conflicts[0];
+    if(endEl && conflicts.length > 1) endEl.value = conflicts[conflicts.length-1];
+    wrap.style.display = 'none';
+    window.scrollTo({top:0, behavior:'smooth'});
+  });
+  const dismiss = document.getElementById('atoDismissConflict');
+  if(dismiss) dismiss.addEventListener('click', function(){ wrap.style.display = 'none'; });
+}
 function formatTimeOffRange(d){
   if(!d.startDate) return '';
   const end = d.endDate || d.startDate;
@@ -11781,8 +11904,7 @@ function renderAtoDayDetail(){
   }).join('');
   wrap.querySelectorAll('[data-atoapprove]').forEach(function(btn){
     btn.addEventListener('click', function(){
-      updateDoc(doc(db,'employeeRequests',btn.dataset.atoapprove), {status: 'approved', seenByEmployee: false});
-      toast('Time off approved');
+      approveTimeOffRequest(btn.dataset.atoapprove);
     });
   });
   wrap.querySelectorAll('[data-atodeny]').forEach(function(btn){
@@ -12316,8 +12438,7 @@ function renderEmployeeNotesTab(){
   });
   list.querySelectorAll('[data-noteapprove]').forEach(function(btn){
     btn.addEventListener('click', function(){
-      updateDoc(doc(db,'employeeRequests',btn.dataset.noteapprove), {status: 'approved', seenByEmployee: false});
-      toast('Time off approved');
+      approveTimeOffRequest(btn.dataset.noteapprove);
     });
   });
   list.querySelectorAll('[data-notedeny]').forEach(function(btn){
@@ -12363,11 +12484,19 @@ function toDateStrAdmin(dt){
 }
 document.getElementById('addOverrideBtn').addEventListener('click', async function(){
   const date = document.getElementById('overrideDateInput').value;
+  const endDate = document.getElementById('overrideEndDateInput').value || date;
   const name = document.getElementById('overrideEmployeeSelect').value;
   const crew = document.getElementById('overrideCrewSelect').value;
   if(!date || !name){ toast('Pick a date and employee'); return; }
-  await setDoc(doc(db,'crewOverrides',date+'_'+name), { date: date, employeeName: name, crew: crew, createdAt: serverTimestamp() });
-  toast('Assigned for that day');
+  if(endDate < date){ toast('The through date is before the start date'); return; }
+  // One doc per day keeps the existing per-day override shape intact, so
+  // getEffectiveCrewNames and everything downstream works unchanged.
+  const days = eachDateInRange(date, endDate);
+  for(const d of days){
+    await setDoc(doc(db,'crewOverrides',d+'_'+name), { date: d, employeeName: name, crew: crew, createdAt: serverTimestamp() });
+  }
+  document.getElementById('overrideEndDateInput').value = '';
+  toast(days.length === 1 ? 'Assigned for that day' : 'Assigned for '+days.length+' days');
 });
 
 /* ---------------- FAQ ---------------- */
