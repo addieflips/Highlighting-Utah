@@ -5271,7 +5271,7 @@ function openSendModal(templateId){
   document.getElementById('etSendStatus').textContent = '';
   document.getElementById('etSendOverlay').style.display = 'flex';
 }
-document.getElementById('etOpenSendBtn').addEventListener('click', function(){ openSendModal(''); });
+document.getElementById('etOpenSendBtn')?.addEventListener('click', function(){ openSendModal(''); });
 document.getElementById('etSendCloseBtn').addEventListener('click', function(){
   document.getElementById('etSendOverlay').style.display = 'none';
 });
