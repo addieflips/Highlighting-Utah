@@ -11259,6 +11259,32 @@ const ASSIGNABLE_SECTIONS = [
 function defaultVisibleTabs(isCrew){
   return {route:isCrew, checklist:true, warehouse:false, addcustomer:false, quotes:false, custmessages:false, allmessages:false, routesadmin:false, housemaps:false, responsibilities:false, financedash:false, perfootpricing:false, timelogsadmin:false};
 }
+// Cards that can show on an employee's Home screen in the Crew Portal.
+// "needs" is the matching permission — a card only appears if they can see that section.
+// Clock In/Out isn't listed here: it shows automatically for hourly employees
+// and is hidden automatically for salary, based on their Pay Type.
+const HOME_CARD_OPTIONS = [
+  {key:'route', label:'Today\u2019s Route', needs:'route'},
+  {key:'checklist', label:'Checklist', needs:'checklist'},
+  {key:'warehouse', label:'Warehouse', needs:'warehouse'},
+  {key:'messages', label:'Messages', needs:'custmessages'},
+  {key:'quotes', label:'Quote Requests', needs:'quotes'},
+  {key:'crew', label:'Crew Assignments', needs:'responsibilities'},
+  {key:'financedash', label:'Dashboard', needs:'financedash'},
+  {key:'timecard', label:'My Timecard', needs:'__clock'}
+];
+function homeCardOptionAllowed(opt, vt, payType){
+  if(opt.needs === '__clock') return payType !== 'salary';
+  if(opt.needs === 'custmessages') return !!(vt.custmessages || vt.allmessages);
+  return !!vt[opt.needs];
+}
+function defaultHomeCards(vt){
+  const out = {};
+  if(vt.route) out.route = true;
+  if(vt.checklist) out.checklist = true;
+  if(vt.warehouse) out.warehouse = true;
+  return out;
+}
 function renderEmployeeChips(){
   const wrap = document.getElementById('employeeChipList');
   if(!employeeNames.length){ wrap.innerHTML = '<p style="font-size:12.5px; color:var(--slate);">No employees added yet.</p>'; return; }
@@ -11267,6 +11293,9 @@ function renderEmployeeChips(){
     const vt = Object.assign(defaultVisibleTabs(isCrew), e.visibleTabs || {});
     const checkedCount = ASSIGNABLE_SECTIONS.reduce((n,g) => n + g.items.filter(i => vt[i.key]).length, 0);
     const payType = e.payType || 'hourly';
+    const hc = (e.homeCards && Object.keys(e.homeCards).length) ? e.homeCards : defaultHomeCards(vt);
+    const availableHomeCards = HOME_CARD_OPTIONS.filter(function(o){ return homeCardOptionAllowed(o, vt, payType); });
+    const homeCardCount = availableHomeCards.filter(function(o){ return hc[o.key]; }).length;
     const empCategoryIds = e.categoryIds || [];
     return '<div class="crew-assign-row" style="flex-direction:column; align-items:stretch; gap:8px;">'+
       '<div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">'+
@@ -11306,6 +11335,22 @@ function renderEmployeeChips(){
           }).join('')+
         '</div>'+
       '</div>'+
+      '<div style="position:relative; display:inline-block; margin-left:8px;">'+
+        '<button type="button" class="btn btn-outline btn-sm homecards-toggle" data-empid="'+e.id+'">Home screen: '+homeCardCount+' card(s) &#9662;</button>'+
+        '<div class="filter-dropdown" id="homecardsdrop-'+e.id+'">'+
+          '<div class="filter-dropdown-group">'+
+            '<div style="font-size:11px; font-weight:700; text-transform:uppercase; color:var(--slate); margin-bottom:4px;">Shows on their home screen</div>'+
+            (availableHomeCards.length
+              ? availableHomeCards.map(function(o){
+                  return '<label><input type="checkbox" class="homecard-check" data-empid="'+e.id+'" data-card="'+o.key+'" '+(hc[o.key]?'checked':'')+'> '+o.label+'</label>';
+                }).join('')
+              : '<p style="font-size:12px; color:var(--slate); margin:4px 0;">Give them access to a section first, then pick its card here.</p>')+
+            '<p style="font-size:11.5px; color:var(--slate); margin:8px 0 0;">'+(payType === 'salary'
+              ? 'Salary \u2014 Clock In/Out is hidden for them.'
+              : 'Hourly \u2014 Clock In/Out shows automatically at the top.')+'</p>'+
+          '</div>'+
+        '</div>'+
+      '</div>'+
     '</div>';
   }).join('');
   wrap.querySelectorAll('.perms-toggle').forEach(function(btn){
@@ -11315,6 +11360,27 @@ function renderEmployeeChips(){
       const isOpen = drop.classList.contains('open');
       document.querySelectorAll('.filter-dropdown.open').forEach(d => d.classList.remove('open'));
       if(!isOpen) drop.classList.add('open');
+    });
+  });
+  wrap.querySelectorAll('.homecards-toggle').forEach(function(btn){
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      const drop = document.getElementById('homecardsdrop-'+btn.dataset.empid);
+      const isOpen = drop.classList.contains('open');
+      document.querySelectorAll('.filter-dropdown.open').forEach(d => d.classList.remove('open'));
+      if(!isOpen) drop.classList.add('open');
+    });
+  });
+  wrap.querySelectorAll('.homecard-check').forEach(function(cb){
+    cb.addEventListener('change', function(){
+      const emp = employeeNames.find(x => x.id === cb.dataset.empid);
+      const isCrew = emp && (emp.role||'Crew') === 'Crew';
+      const empVt = Object.assign(defaultVisibleTabs(isCrew), (emp && emp.visibleTabs) || {});
+      const current = Object.assign({}, (emp && emp.homeCards && Object.keys(emp.homeCards).length) ? emp.homeCards : defaultHomeCards(empVt));
+      current[cb.dataset.card] = cb.checked;
+      updateDoc(doc(db,'employeeNames',cb.dataset.empid), {homeCards: current}).then(function(){
+        toast('Home screen updated');
+      });
     });
   });
   wrap.querySelectorAll('.admin-flag-check').forEach(function(cb){
