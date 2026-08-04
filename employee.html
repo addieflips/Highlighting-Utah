@@ -312,12 +312,6 @@
             <input type="checkbox" id="empRequestHalfDay"> Half day only
           </label>
         </div>
-        <select id="empRequestType" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px; margin-bottom:8px;">
-          <option value="Day Off">Day Off</option>
-          <option value="Schedule Change">Schedule Change</option>
-          <option value="Supplies">Supplies</option>
-          <option value="Other">Other</option>
-        </select>
         <textarea id="empRequestDesc" rows="2" placeholder="Reason or details..." style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea>
         <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap;">
           <button type="button" class="btn btn-gold" id="sendEmpRequestBtn">Submit Request</button>
@@ -889,46 +883,42 @@ document.getElementById('sendChecklistNoteBtn').addEventListener('click', async 
 });
 
 document.getElementById('sendEmpRequestBtn').addEventListener('click', async function(){
-  const type = document.getElementById('empRequestType').value;
   const descInput = document.getElementById('empRequestDesc');
   const desc = descInput.value.trim();
   const statusEl = document.getElementById('empRequestStatus');
   const halfInput = document.getElementById('empRequestHalfDay');
-  const wantsDates = requestTypeUsesDates(type);
   const startDate = tofSelStart || '';
   // Tapping a single day twice, or picking one and submitting, means one day.
   const endDate = tofSelEnd || startDate;
-  if(!desc){ statusEl.textContent = 'Add a few details first.'; return; }
-  if(wantsDates && !startDate){ statusEl.textContent = 'Tap the days you need off on the calendar first.'; return; }
+  if(!startDate){ statusEl.textContent = 'Tap the days you need off on the calendar first.'; return; }
   statusEl.textContent = 'Submitting…';
   try{
-    const payload = {
-      employeeName: currentPersonName, type: type, description: desc, status: 'pending', createdAt: serverTimestamp()
-    };
-    if(wantsDates && startDate){
-      payload.startDate = startDate;
-      payload.endDate = endDate;
-      payload.halfDay = !!halfInput.checked;
-    }
-    // seenByEmployee drives the Time Card badge once this is approved.
-    // Older requests have no such field and are treated as already seen.
-    payload.seenByEmployee = false;
-    const reqRef = await addDoc(collection(db,'employeeRequests'), payload);
-    // Dated requests also land in the office's notes inbox so they can be
-    // approved from wherever they're looking. Same underlying doc either way.
-    if(wantsDates && startDate){
-      const range = formatRequestRange({startDate: startDate, endDate: endDate, halfDay: !!halfInput.checked});
-      try{
-        await addDoc(collection(db,'employeeNotes'), {
-          employeeName: currentPersonName,
-          text: type+' requested: '+range+(desc ? ' \u2014 '+desc : ''),
-          kind: 'timeoff',
-          requestId: reqRef.id,
-          read: false,
-          createdAt: serverTimestamp()
-        });
-      } catch(noteErr){ /* the request itself saved; the inbox copy is a convenience */ }
-    }
+    const range = formatRequestRange({startDate: startDate, endDate: endDate, halfDay: !!halfInput.checked});
+    const reqRef = await addDoc(collection(db,'employeeRequests'), {
+      employeeName: currentPersonName,
+      type: 'Day Off',
+      description: desc,
+      status: 'pending',
+      startDate: startDate,
+      endDate: endDate,
+      halfDay: !!halfInput.checked,
+      // seenByEmployee drives the Time Card badge once this is approved.
+      // Older requests have no such field and are treated as already seen.
+      seenByEmployee: false,
+      createdAt: serverTimestamp()
+    });
+    // Also lands in the office's notes inbox so it can be approved from
+    // wherever they happen to be looking. Same underlying doc either way.
+    try{
+      await addDoc(collection(db,'employeeNotes'), {
+        employeeName: currentPersonName,
+        text: 'Day Off requested: '+range+(desc ? ' \u2014 '+desc : ''),
+        kind: 'timeoff',
+        requestId: reqRef.id,
+        read: false,
+        createdAt: serverTimestamp()
+      });
+    } catch(noteErr){ /* the request itself saved; the inbox copy is a convenience */ }
     descInput.value = '';
     tofClearSelection();
     statusEl.textContent = 'Sent — waiting on approval.';
@@ -939,10 +929,7 @@ document.getElementById('sendEmpRequestBtn').addEventListener('click', async fun
 });
 
 /* ---------------- TIME OFF CALENDAR ---------------- */
-// Only date-based request types need days picked; Supplies and Other don't.
-function requestTypeUsesDates(type){
-  return type === 'Day Off' || type === 'Schedule Change';
-}
+// This tab is days off only, so every request here is dated.
 function switchTcSub(which){
   document.querySelectorAll('.tc-subtab').forEach(function(b){
     b.classList.toggle('active', b.dataset.tcsub === which);
@@ -955,18 +942,6 @@ function switchTcSub(which){
 document.querySelectorAll('.tc-subtab').forEach(function(btn){
   btn.addEventListener('click', function(){ switchTcSub(btn.dataset.tcsub); });
 });
-function syncRequestDateFields(){
-  const hint = document.getElementById('tofPickHint');
-  const wrap = document.getElementById('tofSelectionWrap');
-  const type = document.getElementById('empRequestType').value;
-  const needs = requestTypeUsesDates(type);
-  if(hint) hint.textContent = needs
-    ? 'Tap the first day you want off, then tap the last day. Tap one day twice for a single day.'
-    : 'No days needed for this kind of request \u2014 just add the details below.';
-  if(wrap) wrap.style.display = 'block';
-  renderTimeOffCalendar();
-}
-document.getElementById('empRequestType').addEventListener('change', syncRequestDateFields);
 
 function tofDateStr(dt){
   return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');
@@ -1043,7 +1018,6 @@ function renderTimeOffCalendar(){
     }
   });
 
-  const canPick = requestTypeUsesDates(document.getElementById('empRequestType').value);
   const first = new Date(year, month, 1);
   const startPad = first.getDay();
   const daysInMonth = new Date(year, month+1, 0).getDate();
@@ -1062,8 +1036,8 @@ function renderTimeOffCalendar(){
     else if(state === 'approved') cls += dayMap[key+'_half'] ? ' half' : ' approved';
     else if(state === 'pending') cls += ' pending';
     if(key === todayStr) cls += ' today';
-    if(canPick) cls += ' selectable';
-    html += '<div class="'+cls+'"'+(canPick ? ' data-tofpick="'+key+'"' : '')+'>'+d+'</div>';
+    cls += ' selectable';
+    html += '<div class="'+cls+'" data-tofpick="'+key+'">'+d+'</div>';
   }
   grid.innerHTML = '<div class="tof-grid">'+html+'</div>';
   grid.querySelectorAll('[data-tofpick]').forEach(function(cell){
@@ -1093,12 +1067,6 @@ function renderTofSelection(){
   const summary = document.getElementById('tofSelectionSummary');
   const halfWrap = document.getElementById('tofHalfWrap');
   if(!summary) return;
-  const needs = requestTypeUsesDates(document.getElementById('empRequestType').value);
-  if(!needs){
-    summary.textContent = '';
-    if(halfWrap) halfWrap.style.display = 'none';
-    return;
-  }
   if(!tofSelStart){
     summary.textContent = 'No days picked yet.';
     if(halfWrap) halfWrap.style.display = 'none';
