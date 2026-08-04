@@ -2433,28 +2433,17 @@ Highlighting Utah</textarea>
 
           <div class="form-grid-2" style="max-width:640px;">
             <div class="form-row">
-              <label>Regular Photo</label>
+              <label>House Photo</label>
               <input type="file" accept="image/*" id="hmUploadHouse">
               <div id="hmThumbHouse" style="margin-top:6px;"></div>
             </div>
-            <div class="form-row">
-              <label>Blueprint Photo (optional &mdash; upload your own, or use Generate Outline below)</label>
-              <input type="file" accept="image/*" id="hmUploadBlueprint">
-              <div id="hmThumbBlueprint" style="margin-top:6px;"></div>
-            </div>
           </div>
 
-          <div class="route-tabs" id="hmViewModeTabs" style="margin:16px 0 10px;">
-            <button class="route-tab-btn active" data-hmview="original" draggable="true">Original Photo</button>
-            <button class="route-tab-btn" data-hmview="blueprint" draggable="true">Blueprint View</button>
-            <button class="route-tab-btn" data-hmview="print" draggable="true">Printable Installer View</button>
-          </div>
-
-          <div id="hmOutlineControls" style="display:none; align-items:center; gap:10px; flex-wrap:wrap; background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-bottom:10px;">
-            <span style="font-size:12.5px; color:var(--slate);">Free line-art outline, traced from your photo &mdash; no cost, runs right here in the browser.</span>
-            <label style="display:flex; align-items:center; gap:6px; font-size:12.5px;">Sensitivity <input type="number" id="hmOutlineThreshold" value="80" min="10" max="255" step="5" style="width:60px; padding:4px 6px; border-radius:6px; border:1px solid var(--line);"></label>
-            <button type="button" class="btn btn-gold btn-sm" id="hmGenerateOutlineBtn">Generate Outline</button>
-            <span id="hmOutlineStatus" style="font-size:12.5px; color:var(--slate);"></span>
+          <div style="display:flex; gap:10px; align-items:center; margin:16px 0 14px;">
+            <label style="display:flex; align-items:center; gap:8px; font-size:13px; margin:0;">
+              <input type="checkbox" id="hmDrawingOnlyToggle" style="width:18px; height:18px; cursor:pointer;">
+              <span>Drawing Only (hide photo)</span>
+            </label>
           </div>
 
           <div id="hmDrawingArea">
@@ -2479,20 +2468,7 @@ Highlighting Utah</textarea>
             <div id="hmInlineForm" style="display:none; background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:12px; margin-top:12px;"></div>
           </div>
 
-          <div id="hmPrintPreview" style="display:none;"></div>
-          <div id="hmPrintControls" style="display:none; align-items:center; gap:14px; flex-wrap:wrap; background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-top:12px;">
-            <label style="display:flex; align-items:center; gap:6px; font-size:13px;">Copies <input type="number" id="hmPrintCopies" value="1" min="1" max="20" style="width:60px; padding:5px 7px; border-radius:6px; border:1px solid var(--line);"></label>
-            <label style="display:flex; align-items:center; gap:6px; font-size:13px;">Print Size
-              <select id="hmPrintSize" style="padding:5px 7px; border-radius:6px; border:1px solid var(--line);">
-                <option value="full">Full Page (1 per sheet)</option>
-                <option value="half" selected>Half Page (2 per sheet)</option>
-                <option value="quarter">Quarter Page (4 per sheet)</option>
-                <option value="eighth">Small (8 per sheet)</option>
-                <option value="sixteenth">Tiny (16 per sheet)</option>
-              </select>
-            </label>
-            <span style="font-size:12px; color:var(--slate);">Copies defaults to the number of lettered sections/strands on this house &mdash; adjust anytime.</span>
-          </div>
+
 
           <div style="border-top:1px solid var(--line); margin-top:18px; padding-top:16px;">
             <h4 style="margin:0 0 8px;">Highlighted Sections</h4>
@@ -2513,7 +2489,6 @@ Highlighting Utah</textarea>
 
           <div style="margin-top:18px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
             <button type="button" class="btn btn-gold" id="hmSaveBtn">Save House Map</button>
-            <button type="button" class="btn btn-outline" id="hmPrintBtn">Print Installer Map</button>
             <span id="hmSaveStatus" style="font-size:13px; color:var(--slate);"></span>
           </div>
         </div>
@@ -11955,7 +11930,7 @@ document.getElementById('settingsSLForm').addEventListener('submit', function(e)
 
 /* ---------------- Shared delete handler ---------------- */
 /* ==================== HOUSE MAPS ==================== */
-const HM_STRAND_COLORS = ['#E0574B','#4338CA','#2E6B3E','#F4BE55','#F97316','#0EA5E9','#A855F7','#DB2777','#65A30D','#78716C'];
+const HM_STRAND_COLORS = ['#000000'];
 const HM_LABEL_TYPES = ['Garage','Front Door','Windows','Peaks','Roof Section','Custom'];
 let hmCurrentCustomerId = null;
 let hmData = null;
@@ -12065,8 +12040,6 @@ document.getElementById('hmNextBtn').addEventListener('click', function(){
 function hmRenderThumbs(){
   const houseEl = document.getElementById('hmThumbHouse');
   houseEl.innerHTML = hmData.images.house ? '<img src="'+esc(hmData.images.house)+'" style="max-width:100%; border-radius:8px; border:1px solid var(--line);">' : '';
-  const bpEl = document.getElementById('hmThumbBlueprint');
-  bpEl.innerHTML = hmData.images.outline ? '<img src="'+esc(hmData.images.outline)+'" style="max-width:100%; border-radius:8px; border:1px solid var(--line);">' : '';
 }
 document.getElementById('hmUploadHouse').addEventListener('change', async function(e){
   const file = e.target.files[0];
@@ -12082,62 +12055,30 @@ document.getElementById('hmUploadHouse').addEventListener('change', async functi
     toast('Photo uploaded');
   } catch(err){ toast('Upload failed — try again'); }
 });
-document.getElementById('hmUploadBlueprint').addEventListener('change', async function(e){
-  const file = e.target.files[0];
-  if(!file || !hmData) return;
-  try{
-    const url = await uploadOneToCloudinary(file);
-    hmData.images.outline = url;
-    hmRenderThumbs();
-    hmRenderImage();
-    toast('Blueprint photo uploaded');
-  } catch(err){ toast('Upload failed — try again'); }
-});
+
 function hmActiveImageUrl(){
   return hmData.images.house || hmData.images.front || hmData.images.maps || '';
 }
-function hmDisplayImageUrl(){
-  if(hmViewMode === 'blueprint' && hmData.images.outline) return hmData.images.outline;
-  return hmActiveImageUrl();
-}
 
 /* ---- View mode ---- */
-function hmSetViewMode(mode){
-  hmViewMode = mode;
-  document.querySelectorAll('#hmViewModeTabs .route-tab-btn').forEach(function(b){ b.classList.toggle('active', b.dataset.hmview === mode); });
-  const drawingArea = document.getElementById('hmDrawingArea');
-  const printPreview = document.getElementById('hmPrintPreview');
-  const printControls = document.getElementById('hmPrintControls');
-  const outlineControls = document.getElementById('hmOutlineControls');
-  if(mode === 'print'){
-    drawingArea.style.display = 'none';
-    outlineControls.style.display = 'none';
-    printPreview.style.display = 'block';
-    printControls.style.display = 'flex';
-    const totalLetters = (hmData.strands||[]).length + (hmData.highlightSections||[]).length;
-    document.getElementById('hmPrintCopies').value = Math.max(1, totalLetters);
-    hmBuildPrintPreview();
-  } else {
-    drawingArea.style.display = 'block';
-    printPreview.style.display = 'none';
-    printControls.style.display = 'none';
-    outlineControls.style.display = mode === 'blueprint' ? 'flex' : 'none';
-    hmRenderImage();
-  }
+let hmDrawingOnlyMode = false;
+function hmToggleDrawingOnly(){
+  hmDrawingOnlyMode = document.getElementById('hmDrawingOnlyToggle').checked;
+  hmRenderImage();
 }
-setupDraggableTabBar('hmViewModeTabs', 'hmview', 'huHmViewTabOrder', hmSetViewMode);
+document.getElementById('hmDrawingOnlyToggle').addEventListener('change', hmToggleDrawingOnly);
 
 function hmRenderImage(){
   const img = document.getElementById('hmActiveImg');
   const emptyNote = document.getElementById('hmEmptyImageNote');
-  const url = hmDisplayImageUrl();
-  if(url){
+  const url = hmActiveImageUrl();
+  if(url && !hmDrawingOnlyMode){
     img.src = url; img.style.display = 'block'; emptyNote.style.display = 'none';
-  } else {
+  } else if(!url){
     img.style.display = 'none'; emptyNote.style.display = 'block';
+  } else {
+    img.style.display = 'none'; emptyNote.style.display = 'none';
   }
-  // Only apply the CSS filter as a fallback look when there's no generated outline yet
-  img.classList.toggle('hm-blueprint', hmViewMode === 'blueprint' && !hmData.images.outline);
 }
 
 /* ---- Free line-art outline (Sobel edge detection, runs entirely in-browser) ---- */
@@ -12458,8 +12399,8 @@ function hmRedrawSvg(){
     hmDraftStrandPoints.forEach(function(p){ svg += '<circle cx="'+(p.x*100)+'%" cy="'+(p.y*100)+'%" r="5" fill="#F4BE55" stroke="#fff" stroke-width="1.5"/>'; });
   }
   hmData.labels.forEach(function(l, i){
-    svg += '<circle cx="'+(l.x*100)+'%" cy="'+(l.y*100)+'%" r="6" fill="#1E3B2C" stroke="#fff" stroke-width="1.5"/>'+
-      '<text x="'+(l.x*100)+'%" y="'+(l.y*100)+'%" fill="#1E3B2C" font-size="12" font-weight="700" text-anchor="middle" dy="-10" stroke="#fff" stroke-width="3" paint-order="stroke">'+esc(l.type==='Custom' && l.text ? l.text : l.type)+'</text>';
+    svg += '<circle cx="'+(l.x*100)+'%" cy="'+(l.y*100)+'%" r="6" fill="#EF4444" stroke="#fff" stroke-width="1.5"/>'+
+      '<text x="'+(l.x*100)+'%" y="'+(l.y*100)+'%" fill="#EF4444" font-size="12" font-weight="700" text-anchor="middle" dy="-10" stroke="#fff" stroke-width="3" paint-order="stroke">'+esc(l.type==='Custom' && l.text ? l.text : l.type)+'</text>';
   });
   hmData.notes.forEach(function(n){
     svg += '<circle cx="'+(n.x*100)+'%" cy="'+(n.y*100)+'%" r="7" fill="#F4BE55" stroke="#1E3B2C" stroke-width="1.5"/>'+
@@ -12633,12 +12574,7 @@ function hmBuildPrintPreview(){
   const block = hmBuildHouseBlockHtml(hmData, title, subtitle, hmBuildSvgMarkup(hmData), img);
   wrap.innerHTML = hmAssemblePrintPages(Array(copies).fill(block), size);
 }
-document.getElementById('hmPrintCopies').addEventListener('input', function(){ if(hmViewMode === 'print') hmBuildPrintPreview(); });
-document.getElementById('hmPrintSize').addEventListener('change', function(){ if(hmViewMode === 'print') hmBuildPrintPreview(); });
-document.getElementById('hmPrintBtn').addEventListener('click', function(){
-  hmSetViewMode('print');
-  setTimeout(function(){ window.print(); }, 200);
-});
+
 
 document.getElementById('hmPrintAllBtn').addEventListener('click', async function(){
   const btn = this;
