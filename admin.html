@@ -1851,14 +1851,13 @@ Highlighting Utah</textarea>
       <!-- ===== INVOICES TAB ===== -->
       <div class="route-tab-panel" id="automationtab-invoices">
         <div class="card" style="background:#FFF8E9; border-color:var(--gold-dim);">
-          <h3 style="margin-top:0;">See exactly what a customer's invoice looks like</h3>
-          <p style="font-size:13px;">Pick a customer below to see the real, itemized invoice they'll get \u2014 footage, rate, new member fee, and total, pulled live from their actual record. This is exactly what the Nightly Invoice Automation sends, just shown as a real invoice instead of plain email text.</p>
-          <div class="form-row" style="max-width:340px;">
-            <label>Customer</label>
-            <select id="invPreviewMemberSelect"><option value="">-- Choose a customer --</option></select>
-          </div>
+          <h3 style="margin-top:0;">See exactly what customers' invoices look like</h3>
+          <p style="font-size:13px;">Check one or more customers below to see their real, itemized invoices — footage, rate, new member fee, and total, pulled live from their actual record. This is exactly what the Nightly Invoice Automation sends, just shown as real invoices instead of plain email text. Check a few at once to test how different customers look side by side.</p>
+          <div class="form-row"><input type="text" id="invRecipientSearch" placeholder="Search by name..." style="padding:10px 12px; border-radius:9px; border:1px solid var(--line); background:var(--snow); font-size:14px;"></div>
+          <div id="invRecipientList" style="max-height:240px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:10px; margin-top:10px; background:var(--snow);"><div class="empty-note">Loading…</div></div>
+          <button type="button" class="btn btn-outline btn-sm" style="margin-top:14px;" onclick="window.print()">Print / Save as PDF</button>
         </div>
-        <div id="invPreviewDoc" style="margin-top:20px;"></div>
+        <div id="invPreviewDoc" style="margin-top:20px;"><div class="empty-note">Check one or more customers above to see their invoices.</div></div>
       </div>
 
       <!-- ===== EMAILJS TAB ===== -->
@@ -1895,12 +1894,12 @@ Highlighting Utah</textarea>
               <input type="text" id="emailjsPrivateKey" placeholder="xxxxxxxxxxxxxxxx" class="emailjs-auto-save">
               <span class="emailjs-save-status" style="font-size:12px; color:var(--slate); margin-top:4px; display:none;"></span>
             </div>
-            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Only needed for the Nightly Invoice Automation below \u2014 it lets our server send email on its own overnight, without your browser open. Find it in EmailJS under Account &gt; Security &gt; Private Key (sometimes called "API Key" or "Access Token"). This is different from the Public Key above.</p>
+            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Only needed for the Nightly Invoice Automation below — it lets our server send email on its own overnight, without your browser open. Find it in EmailJS under Account &gt; Security &gt; Private Key (sometimes called "API Key" or "Access Token"). This is different from the Public Key above.</p>
             <div id="emailjsSettingsStatus" style="font-size:13px; color:var(--slate); margin-top:12px; font-weight:600;"></div>
           </div>
           <div class="card" style="background:#FFF8E9; border-color:var(--gold-dim); margin-top:16px;">
             <h3>Nightly Invoice Automation</h3>
-            <p style="font-size:13px;">Every night at 7:00 PM, this checks that day's completed Install routes and automatically emails an invoice \u2014 the "Nightly Auto-Invoice \u2014 Unpaid" template if they still owe money, or the "Nightly Auto-Invoice \u2014 Paid Receipt" template if they're already paid in full. Houses flagged for a fix, or marked "Didn't Get To" by the crew, are skipped and never billed. Edit either template's wording anytime under Templates &gt; Billing.</p>
+            <p style="font-size:13px;">Every night at 7:00 PM, this checks for any house marked Done that hasn't been billed yet — no matter which day it was actually completed, so a house finished late (after 7pm, or the next morning) still gets caught on the very next run instead of getting missed. It automatically emails an invoice — the "Nightly Auto-Invoice — Unpaid" template if they still owe money, or the "Nightly Auto-Invoice — Paid Receipt" template if they're already paid in full. Houses flagged for a fix, or marked "Didn't Get To" by the crew, are skipped and never billed. Each house is only ever billed once, so there's no risk of a repeat send. Edit either template's wording anytime under Templates &gt; Billing.</p>
             <label style="display:flex; align-items:center; gap:8px; font-weight:600; cursor:pointer;">
               <input type="checkbox" id="nightlyInvoiceEnabled" style="width:18px; height:18px;">
               Send nightly invoice emails automatically
@@ -1908,7 +1907,7 @@ Highlighting Utah</textarea>
             <span id="nightlyInvoiceStatus" style="font-size:13px; color:var(--slate); margin-top:8px; display:block;"></span>
             <div style="margin-top:14px; padding-top:14px; border-top:1px solid var(--line);">
               <button type="button" class="btn btn-gold" id="sendInvoicesNowBtn">Send Invoices Now</button>
-              <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Runs the same billing check right now, on demand \u2014 works whether the automatic toggle above is on or off. Use this to send tonight's invoices yourself if you've turned automatic sending off.</p>
+              <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Runs the same billing check right now, on demand — works whether the automatic toggle above is on or off. Use this to send tonight's invoices yourself if you've turned automatic sending off.</p>
               <span id="sendInvoicesNowStatus" style="font-size:13px; margin-top:8px; display:block;"></span>
             </div>
             <div style="margin-top:16px; border-top:1px solid var(--line); padding-top:12px;">
@@ -5072,22 +5071,7 @@ function etRenderRecipientList(){
 }
 document.getElementById('etSendTemplateSelect').addEventListener('change', etUpdatePreview);
 document.getElementById('etPreviewMemberSelect').addEventListener('change', etUpdatePreview);
-function invPopulateMemberSelect(){
-  const sel = document.getElementById('invPreviewMemberSelect');
-  if(!sel) return;
-  const currentVal = sel.value;
-  const members = etGetMembers();
-  sel.innerHTML = '<option value="">-- Choose a customer --</option>' +
-    members.map(m => '<option value="'+m.id+'">'+esc(m.data.name||'(no name)')+'</option>').join('');
-  if(members.some(m => m.id === currentVal)) sel.value = currentVal;
-}
-function invUpdatePreview(){
-  const box = document.getElementById('invPreviewDoc');
-  if(!box) return;
-  const memberId = document.getElementById('invPreviewMemberSelect').value;
-  if(!memberId){ box.innerHTML = ''; return; }
-  const member = jobAddresses.find(m => m.id === memberId);
-  if(!member){ box.innerHTML = ''; return; }
+function buildInvoiceDocHtml(member){
   const d = member.data;
   const phoneDigits = (d.phone||'').replace(/\D/g,'');
   const invoiceKey = phoneDigits || (d.email||'').toLowerCase().trim();
@@ -5115,8 +5099,7 @@ function invUpdatePreview(){
   const statusColor = status === 'Paid in Full' ? 'var(--dusk)' : (status === 'Partial Payment' ? 'var(--gold-dim)' : 'var(--ember)');
   const todayNice = fmtDate({toDate: () => new Date()});
 
-  box.innerHTML =
-    '<div style="max-width:640px; background:var(--snow); border:1px solid var(--line); border-radius:14px; padding:32px;">'+
+  return '<div style="max-width:640px; background:var(--snow); border:1px solid var(--line); border-radius:14px; padding:32px; margin-bottom:24px;">'+
       '<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:24px; padding-bottom:20px; border-bottom:1px solid var(--line);">'+
         '<div><h2 style="margin:0 0 4px; color:var(--ink);">Highlighting Utah</h2><p style="font-size:13px; color:var(--slate); margin:0;">Christmas Lights Installation</p></div>'+
         '<div style="text-align:right;"><p style="font-size:13px; color:var(--slate); margin:0 0 4px;">Invoice for '+new Date().getFullYear()+' season</p><p style="font-size:13px; color:var(--slate); margin:0;">'+esc(todayNice)+'</p></div>'+
@@ -5156,10 +5139,39 @@ function invUpdatePreview(){
       '<div style="margin-top:20px; padding-top:16px; border-top:1px solid var(--line);">'+
         '<p style="font-size:12px; color:var(--slate); margin:0;">This is what the Nightly Auto-Invoice email sends automatically \u2014 use the button below to print or save it as a PDF.</p>'+
       '</div>'+
-      '<button type="button" class="btn btn-outline btn-sm" style="margin-top:14px;" onclick="window.print()">Print / Save as PDF</button>'+
     '</div>';
 }
-document.getElementById('invPreviewMemberSelect')?.addEventListener('change', invUpdatePreview);
+let invRecipientSearchTerm = '';
+function invRenderRecipientList(){
+  const list = document.getElementById('invRecipientList');
+  if(!list) return;
+  const term = invRecipientSearchTerm.toLowerCase();
+  const members = etGetMembers().filter(m => !term || (m.data.name||'').toLowerCase().indexOf(term) !== -1);
+  if(!members.length){ list.innerHTML = '<div class="empty-note">No customers match this search.</div>'; return; }
+  const existingCbs = list.querySelectorAll('.inv-recipient-cb');
+  const previouslyChecked = new Set(Array.from(existingCbs).filter(cb => cb.checked).map(el => el.value));
+  list.innerHTML = members.map(function(m){
+    const checked = previouslyChecked.has(m.id) ? 'checked' : '';
+    return '<label style="display:flex; align-items:center; gap:8px; padding:5px 0; font-size:13.5px;"><input type="checkbox" class="inv-recipient-cb" value="'+m.id+'" '+checked+' style="width:auto;">'+esc(m.data.name||'(no name)')+' <span style="color:var(--slate); font-size:12px;">'+esc(m.data.address||'')+'</span></label>';
+  }).join('');
+  list.querySelectorAll('.inv-recipient-cb').forEach(function(cb){
+    cb.addEventListener('change', invUpdatePreview);
+  });
+}
+function invUpdatePreview(){
+  const box = document.getElementById('invPreviewDoc');
+  if(!box) return;
+  const checkedIds = Array.from(document.querySelectorAll('.inv-recipient-cb:checked')).map(cb => cb.value);
+  if(!checkedIds.length){ box.innerHTML = '<div class="empty-note">Check one or more customers above to see their invoices.</div>'; return; }
+  box.innerHTML = checkedIds.map(function(id){
+    const member = jobAddresses.find(m => m.id === id);
+    return member ? buildInvoiceDocHtml(member) : '';
+  }).join('');
+}
+document.getElementById('invRecipientSearch')?.addEventListener('input', function(){
+  invRecipientSearchTerm = this.value.trim();
+  invRenderRecipientList();
+});
 document.getElementById('etRecipientSearch').addEventListener('input', function(){
   etRecipientSearchTerm = this.value.trim();
   etRenderRecipientList();
@@ -9337,7 +9349,7 @@ function loadJobAddresses(){
     if(typeof etPopulateMemberSelect === 'function') etPopulateMemberSelect();
     if(typeof etRenderRecipientList === 'function') etRenderRecipientList();
     if(typeof etUpdatePreview === 'function') etUpdatePreview();
-    if(typeof invPopulateMemberSelect === 'function') invPopulateMemberSelect();
+    if(typeof invRenderRecipientList === 'function') invRenderRecipientList();
     if(typeof invUpdatePreview === 'function') invUpdatePreview();
     if(typeof rsvpPopulateMemberSelect === 'function') rsvpPopulateMemberSelect();
     if(typeof rsvpRenderRecipientList === 'function') rsvpRenderRecipientList();
