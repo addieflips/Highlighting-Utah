@@ -2579,6 +2579,7 @@ Highlighting Utah</textarea>
 
       <div class="route-tabs" id="respSectionTabs" style="margin-bottom:20px;">
         <button class="route-tab-btn active" data-resptab="names" draggable="true">Employee Names</button>
+        <button class="route-tab-btn" data-resptab="roletemplates" draggable="true">Role Templates</button>
         <button class="route-tab-btn" data-resptab="crews" draggable="true">Crews</button>
         <button class="route-tab-btn" data-resptab="reassign" draggable="true">One-Day Reassignment</button>
         <button class="route-tab-btn" data-resptab="assignments" draggable="true">Daily Responsibilities</button>
@@ -2602,6 +2603,18 @@ Highlighting Utah</textarea>
           <button type="button" class="btn btn-gold btn-sm" id="addEmployeeBtn">Add</button>
         </div>
         <div id="employeeChipList"></div>
+      </div>
+      </div>
+
+      <div class="gen-subtab-panel" id="resptab-roletemplates">
+      <div class="card">
+        <h3 style="font-size:14px; margin-bottom:10px;">Role Templates</h3>
+        <p style="font-size:13px;">Set up what a job looks like once &mdash; like Installer or Office &mdash; then just pick that template for each new hire instead of ticking boxes one person at a time. Change the template later and everyone following it updates automatically. Anyone who needs something different can still be customized individually over on Employee Names.</p>
+        <div style="display:flex; gap:8px; margin-bottom:12px;">
+          <input type="text" id="newRoleTemplateInput" placeholder="Template name (e.g. Installer)" style="flex:1; padding:9px 12px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:13.5px;">
+          <button type="button" class="btn btn-gold btn-sm" id="addRoleTemplateBtn">Add</button>
+        </div>
+        <div id="roleTemplatesList"></div>
       </div>
       </div>
 
@@ -4198,6 +4211,7 @@ function initData(){
   loadTimeLogs();
   loadEmployeeNames();
   loadEmployeeCategories();
+  loadRoleTemplates();
   loadCrewConfig();
   loadCrewOverrides();
   loadEmployeeNotes();
@@ -11221,7 +11235,9 @@ function loadEmployeeNames(){
         id:docSnap.id, name:d.name, hourlyRate:d.hourlyRate||0, role:d.role||'Crew',
         visibleTabs:d.visibleTabs||null, isAdmin:!!d.isAdmin,
         position:d.position||'', payType:d.payType||'hourly', salaryAmount:d.salaryAmount||0,
-        categoryIds:d.categoryIds||[]
+        categoryIds:d.categoryIds||[],
+        homeCards:d.homeCards||null,
+        roleTemplateId:d.roleTemplateId||'', useCustomAccess:!!d.useCustomAccess
       });
     });
     renderEmployeeChips();
@@ -11287,15 +11303,42 @@ function defaultHomeCards(vt){
   if(vt.warehouse) out.warehouse = true;
   return out;
 }
+/* --- Role Templates ---------------------------------------------------------
+ * An employee either FOLLOWS a template or has their own custom settings.
+ * No template assigned = exactly the old behaviour, so nobody's setup changes.
+ * These two resolvers must stay in step with the matching logic in
+ * employee.html > startAppAs, or the admin preview and the real portal drift.
+ */
+function roleTemplateById(id){
+  if(!id) return null;
+  return roleTemplates.find(function(t){ return t.id === id; }) || null;
+}
+function empFollowsTemplate(e){
+  return !!(e.roleTemplateId && !e.useCustomAccess && roleTemplateById(e.roleTemplateId));
+}
+function resolveEmpVisibleTabs(e){
+  const isCrew = (e.role||'Crew') === 'Crew';
+  const base = defaultVisibleTabs(isCrew);
+  if(empFollowsTemplate(e)){
+    return Object.assign(base, roleTemplateById(e.roleTemplateId).visibleTabs || {});
+  }
+  return Object.assign(base, e.visibleTabs || {});
+}
+function resolveEmpHomeCards(e, vt){
+  const src = empFollowsTemplate(e) ? roleTemplateById(e.roleTemplateId).homeCards : e.homeCards;
+  return (src && Object.keys(src).length) ? src : defaultHomeCards(vt);
+}
 function renderEmployeeChips(){
   const wrap = document.getElementById('employeeChipList');
   if(!employeeNames.length){ wrap.innerHTML = '<p style="font-size:12.5px; color:var(--slate);">No employees added yet.</p>'; return; }
   wrap.innerHTML = employeeNames.map(function(e){
     const isCrew = (e.role||'Crew') === 'Crew';
-    const vt = Object.assign(defaultVisibleTabs(isCrew), e.visibleTabs || {});
+    const vt = resolveEmpVisibleTabs(e);
+    const followsTpl = empFollowsTemplate(e);
+    const tplName = followsTpl ? roleTemplateById(e.roleTemplateId).name : '';
     const checkedCount = ASSIGNABLE_SECTIONS.reduce((n,g) => n + g.items.filter(i => vt[i.key]).length, 0);
     const payType = e.payType || 'hourly';
-    const hc = (e.homeCards && Object.keys(e.homeCards).length) ? e.homeCards : defaultHomeCards(vt);
+    const hc = resolveEmpHomeCards(e, vt);
     const availableHomeCards = HOME_CARD_OPTIONS.filter(function(o){ return homeCardOptionAllowed(o, vt, payType); });
     const homeCardCount = availableHomeCards.filter(function(o){ return hc[o.key]; }).length;
     const empCategoryIds = e.categoryIds || [];
@@ -11325,7 +11368,20 @@ function renderEmployeeChips(){
           return '<label style="display:flex; align-items:center; gap:4px; font-size:12.5px;"><input type="checkbox" class="empcat-check" data-empid="'+e.id+'" data-catid="'+cat.id+'" '+(empCategoryIds.includes(cat.id)?'checked':'')+'> '+esc(cat.name)+'</label>';
         }).join('')+
       '</div>' : '')+
-      '<div style="position:relative; display:inline-block;">'+
+      '<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">'+
+        '<span style="font-size:11.5px; font-weight:700; text-transform:uppercase; color:var(--slate);">Template:</span>'+
+        '<select class="emp-roletpl-select" data-empid="'+e.id+'" style="padding:6px 8px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:13px;">'+
+          '<option value=""'+(!e.roleTemplateId?' selected':'')+'>Custom (just this person)</option>'+
+          roleTemplates.map(function(t){
+            return '<option value="'+t.id+'"'+(e.roleTemplateId===t.id?' selected':'')+'>'+esc(t.name)+'</option>';
+          }).join('')+
+        '</select>'+
+        (e.roleTemplateId
+          ? '<label style="display:flex; align-items:center; gap:4px; font-size:12.5px;"><input type="checkbox" class="emp-customaccess-check" data-empid="'+e.id+'" '+(e.useCustomAccess?'checked':'')+'> Customize just this person</label>'
+          : '')+
+        (followsTpl ? '<span style="font-size:11.5px; color:var(--slate);">Following the '+esc(tplName)+' template &mdash; edit it under Role Templates.</span>' : '')+
+      '</div>'+
+      '<div style="position:relative; display:inline-block;'+(followsTpl?' opacity:.55; pointer-events:none;':'')+'">'+
         '<button type="button" class="btn btn-outline btn-sm perms-toggle" data-empid="'+e.id+'">Sees '+checkedCount+' section(s) &#9662;</button>'+
         '<div class="filter-dropdown" id="permsdrop-'+e.id+'">'+
           ASSIGNABLE_SECTIONS.map(function(g){
@@ -11337,7 +11393,7 @@ function renderEmployeeChips(){
           }).join('')+
         '</div>'+
       '</div>'+
-      '<div style="position:relative; display:inline-block; margin-left:8px;">'+
+      '<div style="position:relative; display:inline-block; margin-left:8px;'+(followsTpl?' opacity:.55; pointer-events:none;':'')+'">'+
         '<button type="button" class="btn btn-outline btn-sm homecards-toggle" data-empid="'+e.id+'">Home screen: '+homeCardCount+' card(s) &#9662;</button>'+
         '<div class="filter-dropdown" id="homecardsdrop-'+e.id+'">'+
           '<div class="filter-dropdown-group">'+
@@ -11376,9 +11432,9 @@ function renderEmployeeChips(){
   wrap.querySelectorAll('.homecard-check').forEach(function(cb){
     cb.addEventListener('change', function(){
       const emp = employeeNames.find(x => x.id === cb.dataset.empid);
-      const isCrew = emp && (emp.role||'Crew') === 'Crew';
-      const empVt = Object.assign(defaultVisibleTabs(isCrew), (emp && emp.visibleTabs) || {});
-      const current = Object.assign({}, (emp && emp.homeCards && Object.keys(emp.homeCards).length) ? emp.homeCards : defaultHomeCards(empVt));
+      if(!emp) return;
+      const empVt = resolveEmpVisibleTabs(emp);
+      const current = Object.assign({}, resolveEmpHomeCards(emp, empVt));
       current[cb.dataset.card] = cb.checked;
       updateDoc(doc(db,'employeeNames',cb.dataset.empid), {homeCards: current}).then(function(){
         toast('Home screen updated');
@@ -11396,12 +11452,50 @@ function renderEmployeeChips(){
   wrap.querySelectorAll('.tabvis-check').forEach(function(cb){
     cb.addEventListener('change', function(){
       const emp = employeeNames.find(x => x.id === cb.dataset.empid);
-      const isCrew = emp && (emp.role||'Crew') === 'Crew';
-      const current = Object.assign(defaultVisibleTabs(isCrew), (emp && emp.visibleTabs) || {});
+      if(!emp) return;
+      const current = resolveEmpVisibleTabs(emp);
       current[cb.dataset.tab] = cb.checked;
       updateDoc(doc(db,'employeeNames',cb.dataset.empid), {visibleTabs: current}).then(function(){
         toast('Updated what they can see');
       });
+    });
+  });
+  wrap.querySelectorAll('.emp-roletpl-select').forEach(function(sel){
+    sel.addEventListener('change', function(){
+      const emp = employeeNames.find(x => x.id === sel.dataset.empid);
+      if(!emp) return;
+      const tplId = sel.value;
+      // Switching to a template hands control to that template. Switching back to
+      // Custom keeps whatever they were just seeing, so nobody silently loses access.
+      if(tplId){
+        updateDoc(doc(db,'employeeNames',sel.dataset.empid), {roleTemplateId: tplId, useCustomAccess: false}).then(function(){
+          toast('Now following the '+(roleTemplateById(tplId)?roleTemplateById(tplId).name:'selected')+' template');
+        });
+      } else {
+        const keepVt = resolveEmpVisibleTabs(emp);
+        const keepHc = resolveEmpHomeCards(emp, keepVt);
+        updateDoc(doc(db,'employeeNames',sel.dataset.empid), {roleTemplateId: '', useCustomAccess: false, visibleTabs: keepVt, homeCards: keepHc}).then(function(){
+          toast('Switched to custom settings');
+        });
+      }
+    });
+  });
+  wrap.querySelectorAll('.emp-customaccess-check').forEach(function(cb){
+    cb.addEventListener('change', function(){
+      const emp = employeeNames.find(x => x.id === cb.dataset.empid);
+      if(!emp) return;
+      if(cb.checked){
+        // Copy the template's current settings down so they have a starting point.
+        const startVt = resolveEmpVisibleTabs(emp);
+        const startHc = resolveEmpHomeCards(emp, startVt);
+        updateDoc(doc(db,'employeeNames',cb.dataset.empid), {useCustomAccess: true, visibleTabs: startVt, homeCards: startHc}).then(function(){
+          toast('Customizing just this person');
+        });
+      } else {
+        updateDoc(doc(db,'employeeNames',cb.dataset.empid), {useCustomAccess: false}).then(function(){
+          toast('Back to following the template');
+        });
+      }
     });
   });
   wrap.querySelectorAll('.empcat-check').forEach(function(cb){
@@ -11487,6 +11581,157 @@ document.getElementById('addEmployeeBtn').addEventListener('click', async functi
 });
 
 /* ---------------- EMPLOYEE CATEGORIES ---------------- */
+/* ---------------- ROLE TEMPLATES ---------------- */
+let roleTemplates = [];
+function loadRoleTemplates(){
+  onSnapshot(collection(db,'roleTemplates'), function(snap){
+    roleTemplates = [];
+    snap.forEach(function(docSnap){
+      const d = docSnap.data();
+      roleTemplates.push({id:docSnap.id, name:d.name||'', visibleTabs:d.visibleTabs||null, homeCards:d.homeCards||null});
+    });
+    roleTemplates.sort((a,b) => a.name.localeCompare(b.name));
+    renderRoleTemplatesList();
+    renderEmployeeChips();
+  });
+}
+function templateVisibleTabs(t){
+  return Object.assign(defaultVisibleTabs(false), t.visibleTabs || {});
+}
+function renderRoleTemplatesList(){
+  const wrap = document.getElementById('roleTemplatesList');
+  if(!wrap) return;
+  if(!roleTemplates.length){
+    wrap.innerHTML = '<p style="font-size:12.5px; color:var(--slate);">No templates yet &mdash; add one above (e.g. Installer, Crew Lead, Office).</p>';
+    return;
+  }
+  wrap.innerHTML = roleTemplates.map(function(t){
+    const vt = templateVisibleTabs(t);
+    const sectionCount = ASSIGNABLE_SECTIONS.reduce((n,g) => n + g.items.filter(i => vt[i.key]).length, 0);
+    const hc = (t.homeCards && Object.keys(t.homeCards).length) ? t.homeCards : defaultHomeCards(vt);
+    // Templates always offer the hourly card set; the Timecard card is filtered
+    // per person at render time based on their own Pay Type.
+    const availableHomeCards = HOME_CARD_OPTIONS.filter(function(o){ return homeCardOptionAllowed(o, vt, 'hourly'); });
+    const homeCardCount = availableHomeCards.filter(function(o){ return hc[o.key]; }).length;
+    const following = employeeNames.filter(function(e){ return empFollowsTemplate(e) && e.roleTemplateId === t.id; });
+    return '<div class="crew-assign-row" style="flex-direction:column; align-items:stretch; gap:8px;">'+
+      '<div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">'+
+        '<input type="text" value="'+esc(t.name)+'" data-tplrename="'+t.id+'" style="flex:1; min-width:140px; padding:6px 8px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:13px; font-weight:600;">'+
+        '<span style="font-size:12px; color:var(--slate);">'+following.length+' employee(s)</span>'+
+        '<button type="button" data-tpldelete="'+t.id+'" title="Delete template" style="background:none; border:none; color:var(--ember); font-size:16px; cursor:pointer; padding:0 4px;">&times;</button>'+
+      '</div>'+
+      (following.length ? '<div style="font-size:12px; color:var(--slate);">'+esc(following.map(function(e){ return e.name; }).join(', '))+'</div>' : '')+
+      '<div>'+
+        '<div style="position:relative; display:inline-block;">'+
+          '<button type="button" class="btn btn-outline btn-sm tplperms-toggle" data-tplid="'+t.id+'">Sees '+sectionCount+' section(s) &#9662;</button>'+
+          '<div class="filter-dropdown" id="tplpermsdrop-'+t.id+'">'+
+            ASSIGNABLE_SECTIONS.map(function(g){
+              return '<div class="filter-dropdown-group"><div style="font-size:11px; font-weight:700; text-transform:uppercase; color:var(--slate); margin-bottom:4px;">'+g.group+'</div>'+
+                g.items.map(function(i){
+                  return '<label><input type="checkbox" class="tpltabvis-check" data-tplid="'+t.id+'" data-tab="'+i.key+'" '+(vt[i.key]?'checked':'')+'> '+i.label+'</label>';
+                }).join('')+
+              '</div>';
+            }).join('')+
+          '</div>'+
+        '</div>'+
+        '<div style="position:relative; display:inline-block; margin-left:8px;">'+
+          '<button type="button" class="btn btn-outline btn-sm tplhomecards-toggle" data-tplid="'+t.id+'">Home screen: '+homeCardCount+' card(s) &#9662;</button>'+
+          '<div class="filter-dropdown" id="tplhomecardsdrop-'+t.id+'">'+
+            '<div class="filter-dropdown-group">'+
+              '<div style="font-size:11px; font-weight:700; text-transform:uppercase; color:var(--slate); margin-bottom:4px;">Shows on their home screen</div>'+
+              (availableHomeCards.length
+                ? availableHomeCards.map(function(o){
+                    return '<label><input type="checkbox" class="tplhomecard-check" data-tplid="'+t.id+'" data-card="'+o.key+'" '+(hc[o.key]?'checked':'')+'> '+o.label+'</label>';
+                  }).join('')
+                : '<p style="font-size:12px; color:var(--slate); margin:4px 0;">Turn on a section first, then pick its card here.</p>')+
+              '<p style="font-size:11.5px; color:var(--slate); margin:8px 0 0;">Clock In/Out still follows each person\'s own Pay Type.</p>'+
+            '</div>'+
+          '</div>'+
+        '</div>'+
+      '</div>'+
+    '</div>';
+  }).join('');
+  wrap.querySelectorAll('.tplperms-toggle').forEach(function(btn){
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      const drop = document.getElementById('tplpermsdrop-'+btn.dataset.tplid);
+      const isOpen = drop.classList.contains('open');
+      document.querySelectorAll('.filter-dropdown.open').forEach(d => d.classList.remove('open'));
+      if(!isOpen) drop.classList.add('open');
+    });
+  });
+  wrap.querySelectorAll('.tplhomecards-toggle').forEach(function(btn){
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      const drop = document.getElementById('tplhomecardsdrop-'+btn.dataset.tplid);
+      const isOpen = drop.classList.contains('open');
+      document.querySelectorAll('.filter-dropdown.open').forEach(d => d.classList.remove('open'));
+      if(!isOpen) drop.classList.add('open');
+    });
+  });
+  wrap.querySelectorAll('.tpltabvis-check').forEach(function(cb){
+    cb.addEventListener('change', function(){
+      const t = roleTemplateById(cb.dataset.tplid);
+      if(!t) return;
+      const current = templateVisibleTabs(t);
+      current[cb.dataset.tab] = cb.checked;
+      updateDoc(doc(db,'roleTemplates',cb.dataset.tplid), {visibleTabs: current}).then(function(){
+        toast('Template updated');
+      });
+    });
+  });
+  wrap.querySelectorAll('.tplhomecard-check').forEach(function(cb){
+    cb.addEventListener('change', function(){
+      const t = roleTemplateById(cb.dataset.tplid);
+      if(!t) return;
+      const vt = templateVisibleTabs(t);
+      const current = Object.assign({}, (t.homeCards && Object.keys(t.homeCards).length) ? t.homeCards : defaultHomeCards(vt));
+      current[cb.dataset.card] = cb.checked;
+      updateDoc(doc(db,'roleTemplates',cb.dataset.tplid), {homeCards: current}).then(function(){
+        toast('Template home screen updated');
+      });
+    });
+  });
+  wrap.querySelectorAll('[data-tplrename]').forEach(function(input){
+    let debounceTimer;
+    input.addEventListener('input', function(){
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(function(){
+        const newName = input.value.trim();
+        if(!newName) return;
+        updateDoc(doc(db,'roleTemplates',input.dataset.tplrename), {name: newName}).then(function(){
+          toast('Template renamed');
+        });
+      }, 600);
+    });
+  });
+  wrap.querySelectorAll('[data-tpldelete]').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      const t = roleTemplateById(btn.dataset.tpldelete);
+      const users = employeeNames.filter(function(e){ return e.roleTemplateId === btn.dataset.tpldelete; });
+      if(!confirm('Delete the "'+(t?t.name:'')+'" template?'+(users.length ? '\n\n'+users.length+' employee(s) follow it. They will keep exactly what they can see right now, just as their own custom settings.' : ''))) return;
+      // Freeze each follower's current access into their own record BEFORE the
+      // template disappears, so nobody loses or gains anything on delete.
+      for(const emp of users){
+        const keepVt = resolveEmpVisibleTabs(emp);
+        const keepHc = resolveEmpHomeCards(emp, keepVt);
+        await updateDoc(doc(db,'employeeNames',emp.id), {roleTemplateId: '', useCustomAccess: false, visibleTabs: keepVt, homeCards: keepHc});
+      }
+      await deleteDoc(doc(db,'roleTemplates',btn.dataset.tpldelete));
+      toast('Template deleted');
+    });
+  });
+}
+document.getElementById('addRoleTemplateBtn').addEventListener('click', async function(){
+  const input = document.getElementById('newRoleTemplateInput');
+  const name = input.value.trim();
+  if(!name) return;
+  if(roleTemplates.some(t => t.name.toLowerCase() === name.toLowerCase())){ toast('That template already exists'); return; }
+  await addDoc(collection(db,'roleTemplates'), {name: name, visibleTabs: defaultVisibleTabs(false), homeCards: {}, createdAt: serverTimestamp()});
+  input.value = '';
+  toast('Template added');
+});
+
 let employeeCategories = [];
 function loadEmployeeCategories(){
   onSnapshot(collection(db,'employeeCategories'), function(snap){
