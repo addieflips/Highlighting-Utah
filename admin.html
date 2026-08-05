@@ -1072,6 +1072,10 @@
             <button type="button" class="btn btn-gold" id="editCustSaveBtn" style="flex:1;">Save Changes</button>
           </div>
           <div id="editCustStatus" style="font-size:13px; color:var(--slate); margin-top:8px; text-align:center;"></div>
+          <div style="margin-top:18px; padding-top:14px; border-top:1px solid var(--line); text-align:center;">
+            <button type="button" class="btn btn-outline" id="editCustDeleteBtn" style="color:var(--ember); border-color:#f0b3ac;">Delete This Customer</button>
+            <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Removes them and their invoice. Their customer number goes back into the available pool so the bin can be reused. Money already collected stays on the Dashboard.</p>
+          </div>
         </div>
       </div>
     </div>
@@ -2659,20 +2663,26 @@ Highlighting Utah</textarea>
     <div class="panel" id="panel-customer-numbers">
       <div class="panel-head"><div><h2>Customer Numbers</h2><p>Every customer's permanent bin number &mdash; single-bin houses pull from the regular sequence, double-bin houses pull from the 5000 series. When a customer is recycled, their number automatically goes back into the available pool.</p></div></div>
 
-      <div class="form-grid-2" style="margin-bottom:20px;">
-        <div class="card">
-          <h3 style="margin:0 0 10px;">Available &mdash; Regular</h3>
-          <p id="cnNextRegular" class="form-note" style="margin:0 0 8px;"></p>
-          <div id="cnAvailableRegularList" style="max-height:160px; overflow-y:auto; font-size:13px;"></div>
-        </div>
-        <div class="card">
-          <h3 style="margin:0 0 10px;">Available &mdash; Double Bin (5000s)</h3>
-          <p id="cnNextDouble" class="form-note" style="margin:0 0 8px;"></p>
-          <div id="cnAvailableDoubleList" style="max-height:160px; overflow-y:auto; font-size:13px;"></div>
-        </div>
+
+      <div class="route-tabs" id="cnSectionTabs" style="margin-bottom:20px;">
+        <button class="route-tab-btn active" data-cntab="list" draggable="true">All Numbers</button>
+        <button class="route-tab-btn" data-cntab="assign" draggable="true">Assign</button>
+        <button class="route-tab-btn" data-cntab="available" draggable="true">Available Pool</button>
       </div>
 
-      <div class="card" style="margin-bottom:20px;">
+      <div class="route-tab-panel active" id="cntab-list">
+<div class="card">
+        <h3 style="margin:0 0 10px;">All Customer Numbers</h3>
+        <div style="display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
+          <button type="button" class="btn btn-outline btn-sm" id="cnPrintByNumberBtn">Print &mdash; Sorted by Number</button>
+          <button type="button" class="btn btn-outline btn-sm" id="cnPrintByNameBtn">Print &mdash; Sorted by Name</button>
+        </div>
+        <div id="cnFullList" class="row-list"><div class="empty-note">Loading…</div></div>
+      </div>
+      </div>
+
+      <div class="route-tab-panel" id="cntab-assign">
+<div class="card" style="margin-bottom:20px;">
         <h3 style="margin:0 0 10px;">Assign a Number</h3>
         <div class="form-grid-2">
           <div class="form-row"><label>Customer (without a number yet)</label>
@@ -2688,8 +2698,7 @@ Highlighting Utah</textarea>
         <button type="button" class="btn btn-gold btn-sm" id="cnAssignBtn">Assign Next Available</button>
         <span id="cnAssignStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
       </div>
-
-      <div class="card" style="margin-bottom:20px;">
+<div class="card" style="margin-bottom:20px;">
         <h3 style="margin:0 0 6px;">Assign Numbers in Bulk</h3>
         <p class="form-note" style="margin:0 0 10px;">For putting your master sheet's numbers onto customers who are already in the system. Paste three columns straight from Excel. This only sets the Customer # &mdash; addresses, prices, colors and dates are left exactly as they are, and nothing is re-looked-up, so it finishes in seconds.</p>
         <div class="form-grid-3">
@@ -2710,15 +2719,28 @@ Highlighting Utah</textarea>
         <div id="cnBulkStatus" style="font-size:13px; color:var(--slate); margin-top:10px;"></div>
         <div id="cnBulkReport" style="margin-top:10px;"></div>
       </div>
+      </div>
 
-      <div class="card" style="margin-bottom:20px;">
+      <div class="route-tab-panel" id="cntab-available">
+<div class="form-grid-2" style="margin-bottom:20px;">
+        <div class="card">
+          <h3 style="margin:0 0 10px;">Available &mdash; Regular</h3>
+          <p id="cnNextRegular" class="form-note" style="margin:0 0 8px;"></p>
+          <div id="cnAvailableRegularList" style="max-height:160px; overflow-y:auto; font-size:13px;"></div>
+        </div>
+        <div class="card">
+          <h3 style="margin:0 0 10px;">Available &mdash; Double Bin (5000s)</h3>
+          <p id="cnNextDouble" class="form-note" style="margin:0 0 8px;"></p>
+          <div id="cnAvailableDoubleList" style="max-height:160px; overflow-y:auto; font-size:13px;"></div>
+        </div>
+      </div>
+<div class="card" style="margin-bottom:20px;">
         <h3 style="margin:0 0 6px;">Unused Numbers</h3>
         <p class="form-note" style="margin:0 0 10px;">Any number inside your existing range that nobody is using &mdash; usually freed up when a customer was recycled in a past year. Adding them to the pool means Dad reuses those bin numbers before anyone gets a brand new one.</p>
         <button type="button" class="btn btn-outline btn-sm" id="cnFindGapsBtn">Find Unused Numbers</button>
         <div id="cnGapsReport" style="margin-top:10px;"></div>
       </div>
-
-      <div class="card" style="margin-bottom:20px;">
+<div class="card" style="margin-bottom:20px;">
         <h3 style="margin:0 0 10px;">Manually Add a Number to the Pool</h3>
         <p class="form-note" style="margin:0 0 8px;">For warehouse audits &mdash; if you find a bin whose number isn't tracked as available anywhere.</p>
         <div class="form-grid-2">
@@ -2729,14 +2751,6 @@ Highlighting Utah</textarea>
         </div>
         <button type="button" class="btn btn-outline btn-sm" id="cnManualAddBtn">Add to Available Pool</button>
       </div>
-
-      <div class="card">
-        <h3 style="margin:0 0 10px;">All Customer Numbers</h3>
-        <div style="display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
-          <button type="button" class="btn btn-outline btn-sm" id="cnPrintByNumberBtn">Print &mdash; Sorted by Number</button>
-          <button type="button" class="btn btn-outline btn-sm" id="cnPrintByNameBtn">Print &mdash; Sorted by Name</button>
-        </div>
-        <div id="cnFullList" class="row-list"><div class="empty-note">Loading…</div></div>
       </div>
 
       <div id="cnPrintArea" style="display:none;"></div>
@@ -10084,6 +10098,15 @@ document.getElementById('deleteAllAddressesBtn').addEventListener('click', async
   document.getElementById('deleteAllAddressesBtn').style.opacity = '.4';
 });
 
+/* ---------------- CUSTOMER NUMBERS sub-tabs ---------------- */
+setupDraggableTabBar('cnSectionTabs', 'cntab', 'huCnTabOrder', function(tabName){
+  document.querySelectorAll('#cnSectionTabs .route-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.cntab === tabName));
+  document.querySelectorAll('#panel-customer-numbers .route-tab-panel').forEach(function(p){
+    p.classList.toggle('active', p.id === 'cntab-'+tabName);
+  });
+  if(typeof renderCustomerNumbersPanel === 'function') renderCustomerNumbersPanel();
+});
+
 /* ---------------- ALL CUSTOMERS (Customers > All Customers) ---------------- */
 setupDraggableTabBar('custSectionTabs', 'custtab', 'huCustTabOrder', function(tabName){
   document.querySelectorAll('#custSectionTabs .route-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.custtab === tabName));
@@ -10257,6 +10280,39 @@ document.getElementById('editCustLayoutMapFile').addEventListener('change', asyn
     return;
   }
   renderEditCustLayoutMapThumb();
+});
+document.getElementById('editCustDeleteBtn').addEventListener('click', async function(){
+  if(!editCustomerId) return;
+  const item = jobAddresses.find(function(it){ return it.id === editCustomerId; });
+  if(!item) return;
+  const d = item.data;
+  const num = String(d.customerNumber||'');
+  if(!confirm('Delete ' + (d.name || 'this customer') + ' at ' + (d.street || d.address || '') + '?\n\nThis removes them and their invoice permanently.' + (num ? ' Number #' + num + ' goes back into the available pool.' : '') + '\n\nThis cannot be undone.')) return;
+  const statusEl = document.getElementById('editCustStatus');
+  statusEl.textContent = 'Deleting\u2026';
+  try{
+    // Same cleanup the delete-all path does, so a single delete doesn't leave orphans.
+    const custKey = custInvoiceKey(d);
+    if(custKey){
+      const invSnap = await getDoc(doc(db,'invoices',custKey));
+      if(invSnap.exists()){
+        const paidAmount = Number(invSnap.data().deposit)||0;
+        if(paidAmount > 0){
+          await setDoc(doc(db,'settings','financeArchive'), {archivedRevenue: increment(paidAmount)}, {merge:true});
+        }
+        await deleteDoc(doc(db,'invoices',custKey));
+      }
+    }
+    if(num){
+      await setDoc(doc(db,'availableCustomerNumbers', num), {type: parseInt(num,10) >= 5000 ? 'double' : 'regular', releasedAt: serverTimestamp()});
+    }
+    await deleteDoc(doc(db,'jobAddresses', item.id));
+    editCustomerId = null;
+    document.getElementById('editCustOverlay').style.display = 'none';
+    toast((d.name || 'Customer') + ' deleted' + (num ? ' \u2014 #' + num + ' is available again' : ''));
+  } catch(err){
+    statusEl.textContent = 'Could not delete \u2014 try again.';
+  }
 });
 document.getElementById('editCustCancelBtn').addEventListener('click', function(){
   document.getElementById('editCustOverlay').style.display = 'none';
@@ -12634,7 +12690,6 @@ document.getElementById('settingsSLForm').addEventListener('submit', function(e)
   setDoc(doc(db,'siteContent','main'), { saltLakeCities: cities }, {merge:true}).then(()=> toast('Salt Lake County list saved'));
 });
 
-/* ---------------- Shared delete handler ---------------- */
 /* ---------------- MEMBER EXPORT (Reports) ---------------- */
 function memberExportStatus(d){
   if(d.removalDone) return 'Removed';
