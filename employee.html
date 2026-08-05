@@ -1210,14 +1210,14 @@ async function whToggleLightsOld(key, checked){
   if(checked){ await deleteDoc(doc(db,'warehouseExtras', key)); }
 }
 async function whToggleRecycle(key, checked){
-  await updateDoc(doc(db,'jobAddresses', key), {needsLightRecycle: !checked});
-  if(checked){
-    const item = whRecycle.find(function(i){ return i.key === key; });
-    const num = item && item.bin;
-    if(num){
-      const type = parseInt(num,10) >= 5000 ? 'double' : 'regular';
-      try{ await setDoc(doc(db,'availableCustomerNumbers', String(num)), {type: type, releasedAt: serverTimestamp()}); } catch(err){}
-    }
+  const item = whRecycle.find(function(i){ return i.key === key; });
+  const num = checked && item ? item.bin : null;
+  // Clearing the number off the customer as it goes into the pool keeps exactly
+  // one owner — otherwise the same label ends up on two bins.
+  await updateDoc(doc(db,'jobAddresses', key), num ? {needsLightRecycle: !checked, customerNumber: ''} : {needsLightRecycle: !checked});
+  if(num){
+    const type = parseInt(num,10) >= 5000 ? 'double' : 'regular';
+    try{ await setDoc(doc(db,'availableCustomerNumbers', String(num)), {type: type, releasedAt: serverTimestamp()}); } catch(err){}
   }
 }
 async function whToggleTimer(key, checked){
