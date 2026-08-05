@@ -2617,6 +2617,10 @@ Highlighting Utah</textarea>
         <h3 style="margin:0 0 8px;">One-time cleanup</h3>
         <p class="form-note" style="margin:0 0 10px;">Bulk imports used to add build requests here by mistake. Use this once to clear out anything left over from that — it won't touch anything added through the Member Portal, Quotes, or your own manual entries below.</p>
         <button type="button" class="btn btn-ember btn-sm" id="whClearBulkFlagsBtn">Clear Leftover Bulk-Import Build Flags</button>
+        <div style="margin-top:12px;">
+          <button type="button" class="btn btn-outline btn-sm" id="whFindNotQueuedBtn">Find Customers Not In The Build Queue</button>
+          <div id="whNotQueuedReport" style="margin-top:10px;"></div>
+        </div>
         <span id="whClearBulkFlagsStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
         <div style="border-top:1px solid #f0b3ac; margin-top:14px; padding-top:14px;">
           <p class="form-note" style="margin:0 0 10px;">Fills in Measured Feet for any house that has a price but no measured feet on file, using price &divide; your per-foot rate with a 5% safety margin so estimates lean toward too few feet rather than too many. Never overwrites feet you've already measured.</p>
@@ -4592,6 +4596,8 @@ function renderQuoteRows(filtered){
       // replaces the photo. Without this the route card has nothing to show.
       if(d.frontPhotoUrl){
         addCustPhotoUrl = d.frontPhotoUrl;
+        addCustPhotoOriginal = d.frontPhotoOriginal || '';
+        addCustPhotoMarkup = d.frontPhotoMarkup || [];
         const img = document.getElementById('addCustPhotoImg');
         img.src = addCustPhotoUrl;
         img.classList.remove('hm-blueprint');
@@ -7904,6 +7910,10 @@ function pitchPercent(angleDeg){
   return Math.round(Math.tan(a * Math.PI / 180) * 100);
 }
 let addCustPhotoUrl = '';
+/* The un-marked photo and the lines drawn on it, carried over from a quote so
+   the markup can still be edited once they're a customer. */
+let addCustPhotoOriginal = '';
+let addCustPhotoMarkup = [];
 /* Set when the Add form was filled in from a quote, so saving the customer can
    close that quote out instead of leaving it sitting in the list. */
 let addCustFromQuoteId = null;
@@ -8147,6 +8157,15 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
       return;
     }
   }
+  /* The warehouse build queue keys off the light description, so a customer saved
+     without any colours picked silently never reaches Dad. Say so rather than
+     letting it slip through. */
+  if(!lightsDescription){
+    if(!confirm('No light colours are selected for ' + (name || 'this customer') + '.\n\nThey will be added, but nothing will go to the Warehouse to be built until colours are set.\n\nAdd them anyway?')) {
+      document.getElementById('routeAddStatus').textContent = 'Pick their light colours above, then add them.';
+      return;
+    }
+  }
   if(measuredFeet > 0){
     numberOfBins = cnBinsForFeet(measuredFeet);
     const wantType = numberOfBins === 2 ? 'double' : 'regular';
@@ -8185,7 +8204,8 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
       street: street, city: city, state: 'UT', zip: zip,
       address: fullAddress, difficulty: difficulty, name: name, phone: phone, email: email,
       phone2: phone2, email2: email2, lightsDescription: lightsDescription, houseAreas: houseAreas,
-      housePhotoUrl: addCustPhotoUrl, houseHighlights: addCustHighlights, portalToken: generatePortalToken(), installPreference: installPreference,
+      housePhotoUrl: addCustPhotoUrl, housePhotoOriginal: addCustPhotoOriginal, housePhotoMarkup: addCustPhotoMarkup,
+      houseHighlights: addCustHighlights, portalToken: generatePortalToken(), installPreference: installPreference,
       rsvpStatus: addCustFromQuoteId ? 'yes' : '',
       wireColor: wireColor,
       lat: coords.lat, lng: coords.lng, needsLightBuild: !!lightsDescription,
@@ -8200,8 +8220,6 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
       addCustFromQuoteId = null;
     }
     if(customerNumber) toast('Added as customer #' + customerNumber + ' \u2014 ' + numberOfBins + ' bin' + (numberOfBins===1?'':'s'));
-    if(addCustPhotoUrl){
-    }
     let invoiceMsg = '';
     if(wantsBilling && billingElsewhere){
       await syncPayerInvoice(billToPhone);
@@ -10335,6 +10353,35 @@ document.getElementById('whAddExtraBtn').addEventListener('click', async functio
     statusEl.textContent = 'Something went wrong — try again.';
   }
 });
+/* A customer only reaches the build queue when they have light colours AND the
+   build flag. This finds the ones that fell through either gap. */
+document.getElementById('whFindNotQueuedBtn').addEventListener('click', function(){
+  const box = document.getElementById('whNotQueuedReport');
+  const noLights = jobAddresses.filter(function(i){ return !i.data.lightsDescription; });
+  const notFlagged = jobAddresses.filter(function(i){ return i.data.lightsDescription && !i.data.needsLightBuild; });
+  if(!noLights.length && !notFlagged.length){
+    box.innerHTML = '<div style="background:var(--mist); border-radius:8px; padding:10px 12px; font-size:13px;">Every customer with light colours is in the build queue.</div>';
+    return;
+  }
+  function names(list){
+    return esc(list.slice(0,12).map(function(i){ return i.data.name || '(no name)'; }).join(', ')) + (list.length>12 ? ' \u2026and ' + (list.length-12) + ' more' : '');
+  }
+  box.innerHTML = '<div style="background:#FFF6E5; border:1px solid #f0d9a8; border-radius:8px; padding:10px 12px; font-size:13px;">'+
+    (noLights.length ? '<strong>' + noLights.length + ' customer(s) have no light colours set</strong> \u2014 nothing can be built for them until colours are picked:<div style="font-size:12.5px; margin:4px 0 10px;">'+names(noLights)+'</div>' : '')+
+    (notFlagged.length ? '<strong>' + notFlagged.length + ' customer(s) have colours but are not in the queue</strong> \u2014 usually already built, or cleared by mistake:<div style="font-size:12.5px; margin:4px 0 8px;">'+names(notFlagged)+'</div>'+
+      '<button type="button" class="btn btn-outline btn-sm" id="whQueueTheseBtn">Send These ' + notFlagged.length + ' To The Build Queue</button>' : '')+
+    '</div>';
+  const btn = document.getElementById('whQueueTheseBtn');
+  if(btn) btn.addEventListener('click', async function(){
+    if(!confirm('Send ' + notFlagged.length + ' customer(s) to the build queue? Only do this if their lights really do still need building.')) return;
+    for(const i of notFlagged){
+      await updateDoc(doc(db,'jobAddresses', i.id), {needsLightBuild: true}).catch(function(){});
+    }
+    toast(notFlagged.length + ' sent to the build queue');
+    document.getElementById('whFindNotQueuedBtn').click();
+  });
+});
+
 document.getElementById('whClearBulkFlagsBtn').addEventListener('click', async function(){
   const statusEl = document.getElementById('whClearBulkFlagsStatus');
   const flagged = jobAddresses.filter(function(item){ return item.data.needsLightBuild; });
