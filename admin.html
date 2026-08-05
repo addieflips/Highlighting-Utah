@@ -1679,6 +1679,7 @@ Highlighting Utah</textarea>
           <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; gap:12px;">
             <input type="text" id="etTemplateSearch" placeholder="Search templates..." style="flex:1; padding:10px 12px; border-radius:8px; border:1px solid var(--line); font-size:13px;">
             <button type="button" class="btn" id="etNewTemplateBtn" style="background:var(--gold); color:var(--ink); border:none; white-space:nowrap;"><i class="ti ti-plus" aria-hidden="true" style="margin-right:4px;"></i>New template</button>
+            <button type="button" class="btn btn-outline" id="etOpenSendBtn" style="white-space:nowrap;">Preview &amp; Send</button>
           </div>
           <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr)); gap:12px;" id="etTemplateList">
             <div class="empty-note">Select a folder to view templates</div>
@@ -1789,7 +1790,7 @@ Highlighting Utah</textarea>
       </div>
 
       <!-- ===== PREVIEW & SEND MODAL ===== -->
-      <div class="et-popup-overlay" id="etSendOverlay">
+      <div class="et-popup-overlay" id="etPreviewSendOverlay" style="display:none;">
         <div class="et-popup" style="max-width:700px;">
           <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:19px;">Preview &amp; Send</h3>
           <p style="margin:0 0 16px; font-size:13px; color:var(--slate);">Pick a template, preview it against a real member, then send to whoever you select.</p>
@@ -1842,7 +1843,7 @@ Highlighting Utah</textarea>
             <button type="button" class="btn btn-outline" id="etSendCloseBtn" style="flex:1;">Close</button>
             <button type="button" class="btn btn-gold" id="etSendToSelectedBtn" style="flex:1;">Send to Selected</button>
           </div>
-          <div id="etSendStatus" style="font-size:13px; color:var(--slate); margin-top:8px; text-align:center;"></div>
+          <div id="etPreviewSendStatus" style="font-size:13px; color:var(--slate); margin-top:8px; text-align:center;"></div>
         </div>
       </div>
       </div>
@@ -5224,7 +5225,7 @@ document.getElementById('etSelectNoneBtn').addEventListener('click', function(){
   document.querySelectorAll('.et-recipient-cb').forEach(cb => { cb.checked = false; });
 });
 document.getElementById('etCopyForPreviewBtn').addEventListener('click', function(){
-  const statusEl = document.getElementById('etSendStatus');
+  const statusEl = document.getElementById('etPreviewSendStatus');
   const box = document.getElementById('etPreviewBox');
   const text = box.innerText;
   if(!text || text.indexOf('Pick a template') === 0){ statusEl.textContent = 'Pick a template and a member to preview first.'; return; }
@@ -5234,7 +5235,7 @@ document.getElementById('etCopyForPreviewBtn').addEventListener('click', functio
   });
 });
 document.getElementById('etSendToSelectedBtn').addEventListener('click', async function(){
-  const statusEl = document.getElementById('etSendStatus');
+  const statusEl = document.getElementById('etPreviewSendStatus');
   const templateId = document.getElementById('etSendTemplateSelect').value;
   const template = emailTemplates.find(t => t.id === templateId);
   if(!template){ statusEl.textContent = 'Pick a template first.'; return; }
@@ -5286,15 +5287,15 @@ function openSendModal(templateId){
   etRenderRecipientList();
   if(templateId) document.getElementById('etSendTemplateSelect').value = templateId;
   etUpdatePreview();
-  document.getElementById('etSendStatus').textContent = '';
-  document.getElementById('etSendOverlay').style.display = 'flex';
+  document.getElementById('etPreviewSendStatus').textContent = '';
+  document.getElementById('etPreviewSendOverlay').style.display = 'flex';
 }
 document.getElementById('etOpenSendBtn')?.addEventListener('click', function(){ openSendModal(''); });
 document.getElementById('etSendCloseBtn').addEventListener('click', function(){
-  document.getElementById('etSendOverlay').style.display = 'none';
+  document.getElementById('etPreviewSendOverlay').style.display = 'none';
 });
 document.getElementById('etSendTestBtn').addEventListener('click', async function(){
-  const statusEl = document.getElementById('etSendStatus');
+  const statusEl = document.getElementById('etPreviewSendStatus');
   const testEmail = document.getElementById('etTestEmailInput').value.trim();
   const templateId = document.getElementById('etSendTemplateSelect').value;
   const template = emailTemplates.find(t => t.id === templateId);
