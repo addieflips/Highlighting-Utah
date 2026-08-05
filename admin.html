@@ -5799,9 +5799,12 @@ function renderMessagesList(){
         '<div class="rtext">'+esc(d.message)+'</div>'+
         (d.colors && d.colors.length ? '<div class="rtext" style="margin-top:4px;"><strong>Colors requested:</strong> '+d.colors.map(esc).join(', ')+'</div>' : '')+
         (feetEstimate ? '<div class="rtext" style="margin-top:4px; font-weight:600; color:var(--dusk);">'+esc(feetEstimate)+'</div>' : '')+
-        (d.topic === 'Light Color Change' ? (d.addedToWarehouseAt
-          ? '<div class="rtext" style="margin-top:6px; font-weight:600; color:var(--moss);">&#10003; Sent to the Warehouse'+(d.addedToWarehouseAt.toDate ? ' on '+d.addedToWarehouseAt.toDate().toLocaleDateString() : '')+'</div>'
-          : '<button type="button" class="btn btn-outline btn-sm" data-sendtowh="'+item.id+'" style="margin-top:6px;">Send to Warehouse</button>') : '')+
+        (d.topic === 'Light Color Change' ? (
+          d.autoQueuedToWarehouse
+            ? '<div class="rtext" style="margin-top:6px; font-weight:600; color:var(--moss);">&#10003; Already in the Warehouse queue &mdash; nothing to do. Their new pattern went across when they saved it.</div>'
+          : d.addedToWarehouseAt
+            ? '<div class="rtext" style="margin-top:6px; font-weight:600; color:var(--moss);">&#10003; Sent to the Warehouse'+(d.addedToWarehouseAt.toDate ? ' on '+d.addedToWarehouseAt.toDate().toLocaleDateString() : '')+'</div>'
+            : '<button type="button" class="btn btn-outline btn-sm" data-sendtowh="'+item.id+'" style="margin-top:6px;">Send to Warehouse</button>') : '')+
       '</div>'+
       '<div class="row-actions" style="align-items:center;">'+
         '<button class="star-btn'+(d.important ? ' on' : '')+'" data-star="'+item.id+'" title="Mark important">'+starIcon()+'</button>'+
