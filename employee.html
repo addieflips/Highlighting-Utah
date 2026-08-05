@@ -1234,7 +1234,12 @@ async function whTogglePullStop(crewId, stopId, checked){
 }
 function whCurrentLightsItems(){
   const newItems = whLightsNew.map(function(d, i){
-    return {n:i+1, key:d.id, name:d.data.name||'(no name)', sub:d.data.lightsDescription||'', done:false, kind:'new', timer: d.data.outletTimer === 'Yes'};
+    // Dad needs the bin number to label it and the bundle count to know how much
+    // to build — name and pattern alone leave him guessing.
+    const feet = Number(d.data.measuredFeet) || 0;
+    const bundles = feet ? Math.ceil(feet / 40) : 0;
+    const extra = (feet ? ' \u2014 ' + feet + ' ft, ' + bundles + ' bundle' + (bundles===1?'':'s') : ' \u2014 no feet on file');
+    return {n:i+1, key:d.id, name:d.data.name||'(no name)', sub:(d.data.lightsDescription||'') + extra, done:false, kind:'new', timer: d.data.outletTimer === 'Yes', bin: d.data.customerNumber || ''};
   });
   const oldItems = whLightsOld.map(function(d, i){
     return {n:i+1, key:d.id, name:d.data.label || 'Buffer stock', sub:d.data.pattern + (d.data.quantity>1 ? ' \u00d7 '+d.data.quantity : ''), done:false, kind:'old', bin: d.data.customerNumber || ''};
