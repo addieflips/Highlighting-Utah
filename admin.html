@@ -544,6 +544,96 @@
 </head>
 <body>
 
+<!-- ERROR CATCHER — collects anything that goes wrong so it doesn't need the
+     browser console, which isn't reachable on a phone at all. Stays hidden
+     while everything is fine. Deliberately plain JS and loaded first, so it
+     still works if the main script fails to start. -->
+<div id="errCatchBadge" onclick="errCatchToggle()" style="display:none; position:fixed; right:14px; bottom:14px; z-index:99999; background:#B91C1C; color:#fff; border-radius:999px; padding:10px 16px; font:600 13px system-ui,sans-serif; box-shadow:0 4px 14px rgba(0,0,0,.3); cursor:pointer;">
+  <span id="errCatchCount">0</span> problem<span id="errCatchPlural">s</span> &mdash; tap
+</div>
+<div id="errCatchPanel" style="display:none; position:fixed; inset:auto 10px 10px 10px; max-height:70vh; overflow-y:auto; z-index:99999; background:#fff; border:1px solid #ddd; border-radius:14px; padding:16px; box-shadow:0 10px 40px rgba(0,0,0,.25); font:14px system-ui,sans-serif;">
+  <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:10px;">
+    <strong style="font-size:15px;">Problems found</strong>
+    <button type="button" onclick="errCatchToggle()" style="border:1px solid #ccc; background:#fff; border-radius:8px; padding:6px 12px; cursor:pointer;">Close</button>
+  </div>
+  <p style="margin:0 0 10px; font-size:12.5px; color:#666;">Tap Copy, then paste this into a chat with Claude. It says exactly what broke.</p>
+  <div id="errCatchList" style="font:12px ui-monospace,monospace; white-space:pre-wrap; word-break:break-word; background:#FAFAF8; border-radius:8px; padding:10px; max-height:40vh; overflow-y:auto;"></div>
+  <div style="display:flex; gap:8px; margin-top:10px;">
+    <button type="button" onclick="errCatchCopy()" style="flex:1; border:1px solid #ccc; background:#fff; border-radius:8px; padding:10px; cursor:pointer; font-weight:600;">Copy</button>
+    <button type="button" onclick="errCatchClear()" style="border:1px solid #ccc; background:#fff; border-radius:8px; padding:10px 14px; cursor:pointer;">Clear</button>
+  </div>
+</div>
+<script>
+(function(){
+  var caught = [];
+  function stamp(){ var d = new Date(); return d.toLocaleTimeString(); }
+  function show(){
+    var badge = document.getElementById('errCatchBadge');
+    if(!badge) return;
+    document.getElementById('errCatchCount').textContent = caught.length;
+    document.getElementById('errCatchPlural').style.display = caught.length === 1 ? 'none' : 'inline';
+    badge.style.display = caught.length ? 'block' : 'none';
+    var list = document.getElementById('errCatchList');
+    if(list) list.textContent = caught.join('\n\n');
+  }
+  var seen = {};
+  function add(text){
+    if(!text) return;
+    // The stored line carries a timestamp, so dedupe has to compare the raw
+    // message. Comparing the stored lines never matches and a loop fills the list.
+    if(seen[text]){
+      seen[text]++;
+      var idx = caught.length;
+      while(idx--){ if(caught[idx].indexOf(text) !== -1){ caught[idx] = caught[idx].split('  (x')[0] + '  (x' + seen[text] + ')'; break; } }
+      show();
+      return;
+    }
+    if(caught.length >= 40){                       // stop a runaway loop filling memory
+      if(caught[caught.length - 1].indexOf('More errors suppressed') === -1){
+        caught.push('[' + stamp() + '] More errors suppressed — reload and try again.');
+        show();
+      }
+      return;
+    }
+    seen[text] = 1;
+    caught.push('[' + stamp() + '] ' + text);
+    show();
+  }
+  window.addEventListener('error', function(e){
+    add((e.message || 'Script error') + (e.filename ? '\n  at ' + String(e.filename).split('/').pop() + ':' + e.lineno : ''));
+  });
+  window.addEventListener('unhandledrejection', function(e){
+    var r = e.reason;
+    add('Unhandled promise: ' + ((r && (r.message || r.code)) || String(r)));
+  });
+  // Render failures are logged rather than thrown, so console.error is wrapped
+  // too. The original is always called first so nothing is swallowed.
+  var origError = console.error;
+  console.error = function(){
+    try {
+      var parts = Array.prototype.map.call(arguments, function(a){
+        if(a instanceof Error) return a.message;
+        if(typeof a === 'object') { try { return JSON.stringify(a).slice(0,200); } catch(x){ return '[object]'; } }
+        return String(a);
+      });
+      add(parts.join(' '));
+    } catch(x){}
+    origError.apply(console, arguments);
+  };
+  window.errCatchToggle = function(){
+    var panel = document.getElementById('errCatchPanel');
+    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+  };
+  window.errCatchClear = function(){ caught = []; seen = {}; show(); window.errCatchToggle(); };
+  window.errCatchCopy = function(){
+    var text = 'Highlighting Utah — admin errors\n' + navigator.userAgent + '\n\n' + caught.join('\n\n');
+    if(navigator.clipboard) navigator.clipboard.writeText(text);
+    else { var t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove(); }
+    alert('Copied. Paste it into a chat with Claude.');
+  };
+})();
+</script>
+
 <!-- LOGIN -->
 <div id="loginScreen">
   <div class="login-card">
@@ -653,6 +743,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       <span class="nav-label">Member Export</span>
     <span class="nav-pin-icon" data-pinpanel="memberexport" data-pinlabel="Member Export" title="Pin to Favorites"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l1 6 3 2v2H5v-2l3-2z"/></svg></span></button>
+    <button class="nav-item" data-panel="healthcheck" title="">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+      <span class="nav-label">Health Check</span> <span class="nav-badge" id="badgeHealth" style="display:none;"></span>
+    <span class="nav-pin-icon" data-pinpanel="healthcheck" data-pinlabel="Health Check" title="Pin to Favorites"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l1 6 3 2v2H5v-2l3-2z"/></svg></span></button>
     </div>
     </div>
 
@@ -824,6 +918,12 @@
             <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">If someone else is paying for this house too (e.g. a landlord with multiple properties), enter their phone number here &mdash; this house's price gets added to their invoice instead of creating a separate one.</p>
             <div class="form-row" style="max-width:220px; margin-top:10px;"><label>Gate Code (optional)</label><input type="text" id="addCustGateCode" placeholder="e.g. #4521"></div>
             <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">If entered, this house is automatically flagged as gated on Routes and Maps, visible to you and your crew.</p>
+            <div class="form-row" style="max-width:220px; margin-top:10px;"><label>Outlet Timer</label><select id="addCustOutletTimer"><option value="">&mdash;</option><option value="Yes">Yes</option><option value="No">No</option></select></div>
+            <div class="form-row" style="max-width:220px; margin-top:10px;"><label>Specific Outlet</label><select id="addCustSpecificOutlet"><option value="">&mdash;</option><option value="Yes">Yes</option><option value="No">No</option></select></div>
+            <div class="form-row" style="margin-top:10px;"><label>Which Outlet? (optional)</label><input type="text" id="addCustSpecificOutletNotes" placeholder="e.g. the outlet on the back patio"></div>
+            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Answering Yes to Outlet Timer puts this house on the crew&rsquo;s Timers list. The outlet note shows on their route card.</p>
+            <div class="form-row" style="margin-top:10px;"><label>House Notes (optional)</label><textarea id="addCustNotes" rows="2" placeholder="Roof height, specific requests, etc." style="width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea></div>
+            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">This becomes the permanent house note your crew sees on the route card.</p>
             <div class="form-row" style="max-width:180px; margin-top:10px;"><label>Number of Bins</label><input type="number" id="addCustBins" min="1" step="1" value="1"></div>
             <div class="form-row" style="max-width:220px; margin-top:10px;"><label>Customer # (optional)</label><input type="text" id="addCustNumber" placeholder="Assigned automatically"></div>
             <div id="addCustNumberPreview" style="font-size:12.5px; font-weight:600; margin-top:4px;"></div>
@@ -1049,6 +1149,9 @@
           </div>
           <p style="font-size:11.5px; color:var(--slate); margin:-8px 0 0;">If someone else pays for this house, enter their phone number &mdash; this house's price rolls into their invoice instead.</p>
           <div class="form-row"><label>Gate Code (optional)</label><input type="text" id="editCustGateCode" placeholder="e.g. #4521"></div>
+          <div class="form-row"><label>Outlet Timer</label><select id="editCustOutletTimer"><option value="">&mdash;</option><option value="Yes">Yes</option><option value="No">No</option></select></div>
+          <div class="form-row"><label>Specific Outlet</label><select id="editCustSpecificOutlet"><option value="">&mdash;</option><option value="Yes">Yes</option><option value="No">No</option></select></div>
+          <div class="form-row"><label>Which Outlet? (optional)</label><input type="text" id="editCustSpecificOutletNotes" placeholder="e.g. the outlet on the back patio"></div>
           <div class="form-row" style="max-width:180px;"><label>Number of Bins</label><input type="number" id="editCustBins" min="1" step="1"></div>
           <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin-top:-6px; margin-bottom:16px;"><input type="checkbox" id="editCustWantsMailed" style="width:auto;"> Also wants their invoice mailed (postal mail)</label>
           <div class="form-row">
@@ -1072,6 +1175,17 @@
     <!-- QUOTES -->
     <!-- DASHBOARD -->
     <!-- IMPORT CENTER -->
+    <div class="panel" id="panel-healthcheck">
+      <h2>Health Check</h2>
+      <p class="muted" style="max-width:640px;">Looks through your real customers, invoices, routes and quotes for things that don't line up &mdash; duplicate numbers, missing invoices, prices that drifted apart, routes pointing at customers who aren't there any more.</p>
+      <p class="muted" style="max-width:640px; font-size:13px;">It reads what's already loaded in this page, so running it is free and instant. It changes nothing on its own. Where a problem has one obvious correct fix there's a button; where fixing it means choosing between two valid answers there isn't, because the right call is yours.</p>
+      <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin:16px 0;">
+        <button class="btn" id="runHealthCheckBtn">Run Health Check</button>
+        <label style="display:flex; align-items:center; gap:6px; font-size:13px;"><input type="checkbox" id="hcHideClean" checked> Hide checks that pass</label>
+        <span id="hcStatus" class="muted" style="font-size:13px;"></span>
+      </div>
+      <div id="hcResults"></div>
+    </div>
     <div class="panel" id="panel-importcenter">
       <div class="panel-head"><div><h2>Import Center</h2><p>For getting data from an Excel file into the app.</p></div></div>
       <div class="card">
@@ -4625,8 +4739,27 @@ function renderQuoteRows(filtered){
       });
       document.getElementById('addCustInstallPref').value = d.installPreference || 'Normal Schedule';
       document.getElementById('addCustGateCode').value = d.gateCode || '';
+      // These were being collected on the quote and then dropped. The crew's
+      // Timers list and route cards read them off the customer, so they have
+      // to make the jump here or they never reach anybody.
+      document.getElementById('addCustOutletTimer').value = d.outletTimer || '';
+      document.getElementById('addCustSpecificOutlet').value = d.specificOutlet || '';
+      document.getElementById('addCustSpecificOutletNotes').value = d.specificOutletNotes || '';
+      document.getElementById('addCustNotes').value = d.notes || '';
       document.getElementById('addCustWantsMailed').checked = !!d.wantsMailedInvoice;
-      if(d.estimatedFeet && perFootRate){
+      /* Feet drive the bin count, the customer number series and the warehouse
+         bundle count, so they go across first. Dispatching input makes the bin
+         and number previews recalculate the way they would if it were typed. */
+      if(d.estimatedFeet){
+        const feetEl = document.getElementById('addCustFeet');
+        feetEl.value = d.estimatedFeet;
+        feetEl.dispatchEvent(new Event('input'));
+      }
+      /* The price the customer actually clicked Approve on wins. Recalculating
+         from feet could quietly bill them something they never agreed to. */
+      if(typeof d.quotedPrice === 'number' && d.quotedPrice > 0){
+        document.getElementById('addCustPrice').value = d.quotedPrice;
+      } else if(d.estimatedFeet && perFootRate){
         document.getElementById('addCustPrice').value = Math.round(d.estimatedFeet * perFootRate);
       }
       addCustFromQuoteId = btn.dataset.converttocust;
@@ -4646,7 +4779,7 @@ function renderQuoteRows(filtered){
         document.getElementById('addCustPhotoStatus').textContent = 'Photo carried over from the quote.';
       }
       document.querySelector('.nav-item[data-panel="addcustomer"]').click();
-      toast('Quote details filled in' + (d.frontPhotoUrl ? ', photo included' : '') + (d.estimatedFeet && perFootRate ? ', price estimated from footage' : '') + ' — review and click Add Customer');
+      toast('Quote details filled in' + (d.frontPhotoUrl ? ', photo included' : '') + (typeof d.quotedPrice === 'number' && d.quotedPrice > 0 ? ', using the approved quote price' : (d.estimatedFeet && perFootRate ? ', price estimated from footage' : '')) + ' — review and click Add Customer');
     });
   });
   list.querySelectorAll('.quoteStatusSelect').forEach(function(sel){
@@ -8244,6 +8377,10 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
   const installPreference = document.getElementById('addCustInstallPref').value;
   const billToPhone = document.getElementById('addCustBillTo').value.replace(/\D/g,'');
   const gateCode = document.getElementById('addCustGateCode').value.trim();
+  const outletTimer = document.getElementById('addCustOutletTimer').value;
+  const specificOutlet = document.getElementById('addCustSpecificOutlet').value;
+  const specificOutletNotes = document.getElementById('addCustSpecificOutletNotes').value.trim();
+  const custNotes = document.getElementById('addCustNotes').value.trim();
   let numberOfBins = parseInt(document.getElementById('addCustBins').value, 10) || 1;
   const wantsMailedInvoice = document.getElementById('addCustWantsMailed').checked;
   /* Feet decide the bins, and the bins decide which sequence the number comes from.
@@ -8314,7 +8451,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
       rsvpStatus: addCustFromQuoteId ? 'yes' : '',
       wireColor: wireColor,
       lat: coords.lat, lng: coords.lng, needsLightBuild: !!lightsDescription,
-      scheduled: false, createdAt: serverTimestamp(), housePrice: price, measuredFeet: measuredFeet, gateCode: gateCode, wantsMailedInvoice: wantsMailedInvoice, numberOfBins: numberOfBins, customerNumber: customerNumber
+      scheduled: false, createdAt: serverTimestamp(), housePrice: price, measuredFeet: measuredFeet, gateCode: gateCode, outletTimer: outletTimer, specificOutlet: specificOutlet, specificOutletNotes: specificOutletNotes, notes: custNotes, wantsMailedInvoice: wantsMailedInvoice, numberOfBins: numberOfBins, customerNumber: customerNumber
     }, billingElsewhere ? {billToPhone: billToPhone} : {}));
     // If this number was sitting in the available pool, it isn't available anymore.
     if(customerNumber){
@@ -8346,6 +8483,10 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
     document.getElementById('addCustPrice').value = '';
     document.getElementById('addCustBillTo').value = '';
     document.getElementById('addCustGateCode').value = '';
+    document.getElementById('addCustOutletTimer').value = '';
+    document.getElementById('addCustSpecificOutlet').value = '';
+    document.getElementById('addCustSpecificOutletNotes').value = '';
+    document.getElementById('addCustNotes').value = '';
     document.getElementById('addCustBins').value = '1';
     document.getElementById('addCustNumber').value = '';
     addCustFromQuoteId = null;
@@ -10811,6 +10952,9 @@ function openEditCustomerModal(id){
   document.getElementById('editCustWireColor').value = d.wireColor || 'White';
   document.getElementById('editCustBillTo').value = d.billToPhone || '';
   document.getElementById('editCustGateCode').value = d.gateCode || '';
+  document.getElementById('editCustOutletTimer').value = d.outletTimer || '';
+  document.getElementById('editCustSpecificOutlet').value = d.specificOutlet || '';
+  document.getElementById('editCustSpecificOutletNotes').value = d.specificOutletNotes || '';
   document.getElementById('editCustBins').value = d.numberOfBins || 1;
   document.getElementById('editCustWantsMailed').checked = !!d.wantsMailedInvoice;
   editCustLayoutMapUrl = d.layoutMapUrl || '';
@@ -10901,6 +11045,9 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const newWireColor = document.getElementById('editCustWireColor').value;
   const newBillTo = document.getElementById('editCustBillTo').value.replace(/\D/g,'');
   const newGateCode = document.getElementById('editCustGateCode').value.trim();
+  const newOutletTimer = document.getElementById('editCustOutletTimer').value;
+  const newSpecificOutlet = document.getElementById('editCustSpecificOutlet').value;
+  const newSpecificOutletNotes = document.getElementById('editCustSpecificOutletNotes').value.trim();
   const newBins = parseInt(document.getElementById('editCustBins').value, 10) || 1;
   const newWantsMailed = document.getElementById('editCustWantsMailed').checked;
   if(!newName || (!newPhone && !newEmail)){ statusEl.textContent = 'Name plus a phone number or email are required.'; return; }
@@ -10911,7 +11058,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const oldAddress = item.data.address || '';
   statusEl.textContent = 'Saving…';
   try{
-    const addrUpdates = {name: newName, phone: newPhone, phone2: newPhone2, email: newEmail, email2: newEmail2, address: newAddress, rsvpStatus: newRsvp, needsLightRecycle: newRsvp === 'no', housePrice: newHousePrice, measuredFeet: newMeasuredFeet, wireColor: newWireColor, billToPhone: newBillTo, gateCode: newGateCode, numberOfBins: newBins, wantsMailedInvoice: newWantsMailed, layoutMapUrl: editCustLayoutMapUrl, earliestInstallDate: newEarliestInstallStr ? new Date(newEarliestInstallStr + 'T00:00:00') : null};
+    const addrUpdates = {name: newName, phone: newPhone, phone2: newPhone2, email: newEmail, email2: newEmail2, address: newAddress, rsvpStatus: newRsvp, needsLightRecycle: newRsvp === 'no', housePrice: newHousePrice, measuredFeet: newMeasuredFeet, wireColor: newWireColor, billToPhone: newBillTo, gateCode: newGateCode, outletTimer: newOutletTimer, specificOutlet: newSpecificOutlet, specificOutletNotes: newSpecificOutletNotes, numberOfBins: newBins, wantsMailedInvoice: newWantsMailed, layoutMapUrl: editCustLayoutMapUrl, earliestInstallDate: newEarliestInstallStr ? new Date(newEarliestInstallStr + 'T00:00:00') : null};
     if(newEnrolledStr) addrUpdates.createdAt = new Date(newEnrolledStr + 'T12:00:00');
     let geocodeFailed = false;
     if(newAddress && newAddress !== oldAddress){
@@ -10945,10 +11092,33 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       }
     }
     await updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates);
+    /* Saved routes carry a copy of the customer taken when the route was built,
+       and the crew portal reads that copy rather than looking the customer up.
+       Without this, correcting an address or gate code never reaches a crew
+       that's already been scheduled. Only upcoming routes are touched — past
+       routes stay as they were on the day. */
+    await resyncSavedRouteStops(editCustomerId, {
+      name: newName, phone: newPhone, address: newAddress, gateCode: newGateCode,
+      specificOutlet: newSpecificOutlet, specificOutletNotes: newSpecificOutletNotes,
+      customerNumber: addrUpdates.customerNumber, lat: addrUpdates.lat, lng: addrUpdates.lng
+    });
     const inv = allCustInvoiceFor(item);
     if(!newBillTo){
       if(inv){
         const invoiceUpdates = {name: newName, phone: newPhone, email: newEmail};
+        /* House Price is the source of truth, but only when it's actually been
+           changed here. The Invoices panel can edit an invoice total by hand,
+           so syncing on every save would silently undo that while you were
+           only fixing a name.
+           install also carries the $30 new member fee once it's been applied,
+           so the fee is added back on rather than being wiped out. */
+        const oldHousePrice = Number(item.data.housePrice) || 0;
+        if(newHousePrice !== oldHousePrice){
+          const memberFee = inv.data.newMemberFeeApplied ? 30 : 0;
+          invoiceUpdates.install = newHousePrice + memberFee;
+          invoiceUpdates.status = computeInvoiceStatus(invoiceUpdates.install, inv.data.removal || 0, inv.data.deposit || 0);
+          invoiceUpdates.updatedAt = serverTimestamp();
+        }
         // The invoice doc ID is the customer key (phone digits, or lowercase
         // email when there's no phone). If the key changed — phone edited,
         // phone added to an email-only customer, or their email changed —
@@ -11757,6 +11927,30 @@ function loadScheduledRoutes(){
     });
     renderCalendar();
   });
+}
+/* Pushes corrected customer details into any upcoming saved route that already
+   holds a snapshot of them. Undefined fields are skipped so an unchanged value
+   is never overwritten with a blank. Failures are non-fatal — the customer edit
+   itself has already been saved by this point. */
+async function resyncSavedRouteStops(customerId, fields){
+  const clean = {};
+  Object.keys(fields).forEach(function(k){ if(fields[k] !== undefined && fields[k] !== null) clean[k] = fields[k]; });
+  if(!Object.keys(clean).length) return;
+  const todayStr = toDateStr(new Date());
+  const dates = Object.keys(scheduledRoutesCache || {});
+  for(let i = 0; i < dates.length; i++){
+    if(dates[i] < todayStr) continue;
+    const routes = scheduledRoutesCache[dates[i]] || [];
+    for(let r = 0; r < routes.length; r++){
+      const route = routes[r];
+      if(!route.stops || !route.stops.some(function(st){ return st.id === customerId; })) continue;
+      const updatedStops = route.stops.map(function(st){
+        return st.id === customerId ? Object.assign({}, st, clean) : st;
+      });
+      try { await updateDoc(doc(db,'scheduledRoutes', route.id), {stops: updatedStops}); }
+      catch(err){ console.warn('Route stop resync failed for ' + route.id, err); }
+    }
+  }
 }
 function loadRouteIntoView(route, dateStr){
   routeMapInstance = null;
@@ -13903,6 +14097,396 @@ document.getElementById('ccTxnImportBtn').addEventListener('click', async functi
   document.getElementById('ccTxnImportMapping').style.display = 'none';
   document.getElementById('ccTxnImportFile').value = '';
 });
+
+
+/* ============================================================
+   HEALTH CHECK
+   Reads the live caches already in memory — no extra Firestore
+   reads, so running it costs nothing. Reports only; the fix
+   buttons below are limited to problems with exactly one correct
+   answer. Anything needing a judgement call is reported without
+   a button on purpose.
+   ============================================================ */
+
+/* Every check returns {id, title, why, rows, fix}. rows is a list of
+   {label, detail, ...payload}. fix is null when there is no single
+   safe answer. */
+function hcDigits(v){ return String(v || '').replace(/\D/g,''); }
+function hcName(d){ return (d && d.name) || '(no name)'; }
+function hcAddr(d){ return [(d && d.address) || '', (d && d.city) || ''].filter(Boolean).join(', '); }
+
+/* One invoice can cover several houses linked by billToPhone, so the
+   expected install total is the SUM of the group — comparing against a
+   single housePrice would flag every multi-house payer as broken. */
+function hcInvoiceGroups(){
+  const groups = {};
+  jobAddresses.forEach(function(c){
+    const d = c.data || {};
+    const payer = hcDigits(d.billToPhone) || custInvoiceKey(d);
+    if(!payer) return;
+    if(!groups[payer]) groups[payer] = [];
+    groups[payer].push(c);
+  });
+  return groups;
+}
+
+function hcRunChecks(){
+  const checks = [];
+  const groups = hcInvoiceGroups();
+  const invById = {};
+  allInvoicesCache.forEach(function(i){ invById[i.id] = i; });
+  const custIds = {};
+  jobAddresses.forEach(function(c){ custIds[c.id] = c; });
+  const todayStr = toDateStr(new Date());
+
+  /* ---------- numbers and bins ---------- */
+
+  const byNumber = {};
+  jobAddresses.forEach(function(c){
+    const n = String((c.data || {}).customerNumber || '').trim();
+    if(!n) return;
+    if(!byNumber[n]) byNumber[n] = [];
+    byNumber[n].push(c);
+  });
+  checks.push({
+    id: 'dupNumbers',
+    title: 'Two customers sharing one customer number',
+    why: 'The warehouse labels bins by number. Two houses on one number means bins that cannot be told apart.',
+    fix: null,
+    fixNote: 'No button: the code cannot know which house keeps the number. Whoever already has bins labelled should keep it.',
+    rows: Object.keys(byNumber).filter(function(n){ return byNumber[n].length > 1; }).map(function(n){
+      return {label: 'Number ' + n, detail: byNumber[n].map(function(c){ return hcName(c.data); }).join('  vs  ')};
+    })
+  });
+
+  const assignedNumbers = {};
+  Object.keys(byNumber).forEach(function(n){ assignedNumbers[n] = true; });
+  checks.push({
+    id: 'poolConflict',
+    title: 'Number in the available pool but still assigned',
+    why: 'It will be handed to a new customer while an existing house still has it, creating a duplicate later.',
+    fix: 'poolConflict',
+    fixLabel: 'Remove from pool',
+    fixNote: 'Safe to fix: the assignment is the truth, so the pool entry is simply wrong.',
+    rows: availableCustomerNumbers.filter(function(a){ return assignedNumbers[String(a.id)]; }).map(function(a){
+      const holder = byNumber[String(a.id)][0];
+      return {label: 'Number ' + a.id, detail: 'still assigned to ' + hcName(holder.data), numId: String(a.id)};
+    })
+  });
+
+  checks.push({
+    id: 'noNumber',
+    title: 'Customer with a price but no customer number',
+    why: 'Nothing to label their bins with, so the warehouse cannot build for them.',
+    fix: null,
+    fixNote: 'No button: assigning numbers is done in the Customer Numbers panel, where you can see what is free.',
+    rows: jobAddresses.filter(function(c){
+      const d = c.data || {};
+      return (Number(d.housePrice) || 0) > 0 && !String(d.customerNumber || '').trim();
+    }).map(function(c){ return {label: hcName(c.data), detail: hcAddr(c.data)}; })
+  });
+
+  checks.push({
+    id: 'noBundleBasis',
+    title: 'Customer the warehouse cannot size',
+    why: 'No measured feet and no price, so there is no way to work out how many bundles they need.',
+    fix: null,
+    fixNote: 'No button: someone has to measure the house or set a price.',
+    rows: jobAddresses.filter(function(c){
+      const d = c.data || {};
+      return !(Number(d.measuredFeet) || 0) && !(Number(d.housePrice) || 0);
+    }).map(function(c){ return {label: hcName(c.data), detail: hcAddr(c.data) || 'no address on file'}; })
+  });
+
+  /* ---------- money ---------- */
+
+  checks.push({
+    id: 'missingInvoice',
+    title: 'Customer with a price but no invoice',
+    why: 'They will never be billed. This is money you simply do not collect.',
+    fix: 'missingInvoice',
+    fixLabel: 'Create invoices',
+    fixNote: 'Safe to fix: builds the invoice from the prices already on file.',
+    rows: Object.keys(groups).filter(function(payer){
+      if(invById[payer]) return false;
+      return groups[payer].some(function(c){ return (Number((c.data || {}).housePrice) || 0) > 0; });
+    }).map(function(payer){
+      const first = groups[payer][0];
+      return {label: hcName(first.data), detail: 'payer ' + payer + ' — no invoice exists', payer: payer};
+    })
+  });
+
+  checks.push({
+    id: 'orphanInvoice',
+    title: 'Invoice with no matching customer',
+    why: 'Usually a customer was deleted or their phone number changed, leaving the invoice stranded.',
+    fix: null,
+    fixNote: 'No button: deleting an invoice can destroy a payment record. Check it before removing anything.',
+    rows: allInvoicesCache.filter(function(i){ return !groups[i.id]; }).map(function(i){
+      const d = i.data || {};
+      return {label: (d.name || i.id), detail: 'invoice key ' + i.id + ' matches no customer — total $' + ((Number(d.install)||0) + (Number(d.removal)||0))};
+    })
+  });
+
+  checks.push({
+    id: 'totalDrift',
+    title: 'Invoice total does not match the houses on it',
+    why: 'A price was changed somewhere and the invoice never caught up, so you would bill the wrong amount.',
+    fix: 'totalDrift',
+    fixLabel: 'Resync totals',
+    fixNote: 'Safe to fix: recalculates from the house prices, keeping the $30 new member fee.',
+    rows: Object.keys(groups).filter(function(payer){
+      const inv = invById[payer];
+      if(!inv) return false;
+      const d = inv.data || {};
+      const expected = groups[payer].reduce(function(sum, c){ return sum + (Number((c.data || {}).housePrice) || 0); }, 0)
+                     + (d.newMemberFeeApplied ? 30 : 0);
+      return Math.abs(expected - (Number(d.install) || 0)) > 0.005;
+    }).map(function(payer){
+      const d = invById[payer].data || {};
+      const expected = groups[payer].reduce(function(sum, c){ return sum + (Number((c.data || {}).housePrice) || 0); }, 0)
+                     + (d.newMemberFeeApplied ? 30 : 0);
+      return {
+        label: (d.name || payer),
+        detail: 'invoice says $' + (Number(d.install)||0) + ', houses add up to $' + expected
+              + (d.newMemberFeeApplied ? ' (incl. $30 new member fee)' : '')
+              + (groups[payer].length > 1 ? ' across ' + groups[payer].length + ' houses' : ''),
+        payer: payer
+      };
+    })
+  });
+
+  checks.push({
+    id: 'staleStatus',
+    title: 'Invoice status disagrees with its own numbers',
+    why: 'Someone may show as unpaid when they have paid, or the other way round.',
+    fix: 'staleStatus',
+    fixLabel: 'Recalculate statuses',
+    fixNote: 'Safe to fix: the status is derived from the numbers, so it can always be rebuilt.',
+    rows: allInvoicesCache.filter(function(i){
+      const d = i.data || {};
+      const should = computeInvoiceStatus(d.install, d.removal, d.deposit);
+      return (d.status || '') !== should;
+    }).map(function(i){
+      const d = i.data || {};
+      return {label: (d.name || i.id), detail: 'says "' + (d.status || 'blank') + '", should be "' + computeInvoiceStatus(d.install, d.removal, d.deposit) + '"', invId: i.id};
+    })
+  });
+
+  /* ---------- routes ---------- */
+
+  const ghostStops = [];
+  const staleStops = [];
+  Object.keys(scheduledRoutesCache || {}).forEach(function(dateStr){
+    if(dateStr < todayStr) return;   // past routes are history, leave them alone
+    (scheduledRoutesCache[dateStr] || []).forEach(function(route){
+      (route.stops || []).forEach(function(st){
+        const cust = custIds[st.id];
+        if(!cust){
+          ghostStops.push({label: (st.name || st.id), detail: 'on the ' + dateStr + ' route, customer no longer exists', routeId: route.id, stopId: st.id});
+          return;
+        }
+        const d = cust.data || {};
+        const diffs = [];
+        if((st.name || '') !== (d.name || '')) diffs.push('name');
+        if((st.address || '') !== (d.address || '')) diffs.push('address');
+        if(hcDigits(st.phone) !== hcDigits(d.phone)) diffs.push('phone');
+        if(diffs.length) staleStops.push({label: hcName(d), detail: dateStr + ' route has an old ' + diffs.join(' and '), custId: st.id, fields: {name: d.name || '', address: d.address || '', phone: d.phone || ''}});
+      });
+    });
+  });
+  checks.push({
+    id: 'ghostStops',
+    title: 'Upcoming route stop for a deleted customer',
+    why: 'The crew drives to a house that is not a customer any more.',
+    fix: 'ghostStops',
+    fixLabel: 'Remove stops',
+    fixNote: 'Safe to fix: the customer is gone, so the stop cannot be valid.',
+    rows: ghostStops
+  });
+  checks.push({
+    id: 'staleStops',
+    title: 'Route stop showing out-of-date details',
+    why: 'Saved routes store a snapshot. The crew would see the old address or phone number.',
+    fix: 'staleStops',
+    fixLabel: 'Refresh stops',
+    fixNote: 'Safe to fix: copies the current customer record onto upcoming routes only.',
+    rows: staleStops
+  });
+
+  /* ---------- quotes and contact ---------- */
+
+  const custKeys = {};
+  jobAddresses.forEach(function(c){
+    const k = custInvoiceKey(c.data || {});
+    if(k) custKeys[k] = true;
+  });
+  checks.push({
+    id: 'lostQuotes',
+    title: 'Approved quote that never became a customer',
+    why: 'They said yes and agreed a price, then fell through the crack. Work you were owed and never did.',
+    fix: null,
+    fixNote: 'No button: converting is a real decision, and some of these will have been cancelled by phone.',
+    rows: quotesCache.filter(function(q){
+      const d = q.data || {};
+      if(d.status !== 'approved') return false;
+      return !custKeys[custInvoiceKey(d)];
+    }).map(function(q){
+      const d = q.data || {};
+      return {label: hcName(d), detail: (hcAddr(d) || 'no address') + ' — approved, no customer record'};
+    })
+  });
+
+  checks.push({
+    id: 'noContact',
+    title: 'Customer with no phone and no email',
+    why: 'They cannot be invoiced or emailed, and they cannot be grouped onto an invoice at all.',
+    fix: null,
+    fixNote: 'No button: the missing detail has to come from you.',
+    rows: jobAddresses.filter(function(c){
+      const d = c.data || {};
+      return !hcDigits(d.phone) && !String(d.email || '').trim();
+    }).map(function(c){ return {label: hcName(c.data), detail: hcAddr(c.data) || 'no address either'}; })
+  });
+
+  const allPhones = {};
+  jobAddresses.forEach(function(c){ const p = hcDigits((c.data || {}).phone); if(p) allPhones[p] = true; });
+  checks.push({
+    id: 'badBillTo',
+    title: 'Billed to someone who is not a customer',
+    why: 'Their charges are attached to a payer who does not exist, so the invoice may never be seen.',
+    fix: null,
+    fixNote: 'No button: only you know who was meant to be paying.',
+    rows: jobAddresses.filter(function(c){
+      const b = hcDigits((c.data || {}).billToPhone);
+      return b && !allPhones[b];
+    }).map(function(c){ return {label: hcName(c.data), detail: 'billed to ' + hcDigits((c.data||{}).billToPhone) + ', which matches no customer'}; })
+  });
+
+  return checks;
+}
+
+let hcLastChecks = [];
+
+function hcRender(){
+  const wrap = document.getElementById('hcResults');
+  if(!wrap) return;
+  const hideClean = document.getElementById('hcHideClean').checked;
+  const problems = hcLastChecks.filter(function(c){ return c.rows.length; });
+  const totalRows = problems.reduce(function(s,c){ return s + c.rows.length; }, 0);
+
+  const badge = document.getElementById('badgeHealth');
+  if(badge){
+    badge.textContent = totalRows;
+    badge.style.display = totalRows ? 'inline-block' : 'none';
+  }
+
+  let html = '';
+  if(!totalRows){
+    html += '<div style="padding:18px; border-radius:12px; background:#ECFDF5; border:1px solid #A7F3D0; font-weight:600;">Everything lines up. No problems found.</div>';
+  } else {
+    html += '<div style="padding:14px 16px; border-radius:12px; background:#FEF2F2; border:1px solid #FECACA; margin-bottom:14px;"><strong>' + totalRows + ' thing' + (totalRows===1?'':'s') + ' to look at</strong> across ' + problems.length + ' check' + (problems.length===1?'':'s') + '.</div>';
+  }
+
+  hcLastChecks.forEach(function(c){
+    const clean = !c.rows.length;
+    if(clean && hideClean) return;
+    html += '<details class="quote-section" style="margin-bottom:8px;"' + (clean ? '' : ' open') + '>';
+    html += '<summary style="cursor:pointer; padding:10px 12px; font-weight:600;">'
+          + '<span style="display:inline-block; width:9px; height:9px; border-radius:50%; background:' + (clean ? '#10B981' : '#DC2626') + '; margin-right:8px;"></span>'
+          + c.title + ' <span class="muted" style="font-weight:400;">— ' + (clean ? 'all clear' : c.rows.length + ' found') + '</span></summary>';
+    html += '<div style="padding:4px 14px 14px;">';
+    html += '<p class="muted" style="margin:4px 0 10px; font-size:13px;">' + c.why + '</p>';
+    if(!clean){
+      html += '<ul style="margin:0 0 10px; padding-left:18px;">';
+      c.rows.slice(0, 100).forEach(function(r){
+        html += '<li style="margin-bottom:4px;"><strong>' + esc(r.label) + '</strong> <span class="muted">— ' + esc(r.detail) + '</span></li>';
+      });
+      html += '</ul>';
+      if(c.rows.length > 100) html += '<p class="muted" style="font-size:12px;">Showing the first 100 of ' + c.rows.length + '.</p>';
+      if(c.fix){
+        html += '<button class="btn" data-hcfix="' + c.id + '">' + c.fixLabel + ' (' + c.rows.length + ')</button> ';
+      }
+    }
+    html += '<p class="muted" style="font-size:12px; margin:8px 0 0;">' + c.fixNote + '</p>';
+    html += '</div></details>';
+  });
+  wrap.innerHTML = html;
+
+  wrap.querySelectorAll('[data-hcfix]').forEach(function(btn){
+    btn.addEventListener('click', function(){ hcApplyFix(btn.dataset.hcfix, btn); });
+  });
+}
+
+async function hcApplyFix(id, btn){
+  const check = hcLastChecks.find(function(c){ return c.id === id; });
+  if(!check || !check.rows.length) return;
+  if(!confirm(check.fixLabel + ' for ' + check.rows.length + ' item(s)?\n\n' + check.fixNote)) return;
+  btn.disabled = true;
+  const original = btn.textContent;
+  let done = 0, failed = 0;
+
+  for(let i = 0; i < check.rows.length; i++){
+    const r = check.rows[i];
+    btn.textContent = 'Working… ' + (i+1) + '/' + check.rows.length;
+    try {
+      if(id === 'poolConflict'){
+        await deleteDoc(doc(db,'availableCustomerNumbers', r.numId));
+      } else if(id === 'missingInvoice' || id === 'totalDrift'){
+        await syncPayerInvoice(r.payer);
+      } else if(id === 'staleStatus'){
+        const inv = allInvoicesCache.find(function(x){ return x.id === r.invId; });
+        if(inv){
+          const d = inv.data || {};
+          await updateDoc(doc(db,'invoices', r.invId), {status: computeInvoiceStatus(d.install, d.removal, d.deposit)});
+        }
+      } else if(id === 'ghostStops'){
+        const route = (function(){
+          const dates = Object.keys(scheduledRoutesCache || {});
+          for(let k = 0; k < dates.length; k++){
+            const found = (scheduledRoutesCache[dates[k]] || []).find(function(x){ return x.id === r.routeId; });
+            if(found) return found;
+          }
+          return null;
+        })();
+        if(route){
+          await updateDoc(doc(db,'scheduledRoutes', route.id), {stops: (route.stops || []).filter(function(st){ return st.id !== r.stopId; })});
+        }
+      } else if(id === 'staleStops'){
+        await resyncSavedRouteStops(r.custId, r.fields);
+      }
+      done++;
+    } catch(err){
+      failed++;
+      console.error('Health check fix failed (' + id + ')', err);
+    }
+  }
+
+  btn.textContent = original;
+  btn.disabled = false;
+  toast(done + ' fixed' + (failed ? ', ' + failed + ' failed — see the error badge' : ''));
+  /* The listeners have already refreshed the caches, so re-run to show the result. */
+  setTimeout(runHealthCheck, 600);
+}
+
+function runHealthCheck(){
+  const status = document.getElementById('hcStatus');
+  try {
+    hcLastChecks = hcRunChecks();
+    hcRender();
+    if(status) status.textContent = 'Checked ' + jobAddresses.length + ' customers, ' + allInvoicesCache.length + ' invoices, ' + quotesCache.length + ' quotes at ' + new Date().toLocaleTimeString() + '.';
+  } catch(err){
+    console.error('Health check failed', err);
+    if(status) status.textContent = 'Health check hit an error — see the red badge in the corner.';
+  }
+}
+
+(function(){
+  const btn = document.getElementById('runHealthCheckBtn');
+  if(btn) btn.addEventListener('click', runHealthCheck);
+  const hide = document.getElementById('hcHideClean');
+  if(hide) hide.addEventListener('change', hcRender);
+})();
 
 function attachDeleteHandlers(container){
   container.querySelectorAll('[data-del]').forEach(function(btn){
