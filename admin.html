@@ -5798,7 +5798,10 @@ function renderMessagesList(){
         '<div class="rmeta">'+esc(d.phone)+(d.email ? ' &middot; '+esc(d.email) : '')+(d.contactMethod ? ' &middot; Prefers '+esc(d.contactMethod) : '')+' &middot; '+fmtDate(d.createdAt)+'</div>'+
         '<div class="rtext">'+esc(d.message)+'</div>'+
         (d.colors && d.colors.length ? '<div class="rtext" style="margin-top:4px;"><strong>Colors requested:</strong> '+d.colors.map(esc).join(', ')+'</div>' : '')+
-        (feetEstimate ? '<div class="rtext" style="margin-top:4px; font-weight:600; color:var(--dusk);">'+esc(feetEstimate)+' &mdash; add to Warehouse yourself once reviewed</div>' : '')+
+        (feetEstimate ? '<div class="rtext" style="margin-top:4px; font-weight:600; color:var(--dusk);">'+esc(feetEstimate)+'</div>' : '')+
+        (d.topic === 'Light Color Change' ? (d.addedToWarehouseAt
+          ? '<div class="rtext" style="margin-top:6px; font-weight:600; color:var(--moss);">&#10003; Sent to the Warehouse'+(d.addedToWarehouseAt.toDate ? ' on '+d.addedToWarehouseAt.toDate().toLocaleDateString() : '')+'</div>'
+          : '<button type="button" class="btn btn-outline btn-sm" data-sendtowh="'+item.id+'" style="margin-top:6px;">Send to Warehouse</button>') : '')+
       '</div>'+
       '<div class="row-actions" style="align-items:center;">'+
         '<button class="star-btn'+(d.important ? ' on' : '')+'" data-star="'+item.id+'" title="Mark important">'+starIcon()+'</button>'+
@@ -5837,6 +5840,34 @@ function renderMessagesList(){
       e.preventDefault();
       e.stopPropagation();
       openContextMenu(e.clientX, e.clientY, row.dataset.msgid);
+    });
+  });
+  /* Takes the colour change straight from the message into the Warehouse form,
+     with the customer already matched, and stamps the message so nobody adds
+     the same change a second time. */
+  list.querySelectorAll('[data-sendtowh]').forEach(function(btn){
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      const msg = allMessages.find(function(m){ return m.id === btn.dataset.sendtowh; });
+      if(!msg) return;
+      const d = msg.data;
+      const phoneDigits = (d.phone||'').replace(/\D/g,'');
+      const cust = jobAddresses.find(function(a){ return (a.data.phone||'').replace(/\D/g,'') === phoneDigits; });
+      whPendingMessageId = msg.id;
+      document.querySelector('.nav-item[data-panel="warehouse"]').click();
+      const patternEl = document.getElementById('whExtraPattern');
+      patternEl.value = cust ? (cust.data.lightsDescription || '') : '';
+      document.getElementById('whExtraQty').value = 1;
+      const labelEl = document.getElementById('whExtraLabel');
+      if(cust){
+        const num = cust.data.customerNumber ? '#' + cust.data.customerNumber + ' \u2014 ' : '';
+        const where = cust.data.street || (cust.data.address||'').split(',')[0] || '';
+        labelEl.value = num + (cust.data.name || '') + (where ? ' \u2014 ' + where : '');
+      } else {
+        labelEl.value = d.name || '';
+      }
+      labelEl.dispatchEvent(new Event('input'));
+      document.getElementById('whAddExtraStatus').textContent = 'Filled in from the Inbox \u2014 check it over, then Add to Queue.';
     });
   });
   attachDeleteHandlers(list);
@@ -6126,10 +6157,16 @@ function renderInvoicesList(){
         let syncedNote = '';
         const matched = jobAddresses.find(a => custInvoiceKey(a.data) === id);
         if(matched){
-          await updateDoc(doc(db,'jobAddresses', matched.id), {
+          const custUpdates = {
             name: newName, phone: newPhone, phone2: newPhone2, email2: newEmail2, lightsDescription: newLights
-          });
-          syncedNote = ' — customer record synced';
+          };
+          // A changed pattern has to be built, so push it to the warehouse queue.
+          if(newLights && newLights !== (matched.data.lightsDescription || '')) custUpdates.needsLightBuild = true;
+          if(!newLights) custUpdates.needsLightBuild = false;
+          await updateDoc(doc(db,'jobAddresses', matched.id), custUpdates);
+          syncedNote = newLights && newLights !== (matched.data.lightsDescription || '')
+            ? ' — customer synced and sent to the Warehouse to build'
+            : ' — customer record synced';
         }
         toast('Invoice updated' + syncedNote);
         panel.style.display = 'none';
@@ -9199,7 +9236,10 @@ function attachAddressRowHandlers(container){
           currentPhotoUrl = await getHighlightedPhotoUrl(currentPhotoUrl, currentHighlights);
         }
         const updates = {
-          phone2: newPhone2, email2: newEmail2, lightsDescription: newLights, houseAreas: newAreas,
+          phone2: newPhone2, email2: newEmail2, lightsDescription: newLights,
+          needsLightBuild: newLights ? (newLights !== (existingLights || '') ? true : undefined) : false, houseAreas: newAreas,
+          // A colour change means a new pattern to build, so send it to the warehouse.
+          needsLightBuild: newLights ? (newLights !== (item.data.lightsDescription || '') ? true : !!item.data.needsLightBuild) : false,
           housePhotoUrl: currentPhotoUrl, houseHighlights: currentHighlights
         };
         if(diffSelect) updates.difficulty = diffSelect.value;
@@ -9549,26 +9589,35 @@ function loadJobAddresses(){
   onSnapshot(collection(db,'jobAddresses'), function(snap){
     jobAddresses = [];
     snap.forEach(function(docSnap){ jobAddresses.push({ id: docSnap.id, data: docSnap.data() }); });
-    populateCityDropdowns();
-    renderRouteAddressList();
-    renderTakedownsList();
-    renderOverviewMap();
-    updateFixAvailableCount();
-    if(typeof updateMemberExportCount === 'function') updateMemberExportCount();
-    if(currentRouteStops.length && typeof renderRouteOrderedList === 'function') renderRouteOrderedList(currentRouteStops);
-    if(typeof renderWarehouseQueue === 'function') renderWarehouseQueue();
-    if(typeof renderWarehouseRecycleQueue === 'function') renderWarehouseRecycleQueue();
-    if(typeof renderCustomerNumbersPanel === 'function') renderCustomerNumbersPanel();
-    if(typeof renderDashRsvpPanel === 'function') renderDashRsvpPanel();
-    if(typeof etPopulateMemberSelect === 'function') etPopulateMemberSelect();
-    if(typeof etRenderRecipientList === 'function') etRenderRecipientList();
-    if(typeof etUpdatePreview === 'function') etUpdatePreview();
-    if(typeof invRenderRecipientList === 'function') invRenderRecipientList();
-    if(typeof invUpdatePreview === 'function') invUpdatePreview();
-    if(typeof rsvpPopulateMemberSelect === 'function') rsvpPopulateMemberSelect();
-    if(typeof rsvpRenderRecipientList === 'function') rsvpRenderRecipientList();
-    if(typeof rsvpUpdatePreview === 'function') rsvpUpdatePreview();
-    if(typeof whRefreshCustomerList === 'function') whRefreshCustomerList();
+    /* Every panel redraws off this one listener. Without isolation a single
+       failing render — a map that didn't load, one bad record — silently kills
+       every render after it, which is why panels sat on "Loading…". */
+    function safeRender(label, fn){
+      try{ if(typeof fn === 'function') fn(); }
+      catch(err){ console.error('Render failed: ' + label, err); }
+    }
+    safeRender('cityDropdowns', populateCityDropdowns);
+    safeRender('routeAddressList', renderRouteAddressList);
+    safeRender('takedowns', renderTakedownsList);
+    safeRender('overviewMap', renderOverviewMap);
+    safeRender('fixCount', updateFixAvailableCount);
+    safeRender('memberExportCount', typeof updateMemberExportCount === 'function' ? updateMemberExportCount : null);
+    safeRender('routeOrderedList', function(){
+      if(currentRouteStops.length && typeof renderRouteOrderedList === 'function') renderRouteOrderedList(currentRouteStops);
+    });
+    safeRender('warehouseQueue', typeof renderWarehouseQueue === 'function' ? renderWarehouseQueue : null);
+    safeRender('warehouseRecycleQueue', typeof renderWarehouseRecycleQueue === 'function' ? renderWarehouseRecycleQueue : null);
+    safeRender('customerNumbers', typeof renderCustomerNumbersPanel === 'function' ? renderCustomerNumbersPanel : null);
+    safeRender('dashRsvp', typeof renderDashRsvpPanel === 'function' ? renderDashRsvpPanel : null);
+    safeRender('etMemberSelect', typeof etPopulateMemberSelect === 'function' ? etPopulateMemberSelect : null);
+    safeRender('etRecipients', typeof etRenderRecipientList === 'function' ? etRenderRecipientList : null);
+    safeRender('etPreview', typeof etUpdatePreview === 'function' ? etUpdatePreview : null);
+    safeRender('invRecipients', typeof invRenderRecipientList === 'function' ? invRenderRecipientList : null);
+    safeRender('invPreview', typeof invUpdatePreview === 'function' ? invUpdatePreview : null);
+    safeRender('rsvpMemberSelect', typeof rsvpPopulateMemberSelect === 'function' ? rsvpPopulateMemberSelect : null);
+    safeRender('rsvpRecipients', typeof rsvpRenderRecipientList === 'function' ? rsvpRenderRecipientList : null);
+    safeRender('rsvpPreview', typeof rsvpUpdatePreview === 'function' ? rsvpUpdatePreview : null);
+    safeRender('whCustomerList', typeof whRefreshCustomerList === 'function' ? whRefreshCustomerList : null);
   });
 }
 let warehouseExtras = [];
@@ -10289,6 +10338,9 @@ function renderWarehouseQueue(){
 /* The warehouse "which house" box is a pick-list of real customers rather than
    free text, so the queue entry can be tied to an actual record — while still
    allowing anything typed for one-off buffer stock. */
+/* Set when the Warehouse form was filled in from an Inbox message, so that
+   message can be marked handled once the entry is actually saved. */
+let whPendingMessageId = null;
 function whRefreshCustomerList(){
   const dl = document.getElementById('whExtraCustomerList');
   if(!dl) return;
@@ -10336,9 +10388,21 @@ document.getElementById('whAddExtraBtn').addEventListener('click', async functio
   const qty = Number(document.getElementById('whExtraQty').value) || 0;
   const label = document.getElementById('whExtraLabel').value.trim();
   if(!pattern || qty <= 0){ statusEl.textContent = 'Enter a pattern and quantity.'; return; }
+  const linked = whFindCustomerByLabel(label);
+  /* Unlike houses, these are separate documents — clicking twice really does
+     make Dad two sets. Check before adding a second one for the same house. */
+  if(linked){
+    const already = warehouseExtras.filter(function(e){ return e.data.customerId === linked.id; });
+    if(already.length){
+      const existing = already.reduce(function(sum,e){ return sum + (Number(e.data.quantity)||0); }, 0);
+      if(!confirm((linked.data.name || 'That customer') + ' is already in the build queue for ' + existing + ' set' + (existing===1?'':'s') + '.\n\nAdding this makes ' + (existing + qty) + ' in total. Only do that if they really need more than one.\n\nAdd anyway?')) {
+        statusEl.textContent = 'Nothing added.';
+        return;
+      }
+    }
+  }
   statusEl.textContent = 'Adding…';
   try{
-    const linked = whFindCustomerByLabel(label);
     await addDoc(collection(db,'warehouseExtras'), Object.assign(
       {pattern: pattern, quantity: qty, label: label, createdAt: serverTimestamp()},
       linked ? {customerId: linked.id, customerNumber: linked.data.customerNumber || ''} : {}
@@ -10347,6 +10411,10 @@ document.getElementById('whAddExtraBtn').addEventListener('click', async functio
     document.getElementById('whExtraQty').value = 1;
     document.getElementById('whExtraLabel').value = '';
     document.getElementById('whExtraLabelMatch').textContent = '';
+    if(whPendingMessageId){
+      await updateDoc(doc(db,'messages', whPendingMessageId), {addedToWarehouseAt: serverTimestamp()}).catch(function(){});
+      whPendingMessageId = null;
+    }
     statusEl.textContent = 'Added!';
     setTimeout(function(){ statusEl.textContent = ''; }, 1500);
   } catch(err){
