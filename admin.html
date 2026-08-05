@@ -1005,27 +1005,6 @@
         </div>
       </div>
 
-      <div class="editcust-popup-overlay" id="quoteMarkupOverlay" style="display:none;">
-        <div class="editcust-popup" style="max-width:820px;">
-          <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:19px;">Mark Up Photo</h3>
-          <p style="font-size:12.5px; color:var(--slate); margin:0 0 10px;">Red highlighter drags a box over a section. Yellow pen draws freehand so you can circle things or write a note.</p>
-          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
-            <button type="button" class="btn btn-outline btn-sm qm-tool" data-qmtool="red">Red Highlighter</button>
-            <button type="button" class="btn btn-outline btn-sm qm-tool" data-qmtool="yellow">Yellow Pen</button>
-            <button type="button" class="btn btn-outline btn-sm" id="qmUndoBtn">Undo</button>
-            <button type="button" class="btn btn-outline btn-sm" id="qmClearBtn">Clear All</button>
-          </div>
-          <div id="qmCanvasWrap" style="position:relative; max-width:760px; border:1px solid var(--line); border-radius:10px; overflow:hidden; user-select:none; touch-action:none;">
-            <img id="qmImg" style="width:100%; display:block; pointer-events:none;">
-            <svg id="qmLayer" viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute; inset:0; width:100%; height:100%; cursor:crosshair;"></svg>
-          </div>
-          <div style="display:flex; gap:10px; align-items:center; margin-top:14px; flex-wrap:wrap;">
-            <button type="button" class="btn btn-gold" id="qmSaveBtn">Save Markup</button>
-            <button type="button" class="btn btn-outline" id="qmCancelBtn">Cancel</button>
-            <span id="qmStatus" style="font-size:13px; color:var(--slate);"></span>
-          </div>
-        </div>
-      </div>
       <div class="editcust-popup-overlay" id="editCustOverlay">
         <div class="editcust-popup">
           <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:19px;">Edit Customer Info</h3>
@@ -2894,6 +2873,29 @@ Highlighting Utah</textarea>
   </div>
 </div>
 
+      <div class="editcust-popup-overlay" id="quoteMarkupOverlay" style="display:none;">
+        <div class="editcust-popup" style="max-width:820px;">
+          <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:19px;">Mark Up Photo</h3>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
+            <button type="button" class="btn btn-outline btn-sm qm-tool" data-qmtool="red">Red Highlighter</button>
+            <button type="button" class="btn btn-outline btn-sm qm-tool" data-qmtool="yellow">Yellow Pen</button>
+            <button type="button" class="btn btn-gold btn-sm" id="qmFinishBtn" style="display:none;">Finish Shape</button>
+            <button type="button" class="btn btn-outline btn-sm" id="qmUndoBtn">Undo</button>
+            <button type="button" class="btn btn-outline btn-sm" id="qmClearBtn">Clear All</button>
+          </div>
+          <p id="qmHint" style="font-size:12.5px; color:var(--slate); margin:0 0 10px;"></p>
+          <div id="qmCanvasWrap" style="position:relative; max-width:760px; border:1px solid var(--line); border-radius:10px; overflow:hidden; user-select:none; touch-action:none;">
+            <img id="qmImg" style="width:100%; display:block; pointer-events:none;">
+            <svg id="qmLayer" viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute; inset:0; width:100%; height:100%; cursor:crosshair;"></svg>
+          </div>
+          <div style="display:flex; gap:10px; align-items:center; margin-top:14px; flex-wrap:wrap;">
+            <button type="button" class="btn btn-gold" id="qmSaveBtn">Save Markup</button>
+            <button type="button" class="btn btn-outline" id="qmCancelBtn">Cancel</button>
+            <span id="qmStatus" style="font-size:13px; color:var(--slate);"></span>
+          </div>
+        </div>
+      </div>
+
 <div class="toast" id="toast"></div>
 
 <script type="module">
@@ -4573,6 +4575,7 @@ function renderQuoteRows(filtered){
       if(d.estimatedFeet && perFootRate){
         document.getElementById('addCustPrice').value = Math.round(d.estimatedFeet * perFootRate);
       }
+      addCustFromQuoteId = btn.dataset.converttocust;
       // Carry the quote's photo across too — including any markup, since that
       // replaces the photo. Without this the route card has nothing to show.
       if(d.frontPhotoUrl){
@@ -5724,6 +5727,19 @@ const FEET_ESTIMATE_SAFETY = 1.05;
 function estimateFeetFromPrice(price, rate){
   return Math.round((price / rate) * FEET_ESTIMATE_SAFETY);
 }
+/* How many 40 ft bundles a house needs. Uses measured feet when we have them and
+   falls back to the price-based estimate, so the warehouse gets a real number
+   instead of just a headcount of houses. */
+function houseBundleNeed(d){
+  let feet = Number(d.measuredFeet) || 0;
+  let estimated = false;
+  if(!feet){
+    const price = Number(d.housePrice) || 0;
+    if(price && perFootRate){ feet = estimateFeetFromPrice(price, perFootRate); estimated = true; }
+  }
+  if(!feet) return {feet: 0, bundles: 1, estimated: false, unknown: true};
+  return {feet: feet, bundles: Math.ceil(feet / FEET_PER_BUNDLE), estimated: estimated, unknown: false};
+}
 function messageFeetEstimate(d){
   if(d.topic !== 'Light Color Change') return '';
   const phoneDigits = (d.phone||'').replace(/\D/g,'');
@@ -6148,71 +6164,121 @@ document.getElementById('invoiceSearchInput').addEventListener('input', function
 let qmQuoteId = null;
 let qmTool = 'red';
 let qmShapes = [];
-let qmDrawing = null;
+let qmDrawing = null;      // freehand pen stroke in progress
+let qmPoly = null;         // polygon points placed so far
+let qmHover = null;        // cursor position, for the rubber-band line
 
+function qmPolyPoints(pts){
+  return pts.map(function(p){ return (p.x*100)+','+(p.y*100); }).join(' ');
+}
 function qmRender(){
   const layer = document.getElementById('qmLayer');
   if(!layer) return;
-  layer.innerHTML = qmShapes.concat(qmDrawing ? [qmDrawing] : []).map(function(sh){
-    if(sh.type === 'box'){
-      const x = Math.min(sh.x1, sh.x2)*100, y = Math.min(sh.y1, sh.y2)*100;
-      const w = Math.abs(sh.x2-sh.x1)*100, h = Math.abs(sh.y2-sh.y1)*100;
-      return '<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" fill="rgba(224,87,75,.32)" stroke="#E0574B" stroke-width="2" vector-effect="non-scaling-stroke"/>';
+  let out = qmShapes.map(function(sh){
+    if(sh.type === 'poly'){
+      return '<polygon points="'+qmPolyPoints(sh.points)+'" fill="rgba(224,87,75,.32)" stroke="#E0574B" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>';
     }
-    const pts = sh.points.map(function(p){ return (p.x*100)+','+(p.y*100); }).join(' ');
-    return '<polyline points="'+pts+'" fill="none" stroke="#F4BE55" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>';
+    return '<polyline points="'+qmPolyPoints(sh.points)+'" fill="none" stroke="#F4BE55" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>';
   }).join('');
+
+  if(qmDrawing){
+    out += '<polyline points="'+qmPolyPoints(qmDrawing.points)+'" fill="none" stroke="#F4BE55" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>';
+  }
+  if(qmPoly && qmPoly.length){
+    // Show the shape as it's being built, plus a line trailing the cursor and a
+    // grab handle on the first point so it's obvious where to close it.
+    const live = qmHover ? qmPoly.concat([qmHover]) : qmPoly;
+    if(live.length > 2){
+      out += '<polygon points="'+qmPolyPoints(live)+'" fill="rgba(224,87,75,.18)" stroke="#E0574B" stroke-width="2" stroke-dasharray="4 3" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>';
+    } else if(live.length === 2){
+      out += '<polyline points="'+qmPolyPoints(live)+'" fill="none" stroke="#E0574B" stroke-width="2" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"/>';
+    }
+    out += qmPoly.map(function(p, i){
+      const first = i === 0 && qmPoly.length > 2;
+      return '<circle cx="'+(p.x*100)+'" cy="'+(p.y*100)+'" r="'+(first?2.2:1.4)+'" fill="'+(first?'#fff':'#E0574B')+'" stroke="#E0574B" stroke-width="2" vector-effect="non-scaling-stroke"/>';
+    }).join('');
+  }
+  layer.innerHTML = out;
+  qmUpdateHint();
+}
+function qmUpdateHint(){
+  const hint = document.getElementById('qmHint');
+  const finish = document.getElementById('qmFinishBtn');
+  if(!hint || !finish) return;
+  if(qmTool === 'red'){
+    finish.style.display = (qmPoly && qmPoly.length > 2) ? 'inline-block' : 'none';
+    hint.textContent = !qmPoly || !qmPoly.length
+      ? 'Tap each corner of the section. Tap the first point again, or Finish Shape, to close it.'
+      : (qmPoly.length < 3 ? qmPoly.length + ' point placed \u2014 keep going.' : qmPoly.length + ' points \u2014 tap the white dot or Finish Shape to close it.');
+  } else {
+    finish.style.display = 'none';
+    hint.textContent = 'Drag to draw freehand \u2014 circle something or write a note.';
+  }
 }
 function qmPoint(e){
   const wrap = document.getElementById('qmCanvasWrap');
   const r = wrap.getBoundingClientRect();
-  const cx = (e.touches ? e.touches[0].clientX : e.clientX);
-  const cy = (e.touches ? e.touches[0].clientY : e.clientY);
+  const t = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]);
+  const cx = t ? t.clientX : e.clientX;
+  const cy = t ? t.clientY : e.clientY;
   return { x: Math.min(1, Math.max(0, (cx-r.left)/r.width)), y: Math.min(1, Math.max(0, (cy-r.top)/r.height)) };
 }
-function qmStart(e){
-  e.preventDefault();
+function qmNear(a, b){
+  return Math.abs(a.x-b.x) < .025 && Math.abs(a.y-b.y) < .025;
+}
+function qmFinishPoly(){
+  if(qmPoly && qmPoly.length > 2) qmShapes.push({type:'poly', points: qmPoly.slice()});
+  qmPoly = null; qmHover = null;
+  qmRender();
+}
+function qmAddPolyPoint(e){
   const p = qmPoint(e);
-  qmDrawing = qmTool === 'red'
-    ? {type:'box', x1:p.x, y1:p.y, x2:p.x, y2:p.y}
-    : {type:'pen', points:[p]};
+  if(!qmPoly) qmPoly = [];
+  if(qmPoly.length > 2 && qmNear(p, qmPoly[0])){ qmFinishPoly(); return; }
+  qmPoly.push(p);
+  qmRender();
+}
+function qmStart(e){
+  if(qmTool !== 'yellow') return;
+  e.preventDefault();
+  qmDrawing = {type:'pen', points:[qmPoint(e)]};
   qmRender();
 }
 function qmMove(e){
+  if(qmTool === 'red'){
+    if(qmPoly && qmPoly.length){ qmHover = qmPoint(e); qmRender(); }
+    return;
+  }
   if(!qmDrawing) return;
   e.preventDefault();
-  const p = qmPoint(e);
-  if(qmDrawing.type === 'box'){ qmDrawing.x2 = p.x; qmDrawing.y2 = p.y; }
-  else { qmDrawing.points.push(p); }
+  qmDrawing.points.push(qmPoint(e));
   qmRender();
 }
 function qmEnd(){
   if(!qmDrawing) return;
-  // Ignore accidental taps that didn't actually draw anything
-  const isTinyBox = qmDrawing.type === 'box' && Math.abs(qmDrawing.x2-qmDrawing.x1) < .01 && Math.abs(qmDrawing.y2-qmDrawing.y1) < .01;
-  const isTinyPen = qmDrawing.type === 'pen' && qmDrawing.points.length < 2;
-  if(!isTinyBox && !isTinyPen) qmShapes.push(qmDrawing);
+  if(qmDrawing.points.length > 1) qmShapes.push(qmDrawing);
   qmDrawing = null;
   qmRender();
 }
 function qmSetTool(tool){
+  if(qmTool === 'red' && tool !== 'red') qmFinishPoly();
   qmTool = tool;
+  qmPoly = null; qmHover = null;
   document.querySelectorAll('.qm-tool').forEach(function(b){
     const on = b.dataset.qmtool === tool;
     b.style.background = on ? 'var(--ink)' : '';
     b.style.color = on ? '#fff' : '';
   });
+  qmRender();
 }
 function openQuoteMarkup(quoteId){
   const item = quotesCache.find(function(q){ return q.id === quoteId; });
   if(!item || !item.data.frontPhotoUrl) return;
   qmQuoteId = quoteId;
-  qmShapes = [];
-  qmDrawing = null;
+  qmShapes = []; qmDrawing = null; qmPoly = null; qmHover = null;
   document.getElementById('qmImg').src = item.data.frontPhotoUrl;
   document.getElementById('qmStatus').textContent = '';
   qmSetTool('red');
-  qmRender();
   document.getElementById('quoteMarkupOverlay').style.display = 'flex';
 }
 function qmFlattenToBlob(imageUrl){
@@ -6227,26 +6293,24 @@ function qmFlattenToBlob(imageUrl){
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0);
         qmShapes.forEach(function(sh){
-          if(sh.type === 'box'){
-            const x = Math.min(sh.x1, sh.x2)*canvas.width, y = Math.min(sh.y1, sh.y2)*canvas.height;
-            const w = Math.abs(sh.x2-sh.x1)*canvas.width, h = Math.abs(sh.y2-sh.y1)*canvas.height;
+          ctx.beginPath();
+          sh.points.forEach(function(p, i){
+            const px = p.x*canvas.width, py = p.y*canvas.height;
+            if(i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+          });
+          ctx.lineJoin = 'round';
+          ctx.lineCap = 'round';
+          if(sh.type === 'poly'){
+            ctx.closePath();
             ctx.fillStyle = 'rgba(224,87,75,.32)';
-            ctx.fillRect(x, y, w, h);
+            ctx.fill();
             ctx.strokeStyle = '#E0574B';
             ctx.lineWidth = Math.max(2, canvas.width*.003);
-            ctx.strokeRect(x, y, w, h);
           } else {
             ctx.strokeStyle = '#F4BE55';
             ctx.lineWidth = Math.max(3, canvas.width*.005);
-            ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
-            ctx.beginPath();
-            sh.points.forEach(function(p, i){
-              const px = p.x*canvas.width, py = p.y*canvas.height;
-              if(i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-            });
-            ctx.stroke();
           }
+          ctx.stroke();
         });
         canvas.toBlob(function(blob){ resolve(blob); }, 'image/png');
       } catch(err){ resolve(null); }
@@ -6264,16 +6328,28 @@ function qmFlattenToBlob(imageUrl){
   wrap.addEventListener('touchstart', qmStart, {passive:false});
   wrap.addEventListener('touchmove', qmMove, {passive:false});
   wrap.addEventListener('touchend', qmEnd);
+  // Click covers both mouse and tap, and only the polygon tool uses it.
+  wrap.addEventListener('click', function(e){ if(qmTool === 'red') qmAddPolyPoint(e); });
+  wrap.addEventListener('dblclick', function(e){ if(qmTool === 'red') qmFinishPoly(); });
   document.querySelectorAll('.qm-tool').forEach(function(b){
     b.addEventListener('click', function(){ qmSetTool(b.dataset.qmtool); });
   });
-  document.getElementById('qmUndoBtn').addEventListener('click', function(){ qmShapes.pop(); qmRender(); });
-  document.getElementById('qmClearBtn').addEventListener('click', function(){ qmShapes = []; qmRender(); });
+  document.getElementById('qmFinishBtn').addEventListener('click', qmFinishPoly);
+  document.getElementById('qmUndoBtn').addEventListener('click', function(){
+    // While placing points, undo takes back the last point rather than the shape.
+    if(qmPoly && qmPoly.length){ qmPoly.pop(); if(!qmPoly.length) qmPoly = null; }
+    else qmShapes.pop();
+    qmRender();
+  });
+  document.getElementById('qmClearBtn').addEventListener('click', function(){
+    qmShapes = []; qmPoly = null; qmHover = null; qmDrawing = null; qmRender();
+  });
   document.getElementById('qmCancelBtn').addEventListener('click', function(){
     document.getElementById('quoteMarkupOverlay').style.display = 'none';
   });
   document.getElementById('qmSaveBtn').addEventListener('click', async function(){
     const statusEl = document.getElementById('qmStatus');
+    qmFinishPoly();
     if(!qmShapes.length){ statusEl.textContent = 'Nothing drawn yet.'; return; }
     statusEl.textContent = 'Saving\u2026';
     try{
@@ -7755,6 +7831,9 @@ function pitchPercent(angleDeg){
   return Math.round(Math.tan(a * Math.PI / 180) * 100);
 }
 let addCustPhotoUrl = '';
+/* Set when the Add form was filled in from a quote, so saving the customer can
+   close that quote out instead of leaving it sitting in the list. */
+let addCustFromQuoteId = null;
 let addCustHighlights = [];
 const ACH_COLORS = ['#F4BE55','#E0574B','#2E6B3E','#4338CA','#F97316','#3E7A5B'];
 function renderAddCustHighlights(){
@@ -8034,6 +8113,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
       address: fullAddress, difficulty: difficulty, name: name, phone: phone, email: email,
       phone2: phone2, email2: email2, lightsDescription: lightsDescription, houseAreas: houseAreas,
       housePhotoUrl: addCustPhotoUrl, houseHighlights: addCustHighlights, portalToken: generatePortalToken(), installPreference: installPreference,
+      rsvpStatus: addCustFromQuoteId ? 'yes' : '',
       wireColor: wireColor,
       lat: coords.lat, lng: coords.lng, needsLightBuild: !!lightsDescription,
       scheduled: false, createdAt: serverTimestamp(), housePrice: price, measuredFeet: measuredFeet, gateCode: gateCode, wantsMailedInvoice: wantsMailedInvoice, numberOfBins: numberOfBins, customerNumber: customerNumber
@@ -8041,6 +8121,10 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
     // If this number was sitting in the available pool, it isn't available anymore.
     if(customerNumber){
       await deleteDoc(doc(db,'availableCustomerNumbers', customerNumber)).catch(function(){ /* fine if it was never pooled */ });
+    }
+    if(addCustFromQuoteId){
+      await updateDoc(doc(db,'quotes', addCustFromQuoteId), {status: 'closed', convertedToCustomerAt: serverTimestamp()}).catch(function(){});
+      addCustFromQuoteId = null;
     }
     if(customerNumber) toast('Added as customer #' + customerNumber + ' \u2014 ' + numberOfBins + ' bin' + (numberOfBins===1?'':'s'));
     if(addCustPhotoUrl){
@@ -8068,6 +8152,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
     document.getElementById('addCustGateCode').value = '';
     document.getElementById('addCustBins').value = '1';
     document.getElementById('addCustNumber').value = '';
+    addCustFromQuoteId = null;
     document.getElementById('addCustWantsMailed').checked = false;
     document.getElementById('addCustFeet').value = '';
     document.getElementById('addCustFeetNote').textContent = 'Enter Measured Feet to bill automatically at your Per Foot Pricing rate — you can still adjust Total Price by hand afterward. Deposit and removal fee can be added later from the Invoices tab if needed.';
@@ -10011,25 +10096,32 @@ function renderWarehouseQueue(){
   });
   if(!keys.length){ list.innerHTML = '<div class="empty-note">Nothing needs to be built right now.</div>'; return; }
   keys.sort(function(a,b){
-    const totalA = groups[a].houses.length + groups[a].extras.reduce(function(s,e){ return s+(Number(e.data.quantity)||0); },0);
-    const totalB = groups[b].houses.length + groups[b].extras.reduce(function(s,e){ return s+(Number(e.data.quantity)||0); },0);
+    const totalA = groups[a].houses.reduce(function(s,h){ return s+houseBundleNeed(h.data).bundles; },0) + groups[a].extras.reduce(function(s,e){ return s+(Number(e.data.quantity)||0); },0);
+    const totalB = groups[b].houses.reduce(function(s,h){ return s+houseBundleNeed(h.data).bundles; },0) + groups[b].extras.reduce(function(s,e){ return s+(Number(e.data.quantity)||0); },0);
     return totalB - totalA;
   });
   let html = '';
   keys.forEach(function(pattern, gi){
     const g = groups[pattern];
     const extraTotal = g.extras.reduce(function(s,e){ return s+(Number(e.data.quantity)||0); },0);
-    const total = g.houses.length + extraTotal;
+    const houseBundles = g.houses.reduce(function(sum,h){ return sum + houseBundleNeed(h.data).bundles; }, 0);
+    const anyUnknown = g.houses.some(function(h){ return houseBundleNeed(h.data).unknown; });
+    const totalBundles = houseBundles + extraTotal;
     const listId = 'whlist-' + gi;
     html += '<div class="row-item" style="display:block;">'+
       '<div style="display:flex; justify-content:space-between; align-items:center; cursor:pointer;" data-whtoggle="'+listId+'">'+
-        '<div><strong style="font-size:15px;">'+esc(pattern)+'</strong><div style="font-size:12.5px; color:var(--slate);">Need '+total+'</div></div>'+
+        '<div><strong style="font-size:15px;">'+esc(pattern)+'</strong><div style="font-size:12.5px; color:var(--slate);">Build '+totalBundles+' bundle'+(totalBundles===1?'':'s')+' &mdash; '+g.houses.length+' house'+(g.houses.length===1?'':'s')+(extraTotal?', '+extraTotal+' extra':'')+(anyUnknown?' &middot; some houses have no feet on file':'')+'</div></div>'+
         '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:20px; height:20px; color:var(--slate);"><polyline points="6 9 12 15 18 9"/></svg>'+
       '</div>'+
       '<div id="'+listId+'" style="display:none; margin-top:12px; padding-top:12px; border-top:1px solid var(--line);">'+
         g.houses.map(function(h){
-          return '<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0;">'+
-            '<span style="font-size:13.5px;">'+esc(h.data.name||'(no name)')+' &mdash; '+esc(h.data.address||'')+'</span>'+
+          const need = houseBundleNeed(h.data);
+          const needTxt = need.unknown
+            ? 'no feet on file \u2014 assuming 1 bundle'
+            : need.feet + ' ft = ' + need.bundles + ' bundle' + (need.bundles===1?'':'s') + (need.estimated ? ' (estimated from price)' : '');
+          return '<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; gap:10px;">'+
+            '<span style="font-size:13.5px;">'+esc(h.data.name||'(no name)')+' &mdash; '+esc(h.data.address||'')+
+              '<span style="display:block; font-size:12px; color:'+(need.unknown?'var(--ember)':'var(--slate)')+';">'+esc(needTxt)+'</span></span>'+
             '<button type="button" class="btn btn-outline btn-sm" data-whdonehouse="'+h.id+'">Mark Done</button>'+
           '</div>';
         }).join('')+
