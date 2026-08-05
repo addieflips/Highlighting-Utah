@@ -393,6 +393,10 @@
     background:#fff; border-radius:16px; padding:26px 28px; max-width:480px; width:100%;
     box-shadow:0 30px 60px -15px rgba(0,0,0,.4); max-height:85vh; overflow-y:auto;
   }
+  .quote-section > summary::-webkit-details-marker{ display:none; }
+  .quote-section > summary::after{ content:'\25BE'; float:right; color:var(--slate); font-size:11px; transition:transform .15s; }
+  .quote-section[open] > summary::after{ content:'\25B4'; }
+  .quote-section > summary:hover{ background:var(--snow); border-radius:9px; }
   .et-popup-overlay{
     display:none; position:fixed; inset:0; background:rgba(30,20,15,.55); z-index:1000;
     align-items:center; justify-content:center; padding:20px;
@@ -4413,56 +4417,89 @@ function renderQuotesList(){
   if(!filtered.length){ list.innerHTML = '<div class="empty-note">'+(quoteFilter==='flagged' ? 'Nothing flagged right now.' : 'No quote requests match this view.')+'</div>'; return; }
   renderQuoteRows(filtered);
 }
+function quoteDetailSelect(cls, id, value, options){
+  let h = '<select class="'+cls+'" data-id="'+id+'" style="font-size:13px; padding:7px 9px; border-radius:8px; border:1px solid var(--line); width:100%;">';
+  options.forEach(function(o){
+    h += '<option value="'+esc(o)+'"'+((value||'') === o ? ' selected' : '')+'>'+(o === '' ? '\u2014' : esc(o))+'</option>';
+  });
+  return h + '</select>';
+}
 function renderQuoteRows(filtered){
   const list = document.getElementById('quotesList');
   let html = '';
   filtered.forEach(function(item){
     const d = item.data;
     const status = d.status || 'new';
-    const colorCombo = colorComboKey(d.lightColors);
+    const formDone = !!d.formCompletedAt;
     html += '<div class="row-item">'+
       '<div class="rmain">'+
         '<div class="row-name-line">'+esc(d.name)+' <span class="status-pill status-'+status+'">'+status+'</span>'+(d.existingCustomerAddressChange ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Existing Customer &mdash; Address Changed</span>' : '')+(d.approvalStatus === 'approved' ? ' <span class="status-pill status-paid">&#10003; Approved</span>' : '')+(d.approvalStatus === 'declined' ? ' <span class="status-pill status-due">Declined</span>' : '')+(isStaleUnresponsive(d) ? ' <span class="status-pill" style="background:#FDECEA; color:#B91C1C; font-weight:700;">&#9200; 10 Day Unresponsive</span>' : '')+'</div>'+
         '<button type="button" class="address-link-btn" data-previewquoteaddr="'+esc(d.address)+'">'+esc(d.address)+'</button>'+
         '<div class="row-phone-line">'+esc(d.phone)+' &middot; '+esc(d.email)+' &middot; '+fmtDate(d.createdAt)+'</div>'+
-        (d.houseAreas && d.houseAreas.length ? '<div class="rtext" style="margin-top:6px;"><strong>Areas:</strong> '+d.houseAreas.map(esc).join(', ')+'</div>' : '')+
-        (colorCombo ? '<div class="rtext"><strong>Colors:</strong> '+esc(colorCombo)+'</div>' : '')+
-        (d.wireColor ? '<div class="rtext"><strong>Wire Color:</strong> '+esc(d.wireColor)+'</div>' : '')+
-        (d.outletTimer ? '<div class="rtext"><strong>Outlet Timer:</strong> '+esc(d.outletTimer)+'</div>' : '')+
-        (d.specificOutlet === 'Yes' ? '<div class="rtext"><strong>Specific Outlet:</strong> Yes'+(d.specificOutletNotes ? ' &mdash; '+esc(d.specificOutletNotes) : '')+'</div>' : '')+
-        // These three come off the detailed form but were never shown here.
-        (d.gateCode ? '<div class="rtext"><strong>Gate Code:</strong> '+esc(d.gateCode)+'</div>' : '')+
-        (d.installPreference ? '<div class="rtext"><strong>Install Timing:</strong> '+esc(d.installPreference)+'</div>' : '')+
-        (d.wantsMailedInvoice ? '<div class="rtext"><strong>Billing:</strong> Wants their invoice mailed as well</div>' : '')+
-        (d.formCompletedAt && d.formCompletedAt.toDate ? '<div class="rtext" style="color:var(--slate); font-size:12.5px;">Form completed '+d.formCompletedAt.toDate().toLocaleDateString()+'</div>' : '')+
-        '<div class="rtext">Prefers: '+esc(d.contactMethod)+(d.notes ? ' &mdash; '+esc(d.notes) : '')+'</div>'+
+        '<div class="rtext">Prefers: '+esc(d.contactMethod)+'</div>'+
+
+        // ---- Photo -------------------------------------------------------
         '<div style="margin-top:8px;">'+
           (d.frontPhotoUrl ? '<img src="'+esc(d.frontPhotoUrl)+'" class="quote-photo-img" data-photofor="'+item.id+'" style="max-width:240px; border-radius:8px; border:1px solid var(--line); display:block; margin-bottom:6px;">' : '')+
           '<label class="btn btn-outline btn-sm" style="cursor:pointer;">'+(d.frontPhotoUrl ? 'Replace Photo' : 'Add Photo')+'<input type="file" accept="image/*" class="quote-photo-input" data-photofor="'+item.id+'" style="display:none;"></label>'+
           (d.frontPhotoUrl ? '<button type="button" class="btn btn-outline btn-sm" data-markupphoto="'+item.id+'" style="margin-left:6px;">Mark Up Photo</button>' : '')+
           '<span class="quote-photo-status" data-statusfor="'+item.id+'" style="font-size:12px; color:var(--slate); margin-left:8px;"></span>'+
         '</div>'+
-        '<div class="form-row" style="margin-top:8px;"><label style="font-size:11.5px;">What Lights Are They Getting?</label><input type="text" class="quoteLightsInput" data-id="'+item.id+'" value="'+esc(d.lightsDescription||'')+'" placeholder="e.g. Full roofline, warm white" style="font-size:13px; padding:8px 10px;"></div>'+
-        '<div class="form-row" style="margin-top:8px; max-width:220px;"><label style="font-size:11.5px;">Estimated Feet (for pricing)</label><input type="number" class="quoteFeetInput" data-id="'+item.id+'" min="0" step="0.5" value="'+(d.estimatedFeet||'')+'" placeholder="e.g. 120" style="font-size:13px; padding:8px 10px;"></div>'+
-        (d.estimatedFeet ? '<div class="rtext" style="font-weight:600; color:var(--dusk);">Estimated Price: '+(perFootRate ? fmtMoney(d.estimatedFeet*perFootRate) : 'Set a per-foot rate under Finance > Per Foot Pricing first.')+'</div>' : '')+
-        '<div class="form-row" style="margin-top:8px; max-width:220px;"><label style="font-size:11.5px;">Quoted Price ($) &mdash; what you\'ll ask them to approve</label><input type="number" class="quotePriceInput" data-id="'+item.id+'" min="0" step="1" value="'+(d.quotedPrice != null ? d.quotedPrice : (d.estimatedFeet && perFootRate ? Math.round(d.estimatedFeet*perFootRate) : ''))+'" placeholder="e.g. 450"></div>'+
-        '<button type="button" class="btn btn-outline btn-sm" data-getquotelink="'+item.id+'">Get Approval Link</button>'+
-        '<div class="quotelink-status" data-statusfor="'+item.id+'" style="font-size:12px; color:var(--slate); margin-top:6px;"></div>'+
-        (d.quoteToken ? '<div class="quotelink-box" data-linkfor="'+item.id+'" style="margin-top:6px; font-size:12.5px; word-break:break-all; background:var(--paper); border-radius:8px; padding:8px 10px;">https://highlightingutah.com/#/payment?token='+esc(d.quoteToken)+'</div>' : '<div class="quotelink-box" data-linkfor="'+item.id+'"></div>')+
-        (d.quoteToken && typeof d.quotedPrice === 'number' ? '<button type="button" class="btn btn-outline btn-sm" data-copyquoteemail="'+item.id+'" style="margin-top:6px;">Copy Quote Email</button><div class="quoteemail-result" data-resultfor="'+item.id+'" style="margin-top:8px;"></div>' : '')+
-        (typeof d.quotedPrice === 'number' ? (function(){
-          const st = d.approvalStatus || 'pending';
-          if(st === 'approved') return '<div class="rtext" style="margin-top:8px; color:#2E6B3E; font-weight:600;">&#10003; Approved'+(d.quoteRespondedAt ? ' &mdash; '+fmtDate(d.quoteRespondedAt) : '')+'</div>';
-          if(st === 'declined') return '<div class="rtext" style="margin-top:8px; color:var(--ember); font-weight:600;">Declined'+(d.quoteRespondedAt ? ' &mdash; '+fmtDate(d.quoteRespondedAt) : '')+'</div>'+
-            '<button type="button" class="btn btn-outline btn-sm" data-markapproval="'+item.id+'" data-value="approved" style="margin-top:6px;">Actually, Mark Approved</button>';
-          const days = daysSince(d.quoteSentAt);
-          const isStale = days !== null && days >= 10;
-          return '<div class="rtext" style="margin-top:8px; color:'+(isStale?'#B91C1C; font-weight:700;':'var(--slate);')+'">'+(isStale ? "10 Day Unresponsive — give them a call or send another email" : 'Awaiting response'+(days !== null ? ' &mdash; sent '+days+(days===1?' day':' days')+' ago' : ''))+'</div>'+
-            '<div style="display:flex; gap:8px; margin-top:6px;">'+
-              '<button type="button" class="btn btn-gold btn-sm" data-markapproval="'+item.id+'" data-value="approved">Mark Approved</button>'+
-              '<button type="button" class="btn btn-outline btn-sm" data-markapproval="'+item.id+'" data-value="declined">Mark Declined</button>'+
-            '</div>';
-        })() : '')+
+
+        // ---- Detail form: open once the customer has filled it in --------
+        '<details class="quote-section"'+(formDone ? ' open' : '')+' style="margin-top:10px; border:1px solid var(--line); border-radius:10px; background:var(--paper);">'+
+          '<summary style="cursor:pointer; padding:9px 12px; font-size:13px; font-weight:600; list-style:none;">Detail Form'+
+            (formDone && d.formCompletedAt.toDate ? ' <span style="font-weight:400; color:var(--slate); font-size:12px;">&mdash; completed '+d.formCompletedAt.toDate().toLocaleDateString()+'</span>' : ' <span style="font-weight:400; color:var(--slate); font-size:12px;">&mdash; not returned yet</span>')+
+          '</summary>'+
+          '<div style="padding:0 12px 12px;">'+
+            '<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(min(190px,100%),1fr)); gap:10px;">'+
+              '<div><label style="font-size:11.5px; color:var(--slate); display:block; margin-bottom:3px;">Light Colors <span style="font-weight:400;">(comma separated)</span></label><input type="text" class="qdLightColors" data-id="'+item.id+'" value="'+esc((d.lightColors||[]).join(', '))+'" placeholder="Warm White, Red, Red" style="font-size:13px; padding:7px 9px; border-radius:8px; border:1px solid var(--line); width:100%;"></div>'+
+              '<div><label style="font-size:11.5px; color:var(--slate); display:block; margin-bottom:3px;">Areas <span style="font-weight:400;">(comma separated)</span></label><input type="text" class="qdAreas" data-id="'+item.id+'" value="'+esc((d.houseAreas||[]).join(', '))+'" placeholder="Front of House, Right Side" style="font-size:13px; padding:7px 9px; border-radius:8px; border:1px solid var(--line); width:100%;"></div>'+
+              '<div><label style="font-size:11.5px; color:var(--slate); display:block; margin-bottom:3px;">Install Timing</label>'+quoteDetailSelect('qdInstallPref', item.id, d.installPreference, ['','Normal Schedule','October','November','November - Before Thanksgiving','After Thanksgiving'])+'</div>'+
+              '<div><label style="font-size:11.5px; color:var(--slate); display:block; margin-bottom:3px;">Wire Color</label>'+quoteDetailSelect('qdWireColor', item.id, d.wireColor, ['','White','Green'])+'</div>'+
+              '<div><label style="font-size:11.5px; color:var(--slate); display:block; margin-bottom:3px;">Outlet Timer</label>'+quoteDetailSelect('qdOutletTimer', item.id, d.outletTimer, ['','Yes','No'])+'</div>'+
+              '<div><label style="font-size:11.5px; color:var(--slate); display:block; margin-bottom:3px;">Specific Outlet</label>'+quoteDetailSelect('qdSpecificOutlet', item.id, d.specificOutlet, ['','Yes','No'])+'</div>'+
+              '<div><label style="font-size:11.5px; color:var(--slate); display:block; margin-bottom:3px;">Which Outlet?</label><input type="text" class="qdSpecificOutletNotes" data-id="'+item.id+'" value="'+esc(d.specificOutletNotes||'')+'" placeholder="e.g. back patio" style="font-size:13px; padding:7px 9px; border-radius:8px; border:1px solid var(--line); width:100%;"></div>'+
+              '<div><label style="font-size:11.5px; color:var(--slate); display:block; margin-bottom:3px;">Gate Code</label><input type="text" class="qdGateCode" data-id="'+item.id+'" value="'+esc(d.gateCode||'')+'" style="font-size:13px; padding:7px 9px; border-radius:8px; border:1px solid var(--line); width:100%;"></div>'+
+            '</div>'+
+            '<div style="margin-top:10px;"><label style="font-size:11.5px; color:var(--slate); display:block; margin-bottom:3px;">Additional Notes</label><textarea class="qdNotes" data-id="'+item.id+'" rows="2" placeholder="Roof height, specific requests, etc." style="font-size:13px; padding:8px 10px; border-radius:8px; border:1px solid var(--line); width:100%; font-family:inherit;">'+esc(d.notes||'')+'</textarea></div>'+
+            '<label style="display:flex; align-items:center; gap:8px; margin-top:10px; font-size:13px; cursor:pointer;"><input type="checkbox" class="qdWantsMailed" data-id="'+item.id+'"'+(d.wantsMailedInvoice ? ' checked' : '')+'> Wants their invoice mailed as well</label>'+
+            '<div style="margin-top:10px; display:flex; align-items:center; gap:10px;">'+
+              '<button type="button" class="btn btn-gold btn-sm" data-savequotedetail="'+item.id+'" style="width:auto;">Save Details</button>'+
+              '<span class="qdetail-status" data-statusfor="'+item.id+'" style="font-size:12px; color:var(--slate);"></span>'+
+            '</div>'+
+          '</div>'+
+        '</details>'+
+
+        // ---- Pricing & approval: collapsed on every card ------------------
+        '<details class="quote-section" style="margin-top:8px; border:1px solid var(--line); border-radius:10px; background:var(--paper);">'+
+          '<summary style="cursor:pointer; padding:9px 12px; font-size:13px; font-weight:600; list-style:none;">Pricing &amp; Approval'+
+            (typeof d.quotedPrice === 'number' ? ' <span style="font-weight:400; color:var(--slate); font-size:12px;">&mdash; '+fmtMoney(d.quotedPrice)+((d.approvalStatus === 'approved') ? ', approved' : (d.approvalStatus === 'declined' ? ', declined' : ', awaiting response'))+'</span>' : ' <span style="font-weight:400; color:var(--slate); font-size:12px;">&mdash; not priced yet</span>')+
+          '</summary>'+
+          '<div style="padding:0 12px 12px;">'+
+            '<div class="form-row" style="margin-top:4px;"><label style="font-size:11.5px;">What Lights Are They Getting?</label><input type="text" class="quoteLightsInput" data-id="'+item.id+'" value="'+esc(d.lightsDescription||'')+'" placeholder="e.g. Full roofline, warm white" style="font-size:13px; padding:8px 10px;"></div>'+
+            '<div class="form-row" style="margin-top:8px; max-width:220px;"><label style="font-size:11.5px;">Estimated Feet (for pricing)</label><input type="number" class="quoteFeetInput" data-id="'+item.id+'" min="0" step="0.5" value="'+(d.estimatedFeet||'')+'" placeholder="e.g. 120" style="font-size:13px; padding:8px 10px;"></div>'+
+            (d.estimatedFeet ? '<div class="rtext" style="font-weight:600; color:var(--dusk);">Estimated Price: '+(perFootRate ? fmtMoney(d.estimatedFeet*perFootRate) : 'Set a per-foot rate under Finance > Per Foot Pricing first.')+'</div>' : '')+
+            '<div class="form-row" style="margin-top:8px; max-width:220px;"><label style="font-size:11.5px;">Quoted Price ($) &mdash; what you\'ll ask them to approve</label><input type="number" class="quotePriceInput" data-id="'+item.id+'" min="0" step="1" value="'+(d.quotedPrice != null ? d.quotedPrice : (d.estimatedFeet && perFootRate ? Math.round(d.estimatedFeet*perFootRate) : ''))+'" placeholder="e.g. 450"></div>'+
+            '<button type="button" class="btn btn-outline btn-sm" data-getquotelink="'+item.id+'">Get Approval Link</button>'+
+            '<div class="quotelink-status" data-statusfor="'+item.id+'" style="font-size:12px; color:var(--slate); margin-top:6px;"></div>'+
+            (d.quoteToken ? '<div class="quotelink-box" data-linkfor="'+item.id+'" style="margin-top:6px; font-size:12.5px; word-break:break-all; background:var(--snow); border-radius:8px; padding:8px 10px;">https://highlightingutah.com/#/payment?token='+esc(d.quoteToken)+'</div>' : '<div class="quotelink-box" data-linkfor="'+item.id+'"></div>')+
+            (d.quoteToken && typeof d.quotedPrice === 'number' ? '<button type="button" class="btn btn-outline btn-sm" data-copyquoteemail="'+item.id+'" style="margin-top:6px;">Copy Quote Email</button><div class="quoteemail-result" data-resultfor="'+item.id+'" style="margin-top:8px;"></div>' : '')+
+            (typeof d.quotedPrice === 'number' ? (function(){
+              const st = d.approvalStatus || 'pending';
+              if(st === 'approved') return '<div class="rtext" style="margin-top:8px; color:#2E6B3E; font-weight:600;">&#10003; Approved'+(d.quoteRespondedAt ? ' &mdash; '+fmtDate(d.quoteRespondedAt) : '')+'</div>';
+              if(st === 'declined') return '<div class="rtext" style="margin-top:8px; color:var(--ember); font-weight:600;">Declined'+(d.quoteRespondedAt ? ' &mdash; '+fmtDate(d.quoteRespondedAt) : '')+'</div>'+
+                '<button type="button" class="btn btn-outline btn-sm" data-markapproval="'+item.id+'" data-value="approved" style="margin-top:6px;">Actually, Mark Approved</button>';
+              const days = daysSince(d.quoteSentAt);
+              const isStale = days !== null && days >= 10;
+              return '<div class="rtext" style="margin-top:8px; color:'+(isStale?'#B91C1C; font-weight:700;':'var(--slate);')+'">'+(isStale ? "10 Day Unresponsive — give them a call or send another email" : 'Awaiting response'+(days !== null ? ' &mdash; sent '+days+(days===1?' day':' days')+' ago' : ''))+'</div>'+
+                '<div style="display:flex; gap:8px; margin-top:6px;">'+
+                  '<button type="button" class="btn btn-gold btn-sm" data-markapproval="'+item.id+'" data-value="approved">Mark Approved</button>'+
+                  '<button type="button" class="btn btn-outline btn-sm" data-markapproval="'+item.id+'" data-value="declined">Mark Declined</button>'+
+                '</div>';
+            })() : '')+
+          '</div>'+
+        '</details>'+
       '</div>'+
       '<div class="row-actions">'+
         '<button type="button" class="icon-btn" data-converttocust="'+item.id+'" title="Convert to Customer" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:var(--gold-dim);">Convert to Customer</button>'+
@@ -4633,6 +4670,33 @@ function renderQuoteRows(filtered){
       debounceTimer = setTimeout(function(){
         updateDoc(doc(db,'quotes',input.dataset.id), {estimatedFeet: Number(input.value) || 0});
       }, 700);
+    });
+  });
+  list.querySelectorAll('[data-savequotedetail]').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      const id = btn.dataset.savequotedetail;
+      const statusEl = list.querySelector('.qdetail-status[data-statusfor="'+id+'"]');
+      const pick = function(sel){ return list.querySelector(sel+'[data-id="'+id+'"]'); };
+      const csv = function(el){ return el ? el.value.split(',').map(s => s.trim()).filter(Boolean) : []; };
+      if(statusEl) statusEl.textContent = 'Saving\u2026';
+      try{
+        await updateDoc(doc(db,'quotes', id), {
+          lightColors: csv(pick('.qdLightColors')),
+          houseAreas: csv(pick('.qdAreas')),
+          installPreference: pick('.qdInstallPref') ? pick('.qdInstallPref').value : '',
+          wireColor: pick('.qdWireColor') ? pick('.qdWireColor').value : '',
+          outletTimer: pick('.qdOutletTimer') ? pick('.qdOutletTimer').value : '',
+          specificOutlet: pick('.qdSpecificOutlet') ? pick('.qdSpecificOutlet').value : '',
+          specificOutletNotes: pick('.qdSpecificOutletNotes') ? pick('.qdSpecificOutletNotes').value.trim() : '',
+          gateCode: pick('.qdGateCode') ? pick('.qdGateCode').value.trim() : '',
+          notes: pick('.qdNotes') ? pick('.qdNotes').value.trim() : '',
+          wantsMailedInvoice: pick('.qdWantsMailed') ? pick('.qdWantsMailed').checked : false
+        });
+        if(statusEl) statusEl.textContent = 'Saved.';
+        toast('Quote details saved.');
+      } catch(err){
+        if(statusEl) statusEl.textContent = 'Save failed \u2014 try again.';
+      }
     });
   });
   attachDeleteHandlers(list);
