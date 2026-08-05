@@ -821,8 +821,9 @@
             <div class="form-row" style="max-width:220px; margin-top:10px;"><label>Gate Code (optional)</label><input type="text" id="addCustGateCode" placeholder="e.g. #4521"></div>
             <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">If entered, this house is automatically flagged as gated on Routes and Maps, visible to you and your crew.</p>
             <div class="form-row" style="max-width:180px; margin-top:10px;"><label>Number of Bins</label><input type="number" id="addCustBins" min="1" step="1" value="1"></div>
-            <div class="form-row" style="max-width:220px; margin-top:10px;"><label>Customer # (optional)</label><input type="text" id="addCustNumber" placeholder="Leave blank to assign later"></div>
-            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">The permanent bin number. Leave it blank and you can assign the next available one from Customer Numbers. Anything 5000 or higher is a double-bin house and sets Number of Bins to 2 automatically.</p>
+            <div class="form-row" style="max-width:220px; margin-top:10px;"><label>Customer # (optional)</label><input type="text" id="addCustNumber" placeholder="Assigned automatically"></div>
+            <div id="addCustNumberPreview" style="font-size:12.5px; font-weight:600; margin-top:4px;"></div>
+            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">The permanent bin number. Leave it blank and you can assign the next available one from Customer Numbers. Normally left blank &mdash; the number is picked for you from Measured Feet. Over 200 feet means 2 bins and the next free 5000-series number; anything up to 200 means 1 bin and the next free regular number. Without Measured Feet no number is given.</p>
             <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin-top:10px;"><input type="checkbox" id="addCustWantsMailed" style="width:auto;"> Also wants their invoice mailed (postal mail)</label>
           </div>
           <button type="submit" class="btn btn-gold">Add Customer</button>
@@ -900,6 +901,11 @@
                 <label>Payment Amount ($, optional) <span class="bulk-count" id="rbCountAmounts">0 rows</span></label>
                 <textarea id="rbAmountsArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="650&#10;780&#10;(blank if unknown)"></textarea>
                 <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">Fill this in and an invoice is created/updated automatically under that row's phone number &mdash; no need for the Invoice Fields box below unless you're billing someone to a different phone.</p>
+              </div>
+              <div class="form-row">
+                <label>Customer # (optional) <span class="bulk-count" id="rbCountCustNumbers">0 rows</span></label>
+                <textarea id="rbCustNumbersArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="144&#10;5029&#10;(blank if unknown)"></textarea>
+                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">The permanent bin number. Under 5000 sets Number of Bins to 1. Anything 5000 or higher is a double-bin house &mdash; the bin count is left for you to fill in. A number already in use will stop the import before anything is written.</p>
               </div>
               <div class="form-row">
                 <label>Install Month (optional) <span class="bulk-count" id="rbCountInstallPref">0 rows</span></label>
@@ -1011,7 +1017,7 @@
           </div>
           <div id="qmCanvasWrap" style="position:relative; max-width:760px; border:1px solid var(--line); border-radius:10px; overflow:hidden; user-select:none; touch-action:none;">
             <img id="qmImg" style="width:100%; display:block; pointer-events:none;">
-            <svg id="qmLayer" style="position:absolute; inset:0; width:100%; height:100%; cursor:crosshair;"></svg>
+            <svg id="qmLayer" viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute; inset:0; width:100%; height:100%; cursor:crosshair;"></svg>
           </div>
           <div style="display:flex; gap:10px; align-items:center; margin-top:14px; flex-wrap:wrap;">
             <button type="button" class="btn btn-gold" id="qmSaveBtn">Save Markup</button>
@@ -2647,7 +2653,9 @@ Highlighting Utah</textarea>
           <div class="form-row"><label>Pattern</label><input type="text" id="whExtraPattern" placeholder="e.g. Warm White, Red, Red, Warm White"></div>
           <div class="form-row"><label>How Many</label><input type="number" id="whExtraQty" min="1" step="1" value="1"></div>
         </div>
-        <div class="form-row"><label>Which house is this for? (optional &mdash; leave blank for generic buffer stock)</label><input type="text" id="whExtraLabel" placeholder="e.g. Petersen — 412 Maple Dr"></div>
+        <div class="form-row"><label>Which house is this for? (optional &mdash; leave blank for generic buffer stock)</label><input type="text" id="whExtraLabel" list="whExtraCustomerList" placeholder="Start typing a name or address to pick a customer" autocomplete="off">
+          <datalist id="whExtraCustomerList"></datalist>
+          <div id="whExtraLabelMatch" style="font-size:12.5px; color:var(--slate); margin-top:4px;"></div></div>
         <button type="button" class="btn btn-outline" id="whAddExtraBtn">Add to Queue</button>
         <span id="whAddExtraStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
       </div>
@@ -2738,7 +2746,9 @@ Highlighting Utah</textarea>
         <h3 style="margin:0 0 6px;">Unused Numbers</h3>
         <p class="form-note" style="margin:0 0 10px;">Any number inside your existing range that nobody is using &mdash; usually freed up when a customer was recycled in a past year. Adding them to the pool means Dad reuses those bin numbers before anyone gets a brand new one.</p>
         <button type="button" class="btn btn-outline btn-sm" id="cnFindGapsBtn">Find Unused Numbers</button>
+        <button type="button" class="btn btn-outline btn-sm" id="cnFindConflictsBtn">Check for Duplicate Numbers</button>
         <div id="cnGapsReport" style="margin-top:10px;"></div>
+        <div id="cnConflictReport" style="margin-top:10px;"></div>
       </div>
 <div class="card" style="margin-bottom:20px;">
         <h3 style="margin:0 0 10px;">Manually Add a Number to the Pool</h3>
@@ -2942,8 +2952,23 @@ document.getElementById('loginForm').addEventListener('submit', function(e){
   const email = document.getElementById('loginEmail').value;
   const pass = document.getElementById('loginPassword').value;
   document.getElementById('loginError').textContent = '';
+  const errEl = document.getElementById('loginError');
+  errEl.textContent = 'Signing in\u2026';
   signInWithEmailAndPassword(auth, email, pass).catch(function(err){
-    document.getElementById('loginError').textContent = 'Login failed — check your email and password.';
+    // The old message blamed the password for everything, which hid the real
+    // cause when it was a lockout, a typo'd address, or the network.
+    const code = (err && err.code) || '';
+    const messages = {
+      'auth/wrong-password': 'Wrong password for that address.',
+      'auth/invalid-credential': 'That email and password don\'t match an account.',
+      'auth/user-not-found': 'No account uses that email address.',
+      'auth/invalid-email': 'That doesn\'t look like a valid email address.',
+      'auth/user-disabled': 'That account has been disabled in Firebase.',
+      'auth/too-many-requests': 'Too many failed attempts \u2014 Firebase has temporarily blocked sign-in from this device. Wait about 15 minutes, or reset the password to clear it right away.',
+      'auth/network-request-failed': 'Could not reach Firebase. Check the internet connection and try again.',
+      'auth/operation-not-allowed': 'Email sign-in is switched off in the Firebase console.'
+    };
+    errEl.textContent = messages[code] || ('Login failed' + (code ? ' (' + code + ')' : '') + '.');
   });
 });
 document.getElementById('logoutBtn').addEventListener('click', function(){
@@ -4548,8 +4573,21 @@ function renderQuoteRows(filtered){
       if(d.estimatedFeet && perFootRate){
         document.getElementById('addCustPrice').value = Math.round(d.estimatedFeet * perFootRate);
       }
+      // Carry the quote's photo across too — including any markup, since that
+      // replaces the photo. Without this the route card has nothing to show.
+      if(d.frontPhotoUrl){
+        addCustPhotoUrl = d.frontPhotoUrl;
+        const img = document.getElementById('addCustPhotoImg');
+        img.src = addCustPhotoUrl;
+        img.classList.remove('hm-blueprint');
+        document.getElementById('addCustPhotoWrap').style.display = 'block';
+        document.getElementById('addCustViewToggle').style.display = 'flex';
+        document.getElementById('addCustViewOriginal').style.background = 'var(--ink)';
+        document.getElementById('addCustViewOriginal').style.color = '#fff';
+        document.getElementById('addCustPhotoStatus').textContent = 'Photo carried over from the quote.';
+      }
       document.querySelector('.nav-item[data-panel="addcustomer"]').click();
-      toast('Quote details filled in' + (d.estimatedFeet && perFootRate ? ', price estimated from footage' : '') + ' — review and click Add Customer');
+      toast('Quote details filled in' + (d.frontPhotoUrl ? ', photo included' : '') + (d.estimatedFeet && perFootRate ? ', price estimated from footage' : '') + ' — review and click Add Customer');
     });
   });
   list.querySelectorAll('.quoteStatusSelect').forEach(function(sel){
@@ -6119,7 +6157,7 @@ function qmRender(){
     if(sh.type === 'box'){
       const x = Math.min(sh.x1, sh.x2)*100, y = Math.min(sh.y1, sh.y2)*100;
       const w = Math.abs(sh.x2-sh.x1)*100, h = Math.abs(sh.y2-sh.y1)*100;
-      return '<rect x="'+x+'%" y="'+y+'%" width="'+w+'%" height="'+h+'%" fill="rgba(224,87,75,.32)" stroke="#E0574B" stroke-width="2"/>';
+      return '<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" fill="rgba(224,87,75,.32)" stroke="#E0574B" stroke-width="2" vector-effect="non-scaling-stroke"/>';
     }
     const pts = sh.points.map(function(p){ return (p.x*100)+','+(p.y*100); }).join(' ');
     return '<polyline points="'+pts+'" fill="none" stroke="#F4BE55" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>';
@@ -6241,7 +6279,7 @@ function qmFlattenToBlob(imageUrl){
     try{
       const item = quotesCache.find(function(q){ return q.id === qmQuoteId; });
       const blob = await qmFlattenToBlob(item.data.frontPhotoUrl);
-      if(!blob){ statusEl.textContent = 'Could not save the markup \u2014 try again.'; return; }
+      if(!blob){ statusEl.textContent = 'Could not save \u2014 the photo could not be read back for editing. Try re-uploading it with Replace Photo, then mark it up again.'; return; }
       const url = await uploadOneToCloudinary(blob);
       await updateDoc(doc(db,'quotes', qmQuoteId), {frontPhotoUrl: url});
       document.getElementById('quoteMarkupOverlay').style.display = 'none';
@@ -7941,8 +7979,11 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
   const gateCode = document.getElementById('addCustGateCode').value.trim();
   let numberOfBins = parseInt(document.getElementById('addCustBins').value, 10) || 1;
   const wantsMailedInvoice = document.getElementById('addCustWantsMailed').checked;
-  // Customer # is optional here — it can be assigned later from Customer Numbers.
-  const customerNumber = document.getElementById('addCustNumber').value.trim();
+  /* Feet decide the bins, and the bins decide which sequence the number comes from.
+     Over 200 feet is a double-bin house on a 5000 number; anything else is a single
+     bin on a regular number. With no feet measured yet there's nothing to decide
+     from, so the customer is saved without a number. */
+  let customerNumber = document.getElementById('addCustNumber').value.trim();
   if(customerNumber){
     if(!/^\d+$/.test(customerNumber)){
       document.getElementById('routeAddStatus').textContent = 'Customer # should be just digits, like 1044 or 5048.';
@@ -7953,8 +7994,21 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
       document.getElementById('routeAddStatus').textContent = 'Customer #' + customerNumber + ' already belongs to ' + (taken.data.name || 'another customer') + '.';
       return;
     }
-    // The 5000 series is reserved for double-bin houses.
-    if(parseInt(customerNumber, 10) >= 5000) numberOfBins = Math.max(numberOfBins, 2);
+  }
+  if(measuredFeet > 0){
+    numberOfBins = cnBinsForFeet(measuredFeet);
+    const wantType = numberOfBins === 2 ? 'double' : 'regular';
+    if(customerNumber){
+      const isDoubleNum = parseInt(customerNumber, 10) >= 5000;
+      if((wantType === 'double') !== isDoubleNum){
+        if(!confirm(measuredFeet + ' feet works out to ' + numberOfBins + ' bin' + (numberOfBins===1?'':'s') + ', which normally uses a ' + (wantType === 'double' ? '5000-series' : 'regular') + ' number \u2014 but you typed #' + customerNumber + '.\n\nUse #' + customerNumber + ' anyway?')) return;
+      }
+    } else {
+      customerNumber = cnNextAvailable(wantType).number;
+    }
+  } else if(customerNumber){
+    document.getElementById('routeAddStatus').textContent = 'Enter Measured Feet before giving them a number \u2014 the feet decide whether it\'s 1 bin or 2.';
+    return;
   }
   const wantsBilling = price > 0;
   const statusEl = document.getElementById('routeAddStatus');
@@ -7988,6 +8042,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
     if(customerNumber){
       await deleteDoc(doc(db,'availableCustomerNumbers', customerNumber)).catch(function(){ /* fine if it was never pooled */ });
     }
+    if(customerNumber) toast('Added as customer #' + customerNumber + ' \u2014 ' + numberOfBins + ' bin' + (numberOfBins===1?'':'s'));
     if(addCustPhotoUrl){
     }
     let invoiceMsg = '';
@@ -8252,11 +8307,11 @@ function wireBulkCounts(areaIds, anchorId, countIdMap){
 }
 
 // --- Routes Bulk Update ---
-const rbAreaIds = ['rbNamesArea','rbPhonesArea','rbEmailsArea','rbStreetsArea','rbCitiesArea','rbStatesArea','rbZipsArea','rbDatesArea','rbColorsArea','rbAmountsArea','rbInstallPrefArea'];
+const rbAreaIds = ['rbNamesArea','rbPhonesArea','rbEmailsArea','rbStreetsArea','rbCitiesArea','rbStatesArea','rbZipsArea','rbDatesArea','rbColorsArea','rbAmountsArea','rbInstallPrefArea','rbCustNumbersArea'];
 const rbCountIds = {
   rbNamesArea:'rbCountNames', rbPhonesArea:'rbCountPhones', rbEmailsArea:'rbCountEmails',
   rbStreetsArea:'rbCountStreets', rbCitiesArea:'rbCountCities', rbStatesArea:'rbCountStates', rbZipsArea:'rbCountZips', rbDatesArea:'rbCountDates',
-  rbColorsArea:'rbCountColors', rbAmountsArea:'rbCountAmounts', rbInstallPrefArea:'rbCountInstallPref'
+  rbColorsArea:'rbCountColors', rbAmountsArea:'rbCountAmounts', rbInstallPrefArea:'rbCountInstallPref', rbCustNumbersArea:'rbCountCustNumbers'
 };
 const RB_INSTALL_PREF_OPTIONS = ['Normal Schedule','October','November','November - Before Thanksgiving','After Thanksgiving'];
 function rbNormalizeInstallPref(raw){
@@ -8288,6 +8343,23 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
   if(!streets.length){ statusEl.textContent = 'Paste at least the Street Address column.'; return; }
 
   const names = alignBulkRows(document.getElementById('rbNamesArea').value.split('\n').map(s => s.trim()), streets.length);
+  const custNumbers = alignBulkRows(document.getElementById('rbCustNumbersArea').value.split('\n').map(s => s.trim()), streets.length);
+  // Validate every number up front — a half-finished numbering run is worse than none.
+  const numProblems = [];
+  const seenNums = {};
+  for(let i = 0; i < custNumbers.length; i++){
+    const cn = custNumbers[i];
+    if(!cn) continue;
+    if(!/^\d+$/.test(cn)){ numProblems.push('Row ' + (i+1) + ': "' + cn + '" isn\'t a number.'); continue; }
+    if(seenNums[cn] !== undefined){ numProblems.push('Row ' + (i+1) + ': #' + cn + ' is also on row ' + seenNums[cn] + '.'); continue; }
+    seenNums[cn] = i+1;
+    const heldBy = jobAddresses.find(function(it){ return String(it.data.customerNumber||'') === cn; });
+    if(heldBy) numProblems.push('Row ' + (i+1) + ': #' + cn + ' already belongs to ' + (heldBy.data.name || 'another customer') + '.');
+  }
+  if(numProblems.length){
+    statusEl.textContent = 'Fix these Customer # problems first — nothing was imported: ' + numProblems.slice(0,8).join('  ') + (numProblems.length > 8 ? '  …and ' + (numProblems.length-8) + ' more.' : '');
+    return;
+  }
   const phones = alignBulkRows(document.getElementById('rbPhonesArea').value.split('\n').map(s => s.trim()), streets.length);
   const emails = alignBulkRows(document.getElementById('rbEmailsArea').value.split('\n').map(s => s.trim()), streets.length);
   const cities = alignBulkRows(document.getElementById('rbCitiesArea').value.split('\n').map(s => s.trim()), streets.length);
@@ -9276,11 +9348,14 @@ function renderWarehouseRecycleQueue(){
       const custId = btn.dataset.whrecycledone;
       const item = jobAddresses.find(a => a.id === custId);
       try{
-        await updateDoc(doc(db,'jobAddresses', custId), {needsLightRecycle:false});
         const num = item && item.data.customerNumber;
+        // The number has to come OFF the customer as it goes into the pool,
+        // otherwise it gets handed to someone new while this record still
+        // claims it and two bins end up wearing the same label.
+        await updateDoc(doc(db,'jobAddresses', custId), num ? {needsLightRecycle:false, customerNumber:''} : {needsLightRecycle:false});
         if(num){
           const type = parseInt(num,10) >= 5000 ? 'double' : 'regular';
-          await setDoc(doc(db,'availableCustomerNumbers', String(num)), {type: type, releasedAt: serverTimestamp()});
+          await setDoc(doc(db,'availableCustomerNumbers', String(num)), {type: type, releasedAt: serverTimestamp(), releasedFrom: (item.data.name || '')});
         }
       } catch(err){}
     });
@@ -9309,6 +9384,7 @@ function loadJobAddresses(){
     if(typeof rsvpPopulateMemberSelect === 'function') rsvpPopulateMemberSelect();
     if(typeof rsvpRenderRecipientList === 'function') rsvpRenderRecipientList();
     if(typeof rsvpUpdatePreview === 'function') rsvpUpdatePreview();
+    if(typeof whRefreshCustomerList === 'function') whRefreshCustomerList();
   });
 }
 let warehouseExtras = [];
@@ -9329,6 +9405,11 @@ function loadAvailableCustomerNumbers(){
     renderCustomerNumbersPanel();
   });
 }
+/* One place for the bin rule: over 200 feet is a double-bin house. */
+const CN_DOUBLE_BIN_FEET = 200;
+function cnBinsForFeet(feet){
+  return (Number(feet) || 0) > CN_DOUBLE_BIN_FEET ? 2 : 1;
+}
 function cnHighestAssigned(type){
   let highest = type === 'double' ? 5000 : 0;
   jobAddresses.forEach(function(item){
@@ -9339,8 +9420,13 @@ function cnHighestAssigned(type){
   });
   return highest;
 }
+function cnNumberIsHeld(num){
+  return jobAddresses.some(function(item){ return String(item.data.customerNumber||'') === String(num); });
+}
 function cnNextAvailable(type){
-  const pooled = availableCustomerNumbers.filter(n => n.data.type === type)
+  // Skip anything in the pool that a customer still holds — a stale pool entry
+  // must never become a second bin with the same label.
+  const pooled = availableCustomerNumbers.filter(n => n.data.type === type && !cnNumberIsHeld(n.id))
     .sort((a,b) => parseInt(a.id,10) - parseInt(b.id,10));
   if(pooled.length) return {number: pooled[0].id, fromPool: true};
   return {number: String(cnHighestAssigned(type) + 1), fromPool: false};
@@ -9477,15 +9563,20 @@ function cnBulkAnalyze(){
       id: match.id, num: num, name: match.data.name || '(no name)',
       unchanged: already === num,
       wasDifferent: already && already !== num ? already : '',
-      setsDoubleBin: parseInt(num,10) >= 5000 && (parseInt(match.data.numberOfBins,10)||1) < 2
+      // Regular numbers are always single-bin houses. The 5000 series varies, so
+      // those are left untouched for Mom to fill in by hand.
+      isDouble: parseInt(num,10) >= 5000,
+      setsSingleBin: parseInt(num,10) < 5000 && (parseInt(match.data.numberOfBins,10)||1) !== 1,
+      currentBins: parseInt(match.data.numberOfBins,10) || 1
     });
   }
   return {problems: problems, plan: plan, unmatched: unmatched, total: numbersRaw.filter(Boolean).length};
 }
 function cnBulkRenderReport(res, didWrite){
   const box = document.getElementById('cnBulkReport');
-  const changing = res.plan.filter(function(p){ return !p.unchanged; });
-  const dbl = res.plan.filter(function(p){ return p.setsDoubleBin; });
+  const changing = res.plan.filter(function(p){ return !p.unchanged || p.setsSingleBin; });
+  const single = res.plan.filter(function(p){ return p.setsSingleBin; });
+  const dbl = res.plan.filter(function(p){ return p.isDouble; });
   const overwrite = res.plan.filter(function(p){ return p.wasDifferent; });
   let html = '';
   if(res.problems.length){
@@ -9504,7 +9595,8 @@ function cnBulkRenderReport(res, didWrite){
     (res.plan.length - changing.length) + ' already correct, '+
     res.unmatched.length + ' unmatched, '+
     res.problems.length + ' problem(s).'+
-    (dbl.length ? '<br>' + dbl.length + ' house(s) ' + (didWrite ? 'were' : 'will be') + ' set to 2 bins for being in the 5000 series.' : '')+
+    (single.length ? '<br>' + single.length + ' house(s) ' + (didWrite ? 'were' : 'will be') + ' set to 1 bin (regular numbers are always single-bin). ' + esc(single.slice(0,6).map(function(p){ return p.name+' '+p.currentBins+'\u21921'; }).join(', ')) + (single.length>6?'\u2026':'') : '')+
+    (dbl.length ? '<br><strong>' + dbl.length + ' house(s) are in the 5000 series \u2014 their bin count was left alone for you to set by hand:</strong> ' + esc(dbl.slice(0,10).map(function(p){ return p.name+' #'+p.num; }).join(', ')) + (dbl.length>10?' \u2026and '+(dbl.length-10)+' more':'') : '')+
     (overwrite.length ? '<br><span style="color:var(--ember);">' + overwrite.length + ' customer(s) already had a different number: ' + esc(overwrite.slice(0,6).map(function(p){ return p.name+' #'+p.wasDifferent+'\u2192#'+p.num; }).join(', ')) + (overwrite.length>6?'\u2026':'') + '</span>' : '')+
     '</div>';
   box.innerHTML = html;
@@ -9521,7 +9613,7 @@ document.getElementById('cnBulkAssignBtn').addEventListener('click', async funct
   const res = cnBulkAnalyze();
   if(res.error){ statusEl.textContent = res.error; return; }
   if(res.problems.length){ cnBulkRenderReport(res, false); statusEl.textContent = 'Fix the problems listed below first — nothing was changed.'; return; }
-  const changing = res.plan.filter(function(p){ return !p.unchanged; });
+  const changing = res.plan.filter(function(p){ return !p.unchanged || p.setsSingleBin; });
   if(!changing.length){ cnBulkRenderReport(res, false); statusEl.textContent = 'Every number is already correct — nothing to do.'; return; }
   if(!confirm('Set ' + changing.length + ' customer number(s)? Nothing else on these records will be touched.')) return;
 
@@ -9529,7 +9621,7 @@ document.getElementById('cnBulkAssignBtn').addEventListener('click', async funct
   for(const p of changing){
     statusEl.textContent = 'Setting ' + (done+1) + ' of ' + changing.length + '…';
     const updates = {customerNumber: p.num};
-    if(p.setsDoubleBin) updates.numberOfBins = 2;
+    if(p.setsSingleBin) updates.numberOfBins = 1;
     try{
       await updateDoc(doc(db,'jobAddresses', p.id), updates);
       await deleteDoc(doc(db,'availableCustomerNumbers', p.num)).catch(function(){ /* fine if never pooled */ });
@@ -9541,6 +9633,40 @@ document.getElementById('cnBulkAssignBtn').addEventListener('click', async funct
   statusEl.textContent = '';
   cnBulkRenderReport(res, true);
   toast(done + ' customer number(s) assigned');
+});
+
+/* Two customers on one number means two bins wearing the same label — worth
+   being able to check for, since the old recycle path could create it. */
+document.getElementById('cnFindConflictsBtn').addEventListener('click', function(){
+  const box = document.getElementById('cnConflictReport');
+  const byNum = {};
+  jobAddresses.forEach(function(item){
+    const n = String(item.data.customerNumber||'');
+    if(!n) return;
+    (byNum[n] = byNum[n] || []).push(item.data.name || '(no name)');
+  });
+  const dupes = Object.keys(byNum).filter(function(n){ return byNum[n].length > 1; })
+    .sort(function(a,b){ return parseInt(a,10) - parseInt(b,10); });
+  const stale = availableCustomerNumbers.filter(function(p){ return cnNumberIsHeld(p.id); })
+    .map(function(p){ return p.id; }).sort(function(a,b){ return parseInt(a,10) - parseInt(b,10); });
+
+  if(!dupes.length && !stale.length){
+    box.innerHTML = '<div style="background:var(--mist); border-radius:8px; padding:10px 12px; font-size:13px;">No duplicates \u2014 every number belongs to exactly one customer.</div>';
+    return;
+  }
+  box.innerHTML = '<div style="background:#FDECEA; border:1px solid #f0b3ac; border-radius:8px; padding:10px 12px; font-size:13px;">'+
+    (dupes.length ? '<strong style="color:var(--ember);">' + dupes.length + ' number(s) held by more than one customer \u2014 fix these by hand:</strong>'+
+      '<ul style="margin:6px 0 0 16px; font-size:12.5px;">'+ dupes.map(function(n){ return '<li>#'+esc(n)+' \u2014 '+esc(byNum[n].join(' and '))+'</li>'; }).join('') +'</ul>' : '')+
+    (stale.length ? '<div style="margin-top:'+(dupes.length?'10px':'0')+';"><strong style="color:var(--ember);">' + stale.length + ' number(s) sit in the available pool but a customer still holds them:</strong>'+
+      '<div style="font-size:12.5px; margin-top:4px;">'+esc(stale.join(', '))+'</div>'+
+      '<button type="button" class="btn btn-outline btn-sm" id="cnClearStaleBtn" style="margin-top:8px;">Remove These From the Pool</button></div>' : '')+
+    '</div>';
+  const clr = document.getElementById('cnClearStaleBtn');
+  if(clr) clr.addEventListener('click', async function(){
+    for(const n of stale){ await deleteDoc(doc(db,'availableCustomerNumbers', n)).catch(function(){}); }
+    toast(stale.length + ' stale pool entr' + (stale.length===1?'y':'ies') + ' removed');
+    document.getElementById('cnFindConflictsBtn').click();
+  });
 });
 
 /* Numbers inside the existing range that nobody holds — free bin labels. */
@@ -9969,6 +10095,50 @@ function renderWarehouseQueue(){
     });
   });
 }
+/* The warehouse "which house" box is a pick-list of real customers rather than
+   free text, so the queue entry can be tied to an actual record — while still
+   allowing anything typed for one-off buffer stock. */
+function whRefreshCustomerList(){
+  const dl = document.getElementById('whExtraCustomerList');
+  if(!dl) return;
+  dl.innerHTML = jobAddresses.slice().sort(function(a,b){
+    return (a.data.name||'').localeCompare(b.data.name||'');
+  }).map(function(item){
+    const d = item.data;
+    const num = d.customerNumber ? '#' + d.customerNumber + ' \u2014 ' : '';
+    const where = d.street || (d.address||'').split(',')[0] || '';
+    return '<option value="'+esc(num + (d.name||'(no name)') + (where ? ' \u2014 ' + where : ''))+'"></option>';
+  }).join('');
+}
+function whFindCustomerByLabel(label){
+  if(!label) return null;
+  const norm = label.toLowerCase().trim();
+  return jobAddresses.find(function(item){
+    const d = item.data;
+    const num = d.customerNumber ? '#' + d.customerNumber + ' \u2014 ' : '';
+    const where = d.street || (d.address||'').split(',')[0] || '';
+    return (num + (d.name||'(no name)') + (where ? ' \u2014 ' + where : '')).toLowerCase() === norm;
+  }) || null;
+}
+(function wireWhExtraLabel(){
+  const input = document.getElementById('whExtraLabel');
+  if(!input) return;
+  input.addEventListener('input', function(){
+    const el = document.getElementById('whExtraLabelMatch');
+    const val = input.value.trim();
+    if(!val){ el.textContent = ''; return; }
+    const match = whFindCustomerByLabel(val);
+    if(match){
+      const bins = parseInt(match.data.numberOfBins,10) || 1;
+      el.style.color = 'var(--slate)';
+      el.textContent = 'Linked to ' + (match.data.name||'this customer') + ' \u2014 ' + bins + ' bin' + (bins===1?'':'s') + (match.data.customerNumber ? ', number #' + match.data.customerNumber : ', no number yet') + '.';
+    } else {
+      el.style.color = 'var(--slate)';
+      el.textContent = 'Not a customer on file \u2014 this will be saved as a plain note.';
+    }
+  });
+})();
+
 document.getElementById('whAddExtraBtn').addEventListener('click', async function(){
   const statusEl = document.getElementById('whAddExtraStatus');
   const pattern = document.getElementById('whExtraPattern').value.trim();
@@ -9977,10 +10147,15 @@ document.getElementById('whAddExtraBtn').addEventListener('click', async functio
   if(!pattern || qty <= 0){ statusEl.textContent = 'Enter a pattern and quantity.'; return; }
   statusEl.textContent = 'Adding…';
   try{
-    await addDoc(collection(db,'warehouseExtras'), {pattern: pattern, quantity: qty, label: label, createdAt: serverTimestamp()});
+    const linked = whFindCustomerByLabel(label);
+    await addDoc(collection(db,'warehouseExtras'), Object.assign(
+      {pattern: pattern, quantity: qty, label: label, createdAt: serverTimestamp()},
+      linked ? {customerId: linked.id, customerNumber: linked.data.customerNumber || ''} : {}
+    ));
     document.getElementById('whExtraPattern').value = '';
     document.getElementById('whExtraQty').value = 1;
     document.getElementById('whExtraLabel').value = '';
+    document.getElementById('whExtraLabelMatch').textContent = '';
     statusEl.textContent = 'Added!';
     setTimeout(function(){ statusEl.textContent = ''; }, 1500);
   } catch(err){
@@ -10096,6 +10271,36 @@ document.getElementById('deleteAllAddressesBtn').addEventListener('click', async
   document.getElementById('deleteAllConfirmInput').value = '';
   document.getElementById('deleteAllAddressesBtn').disabled = true;
   document.getElementById('deleteAllAddressesBtn').style.opacity = '.4';
+});
+
+/* Shows what the customer will be given, live, as Measured Feet is typed. */
+function cnUpdateAddCustPreview(){
+  const el = document.getElementById('addCustNumberPreview');
+  if(!el) return;
+  const feet = Number(document.getElementById('addCustFeet').value) || 0;
+  const typed = document.getElementById('addCustNumber').value.trim();
+  if(!feet){
+    el.style.color = 'var(--slate)';
+    el.textContent = 'No number yet \u2014 enter Measured Feet first.';
+    return;
+  }
+  const bins = cnBinsForFeet(feet);
+  const type = bins === 2 ? 'double' : 'regular';
+  if(typed){
+    const mismatch = (parseInt(typed,10) >= 5000) !== (bins === 2);
+    el.style.color = mismatch ? 'var(--ember)' : 'var(--slate)';
+    el.textContent = feet + ' ft = ' + bins + ' bin' + (bins===1?'':'s') + '. Using your #' + typed +
+      (mismatch ? ' \u2014 that\'s not the usual series for ' + bins + ' bin' + (bins===1?'':'s') + '.' : '.');
+    return;
+  }
+  const next = cnNextAvailable(type);
+  el.style.color = 'var(--slate)';
+  el.textContent = feet + ' ft = ' + bins + ' bin' + (bins===1?'':'s') + ' \u2192 will be given #' + next.number +
+    (next.fromPool ? ' (reused from the available pool)' : ' (next new number)') + '.';
+}
+['addCustFeet','addCustNumber'].forEach(function(id){
+  const el = document.getElementById(id);
+  if(el) el.addEventListener('input', cnUpdateAddCustPreview);
 });
 
 /* ---------------- CUSTOMER NUMBERS sub-tabs ---------------- */
@@ -10358,6 +10563,26 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
         addrUpdates.lng = coords.lng;
       } catch(geoErr){
         geocodeFailed = true;
+      }
+    }
+    /* Their bin in the warehouse is physically labelled with this number, so a
+       change is flagged rather than made silently. */
+    const existingNum = String(item.data.customerNumber || '');
+    if(existingNum && newMeasuredFeet > 0){
+      const shouldBeDouble = cnBinsForFeet(newMeasuredFeet) === 2;
+      const isDoubleNum = parseInt(existingNum, 10) >= 5000;
+      if(shouldBeDouble !== isDoubleNum){
+        const suggested = cnNextAvailable(shouldBeDouble ? 'double' : 'regular').number;
+        const msg = newName + ' now measures ' + newMeasuredFeet + ' feet, which is ' + (shouldBeDouble ? '2 bins' : '1 bin') +
+          ' \u2014 but they hold #' + existingNum + ', ' + (isDoubleNum ? 'a 5000-series (2 bin)' : 'a regular (1 bin)') + ' number.\n\n' +
+          'Their bin in the warehouse is labelled #' + existingNum + '. Moving them to #' + suggested + ' means relabelling it.\n\n' +
+          'OK = move them to #' + suggested + '\nCancel = keep #' + existingNum;
+        if(confirm(msg)){
+          addrUpdates.customerNumber = suggested;
+          addrUpdates.numberOfBins = shouldBeDouble ? 2 : 1;
+          await setDoc(doc(db,'availableCustomerNumbers', existingNum), {type: isDoubleNum ? 'double' : 'regular', releasedAt: serverTimestamp()});
+          await deleteDoc(doc(db,'availableCustomerNumbers', suggested)).catch(function(){});
+        }
       }
     }
     await updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates);
