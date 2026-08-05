@@ -1349,6 +1349,19 @@ function whRender(){
   list.querySelectorAll('.wh-check').forEach(function(cb){
     cb.addEventListener('change', async function(){
       const key = cb.dataset.key;
+      /* Ticking a box removes the item straight away, so a mis-tap in a truck
+         loses work with nothing to undo. Confirm first, by name. */
+      if(cb.checked){
+        const all = whActive === 'lights' ? whCurrentLightsItems()
+                  : whActive === 'recycle' ? whRecycle : null;
+        const it = all ? all.find(function(i){ return i.key === key; }) : null;
+        const label = it ? (it.name || 'this one') : 'this one';
+        const verb = whActive === 'recycle' ? 'recycled' : 'done';
+        if(!confirm('Mark ' + label + ' as ' + verb + '?')){
+          cb.checked = false;
+          return;
+        }
+      }
       cb.disabled = true;
       try{
         if(whActive === 'lights'){
