@@ -9232,6 +9232,9 @@ function attachAddressRowHandlers(container){
         const newPhone2 = panel.querySelector('.hd-phone2').value.replace(/\D/g,'');
         const newEmail2 = panel.querySelector('.hd-email2').value.trim();
         const newLights = readLightsPicker(panel, 'hd-lights');
+        // Their record as it stands, so a colour change can be detected.
+        const existingCustEntry = jobAddresses.find(function(a){ return a.id === id; });
+        const existingCust = existingCustEntry ? existingCustEntry.data : {};
         const newAreas = Array.from(panel.querySelectorAll('.hd-area-check:checked')).map(cb => cb.value);
         const diffSelect = document.querySelector('.diff-select[data-setdiff="'+id+'"]');
         if(currentHighlights.length){
@@ -9240,9 +9243,9 @@ function attachAddressRowHandlers(container){
         }
         const updates = {
           phone2: newPhone2, email2: newEmail2, lightsDescription: newLights,
-          needsLightBuild: newLights ? (newLights !== (existingLights || '') ? true : undefined) : false, houseAreas: newAreas,
+          houseAreas: newAreas,
           // A colour change means a new pattern to build, so send it to the warehouse.
-          needsLightBuild: newLights ? (newLights !== (item.data.lightsDescription || '') ? true : !!item.data.needsLightBuild) : false,
+          needsLightBuild: newLights ? (newLights !== (existingCust.lightsDescription || '') ? true : !!existingCust.needsLightBuild) : false,
           housePhotoUrl: currentPhotoUrl, houseHighlights: currentHighlights
         };
         if(diffSelect) updates.difficulty = diffSelect.value;
@@ -10284,7 +10287,7 @@ function renderWarehouseQueue(){
         }).join('')+
       '</div>'+
       '<div style="display:flex; gap:8px; align-items:center; margin-top:10px;">'+
-        '<input type="number" min="0" max="'+total+'" placeholder="# completed" class="whcompleteinput" style="width:110px; padding:8px 10px; border-radius:8px; border:1px solid var(--line);">'+
+        '<input type="number" min="0" max="'+(g.houses.length + extraTotal)+'" placeholder="# completed" class="whcompleteinput" style="width:110px; padding:8px 10px; border-radius:8px; border:1px solid var(--line);">'+
         '<button type="button" class="btn btn-gold btn-sm" data-whcompletebtn="'+esc(pattern)+'">Mark Completed</button>'+
       '</div>'+
     '</div>';
