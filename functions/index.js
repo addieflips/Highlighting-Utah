@@ -557,6 +557,21 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
     updates.seasonStatus = 'cancellation_requested';
   }
 
+  /* A colour change means a new pattern to build. Flagging it here sends the
+     customer straight to the Warehouse queue, the same way an admin-side change
+     does. The queue is a live view of this flag, so changing colours twice just
+     moves them between patterns — it can never queue the same house twice. */
+  if (section === 'lights' && updates.lightsDescription !== undefined) {
+    const changed = updates.lightsDescription !== (oldData.lightsDescription || '');
+    if (!updates.lightsDescription) {
+      updates.needsLightBuild = false;      // colours cleared — nothing to build
+    } else if (changed) {
+      updates.needsLightBuild = true;       // genuinely different pattern
+    }
+    // Unchanged? Leave the flag alone. Opening the Lights tab and pressing Save
+    // must not re-queue a house Dad has already built.
+  }
+
   await db.collection('jobAddresses').doc(match.id).update(updates);
 
   // The Lights tab also mirrors the description onto the invoice record.
