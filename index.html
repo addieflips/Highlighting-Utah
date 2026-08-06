@@ -2632,7 +2632,7 @@ function renderCustomerInvoicePage(raw, opts){
     currentLookupRecord = record;
     empty.style.display='none';
     hmLoadHouseMapForInvoice(raw, {skipLastNameCheck: true});
-    var totalDue = Math.max((record.install + record.removal) - record.deposit, 0);
+    var totalDue = Math.max((record.install + record.removal) - (record.credits || 0) - record.deposit, 0);
     var isPaid = totalDue <= 0 && (record.install > 0 || record.removal > 0);
     document.getElementById('invName').textContent = displayName;
     document.getElementById('infoName').value = displayName;
