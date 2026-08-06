@@ -2058,12 +2058,22 @@ Highlighting Utah</textarea>
           </div>
           <div class="card" style="background:#FFF8E9; border-color:var(--gold-dim); margin-top:16px;">
             <h3>Nightly Invoice Automation</h3>
+            <div id="nightlyStaleWarn" style="display:none; background:#FDECEA; color:#9A2A1F; border:1px solid #f0b3ac; border-radius:8px; padding:10px 12px; margin:0 0 10px; font-weight:600; font-size:13px;"></div>
             <p style="font-size:13px;">Every night at 7:00 PM, this checks for any house marked Done that hasn't been billed yet — no matter which day it was actually completed, so a house finished late (after 7pm, or the next morning) still gets caught on the very next run instead of getting missed. It automatically emails an invoice — the "Nightly Auto-Invoice — Unpaid" template if they still owe money, or the "Nightly Auto-Invoice — Paid Receipt" template if they're already paid in full. Houses flagged for a fix, or marked "Didn't Get To" by the crew, are skipped and never billed. Each house is only ever billed once, so there's no risk of a repeat send. Edit either template's wording anytime under Templates &gt; Billing.</p>
             <label style="display:flex; align-items:center; gap:8px; font-weight:600; cursor:pointer;">
               <input type="checkbox" id="nightlyInvoiceEnabled" style="width:18px; height:18px;">
               Send nightly invoice emails automatically
             </label>
             <span id="nightlyInvoiceStatus" style="font-size:13px; color:var(--slate); margin-top:8px; display:block;"></span>
+            <div style="margin-top:14px; padding-top:14px; border-top:1px solid var(--line);">
+              <label style="font-weight:600; font-size:13px; display:block; margin-bottom:4px;">Text a nightly billing summary to this number</label>
+              <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                <input type="tel" id="nightlyAlertPhone" placeholder="e.g. 801-555-1234 (your Google Voice number)" style="max-width:320px;">
+                <button type="button" class="btn btn-outline btn-sm" id="nightlyAlertSaveBtn">Save</button>
+              </div>
+              <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">After each run you&rsquo;ll get a text like &ldquo;23 sent, 0 errors.&rdquo; If it stops arriving, the run didn&rsquo;t fire. It&rsquo;s sent by text (not email), so it reaches you even when email is the problem. Leave blank to turn it off. Send yourself a test with &ldquo;Send Invoices Now&rdquo; below to confirm it lands.</p>
+              <span id="nightlyAlertStatus" style="font-size:12px; color:var(--slate); display:block; margin-top:4px;"></span>
+            </div>
             <div style="margin-top:14px; padding-top:14px; border-top:1px solid var(--line);">
               <button type="button" class="btn btn-gold" id="sendInvoicesNowBtn">Send Invoices Now</button>
               <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Runs the same billing check right now, on demand — works whether the automatic toggle above is on or off. Use this to send tonight's invoices yourself if you've turned automatic sending off.</p>
@@ -3699,8 +3709,22 @@ async function loadNightlyInvoiceSettings(){
   try{
     const snap = await getDoc(doc(db,'settings','nightlyInvoiceAutomation'));
     document.getElementById('nightlyInvoiceEnabled').checked = snap.exists() ? !!snap.data().enabled : false;
+    const ap = document.getElementById('nightlyAlertPhone');
+    if(ap) ap.value = (snap.exists() && snap.data().alertPhone) ? snap.data().alertPhone : '';
   } catch(err){ /* not saved yet, fine */ }
 }
+document.getElementById('nightlyAlertSaveBtn')?.addEventListener('click', async function(){
+  const val = document.getElementById('nightlyAlertPhone').value.trim();
+  const st = document.getElementById('nightlyAlertStatus');
+  try{
+    await setDoc(doc(db,'settings','nightlyInvoiceAutomation'), {alertPhone: val}, {merge:true});
+    st.textContent = val ? '✓ Saved — a summary text will go to that number after each run.' : 'Saved — nightly alert texts are off.';
+    st.style.color = 'var(--emerald)';
+  } catch(err){
+    st.textContent = '✗ Couldn\'t save — try again';
+    st.style.color = 'var(--ember)';
+  }
+});
 document.getElementById('nightlyInvoiceEnabled')?.addEventListener('change', async function(){
   const statusEl = document.getElementById('nightlyInvoiceStatus');
   try{
@@ -3850,6 +3874,23 @@ async function loadNightlyInvoiceLog(){
         '</div>';
     });
     el.innerHTML = html;
+    // Stale-run backstop: if billing is on but the newest run is over 36h old,
+    // the nightly job likely stopped firing (billing lapsed, bad deploy). The
+    // alert text can't warn about that case — this banner does, next time admin
+    // is opened.
+    const warnEl = document.getElementById('nightlyStaleWarn');
+    if(warnEl){
+      const newest = snap.docs[0] ? snap.docs[0].data() : null;
+      const newestAt = newest && newest.runAt && newest.runAt.toDate ? newest.runAt.toDate() : null;
+      const enabled = document.getElementById('nightlyInvoiceEnabled').checked;
+      if(enabled && newestAt && ((Date.now() - newestAt.getTime()) / 3600000) > 36){
+        const days = Math.floor(((Date.now() - newestAt.getTime()) / 3600000) / 24);
+        warnEl.style.display = 'block';
+        warnEl.textContent = '⚠ Nightly billing hasn\'t run since ' + fmtDate(newest.runAt) + (days >= 1 ? ' (' + days + ' day' + (days===1?'':'s') + ' ago)' : '') + '. Check that Cloud Functions are deployed and Firebase Blaze billing is active.';
+      } else {
+        warnEl.style.display = 'none';
+      }
+    }
   } catch(err){ el.innerHTML = '<div class="empty-note">Log not available yet.</div>'; }
 }
 document.getElementById('loadBulkAutoCopyListBtn')?.addEventListener('click', function(){
