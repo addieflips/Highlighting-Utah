@@ -575,13 +575,73 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
 
   await db.collection('jobAddresses').doc(match.id).update(updates);
 
-  // The Lights tab also mirrors the description onto the invoice record.
+  // The Lights tab mirrors the description onto the invoice record AND enforces
+  // the $30 light-change fee. The customer gets a 48-hour free window after a
+  // charged change to keep tweaking; the first change once that window has
+  // closed charges another $30 and restarts the window. Decided here, on the
+  // server, using the server clock — the browser can't skip or fake it.
+  let lightFeeInfo = null;
   if (section === 'lights' && oldKey && updates.lightsDescription !== undefined) {
+    const changed = updates.lightsDescription !== (oldData.lightsDescription || '');
     try {
-      await db.collection('invoices').doc(oldKey)
-        .set({ lightsDescription: updates.lightsDescription }, { merge: true });
+      const invRef = db.collection('invoices').doc(oldKey);
+      const invSnap = await invRef.get();
+      const inv = invSnap.exists ? invSnap.data() : {};
+      const FEE = 30;
+      const WINDOW_MS = 48 * 60 * 60 * 1000;
+      const nowMs = Date.now();
+      const lastAt = inv.lastLightChangeFeeAt && inv.lastLightChangeFeeAt.toMillis
+        ? inv.lastLightChangeFeeAt.toMillis() : 0;
+      const withinFreeWindow = lastAt > 0 && (nowMs - lastAt) <= WINDOW_MS;
+
+      const invWrite = { lightsDescription: updates.lightsDescription };
+      // A real change to a non-empty pattern is the only thing that can charge.
+      if (changed && updates.lightsDescription) {
+        if (!withinFreeWindow) {
+          const newFees = (Number(inv.changeFees) || 0) + FEE;
+          invWrite.changeFees = newFees;
+          invWrite.changeFeeNotes = (Array.isArray(inv.changeFeeNotes) ? inv.changeFeeNotes : [])
+            .concat([{ amount: FEE, reason: 'Light color change', date: new Date().toISOString() }]);
+          invWrite.lastLightChangeFeeAt = admin.firestore.Timestamp.fromMillis(nowMs);
+          invWrite.status = computeInvoiceStatusServer(inv.install, inv.removal, inv.deposit, inv.credits, newFees);
+          invWrite.updatedAt = admin.firestore.FieldValue.serverTimestamp();
+          lightFeeInfo = { feeCharged: true, amount: FEE, freeWindowEndsAt: nowMs + WINDOW_MS };
+        } else {
+          // Still inside the paid 48-hour window — change is free.
+          lightFeeInfo = { feeCharged: false, amount: 0, freeWindowEndsAt: lastAt + WINDOW_MS };
+        }
+      }
+      await invRef.set(invWrite, { merge: true });
+
+      // Assignment lock + reassign flag. A genuine change starts (or sits inside)
+      // the 48-hour window during which the pattern may still move, so the office
+      // must not assign them to an install route yet. If they were ALREADY on one,
+      // the crew would hang the wrong lights — flag it and drop a note in the Inbox.
+      const jobAddrLightUpdate = {};
+      if (changed && updates.lightsDescription && !withinFreeWindow) {
+        jobAddrLightUpdate.lightsLockedUntil = admin.firestore.Timestamp.fromMillis(nowMs + WINDOW_MS);
+      }
+      if (changed && updates.lightsDescription && oldData.scheduled) {
+        jobAddrLightUpdate.lightsChangedAfterAssign = true;
+        jobAddrLightUpdate.lightsChangedAfterAssignAt = admin.firestore.FieldValue.serverTimestamp();
+        try {
+          await db.collection('messages').add({
+            topic: 'Lights Changed After Assignment', folder: 'Inbox',
+            name: oldData.name || '', phone: oldData.phone || '', email: oldData.email || '',
+            contactMethod: '',
+            message: (oldData.name || 'A customer') + ' changed their lights to "' + updates.lightsDescription +
+                     '" after being assigned to an install route. Remove them from that route and add them back once their 48-hour change window closes.',
+            autoQueuedToWarehouse: false,
+            needsReassign: true,
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+          });
+        } catch (e) { console.error('[HU] reassign flag message failed:', e); }
+      }
+      if (Object.keys(jobAddrLightUpdate).length) {
+        await db.collection('jobAddresses').doc(match.id).update(jobAddrLightUpdate);
+      }
     } catch (err) {
-      console.error('[HU] invoice lights sync failed:', err);
+      console.error('[HU] invoice lights/fee sync failed:', err);
     }
   }
 
@@ -645,6 +705,7 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
   return {
     ok: true,
     addressChanged: addressChanged,
+    lightFee: lightFeeInfo,
     record: sanitizeRecord(Object.assign({}, oldData, updates))
   };
 });
@@ -959,8 +1020,8 @@ async function logNightlyInvoiceRun(data) {
   }
 }
 
-function computeInvoiceStatusServer(install, removal, deposit, credits) {
-  const gross = (Number(install) || 0) + (Number(removal) || 0);   // the real charge
+function computeInvoiceStatusServer(install, removal, deposit, credits, changeFees) {
+  const gross = (Number(install) || 0) + (Number(removal) || 0) + (Number(changeFees) || 0);   // the real charge (incl. light-change fees)
   const total = gross - (Number(credits) || 0);                    // owed after credits
   const paid = Number(deposit) || 0;
   if (gross <= 0 && paid <= 0) return 'Unpaid';                    // a truly blank invoice
@@ -1022,13 +1083,21 @@ async function runInvoiceBatch(triggeredBy) {
           ? invSnap.data()
           : { install: Number(cust.housePrice) || 0, removal: 0, deposit: 0, name: cust.name, phone, email };
 
-        // The $30 join fee is opt-in per customer, set from the "Charge $30 new
-        // member installation fee" checkbox on the Add Customer form. It is NOT
-        // inferred from the enrollment year any more — that inference applied the
-        // fee to everyone who signed up in the current year, whether or not it was
-        // meant to. Absent or false means no fee, so existing customers who were
-        // never explicitly flagged are never charged.
-        const isNewMember = cust.chargeNewMemberFee === true;
+        // New-member detection drives the $30 fee, so read the enrollment year
+        // robustly however createdAt was stored (Firestore Timestamp, a raw
+        // {seconds} object, a JS Date, an epoch number, or an ISO string). A
+        // Timestamp-only check silently missed the fee whenever the field had
+        // been written in any other shape.
+        let enrollYear = null;
+        const _ca = cust.createdAt;
+        try {
+          if (_ca && typeof _ca.toDate === 'function') enrollYear = _ca.toDate().getFullYear();
+          else if (_ca instanceof Date) enrollYear = _ca.getFullYear();
+          else if (_ca && typeof _ca.seconds === 'number') enrollYear = new Date(_ca.seconds * 1000).getFullYear();
+          else if (typeof _ca === 'number') enrollYear = new Date(_ca).getFullYear();
+          else if (typeof _ca === 'string') { const _d = new Date(_ca); if (!isNaN(_d.getTime())) enrollYear = _d.getFullYear(); }
+        } catch (e) { enrollYear = null; }
+        const isNewMember = enrollYear !== null && enrollYear === new Date().getFullYear();
         if (isNewMember && !inv.newMemberFeeApplied) {
           inv.install = (Number(inv.install) || 0) + 30;
           inv.newMemberFeeApplied = true;
@@ -1041,7 +1110,7 @@ async function runInvoiceBatch(triggeredBy) {
         let carryoverApplied = 0;
         const carryAvail = Number(cust.carryoverCredit) || 0;
         if (carryAvail > 0) {
-          const grossNow = (Number(inv.install) || 0) + (Number(inv.removal) || 0);
+          const grossNow = (Number(inv.install) || 0) + (Number(inv.removal) || 0) + (Number(inv.changeFees) || 0);
           const preBalance = Math.max(0, grossNow - (Number(inv.credits) || 0) - (Number(inv.deposit) || 0));
           carryoverApplied = Math.min(carryAvail, preBalance);
           if (carryoverApplied > 0) {
@@ -1051,7 +1120,7 @@ async function runInvoiceBatch(triggeredBy) {
           }
         }
 
-        const status = computeInvoiceStatusServer(inv.install, inv.removal || 0, inv.deposit || 0, inv.credits || 0);
+        const status = computeInvoiceStatusServer(inv.install, inv.removal || 0, inv.deposit || 0, inv.credits || 0, inv.changeFees || 0);
         inv.status = status;
         inv.name = inv.name || cust.name || '';
         inv.email = inv.email || cust.email || '';
@@ -1082,12 +1151,17 @@ async function runInvoiceBatch(triggeredBy) {
           : ('Installation service = $' + basePrice.toFixed(2));
         const newMemberLine = isNewMember ? 'New member installation fee = $30.00' : '';
 
-        const total = (Number(inv.install) || 0) + (Number(inv.removal) || 0);
+        const changeFeesTotal = Number(inv.changeFees) || 0;
+        const total = (Number(inv.install) || 0) + (Number(inv.removal) || 0) + changeFeesTotal;
         const credits = Number(inv.credits) || 0;
         const paid = Number(inv.deposit) || 0;
         const amountDue = Math.max(0, total - credits - paid);
         const creditLines = (Array.isArray(inv.creditNotes) ? inv.creditNotes : [])
           .map(function (c) { return (c.reason || 'Credit') + ' = -$' + (Number(c.amount) || 0).toFixed(2); })
+          .join('<br>');
+        // Light-change fees show as their own positive line(s) on the invoice.
+        const feeLines = (Array.isArray(inv.changeFeeNotes) ? inv.changeFeeNotes : [])
+          .map(function (f) { return (f.reason || 'Light change fee') + ' = $' + (Number(f.amount) || 0).toFixed(2); })
           .join('<br>');
 
         const templateName = status === 'Paid in Full'
@@ -1100,8 +1174,8 @@ async function runInvoiceBatch(triggeredBy) {
           // back to a built-in body (with all the tokens) so the invoice still
           // goes out; note it in the run log so staff can restore the template.
           body = status === 'Paid in Full'
-            ? 'Hi {{name}},<br><br>Thank you — your Christmas lights invoice is paid in full.<br><br>{{feet_line}}<br>{{new_member_fee_line}}<br>{{credit_lines}}<br><br>Amount paid: {{amount_paid}}<br><br>{{portal_button}}<br><br>— Highlighting Utah'
-            : 'Hi {{name}},<br><br>Here is your Christmas lights invoice.<br><br>{{feet_line}}<br>{{new_member_fee_line}}<br>{{credit_lines}}<br><br>Amount due: {{amount_due}}<br><br>{{portal_button}} {{venmo_button}}<br><br>Questions? {{message_link}}<br><br>— Highlighting Utah';
+            ? 'Hi {{name}},<br><br>Thank you — your Christmas lights invoice is paid in full.<br><br>{{feet_line}}<br>{{new_member_fee_line}}<br>{{fee_lines}}<br>{{credit_lines}}<br><br>Amount paid: {{amount_paid}}<br><br>{{portal_button}}<br><br>— Highlighting Utah'
+            : 'Hi {{name}},<br><br>Here is your Christmas lights invoice.<br><br>{{feet_line}}<br>{{new_member_fee_line}}<br>{{fee_lines}}<br>{{credit_lines}}<br><br>Amount due: {{amount_due}}<br><br>{{portal_button}} {{venmo_button}}<br><br>Questions? {{message_link}}<br><br>— Highlighting Utah';
           if (errors.length < 10) errors.push('Template missing, used built-in fallback: ' + templateName);
         } else {
           body = tplSnap.docs[0].data().body || '';
@@ -1117,6 +1191,7 @@ async function runInvoiceBatch(triggeredBy) {
         body = body.split('{{feet_line}}').join(feetLine);
         body = body.split('{{new_member_fee_line}}').join(newMemberLine);
         body = body.split('{{credit_lines}}').join(creditLines);
+        body = body.split('{{fee_lines}}').join(feeLines);
         body = body.split('{{amount_due}}').join('$' + amountDue.toFixed(2));
         body = body.split('{{amount_paid}}').join('$' + paid.toFixed(2));
         body = body.split('{{portal_link}}').join(portalUrl);
