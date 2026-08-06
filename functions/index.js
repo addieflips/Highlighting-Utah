@@ -946,8 +946,21 @@ async function runInvoiceBatch(triggeredBy) {
           ? invSnap.data()
           : { install: Number(cust.housePrice) || 0, removal: 0, deposit: 0, name: cust.name, phone, email };
 
-        const enrollYear = cust.createdAt && cust.createdAt.toDate ? cust.createdAt.toDate().getFullYear() : null;
-        const isNewMember = enrollYear === new Date().getFullYear();
+        // New-member detection drives the $30 fee, so read the enrollment year
+        // robustly however createdAt was stored (Firestore Timestamp, a raw
+        // {seconds} object, a JS Date, an epoch number, or an ISO string). A
+        // Timestamp-only check silently missed the fee whenever the field had
+        // been written in any other shape.
+        let enrollYear = null;
+        const _ca = cust.createdAt;
+        try {
+          if (_ca && typeof _ca.toDate === 'function') enrollYear = _ca.toDate().getFullYear();
+          else if (_ca instanceof Date) enrollYear = _ca.getFullYear();
+          else if (_ca && typeof _ca.seconds === 'number') enrollYear = new Date(_ca.seconds * 1000).getFullYear();
+          else if (typeof _ca === 'number') enrollYear = new Date(_ca).getFullYear();
+          else if (typeof _ca === 'string') { const _d = new Date(_ca); if (!isNaN(_d.getTime())) enrollYear = _d.getFullYear(); }
+        } catch (e) { enrollYear = null; }
+        const isNewMember = enrollYear !== null && enrollYear === new Date().getFullYear();
         if (isNewMember && !inv.newMemberFeeApplied) {
           inv.install = (Number(inv.install) || 0) + 30;
           inv.newMemberFeeApplied = true;
