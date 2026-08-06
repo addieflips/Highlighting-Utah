@@ -914,6 +914,13 @@
               <div class="form-row" style="max-width:220px;"><label>Total Price ($)</label><input type="number" id="addCustPrice" min="0" step="1" placeholder="0"></div>
             </div>
             <p id="addCustFeetNote" style="font-size:12px; margin:6px 0 0;">Enter Measured Feet to bill automatically at your Per Foot Pricing rate &mdash; you can still adjust Total Price by hand afterward. Deposit and removal fee can be added later from the Invoices tab if needed.</p>
+            <div style="margin-top:12px; padding:12px; border:1px solid var(--line); border-radius:10px; background:var(--paper);">
+              <label class="pill-check" style="display:inline-flex; align-items:center; gap:8px; cursor:pointer; font-size:13.5px; font-weight:600;">
+                <input type="checkbox" id="addCustNewMemberFee">
+                <span>Charge $30 new member installation fee</span>
+              </label>
+              <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Off by default. Turn this on only for customers who should pay the one-time join fee. It is added to their invoice automatically the night their install is marked complete.</p>
+            </div>
             <div class="form-row" style="max-width:280px; margin-top:10px;"><label>Bill To Phone (optional)</label><input type="tel" id="addCustBillTo" placeholder="Leave blank to bill this house"></div>
             <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">If someone else is paying for this house too (e.g. a landlord with multiple properties), enter their phone number here &mdash; this house's price gets added to their invoice instead of creating a separate one.</p>
             <div class="form-row" style="max-width:220px; margin-top:10px;"><label>Gate Code (optional)</label><input type="text" id="addCustGateCode" placeholder="e.g. #4521"></div>
@@ -3551,7 +3558,7 @@ async function resolveLinkTokens(text, phone, amount, opts){
     const cust = jobAddresses.find(a => (a.data.phone||'').replace(/\D/g,'') === phoneDigits);
     const feet = cust ? Number(cust.data.measuredFeet) || 0 : 0;
     const basePrice = cust ? Number(cust.data.housePrice) || 0 : 0;
-    const isNewMember = !!(cust && enrollmentYearOf(cust.data.createdAt) === new Date().getFullYear());
+    const isNewMember = !!(cust && cust.data.chargeNewMemberFee === true);
     const feetLine = feet && perFootRate ? ('Installation service \u2014 '+feet+' ft @ '+fmtMoney(perFootRate)+'/ft = '+fmtMoney(basePrice)) : ('Installation service = '+fmtMoney(basePrice));
     const newMemberLine = isNewMember ? ('New member installation fee = '+fmtMoney(30)) : '';
     out = out.split('{{feet_line}}').join(feetLine);
@@ -5498,8 +5505,7 @@ function buildInvoiceDocHtml(member){
 
   const feet = Number(d.measuredFeet) || 0;
   const basePrice = Number(d.housePrice) || 0;
-  const enrollYear = enrollmentYearOf(d.createdAt);
-  const isNewMember = enrollYear === new Date().getFullYear();
+  const isNewMember = d.chargeNewMemberFee === true;
   const newMemberFeeAlreadyApplied = inv && inv.newMemberFeeApplied;
   const install = inv ? Number(inv.install)||0 : (basePrice + (isNewMember && !newMemberFeeAlreadyApplied ? 30 : 0));
   const removal = inv ? Number(inv.removal)||0 : 0;
@@ -8620,6 +8626,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
   const wireColor = document.getElementById('addCustWireColor').value;
   const houseAreas = Array.from(document.querySelectorAll('.addcust-area-check:checked')).map(el => el.value);
   const installPreference = document.getElementById('addCustInstallPref').value;
+  const chargeNewMemberFee = document.getElementById('addCustNewMemberFee').checked;
   const billToPhone = document.getElementById('addCustBillTo').value.replace(/\D/g,'');
   const gateCode = document.getElementById('addCustGateCode').value.trim();
   const outletTimer = document.getElementById('addCustOutletTimer').value;
@@ -8693,6 +8700,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
       phone2: phone2, email2: email2, lightsDescription: lightsDescription, houseAreas: houseAreas,
       housePhotoUrl: addCustPhotoUrl, housePhotoOriginal: addCustPhotoOriginal, housePhotoMarkup: addCustPhotoMarkup,
       houseHighlights: addCustHighlights, portalToken: generatePortalToken(), installPreference: installPreference,
+      chargeNewMemberFee: chargeNewMemberFee,
       rsvpStatus: addCustFromQuoteId ? 'yes' : '',
       contactMethod: (addCustFromQuoteId ? (addCustContactMethodFromQuote || '') : ''),
       wireColor: wireColor,
@@ -8746,6 +8754,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
     document.getElementById('addCustLightsNotes').value = '';
     document.getElementById('addCustWireColor').value = 'White';
     document.getElementById('addCustInstallPref').value = 'Normal Schedule';
+    document.getElementById('addCustNewMemberFee').checked = false;
     document.querySelectorAll('.addcust-area-check').forEach(function(cb){ cb.checked = false; cb.closest('.pill-check').classList.remove('checked'); });
     document.getElementById('addCustPhoto').value = '';
     document.getElementById('addCustPhotoWrap').style.display = 'none';
