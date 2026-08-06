@@ -678,6 +678,9 @@
   @media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
   .twinkle{ animation:twinkle 2.6s ease-in-out infinite; }
   @keyframes twinkle{ 0%,100%{ opacity:1; } 50%{ opacity:.45; } }
+  .portal-spinner{ width:44px; height:44px; border:4px solid rgba(0,0,0,0.12); border-top-color:#D89F3D; border-radius:50%; animation:portalSpin 0.9s linear infinite; }
+  @keyframes portalSpin{ to{ transform:rotate(360deg); } }
+  #portalLoading{ display:none; flex-direction:column; align-items:center; gap:12px; padding:44px 16px; text-align:center; }
 </style>
 </head>
 <body>
@@ -1365,6 +1368,11 @@
             </div>
             <button type="submit" class="btn btn-gold btn-block" id="lookupBtn">Sign In</button>
           </form>
+        </div>
+        <div id="portalLoading">
+          <div class="portal-spinner"></div>
+          <div style="font-weight:600; color:#33475b;">Opening your account…</div>
+          <div style="font-size:12.5px; color:#7a869a;">This can take a few seconds the first time.</div>
         </div>
         <div class="invoice-empty" id="lookupEmpty" style="display:none;">We couldn't find an account matching that phone number and last name. Please call or text us at <span id="lookupEmptyPhone">(801) 901-0011</span> and we'll help you out.</div>
         <div class="invoice-empty" id="portalDeactivatedMsg" style="display:none;">Your portal access has been turned off since you let us know you're not continuing service this season. If that was a mistake, please call or text us at <span id="portalDeactivatedPhone">(801) 901-0011</span> and we'll get it sorted out.</div>
@@ -2548,15 +2556,32 @@ document.getElementById('lookupForm').addEventListener('submit', function(e){
   var heroEl = document.getElementById('paymentPageHero');
   if(heroEl) heroEl.style.display = 'none';
   document.getElementById('lookupFormWrap').style.display = 'none';
+  showPortalLoading();
   performSignInLookup(contactRaw, lastNameLower);
   window.scrollTo({top:0, behavior:'smooth'});
 });
+var portalLoadingTimer = null;
+function showPortalLoading(){
+  var el = document.getElementById('portalLoading');
+  if(el) el.style.display = 'flex';
+  if(portalLoadingTimer) clearTimeout(portalLoadingTimer);
+  // Safety net so the spinner can never get stuck on screen forever if some
+  // path doesn't reach a normal finish.
+  portalLoadingTimer = setTimeout(hidePortalLoading, 90000);
+}
+function hidePortalLoading(){
+  var el = document.getElementById('portalLoading');
+  if(el) el.style.display = 'none';
+  if(portalLoadingTimer){ clearTimeout(portalLoadingTimer); portalLoadingTimer = null; }
+}
 function showLookupFormAgain(){
+  hidePortalLoading();
   clearPortalCreds();
   var lookupWrapEl = document.getElementById('lookupFormWrap');
   if(lookupWrapEl) lookupWrapEl.style.display = '';
 }
 function hideLoginPrompt(){
+  hidePortalLoading();
   var heroEl = document.getElementById('paymentPageHero');
   if(heroEl) heroEl.style.display = 'none';
   var lookupWrapEl = document.getElementById('lookupFormWrap');
@@ -2752,6 +2777,7 @@ var currentQuoteData = null;
 function loadPortalByToken(token, extraOpts){
   extraOpts = extraOpts || {};
   var lookupFormWrap = document.getElementById('lookupFormWrap');
+  showPortalLoading();
   // One server call handles both cases: a portal token belonging to an
   // existing customer, or a quote token from a quote email.
   callPortalFn('portalLookup', {token: token, quoteToken: token}).then(function(res){
