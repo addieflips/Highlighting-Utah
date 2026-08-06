@@ -392,6 +392,16 @@
   .editcust-popup{
     background:#fff; border-radius:16px; padding:26px 28px; max-width:480px; width:100%;
     box-shadow:0 30px 60px -15px rgba(0,0,0,.4); max-height:85vh; overflow-y:auto;
+    transition:max-width .18s ease;
+  }
+  /* Expanded state — same three-across feel as the Add Customer form, so the
+     two screens read as the same form with the same section order. */
+  .editcust-popup.expanded{ max-width:1020px; max-height:92vh; }
+  .ec-grid{ display:grid; grid-template-columns:1fr; gap:0 14px; }
+  .editcust-popup.expanded .ec-grid{ grid-template-columns:1fr 1fr 1fr; }
+  @media (max-width:900px){
+    .editcust-popup.expanded{ max-width:100%; }
+    .editcust-popup.expanded .ec-grid{ grid-template-columns:1fr; }
   }
   .quote-section > summary::-webkit-details-marker{ display:none; }
   .quote-section > summary::after{ content:'\25BE'; float:right; color:var(--slate); font-size:11px; transition:transform .15s; }
@@ -1177,51 +1187,55 @@
 
       <div class="editcust-popup-overlay" id="editCustOverlay">
         <div class="editcust-popup">
-          <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:19px;">Edit Customer Info</h3>
+          <!-- Header: title on the left, size toggle on the right. The popup
+               opens compact; Expand widens it and switches the grids to the
+               same three-column layout the Add Customer form uses. -->
+          <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin:0 0 4px;">
+            <h3 style="margin:0; font-family:'Fraunces',serif; font-size:19px;">Edit Customer Info</h3>
+            <button type="button" class="btn btn-outline btn-sm" id="editCustSizeToggle" title="Expand to the full form">&#9633; Expand</button>
+          </div>
           <p style="margin:0 0 16px; font-size:13px; color:var(--slate);">Everything about this house is edited here. Only the amount is set on Invoices, and only the house rating is set on Routes.</p>
-          <div class="form-row"><label>Name</label><input type="text" id="editCustName"></div>
-          <div class="form-grid-2">
+
+          <!-- ===================== CUSTOMER INFO ===================== -->
+          <div class="ec-grid">
+            <div class="form-row"><label>Name</label><input type="text" id="editCustName"></div>
             <div class="form-row"><label>Phone</label><input type="tel" id="editCustPhone"></div>
             <div class="form-row"><label>Secondary Phone</label><input type="tel" id="editCustPhone2"></div>
-          </div>
-          <div class="form-grid-2">
             <div class="form-row"><label>Email</label><input type="email" id="editCustEmail"></div>
             <div class="form-row"><label>Secondary Email</label><input type="email" id="editCustEmail2"></div>
+            <div class="form-row"><label>Enrolled Date</label><input type="date" id="editCustEnrolled"></div>
           </div>
           <div class="form-row"><label>Address</label><input type="text" id="editCustAddress"></div>
-          <div class="form-row"><label>Enrolled Date</label><input type="date" id="editCustEnrolled"></div>
-          <div class="form-row"><label>RSVP Status</label>
-            <select id="editCustRsvp">
-              <option value="">Pending (no response yet)</option>
-              <option value="yes">Yes — Hanging Lights</option>
-              <option value="no">No — Skip This Year</option>
-              <option value="backnextyear">Back Next Year</option>
-            </select>
-          </div>
-          <div class="form-row"><label>Don't Install Before This Date (optional, staff only)</label><input type="date" id="editCustEarliestInstall"></div>
-          <p class="form-note" style="margin:-10px 0 20px;">Customers never see or can change this &mdash; use it when someone needs us to hold off until a specific date (e.g. they're out of town until then). Leave blank for no restriction.</p>
-          <div class="form-grid-2">
-            <div class="form-row"><label>Measured Feet</label><input type="number" id="editCustFeet" min="0" step="0.5" placeholder="0"></div>
-            <div class="form-row"><label>This House's Price ($)</label><input type="number" id="editCustHousePrice" min="0" step="1" placeholder="0"></div>
-          </div>
-          <div class="form-grid-2">
-            <div class="form-row"><label>Wire Color</label>
-              <select id="editCustWireColor">
-                <option value="White">White</option>
-                <option value="Green">Green</option>
+          <div class="ec-grid">
+            <div class="form-row"><label>RSVP Status</label>
+              <select id="editCustRsvp">
+                <option value="">Pending (no response yet)</option>
+                <option value="yes">Yes &mdash; Hanging Lights</option>
+                <option value="no">No &mdash; Skip This Year</option>
+                <option value="backnextyear">Back Next Year</option>
               </select>
             </div>
-            <div class="form-row"><label>Bill To Phone (optional)</label><input type="tel" id="editCustBillTo" placeholder="Leave blank to bill this house"></div>
+            <div class="form-row"><label>Don't Install Before This Date (staff only)</label><input type="date" id="editCustEarliestInstall"></div>
           </div>
-          <p style="font-size:11.5px; color:var(--slate); margin:-8px 0 0;">If someone else pays for this house, enter their phone number &mdash; this house's price rolls into their invoice instead.</p>
-          <div class="form-row"><label>Gate Code (optional)</label><input type="text" id="editCustGateCode" placeholder="e.g. #4521"></div>
-          <div class="form-row"><label>Outlet Timer</label><select id="editCustOutletTimer"><option value="">&mdash;</option><option value="Yes">Yes</option><option value="No">No</option></select></div>
-          <div class="form-row"><label>Specific Outlet</label><select id="editCustSpecificOutlet"><option value="">&mdash;</option><option value="Yes">Yes</option><option value="No">No</option></select></div>
-          <div class="form-row"><label>Which Outlet? (optional)</label><input type="text" id="editCustSpecificOutletNotes" placeholder="e.g. the outlet on the back patio"></div>
-          <div class="form-row" style="max-width:180px;"><label>Number of Bins</label><input type="number" id="editCustBins" min="1" step="1"></div>
-          <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin-top:-6px; margin-bottom:16px;"><input type="checkbox" id="editCustWantsMailed" style="width:auto;"> Also wants their invoice mailed (postal mail)</label>
+          <p class="form-note" style="margin:-4px 0 16px;">Customers never see or can change this &mdash; use it when someone needs us to hold off until a specific date (e.g. they're out of town until then). Leave blank for no restriction.</p>
+
+          <!-- ===================== HOUSE INFO ===================== -->
+          <div style="border-top:2px solid var(--gold-dim); margin:20px 0 0; padding-top:16px;">
+            <h4 style="margin:0 0 14px; font-size:15px;">House Info</h4>
+          </div>
+
+          <div style="margin-bottom:16px;">
+            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Which Part(s) of the House?</label>
+            <div class="pill-check-row" id="editCustAreas">
+              <label class="pill-check"><input type="checkbox" class="editcust-area-check" value="Front of House"> Front of House</label>
+              <label class="pill-check"><input type="checkbox" class="editcust-area-check" value="Right Side"> Right Side</label>
+              <label class="pill-check"><input type="checkbox" class="editcust-area-check" value="Left Side"> Left Side</label>
+              <label class="pill-check"><input type="checkbox" class="editcust-area-check" value="Back of House"> Back of House</label>
+            </div>
+          </div>
+
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
-            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Light Color(s)</label>
+            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">What Lights Are They Getting?</label>
             <div class="pill-check-row" id="editCustLightsColor">
               <label class="pill-check"><input type="checkbox" class="editcust-color-check" value="Warm White"> Warm White</label>
               <label class="pill-check"><input type="checkbox" class="editcust-color-check" value="Pure White"> Pure White</label>
@@ -1233,17 +1247,25 @@
               <label class="pill-check"><input type="checkbox" class="editcust-color-check" value="Pink"> Pink</label>
               <label class="pill-check"><input type="checkbox" class="editcust-color-check" value="Multi"> Multi</label>
             </div>
-            <div class="form-row" style="margin-top:10px;"><label>Additional Light Notes (optional)</label><input type="text" id="editCustLightsNotes" placeholder="e.g. 2 trees out front, watch for low peak"></div>
           </div>
+
+          <div class="form-row" style="max-width:180px;"><label>Wire Color</label>
+            <select id="editCustWireColor">
+              <option value="White">White</option>
+              <option value="Green">Green</option>
+            </select>
+          </div>
+
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
-            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Which Part(s) of the House?</label>
-            <div class="pill-check-row" id="editCustAreas">
-              <label class="pill-check"><input type="checkbox" class="editcust-area-check" value="Front of House"> Front of House</label>
-              <label class="pill-check"><input type="checkbox" class="editcust-area-check" value="Right Side"> Right Side</label>
-              <label class="pill-check"><input type="checkbox" class="editcust-area-check" value="Left Side"> Left Side</label>
-              <label class="pill-check"><input type="checkbox" class="editcust-area-check" value="Back of House"> Back of House</label>
+            <div class="form-row" style="max-width:220px;"><label>Outlet Timer</label><select id="editCustOutletTimer"><option value="">&mdash;</option><option value="Yes">Yes</option><option value="No">No</option></select></div>
+            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Answering Yes puts this house on the crew&rsquo;s Timers list.</p>
+            <div class="form-row" style="max-width:220px; margin-top:12px;"><label>Specific Outlet</label><select id="editCustSpecificOutlet"><option value="">&mdash;</option><option value="Yes">Yes</option><option value="No">No</option></select></div>
+            <div id="editCustSpecificOutletNotesWrap" style="display:none;">
+              <div class="form-row" style="margin-top:10px;"><label>Which Outlet?</label><input type="text" id="editCustSpecificOutletNotes" placeholder="e.g. the outlet on the back patio"></div>
+              <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Shows on the crew&rsquo;s route card.</p>
             </div>
           </div>
+
           <div class="form-row"><label>Installation Timing Preference</label>
             <select id="editCustInstallPref" style="max-width:300px;">
               <option value="Normal Schedule">Any</option>
@@ -1253,18 +1275,79 @@
               <option value="After Thanksgiving">After Thanksgiving (employees only)</option>
             </select>
           </div>
-          <div class="form-row"><label>House Notes <span style="font-weight:400; color:var(--slate);">(permanent &mdash; the crew sees this on the route)</span></label><textarea id="editCustNotes" rows="2" placeholder="Roof height, dog in backyard, ladder goes on the north side..." style="width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea></div>
+
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
-            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:6px;">House Photo <span style="font-weight:400; color:var(--slate);">(upload, then highlight/mark it up &mdash; this is the only place photos are edited)</span></label>
+            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Notes for the Crew</label>
+            <p style="font-size:12px; color:var(--slate); margin:0 0 10px;">Both show to your crew only &mdash; never on the customer&rsquo;s invoice or portal.</p>
+            <div class="form-row"><label>One-Time Notes</label><textarea id="editCustOneTimeNotes" rows="2" placeholder="e.g. gate is broken this year, park on the street" style="width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea></div>
+            <p style="font-size:12px; color:var(--slate); margin:4px 0 12px;">For this season only.</p>
+            <div class="form-row"><label>Permanent Notes</label><textarea id="editCustNotes" rows="2" placeholder="Roof height, dog in backyard, ladder goes on the north side..." style="width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea></div>
+            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Sticks with the house year after year, on every route card.</p>
+          </div>
+
+          <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
+            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:6px;">House Pictures</label>
+            <p style="font-size:12px; color:var(--slate); margin:0 0 8px;">Upload, then highlight and mark it up &mdash; this is the only place photos are edited.</p>
             <div id="editCustPhotoThumb" style="margin-bottom:8px;"></div>
             <input type="file" accept="image/*" id="editCustPhotoFile">
             <div id="editCustPhotoStatus" style="font-size:12px; color:var(--slate); margin-top:4px;"></div>
+            <div class="form-row" style="margin-top:14px;">
+              <label>Layout Map <span style="font-weight:400; color:var(--slate);">(the hand-drawn light plan, scanned &mdash; stays on this house year after year)</span></label>
+              <input type="file" accept="image/*" id="editCustLayoutMapFile">
+              <div id="editCustLayoutMapThumb" style="margin-top:8px;"></div>
+            </div>
           </div>
-          <div class="form-row">
-            <label>Layout Map <span style="font-weight:400; color:var(--slate);">(the hand-drawn light plan, scanned &mdash; stays on this house year after year)</span></label>
-            <input type="file" accept="image/*" id="editCustLayoutMapFile">
-            <div id="editCustLayoutMapThumb" style="margin-top:8px;"></div>
+
+          <!-- ===================== INVOICE ===================== -->
+          <div style="border-top:2px solid var(--gold-dim); margin:20px 0 0; padding-top:16px;">
+            <h4 style="margin:0 0 14px; font-size:15px;">Invoice</h4>
           </div>
+
+          <div class="ec-grid">
+            <div class="form-row"><label>Measured Feet</label><input type="number" id="editCustFeet" min="0" step="0.5" placeholder="0"></div>
+            <div class="form-row"><label>This House's Price ($)</label><input type="number" id="editCustHousePrice" min="0" step="1" placeholder="0"></div>
+          </div>
+          <div class="ec-grid">
+            <div class="form-row"><label>Bill To Phone (optional)</label><input type="tel" id="editCustBillTo" placeholder="Leave blank to bill this house"></div>
+            <div class="form-row"><label>People They Referred</label><input type="number" id="editCustReferralCount" min="0" step="1" placeholder="0"></div>
+          </div>
+          <p style="font-size:11.5px; color:var(--slate); margin:-4px 0 0;">Bill To Phone: if someone else pays for this house, enter their phone number &mdash; this house's price rolls into their invoice instead.</p>
+
+          <div style="margin-top:14px; padding:12px; border:1px solid var(--line); border-radius:10px; background:var(--paper);">
+            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:8px;">Discounts</label>
+            <div class="ec-grid">
+              <div class="form-row"><label>Manual Discount ($)</label><input type="number" id="editCustManualDiscount" min="0" step="1" placeholder="0"></div>
+              <div class="form-row"><label>Reason</label><input type="text" id="editCustDiscountReason" placeholder="e.g. loyalty, price match"></div>
+            </div>
+            <div id="editCustDiscountSummary" style="font-size:13px; font-weight:600; color:var(--dusk); margin-top:8px;"></div>
+            <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Referrals are credited at $25 each. Saving replaces the referral and manual discount credits on this invoice; any other credits already on it are left alone.</p>
+          </div>
+
+          <div style="margin-top:14px; padding:14px; border:2px solid var(--dusk); border-radius:10px; background:#EAF7EE;">
+            <label class="pill-check" style="display:inline-flex; align-items:center; gap:8px; cursor:pointer; font-size:14px; font-weight:700;">
+              <input type="checkbox" id="editCustNewMemberFee">
+              <span>Charge $30 new member installation fee</span>
+            </label>
+            <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Added to their invoice automatically the night their install is marked complete. If it has already been applied, unticking this won't remove it &mdash; adjust the invoice amount directly.</p>
+          </div>
+
+          <div class="form-row" style="margin-top:14px;"><label>Invoice Notes (optional)</label><textarea id="editCustInvoiceNotes" rows="2" placeholder="e.g. split payment agreed, billed after Thanksgiving" style="width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea></div>
+          <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Unlike the crew notes above, this one <strong>does</strong> appear on the customer&rsquo;s invoice.</p>
+
+          <!-- ===================== OTHER ===================== -->
+          <div style="border-top:2px solid var(--gold-dim); margin:20px 0 0; padding-top:16px;">
+            <h4 style="margin:0 0 14px; font-size:15px;">Other</h4>
+          </div>
+
+          <div class="ec-grid">
+            <div class="form-row"><label>Gate Code (optional)</label><input type="text" id="editCustGateCode" placeholder="e.g. #4521"></div>
+            <div class="form-row"><label>Number of Bins</label><input type="number" id="editCustBins" min="1" step="1"></div>
+          </div>
+          <div class="form-row"><label>Customer #</label>
+            <div id="editCustNumberDisplay" style="font-size:14px; font-weight:700; padding:10px 12px; border-radius:10px; border:1px solid var(--line); background:var(--snow); color:var(--ink);">&mdash;</div>
+          </div>
+          <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Shown here for reference. Numbers are assigned and reassigned from the Customer Numbers panel so the available pool stays in sync.</p>
+          <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin-top:12px; margin-bottom:16px;"><input type="checkbox" id="editCustWantsMailed" style="width:auto;"> Also wants their invoice mailed (postal mail)</label>
           <div id="editCustCarryoverWrap" style="display:none; border-top:1px solid var(--line); margin:16px 0; padding-top:16px;"></div>
           <div style="display:flex; gap:10px; margin-top:16px;">
             <button type="button" class="btn btn-outline" id="editCustCancelBtn" style="flex:1;">Cancel</button>
@@ -8814,6 +8897,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
         newCreditNotes.push({
           amount: referralCount * REFERRAL_CREDIT,
           reason: 'Referral \u2014 ' + referralCount + ' ' + (referralCount === 1 ? 'person' : 'people'),
+          kind: 'referral',
           date: new Date().toISOString()
         });
       }
@@ -8821,6 +8905,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
         newCreditNotes.push({
           amount: manualDiscount,
           reason: discountReason || 'Discount',
+          kind: 'manual',
           date: new Date().toISOString()
         });
       }
@@ -11313,6 +11398,58 @@ function renderAllCustomersTable(){
   });
 }
 let editCustomerId = null;
+
+/* ---- EDIT CUSTOMER: expand/collapse + conditional outlet + discount preview ---- */
+function setEditCustExpanded(expanded){
+  const popup = document.querySelector('.editcust-popup');
+  const btn = document.getElementById('editCustSizeToggle');
+  if(!popup || !btn) return;
+  popup.classList.toggle('expanded', expanded);
+  btn.innerHTML = expanded ? '\u25A1 Minimize' : '\u25A1 Expand';
+  btn.title = expanded ? 'Back to the compact form' : 'Expand to the full form';
+  // Remembered so it stays the way you left it next time you open a customer.
+  try{ localStorage.setItem('editCustExpanded', expanded ? '1' : '0'); }catch(e){}
+}
+function editCustExpandedPref(){
+  try{ return localStorage.getItem('editCustExpanded') === '1'; }catch(e){ return false; }
+}
+function syncEditSpecificOutletNotes(){
+  const sel = document.getElementById('editCustSpecificOutlet');
+  const wrap = document.getElementById('editCustSpecificOutletNotesWrap');
+  if(!sel || !wrap) return;
+  const show = sel.value === 'Yes';
+  wrap.style.display = show ? 'block' : 'none';
+  if(!show) document.getElementById('editCustSpecificOutletNotes').value = '';
+}
+function updateEditCustDiscountSummary(){
+  const el = document.getElementById('editCustDiscountSummary');
+  if(!el) return;
+  const refs = Math.max(0, parseInt(document.getElementById('editCustReferralCount').value, 10) || 0);
+  const manual = Math.max(0, Number(document.getElementById('editCustManualDiscount').value) || 0);
+  const refAmt = refs * REFERRAL_CREDIT;
+  const total = refAmt + manual;
+  if(total <= 0){ el.textContent = ''; return; }
+  const bits = [];
+  if(refs > 0) bits.push(refs + ' referral' + (refs === 1 ? '' : 's') + ' = ' + fmtMoney(refAmt));
+  if(manual > 0) bits.push('manual = ' + fmtMoney(manual));
+  el.textContent = bits.join('  +  ') + '   \u2192   ' + fmtMoney(total) + ' off';
+}
+document.addEventListener('DOMContentLoaded', function(){
+  const sizeBtn = document.getElementById('editCustSizeToggle');
+  if(sizeBtn){
+    sizeBtn.addEventListener('click', function(){
+      const popup = document.querySelector('.editcust-popup');
+      setEditCustExpanded(!popup.classList.contains('expanded'));
+    });
+  }
+  const outletSel = document.getElementById('editCustSpecificOutlet');
+  if(outletSel) outletSel.addEventListener('change', syncEditSpecificOutletNotes);
+  ['editCustReferralCount','editCustManualDiscount'].forEach(function(id){
+    const el = document.getElementById(id);
+    if(el) el.addEventListener('input', updateEditCustDiscountSummary);
+  });
+});
+
 function openEditCustomerModal(id){
   const item = jobAddresses.find(a => a.id === id);
   if(!item) return;
@@ -11335,7 +11472,24 @@ function openEditCustomerModal(id){
   document.getElementById('editCustOutletTimer').value = d.outletTimer || '';
   document.getElementById('editCustSpecificOutlet').value = d.specificOutlet || '';
   document.getElementById('editCustSpecificOutletNotes').value = d.specificOutletNotes || '';
+  syncEditSpecificOutletNotes();
   document.getElementById('editCustBins').value = d.numberOfBins || 1;
+  document.getElementById('editCustNumberDisplay').textContent = d.customerNumber || '\u2014';
+  document.getElementById('editCustOneTimeNotes').value = d.oneTimeNotes || '';
+  document.getElementById('editCustNewMemberFee').checked = d.chargeNewMemberFee === true;
+  document.getElementById('editCustReferralCount').value = d.referralCount || '';
+  /* Manual discount and invoice notes live on the invoice, not the house, so
+     read them back off the matching invoice. The manual-discount credit is the
+     one whose reason isn't a referral — referrals are rebuilt from the count. */
+  const ecInv = allInvoicesCache.find(i => i.id === custInvoiceKey(d));
+  const ecNotes = (ecInv && Array.isArray(ecInv.data.creditNotes)) ? ecInv.data.creditNotes : [];
+  const ecManual = ecNotes.find(c => c.kind === 'manual')
+    || ecNotes.find(c => !c.kind && !/^Referral \u2014 /.test(c.reason || ''));
+  document.getElementById('editCustManualDiscount').value = ecManual ? (Number(ecManual.amount) || '') : '';
+  document.getElementById('editCustDiscountReason').value = ecManual ? (ecManual.reason || '') : '';
+  document.getElementById('editCustInvoiceNotes').value = (ecInv && ecInv.data.invoiceNotes) || '';
+  updateEditCustDiscountSummary();
+  setEditCustExpanded(editCustExpandedPref());
   document.getElementById('editCustWantsMailed').checked = !!d.wantsMailedInvoice;
   // Lights, house areas, install timing, notes and photo — all edited here now.
   const parsedLights = parseCustLights(d.lightsDescription || '');
@@ -11344,7 +11498,6 @@ function openEditCustomerModal(id){
     cb.checked = custColors.includes(cb.value);
     cb.closest('.pill-check').classList.toggle('checked', cb.checked);
   });
-  document.getElementById('editCustLightsNotes').value = parsedLights.notes;
   const custAreas = d.houseAreas || [];
   document.querySelectorAll('.editcust-area-check').forEach(function(cb){
     cb.checked = custAreas.includes(cb.value);
@@ -11507,11 +11660,19 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const newGateCode = document.getElementById('editCustGateCode').value.trim();
   const newOutletTimer = document.getElementById('editCustOutletTimer').value;
   const newSpecificOutlet = document.getElementById('editCustSpecificOutlet').value;
-  const newSpecificOutletNotes = document.getElementById('editCustSpecificOutletNotes').value.trim();
+  const newSpecificOutletNotes = document.getElementById('editCustSpecificOutlet').value === 'Yes'
+    ? document.getElementById('editCustSpecificOutletNotes').value.trim()
+    : '';
   const newBins = parseInt(document.getElementById('editCustBins').value, 10) || 1;
+  const newOneTimeNotes = document.getElementById('editCustOneTimeNotes').value.trim();
+  const newChargeNewMemberFee = document.getElementById('editCustNewMemberFee').checked;
+  const newReferralCount = Math.max(0, parseInt(document.getElementById('editCustReferralCount').value, 10) || 0);
+  const newManualDiscount = Math.max(0, Number(document.getElementById('editCustManualDiscount').value) || 0);
+  const newDiscountReason = document.getElementById('editCustDiscountReason').value.trim();
+  const newInvoiceNotes = document.getElementById('editCustInvoiceNotes').value.trim();
   const newWantsMailed = document.getElementById('editCustWantsMailed').checked;
   const newColors = Array.from(document.querySelectorAll('.editcust-color-check:checked')).map(el => el.value);
-  const newLightsDescription = compileLightsDescription(newColors.join(', '), document.getElementById('editCustLightsNotes').value.trim());
+  const newLightsDescription = compileLightsDescription(newColors.join(', '), '');
   const newHouseAreas = Array.from(document.querySelectorAll('.editcust-area-check:checked')).map(el => el.value);
   const newInstallPref = document.getElementById('editCustInstallPref').value;
   const newHouseNotes = document.getElementById('editCustNotes').value.trim();
@@ -11533,6 +11694,14 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     addrUpdates.houseAreas = newHouseAreas;
     addrUpdates.installPreference = newInstallPref;
     addrUpdates.notes = newHouseNotes;
+    addrUpdates.oneTimeNotes = newOneTimeNotes;
+    if(newOneTimeNotes && newOneTimeNotes !== (item.data.oneTimeNotes || '')){
+      addrUpdates.oneTimeNotesAt = new Date().toISOString();
+    } else if(!newOneTimeNotes){
+      addrUpdates.oneTimeNotesAt = '';
+    }
+    addrUpdates.chargeNewMemberFee = newChargeNewMemberFee;
+    addrUpdates.referralCount = newReferralCount;
     const oldLightsForBuild = item.data.lightsDescription || '';
     addrUpdates.needsLightBuild = newLightsDescription ? (newLightsDescription !== oldLightsForBuild ? true : !!item.data.needsLightBuild) : false;
     let geocodeFailed = false;
@@ -11582,6 +11751,37 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     if(!newBillTo){
       if(inv){
         const invoiceUpdates = {name: newName, phone: newPhone, email: newEmail};
+        /* Referrals and the manual discount are rebuilt from the form every
+           save. Any other credit on the invoice — a service adjustment, a
+           carryover applied by hand from the Invoices tab — is kept untouched,
+           so editing a phone number can't quietly wipe someone's credit. */
+        const priorNotes = Array.isArray(inv.data.creditNotes) ? inv.data.creditNotes : [];
+        const keptNotes = priorNotes.filter(function(c){
+          if(c.kind === 'referral' || c.kind === 'manual') return false;
+          if(!c.kind && /^Referral \u2014 /.test(c.reason || '')) return false;
+          return true;
+        });
+        const rebuiltNotes = keptNotes.slice();
+        if(newReferralCount > 0){
+          rebuiltNotes.push({
+            amount: newReferralCount * REFERRAL_CREDIT,
+            reason: 'Referral \u2014 ' + newReferralCount + ' ' + (newReferralCount === 1 ? 'person' : 'people'),
+            kind: 'referral',
+            date: new Date().toISOString()
+          });
+        }
+        if(newManualDiscount > 0){
+          rebuiltNotes.push({
+            amount: newManualDiscount,
+            reason: newDiscountReason || 'Discount',
+            kind: 'manual',
+            date: new Date().toISOString()
+          });
+        }
+        const rebuiltCredits = rebuiltNotes.reduce(function(sum, c){ return sum + (Number(c.amount) || 0); }, 0);
+        invoiceUpdates.creditNotes = rebuiltNotes;
+        invoiceUpdates.credits = rebuiltCredits;
+        invoiceUpdates.invoiceNotes = newInvoiceNotes;
         /* House Price is the source of truth, but only when it's actually been
            changed here. The Invoices panel can edit an invoice total by hand,
            so syncing on every save would silently undo that while you were
@@ -11596,10 +11796,19 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
         if(newHousePrice !== oldHousePrice && !isGroupInvoice){
           const memberFee = inv.data.newMemberFeeApplied ? 30 : 0;
           invoiceUpdates.install = newHousePrice + memberFee;
-          invoiceUpdates.status = computeInvoiceStatus(invoiceUpdates.install, inv.data.removal || 0, inv.data.deposit || 0, inv.data.credits || 0);
+          invoiceUpdates.status = computeInvoiceStatus(invoiceUpdates.install, inv.data.removal || 0, inv.data.deposit || 0, rebuiltCredits);
           invoiceUpdates.updatedAt = serverTimestamp();
         } else if(newHousePrice !== oldHousePrice && isGroupInvoice){
           resyncPayerAfter = newPhone || (newEmail || '').toLowerCase();
+        }
+        /* Changing only a discount leaves install alone, but the balance still
+           moved — so status has to be recomputed here too, or an invoice that
+           a discount just cleared would keep showing Unpaid. */
+        if(invoiceUpdates.install === undefined){
+          invoiceUpdates.status = computeInvoiceStatus(
+            Number(inv.data.install) || 0, inv.data.removal || 0, inv.data.deposit || 0, rebuiltCredits
+          );
+          invoiceUpdates.updatedAt = serverTimestamp();
         }
         // The invoice doc ID is the customer key (phone digits, or lowercase
         // email when there's no phone). If the key changed — phone edited,
