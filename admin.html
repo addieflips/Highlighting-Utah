@@ -851,16 +851,6 @@
             <p style="font-size:12px; color:var(--slate); margin:0 0 14px;">What they&rsquo;re getting and everything the crew needs on site.</p>
           </div>
 
-          <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
-            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Which Part(s) of the House?</label>
-            <p style="font-size:12px; color:var(--slate); margin:0 0 8px;">Same options customers choose when requesting a quote &mdash; adjustable anytime.</p>
-            <div class="pill-check-row" id="addCustAreas">
-              <label class="pill-check"><input type="checkbox" class="addcust-area-check" value="Front of House"> Front of House</label>
-              <label class="pill-check"><input type="checkbox" class="addcust-area-check" value="Right Side"> Right Side</label>
-              <label class="pill-check"><input type="checkbox" class="addcust-area-check" value="Left Side"> Left Side</label>
-              <label class="pill-check"><input type="checkbox" class="addcust-area-check" value="Back of House"> Back of House</label>
-            </div>
-          </div>
 
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
             <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">What Lights Are They Getting?</label>
@@ -1242,15 +1232,6 @@
             <h4 style="margin:0 0 14px; font-size:15px;">House Info</h4>
           </div>
 
-          <div style="margin-bottom:16px;">
-            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Which Part(s) of the House?</label>
-            <div class="pill-check-row" id="editCustAreas">
-              <label class="pill-check"><input type="checkbox" class="editcust-area-check" value="Front of House"> Front of House</label>
-              <label class="pill-check"><input type="checkbox" class="editcust-area-check" value="Right Side"> Right Side</label>
-              <label class="pill-check"><input type="checkbox" class="editcust-area-check" value="Left Side"> Left Side</label>
-              <label class="pill-check"><input type="checkbox" class="editcust-area-check" value="Back of House"> Back of House</label>
-            </div>
-          </div>
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
             <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">What Lights Are They Getting?</label>
             <div class="pill-check-row" id="editCustLightsColor">
@@ -4945,7 +4926,6 @@ function renderQuoteRows(filtered){
           '<div style="padding:0 12px 12px;">'+
             '<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(min(190px,100%),1fr)); gap:10px;">'+
               '<div><label style="font-size:11.5px; color:var(--slate); display:block; margin-bottom:3px;">Light Colors <span style="font-weight:400;">(comma separated)</span></label><input type="text" class="qdLightColors" data-id="'+item.id+'" value="'+esc((d.lightColors||[]).join(', '))+'" placeholder="Warm White, Red, Red" style="font-size:13px; padding:7px 9px; border-radius:8px; border:1px solid var(--line); width:100%;"></div>'+
-              '<div><label style="font-size:11.5px; color:var(--slate); display:block; margin-bottom:3px;">Areas <span style="font-weight:400;">(comma separated)</span></label><input type="text" class="qdAreas" data-id="'+item.id+'" value="'+esc((d.houseAreas||[]).join(', '))+'" placeholder="Front of House, Right Side" style="font-size:13px; padding:7px 9px; border-radius:8px; border:1px solid var(--line); width:100%;"></div>'+
               '<div><label style="font-size:11.5px; color:var(--slate); display:block; margin-bottom:3px;">Install Timing</label>'+quoteDetailSelect('qdInstallPref', item.id, d.installPreference, ['','Normal Schedule','October','November','November - Before Thanksgiving','After Thanksgiving'])+'</div>'+
               '<div><label style="font-size:11.5px; color:var(--slate); display:block; margin-bottom:3px;">Wire Color</label>'+quoteDetailSelect('qdWireColor', item.id, d.wireColor, ['','White','Green'])+'</div>'+
               '<div><label style="font-size:11.5px; color:var(--slate); display:block; margin-bottom:3px;">Outlet Timer</label>'+quoteDetailSelect('qdOutletTimer', item.id, d.outletTimer, ['','Yes','No'])+'</div>'+
@@ -5108,11 +5088,6 @@ function renderQuoteRows(filtered){
         cb.closest('.pill-check').classList.toggle('checked', cb.checked);
       });
       document.getElementById('addCustWireColor').value = d.wireColor || 'White';
-      const quoteAreas = d.houseAreas || [];
-      document.querySelectorAll('.addcust-area-check').forEach(function(cb){
-        cb.checked = quoteAreas.includes(cb.value);
-        cb.closest('.pill-check').classList.toggle('checked', cb.checked);
-      });
       document.getElementById('addCustInstallPref').value = d.installPreference || 'Normal Schedule';
       document.getElementById('addCustGateCode').value = d.gateCode || '';
       // These were being collected on the quote and then dropped. The crew's
@@ -5203,7 +5178,6 @@ function renderQuoteRows(filtered){
       try{
         await updateDoc(doc(db,'quotes', id), {
           lightColors: csv(pick('.qdLightColors')),
-          houseAreas: csv(pick('.qdAreas')),
           installPreference: pick('.qdInstallPref') ? pick('.qdInstallPref').value : '',
           wireColor: pick('.qdWireColor') ? pick('.qdWireColor').value : '',
           outletTimer: pick('.qdOutletTimer') ? pick('.qdOutletTimer').value : '',
@@ -8845,7 +8819,6 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
   // in the One-Time / Permanent notes fields instead.
   const lightsDescription = compileLightsDescription(selectedColors.join(', '), '');
   const wireColor = document.getElementById('addCustWireColor').value;
-  const houseAreas = Array.from(document.querySelectorAll('.addcust-area-check:checked')).map(el => el.value);
   const installPreference = document.getElementById('addCustInstallPref').value;
   const chargeNewMemberFee = document.getElementById('addCustNewMemberFee').checked;
   const billToPhone = document.getElementById('addCustBillTo').value.replace(/\D/g,'');
@@ -8928,7 +8901,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
     const newAddrRef = await addDoc(collection(db,'jobAddresses'), Object.assign({
       street: street, city: city, state: 'UT', zip: zip,
       address: fullAddress, difficulty: difficulty, name: name, phone: phone, email: email,
-      phone2: phone2, email2: email2, lightsDescription: lightsDescription, houseAreas: houseAreas,
+      phone2: phone2, email2: email2, lightsDescription: lightsDescription,
       housePhotoUrl: addCustPhotoUrl, housePhotoOriginal: addCustPhotoOriginal, housePhotoMarkup: addCustPhotoMarkup,
       houseHighlights: addCustHighlights, portalToken: generatePortalToken(), installPreference: installPreference,
       chargeNewMemberFee: chargeNewMemberFee,
@@ -9021,7 +8994,6 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
     document.getElementById('addCustSpecificOutletNotesWrap').style.display = 'none';
     updateAddCustDiscountSummary();
     document.getElementById('addCustNewMemberFee').checked = false;
-    document.querySelectorAll('.addcust-area-check').forEach(function(cb){ cb.checked = false; cb.closest('.pill-check').classList.remove('checked'); });
     document.getElementById('addCustPhoto').value = '';
     document.getElementById('addCustPhotoWrap').style.display = 'none';
     document.getElementById('addCustViewToggle').style.display = 'none';
@@ -9610,7 +9582,7 @@ function buildAddressRowHtml(item){
   const needsFix = !!d.needsFix;
   const completed = !!d.completed;
   const needsRemoval = completed && !d.removalDone;
-  const hasHouseDetails = !!(d.housePhotoUrl || d.lightsDescription || d.phone2 || d.email2 || (d.houseAreas && d.houseAreas.length));
+  const hasHouseDetails = !!(d.housePhotoUrl || d.lightsDescription || d.phone2 || d.email2);
   const matchedInvoice = d.phone ? allInvoicesCache.find(inv => inv.data.phone === d.phone) : null;
   const seasonStatusLabels = {confirmed: 'Confirmed', needs_changes: 'Needs Changes', address_changed: 'Address Changed', cancellation_requested: 'Cancellation Requested'};
   const seasonStatusClasses = {confirmed: 'status-paid', needs_changes: 'status-due', address_changed: 'diff-Fix', cancellation_requested: 'status-due'};
@@ -9659,7 +9631,6 @@ function buildAddressRowHtml(item){
         '<div style="margin-bottom:8px;"><span class="status-pill diff-'+diff+'">'+diff+'</span>'+(d.scheduled ? ' <span class="status-pill status-paid">Install Scheduled</span>' : '')+(needsFix ? ' <span class="status-pill diff-Fix">Needs Fix</span>'+(d.fixScheduled ? ' <span class="status-pill status-paid">Fix Scheduled</span>' : '') : '')+(completed ? ' <span class="status-pill status-paid">&#10003; Done</span>' : '')+(needsRemoval ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Needs Removal</span>' : '')+(d.removalDone ? ' <span class="status-pill status-paid">&#10003; Removed</span>' : '')+(seasonStatusLabel ? ' <span class="status-pill '+seasonStatusClasses[d.seasonStatus]+'">'+seasonStatusLabel+'</span>' : '')+(needsQuote ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Needs Quote</span>' : '')+'</div>'+
         (d.phone ? '<div class="row-phone-line">'+esc(d.phone)+'</div>' : '')+
         priceLine+
-        (d.houseAreas && d.houseAreas.length ? '<div class="row-phone-line">&#127968; '+esc(d.houseAreas.join(', '))+'</div>' : '')+
         (crewLines.length ? '<div class="row-phone-line">'+crewLines.join(' &middot; ')+'</div>' : '')+
         (d.specificOutlet === 'Yes' && d.specificOutletNotes ? '<div class="row-phone-line">&#128268; <strong>Specific outlet:</strong> '+esc(d.specificOutletNotes)+'</div>' : '')+
         (d.notes ? '<div class="row-phone-line">&#128221; '+esc(d.notes)+'</div>' : '')+
@@ -9798,17 +9769,10 @@ function attachAddressRowHandlers(container){
           '<div class="form-row"><label>Secondary Phone</label><input type="tel" class="hd-phone2" value="'+esc(d.phone2||'')+'"></div>'+
           '<div class="form-row"><label>Secondary Email</label><input type="email" class="hd-email2" value="'+esc(d.email2||'')+'"></div>'+
         '</div>'+
-        '<div class="form-row"><label>Which Part(s) of the House?</label>'+
-          '<div class="color-check-row">'+
-            ['Front of House','Right Side','Left Side','Back of House'].map(function(a){
-              return '<label class="color-check"><input type="checkbox" class="hd-area-check" value="'+a+'"'+((d.houseAreas||[]).includes(a)?' checked':'')+'> '+a+'</label>';
-            }).join('')+
-          '</div>'+
-        '</div>'+
         '<div class="form-row"><label>What Lights Are They Getting?</label></div>'+
         lightsPickerFieldsHtml('hd-lights', d.lightsDescription||'')+
         '<div style="border-top:1px solid var(--line); margin-top:16px; padding-top:16px;">'+
-          '<label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:8px;">House Photo &amp; Areas to Light</label>'+
+          '<label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:8px;">House Photo</label>'+
           '<p style="font-size:12.5px; color:var(--slate); margin:0 0 10px;">Upload a photo of the house, then drag on it to outline each section they want lit (front, left side, full house, etc.) and set a price for each. Great for new houses so the crew knows exactly what was quoted.</p>'+
           '<input type="file" accept="image/*" class="hd-photo-input" style="margin-bottom:10px;">'+
           '<div class="hd-view-toggle" style="display:'+(housePhotoUrl?'flex':'none')+'; gap:8px; margin-bottom:10px;">'+
@@ -10007,7 +9971,6 @@ function attachAddressRowHandlers(container){
         // Their record as it stands, so a colour change can be detected.
         const existingCustEntry = jobAddresses.find(function(a){ return a.id === id; });
         const existingCust = existingCustEntry ? existingCustEntry.data : {};
-        const newAreas = Array.from(panel.querySelectorAll('.hd-area-check:checked')).map(cb => cb.value);
         const diffSelect = document.querySelector('.diff-select[data-setdiff="'+id+'"]');
         if(currentHighlights.length){
           statusEl2.textContent = 'Saving highlighted photo…';
@@ -10015,7 +9978,6 @@ function attachAddressRowHandlers(container){
         }
         const updates = {
           phone2: newPhone2, email2: newEmail2, lightsDescription: newLights,
-          houseAreas: newAreas,
           // A colour change means a new pattern to build, so send it to the warehouse.
           needsLightBuild: newLights ? (newLights !== (existingCust.lightsDescription || '') ? true : !!existingCust.needsLightBuild) : false,
           housePhotoUrl: currentPhotoUrl, houseHighlights: currentHighlights
@@ -11600,11 +11562,7 @@ function openEditCustomerModal(id){
     cb.checked = custColors.includes(cb.value);
     cb.closest('.pill-check').classList.toggle('checked', cb.checked);
   });
-  const custAreas = d.houseAreas || [];
-  document.querySelectorAll('.editcust-area-check').forEach(function(cb){
-    cb.checked = custAreas.includes(cb.value);
-    cb.closest('.pill-check').classList.toggle('checked', cb.checked);
-  });
+
   document.getElementById('editCustInstallPref').value = d.installPreference || 'Normal Schedule';
   document.getElementById('editCustNotes').value = d.notes || '';
   document.getElementById('editCustPhotoFile').value = '';
@@ -11776,7 +11734,6 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const newWantsMailed = document.getElementById('editCustWantsMailed').checked;
   const newColors = Array.from(document.querySelectorAll('.editcust-color-check:checked')).map(el => el.value);
   const newLightsDescription = compileLightsDescription(newColors.join(', '), '');
-  const newHouseAreas = Array.from(document.querySelectorAll('.editcust-area-check:checked')).map(el => el.value);
   const newInstallPref = document.getElementById('editCustInstallPref').value;
   const newHouseNotes = document.getElementById('editCustNotes').value.trim();
   if(!newName || (!newPhone && !newEmail)){ statusEl.textContent = 'Name plus a phone number or email are required.'; return; }
@@ -11794,7 +11751,6 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     // the warehouse the same way the old route editor did.
     addrUpdates.lightsDescription = newLightsDescription;
     addrUpdates.lightColors = newColors;
-    addrUpdates.houseAreas = newHouseAreas;
     addrUpdates.installPreference = newInstallPref;
     addrUpdates.notes = newHouseNotes;
     addrUpdates.oneTimeNotes = newOneTimeNotes;
