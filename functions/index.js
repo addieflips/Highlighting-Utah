@@ -1025,6 +1025,22 @@ async function runInvoiceBatch(triggeredBy) {
         inv.updatedAt = admin.firestore.FieldValue.serverTimestamp();
         await invRef.set(inv, { merge: true });
 
+        // Draw the used carryover off the customer NOW, right after the invoice
+        // write — NOT after the email. If it waited for a successful send and the
+        // email failed, the invoice would keep the applied credit while
+        // carryoverCredit stayed full, and the next run would apply it a second
+        // time (double credit = under-charge). Writing it here makes the two
+        // docs consistent even if the email later fails.
+        if (carryoverApplied > 0) {
+          const carryLeft = Math.max(0, carryAvail - carryoverApplied);
+          await custRef.update({
+            carryoverCredit: carryLeft,
+            carryoverNotes: carryLeft > 0
+              ? [{ amount: carryLeft, reason: 'Carryover credit remaining', date: new Date().toISOString() }]
+              : []
+          });
+        }
+
         const feet = Number(cust.measuredFeet) || 0;
         const basePrice = Number(cust.housePrice) || 0;
         const feetLine = (feet && perFootRate)
@@ -1044,12 +1060,18 @@ async function runInvoiceBatch(triggeredBy) {
           ? 'Nightly Auto-Invoice \u2014 Paid Receipt'
           : 'Nightly Auto-Invoice \u2014 Unpaid';
         const tplSnap = await db.collection('emailTemplates').where('name', '==', templateName).limit(1).get();
+        let body;
         if (tplSnap.empty) {
-          errors.push('Missing template: ' + templateName);
-          errorCount++;
-          continue;
+          // A missing or renamed template must NOT silently stop billing. Fall
+          // back to a built-in body (with all the tokens) so the invoice still
+          // goes out; note it in the run log so staff can restore the template.
+          body = status === 'Paid in Full'
+            ? 'Hi {{name}},<br><br>Thank you — your Christmas lights invoice is paid in full.<br><br>{{feet_line}}<br>{{new_member_fee_line}}<br>{{credit_lines}}<br><br>Amount paid: {{amount_paid}}<br><br>{{portal_button}}<br><br>— Highlighting Utah'
+            : 'Hi {{name}},<br><br>Here is your Christmas lights invoice.<br><br>{{feet_line}}<br>{{new_member_fee_line}}<br>{{credit_lines}}<br><br>Amount due: {{amount_due}}<br><br>{{portal_button}} {{venmo_button}}<br><br>Questions? {{message_link}}<br><br>— Highlighting Utah';
+          if (errors.length < 10) errors.push('Template missing, used built-in fallback: ' + templateName);
+        } else {
+          body = tplSnap.docs[0].data().body || '';
         }
-        let body = tplSnap.docs[0].data().body || '';
 
         const token = await ensureToken(id, cust);
         const portalUrl = 'https://highlightingutah.com/#/payment' + (token ? ('?token=' + token) : '');
@@ -1062,7 +1084,7 @@ async function runInvoiceBatch(triggeredBy) {
         body = body.split('{{new_member_fee_line}}').join(newMemberLine);
         body = body.split('{{credit_lines}}').join(creditLines);
         body = body.split('{{amount_due}}').join('$' + amountDue.toFixed(2));
-        body = body.split('{{amount_paid}}').join('$' + total.toFixed(2));
+        body = body.split('{{amount_paid}}').join('$' + paid.toFixed(2));
         body = body.split('{{portal_link}}').join(portalUrl);
         body = body.split('{{portal_button}}').join('<a href="' + portalUrl + '" style="' + btnStyleGold + '">Log Into Your Portal</a>');
         body = body.split('{{venmo_link}}').join(venmoUrl);
@@ -1086,20 +1108,12 @@ async function runInvoiceBatch(triggeredBy) {
           throw new Error('EmailJS send failed: ' + text);
         }
 
-        const custUpdate = {
+        // Carryover was already drawn down with the invoice write above, so here
+        // we only mark the email sent.
+        await custRef.update({
           invoiceEmailSent: true,
           invoiceEmailSentAt: admin.firestore.FieldValue.serverTimestamp()
-        };
-        // Whatever carryover credit was applied to this invoice is now used up.
-        // Rewrite the notes so they stay honest about what's actually left.
-        if (carryoverApplied > 0) {
-          const remaining = Math.max(0, carryAvail - carryoverApplied);
-          custUpdate.carryoverCredit = remaining;
-          custUpdate.carryoverNotes = remaining > 0
-            ? [{ amount: remaining, reason: 'Carryover credit remaining', date: new Date().toISOString() }]
-            : [];
-        }
-        await custRef.update(custUpdate);
+        });
         sentCount++;
       } catch (err) {
         errorCount++;
