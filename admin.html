@@ -2255,28 +2255,16 @@ Highlighting Utah</textarea>
     <div class="panel active" id="panel-quotes">
       <div class="panel-head"><div><h2>Quote Requests</h2><p>Submitted from the homepage address checker and quote form. Click an address to preview it on the map.</p></div></div>
       <div id="quoteStageTabs" style="margin-bottom:16px; display:flex; gap:8px; flex-wrap:wrap; border-bottom:1px solid var(--line); padding-bottom:14px;">
-        <button type="button" class="btn btn-sm" data-quotestage="new" style="font-weight:700;">New Quotes<span id="quoteStageCountNew" class="folder-count"></span></button>
-        <button type="button" class="btn btn-sm" data-quotestage="pricing" style="font-weight:700;">Price the Quote<span id="quoteStageCountPricing" class="folder-count"></span></button>
-        <button type="button" class="btn btn-sm" data-quotestage="completed" style="font-weight:700;">Filled Out Form<span id="quoteStageCountCompleted" class="folder-count"></span></button>
+        <button type="button" class="btn btn-sm" data-quotestage="new" style="font-weight:700;">Quotes<span id="quoteStageCountNew" class="folder-count"></span></button>
+        <button type="button" class="btn btn-sm" data-quotestage="send" style="font-weight:700;">Send out Quotes<span id="quoteStageCountSend" class="folder-count"></span></button>
+        <button type="button" class="btn btn-sm" data-quotestage="form" style="font-weight:700;">Fill out Form<span id="quoteStageCountForm" class="folder-count"></span></button>
+        <button type="button" class="btn btn-sm" data-quotestage="closed" style="font-weight:700;">Closed<span id="quoteStageCountClosed" class="folder-count"></span></button>
       </div>
-      <div id="quoteFolderToggle" style="margin-bottom:14px; display:flex; gap:8px;"></div>
       <div id="quoteApprovalStats" style="margin-bottom:16px; display:flex; gap:10px; flex-wrap:wrap;"></div>
       <div style="margin-bottom:16px; display:flex; gap:10px; flex-wrap:wrap;">
         <select id="quoteFilterSelect" style="border-radius:999px; border:1px solid var(--line); padding:8px 14px; font-size:13.5px; font-weight:600; color:var(--ink); background:var(--snow);">
           <option value="all">All Quotes</option>
           </select>
-        <select id="quoteStatusFilterSelect" style="border-radius:999px; border:1px solid var(--line); padding:8px 14px; font-size:13.5px; font-weight:600; color:var(--ink); background:var(--snow);">
-          <option value="all">All Statuses</option>
-          <option value="new" selected>New</option>
-          <option value="contacted">Contacted</option>
-          <option value="closed">Closed</option>
-        </select>
-        <select id="quoteApprovalFilterSelect" style="border-radius:999px; border:1px solid var(--line); padding:8px 14px; font-size:13.5px; font-weight:600; color:var(--ink); background:var(--snow);">
-          <option value="all">All Approval Status</option>
-          <option value="awaiting">Unresponsive (10+ Days)</option>
-          <option value="approved">Approved</option>
-          <option value="declined">Declined</option>
-        </select>
         <select id="quoteColorFilterSelect" style="border-radius:999px; border:1px solid var(--line); padding:8px 14px; font-size:13.5px; font-weight:600; color:var(--ink); background:var(--snow);">
           <option value="all">All Color Combos</option>
         </select>
@@ -4768,15 +4756,20 @@ document.getElementById('pfCalcFeet').addEventListener('input', updatePfCalcResu
 /* ---------------- QUOTES ---------------- */
 let quotesCache = [];
 let quoteFilter = 'all';
-let quoteStatusFilter = 'new';  // default view is New — changeable from the dropdown
-let quoteApprovalFilter = 'all';
-let quoteFolderView = 'main';
 let quoteColorFilter = 'all';
-let quoteStageFilter = 'new';
+let quoteStageFilter = 'new';   // one of: new, send, form, closed
+/* The four stages a quote moves through, in the order they're worked:
+     new    — it came in, nobody has priced it yet
+     send   — priced, now waiting on the customer to approve or decline
+     form   — they approved, so the detail form gets filled in
+     closed — declined, or closed out (including converted to a customer)
+   Closed is checked first so a finished quote never reappears earlier in the
+   pipeline. */
 function quoteStage(d){
-  if(d.approvalStatus === 'approved' && d.formCompleted) return 'completed';
+  if((d.status || 'new') === 'closed' || d.approvalStatus === 'declined') return 'closed';
   if(typeof d.quotedPrice !== 'number') return 'new';
-  return 'pricing';
+  if(d.approvalStatus === 'approved') return 'form';
+  return 'send';
 }
 function colorComboKey(colors){
   if(!colors || !colors.length) return '';
@@ -4826,20 +4819,8 @@ function populateQuoteColorFilter(){
 }
 function renderQuotesList(){
   const list = document.getElementById('quotesList');
-  const toggleEl = document.getElementById('quoteFolderToggle');
   const freshAwaiting = quotesCache.filter(q => isFreshAwaiting(q.data));
   const staleUnresponsive = quotesCache.filter(q => isStaleUnresponsive(q.data));
-  if(toggleEl){
-    toggleEl.innerHTML =
-      '<button type="button" class="btn '+(quoteFolderView==='main'?'btn-gold':'btn-outline')+' btn-sm" data-folderview="main">Main Quotes</button>'+
-      '<button type="button" class="btn '+(quoteFolderView==='awaiting'?'btn-gold':'btn-outline')+' btn-sm" data-folderview="awaiting">Awaiting Response ('+freshAwaiting.length+')</button>';
-    toggleEl.querySelectorAll('[data-folderview]').forEach(function(btn){
-      btn.addEventListener('click', function(){
-        quoteFolderView = btn.dataset.folderview;
-        renderQuotesList();
-      });
-    });
-  }
   const statsEl = document.getElementById('quoteApprovalStats');
   if(statsEl){
     const approvedCount = quotesCache.filter(q => q.data.approvalStatus === 'approved').length;
@@ -4853,11 +4834,12 @@ function renderQuotesList(){
 
   const stageTabsEl = document.getElementById('quoteStageTabs');
   if(stageTabsEl){
-    const stageCounts = {new:0, pricing:0, completed:0};
+    const stageCounts = {new:0, send:0, form:0, closed:0};
     quotesCache.forEach(function(item){ stageCounts[quoteStage(item.data)]++; });
     document.getElementById('quoteStageCountNew').textContent = ' (' + stageCounts.new + ')';
-    document.getElementById('quoteStageCountPricing').textContent = ' (' + stageCounts.pricing + ')';
-    document.getElementById('quoteStageCountCompleted').textContent = ' (' + stageCounts.completed + ')';
+    document.getElementById('quoteStageCountSend').textContent = ' (' + stageCounts.send + ')';
+    document.getElementById('quoteStageCountForm').textContent = ' (' + stageCounts.form + ')';
+    document.getElementById('quoteStageCountClosed').textContent = ' (' + stageCounts.closed + ')';
     stageTabsEl.querySelectorAll('[data-quotestage]').forEach(function(btn){
       const active = btn.dataset.quotestage === quoteStageFilter;
       btn.classList.toggle('btn-gold', active);
@@ -4868,25 +4850,21 @@ function renderQuotesList(){
       };
     });
   }
-  if(quoteFolderView === 'awaiting'){
-    if(!freshAwaiting.length){ list.innerHTML = '<div class="empty-note">Nothing awaiting response right now.</div>'; return; }
-    renderQuoteRows(freshAwaiting);
+  /* The tab IS the view now — no separate "awaiting" folder, and no status or
+     approval dropdown, since the pipeline already encodes both. */
+  let filtered = quotesCache.filter(item => quoteStage(item.data) === quoteStageFilter);
+  if(quoteColorFilter !== 'all') filtered = filtered.filter(item => colorComboKey(item.data.lightColors) === quoteColorFilter);
+  if(quoteFilter === 'flagged') filtered = filtered.filter(item => !item.data.frontPhotoUrl);
+  if(!filtered.length){
+    const emptyMsg = {
+      new: 'No new quote requests waiting to be priced.',
+      send: 'Nothing waiting on a customer response.',
+      form: 'No approved quotes waiting on their form.',
+      closed: 'Nothing closed yet.'
+    }[quoteStageFilter] || 'No quote requests match this view.';
+    list.innerHTML = '<div class="empty-note">'+(quoteFilter==='flagged' ? 'Nothing flagged in this tab.' : emptyMsg)+'</div>';
     return;
   }
-
-  let filtered = quotesCache.filter(item => !isFreshAwaiting(item.data));
-  filtered = filtered.filter(item => quoteStage(item.data) === quoteStageFilter);
-  if(quoteStatusFilter !== 'all') filtered = filtered.filter(item => (item.data.status||'new') === quoteStatusFilter);
-  if(quoteColorFilter !== 'all') filtered = filtered.filter(item => colorComboKey(item.data.lightColors) === quoteColorFilter);
-  if(quoteApprovalFilter !== 'all'){
-    filtered = filtered.filter(function(item){
-      if(typeof item.data.quotedPrice !== 'number') return false;
-      const st = item.data.approvalStatus || 'pending';
-      if(quoteApprovalFilter === 'awaiting') return st === 'pending';
-      return st === quoteApprovalFilter;
-    });
-  }
-  if(!filtered.length){ list.innerHTML = '<div class="empty-note">'+(quoteFilter==='flagged' ? 'Nothing flagged right now.' : 'No quote requests match this view.')+'</div>'; return; }
   renderQuoteRows(filtered);
 }
 function quoteDetailSelect(cls, id, value, options){
@@ -5198,14 +5176,6 @@ function renderQuoteRows(filtered){
 }
 document.getElementById('quoteFilterSelect').addEventListener('change', function(){
   quoteFilter = this.value;
-  renderQuotesList();
-});
-document.getElementById('quoteStatusFilterSelect').addEventListener('change', function(){
-  quoteStatusFilter = this.value;
-  renderQuotesList();
-});
-document.getElementById('quoteApprovalFilterSelect').addEventListener('change', function(){
-  quoteApprovalFilter = this.value;
   renderQuotesList();
 });
 document.getElementById('quoteColorFilterSelect').addEventListener('change', function(){
