@@ -1022,21 +1022,13 @@ async function runInvoiceBatch(triggeredBy) {
           ? invSnap.data()
           : { install: Number(cust.housePrice) || 0, removal: 0, deposit: 0, name: cust.name, phone, email };
 
-        // New-member detection drives the $30 fee, so read the enrollment year
-        // robustly however createdAt was stored (Firestore Timestamp, a raw
-        // {seconds} object, a JS Date, an epoch number, or an ISO string). A
-        // Timestamp-only check silently missed the fee whenever the field had
-        // been written in any other shape.
-        let enrollYear = null;
-        const _ca = cust.createdAt;
-        try {
-          if (_ca && typeof _ca.toDate === 'function') enrollYear = _ca.toDate().getFullYear();
-          else if (_ca instanceof Date) enrollYear = _ca.getFullYear();
-          else if (_ca && typeof _ca.seconds === 'number') enrollYear = new Date(_ca.seconds * 1000).getFullYear();
-          else if (typeof _ca === 'number') enrollYear = new Date(_ca).getFullYear();
-          else if (typeof _ca === 'string') { const _d = new Date(_ca); if (!isNaN(_d.getTime())) enrollYear = _d.getFullYear(); }
-        } catch (e) { enrollYear = null; }
-        const isNewMember = enrollYear !== null && enrollYear === new Date().getFullYear();
+        // The $30 join fee is opt-in per customer, set from the "Charge $30 new
+        // member installation fee" checkbox on the Add Customer form. It is NOT
+        // inferred from the enrollment year any more — that inference applied the
+        // fee to everyone who signed up in the current year, whether or not it was
+        // meant to. Absent or false means no fee, so existing customers who were
+        // never explicitly flagged are never charged.
+        const isNewMember = cust.chargeNewMemberFee === true;
         if (isNewMember && !inv.newMemberFeeApplied) {
           inv.install = (Number(inv.install) || 0) + 30;
           inv.newMemberFeeApplied = true;
