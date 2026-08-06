@@ -4982,6 +4982,11 @@ function renderQuoteRows(filtered){
         document.getElementById('addCustPhotoStatus').textContent = 'Photo carried over from the quote.';
       }
       document.querySelector('.nav-item[data-panel="addcustomer"]').click();
+      // Opening the Customers panel isn't enough — it has inner tabs, and it
+      // stays on whichever one was last used. Landing on "All Customers" left
+      // the freshly filled form hidden behind a tab. Same two-step the Bulk
+      // Updates button uses.
+      setTimeout(function(){ document.querySelector('#custSectionTabs [data-custtab="add"]').click(); }, 50);
       toast('Quote details filled in' + (d.frontPhotoUrl ? ', photo included' : '') + (typeof d.quotedPrice === 'number' && d.quotedPrice > 0 ? ', using the approved quote price' : (d.estimatedFeet && perFootRate ? ', price estimated from footage' : '')) + ' — review and click Add Customer');
     });
   });
