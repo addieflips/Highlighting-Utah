@@ -919,6 +919,7 @@
             <div class="form-row" style="max-width:220px; margin-top:10px;"><label>Gate Code (optional)</label><input type="text" id="addCustGateCode" placeholder="e.g. #4521"></div>
             <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">If entered, this house is automatically flagged as gated on Routes and Maps, visible to you and your crew.</p>
             <div class="form-row" style="max-width:220px; margin-top:10px;"><label>Outlet Timer</label><select id="addCustOutletTimer"><option value="">&mdash;</option><option value="Yes">Yes</option><option value="No">No</option></select></div>
+            <div class="form-row" style="max-width:220px; margin-top:10px;"><label>Use Eaves</label><select id="addCustEaves"><option value="">&mdash;</option><option value="Yes">Yes</option><option value="No">No</option></select></div>
             <div class="form-row" style="max-width:220px; margin-top:10px;"><label>Specific Outlet</label><select id="addCustSpecificOutlet"><option value="">&mdash;</option><option value="Yes">Yes</option><option value="No">No</option></select></div>
             <div class="form-row" style="margin-top:10px;"><label>Which Outlet? (optional)</label><input type="text" id="addCustSpecificOutletNotes" placeholder="e.g. the outlet on the back patio"></div>
             <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Answering Yes to Outlet Timer puts this house on the crew&rsquo;s Timers list. The outlet note shows on their route card.</p>
@@ -1015,6 +1016,23 @@
                 <label>Install Month (optional) <span class="bulk-count" id="rbCountInstallPref">0 rows</span></label>
                 <textarea id="rbInstallPrefArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="October&#10;November&#10;(blank = Any)"></textarea>
                 <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">Type October, November, or Any &mdash; not case-sensitive. Leave blank for Any.</p>
+              </div>
+            </div>
+            <div class="form-grid-3">
+              <div class="form-row">
+                <label>Wire Color (optional) <span class="bulk-count" id="rbCountWire">0 rows</span></label>
+                <textarea id="rbWireArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="White&#10;Green&#10;(blank = leave as is)"></textarea>
+                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">Type White or Green &mdash; not case-sensitive. Blank leaves it unchanged.</p>
+              </div>
+              <div class="form-row">
+                <label>Outlet Timer (optional) <span class="bulk-count" id="rbCountTimer">0 rows</span></label>
+                <textarea id="rbTimerArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="Yes&#10;No&#10;(blank = leave as is)"></textarea>
+                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">Type Yes or No (y/n also works). Blank leaves it unchanged.</p>
+              </div>
+              <div class="form-row">
+                <label>Use Eaves (optional) <span class="bulk-count" id="rbCountEaves">0 rows</span></label>
+                <textarea id="rbEavesArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="Yes&#10;No&#10;(blank = leave as is)"></textarea>
+                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">Type Yes or No (y/n also works). Blank leaves it unchanged.</p>
               </div>
             </div>
             <button type="button" class="btn btn-gold" id="rbImportBtn" style="margin-top:6px;">Import / Update Customers</button>
@@ -1150,6 +1168,7 @@
           <p style="font-size:11.5px; color:var(--slate); margin:-8px 0 0;">If someone else pays for this house, enter their phone number &mdash; this house's price rolls into their invoice instead.</p>
           <div class="form-row"><label>Gate Code (optional)</label><input type="text" id="editCustGateCode" placeholder="e.g. #4521"></div>
           <div class="form-row"><label>Outlet Timer</label><select id="editCustOutletTimer"><option value="">&mdash;</option><option value="Yes">Yes</option><option value="No">No</option></select></div>
+          <div class="form-row"><label>Use Eaves</label><select id="editCustEaves"><option value="">&mdash;</option><option value="Yes">Yes</option><option value="No">No</option></select></div>
           <div class="form-row"><label>Specific Outlet</label><select id="editCustSpecificOutlet"><option value="">&mdash;</option><option value="Yes">Yes</option><option value="No">No</option></select></div>
           <div class="form-row"><label>Which Outlet? (optional)</label><input type="text" id="editCustSpecificOutletNotes" placeholder="e.g. the outlet on the back patio"></div>
           <div class="form-row" style="max-width:180px;"><label>Number of Bins</label><input type="number" id="editCustBins" min="1" step="1"></div>
@@ -8673,6 +8692,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
   const billToPhone = document.getElementById('addCustBillTo').value.replace(/\D/g,'');
   const gateCode = document.getElementById('addCustGateCode').value.trim();
   const outletTimer = document.getElementById('addCustOutletTimer').value;
+  const useEaves = document.getElementById('addCustEaves').value;
   const specificOutlet = document.getElementById('addCustSpecificOutlet').value;
   const specificOutletNotes = document.getElementById('addCustSpecificOutletNotes').value.trim();
   const custNotes = document.getElementById('addCustNotes').value.trim();
@@ -8747,7 +8767,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
       contactMethod: (addCustFromQuoteId ? (addCustContactMethodFromQuote || '') : ''),
       wireColor: wireColor,
       lat: coords.lat, lng: coords.lng, needsLightBuild: !!lightsDescription,
-      scheduled: false, createdAt: serverTimestamp(), housePrice: price, measuredFeet: measuredFeet, gateCode: gateCode, outletTimer: outletTimer, specificOutlet: specificOutlet, specificOutletNotes: specificOutletNotes, notes: custNotes, wantsMailedInvoice: wantsMailedInvoice, numberOfBins: numberOfBins, customerNumber: customerNumber
+      scheduled: false, createdAt: serverTimestamp(), housePrice: price, measuredFeet: measuredFeet, gateCode: gateCode, outletTimer: outletTimer, useEaves: useEaves, specificOutlet: specificOutlet, specificOutletNotes: specificOutletNotes, notes: custNotes, wantsMailedInvoice: wantsMailedInvoice, numberOfBins: numberOfBins, customerNumber: customerNumber
     }, billingElsewhere ? {billToPhone: billToPhone} : {}));
     // If this number was sitting in the available pool, it isn't available anymore.
     if(customerNumber){
@@ -9025,12 +9045,28 @@ function wireBulkCounts(areaIds, anchorId, countIdMap){
 }
 
 // --- Routes Bulk Update ---
-const rbAreaIds = ['rbNamesArea','rbPhonesArea','rbEmailsArea','rbStreetsArea','rbCitiesArea','rbStatesArea','rbZipsArea','rbDatesArea','rbColorsArea','rbAmountsArea','rbInstallPrefArea','rbCustNumbersArea'];
+const rbAreaIds = ['rbNamesArea','rbPhonesArea','rbEmailsArea','rbStreetsArea','rbCitiesArea','rbStatesArea','rbZipsArea','rbDatesArea','rbColorsArea','rbAmountsArea','rbInstallPrefArea','rbCustNumbersArea','rbWireArea','rbTimerArea','rbEavesArea'];
 const rbCountIds = {
   rbNamesArea:'rbCountNames', rbPhonesArea:'rbCountPhones', rbEmailsArea:'rbCountEmails',
   rbStreetsArea:'rbCountStreets', rbCitiesArea:'rbCountCities', rbStatesArea:'rbCountStates', rbZipsArea:'rbCountZips', rbDatesArea:'rbCountDates',
-  rbColorsArea:'rbCountColors', rbAmountsArea:'rbCountAmounts', rbInstallPrefArea:'rbCountInstallPref', rbCustNumbersArea:'rbCountCustNumbers'
+  rbColorsArea:'rbCountColors', rbAmountsArea:'rbCountAmounts', rbInstallPrefArea:'rbCountInstallPref', rbCustNumbersArea:'rbCountCustNumbers',
+  rbWireArea:'rbCountWire', rbTimerArea:'rbCountTimer', rbEavesArea:'rbCountEaves'
 };
+// Bulk Wire = White/Green; Bulk Timer + Use Eaves = Yes/No. Blank leaves the field as-is.
+function rbNormalizeWire(raw){
+  if(!raw) return '';
+  const v = raw.trim().toLowerCase();
+  if(v === 'white' || v === 'w') return 'White';
+  if(v === 'green' || v === 'g') return 'Green';
+  return raw.trim();
+}
+function rbNormalizeYesNo(raw){
+  if(!raw) return '';
+  const v = raw.trim().toLowerCase();
+  if(v === 'yes' || v === 'y' || v === 'true') return 'Yes';
+  if(v === 'no' || v === 'n' || v === 'false') return 'No';
+  return raw.trim();
+}
 const RB_INSTALL_PREF_OPTIONS = ['Normal Schedule','October','November','November - Before Thanksgiving','After Thanksgiving'];
 function rbNormalizeInstallPref(raw){
   if(!raw) return '';
@@ -9087,11 +9123,15 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
   const colorsRaw = alignBulkRows(document.getElementById('rbColorsArea').value.split('\n').map(s => s.trim()), streets.length);
   const amounts = alignBulkRows(document.getElementById('rbAmountsArea').value.split('\n').map(s => s.trim()), streets.length);
   const installPrefRaw = alignBulkRows(document.getElementById('rbInstallPrefArea').value.split('\n').map(s => s.trim()), streets.length);
+  const wireRaw = alignBulkRows(document.getElementById('rbWireArea').value.split('\n').map(s => s.trim()), streets.length);
+  const timerRaw = alignBulkRows(document.getElementById('rbTimerArea').value.split('\n').map(s => s.trim()), streets.length);
+  const eavesRaw = alignBulkRows(document.getElementById('rbEavesArea').value.split('\n').map(s => s.trim()), streets.length);
 
   const checks = [
     ['Name', names],
     ['Phone Number', phones], ['Email', emails], ['City', cities], ['State', states], ['Zip Code', zips], ['Date Added', dates],
-    ['Light Color(s)', colorsRaw], ['Payment Amount', amounts], ['Install Month', installPrefRaw]
+    ['Light Color(s)', colorsRaw], ['Payment Amount', amounts], ['Install Month', installPrefRaw],
+    ['Wire Color', wireRaw], ['Outlet Timer', timerRaw], ['Use Eaves', eavesRaw]
   ];
   for(const [label, arr] of checks){
     const nonEmptyCount = arr.filter(Boolean).length;
@@ -9131,6 +9171,9 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
     const colors = detected.colors;
     const pattern = detected.pattern;
     const installPref = rbNormalizeInstallPref(installPrefRaw[i] || '');
+    const wireColorVal = rbNormalizeWire(wireRaw[i] || '');
+    const outletTimerVal = rbNormalizeYesNo(timerRaw[i] || '');
+    const useEavesVal = rbNormalizeYesNo(eavesRaw[i] || '');
     const amountTypedIn = amounts[i] || '';
     const price = amountTypedIn ? Number(amountTypedIn.replace(/[,$]/g,'')) : null;
     try{
@@ -9164,6 +9207,9 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
           updates.lightsDescription = pattern;
         }
         if(installPref) updates.installPreference = installPref;
+        if(wireColorVal) updates.wireColor = wireColorVal;
+        if(outletTimerVal) updates.outletTimer = outletTimerVal;
+        if(useEavesVal) updates.useEaves = useEavesVal;
         await updateDoc(doc(db,'jobAddresses',existing.id), updates);
         updated++;
       } else {
@@ -9173,6 +9219,7 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
           lightColors: colors,
           lightsDescription: pattern,
           installPreference: installPref || 'Normal Schedule',
+          wireColor: wireColorVal || '', outletTimer: outletTimerVal || '', useEaves: useEavesVal || '',
           portalToken: generatePortalToken(),
           lat: coords.lat, lng: coords.lng,
           needsGeocode: coords.lat === null,
@@ -11235,6 +11282,7 @@ function openEditCustomerModal(id){
   document.getElementById('editCustBillTo').value = d.billToPhone || '';
   document.getElementById('editCustGateCode').value = d.gateCode || '';
   document.getElementById('editCustOutletTimer').value = d.outletTimer || '';
+  document.getElementById('editCustEaves').value = d.useEaves || '';
   document.getElementById('editCustSpecificOutlet').value = d.specificOutlet || '';
   document.getElementById('editCustSpecificOutletNotes').value = d.specificOutletNotes || '';
   document.getElementById('editCustBins').value = d.numberOfBins || 1;
@@ -11408,6 +11456,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const newBillTo = document.getElementById('editCustBillTo').value.replace(/\D/g,'');
   const newGateCode = document.getElementById('editCustGateCode').value.trim();
   const newOutletTimer = document.getElementById('editCustOutletTimer').value;
+  const newUseEaves = document.getElementById('editCustEaves').value;
   const newSpecificOutlet = document.getElementById('editCustSpecificOutlet').value;
   const newSpecificOutletNotes = document.getElementById('editCustSpecificOutletNotes').value.trim();
   const newBins = parseInt(document.getElementById('editCustBins').value, 10) || 1;
@@ -11425,7 +11474,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const oldAddress = item.data.address || '';
   statusEl.textContent = 'Saving…';
   try{
-    const addrUpdates = {name: newName, phone: newPhone, phone2: newPhone2, email: newEmail, email2: newEmail2, address: newAddress, rsvpStatus: newRsvp, needsLightRecycle: newRsvp === 'no', housePrice: newHousePrice, measuredFeet: newMeasuredFeet, wireColor: newWireColor, billToPhone: newBillTo, gateCode: newGateCode, outletTimer: newOutletTimer, specificOutlet: newSpecificOutlet, specificOutletNotes: newSpecificOutletNotes, numberOfBins: newBins, wantsMailedInvoice: newWantsMailed, layoutMapUrl: editCustLayoutMapUrl, earliestInstallDate: newEarliestInstallStr ? new Date(newEarliestInstallStr + 'T00:00:00') : null};
+    const addrUpdates = {name: newName, phone: newPhone, phone2: newPhone2, email: newEmail, email2: newEmail2, address: newAddress, rsvpStatus: newRsvp, needsLightRecycle: newRsvp === 'no', housePrice: newHousePrice, measuredFeet: newMeasuredFeet, wireColor: newWireColor, billToPhone: newBillTo, gateCode: newGateCode, outletTimer: newOutletTimer, useEaves: newUseEaves, specificOutlet: newSpecificOutlet, specificOutletNotes: newSpecificOutletNotes, numberOfBins: newBins, wantsMailedInvoice: newWantsMailed, layoutMapUrl: editCustLayoutMapUrl, earliestInstallDate: newEarliestInstallStr ? new Date(newEarliestInstallStr + 'T00:00:00') : null};
     if(newEnrolledStr) addrUpdates.createdAt = new Date(newEnrolledStr + 'T12:00:00');
     // Lights, house areas, install timing and permanent notes now live on the
     // customer. A colour change means a new pattern to build, so it re-queues
@@ -12111,7 +12160,7 @@ function renderRouteOrderedList(ordered){
       (hd.notes ? '<div style="font-size:12.5px; color:var(--slate); margin-top:2px;">&#128221; '+esc(hd.notes)+'</div>' : '')+
       (hd.specificOutlet === 'Yes' && hd.specificOutletNotes ? '<div style="font-size:12.5px; color:#4338CA; margin-top:2px;">&#128268; Outlet: '+esc(hd.specificOutletNotes)+'</div>' : '')+
       (hd.lightsDescription ? '<div style="font-size:12.5px; color:var(--dusk); font-weight:600; margin-top:2px;">&#127875; Light Colors: '+esc(hd.lightsDescription)+'</div>' : '')+
-      '<div style="font-size:12.5px; color:var(--slate); margin-top:2px;">Wire: '+esc(hd.wireColor || 'White')+' &middot; Timer: '+(hd.outletTimer === 'Yes' ? 'Yes' : 'No')+'</div>'+
+      '<div style="font-size:12.5px; color:var(--slate); margin-top:2px;">Wire: '+esc(hd.wireColor || 'White')+' &middot; Timer: '+(hd.outletTimer === 'Yes' ? 'Yes' : 'No')+(hd.useEaves ? ' &middot; Eaves: '+esc(hd.useEaves) : '')+'</div>'+
       (hd.oneTimeNote ? '<div style="font-size:12.5px; color:var(--ember); margin-top:2px;">&#128221; (this visit only) '+esc(hd.oneTimeNote)+'</div>' : '')+
       (needsFix && (hd.fixNote || hd.fixPhotoUrl) ? (
         '<div style="background:#FDECEA; border:1px solid #f0b3ac; border-radius:8px; padding:10px 12px; margin-top:8px;">'+
