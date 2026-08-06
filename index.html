@@ -3157,7 +3157,7 @@ async function notifyLightsChange(finalDescription){
   var messageText = 'Updated their light color/pattern to: ' + (finalDescription || '(none selected)');
   try{
     await addDoc(collection(db,'messages'), {
-      topic: 'Light Color Change', folder: 'Inbox',
+      topic: 'Light Color Change', folder: 'System',
       name: name, phone: phone, email: email,
       contactMethod: '', message: messageText,
       // The change already went to the Warehouse when it saved, so this message
@@ -3401,7 +3401,7 @@ document.getElementById('changesSaveBtn').addEventListener('click', async functi
     setTimeout(function(){ statusEl.textContent = ''; }, 1500);
     if(wireColorChanged){
       await addDoc(collection(db,'messages'), {
-        topic: 'Wire Color Change', folder: 'Inbox',
+        topic: 'Wire Color Change', folder: 'System',
         name: contactName, phone: contactPhone, email: contactEmail,
         contactMethod: '', message: 'Changed their wire color to: ' + newWireColor,
         createdAt: serverTimestamp()
@@ -3427,7 +3427,7 @@ document.getElementById('changesSaveBtn').addEventListener('click', async functi
     }
     if(outletTimerChanged){
       await addDoc(collection(db,'messages'), {
-        topic: 'Outlet Timer Change', folder: 'Inbox',
+        topic: 'Outlet Timer Change', folder: 'System',
         name: contactName, phone: contactPhone, email: contactEmail,
         contactMethod: '', message: 'Changed their outlet timer preference to: ' + newOutletTimer,
         createdAt: serverTimestamp()
