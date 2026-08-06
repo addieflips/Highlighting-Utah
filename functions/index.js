@@ -626,7 +626,7 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
         jobAddrLightUpdate.lightsChangedAfterAssignAt = admin.firestore.FieldValue.serverTimestamp();
         try {
           await db.collection('messages').add({
-            topic: 'Lights Changed After Assignment', folder: 'Inbox',
+            topic: 'Lights Changed After Assignment', folder: 'System',
             name: oldData.name || '', phone: oldData.phone || '', email: oldData.email || '',
             contactMethod: '',
             message: (oldData.name || 'A customer') + ' changed their lights to "' + updates.lightsDescription +
