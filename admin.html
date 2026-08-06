@@ -6297,77 +6297,39 @@ function renderInvoicesList(){
       const d = snap2.data();
       const totalAmount = (d.install||0) + (d.removal||0);
       panel.innerHTML =
-        '<div class="form-grid-2">'+
-          '<div class="form-row"><label>Customer Name</label><input type="text" class="ie-name" value="'+esc(d.name||'')+'"></div>'+
-          '<div class="form-row"><label>Phone Number</label><input type="tel" class="ie-phone" value="'+esc(d.phone||'')+'"></div>'+
+        '<div class="rtext" style="margin-bottom:12px; line-height:1.7;">'+
+          '<div><strong>Name:</strong> '+esc(d.name||'&mdash;')+'</div>'+
+          '<div><strong>Phone:</strong> '+esc(d.phone||'&mdash;')+'</div>'+
+          '<div><strong>Email:</strong> '+esc(d.email||'&mdash;')+'</div>'+
+          '<div style="margin-top:6px; font-size:11.5px; color:var(--slate);">Name, phone, email, colours, notes and photo are all edited on the customer in <strong>Customers</strong>. Here you only set the money.</div>'+
         '</div>'+
         '<div class="form-grid-2">'+
-          '<div class="form-row"><label>Email</label><input type="email" class="ie-email" value="'+esc(d.email||'')+'"></div>'+
           '<div class="form-row"><label>Amount ($)</label><input type="number" class="ie-amount" min="0" step="1" value="'+totalAmount+'"></div>'+
+          '<div class="form-row"><label>Amount Paid So Far ($)</label><input type="number" class="ie-paid" min="0" step="1" value="'+(d.deposit||0)+'"></div>'+
         '</div>'+
-        '<div class="form-grid-2">'+
-          '<div class="form-row"><label>Secondary Phone</label><input type="tel" class="ie-phone2" value="'+esc(d.phone2||'')+'"></div>'+
-          '<div class="form-row"><label>Secondary Email</label><input type="email" class="ie-email2" value="'+esc(d.email2||'')+'"></div>'+
-        '</div>'+
-        '<div class="form-row"><label>What Lights Are They Getting?</label></div>'+
-        lightsPickerFieldsHtml('ie-lights', d.lightsDescription||'')+
-        '<div class="form-row" style="max-width:220px; margin-top:6px;"><label>Amount Paid So Far ($)</label><input type="number" class="ie-paid" min="0" step="1" value="'+(d.deposit||0)+'"></div>'+
-        '<button type="button" class="btn btn-gold btn-sm ie-save" style="margin-top:12px;">Save Changes</button>'+
-        '<div class="ie-photo-area" style="margin-top:14px;"></div>';
-      const matchedAddr = jobAddresses.find(a => custInvoiceKey(a.data) === id);
-      if(matchedAddr && matchedAddr.data.housePhotoUrl){
-        const photoUrl = matchedAddr.data.housePhotoUrl;
-        panel.querySelector('.ie-photo-area').innerHTML =
-          '<label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:8px;">House Photo (from Routes)</label>'+
-          '<img src="'+esc(photoUrl)+'" style="max-width:220px; border-radius:8px; border:1px solid var(--line); display:block; margin-bottom:8px;">'+
-          '<button type="button" class="btn btn-outline btn-sm ie-copy-photo" data-url="'+esc(photoUrl)+'">Copy Photo Link (for email)</button>';
-        panel.querySelector('.ie-copy-photo').addEventListener('click', function(){
-          navigator.clipboard.writeText(photoUrl).then(function(){
-            this.textContent = 'Copied!';
-            setTimeout(() => { this.textContent = 'Copy Photo Link (for email)'; }, 2000);
-          }.bind(this));
-        });
-      }
+        '<button type="button" class="btn btn-gold btn-sm ie-save" style="margin-top:12px;">Save Changes</button>';
       panel.querySelector('.ie-save').addEventListener('click', async function(){
-        const originalPhone = (d.phone||'').replace(/\D/g,'');
-        const newName = panel.querySelector('.ie-name').value.trim();
-        const newPhone = panel.querySelector('.ie-phone').value.replace(/\D/g,'');
-        const newEmail = panel.querySelector('.ie-email').value.trim();
-        const newPhone2 = panel.querySelector('.ie-phone2').value.replace(/\D/g,'');
-        const newEmail2 = panel.querySelector('.ie-email2').value.trim();
-        const newLights = readLightsPicker(panel, 'ie-lights');
         const newAmount = Number(panel.querySelector('.ie-amount').value) || 0;
         const newDeposit = Math.min(Math.max(Number(panel.querySelector('.ie-paid').value) || 0, 0), newAmount);
         const updates = {
-          name: newName, phone: newPhone, email: newEmail,
-          phone2: newPhone2, email2: newEmail2, lightsDescription: newLights,
           install: newAmount, removal: 0, deposit: newDeposit,
           status: computeInvoiceStatus(newAmount, 0, newDeposit),
           priceReviewed: true, updatedAt: serverTimestamp()
         };
-        // Invoice docs are keyed by phone digits, or lowercase email when the
-        // customer has no phone. If the key changed, move the doc to the new key.
-        const newDocKey = newPhone || newEmail.toLowerCase();
-        if(newDocKey && newDocKey !== id){
-          await setDoc(doc(db,'invoices', newDocKey), updates, {merge:true});
-          await deleteDoc(doc(db,'invoices', id));
-        } else {
-          await updateDoc(doc(db,'invoices', id), updates);
-        }
-        // Sync these fields back to the matching customer record (Routes/jobAddresses)
+        await updateDoc(doc(db,'invoices', id), updates);
+        // Keep the customer's house price in step so the invoice and the customer
+        // can't drift. The $30 new-member fee lives inside the invoice amount, so
+        // strip it back off to recover the base house price. Skip multi-house
+        // bill-to invoices, where the amount is a sum and can't map to one house.
         let syncedNote = '';
         const matched = jobAddresses.find(a => custInvoiceKey(a.data) === id);
-        if(matched){
-          const custUpdates = {
-            name: newName, phone: newPhone, phone2: newPhone2, email2: newEmail2, lightsDescription: newLights
-          };
-          // A changed pattern has to be built, so push it to the warehouse queue.
-          if(newLights && newLights !== (matched.data.lightsDescription || '')) custUpdates.needsLightBuild = true;
-          if(!newLights) custUpdates.needsLightBuild = false;
-          await updateDoc(doc(db,'jobAddresses', matched.id), custUpdates);
-          syncedNote = newLights && newLights !== (matched.data.lightsDescription || '')
-            ? ' — customer synced and sent to the Warehouse to build'
-            : ' — customer record synced';
+        const isGroup = Array.isArray(d.billedHouseIds) && d.billedHouseIds.length > 1;
+        if(matched && !isGroup){
+          const basePrice = Math.max(0, newAmount - (d.newMemberFeeApplied ? 30 : 0));
+          await updateDoc(doc(db,'jobAddresses', matched.id), { housePrice: basePrice });
+          syncedNote = ' — house price synced to the customer';
+        } else if(isGroup){
+          syncedNote = ' — multi-house invoice, individual house prices left unchanged';
         }
         toast('Invoice updated' + syncedNote);
         panel.style.display = 'none';
