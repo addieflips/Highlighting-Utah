@@ -96,8 +96,9 @@ exports.paypalCreateOrder = onCall(
     if (!invSnap.exists) throw new HttpsError('not-found', 'No invoice found for this phone.');
     const inv = invSnap.data();
     const total = (Number(inv.install) || 0) + (Number(inv.removal) || 0);
+    const credits = Number(inv.credits) || 0;
     const paid = Number(inv.deposit) || 0;
-    const balanceDue = Math.max(0, total - paid);
+    const balanceDue = Math.max(0, total - credits - paid);
     const tip = Math.max(0, Number(tipAmount) || 0);
     const chargeAmount = balanceDue + tip;
 
@@ -802,7 +803,7 @@ exports.publicConfig = onCall({ cors: true }, async (request) => {
 
 // Only the fields the invoice card renders. Internal costing, crew notes and
 // anything else on the invoice document stay on the server.
-const INVOICE_READ_FIELDS = ['name', 'phone', 'email', 'install', 'removal', 'deposit'];
+const INVOICE_READ_FIELDS = ['name', 'phone', 'email', 'install', 'removal', 'deposit', 'credits', 'creditNotes'];
 
 function sanitizeInvoice(data) {
   const out = {};
@@ -886,10 +887,13 @@ async function logNightlyInvoiceRun(data) {
   ));
 }
 
-function computeInvoiceStatusServer(install, removal, deposit) {
-  const total = (Number(install) || 0) + (Number(removal) || 0);
+function computeInvoiceStatusServer(install, removal, deposit, credits) {
+  const gross = (Number(install) || 0) + (Number(removal) || 0);   // the real charge
+  const total = gross - (Number(credits) || 0);                    // owed after credits
   const paid = Number(deposit) || 0;
-  if (total <= 0 || paid <= 0) return 'Unpaid';
+  if (gross <= 0 && paid <= 0) return 'Unpaid';                    // a truly blank invoice
+  if (total <= 0) return 'Paid in Full';                         // credits (and/or payments) cover it all
+  if (paid <= 0) return 'Unpaid';
   if (paid >= total) return 'Paid in Full';
   return 'Partial Payment';
 }
@@ -967,7 +971,23 @@ async function runInvoiceBatch(triggeredBy) {
         }
         if (inv.install == null) inv.install = Number(cust.housePrice) || 0;
 
-        const status = computeInvoiceStatusServer(inv.install, inv.removal || 0, inv.deposit || 0);
+        // Draw down any credit the customer carried over (e.g. a referral earned
+        // while already paid up). Credit only reduces the balance to $0; whatever
+        // is left keeps waiting on the customer for the next invoice.
+        let carryoverApplied = 0;
+        const carryAvail = Number(cust.carryoverCredit) || 0;
+        if (carryAvail > 0) {
+          const grossNow = (Number(inv.install) || 0) + (Number(inv.removal) || 0);
+          const preBalance = Math.max(0, grossNow - (Number(inv.credits) || 0) - (Number(inv.deposit) || 0));
+          carryoverApplied = Math.min(carryAvail, preBalance);
+          if (carryoverApplied > 0) {
+            inv.credits = (Number(inv.credits) || 0) + carryoverApplied;
+            inv.creditNotes = (Array.isArray(inv.creditNotes) ? inv.creditNotes : [])
+              .concat([{ amount: carryoverApplied, reason: 'Carryover credit', date: new Date().toISOString() }]);
+          }
+        }
+
+        const status = computeInvoiceStatusServer(inv.install, inv.removal || 0, inv.deposit || 0, inv.credits || 0);
         inv.status = status;
         inv.name = inv.name || cust.name || '';
         inv.email = inv.email || cust.email || '';
@@ -983,8 +1003,12 @@ async function runInvoiceBatch(triggeredBy) {
         const newMemberLine = isNewMember ? 'New member installation fee = $30.00' : '';
 
         const total = (Number(inv.install) || 0) + (Number(inv.removal) || 0);
+        const credits = Number(inv.credits) || 0;
         const paid = Number(inv.deposit) || 0;
-        const amountDue = Math.max(0, total - paid);
+        const amountDue = Math.max(0, total - credits - paid);
+        const creditLines = (Array.isArray(inv.creditNotes) ? inv.creditNotes : [])
+          .map(function (c) { return (c.reason || 'Credit') + ' = -$' + (Number(c.amount) || 0).toFixed(2); })
+          .join('<br>');
 
         const templateName = status === 'Paid in Full'
           ? 'Nightly Auto-Invoice \u2014 Paid Receipt'
@@ -1006,6 +1030,7 @@ async function runInvoiceBatch(triggeredBy) {
         body = body.split('{{name}}').join(cust.name || 'there');
         body = body.split('{{feet_line}}').join(feetLine);
         body = body.split('{{new_member_fee_line}}').join(newMemberLine);
+        body = body.split('{{credit_lines}}').join(creditLines);
         body = body.split('{{amount_due}}').join('$' + amountDue.toFixed(2));
         body = body.split('{{amount_paid}}').join('$' + total.toFixed(2));
         body = body.split('{{portal_link}}').join(portalUrl);
@@ -1031,10 +1056,15 @@ async function runInvoiceBatch(triggeredBy) {
           throw new Error('EmailJS send failed: ' + text);
         }
 
-        await custRef.update({
+        const custUpdate = {
           invoiceEmailSent: true,
           invoiceEmailSentAt: admin.firestore.FieldValue.serverTimestamp()
-        });
+        };
+        // Whatever carryover credit was applied to this invoice is now used up.
+        if (carryoverApplied > 0) {
+          custUpdate.carryoverCredit = Math.max(0, carryAvail - carryoverApplied);
+        }
+        await custRef.update(custUpdate);
         sentCount++;
       } catch (err) {
         errorCount++;
