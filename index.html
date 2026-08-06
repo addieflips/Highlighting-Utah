@@ -1627,7 +1627,6 @@
           <div class="portal-card">
             <h3>Details</h3>
             <div class="portal-field"><span class="lbl">Address</span><span class="val" id="quoteAddressDisplay">&mdash;</span></div>
-            <div class="portal-field"><span class="lbl">Areas</span><span class="val" id="quoteAreasDisplay">&mdash;</span></div>
             <div class="portal-field"><span class="lbl">Light Colors</span><span class="val" id="quoteColorsDisplay">&mdash;</span></div>
             <div class="portal-field" id="quoteTimingRow" style="display:none;"><span class="lbl">Timing</span><span class="val" id="quoteTimingDisplay"></span></div>
           </div>
@@ -2734,7 +2733,6 @@ function tryShowQuoteReview(raw, opts){
       empty.style.display = 'none';
       resolvedMsg.style.display = 'none';
       document.getElementById('quoteAddressDisplay').textContent = pending.data.address || '—';
-      document.getElementById('quoteAreasDisplay').textContent = (pending.data.houseAreas||[]).join(', ') || '—';
       document.getElementById('quoteColorsDisplay').textContent = (pending.data.lightColors||[]).join(', ') || '—';
       if(pending.data.installPreference){
         document.getElementById('quoteTimingRow').style.display = 'flex';
