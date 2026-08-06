@@ -835,9 +835,86 @@
               <div class="form-row"><label>Secondary Email</label><input type="email" id="addCustEmail2" placeholder="spouse@email.com"></div>
             </div>
           </div>
+          <!-- ===================== HOUSE INFO ===================== -->
+          <div style="border-top:2px solid var(--gold-dim); margin:22px 0 0; padding-top:18px;">
+            <h3 style="margin:0 0 2px; font-size:16px;">House Info</h3>
+            <p style="font-size:12px; color:var(--slate); margin:0 0 14px;">What they&rsquo;re getting and everything the crew needs on site.</p>
+          </div>
+
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
-            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">House Photo, Measuring &amp; Areas to Light</label>
-            <p style="font-size:12px; color:var(--slate); margin:0 0 8px;">Upload a photo (a Google Maps/satellite screenshot works great), then drag on it to outline each section they want lit. Feet and price per section are calculated automatically, and the total feeds straight into Measured Feet and Total Price below &mdash; shared automatically with Routes and House Maps.</p>
+            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Which Part(s) of the House?</label>
+            <p style="font-size:12px; color:var(--slate); margin:0 0 8px;">Same options customers choose when requesting a quote &mdash; adjustable anytime.</p>
+            <div class="pill-check-row" id="addCustAreas">
+              <label class="pill-check"><input type="checkbox" class="addcust-area-check" value="Front of House"> Front of House</label>
+              <label class="pill-check"><input type="checkbox" class="addcust-area-check" value="Right Side"> Right Side</label>
+              <label class="pill-check"><input type="checkbox" class="addcust-area-check" value="Left Side"> Left Side</label>
+              <label class="pill-check"><input type="checkbox" class="addcust-area-check" value="Back of House"> Back of House</label>
+            </div>
+          </div>
+
+          <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
+            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">What Lights Are They Getting?</label>
+            <div class="form-row"><label>Color(s)</label>
+              <div class="pill-check-row" id="addCustLightsColor">
+                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Warm White"> Warm White</label>
+                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Pure White"> Pure White</label>
+                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Red"> Red</label>
+                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Green"> Green</label>
+                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Blue"> Blue</label>
+                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Purple"> Purple</label>
+                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Orange"> Orange</label>
+                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Pink"> Pink</label>
+                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Multi"> Multi</label>
+              </div>
+            </div>
+          </div>
+
+          <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
+            <div class="form-row" style="max-width:180px;"><label>Wire Color</label>
+              <select id="addCustWireColor">
+                <option value="White">White</option>
+                <option value="Green">Green</option>
+              </select>
+            </div>
+          </div>
+
+          <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
+            <div class="form-row" style="max-width:220px;"><label>Outlet Timer</label><select id="addCustOutletTimer"><option value="">&mdash;</option><option value="Yes">Yes</option><option value="No">No</option></select></div>
+            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Answering Yes puts this house on the crew&rsquo;s Timers list.</p>
+            <div class="form-row" style="max-width:220px; margin-top:12px;"><label>Specific Outlet</label><select id="addCustSpecificOutlet"><option value="">&mdash;</option><option value="Yes">Yes</option><option value="No">No</option></select></div>
+            <!-- Hidden unless Specific Outlet is Yes — asking "which outlet?" after
+                 they said No was just noise on the form and on the route card. -->
+            <div id="addCustSpecificOutletNotesWrap" style="display:none;">
+              <div class="form-row" style="margin-top:10px;"><label>Which Outlet?</label><input type="text" id="addCustSpecificOutletNotes" placeholder="e.g. the outlet on the back patio"></div>
+              <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Shows on the crew&rsquo;s route card.</p>
+            </div>
+          </div>
+
+          <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
+            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Installation Timing Preference</label>
+            <div class="form-row" style="max-width:260px;"><label>Preference</label>
+              <select id="addCustInstallPref">
+                <option value="Normal Schedule">Any</option>
+                <option value="October">October</option>
+                <option value="November">November</option>
+                <option value="November - Before Thanksgiving">November &mdash; Before Thanksgiving (employees only)</option>
+                <option value="After Thanksgiving">After Thanksgiving (employees only)</option>
+              </select>
+            </div>
+          </div>
+
+          <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
+            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Notes for the Crew</label>
+            <p style="font-size:12px; color:var(--slate); margin:0 0 10px;">Both of these show to your crew only &mdash; never on the customer&rsquo;s invoice or portal.</p>
+            <div class="form-row"><label>One-Time Notes</label><textarea id="addCustOneTimeNotes" rows="2" placeholder="e.g. gate is broken this year, park on the street" style="width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea></div>
+            <p style="font-size:12px; color:var(--slate); margin:4px 0 12px;">For this season only.</p>
+            <div class="form-row"><label>Permanent Notes</label><textarea id="addCustNotes" rows="2" placeholder="Roof height, steep pitch, dog in the yard, etc." style="width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea></div>
+            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Sticks with the house year after year, on every route card.</p>
+          </div>
+
+          <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
+            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">House Pictures</label>
+            <p style="font-size:12px; color:var(--slate); margin:0 0 8px;">Upload a photo (a Google Maps/satellite screenshot works great), then drag on it to outline each section they want lit. Feet and price per section are calculated automatically, and the total feeds straight into Measured Feet and Total Price below &mdash; shared automatically with Routes and House Maps. Use the toggle to switch between the marked-up photo and the drawn-out blueprint view.</p>
             <input type="file" accept="image/*" id="addCustPhoto">
             <div class="addcust-view-toggle" id="addCustViewToggle" style="display:none; gap:8px; margin:10px 0;">
               <button type="button" class="btn btn-outline btn-sm" id="addCustViewOriginal" style="background:var(--ink); color:#fff;">Original Photo</button>
@@ -862,80 +939,62 @@
             <button type="button" class="btn btn-outline btn-sm" id="addCustUseTotalBtn" style="display:none;">Use This Total for Measured Feet &amp; Price</button>
             <span id="addCustPhotoStatus" style="font-size:12px; color:var(--slate); display:block; margin-top:6px;"></span>
           </div>
-          <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
-            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Which Part(s) of the House?</label>
-            <p style="font-size:12px; color:var(--slate); margin:0 0 8px;">Same options customers choose when requesting a quote &mdash; adjustable anytime.</p>
-            <div class="pill-check-row" id="addCustAreas">
-              <label class="pill-check"><input type="checkbox" class="addcust-area-check" value="Front of House"> Front of House</label>
-              <label class="pill-check"><input type="checkbox" class="addcust-area-check" value="Right Side"> Right Side</label>
-              <label class="pill-check"><input type="checkbox" class="addcust-area-check" value="Left Side"> Left Side</label>
-              <label class="pill-check"><input type="checkbox" class="addcust-area-check" value="Back of House"> Back of House</label>
-            </div>
+
+          <!-- ===================== INVOICE ===================== -->
+          <div style="border-top:2px solid var(--gold-dim); margin:22px 0 0; padding-top:18px;">
+            <h3 style="margin:0 0 2px; font-size:16px;">Invoice</h3>
+            <p style="font-size:12px; color:var(--slate); margin:0 0 14px;">Optional &mdash; fill this in to also create an invoice. Requires a phone number.</p>
           </div>
-          <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
-            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">What Lights Are They Getting?</label>
-            <div class="form-row" style="max-width:260px;"><label>Color(s)</label>
-              <div class="pill-check-row" id="addCustLightsColor">
-                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Warm White"> Warm White</label>
-                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Pure White"> Pure White</label>
-                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Red"> Red</label>
-                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Green"> Green</label>
-                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Blue"> Blue</label>
-                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Purple"> Purple</label>
-                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Orange"> Orange</label>
-                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Pink"> Pink</label>
-                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Multi"> Multi</label>
-              </div>
-            </div>
-            <div class="form-row"><label>Additional Notes (optional)</label><input type="text" id="addCustLightsNotes" placeholder="e.g. 2 trees out front, watch for low peak"></div>
-            <div class="form-row" style="max-width:180px; margin-top:10px;"><label>Wire Color</label>
-              <select id="addCustWireColor">
-                <option value="White">White</option>
-                <option value="Green">Green</option>
-              </select>
-            </div>
-          </div>
-          <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
-            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Installation Timing Preference</label>
-            <div class="form-row" style="max-width:260px;"><label>Preference</label>
-              <select id="addCustInstallPref">
-                <option value="Normal Schedule">Any</option>
-                <option value="October">October</option>
-                <option value="November">November</option>
-                <option value="November - Before Thanksgiving">November &mdash; Before Thanksgiving (employees only)</option>
-                <option value="After Thanksgiving">After Thanksgiving (employees only)</option>
-              </select>
-            </div>
-          </div>
-          <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
-            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Billing (optional &mdash; fill in to also create an invoice; requires phone number)</label>
-            <div class="form-grid-3">
-              <div class="form-row" style="max-width:220px;"><label>Measured Feet</label><input type="number" id="addCustFeet" min="0" step="0.5" placeholder="0"></div>
-              <div class="form-row" style="max-width:220px;"><label>Total Price ($)</label><input type="number" id="addCustPrice" min="0" step="1" placeholder="0"></div>
+
+          <div style="margin:16px 0;">
+            <div class="form-grid-2">
+              <div class="form-row"><label>Measured Feet</label><input type="number" id="addCustFeet" min="0" step="0.5" placeholder="0"></div>
+              <div class="form-row"><label>Total Price ($)</label><input type="number" id="addCustPrice" min="0" step="1" placeholder="0"></div>
             </div>
             <p id="addCustFeetNote" style="font-size:12px; margin:6px 0 0;">Enter Measured Feet to bill automatically at your Per Foot Pricing rate &mdash; you can still adjust Total Price by hand afterward. Deposit and removal fee can be added later from the Invoices tab if needed.</p>
-            <div style="margin-top:12px; padding:12px; border:1px solid var(--line); border-radius:10px; background:var(--paper);">
-              <label class="pill-check" style="display:inline-flex; align-items:center; gap:8px; cursor:pointer; font-size:13.5px; font-weight:600;">
+
+            <div class="form-grid-2" style="margin-top:14px;">
+              <div class="form-row"><label>Bill To Phone (optional)</label><input type="tel" id="addCustBillTo" placeholder="Leave blank to bill this house"></div>
+              <div class="form-row"><label>People They Referred</label><input type="number" id="addCustReferralCount" min="0" step="1" placeholder="0"></div>
+            </div>
+            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Bill To Phone: if someone else is paying for this house too (e.g. a landlord with multiple properties), enter their phone here &mdash; this house&rsquo;s price gets added to their invoice instead of creating a separate one.</p>
+
+            <div style="margin-top:14px; padding:12px; border:1px solid var(--line); border-radius:10px; background:var(--paper);">
+              <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:8px;">Discounts</label>
+              <div class="form-grid-2">
+                <div class="form-row"><label>Manual Discount ($)</label><input type="number" id="addCustManualDiscount" min="0" step="1" placeholder="0"></div>
+                <div class="form-row"><label>Reason</label><input type="text" id="addCustDiscountReason" placeholder="e.g. loyalty, price match"></div>
+              </div>
+              <div id="addCustDiscountSummary" style="font-size:13px; font-weight:600; color:var(--dusk); margin-top:8px;"></div>
+              <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Referrals are credited at $25 each. Both go on the invoice as credits, so they show everywhere invoices are displayed.</p>
+            </div>
+
+            <div style="margin-top:14px; padding:14px; border:2px solid var(--dusk); border-radius:10px; background:#EAF7EE;">
+              <label class="pill-check" style="display:inline-flex; align-items:center; gap:8px; cursor:pointer; font-size:14px; font-weight:700;">
                 <input type="checkbox" id="addCustNewMemberFee">
                 <span>Charge $30 new member installation fee</span>
               </label>
               <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Off by default. Turn this on only for customers who should pay the one-time join fee. It is added to their invoice automatically the night their install is marked complete.</p>
             </div>
-            <div class="form-row" style="max-width:280px; margin-top:10px;"><label>Bill To Phone (optional)</label><input type="tel" id="addCustBillTo" placeholder="Leave blank to bill this house"></div>
-            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">If someone else is paying for this house too (e.g. a landlord with multiple properties), enter their phone number here &mdash; this house's price gets added to their invoice instead of creating a separate one.</p>
-            <div class="form-row" style="max-width:220px; margin-top:10px;"><label>Gate Code (optional)</label><input type="text" id="addCustGateCode" placeholder="e.g. #4521"></div>
+
+            <div class="form-row" style="margin-top:14px;"><label>Invoice Notes (optional)</label><textarea id="addCustInvoiceNotes" rows="2" placeholder="e.g. split payment agreed, billed after Thanksgiving" style="width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea></div>
+            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Unlike the crew notes above, this one <strong>does</strong> appear on the customer&rsquo;s invoice.</p>
+          </div>
+
+          <!-- ===================== OTHER ===================== -->
+          <div style="border-top:2px solid var(--gold-dim); margin:22px 0 0; padding-top:18px;">
+            <h3 style="margin:0 0 2px; font-size:16px;">Other</h3>
+            <p style="font-size:12px; color:var(--slate); margin:0 0 14px;">Access, bins and numbering.</p>
+          </div>
+
+          <div style="margin:16px 0;">
+            <div class="form-row" style="max-width:220px;"><label>Gate Code (optional)</label><input type="text" id="addCustGateCode" placeholder="e.g. #4521"></div>
             <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">If entered, this house is automatically flagged as gated on Routes and Maps, visible to you and your crew.</p>
-            <div class="form-row" style="max-width:220px; margin-top:10px;"><label>Outlet Timer</label><select id="addCustOutletTimer"><option value="">&mdash;</option><option value="Yes">Yes</option><option value="No">No</option></select></div>
-            <div class="form-row" style="max-width:220px; margin-top:10px;"><label>Specific Outlet</label><select id="addCustSpecificOutlet"><option value="">&mdash;</option><option value="Yes">Yes</option><option value="No">No</option></select></div>
-            <div class="form-row" style="margin-top:10px;"><label>Which Outlet? (optional)</label><input type="text" id="addCustSpecificOutletNotes" placeholder="e.g. the outlet on the back patio"></div>
-            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Answering Yes to Outlet Timer puts this house on the crew&rsquo;s Timers list. The outlet note shows on their route card.</p>
-            <div class="form-row" style="margin-top:10px;"><label>House Notes (optional)</label><textarea id="addCustNotes" rows="2" placeholder="Roof height, specific requests, etc." style="width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea></div>
-            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">This becomes the permanent house note your crew sees on the route card.</p>
-            <div class="form-row" style="max-width:180px; margin-top:10px;"><label>Number of Bins</label><input type="number" id="addCustBins" min="1" step="1" value="1"></div>
-            <div class="form-row" style="max-width:220px; margin-top:10px;"><label>Customer # (optional)</label><input type="text" id="addCustNumber" placeholder="Assigned automatically"></div>
+            <div class="form-row" style="max-width:180px; margin-top:12px;"><label>Number of Bins</label><input type="number" id="addCustBins" min="1" step="1" value="1"></div>
+            <div class="form-row" style="max-width:220px; margin-top:12px;"><label>Customer # (optional)</label><input type="text" id="addCustNumber" placeholder="Assigned automatically"></div>
             <div id="addCustNumberPreview" style="font-size:12.5px; font-weight:600; margin-top:4px;"></div>
             <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">The permanent bin number. Leave it blank and you can assign the next available one from Customer Numbers. Normally left blank &mdash; the number is picked for you from Measured Feet. Over 200 feet means 2 bins and the next free 5000-series number; anything up to 200 means 1 bin and the next free regular number. Without Measured Feet no number is given.</p>
-            <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin-top:10px;"><input type="checkbox" id="addCustWantsMailed" style="width:auto;"> Also wants their invoice mailed (postal mail)</label>
+            <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin-top:12px;"><input type="checkbox" id="addCustWantsMailed" style="width:auto;"> Also wants their invoice mailed (postal mail)</label>
           </div>
           <button type="submit" class="btn btn-gold">Add Customer</button>
           <span id="routeAddStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
@@ -4582,6 +4641,9 @@ function initData(){
   loadPerFootRate();
 }
 let perFootRate = 0;
+/* What one referral is worth as a credit. Kept here rather than typed into the
+   discount maths in two places, so changing the rate is a one-line change. */
+const REFERRAL_CREDIT = 25;
 function loadPerFootRate(){
   onSnapshot(doc(db,'pricing','config'), function(snap){
     perFootRate = snap.exists() ? (snap.data().perFootRate || 0) : 0;
@@ -4930,7 +4992,6 @@ function renderQuoteRows(filtered){
         cb.checked = colors.includes(cb.value);
         cb.closest('.pill-check').classList.toggle('checked', cb.checked);
       });
-      document.getElementById('addCustLightsNotes').value = d.lightsDescription || '';
       document.getElementById('addCustWireColor').value = d.wireColor || 'White';
       const quoteAreas = d.houseAreas || [];
       document.querySelectorAll('.addcust-area-check').forEach(function(cb){
@@ -4945,6 +5006,10 @@ function renderQuoteRows(filtered){
       document.getElementById('addCustOutletTimer').value = d.outletTimer || '';
       document.getElementById('addCustSpecificOutlet').value = d.specificOutlet || '';
       document.getElementById('addCustSpecificOutletNotes').value = d.specificOutletNotes || '';
+      // The "Which outlet?" input is hidden unless Specific Outlet is Yes, so
+      // re-run the toggle after filling from the quote or it stays hidden with
+      // a value inside it.
+      syncSpecificOutletNotes();
       document.getElementById('addCustNotes').value = d.notes || '';
       document.getElementById('addCustWantsMailed').checked = !!d.wantsMailedInvoice;
       /* Feet drive the bin count, the customer number series and the warehouse
@@ -8624,10 +8689,10 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
   const phone2 = document.getElementById('addCustPhone2').value.replace(/\D/g,'');
   const email2 = document.getElementById('addCustEmail2').value.trim();
   const selectedColors = Array.from(document.querySelectorAll('.addcust-color-check:checked')).map(el => el.value);
-  const lightsDescription = compileLightsDescription(
-    selectedColors.join(', '),
-    document.getElementById('addCustLightsNotes').value.trim()
-  );
+  // The free-text "Additional Notes" input under Lights was removed from the
+  // form, so the description is just the colours now. Crew-facing detail lives
+  // in the One-Time / Permanent notes fields instead.
+  const lightsDescription = compileLightsDescription(selectedColors.join(', '), '');
   const wireColor = document.getElementById('addCustWireColor').value;
   const houseAreas = Array.from(document.querySelectorAll('.addcust-area-check:checked')).map(el => el.value);
   const installPreference = document.getElementById('addCustInstallPref').value;
@@ -8636,8 +8701,17 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
   const gateCode = document.getElementById('addCustGateCode').value.trim();
   const outletTimer = document.getElementById('addCustOutletTimer').value;
   const specificOutlet = document.getElementById('addCustSpecificOutlet').value;
-  const specificOutletNotes = document.getElementById('addCustSpecificOutletNotes').value.trim();
+  // Only meaningful when Specific Outlet is Yes — the input is hidden otherwise,
+  // so don't carry over a stale value someone typed then switched to No.
+  const specificOutletNotes = document.getElementById('addCustSpecificOutlet').value === 'Yes'
+    ? document.getElementById('addCustSpecificOutletNotes').value.trim()
+    : '';
   const custNotes = document.getElementById('addCustNotes').value.trim();
+  const oneTimeNotes = document.getElementById('addCustOneTimeNotes').value.trim();
+  const invoiceNotes = document.getElementById('addCustInvoiceNotes').value.trim();
+  const referralCount = Math.max(0, parseInt(document.getElementById('addCustReferralCount').value, 10) || 0);
+  const manualDiscount = Math.max(0, Number(document.getElementById('addCustManualDiscount').value) || 0);
+  const discountReason = document.getElementById('addCustDiscountReason').value.trim();
   let numberOfBins = parseInt(document.getElementById('addCustBins').value, 10) || 1;
   const wantsMailedInvoice = document.getElementById('addCustWantsMailed').checked;
   /* Feet decide the bins, and the bins decide which sequence the number comes from.
@@ -8706,6 +8780,11 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
       housePhotoUrl: addCustPhotoUrl, housePhotoOriginal: addCustPhotoOriginal, housePhotoMarkup: addCustPhotoMarkup,
       houseHighlights: addCustHighlights, portalToken: generatePortalToken(), installPreference: installPreference,
       chargeNewMemberFee: chargeNewMemberFee,
+      oneTimeNotes: oneTimeNotes,
+      // Stamped so the "clear once they've paid, keep it if it was written
+      // after they paid" rule has something to compare against later.
+      oneTimeNotesAt: oneTimeNotes ? new Date().toISOString() : '',
+      referralCount: referralCount,
       rsvpStatus: addCustFromQuoteId ? 'yes' : '',
       contactMethod: (addCustFromQuoteId ? (addCustContactMethodFromQuote || '') : ''),
       wireColor: wireColor,
@@ -8726,12 +8805,34 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
       await syncPayerInvoice(billToPhone);
       invoiceMsg = ' Billed to ' + billToPhone + ' instead of a separate invoice.';
     } else if(wantsBilling){
-      await setDoc(doc(db,'invoices',custKey), {
+      /* Referrals and any manual discount go on as ordinary credits, using the
+         same {amount, reason, date} shape the Invoices tab already reads and
+         the season rollover already clears. Building a parallel discount field
+         would have meant every screen that shows credits missing these. */
+      const newCreditNotes = [];
+      if(referralCount > 0){
+        newCreditNotes.push({
+          amount: referralCount * REFERRAL_CREDIT,
+          reason: 'Referral \u2014 ' + referralCount + ' ' + (referralCount === 1 ? 'person' : 'people'),
+          date: new Date().toISOString()
+        });
+      }
+      if(manualDiscount > 0){
+        newCreditNotes.push({
+          amount: manualDiscount,
+          reason: discountReason || 'Discount',
+          date: new Date().toISOString()
+        });
+      }
+      const totalCredits = newCreditNotes.reduce((sum, c) => sum + c.amount, 0);
+      await setDoc(doc(db,'invoices',custKey), Object.assign({
         name: name, phone: phone, email: email, phone2: phone2, email2: email2,
         lightsDescription: lightsDescription, install: price, removal: 0, deposit: 0,
-        status: computeInvoiceStatus(price, 0, 0), priceReviewed: true, updatedAt: serverTimestamp()
-      }, {merge:true});
+        status: computeInvoiceStatus(price, 0, 0, totalCredits), priceReviewed: true, updatedAt: serverTimestamp()
+      }, totalCredits > 0 ? {credits: totalCredits, creditNotes: newCreditNotes} : {},
+         invoiceNotes ? {invoiceNotes: invoiceNotes} : {}), {merge:true});
       invoiceMsg = phone ? ' Invoice created too.' : ' Invoice created too (keyed by email — they log in with their email).';
+      if(totalCredits > 0) invoiceMsg += ' ' + fmtMoney(totalCredits) + ' in discounts applied.';
     }
     if(phone) await syncCustomerToOpenQuote(phone, {name: name, email: email});
     document.getElementById('routeStreetInput').value = '';
@@ -8756,9 +8857,15 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
     document.getElementById('addCustPhone2').value = '';
     document.getElementById('addCustEmail2').value = '';
     document.querySelectorAll('.addcust-color-check').forEach(function(cb){ cb.checked = false; cb.closest('.pill-check').classList.remove('checked'); });
-    document.getElementById('addCustLightsNotes').value = '';
     document.getElementById('addCustWireColor').value = 'White';
     document.getElementById('addCustInstallPref').value = 'Normal Schedule';
+    document.getElementById('addCustOneTimeNotes').value = '';
+    document.getElementById('addCustInvoiceNotes').value = '';
+    document.getElementById('addCustReferralCount').value = '';
+    document.getElementById('addCustManualDiscount').value = '';
+    document.getElementById('addCustDiscountReason').value = '';
+    document.getElementById('addCustSpecificOutletNotesWrap').style.display = 'none';
+    updateAddCustDiscountSummary();
     document.getElementById('addCustNewMemberFee').checked = false;
     document.querySelectorAll('.addcust-area-check').forEach(function(cb){ cb.checked = false; cb.closest('.pill-check').classList.remove('checked'); });
     document.getElementById('addCustPhoto').value = '';
@@ -8783,6 +8890,38 @@ document.getElementById('bulkUpdatesToggle').addEventListener('click', function(
   panel.style.display = isOpen ? 'none' : 'block';
   chevron.innerHTML = isOpen ? '&#9662;' : '&#9652;';
 });
+/* ---- ADD CUSTOMER: conditional outlet note + live discount preview ---- */
+function syncSpecificOutletNotes(){
+  const sel = document.getElementById('addCustSpecificOutlet');
+  const wrap = document.getElementById('addCustSpecificOutletNotesWrap');
+  if(!sel || !wrap) return;
+  const show = sel.value === 'Yes';
+  wrap.style.display = show ? 'block' : 'none';
+  // Clear it on the way out so a leftover answer can't reach the route card.
+  if(!show) document.getElementById('addCustSpecificOutletNotes').value = '';
+}
+function updateAddCustDiscountSummary(){
+  const el = document.getElementById('addCustDiscountSummary');
+  if(!el) return;
+  const refs = Math.max(0, parseInt(document.getElementById('addCustReferralCount').value, 10) || 0);
+  const manual = Math.max(0, Number(document.getElementById('addCustManualDiscount').value) || 0);
+  const refAmt = refs * REFERRAL_CREDIT;
+  const total = refAmt + manual;
+  if(total <= 0){ el.textContent = ''; return; }
+  const bits = [];
+  if(refs > 0) bits.push(refs + ' referral' + (refs === 1 ? '' : 's') + ' = ' + fmtMoney(refAmt));
+  if(manual > 0) bits.push('manual = ' + fmtMoney(manual));
+  el.textContent = bits.join('  +  ') + '   \u2192   ' + fmtMoney(total) + ' off';
+}
+document.addEventListener('DOMContentLoaded', function(){
+  const outletSel = document.getElementById('addCustSpecificOutlet');
+  if(outletSel){ outletSel.addEventListener('change', syncSpecificOutletNotes); syncSpecificOutletNotes(); }
+  ['addCustReferralCount','addCustManualDiscount'].forEach(function(id){
+    const el = document.getElementById(id);
+    if(el) el.addEventListener('input', updateAddCustDiscountSummary);
+  });
+});
+
 document.getElementById('goToBulkUpdatesBtn').addEventListener('click', function(){
   document.querySelector('.nav-item[data-panel="addcustomer"]').click();
   setTimeout(function(){ document.querySelector('#custSectionTabs [data-custtab="bulk"]').click(); }, 50);
