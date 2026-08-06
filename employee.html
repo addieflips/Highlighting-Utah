@@ -1237,8 +1237,21 @@ function whCurrentLightsItems(){
     // Dad needs the bin number to label it and the bundle count to know how much
     // to build — name and pattern alone leave him guessing.
     const feet = Number(d.data.measuredFeet) || 0;
-    const bundles = feet ? Math.ceil(feet / 40) : 0;
-    const extra = (feet ? ' \u2014 ' + feet + ' ft, ' + bundles + ' bundle' + (bundles===1?'':'s') : ' \u2014 no feet on file');
+    // When feet aren't on file, estimate bundles from the price (same as the
+    // office view) so the crew doesn't see "0 bundles" and under-build.
+    let bundles, feetLabel;
+    if(feet){
+      bundles = Math.ceil(feet / 40);
+      feetLabel = feet + ' ft, ' + bundles + ' bundle' + (bundles===1?'':'s');
+    } else if(Number(d.data.housePrice) > 0 && empPfRateVal > 0){
+      const estFeet = Math.round((Number(d.data.housePrice) / empPfRateVal) * 1.05);
+      bundles = Math.max(1, Math.ceil(estFeet / 40));
+      feetLabel = '~' + bundles + ' bundle' + (bundles===1?'':'s') + ' (est. from price)';
+    } else {
+      bundles = 0;
+      feetLabel = 'no feet on file';
+    }
+    const extra = ' \u2014 ' + feetLabel;
     return {n:i+1, key:d.id, name:d.data.name||'(no name)', sub:(d.data.lightsDescription||'') + extra, done:false, kind:'new', timer: d.data.outletTimer === 'Yes', bin: d.data.customerNumber || ''};
   });
   const oldItems = whLightsOld.map(function(d, i){
@@ -2370,7 +2383,9 @@ async function loadRoutesForDate(){
     wrap.querySelectorAll('[data-markdone]').forEach(function(btn){
       btn.addEventListener('click', async function(){
         const id = btn.dataset.markdone;
-        await updateDoc(doc(db,'jobAddresses',id), {completed: true, completedAt: serverTimestamp()});
+        // Clear the one-time note now the visit is done — it's labelled
+        // "this visit only" and shouldn't carry into the next visit or season.
+        await updateDoc(doc(db,'jobAddresses',id), {completed: true, completedAt: serverTimestamp(), oneTimeNote: ''});
         const snap = await getDoc(doc(db,'jobAddresses',id));
         renderStopStatus(id, snap.data());
       });
