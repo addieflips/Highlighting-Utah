@@ -392,6 +392,16 @@
   .editcust-popup{
     background:#fff; border-radius:16px; padding:26px 28px; max-width:480px; width:100%;
     box-shadow:0 30px 60px -15px rgba(0,0,0,.4); max-height:85vh; overflow-y:auto;
+    transition:max-width .18s ease;
+  }
+  /* Expanded state — same three-across feel as the Add Customer form, so the
+     two screens read as the same form with the same section order. */
+  .editcust-popup.expanded{ max-width:1020px; max-height:92vh; }
+  .ec-grid{ display:grid; grid-template-columns:1fr; gap:0 14px; }
+  .editcust-popup.expanded .ec-grid{ grid-template-columns:1fr 1fr 1fr; }
+  @media (max-width:900px){
+    .editcust-popup.expanded{ max-width:100%; }
+    .editcust-popup.expanded .ec-grid{ grid-template-columns:1fr; }
   }
   .quote-section > summary::-webkit-details-marker{ display:none; }
   .quote-section > summary::after{ content:'\25BE'; float:right; color:var(--slate); font-size:11px; transition:transform .15s; }
@@ -835,9 +845,87 @@
               <div class="form-row"><label>Secondary Email</label><input type="email" id="addCustEmail2" placeholder="spouse@email.com"></div>
             </div>
           </div>
+          <!-- ===================== HOUSE INFO ===================== -->
+          <div style="border-top:2px solid var(--gold-dim); margin:22px 0 0; padding-top:18px;">
+            <h3 style="margin:0 0 2px; font-size:16px;">House Info</h3>
+            <p style="font-size:12px; color:var(--slate); margin:0 0 14px;">What they&rsquo;re getting and everything the crew needs on site.</p>
+          </div>
+
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
-            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">House Photo, Measuring &amp; Areas to Light</label>
-            <p style="font-size:12px; color:var(--slate); margin:0 0 8px;">Upload a photo (a Google Maps/satellite screenshot works great), then drag on it to outline each section they want lit. Feet and price per section are calculated automatically, and the total feeds straight into Measured Feet and Total Price below &mdash; shared automatically with Routes and House Maps.</p>
+            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Which Part(s) of the House?</label>
+            <p style="font-size:12px; color:var(--slate); margin:0 0 8px;">Same options customers choose when requesting a quote &mdash; adjustable anytime.</p>
+            <div class="pill-check-row" id="addCustAreas">
+              <label class="pill-check"><input type="checkbox" class="addcust-area-check" value="Front of House"> Front of House</label>
+              <label class="pill-check"><input type="checkbox" class="addcust-area-check" value="Right Side"> Right Side</label>
+              <label class="pill-check"><input type="checkbox" class="addcust-area-check" value="Left Side"> Left Side</label>
+              <label class="pill-check"><input type="checkbox" class="addcust-area-check" value="Back of House"> Back of House</label>
+            </div>
+          </div>
+
+          <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
+            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">What Lights Are They Getting?</label>
+            <div class="form-row"><label>Color(s)</label>
+              <div class="pill-check-row" id="addCustLightsColor">
+                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Warm White"> Warm White</label>
+                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Pure White"> Pure White</label>
+                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Red"> Red</label>
+                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Green"> Green</label>
+                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Blue"> Blue</label>
+                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Purple"> Purple</label>
+                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Orange"> Orange</label>
+                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Pink"> Pink</label>
+                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Multi"> Multi</label>
+              </div>
+            </div>
+          </div>
+
+          <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
+            <div class="form-row" style="max-width:180px;"><label>Wire Color</label>
+              <select id="addCustWireColor">
+                <option value="White">White</option>
+                <option value="Green">Green</option>
+              </select>
+            </div>
+          </div>
+
+          <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
+            <div class="form-row" style="max-width:220px;"><label>Outlet Timer</label><select id="addCustOutletTimer"><option value="">&mdash;</option><option value="Yes">Yes</option><option value="No">No</option></select></div>
+            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Answering Yes puts this house on the crew&rsquo;s Timers list.</p>
+            <div class="form-row" style="max-width:220px; margin-top:12px;"><label>Use Eaves</label><select id="addCustEaves"><option value="">&mdash;</option><option value="Yes">Yes</option><option value="No">No</option></select></div>
+            <div class="form-row" style="max-width:220px; margin-top:12px;"><label>Specific Outlet</label><select id="addCustSpecificOutlet"><option value="">&mdash;</option><option value="Yes">Yes</option><option value="No">No</option></select></div>
+            <!-- Hidden unless Specific Outlet is Yes — asking "which outlet?" after
+                 they said No was just noise on the form and on the route card. -->
+            <div id="addCustSpecificOutletNotesWrap" style="display:none;">
+              <div class="form-row" style="margin-top:10px;"><label>Which Outlet?</label><input type="text" id="addCustSpecificOutletNotes" placeholder="e.g. the outlet on the back patio"></div>
+              <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Shows on the crew&rsquo;s route card.</p>
+            </div>
+          </div>
+
+          <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
+            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Installation Timing Preference</label>
+            <div class="form-row" style="max-width:260px;"><label>Preference</label>
+              <select id="addCustInstallPref">
+                <option value="Normal Schedule">Any</option>
+                <option value="October">October</option>
+                <option value="November">November</option>
+                <option value="November - Before Thanksgiving">November &mdash; Before Thanksgiving (employees only)</option>
+                <option value="After Thanksgiving">After Thanksgiving (employees only)</option>
+              </select>
+            </div>
+          </div>
+
+          <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
+            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Notes for the Crew</label>
+            <p style="font-size:12px; color:var(--slate); margin:0 0 10px;">Both of these show to your crew only &mdash; never on the customer&rsquo;s invoice or portal.</p>
+            <div class="form-row"><label>One-Time Notes</label><textarea id="addCustOneTimeNotes" rows="2" placeholder="e.g. gate is broken this year, park on the street" style="width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea></div>
+            <p style="font-size:12px; color:var(--slate); margin:4px 0 12px;">For this season only.</p>
+            <div class="form-row"><label>Permanent Notes</label><textarea id="addCustNotes" rows="2" placeholder="Roof height, steep pitch, dog in the yard, etc." style="width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea></div>
+            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Sticks with the house year after year, on every route card.</p>
+          </div>
+
+          <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
+            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">House Pictures</label>
+            <p style="font-size:12px; color:var(--slate); margin:0 0 8px;">Upload a photo (a Google Maps/satellite screenshot works great), then drag on it to outline each section they want lit. Feet and price per section are calculated automatically, and the total feeds straight into Measured Feet and Total Price below &mdash; shared automatically with Routes and House Maps. Use the toggle to switch between the marked-up photo and the drawn-out blueprint view.</p>
             <input type="file" accept="image/*" id="addCustPhoto">
             <div class="addcust-view-toggle" id="addCustViewToggle" style="display:none; gap:8px; margin:10px 0;">
               <button type="button" class="btn btn-outline btn-sm" id="addCustViewOriginal" style="background:var(--ink); color:#fff;">Original Photo</button>
@@ -862,92 +950,62 @@
             <button type="button" class="btn btn-outline btn-sm" id="addCustUseTotalBtn" style="display:none;">Use This Total for Measured Feet &amp; Price</button>
             <span id="addCustPhotoStatus" style="font-size:12px; color:var(--slate); display:block; margin-top:6px;"></span>
           </div>
-          <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
-            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Which Part(s) of the House?</label>
-            <p style="font-size:12px; color:var(--slate); margin:0 0 8px;">Same options customers choose when requesting a quote &mdash; adjustable anytime.</p>
-            <div class="pill-check-row" id="addCustAreas">
-              <label class="pill-check"><input type="checkbox" class="addcust-area-check" value="Front of House"> Front of House</label>
-              <label class="pill-check"><input type="checkbox" class="addcust-area-check" value="Right Side"> Right Side</label>
-              <label class="pill-check"><input type="checkbox" class="addcust-area-check" value="Left Side"> Left Side</label>
-              <label class="pill-check"><input type="checkbox" class="addcust-area-check" value="Back of House"> Back of House</label>
-            </div>
+
+          <!-- ===================== INVOICE ===================== -->
+          <div style="border-top:2px solid var(--gold-dim); margin:22px 0 0; padding-top:18px;">
+            <h3 style="margin:0 0 2px; font-size:16px;">Invoice</h3>
+            <p style="font-size:12px; color:var(--slate); margin:0 0 14px;">Optional &mdash; fill this in to also create an invoice. Requires a phone number.</p>
           </div>
-          <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
-            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">What Lights Are They Getting?</label>
-            <div class="form-row" style="max-width:260px;"><label>Color(s)</label>
-              <div class="pill-check-row" id="addCustLightsColor">
-                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Warm White"> Warm White</label>
-                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Pure White"> Pure White</label>
-                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Red"> Red</label>
-                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Green"> Green</label>
-                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Blue"> Blue</label>
-                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Purple"> Purple</label>
-                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Orange"> Orange</label>
-                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Pink"> Pink</label>
-                <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Multi"> Multi</label>
-              </div>
-            </div>
-            <div class="form-row"><label>Additional Notes (optional)</label><input type="text" id="addCustLightsNotes" placeholder="e.g. 2 trees out front, watch for low peak"></div>
-            <div class="form-row" style="max-width:180px; margin-top:10px;"><label>Wire Color</label>
-              <select id="addCustWireColor">
-                <option value="White">White</option>
-                <option value="Green">Green</option>
-              </select>
-            </div>
-          </div>
-          <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
-            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Installation Timing Preference</label>
-            <div class="form-row" style="max-width:260px;"><label>Preference</label>
-              <select id="addCustInstallPref">
-                <option value="Normal Schedule">Any</option>
-                <option value="October">October</option>
-                <option value="November">November</option>
-                <option value="November - Before Thanksgiving">November &mdash; Before Thanksgiving (employees only)</option>
-                <option value="After Thanksgiving">After Thanksgiving (employees only)</option>
-              </select>
-            </div>
-          </div>
-          <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
-            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Billing (optional &mdash; fill in to also create an invoice; requires phone number)</label>
-            <div class="form-grid-3">
-              <div class="form-row" style="max-width:220px;"><label>Measured Feet</label><input type="number" id="addCustFeet" min="0" step="0.5" placeholder="0"></div>
-              <div class="form-row" style="max-width:220px;"><label>Total Price ($)</label><input type="number" id="addCustPrice" min="0" step="1" placeholder="0"></div>
+
+          <div style="margin:16px 0;">
+            <div class="form-grid-2">
+              <div class="form-row"><label>Measured Feet</label><input type="number" id="addCustFeet" min="0" step="0.5" placeholder="0"></div>
+              <div class="form-row"><label>Total Price ($)</label><input type="number" id="addCustPrice" min="0" step="1" placeholder="0"></div>
             </div>
             <p id="addCustFeetNote" style="font-size:12px; margin:6px 0 0;">Enter Measured Feet to bill automatically at your Per Foot Pricing rate &mdash; you can still adjust Total Price by hand afterward. Deposit and removal fee can be added later from the Invoices tab if needed.</p>
-            <div style="margin-top:14px; padding-top:14px; border-top:1px solid var(--line);">
-              <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:6px;">Extra Fees (optional)</label>
-              <div id="addCustFeeList"></div>
-              <button type="button" class="btn btn-outline btn-sm" id="addCustFeeToggle" style="margin-top:8px;">+ Add a fee</button>
-              <div id="addCustFeeForm" style="display:none; margin-top:10px; background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:12px;">
-                <div class="form-grid-2">
-                  <div class="form-row"><label>Fee</label><select id="addCustFeeType"></select></div>
-                  <div class="form-row"><label>Amount ($)</label><input type="number" id="addCustFeeAmount" min="0" step="1" placeholder="30"></div>
-                </div>
-                <div class="form-row"><label>Note (optional &mdash; shows on their invoice)</label><input type="text" id="addCustFeeReason" placeholder="e.g. second trip, nobody home"></div>
-                <div style="display:flex; gap:8px;">
-                  <button type="button" class="btn btn-gold btn-sm" id="addCustFeeAddBtn">Add Fee</button>
-                  <button type="button" class="btn btn-outline btn-sm" id="addCustFeeCancelBtn">Cancel</button>
-                </div>
-                <div id="addCustFeeStatus" style="font-size:12px; color:var(--slate); margin-top:6px;"></div>
-              </div>
-              <p style="font-size:12px; color:var(--slate); margin:8px 0 0;">These go onto the invoice the moment you press Add Customer (or onto the payer's invoice if Bill To Phone is filled in). You can add, change or remove fees later from the customer.</p>
+
+            <div class="form-grid-2" style="margin-top:14px;">
+              <div class="form-row"><label>Bill To Phone (optional)</label><input type="tel" id="addCustBillTo" placeholder="Leave blank to bill this house"></div>
+              <div class="form-row"><label>People They Referred</label><input type="number" id="addCustReferralCount" min="0" step="1" placeholder="0"></div>
             </div>
-            <div class="form-row" style="max-width:280px; margin-top:10px;"><label>Bill To Phone (optional)</label><input type="tel" id="addCustBillTo" placeholder="Leave blank to bill this house"></div>
-            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">If someone else is paying for this house too (e.g. a landlord with multiple properties), enter their phone number here &mdash; this house's price gets added to their invoice instead of creating a separate one.</p>
-            <div class="form-row" style="max-width:220px; margin-top:10px;"><label>Gate Code (optional)</label><input type="text" id="addCustGateCode" placeholder="e.g. #4521"></div>
+            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Bill To Phone: if someone else is paying for this house too (e.g. a landlord with multiple properties), enter their phone here &mdash; this house&rsquo;s price gets added to their invoice instead of creating a separate one.</p>
+
+            <div style="margin-top:14px; padding:12px; border:1px solid var(--line); border-radius:10px; background:var(--paper);">
+              <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:8px;">Discounts</label>
+              <div class="form-grid-2">
+                <div class="form-row"><label>Manual Discount ($)</label><input type="number" id="addCustManualDiscount" min="0" step="1" placeholder="0"></div>
+                <div class="form-row"><label>Reason</label><input type="text" id="addCustDiscountReason" placeholder="e.g. loyalty, price match"></div>
+              </div>
+              <div id="addCustDiscountSummary" style="font-size:13px; font-weight:600; color:var(--dusk); margin-top:8px;"></div>
+              <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Referrals are credited at $25 each. Both go on the invoice as credits, so they show everywhere invoices are displayed.</p>
+            </div>
+
+            <div style="margin-top:14px; padding:14px; border:2px solid var(--dusk); border-radius:10px; background:#EAF7EE;">
+              <label class="pill-check" style="display:inline-flex; align-items:center; gap:8px; cursor:pointer; font-size:14px; font-weight:700;">
+                <input type="checkbox" id="addCustNewMemberFee">
+                <span>Charge $30 new member installation fee</span>
+              </label>
+              <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Off by default. Turn this on only for customers who should pay the one-time join fee. It is added to their invoice automatically the night their install is marked complete.</p>
+            </div>
+
+            <div class="form-row" style="margin-top:14px;"><label>Invoice Notes (optional)</label><textarea id="addCustInvoiceNotes" rows="2" placeholder="e.g. split payment agreed, billed after Thanksgiving" style="width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea></div>
+            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Unlike the crew notes above, this one <strong>does</strong> appear on the customer&rsquo;s invoice.</p>
+          </div>
+
+          <!-- ===================== OTHER ===================== -->
+          <div style="border-top:2px solid var(--gold-dim); margin:22px 0 0; padding-top:18px;">
+            <h3 style="margin:0 0 2px; font-size:16px;">Other</h3>
+            <p style="font-size:12px; color:var(--slate); margin:0 0 14px;">Access, bins and numbering.</p>
+          </div>
+
+          <div style="margin:16px 0;">
+            <div class="form-row" style="max-width:220px;"><label>Gate Code (optional)</label><input type="text" id="addCustGateCode" placeholder="e.g. #4521"></div>
             <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">If entered, this house is automatically flagged as gated on Routes and Maps, visible to you and your crew.</p>
-            <div class="form-row" style="max-width:220px; margin-top:10px;"><label>Outlet Timer</label><select id="addCustOutletTimer"><option value="">&mdash;</option><option value="Yes">Yes</option><option value="No">No</option></select></div>
-            <div class="form-row" style="max-width:220px; margin-top:10px;"><label>Use Eaves</label><select id="addCustEaves"><option value="">&mdash;</option><option value="Yes">Yes</option><option value="No">No</option></select></div>
-            <div class="form-row" style="max-width:220px; margin-top:10px;"><label>Specific Outlet</label><select id="addCustSpecificOutlet"><option value="">&mdash;</option><option value="Yes">Yes</option><option value="No">No</option></select></div>
-            <div class="form-row" style="margin-top:10px;"><label>Which Outlet? (optional)</label><input type="text" id="addCustSpecificOutletNotes" placeholder="e.g. the outlet on the back patio"></div>
-            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Answering Yes to Outlet Timer puts this house on the crew&rsquo;s Timers list. The outlet note shows on their route card.</p>
-            <div class="form-row" style="margin-top:10px;"><label>House Notes (optional)</label><textarea id="addCustNotes" rows="2" placeholder="Roof height, specific requests, etc." style="width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea></div>
-            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">This becomes the permanent house note your crew sees on the route card.</p>
-            <div class="form-row" style="max-width:180px; margin-top:10px;"><label>Number of Bins</label><input type="number" id="addCustBins" min="1" step="1" value="1"></div>
-            <div class="form-row" style="max-width:220px; margin-top:10px;"><label>Customer # (optional)</label><input type="text" id="addCustNumber" placeholder="Assigned automatically"></div>
+            <div class="form-row" style="max-width:180px; margin-top:12px;"><label>Number of Bins</label><input type="number" id="addCustBins" min="1" step="1" value="1"></div>
+            <div class="form-row" style="max-width:220px; margin-top:12px;"><label>Customer # (optional)</label><input type="text" id="addCustNumber" placeholder="Assigned automatically"></div>
             <div id="addCustNumberPreview" style="font-size:12.5px; font-weight:600; margin-top:4px;"></div>
             <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">The permanent bin number. Leave it blank and you can assign the next available one from Customer Numbers. Normally left blank &mdash; the number is picked for you from Measured Feet. Over 200 feet means 2 bins and the next free 5000-series number; anything up to 200 means 1 bin and the next free regular number. Without Measured Feet no number is given.</p>
-            <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin-top:10px;"><input type="checkbox" id="addCustWantsMailed" style="width:auto;"> Also wants their invoice mailed (postal mail)</label>
+            <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin-top:12px;"><input type="checkbox" id="addCustWantsMailed" style="width:auto;"> Also wants their invoice mailed (postal mail)</label>
           </div>
           <button type="submit" class="btn btn-gold">Add Customer</button>
           <span id="routeAddStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
@@ -1147,70 +1205,54 @@
 
       <div class="editcust-popup-overlay" id="editCustOverlay">
         <div class="editcust-popup">
-          <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:19px;">Edit Customer Info</h3>
+          <!-- Header: title on the left, size toggle on the right. The popup
+               opens compact; Expand widens it and switches the grids to the
+               same three-column layout the Add Customer form uses. -->
+          <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin:0 0 4px;">
+            <h3 style="margin:0; font-family:'Fraunces',serif; font-size:19px;">Edit Customer Info</h3>
+            <button type="button" class="btn btn-outline btn-sm" id="editCustSizeToggle" title="Expand to the full form">&#9633; Expand</button>
+          </div>
           <p style="margin:0 0 16px; font-size:13px; color:var(--slate);">Everything about this house is edited here. Only the amount is set on Invoices, and only the house rating is set on Routes.</p>
-          <div class="form-row"><label>Name</label><input type="text" id="editCustName"></div>
-          <div class="form-grid-2">
+
+          <!-- ===================== CUSTOMER INFO ===================== -->
+          <div class="ec-grid">
+            <div class="form-row"><label>Name</label><input type="text" id="editCustName"></div>
             <div class="form-row"><label>Phone</label><input type="tel" id="editCustPhone"></div>
             <div class="form-row"><label>Secondary Phone</label><input type="tel" id="editCustPhone2"></div>
-          </div>
-          <div class="form-grid-2">
             <div class="form-row"><label>Email</label><input type="email" id="editCustEmail"></div>
             <div class="form-row"><label>Secondary Email</label><input type="email" id="editCustEmail2"></div>
+            <div class="form-row"><label>Enrolled Date</label><input type="date" id="editCustEnrolled"></div>
           </div>
           <div class="form-row"><label>Address</label><input type="text" id="editCustAddress"></div>
-          <div class="form-row"><label>Enrolled Date</label><input type="date" id="editCustEnrolled"></div>
-          <div class="form-row"><label>RSVP Status</label>
-            <select id="editCustRsvp">
-              <option value="">Pending (no response yet)</option>
-              <option value="yes">Yes — Hanging Lights</option>
-              <option value="no">No — Skip This Year</option>
-              <option value="backnextyear">Back Next Year</option>
-            </select>
-          </div>
-          <div class="form-row"><label>Don't Install Before This Date (optional, staff only)</label><input type="date" id="editCustEarliestInstall"></div>
-          <p class="form-note" style="margin:-10px 0 20px;">Customers never see or can change this &mdash; use it when someone needs us to hold off until a specific date (e.g. they're out of town until then). Leave blank for no restriction.</p>
-          <div class="form-grid-2">
-            <div class="form-row"><label>Measured Feet</label><input type="number" id="editCustFeet" min="0" step="0.5" placeholder="0"></div>
-            <div class="form-row"><label>This House's Price ($)</label><input type="number" id="editCustHousePrice" min="0" step="1" placeholder="0"></div>
-          </div>
-          <div class="form-grid-2">
-            <div class="form-row"><label>Wire Color</label>
-              <select id="editCustWireColor">
-                <option value="White">White</option>
-                <option value="Green">Green</option>
+          <div class="ec-grid">
+            <div class="form-row"><label>RSVP Status</label>
+              <select id="editCustRsvp">
+                <option value="">Pending (no response yet)</option>
+                <option value="yes">Yes &mdash; Hanging Lights</option>
+                <option value="no">No &mdash; Skip This Year</option>
+                <option value="backnextyear">Back Next Year</option>
               </select>
             </div>
-            <div class="form-row"><label>Bill To Phone (optional)</label><input type="tel" id="editCustBillTo" placeholder="Leave blank to bill this house"></div>
+            <div class="form-row"><label>Don't Install Before This Date (staff only)</label><input type="date" id="editCustEarliestInstall"></div>
           </div>
-          <p style="font-size:11.5px; color:var(--slate); margin:-8px 0 0;">If someone else pays for this house, enter their phone number &mdash; this house's price rolls into their invoice instead.</p>
-          <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
-            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:6px;">Extra Fees on This House</label>
-            <div id="editCustFeeList"></div>
-            <button type="button" class="btn btn-outline btn-sm" id="editCustFeeToggle" style="margin-top:8px;">+ Add a fee</button>
-            <div id="editCustFeeForm" style="display:none; margin-top:10px; background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:12px;">
-              <div class="form-grid-2">
-                <div class="form-row"><label>Fee</label><select id="editCustFeeType"></select></div>
-                <div class="form-row"><label>Amount ($)</label><input type="number" id="editCustFeeAmount" min="0" step="1" placeholder="30"></div>
-              </div>
-              <div class="form-row"><label>Note (optional &mdash; shows on their invoice)</label><input type="text" id="editCustFeeReason" placeholder="e.g. second trip, nobody home"></div>
-              <div style="display:flex; gap:8px;">
-                <button type="button" class="btn btn-gold btn-sm" id="editCustFeeAddBtn">Add Fee</button>
-                <button type="button" class="btn btn-outline btn-sm" id="editCustFeeCancelBtn">Cancel</button>
-              </div>
-              <div id="editCustFeeStatus" style="font-size:12px; color:var(--slate); margin-top:6px;"></div>
+          <p class="form-note" style="margin:-4px 0 16px;">Customers never see or can change this &mdash; use it when someone needs us to hold off until a specific date (e.g. they're out of town until then). Leave blank for no restriction.</p>
+
+          <!-- ===================== HOUSE INFO ===================== -->
+          <div style="border-top:2px solid var(--gold-dim); margin:20px 0 0; padding-top:16px;">
+            <h4 style="margin:0 0 14px; font-size:15px;">House Info</h4>
+          </div>
+
+          <div style="margin-bottom:16px;">
+            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Which Part(s) of the House?</label>
+            <div class="pill-check-row" id="editCustAreas">
+              <label class="pill-check"><input type="checkbox" class="editcust-area-check" value="Front of House"> Front of House</label>
+              <label class="pill-check"><input type="checkbox" class="editcust-area-check" value="Right Side"> Right Side</label>
+              <label class="pill-check"><input type="checkbox" class="editcust-area-check" value="Left Side"> Left Side</label>
+              <label class="pill-check"><input type="checkbox" class="editcust-area-check" value="Back of House"> Back of House</label>
             </div>
-            <p style="font-size:11.5px; color:var(--slate); margin:8px 0 0;">Fees add on top of anything already there &mdash; including the automatic $30 light-change fee. They save straight to the invoice, so you don't need to press Save Changes. Adding a fee by hand never locks them out of a route.</p>
           </div>
-          <div class="form-row"><label>Gate Code (optional)</label><input type="text" id="editCustGateCode" placeholder="e.g. #4521"></div>
-          <div class="form-row"><label>Outlet Timer</label><select id="editCustOutletTimer"><option value="">&mdash;</option><option value="Yes">Yes</option><option value="No">No</option></select></div>
-          <div class="form-row"><label>Use Eaves</label><select id="editCustEaves"><option value="">&mdash;</option><option value="Yes">Yes</option><option value="No">No</option></select></div>
-          <div class="form-row"><label>Specific Outlet</label><select id="editCustSpecificOutlet"><option value="">&mdash;</option><option value="Yes">Yes</option><option value="No">No</option></select></div>
-          <div class="form-row"><label>Which Outlet? (optional)</label><input type="text" id="editCustSpecificOutletNotes" placeholder="e.g. the outlet on the back patio"></div>
-          <div class="form-row" style="max-width:180px;"><label>Number of Bins</label><input type="number" id="editCustBins" min="1" step="1"></div>
-          <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin-top:-6px; margin-bottom:16px;"><input type="checkbox" id="editCustWantsMailed" style="width:auto;"> Also wants their invoice mailed (postal mail)</label>
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
-            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Light Color(s)</label>
+            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">What Lights Are They Getting?</label>
             <div class="pill-check-row" id="editCustLightsColor">
               <label class="pill-check"><input type="checkbox" class="editcust-color-check" value="Warm White"> Warm White</label>
               <label class="pill-check"><input type="checkbox" class="editcust-color-check" value="Pure White"> Pure White</label>
@@ -1222,17 +1264,26 @@
               <label class="pill-check"><input type="checkbox" class="editcust-color-check" value="Pink"> Pink</label>
               <label class="pill-check"><input type="checkbox" class="editcust-color-check" value="Multi"> Multi</label>
             </div>
-            <div class="form-row" style="margin-top:10px;"><label>Additional Light Notes (optional)</label><input type="text" id="editCustLightsNotes" placeholder="e.g. 2 trees out front, watch for low peak"></div>
           </div>
+
+          <div class="form-row" style="max-width:180px;"><label>Wire Color</label>
+            <select id="editCustWireColor">
+              <option value="White">White</option>
+              <option value="Green">Green</option>
+            </select>
+          </div>
+
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
-            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Which Part(s) of the House?</label>
-            <div class="pill-check-row" id="editCustAreas">
-              <label class="pill-check"><input type="checkbox" class="editcust-area-check" value="Front of House"> Front of House</label>
-              <label class="pill-check"><input type="checkbox" class="editcust-area-check" value="Right Side"> Right Side</label>
-              <label class="pill-check"><input type="checkbox" class="editcust-area-check" value="Left Side"> Left Side</label>
-              <label class="pill-check"><input type="checkbox" class="editcust-area-check" value="Back of House"> Back of House</label>
+            <div class="form-row" style="max-width:220px;"><label>Outlet Timer</label><select id="editCustOutletTimer"><option value="">&mdash;</option><option value="Yes">Yes</option><option value="No">No</option></select></div>
+            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Answering Yes puts this house on the crew&rsquo;s Timers list.</p>
+            <div class="form-row" style="max-width:220px; margin-top:12px;"><label>Use Eaves</label><select id="editCustEaves"><option value="">&mdash;</option><option value="Yes">Yes</option><option value="No">No</option></select></div>
+            <div class="form-row" style="max-width:220px; margin-top:12px;"><label>Specific Outlet</label><select id="editCustSpecificOutlet"><option value="">&mdash;</option><option value="Yes">Yes</option><option value="No">No</option></select></div>
+            <div id="editCustSpecificOutletNotesWrap" style="display:none;">
+              <div class="form-row" style="margin-top:10px;"><label>Which Outlet?</label><input type="text" id="editCustSpecificOutletNotes" placeholder="e.g. the outlet on the back patio"></div>
+              <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Shows on the crew&rsquo;s route card.</p>
             </div>
           </div>
+
           <div class="form-row"><label>Installation Timing Preference</label>
             <select id="editCustInstallPref" style="max-width:300px;">
               <option value="Normal Schedule">Any</option>
@@ -1242,18 +1293,79 @@
               <option value="After Thanksgiving">After Thanksgiving (employees only)</option>
             </select>
           </div>
-          <div class="form-row"><label>House Notes <span style="font-weight:400; color:var(--slate);">(permanent &mdash; the crew sees this on the route)</span></label><textarea id="editCustNotes" rows="2" placeholder="Roof height, dog in backyard, ladder goes on the north side..." style="width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea></div>
+
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
-            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:6px;">House Photo <span style="font-weight:400; color:var(--slate);">(upload, then highlight/mark it up &mdash; this is the only place photos are edited)</span></label>
+            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Notes for the Crew</label>
+            <p style="font-size:12px; color:var(--slate); margin:0 0 10px;">Both show to your crew only &mdash; never on the customer&rsquo;s invoice or portal.</p>
+            <div class="form-row"><label>One-Time Notes</label><textarea id="editCustOneTimeNotes" rows="2" placeholder="e.g. gate is broken this year, park on the street" style="width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea></div>
+            <p style="font-size:12px; color:var(--slate); margin:4px 0 12px;">For this season only.</p>
+            <div class="form-row"><label>Permanent Notes</label><textarea id="editCustNotes" rows="2" placeholder="Roof height, dog in backyard, ladder goes on the north side..." style="width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea></div>
+            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Sticks with the house year after year, on every route card.</p>
+          </div>
+
+          <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
+            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:6px;">House Pictures</label>
+            <p style="font-size:12px; color:var(--slate); margin:0 0 8px;">Upload, then highlight and mark it up &mdash; this is the only place photos are edited.</p>
             <div id="editCustPhotoThumb" style="margin-bottom:8px;"></div>
             <input type="file" accept="image/*" id="editCustPhotoFile">
             <div id="editCustPhotoStatus" style="font-size:12px; color:var(--slate); margin-top:4px;"></div>
+            <div class="form-row" style="margin-top:14px;">
+              <label>Layout Map <span style="font-weight:400; color:var(--slate);">(the hand-drawn light plan, scanned &mdash; stays on this house year after year)</span></label>
+              <input type="file" accept="image/*" id="editCustLayoutMapFile">
+              <div id="editCustLayoutMapThumb" style="margin-top:8px;"></div>
+            </div>
           </div>
-          <div class="form-row">
-            <label>Layout Map <span style="font-weight:400; color:var(--slate);">(the hand-drawn light plan, scanned &mdash; stays on this house year after year)</span></label>
-            <input type="file" accept="image/*" id="editCustLayoutMapFile">
-            <div id="editCustLayoutMapThumb" style="margin-top:8px;"></div>
+
+          <!-- ===================== INVOICE ===================== -->
+          <div style="border-top:2px solid var(--gold-dim); margin:20px 0 0; padding-top:16px;">
+            <h4 style="margin:0 0 14px; font-size:15px;">Invoice</h4>
           </div>
+
+          <div class="ec-grid">
+            <div class="form-row"><label>Measured Feet</label><input type="number" id="editCustFeet" min="0" step="0.5" placeholder="0"></div>
+            <div class="form-row"><label>This House's Price ($)</label><input type="number" id="editCustHousePrice" min="0" step="1" placeholder="0"></div>
+          </div>
+          <div class="ec-grid">
+            <div class="form-row"><label>Bill To Phone (optional)</label><input type="tel" id="editCustBillTo" placeholder="Leave blank to bill this house"></div>
+            <div class="form-row"><label>People They Referred</label><input type="number" id="editCustReferralCount" min="0" step="1" placeholder="0"></div>
+          </div>
+          <p style="font-size:11.5px; color:var(--slate); margin:-4px 0 0;">Bill To Phone: if someone else pays for this house, enter their phone number &mdash; this house's price rolls into their invoice instead.</p>
+
+          <div style="margin-top:14px; padding:12px; border:1px solid var(--line); border-radius:10px; background:var(--paper);">
+            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:8px;">Discounts</label>
+            <div class="ec-grid">
+              <div class="form-row"><label>Manual Discount ($)</label><input type="number" id="editCustManualDiscount" min="0" step="1" placeholder="0"></div>
+              <div class="form-row"><label>Reason</label><input type="text" id="editCustDiscountReason" placeholder="e.g. loyalty, price match"></div>
+            </div>
+            <div id="editCustDiscountSummary" style="font-size:13px; font-weight:600; color:var(--dusk); margin-top:8px;"></div>
+            <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Referrals are credited at $25 each. Saving replaces the referral and manual discount credits on this invoice; any other credits already on it are left alone.</p>
+          </div>
+
+          <div style="margin-top:14px; padding:14px; border:2px solid var(--dusk); border-radius:10px; background:#EAF7EE;">
+            <label class="pill-check" style="display:inline-flex; align-items:center; gap:8px; cursor:pointer; font-size:14px; font-weight:700;">
+              <input type="checkbox" id="editCustNewMemberFee">
+              <span>Charge $30 new member installation fee</span>
+            </label>
+            <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Added to their invoice automatically the night their install is marked complete. If it has already been applied, unticking this won't remove it &mdash; adjust the invoice amount directly.</p>
+          </div>
+
+          <div class="form-row" style="margin-top:14px;"><label>Invoice Notes (optional)</label><textarea id="editCustInvoiceNotes" rows="2" placeholder="e.g. split payment agreed, billed after Thanksgiving" style="width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea></div>
+          <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Unlike the crew notes above, this one <strong>does</strong> appear on the customer&rsquo;s invoice.</p>
+
+          <!-- ===================== OTHER ===================== -->
+          <div style="border-top:2px solid var(--gold-dim); margin:20px 0 0; padding-top:16px;">
+            <h4 style="margin:0 0 14px; font-size:15px;">Other</h4>
+          </div>
+
+          <div class="ec-grid">
+            <div class="form-row"><label>Gate Code (optional)</label><input type="text" id="editCustGateCode" placeholder="e.g. #4521"></div>
+            <div class="form-row"><label>Number of Bins</label><input type="number" id="editCustBins" min="1" step="1"></div>
+          </div>
+          <div class="form-row"><label>Customer #</label>
+            <div id="editCustNumberDisplay" style="font-size:14px; font-weight:700; padding:10px 12px; border-radius:10px; border:1px solid var(--line); background:var(--snow); color:var(--ink);">&mdash;</div>
+          </div>
+          <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Shown here for reference. Numbers are assigned and reassigned from the Customer Numbers panel so the available pool stays in sync.</p>
+          <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin-top:12px; margin-bottom:16px;"><input type="checkbox" id="editCustWantsMailed" style="width:auto;"> Also wants their invoice mailed (postal mail)</label>
           <div id="editCustCarryoverWrap" style="display:none; border-top:1px solid var(--line); margin:16px 0; padding-top:16px;"></div>
           <div style="display:flex; gap:10px; margin-top:16px;">
             <button type="button" class="btn btn-outline" id="editCustCancelBtn" style="flex:1;">Cancel</button>
@@ -3369,106 +3481,6 @@ function isStaleUnresponsive(d){
   return days !== null && days >= 10;
 }
 function fmtMoney(n){ return '$' + (Number(n)||0).toLocaleString(); }
-
-/* ---------------- EXTRA FEES (shared by Customers, Add a Customer, Invoices) ----
-   Fees live on the invoice as `changeFees` (a running total) plus `changeFeeNotes`
-   (one line each: {amount, reason, date}). The portal's automatic $30 light-change
-   fee writes into that same place, so a fee added by hand STACKS on top of it
-   rather than replacing it.
-
-   Manual fees deliberately never touch `lastLightChangeFeeAt` or the customer's
-   `lightsLockedUntil` route lock — only a customer changing their own lights in
-   the portal starts that 48-hour window. Adding a fee by hand must never keep a
-   house off a route. */
-const HU_FEE_PRESETS = [
-  {label: 'Light Color Change', amount: 30},
-  {label: 'Extra Trip / Return Visit', amount: 30},
-  {label: 'Rush / Off-Schedule Install', amount: 50},
-  {label: 'Late Payment', amount: 25},
-  {label: 'Other', amount: 0}
-];
-function huFeeOptionsHtml(){
-  return HU_FEE_PRESETS.map(function(f){
-    return '<option value="'+esc(f.label)+'" data-amt="'+f.amount+'">'+esc(f.label)+(f.amount ? ' \u2014 '+fmtMoney(f.amount) : ' (type your own)')+'</option>';
-  }).join('');
-}
-function huFeeNotes(invData){
-  return Array.isArray(invData && invData.changeFeeNotes) ? invData.changeFeeNotes : [];
-}
-function huFeeSum(notes){
-  return (notes||[]).reduce(function(s,f){ return s + (Number(f.amount)||0); }, 0);
-}
-/* One line per fee. `removeAttr` is the data-attribute name to hang the little
-   remove button off, so each screen can wire its own handler. */
-function huFeeLinesHtml(invData, removeAttr){
-  const notes = huFeeNotes(invData);
-  const total = Number(invData && invData.changeFees) || 0;
-  if(!notes.length){
-    // Older invoices may carry a total with no itemised lines behind it.
-    if(total > 0){
-      return '<div style="font-size:12.5px; color:var(--dusk); display:flex; justify-content:space-between; gap:8px;"><span>Fee</span><span>+'+fmtMoney(total)+'</span></div>';
-    }
-    return '<div style="font-size:12px; color:var(--slate);">No fees on this house yet.</div>';
-  }
-  return notes.map(function(f, i){
-    return '<div style="font-size:12.5px; color:var(--dusk); display:flex; justify-content:space-between; align-items:center; gap:8px; padding:3px 0;">'+
-      '<span>'+esc(f.reason || 'Fee')+(f.manual ? '' : ' <span style="color:var(--slate); font-size:11px;">(automatic)</span>')+'</span>'+
-      '<span style="display:flex; align-items:center; gap:8px; white-space:nowrap;">+'+fmtMoney(Number(f.amount)||0)+
-        (removeAttr ? '<button type="button" '+removeAttr+'="'+i+'" title="Remove this fee" style="border:none; background:none; color:var(--ember); font-size:16px; line-height:1; cursor:pointer; padding:0 2px;">&times;</button>' : '')+
-      '</span></div>';
-  }).join('') + '<div style="font-size:12.5px; font-weight:700; display:flex; justify-content:space-between; gap:8px; border-top:1px solid var(--line); margin-top:4px; padding-top:4px;"><span>Total fees</span><span>+'+fmtMoney(total || huFeeSum(notes))+'</span></div>';
-}
-/* The invoice a house's fees belong on: the payer's invoice when this house
-   bills to someone else, otherwise its own. */
-function huFeeInvoiceIdFor(d){
-  const billTo = String((d && d.billToPhone) || '').replace(/\D/g,'');
-  if(billTo) return billTo;
-  return custInvoiceKey(d || {});
-}
-async function huAddFeeToInvoice(invoiceId, amount, reason){
-  if(!invoiceId || !(amount > 0)) return {ok:false, msg:'Enter a fee amount.'};
-  const ref = doc(db,'invoices', invoiceId);
-  const snap = await getDoc(ref);
-  if(!snap.exists()) return {ok:false, msg:'No invoice for this customer yet \u2014 add a price first.'};
-  const d = snap.data();
-  const notes = huFeeNotes(d).concat([{amount: amount, reason: reason, date: new Date().toISOString(), manual: true}]);
-  const newTotal = huFeeSum(notes);
-  await updateDoc(ref, {
-    changeFees: newTotal,
-    changeFeeNotes: notes,
-    status: computeInvoiceStatus(d.install, d.removal, d.deposit, d.credits, newTotal),
-    updatedAt: serverTimestamp()
-  });
-  return {ok:true, msg: fmtMoney(amount) + ' fee added'};
-}
-async function huRemoveFeeFromInvoice(invoiceId, index){
-  if(!invoiceId) return {ok:false, msg:'No invoice found.'};
-  const ref = doc(db,'invoices', invoiceId);
-  const snap = await getDoc(ref);
-  if(!snap.exists()) return {ok:false, msg:'No invoice found.'};
-  const d = snap.data();
-  const notes = huFeeNotes(d).slice();
-  let removed = 0;
-  if(index >= 0 && index < notes.length){
-    removed = Number(notes[index].amount) || 0;
-    notes.splice(index, 1);
-  } else {
-    // No itemised lines to remove — clear the bare total instead.
-    notes.length = 0;
-  }
-  const newTotal = huFeeSum(notes);
-  const updates = {
-    changeFees: newTotal,
-    changeFeeNotes: notes,
-    status: computeInvoiceStatus(d.install, d.removal, d.deposit, d.credits, newTotal),
-    updatedAt: serverTimestamp()
-  };
-  // If no automatic light-change fee is left, reopen their free-change window.
-  const anyAutoLightFee = notes.some(function(f){ return !f.manual && /light/i.test(String(f.reason||'')); });
-  if(!anyAutoLightFee) updates.lastLightChangeFeeAt = null;
-  await updateDoc(ref, updates);
-  return {ok:true, msg: removed ? fmtMoney(removed) + ' fee removed' : 'Fees removed'};
-}
 function trashIcon(){ return '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0l-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/></svg>'; }
 function editIcon(){ return '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg>'; }
 function copyIcon(){ return '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>'; }
@@ -3719,7 +3731,7 @@ async function resolveLinkTokens(text, phone, amount, opts){
     const cust = jobAddresses.find(a => (a.data.phone||'').replace(/\D/g,'') === phoneDigits);
     const feet = cust ? Number(cust.data.measuredFeet) || 0 : 0;
     const basePrice = cust ? Number(cust.data.housePrice) || 0 : 0;
-    const isNewMember = !!(cust && enrollmentYearOf(cust.data.createdAt) === new Date().getFullYear());
+    const isNewMember = !!(cust && cust.data.chargeNewMemberFee === true);
     const feetLine = feet && perFootRate ? ('Installation service \u2014 '+feet+' ft @ '+fmtMoney(perFootRate)+'/ft = '+fmtMoney(basePrice)) : ('Installation service = '+fmtMoney(basePrice));
     const newMemberLine = isNewMember ? ('New member installation fee = '+fmtMoney(30)) : '';
     out = out.split('{{feet_line}}').join(feetLine);
@@ -4364,7 +4376,7 @@ document.getElementById('pibLoadBtn')?.addEventListener('click', function(){
     const d = item.data;
     const inv = d.phone ? allInvoicesCache.find(function(i){ return i.data.phone === d.phone; }) : null;
     if(!inv){ noInvoiceCount++; return; }
-    const status = computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit, inv.data.credits, inv.data.changeFees);
+    const status = computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit, inv.data.credits);
     const row = {
       jobId: item.id, phone: d.phone || inv.data.phone || '',
       name: d.name || inv.data.name || '', email: inv.data.email || d.email || '',
@@ -4744,6 +4756,9 @@ function initData(){
   loadPerFootRate();
 }
 let perFootRate = 0;
+/* What one referral is worth as a credit. Kept here rather than typed into the
+   discount maths in two places, so changing the rate is a one-line change. */
+const REFERRAL_CREDIT = 25;
 function loadPerFootRate(){
   onSnapshot(doc(db,'pricing','config'), function(snap){
     perFootRate = snap.exists() ? (snap.data().perFootRate || 0) : 0;
@@ -5092,7 +5107,6 @@ function renderQuoteRows(filtered){
         cb.checked = colors.includes(cb.value);
         cb.closest('.pill-check').classList.toggle('checked', cb.checked);
       });
-      document.getElementById('addCustLightsNotes').value = d.lightsDescription || '';
       document.getElementById('addCustWireColor').value = d.wireColor || 'White';
       const quoteAreas = d.houseAreas || [];
       document.querySelectorAll('.addcust-area-check').forEach(function(cb){
@@ -5107,6 +5121,10 @@ function renderQuoteRows(filtered){
       document.getElementById('addCustOutletTimer').value = d.outletTimer || '';
       document.getElementById('addCustSpecificOutlet').value = d.specificOutlet || '';
       document.getElementById('addCustSpecificOutletNotes').value = d.specificOutletNotes || '';
+      // The "Which outlet?" input is hidden unless Specific Outlet is Yes, so
+      // re-run the toggle after filling from the quote or it stays hidden with
+      // a value inside it.
+      syncSpecificOutletNotes();
       document.getElementById('addCustNotes').value = d.notes || '';
       document.getElementById('addCustWantsMailed').checked = !!d.wantsMailedInvoice;
       /* Feet drive the bin count, the customer number series and the warehouse
@@ -5144,6 +5162,11 @@ function renderQuoteRows(filtered){
         document.getElementById('addCustPhotoStatus').textContent = 'Photo carried over from the quote.';
       }
       document.querySelector('.nav-item[data-panel="addcustomer"]').click();
+      // Opening the Customers panel isn't enough — it has inner tabs, and it
+      // stays on whichever one was last used. Landing on "All Customers" left
+      // the freshly filled form hidden behind a tab. Same two-step the Bulk
+      // Updates button uses.
+      setTimeout(function(){ document.querySelector('#custSectionTabs [data-custtab="add"]').click(); }, 50);
       toast('Quote details filled in' + (d.frontPhotoUrl ? ', photo included' : '') + (typeof d.quotedPrice === 'number' && d.quotedPrice > 0 ? ', using the approved quote price' : (d.estimatedFeet && perFootRate ? ', price estimated from footage' : '')) + ' — review and click Add Customer');
     });
   });
@@ -5667,8 +5690,7 @@ function buildInvoiceDocHtml(member){
 
   const feet = Number(d.measuredFeet) || 0;
   const basePrice = Number(d.housePrice) || 0;
-  const enrollYear = enrollmentYearOf(d.createdAt);
-  const isNewMember = enrollYear === new Date().getFullYear();
+  const isNewMember = d.chargeNewMemberFee === true;
   const newMemberFeeAlreadyApplied = inv && inv.newMemberFeeApplied;
   const install = inv ? Number(inv.install)||0 : (basePrice + (isNewMember && !newMemberFeeAlreadyApplied ? 30 : 0));
   const removal = inv ? Number(inv.removal)||0 : 0;
@@ -6637,7 +6659,7 @@ function renderInvoicesList(){
     const invoiceId = sel.dataset.setpaystatus;
     const inv = allInvoicesCache.find(i => i.id === invoiceId);
     if(inv){
-      const status = computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit, inv.data.credits, inv.data.changeFees);
+      const status = computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit, inv.data.credits);
       sel.value = status;
     }
   });
@@ -6719,43 +6741,15 @@ function renderInvoicesList(){
           '<div class="ie-credit-status" style="font-size:12px; color:var(--slate); margin-top:4px;"></div>'+
         '</div>'+
         '<div style="margin-top:16px; padding-top:12px; border-top:1px solid var(--line);">'+
-          '<div style="font-weight:700; font-size:12.5px; margin-bottom:6px;">Fees</div>'+
-          '<div class="ie-fee-list">'+huFeeLinesHtml({changeFees: changeFeesForPanel, changeFeeNotes: changeFeeNotesForPanel}, 'data-invremovefee')+'</div>'+
-          '<div class="form-grid-2" style="margin-top:8px;">'+
-            '<div class="form-row"><label>Fee</label><select class="ie-fee-type">'+huFeeOptionsHtml()+'</select></div>'+
-            '<div class="form-row"><label>Amount ($)</label><input type="number" class="ie-fee-amt" min="0" step="1" value="'+(HU_FEE_PRESETS[0].amount||'')+'"></div>'+
-          '</div>'+
-          '<div class="form-row"><label>Note (optional)</label><input type="text" class="ie-fee-reason" placeholder="e.g. second trip, nobody home"></div>'+
-          '<button type="button" class="btn btn-outline btn-sm ie-add-fee">Add fee</button>'+
-          '<div class="ie-fee-status" style="font-size:12px; color:var(--slate); margin-top:4px;"></div>'+
-          '<div style="font-size:11.5px; color:var(--slate); margin-top:6px;">Fees stack on top of the automatic $30 light-change fee rather than replacing it. Fees can also be added from the customer in <strong>Customers</strong>.</div>'+
+          '<div style="font-weight:700; font-size:12.5px; margin-bottom:6px;">Light-Change Fees</div>'+
+          (changeFeesForPanel > 0
+            ? (changeFeeNotesForPanel.length
+                ? changeFeeNotesForPanel.map(function(f){ return '<div style="font-size:12.5px; color:var(--dusk); display:flex; justify-content:space-between; gap:8px;"><span>'+esc(f.reason||'Light change fee')+'</span><span>+'+fmtMoney(Number(f.amount)||0)+'</span></div>'; }).join('')
+                : '<div style="font-size:12.5px; color:var(--dusk); display:flex; justify-content:space-between; gap:8px;"><span>Light-change fee</span><span>+'+fmtMoney(changeFeesForPanel)+'</span></div>')
+              + '<button type="button" class="btn btn-outline btn-sm ie-clear-fees" style="margin-top:8px;">Remove light-change fee(s)</button>'
+              + '<div class="ie-fee-status" style="font-size:12px; color:var(--slate); margin-top:4px;"></div>'
+            : '<div style="font-size:12px; color:var(--slate);">No light-change fees on this invoice. These are added automatically when a customer changes their lights in the portal.</div>')+
         '</div>';
-      const feeTypeSel = panel.querySelector('.ie-fee-type');
-      if(feeTypeSel){
-        feeTypeSel.addEventListener('change', function(){
-          const amt = Number(feeTypeSel.selectedOptions[0].dataset.amt) || 0;
-          panel.querySelector('.ie-fee-amt').value = amt ? amt : '';
-        });
-      }
-      panel.querySelector('.ie-add-fee').addEventListener('click', async function(){
-        const st = panel.querySelector('.ie-fee-status');
-        const amt = Number(panel.querySelector('.ie-fee-amt').value) || 0;
-        if(amt <= 0){ st.textContent = 'Enter a fee amount.'; return; }
-        const note = panel.querySelector('.ie-fee-reason').value.trim();
-        const label = panel.querySelector('.ie-fee-type').value;
-        st.textContent = 'Adding…';
-        const res = await huAddFeeToInvoice(id, amt, note ? (label + ' — ' + note) : label);
-        st.textContent = res.ok ? '' : res.msg;
-        if(res.ok){ toast(res.msg); panel.style.display = 'none'; }
-      });
-      panel.querySelectorAll('[data-invremovefee]').forEach(function(rb){
-        rb.addEventListener('click', async function(){
-          if(!confirm('Remove this fee from the invoice?')) return;
-          const res = await huRemoveFeeFromInvoice(id, parseInt(rb.dataset.invremovefee, 10));
-          toast(res.msg);
-          panel.style.display = 'none';
-        });
-      });
       panel.querySelector('.ie-add-credit').addEventListener('click', async function(){
         const amt = Number(panel.querySelector('.ie-credit-amt').value) || 0;
         const reason = panel.querySelector('.ie-credit-reason').value.trim() || 'Credit';
@@ -6798,6 +6792,24 @@ function renderInvoicesList(){
         toast('Credit added' + (applyNow>0 ? ' (' + fmtMoney(applyNow) + ' off now)' : '') + carryNote);
         panel.style.display = 'none';
       });
+      const clearFeesBtn = panel.querySelector('.ie-clear-fees');
+      if(clearFeesBtn){
+        clearFeesBtn.addEventListener('click', async function(){
+          const st = panel.querySelector('.ie-fee-status');
+          st.textContent = 'Removing…';
+          const freshSnap = await getDoc(doc(db,'invoices', id));
+          const fresh = freshSnap.exists() ? freshSnap.data() : d;
+          await updateDoc(doc(db,'invoices', id), {
+            changeFees: 0,
+            changeFeeNotes: [],
+            lastLightChangeFeeAt: null,       // clears the 48h window so their next change starts fresh
+            status: computeInvoiceStatus(fresh.install, fresh.removal, fresh.deposit, fresh.credits, 0),
+            updatedAt: serverTimestamp()
+          });
+          toast('Light-change fee(s) removed');
+          panel.style.display = 'none';
+        });
+      }
       panel.querySelector('.ie-save').addEventListener('click', async function(){
         const newAmount = Number(panel.querySelector('.ie-amount').value) || 0;
         const newDeposit = Math.min(Math.max(Number(panel.querySelector('.ie-paid').value) || 0, 0), newAmount);
@@ -7239,7 +7251,7 @@ function renderExpensesList(){
     const connectedHtml = connectedIds.length ? connectedIds.map(function(invId){
       const inv = allInvoicesCache.find(x => x.id === invId);
       if(!inv) return '';
-      const status = computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit, inv.data.credits, inv.data.changeFees);
+      const status = computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit, inv.data.credits);
       return '<span class="status-pill '+statusClass(status)+'" style="margin-right:4px;">'+esc(inv.data.name||invId)+' &mdash; '+status+'</span>';
     }).join('') : '';
     return '<div class="row-item">'+
@@ -8804,9 +8816,7 @@ async function syncPayerInvoice(payerPhone){
     email: (payerHouse && payerHouse.data.email) || existing.email || '',
     install: installTotal, removal: existing.removal || 0, deposit: existing.deposit || 0,
     newMemberFeeApplied: !!existing.newMemberFeeApplied,
-    // changeFees must be counted here too, or a payer with a fee on their invoice
-    // shows the wrong paid/unpaid pill after any resync.
-    status: computeInvoiceStatus(installTotal, existing.removal||0, existing.deposit||0, existing.credits||0, existing.changeFees||0),
+    status: computeInvoiceStatus(installTotal, existing.removal||0, existing.deposit||0, existing.credits||0),
     priceReviewed: true, updatedAt: serverTimestamp(),
     billedHouseIds: linked.map(h => h.id)
   }, {merge:true});
@@ -8816,98 +8826,6 @@ document.addEventListener('change', function(e){
     e.target.closest('.pill-check').classList.toggle('checked', e.target.checked);
   }
 });
-/* ---- Extra fees on the Add a Customer form -------------------------------
-   There's no invoice until the customer is saved, so fees are held here and
-   written onto the invoice (or the payer's invoice) at the moment it's created. */
-let addCustPendingFees = [];
-function renderAddCustFees(){
-  const list = document.getElementById('addCustFeeList');
-  if(!list) return;
-  if(!addCustPendingFees.length){
-    list.innerHTML = '<div style="font-size:12px; color:var(--slate);">No fees on this house.</div>';
-    return;
-  }
-  const total = huFeeSum(addCustPendingFees);
-  list.innerHTML = addCustPendingFees.map(function(f, i){
-    return '<div style="font-size:12.5px; color:var(--dusk); display:flex; justify-content:space-between; align-items:center; gap:8px; padding:3px 0;">'+
-      '<span>'+esc(f.reason)+'</span>'+
-      '<span style="display:flex; align-items:center; gap:8px; white-space:nowrap;">+'+fmtMoney(f.amount)+
-        '<button type="button" data-addcustremovefee="'+i+'" title="Remove this fee" style="border:none; background:none; color:var(--ember); font-size:16px; line-height:1; cursor:pointer; padding:0 2px;">&times;</button>'+
-      '</span></div>';
-  }).join('') +
-  '<div style="font-size:12.5px; font-weight:700; display:flex; justify-content:space-between; gap:8px; border-top:1px solid var(--line); margin-top:4px; padding-top:4px;"><span>Total fees</span><span>+'+fmtMoney(total)+'</span></div>';
-  list.querySelectorAll('[data-addcustremovefee]').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      addCustPendingFees.splice(parseInt(btn.dataset.addcustremovefee, 10), 1);
-      renderAddCustFees();
-    });
-  });
-}
-(function wireAddCustFeeForm(){
-  const typeSel = document.getElementById('addCustFeeType');
-  const amtEl = document.getElementById('addCustFeeAmount');
-  const reasonEl = document.getElementById('addCustFeeReason');
-  const form = document.getElementById('addCustFeeForm');
-  const toggle = document.getElementById('addCustFeeToggle');
-  const addBtn = document.getElementById('addCustFeeAddBtn');
-  const cancelBtn = document.getElementById('addCustFeeCancelBtn');
-  if(!typeSel || !form || !toggle) return;
-  typeSel.innerHTML = huFeeOptionsHtml();
-  typeSel.addEventListener('change', function(){
-    const amt = Number(typeSel.selectedOptions[0].dataset.amt) || 0;
-    amtEl.value = amt ? amt : '';
-    if(!amt) amtEl.focus();
-  });
-  toggle.addEventListener('click', function(){
-    const open = form.style.display !== 'none';
-    form.style.display = open ? 'none' : 'block';
-    if(!open){
-      typeSel.selectedIndex = 0;
-      amtEl.value = HU_FEE_PRESETS[0].amount || '';
-      reasonEl.value = '';
-      document.getElementById('addCustFeeStatus').textContent = '';
-    }
-  });
-  cancelBtn.addEventListener('click', function(){ form.style.display = 'none'; });
-  addBtn.addEventListener('click', function(){
-    const st = document.getElementById('addCustFeeStatus');
-    const amt = Number(amtEl.value) || 0;
-    if(amt <= 0){ st.textContent = 'Enter a fee amount.'; return; }
-    const note = reasonEl.value.trim();
-    addCustPendingFees.push({
-      amount: amt,
-      reason: note ? (typeSel.value + ' \u2014 ' + note) : typeSel.value,
-      date: new Date().toISOString(),
-      manual: true
-    });
-    st.textContent = '';
-    form.style.display = 'none';
-    renderAddCustFees();
-  });
-  renderAddCustFees();
-})();
-/* Puts the fees held on the form onto the invoice this house is billed on.
-   Called right after the invoice is created/synced, never before. */
-async function applyPendingFeesToInvoice(invoiceId){
-  if(!invoiceId || !addCustPendingFees.length) return '';
-  try{
-    const ref = doc(db,'invoices', invoiceId);
-    const snap = await getDoc(ref);
-    if(!snap.exists()) return '';
-    const d = snap.data();
-    const notes = huFeeNotes(d).concat(addCustPendingFees.map(function(f){ return Object.assign({}, f); }));
-    const newTotal = huFeeSum(notes);
-    await updateDoc(ref, {
-      changeFees: newTotal,
-      changeFeeNotes: notes,
-      status: computeInvoiceStatus(d.install, d.removal, d.deposit, d.credits, newTotal),
-      updatedAt: serverTimestamp()
-    });
-    return ' ' + fmtMoney(huFeeSum(addCustPendingFees)) + ' in fees added.';
-  } catch(err){
-    return ' Fees could not be saved — add them from the customer.';
-  }
-}
 document.getElementById('routeAddressForm').addEventListener('submit', async function(e){
   e.preventDefault();
   const street = document.getElementById('routeStreetInput').value.trim();
@@ -8922,20 +8840,30 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
   const phone2 = document.getElementById('addCustPhone2').value.replace(/\D/g,'');
   const email2 = document.getElementById('addCustEmail2').value.trim();
   const selectedColors = Array.from(document.querySelectorAll('.addcust-color-check:checked')).map(el => el.value);
-  const lightsDescription = compileLightsDescription(
-    selectedColors.join(', '),
-    document.getElementById('addCustLightsNotes').value.trim()
-  );
+  // The free-text "Additional Notes" input under Lights was removed from the
+  // form, so the description is just the colours now. Crew-facing detail lives
+  // in the One-Time / Permanent notes fields instead.
+  const lightsDescription = compileLightsDescription(selectedColors.join(', '), '');
   const wireColor = document.getElementById('addCustWireColor').value;
   const houseAreas = Array.from(document.querySelectorAll('.addcust-area-check:checked')).map(el => el.value);
   const installPreference = document.getElementById('addCustInstallPref').value;
+  const chargeNewMemberFee = document.getElementById('addCustNewMemberFee').checked;
   const billToPhone = document.getElementById('addCustBillTo').value.replace(/\D/g,'');
   const gateCode = document.getElementById('addCustGateCode').value.trim();
   const outletTimer = document.getElementById('addCustOutletTimer').value;
   const useEaves = document.getElementById('addCustEaves').value;
   const specificOutlet = document.getElementById('addCustSpecificOutlet').value;
-  const specificOutletNotes = document.getElementById('addCustSpecificOutletNotes').value.trim();
+  // Only meaningful when Specific Outlet is Yes — the input is hidden otherwise,
+  // so don't carry over a stale value someone typed then switched to No.
+  const specificOutletNotes = document.getElementById('addCustSpecificOutlet').value === 'Yes'
+    ? document.getElementById('addCustSpecificOutletNotes').value.trim()
+    : '';
   const custNotes = document.getElementById('addCustNotes').value.trim();
+  const oneTimeNotes = document.getElementById('addCustOneTimeNotes').value.trim();
+  const invoiceNotes = document.getElementById('addCustInvoiceNotes').value.trim();
+  const referralCount = Math.max(0, parseInt(document.getElementById('addCustReferralCount').value, 10) || 0);
+  const manualDiscount = Math.max(0, Number(document.getElementById('addCustManualDiscount').value) || 0);
+  const discountReason = document.getElementById('addCustDiscountReason').value.trim();
   let numberOfBins = parseInt(document.getElementById('addCustBins').value, 10) || 1;
   const wantsMailedInvoice = document.getElementById('addCustWantsMailed').checked;
   /* Feet decide the bins, and the bins decide which sequence the number comes from.
@@ -9003,6 +8931,12 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
       phone2: phone2, email2: email2, lightsDescription: lightsDescription, houseAreas: houseAreas,
       housePhotoUrl: addCustPhotoUrl, housePhotoOriginal: addCustPhotoOriginal, housePhotoMarkup: addCustPhotoMarkup,
       houseHighlights: addCustHighlights, portalToken: generatePortalToken(), installPreference: installPreference,
+      chargeNewMemberFee: chargeNewMemberFee,
+      oneTimeNotes: oneTimeNotes,
+      // Stamped so the "clear once they've paid, keep it if it was written
+      // after they paid" rule has something to compare against later.
+      oneTimeNotesAt: oneTimeNotes ? new Date().toISOString() : '',
+      referralCount: referralCount,
       rsvpStatus: addCustFromQuoteId ? 'yes' : '',
       contactMethod: (addCustFromQuoteId ? (addCustContactMethodFromQuote || '') : ''),
       wireColor: wireColor,
@@ -9022,18 +8956,37 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
     if(wantsBilling && billingElsewhere){
       await syncPayerInvoice(billToPhone);
       invoiceMsg = ' Billed to ' + billToPhone + ' instead of a separate invoice.';
-      invoiceMsg += await applyPendingFeesToInvoice(billToPhone);
     } else if(wantsBilling){
-      await setDoc(doc(db,'invoices',custKey), {
+      /* Referrals and any manual discount go on as ordinary credits, using the
+         same {amount, reason, date} shape the Invoices tab already reads and
+         the season rollover already clears. Building a parallel discount field
+         would have meant every screen that shows credits missing these. */
+      const newCreditNotes = [];
+      if(referralCount > 0){
+        newCreditNotes.push({
+          amount: referralCount * REFERRAL_CREDIT,
+          reason: 'Referral \u2014 ' + referralCount + ' ' + (referralCount === 1 ? 'person' : 'people'),
+          kind: 'referral',
+          date: new Date().toISOString()
+        });
+      }
+      if(manualDiscount > 0){
+        newCreditNotes.push({
+          amount: manualDiscount,
+          reason: discountReason || 'Discount',
+          kind: 'manual',
+          date: new Date().toISOString()
+        });
+      }
+      const totalCredits = newCreditNotes.reduce((sum, c) => sum + c.amount, 0);
+      await setDoc(doc(db,'invoices',custKey), Object.assign({
         name: name, phone: phone, email: email, phone2: phone2, email2: email2,
         lightsDescription: lightsDescription, install: price, removal: 0, deposit: 0,
-        status: computeInvoiceStatus(price, 0, 0), priceReviewed: true, updatedAt: serverTimestamp()
-      }, {merge:true});
+        status: computeInvoiceStatus(price, 0, 0, totalCredits, 0), priceReviewed: true, updatedAt: serverTimestamp()
+      }, totalCredits > 0 ? {credits: totalCredits, creditNotes: newCreditNotes} : {},
+         invoiceNotes ? {invoiceNotes: invoiceNotes} : {}), {merge:true});
       invoiceMsg = phone ? ' Invoice created too.' : ' Invoice created too (keyed by email — they log in with their email).';
-      invoiceMsg += await applyPendingFeesToInvoice(custKey);
-    } else if(addCustPendingFees.length){
-      // Fees were entered but there's no price/invoice to hang them on.
-      invoiceMsg = ' Fees were not saved — this customer has no invoice yet (add a price, then add the fees from the customer).';
+      if(totalCredits > 0) invoiceMsg += ' ' + fmtMoney(totalCredits) + ' in discounts applied.';
     }
     if(phone) await syncCustomerToOpenQuote(phone, {name: name, email: email});
     document.getElementById('routeStreetInput').value = '';
@@ -9058,9 +9011,16 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
     document.getElementById('addCustPhone2').value = '';
     document.getElementById('addCustEmail2').value = '';
     document.querySelectorAll('.addcust-color-check').forEach(function(cb){ cb.checked = false; cb.closest('.pill-check').classList.remove('checked'); });
-    document.getElementById('addCustLightsNotes').value = '';
     document.getElementById('addCustWireColor').value = 'White';
     document.getElementById('addCustInstallPref').value = 'Normal Schedule';
+    document.getElementById('addCustOneTimeNotes').value = '';
+    document.getElementById('addCustInvoiceNotes').value = '';
+    document.getElementById('addCustReferralCount').value = '';
+    document.getElementById('addCustManualDiscount').value = '';
+    document.getElementById('addCustDiscountReason').value = '';
+    document.getElementById('addCustSpecificOutletNotesWrap').style.display = 'none';
+    updateAddCustDiscountSummary();
+    document.getElementById('addCustNewMemberFee').checked = false;
     document.querySelectorAll('.addcust-area-check').forEach(function(cb){ cb.checked = false; cb.closest('.pill-check').classList.remove('checked'); });
     document.getElementById('addCustPhoto').value = '';
     document.getElementById('addCustPhotoWrap').style.display = 'none';
@@ -9068,9 +9028,6 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
     document.getElementById('addCustPhotoStatus').textContent = '';
     addCustPhotoUrl = '';
     addCustHighlights = [];
-    addCustPendingFees = [];
-    renderAddCustFees();
-    document.getElementById('addCustFeeForm').style.display = 'none';
     renderAddCustHighlights();
     statusEl.textContent = 'Added!' + invoiceMsg;
     setTimeout(function(){ statusEl.textContent = ''; }, 3000);
@@ -9087,6 +9044,38 @@ document.getElementById('bulkUpdatesToggle').addEventListener('click', function(
   panel.style.display = isOpen ? 'none' : 'block';
   chevron.innerHTML = isOpen ? '&#9662;' : '&#9652;';
 });
+/* ---- ADD CUSTOMER: conditional outlet note + live discount preview ---- */
+function syncSpecificOutletNotes(){
+  const sel = document.getElementById('addCustSpecificOutlet');
+  const wrap = document.getElementById('addCustSpecificOutletNotesWrap');
+  if(!sel || !wrap) return;
+  const show = sel.value === 'Yes';
+  wrap.style.display = show ? 'block' : 'none';
+  // Clear it on the way out so a leftover answer can't reach the route card.
+  if(!show) document.getElementById('addCustSpecificOutletNotes').value = '';
+}
+function updateAddCustDiscountSummary(){
+  const el = document.getElementById('addCustDiscountSummary');
+  if(!el) return;
+  const refs = Math.max(0, parseInt(document.getElementById('addCustReferralCount').value, 10) || 0);
+  const manual = Math.max(0, Number(document.getElementById('addCustManualDiscount').value) || 0);
+  const refAmt = refs * REFERRAL_CREDIT;
+  const total = refAmt + manual;
+  if(total <= 0){ el.textContent = ''; return; }
+  const bits = [];
+  if(refs > 0) bits.push(refs + ' referral' + (refs === 1 ? '' : 's') + ' = ' + fmtMoney(refAmt));
+  if(manual > 0) bits.push('manual = ' + fmtMoney(manual));
+  el.textContent = bits.join('  +  ') + '   \u2192   ' + fmtMoney(total) + ' off';
+}
+document.addEventListener('DOMContentLoaded', function(){
+  const outletSel = document.getElementById('addCustSpecificOutlet');
+  if(outletSel){ outletSel.addEventListener('change', syncSpecificOutletNotes); syncSpecificOutletNotes(); }
+  ['addCustReferralCount','addCustManualDiscount'].forEach(function(id){
+    const el = document.getElementById(id);
+    if(el) el.addEventListener('input', updateAddCustDiscountSummary);
+  });
+});
+
 document.getElementById('goToBulkUpdatesBtn').addEventListener('click', function(){
   document.querySelector('.nav-item[data-panel="addcustomer"]').click();
   setTimeout(function(){ document.querySelector('#custSectionTabs [data-custtab="bulk"]').click(); }, 50);
@@ -9629,7 +9618,7 @@ function buildAddressRowHtml(item){
   const needsQuote = hasOpenQuote(d.phone);
   const invStatus = matchedInvoice ? computeInvoiceStatus(matchedInvoice.data.install, matchedInvoice.data.removal, matchedInvoice.data.deposit, matchedInvoice.data.credits, matchedInvoice.data.changeFees) : '';
   const invChangeFee = matchedInvoice ? (Number(matchedInvoice.data.changeFees)||0) : 0;
-  const priceLine = matchedInvoice ? '<div class="row-phone-line">Price: '+fmtMoney((matchedInvoice.data.install||0)+(matchedInvoice.data.removal||0))+(invChangeFee>0 ? ' + '+fmtMoney(invChangeFee)+' in fees' : '')+(invStatus==='Partial Payment' ? ' &mdash; Paid so far: '+fmtMoney(matchedInvoice.data.deposit||0)+', Balance: '+fmtMoney(balanceDueAmount(matchedInvoice.data)) : '')+' &middot; <span class="status-pill '+statusClass(invStatus)+'" style="font-size:10.5px; padding:2px 8px;">'+invStatus+'</span></div>' : '';
+  const priceLine = matchedInvoice ? '<div class="row-phone-line">Price: '+fmtMoney((matchedInvoice.data.install||0)+(matchedInvoice.data.removal||0))+(invChangeFee>0 ? ' + '+fmtMoney(invChangeFee)+' light-change fee' : '')+(invStatus==='Partial Payment' ? ' &mdash; Paid so far: '+fmtMoney(matchedInvoice.data.deposit||0)+', Balance: '+fmtMoney(balanceDueAmount(matchedInvoice.data)) : '')+' &middot; <span class="status-pill '+statusClass(invStatus)+'" style="font-size:10.5px; padding:2px 8px;">'+invStatus+'</span></div>' : '';
   const crewLines = [];
   if(d.scheduled && d.assignedCrew){
     const names = getEffectiveCrewNames(d.assignedCrew, d.scheduledDate);
@@ -9708,7 +9697,7 @@ function attachAddressRowHandlers(container){
     const invoiceId = sel.dataset.setpaystatus;
     const inv = allInvoicesCache.find(i => i.id === invoiceId);
     if(inv){
-      const status = computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit, inv.data.credits, inv.data.changeFees);
+      const status = computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit, inv.data.credits);
       sel.value = status;
     }
   });
@@ -11510,6 +11499,58 @@ function renderAllCustomersTable(){
   });
 }
 let editCustomerId = null;
+
+/* ---- EDIT CUSTOMER: expand/collapse + conditional outlet + discount preview ---- */
+function setEditCustExpanded(expanded){
+  const popup = document.querySelector('.editcust-popup');
+  const btn = document.getElementById('editCustSizeToggle');
+  if(!popup || !btn) return;
+  popup.classList.toggle('expanded', expanded);
+  btn.innerHTML = expanded ? '\u25A1 Minimize' : '\u25A1 Expand';
+  btn.title = expanded ? 'Back to the compact form' : 'Expand to the full form';
+  // Remembered so it stays the way you left it next time you open a customer.
+  try{ localStorage.setItem('editCustExpanded', expanded ? '1' : '0'); }catch(e){}
+}
+function editCustExpandedPref(){
+  try{ return localStorage.getItem('editCustExpanded') === '1'; }catch(e){ return false; }
+}
+function syncEditSpecificOutletNotes(){
+  const sel = document.getElementById('editCustSpecificOutlet');
+  const wrap = document.getElementById('editCustSpecificOutletNotesWrap');
+  if(!sel || !wrap) return;
+  const show = sel.value === 'Yes';
+  wrap.style.display = show ? 'block' : 'none';
+  if(!show) document.getElementById('editCustSpecificOutletNotes').value = '';
+}
+function updateEditCustDiscountSummary(){
+  const el = document.getElementById('editCustDiscountSummary');
+  if(!el) return;
+  const refs = Math.max(0, parseInt(document.getElementById('editCustReferralCount').value, 10) || 0);
+  const manual = Math.max(0, Number(document.getElementById('editCustManualDiscount').value) || 0);
+  const refAmt = refs * REFERRAL_CREDIT;
+  const total = refAmt + manual;
+  if(total <= 0){ el.textContent = ''; return; }
+  const bits = [];
+  if(refs > 0) bits.push(refs + ' referral' + (refs === 1 ? '' : 's') + ' = ' + fmtMoney(refAmt));
+  if(manual > 0) bits.push('manual = ' + fmtMoney(manual));
+  el.textContent = bits.join('  +  ') + '   \u2192   ' + fmtMoney(total) + ' off';
+}
+document.addEventListener('DOMContentLoaded', function(){
+  const sizeBtn = document.getElementById('editCustSizeToggle');
+  if(sizeBtn){
+    sizeBtn.addEventListener('click', function(){
+      const popup = document.querySelector('.editcust-popup');
+      setEditCustExpanded(!popup.classList.contains('expanded'));
+    });
+  }
+  const outletSel = document.getElementById('editCustSpecificOutlet');
+  if(outletSel) outletSel.addEventListener('change', syncEditSpecificOutletNotes);
+  ['editCustReferralCount','editCustManualDiscount'].forEach(function(id){
+    const el = document.getElementById(id);
+    if(el) el.addEventListener('input', updateEditCustDiscountSummary);
+  });
+});
+
 function openEditCustomerModal(id){
   const item = jobAddresses.find(a => a.id === id);
   if(!item) return;
@@ -11533,7 +11574,24 @@ function openEditCustomerModal(id){
   document.getElementById('editCustEaves').value = d.useEaves || '';
   document.getElementById('editCustSpecificOutlet').value = d.specificOutlet || '';
   document.getElementById('editCustSpecificOutletNotes').value = d.specificOutletNotes || '';
+  syncEditSpecificOutletNotes();
   document.getElementById('editCustBins').value = d.numberOfBins || 1;
+  document.getElementById('editCustNumberDisplay').textContent = d.customerNumber || '\u2014';
+  document.getElementById('editCustOneTimeNotes').value = d.oneTimeNotes || '';
+  document.getElementById('editCustNewMemberFee').checked = d.chargeNewMemberFee === true;
+  document.getElementById('editCustReferralCount').value = d.referralCount || '';
+  /* Manual discount and invoice notes live on the invoice, not the house, so
+     read them back off the matching invoice. The manual-discount credit is the
+     one whose reason isn't a referral — referrals are rebuilt from the count. */
+  const ecInv = allInvoicesCache.find(i => i.id === custInvoiceKey(d));
+  const ecNotes = (ecInv && Array.isArray(ecInv.data.creditNotes)) ? ecInv.data.creditNotes : [];
+  const ecManual = ecNotes.find(c => c.kind === 'manual')
+    || ecNotes.find(c => !c.kind && !/^Referral \u2014 /.test(c.reason || ''));
+  document.getElementById('editCustManualDiscount').value = ecManual ? (Number(ecManual.amount) || '') : '';
+  document.getElementById('editCustDiscountReason').value = ecManual ? (ecManual.reason || '') : '';
+  document.getElementById('editCustInvoiceNotes').value = (ecInv && ecInv.data.invoiceNotes) || '';
+  updateEditCustDiscountSummary();
+  setEditCustExpanded(editCustExpandedPref());
   document.getElementById('editCustWantsMailed').checked = !!d.wantsMailedInvoice;
   // Lights, house areas, install timing, notes and photo — all edited here now.
   const parsedLights = parseCustLights(d.lightsDescription || '');
@@ -11542,7 +11600,6 @@ function openEditCustomerModal(id){
     cb.checked = custColors.includes(cb.value);
     cb.closest('.pill-check').classList.toggle('checked', cb.checked);
   });
-  document.getElementById('editCustLightsNotes').value = parsedLights.notes;
   const custAreas = d.houseAreas || [];
   document.querySelectorAll('.editcust-area-check').forEach(function(cb){
     cb.checked = custAreas.includes(cb.value);
@@ -11554,7 +11611,6 @@ function openEditCustomerModal(id){
   document.getElementById('editCustPhotoStatus').textContent = '';
   renderEditCustPhotoThumb(d);
   renderEditCustCarryover(d);
-  renderEditCustFees(d);
   editCustLayoutMapUrl = d.layoutMapUrl || '';
   document.getElementById('editCustLayoutMapFile').value = '';
   renderEditCustLayoutMapThumb();
@@ -11592,86 +11648,6 @@ function renderEditCustCarryover(d){
     toast('Credit cleared');
   });
 }
-/* ---- Extra fees on the Edit Customer popup -------------------------------
-   Reads the fees straight off whichever invoice this house is billed on, and
-   writes changes there immediately (same as credits on the Invoices panel), so
-   a fee is never lost by closing the popup without pressing Save Changes. */
-let editCustFeeInvoiceId = '';
-function renderEditCustFees(d){
-  const list = document.getElementById('editCustFeeList');
-  if(!list) return;
-  const form = document.getElementById('editCustFeeForm');
-  if(form) form.style.display = 'none';
-  const status = document.getElementById('editCustFeeStatus');
-  if(status) status.textContent = '';
-  editCustFeeInvoiceId = huFeeInvoiceIdFor(d);
-  const inv = editCustFeeInvoiceId ? allInvoicesCache.find(function(i){ return i.id === editCustFeeInvoiceId; }) : null;
-  if(!inv){
-    list.innerHTML = '<div style="font-size:12px; color:var(--slate);">No invoice for this customer yet &mdash; give them a price first and one is created.</div>';
-    return;
-  }
-  list.innerHTML = huFeeLinesHtml(inv.data, 'data-editcustremovefee');
-  list.querySelectorAll('[data-editcustremovefee]').forEach(function(btn){
-    btn.addEventListener('click', async function(){
-      const idx = parseInt(btn.dataset.editcustremovefee, 10);
-      if(!confirm('Remove this fee from their invoice?')) return;
-      btn.disabled = true;
-      const res = await huRemoveFeeFromInvoice(editCustFeeInvoiceId, idx);
-      toast(res.msg);
-      setTimeout(function(){
-        const fresh = jobAddresses.find(function(a){ return a.id === editCustomerId; });
-        if(fresh) renderEditCustFees(fresh.data);
-      }, 600);
-    });
-  });
-}
-(function wireEditCustFeeForm(){
-  const typeSel = document.getElementById('editCustFeeType');
-  const amtEl = document.getElementById('editCustFeeAmount');
-  const reasonEl = document.getElementById('editCustFeeReason');
-  const form = document.getElementById('editCustFeeForm');
-  const toggle = document.getElementById('editCustFeeToggle');
-  const addBtn = document.getElementById('editCustFeeAddBtn');
-  const cancelBtn = document.getElementById('editCustFeeCancelBtn');
-  if(!typeSel || !form || !toggle) return;
-  typeSel.innerHTML = huFeeOptionsHtml();
-  typeSel.addEventListener('change', function(){
-    const amt = Number(typeSel.selectedOptions[0].dataset.amt) || 0;
-    amtEl.value = amt ? amt : '';
-    if(!amt) amtEl.focus();
-  });
-  toggle.addEventListener('click', function(){
-    const open = form.style.display !== 'none';
-    form.style.display = open ? 'none' : 'block';
-    if(!open){
-      typeSel.selectedIndex = 0;
-      amtEl.value = HU_FEE_PRESETS[0].amount || '';
-      reasonEl.value = '';
-      document.getElementById('editCustFeeStatus').textContent = '';
-    }
-  });
-  cancelBtn.addEventListener('click', function(){ form.style.display = 'none'; });
-  addBtn.addEventListener('click', async function(){
-    const st = document.getElementById('editCustFeeStatus');
-    const amt = Number(amtEl.value) || 0;
-    if(amt <= 0){ st.textContent = 'Enter a fee amount.'; return; }
-    const label = typeSel.value;
-    const note = reasonEl.value.trim();
-    const reason = note ? (label + ' \u2014 ' + note) : label;
-    st.textContent = 'Adding\u2026';
-    addBtn.disabled = true;
-    const res = await huAddFeeToInvoice(editCustFeeInvoiceId, amt, reason);
-    addBtn.disabled = false;
-    if(!res.ok){ st.textContent = res.msg; return; }
-    st.textContent = '';
-    form.style.display = 'none';
-    toast(res.msg);
-    setTimeout(function(){
-      const fresh = jobAddresses.find(function(a){ return a.id === editCustomerId; });
-      if(fresh) renderEditCustFees(fresh.data);
-    }, 600);
-  });
-})();
 function renderEditCustPhotoThumb(d){
   const wrap = document.getElementById('editCustPhotoThumb');
   if(!wrap) return;
@@ -11787,11 +11763,19 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const newOutletTimer = document.getElementById('editCustOutletTimer').value;
   const newUseEaves = document.getElementById('editCustEaves').value;
   const newSpecificOutlet = document.getElementById('editCustSpecificOutlet').value;
-  const newSpecificOutletNotes = document.getElementById('editCustSpecificOutletNotes').value.trim();
+  const newSpecificOutletNotes = document.getElementById('editCustSpecificOutlet').value === 'Yes'
+    ? document.getElementById('editCustSpecificOutletNotes').value.trim()
+    : '';
   const newBins = parseInt(document.getElementById('editCustBins').value, 10) || 1;
+  const newOneTimeNotes = document.getElementById('editCustOneTimeNotes').value.trim();
+  const newChargeNewMemberFee = document.getElementById('editCustNewMemberFee').checked;
+  const newReferralCount = Math.max(0, parseInt(document.getElementById('editCustReferralCount').value, 10) || 0);
+  const newManualDiscount = Math.max(0, Number(document.getElementById('editCustManualDiscount').value) || 0);
+  const newDiscountReason = document.getElementById('editCustDiscountReason').value.trim();
+  const newInvoiceNotes = document.getElementById('editCustInvoiceNotes').value.trim();
   const newWantsMailed = document.getElementById('editCustWantsMailed').checked;
   const newColors = Array.from(document.querySelectorAll('.editcust-color-check:checked')).map(el => el.value);
-  const newLightsDescription = compileLightsDescription(newColors.join(', '), document.getElementById('editCustLightsNotes').value.trim());
+  const newLightsDescription = compileLightsDescription(newColors.join(', '), '');
   const newHouseAreas = Array.from(document.querySelectorAll('.editcust-area-check:checked')).map(el => el.value);
   const newInstallPref = document.getElementById('editCustInstallPref').value;
   const newHouseNotes = document.getElementById('editCustNotes').value.trim();
@@ -11813,6 +11797,14 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     addrUpdates.houseAreas = newHouseAreas;
     addrUpdates.installPreference = newInstallPref;
     addrUpdates.notes = newHouseNotes;
+    addrUpdates.oneTimeNotes = newOneTimeNotes;
+    if(newOneTimeNotes && newOneTimeNotes !== (item.data.oneTimeNotes || '')){
+      addrUpdates.oneTimeNotesAt = new Date().toISOString();
+    } else if(!newOneTimeNotes){
+      addrUpdates.oneTimeNotesAt = '';
+    }
+    addrUpdates.chargeNewMemberFee = newChargeNewMemberFee;
+    addrUpdates.referralCount = newReferralCount;
     const oldLightsForBuild = item.data.lightsDescription || '';
     addrUpdates.needsLightBuild = newLightsDescription ? (newLightsDescription !== oldLightsForBuild ? true : !!item.data.needsLightBuild) : false;
     let geocodeFailed = false;
@@ -11862,6 +11854,37 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     if(!newBillTo){
       if(inv){
         const invoiceUpdates = {name: newName, phone: newPhone, email: newEmail};
+        /* Referrals and the manual discount are rebuilt from the form every
+           save. Any other credit on the invoice — a service adjustment, a
+           carryover applied by hand from the Invoices tab — is kept untouched,
+           so editing a phone number can't quietly wipe someone's credit. */
+        const priorNotes = Array.isArray(inv.data.creditNotes) ? inv.data.creditNotes : [];
+        const keptNotes = priorNotes.filter(function(c){
+          if(c.kind === 'referral' || c.kind === 'manual') return false;
+          if(!c.kind && /^Referral \u2014 /.test(c.reason || '')) return false;
+          return true;
+        });
+        const rebuiltNotes = keptNotes.slice();
+        if(newReferralCount > 0){
+          rebuiltNotes.push({
+            amount: newReferralCount * REFERRAL_CREDIT,
+            reason: 'Referral \u2014 ' + newReferralCount + ' ' + (newReferralCount === 1 ? 'person' : 'people'),
+            kind: 'referral',
+            date: new Date().toISOString()
+          });
+        }
+        if(newManualDiscount > 0){
+          rebuiltNotes.push({
+            amount: newManualDiscount,
+            reason: newDiscountReason || 'Discount',
+            kind: 'manual',
+            date: new Date().toISOString()
+          });
+        }
+        const rebuiltCredits = rebuiltNotes.reduce(function(sum, c){ return sum + (Number(c.amount) || 0); }, 0);
+        invoiceUpdates.creditNotes = rebuiltNotes;
+        invoiceUpdates.credits = rebuiltCredits;
+        invoiceUpdates.invoiceNotes = newInvoiceNotes;
         /* House Price is the source of truth, but only when it's actually been
            changed here. The Invoices panel can edit an invoice total by hand,
            so syncing on every save would silently undo that while you were
@@ -11876,10 +11899,19 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
         if(newHousePrice !== oldHousePrice && !isGroupInvoice){
           const memberFee = inv.data.newMemberFeeApplied ? 30 : 0;
           invoiceUpdates.install = newHousePrice + memberFee;
-          invoiceUpdates.status = computeInvoiceStatus(invoiceUpdates.install, inv.data.removal || 0, inv.data.deposit || 0, inv.data.credits || 0, inv.data.changeFees || 0);
+          invoiceUpdates.status = computeInvoiceStatus(invoiceUpdates.install, inv.data.removal || 0, inv.data.deposit || 0, rebuiltCredits, inv.data.changeFees || 0);
           invoiceUpdates.updatedAt = serverTimestamp();
         } else if(newHousePrice !== oldHousePrice && isGroupInvoice){
           resyncPayerAfter = newPhone || (newEmail || '').toLowerCase();
+        }
+        /* Changing only a discount leaves install alone, but the balance still
+           moved — so status has to be recomputed here too, or an invoice that
+           a discount just cleared would keep showing Unpaid. */
+        if(invoiceUpdates.install === undefined){
+          invoiceUpdates.status = computeInvoiceStatus(
+            Number(inv.data.install) || 0, inv.data.removal || 0, inv.data.deposit || 0, rebuiltCredits, inv.data.changeFees || 0
+          );
+          invoiceUpdates.updatedAt = serverTimestamp();
         }
         // The invoice doc ID is the customer key (phone digits, or lowercase
         // email when there's no phone). If the key changed — phone edited,
