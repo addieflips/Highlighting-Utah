@@ -9,7 +9,6 @@ service cloud.firestore {
     match /heroImages/{id}             { allow read: if true; allow write: if request.auth != null; }
     match /faq/{id}                    { allow read: if true; allow write: if request.auth != null; }
     match /siteContent/{id}            { allow read: if true; allow write: if request.auth != null; }
-
     // ---- invoices -------------------------------------------------------
     // PHASE 3 (locked down). Invoices were the last publicly readable
     // customer data — names, addresses, and balances, with phone numbers as
@@ -18,7 +17,6 @@ service cloud.firestore {
     // token or typed last name server-side. Staff portals are authenticated
     // and read invoices directly.
     match /invoices/{id}               { allow read: if request.auth != null; allow write: if request.auth != null; }
-
     // ---- jobAddresses ---------------------------------------------------
     // PHASE 2 (locked down). Customer records are no longer publicly readable.
     // The Member Portal reaches this collection only through Cloud Functions
@@ -26,7 +24,6 @@ service cloud.firestore {
     // Admin privileges and bypass these rules. Staff portals (admin.html and
     // employee.html) are authenticated and read it directly.
     match /jobAddresses/{id}           { allow read, write: if request.auth != null; }
-
     // ---- Staff-only collections ----------------------------------------
     match /scheduledRoutes/{id}        { allow read, write: if request.auth != null; }
     match /messageFolders/{id}         { allow read, write: if request.auth != null; }
@@ -45,18 +42,16 @@ service cloud.firestore {
     match /smsTemplateFolders/{id}     { allow read, write: if request.auth != null; }
     match /smsTemplates/{id}           { allow read, write: if request.auth != null; }
     match /availableCustomerNumbers/{id} { allow read, write: if request.auth != null; }
-
     // ---- Staff-only: employee tools ------------------------------------
     match /employeeNotes/{id}          { allow read, write: if request.auth != null; }
     match /employeeRequests/{id}       { allow read, write: if request.auth != null; }
     match /employeeCategories/{id}     { allow read, write: if request.auth != null; }
     match /houseMaps/{id}              { allow read, write: if request.auth != null; }
-
+    match /roleTemplates/{id}          { allow read, write: if request.auth != null; }
     // ---- Staff-only: warehouse -----------------------------------------
     match /warehouseExtras/{id}        { allow read, write: if request.auth != null; }
     match /warehouseGoals/{id}         { allow read, write: if request.auth != null; }
     match /inventoryItems/{id}         { allow read, write: if request.auth != null; }
-
     // ---- Staff-only: finance -------------------------------------------
     match /expenses/{id}               { allow read, write: if request.auth != null; }
     match /bills/{id}                  { allow read, write: if request.auth != null; }
@@ -70,17 +65,14 @@ service cloud.firestore {
     match /paymentImports/{id}         { allow read, write: if request.auth != null; }
     match /paymentImportFolders/{id}   { allow read, write: if request.auth != null; }
     match /yearlySnapshots/{id}        { allow read, write: if request.auth != null; }
-
     // ---- Staff-only: misc ----------------------------------------------
     match /customCodes/{id}            { allow read, write: if request.auth != null; }
     match /savedEmailTemplates/{id}    { allow read, write: if request.auth != null; }
-
     // ---- Nightly invoice automation ------------------------------------
     // Written only by the sendNightlyInvoices Cloud Function, which uses the
     // Admin SDK and bypasses these rules — so the browser never needs write
     // access. Staff read it to see the "Last 10 nightly runs" log.
     match /nightlyInvoiceLog/{id}      { allow read: if request.auth != null; allow write: if false; }
-
     // portalRateLimits is written only by Cloud Functions, which bypass rules.
     // No match block is needed — anything unlisted is denied by default.
   }
