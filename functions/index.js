@@ -910,11 +910,53 @@ function todayStrInDenver() {
   return get('year') + '-' + get('month') + '-' + get('day');
 }
 
+// Sends one text through Twilio. Used by the nightly alert. Only works inside a
+// function that declares the TWILIO secrets. Never throws — returns {ok}.
+async function twilioSendRaw(to, body) {
+  const toNumber = toE164(to);
+  if (!toNumber) return { ok: false };
+  try {
+    const sid = TWILIO_ACCOUNT_SID.value();
+    const authToken = TWILIO_AUTH_TOKEN.value();
+    const from = TWILIO_PHONE_NUMBER.value();
+    const basicAuth = Buffer.from(sid + ':' + authToken).toString('base64');
+    const params = new URLSearchParams();
+    params.append('To', toNumber);
+    params.append('From', from);
+    params.append('Body', body);
+    const res = await fetch('https://api.twilio.com/2010-04-01/Accounts/' + sid + '/Messages.json', {
+      method: 'POST',
+      headers: { 'Authorization': 'Basic ' + basicAuth, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString()
+    });
+    return { ok: res.ok };
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) };
+  }
+}
 async function logNightlyInvoiceRun(data) {
   await db.collection('nightlyInvoiceLog').add(Object.assign(
     { runAt: admin.firestore.FieldValue.serverTimestamp() },
     data
   ));
+  // Text the owner a one-line summary so a missed or failed run can't slip by.
+  // Twilio is separate from EmailJS, so this still reaches you on the night
+  // email is the thing that's broken. An alert failure must never break the run.
+  try {
+    const cfgSnap = await db.collection('settings').doc('nightlyInvoiceAutomation').get();
+    const alertPhone = cfgSnap.exists ? (cfgSnap.data().alertPhone || '') : '';
+    if (alertPhone) {
+      const parts = [(data.sentCount || 0) + ' sent'];
+      if (data.skippedNeedsFix) parts.push(data.skippedNeedsFix + ' need fix');
+      if (data.skippedNotDone) parts.push(data.skippedNotDone + ' skipped');
+      parts.push((data.errorCount || 0) + ' error' + (data.errorCount === 1 ? '' : 's'));
+      let body = 'Highlighting Utah billing (' + (data.triggeredBy || 'run') + '): ' + parts.join(', ') + '.';
+      if (data.errorCount && data.errors && data.errors.length) body += ' First issue: ' + String(data.errors[0]).slice(0, 90);
+      await twilioSendRaw(alertPhone, body);
+    }
+  } catch (e) {
+    console.error('[HU] nightly alert SMS failed:', e);
+  }
 }
 
 function computeInvoiceStatusServer(install, removal, deposit, credits) {
@@ -1141,7 +1183,7 @@ async function runInvoiceBatch(triggeredBy) {
 // Runs automatically every night at 7:00 PM Mountain Time \u2014 but only if the
 // "Send nightly invoice emails automatically" toggle is on in Admin > Automation.
 exports.sendNightlyInvoices = onSchedule(
-  { schedule: '0 19 * * *', timeZone: 'America/Denver', memory: '512MiB' },
+  { schedule: '0 19 * * *', timeZone: 'America/Denver', memory: '512MiB', secrets: [TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER] },
   async () => {
     const autoSnap = await db.collection('settings').doc('nightlyInvoiceAutomation').get();
     if (!autoSnap.exists || !autoSnap.data().enabled) {
@@ -1158,7 +1200,7 @@ exports.sendNightlyInvoices = onSchedule(
  * invoices out on a night the automation is turned off. Requires the caller
  * to be signed in (same Firebase Auth already used across admin.html).
  * ------------------------------------------------------------------------- */
-exports.sendInvoicesNow = onCall({ memory: '512MiB', timeoutSeconds: 300 }, async (request) => {
+exports.sendInvoicesNow = onCall({ memory: '512MiB', timeoutSeconds: 300, secrets: [TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER] }, async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Sign in required.');
   }
