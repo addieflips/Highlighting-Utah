@@ -2147,10 +2147,11 @@ Highlighting Utah</textarea>
 
     <!-- MESSAGES -->
     <div class="panel" id="panel-messages">
-      <div class="panel-head"><div><h2>Inbox</h2><p>Contact messages from the site, and notes from employees. New messages always land in Inbox first &mdash; drag one onto a folder, or right-click it, to file it away. Drag a folder onto another folder to nest it underneath.</p></div></div>
+      <div class="panel-head"><div><h2>Inbox</h2><p>Contact messages from the site, and notes from employees, land in Inbox. Automatic notices the system generates &mdash; colour, wire and timer changes, and reassign flags &mdash; go to the <strong>System</strong> folder to keep them out of the way. Drag a message onto a folder, or right-click it, to file it; drag a folder onto another to nest it.</p></div></div>
       <div class="messages-layout">
         <div class="messages-sidebar" id="messagesSidebar">
           <div class="msg-sidebar-item active" data-folder="Inbox">Inbox</div>
+          <div class="msg-sidebar-item" data-folder="System" title="Automatic notifications the system generates (colour/wire/timer changes, reassign flags)">System</div>
           <div id="customFolderList"></div>
           <div style="margin-top:14px;">
             <input type="text" id="newFolderInput" placeholder="New folder name" style="width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:12.5px; margin-bottom:6px;">
@@ -6043,6 +6044,12 @@ function renderFolderSidebar(){
   const inboxItem = document.querySelector('.msg-sidebar-item[data-folder="Inbox"]');
   inboxItem.innerHTML = 'Inbox <span class="folder-count">'+folderCount('Inbox')+'</span>';
   inboxItem.classList.toggle('active', selectedFolder === 'Inbox');
+
+  const systemItem = document.querySelector('.msg-sidebar-item[data-folder="System"]');
+  if(systemItem){
+    systemItem.innerHTML = '&#9881;&#65039; System <span class="folder-count">'+folderCount('System')+'</span>';
+    systemItem.classList.toggle('active', selectedFolder === 'System');
+  }
 
   const wrap = document.getElementById('customFolderList');
   const tree = buildFolderTree();
