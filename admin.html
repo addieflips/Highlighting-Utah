@@ -961,6 +961,16 @@
             <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Bill To Phone: if someone else is paying for this house too (e.g. a landlord with multiple properties), enter their phone here &mdash; this house&rsquo;s price gets added to their invoice instead of creating a separate one.</p>
 
             <div style="margin-top:14px; padding:12px; border:1px solid var(--line); border-radius:10px; background:var(--paper);">
+              <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:8px;">Fees</label>
+              <div class="form-grid-2">
+                <div class="form-row"><label>Fee ($)</label><input type="number" id="addCustFee" min="0" step="1" placeholder="0"></div>
+                <div class="form-row"><label>Reason</label><input type="text" id="addCustFeeReason" placeholder="e.g. extra strand, second trip"></div>
+              </div>
+              <div id="addCustFeeSummary" style="font-size:13px; font-weight:600; color:var(--ember); margin-top:8px;"></div>
+              <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Added on top of the total. Fees the system charges automatically (like light changes) show here too.</p>
+            </div>
+
+            <div style="margin-top:14px; padding:12px; border:1px solid var(--line); border-radius:10px; background:var(--paper);">
               <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:8px;">Discounts</label>
               <div class="form-grid-2">
                 <div class="form-row"><label>Manual Discount ($)</label><input type="number" id="addCustManualDiscount" min="0" step="1" placeholder="0"></div>
@@ -1311,6 +1321,16 @@
             <div class="form-row"><label>People They Referred</label><input type="number" id="editCustReferralCount" min="0" step="1" placeholder="0"></div>
           </div>
           <p style="font-size:11.5px; color:var(--slate); margin:-4px 0 0;">Bill To Phone: if someone else pays for this house, enter their phone number &mdash; this house's price rolls into their invoice instead.</p>
+
+          <div style="margin-top:14px; padding:12px; border:1px solid var(--line); border-radius:10px; background:var(--paper);">
+            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:8px;">Fees</label>
+            <div class="ec-grid">
+              <div class="form-row"><label>Fee ($)</label><input type="number" id="editCustFee" min="0" step="1" placeholder="0"></div>
+              <div class="form-row"><label>Reason</label><input type="text" id="editCustFeeReason" placeholder="e.g. extra strand, second trip"></div>
+            </div>
+            <div id="editCustFeeSummary" style="font-size:13px; font-weight:600; color:var(--ember); margin-top:8px;"></div>
+            <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Added on top of the total. Saving replaces the manual fee; automatic light-change fees are left alone.</p>
+          </div>
 
           <div style="margin-top:14px; padding:12px; border:1px solid var(--line); border-radius:10px; background:var(--paper);">
             <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:8px;">Discounts</label>
@@ -2265,9 +2285,6 @@ Highlighting Utah</textarea>
         <select id="quoteFilterSelect" style="border-radius:999px; border:1px solid var(--line); padding:8px 14px; font-size:13.5px; font-weight:600; color:var(--ink); background:var(--snow);">
           <option value="all">All Quotes</option>
           </select>
-        <select id="quoteColorFilterSelect" style="border-radius:999px; border:1px solid var(--line); padding:8px 14px; font-size:13.5px; font-weight:600; color:var(--ink); background:var(--snow);">
-          <option value="all">All Color Combos</option>
-        </select>
       </div>
       <div class="list-with-map">
         <div class="list-with-map-list">
@@ -2301,6 +2318,7 @@ Highlighting Utah</textarea>
           <div class="inbox-tabs">
             <button type="button" class="inbox-tab active" data-inboxtab="customer">Customer Messages</button>
             <button type="button" class="inbox-tab" data-inboxtab="employee">Employee Messages<span class="inbox-tab-badge" id="empNotesBadge" style="display:none;">0</span></button>
+            <button type="button" class="inbox-tab" data-inboxtab="system">System Messages<span class="inbox-tab-badge" id="sysMsgBadge" style="display:none;">0</span></button>
           </div>
           <div id="inboxpane-customer">
             <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:16px;">
@@ -2322,6 +2340,13 @@ Highlighting Utah</textarea>
               <button type="button" class="btn btn-outline btn-sm" id="markAllNotesReadBtn" style="margin-left:auto;">Mark all read</button>
             </div>
             <div class="row-list" id="employeeNotesList"><div class="empty-note">Loading…</div></div>
+          </div>
+          <div id="inboxpane-system" style="display:none;">
+            <p style="font-size:13px; margin:0 0 14px;">Notices the system writes on its own &mdash; light colour, wire and timer changes, and crew reassign flags. Kept separate so they don&rsquo;t bury real customer messages.</p>
+            <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:16px;">
+              <button type="button" class="btn btn-outline btn-sm" id="markAllSystemReadBtn" style="margin-left:auto;">Mark all read</button>
+            </div>
+            <div class="row-list" id="systemMessagesList"><div class="empty-note">Loading…</div></div>
           </div>
         </div>
       </div>
@@ -4756,7 +4781,6 @@ document.getElementById('pfCalcFeet').addEventListener('input', updatePfCalcResu
 /* ---------------- QUOTES ---------------- */
 let quotesCache = [];
 let quoteFilter = 'all';
-let quoteColorFilter = 'all';
 let quoteStageFilter = 'new';   // one of: new, send, form, closed
 /* The four stages a quote moves through, in the order they're worked:
      new    — it came in, nobody has priced it yet
@@ -4770,10 +4794,6 @@ function quoteStage(d){
   if(typeof d.quotedPrice !== 'number') return 'new';
   if(d.approvalStatus === 'approved') return 'form';
   return 'send';
-}
-function colorComboKey(colors){
-  if(!colors || !colors.length) return '';
-  return colors.slice().sort().join(' + ');
 }
 function hasOpenQuote(phone){
   const phoneDigits = (phone||'').replace(/\D/g,'');
@@ -4799,23 +4819,8 @@ function loadQuotes(){
     quotesCache.forEach(function(item){ if((item.data.status||'new') === 'new') newCount++; });
     document.getElementById('badgeQuotes').style.display = newCount ? 'inline-block' : 'none';
     document.getElementById('badgeQuotes').textContent = newCount;
-    populateQuoteColorFilter();
     renderQuotesList();
   });
-}
-function populateQuoteColorFilter(){
-  const sel = document.getElementById('quoteColorFilterSelect');
-  if(!sel) return;
-  const combos = new Set();
-  quotesCache.forEach(function(item){
-    const combo = colorComboKey(item.data.lightColors);
-    if(combo) combos.add(combo);
-  });
-  const currentVal = sel.value;
-  const sorted = Array.from(combos).sort();
-  sel.innerHTML = '<option value="all">All Color Combos</option>' +
-    sorted.map(c => '<option value="'+esc(c)+'">'+esc(c)+'</option>').join('');
-  if(sorted.includes(currentVal)) sel.value = currentVal;
 }
 function renderQuotesList(){
   const list = document.getElementById('quotesList');
@@ -4853,7 +4858,6 @@ function renderQuotesList(){
   /* The tab IS the view now — no separate "awaiting" folder, and no status or
      approval dropdown, since the pipeline already encodes both. */
   let filtered = quotesCache.filter(item => quoteStage(item.data) === quoteStageFilter);
-  if(quoteColorFilter !== 'all') filtered = filtered.filter(item => colorComboKey(item.data.lightColors) === quoteColorFilter);
   if(quoteFilter === 'flagged') filtered = filtered.filter(item => !item.data.frontPhotoUrl);
   if(!filtered.length){
     const emptyMsg = {
@@ -5176,10 +5180,6 @@ function renderQuoteRows(filtered){
 }
 document.getElementById('quoteFilterSelect').addEventListener('change', function(){
   quoteFilter = this.value;
-  renderQuotesList();
-});
-document.getElementById('quoteColorFilterSelect').addEventListener('change', function(){
-  quoteColorFilter = this.value;
   renderQuotesList();
 });
 
@@ -6319,6 +6319,7 @@ function renderMessagesList(){
   if(msgFilter === 'important') filtered = filtered.filter(m => m.data.important);
   if(msgFilter === 'awaiting') filtered = filtered.filter(m => !m.data.responded);
   document.getElementById('currentFolderLabel').textContent = msgFilter === 'awaiting' ? 'Awaiting Response (all folders)' : selectedFolder;
+  filtered = filtered.filter(m => (m.data.folder || 'Inbox') !== 'System');
   const unreadCount = allMessages.filter(m => !m.data.read).length;
   document.getElementById('badgeMessages').style.display = unreadCount ? 'inline-block' : 'none';
   document.getElementById('badgeMessages').textContent = unreadCount;
@@ -6429,6 +6430,7 @@ function loadMessages(){
     } else {
       renderMessagesList();
     }
+    renderSystemMessagesTab();
     renderFolderSidebar();
   });
 }
@@ -8805,6 +8807,8 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
   const oneTimeNotes = document.getElementById('addCustOneTimeNotes').value.trim();
   const invoiceNotes = document.getElementById('addCustInvoiceNotes').value.trim();
   const referralCount = Math.max(0, parseInt(document.getElementById('addCustReferralCount').value, 10) || 0);
+  const manualFee = Math.max(0, Number(document.getElementById('addCustFee').value) || 0);
+  const feeReason = document.getElementById('addCustFeeReason').value.trim();
   const manualDiscount = Math.max(0, Number(document.getElementById('addCustManualDiscount').value) || 0);
   const discountReason = document.getElementById('addCustDiscountReason').value.trim();
   let numberOfBins = parseInt(document.getElementById('addCustBins').value, 10) || 1;
@@ -8922,14 +8926,23 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
         });
       }
       const totalCredits = newCreditNotes.reduce((sum, c) => sum + c.amount, 0);
+      /* Fees ride on the same changeFees fields the automatic light-change fee
+         uses, so they show up everywhere fees are already displayed. */
+      const newFeeNotes = [];
+      if(manualFee > 0){
+        newFeeNotes.push({amount: manualFee, reason: feeReason || 'Fee', kind: 'manual', date: new Date().toISOString()});
+      }
+      const totalFees = newFeeNotes.reduce((sum, f) => sum + f.amount, 0);
       await setDoc(doc(db,'invoices',custKey), Object.assign({
         name: name, phone: phone, email: email, phone2: phone2, email2: email2,
         lightsDescription: lightsDescription, install: price, removal: 0, deposit: 0,
-        status: computeInvoiceStatus(price, 0, 0, totalCredits, 0), priceReviewed: true, updatedAt: serverTimestamp()
+        status: computeInvoiceStatus(price, 0, 0, totalCredits, totalFees), priceReviewed: true, updatedAt: serverTimestamp()
       }, totalCredits > 0 ? {credits: totalCredits, creditNotes: newCreditNotes} : {},
+         totalFees > 0 ? {changeFees: totalFees, changeFeeNotes: newFeeNotes} : {},
          invoiceNotes ? {invoiceNotes: invoiceNotes} : {}), {merge:true});
       invoiceMsg = phone ? ' Invoice created too.' : ' Invoice created too (keyed by email — they log in with their email).';
       if(totalCredits > 0) invoiceMsg += ' ' + fmtMoney(totalCredits) + ' in discounts applied.';
+      if(totalFees > 0) invoiceMsg += ' ' + fmtMoney(totalFees) + ' in fees added.';
     }
     if(phone) await syncCustomerToOpenQuote(phone, {name: name, email: email});
     document.getElementById('routeStreetInput').value = '';
@@ -8959,10 +8972,13 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
     document.getElementById('addCustOneTimeNotes').value = '';
     document.getElementById('addCustInvoiceNotes').value = '';
     document.getElementById('addCustReferralCount').value = '';
+    document.getElementById('addCustFee').value = '';
+    document.getElementById('addCustFeeReason').value = '';
     document.getElementById('addCustManualDiscount').value = '';
     document.getElementById('addCustDiscountReason').value = '';
     document.getElementById('addCustSpecificOutletNotesWrap').style.display = 'none';
     updateAddCustDiscountSummary();
+    updateAddCustFeeSummary();
     document.getElementById('addCustNewMemberFee').checked = false;
     document.getElementById('addCustPhoto').value = '';
     document.getElementById('addCustPhotoWrap').style.display = 'none';
@@ -8996,6 +9012,12 @@ function syncSpecificOutletNotes(){
   // Clear it on the way out so a leftover answer can't reach the route card.
   if(!show) document.getElementById('addCustSpecificOutletNotes').value = '';
 }
+function updateAddCustFeeSummary(){
+  const el = document.getElementById('addCustFeeSummary');
+  if(!el) return;
+  const fee = Math.max(0, Number(document.getElementById('addCustFee').value) || 0);
+  el.textContent = fee > 0 ? ('+ ' + fmtMoney(fee) + ' added to their total') : '';
+}
 function updateAddCustDiscountSummary(){
   const el = document.getElementById('addCustDiscountSummary');
   if(!el) return;
@@ -9016,6 +9038,8 @@ document.addEventListener('DOMContentLoaded', function(){
     const el = document.getElementById(id);
     if(el) el.addEventListener('input', updateAddCustDiscountSummary);
   });
+  const addFeeEl = document.getElementById('addCustFee');
+  if(addFeeEl) addFeeEl.addEventListener('input', updateAddCustFeeSummary);
 });
 
 document.getElementById('goToBulkUpdatesBtn').addEventListener('click', function(){
@@ -11454,6 +11478,12 @@ function syncEditSpecificOutletNotes(){
   wrap.style.display = show ? 'block' : 'none';
   if(!show) document.getElementById('editCustSpecificOutletNotes').value = '';
 }
+function updateEditCustFeeSummary(){
+  const el = document.getElementById('editCustFeeSummary');
+  if(!el) return;
+  const fee = Math.max(0, Number(document.getElementById('editCustFee').value) || 0);
+  el.textContent = fee > 0 ? ('+ ' + fmtMoney(fee) + ' added to their total') : '';
+}
 function updateEditCustDiscountSummary(){
   const el = document.getElementById('editCustDiscountSummary');
   if(!el) return;
@@ -11481,6 +11511,8 @@ document.addEventListener('DOMContentLoaded', function(){
     const el = document.getElementById(id);
     if(el) el.addEventListener('input', updateEditCustDiscountSummary);
   });
+  const editFeeEl = document.getElementById('editCustFee');
+  if(editFeeEl) editFeeEl.addEventListener('input', updateEditCustFeeSummary);
 });
 
 function openEditCustomerModal(id){
@@ -11522,7 +11554,14 @@ function openEditCustomerModal(id){
   document.getElementById('editCustManualDiscount').value = ecManual ? (Number(ecManual.amount) || '') : '';
   document.getElementById('editCustDiscountReason').value = ecManual ? (ecManual.reason || '') : '';
   document.getElementById('editCustInvoiceNotes').value = (ecInv && ecInv.data.invoiceNotes) || '';
+  /* Only the manual fee is editable here. Automatic light-change fees stay on
+     the invoice and are managed from the Invoices tab. */
+  const ecFeeNotes = (ecInv && Array.isArray(ecInv.data.changeFeeNotes)) ? ecInv.data.changeFeeNotes : [];
+  const ecManualFee = ecFeeNotes.find(f => f.kind === 'manual');
+  document.getElementById('editCustFee').value = ecManualFee ? (Number(ecManualFee.amount) || '') : '';
+  document.getElementById('editCustFeeReason').value = ecManualFee ? (ecManualFee.reason || '') : '';
   updateEditCustDiscountSummary();
+  updateEditCustFeeSummary();
   setEditCustExpanded(editCustExpandedPref());
   document.getElementById('editCustWantsMailed').checked = !!d.wantsMailedInvoice;
   // Lights, house areas, install timing, notes and photo — all edited here now.
@@ -11698,6 +11737,8 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const newOneTimeNotes = document.getElementById('editCustOneTimeNotes').value.trim();
   const newChargeNewMemberFee = document.getElementById('editCustNewMemberFee').checked;
   const newReferralCount = Math.max(0, parseInt(document.getElementById('editCustReferralCount').value, 10) || 0);
+  const newManualFee = Math.max(0, Number(document.getElementById('editCustFee').value) || 0);
+  const newFeeReason = document.getElementById('editCustFeeReason').value.trim();
   const newManualDiscount = Math.max(0, Number(document.getElementById('editCustManualDiscount').value) || 0);
   const newDiscountReason = document.getElementById('editCustDiscountReason').value.trim();
   const newInvoiceNotes = document.getElementById('editCustInvoiceNotes').value.trim();
@@ -11811,6 +11852,23 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
         invoiceUpdates.creditNotes = rebuiltNotes;
         invoiceUpdates.credits = rebuiltCredits;
         invoiceUpdates.invoiceNotes = newInvoiceNotes;
+        /* Same idea for fees: rebuild only the manual one typed on this form.
+           Automatic light-change fees are kept, so editing a customer never
+           quietly cancels a fee the system charged them. */
+        const priorFees = Array.isArray(inv.data.changeFeeNotes) ? inv.data.changeFeeNotes : [];
+        const keptFees = priorFees.filter(function(f){ return f.kind !== 'manual'; });
+        const rebuiltFeeNotes = keptFees.slice();
+        if(newManualFee > 0){
+          rebuiltFeeNotes.push({
+            amount: newManualFee,
+            reason: newFeeReason || 'Fee',
+            kind: 'manual',
+            date: new Date().toISOString()
+          });
+        }
+        const rebuiltFees = rebuiltFeeNotes.reduce(function(sum, f){ return sum + (Number(f.amount) || 0); }, 0);
+        invoiceUpdates.changeFeeNotes = rebuiltFeeNotes;
+        invoiceUpdates.changeFees = rebuiltFees;
         /* House Price is the source of truth, but only when it's actually been
            changed here. The Invoices panel can edit an invoice total by hand,
            so syncing on every save would silently undo that while you were
@@ -11825,17 +11883,17 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
         if(newHousePrice !== oldHousePrice && !isGroupInvoice){
           const memberFee = inv.data.newMemberFeeApplied ? 30 : 0;
           invoiceUpdates.install = newHousePrice + memberFee;
-          invoiceUpdates.status = computeInvoiceStatus(invoiceUpdates.install, inv.data.removal || 0, inv.data.deposit || 0, rebuiltCredits, inv.data.changeFees || 0);
+          invoiceUpdates.status = computeInvoiceStatus(invoiceUpdates.install, inv.data.removal || 0, inv.data.deposit || 0, rebuiltCredits, rebuiltFees);
           invoiceUpdates.updatedAt = serverTimestamp();
         } else if(newHousePrice !== oldHousePrice && isGroupInvoice){
           resyncPayerAfter = newPhone || (newEmail || '').toLowerCase();
         }
-        /* Changing only a discount leaves install alone, but the balance still
-           moved — so status has to be recomputed here too, or an invoice that
-           a discount just cleared would keep showing Unpaid. */
+        /* Changing only a discount or a fee leaves install alone, but the
+           balance still moved — so status has to be recomputed here too, or an
+           invoice a discount just cleared would keep showing Unpaid. */
         if(invoiceUpdates.install === undefined){
           invoiceUpdates.status = computeInvoiceStatus(
-            Number(inv.data.install) || 0, inv.data.removal || 0, inv.data.deposit || 0, rebuiltCredits, inv.data.changeFees || 0
+            Number(inv.data.install) || 0, inv.data.removal || 0, inv.data.deposit || 0, rebuiltCredits, rebuiltFees
           );
           invoiceUpdates.updatedAt = serverTimestamp();
         }
@@ -13958,13 +14016,95 @@ function switchInboxTab(which){
   });
   document.getElementById('inboxpane-customer').style.display = which === 'customer' ? 'block' : 'none';
   document.getElementById('inboxpane-employee').style.display = which === 'employee' ? 'block' : 'none';
+  document.getElementById('inboxpane-system').style.display = which === 'system' ? 'block' : 'none';
   // The folder sidebar only applies to customer messages.
   const sidebar = document.getElementById('messagesSidebar');
   if(sidebar) sidebar.style.display = which === 'customer' ? '' : 'none';
   if(which === 'employee') renderEmployeeNotesTab();
+  if(which === 'system') renderSystemMessagesTab();
 }
 document.querySelectorAll('.inbox-tab').forEach(function(btn){
   btn.addEventListener('click', function(){ switchInboxTab(btn.dataset.inboxtab); });
+});
+/* System notices live in the "System" folder. They get their own tab so they
+   don't bury real customer messages, and they're excluded from the customer
+   list below rather than appearing in both places. */
+function systemMessages(){
+  return allMessages.filter(function(m){ return (m.data.folder || 'Inbox') === 'System'; });
+}
+function renderSystemMessagesTab(){
+  const msgs = systemMessages();
+  const badge = document.getElementById('sysMsgBadge');
+  const unread = msgs.filter(function(m){ return !m.data.read; }).length;
+  if(badge){
+    badge.style.display = unread ? 'flex' : 'none';
+    badge.textContent = unread > 99 ? '99+' : String(unread);
+  }
+  const list = document.getElementById('systemMessagesList');
+  if(!list) return;
+  if(!msgs.length){ list.innerHTML = '<div class="empty-note">No system notices right now.</div>'; return; }
+  list.innerHTML = msgs.map(function(item){
+    const d = item.data;
+    const isUnread = !d.read;
+    const address = messageAddressLookup(d);
+    const feetEstimate = messageFeetEstimate(d);
+    return '<div class="row-item'+(isUnread ? ' unread' : '')+'">'+
+      '<div class="rmain">'+
+        '<h4>'+esc(d.name || 'System')+(d.topic ? ' <span class="status-pill status-new">'+esc(d.topic)+'</span>' : '')+'</h4>'+
+        (address ? '<div class="row-phone-line">'+esc(address)+'</div>' : '')+
+        '<div class="rmeta">'+fmtDate(d.createdAt)+'</div>'+
+        '<div class="rtext">'+esc(d.message)+'</div>'+
+        (d.colors && d.colors.length ? '<div class="rtext" style="margin-top:4px;"><strong>Colors requested:</strong> '+d.colors.map(esc).join(', ')+'</div>' : '')+
+        (feetEstimate ? '<div class="rtext" style="margin-top:4px; font-weight:600; color:var(--dusk);">'+esc(feetEstimate)+'</div>' : '')+
+        (d.topic === 'Light Color Change' ? (
+          d.autoQueuedToWarehouse
+            ? '<div class="rtext" style="margin-top:6px; font-weight:600; color:var(--moss);">&#10003; Already in the Warehouse queue &mdash; nothing to do.</div>'
+          : d.addedToWarehouseAt
+            ? '<div class="rtext" style="margin-top:6px; font-weight:600; color:var(--moss);">&#10003; Sent to the Warehouse</div>'
+            : '<button type="button" class="btn btn-outline btn-sm" data-sendtowh="'+item.id+'" style="margin-top:6px;">Send to Warehouse</button>') : '')+
+      '</div>'+
+      '<div class="row-actions" style="align-items:center;">'+
+        '<button class="icon-btn" data-sysread="'+item.id+'" data-current="'+(d.read?1:0)+'" title="'+(isUnread?'Mark as read':'Mark as unread')+'">'+(isUnread ? mailIcon() : mailOpenIcon())+'</button>'+
+        '<button class="icon-btn danger" data-del="messages" data-id="'+item.id+'">'+trashIcon()+'</button>'+
+      '</div>'+
+    '</div>';
+  }).join('');
+  list.querySelectorAll('[data-sysread]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      updateDoc(doc(db,'messages',btn.dataset.sysread), {read: btn.dataset.current !== '1'});
+    });
+  });
+  list.querySelectorAll('[data-sendtowh]').forEach(function(btn){
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      const msg = allMessages.find(function(m){ return m.id === btn.dataset.sendtowh; });
+      if(!msg) return;
+      const d = msg.data;
+      const phoneDigits = (d.phone||'').replace(/\D/g,'');
+      const cust = jobAddresses.find(function(a){ return (a.data.phone||'').replace(/\D/g,'') === phoneDigits; });
+      whPendingMessageId = msg.id;
+      document.querySelector('.nav-item[data-panel="warehouse"]').click();
+      document.getElementById('whExtraPattern').value = cust ? (cust.data.lightsDescription || '') : '';
+      document.getElementById('whExtraQty').value = 1;
+      const labelEl = document.getElementById('whExtraLabel');
+      if(cust){
+        const num = cust.data.customerNumber ? '#' + cust.data.customerNumber + ' \u2014 ' : '';
+        const where = cust.data.street || (cust.data.address||'').split(',')[0] || '';
+        labelEl.value = num + (cust.data.name || '') + (where ? ' \u2014 ' + where : '');
+      } else {
+        labelEl.value = d.name || '';
+      }
+      labelEl.dispatchEvent(new Event('input'));
+      document.getElementById('whAddExtraStatus').textContent = 'Filled in from System Messages \u2014 check it over, then Add to Queue.';
+    });
+  });
+  attachDeleteHandlers(list);
+}
+document.getElementById('markAllSystemReadBtn')?.addEventListener('click', async function(){
+  const unread = systemMessages().filter(function(m){ return !m.data.read; });
+  if(!unread.length){ toast('Nothing unread'); return; }
+  for(const item of unread){ await updateDoc(doc(db,'messages',item.id), {read: true}); }
+  toast('Marked all read');
 });
 function renderEmployeeNotesTab(){
   const badge = document.getElementById('empNotesBadge');
