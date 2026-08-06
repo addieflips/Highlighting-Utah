@@ -2074,6 +2074,23 @@ Highlighting Utah</textarea>
               <div id="nightlyInvoiceLog" class="empty-note">Loading…</div>
             </div>
           </div>
+          <div class="card" style="background:#FFF8E9; border-color:var(--gold-dim); margin-top:16px;">
+            <h3>Start New Season</h3>
+            <p style="font-size:13px;">Run this once when the season starts (around September). It re-opens billing for returning customers: each one owes the <strong>same price as last year</strong> (dropping the one-time $30 join fee), any old discounts on the invoice are cleared, and their paid amount resets to $0 &mdash; after banking last year&rsquo;s total to your Dashboard so nothing is lost. It also marks them not-yet-installed, so each one bills again automatically the night the crew re-hangs their lights. Customers who said No are left alone.</p>
+            <p style="font-size:12px; color:var(--slate); margin:4px 0 10px;">Credit already on file for a customer stays and auto-applies. New referral or manual discounts you add ride on top. Running it twice does no harm.</p>
+            <div class="form-row" style="max-width:340px;"><label>Who to reset</label>
+              <select id="ssnScope">
+                <option value="notno">Everyone except those who said No</option>
+                <option value="yes">Only customers who RSVP&rsquo;d Yes</option>
+              </select>
+            </div>
+            <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:8px;">
+              <button type="button" class="btn btn-outline" id="ssnCheckBtn">Check First (writes nothing)</button>
+              <button type="button" class="btn btn-gold" id="ssnRunBtn" style="display:none;">Start New Season &mdash; reset these</button>
+            </div>
+            <div id="ssnStatus" style="font-size:13px; color:var(--slate); margin-top:8px;"></div>
+            <div id="ssnReport" style="margin-top:10px;"></div>
+          </div>
       </div>
       </div>
 
@@ -3720,6 +3737,99 @@ document.getElementById('sendInvoicesNowBtn')?.addEventListener('click', async f
     btn.disabled = false;
     btn.textContent = 'Send Invoices Now';
   }
+});
+/* ---------------- START NEW SEASON ---------------- */
+// Re-opens billing for a new year: charges each returning customer last year's
+// price minus the one-time $30 join fee, banks last year's payments, and marks
+// them not-yet-installed so the nightly run bills them again after re-hang.
+function ssnChunk(arr, n){ const out = []; for(let i=0; i<arr.length; i+=n) out.push(arr.slice(i, i+n)); return out; }
+function ssnScopeHouses(){
+  const scope = document.getElementById('ssnScope').value;
+  return jobAddresses.filter(function(a){
+    const r = a.data.rsvpStatus || '';
+    if(scope === 'yes') return r === 'yes';
+    return r !== 'no';   // "notno": everyone except those who said No
+  });
+}
+function ssnInvoiceKeyForHouse(d){
+  const bt = (d.billToPhone || '').replace(/\D/g,'');
+  return bt || custInvoiceKey(d);   // a bill-to house resets its payer's invoice
+}
+function ssnBuildPlan(){
+  const houses = ssnScopeHouses();
+  const invKeys = new Set();
+  houses.forEach(function(a){ const k = ssnInvoiceKeyForHouse(a.data); if(k) invKeys.add(k); });
+  const invoices = [];
+  let totalArchive = 0, totalOwed = 0;
+  invKeys.forEach(function(k){
+    const inv = allInvoicesCache.find(i => i.id === k);
+    if(!inv) return;
+    const fee = inv.data.newMemberFeeApplied ? 30 : 0;          // drop the one-time join fee
+    const removal = Number(inv.data.removal) || 0;
+    const newInstall = Math.max(0, (Number(inv.data.install) || 0) - fee);
+    const lastPaid = Number(inv.data.deposit) || 0;
+    totalArchive += lastPaid;
+    totalOwed += newInstall + removal;
+    invoices.push({ id: k, name: inv.data.name || '', lastPaid: lastPaid, newInstall: newInstall, removal: removal, fee: fee });
+  });
+  return { houses: houses, invoices: invoices, totalArchive: totalArchive, totalOwed: totalOwed };
+}
+document.getElementById('ssnCheckBtn')?.addEventListener('click', function(){
+  const plan = ssnBuildPlan();
+  const report = document.getElementById('ssnReport');
+  if(!plan.houses.length){ report.innerHTML = ''; document.getElementById('ssnRunBtn').style.display = 'none'; document.getElementById('ssnStatus').textContent = 'No customers match that scope.'; return; }
+  const rows = plan.invoices.slice().sort(function(a,b){ return (a.name||'').localeCompare(b.name||''); }).map(function(x){
+    return '<tr><td style="padding:4px 8px;">'+esc(x.name || x.id)+'</td><td style="padding:4px 8px; text-align:right;">'+fmtMoney(x.lastPaid)+'</td><td style="padding:4px 8px; text-align:right;">'+fmtMoney(x.newInstall + x.removal)+'</td><td style="padding:4px 8px; color:var(--slate); font-size:11.5px;">'+(x.fee ? 'drops $30 join fee' : '')+'</td></tr>';
+  }).join('');
+  report.innerHTML =
+    '<div style="font-weight:700; margin-bottom:4px;">Will reset '+plan.houses.length+' customer'+(plan.houses.length===1?'':'s')+' and '+plan.invoices.length+' invoice'+(plan.invoices.length===1?'':'s')+'.</div>'+
+    '<div style="font-size:13px; margin-bottom:8px;">Banks '+fmtMoney(plan.totalArchive)+' of last year&rsquo;s payments to the Dashboard, then everyone owes this year&rsquo;s charge &mdash; '+fmtMoney(plan.totalOwed)+' total.</div>'+
+    '<div style="max-height:260px; overflow:auto; border:1px solid var(--line); border-radius:8px;"><table style="width:100%; border-collapse:collapse; font-size:12.5px;"><thead><tr style="background:var(--paper);"><th style="text-align:left; padding:6px 8px;">Customer</th><th style="text-align:right; padding:6px 8px;">Paid last year</th><th style="text-align:right; padding:6px 8px;">Owes this year</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+  document.getElementById('ssnRunBtn').style.display = 'inline-block';
+  document.getElementById('ssnStatus').textContent = 'Nothing written yet — review the list, then press Start New Season.';
+});
+document.getElementById('ssnRunBtn')?.addEventListener('click', async function(){
+  const plan = ssnBuildPlan();
+  const status = document.getElementById('ssnStatus');
+  if(!plan.houses.length){ status.textContent = 'No customers in scope.'; return; }
+  if(!confirm('Start a new season for ' + plan.houses.length + ' customers?\n\nThis banks ' + fmtMoney(plan.totalArchive) + ' of last year’s payments to the Dashboard, resets everyone’s paid amount to $0 so they owe this year’s charge, drops the one-time $30 join fee, clears old invoice discounts, and marks them not-yet-installed.\n\nCredit already on file for a customer is kept. This cannot be undone.')) return;
+  const btn = this; btn.disabled = true;
+  status.textContent = 'Working…';
+  try{
+    // Bank last year's payments first so revenue history isn't lost.
+    if(plan.totalArchive > 0){
+      await setDoc(doc(db,'settings','financeArchive'), {archivedRevenue: increment(plan.totalArchive)}, {merge:true});
+    }
+    let idone = 0;
+    for(const chunk of ssnChunk(plan.invoices, 25)){
+      await Promise.all(chunk.map(function(x){
+        return updateDoc(doc(db,'invoices', x.id), {
+          install: x.newInstall, removal: x.removal, deposit: 0,
+          credits: 0, creditNotes: [], newMemberFeeApplied: false,
+          status: computeInvoiceStatus(x.newInstall, x.removal, 0, 0),
+          priceReviewed: true, updatedAt: serverTimestamp()
+        });
+      }));
+      idone += chunk.length;
+      status.textContent = 'Resetting invoices… ' + idone + '/' + plan.invoices.length;
+    }
+    let hdone = 0;
+    for(const chunk of ssnChunk(plan.houses, 25)){
+      await Promise.all(chunk.map(function(a){
+        return updateDoc(doc(db,'jobAddresses', a.id), {
+          completed: false, invoiceEmailSent: false, scheduled: false, scheduledDate: null, assignedCrew: null
+        });
+      }));
+      hdone += chunk.length;
+      status.textContent = 'Reopening customers… ' + hdone + '/' + plan.houses.length;
+    }
+    status.textContent = '✓ New season started — ' + plan.houses.length + ' customers now owe this year’s charge; ' + fmtMoney(plan.totalArchive) + ' banked to the Dashboard. Each bills again the night their lights go back up.';
+    document.getElementById('ssnReport').innerHTML = '';
+    document.getElementById('ssnRunBtn').style.display = 'none';
+  }catch(err){
+    status.textContent = '✗ Something went wrong — some may have reset. Run Check First again to see what’s left. (' + (err && err.message ? err.message : 'error') + ')';
+  }
+  btn.disabled = false;
 });
 async function loadNightlyInvoiceLog(){
   const el = document.getElementById('nightlyInvoiceLog');
