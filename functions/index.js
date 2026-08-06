@@ -612,6 +612,36 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
     }
   }
 
+  // Push the corrected details into any UPCOMING saved route this customer is on.
+  // The browser-only resyncSavedRouteStops can't run here, so without this a
+  // customer's portal gate-code or address fix never reaches a crew that's
+  // already been scheduled. Past routes are left alone as history.
+  if (section === 'info') {
+    try {
+      const fields = {};
+      ['name', 'phone', 'address', 'gateCode'].forEach(function (f) {
+        if (updates[f] !== undefined) fields[f] = updates[f];
+      });
+      if (Object.keys(fields).length) {
+        const todayStr = todayStrInDenver();
+        const routesSnap = await db.collection('scheduledRoutes').get();
+        for (const rDoc of routesSnap.docs) {
+          const rd = rDoc.data();
+          if ((rd.date || '') < todayStr) continue;          // leave past routes as-is
+          const stops = Array.isArray(rd.stops) ? rd.stops : [];
+          let touched = false;
+          const newStops = stops.map(function (s) {
+            if (s && s.id === match.id) { touched = true; return Object.assign({}, s, fields); }
+            return s;
+          });
+          if (touched) await rDoc.ref.update({ stops: newStops });
+        }
+      }
+    } catch (err) {
+      console.error('[HU] portal route resync failed:', err);
+    }
+  }
+
   return {
     ok: true,
     addressChanged: addressChanged,
@@ -1061,8 +1091,13 @@ async function runInvoiceBatch(triggeredBy) {
           invoiceEmailSentAt: admin.firestore.FieldValue.serverTimestamp()
         };
         // Whatever carryover credit was applied to this invoice is now used up.
+        // Rewrite the notes so they stay honest about what's actually left.
         if (carryoverApplied > 0) {
-          custUpdate.carryoverCredit = Math.max(0, carryAvail - carryoverApplied);
+          const remaining = Math.max(0, carryAvail - carryoverApplied);
+          custUpdate.carryoverCredit = remaining;
+          custUpdate.carryoverNotes = remaining > 0
+            ? [{ amount: remaining, reason: 'Carryover credit remaining', date: new Date().toISOString() }]
+            : [];
         }
         await custRef.update(custUpdate);
         sentCount++;
