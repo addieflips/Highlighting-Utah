@@ -1199,6 +1199,7 @@
             <input type="file" accept="image/*" id="editCustLayoutMapFile">
             <div id="editCustLayoutMapThumb" style="margin-top:8px;"></div>
           </div>
+          <div id="editCustCarryoverWrap" style="display:none; border-top:1px solid var(--line); margin:16px 0; padding-top:16px;"></div>
           <div style="display:flex; gap:10px; margin-top:16px;">
             <button type="button" class="btn btn-outline" id="editCustCancelBtn" style="flex:1;">Cancel</button>
             <button type="button" class="btn btn-gold" id="editCustSaveBtn" style="flex:1;">Save Changes</button>
@@ -3523,7 +3524,7 @@ async function resolveLinkTokens(text, phone, amount, opts){
     const cust = jobAddresses.find(a => (a.data.phone||'').replace(/\D/g,'') === phoneDigits);
     const feet = cust ? Number(cust.data.measuredFeet) || 0 : 0;
     const basePrice = cust ? Number(cust.data.housePrice) || 0 : 0;
-    const isNewMember = cust && cust.data.createdAt && cust.data.createdAt.toDate ? (cust.data.createdAt.toDate().getFullYear() === new Date().getFullYear()) : false;
+    const isNewMember = !!(cust && enrollmentYearOf(cust.data.createdAt) === new Date().getFullYear());
     const feetLine = feet && perFootRate ? ('Installation service \u2014 '+feet+' ft @ '+fmtMoney(perFootRate)+'/ft = '+fmtMoney(basePrice)) : ('Installation service = '+fmtMoney(basePrice));
     const newMemberLine = isNewMember ? ('New member installation fee = '+fmtMoney(30)) : '';
     out = out.split('{{feet_line}}').join(feetLine);
@@ -4804,6 +4805,9 @@ function renderQuoteRows(filtered){
         document.getElementById('addCustPrice').value = Math.round(d.estimatedFeet * perFootRate);
       }
       addCustFromQuoteId = btn.dataset.converttocust;
+      // Preferred contact method was collected on the quote and used to be
+      // dropped here — carry it onto the customer so it isn't lost.
+      addCustContactMethodFromQuote = d.contactMethod || '';
       // Carry the quote's photo across too — including any markup, since that
       // replaces the photo. Without this the route card has nothing to show.
       if(d.frontPhotoUrl){
@@ -5343,7 +5347,7 @@ function buildInvoiceDocHtml(member){
 
   const feet = Number(d.measuredFeet) || 0;
   const basePrice = Number(d.housePrice) || 0;
-  const enrollYear = d.createdAt && d.createdAt.toDate ? d.createdAt.toDate().getFullYear() : null;
+  const enrollYear = enrollmentYearOf(d.createdAt);
   const isNewMember = enrollYear === new Date().getFullYear();
   const newMemberFeeAlreadyApplied = inv && inv.newMemberFeeApplied;
   const install = inv ? Number(inv.install)||0 : (basePrice + (isNewMember && !newMemberFeeAlreadyApplied ? 30 : 0));
@@ -6148,6 +6152,20 @@ function computeInvoiceStatus(install, removal, deposit, credits){
   if(paid >= total) return 'Paid in Full';
   return 'Partial Payment';
 }
+// Read the enrollment year however createdAt was stored (Firestore Timestamp,
+// {seconds}, Date, epoch number, or ISO string) so the $30 new-member fee is
+// detected the same way here as in the nightly Cloud Function.
+function enrollmentYearOf(createdAt){
+  if(!createdAt) return null;
+  try{
+    if(typeof createdAt.toDate === 'function') return createdAt.toDate().getFullYear();
+    if(createdAt instanceof Date) return createdAt.getFullYear();
+    if(typeof createdAt.seconds === 'number') return new Date(createdAt.seconds*1000).getFullYear();
+    if(typeof createdAt === 'number') return new Date(createdAt).getFullYear();
+    if(typeof createdAt === 'string'){ const _d = new Date(createdAt); return isNaN(_d.getTime()) ? null : _d.getFullYear(); }
+  }catch(e){}
+  return null;
+}
 function statusClass(status){
   if(status === 'Paid in Full') return 'status-paid';
   if(status === 'Partial Payment') return 'status-partial';
@@ -6280,7 +6298,7 @@ function renderInvoicesList(){
       '</div>'+
       '<div class="row-actions">'+
         (needsReview ? '<button class="icon-btn" data-approveprice="'+item.id+'" title="Confirm this price is correct" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:#2E6B3E;">Approve Price</button>' : '')+
-        '<select class="paystatus-select" data-setpaystatus="'+item.id+'" data-total="'+((item.data.install||0)+(item.data.removal||0))+'" style="border-radius:8px; border:1px solid var(--line); padding:6px 10px; font-size:12px; font-weight:600; background:var(--snow); color:var(--ink);">'+
+        '<select class="paystatus-select" data-setpaystatus="'+item.id+'" data-total="'+((item.data.install||0)+(item.data.removal||0)-(item.data.credits||0))+'" style="border-radius:8px; border:1px solid var(--line); padding:6px 10px; font-size:12px; font-weight:600; background:var(--snow); color:var(--ink);">'+
           ['Unpaid','Partial Payment','Paid in Full'].map(function(opt){ return '<option value="'+opt+'"'+(liveStatus===opt?' selected':'')+'>'+opt+'</option>'; }).join('')+
         '</select>'+
         '<button class="icon-btn" data-edit="invoices" data-id="'+item.id+'">'+editIcon()+'</button>'+
@@ -8223,6 +8241,7 @@ let addCustPhotoMarkup = [];
 /* Set when the Add form was filled in from a quote, so saving the customer can
    close that quote out instead of leaving it sitting in the list. */
 let addCustFromQuoteId = null;
+let addCustContactMethodFromQuote = '';
 let addCustHighlights = [];
 const ACH_COLORS = ['#F4BE55','#E0574B','#2E6B3E','#4338CA','#F97316','#3E7A5B'];
 function renderAddCustHighlights(){
@@ -8407,12 +8426,19 @@ async function syncPayerInvoice(payerPhone){
     const existingSnap = await getDoc(doc(db,'invoices',payerPhone));
     if(existingSnap.exists()) existing = existingSnap.data();
   } catch(err){ /* no existing invoice yet, fine */ }
+  // Keep the $30 new-member fee that was already applied — the sum of house
+  // prices doesn't include it, so rebuilding install without it would silently
+  // undo the fee (and the Health Check total-drift test, which expects it, would
+  // never go green).
+  const memberFee = existing.newMemberFeeApplied ? 30 : 0;
+  const installTotal = total + memberFee;
   await setDoc(doc(db,'invoices',payerPhone), {
     name: (payerHouse && payerHouse.data.name) || existing.name || '',
     phone: payerPhone,
     email: (payerHouse && payerHouse.data.email) || existing.email || '',
-    install: total, removal: existing.removal || 0, deposit: existing.deposit || 0,
-    status: computeInvoiceStatus(total, existing.removal||0, existing.deposit||0, existing.credits||0),
+    install: installTotal, removal: existing.removal || 0, deposit: existing.deposit || 0,
+    newMemberFeeApplied: !!existing.newMemberFeeApplied,
+    status: computeInvoiceStatus(installTotal, existing.removal||0, existing.deposit||0, existing.credits||0),
     priceReviewed: true, updatedAt: serverTimestamp(),
     billedHouseIds: linked.map(h => h.id)
   }, {merge:true});
@@ -8517,6 +8543,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
       housePhotoUrl: addCustPhotoUrl, housePhotoOriginal: addCustPhotoOriginal, housePhotoMarkup: addCustPhotoMarkup,
       houseHighlights: addCustHighlights, portalToken: generatePortalToken(), installPreference: installPreference,
       rsvpStatus: addCustFromQuoteId ? 'yes' : '',
+      contactMethod: (addCustFromQuoteId ? (addCustContactMethodFromQuote || '') : ''),
       wireColor: wireColor,
       lat: coords.lat, lng: coords.lng, needsLightBuild: !!lightsDescription,
       scheduled: false, createdAt: serverTimestamp(), housePrice: price, measuredFeet: measuredFeet, gateCode: gateCode, outletTimer: outletTimer, specificOutlet: specificOutlet, specificOutletNotes: specificOutletNotes, notes: custNotes, wantsMailedInvoice: wantsMailedInvoice, numberOfBins: numberOfBins, customerNumber: customerNumber
@@ -9147,6 +9174,8 @@ function buildAddressRowHtml(item){
         (d.specificOutlet === 'Yes' && d.specificOutletNotes ? '<div class="row-phone-line">&#128268; <strong>Specific outlet:</strong> '+esc(d.specificOutletNotes)+'</div>' : '')+
         (d.notes ? '<div class="row-phone-line">&#128221; '+esc(d.notes)+'</div>' : '')+
         (d.oneTimeNote ? '<div class="row-phone-line" style="color:var(--ember);">&#128221; (this visit only) '+esc(d.oneTimeNote)+'</div>' : '')+
+        (d.seasonStatus === 'cancellation_requested' && d.cancellationReason ? '<div class="row-phone-line" style="color:var(--ember);">&#128683; Cancellation reason: '+esc(d.cancellationReason)+'</div>' : '')+
+        (d.contactMethod ? '<div class="row-phone-line">&#128172; Prefers: '+esc(d.contactMethod)+'</div>' : '')+
         (isEarliestInstallDateLocked(d) ? '<div class="row-phone-line" style="color:var(--ember); font-weight:600;">&#128197; Don\'t install before '+fmtDate(d.earliestInstallDate)+'</div>' : '')+
         (d.housePhotoUrl ? '<div class="row-phone-line">&#128247; Photo on file'+(d.houseHighlights && d.houseHighlights.length ? ' &middot; '+d.houseHighlights.length+' section(s), '+fmtMoney(d.houseHighlights.reduce((s,h)=>s+(Number(h.price)||0),0)) : '')+'</div>' : '')+
         '<div class="diff-pick-row">'+
@@ -11022,6 +11051,7 @@ function openEditCustomerModal(id){
   document.getElementById('editCustPhotoFile').value = '';
   document.getElementById('editCustPhotoStatus').textContent = '';
   renderEditCustPhotoThumb(d);
+  renderEditCustCarryover(d);
   editCustLayoutMapUrl = d.layoutMapUrl || '';
   document.getElementById('editCustLayoutMapFile').value = '';
   renderEditCustLayoutMapThumb();
@@ -11037,6 +11067,27 @@ function parseCustLights(text){
   if(m){ main = m[1].trim(); notes = m[2].trim(); }
   const colors = main.split(/[,—]/).map(function(s){ return s.trim(); }).filter(Boolean);
   return {colors: colors, notes: notes};
+}
+function renderEditCustCarryover(d){
+  const wrap = document.getElementById('editCustCarryoverWrap');
+  if(!wrap) return;
+  const carry = Number(d.carryoverCredit) || 0;
+  const notes = Array.isArray(d.carryoverNotes) ? d.carryoverNotes : [];
+  if(carry <= 0){ wrap.style.display = 'none'; wrap.innerHTML = ''; return; }
+  wrap.style.display = 'block';
+  wrap.innerHTML =
+    '<div style="font-weight:700; font-size:12.5px; margin-bottom:6px;">Credit on file toward next invoice: '+fmtMoney(carry)+'</div>'+
+    (notes.length ? notes.map(function(c){ return '<div style="font-size:12px; color:var(--dusk); display:flex; justify-content:space-between; gap:8px;"><span>'+esc(c.reason||'Credit')+'</span><span>'+fmtMoney(Number(c.amount)||0)+'</span></div>'; }).join('') : '')+
+    '<button type="button" class="btn btn-outline btn-sm" id="editCustClearCarryoverBtn" style="margin-top:8px; color:var(--ember); border-color:#f0b3ac;">Clear this credit</button>'+
+    '<div style="font-size:11.5px; color:var(--slate); margin-top:4px;">Auto-applies to their next invoice. Clear it only if it was added by mistake.</div>';
+  const btn = document.getElementById('editCustClearCarryoverBtn');
+  if(btn) btn.addEventListener('click', async function(){
+    if(!editCustomerId) return;
+    if(!confirm('Clear the '+fmtMoney(carry)+' credit on file for '+(d.name||'this customer')+'? This cannot be undone.')) return;
+    await updateDoc(doc(db,'jobAddresses', editCustomerId), { carryoverCredit: 0, carryoverNotes: [] });
+    wrap.style.display = 'none'; wrap.innerHTML = '';
+    toast('Credit cleared');
+  });
 }
 function renderEditCustPhotoThumb(d){
   const wrap = document.getElementById('editCustPhotoThumb');
@@ -11099,7 +11150,8 @@ document.getElementById('editCustDeleteBtn').addEventListener('click', async fun
   if(!item) return;
   const d = item.data;
   const num = String(d.customerNumber||'');
-  if(!confirm('Delete ' + (d.name || 'this customer') + ' at ' + (d.street || d.address || '') + '?\n\nThis removes them and their invoice permanently.' + (num ? ' Number #' + num + ' goes back into the available pool.' : '') + '\n\nThis cannot be undone.')) return;
+  const carryWarn = Number(d.carryoverCredit) > 0 ? '\n\n⚠️ They have ' + fmtMoney(Number(d.carryoverCredit)) + ' in credit on file toward a future invoice — deleting them loses it.' : '';
+  if(!confirm('Delete ' + (d.name || 'this customer') + ' at ' + (d.street || d.address || '') + '?\n\nThis removes them and their invoice permanently.' + (num ? ' Number #' + num + ' goes back into the available pool.' : '') + carryWarn + '\n\nThis cannot be undone.')) return;
   const statusEl = document.getElementById('editCustStatus');
   statusEl.textContent = 'Deleting\u2026';
   try{
@@ -11222,6 +11274,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       customerNumber: addrUpdates.customerNumber, lat: addrUpdates.lat, lng: addrUpdates.lng
     });
     const inv = allCustInvoiceFor(item);
+    let resyncPayerAfter = null;
     if(!newBillTo){
       if(inv){
         const invoiceUpdates = {name: newName, phone: newPhone, email: newEmail};
@@ -11232,11 +11285,17 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
            install also carries the $30 new member fee once it's been applied,
            so the fee is added back on rather than being wiped out. */
         const oldHousePrice = Number(item.data.housePrice) || 0;
-        if(newHousePrice !== oldHousePrice){
+        // If this invoice bills several houses (this customer is the payer), its
+        // install is the SUM of those houses. Overwriting it with one house's
+        // price would drop the others, so recompute the whole group instead.
+        const isGroupInvoice = Array.isArray(inv.data.billedHouseIds) && inv.data.billedHouseIds.length > 1;
+        if(newHousePrice !== oldHousePrice && !isGroupInvoice){
           const memberFee = inv.data.newMemberFeeApplied ? 30 : 0;
           invoiceUpdates.install = newHousePrice + memberFee;
           invoiceUpdates.status = computeInvoiceStatus(invoiceUpdates.install, inv.data.removal || 0, inv.data.deposit || 0, inv.data.credits || 0);
           invoiceUpdates.updatedAt = serverTimestamp();
+        } else if(newHousePrice !== oldHousePrice && isGroupInvoice){
+          resyncPayerAfter = newPhone || (newEmail || '').toLowerCase();
         }
         // The invoice doc ID is the customer key (phone digits, or lowercase
         // email when there's no phone). If the key changed — phone edited,
@@ -11255,7 +11314,22 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
           status: computeInvoiceStatus(newHousePrice, 0, 0), priceReviewed: true, updatedAt: serverTimestamp()
         }, {merge:true});
       }
+    } else if(inv){
+      /* They now bill to someone else, so this house's price rolls into that
+         payer's invoice below. Remove their own standalone invoice so the same
+         house isn't billed twice. A multi-house group invoice is left alone (it
+         belongs to a real payer); one carrying a payment is kept and just zeroed
+         so the recorded money isn't lost. */
+      const isGroupInv = Array.isArray(inv.data.billedHouseIds) && inv.data.billedHouseIds.length > 1;
+      if(!isGroupInv && inv.id === oldKey){
+        if(Number(inv.data.deposit) > 0){
+          await updateDoc(doc(db,'invoices', inv.id), { install: 0, removal: 0, status: computeInvoiceStatus(0, 0, inv.data.deposit || 0, 0), updatedAt: serverTimestamp() });
+        } else {
+          await deleteDoc(doc(db,'invoices', inv.id));
+        }
+      }
     }
+    if(resyncPayerAfter) await syncPayerInvoice(resyncPayerAfter);
     if(oldBillTo && oldBillTo !== newBillTo) await syncPayerInvoice(oldBillTo);
     if(newBillTo) await syncPayerInvoice(newBillTo);
     document.getElementById('editCustOverlay').style.display = 'none';
@@ -14275,6 +14349,19 @@ function hcRunChecks(){
     fixNote: 'No button: the code cannot know which house keeps the number. Whoever already has bins labelled should keep it.',
     rows: Object.keys(byNumber).filter(function(n){ return byNumber[n].length > 1; }).map(function(n){
       return {label: 'Number ' + n, detail: byNumber[n].map(function(c){ return hcName(c.data); }).join('  vs  ')};
+    })
+  });
+
+  const hcCustIdSet = {};
+  jobAddresses.forEach(function(c){ hcCustIdSet[c.id] = true; });
+  checks.push({
+    id: 'orphanExtra',
+    title: 'Warehouse extra linked to a deleted customer',
+    why: 'The build/label points at a customer who no longer exists — and its saved number may since have been reused by a different house.',
+    fix: null,
+    fixNote: 'No button: decide whether the extra is still needed, then remove it in Warehouse if not.',
+    rows: (typeof warehouseExtras !== 'undefined' && Array.isArray(warehouseExtras) ? warehouseExtras : []).filter(function(e){ return e.data.customerId && !hcCustIdSet[e.data.customerId]; }).map(function(e){
+      return {label: (e.data.label || e.data.pattern || 'Extra'), detail: 'linked customer is gone' + (e.data.customerNumber ? ' (was #' + e.data.customerNumber + ')' : '')};
     })
   });
 
