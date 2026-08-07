@@ -1160,9 +1160,16 @@
             </div>
             <div class="form-grid-2">
               <div class="form-row">
+                <label>Street Address (optional) <span class="bulk-count" id="spCountAddrs">0 rows</span></label>
+                <textarea id="spAddrsArea" rows="6" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="1234 W 500 N&#10;(blank line if unknown)"></textarea>
+                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">The best way to tell two houses apart when one person owns both. Street only is enough &mdash; if you paste the full address, everything after the first comma is ignored. Abbreviations don't have to match what's on file (W / West and St / Street are treated as the same).</p>
+              </div>
+              <div class="form-row">
                 <label>Phone Number (optional) <span class="bulk-count" id="spCountPhones">0 rows</span></label>
                 <textarea id="spPhonesArea" rows="6" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="8015550123&#10;(blank line if unknown)"></textarea>
               </div>
+            </div>
+            <div class="form-grid-2">
               <div class="form-row">
                 <label>Email (optional) <span class="bulk-count" id="spCountEmails">0 rows</span></label>
                 <textarea id="spEmailsArea" rows="6" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="julie@email.com&#10;(blank line if unknown)"></textarea>
@@ -9619,10 +9626,31 @@ document.getElementById('ibImportBtn').addEventListener('click', async function(
    is tried before name because names carry typos and nicknames; a blank phone
    or blank email must never count as a match, or one empty cell quietly claims
    every customer in the list. */
-const spAreaIds = ['spNamesArea','spPhonesArea','spEmailsArea','spAmountsArea'];
-const spCountIds = { spNamesArea:'spCountNames', spPhonesArea:'spCountPhones', spEmailsArea:'spCountEmails', spAmountsArea:'spCountAmounts' };
+const spAreaIds = ['spNamesArea','spAddrsArea','spPhonesArea','spEmailsArea','spAmountsArea'];
+const spCountIds = { spNamesArea:'spCountNames', spAddrsArea:'spCountAddrs', spPhonesArea:'spCountPhones', spEmailsArea:'spCountEmails', spAmountsArea:'spCountAmounts' };
 const spUpdateCounts = wireBulkCounts(spAreaIds, 'spNamesArea', spCountIds);
 let spRows = [];
+
+/* Addresses are stored as one string — "123 Main St, Lehi, UT 84043" — so only
+   the part before the first comma is the street. Spelling drift between a
+   spreadsheet and what's on file is the norm (W vs West, St vs Street, Cir vs
+   Circle), so both sides get flattened to the same short forms before
+   comparing. */
+const SP_ADDR_WORDS = {
+  north:'n', south:'s', east:'e', west:'w',
+  northeast:'ne', northwest:'nw', southeast:'se', southwest:'sw',
+  street:'st', avenue:'ave', av:'ave', drive:'dr', road:'rd', lane:'ln',
+  court:'ct', circle:'cir', place:'pl', boulevard:'blvd', parkway:'pkwy',
+  highway:'hwy', terrace:'ter', trail:'trl', square:'sq', loop:'lp',
+  apartment:'apt', unit:'apt', suite:'ste'
+};
+function spNormAddr(s){
+  let t = String(s||'').split(',')[0];
+  t = t.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  if(!t) return '';
+  return t.split(' ').map(function(w){ return SP_ADDR_WORDS[w] || w; }).join(' ');
+}
+function spCustAddr(a){ return spNormAddr((a.data && (a.data.street || a.data.address)) || ''); }
 
 function spDigits(s){ return String(s||'').replace(/\D/g,''); }
 function spTrimTrailing(arr){
@@ -9662,11 +9690,12 @@ function spCustLabel(a){
   return bits.join(' \u2014 ');
 }
 
-function spMatchRow(name, phone, email){
+function spMatchRow(name, phone, email, address){
   const nm = spNormName(name);
   const stripped = spStripSuffix(name);
   const ph = spDigits(phone);
   const em = String(email||'').trim().toLowerCase();
+  const addr = spNormAddr(address);
 
   const phoneHits = (ph.length >= 7) ? jobAddresses.filter(function(a){
     return spDigits(a.data.phone) === ph || spDigits(a.data.phone2) === ph;
@@ -9678,22 +9707,39 @@ function spMatchRow(name, phone, email){
   const strippedHits = (stripped && stripped !== nm) ? jobAddresses.filter(function(a){
     return spNormName(a.data.name) === stripped || spStripSuffix(a.data.name) === stripped;
   }) : [];
+  const addrHits = addr ? jobAddresses.filter(function(a){ return spCustAddr(a) === addr; }) : [];
+
+  function overlap(a, b){ return a.filter(function(x){ return b.some(function(y){ return y.id === x.id; }); }); }
+
+  // Address first — it's the only thing that reliably separates two houses
+  // owned by one person, which is exactly the case name and phone can't solve.
+  if(addrHits.length){
+    const withPhone = phoneHits.length ? overlap(addrHits, phoneHits) : [];
+    if(withPhone.length === 1) return {status:'ready', how:'address + phone', candidates: withPhone};
+    const withName = nameHits.length ? overlap(addrHits, nameHits) : [];
+    if(withName.length === 1) return {status:'ready', how:'address + name', candidates: withName};
+    if(addrHits.length === 1) return {status:'ready', how:'address', candidates: addrHits};
+    return {status:'pick', how:'shared address', candidates: addrHits};
+  }
+  // An address that matched nobody isn't a dead end — fall through and try the
+  // other columns, but say so, since it usually means a typo worth a look.
+  const addrNote = addr ? ' (address not found)' : '';
 
   if(phoneHits.length && nameHits.length){
-    const both = phoneHits.filter(function(a){ return nameHits.some(function(b){ return b.id === a.id; }); });
-    if(both.length === 1) return {status:'ready', how:'phone + name', candidates: both};
-    if(both.length > 1) return {status:'pick', how:'phone + name', candidates: both};
+    const both = overlap(phoneHits, nameHits);
+    if(both.length === 1) return {status:'ready', how:'phone + name' + addrNote, candidates: both};
+    if(both.length > 1) return {status:'pick', how:'phone + name' + addrNote, candidates: both};
     // Phone says one person, the name says another — never guess between them.
     const union = phoneHits.concat(nameHits.filter(function(a){ return !phoneHits.some(function(b){ return b.id === a.id; }); }));
-    return {status:'pick', how:'phone and name disagree', candidates: union};
+    return {status:'pick', how:'phone and name disagree' + addrNote, candidates: union};
   }
-  if(phoneHits.length === 1) return {status:'ready', how:'phone', candidates: phoneHits};
-  if(phoneHits.length > 1) return {status:'pick', how:'shared phone', candidates: phoneHits};
-  if(emailHits.length === 1) return {status:'ready', how:'email', candidates: emailHits};
-  if(emailHits.length > 1) return {status:'pick', how:'shared email', candidates: emailHits};
-  if(nameHits.length === 1) return {status:'ready', how:'name', candidates: nameHits};
-  if(nameHits.length > 1) return {status:'pick', how:'name used more than once', candidates: nameHits};
-  if(strippedHits.length) return {status:'pick', how:'name without its suffix', candidates: strippedHits};
+  if(phoneHits.length === 1) return {status:'ready', how:'phone' + addrNote, candidates: phoneHits};
+  if(phoneHits.length > 1) return {status:'pick', how:'shared phone' + addrNote, candidates: phoneHits};
+  if(emailHits.length === 1) return {status:'ready', how:'email' + addrNote, candidates: emailHits};
+  if(emailHits.length > 1) return {status:'pick', how:'shared email' + addrNote, candidates: emailHits};
+  if(nameHits.length === 1) return {status:'ready', how:'name' + addrNote, candidates: nameHits};
+  if(nameHits.length > 1) return {status:'pick', how:'name used more than once' + addrNote, candidates: nameHits};
+  if(strippedHits.length) return {status:'pick', how:'name without its suffix' + addrNote, candidates: strippedHits};
   return {status:'none', how:'', candidates: []};
 }
 
@@ -9708,10 +9754,11 @@ document.getElementById('spCheckBtn').addEventListener('click', function(){
   if(!names.filter(Boolean).length){ statusEl.textContent = 'Paste at least the Name column.'; wrap.style.display = 'none'; return; }
 
   const rawAmounts = spTrimTrailing(document.getElementById('spAmountsArea').value.split('\n').map(function(s){ return s.trim(); }));
+  const rawAddrs = spTrimTrailing(document.getElementById('spAddrsArea').value.split('\n').map(function(s){ return s.trim(); }));
   const rawPhones = spTrimTrailing(document.getElementById('spPhonesArea').value.split('\n').map(function(s){ return s.trim(); }));
   const rawEmails = spTrimTrailing(document.getElementById('spEmailsArea').value.split('\n').map(function(s){ return s.trim(); }));
 
-  const checks = [['Amount', rawAmounts], ['Phone Number', rawPhones], ['Email', rawEmails]];
+  const checks = [['Amount', rawAmounts], ['Street Address', rawAddrs], ['Phone Number', rawPhones], ['Email', rawEmails]];
   for(let c = 0; c < checks.length; c++){
     const label = checks[c][0], arr = checks[c][1];
     if(arr.length > names.length){
@@ -9721,6 +9768,7 @@ document.getElementById('spCheckBtn').addEventListener('click', function(){
     }
   }
   const amounts = alignBulkRows(rawAmounts, names.length);
+  const addrs = alignBulkRows(rawAddrs, names.length);
   const phones = alignBulkRows(rawPhones, names.length);
   const emails = alignBulkRows(rawEmails, names.length);
 
@@ -9736,14 +9784,14 @@ document.getElementById('spCheckBtn').addEventListener('click', function(){
   for(let i = 0; i < names.length; i++){
     const amount = spAmountOf(amounts[i]);
     const row = {n: i+1, rawName: names[i], amount: amount, chosenId: ''};
-    if(!names[i] && !phones[i] && !emails[i]){
+    if(!names[i] && !phones[i] && !emails[i] && !addrs[i]){
       // A spacer line from the spreadsheet — counted so the numbering still
       // lines up with Excel, but nothing to do with it.
       row.status = 'blank'; row.how = ''; row.candidates = [];
     } else if(amount === null){
       row.status = 'noamount'; row.how = ''; row.candidates = [];
     } else {
-      const m = spMatchRow(names[i], phones[i], emails[i]);
+      const m = spMatchRow(names[i], phones[i], emails[i], addrs[i]);
       row.status = m.status; row.how = m.how; row.candidates = m.candidates;
       if(m.status === 'ready') row.chosenId = m.candidates[0].id;
     }
