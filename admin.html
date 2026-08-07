@@ -12974,9 +12974,12 @@ function loadTimeLogs(){
         html += '<div class="row-item">'+
           '<div class="rmain">'+
             '<h4>'+esc(d.employeeName || d.employeeEmail)+(outTime ? '' : ' <span class="status-pill status-new">Currently Clocked In</span>')+'</h4>'+
-            '<div class="rmeta">'+(d.employeeName ? esc(d.employeeEmail)+' &middot; ' : '')+(d.date||'')+' &middot; In: '+(inTime ? inTime.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) : '—')+' &middot; Out: '+(outTime ? outTime.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) : '—')+(duration ? ' &middot; '+duration : '')+(d.jobType ? ' &middot; '+esc(jobTypeLabel(d.jobType)) : '')+(d.isTestShift ? ' &middot; <strong style="color:var(--ember);">TEST</strong>' : '')+'</div>'+
+            '<div class="rmeta">'+(d.employeeName ? esc(d.employeeEmail)+' &middot; ' : '')+(d.date||'')+' &middot; In: '+(inTime ? inTime.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) : '—')+' &middot; Out: '+(outTime ? outTime.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) : '—')+(duration ? ' &middot; '+duration : '')+(d.jobType ? ' &middot; '+esc(jobTypeLabel(d.jobType)) : '')+(d.isTestShift ? ' &middot; <strong style="color:var(--ember);">TEST</strong>' : '')+(d.clockedOutOffsite ? ' &middot; <strong style="color:var(--ember);">clocked out away from shop</strong>' : '')+'</div>'+
           '</div>'+
-          '<div class="row-actions"><button class="icon-btn danger" data-del="timeLogs" data-id="'+docSnap.id+'">'+trashIcon()+'</button></div>'+
+          '<div class="row-actions">'+
+            (outTime ? '' : '<button class="btn btn-outline btn-sm" data-closeshift="'+docSnap.id+'" title="Close this shift now">Close Shift</button>')+
+            '<button class="icon-btn danger" data-del="timeLogs" data-id="'+docSnap.id+'">'+trashIcon()+'</button>'+
+          '</div>'+
         '</div>';
       });
     }
@@ -12985,6 +12988,25 @@ function loadTimeLogs(){
       if(!list) return;
       list.innerHTML = html;
       attachDeleteHandlers(list);
+      // Someone who forgets to clock out leaves a shift open forever, and an open
+      // shift is skipped by payroll entirely — so the office needs a way to close it.
+      list.querySelectorAll('[data-closeshift]').forEach(function(btn){
+        btn.addEventListener('click', function(){
+          const when = prompt('Close this shift.\n\nEnter the time they finished (e.g. 4:30 PM), or leave blank to use right now:', '');
+          if(when === null) return;
+          let out = new Date();
+          if(when.trim()){
+            const base = new Date();
+            const parsed = new Date(base.toDateString() + ' ' + when.trim());
+            if(isNaN(parsed.getTime())){ alert('Couldn\'t read that time — try something like 4:30 PM.'); return; }
+            out = parsed;
+          }
+          if(!confirm('Close this shift at ' + out.toLocaleString() + '?')) return;
+          updateDoc(doc(db,'timeLogs', btn.dataset.closeshift), {clockOutAt: out, closedByOffice: true}).then(function(){
+            toast('Shift closed');
+          }).catch(function(){ alert('Something went wrong — try again.'); });
+        });
+      });
     });
   });
 }
