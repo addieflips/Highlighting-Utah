@@ -1004,7 +1004,7 @@
             <div class="form-row" style="max-width:180px; margin-top:12px;"><label>Number of Bins</label><input type="number" id="addCustBins" min="1" step="1" value="1"></div>
             <div class="form-row" style="max-width:220px; margin-top:12px;"><label>Customer # (optional)</label><input type="text" id="addCustNumber" placeholder="Assigned automatically"></div>
             <div id="addCustNumberPreview" style="font-size:12.5px; font-weight:600; margin-top:4px;"></div>
-            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">The permanent bin number. Leave it blank and you can assign the next available one from Customer Numbers. Normally left blank &mdash; the number is picked for you from Measured Feet. Over 200 feet means 2 bins and the next free 5000-series number; anything up to 200 means 1 bin and the next free regular number. Without Measured Feet no number is given.</p>
+            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">The permanent bin number. Leave it blank and you can assign the next available one from Customer Numbers. Normally left blank &mdash; the number is picked for you from Measured Feet. Over 260 feet means 2 bins and the next free 5000-series number; anything up to 260 means 1 bin and the next free regular number. Without Measured Feet no number is given.</p>
             <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin-top:12px;"><input type="checkbox" id="addCustWantsMailed" style="width:auto;"> Also wants their invoice mailed (postal mail)</label>
           </div>
           <button type="submit" class="btn btn-gold">Add Customer</button>
@@ -2777,6 +2777,11 @@ Highlighting Utah</textarea>
             <button type="button" class="btn btn-outline btn-sm" id="payrollNextWeek">Next Week &rarr;</button>
           </div>
           <div id="payrollTable"></div>
+          <div style="margin-top:14px; border-top:1px solid var(--gold-dim); padding-top:12px;">
+            <button type="button" class="btn btn-gold btn-sm" id="gustoExportBtn">Export for Gusto</button>
+            <span style="font-size:12px; color:var(--slate); margin-left:8px;">Downloads this week's hours as a CSV to upload into Gusto.</span>
+            <div id="gustoExportStatus" style="font-size:12.5px; margin-top:8px;"></div>
+          </div>
         </div>
         </div>
 
@@ -2794,6 +2799,10 @@ Highlighting Utah</textarea>
             <button type="button" class="btn btn-outline btn-sm" id="payrollNextWeek2">&rarr;</button>
           </div>
           <div id="payrollTable2"></div>
+          <div style="margin-top:14px; border-top:1px solid var(--gold-dim); padding-top:12px;">
+            <button type="button" class="btn btn-gold btn-sm" id="gustoExportBtn2">Export for Gusto</button>
+            <div id="gustoExportStatus2" style="font-size:12.5px; margin-top:8px;"></div>
+          </div>
         </div>
         <div class="card">
           <h3 style="font-size:14px; margin-bottom:10px;">Time Log History</h3>
@@ -2962,41 +2971,50 @@ Highlighting Utah</textarea>
     <div class="panel" id="panel-warehouse">
       <div class="panel-head"><div><h2>Warehouse</h2><p>What needs to be built. This list only fills in automatically when a new install comes from an approved quote. Bulk imports and Member Portal color changes never add anything here on their own — a Member Portal change sends a "Light Color Change" message to Inbox instead (with a feet estimate, if we have one), and you add it below yourself once you've reviewed it. This same list is what warehouse employees see in the Crew Portal.</p></div></div>
 
-      <div class="card" style="margin-bottom:20px; background:#FDECEA; border-color:#f0b3ac;">
-        <h3 style="margin:0 0 8px;">One-time cleanup</h3>
-        <p class="form-note" style="margin:0 0 10px;">Bulk imports used to add build requests here by mistake. Use this once to clear out anything left over from that — it won't touch anything added through the Member Portal, Quotes, or your own manual entries below.</p>
-        <button type="button" class="btn btn-ember btn-sm" id="whClearBulkFlagsBtn">Clear Leftover Bulk-Import Build Flags</button>
-        <div style="margin-top:12px;">
-          <button type="button" class="btn btn-outline btn-sm" id="whFindNotQueuedBtn">Find Customers Not In The Build Queue</button>
-          <div id="whNotQueuedReport" style="margin-top:10px;"></div>
+      <div class="route-tabs" id="whSectionTabs" style="margin-bottom:20px;">
+        <button class="route-tab-btn active" data-whtab="build" draggable="true">Build</button>
+        <button class="route-tab-btn" data-whtab="recycle" draggable="true">Recycle</button>
+        <button class="route-tab-btn" data-whtab="tools" draggable="true">Tools</button>
+      </div>
+
+      <div class="gen-subtab-panel active" id="whtab-build">
+        <div class="card" style="margin-bottom:20px;">
+          <h3 style="margin:0 0 10px;">Add From Inbox</h3>
+          <p class="form-note" style="margin:0 0 10px;">For a build request you saw in Inbox, a rebuild, or just buffer stock.</p>
+          <div class="form-grid-2">
+            <div class="form-row"><label>Pattern</label><input type="text" id="whExtraPattern" placeholder="e.g. Warm White, Red, Red, Warm White"></div>
+            <div class="form-row"><label>How Many</label><input type="number" id="whExtraQty" min="1" step="1" value="1"></div>
+          </div>
+          <div class="form-row"><label>Which house is this for? (optional &mdash; leave blank for generic buffer stock)</label><input type="text" id="whExtraLabel" list="whExtraCustomerList" placeholder="Start typing a name or address to pick a customer" autocomplete="off">
+            <datalist id="whExtraCustomerList"></datalist>
+            <div id="whExtraLabelMatch" style="font-size:12.5px; color:var(--slate); margin-top:4px;"></div></div>
+          <button type="button" class="btn btn-outline" id="whAddExtraBtn">Add to Queue</button>
+          <span id="whAddExtraStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
         </div>
-        <span id="whClearBulkFlagsStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
-        <div style="border-top:1px solid #f0b3ac; margin-top:14px; padding-top:14px;">
+
+        <div id="warehouseQueueList" class="row-list"><div class="empty-note">Loading&hellip;</div></div>
+      </div>
+
+      <div class="gen-subtab-panel" id="whtab-recycle">
+        <p class="form-note" style="margin:0 0 10px;">Customers who RSVP'd No this year &mdash; their light pattern needs to come back into stock instead of being hung.</p>
+        <div id="warehouseRecycleQueueList" class="row-list"><div class="empty-note">Loading&hellip;</div></div>
+      </div>
+
+      <div class="gen-subtab-panel" id="whtab-tools">
+        <div class="card" style="margin-bottom:20px;">
+          <h3 style="margin:0 0 8px;">Fill In Missing Feet</h3>
           <p class="form-note" style="margin:0 0 10px;">Fills in Measured Feet for any house that has a price but no measured feet on file, using price &divide; your per-foot rate with a 5% safety margin so estimates lean toward too few feet rather than too many. Never overwrites feet you've already measured.</p>
           <button type="button" class="btn btn-ember btn-sm" id="whFillFeetFromPriceBtn">Fill In Missing Feet From Price</button>
           <span id="whFillFeetFromPriceStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
         </div>
-      </div>
 
-      <div class="card" style="margin-bottom:20px;">
-        <h3 style="margin:0 0 10px;">Add From Inbox</h3>
-        <p class="form-note" style="margin:0 0 10px;">For a build request you saw in Inbox, a rebuild, or just buffer stock.</p>
-        <div class="form-grid-2">
-          <div class="form-row"><label>Pattern</label><input type="text" id="whExtraPattern" placeholder="e.g. Warm White, Red, Red, Warm White"></div>
-          <div class="form-row"><label>How Many</label><input type="number" id="whExtraQty" min="1" step="1" value="1"></div>
+        <div class="card">
+          <h3 style="margin:0 0 8px;">Check The Build Queue</h3>
+          <p class="form-note" style="margin:0 0 10px;">Lists customers who aren't in the build queue, and why &mdash; usually missing colours or the build flag turned off.</p>
+          <button type="button" class="btn btn-outline btn-sm" id="whFindNotQueuedBtn">Find Customers Not In The Build Queue</button>
+          <div id="whNotQueuedReport" style="margin-top:10px;"></div>
         </div>
-        <div class="form-row"><label>Which house is this for? (optional &mdash; leave blank for generic buffer stock)</label><input type="text" id="whExtraLabel" list="whExtraCustomerList" placeholder="Start typing a name or address to pick a customer" autocomplete="off">
-          <datalist id="whExtraCustomerList"></datalist>
-          <div id="whExtraLabelMatch" style="font-size:12.5px; color:var(--slate); margin-top:4px;"></div></div>
-        <button type="button" class="btn btn-outline" id="whAddExtraBtn">Add to Queue</button>
-        <span id="whAddExtraStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
       </div>
-
-      <div id="warehouseQueueList" class="row-list"><div class="empty-note">Loading…</div></div>
-
-      <h3 style="margin:24px 0 10px;">Needs Recycling</h3>
-      <p class="form-note" style="margin:0 0 10px;">Customers who RSVP'd No this year &mdash; their light pattern needs to come back into stock instead of being hung.</p>
-      <div id="warehouseRecycleQueueList" class="row-list"><div class="empty-note">Loading…</div></div>
     </div>
 
     <!-- CUSTOMER NUMBERS -->
@@ -4887,10 +4905,12 @@ function renderQuoteRows(filtered){
     const formDone = !!d.formCompletedAt;
     html += '<div class="row-item">'+
       '<div class="rmain">'+
-        '<div class="row-name-line">'+esc(d.name)+' <span class="status-pill status-'+status+'">'+status+'</span>'+(d.existingCustomerAddressChange ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Existing Customer &mdash; Address Changed</span>' : '')+(d.approvalStatus === 'approved' ? ' <span class="status-pill status-paid">&#10003; Approved</span>' : '')+(d.approvalStatus === 'declined' ? ' <span class="status-pill status-due">Declined</span>' : '')+(isStaleUnresponsive(d) ? ' <span class="status-pill" style="background:#FDECEA; color:#B91C1C; font-weight:700;">&#9200; 10 Day Unresponsive</span>' : '')+'</div>'+
+        '<div class="row-name-line">'+esc(d.name)+' <span class="status-pill status-'+status+'">'+status+'</span>'+(d.existingCustomerAddressChange ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Existing Customer &mdash; Address Changed</span>' : '')+(d.approvalStatus === 'approved' ? ' <span class="status-pill status-paid">&#10003; Approved</span>' : '')+(d.approvalStatus === 'declined' ? ' <span class="status-pill status-due">Declined</span>' : '')+(isStaleUnresponsive(d) ? ' <span class="status-pill" style="background:#FDECEA; color:#B91C1C; font-weight:700;">&#9200; 10 Day Unresponsive</span>' : '')+(d.outletTimer === 'Yes' ? ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">&#9201; Wants Timer</span>' : '')+'</div>'+
         '<button type="button" class="address-link-btn" data-previewquoteaddr="'+esc(d.address)+'">'+esc(d.address)+'</button>'+
         '<div class="row-phone-line">'+esc(d.phone)+' &middot; '+esc(d.email)+' &middot; '+fmtDate(d.createdAt)+'</div>'+
-        '<div class="rtext">Prefers: '+esc(d.contactMethod)+'</div>'+
+        '<div class="rtext">Prefers: '+esc(d.contactMethod)+
+          (formDone ? ' &middot; Timer: <strong>'+(d.outletTimer === 'Yes' ? 'Yes' : 'No')+'</strong>' : '')+
+          (formDone && d.wireColor ? ' &middot; Wire: <strong>'+esc(d.wireColor)+'</strong>' : '')+'</div>'+
 
         // ---- Photo -------------------------------------------------------
         '<div style="margin-top:8px;">'+
@@ -7256,6 +7276,31 @@ function payrollWeekKeyFor(date){
   saturday.setDate(d.getDate() - daysSinceSaturday);
   return toDateStr(saturday);
 }
+// ---- TWO-RATE PAY (warehouse vs crew) ----
+// Some people earn one rate in the warehouse and a higher rate out on crews.
+// A shift records which kind of work it was (timeLogs.jobType). Anyone with only
+// one rate set behaves exactly as before, and older shifts with no jobType fall
+// back to hourlyRate so past weeks never change.
+const JOB_TYPES = [
+  {key:'warehouse', label:'Warehouse', rateField:'warehouseRate'},
+  {key:'crew', label:'Crew', rateField:'crewRate'}
+];
+function jobTypeLabel(key){
+  const jt = JOB_TYPES.find(function(j){ return j.key === key; });
+  return jt ? jt.label : '';
+}
+// True only when BOTH rates are filled in — that's what makes someone a two-rate person.
+function empHasTwoRates(emp){
+  return !!(emp && Number(emp.warehouseRate) > 0 && Number(emp.crewRate) > 0);
+}
+// The one place that decides what an hour is worth. Everything else calls this.
+function rateForLog(emp, logData){
+  if(!emp) return 0;
+  const jt = logData && logData.jobType;
+  if(jt === 'warehouse' && Number(emp.warehouseRate) > 0) return Number(emp.warehouseRate);
+  if(jt === 'crew' && Number(emp.crewRate) > 0) return Number(emp.crewRate);
+  return Number(emp.hourlyRate) || 0;
+}
 // Fully automatic payroll cost from actual clock-ins (hourly) and prorated salary (salaried),
 // for logs between startDate/endDate (pass null/null for all-time).
 function computePayrollTotal(startDate, endDate){
@@ -7276,7 +7321,7 @@ function computePayrollTotal(startDate, endDate){
     }
     if(!d.clockOutAt || !d.clockOutAt.toDate) return;
     const hours = (d.clockOutAt.toDate() - inTime) / 3600000;
-    total += hours * (emp.hourlyRate||0);
+    total += hours * rateForLog(emp, d);
   });
   Object.keys(salariedWeeks).forEach(function(name){
     const emp = employeeNames.find(e => e.name === name);
@@ -7301,7 +7346,7 @@ function computePayrollByEmployee(startDate, endDate){
     }
     if(!d.clockOutAt || !d.clockOutAt.toDate) return;
     const hours = (d.clockOutAt.toDate() - inTime) / 3600000;
-    byEmployee[emp.name].pay += hours * (emp.hourlyRate||0);
+    byEmployee[emp.name].pay += hours * rateForLog(emp, d);
   });
   Object.keys(byEmployee).forEach(function(name){
     const rec = byEmployee[name];
@@ -8500,6 +8545,12 @@ function switchTlTab(tabName){
 }
 setupDraggableTabBar('tlSectionTabs', 'tltab', 'huTlTabOrder', switchTlTab);
 
+function switchWhTab(tabName){
+  document.querySelectorAll('#whSectionTabs .route-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.whtab === tabName));
+  document.querySelectorAll('#panel-warehouse .gen-subtab-panel').forEach(p => p.classList.toggle('active', p.id === 'whtab-'+tabName));
+}
+setupDraggableTabBar('whSectionTabs', 'whtab', 'huWhTabOrder', switchWhTab);
+
 function switchRespTab(tabName){
   document.querySelectorAll('#respSectionTabs .route-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.resptab === tabName));
   document.querySelectorAll('#panel-responsibilities .gen-subtab-panel').forEach(p => p.classList.toggle('active', p.id === 'resptab-'+tabName));
@@ -8814,7 +8865,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
   let numberOfBins = parseInt(document.getElementById('addCustBins').value, 10) || 1;
   const wantsMailedInvoice = document.getElementById('addCustWantsMailed').checked;
   /* Feet decide the bins, and the bins decide which sequence the number comes from.
-     Over 200 feet is a double-bin house on a 5000 number; anything else is a single
+     Over 260 feet is a double-bin house on a 5000 number; anything else is a single
      bin on a regular number. With no feet measured yet there's nothing to decide
      from, so the customer is saved without a number. */
   let customerNumber = document.getElementById('addCustNumber').value.trim();
@@ -10267,7 +10318,7 @@ function renderWarehouseRecycleQueue(){
   jobAddresses.forEach(function(item){
     const d = item.data;
     if(!d.needsLightRecycle || !d.lightsDescription) return;
-    const key = d.lightsDescription;
+    const key = whGroupKey(d.lightsDescription, d.wireColor);
     if(!groups[key]) groups[key] = [];
     groups[key].push(item);
   });
@@ -10372,8 +10423,8 @@ function loadAvailableCustomerNumbers(){
     renderCustomerNumbersPanel();
   });
 }
-/* One place for the bin rule: over 200 feet is a double-bin house. */
-const CN_DOUBLE_BIN_FEET = 200;
+/* One place for the bin rule: over 260 feet is a double-bin house. */
+const CN_DOUBLE_BIN_FEET = 260;
 function cnBinsForFeet(feet){
   return (Number(feet) || 0) > CN_DOUBLE_BIN_FEET ? 2 : 1;
 }
@@ -10954,6 +11005,17 @@ document.getElementById('dashRsvpFilterPayment').addEventListener('change', func
   dashRsvpFilterPayment = this.value;
   renderDashRsvpPanel();
 });
+/* ---- WAREHOUSE GROUPING ----
+   A build is only "the same" if the colours AND the wire match. Two houses in
+   Warm White are different builds if one is on white wire and one on green, so
+   the wire is part of the group key, not just something shown on the row. */
+function whWireLabel(wire){
+  const w = String(wire || '').trim();
+  return w || 'White';
+}
+function whGroupKey(lightsDescription, wire){
+  return String(lightsDescription || '') + ' \u2014 ' + whWireLabel(wire) + ' wire';
+}
 function renderWarehouseQueue(){
   const list = document.getElementById('warehouseQueueList');
   if(!list) return;
@@ -10961,13 +11023,15 @@ function renderWarehouseQueue(){
   jobAddresses.forEach(function(item){
     const d = item.data;
     if(!d.needsLightBuild || !d.lightsDescription) return;
-    const key = d.lightsDescription;
+    const key = whGroupKey(d.lightsDescription, d.wireColor);
     if(!groups[key]) groups[key] = {houses:[], extras:[]};
     groups[key].houses.push(item);
   });
   warehouseExtras.forEach(function(item){
-    const key = item.data.pattern;
-    if(!key) return;
+    if(!item.data.pattern) return;
+    // Buffer builds don't carry a wire colour, so they get their own bucket
+    // rather than being folded into a real house group by mistake.
+    const key = item.data.pattern + ' \u2014 buffer stock (wire not set)';
     if(!groups[key]) groups[key] = {houses:[], extras:[]};
     groups[key].extras.push(item);
   });
@@ -11184,22 +11248,6 @@ document.getElementById('whFindNotQueuedBtn').addEventListener('click', function
   });
 });
 
-document.getElementById('whClearBulkFlagsBtn').addEventListener('click', async function(){
-  const statusEl = document.getElementById('whClearBulkFlagsStatus');
-  const flagged = jobAddresses.filter(function(item){ return item.data.needsLightBuild; });
-  if(!flagged.length){ statusEl.textContent = 'Nothing to clear — Warehouse is already empty of house build flags.'; return; }
-  if(!confirm('Clear the "needs build" flag on ' + flagged.length + ' house(s)? This only clears the flag — it does not touch their saved light pattern.')) return;
-  statusEl.textContent = 'Clearing…';
-  try{
-    await Promise.all(flagged.map(function(item){
-      return updateDoc(doc(db,'jobAddresses', item.id), {needsLightBuild:false});
-    }));
-    statusEl.textContent = 'Cleared ' + flagged.length + ' house(s).';
-    setTimeout(function(){ statusEl.textContent = ''; }, 3000);
-  } catch(err){
-    statusEl.textContent = 'Something went wrong — try again.';
-  }
-});
 document.getElementById('whFillFeetFromPriceBtn').addEventListener('click', async function(){
   const statusEl = document.getElementById('whFillFeetFromPriceStatus');
   if(!perFootRate){
@@ -12904,7 +12952,7 @@ function loadTimeLogs(){
         html += '<div class="row-item">'+
           '<div class="rmain">'+
             '<h4>'+esc(d.employeeName || d.employeeEmail)+(outTime ? '' : ' <span class="status-pill status-new">Currently Clocked In</span>')+'</h4>'+
-            '<div class="rmeta">'+(d.employeeName ? esc(d.employeeEmail)+' &middot; ' : '')+(d.date||'')+' &middot; In: '+(inTime ? inTime.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) : '—')+' &middot; Out: '+(outTime ? outTime.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) : '—')+(duration ? ' &middot; '+duration : '')+'</div>'+
+            '<div class="rmeta">'+(d.employeeName ? esc(d.employeeEmail)+' &middot; ' : '')+(d.date||'')+' &middot; In: '+(inTime ? inTime.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) : '—')+' &middot; Out: '+(outTime ? outTime.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) : '—')+(duration ? ' &middot; '+duration : '')+(d.jobType ? ' &middot; '+esc(jobTypeLabel(d.jobType)) : '')+'</div>'+
           '</div>'+
           '<div class="row-actions"><button class="icon-btn danger" data-del="timeLogs" data-id="'+docSnap.id+'">'+trashIcon()+'</button></div>'+
         '</div>';
@@ -12945,6 +12993,8 @@ function renderPayrollWeek(){
   const labelText = start.toLocaleDateString('en-US',{month:'short',day:'numeric'}) + ' – ' + end.toLocaleDateString('en-US',{month:'short',day:'numeric', year:'numeric'}) + ' (Pay Day: Fri)';
   labelEls.forEach(el => el.textContent = labelText);
 
+  // Hours are bucketed per person AND per rate, so someone who worked warehouse
+  // days and crew days shows a line for each instead of one blurred average.
   const hoursByEmployee = {};
   allTimeLogsCache.forEach(function(item){
     const d = item.data;
@@ -12954,7 +13004,11 @@ function renderPayrollWeek(){
     const outTime = d.clockOutAt.toDate();
     const hours = (outTime - inTime) / 3600000;
     const name = d.employeeName || d.employeeEmail || 'Unknown';
-    hoursByEmployee[name] = (hoursByEmployee[name] || 0) + hours;
+    const emp = employeeNames.find(e => e.name === name);
+    // Only split when the person actually has two rates; everyone else stays on one line.
+    const bucket = (empHasTwoRates(emp) && d.jobType) ? d.jobType : 'base';
+    if(!hoursByEmployee[name]) hoursByEmployee[name] = {};
+    hoursByEmployee[name][bucket] = (hoursByEmployee[name][bucket] || 0) + hours;
   });
 
   const names = Object.keys(hoursByEmployee);
@@ -12965,17 +13019,51 @@ function renderPayrollWeek(){
     let totalPay = 0;
     html = '';
     names.sort().forEach(function(name){
-      const hours = hoursByEmployee[name];
       const emp = employeeNames.find(e => e.name === name);
-      const rate = emp ? (emp.hourlyRate||0) : 0;
-      const pay = hours * rate;
-      totalPay += pay;
+      const buckets = hoursByEmployee[name];
+      const bucketKeys = Object.keys(buckets).sort();
+      const split = bucketKeys.length > 1 || (bucketKeys.length === 1 && bucketKeys[0] !== 'base');
+      let personHours = 0, personPay = 0;
+      const lines = [];
+      bucketKeys.forEach(function(bk){
+        const hrs = buckets[bk];
+        const rate = rateForLog(emp, bk === 'base' ? {} : {jobType: bk});
+        personHours += hrs;
+        personPay += hrs * rate;
+        lines.push({label: bk === 'base' ? '' : jobTypeLabel(bk), hours: hrs, rate: rate});
+      });
+      // ---- OVERTIME ----
+      // Anything past 40 hours in the week is overtime. When someone worked more
+      // than one rate, the law bases overtime on the weighted average of the rates
+      // they actually worked (the "regular rate"), not on whichever rate they
+      // happened to be on for hour 41. personPay above is straight-time earnings
+      // for every hour; the overtime premium is the extra half-rate on top.
+      const OT_THRESHOLD = 40;
+      const straightEarnings = personPay;
+      const otHours = Math.max(0, personHours - OT_THRESHOLD);
+      const straightHours = personHours - otHours;
+      const regularRate = personHours > 0 ? (straightEarnings / personHours) : 0;
+      const otPremium = 0.5 * regularRate * otHours;
+      personPay = straightEarnings + otPremium;
+
+      totalPay += personPay;
+      const rateLines = split
+        ? lines.map(function(l){
+            return '<div class="rmeta">'+(l.label ? '<strong>'+esc(l.label)+':</strong> ' : '')+l.hours.toFixed(2)+' hrs &middot; $'+l.rate.toFixed(2)+'/hr &middot; $'+(l.hours*l.rate).toFixed(2)+'</div>';
+          }).join('')
+        : '<div class="rmeta">'+personHours.toFixed(2)+' hrs &middot; $'+(lines[0]?lines[0].rate:0).toFixed(2)+'/hr'+(!emp ? ' &middot; <span style="color:var(--ember);">no rate set</span>' : '')+'</div>';
+      // The straight/overtime line mirrors the two columns Gusto asks for.
+      const otLine = otHours > 0
+        ? '<div class="rmeta" style="font-weight:700; color:var(--ember);">Straight time: '+straightHours.toFixed(2)+' hrs &middot; Overtime: '+otHours.toFixed(2)+' hrs</div>'+
+          (split ? '<div class="rmeta">Overtime is based on the blended rate of $'+regularRate.toFixed(2)+'/hr (the average of the rates worked this week).</div>' : '')
+        : (split ? '<div class="rmeta" style="font-weight:700;">Total: '+personHours.toFixed(2)+' hrs</div>' : '');
       html += '<div class="row-item">'+
         '<div class="rmain">'+
           '<h4>'+esc(name)+'</h4>'+
-          '<div class="rmeta">'+hours.toFixed(2)+' hrs &middot; $'+rate.toFixed(2)+'/hr'+(!emp ? ' &middot; <span style="color:var(--ember);">no rate set</span>' : '')+'</div>'+
+          rateLines+
+          otLine+
         '</div>'+
-        '<div style="font-family:\'Fraunces\',serif; font-weight:700; font-size:17px;">$'+pay.toFixed(2)+'</div>'+
+        '<div style="font-family:\'Fraunces\',serif; font-weight:700; font-size:17px;">$'+personPay.toFixed(2)+'</div>'+
       '</div>';
     });
     html += '<div class="row-item" style="background:var(--ink); color:#fff;">'+
@@ -12985,6 +13073,115 @@ function renderPayrollWeek(){
   }
   tableEls.forEach(el => el.innerHTML = html);
 }
+// ---- GUSTO EXPORT ----
+// Builds one row per person per pay rate, matching Gusto's grid (which allows a
+// second line for the same person). Hours only, never dollars — Gusto applies the
+// rates and does its own tax and overtime math from what we hand it.
+//
+// Overtime is allocated in the order the shifts actually happened: hours run in
+// chronological sequence, and anything past 40 for the week counts as overtime on
+// whichever kind of work was being done at the time.
+const OT_WEEKLY_THRESHOLD = 40;
+function buildGustoRows(){
+  const {start, end} = getPayrollWeekBounds();
+  const shiftsByPerson = {};
+  let openShifts = 0;
+  allTimeLogsCache.forEach(function(item){
+    const d = item.data;
+    if(!d.clockInAt || !d.clockInAt.toDate) return;
+    const inTime = d.clockInAt.toDate();
+    if(inTime < start || inTime > end) return;
+    const name = d.employeeName || d.employeeEmail || 'Unknown';
+    const emp = employeeNames.find(e => e.name === name);
+    if(emp && emp.payType === 'salary') return; // salaried people aren't paid by the hour
+    if(!d.clockOutAt || !d.clockOutAt.toDate){ openShifts++; return; }
+    const hours = (d.clockOutAt.toDate() - inTime) / 3600000;
+    if(hours <= 0) return;
+    const bucket = (empHasTwoRates(emp) && d.jobType) ? d.jobType : 'base';
+    if(!shiftsByPerson[name]) shiftsByPerson[name] = [];
+    shiftsByPerson[name].push({at: inTime, hours: hours, bucket: bucket});
+  });
+
+  const rows = [];
+  Object.keys(shiftsByPerson).sort().forEach(function(name){
+    const shifts = shiftsByPerson[name].sort(function(a,b){ return a.at - b.at; });
+    const totals = {};
+    let running = 0;
+    shifts.forEach(function(sh){
+      if(!totals[sh.bucket]) totals[sh.bucket] = {reg:0, ot:0};
+      const before = running;
+      const after = running + sh.hours;
+      // Split this shift where it crosses the 40-hour line.
+      const regPart = Math.max(0, Math.min(after, OT_WEEKLY_THRESHOLD) - before);
+      const otPart = sh.hours - regPart;
+      totals[sh.bucket].reg += regPart;
+      totals[sh.bucket].ot += otPart;
+      running = after;
+    });
+    Object.keys(totals).sort().forEach(function(bk){
+      const t = totals[bk];
+      if(t.reg <= 0.0001 && t.ot <= 0.0001) return;
+      rows.push({
+        name: name,
+        rateName: bk === 'base' ? '' : jobTypeLabel(bk),
+        regular: Math.round(t.reg * 100) / 100,
+        overtime: Math.round(t.ot * 100) / 100
+      });
+    });
+  });
+  return {rows: rows, openShifts: openShifts, start: start, end: end};
+}
+function runGustoExport(statusEl){
+  function say(msg, colour){
+    if(statusEl){ statusEl.innerHTML = msg; statusEl.style.color = colour || 'var(--slate)'; }
+  }
+  // Crew log in by first name and Gusto matches on name, so a shared first name
+  // could put someone else's hours on the wrong paycheck. Refuse rather than guess.
+  const firstNames = {};
+  employeeNames.forEach(function(e){
+    const f = String(e.name||'').trim().split(/\s+/)[0].toLowerCase();
+    if(f) firstNames[f] = (firstNames[f] || 0) + 1;
+  });
+  const dupes = Object.keys(firstNames).filter(function(f){ return firstNames[f] > 1; });
+  if(dupes.length){
+    say('Export stopped &mdash; more than one person shares the first name <strong>'+dupes.map(function(f){ return esc(f.charAt(0).toUpperCase()+f.slice(1)); }).join(', ')+'</strong>. Give them distinct names in Employee Names first so nobody gets paid the wrong hours.', 'var(--ember)');
+    return;
+  }
+  const {rows, openShifts, start, end} = buildGustoRows();
+  if(!rows.length){
+    say('Nothing to export &mdash; no finished shifts in this week yet.', 'var(--ember)');
+    return;
+  }
+  const header = ['Employee','Pay Rate','Regular Hours','Overtime Hours'];
+  const lines = [header.join(',')];
+  rows.forEach(function(r){
+    // Quote every field so names with commas can't shift the columns.
+    lines.push([r.name, r.rateName, r.regular.toFixed(2), r.overtime.toFixed(2)]
+      .map(function(v){ return '"' + String(v).replace(/"/g,'""') + '"'; }).join(','));
+  });
+  const csv = lines.join('\r\n');
+  const stamp = toDateStr(start) + '_to_' + toDateStr(end);
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'gusto-hours-' + stamp + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+  let msg = 'Downloaded <strong>' + rows.length + ' line(s)</strong> for ' + stamp.replace('_to_',' to ') + '. Upload it in Gusto under Run payroll &rarr; Import payroll data.';
+  if(openShifts){
+    msg += '<br><span style="color:var(--ember);"><strong>Heads up:</strong> ' + openShifts + ' shift(s) are still clocked in and were left out. Export again after everyone clocks out.</span>';
+  }
+  say(msg);
+}
+document.getElementById('gustoExportBtn').addEventListener('click', function(){
+  runGustoExport(document.getElementById('gustoExportStatus'));
+});
+document.getElementById('gustoExportBtn2').addEventListener('click', function(){
+  runGustoExport(document.getElementById('gustoExportStatus2'));
+});
 document.getElementById('payrollPrevWeek').addEventListener('click', function(){ payrollWeekOffset--; renderPayrollWeek(); });
 document.getElementById('payrollNextWeek').addEventListener('click', function(){ payrollWeekOffset++; renderPayrollWeek(); });
 document.getElementById('payrollPrevWeek2').addEventListener('click', function(){ payrollWeekOffset--; renderPayrollWeek(); });
@@ -12999,6 +13196,7 @@ function loadEmployeeNames(){
       const d = docSnap.data();
       employeeNames.push({
         id:docSnap.id, name:d.name, hourlyRate:d.hourlyRate||0, role:d.role||'Crew',
+        warehouseRate:d.warehouseRate||0, crewRate:d.crewRate||0,
         visibleTabs:d.visibleTabs||null, isAdmin:!!d.isAdmin,
         position:d.position||'', payType:d.payType||'hourly', salaryAmount:d.salaryAmount||0,
         categoryIds:d.categoryIds||[],
@@ -13097,7 +13295,22 @@ function resolveEmpHomeCards(e, vt){
 function renderEmployeeChips(){
   const wrap = document.getElementById('employeeChipList');
   if(!employeeNames.length){ wrap.innerHTML = '<p style="font-size:12.5px; color:var(--slate);">No employees added yet.</p>'; return; }
-  wrap.innerHTML = employeeNames.map(function(e){
+  // Crew log in with their first name only, and any payroll export matches on name —
+  // so two people sharing a first name is a real risk of paying the wrong person.
+  const firstNameCounts = {};
+  employeeNames.forEach(function(e){
+    const f = String(e.name||'').trim().split(/\s+/)[0].toLowerCase();
+    if(f) firstNameCounts[f] = (firstNameCounts[f] || 0) + 1;
+  });
+  const clashes = Object.keys(firstNameCounts).filter(function(f){ return firstNameCounts[f] > 1; });
+  const clashWarning = clashes.length
+    ? '<div class="card" style="background:#FDEBE7; border-color:var(--ember); margin-bottom:12px;">'+
+        '<h3 style="font-size:14px; margin-bottom:6px; color:var(--ember);">Duplicate first names</h3>'+
+        '<p style="font-size:13px; margin:0;">More than one person shares the first name '+clashes.map(function(f){ return '<strong>'+esc(f.charAt(0).toUpperCase()+f.slice(1))+'</strong>'; }).join(', ')+'. Crew log in by first name and payroll matches on name, so this can put hours on the wrong person. Give one of them a distinct name (e.g. add a last initial) before the season starts.</p>'+
+      '</div>'
+    : '';
+
+  wrap.innerHTML = clashWarning + employeeNames.map(function(e){
     const isCrew = (e.role||'Crew') === 'Crew';
     const vt = resolveEmpVisibleTabs(e);
     const followsTpl = empFollowsTemplate(e);
@@ -13120,7 +13333,7 @@ function renderEmployeeChips(){
           '</select>'+
           (payType === 'salary'
             ? '<span style="font-size:12.5px; color:var(--slate);">$</span><input type="number" min="0" step="1" value="'+(e.salaryAmount||0)+'" data-salaryinput="'+e.id+'" style="width:90px; padding:6px 8px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:13px;"><span style="font-size:12.5px; color:var(--slate);">/yr</span>'
-            : '<span style="font-size:12.5px; color:var(--slate);">$</span><input type="number" min="0" step="0.25" value="'+(e.hourlyRate||0)+'" data-rateinput="'+e.id+'" style="width:70px; padding:6px 8px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:13px;"><span style="font-size:12.5px; color:var(--slate);">/hr</span>')+
+            : '<span style="font-size:12.5px; color:var(--slate);">$</span><input type="number" min="0" step="0.25" value="'+(e.hourlyRate||0)+'" data-rateinput="'+e.id+'" title="Base pay rate" style="width:70px; padding:6px 8px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:13px;"><span style="font-size:12.5px; color:var(--slate);">/hr</span>')+
           '<select class="admin-flag-check" data-empid="'+e.id+'" title="Access Level" style="padding:6px 8px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:13px; font-weight:600;">'+
             '<option value="employee"'+(!e.isAdmin?' selected':'')+'>Employee</option>'+
             '<option value="admin"'+(e.isAdmin?' selected':'')+'>Admin</option>'+
@@ -13128,6 +13341,16 @@ function renderEmployeeChips(){
           '<button type="button" data-delemployee="'+e.id+'" title="Remove" style="background:none; border:none; color:var(--ember); font-size:16px; cursor:pointer; padding:0 4px;">&times;</button>'+
         '</div>'+
       '</div>'+
+      (payType !== 'salary' ? '<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; background:#FFF8E9; border:1px solid var(--gold-dim); border-radius:8px; padding:8px 10px;">'+
+        '<span style="font-size:11.5px; font-weight:700; text-transform:uppercase; color:var(--slate);">Two rates (optional):</span>'+
+        '<span style="font-size:12.5px; color:var(--slate);">Warehouse $</span>'+
+        '<input type="number" min="0" step="0.25" value="'+(e.warehouseRate||0)+'" data-whrateinput="'+e.id+'" style="width:70px; padding:6px 8px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:13px;">'+
+        '<span style="font-size:12.5px; color:var(--slate);">Crew $</span>'+
+        '<input type="number" min="0" step="0.25" value="'+(e.crewRate||0)+'" data-crewrateinput="'+e.id+'" style="width:70px; padding:6px 8px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:13px;">'+
+        '<span style="font-size:11.5px; color:var(--slate); flex-basis:100%;">'+(empHasTwoRates(e)
+          ? 'Both filled in \u2014 they\u2019ll be asked \u201cWarehouse or Crew?\u201d when they clock in, and each shift pays its own rate.'
+          : 'Leave these at 0 to keep using the single rate above. Fill in <em>both</em> to turn on the clock-in question.')+'</span>'+
+      '</div>' : '')+
       (employeeCategories.length ? '<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">'+
         '<span style="font-size:11.5px; font-weight:700; text-transform:uppercase; color:var(--slate);">Categories:</span>'+
         employeeCategories.map(function(cat){
@@ -13314,6 +13537,28 @@ function renderEmployeeChips(){
       debounceTimer = setTimeout(function(){
         updateDoc(doc(db,'employeeNames',input.dataset.rateinput), {hourlyRate: Number(input.value)||0}).then(function(){
           toast('Pay rate updated');
+        });
+      }, 600);
+    });
+  });
+  wrap.querySelectorAll('[data-whrateinput]').forEach(function(input){
+    let debounceTimer;
+    input.addEventListener('input', function(){
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(function(){
+        updateDoc(doc(db,'employeeNames',input.dataset.whrateinput), {warehouseRate: Number(input.value)||0}).then(function(){
+          toast('Warehouse rate updated');
+        });
+      }, 600);
+    });
+  });
+  wrap.querySelectorAll('[data-crewrateinput]').forEach(function(input){
+    let debounceTimer;
+    input.addEventListener('input', function(){
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(function(){
+        updateDoc(doc(db,'employeeNames',input.dataset.crewrateinput), {crewRate: Number(input.value)||0}).then(function(){
+          toast('Crew rate updated');
         });
       }, 600);
     });
