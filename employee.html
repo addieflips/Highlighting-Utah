@@ -737,6 +737,15 @@ async function startAppAs(name){
     currentIsAdmin = !!empData.isAdmin;
     currentHasTwoRates = Number(empData.warehouseRate) > 0 && Number(empData.crewRate) > 0;
     currentIsTestAccount = !!empData.isTestAccount;
+    // Watch the record from here on. Without this, turning "Test account" on in
+    // admin wouldn't reach a phone that's already signed in — which is exactly
+    // how someone ends up clocked in with no way to clock out.
+    onSnapshot(doc(db,'employeeNames', empSnap.docs[0].id), function(snap){
+      if(!snap.exists()) return;
+      const live = snap.data();
+      currentIsTestAccount = !!live.isTestAccount;
+      currentHasTwoRates = Number(live.warehouseRate) > 0 && Number(live.crewRate) > 0;
+    });
 
     // Role Templates: if this person follows a template (and hasn't been
     // individually customized), the template decides what they see. Anyone
@@ -2382,9 +2391,20 @@ document.getElementById('clockInBtn').addEventListener('click', async function()
   await addDoc(collection(db,'timeLogs'), shift);
 });
 document.getElementById('clockOutBtn').addEventListener('click', async function(){
-  if(!activeShiftId) return;
+  if(!activeShiftId){
+    setClockLocationMsg('No open shift found to clock out of. Pull down to refresh, or ask the office.');
+    return;
+  }
   const ok = await verifyAtClockLocation();
-  if(!ok) return;
+  if(!ok){
+    // Being unable to clock out leaves a shift open forever, which is worse than
+    // an away-from-shop clock-out the office can see and correct. Allow it, but
+    // record where it happened so it isn't invisible.
+    if(!confirm('You\'re not at the shop.\n\nClock out anyway? The office will see that this shift was closed away from the shop.')) return;
+    await updateDoc(doc(db,'timeLogs',activeShiftId), { clockOutAt: serverTimestamp(), clockedOutOffsite: true });
+    setClockLocationMsg('Clocked out away from the shop \u2014 the office has been notified.');
+    return;
+  }
   await updateDoc(doc(db,'timeLogs',activeShiftId), { clockOutAt: serverTimestamp() });
 });
 
