@@ -250,6 +250,18 @@
     </div>
   </div>
 
+  <!-- Asked only of people who have BOTH a warehouse rate and a crew rate set.
+       Everyone else clocks in with no extra tap, exactly as before. -->
+  <div class="more-sheet" id="jobTypeSheet">
+    <div class="more-sheet-inner">
+      <h3 style="margin:0 0 4px; font-size:17px;">What are you working on?</h3>
+      <p style="margin:0 0 10px; font-size:13px; color:var(--slate);">This decides your pay rate for this shift.</p>
+      <button type="button" class="more-item" data-jobtype="warehouse">Warehouse</button>
+      <button type="button" class="more-item" data-jobtype="crew">Crew</button>
+      <button type="button" class="more-item" id="jobTypeCancel" style="border-bottom:none; color:var(--slate);">Cancel</button>
+    </div>
+  </div>
+
   <div class="tab-panel-content" id="tabpanel-home">
     <div id="homeClockCard" class="clock-card" style="display:none;">
       <div class="clock-status" id="homeClockStatus">Not clocked in</div>
@@ -377,6 +389,10 @@
         Hide done
       </label>
     </div>
+    <div style="padding:2px 2px 0;">
+      <button type="button" id="whPrintBtn" style="border:1px solid var(--line); background:#fff; color:var(--ink); border-radius:9px; padding:9px 14px; font-size:12.5px; font-weight:600; cursor:pointer; width:100%;">&#128424; Print Today's Warehouse Sheet</button>
+    </div>
+    <div id="wh-summary" style="display:none; padding:12px 0 0;"></div>
     <div id="wh-list" style="padding:4px 0 18px; display:flex; flex-direction:column; gap:14px;"></div>
   </div>
 
@@ -693,6 +709,9 @@ let currentIsAdmin = false;
 let currentVisibleTabs = {};
 let currentHomeCards = null;
 let currentPayType = 'hourly';
+// Only true when this person has BOTH a warehouse rate and a crew rate in admin.
+// That's what turns on the "Warehouse or Crew?" question at clock-in.
+let currentHasTwoRates = false;
 async function startAppAs(name){
   currentPersonName = name;
   document.getElementById('currentPersonName').textContent = name;
@@ -712,6 +731,7 @@ async function startAppAs(name){
     homeCards = empData.homeCards || null;
     payType = empData.payType || 'hourly';
     currentIsAdmin = !!empData.isAdmin;
+    currentHasTwoRates = Number(empData.warehouseRate) > 0 && Number(empData.crewRate) > 0;
 
     // Role Templates: if this person follows a template (and hasn't been
     // individually customized), the template decides what they see. Anyone
@@ -728,6 +748,7 @@ async function startAppAs(name){
     }
   } catch(err){
     currentEmployeeRole = 'Crew';
+    currentHasTwoRates = false;
   }
 
   const isCrew = currentEmployeeRole === 'Crew';
@@ -1232,32 +1253,134 @@ async function whTogglePullStop(crewId, stopId, checked){
   entry.pulledIds = pulled;
   await updateDoc(doc(db,'scheduledRoutes', entry.docId), {pulledIds: pulled});
 }
+/* A build is only "the same" if the colours AND the wire match — Warm White on
+   white wire and Warm White on green wire are two different builds. Same rule the
+   office uses, so the two screens can't disagree. */
+function whWireLabel(wire){
+  const w = String(wire || '').trim();
+  return w || 'White';
+}
+function whGroupKey(lightsDescription, wire){
+  return String(lightsDescription || '') + ' \u2014 ' + whWireLabel(wire) + ' wire';
+}
+// The roll-up that sits at the top of the Lights tab: every colour+wire combo
+// with how many houses need it and how many bundles that adds up to.
+function whLightsSummary(){
+  const groups = {};
+  whLightsNew.forEach(function(d){
+    if(!d.data.lightsDescription) return;
+    const key = whGroupKey(d.data.lightsDescription, d.data.wireColor);
+    if(!groups[key]) groups[key] = {houses:0, bundles:0, unknown:false};
+    groups[key].houses++;
+    const b = whBundlesFor(d.data);
+    groups[key].bundles += b.bundles;
+    if(b.unknown) groups[key].unknown = true;
+  });
+  whLightsOld.forEach(function(d){
+    if(!d.data.pattern) return;
+    const key = d.data.pattern + ' \u2014 buffer stock (wire not set)';
+    if(!groups[key]) groups[key] = {houses:0, bundles:0, unknown:false};
+    const qty = Number(d.data.quantity) || 1;
+    groups[key].houses += qty;
+    groups[key].bundles += qty;
+  });
+  return Object.keys(groups).sort(function(a,b){
+    return groups[b].bundles - groups[a].bundles;
+  }).map(function(k){ return {key:k, houses:groups[k].houses, bundles:groups[k].bundles, unknown:groups[k].unknown}; });
+}
+// One place that works out bundles for a house, so the row and the summary agree.
+function whBundlesFor(data){
+  const feet = Number(data.measuredFeet) || 0;
+  if(feet) return {bundles: Math.ceil(feet / 40), label: feet + ' ft, ' + Math.ceil(feet/40) + ' bundle' + (Math.ceil(feet/40)===1?'':'s'), unknown:false};
+  if(Number(data.housePrice) > 0 && empPfRateVal > 0){
+    const estFeet = Math.round((Number(data.housePrice) / empPfRateVal) * 1.05);
+    const b = Math.max(1, Math.ceil(estFeet / 40));
+    return {bundles: b, label: '~' + b + ' bundle' + (b===1?'':'s') + ' (est. from price)', unknown:true};
+  }
+  return {bundles: 0, label: 'no feet on file', unknown:true};
+}
 function whCurrentLightsItems(){
   const newItems = whLightsNew.map(function(d, i){
     // Dad needs the bin number to label it and the bundle count to know how much
     // to build — name and pattern alone leave him guessing.
-    const feet = Number(d.data.measuredFeet) || 0;
-    // When feet aren't on file, estimate bundles from the price (same as the
+    // When feet aren't on file, bundles are estimated from the price (same as the
     // office view) so the crew doesn't see "0 bundles" and under-build.
-    let bundles, feetLabel;
-    if(feet){
-      bundles = Math.ceil(feet / 40);
-      feetLabel = feet + ' ft, ' + bundles + ' bundle' + (bundles===1?'':'s');
-    } else if(Number(d.data.housePrice) > 0 && empPfRateVal > 0){
-      const estFeet = Math.round((Number(d.data.housePrice) / empPfRateVal) * 1.05);
-      bundles = Math.max(1, Math.ceil(estFeet / 40));
-      feetLabel = '~' + bundles + ' bundle' + (bundles===1?'':'s') + ' (est. from price)';
-    } else {
-      bundles = 0;
-      feetLabel = 'no feet on file';
-    }
-    const extra = ' \u2014 ' + feetLabel;
+    const b = whBundlesFor(d.data);
+    // Wire colour rides along on the row — building the right colours on the
+    // wrong wire is the mistake this is here to prevent.
+    const extra = ' \u2014 ' + whWireLabel(d.data.wireColor) + ' wire \u2014 ' + b.label;
     return {n:i+1, key:d.id, name:d.data.name||'(no name)', sub:(d.data.lightsDescription||'') + extra, done:false, kind:'new', timer: d.data.outletTimer === 'Yes', bin: d.data.customerNumber || ''};
   });
   const oldItems = whLightsOld.map(function(d, i){
     return {n:i+1, key:d.id, name:d.data.label || 'Buffer stock', sub:d.data.pattern + (d.data.quantity>1 ? ' \u00d7 '+d.data.quantity : ''), done:false, kind:'old', bin: d.data.customerNumber || ''};
   });
   return newItems.concat(oldItems);
+}
+/* ---- PRINTABLE WAREHOUSE SHEET ----
+   Opens a plain print-friendly page in a new window with three sections:
+   Builds (grouped by colour + wire), Recycle, and Other (today's checklist).
+   Tick boxes are drawn empty so it can be worked through on paper. */
+function whPrintSheet(){
+  function rows(arr){
+    return arr.length
+      ? arr.map(function(r){
+          return '<tr><td class="tick"></td><td>'+r.main+'</td><td class="meta">'+(r.meta||'')+'</td></tr>';
+        }).join('')
+      : '<tr><td></td><td colspan="2" class="meta">Nothing today.</td></tr>';
+  }
+  const summary = whLightsSummary();
+  const buildRows = whLightsNew.filter(function(d){ return d.data.lightsDescription; }).map(function(d){
+    const b = whBundlesFor(d.data);
+    return {
+      main: escHtmlPrint(d.data.name || '(no name)') + (d.data.customerNumber ? ' &mdash; Bin #' + escHtmlPrint(d.data.customerNumber) : ''),
+      meta: escHtmlPrint(d.data.lightsDescription) + ' &middot; ' + escHtmlPrint(whWireLabel(d.data.wireColor)) + ' wire &middot; ' + escHtmlPrint(b.label) + (d.data.outletTimer === 'Yes' ? ' &middot; NEEDS TIMER' : '')
+    };
+  });
+  const bufferRows = whLightsOld.map(function(d){
+    return {
+      main: escHtmlPrint(d.data.label || 'Buffer stock'),
+      meta: escHtmlPrint(d.data.pattern || '') + (Number(d.data.quantity) > 1 ? ' &times; ' + Number(d.data.quantity) : '')
+    };
+  });
+  const recycleRows = whRecycle.map(function(r){
+    return {main: escHtmlPrint(r.name) + (r.bin ? ' &mdash; Bin #' + escHtmlPrint(r.bin) : ''), meta: escHtmlPrint(r.sub || '')};
+  });
+  const checklistItems = (whChecklistDoc && whChecklistDoc.items) || [];
+  const otherRows = checklistItems.map(function(i){
+    return {main: escHtmlPrint(i.text || ''), meta: i.done ? 'already done' : ''};
+  });
+  const today = new Date().toLocaleDateString('en-US', {weekday:'long', month:'long', day:'numeric', year:'numeric'});
+  const html = '<!doctype html><html><head><meta charset="utf-8"><title>Warehouse Sheet</title><style>'+
+    'body{font-family:Georgia,serif; margin:28px; color:#1a1a1a;}'+
+    'h1{font-size:20px; margin:0 0 2px;} .date{font-size:13px; color:#555; margin-bottom:18px;}'+
+    'h2{font-size:15px; margin:22px 0 6px; border-bottom:2px solid #1a1a1a; padding-bottom:3px;}'+
+    'table{width:100%; border-collapse:collapse;} td{padding:6px 4px; border-bottom:1px solid #ddd; font-size:13px; vertical-align:top;}'+
+    '.tick{width:22px;} .tick:after{content:""; display:block; width:14px; height:14px; border:1.5px solid #333;}'+
+    '.meta{color:#555; font-size:12px;}'+
+    '.rollup{background:#f4efe2; border:1px solid #c9b78a; padding:10px 12px; margin-bottom:8px;}'+
+    '.rollup div{font-size:13px; padding:3px 0;} .rollup strong{font-size:12px; text-transform:uppercase; letter-spacing:.04em;}'+
+    '@media print{ body{margin:12mm;} }'+
+    '</style></head><body>'+
+    '<h1>Warehouse &mdash; Daily Sheet</h1><div class="date">'+escHtmlPrint(today)+'</div>'+
+    '<h2>Builds</h2>'+
+    (summary.length ? '<div class="rollup"><strong>Totals by colour &amp; wire</strong>'+summary.map(function(g){
+      return '<div>'+escHtmlPrint(g.key)+' &mdash; '+g.houses+' house'+(g.houses===1?'':'s')+', '+g.bundles+(g.unknown?'+':'')+' bundle'+(g.bundles===1?'':'s')+'</div>';
+    }).join('')+'</div>' : '')+
+    '<table>'+rows(buildRows.concat(bufferRows))+'</table>'+
+    '<h2>Recycle</h2><table>'+rows(recycleRows)+'</table>'+
+    '<h2>Other</h2><table>'+rows(otherRows)+'</table>'+
+    '</body></html>';
+  const w = window.open('', '_blank');
+  if(!w){ toast('Allow pop-ups to print the sheet'); return; }
+  w.document.write(html);
+  w.document.close();
+  setTimeout(function(){ w.focus(); w.print(); }, 300);
+}
+// The print window is plain HTML built here, so it needs its own escaper.
+function escHtmlPrint(v){
+  return String(v == null ? '' : v).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
 }
 function whRender(){
   whRenderTopTabs();
@@ -1280,6 +1403,28 @@ function whRender(){
   }
 
   const list = document.getElementById('wh-list');
+
+  // The colour+wire roll-up sits above the house list so Dad can see the whole
+  // build at a glance before working through it house by house.
+  const summaryEl = document.getElementById('wh-summary');
+  if(summaryEl){
+    const showSummary = whActive === 'lights' && whLightsFilter !== 'goals';
+    summaryEl.style.display = showSummary ? 'block' : 'none';
+    if(showSummary){
+      const groups = whLightsSummary();
+      summaryEl.innerHTML = groups.length
+        ? '<div style="background:#FFF8E9; border:1px solid var(--gold-dim); border-radius:12px; padding:12px 14px;">'+
+            '<div style="font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--slate); margin-bottom:8px;">What to build</div>'+
+            groups.map(function(g){
+              return '<div style="display:flex; justify-content:space-between; gap:10px; padding:5px 0; border-bottom:1px solid rgba(0,0,0,.06);">'+
+                '<span style="font-size:13.5px; font-weight:600; color:var(--ink);">'+esc(g.key)+'</span>'+
+                '<span style="font-size:13px; color:var(--slate); white-space:nowrap;">'+g.houses+' house'+(g.houses===1?'':'s')+' &middot; '+g.bundles+(g.unknown?'+':'')+' bundle'+(g.bundles===1?'':'s')+'</span>'+
+              '</div>';
+            }).join('')+
+          '</div>'
+        : '';
+    }
+  }
 
   if(whActive === 'checklist'){
     const items = (whChecklistDoc && whChecklistDoc.items) || [];
@@ -1491,6 +1636,8 @@ async function whLoadAll(){
   whRender();
 }
 function loadWarehouseTab(){
+  const pb = document.getElementById('whPrintBtn');
+  if(pb && !pb.dataset.bound){ pb.dataset.bound = '1'; pb.addEventListener('click', whPrintSheet); }
   if(whLoaded) { whLoadAll(); return; }
   whLoaded = true;
   document.getElementById('wh-hide-done').addEventListener('change', function(){
@@ -1962,6 +2109,7 @@ async function loadMyTimecard(){
       const isPending = pendingLogIds.has(item.id);
       return '<div style="border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:10px;">'+
         '<div style="font-size:13.5px;"><strong>In:</strong> '+fmtLogTime(d.clockInAt)+' &nbsp; <strong>Out:</strong> '+(d.clockOutAt?fmtLogTime(d.clockOutAt):'still clocked in')+'</div>'+
+        (d.jobType ? '<div style="font-size:12.5px; color:var(--slate); margin-top:2px;">'+(d.jobType === 'warehouse' ? 'Warehouse' : 'Crew')+'</div>' : '')+
         (isPending ? '<div style="font-size:12px; color:var(--gold-dim); font-weight:700; margin-top:4px;">&#9203; Fix requested — pending admin approval</div>' : '')+
         '<button type="button" class="btn btn-outline btn-sm tc-request-toggle" data-id="'+item.id+'" style="margin-top:8px;">Request a Fix</button>'+
         '<div id="tcrequest-'+item.id+'" style="display:none; margin-top:10px;"></div>'+
@@ -2184,17 +2332,43 @@ document.getElementById('homeClockInBtn').addEventListener('click', function(){
 document.getElementById('homeClockOutBtn').addEventListener('click', function(){
   document.getElementById('clockOutBtn').click();
 });
+// Shows the Warehouse/Crew sheet and resolves with the choice, or null if cancelled.
+function askJobType(){
+  return new Promise(function(resolve){
+    const sheet = document.getElementById('jobTypeSheet');
+    if(!sheet){ resolve(null); return; }
+    function cleanup(){
+      sheet.classList.remove('show');
+      sheet.querySelectorAll('[data-jobtype]').forEach(function(b){ b.onclick = null; });
+      document.getElementById('jobTypeCancel').onclick = null;
+      sheet.onclick = null;
+    }
+    sheet.querySelectorAll('[data-jobtype]').forEach(function(btn){
+      btn.onclick = function(){ cleanup(); resolve(btn.dataset.jobtype); };
+    });
+    document.getElementById('jobTypeCancel').onclick = function(){ cleanup(); resolve(null); };
+    sheet.onclick = function(ev){ if(ev.target === sheet){ cleanup(); resolve(null); } };
+    sheet.classList.add('show');
+  });
+}
 document.getElementById('clockInBtn').addEventListener('click', async function(){
   const ok = await verifyAtClockLocation();
   if(!ok) return;
-  await addDoc(collection(db,'timeLogs'), {
+  let jobType = null;
+  if(currentHasTwoRates){
+    jobType = await askJobType();
+    if(!jobType) return; // cancelled — no shift started
+  }
+  const shift = {
     employeeEmail: currentUserEmail,
     employeeName: currentPersonName,
     clockInAt: serverTimestamp(),
     clockOutAt: null,
     date: toDateStr(new Date()),
     createdAt: serverTimestamp()
-  });
+  };
+  if(jobType) shift.jobType = jobType;
+  await addDoc(collection(db,'timeLogs'), shift);
 });
 document.getElementById('clockOutBtn').addEventListener('click', async function(){
   if(!activeShiftId) return;
