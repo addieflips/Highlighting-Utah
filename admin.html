@@ -1141,45 +1141,6 @@
             <button type="button" class="btn btn-gold" id="ibImportBtn" style="margin-top:6px;">Import / Update Invoices</button>
             <span id="ibImportStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
           </div>
-
-          <div style="border-top:1px solid var(--line); margin:20px 0 0; padding-top:16px;">
-            <h4 style="margin:0 0 6px;">Season Prices by Name</h4>
-            <p style="font-size:13px;">For a price list that has no addresses on it &mdash; just names and dollars. This <strong>only updates customers who already exist</strong>; it never creates anyone, because there's no address to put them on the map with. Paste your columns, press Check Matches, and nothing is saved until you've looked over what it found.</p>
-            <p style="font-size:13px;">Add the Phone column if your spreadsheet has one &mdash; it's far more reliable than names alone. Email is used as a backup for anyone with no phone on file. <strong>Row 1 in every box must be the same customer.</strong></p>
-            <div class="form-grid-2">
-              <div class="form-row">
-                <label>Name <span class="req">*</span> <span class="bulk-count" id="spCountNames">0 rows</span></label>
-                <textarea id="spNamesArea" rows="8" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="Cattani Julie&#10;Beckstead Paul /Jill&#10;Brown Kathy"></textarea>
-                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">Paste them exactly as they are in your sheet &mdash; Last First is fine, that's how names are stored here.</p>
-              </div>
-              <div class="form-row">
-                <label>Amount ($, what they owe) <span class="req">*</span> <span class="bulk-count" id="spCountAmounts">0 rows</span></label>
-                <textarea id="spAmountsArea" rows="8" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="230&#10;490&#10;$200"></textarea>
-                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">Dollar signs, commas, and stray spaces are cleaned up automatically. A blank line skips that row instead of setting it to $0.</p>
-              </div>
-            </div>
-            <div class="form-grid-2">
-              <div class="form-row">
-                <label>Street Address (optional) <span class="bulk-count" id="spCountAddrs">0 rows</span></label>
-                <textarea id="spAddrsArea" rows="6" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="1234 W 500 N&#10;(blank line if unknown)"></textarea>
-                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">The best way to tell two houses apart when one person owns both. Street only is enough &mdash; if you paste the full address, everything after the first comma is ignored. Abbreviations don't have to match what's on file (W / West and St / Street are treated as the same).</p>
-              </div>
-              <div class="form-row">
-                <label>Phone Number (optional) <span class="bulk-count" id="spCountPhones">0 rows</span></label>
-                <textarea id="spPhonesArea" rows="6" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="8015550123&#10;(blank line if unknown)"></textarea>
-              </div>
-            </div>
-            <div class="form-grid-2">
-              <div class="form-row">
-                <label>Email (optional) <span class="bulk-count" id="spCountEmails">0 rows</span></label>
-                <textarea id="spEmailsArea" rows="6" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="julie@email.com&#10;(blank line if unknown)"></textarea>
-              </div>
-            </div>
-            <button type="button" class="btn btn-outline" id="spCheckBtn" style="margin-top:6px;">Check Matches</button>
-            <button type="button" class="btn btn-outline btn-sm" id="spClearBtn" style="margin-top:6px;">Clear</button>
-            <span id="spCheckStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
-            <div id="spReviewWrap" style="display:none; margin-top:16px;"></div>
-          </div>
         </div>
       </div>
       </div>
@@ -7333,6 +7294,10 @@ function empHasTwoRates(emp){
   return !!(emp && Number(emp.warehouseRate) > 0 && Number(emp.crewRate) > 0);
 }
 // The one place that decides what an hour is worth. Everything else calls this.
+// Test-account shifts exist only to try the app out — they never count as paid work.
+function isTestShift(logData, emp){
+  return !!(logData && logData.isTestShift) || !!(emp && emp.isTestAccount);
+}
 function rateForLog(emp, logData){
   if(!emp) return 0;
   const jt = logData && logData.jobType;
@@ -7353,6 +7318,7 @@ function computePayrollTotal(startDate, endDate){
     if(endDate && inTime > endDate) return;
     const emp = employeeNames.find(e => e.name === (d.employeeName||''));
     if(!emp) return;
+    if(isTestShift(d, emp)) return;
     if(emp.payType === 'salary'){
       salariedWeeks[emp.name] = salariedWeeks[emp.name] || new Set();
       salariedWeeks[emp.name].add(payrollWeekKeyFor(inTime));
@@ -9617,383 +9583,6 @@ document.getElementById('ibImportBtn').addEventListener('click', async function(
   statusEl.textContent = added + ' invoice(s) added, ' + updated + ' updated' + (customersCreated ? ', ' + customersCreated + ' new customer record(s) created' : '') + (skipped ? ', ' + skipped + ' skipped' : '') + '.';
   ibAreaIds.forEach(function(id){ document.getElementById(id).value = ''; });
   wireBulkCounts(ibAreaIds, 'ibPhonesArea', ibCountIds)();
-});
-
-/* ---------------- SEASON PRICES BY NAME ----------------
-   A price list with no addresses on it can't create customers, so this only
-   ever updates people who already exist. Every row is matched and shown for
-   review first — nothing is written until the Apply button is pressed. Phone
-   is tried before name because names carry typos and nicknames; a blank phone
-   or blank email must never count as a match, or one empty cell quietly claims
-   every customer in the list. */
-const spAreaIds = ['spNamesArea','spAddrsArea','spPhonesArea','spEmailsArea','spAmountsArea'];
-const spCountIds = { spNamesArea:'spCountNames', spAddrsArea:'spCountAddrs', spPhonesArea:'spCountPhones', spEmailsArea:'spCountEmails', spAmountsArea:'spCountAmounts' };
-const spUpdateCounts = wireBulkCounts(spAreaIds, 'spNamesArea', spCountIds);
-let spRows = [];
-
-/* Addresses are stored as one string — "123 Main St, Lehi, UT 84043" — so only
-   the part before the first comma is the street. Spelling drift between a
-   spreadsheet and what's on file is the norm (W vs West, St vs Street, Cir vs
-   Circle), so both sides get flattened to the same short forms before
-   comparing. */
-const SP_ADDR_WORDS = {
-  north:'n', south:'s', east:'e', west:'w',
-  northeast:'ne', northwest:'nw', southeast:'se', southwest:'sw',
-  street:'st', avenue:'ave', av:'ave', drive:'dr', road:'rd', lane:'ln',
-  court:'ct', circle:'cir', place:'pl', boulevard:'blvd', parkway:'pkwy',
-  highway:'hwy', terrace:'ter', trail:'trl', square:'sq', loop:'lp',
-  apartment:'apt', unit:'apt', suite:'ste'
-};
-function spNormAddr(s){
-  let t = String(s||'').split(',')[0];
-  t = t.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
-  if(!t) return '';
-  return t.split(' ').map(function(w){ return SP_ADDR_WORDS[w] || w; }).join(' ');
-}
-function spCustAddr(a){ return spNormAddr((a.data && (a.data.street || a.data.address)) || ''); }
-
-function spDigits(s){ return String(s||'').replace(/\D/g,''); }
-function spTrimTrailing(arr){
-  const out = arr.slice();
-  while(out.length && !out[out.length-1]) out.pop();
-  return out;
-}
-// Curly apostrophes, stray dollar signs and doubled spaces all come along for
-// the ride when a spreadsheet gets pasted. Flatten them before comparing.
-function spNormName(s){
-  return String(s||'')
-    .replace(/[\u2018\u2019\u02BC\u00B4`]/g, "'")
-    .replace(/\$/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toLowerCase();
-}
-// Second-property and location tags people add by hand. Stripping these can
-// land on the wrong house, so a suffix-stripped hit ALWAYS goes to review.
-const SP_SUFFIX_RE = /[\s\-\u2013\u2014]*(?:house\s*#?\s*\d*|duplex|#\s*\d+|em|orem|ch|af|sojo|holladay|lehi)\s*$/i;
-function spStripSuffix(s){ return spNormName(String(s||'').replace(SP_SUFFIX_RE,'')); }
-function spAmountOf(raw){
-  const cleaned = String(raw||'').replace(/[$,\s]/g,'');
-  if(!cleaned) return null;
-  const n = Number(cleaned);
-  return isNaN(n) ? NaN : n;
-}
-function spCustLabel(a){
-  const d = a.data || {};
-  const bits = [d.name || '(no name)'];
-  if(d.address) bits.push(d.address);
-  else if(d.city) bits.push(d.city);
-  if(d.phone) bits.push(d.phone);
-  if(d.customerNumber) bits.push('#' + d.customerNumber);
-  const price = Number(d.housePrice)||0;
-  bits.push(price ? 'now $' + price : 'no price yet');
-  return bits.join(' \u2014 ');
-}
-
-function spMatchRow(name, phone, email, address){
-  const nm = spNormName(name);
-  const stripped = spStripSuffix(name);
-  const ph = spDigits(phone);
-  const em = String(email||'').trim().toLowerCase();
-  const addr = spNormAddr(address);
-
-  const phoneHits = (ph.length >= 7) ? jobAddresses.filter(function(a){
-    return spDigits(a.data.phone) === ph || spDigits(a.data.phone2) === ph;
-  }) : [];
-  const emailHits = (em && em.indexOf('@') !== -1) ? jobAddresses.filter(function(a){
-    return String(a.data.email||'').trim().toLowerCase() === em || String(a.data.email2||'').trim().toLowerCase() === em;
-  }) : [];
-  const nameHits = nm ? jobAddresses.filter(function(a){ return spNormName(a.data.name) === nm; }) : [];
-  const strippedHits = (stripped && stripped !== nm) ? jobAddresses.filter(function(a){
-    return spNormName(a.data.name) === stripped || spStripSuffix(a.data.name) === stripped;
-  }) : [];
-  const addrHits = addr ? jobAddresses.filter(function(a){ return spCustAddr(a) === addr; }) : [];
-
-  function overlap(a, b){ return a.filter(function(x){ return b.some(function(y){ return y.id === x.id; }); }); }
-
-  // Address first — it's the only thing that reliably separates two houses
-  // owned by one person, which is exactly the case name and phone can't solve.
-  if(addrHits.length){
-    const withPhone = phoneHits.length ? overlap(addrHits, phoneHits) : [];
-    if(withPhone.length === 1) return {status:'ready', how:'address + phone', candidates: withPhone};
-    const withName = nameHits.length ? overlap(addrHits, nameHits) : [];
-    if(withName.length === 1) return {status:'ready', how:'address + name', candidates: withName};
-    if(addrHits.length === 1) return {status:'ready', how:'address', candidates: addrHits};
-    return {status:'pick', how:'shared address', candidates: addrHits};
-  }
-  // An address that matched nobody isn't a dead end — fall through and try the
-  // other columns, but say so, since it usually means a typo worth a look.
-  const addrNote = addr ? ' (address not found)' : '';
-
-  if(phoneHits.length && nameHits.length){
-    const both = overlap(phoneHits, nameHits);
-    if(both.length === 1) return {status:'ready', how:'phone + name' + addrNote, candidates: both};
-    if(both.length > 1) return {status:'pick', how:'phone + name' + addrNote, candidates: both};
-    // Phone says one person, the name says another — never guess between them.
-    const union = phoneHits.concat(nameHits.filter(function(a){ return !phoneHits.some(function(b){ return b.id === a.id; }); }));
-    return {status:'pick', how:'phone and name disagree' + addrNote, candidates: union};
-  }
-  if(phoneHits.length === 1) return {status:'ready', how:'phone' + addrNote, candidates: phoneHits};
-  if(phoneHits.length > 1) return {status:'pick', how:'shared phone' + addrNote, candidates: phoneHits};
-  if(emailHits.length === 1) return {status:'ready', how:'email' + addrNote, candidates: emailHits};
-  if(emailHits.length > 1) return {status:'pick', how:'shared email' + addrNote, candidates: emailHits};
-  if(nameHits.length === 1) return {status:'ready', how:'name' + addrNote, candidates: nameHits};
-  if(nameHits.length > 1) return {status:'pick', how:'name used more than once' + addrNote, candidates: nameHits};
-  if(strippedHits.length) return {status:'pick', how:'name without its suffix' + addrNote, candidates: strippedHits};
-  return {status:'none', how:'', candidates: []};
-}
-
-document.getElementById('spCheckBtn').addEventListener('click', function(){
-  const statusEl = document.getElementById('spCheckStatus');
-  const wrap = document.getElementById('spReviewWrap');
-  // Blank lines in the MIDDLE of a pasted column are real rows and must hold
-  // their place — dropping them shifts every row below by however many were
-  // removed, which silently puts prices on the wrong houses. Only trailing
-  // blanks are trimmed.
-  const names = spTrimTrailing(document.getElementById('spNamesArea').value.split('\n').map(function(s){ return s.trim(); }));
-  if(!names.filter(Boolean).length){ statusEl.textContent = 'Paste at least the Name column.'; wrap.style.display = 'none'; return; }
-
-  const rawAmounts = spTrimTrailing(document.getElementById('spAmountsArea').value.split('\n').map(function(s){ return s.trim(); }));
-  const rawAddrs = spTrimTrailing(document.getElementById('spAddrsArea').value.split('\n').map(function(s){ return s.trim(); }));
-  const rawPhones = spTrimTrailing(document.getElementById('spPhonesArea').value.split('\n').map(function(s){ return s.trim(); }));
-  const rawEmails = spTrimTrailing(document.getElementById('spEmailsArea').value.split('\n').map(function(s){ return s.trim(); }));
-
-  const checks = [['Amount', rawAmounts], ['Street Address', rawAddrs], ['Phone Number', rawPhones], ['Email', rawEmails]];
-  for(let c = 0; c < checks.length; c++){
-    const label = checks[c][0], arr = checks[c][1];
-    if(arr.length > names.length){
-      statusEl.textContent = label + ' has ' + arr.length + ' row(s) but Name has ' + names.length + '. There\'s more ' + label.toLowerCase() + ' data than there are names \u2014 check the two columns start on the same customer.';
-      wrap.style.display = 'none';
-      return;
-    }
-  }
-  const amounts = alignBulkRows(rawAmounts, names.length);
-  const addrs = alignBulkRows(rawAddrs, names.length);
-  const phones = alignBulkRows(rawPhones, names.length);
-  const emails = alignBulkRows(rawEmails, names.length);
-
-  for(let i = 0; i < amounts.length; i++){
-    if(amounts[i] && isNaN(spAmountOf(amounts[i]))){
-      statusEl.textContent = 'Row ' + (i+1) + ' of Amount ("' + amounts[i] + '") isn\'t a number I can read \u2014 try just digits, like 650.';
-      wrap.style.display = 'none';
-      return;
-    }
-  }
-
-  spRows = [];
-  for(let i = 0; i < names.length; i++){
-    const amount = spAmountOf(amounts[i]);
-    const row = {n: i+1, rawName: names[i], amount: amount, chosenId: ''};
-    if(!names[i] && !phones[i] && !emails[i] && !addrs[i]){
-      // A spacer line from the spreadsheet — counted so the numbering still
-      // lines up with Excel, but nothing to do with it.
-      row.status = 'blank'; row.how = ''; row.candidates = [];
-    } else if(amount === null){
-      row.status = 'noamount'; row.how = ''; row.candidates = [];
-    } else {
-      const m = spMatchRow(names[i], phones[i], emails[i], addrs[i]);
-      row.status = m.status; row.how = m.how; row.candidates = m.candidates;
-      if(m.status === 'ready') row.chosenId = m.candidates[0].id;
-    }
-    spRows.push(row);
-  }
-
-  // Two rows landing on the same customer means one price silently overwrites
-  // the other. Surface it rather than letting the last row quietly win.
-  const claims = {};
-  spRows.forEach(function(r){ if(r.chosenId) (claims[r.chosenId] = claims[r.chosenId] || []).push(r); });
-  Object.keys(claims).forEach(function(id){
-    if(claims[id].length > 1) claims[id].forEach(function(r){ r.status = 'dupe'; });
-  });
-
-  spRenderReview();
-  statusEl.textContent = '';
-});
-
-function spRenderReview(){
-  const wrap = document.getElementById('spReviewWrap');
-  const ready = spRows.filter(function(r){ return r.status === 'ready'; });
-  const picks = spRows.filter(function(r){ return r.status === 'pick'; });
-  const dupes = spRows.filter(function(r){ return r.status === 'dupe'; });
-  const nones = spRows.filter(function(r){ return r.status === 'none'; });
-  const noAmt = spRows.filter(function(r){ return r.status === 'noamount'; });
-  const blanks = spRows.filter(function(r){ return r.status === 'blank'; });
-  const willWrite = spRows.filter(function(r){ return r.chosenId && (r.status === 'ready' || r.status === 'pick' || r.status === 'dupe'); }).length;
-
-  function dropdown(r){
-    let h = '<select class="sp-pick" data-row="' + r.n + '" style="width:100%; padding:7px 9px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:12.5px;">';
-    h += '<option value=""' + (r.chosenId ? '' : ' selected') + '>\u2014 Skip this row \u2014</option>';
-    r.candidates.forEach(function(a){
-      h += '<option value="' + esc(a.id) + '"' + (r.chosenId === a.id ? ' selected' : '') + '>' + esc(spCustLabel(a)) + '</option>';
-    });
-    return h + '</select>';
-  }
-  function rowTable(rows, withPicker){
-    let h = '<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:12.5px;">';
-    h += '<thead><tr style="text-align:left; border-bottom:1px solid var(--line);"><th style="padding:6px 8px;">Row</th><th style="padding:6px 8px;">From your list</th><th style="padding:6px 8px;">Amount</th><th style="padding:6px 8px;">' + (withPicker ? 'Which customer?' : 'Matched to') + '</th></tr></thead><tbody>';
-    rows.forEach(function(r){
-      const target = r.candidates.find(function(a){ return a.id === r.chosenId; });
-      h += '<tr style="border-bottom:1px solid var(--line);">'
-        + '<td style="padding:6px 8px; color:var(--slate);">' + r.n + '</td>'
-        + '<td style="padding:6px 8px;">' + esc(r.rawName) + (r.how ? '<br><span style="color:var(--slate); font-size:11px;">by ' + esc(r.how) + '</span>' : '') + '</td>'
-        + '<td style="padding:6px 8px; white-space:nowrap;">$' + (r.amount === null ? '\u2014' : r.amount) + '</td>'
-        + '<td style="padding:6px 8px;">' + (withPicker ? dropdown(r) : esc(target ? spCustLabel(target) : '')) + '</td>'
-        + '</tr>';
-    });
-    return h + '</tbody></table></div>';
-  }
-
-  let html = '<div class="card" style="background:var(--paper);">';
-  html += '<h4 style="margin:0 0 8px;">Review \u2014 nothing has been saved yet</h4>';
-  html += '<p style="font-size:13px; margin:0 0 14px;">' + ready.length + ' ready, ' + picks.length + ' need a pick, ' + dupes.length + ' land on the same customer, ' + nones.length + ' with no match, ' + noAmt.length + ' with no amount' + (blanks.length ? ', ' + blanks.length + ' blank spacer row(s) ignored' : '') + '.</p>';
-  html += '<p style="font-size:12px; color:var(--slate); margin:-8px 0 14px;">Row numbers match your spreadsheet exactly \u2014 blank lines keep their place rather than shifting everything below them.</p>';
-
-  if(dupes.length){
-    html += '<div style="border:1px solid var(--ember); background:#FDECEA; border-radius:10px; padding:12px; margin-bottom:14px;">';
-    html += '<h5 style="margin:0 0 6px; color:var(--ember);">Two or more rows point at the same customer</h5>';
-    html += '<p style="font-size:12.5px; margin:0 0 10px;">Only one price can be saved per house, so pick the right house for each row or skip the extras. This is what "House #2" rows usually look like.</p>';
-    html += rowTable(dupes, true) + '</div>';
-  }
-  if(picks.length){
-    html += '<div style="border:1px solid var(--gold-dim); background:#FFF8E9; border-radius:10px; padding:12px; margin-bottom:14px;">';
-    html += '<h5 style="margin:0 0 6px;">Needs a pick</h5>';
-    html += '<p style="font-size:12.5px; margin:0 0 10px;">These matched more than one customer, or matched only after dropping a suffix. Choose the right one or leave it skipped.</p>';
-    html += rowTable(picks, true) + '</div>';
-  }
-  if(nones.length){
-    html += '<details style="margin-bottom:14px;"><summary style="cursor:pointer; font-weight:600; font-size:13px;">No match found \u2014 ' + nones.length + ' row(s), all skipped</summary>';
-    html += '<p style="font-size:12.5px; margin:8px 0;">Nobody in Customers matches these. They may be spelled differently here, or not be customers yet \u2014 a new customer needs an address, so add them through the form above.</p>';
-    html += '<div style="font-family:monospace; font-size:12px; line-height:1.7; background:var(--snow); border:1px solid var(--line); border-radius:8px; padding:10px; max-height:260px; overflow-y:auto;">';
-    nones.forEach(function(r){ html += 'Row ' + r.n + ': ' + esc(r.rawName) + ' \u2014 $' + r.amount + '<br>'; });
-    html += '</div></details>';
-  }
-  if(noAmt.length){
-    html += '<details style="margin-bottom:14px;"><summary style="cursor:pointer; font-weight:600; font-size:13px;">No amount on the row \u2014 ' + noAmt.length + ' row(s), all skipped</summary>';
-    html += '<div style="font-family:monospace; font-size:12px; line-height:1.7; background:var(--snow); border:1px solid var(--line); border-radius:8px; padding:10px; max-height:220px; overflow-y:auto; margin-top:8px;">';
-    noAmt.forEach(function(r){ html += 'Row ' + r.n + ': ' + esc(r.rawName) + '<br>'; });
-    html += '</div></details>';
-  }
-  if(ready.length){
-    html += '<details style="margin-bottom:14px;"><summary style="cursor:pointer; font-weight:600; font-size:13px;">Ready to save \u2014 ' + ready.length + ' row(s)</summary><div style="margin-top:8px;">' + rowTable(ready, false) + '</div></details>';
-  }
-
-  html += '<button type="button" class="btn btn-gold" id="spApplyBtn"' + (willWrite ? '' : ' disabled style="opacity:.4;"') + '>Apply ' + willWrite + ' Price' + (willWrite === 1 ? '' : 's') + '</button>';
-  html += '<span id="spApplyStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>';
-  html += '</div>';
-
-  wrap.innerHTML = html;
-  wrap.style.display = 'block';
-
-  wrap.querySelectorAll('.sp-pick').forEach(function(sel){
-    sel.addEventListener('change', function(){
-      const r = spRows.find(function(x){ return x.n === Number(sel.getAttribute('data-row')); });
-      if(!r) return;
-      r.chosenId = sel.value;
-      const count = spRows.filter(function(x){ return x.chosenId; }).length;
-      const btn = document.getElementById('spApplyBtn');
-      if(btn){
-        btn.textContent = 'Apply ' + count + ' Price' + (count === 1 ? '' : 's');
-        btn.disabled = !count;
-        btn.style.opacity = count ? '' : '.4';
-      }
-    });
-  });
-
-  const applyBtn = document.getElementById('spApplyBtn');
-  if(applyBtn) applyBtn.addEventListener('click', spApplyPrices);
-}
-
-/* A customer with no phone can't use syncPayerInvoice (it looks people up by
-   phone), so their single-house invoice is written under the email key instead
-   — the same key custInvoiceKey already uses everywhere else. Removal,
-   deposit, credits and the $30 new-member fee are all left exactly as found. */
-async function spSyncSingleInvoice(cust){
-  const key = custInvoiceKey(cust.data);
-  if(!key) return false;
-  let existing = {};
-  try{
-    const snap = await getDoc(doc(db,'invoices',key));
-    if(snap.exists()) existing = snap.data();
-  } catch(err){ /* no invoice yet, fine */ }
-  const memberFee = existing.newMemberFeeApplied ? 30 : 0;
-  const installTotal = (Number(cust.data.housePrice)||0) + memberFee;
-  await setDoc(doc(db,'invoices',key), {
-    name: cust.data.name || existing.name || '',
-    phone: spDigits(cust.data.phone),
-    email: cust.data.email || existing.email || '',
-    install: installTotal, removal: existing.removal || 0, deposit: existing.deposit || 0,
-    newMemberFeeApplied: !!existing.newMemberFeeApplied,
-    status: computeInvoiceStatus(installTotal, existing.removal||0, existing.deposit||0, existing.credits||0, existing.changeFees||0),
-    priceReviewed: true, updatedAt: serverTimestamp(),
-    billedHouseIds: [cust.id]
-  }, {merge:true});
-  return true;
-}
-
-async function spApplyPrices(){
-  const statusEl = document.getElementById('spApplyStatus');
-  const btn = document.getElementById('spApplyBtn');
-  const todo = spRows.filter(function(r){ return r.chosenId && r.amount !== null; });
-  if(!todo.length) return;
-  btn.disabled = true; btn.style.opacity = '.4';
-
-  let saved = 0, failed = 0, noInvoice = 0;
-  const payerPhones = {};
-  const emailOnly = {};
-  const problems = [];
-
-  for(let i = 0; i < todo.length; i++){
-    const r = todo[i];
-    statusEl.textContent = 'Saving ' + (i+1) + ' of ' + todo.length + '\u2026';
-    const cust = jobAddresses.find(function(a){ return a.id === r.chosenId; });
-    if(!cust){ failed++; problems.push('Row ' + r.n + ': that customer is no longer in the list.'); continue; }
-    try{
-      await updateDoc(doc(db,'jobAddresses',r.chosenId), {housePrice: r.amount, updatedAt: serverTimestamp()});
-      // Keep the local copy in step so the invoice re-total below reads the new
-      // price even before the Firestore listener catches up.
-      cust.data.housePrice = r.amount;
-      saved++;
-      const payer = spDigits(cust.data.billToPhone) || spDigits(cust.data.phone);
-      if(payer) payerPhones[payer] = true;
-      else if(custInvoiceKey(cust.data)) emailOnly[cust.id] = cust;
-      else noInvoice++;
-    } catch(err){
-      failed++;
-      problems.push('Row ' + r.n + ': ' + (err && err.message ? err.message : 'could not save'));
-    }
-  }
-
-  // One pass per payer at the end, not per row — a bill-to group covering four
-  // houses would otherwise be re-totalled four times with half the new prices.
-  const payerList = Object.keys(payerPhones);
-  for(let p = 0; p < payerList.length; p++){
-    statusEl.textContent = 'Updating invoice ' + (p+1) + ' of ' + payerList.length + '\u2026';
-    try{ await syncPayerInvoice(payerList[p]); }
-    catch(err){ problems.push('Invoice for ' + payerList[p] + ' did not update.'); }
-  }
-  const emailList = Object.keys(emailOnly);
-  for(let e = 0; e < emailList.length; e++){
-    try{ await spSyncSingleInvoice(emailOnly[emailList[e]]); }
-    catch(err){ problems.push('Invoice for ' + (emailOnly[emailList[e]].data.name || 'a customer') + ' did not update.'); }
-  }
-
-  let msg = saved + ' price(s) saved, ' + (payerList.length + emailList.length) + ' invoice(s) updated';
-  if(noInvoice) msg += ', ' + noInvoice + ' price(s) saved with no invoice (no phone or email on file)';
-  if(failed) msg += ', ' + failed + ' failed';
-  msg += '.';
-  if(problems.length) msg += ' ' + problems.slice(0,5).join('  ') + (problems.length > 5 ? '  \u2026and ' + (problems.length-5) + ' more.' : '');
-  statusEl.textContent = msg;
-  btn.textContent = 'Done';
-  if(typeof renderAllCustomersTable === 'function') renderAllCustomersTable();
-}
-
-document.getElementById('spClearBtn').addEventListener('click', function(){
-  spAreaIds.forEach(function(id){ document.getElementById(id).value = ''; });
-  spRows = [];
-  document.getElementById('spReviewWrap').style.display = 'none';
-  document.getElementById('spReviewWrap').innerHTML = '';
-  document.getElementById('spCheckStatus').textContent = '';
-  spUpdateCounts();
 });
 
 let activeDiffFilters = [];
@@ -13368,7 +12957,7 @@ function loadTimeLogs(){
         html += '<div class="row-item">'+
           '<div class="rmain">'+
             '<h4>'+esc(d.employeeName || d.employeeEmail)+(outTime ? '' : ' <span class="status-pill status-new">Currently Clocked In</span>')+'</h4>'+
-            '<div class="rmeta">'+(d.employeeName ? esc(d.employeeEmail)+' &middot; ' : '')+(d.date||'')+' &middot; In: '+(inTime ? inTime.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) : '—')+' &middot; Out: '+(outTime ? outTime.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) : '—')+(duration ? ' &middot; '+duration : '')+(d.jobType ? ' &middot; '+esc(jobTypeLabel(d.jobType)) : '')+'</div>'+
+            '<div class="rmeta">'+(d.employeeName ? esc(d.employeeEmail)+' &middot; ' : '')+(d.date||'')+' &middot; In: '+(inTime ? inTime.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) : '—')+' &middot; Out: '+(outTime ? outTime.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) : '—')+(duration ? ' &middot; '+duration : '')+(d.jobType ? ' &middot; '+esc(jobTypeLabel(d.jobType)) : '')+(d.isTestShift ? ' &middot; <strong style="color:var(--ember);">TEST</strong>' : '')+'</div>'+
           '</div>'+
           '<div class="row-actions"><button class="icon-btn danger" data-del="timeLogs" data-id="'+docSnap.id+'">'+trashIcon()+'</button></div>'+
         '</div>';
@@ -13421,6 +13010,7 @@ function renderPayrollWeek(){
     const hours = (outTime - inTime) / 3600000;
     const name = d.employeeName || d.employeeEmail || 'Unknown';
     const emp = employeeNames.find(e => e.name === name);
+    if(isTestShift(d, emp)) return;
     // Only split when the person actually has two rates; everyone else stays on one line.
     const bucket = (empHasTwoRates(emp) && d.jobType) ? d.jobType : 'base';
     if(!hoursByEmployee[name]) hoursByEmployee[name] = {};
@@ -13510,6 +13100,7 @@ function buildGustoRows(){
     const name = d.employeeName || d.employeeEmail || 'Unknown';
     const emp = employeeNames.find(e => e.name === name);
     if(emp && emp.payType === 'salary') return; // salaried people aren't paid by the hour
+    if(isTestShift(d, emp)) return; // test hours never reach a paycheck
     if(!d.clockOutAt || !d.clockOutAt.toDate){ openShifts++; return; }
     const hours = (d.clockOutAt.toDate() - inTime) / 3600000;
     if(hours <= 0) return;
@@ -13612,7 +13203,7 @@ function loadEmployeeNames(){
       const d = docSnap.data();
       employeeNames.push({
         id:docSnap.id, name:d.name, hourlyRate:d.hourlyRate||0, role:d.role||'Crew',
-        warehouseRate:d.warehouseRate||0, crewRate:d.crewRate||0,
+        warehouseRate:d.warehouseRate||0, crewRate:d.crewRate||0, isTestAccount:!!d.isTestAccount,
         visibleTabs:d.visibleTabs||null, isAdmin:!!d.isAdmin,
         position:d.position||'', payType:d.payType||'hourly', salaryAmount:d.salaryAmount||0,
         categoryIds:d.categoryIds||[],
@@ -13756,6 +13347,15 @@ function renderEmployeeChips(){
           '</select>'+
           '<button type="button" data-delemployee="'+e.id+'" title="Remove" style="background:none; border:none; color:var(--ember); font-size:16px; cursor:pointer; padding:0 4px;">&times;</button>'+
         '</div>'+
+      '</div>'+
+      '<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;'+(e.isTestAccount ? ' background:#FDECEA; border:1px solid #f0b3ac; border-radius:8px; padding:8px 10px;' : '')+'">'+
+        '<label style="display:flex; align-items:center; gap:7px; font-size:12.5px; cursor:pointer;">'+
+          '<input type="checkbox" data-testacct="'+e.id+'"'+(e.isTestAccount ? ' checked' : '')+'>'+
+          '<span style="font-weight:700; color:'+(e.isTestAccount ? '#B91C1C' : 'var(--slate)')+';">Test account</span>'+
+        '</label>'+
+        '<span style="font-size:11.5px; color:var(--slate);">'+(e.isTestAccount
+          ? 'Can clock in from anywhere \u2014 the shop-location check is off. Their shifts are marked as test hours and are left out of payroll and the Gusto export. <strong>Turn this off before they work a real shift.</strong>'
+          : 'Skips the shop-location check so clocking in can be tested from anywhere.')+'</span>'+
       '</div>'+
       (payType !== 'salary' ? '<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; background:#FFF8E9; border:1px solid var(--gold-dim); border-radius:8px; padding:8px 10px;">'+
         '<span style="font-size:11.5px; font-weight:700; text-transform:uppercase; color:var(--slate);">Two rates (optional):</span>'+
@@ -13955,6 +13555,16 @@ function renderEmployeeChips(){
           toast('Pay rate updated');
         });
       }, 600);
+    });
+  });
+  wrap.querySelectorAll('[data-testacct]').forEach(function(cb){
+    cb.addEventListener('change', function(){
+      if(cb.checked && !confirm('Mark this person as a test account?\n\nThey will be able to clock in from anywhere, and their shifts will NOT be paid or exported to Gusto. Turn it off before they work a real shift.')){
+        cb.checked = false; return;
+      }
+      updateDoc(doc(db,'employeeNames',cb.dataset.testacct), {isTestAccount: cb.checked}).then(function(){
+        toast(cb.checked ? 'Marked as a test account' : 'Test account turned off');
+      });
     });
   });
   wrap.querySelectorAll('[data-whrateinput]').forEach(function(input){
