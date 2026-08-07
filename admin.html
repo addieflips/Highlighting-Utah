@@ -9625,6 +9625,11 @@ const spUpdateCounts = wireBulkCounts(spAreaIds, 'spNamesArea', spCountIds);
 let spRows = [];
 
 function spDigits(s){ return String(s||'').replace(/\D/g,''); }
+function spTrimTrailing(arr){
+  const out = arr.slice();
+  while(out.length && !out[out.length-1]) out.pop();
+  return out;
+}
 // Curly apostrophes, stray dollar signs and doubled spaces all come along for
 // the ride when a spreadsheet gets pasted. Flatten them before comparing.
 function spNormName(s){
@@ -9695,22 +9700,30 @@ function spMatchRow(name, phone, email){
 document.getElementById('spCheckBtn').addEventListener('click', function(){
   const statusEl = document.getElementById('spCheckStatus');
   const wrap = document.getElementById('spReviewWrap');
-  const names = document.getElementById('spNamesArea').value.split('\n').map(function(s){ return s.trim(); }).filter(Boolean);
-  if(!names.length){ statusEl.textContent = 'Paste at least the Name column.'; wrap.style.display = 'none'; return; }
+  // Blank lines in the MIDDLE of a pasted column are real rows and must hold
+  // their place — dropping them shifts every row below by however many were
+  // removed, which silently puts prices on the wrong houses. Only trailing
+  // blanks are trimmed.
+  const names = spTrimTrailing(document.getElementById('spNamesArea').value.split('\n').map(function(s){ return s.trim(); }));
+  if(!names.filter(Boolean).length){ statusEl.textContent = 'Paste at least the Name column.'; wrap.style.display = 'none'; return; }
 
-  const amounts = alignBulkRows(document.getElementById('spAmountsArea').value.split('\n').map(function(s){ return s.trim(); }), names.length);
-  const phones = alignBulkRows(document.getElementById('spPhonesArea').value.split('\n').map(function(s){ return s.trim(); }), names.length);
-  const emails = alignBulkRows(document.getElementById('spEmailsArea').value.split('\n').map(function(s){ return s.trim(); }), names.length);
+  const rawAmounts = spTrimTrailing(document.getElementById('spAmountsArea').value.split('\n').map(function(s){ return s.trim(); }));
+  const rawPhones = spTrimTrailing(document.getElementById('spPhonesArea').value.split('\n').map(function(s){ return s.trim(); }));
+  const rawEmails = spTrimTrailing(document.getElementById('spEmailsArea').value.split('\n').map(function(s){ return s.trim(); }));
 
-  const checks = [['Amount', amounts], ['Phone Number', phones], ['Email', emails]];
+  const checks = [['Amount', rawAmounts], ['Phone Number', rawPhones], ['Email', rawEmails]];
   for(let c = 0; c < checks.length; c++){
     const label = checks[c][0], arr = checks[c][1];
-    if(arr.filter(Boolean).length && arr.length !== names.length){
-      statusEl.textContent = label + ' has ' + arr.length + ' row(s) but Name has ' + names.length + '. Fix the row count and try again.';
+    if(arr.length > names.length){
+      statusEl.textContent = label + ' has ' + arr.length + ' row(s) but Name has ' + names.length + '. There\'s more ' + label.toLowerCase() + ' data than there are names \u2014 check the two columns start on the same customer.';
       wrap.style.display = 'none';
       return;
     }
   }
+  const amounts = alignBulkRows(rawAmounts, names.length);
+  const phones = alignBulkRows(rawPhones, names.length);
+  const emails = alignBulkRows(rawEmails, names.length);
+
   for(let i = 0; i < amounts.length; i++){
     if(amounts[i] && isNaN(spAmountOf(amounts[i]))){
       statusEl.textContent = 'Row ' + (i+1) + ' of Amount ("' + amounts[i] + '") isn\'t a number I can read \u2014 try just digits, like 650.';
@@ -9723,7 +9736,11 @@ document.getElementById('spCheckBtn').addEventListener('click', function(){
   for(let i = 0; i < names.length; i++){
     const amount = spAmountOf(amounts[i]);
     const row = {n: i+1, rawName: names[i], amount: amount, chosenId: ''};
-    if(amount === null){
+    if(!names[i] && !phones[i] && !emails[i]){
+      // A spacer line from the spreadsheet — counted so the numbering still
+      // lines up with Excel, but nothing to do with it.
+      row.status = 'blank'; row.how = ''; row.candidates = [];
+    } else if(amount === null){
       row.status = 'noamount'; row.how = ''; row.candidates = [];
     } else {
       const m = spMatchRow(names[i], phones[i], emails[i]);
@@ -9752,6 +9769,7 @@ function spRenderReview(){
   const dupes = spRows.filter(function(r){ return r.status === 'dupe'; });
   const nones = spRows.filter(function(r){ return r.status === 'none'; });
   const noAmt = spRows.filter(function(r){ return r.status === 'noamount'; });
+  const blanks = spRows.filter(function(r){ return r.status === 'blank'; });
   const willWrite = spRows.filter(function(r){ return r.chosenId && (r.status === 'ready' || r.status === 'pick' || r.status === 'dupe'); }).length;
 
   function dropdown(r){
@@ -9779,7 +9797,8 @@ function spRenderReview(){
 
   let html = '<div class="card" style="background:var(--paper);">';
   html += '<h4 style="margin:0 0 8px;">Review \u2014 nothing has been saved yet</h4>';
-  html += '<p style="font-size:13px; margin:0 0 14px;">' + ready.length + ' ready, ' + picks.length + ' need a pick, ' + dupes.length + ' land on the same customer, ' + nones.length + ' with no match, ' + noAmt.length + ' with no amount.</p>';
+  html += '<p style="font-size:13px; margin:0 0 14px;">' + ready.length + ' ready, ' + picks.length + ' need a pick, ' + dupes.length + ' land on the same customer, ' + nones.length + ' with no match, ' + noAmt.length + ' with no amount' + (blanks.length ? ', ' + blanks.length + ' blank spacer row(s) ignored' : '') + '.</p>';
+  html += '<p style="font-size:12px; color:var(--slate); margin:-8px 0 14px;">Row numbers match your spreadsheet exactly \u2014 blank lines keep their place rather than shifting everything below them.</p>';
 
   if(dupes.length){
     html += '<div style="border:1px solid var(--ember); background:#FDECEA; border-radius:10px; padding:12px; margin-bottom:14px;">';
