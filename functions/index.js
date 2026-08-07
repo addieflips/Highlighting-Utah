@@ -1249,6 +1249,35 @@ async function runInvoiceBatch(triggeredBy) {
 
 // Runs automatically every night at 7:00 PM Mountain Time \u2014 but only if the
 // "Send nightly invoice emails automatically" toggle is on in Admin > Automation.
+/* ---------------------------------------------------------------------------
+   listAdminUsers - who can sign in to the admin dashboard.
+
+   A browser cannot read the Firebase Auth user list; only the Admin SDK can.
+   Without this, the "Assigned to" pickers on the Project page have nobody to
+   offer. Returns just uid/email/name - no tokens, no claims - and only to
+   someone already signed in.
+--------------------------------------------------------------------------- */
+exports.listAdminUsers = onCall({ cors: true }, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Must be signed in.');
+  const users = [];
+  let pageToken;
+  do {
+    const page = await admin.auth().listUsers(1000, pageToken);
+    page.users.forEach((u) => {
+      if (!u.email) return;
+      users.push({
+        uid: u.uid,
+        email: u.email.toLowerCase(),
+        name: u.displayName || '',
+        disabled: !!u.disabled,
+      });
+    });
+    pageToken = page.pageToken;
+  } while (pageToken);
+  users.sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email));
+  return { users };
+});
+
 exports.sendNightlyInvoices = onSchedule(
   { schedule: '0 19 * * *', timeZone: 'America/Denver', memory: '512MiB', secrets: [TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER] },
   async () => {
