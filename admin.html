@@ -692,6 +692,20 @@
     background:#fff; font:inherit; font-size:13px;
   }
   .proj-bulkhint{ font-size:11.5px; color:var(--slate, #888); flex:1 1 200px; }
+  .proj-dd-remove{
+    flex-shrink:0; width:20px; height:20px; line-height:18px; text-align:center;
+    border-radius:6px; color:var(--slate, #999); font-size:16px; cursor:pointer;
+  }
+  .proj-dd-remove:hover{ background:#FBE3E1; color:#B91C1C; }
+  .proj-dd-add{ display:flex; gap:6px; padding:8px 8px 4px; border-top:1px solid var(--line, #eee); margin-top:4px; }
+  .proj-dd-addinput{
+    flex:1; min-width:0; padding:7px 9px; border-radius:8px;
+    border:1px solid var(--line, #ddd); font:inherit; font-size:13px;
+  }
+  .proj-dd-addbtn{
+    padding:7px 12px; border-radius:8px; border:none; cursor:pointer;
+    background:var(--ink, #1c1c1c); color:#fff; font:inherit; font-size:12.5px; font-weight:600;
+  }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyByI2wHguK1JLNdUFJQKiA_gunoVtTkyqM"></script>
@@ -3660,10 +3674,7 @@ document.getElementById('loginForm').addEventListener('submit', function(e){
    bottom, where it sat below every nav item and was effectively unreachable. */
 function renderUserChip(user){
   const email = (user && user.email) || '';
-  const match = (typeof employeeNames !== 'undefined' && employeeNames)
-    ? employeeNames.find(function(e){ return e.loginEmail && e.loginEmail === email.toLowerCase(); })
-    : null;
-  const name = (match && match.name) || email.split('@')[0] || 'Signed in';
+  const name = projNameFromEmail(email) || 'Signed in';
   const initials = name.trim().split(/\s+/).slice(0,2).map(function(w){ return w.charAt(0).toUpperCase(); }).join('') || '?';
   document.getElementById('userChipInitials').textContent = initials;
   document.getElementById('userChipName').textContent = name;
@@ -5143,7 +5154,7 @@ function initData(){
   loadFAQ();
   loadProjectTodos();
   loadProjectTests();
-  loadLoginUsers();
+  loadProjectPeople();
   loadSettings();
   loadJobAddresses();
   loadWarehouseExtras();
@@ -13657,7 +13668,7 @@ function loadEmployeeNames(){
       employeeNames.push({
         id:docSnap.id, name:d.name, hourlyRate:d.hourlyRate||0, role:d.role||'Crew',
         warehouseRate:d.warehouseRate||0, crewRate:d.crewRate||0, isTestAccount:!!d.isTestAccount,
-        visibleTabs:d.visibleTabs||null, isAdmin:!!d.isAdmin, loginEmail:(d.loginEmail||'').trim(),
+        visibleTabs:d.visibleTabs||null, isAdmin:!!d.isAdmin,
         position:d.position||'', payType:d.payType||'hourly', salaryAmount:d.salaryAmount||0,
         categoryIds:d.categoryIds||[],
         homeCards:d.homeCards||null,
@@ -13668,9 +13679,6 @@ function loadEmployeeNames(){
     renderCrewAssignList();
     renderOverrideEmployeeSelect();
     renderPayrollWeek();
-    renderUserChip(auth.currentUser);
-    refreshAssigneeSelect();
-    renderTodos();
     if(typeof renderChecklistEmployeeSelect === 'function'){
       renderChecklistEmployeeSelect();
       // Names arrive after the panel is built, so hook the live listener up here.
@@ -13794,7 +13802,6 @@ function renderEmployeeChips(){
         '<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">'+
           '<input type="text" value="'+esc(e.role||'Crew')+'" data-roleinput="'+e.id+'" placeholder="Crew" title="Role (used for Crew/route access)" style="width:100px; padding:6px 8px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:13px;">'+
           '<input type="text" value="'+esc(e.position||'')+'" data-positioninput="'+e.id+'" placeholder="Position (e.g. Lead Installer)" style="width:170px; padding:6px 8px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:13px;">'+
-          '<input type="email" value="'+esc(e.loginEmail||'')+'" data-loginemail="'+e.id+'" placeholder="Login email (admins)" title="The email this person signs in to the admin dashboard with. Used for their own Favourites and for assigning to-dos." style="width:190px; padding:6px 8px; border-radius:8px; border:1px solid '+(e.isAdmin && !e.loginEmail ? 'var(--gold-dim)' : 'var(--line)')+'; background:var(--snow); font-size:13px;">'+
           '<select data-paytypeinput="'+e.id+'" style="padding:6px 8px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:13px;">'+
             '<option value="hourly"'+(payType==='hourly'?' selected':'')+'>Hourly</option>'+
             '<option value="salary"'+(payType==='salary'?' selected':'')+'>Salary</option>'+
@@ -13985,17 +13992,6 @@ function renderEmployeeChips(){
         const roleVal = input.value.trim() || 'Crew';
         updateDoc(doc(db,'employeeNames',input.dataset.roleinput), {role: roleVal}).then(function(){
           toast('Role updated');
-        });
-      }, 600);
-    });
-  });
-  wrap.querySelectorAll('[data-loginemail]').forEach(function(input){
-    let debounceTimer;
-    input.addEventListener('input', function(){
-      clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(function(){
-        updateDoc(doc(db,'employeeNames',input.dataset.loginemail), {loginEmail: input.value.trim().toLowerCase()}).then(function(){
-          toast('Login email updated');
         });
       }, 600);
     });
@@ -16323,7 +16319,7 @@ projRegisterTabOrder('gensub', 'genSubTabs', 'data-gensubtab');
 /* A tick-box dropdown. Several boxes can be ticked at once; nothing ticked
    means show everything. Rebuilt on every render, so it keeps its own open
    state rather than closing under the user mid-click. */
-function projDropdown(hostId, label, options, selected, onChange){
+function projDropdown(hostId, label, options, selected, onChange, withPeople){
   const host = document.getElementById(hostId);
   if(!host) return;
   const wasOpen = host.classList.contains('open');
@@ -16342,8 +16338,12 @@ function projDropdown(hostId, label, options, selected, onChange){
         return '<label class="proj-dd-opt"><input type="checkbox" value="'+esc(o.value)+'"'+(selected.has(o.value) ? ' checked' : '')+'>'+
           '<span class="proj-dd-optlabel">'+esc(o.label)+'</span>'+
           (o.count != null ? '<span class="proj-dd-count">'+o.count+'</span>' : '')+
+          (o.removable ? '<span class="proj-dd-remove" data-removeperson="'+esc(o.value)+'" title="Remove this person">&times;</span>' : '')+
         '</label>';
       }).join('')+
+      (withPeople
+        ? '<div class="proj-dd-add"><input type="text" class="proj-dd-addinput" placeholder="Add a person\u2026" maxlength="40"><button type="button" class="proj-dd-addbtn">Add</button></div>'
+        : '')+
       '<button type="button" class="proj-dd-clear">Show all</button>'+
     '</div>';
   if(wasOpen) host.classList.add('open');
@@ -16364,6 +16364,26 @@ function projDropdown(hostId, label, options, selected, onChange){
     selected.clear();
     onChange();
   });
+  host.querySelectorAll('[data-removeperson]').forEach(function(x){
+    x.addEventListener('click', function(e){
+      e.preventDefault(); e.stopPropagation();
+      selected.delete(x.dataset.removeperson);
+      projRemovePerson(x.dataset.removeperson);
+    });
+  });
+  const addInput = host.querySelector('.proj-dd-addinput');
+  if(addInput){
+    const commit = function(){
+      const v = addInput.value;
+      addInput.value = '';
+      projAddPerson(v);
+    };
+    host.querySelector('.proj-dd-addbtn').addEventListener('click', commit);
+    addInput.addEventListener('keydown', function(e){
+      if(e.key === 'Enter'){ e.preventDefault(); commit(); }
+    });
+    addInput.addEventListener('click', function(e){ e.stopPropagation(); });
+  }
 }
 document.addEventListener('click', function(){
   document.querySelectorAll('.proj-dd.open').forEach(function(d){ d.classList.remove('open'); });
@@ -16387,62 +16407,72 @@ function projCopyText(text, okMsg){
 
 /* ===================== TO-DO LIST ===================== */
 
-/* Who a task can be given to: people on the employee roster who are marked
-   Admin and have a login email set, since only they can open this page.
-   Add the email on Employee Tools > Responsibilities. */
-function projCurrentEmail(){
-  return ((auth.currentUser && auth.currentUser.email) || '').toLowerCase();
-}
-const listAdminUsersFn = httpsCallable(fbFunctions, 'listAdminUsers');
+/* ---- People -----------------------------------------------------------
+   A plain list of names you keep yourself, stored in projectPeople. No
+   Firebase logins, no emails, no Cloud Function - you type a name into the
+   Assigned-to dropdown and it is there for everyone from then on. Tasks and
+   tests store the person's document id, so renaming someone updates every
+   row that points at them. */
+let projPeople = [];
 
-/* Everyone who can actually sign in. Only the server can read the Firebase
-   Auth user list, so this comes from the listAdminUsers function. If that
-   function has not been deployed yet we fall back to anyone on the employee
-   roster who is marked Admin and has a login email typed in, so the page
-   still works rather than showing an empty picker. */
-async function loadLoginUsers(){
-  try{
-    const res = await listAdminUsersFn();
-    projLoginUsers = ((res && res.data && res.data.users) || []).filter(function(u){ return !u.disabled; });
-  }catch(err){
-    projLoginUsers = [];
+function loadProjectPeople(){
+  onSnapshot(collection(db,'projectPeople'), function(snap){
+    projPeople = [];
+    snap.forEach(function(d){ projPeople.push({ id:d.id, name:(d.data().name || '') }); });
+    projPeople.sort(function(a,b){ return a.name.localeCompare(b.name); });
+    refreshAssigneeSelects();
+    renderTodos();
+    renderTests();
+  });
+}
+
+async function projAddPerson(name){
+  const clean = (name || '').trim();
+  if(!clean) return;
+  if(projPeople.some(function(p){ return p.name.toLowerCase() === clean.toLowerCase(); })){
+    toast('That name is already on the list.');
+    return;
   }
-  refreshAssigneeSelects();
-  renderTodos();
-  renderTests();
+  await addDoc(collection(db,'projectPeople'), { name: clean, createdAt: serverTimestamp() });
+  toast(clean + ' added');
 }
 
-/* Last resort when someone has a login but no roster entry and no display
-   name: make "dax.smith@..." read as "Dax Smith" rather than "dax.smith". */
+async function projRemovePerson(id){
+  const person = projPeople.find(function(p){ return p.id === id; });
+  if(!person) return;
+  const usedBy = projTodoCache.filter(function(t){ return t.assignee === id; }).length
+               + projTestCache.filter(function(t){ return t.assignee === id; }).length;
+  const msg = usedBy
+    ? 'Remove ' + person.name + '? ' + usedBy + ' item(s) assigned to them will go back to Unassigned.'
+    : 'Remove ' + person.name + ' from the list?';
+  if(!confirm(msg)) return;
+  for(const t of projTodoCache.filter(function(x){ return x.assignee === id; })){
+    await updateDoc(doc(db,'projectTodos',t.id), { assignee: '' });
+  }
+  for(const t of projTestCache.filter(function(x){ return x.assignee === id; })){
+    await updateDoc(doc(db,'projectTests',t.id), { assignee: '' });
+  }
+  await deleteDoc(doc(db,'projectPeople',id));
+  toast(person.name + ' removed');
+}
+
+/* Turns "addie.chichia@..." into "Addie Chichia" for the sidebar chip. */
 function projNameFromEmail(email){
   return (email || '').split('@')[0].split(/[._-]+/)
     .filter(Boolean)
     .map(function(w){ return w.charAt(0).toUpperCase() + w.slice(1); })
     .join(' ');
 }
-function projRosterName(email){
-  if(typeof employeeNames === 'undefined' || !employeeNames) return '';
-  const hit = employeeNames.find(function(e){ return (e.loginEmail || '').toLowerCase() === email; });
-  return hit ? (hit.name || '') : '';
-}
 
 function projAssigneeOptions(){
-  if(projLoginUsers.length){
-    return projLoginUsers.map(function(u){
-      return { email: u.email, name: projRosterName(u.email) || u.name || projNameFromEmail(u.email) };
-    }).sort(function(a,b){ return a.name.localeCompare(b.name); });
-  }
-  if(typeof employeeNames === 'undefined' || !employeeNames) return [];
-  return employeeNames
-    .filter(function(e){ return e.isAdmin && e.loginEmail; })
-    .map(function(e){ return { email: e.loginEmail.toLowerCase(), name: e.name || e.loginEmail }; })
-    .sort(function(a,b){ return a.name.localeCompare(b.name); });
+  return projPeople.map(function(p){ return { email:p.id, name:p.name }; });
 }
-function projAssigneeName(email){
-  if(!email) return '';
-  const hit = projAssigneeOptions().find(function(o){ return o.email === email; });
-  return hit ? hit.name : email;
+function projAssigneeName(id){
+  if(!id) return '';
+  const hit = projPeople.find(function(p){ return p.id === id; });
+  return hit ? hit.name : 'Someone removed';
 }
+
 function refreshAssigneeSelects(){
   const opts = projAssigneeOptions();
   const html = '<option value="">Unassigned</option>' +
@@ -16457,8 +16487,9 @@ function refreshAssigneeSelects(){
 }
 function refreshAssigneeSelect(){ refreshAssigneeSelects(); }   /* kept for the roster-load hook */
 function projWhoOptions(rows){
-  const opts = projAssigneeOptions().map(function(o){
-    return { value:o.email, label:o.name, count: rows.filter(function(r){ return (r.assignee||'') === o.email; }).length };
+  const opts = projPeople.map(function(p){
+    return { value:p.id, label:p.name, removable:true,
+             count: rows.filter(function(r){ return (r.assignee||'') === p.id; }).length };
   });
   opts.push({ value:'__none', label:'Unassigned', count: rows.filter(function(r){ return !r.assignee; }).length });
   return opts;
@@ -16531,14 +16562,11 @@ function renderTodos(){
   const open = projTodoCache.filter(t => t.status !== 'done');
   const done = projTodoCache.filter(t => t.status === 'done');
   const high = open.filter(t => t.priority === 'High');
-  const me = projCurrentEmail();
-  const mine = open.filter(t => (t.assignee || '') === me && me);
-  refreshAssigneeSelect();
+  refreshAssigneeSelects();
 
   document.getElementById('todoCounts').innerHTML =
     '<span class="proj-count">Open <b>'+open.length+'</b></span>'+
     '<span class="proj-count">High priority <b>'+high.length+'</b></span>'+
-    '<span class="proj-count">Mine <b>'+mine.length+'</b></span>'+
     '<span class="proj-count">Done <b>'+done.length+'</b></span>';
 
   const badge = document.getElementById('badgeProjTodo');
@@ -16554,7 +16582,7 @@ function renderTodos(){
   projDropdown('ddTodoPriority', 'Priority', ['High','Medium','Low'].map(function(pr){
     return { value:pr, label:pr, count: projTodoCache.filter(function(t){ return (t.priority||'Medium') === pr; }).length };
   }), projTodoPriorityFilter, renderTodos);
-  projDropdown('ddTodoWho', 'Assigned to', projWhoOptions(projTodoCache), projTodoWhoFilter, renderTodos);
+  projDropdown('ddTodoWho', 'Assigned to', projWhoOptions(projTodoCache), projTodoWhoFilter, renderTodos, true);
 
   let rows = projTodoCache;
   if(projTodoStatusFilter.size){
@@ -16578,7 +16606,7 @@ function renderTodos(){
               '<span class="proj-tag area">'+esc(t.area || 'Other')+'</span>'+
               '<span class="proj-tag type">'+esc(t.type || 'Task')+'</span>'+
               '<span class="proj-tag pri-'+esc(t.priority || 'Medium')+'">'+esc(t.priority || 'Medium')+'</span>'+
-              (t.assignee ? '<span class="proj-tag who'+(t.assignee === me ? ' me' : '')+'">'+esc(projAssigneeName(t.assignee))+'</span>' : '')+
+              (t.assignee ? '<span class="proj-tag who">'+esc(projAssigneeName(t.assignee))+'</span>' : '')+
             '</div>'+
             (t.notes ? '<div class="proj-sub">'+esc(t.notes)+'</div>' : '')+
           '</div>'+
@@ -16990,7 +17018,7 @@ function testRowHtml(t, showRetestButtonOnly){
       '<div class="proj-meta">'+
         '<span class="proj-tag area">'+esc(t.area || '')+'</span>'+
         '<span class="proj-tag '+testResultClass(result)+'">'+esc(testResultLabel(result))+'</span>'+
-        (t.assignee ? '<span class="proj-tag who'+(t.assignee === projCurrentEmail() ? ' me' : '')+'">'+esc(projAssigneeName(t.assignee))+'</span>' : '')+
+        (t.assignee ? '<span class="proj-tag who">'+esc(projAssigneeName(t.assignee))+'</span>' : '')+
       '</div>'+
       (t.retestReason && result === 'Retest' ? '<div class="proj-retest">'+esc(t.retestReason)+'</div>' : '')+
       (t.steps ? '<div class="proj-sub"><b>Do:</b> '+esc(t.steps)+'</div>' : '')+
@@ -17086,7 +17114,7 @@ function renderTests(){
     { value:'N/A',    label:'N/A',        count:count('N/A') }
   ], projTestFilters, renderTests);
   projDropdown('ddTestArea', 'Area', projAreaOptions(working), projTestAreaFilters, renderTests);
-  projDropdown('ddTestWho', 'Assigned to', projWhoOptions(working), projTestWhoFilter, renderTests);
+  projDropdown('ddTestWho', 'Assigned to', projWhoOptions(working), projTestWhoFilter, renderTests, true);
 
   let rows = working;
   if(projTestFilters.size) rows = rows.filter(t => projTestFilters.has(t.result || 'none'));
