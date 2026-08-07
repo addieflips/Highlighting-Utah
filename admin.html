@@ -547,6 +547,81 @@
     }
     .menu-toggle-mobile svg{ width:20px; height:20px; stroke:#fff; }
   }
+  /* ---- Project To-Do + Test Checklist ---- */
+  .proj-counts{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px; }
+  .proj-count{
+    display:inline-flex; align-items:center; gap:6px; padding:7px 12px;
+    border-radius:999px; border:1px solid var(--line, #e2e2e2);
+    background:#fff; font-size:13px; font-weight:600; color:var(--slate, #555);
+  }
+  .proj-count b{ font-size:15px; color:var(--ink, #1c1c1c); }
+  .proj-field-row{ display:flex; gap:12px; flex-wrap:wrap; }
+  .proj-field-row .form-row{ flex:1 1 150px; min-width:140px; }
+  .proj-tag{
+    display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px;
+    font-weight:700; letter-spacing:.02em; margin-right:6px; white-space:nowrap;
+  }
+  .proj-tag.area{ background:#EFEFF3; color:#3B3B47; }
+  .proj-tag.type{ background:#E7F0FA; color:#1F4E79; }
+  .proj-tag.pri-High{ background:#FFD9DC; color:#8A1B25; }
+  .proj-tag.pri-Medium{ background:#FFEFC9; color:#7A5400; }
+  .proj-tag.pri-Low{ background:#E6EFE6; color:#2F5D34; }
+  .proj-tag.res-Pass{ background:#D6F0D8; color:#1E5B27; }
+  .proj-tag.res-Fail{ background:#FFD9DC; color:#8A1B25; }
+  .proj-tag.res-Retest{ background:#FFE7C4; color:#8A4B00; }
+  .proj-tag.res-NA{ background:#E8E8ED; color:#4A4A55; }
+  .proj-tag.res-none{ background:#F2F2F4; color:#8A8A94; }
+  .proj-done .rmain h4{ text-decoration:line-through; opacity:.55; }
+  .proj-done{ opacity:.75; }
+  .proj-check{
+    width:22px; height:22px; flex-shrink:0; margin-right:10px; cursor:pointer;
+    accent-color:#1F4E3D;
+  }
+  .proj-row-top{ display:flex; align-items:flex-start; }
+  .proj-meta{ margin-top:6px; }
+  .proj-sub{ font-size:12.5px; color:var(--slate, #666); margin-top:4px; line-height:1.45; }
+  .proj-sub b{ color:var(--ink, #222); font-weight:600; }
+  .proj-result-row{ display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .proj-result-btn{
+    padding:6px 12px; border-radius:8px; border:1px solid var(--line, #ddd);
+    background:#fff; font-size:12.5px; font-weight:600; cursor:pointer; color:var(--slate,#555);
+  }
+  .proj-result-btn.on{ background:var(--ink, #1c1c1c); color:#fff; border-color:var(--ink, #1c1c1c); }
+  .proj-note-input{
+    width:100%; margin-top:8px; padding:8px 10px; border-radius:8px;
+    border:1px solid var(--line, #ddd); font:inherit; font-size:13px;
+  }
+  @media(max-width:640px){
+    .proj-field-row{ flex-direction:column; gap:0; }
+    .proj-result-btn{ flex:1 1 calc(50% - 6px); text-align:center; }
+  }
+  /* ---- Project: sync bar, multi-select filters, retest note ---- */
+  .proj-tabcount{ opacity:.7; font-weight:600; margin-left:2px; }
+  .proj-syncbar{
+    display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+    padding:14px 16px; border-radius:12px; margin-bottom:12px;
+    background:#FFF8E9; border:1px solid var(--gold-dim, #e6cf9a);
+  }
+  .proj-synchelp{ font-size:12.5px; color:var(--slate, #666); flex:1 1 240px; line-height:1.45; }
+  .proj-syncreport{
+    padding:11px 14px; border-radius:10px; margin-bottom:14px; font-size:13px;
+    background:#EDF5EE; border:1px solid #CBE0CE; color:#1F4E3D;
+  }
+  .proj-filterbar{ display:flex; align-items:flex-start; gap:10px; flex-wrap:wrap; margin-bottom:6px; }
+  .proj-filterlabel{
+    font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+    color:var(--slate, #777); padding-top:11px; min-width:44px;
+  }
+  .proj-filterbar .route-tabs{ flex:1 1 auto; margin-bottom:0; }
+  .proj-filterhint{ font-size:11.5px; color:var(--slate, #888); margin:0 0 12px 54px; }
+  .proj-retest{
+    margin-top:6px; padding:7px 10px; border-radius:8px; font-size:12.5px;
+    background:#FFF3E0; border:1px solid #F0D6AE; color:#8A4B00;
+  }
+  @media(max-width:640px){
+    .proj-filterlabel{ padding-top:0; }
+    .proj-filterhint{ margin-left:0; }
+  }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyByI2wHguK1JLNdUFJQKiA_gunoVtTkyqM"></script>
@@ -793,6 +868,16 @@
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       <span class="nav-label">Site Settings</span>
     <span class="nav-pin-icon" data-pinpanel="settings" data-pinlabel="Site Settings" title="Pin to Favorites"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l1 6 3 2v2H5v-2l3-2z"/></svg></span></button>
+    </div>
+    </div>
+
+    <div class="nav-section" data-section="project">
+    <div class="nav-section-heading collapsible">Project<svg class="nav-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></div>
+    <div class="nav-section-body">
+    <button class="nav-item" data-panel="projecttodo" title="">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      <span class="nav-label">Project To-Do</span> <span class="nav-badge" id="badgeProjTodo" style="display:none;"></span>
+    <span class="nav-pin-icon" data-pinpanel="projecttodo" data-pinlabel="Project" title="Pin to Favorites"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l1 6 3 2v2H5v-2l3-2z"/></svg></span></button>
     </div>
     </div>
 
@@ -3168,6 +3253,123 @@ Highlighting Utah</textarea>
       <div class="row-list" id="faqList"><div class="empty-note">Loading…</div></div>
     </div>
 
+    <!-- PROJECT (To-Do + Test Checklist + Passed) -->
+    <div class="panel" id="panel-projecttodo">
+      <div class="panel-head"><div><h2>Project</h2><p>The running to-do list for the website, and the test checklist for what has been checked.</p></div></div>
+
+      <div class="route-tabs" id="projSectionTabs" style="margin-bottom:20px;">
+        <button class="route-tab-btn active" data-projtab="todo">To-Do List</button>
+        <button class="route-tab-btn" data-projtab="tests">Test Checklist <span class="proj-tabcount" id="tabCountTests"></span></button>
+        <button class="route-tab-btn" data-projtab="passed">Passed <span class="proj-tabcount" id="tabCountPassed"></span></button>
+      </div>
+
+      <!-- ============ TO-DO TAB ============ -->
+      <div id="projtab-todo">
+        <div class="proj-counts" id="todoCounts"></div>
+
+        <div class="card">
+          <h3 id="todoFormTitle">Add a Task</h3>
+          <form id="todoForm">
+            <input type="hidden" id="todoEditId">
+            <div class="form-row"><label>Task</label><input type="text" id="todoTask" placeholder="What needs doing?" required></div>
+            <div class="proj-field-row">
+              <div class="form-row"><label>Area</label><select id="todoArea">
+                <option>Public Site</option><option>Member Portal</option><option>Admin</option>
+                <option>Crew Portal</option><option>Routes</option><option>Warehouse</option>
+                <option>Money</option><option>Cloud Functions</option><option>Cleanup</option><option>Other</option>
+              </select></div>
+              <div class="form-row"><label>Type</label><select id="todoType">
+                <option>Bug</option><option>Feature</option><option>Improvement</option>
+                <option>Tech Debt</option><option>Question</option>
+              </select></div>
+              <div class="form-row"><label>Priority</label><select id="todoPriority">
+                <option>High</option><option selected>Medium</option><option>Low</option>
+              </select></div>
+            </div>
+            <div class="form-row"><label>Notes (optional)</label><textarea id="todoNotes" rows="2"></textarea></div>
+            <button type="submit" class="btn btn-gold">Save Task</button>
+            <button type="button" class="btn btn-outline" id="todoCancelEdit" style="display:none;">Cancel Edit</button>
+          </form>
+        </div>
+
+        <div class="route-tabs" id="todoFilters" style="margin-bottom:14px;">
+          <button type="button" class="route-tab-btn active" data-todofilter="open">Open</button>
+          <button type="button" class="route-tab-btn" data-todofilter="high">High Priority</button>
+          <button type="button" class="route-tab-btn" data-todofilter="done">Done</button>
+          <button type="button" class="route-tab-btn" data-todofilter="all">All</button>
+        </div>
+
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px;">
+          <button type="button" class="btn btn-outline" id="todoCopyBtn">Copy for Claude</button>
+          <button type="button" class="btn btn-outline" id="todoSeedBtn">Load starter items</button>
+        </div>
+
+        <div class="row-list" id="todoList"><div class="empty-note">Loading&hellip;</div></div>
+      </div>
+
+      <!-- ============ TEST CHECKLIST TAB ============ -->
+      <div id="projtab-tests" style="display:none;">
+        <div class="proj-counts" id="testCounts"></div>
+
+        <div class="proj-syncbar">
+          <button type="button" class="btn btn-gold" id="testSyncBtn">Sync checklist</button>
+          <span class="proj-synchelp">Adds any new tests and flags anything that needs re-testing. Your existing results are kept.</span>
+        </div>
+        <div id="testSyncReport" class="proj-syncreport" style="display:none;"></div>
+
+        <div class="proj-filterbar">
+          <div class="proj-filterlabel">Show</div>
+          <div class="route-tabs" id="testFilters">
+            <button type="button" class="route-tab-btn active" data-testfilter="all">All</button>
+            <button type="button" class="route-tab-btn" data-testfilter="none">Needs Test</button>
+            <button type="button" class="route-tab-btn" data-testfilter="Retest">Retest</button>
+            <button type="button" class="route-tab-btn" data-testfilter="Fail">Fail</button>
+            <button type="button" class="route-tab-btn" data-testfilter="N/A">N/A</button>
+          </div>
+        </div>
+        <div class="proj-filterhint">Tick more than one to see them together.</div>
+
+        <div class="proj-filterbar">
+          <div class="proj-filterlabel">Area</div>
+          <div class="route-tabs" id="testAreaFilters"></div>
+        </div>
+
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin:14px 0;">
+          <button type="button" class="btn btn-outline" id="testCopyBtn">Copy for Claude</button>
+          <button type="button" class="btn btn-outline" id="testFailsToTodoBtn">Add all Fails to To-Do</button>
+          <button type="button" class="btn btn-outline" id="testAddToggle">Add a one-off test</button>
+        </div>
+
+        <div class="card" id="testAddCard" style="display:none;">
+          <h3 id="testFormTitle">Add a Test</h3>
+          <form id="testForm">
+            <input type="hidden" id="testEditId">
+            <div class="proj-field-row">
+              <div class="form-row"><label>Area</label><input type="text" id="testArea" placeholder="e.g. Member Portal" required></div>
+              <div class="form-row"><label>Test name</label><input type="text" id="testName" placeholder="e.g. Sign in (phone)" required></div>
+            </div>
+            <div class="form-row"><label>Steps</label><textarea id="testSteps" rows="2" placeholder="What do you do?"></textarea></div>
+            <div class="form-row"><label>Expected result</label><textarea id="testExpected" rows="2" placeholder="What should happen?"></textarea></div>
+            <button type="submit" class="btn btn-gold">Save Test</button>
+            <button type="button" class="btn btn-outline" id="testCancelEdit">Cancel</button>
+          </form>
+        </div>
+
+        <div class="row-list" id="testList"><div class="empty-note">Loading&hellip;</div></div>
+      </div>
+
+      <!-- ============ PASSED TAB ============ -->
+      <div id="projtab-passed" style="display:none;">
+        <div class="proj-counts" id="passedCounts"></div>
+        <p class="proj-synchelp" style="margin:0 0 16px;">Tests that have been signed off. If a change affects one of these, Sync moves it back to the checklist as Retest.</p>
+        <div class="proj-filterbar">
+          <div class="proj-filterlabel">Area</div>
+          <div class="route-tabs" id="passedAreaFilters"></div>
+        </div>
+        <div class="row-list" id="passedList" style="margin-top:14px;"><div class="empty-note">Loading&hellip;</div></div>
+      </div>
+    </div>
+
     <!-- SETTINGS -->
     <div class="panel" id="panel-settings">
       <div class="panel-head"><div><h2>Site Settings</h2><p>Hero text, contact info, and service area city lists.</p></div></div>
@@ -4758,6 +4960,8 @@ function initData(){
   loadGallery();
   loadHeroImages();
   loadFAQ();
+  loadProjectTodos();
+  loadProjectTests();
   loadSettings();
   loadJobAddresses();
   loadWarehouseExtras();
@@ -15831,6 +16035,739 @@ function runHealthCheck(){
   const hide = document.getElementById('hcHideClean');
   if(hide) hide.addEventListener('change', hcRender);
 })();
+
+/* ---------------- PROJECT: TO-DO LIST + TEST CHECKLIST ----------------
+   Three tabs on one panel, backed by two collections of their own:
+     projectTodos  - the running work list for the website
+     projectTests  - the QA checklist
+
+   A test is in one of five states:
+     (blank) Needs Test | Retest | Fail | N/A | Pass
+   Pass means signed off, so those move to the Passed tab and out of the
+   working checklist. Sync can pull one back by setting it to Retest.
+
+   Seeded tests live at a fixed document id ('t' + number) and carry a
+   version. Sync creates anything missing, and bumps a test to Retest only
+   when its version has moved on - so scores already entered are never lost
+   by accident. Nothing else in the app reads or writes either collection. */
+
+const PROJ_AREAS = ['Public Site','Member Portal','Admin','Crew Portal','Routes','Warehouse','Money','Cloud Functions','Cleanup','Other'];
+const PROJ_PRIORITY_ORDER = { High:0, Medium:1, Low:2 };
+const TEST_RESULTS = ['Pass','N/A','Fail','Retest'];
+const CUSTOM_TEST_START = 1000;   /* one-off tests are numbered from here, so they can never collide with a seeded number */
+
+let projTodoFilter = 'open';
+let projTestFilters = new Set();      /* empty = All */
+let projTestAreaFilters = new Set();  /* empty = every area */
+let projPassedAreaFilters = new Set();
+let projTodoCache = [];
+let projTestCache = [];
+
+document.querySelectorAll('#projSectionTabs [data-projtab]').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    document.querySelectorAll('#projSectionTabs [data-projtab]').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    ['todo','tests','passed'].forEach(function(name){
+      document.getElementById('projtab-'+name).style.display = (btn.dataset.projtab === name) ? '' : 'none';
+    });
+  });
+});
+
+function projCopyText(text, okMsg){
+  function fallback(){
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    try{ document.execCommand('copy'); toast(okMsg); } catch(err){ toast('Could not copy - select the text manually.'); }
+    document.body.removeChild(ta);
+  }
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(function(){ toast(okMsg); }).catch(fallback);
+  } else { fallback(); }
+}
+
+/* ===================== TO-DO LIST ===================== */
+
+const todoForm = document.getElementById('todoForm');
+todoForm.addEventListener('submit', function(e){
+  e.preventDefault();
+  const editId = document.getElementById('todoEditId').value;
+  const data = {
+    task:     document.getElementById('todoTask').value.trim(),
+    area:     document.getElementById('todoArea').value,
+    type:     document.getElementById('todoType').value,
+    priority: document.getElementById('todoPriority').value,
+    notes:    document.getElementById('todoNotes').value.trim()
+  };
+  if(!data.task) return;
+  let p;
+  if(editId){
+    p = updateDoc(doc(db,'projectTodos',editId), data);
+  } else {
+    data.status = 'open';
+    data.createdAt = serverTimestamp();
+    p = addDoc(collection(db,'projectTodos'), data);
+  }
+  p.then(function(){ toast('Task saved'); resetTodoForm(); });
+});
+document.getElementById('todoCancelEdit').addEventListener('click', resetTodoForm);
+function resetTodoForm(){
+  todoForm.reset();
+  document.getElementById('todoEditId').value = '';
+  document.getElementById('todoPriority').value = 'Medium';
+  document.getElementById('todoCancelEdit').style.display = 'none';
+  document.getElementById('todoFormTitle').textContent = 'Add a Task';
+}
+
+document.querySelectorAll('#todoFilters [data-todofilter]').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    document.querySelectorAll('#todoFilters [data-todofilter]').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    projTodoFilter = btn.dataset.todofilter;
+    renderTodos();
+  });
+});
+
+function loadProjectTodos(){
+  onSnapshot(collection(db,'projectTodos'), function(snap){
+    projTodoCache = [];
+    snap.forEach(function(d){ projTodoCache.push(Object.assign({ id:d.id }, d.data())); });
+    projTodoCache.sort(function(a,b){
+      const ad = a.status === 'done' ? 1 : 0, bd = b.status === 'done' ? 1 : 0;
+      if(ad !== bd) return ad - bd;
+      const ap = PROJ_PRIORITY_ORDER[a.priority] != null ? PROJ_PRIORITY_ORDER[a.priority] : 1;
+      const bp = PROJ_PRIORITY_ORDER[b.priority] != null ? PROJ_PRIORITY_ORDER[b.priority] : 1;
+      if(ap !== bp) return ap - bp;
+      const at = a.createdAt && a.createdAt.seconds ? a.createdAt.seconds : 0;
+      const bt = b.createdAt && b.createdAt.seconds ? b.createdAt.seconds : 0;
+      return at - bt;
+    });
+    renderTodos();
+  });
+}
+
+function renderTodos(){
+  const list = document.getElementById('todoList');
+  const open = projTodoCache.filter(t => t.status !== 'done');
+  const done = projTodoCache.filter(t => t.status === 'done');
+  const high = open.filter(t => t.priority === 'High');
+
+  document.getElementById('todoCounts').innerHTML =
+    '<span class="proj-count">Open <b>'+open.length+'</b></span>'+
+    '<span class="proj-count">High priority <b>'+high.length+'</b></span>'+
+    '<span class="proj-count">Done <b>'+done.length+'</b></span>';
+
+  const badge = document.getElementById('badgeProjTodo');
+  if(badge){
+    badge.textContent = open.length;
+    badge.style.display = open.length ? '' : 'none';
+  }
+
+  let rows = projTodoCache;
+  if(projTodoFilter === 'open') rows = open;
+  else if(projTodoFilter === 'done') rows = done;
+  else if(projTodoFilter === 'high') rows = high;
+
+  if(!rows.length){ list.innerHTML = '<div class="empty-note">Nothing here yet.</div>'; return; }
+
+  let html = '';
+  rows.forEach(function(t){
+    const isDone = t.status === 'done';
+    html += '<div class="row-item'+(isDone ? ' proj-done' : '')+'">'+
+      '<div class="rmain">'+
+        '<div class="proj-row-top">'+
+          '<input type="checkbox" class="proj-check" data-todotoggle="'+t.id+'"'+(isDone ? ' checked' : '')+'>'+
+          '<div style="flex:1;">'+
+            '<h4>'+esc(t.task || '')+'</h4>'+
+            '<div class="proj-meta">'+
+              '<span class="proj-tag area">'+esc(t.area || 'Other')+'</span>'+
+              '<span class="proj-tag type">'+esc(t.type || 'Task')+'</span>'+
+              '<span class="proj-tag pri-'+esc(t.priority || 'Medium')+'">'+esc(t.priority || 'Medium')+'</span>'+
+            '</div>'+
+            (t.notes ? '<div class="proj-sub">'+esc(t.notes)+'</div>' : '')+
+          '</div>'+
+        '</div>'+
+      '</div>'+
+      '<div class="row-actions">'+
+        '<button class="icon-btn" data-todoedit="'+t.id+'">'+editIcon()+'</button>'+
+        '<button class="icon-btn danger" data-del="projectTodos" data-id="'+t.id+'">'+trashIcon()+'</button>'+
+      '</div>'+
+    '</div>';
+  });
+  list.innerHTML = html;
+
+  list.querySelectorAll('[data-todotoggle]').forEach(function(cb){
+    cb.addEventListener('change', function(){
+      updateDoc(doc(db,'projectTodos',cb.dataset.todotoggle), {
+        status: cb.checked ? 'done' : 'open',
+        doneAt: cb.checked ? serverTimestamp() : null
+      });
+    });
+  });
+  list.querySelectorAll('[data-todoedit]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      const t = projTodoCache.find(x => x.id === btn.dataset.todoedit);
+      if(!t) return;
+      document.getElementById('todoEditId').value = t.id;
+      document.getElementById('todoTask').value = t.task || '';
+      document.getElementById('todoArea').value = t.area || 'Other';
+      document.getElementById('todoType').value = t.type || 'Bug';
+      document.getElementById('todoPriority').value = t.priority || 'Medium';
+      document.getElementById('todoNotes').value = t.notes || '';
+      document.getElementById('todoFormTitle').textContent = 'Edit Task';
+      document.getElementById('todoCancelEdit').style.display = 'inline-flex';
+      window.scrollTo({top:0, behavior:'smooth'});
+    });
+  });
+  attachDeleteHandlers(list);
+}
+
+document.getElementById('todoCopyBtn').addEventListener('click', function(){
+  if(!projTodoCache.length){ toast('Nothing to copy yet.'); return; }
+  let out = 'PROJECT TO-DO LIST\n\n';
+  ['open','done'].forEach(function(bucket){
+    const rows = projTodoCache.filter(t => (t.status === 'done') === (bucket === 'done'));
+    if(!rows.length) return;
+    out += (bucket === 'open' ? '-- OPEN --\n' : '\n-- DONE --\n');
+    rows.forEach(function(t){
+      out += '- ['+(t.priority || 'Medium')+'] '+(t.area || 'Other')+' / '+(t.type || 'Task')+': '+(t.task || '')+'\n';
+      if(t.notes) out += '    notes: '+t.notes+'\n';
+    });
+  });
+  projCopyText(out, 'To-Do list copied - paste it to Claude');
+});
+
+const TODO_SEED = [
+  ['Add outletTimer to the frozen route stop snapshot (audit #4)','Routes','Bug','Medium','Route stops freeze specificOutlet but not outletTimer, so a printed or frozen route card can miss a timer instruction.'],
+  ['Merge the two invoice-status functions into one shared copy (audit #7)','Money','Tech Debt','Medium','computeInvoiceStatus (admin) and computeInvoiceStatusServer (functions) are separate copies that must be edited together.'],
+  ['Add a way to re-measure feet after install (audit #8)','Admin','Improvement','Low','measuredFeet is copied from the quote estimate, and it drives bins, number series and bundles.'],
+  ['Trim the 6 unused collections from firestore.rules (audit #9)','Cleanup','Tech Debt','Low','houseMaps, inventoryItems, employeeMessages, teamMessages, smsTemplates, smsTemplateFolders - dead config.'],
+  ['Manage warehouse build-ahead goals from admin (audit #10)','Warehouse','Feature','Low','warehouseGoals is read and written only in employee.html; nothing in admin manages it.'],
+  ['Set the Member Portal function min-instances to 1','Cloud Functions','Improvement','Low','Removes the cold-start wait when a customer opens the portal. Small monthly cost.'],
+  ['Fix run-all.js: it looks for the HTML files one folder up','Cleanup','Bug','High','ROOT is __dirname/.. so node run-all.js from the repo root fails with ENOENT before running a single check.'],
+  ['Fix run-all.js crash: colorComboKey is not defined','Cleanup','Bug','High','The suite dies at line 244 on a clean clone, so only about 29 of the claimed 130+ checks ever run.']
+];
+
+document.getElementById('todoSeedBtn').addEventListener('click', async function(){
+  let added = 0;
+  for(const row of TODO_SEED){
+    if(projTodoCache.some(t => t.task === row[0])) continue;
+    await addDoc(collection(db,'projectTodos'), {
+      task: row[0], area: row[1], type: row[2], priority: row[3], notes: row[4],
+      status: 'open', createdAt: serverTimestamp()
+    });
+    added++;
+  }
+  toast(added ? added+' starter item(s) added' : 'They were already on the list.');
+});
+
+/* ===================== TEST CHECKLIST ===================== */
+
+const TEST_SEED = [
+  [1, "Public Site", "Quote request form", "On the public site, fill out the full quote form (name, phone, email, street, city, zip, contact preference) and submit.", "A thank-you confirmation; a new quote appears in Admin > Quotes with all those fields and status New.", 1, "Pass", "", ""],
+  [2, "Public Site", "Quick quote widget", "Use the short quote widget (name + contact method) and submit.", "It is accepted and shows up as a quote in admin.", 1, "N/A", "Could not find a quick quote widget on the site.", ""],
+  [3, "Public Site", "Reviews / gallery / FAQ", "Open the public pages that show reviews, the photo gallery, hero images, and FAQ.", "They load and show the content added in Admin (Site Content / Reviews / Gallery / FAQ).", 1, "Pass", "", ""],
+  [4, "Public Site", "Contact message", "Send a message through the public contact form.", "It appears in Admin > Messages.", 1, "Pass", "", ""],
+  [5, "Member Portal", "Sign in (phone)", "Go to the payment/portal page, enter a real customer phone + last name, hit Sign In.", "A gold spinner Opening your account shows, then their invoice + tabs load.", 1, "Pass", "", ""],
+  [6, "Member Portal", "Sign in (email)", "Sign in with the customer email + last name instead of phone.", "Same result - their account opens (works with primary or secondary email).", 1, "Pass", "", ""],
+  [7, "Member Portal", "Loading spinner", "Watch the screen right after you press Sign In.", "The spinner appears immediately and disappears the moment the account loads or an error shows (never sticks).", 1, "Pass", "", ""],
+  [8, "Member Portal", "Wrong credentials", "Enter a phone/email + last name that do not match.", "A friendly we could not find an account message, and the sign-in form comes back.", 1, "Pass", "", ""],
+  [9, "Member Portal", "Personalized link", "Open a customer personalized portal link (the kind in an invoice/RSVP email).", "The portal opens straight to their account, spinner showing while it loads.", 1, "Fail", "", ""],
+  [10, "Member Portal", "Balance reflects credits", "Sign in as a customer who has a credit on their invoice.", "The balance shown is install + removal minus credits minus what they have paid.", 1, "N/A", "", ""],
+  [11, "Member Portal", "Pay with PayPal", "On an unpaid account, use the PayPal button (add a tip optionally) and complete a real small payment.", "PayPal charges the discounted balance plus tip; afterward the balance drops and shows Paid in Full.", 1, "Fail", "There is only a link to Venmo.", ""],
+  [12, "Member Portal", "Change light colours", "In the Lights tab, change the colours and Save.", "Saved confirmation; back in admin the colours are updated and they are queued in the Warehouse build list.", 1, "Pass", "", ""],
+  [13, "Member Portal", "Change contact info", "In the Info tab, change phone / gate code / address and Save.", "Saved; the customer record updates, and an upcoming saved route picks up the new gate code and address.", 1, "Pass", "", ""],
+  [14, "Member Portal", "Change preferences", "Change wire colour / outlet timer / install timing / notes and Save.", "Saved onto the customer and visible in Admin Edit Customer.", 1, "Fail", "There is nowhere to view it on the admin page.", ""],
+  [15, "Member Portal", "RSVP yes / no / back next year", "Use the RSVP buttons for each option.", "Yes and Back-Next-Year keep them active; a flat No flags them to recycle and shows in the Warehouse recycle list.", 1, "Fail", "", ""],
+  [16, "Member Portal", "Request cancellation", "Submit a cancellation with a reason.", "Status shows Cancellation Requested in admin and the reason is visible on their customer card.", 1, "Pass", "", ""],
+  [17, "Member Portal", "Quote review", "Sign in as someone with a pending quote (no invoice yet).", "Their quote details and price show, with approve and decline options.", 1, "Fail", "", ""],
+  [18, "Admin", "Quotes - view & filter", "Open Admin > Quotes; toggle the New / all filter.", "Quote cards show name, status, address, contact, photo controls; the filter switches the list.", 1, "Pass", "", ""],
+  [19, "Admin", "Quotes - price a quote", "Open a quote, enter estimated feet and a quoted price, send the approval link.", "Price and feet save; the approval link is generated; the card shows the price and awaiting response.", 1, "Pass", "The approval link works but the accept-my-quote button does not.", ""],
+  [20, "Admin", "Quotes - detail form", "Open a quote where the customer returned the detail form.", "The Detail Form section is filled in and editable, and shows not returned yet when they have not.", 1, "Pass", "Probably should not ask which outlet - the crew decides that - but do ask if they have one.", ""],
+  [21, "Admin", "Quotes - convert to customer", "On an approved quote, use Convert to Customer, fill feet, Add Customer.", "A customer is created carrying colours, areas, outlet timer, specific outlet, install timing, notes, photo and markup, the approved price and contact preference; the quote closes.", 1, "Pass", "", ""],
+  [22, "Admin", "Add Customer - full detail", "Add a customer with colours, house parts, install timing, photo and highlight, house notes, outlet timer, feet and price.", "Saves; all fields land on the record and show in Edit Customer.", 1, "Pass", "", ""],
+  [23, "Admin", "Add Customer - feet drives number preview", "Type measured feet on the Add form.", "Bin count and customer-number preview update live: over 200 ft is 2 bins and 5000-series, 200 or under is 1 bin and regular.", 1, "Pass", "", ""],
+  [24, "Admin", "Add Customer - photo markup", "Upload a house photo and use Mark Up (red line, yellow pen).", "The markup saves and the marked-up photo shows on the record.", 1, "Pass", "", ""],
+  [25, "Admin", "Edit Customer - edit every field", "Open Edit Customer and change name, contacts, address, colours, areas, install timing, gate code, outlet, notes, feet, price, bins, wire and RSVP; Save.", "All changes save; nothing is lost; changed colours re-queue the warehouse.", 1, "Pass", "", ""],
+  [26, "Admin", "Edit Customer - photo + markup here", "Upload or replace the house photo and use Highlight / Mark Up Photo in the Edit popup.", "Photo uploads and marks up here - this is the only place photos are edited.", 1, "Pass", "", ""],
+  [27, "Admin", "Edit Customer - house price to invoice", "Change the house price and Save.", "The invoice install updates to match, with the $30 fee preserved if it was applied.", 1, "Pass", "", ""],
+  [28, "Admin", "Edit Customer - payer group guard", "Edit the price of a customer who pays for several houses (a bill-to payer).", "Their group invoice total is recomputed from all their houses and the other houses are not dropped.", 1, "N/A", "", ""],
+  [29, "Admin", "Edit Customer - feet crosses 200", "Change measured feet so it crosses the 200 ft line for a customer who already has a number.", "It warns before renumbering rather than silently changing the bin or number.", 1, "N/A", "", ""],
+  [30, "Admin", "Quote declined", "Use the decline option on an approval link.", "The quote is stamped declined and the card shows it; no customer is created.", 1, "", "", ""],
+  [31, "Admin", "Quote approve/decline lands in Inbox", "Approve or decline a quote from the customer link.", "A notice appears in the main Inbox, not the System folder, because it needs a decision.", 1, "", "", ""],
+  [32, "Admin", "Estimated feet autosaves", "Type an estimated feet figure on a quote card and click away without pressing save.", "The figure is saved on its own.", 1, "", "", ""],
+  [33, "Admin", "Quote token is unique", "Send approval links for two different quotes.", "Each link carries its own quoteToken and opens only its own quote.", 1, "", "", ""],
+  [34, "Customer Numbers", "200 ft rule", "Add customers at 199 ft, 200 ft and 201 ft.", "199 and 200 get 1 bin and a regular number; 201 gets 2 bins and a 5000-series number.", 1, "", "", ""],
+  [35, "Customer Numbers", "No feet, no number", "Try to assign a customer number to someone with no measured feet.", "The app refuses to give a number rather than guessing.", 1, "", "", ""],
+  [36, "Customer Numbers", "Pool is used first", "Free a number, then add a new customer of the same series.", "The freed number is reused - the lowest free number of that series is handed out first.", 1, "", "", ""],
+  [37, "Customer Numbers", "Assigning removes from pool", "Assign a number that was sitting in the pool.", "It disappears from availableCustomerNumbers and cannot be handed out twice.", 1, "", "", ""],
+  [38, "Customer Numbers", "Empty pool takes the next number up", "Assign a number when the pool for that series is empty.", "The next number above the current highest is used.", 1, "", "", ""],
+  [39, "Customer Numbers", "Bulk assign", "Use the bulk-assign tool on several unnumbered customers.", "Each gets the correct series for their bin count and the pool is drawn down properly.", 1, "", "", ""],
+  [40, "Customer Numbers", "Duplicate number report", "Run Health Check with two customers sharing a number.", "The duplicate is reported; it does not auto-fix, because it cannot know which house keeps the number.", 1, "", "", ""],
+  [41, "Warehouse", "Build queue membership", "Set needsLightBuild on one customer with colours and one without.", "Only the customer with colours appears in the build queue.", 1, "", "", ""],
+  [42, "Warehouse", "Bundle count", "Set measured feet to 100 on a queued customer.", "Bundles show as 3 - feet divided by 40, rounded up.", 1, "", "", ""],
+  [43, "Warehouse", "Colour grouping", "Queue several houses with the same colour pattern.", "The queue groups them by pattern and totals the bundles per pattern.", 1, "", "", ""],
+  [44, "Warehouse", "Mark built", "Mark a queued house built.", "needsLightBuild flips to false and it drops off the queue.", 1, "", "", ""],
+  [45, "Warehouse", "Bundles when feet are missing", "Open the crew warehouse view for a customer with a price but no feet.", "Bundles are estimated from the price rather than showing nothing.", 1, "", "", ""],
+  [46, "Warehouse", "Warehouse extras", "Add a buffer or old-client build not tied to a live house.", "It shows in the queue and can be completed independently of any customer.", 1, "", "", ""],
+  [47, "Warehouse", "Recycle queue membership", "Set a customer RSVP to a flat No.", "needsLightRecycle becomes true and they appear in the Recycle queue.", 1, "", "", ""],
+  [48, "Warehouse", "Mark recycled returns the number", "Mark a recycled customer as recycled in the warehouse.", "Their customer number clears and reappears in the available pool for reuse.", 1, "", "", ""],
+  [49, "Warehouse", "Back next year does not recycle", "Set a customer RSVP to Back Next Year.", "They stay active and do NOT appear in the recycle queue.", 1, "", "", ""],
+  [50, "Warehouse", "Build-ahead goals", "Set a build-ahead goal in the Crew Portal and record progress.", "The goal and progress save and display; note there is currently no way to manage goals from admin.", 1, "", "", ""],
+  [51, "Routes", "Candidate pool", "Generate an install route with a mix of customers.", "Only unscheduled customers with RSVP yes and a geocoded address are offered.", 1, "", "", ""],
+  [52, "Routes", "Geographic clustering", "Generate a route across several cities.", "Stops are clustered geographically rather than listed in entry order.", 1, "", "", ""],
+  [53, "Routes", "Saving creates the route doc", "Save a generated route.", "A scheduledRoutes document is created with an id of date_type_crew.", 1, "", "", ""],
+  [54, "Routes", "Stops are frozen snapshots", "Save a route, then change that customer name and address.", "The saved route still shows the old details - stops freeze name, address, phone, gate code, specific outlet, lat/lng and customer number.", 1, "", "", ""],
+  [55, "Routes", "Resync reaches upcoming routes only", "Correct a customer, then run the route resync.", "Upcoming routes pick up the correction; past routes are left alone as history.", 1, "", "", ""],
+  [56, "Routes", "Outlet timer on the stop", "Save a route for a customer whose outletTimer is Yes, then read the route card alone.", "The timer instruction is visible - known gap, outletTimer is not currently in the frozen snapshot.", 1, "", "", ""],
+  [57, "Routes", "Route card is view-only", "Try to change a name, address or note directly on a route card.", "Only the house rating and the job status can be changed there; everything else is view-only.", 1, "", "", ""],
+  [58, "Routes", "Rating saves from the route card", "Set a house rating on a route stop.", "It saves to the customer and shows next time the card is opened.", 1, "", "", ""],
+  [59, "Routes", "Job status from the route card", "Mark a stop Done, Needs Fix and Removal Done.", "Each status saves and is reflected on the customer record.", 1, "", "", ""],
+  [60, "Routes", "Fix route", "Generate a Fixes route.", "Only houses flagged needsFix are offered.", 1, "", "", ""],
+  [61, "Routes", "Removal route", "Generate a Removal route.", "Only installed houses due for removal are offered.", 1, "", "", ""],
+  [62, "Routes", "Calendar, Map and Take Downs views", "Open each of the route sub-tabs.", "List, Generate, Calendar, Map and Take Downs all load and show the same underlying routes.", 1, "", "", ""],
+  [63, "Routes", "Reorder route tabs", "Drag the route sub-tabs into a different order.", "The new order sticks.", 1, "", "", ""],
+  [64, "Crew Portal", "Staff login then pick your name", "Log in with the shared staff login and choose a name.", "The portal opens as that person with their own settings.", 1, "", "", ""],
+  [65, "Crew Portal", "Role template controls tabs", "Apply a role template to an employee and open the portal as them.", "Only the tabs that template allows are visible.", 1, "", "", ""],
+  [66, "Crew Portal", "Per-employee tab visibility", "Tick and untick individual tab checkboxes for one employee.", "That person sees exactly the ticked tabs, overriding nothing else.", 1, "", "", ""],
+  [67, "Crew Portal", "Today route loads", "Open Today Route on a day with a saved route.", "The saved stops load in order on a phone-sized screen.", 1, "", "", ""],
+  [68, "Crew Portal", "Live fields re-read", "Change a house note, outlet info or photo in admin while a route is saved.", "The crew view shows the new value even though the stop itself is frozen.", 1, "", "", ""],
+  [69, "Crew Portal", "Mark done", "Mark a house Done from the crew portal.", "completed is written as exactly true on the customer, which is what billing keys off.", 1, "", "", ""],
+  [70, "Crew Portal", "Needs fix with note and photo", "Flag a house as needing a fix, add a note and a photo.", "needsFix is set with the note and photo, and it shows in admin.", 1, "", "", ""],
+  [71, "Crew Portal", "One-time note clears on done", "Put a one-time note on a house, then mark it Done.", "The one-time note clears rather than following them to the next visit.", 1, "", "", ""],
+  [72, "Crew Portal", "Timers tab", "Open the Timers tab.", "Every house with outletTimer set to Yes is listed, and no others.", 1, "", "", ""],
+  [73, "Crew Portal", "Clock in and out", "Clock in, wait, clock out.", "A timeLogs shift is written with the right start and end.", 1, "", "", ""],
+  [74, "Crew Portal", "Daily checklist", "Work through a daily checklist.", "Items tick off and persist for that person and day.", 1, "", "", ""],
+  [75, "Crew Portal", "Time-off request", "Submit a time-off request.", "It appears in admin under employee requests.", 1, "", "", ""],
+  [76, "Crew Portal", "Note to the office", "Send a note from the crew portal.", "It appears in admin under employee notes.", 1, "", "", ""],
+  [77, "Crew Portal", "Warehouse crew views", "Open the build, recycle, timers and pull lists as warehouse staff.", "Each list loads with the right houses and can be actioned.", 1, "", "", ""],
+  [78, "Invoices", "One invoice per payer", "Create customers with and without a phone number.", "The invoice is keyed by phone, or by email when there is no phone.", 1, "", "", ""],
+  [79, "Invoices", "Amount owed formula", "Set install, removal, change fees, credits and deposit on one invoice.", "Owed equals install plus removal plus change fees minus credits minus deposit, and never goes below zero.", 1, "", "", ""],
+  [80, "Invoices", "New member $30 fee applied once", "Run the nightly billing twice for a first-year customer.", "The $30 is added to install once and newMemberFeeApplied stops a second charge.", 1, "", "", ""],
+  [81, "Invoices", "Admin only predicts the fee", "Look at a new customer invoice card before the nightly run.", "The $30 shows as a prediction; it is only committed by the nightly run.", 1, "", "", ""],
+  [82, "Invoices", "Enrollment year read robustly", "Bill a customer whose createdAt is stored as a string or number rather than a timestamp.", "They are still recognised as a new member and the $30 is applied.", 1, "", "", ""],
+  [83, "Invoices", "Invoice amount syncs back to the customer", "Edit the Amount on a single-house invoice.", "The customer house price updates to match, with the $30 fee stripped off first.", 1, "", "", ""],
+  [84, "Invoices", "Group invoice does not sync back", "Edit the Amount on a bill-to invoice covering several houses.", "No house price is overwritten - the sync is skipped for group invoices.", 1, "", "", ""],
+  [85, "Invoices", "Bill-to grouping totals", "Point three houses at one bill-to phone.", "One invoice is created and install is the sum of the three house prices.", 1, "", "", ""],
+  [86, "Invoices", "Editing a payer price keeps the group", "Change the price of one house inside a bill-to group.", "The group total is recomputed and the other houses stay on the invoice.", 1, "", "", ""],
+  [87, "Invoices", "Switching bill-to clears the old invoice", "Change a customer to be billed by someone else.", "No stale invoice is left behind double-billing them.", 1, "", "", ""],
+  [88, "Invoices", "Referral credit stacks", "Add two referral credits to one invoice.", "Each is $25 and they stack to $50, shown as separate lines.", 1, "", "", ""],
+  [89, "Invoices", "Service adjustment credit", "Add a service adjustment credit with a custom amount and reason.", "It reduces the balance and shows its own line with the reason.", 1, "", "", ""],
+  [90, "Invoices", "Credit never goes below zero", "Add a credit larger than the balance owed.", "The balance stops at $0 and the excess becomes carryover credit on the customer, not a refund.", 1, "", "", ""],
+  [91, "Invoices", "Carryover shows on Edit Customer", "Open Edit Customer for someone with carryover credit.", "The carryover amount and notes are visible and can be cleared.", 1, "", "", ""],
+  [92, "Invoices", "Carryover auto-applies once", "Run the nightly billing for a customer with carryover credit.", "It draws down against the balance, keeps the remainder, and does not apply twice if the email fails.", 1, "", "", ""],
+  [93, "Invoices", "Status agrees in both places", "Compare the status on the invoice card with what the server computes.", "Unpaid, Partial and Paid in Full match exactly - both take credits and change fees into account.", 1, "", "", ""],
+  [94, "Invoices", "Invoice list and filters", "Open the Invoice List tab and filter it.", "Invoices load with correct totals and the filter narrows the list.", 1, "", "", ""],
+  [95, "Invoices", "Import / Export", "Use the invoice Import / Export tab and export to Excel.", "The exported totals match what the invoice cards show.", 1, "", "", ""],
+  [96, "Invoices", "Season billing emails", "Open the Season Billing Emails tab and send a test.", "The template renders with real values and sends.", 1, "", "", ""],
+  [97, "Invoices", "Health Check resync totals", "Run the Health Check resync totals action.", "Totals are corrected without stripping the $30 new-member fee.", 1, "", "", ""],
+  [98, "Fees & Locks", "Colour change charges $30", "Change light colours in the Member Portal outside any free window.", "A $30 change fee is added to changeFees, not folded into install.", 1, "", "", ""],
+  [99, "Fees & Locks", "Base price edit does not wipe the fee", "Change the house price after a change fee exists.", "The change fee survives, because it is tracked separately from install.", 1, "", "", ""],
+  [100, "Fees & Locks", "48-hour free window", "Change colours twice within 48 hours.", "The second change is free and no extra fee is added.", 1, "", "", ""],
+  [101, "Fees & Locks", "First change after the window charges again", "Change colours more than 48 hours after the last charged change.", "Another $30 is charged and the free window restarts.", 1, "", "", ""],
+  [102, "Fees & Locks", "Portal warns before charging", "Start a colour change in the portal.", "It warns and asks for confirmation before charging, then shows when the free window ends.", 1, "", "", ""],
+  [103, "Fees & Locks", "Fee is enforced server-side", "Attempt a colour change while bypassing the browser warning.", "The fee is still applied, because portalSave enforces it on the server.", 1, "", "", ""],
+  [104, "Fees & Locks", "Assignment lock blocks install routes", "Generate an install route for a customer inside their 48-hour lock.", "They are left out of the candidate pool and held back if manually added.", 1, "", "", ""],
+  [105, "Fees & Locks", "Fix and removal routes ignore the lock", "Generate fix and removal routes for a locked customer.", "They are still eligible - the lock only applies to install routes.", 1, "", "", ""],
+  [106, "Fees & Locks", "Test routes bypass the lock", "Generate a Test route including a locked customer.", "They are allowed through.", 1, "", "", ""],
+  [107, "Fees & Locks", "Change after assignment flags the office", "Change colours for a customer already on a saved route.", "lightsChangedAfterAssign is set, a Lights Changed After Assignment note lands in the System folder, and a badge shows on the route card.", 1, "", "", ""],
+  [108, "Fees & Locks", "Assigning clears the flag", "Remove and re-add a flagged customer to a route.", "The badge and flag clear.", 1, "", "", ""],
+  [109, "Fees & Locks", "Remove light-change fees", "Use the Remove light-change fee(s) button on an invoice.", "The change fees come off and the balance drops accordingly.", 1, "", "", ""],
+  [110, "PayPal", "Order amount is the real balance", "Start a PayPal payment with a tip.", "The charge equals install plus removal minus deposit, plus the tip.", 1, "", "", ""],
+  [111, "PayPal", "Capture records the payment", "Complete a PayPal payment.", "The deposit on the invoice rises by the amount paid.", 1, "", "", ""],
+  [112, "PayPal", "Webhook is the safety net", "Close the browser midway through a completed PayPal payment.", "The webhook still records the payment on the invoice.", 1, "", "", ""],
+  [113, "PayPal", "Tips tracked separately", "Pay with a tip.", "The tip is recorded separately from service money and does not reduce the balance owed.", 1, "", "", ""],
+  [114, "Nightly Automation", "Runs at 7 PM Mountain", "Leave the toggle on and wait for the scheduled run.", "Invoices go out that evening and the run is logged.", 1, "", "", ""],
+  [115, "Nightly Automation", "Bills only completed and unbilled houses", "Include houses that are completed, not completed, and already billed.", "Only completed houses without invoiceEmailSent are billed.", 1, "", "", ""],
+  [116, "Nightly Automation", "Picks the right template", "Run billing for a paid customer and an unpaid one.", "The paid one gets the receipt template and the unpaid one gets the unpaid template.", 1, "", "", ""],
+  [117, "Nightly Automation", "amount_paid shows real payment", "Bill a customer whose balance was covered by a credit.", "The amount_paid token shows what they actually paid, not the gross total.", 1, "", "", ""],
+  [118, "Nightly Automation", "credit_lines token", "Add the credit_lines token to a billing template and bill a credited customer.", "The credit appears as its own line in the email.", 1, "", "", ""],
+  [119, "Nightly Automation", "fee_lines token", "Add the fee_lines token and bill a customer with a change fee.", "The change fee appears as its own line in the email.", 1, "", "", ""],
+  [120, "Nightly Automation", "Run is logged", "Check the nightly invoice log after a run.", "The last runs are listed with sent, skipped and error counts.", 1, "", "", ""],
+  [121, "Nightly Automation", "Summary text arrives", "Set an alert phone and press Send Invoices Now.", "A one-line summary text arrives through Twilio.", 1, "", "", ""],
+  [122, "Nightly Automation", "Stale-run banner", "Leave billing on but block the run for more than about 36 hours.", "A red stale-run banner appears in admin.", 1, "", "", ""],
+  [123, "Nightly Automation", "Toggle off stops the run", "Switch the nightly automation toggle off.", "No invoices are sent and nothing is logged.", 1, "", "", ""],
+  [124, "Nightly Automation", "Missing EmailJS keys fail loudly", "Clear the EmailJS keys and run billing.", "The failure is visible rather than silent.", 1, "", "", ""],
+  [125, "Start New Season", "Check First writes nothing", "Run the Check First dry run.", "It lists exactly who would be billed and how much, and changes no data.", 1, "", "", ""],
+  [126, "Start New Season", "Last year payments are banked", "Run Start New Season.", "Prior payments are banked to the Dashboard before amounts are reset.", 1, "", "", ""],
+  [127, "Start New Season", "Price minus the join fee", "Run Start New Season for a returning customer.", "They are charged the same as last year minus the one-time $30 join fee.", 1, "", "", ""],
+  [128, "Start New Season", "Discounts cleared, carryover kept", "Run it for a customer with both an invoice discount and carryover credit.", "The invoice discount clears and the carryover credit survives.", 1, "", "", ""],
+  [129, "Start New Season", "Safe to run twice", "Run Start New Season twice in a row.", "Nothing is double-reset or double-charged.", 1, "", "", ""],
+  [130, "Start New Season", "Customers re-bill on reinstall", "After the reset, mark a customer installed again.", "The nightly run bills them that night.", 1, "", "", ""],
+  [131, "Inbox & Templates", "System folder collects automatic notices", "Trigger a light colour, wire colour and outlet timer change from the portal.", "Each notice files itself into the pinned System folder.", 1, "", "", ""],
+  [132, "Inbox & Templates", "Decisions stay in the main Inbox", "Send a customer message and a cancellation request.", "Both stay in the main Inbox rather than the System folder.", 1, "", "", ""],
+  [133, "Inbox & Templates", "Drag between folders", "Drag a message from one folder to another.", "It moves and stays there after a refresh.", 1, "", "", ""],
+  [134, "Inbox & Templates", "Email templates and folders", "Create, edit and delete an email template and a folder.", "All three actions work and the template is selectable where templates are used.", 1, "", "", ""],
+  [135, "Inbox & Templates", "Saved templates and custom codes", "Save a template and create a custom discount code.", "Both persist and can be applied.", 1, "", "", ""],
+  [136, "Health & Data", "Health Check runs", "Open Health Check and run the full suite.", "It completes and reports problems without changing data on its own.", 1, "", "", ""],
+  [137, "Health & Data", "Import Center", "Import a batch of payments.", "The batch lands in the right folder and the amounts match the file.", 1, "", "", ""],
+  [138, "Health & Data", "Member Export", "Run a member export.", "The file downloads with the expected columns and row count.", 1, "", "", ""],
+  [139, "Health & Data", "Full Backup", "Take a full backup from Site Settings.", "The backup downloads and contains every collection in use.", 1, "", "", ""],
+  [140, "Health & Data", "No silent permission errors", "Open every admin panel with the browser console visible.", "No permission-denied errors appear - a collection missing from the rules fails silently.", 1, "", "", ""],
+  [141, "Employees & Payroll", "Add an employee", "Add someone with a role, pay type and admin flag.", "They appear in the roster and can be picked in the crew portal.", 1, "", "", ""],
+  [142, "Employees & Payroll", "Role templates", "Create a role template and apply it to two people.", "Both see the same tab set.", 1, "", "", ""],
+  [143, "Employees & Payroll", "Weekly payroll", "Open Weekly Payroll after some shifts are logged.", "Hours and pay total correctly from timeLogs.", 1, "", "", ""],
+  [144, "Employees & Payroll", "Time Log History", "Open Time Log History and filter it.", "Past shifts show with correct dates and durations.", 1, "", "", ""],
+  [145, "Employees & Payroll", "Timecard change request", "Submit a timecard correction from the crew portal and approve it in admin.", "The shift is corrected after approval and not before.", 1, "", "", ""],
+  [146, "Employees & Payroll", "Crews config", "Set how many crews there are and who is on each.", "The setting saves and route generation offers those crews.", 1, "", "", ""],
+  [147, "Employees & Payroll", "Crew overrides", "Reassign someone to a different crew for one day.", "Only that day changes.", 1, "", "", ""],
+  [148, "Employees & Payroll", "Employee categories", "Create a category and tag employees with it.", "The tag saves and can be used to group people.", 1, "", "", ""],
+  [149, "Finance", "Expenses", "Add, edit and delete an expense.", "All three work and the dashboard total updates.", 1, "", "", ""],
+  [150, "Finance", "Bills", "Add a recurring bill.", "It shows in the bills list and counts toward the budget.", 1, "", "", ""],
+  [151, "Finance", "Budget and savings goals", "Create a budget category and a savings goal.", "Both save and show progress.", 1, "", "", ""],
+  [152, "Finance", "Debt accounts", "Add a debt account with a balance.", "It saves and appears in the Debt and Bills view.", 1, "", "", ""],
+  [153, "Finance", "Credit cards and transactions", "Add a card and log a transaction against it.", "The balance updates and the transaction is listed.", 1, "", "", ""],
+  [154, "Finance", "Card payments and recurring overrides", "Record a card payment and set a recurring override.", "The balance drops and the override applies to the right month.", 1, "", "", ""],
+  [155, "Finance", "Yearly snapshot", "Take a year-end snapshot.", "The figures are stored and can be reopened later.", 1, "", "", ""],
+  [156, "Site Content", "Reviews", "Add, edit and delete a review in admin.", "The public site reflects each change.", 1, "", "", ""],
+  [157, "Site Content", "Gallery", "Add and remove a gallery photo.", "The public gallery updates.", 1, "", "", ""],
+  [158, "Site Content", "Hero images", "Change the hero images.", "The public homepage updates.", 1, "", "", ""],
+  [159, "Site Content", "FAQ", "Add, edit and delete an FAQ entry.", "The public FAQ page updates.", 1, "", "", ""],
+  [160, "Site Content", "Site settings", "Change the hero text, contact details and service-area city lists.", "The public site and the quote form city dropdowns update.", 1, "", "", ""],
+  [161, "Security", "Portal hides internal figures", "Inspect what the Member Portal sends to the browser.", "No pricing internals, customer number, bin count or difficulty are present - the server strips them.", 1, "", "", ""],
+  [162, "Security", "Portal writes only through functions", "Attempt a direct database write as a signed-in customer.", "It is refused - the portal reaches customer data only through Cloud Functions.", 1, "", "", ""],
+  [163, "Security", "Rate limiting", "Attempt many portal logins in quick succession.", "Attempts are throttled by portalRateLimits.", 1, "", "", ""],
+  [164, "Security", "Portal token minted when missing", "Look up a customer who has no portalToken.", "One is quietly created for them.", 1, "", "", ""],
+  [165, "Security", "Shared staff login is app-side only", "Review who can reach what in the crew portal.", "Confirm the known limitation - crew limits are enforced in the phone app, not the database.", 1, "", "", ""],
+];
+
+/* Sync. Creates anything new, keeps every score already entered, and moves a
+   test to Retest only when its version has moved on since it was last run. */
+document.getElementById('testSyncBtn').addEventListener('click', async function(){
+  const btn = this;
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = 'Syncing...';
+  try{
+    const snap = await getDocs(collection(db,'projectTests'));
+    const existing = new Map();
+    snap.forEach(function(d){ existing.set(d.id, d.data()); });
+
+    let added = 0, flagged = 0, reworded = 0;
+    const flaggedNames = [];
+
+    for(const row of TEST_SEED){
+      const id = 't' + row[0];
+      const base = { num:row[0], area:row[1], name:row[2], steps:row[3], expected:row[4], version:row[5] };
+      const cur = existing.get(id);
+
+      if(!cur){
+        await setDoc(doc(db,'projectTests',id), Object.assign({}, base, {
+          result: row[6] || '', notes: row[7] || '', retestReason: '', createdAt: serverTimestamp()
+        }));
+        added++;
+        continue;
+      }
+      if((cur.version || 1) < row[5]){
+        await updateDoc(doc(db,'projectTests',id), Object.assign({}, base, {
+          result: 'Retest',
+          retestReason: row[8] || 'This changed since it was last run.'
+        }));
+        flagged++;
+        if(flaggedNames.length < 8) flaggedNames.push('#'+row[0]+' '+row[2]);
+        continue;
+      }
+      /* Same version: only rewrite if the wording actually drifted, so a sync
+         with nothing to do costs no writes. */
+      if(cur.area !== base.area || cur.name !== base.name || cur.steps !== base.steps || cur.expected !== base.expected){
+        await updateDoc(doc(db,'projectTests',id), base);
+        reworded++;
+      }
+    }
+
+    const report = document.getElementById('testSyncReport');
+    const bits = [];
+    if(added)    bits.push('<b>'+added+'</b> new test'+(added===1?'':'s')+' added');
+    if(flagged)  bits.push('<b>'+flagged+'</b> flagged for retest');
+    if(reworded) bits.push('<b>'+reworded+'</b> reworded');
+    report.innerHTML = bits.length
+      ? bits.join(' &middot; ') + (flaggedNames.length ? '<div class="proj-sub" style="margin-top:6px;">Retest: '+esc(flaggedNames.join(', '))+'</div>' : '')
+      : 'Everything is already up to date.';
+    report.style.display = '';
+    toast(added || flagged ? 'Checklist synced' : 'Already up to date');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+});
+
+/* One-off tests you add yourself. Numbered from 1000 up so a future seeded
+   test can never land on the same number. */
+document.getElementById('testAddToggle').addEventListener('click', function(){
+  const card = document.getElementById('testAddCard');
+  card.style.display = card.style.display === 'none' ? '' : 'none';
+});
+const testForm = document.getElementById('testForm');
+testForm.addEventListener('submit', async function(e){
+  e.preventDefault();
+  const editId = document.getElementById('testEditId').value;
+  const data = {
+    area:     document.getElementById('testArea').value.trim(),
+    name:     document.getElementById('testName').value.trim(),
+    steps:    document.getElementById('testSteps').value.trim(),
+    expected: document.getElementById('testExpected').value.trim()
+  };
+  if(!data.area || !data.name) return;
+  if(editId){
+    await updateDoc(doc(db,'projectTests',editId), data);
+  } else {
+    let maxNum = CUSTOM_TEST_START - 1;
+    projTestCache.forEach(function(t){ if((t.num || 0) > maxNum) maxNum = t.num; });
+    data.num = maxNum + 1;
+    data.result = '';
+    data.notes = '';
+    data.version = 1;
+    data.retestReason = '';
+    data.createdAt = serverTimestamp();
+    await addDoc(collection(db,'projectTests'), data);
+  }
+  toast('Test saved');
+  resetTestForm();
+});
+document.getElementById('testCancelEdit').addEventListener('click', resetTestForm);
+function resetTestForm(){
+  testForm.reset();
+  document.getElementById('testEditId').value = '';
+  document.getElementById('testFormTitle').textContent = 'Add a Test';
+  document.getElementById('testAddCard').style.display = 'none';
+}
+
+/* Result filters are multi-select: tick Fail and N/A and both show. */
+document.querySelectorAll('#testFilters [data-testfilter]').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    const v = btn.dataset.testfilter;
+    if(v === 'all'){ projTestFilters.clear(); }
+    else if(projTestFilters.has(v)){ projTestFilters.delete(v); }
+    else { projTestFilters.add(v); }
+    document.querySelectorAll('#testFilters [data-testfilter]').forEach(function(b){
+      const bv = b.dataset.testfilter;
+      b.classList.toggle('active', bv === 'all' ? projTestFilters.size === 0 : projTestFilters.has(bv));
+    });
+    renderTests();
+  });
+});
+
+function projBuildAreaFilters(containerId, selectedSet, rerender){
+  const box = document.getElementById(containerId);
+  if(!box) return;
+  const areas = [];
+  projTestCache.forEach(function(t){ if(t.area && areas.indexOf(t.area) < 0) areas.push(t.area); });
+  areas.sort();
+  let html = '<button type="button" class="route-tab-btn'+(selectedSet.size === 0 ? ' active' : '')+'" data-area="__all">All areas</button>';
+  areas.forEach(function(a){
+    html += '<button type="button" class="route-tab-btn'+(selectedSet.has(a) ? ' active' : '')+'" data-area="'+esc(a)+'">'+esc(a)+'</button>';
+  });
+  box.innerHTML = html;
+  box.querySelectorAll('[data-area]').forEach(function(b){
+    b.addEventListener('click', function(){
+      const v = b.dataset.area;
+      if(v === '__all') selectedSet.clear();
+      else if(selectedSet.has(v)) selectedSet.delete(v);
+      else selectedSet.add(v);
+      rerender();
+    });
+  });
+}
+
+function loadProjectTests(){
+  onSnapshot(collection(db,'projectTests'), function(snap){
+    projTestCache = [];
+    snap.forEach(function(d){ projTestCache.push(Object.assign({ id:d.id }, d.data())); });
+    projTestCache.sort(function(a,b){ return (a.num || 0) - (b.num || 0); });
+    renderTests();
+    renderPassed();
+  });
+}
+
+function testResultClass(result){
+  if(result === 'N/A') return 'res-NA';
+  if(TEST_RESULTS.indexOf(result) >= 0) return 'res-'+result;
+  return 'res-none';
+}
+function testResultLabel(result){ return result || 'Needs Test'; }
+
+/* The list is rebuilt whenever Firestore reports a change. If someone is
+   part-way through typing a note when that happens their text would be
+   thrown away, so hold the redraw while a note box has the cursor in it and
+   catch up when they click away. Result buttons still redraw instantly. */
+let projTestRedrawPending = false;
+function projNoteHasFocus(){
+  const a = document.activeElement;
+  return !!(a && a.classList && a.classList.contains('proj-note-input'));
+}
+document.getElementById('testList').addEventListener('focusout', function(){
+  setTimeout(function(){
+    if(projNoteHasFocus()) return;
+    if(projTestRedrawPending){ projTestRedrawPending = false; renderTests(); }
+  }, 0);
+});
+
+function testRowHtml(t, showRetestButtonOnly){
+  const result = t.result || '';
+  let html = '<div class="row-item">'+
+    '<div class="rmain">'+
+      '<h4>'+(t.num ? t.num+'. ' : '')+esc(t.name || '')+'</h4>'+
+      '<div class="proj-meta">'+
+        '<span class="proj-tag area">'+esc(t.area || '')+'</span>'+
+        '<span class="proj-tag '+testResultClass(result)+'">'+esc(testResultLabel(result))+'</span>'+
+      '</div>'+
+      (t.retestReason && result === 'Retest' ? '<div class="proj-retest">'+esc(t.retestReason)+'</div>' : '')+
+      (t.steps ? '<div class="proj-sub"><b>Do:</b> '+esc(t.steps)+'</div>' : '')+
+      (t.expected ? '<div class="proj-sub"><b>Expect:</b> '+esc(t.expected)+'</div>' : '');
+  if(showRetestButtonOnly){
+    html += (t.notes ? '<div class="proj-sub"><b>Notes:</b> '+esc(t.notes)+'</div>' : '')+
+      '<div class="proj-result-row">'+
+        '<button type="button" class="proj-result-btn" data-sendretest="'+t.id+'">Send back to Retest</button>'+
+      '</div>';
+  } else {
+    html += '<div class="proj-result-row">'+
+        TEST_RESULTS.map(function(r){
+          return '<button type="button" class="proj-result-btn'+(result === r ? ' on' : '')+'" data-testresult="'+t.id+'" data-value="'+r+'">'+r+'</button>';
+        }).join('')+
+      '</div>'+
+      '<input type="text" class="proj-note-input" data-testnote="'+t.id+'" placeholder="Notes - what actually happened?" value="'+esc(t.notes || '')+'">';
+  }
+  html += '</div>'+
+    '<div class="row-actions">'+
+      '<button class="icon-btn" data-testedit="'+t.id+'">'+editIcon()+'</button>'+
+      '<button class="icon-btn danger" data-del="projectTests" data-id="'+t.id+'">'+trashIcon()+'</button>'+
+    '</div>'+
+  '</div>';
+  return html;
+}
+
+function projWireTestRows(list){
+  list.querySelectorAll('[data-testresult]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      const current = projTestCache.find(x => x.id === btn.dataset.testresult);
+      const next = (current && current.result === btn.dataset.value) ? '' : btn.dataset.value;
+      const patch = { result: next };
+      if(next !== 'Retest') patch.retestReason = '';
+      updateDoc(doc(db,'projectTests',btn.dataset.testresult), patch).then(function(){
+        if(next === 'Pass') toast('Signed off - moved to the Passed tab');
+      });
+    });
+  });
+  list.querySelectorAll('[data-sendretest]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      updateDoc(doc(db,'projectTests',btn.dataset.sendretest), {
+        result: 'Retest', retestReason: 'Sent back by hand.'
+      }).then(function(){ toast('Moved back to the checklist'); });
+    });
+  });
+  list.querySelectorAll('[data-testnote]').forEach(function(input){
+    input.addEventListener('change', function(){
+      updateDoc(doc(db,'projectTests',input.dataset.testnote), { notes: input.value.trim() })
+        .then(function(){ toast('Note saved'); });
+    });
+  });
+  list.querySelectorAll('[data-testedit]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      const t = projTestCache.find(x => x.id === btn.dataset.testedit);
+      if(!t) return;
+      document.getElementById('testEditId').value = t.id;
+      document.getElementById('testArea').value = t.area || '';
+      document.getElementById('testName').value = t.name || '';
+      document.getElementById('testSteps').value = t.steps || '';
+      document.getElementById('testExpected').value = t.expected || '';
+      document.getElementById('testFormTitle').textContent = 'Edit Test';
+      document.getElementById('testAddCard').style.display = '';
+      window.scrollTo({top:0, behavior:'smooth'});
+    });
+  });
+  attachDeleteHandlers(list);
+}
+
+function renderTests(){
+  if(projNoteHasFocus()){ projTestRedrawPending = true; return; }
+  const list = document.getElementById('testList');
+  const working = projTestCache.filter(t => (t.result || '') !== 'Pass');
+  const passed  = projTestCache.filter(t => t.result === 'Pass');
+  const count = function(r){ return working.filter(t => (t.result || '') === r).length; };
+
+  document.getElementById('testCounts').innerHTML =
+    '<span class="proj-count">Needs Test <b>'+count('')+'</b></span>'+
+    '<span class="proj-count">Retest <b>'+count('Retest')+'</b></span>'+
+    '<span class="proj-count">Fail <b>'+count('Fail')+'</b></span>'+
+    '<span class="proj-count">N/A <b>'+count('N/A')+'</b></span>'+
+    '<span class="proj-count">Passed <b>'+passed.length+'</b></span>';
+  const tct = document.getElementById('tabCountTests');
+  if(tct) tct.textContent = working.length ? '('+working.length+')' : '';
+  const pct = document.getElementById('tabCountPassed');
+  if(pct) pct.textContent = passed.length ? '('+passed.length+')' : '';
+
+  projBuildAreaFilters('testAreaFilters', projTestAreaFilters, renderTests);
+
+  let rows = working;
+  if(projTestFilters.size) rows = rows.filter(t => projTestFilters.has(t.result || 'none'));
+  if(projTestAreaFilters.size) rows = rows.filter(t => projTestAreaFilters.has(t.area));
+
+  if(!rows.length){ list.innerHTML = '<div class="empty-note">Nothing here - try a different filter.</div>'; return; }
+  list.innerHTML = rows.map(function(t){ return testRowHtml(t, false); }).join('');
+  projWireTestRows(list);
+}
+
+function renderPassed(){
+  const list = document.getElementById('passedList');
+  const passed = projTestCache.filter(t => t.result === 'Pass');
+  document.getElementById('passedCounts').innerHTML =
+    '<span class="proj-count">Signed off <b>'+passed.length+'</b></span>'+
+    '<span class="proj-count">Of <b>'+projTestCache.length+'</b> total</span>';
+
+  projBuildAreaFilters('passedAreaFilters', projPassedAreaFilters, renderPassed);
+
+  let rows = passed;
+  if(projPassedAreaFilters.size) rows = rows.filter(t => projPassedAreaFilters.has(t.area));
+  if(!rows.length){ list.innerHTML = '<div class="empty-note">Nothing signed off yet.</div>'; return; }
+  list.innerHTML = rows.map(function(t){ return testRowHtml(t, true); }).join('');
+  projWireTestRows(list);
+}
+
+document.getElementById('testCopyBtn').addEventListener('click', function(){
+  if(!projTestCache.length){ toast('Nothing to copy yet.'); return; }
+  const order = ['Fail','Retest','','N/A','Pass'];
+  let out = 'TEST CHECKLIST\n\n';
+  order.forEach(function(r){
+    const rows = projTestCache.filter(t => (t.result || '') === r);
+    if(!rows.length) return;
+    out += '-- '+(r || 'NEEDS TEST')+' ('+rows.length+') --\n';
+    rows.forEach(function(t){
+      out += (t.num || '?')+'. '+(t.area || '')+' - '+(t.name || '')+'\n';
+      if(r === 'Fail' || r === 'Retest'){
+        if(t.expected) out += '    expect: '+t.expected+'\n';
+        if(t.notes)    out += '    found: '+t.notes+'\n';
+      } else if(t.notes){
+        out += '    notes: '+t.notes+'\n';
+      }
+    });
+    out += '\n';
+  });
+  projCopyText(out, 'Checklist copied - paste it to Claude');
+});
+
+document.getElementById('testFailsToTodoBtn').addEventListener('click', async function(){
+  const fails = projTestCache.filter(t => t.result === 'Fail');
+  if(!fails.length){ toast('No failing tests.'); return; }
+  let added = 0;
+  for(const t of fails){
+    const tag = 'Test #'+t.num;
+    if(projTodoCache.some(td => (td.task || '').indexOf(tag) === 0)) continue;
+    await addDoc(collection(db,'projectTodos'), {
+      task: tag+': '+(t.name || ''),
+      area: PROJ_AREAS.indexOf(t.area) >= 0 ? t.area : 'Other',
+      type: 'Bug',
+      priority: 'High',
+      notes: (t.expected ? 'Expected: '+t.expected+' ' : '')+(t.notes ? '| Found: '+t.notes : ''),
+      status: 'open',
+      createdAt: serverTimestamp()
+    });
+    added++;
+  }
+  toast(added ? added+' failing test(s) added to the To-Do list' : 'They were already on the list.');
+});
 
 function attachDeleteHandlers(container){
   container.querySelectorAll('[data-del]').forEach(function(btn){
