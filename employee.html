@@ -712,6 +712,10 @@ let currentPayType = 'hourly';
 // Only true when this person has BOTH a warehouse rate and a crew rate in admin.
 // That's what turns on the "Warehouse or Crew?" question at clock-in.
 let currentHasTwoRates = false;
+// Test accounts skip the shop-location check so clocking in can be tried from
+// anywhere. Deliberately loud on screen and stamped on every shift, so it can
+// never quietly stay on for a real employee.
+let currentIsTestAccount = false;
 async function startAppAs(name){
   currentPersonName = name;
   document.getElementById('currentPersonName').textContent = name;
@@ -732,6 +736,7 @@ async function startAppAs(name){
     payType = empData.payType || 'hourly';
     currentIsAdmin = !!empData.isAdmin;
     currentHasTwoRates = Number(empData.warehouseRate) > 0 && Number(empData.crewRate) > 0;
+    currentIsTestAccount = !!empData.isTestAccount;
 
     // Role Templates: if this person follows a template (and hasn't been
     // individually customized), the template decides what they see. Anyone
@@ -749,6 +754,7 @@ async function startAppAs(name){
   } catch(err){
     currentEmployeeRole = 'Crew';
     currentHasTwoRates = false;
+    currentIsTestAccount = false;
   }
 
   const isCrew = currentEmployeeRole === 'Crew';
@@ -2261,6 +2267,10 @@ function setClockLocationMsg(text){
 }
 function verifyAtClockLocation(){
   return new Promise(function(resolve){
+    if(currentIsTestAccount){
+      setClockLocationMsg('TEST ACCOUNT \u2014 location check skipped. These hours are for testing, not payroll.');
+      resolve(true); return;
+    }
     if(!navigator.geolocation){
       setClockLocationMsg('Your device doesn\'t support location — can\'t verify.');
       resolve(false); return;
@@ -2368,6 +2378,7 @@ document.getElementById('clockInBtn').addEventListener('click', async function()
     createdAt: serverTimestamp()
   };
   if(jobType) shift.jobType = jobType;
+  if(currentIsTestAccount) shift.isTestShift = true;
   await addDoc(collection(db,'timeLogs'), shift);
 });
 document.getElementById('clockOutBtn').addEventListener('click', async function(){
