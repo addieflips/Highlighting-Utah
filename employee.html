@@ -846,12 +846,26 @@ function updateChecklistNavBadge(hasContent){
   badge.style.display = hasContent ? 'flex' : 'none';
   badge.textContent = '!';
 }
-async function loadDailyChecklist(){
-  const wrap = document.getElementById('dailyChecklistWrap');
+/* Live, not load-once. The portal is a PWA that stays open all day, so a
+ * checklist saved in admin after sign-in never appeared until a full reload.
+ * This listener also picks up ticks made in admin, and the tick made here
+ * writes the same items[].done field — one shared checkmark, both ends. */
+let dailyChecklistUnsub = null;
+function loadDailyChecklist(){
   const todayStr = toDateStr(new Date());
   const docId = todayStr + '_' + currentPersonName;
+  if(dailyChecklistUnsub){ try{ dailyChecklistUnsub(); }catch(e){} dailyChecklistUnsub = null; }
+  dailyChecklistUnsub = onSnapshot(doc(db,'dailyChecklists',docId),
+    function(snap){ renderDailyChecklist(snap, docId); },
+    function(err){
+      const wrap = document.getElementById('dailyChecklistWrap');
+      wrap.style.display = currentEmployeeRole !== 'Crew' ? 'block' : 'none';
+      document.getElementById('checklistItemsList').innerHTML = '<p style="color:var(--ember); font-size:14px;">Couldn\'t load checklist.</p>';
+    });
+}
+function renderDailyChecklist(snap, docId){
+  const wrap = document.getElementById('dailyChecklistWrap');
   try{
-    const snap = await getDoc(doc(db,'dailyChecklists',docId));
     if(!snap.exists()){
       updateChecklistNavBadge(false);
       if(currentEmployeeRole !== 'Crew'){
@@ -890,8 +904,15 @@ async function loadDailyChecklist(){
       cb.addEventListener('change', async function(){
         const idx = Number(cb.dataset.idx);
         items[idx].done = cb.checked;
-        await updateDoc(doc(db,'dailyChecklists',docId), {items: items});
-        loadDailyChecklist();
+        cb.disabled = true;
+        try{
+          await updateDoc(doc(db,'dailyChecklists',docId), {items: items});
+          // No reload needed — the live listener redraws this list itself.
+        } catch(err){
+          items[idx].done = !cb.checked;
+          cb.checked = !cb.checked;
+        }
+        cb.disabled = false;
       });
     });
   } catch(err){
@@ -1554,6 +1575,7 @@ function whRender(){
     });
   });
 }
+let whChecklistUnsub = null;
 async function whLoadChecklist(){
   const todayStr = toDateStr(new Date());
   whChecklistDocId = todayStr + '_' + currentPersonName;
@@ -1561,6 +1583,15 @@ async function whLoadChecklist(){
     const snap = await getDoc(doc(db,'dailyChecklists',whChecklistDocId));
     whChecklistDoc = snap.exists() ? snap.data() : {items:[]};
   } catch(err){ whChecklistDoc = {items:[]}; }
+  // Same doc as the Checklist tab, so keep it live: anything the office adds or
+  // ticks during the day shows here without closing and reopening the portal.
+  if(whChecklistUnsub){ try{ whChecklistUnsub(); }catch(e){} whChecklistUnsub = null; }
+  let first = true;
+  whChecklistUnsub = onSnapshot(doc(db,'dailyChecklists',whChecklistDocId), function(snap){
+    if(first){ first = false; return; }
+    whChecklistDoc = snap.exists() ? snap.data() : {items:[]};
+    if(typeof whRender === 'function') whRender();
+  }, function(err){ /* ignore — keeps what's on screen */ });
 }
 async function whLoadLightsAndRecycleAndTimers(){
   try{
