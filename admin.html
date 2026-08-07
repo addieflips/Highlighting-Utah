@@ -2971,12 +2971,17 @@ Highlighting Utah</textarea>
           <div class="form-row"><label>Date</label><input type="date" id="checklistDateInput"></div>
           <div class="form-row"><label>Employee</label><select id="checklistEmployeeSelect"></select></div>
         </div>
+        <div id="checklistDateHint" style="font-size:13px; margin:-4px 0 14px;"></div>
         <div class="form-row"><label>Note to This Employee (optional)</label>
           <textarea id="checklistNoteInput" rows="2" placeholder="e.g. Please come in 30 minutes early today, or: great job this week!"></textarea>
         </div>
         <div class="form-row"><label>Checklist Items</label>
+          <p class="form-note" style="margin:0 0 8px;">Tick the box to mark something done. It's the same checkmark the employee sees on their phone &mdash; tick it here or there and it shows done in both places.</p>
           <div id="checklistItemsWrap"></div>
-          <button type="button" class="btn btn-outline btn-sm" id="addChecklistItemBtn" style="margin-top:8px;">+ Add Item</button>
+          <div style="display:flex; align-items:center; gap:12px; margin-top:8px; flex-wrap:wrap;">
+            <button type="button" class="btn btn-outline btn-sm" id="addChecklistItemBtn">+ Add Item</button>
+            <span id="checklistProgress" style="font-size:12.5px; color:var(--slate); font-weight:600;"></span>
+          </div>
         </div>
         <button type="button" class="btn btn-gold" id="saveChecklistBtn" style="margin-top:14px;">Save for This Employee</button>
         <span id="checklistSaveStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
@@ -13277,7 +13282,11 @@ function loadEmployeeNames(){
     renderCrewAssignList();
     renderOverrideEmployeeSelect();
     renderPayrollWeek();
-    if(typeof renderChecklistEmployeeSelect === 'function') renderChecklistEmployeeSelect();
+    if(typeof renderChecklistEmployeeSelect === 'function'){
+      renderChecklistEmployeeSelect();
+      // Names arrive after the panel is built, so hook the live listener up here.
+      if(typeof loadChecklistForSelection === 'function') loadChecklistForSelection();
+    }
     if(typeof renderConversationList === 'function') renderConversationList();
     if(typeof populateAddExpenseEmployeeSelect === 'function') populateAddExpenseEmployeeSelect();
     if(typeof populateInboxEmployeeSelect === 'function') populateInboxEmployeeSelect();
@@ -14245,46 +14254,127 @@ function renderChecklistEmployeeSelect(){
   sel.innerHTML = employeeNames.map(function(e){ return '<option value="'+esc(e.name)+'">'+esc(e.name)+' ('+esc(e.role||'Crew')+')</option>'; }).join('');
   if(current) sel.value = current;
 }
+/* The Crew Portal only ever looks for TODAY's document for the person signed in
+ * (doc id = date_Name). A blank or wrong date here is the usual reason a
+ * checklist "never showed up" on the phone, so the date defaults to today and
+ * the hint below says plainly whether it's live or not.
+ * The tick box on each item writes the SAME items[].done field the crew ticks,
+ * so office and phone share one checkmark rather than two competing ones. */
 function renderChecklistItemInputs(items){
   const wrap = document.getElementById('checklistItemsWrap');
   const list = items && items.length ? items : [{text:'', done:false}];
   wrap.innerHTML = list.map(function(item, i){
-    return '<div style="display:flex; gap:8px; margin-bottom:8px;">'+
-      '<input type="text" class="checklist-item-input" value="'+esc(item.text||'')+'" placeholder="e.g. Restock zip ties in the van" style="flex:1; padding:9px 12px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:13.5px;">'+
+    return '<div class="checklist-item-row" style="display:flex; gap:8px; margin-bottom:8px; align-items:center;">'+
+      '<input type="checkbox" class="checklist-item-done" '+(item.done?'checked':'')+' title="Mark done" style="width:18px; height:18px; flex:0 0 auto; cursor:pointer;">'+
+      '<input type="text" class="checklist-item-input" value="'+esc(item.text||'')+'" placeholder="e.g. Restock zip ties in the van" style="flex:1; padding:9px 12px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:13.5px;'+(item.done?' text-decoration:line-through; color:var(--slate);':'')+'">'+
       '<button type="button" class="icon-btn danger remove-checklist-item" title="Remove">'+trashIcon()+'</button>'+
     '</div>';
   }).join('');
   wrap.querySelectorAll('.remove-checklist-item').forEach(function(btn){
     btn.addEventListener('click', function(){
-      btn.closest('div').remove();
+      btn.closest('.checklist-item-row').remove();
       if(!wrap.children.length) renderChecklistItemInputs([]);
+      updateChecklistProgress();
     });
   });
+  wrap.querySelectorAll('.checklist-item-done').forEach(function(cb){
+    cb.addEventListener('change', function(){ checklistToggleDone(cb); });
+  });
+  updateChecklistProgress();
+}
+function updateChecklistProgress(){
+  const el = document.getElementById('checklistProgress');
+  if(!el) return;
+  const rows = Array.from(document.querySelectorAll('#checklistItemsWrap .checklist-item-row'))
+    .filter(function(r){ return r.querySelector('.checklist-item-input').value.trim(); });
+  if(!rows.length){ el.textContent = ''; return; }
+  const done = rows.filter(function(r){ return r.querySelector('.checklist-item-done').checked; }).length;
+  el.textContent = done + ' of ' + rows.length + ' done';
+}
+// Ticking here saves straight away so the phone sees it without a Save press.
+async function checklistToggleDone(cb){
+  const row = cb.closest('.checklist-item-row');
+  const textInput = row.querySelector('.checklist-item-input');
+  const text = textInput.value.trim();
+  textInput.style.textDecoration = cb.checked ? 'line-through' : '';
+  textInput.style.color = cb.checked ? 'var(--slate)' : '';
+  updateChecklistProgress();
+  const dateStr = document.getElementById('checklistDateInput').value;
+  const empName = document.getElementById('checklistEmployeeSelect').value;
+  const statusEl = document.getElementById('checklistSaveStatus');
+  if(!dateStr || !empName || !text) return;
+  try{
+    const ref = doc(db,'dailyChecklists', dateStr + '_' + empName);
+    const snap = await getDoc(ref);
+    const saved = snap.exists() ? (snap.data().items || []) : null;
+    const match = saved ? saved.find(function(o){ return o.text === text; }) : null;
+    if(!match){
+      statusEl.textContent = 'Press Save first — this item isn\u2019t saved yet.';
+      setTimeout(function(){ statusEl.textContent = ''; }, 4000);
+      return;
+    }
+    match.done = cb.checked;
+    await updateDoc(ref, {items: saved});
+  } catch(err){
+    statusEl.textContent = 'Couldn\u2019t save that tick — check your connection.';
+    setTimeout(function(){ statusEl.textContent = ''; }, 4000);
+  }
 }
 document.getElementById('addChecklistItemBtn').addEventListener('click', function(){
   const wrap = document.getElementById('checklistItemsWrap');
-  const currentItems = Array.from(wrap.querySelectorAll('.checklist-item-input')).map(inp => ({text:inp.value, done:false}));
+  const currentItems = Array.from(wrap.querySelectorAll('.checklist-item-row')).map(function(row){
+    return {text: row.querySelector('.checklist-item-input').value, done: row.querySelector('.checklist-item-done').checked};
+  });
   currentItems.push({text:'', done:false});
   renderChecklistItemInputs(currentItems);
 });
-async function loadChecklistForSelection(){
+function updateChecklistDateHint(){
+  const el = document.getElementById('checklistDateHint');
+  if(!el) return;
+  const dateStr = document.getElementById('checklistDateInput').value;
+  const empName = document.getElementById('checklistEmployeeSelect').value;
+  if(!dateStr){ el.innerHTML = ''; return; }
+  const parts = dateStr.split('-');
+  const dt = new Date(Number(parts[0]), Number(parts[1])-1, Number(parts[2]));
+  const pretty = dt.toLocaleDateString('en-US', {weekday:'long', month:'short', day:'numeric'});
+  const who = empName ? esc(empName) : 'they';
+  if(dateStr === toDateStr(new Date())){
+    el.innerHTML = '<span style="color:var(--slate);">'+pretty+' &mdash; today. This shows on '+who+'\u2019s phone right now, under Checklist.</span>';
+  } else {
+    el.innerHTML = '<span style="color:#8A5A00; background:#FFF8E9; border:1px solid var(--gold-dim); border-radius:8px; padding:7px 10px; display:inline-block;">Heads up &mdash; this is for '+pretty+', not today. '+who+' only sees <strong>today\u2019s</strong> list on their phone, so it won\u2019t appear until that date.</span>';
+  }
+}
+// Live: the crew ticking something on their phone updates these boxes without a
+// reload. Only the tick states are synced — never the text you're typing.
+let checklistLiveUnsub = null;
+function loadChecklistForSelection(){
+  const dateEl = document.getElementById('checklistDateInput');
+  if(dateEl && !dateEl.value) dateEl.value = toDateStr(new Date());
+  updateChecklistDateHint();
+  if(checklistLiveUnsub){ try{ checklistLiveUnsub(); }catch(e){} checklistLiveUnsub = null; }
   const dateStr = document.getElementById('checklistDateInput').value;
   const empName = document.getElementById('checklistEmployeeSelect').value;
   if(!dateStr || !empName) return;
-  const docId = dateStr + '_' + empName;
-  try{
-    const snap = await getDoc(doc(db,'dailyChecklists',docId));
-    if(snap.exists()){
-      const d = snap.data();
-      document.getElementById('checklistNoteInput').value = d.adminNote || '';
-      renderChecklistItemInputs(d.items || []);
-    } else {
-      document.getElementById('checklistNoteInput').value = '';
-      renderChecklistItemInputs([]);
+  let first = true;
+  checklistLiveUnsub = onSnapshot(doc(db,'dailyChecklists', dateStr + '_' + empName), function(snap){
+    const items = (snap.exists() && snap.data().items) || [];
+    if(first){
+      first = false;
+      document.getElementById('checklistNoteInput').value = snap.exists() ? (snap.data().adminNote || '') : '';
+      renderChecklistItemInputs(items);
+      return;
     }
-  } catch(err){
-    renderChecklistItemInputs([]);
-  }
+    document.querySelectorAll('#checklistItemsWrap .checklist-item-row').forEach(function(row){
+      const textInput = row.querySelector('.checklist-item-input');
+      const match = items.find(function(o){ return o.text === textInput.value.trim(); });
+      if(!match) return;
+      const box = row.querySelector('.checklist-item-done');
+      box.checked = !!match.done;
+      textInput.style.textDecoration = match.done ? 'line-through' : '';
+      textInput.style.color = match.done ? 'var(--slate)' : '';
+    });
+    updateChecklistProgress();
+  }, function(err){ /* ignore — keeps whatever is on screen */ });
 }
 document.getElementById('checklistDateInput').addEventListener('change', loadChecklistForSelection);
 document.getElementById('checklistEmployeeSelect').addEventListener('change', loadChecklistForSelection);
@@ -14294,29 +14384,40 @@ document.getElementById('saveChecklistBtn').addEventListener('click', async func
   const statusEl = document.getElementById('checklistSaveStatus');
   if(!dateStr || !empName){ statusEl.textContent = 'Pick a date and employee first.'; return; }
   const note = document.getElementById('checklistNoteInput').value.trim();
-  const items = Array.from(document.querySelectorAll('.checklist-item-input'))
-    .map(inp => inp.value.trim())
-    .filter(Boolean)
-    .map(text => ({text: text, done: false}));
+  const items = Array.from(document.querySelectorAll('#checklistItemsWrap .checklist-item-row'))
+    .map(function(row){
+      return {text: row.querySelector('.checklist-item-input').value.trim(), done: row.querySelector('.checklist-item-done').checked};
+    })
+    .filter(function(it){ return it.text; });
   const docId = dateStr + '_' + empName;
-  // preserve existing done-state for items whose text didn't change
+  // preserve existing done-state for items whose text didn't change, unless the
+  // box on screen is already ticked (an office tick shouldn't be undone by a save)
   try{
     const existing = await getDoc(doc(db,'dailyChecklists',docId));
     if(existing.exists() && existing.data().items){
       const oldItems = existing.data().items;
       items.forEach(function(item){
+        if(item.done) return;
         const match = oldItems.find(o => o.text === item.text);
-        if(match) item.done = match.done;
+        if(match) item.done = !!match.done;
       });
     }
   } catch(err){ /* proceed anyway */ }
   await setDoc(doc(db,'dailyChecklists',docId), {
     date: dateStr, employeeName: empName, adminNote: note, items: items, updatedAt: serverTimestamp()
   });
-  statusEl.textContent = 'Saved for ' + empName + '.';
-  setTimeout(function(){ statusEl.textContent = ''; }, 3000);
+  statusEl.textContent = dateStr === toDateStr(new Date())
+    ? 'Saved \u2014 it\u2019s on ' + empName + '\u2019s phone now.'
+    : 'Saved for ' + empName + ' on ' + dateStr + '.';
+  setTimeout(function(){ statusEl.textContent = ''; }, 4000);
 });
-renderChecklistItemInputs([]);
+// Default to today so a blank date can't quietly file the list under nothing.
+(function initChecklistDate(){
+  const el = document.getElementById('checklistDateInput');
+  if(el && !el.value) el.value = toDateStr(new Date());
+  renderChecklistItemInputs([]);
+  updateChecklistDateHint();
+})();
 
 /* ---------------- NOTES FROM EMPLOYEES (kept, simple one-way notes) ---------------- */
 let employeeNotesCache = [];
