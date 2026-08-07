@@ -2760,6 +2760,7 @@ Highlighting Utah</textarea>
         <div class="route-tabs" id="tlSectionTabs">
           <button class="route-tab-btn active" data-tltab="payroll" draggable="true">Weekly Payroll</button>
           <button class="route-tab-btn" data-tltab="history" draggable="true">Time Log History</button>
+        <button class="route-tab-btn" data-tltab="test" draggable="true">Payroll Testing</button>
         </div>
         <label style="display:flex; align-items:center; gap:6px; font-size:13.5px; cursor:pointer;">
           <input type="checkbox" id="tlSplitViewToggle"> Split view (see both side by side)
@@ -2787,6 +2788,22 @@ Highlighting Utah</textarea>
 
         <div class="gen-subtab-panel" id="tltab-history">
         <div class="row-list" id="timeLogsList"><div class="empty-note">Loading…</div></div>
+        </div>
+        <div class="gen-subtab-panel" id="tltab-test">
+          <div class="card" style="margin-bottom:16px; background:#FDECEA; border-color:#f0b3ac;">
+            <h3 style="margin:0 0 6px;">Payroll Testing</h3>
+            <p class="form-note" style="margin:0;">A practice run. This shows only shifts from people marked <strong>Test account</strong> in Responsibilities &rarr; Employee Names, using the exact same rate, overtime and blending math as real payroll &mdash; so what you see here is what a real week will look like. <strong>Nothing here is ever paid or included in the real export.</strong></p>
+          </div>
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+            <strong style="font-size:13.5px;">Week of <span id="payrollTestWeekLabel">&mdash;</span></strong>
+            <span style="font-size:12px; color:var(--slate);">Use the arrows on the Weekly Payroll tab to change week.</span>
+          </div>
+          <div id="payrollTestTable" class="row-list"><div class="empty-note">Loading&hellip;</div></div>
+          <div style="margin-top:14px; border-top:1px solid #f0b3ac; padding-top:12px;">
+            <button type="button" class="btn btn-ember btn-sm" id="gustoExportTestBtn">Export Test CSV for Gusto</button>
+            <span style="font-size:12px; color:var(--slate); margin-left:8px;">Same file layout as the real export, built from test shifts only. Safe to practice uploading into Gusto's import screen.</span>
+            <div id="gustoExportTestStatus" style="font-size:12.5px; margin-top:8px;"></div>
+          </div>
         </div>
       </div>
 
@@ -12995,9 +13012,17 @@ function renderPayrollWeek(){
   const labelEls = [document.getElementById('payrollWeekLabel'), document.getElementById('payrollWeekLabel2')].filter(Boolean);
   if(!tableEls.length) return;
   const {start, end} = getPayrollWeekBounds();
-  const labelText = start.toLocaleDateString('en-US',{month:'short',day:'numeric'}) + ' – ' + end.toLocaleDateString('en-US',{month:'short',day:'numeric', year:'numeric'}) + ' (Pay Day: Fri)';
-  labelEls.forEach(el => el.textContent = labelText);
-
+  const labelText0 = start.toLocaleDateString('en-US',{month:'short',day:'numeric'}) + ' \u2013 ' + end.toLocaleDateString('en-US',{month:'short',day:'numeric', year:'numeric'}) + ' (Pay Day: Fri)';
+  labelEls.forEach(el => el.textContent = labelText0);
+  tableEls.forEach(el => el.innerHTML = buildPayrollWeekHtml(false));
+  renderPayrollTestWeek();
+}
+/* Builds the payroll table body for the current week.
+   testOnly=false -> real paid work (test accounts filtered out)
+   testOnly=true  -> ONLY test-account shifts, so payroll can be tried out
+   Both go through the same rate, overtime and blending logic. */
+function buildPayrollWeekHtml(testOnly){
+  const {start, end} = getPayrollWeekBounds();
   // Hours are bucketed per person AND per rate, so someone who worked warehouse
   // days and crew days shows a line for each instead of one blurred average.
   const hoursByEmployee = {};
@@ -13010,7 +13035,7 @@ function renderPayrollWeek(){
     const hours = (outTime - inTime) / 3600000;
     const name = d.employeeName || d.employeeEmail || 'Unknown';
     const emp = employeeNames.find(e => e.name === name);
-    if(isTestShift(d, emp)) return;
+    if(isTestShift(d, emp) !== !!testOnly) return;
     // Only split when the person actually has two rates; everyone else stays on one line.
     const bucket = (empHasTwoRates(emp) && d.jobType) ? d.jobType : 'base';
     if(!hoursByEmployee[name]) hoursByEmployee[name] = {};
@@ -13073,11 +13098,19 @@ function renderPayrollWeek(){
       '</div>';
     });
     html += '<div class="row-item" style="background:var(--ink); color:#fff;">'+
-      '<div class="rmain"><h4 style="color:#fff;">Total Payroll This Week</h4></div>'+
+      '<div class="rmain"><h4 style="color:#fff;">'+(testOnly ? 'Total (test only \u2014 not paid)' : 'Total Payroll This Week')+'</h4></div>'+
       '<div style="font-family:\'Fraunces\',serif; font-weight:700; font-size:19px; color:var(--gold);">$'+totalPay.toFixed(2)+'</div>'+
     '</div>';
   }
-  tableEls.forEach(el => el.innerHTML = html);
+  return html;
+}
+function renderPayrollTestWeek(){
+  const el = document.getElementById('payrollTestTable');
+  if(!el) return;
+  const {start, end} = getPayrollWeekBounds();
+  const lbl = document.getElementById('payrollTestWeekLabel');
+  if(lbl) lbl.textContent = start.toLocaleDateString('en-US',{month:'short',day:'numeric'}) + ' \u2013 ' + end.toLocaleDateString('en-US',{month:'short',day:'numeric', year:'numeric'});
+  el.innerHTML = buildPayrollWeekHtml(true);
 }
 // ---- GUSTO EXPORT ----
 // Builds one row per person per pay rate, matching Gusto's grid (which allows a
@@ -13088,7 +13121,7 @@ function renderPayrollWeek(){
 // chronological sequence, and anything past 40 for the week counts as overtime on
 // whichever kind of work was being done at the time.
 const OT_WEEKLY_THRESHOLD = 40;
-function buildGustoRows(){
+function buildGustoRows(testOnly){
   const {start, end} = getPayrollWeekBounds();
   const shiftsByPerson = {};
   let openShifts = 0;
@@ -13100,7 +13133,8 @@ function buildGustoRows(){
     const name = d.employeeName || d.employeeEmail || 'Unknown';
     const emp = employeeNames.find(e => e.name === name);
     if(emp && emp.payType === 'salary') return; // salaried people aren't paid by the hour
-    if(isTestShift(d, emp)) return; // test hours never reach a paycheck
+    // Real export excludes test shifts; the testing tab shows only those.
+    if(isTestShift(d, emp) !== !!testOnly) return;
     if(!d.clockOutAt || !d.clockOutAt.toDate){ openShifts++; return; }
     const hours = (d.clockOutAt.toDate() - inTime) / 3600000;
     if(hours <= 0) return;
@@ -13138,7 +13172,7 @@ function buildGustoRows(){
   });
   return {rows: rows, openShifts: openShifts, start: start, end: end};
 }
-function runGustoExport(statusEl){
+function runGustoExport(statusEl, testOnly){
   function say(msg, colour){
     if(statusEl){ statusEl.innerHTML = msg; statusEl.style.color = colour || 'var(--slate)'; }
   }
@@ -13149,14 +13183,16 @@ function runGustoExport(statusEl){
     const f = String(e.name||'').trim().split(/\s+/)[0].toLowerCase();
     if(f) firstNames[f] = (firstNames[f] || 0) + 1;
   });
-  const dupes = Object.keys(firstNames).filter(function(f){ return firstNames[f] > 1; });
+  const dupes = testOnly ? [] : Object.keys(firstNames).filter(function(f){ return firstNames[f] > 1; });
   if(dupes.length){
     say('Export stopped &mdash; more than one person shares the first name <strong>'+dupes.map(function(f){ return esc(f.charAt(0).toUpperCase()+f.slice(1)); }).join(', ')+'</strong>. Give them distinct names in Employee Names first so nobody gets paid the wrong hours.', 'var(--ember)');
     return;
   }
-  const {rows, openShifts, start, end} = buildGustoRows();
+  const {rows, openShifts, start, end} = buildGustoRows(testOnly);
   if(!rows.length){
-    say('Nothing to export &mdash; no finished shifts in this week yet.', 'var(--ember)');
+    say(testOnly
+      ? 'Nothing to export &mdash; no finished test shifts this week. Mark someone as a Test account in Responsibilities, clock them in and out, then try again.'
+      : 'Nothing to export &mdash; no finished shifts in this week yet.', 'var(--ember)');
     return;
   }
   const header = ['Employee','Pay Rate','Regular Hours','Overtime Hours'];
@@ -13172,12 +13208,13 @@ function runGustoExport(statusEl){
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'gusto-hours-' + stamp + '.csv';
+  a.download = (testOnly ? 'TEST-gusto-hours-' : 'gusto-hours-') + stamp + '.csv';
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
-  let msg = 'Downloaded <strong>' + rows.length + ' line(s)</strong> for ' + stamp.replace('_to_',' to ') + '. Upload it in Gusto under Run payroll &rarr; Import payroll data.';
+  let msg = 'Downloaded <strong>' + rows.length + ' line(s)</strong> for ' + stamp.replace('_to_',' to ') + '. Upload it in Gusto under Run payroll &rarr; Import payroll data.'+
+    (testOnly ? '<br><strong>This is a test file</strong> \u2014 practice the import, then discard the payroll rather than submitting it.' : '');
   if(openShifts){
     msg += '<br><span style="color:var(--ember);"><strong>Heads up:</strong> ' + openShifts + ' shift(s) are still clocked in and were left out. Export again after everyone clocks out.</span>';
   }
@@ -13188,6 +13225,9 @@ document.getElementById('gustoExportBtn').addEventListener('click', function(){
 });
 document.getElementById('gustoExportBtn2').addEventListener('click', function(){
   runGustoExport(document.getElementById('gustoExportStatus2'));
+});
+document.getElementById('gustoExportTestBtn').addEventListener('click', function(){
+  runGustoExport(document.getElementById('gustoExportTestStatus'), true);
 });
 document.getElementById('payrollPrevWeek').addEventListener('click', function(){ payrollWeekOffset--; renderPayrollWeek(); });
 document.getElementById('payrollNextWeek').addEventListener('click', function(){ payrollWeekOffset++; renderPayrollWeek(); });
