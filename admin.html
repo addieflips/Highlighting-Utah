@@ -126,6 +126,27 @@
   .nav-section.collapsed .nav-section-chevron{ transform:rotate(-90deg); }
   .nav-section.collapsed .nav-section-body{ display:none; }
   .sidebar.collapsed .nav-section-chevron{ display:none; }
+  .user-chip{
+    display:flex; align-items:center; gap:10px; margin-bottom:18px;
+    padding:10px 11px; border-radius:12px;
+    background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.09);
+  }
+  .user-chip-avatar{
+    width:32px; height:32px; flex-shrink:0; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    background:var(--gold); color:var(--ink); font-weight:700; font-size:12.5px;
+  }
+  .user-chip-text{ flex:1; min-width:0; }
+  .user-chip-name{ font-size:13px; font-weight:600; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .user-chip-mail{ font-size:11px; color:rgba(255,255,255,.5); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .user-chip button{
+    flex-shrink:0; background:none; border:none; cursor:pointer; padding:5px;
+    color:rgba(255,255,255,.55); border-radius:7px; line-height:0;
+  }
+  .user-chip button:hover{ background:rgba(255,255,255,.1); color:#fff; }
+  .user-chip button svg{ width:17px; height:17px; }
+  .sidebar.collapsed .user-chip{ padding:8px 0; justify-content:center; }
+  .sidebar.collapsed .user-chip-text, .sidebar.collapsed .user-chip button{ display:none; }
   .sidebar-footer{ margin-top:auto; padding-top:16px; border-top:1px solid rgba(255,255,255,.1); }
   .sidebar-footer button{
     width:100%; background:none; border:1px solid rgba(255,255,255,.25); color:rgba(255,255,255,.8);
@@ -607,21 +628,58 @@
     padding:11px 14px; border-radius:10px; margin-bottom:14px; font-size:13px;
     background:#EDF5EE; border:1px solid #CBE0CE; color:#1F4E3D;
   }
-  .proj-filterbar{ display:flex; align-items:flex-start; gap:10px; flex-wrap:wrap; margin-bottom:6px; }
-  .proj-filterlabel{
-    font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
-    color:var(--slate, #777); padding-top:11px; min-width:44px;
-  }
-  .proj-filterbar .route-tabs{ flex:1 1 auto; margin-bottom:0; }
-  .proj-filterhint{ font-size:11.5px; color:var(--slate, #888); margin:0 0 12px 54px; }
   .proj-retest{
     margin-top:6px; padding:7px 10px; border-radius:8px; font-size:12.5px;
     background:#FFF3E0; border:1px solid #F0D6AE; color:#8A4B00;
   }
-  @media(max-width:640px){
-    .proj-filterlabel{ padding-top:0; }
-    .proj-filterhint{ margin-left:0; }
+  /* ---- Tick-box dropdown filters ---- */
+  .proj-filterrow{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:4px; }
+  .proj-dd{ position:relative; }
+  .proj-dd-btn{
+    display:inline-flex; align-items:center; gap:8px; cursor:pointer;
+    padding:9px 14px; border-radius:999px; border:1px solid var(--line, #ddd);
+    background:#fff; font:inherit; font-size:13px; color:var(--ink, #222);
   }
+  .proj-dd-btn:hover{ border-color:var(--slate, #999); }
+  .proj-dd-btn.has-selection{ background:var(--ink, #1c1c1c); color:#fff; border-color:var(--ink, #1c1c1c); }
+  .proj-dd-label{ font-weight:700; font-size:11px; letter-spacing:.06em; text-transform:uppercase; opacity:.65; }
+  .proj-dd-value{ font-weight:600; }
+  .proj-dd-chev{ width:14px; height:14px; opacity:.6; transition:transform .15s; }
+  .proj-dd.open .proj-dd-chev{ transform:rotate(180deg); }
+  .proj-dd-panel{
+    display:none; position:absolute; z-index:60; top:calc(100% + 6px); left:0;
+    min-width:230px; max-height:320px; overflow:auto; padding:6px;
+    background:#fff; border:1px solid var(--line, #ddd); border-radius:12px;
+    box-shadow:0 10px 30px rgba(0,0,0,.13);
+  }
+  .proj-dd.open .proj-dd-panel{ display:block; }
+  .proj-dd-opt{
+    display:flex; align-items:center; gap:10px; cursor:pointer;
+    padding:9px 10px; border-radius:8px; font-size:13.5px;
+  }
+  .proj-dd-opt:hover{ background:#F4F4F2; }
+  .proj-dd-opt input{ width:17px; height:17px; margin:0; flex-shrink:0; accent-color:#1F4E3D; }
+  .proj-dd-optlabel{ flex:1; }
+  .proj-dd-count{ font-size:12px; font-weight:700; color:var(--slate, #888); }
+  .proj-dd-clear{
+    width:100%; margin-top:4px; padding:9px; cursor:pointer;
+    border:none; border-top:1px solid var(--line, #eee); background:none;
+    font:inherit; font-size:12.5px; font-weight:600; color:var(--slate, #666);
+  }
+  .proj-dd-clear:hover{ color:var(--ink, #222); }
+  .proj-dd-reset{
+    border:none; background:none; cursor:pointer; padding:6px 4px;
+    font:inherit; font-size:12.5px; font-weight:600; color:var(--slate, #888);
+    text-decoration:underline;
+  }
+  .proj-dd-reset:hover{ color:var(--ink, #222); }
+  @media(max-width:640px){
+    .proj-dd{ flex:1 1 100%; }
+    .proj-dd-btn{ width:100%; justify-content:space-between; }
+    .proj-dd-panel{ left:0; right:0; min-width:0; }
+  }
+  .proj-tag.who{ background:#E4EDE6; color:#2F5D34; }
+  .proj-tag.who.me{ background:#1F4E3D; color:#fff; }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyByI2wHguK1JLNdUFJQKiA_gunoVtTkyqM"></script>
@@ -753,6 +811,16 @@
       </div>
       <button type="button" id="sidebarCollapseBtn" title="Collapse sidebar">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
+    </div>
+    <div class="user-chip" id="userChip">
+      <div class="user-chip-avatar" id="userChipInitials">&nbsp;</div>
+      <div class="user-chip-text">
+        <div class="user-chip-name" id="userChipName">Signed in</div>
+        <div class="user-chip-mail" id="userChipMail"></div>
+      </div>
+      <button type="button" id="userChipLogout" title="Log out">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
       </button>
     </div>
     <div id="favoritesSection" style="display:none;">
@@ -3258,9 +3326,9 @@ Highlighting Utah</textarea>
       <div class="panel-head"><div><h2>Project</h2><p>The running to-do list for the website, and the test checklist for what has been checked.</p></div></div>
 
       <div class="route-tabs" id="projSectionTabs" style="margin-bottom:20px;">
-        <button class="route-tab-btn active" data-projtab="todo">To-Do List</button>
-        <button class="route-tab-btn" data-projtab="tests">Test Checklist <span class="proj-tabcount" id="tabCountTests"></span></button>
-        <button class="route-tab-btn" data-projtab="passed">Passed <span class="proj-tabcount" id="tabCountPassed"></span></button>
+        <button class="route-tab-btn active" data-projtab="todo" draggable="true">To-Do List</button>
+        <button class="route-tab-btn" data-projtab="tests" draggable="true">Test Checklist <span class="proj-tabcount" id="tabCountTests"></span></button>
+        <button class="route-tab-btn" data-projtab="passed" draggable="true">Passed <span class="proj-tabcount" id="tabCountPassed"></span></button>
       </div>
 
       <!-- ============ TO-DO TAB ============ -->
@@ -3285,6 +3353,9 @@ Highlighting Utah</textarea>
               <div class="form-row"><label>Priority</label><select id="todoPriority">
                 <option>High</option><option selected>Medium</option><option>Low</option>
               </select></div>
+              <div class="form-row"><label>Assigned to</label><select id="todoAssignee">
+                <option value="">Unassigned</option>
+              </select></div>
             </div>
             <div class="form-row"><label>Notes (optional)</label><textarea id="todoNotes" rows="2"></textarea></div>
             <button type="submit" class="btn btn-gold">Save Task</button>
@@ -3294,6 +3365,7 @@ Highlighting Utah</textarea>
 
         <div class="route-tabs" id="todoFilters" style="margin-bottom:14px;">
           <button type="button" class="route-tab-btn active" data-todofilter="open">Open</button>
+          <button type="button" class="route-tab-btn" data-todofilter="mine">Mine</button>
           <button type="button" class="route-tab-btn" data-todofilter="high">High Priority</button>
           <button type="button" class="route-tab-btn" data-todofilter="done">Done</button>
           <button type="button" class="route-tab-btn" data-todofilter="all">All</button>
@@ -3317,21 +3389,10 @@ Highlighting Utah</textarea>
         </div>
         <div id="testSyncReport" class="proj-syncreport" style="display:none;"></div>
 
-        <div class="proj-filterbar">
-          <div class="proj-filterlabel">Show</div>
-          <div class="route-tabs" id="testFilters">
-            <button type="button" class="route-tab-btn active" data-testfilter="all">All</button>
-            <button type="button" class="route-tab-btn" data-testfilter="none">Needs Test</button>
-            <button type="button" class="route-tab-btn" data-testfilter="Retest">Retest</button>
-            <button type="button" class="route-tab-btn" data-testfilter="Fail">Fail</button>
-            <button type="button" class="route-tab-btn" data-testfilter="N/A">N/A</button>
-          </div>
-        </div>
-        <div class="proj-filterhint">Tick more than one to see them together.</div>
-
-        <div class="proj-filterbar">
-          <div class="proj-filterlabel">Area</div>
-          <div class="route-tabs" id="testAreaFilters"></div>
+        <div class="proj-filterrow">
+          <div class="proj-dd" id="ddTestResult"></div>
+          <div class="proj-dd" id="ddTestArea"></div>
+          <button type="button" class="proj-dd-reset" id="testFilterReset">Clear filters</button>
         </div>
 
         <div style="display:flex; gap:10px; flex-wrap:wrap; margin:14px 0;">
@@ -3362,9 +3423,9 @@ Highlighting Utah</textarea>
       <div id="projtab-passed" style="display:none;">
         <div class="proj-counts" id="passedCounts"></div>
         <p class="proj-synchelp" style="margin:0 0 16px;">Tests that have been signed off. If a change affects one of these, Sync moves it back to the checklist as Retest.</p>
-        <div class="proj-filterbar">
-          <div class="proj-filterlabel">Area</div>
-          <div class="route-tabs" id="passedAreaFilters"></div>
+        <div class="proj-filterrow">
+          <div class="proj-dd" id="ddPassedArea"></div>
+          <button type="button" class="proj-dd-reset" id="passedFilterReset">Clear filter</button>
         </div>
         <div class="row-list" id="passedList" style="margin-top:14px;"><div class="empty-note">Loading&hellip;</div></div>
       </div>
@@ -3575,6 +3636,22 @@ document.getElementById('loginForm').addEventListener('submit', function(e){
     errEl.textContent = messages[code] || ('Login failed' + (code ? ' (' + code + ')' : '') + '.');
   });
 });
+/* Who is signed in, shown at the top of the sidebar rather than only at the
+   bottom, where it sat below every nav item and was effectively unreachable. */
+function renderUserChip(user){
+  const email = (user && user.email) || '';
+  const match = (typeof employeeNames !== 'undefined' && employeeNames)
+    ? employeeNames.find(function(e){ return e.loginEmail && e.loginEmail === email.toLowerCase(); })
+    : null;
+  const name = (match && match.name) || email.split('@')[0] || 'Signed in';
+  const initials = name.trim().split(/\s+/).slice(0,2).map(function(w){ return w.charAt(0).toUpperCase(); }).join('') || '?';
+  document.getElementById('userChipInitials').textContent = initials;
+  document.getElementById('userChipName').textContent = name;
+  document.getElementById('userChipMail').textContent = email;
+}
+document.getElementById('userChipLogout').addEventListener('click', function(){
+  if(confirm('Log out of the admin dashboard?')) signOut(auth);
+});
 document.getElementById('logoutBtn').addEventListener('click', function(){
   signOut(auth);
 });
@@ -3583,7 +3660,8 @@ onAuthStateChanged(auth, function(user){
     loginScreen.style.display = 'none';
     appEl.classList.add('show');
     document.getElementById('whoAmI').textContent = user.email;
-    setTimeout(initData, 0);
+    renderUserChip(user);
+    loadUserPrefs(user).then(function(){ setTimeout(initData, 0); });
   } else {
     loginScreen.style.display = 'flex';
     appEl.classList.remove('show');
@@ -3612,11 +3690,93 @@ document.getElementById('mobileSidebarToggle').addEventListener('click', functio
 });
 
 /* ---------------- FAVORITES / PINNING ---------------- */
+/* ---- Per-user preferences ---------------------------------------------
+   These used to be browser-local, which meant two people sharing a computer
+   shared one set of favourites and nobody's followed them to their phone.
+   They now live in adminUserPrefs/<uid>, so they belong to the login. What
+   was already in the browser is migrated across once, so no pins are lost. */
+let projUserPrefs = { pinnedPanels: [], navCollapsed: {}, sidebarCollapsed: false, tabOrders: {} };
+let projUserPrefsReady = false;
+let projUserPrefsUid = null;
+
+function prefsLocalFallback(){
+  try{
+    return {
+      pinnedPanels: JSON.parse(localStorage.getItem('huPinnedPanels') || '[]'),
+      navCollapsed: JSON.parse(localStorage.getItem('huNavSectionsCollapsed') || '{}'),
+      sidebarCollapsed: localStorage.getItem('huSidebarCollapsed') === '1',
+      tabOrders: {}
+    };
+  }catch(err){ return { pinnedPanels: [], navCollapsed: {}, sidebarCollapsed: false, tabOrders: {} }; }
+}
+
+function savePrefs(){
+  if(!projUserPrefsUid) return;
+  setDoc(doc(db,'adminUserPrefs',projUserPrefsUid), projUserPrefs, {merge:true});
+}
+
+async function loadUserPrefs(user){
+  projUserPrefsUid = user && user.uid ? user.uid : null;
+  const local = prefsLocalFallback();
+  if(!projUserPrefsUid){ projUserPrefs = local; projUserPrefsReady = true; return; }
+  try{
+    const snap = await getDoc(doc(db,'adminUserPrefs',projUserPrefsUid));
+    if(snap.exists()){
+      const d = snap.data();
+      projUserPrefs = {
+        pinnedPanels: d.pinnedPanels || [],
+        navCollapsed: d.navCollapsed || {},
+        sidebarCollapsed: !!d.sidebarCollapsed,
+        tabOrders: d.tabOrders || {}
+      };
+    } else {
+      projUserPrefs = local;   /* first sign-in on this account: carry the browser's settings over */
+      savePrefs();
+    }
+  }catch(err){ projUserPrefs = local; }
+  projUserPrefsReady = true;
+  applyUserPrefs();
+}
+
+function applyUserPrefs(){
+  const sidebar = document.getElementById('sidebar');
+  if(sidebar) sidebar.classList.toggle('collapsed', !!projUserPrefs.sidebarCollapsed);
+  document.querySelectorAll('.nav-section[data-section]').forEach(function(section){
+    section.classList.toggle('collapsed', !!projUserPrefs.navCollapsed[section.getAttribute('data-section')]);
+  });
+  Object.keys(projUserPrefs.tabOrders || {}).forEach(function(key){
+    projApplyTabOrder(key, projUserPrefs.tabOrders[key]);
+  });
+  renderFavoritesSection();
+}
+
+/* Tab orders are registered by the rows that want to be reorderable. */
+const projTabOrderRegistry = {};
+function projRegisterTabOrder(key, containerId, attr){
+  projTabOrderRegistry[key] = { containerId: containerId, attr: attr };
+}
+function projApplyTabOrder(key, order){
+  const reg = projTabOrderRegistry[key];
+  if(!reg || !order) return;
+  const container = document.getElementById(reg.containerId);
+  if(!container) return;
+  order.forEach(function(v){
+    const el = container.querySelector('['+reg.attr+'="'+v+'"]');
+    if(el) container.appendChild(el);
+  });
+}
+function projSaveTabOrder(key, order){
+  projUserPrefs.tabOrders = projUserPrefs.tabOrders || {};
+  projUserPrefs.tabOrders[key] = order;
+  savePrefs();
+}
+
 function getPinnedPanels(){
-  try{ return JSON.parse(localStorage.getItem('huPinnedPanels') || '[]'); } catch(err){ return []; }
+  return projUserPrefs.pinnedPanels || [];
 }
 function setPinnedPanels(arr){
-  localStorage.setItem('huPinnedPanels', JSON.stringify(arr));
+  projUserPrefs.pinnedPanels = arr;
+  savePrefs();
 }
 function renderFavoritesSection(){
   const pinned = getPinnedPanels();
@@ -3664,17 +3824,17 @@ document.querySelectorAll('.nav-item[data-panel]').forEach(function(btn){
 (function setupSidebarCollapse(){
   const sidebar = document.getElementById('sidebar');
   const btn = document.getElementById('sidebarCollapseBtn');
-  if(localStorage.getItem('huSidebarCollapsed') === '1') sidebar.classList.add('collapsed');
+  if(projUserPrefs.sidebarCollapsed) sidebar.classList.add('collapsed');
   btn.addEventListener('click', function(){
     sidebar.classList.toggle('collapsed');
-    localStorage.setItem('huSidebarCollapsed', sidebar.classList.contains('collapsed') ? '1' : '0');
+    projUserPrefs.sidebarCollapsed = sidebar.classList.contains('collapsed');
+    savePrefs();
   });
 })();
 
 /* ---------------- NAV SECTION COLLAPSE/EXPAND ---------------- */
 (function setupNavSectionCollapse(){
-  let collapsedState = {};
-  try{ collapsedState = JSON.parse(localStorage.getItem('huNavSectionsCollapsed') || '{}'); }catch(err){ collapsedState = {}; }
+  const collapsedState = projUserPrefs.navCollapsed || {};
 
   document.querySelectorAll('.nav-section[data-section]').forEach(function(section){
     const key = section.getAttribute('data-section');
@@ -3685,7 +3845,8 @@ document.querySelectorAll('.nav-item[data-panel]').forEach(function(btn){
     heading.addEventListener('click', function(){
       section.classList.toggle('collapsed');
       collapsedState[key] = section.classList.contains('collapsed');
-      localStorage.setItem('huNavSectionsCollapsed', JSON.stringify(collapsedState));
+      projUserPrefs.navCollapsed = collapsedState;
+      savePrefs();
     });
   });
 })();
@@ -8606,7 +8767,7 @@ document.querySelectorAll('#routeSectionTabs .route-tab-btn[data-routetab]').for
   if(!container) return;
   let draggedEl = null;
 
-  const savedOrder = JSON.parse(localStorage.getItem('huRouteTabOrder') || 'null');
+  const savedOrder = (projUserPrefs.tabOrders && projUserPrefs.tabOrders['route']) || null;
   if(savedOrder){
     savedOrder.forEach(function(key){
       const el = container.querySelector('[data-routetab="'+key+'"]');
@@ -8615,7 +8776,7 @@ document.querySelectorAll('#routeSectionTabs .route-tab-btn[data-routetab]').for
   }
   function saveOrder(){
     const order = Array.from(container.querySelectorAll('[data-routetab]')).map(b => b.dataset.routetab);
-    localStorage.setItem('huRouteTabOrder', JSON.stringify(order));
+    projSaveTabOrder('route', order);
   }
   container.querySelectorAll('[data-routetab]').forEach(function(btn){
     btn.addEventListener('dragstart', function(){
@@ -8678,7 +8839,7 @@ document.getElementById('tlSplitViewToggle').addEventListener('change', function
   let draggedEl = null;
 
   // restore saved order, if any
-  const savedOrder = JSON.parse(localStorage.getItem('huGenSubTabOrder') || 'null');
+  const savedOrder = (projUserPrefs.tabOrders && projUserPrefs.tabOrders['gensub']) || null;
   if(savedOrder){
     savedOrder.forEach(function(key){
       const el = container.querySelector('[data-gensubtab="'+key+'"]');
@@ -8687,7 +8848,7 @@ document.getElementById('tlSplitViewToggle').addEventListener('change', function
   }
   function saveOrder(){
     const order = Array.from(container.querySelectorAll('[data-gensubtab]')).map(b => b.dataset.gensubtab);
-    localStorage.setItem('huGenSubTabOrder', JSON.stringify(order));
+    projSaveTabOrder('gensub', order);
   }
   container.querySelectorAll('[data-gensubtab]').forEach(function(btn){
     btn.addEventListener('dragstart', function(){
@@ -13475,7 +13636,7 @@ function loadEmployeeNames(){
       employeeNames.push({
         id:docSnap.id, name:d.name, hourlyRate:d.hourlyRate||0, role:d.role||'Crew',
         warehouseRate:d.warehouseRate||0, crewRate:d.crewRate||0, isTestAccount:!!d.isTestAccount,
-        visibleTabs:d.visibleTabs||null, isAdmin:!!d.isAdmin,
+        visibleTabs:d.visibleTabs||null, isAdmin:!!d.isAdmin, loginEmail:(d.loginEmail||'').trim(),
         position:d.position||'', payType:d.payType||'hourly', salaryAmount:d.salaryAmount||0,
         categoryIds:d.categoryIds||[],
         homeCards:d.homeCards||null,
@@ -13486,6 +13647,9 @@ function loadEmployeeNames(){
     renderCrewAssignList();
     renderOverrideEmployeeSelect();
     renderPayrollWeek();
+    renderUserChip(auth.currentUser);
+    refreshAssigneeSelect();
+    renderTodos();
     if(typeof renderChecklistEmployeeSelect === 'function'){
       renderChecklistEmployeeSelect();
       // Names arrive after the panel is built, so hook the live listener up here.
@@ -13609,6 +13773,7 @@ function renderEmployeeChips(){
         '<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">'+
           '<input type="text" value="'+esc(e.role||'Crew')+'" data-roleinput="'+e.id+'" placeholder="Crew" title="Role (used for Crew/route access)" style="width:100px; padding:6px 8px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:13px;">'+
           '<input type="text" value="'+esc(e.position||'')+'" data-positioninput="'+e.id+'" placeholder="Position (e.g. Lead Installer)" style="width:170px; padding:6px 8px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:13px;">'+
+          '<input type="email" value="'+esc(e.loginEmail||'')+'" data-loginemail="'+e.id+'" placeholder="Login email (admins)" title="The email this person signs in to the admin dashboard with. Used for their own Favourites and for assigning to-dos." style="width:190px; padding:6px 8px; border-radius:8px; border:1px solid '+(e.isAdmin && !e.loginEmail ? 'var(--gold-dim)' : 'var(--line)')+'; background:var(--snow); font-size:13px;">'+
           '<select data-paytypeinput="'+e.id+'" style="padding:6px 8px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:13px;">'+
             '<option value="hourly"'+(payType==='hourly'?' selected':'')+'>Hourly</option>'+
             '<option value="salary"'+(payType==='salary'?' selected':'')+'>Salary</option>'+
@@ -13799,6 +13964,17 @@ function renderEmployeeChips(){
         const roleVal = input.value.trim() || 'Crew';
         updateDoc(doc(db,'employeeNames',input.dataset.roleinput), {role: roleVal}).then(function(){
           toast('Role updated');
+        });
+      }, 600);
+    });
+  });
+  wrap.querySelectorAll('[data-loginemail]').forEach(function(input){
+    let debounceTimer;
+    input.addEventListener('input', function(){
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(function(){
+        updateDoc(doc(db,'employeeNames',input.dataset.loginemail), {loginEmail: input.value.trim().toLowerCase()}).then(function(){
+          toast('Login email updated');
         });
       }, 600);
     });
@@ -16073,6 +16249,101 @@ document.querySelectorAll('#projSectionTabs [data-projtab]').forEach(function(bt
   });
 });
 
+/* Drag the sub-tabs into whatever order suits, same as the Routes and
+   Customers tab rows. The order is remembered per browser. */
+projRegisterTabOrder('proj', 'projSectionTabs', 'data-projtab');
+projRegisterTabOrder('route', 'routeSectionTabs', 'data-routetab');
+projRegisterTabOrder('gensub', 'genSubTabs', 'data-gensubtab');
+(function setupProjTabDragReorder(){
+  const container = document.getElementById('projSectionTabs');
+  if(!container) return;
+  let draggedEl = null;
+
+  const savedOrder = (projUserPrefs.tabOrders && projUserPrefs.tabOrders['proj']) || null;
+  if(savedOrder){
+    savedOrder.forEach(function(key){
+      const el = container.querySelector('[data-projtab="'+key+'"]');
+      if(el) container.appendChild(el);
+    });
+  }
+  function saveOrder(){
+    const order = Array.from(container.querySelectorAll('[data-projtab]')).map(b => b.dataset.projtab);
+    projSaveTabOrder('proj', order);
+  }
+  container.querySelectorAll('[data-projtab]').forEach(function(btn){
+    btn.addEventListener('dragstart', function(){
+      draggedEl = btn;
+      btn.classList.add('dragging');
+    });
+    btn.addEventListener('dragend', function(){
+      btn.classList.remove('dragging');
+      container.querySelectorAll('[data-projtab]').forEach(b => b.classList.remove('drag-over'));
+      saveOrder();
+    });
+    btn.addEventListener('dragover', function(e){
+      e.preventDefault();
+      if(btn !== draggedEl) btn.classList.add('drag-over');
+    });
+    btn.addEventListener('dragleave', function(){ btn.classList.remove('drag-over'); });
+    btn.addEventListener('drop', function(e){
+      e.preventDefault();
+      btn.classList.remove('drag-over');
+      if(!draggedEl || draggedEl === btn) return;
+      const all = Array.from(container.querySelectorAll('[data-projtab]'));
+      if(all.indexOf(draggedEl) < all.indexOf(btn)){ btn.after(draggedEl); } else { btn.before(draggedEl); }
+    });
+  });
+})();
+
+/* A tick-box dropdown. Several boxes can be ticked at once; nothing ticked
+   means show everything. Rebuilt on every render, so it keeps its own open
+   state rather than closing under the user mid-click. */
+function projDropdown(hostId, label, options, selected, onChange){
+  const host = document.getElementById(hostId);
+  if(!host) return;
+  const wasOpen = host.classList.contains('open');
+  const chosen = options.filter(o => selected.has(o.value));
+  const summary = chosen.length === 0 ? 'All'
+    : (chosen.length <= 2 ? chosen.map(o => o.label).join(', ') : chosen.length + ' selected');
+
+  host.innerHTML =
+    '<button type="button" class="proj-dd-btn'+(chosen.length ? ' has-selection' : '')+'">'+
+      '<span class="proj-dd-label">'+esc(label)+'</span>'+
+      '<span class="proj-dd-value">'+esc(summary)+'</span>'+
+      '<svg class="proj-dd-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>'+
+    '</button>'+
+    '<div class="proj-dd-panel">'+
+      options.map(function(o){
+        return '<label class="proj-dd-opt"><input type="checkbox" value="'+esc(o.value)+'"'+(selected.has(o.value) ? ' checked' : '')+'>'+
+          '<span class="proj-dd-optlabel">'+esc(o.label)+'</span>'+
+          (o.count != null ? '<span class="proj-dd-count">'+o.count+'</span>' : '')+
+        '</label>';
+      }).join('')+
+      '<button type="button" class="proj-dd-clear">Show all</button>'+
+    '</div>';
+  if(wasOpen) host.classList.add('open');
+
+  host.querySelector('.proj-dd-btn').addEventListener('click', function(e){
+    e.stopPropagation();
+    document.querySelectorAll('.proj-dd.open').forEach(function(d){ if(d !== host) d.classList.remove('open'); });
+    host.classList.toggle('open');
+  });
+  host.querySelector('.proj-dd-panel').addEventListener('click', function(e){ e.stopPropagation(); });
+  host.querySelectorAll('.proj-dd-opt input').forEach(function(cb){
+    cb.addEventListener('change', function(){
+      if(cb.checked) selected.add(cb.value); else selected.delete(cb.value);
+      onChange();
+    });
+  });
+  host.querySelector('.proj-dd-clear').addEventListener('click', function(){
+    selected.clear();
+    onChange();
+  });
+}
+document.addEventListener('click', function(){
+  document.querySelectorAll('.proj-dd.open').forEach(function(d){ d.classList.remove('open'); });
+});
+
 function projCopyText(text, okMsg){
   function fallback(){
     const ta = document.createElement('textarea');
@@ -16091,6 +16362,37 @@ function projCopyText(text, okMsg){
 
 /* ===================== TO-DO LIST ===================== */
 
+/* Who a task can be given to: people on the employee roster who are marked
+   Admin and have a login email set, since only they can open this page.
+   Add the email on Employee Tools > Responsibilities. */
+function projCurrentEmail(){
+  return ((auth.currentUser && auth.currentUser.email) || '').toLowerCase();
+}
+function projAssigneeOptions(){
+  if(typeof employeeNames === 'undefined' || !employeeNames) return [];
+  return employeeNames
+    .filter(function(e){ return e.isAdmin && e.loginEmail; })
+    .map(function(e){ return { email: e.loginEmail.toLowerCase(), name: e.name || e.loginEmail }; })
+    .sort(function(a,b){ return a.name.localeCompare(b.name); });
+}
+function projAssigneeName(email){
+  if(!email) return '';
+  const hit = projAssigneeOptions().find(function(o){ return o.email === email; });
+  return hit ? hit.name : email;
+}
+function refreshAssigneeSelect(){
+  const sel = document.getElementById('todoAssignee');
+  if(!sel) return;
+  const keep = sel.value;
+  const opts = projAssigneeOptions();
+  sel.innerHTML = '<option value="">Unassigned</option>' +
+    opts.map(function(o){ return '<option value="'+esc(o.email)+'">'+esc(o.name)+'</option>'; }).join('');
+  if(keep && Array.prototype.some.call(sel.options, function(o){ return o.value === keep; })) sel.value = keep;
+  if(!opts.length && !sel.dataset.warned){
+    sel.dataset.warned = '1';
+  }
+}
+
 const todoForm = document.getElementById('todoForm');
 todoForm.addEventListener('submit', function(e){
   e.preventDefault();
@@ -16100,6 +16402,7 @@ todoForm.addEventListener('submit', function(e){
     area:     document.getElementById('todoArea').value,
     type:     document.getElementById('todoType').value,
     priority: document.getElementById('todoPriority').value,
+    assignee: document.getElementById('todoAssignee').value,
     notes:    document.getElementById('todoNotes').value.trim()
   };
   if(!data.task) return;
@@ -16118,6 +16421,7 @@ function resetTodoForm(){
   todoForm.reset();
   document.getElementById('todoEditId').value = '';
   document.getElementById('todoPriority').value = 'Medium';
+  document.getElementById('todoAssignee').value = '';
   document.getElementById('todoCancelEdit').style.display = 'none';
   document.getElementById('todoFormTitle').textContent = 'Add a Task';
 }
@@ -16154,10 +16458,14 @@ function renderTodos(){
   const open = projTodoCache.filter(t => t.status !== 'done');
   const done = projTodoCache.filter(t => t.status === 'done');
   const high = open.filter(t => t.priority === 'High');
+  const me = projCurrentEmail();
+  const mine = open.filter(t => (t.assignee || '') === me && me);
+  refreshAssigneeSelect();
 
   document.getElementById('todoCounts').innerHTML =
     '<span class="proj-count">Open <b>'+open.length+'</b></span>'+
     '<span class="proj-count">High priority <b>'+high.length+'</b></span>'+
+    '<span class="proj-count">Mine <b>'+mine.length+'</b></span>'+
     '<span class="proj-count">Done <b>'+done.length+'</b></span>';
 
   const badge = document.getElementById('badgeProjTodo');
@@ -16170,6 +16478,7 @@ function renderTodos(){
   if(projTodoFilter === 'open') rows = open;
   else if(projTodoFilter === 'done') rows = done;
   else if(projTodoFilter === 'high') rows = high;
+  else if(projTodoFilter === 'mine') rows = mine;
 
   if(!rows.length){ list.innerHTML = '<div class="empty-note">Nothing here yet.</div>'; return; }
 
@@ -16186,6 +16495,7 @@ function renderTodos(){
               '<span class="proj-tag area">'+esc(t.area || 'Other')+'</span>'+
               '<span class="proj-tag type">'+esc(t.type || 'Task')+'</span>'+
               '<span class="proj-tag pri-'+esc(t.priority || 'Medium')+'">'+esc(t.priority || 'Medium')+'</span>'+
+              (t.assignee ? '<span class="proj-tag who'+(t.assignee === me ? ' me' : '')+'">'+esc(projAssigneeName(t.assignee))+'</span>' : '')+
             '</div>'+
             (t.notes ? '<div class="proj-sub">'+esc(t.notes)+'</div>' : '')+
           '</div>'+
@@ -16216,6 +16526,8 @@ function renderTodos(){
       document.getElementById('todoArea').value = t.area || 'Other';
       document.getElementById('todoType').value = t.type || 'Bug';
       document.getElementById('todoPriority').value = t.priority || 'Medium';
+      refreshAssigneeSelect();
+      document.getElementById('todoAssignee').value = t.assignee || '';
       document.getElementById('todoNotes').value = t.notes || '';
       document.getElementById('todoFormTitle').textContent = 'Edit Task';
       document.getElementById('todoCancelEdit').style.display = 'inline-flex';
@@ -16233,7 +16545,7 @@ document.getElementById('todoCopyBtn').addEventListener('click', function(){
     if(!rows.length) return;
     out += (bucket === 'open' ? '-- OPEN --\n' : '\n-- DONE --\n');
     rows.forEach(function(t){
-      out += '- ['+(t.priority || 'Medium')+'] '+(t.area || 'Other')+' / '+(t.type || 'Task')+': '+(t.task || '')+'\n';
+      out += '- ['+(t.priority || 'Medium')+'] '+(t.area || 'Other')+' / '+(t.type || 'Task')+': '+(t.task || '')+(t.assignee ? '  (@'+projAssigneeName(t.assignee)+')' : '')+'\n';
       if(t.notes) out += '    notes: '+t.notes+'\n';
     });
   });
@@ -16535,41 +16847,21 @@ function resetTestForm(){
   document.getElementById('testAddCard').style.display = 'none';
 }
 
-/* Result filters are multi-select: tick Fail and N/A and both show. */
-document.querySelectorAll('#testFilters [data-testfilter]').forEach(function(btn){
-  btn.addEventListener('click', function(){
-    const v = btn.dataset.testfilter;
-    if(v === 'all'){ projTestFilters.clear(); }
-    else if(projTestFilters.has(v)){ projTestFilters.delete(v); }
-    else { projTestFilters.add(v); }
-    document.querySelectorAll('#testFilters [data-testfilter]').forEach(function(b){
-      const bv = b.dataset.testfilter;
-      b.classList.toggle('active', bv === 'all' ? projTestFilters.size === 0 : projTestFilters.has(bv));
-    });
-    renderTests();
-  });
+document.getElementById('testFilterReset').addEventListener('click', function(){
+  projTestFilters.clear();
+  projTestAreaFilters.clear();
+  renderTests();
+});
+document.getElementById('passedFilterReset').addEventListener('click', function(){
+  projPassedAreaFilters.clear();
+  renderPassed();
 });
 
-function projBuildAreaFilters(containerId, selectedSet, rerender){
-  const box = document.getElementById(containerId);
-  if(!box) return;
-  const areas = [];
-  projTestCache.forEach(function(t){ if(t.area && areas.indexOf(t.area) < 0) areas.push(t.area); });
-  areas.sort();
-  let html = '<button type="button" class="route-tab-btn'+(selectedSet.size === 0 ? ' active' : '')+'" data-area="__all">All areas</button>';
-  areas.forEach(function(a){
-    html += '<button type="button" class="route-tab-btn'+(selectedSet.has(a) ? ' active' : '')+'" data-area="'+esc(a)+'">'+esc(a)+'</button>';
-  });
-  box.innerHTML = html;
-  box.querySelectorAll('[data-area]').forEach(function(b){
-    b.addEventListener('click', function(){
-      const v = b.dataset.area;
-      if(v === '__all') selectedSet.clear();
-      else if(selectedSet.has(v)) selectedSet.delete(v);
-      else selectedSet.add(v);
-      rerender();
-    });
-  });
+/* Area options come from whatever areas actually exist, with a live count. */
+function projAreaOptions(rows){
+  const counts = {};
+  rows.forEach(function(t){ if(t.area) counts[t.area] = (counts[t.area] || 0) + 1; });
+  return Object.keys(counts).sort().map(function(a){ return { value:a, label:a, count:counts[a] }; });
 }
 
 function loadProjectTests(){
@@ -16699,7 +16991,13 @@ function renderTests(){
   const pct = document.getElementById('tabCountPassed');
   if(pct) pct.textContent = passed.length ? '('+passed.length+')' : '';
 
-  projBuildAreaFilters('testAreaFilters', projTestAreaFilters, renderTests);
+  projDropdown('ddTestResult', 'Show', [
+    { value:'none',   label:'Needs Test', count:count('') },
+    { value:'Retest', label:'Retest',     count:count('Retest') },
+    { value:'Fail',   label:'Fail',       count:count('Fail') },
+    { value:'N/A',    label:'N/A',        count:count('N/A') }
+  ], projTestFilters, renderTests);
+  projDropdown('ddTestArea', 'Area', projAreaOptions(working), projTestAreaFilters, renderTests);
 
   let rows = working;
   if(projTestFilters.size) rows = rows.filter(t => projTestFilters.has(t.result || 'none'));
@@ -16717,7 +17015,7 @@ function renderPassed(){
     '<span class="proj-count">Signed off <b>'+passed.length+'</b></span>'+
     '<span class="proj-count">Of <b>'+projTestCache.length+'</b> total</span>';
 
-  projBuildAreaFilters('passedAreaFilters', projPassedAreaFilters, renderPassed);
+  projDropdown('ddPassedArea', 'Area', projAreaOptions(passed), projPassedAreaFilters, renderPassed);
 
   let rows = passed;
   if(projPassedAreaFilters.size) rows = rows.filter(t => projPassedAreaFilters.has(t.area));
