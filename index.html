@@ -2013,13 +2013,17 @@ function navigate(){
   }
 }
 (function(){
-  // A plain link can carry ?home=1 (e.g. the admin dashboard's home button) to force
-  // the real homepage, bypassing the saved-login auto-redirect below entirely — for
-  // staff checking the site, not customers who want to land on their pending item.
+  // Visiting /home (a Netlify rewrite to this same file — see _redirects) or a plain
+  // link carrying ?home=1 forces the real homepage, bypassing the saved-login
+  // auto-redirect below entirely — for staff checking the site, not customers who
+  // want to land on their pending item. Either way the address bar is cleaned back
+  // to the bare domain once handled.
   var forceHomepage = false;
-  try{ forceHomepage = /(^|[?&])home=1(&|$)/.test(window.location.search); } catch(e){}
+  try{
+    forceHomepage = window.location.pathname === '/home' || /(^|[?&])home=1(&|$)/.test(window.location.search);
+  } catch(e){}
   if(forceHomepage){
-    try{ window.history.replaceState(null, '', window.location.pathname + window.location.hash); } catch(e){}
+    try{ window.history.replaceState(null, '', '/' + window.location.hash); } catch(e){}
     return;
   }
   var savedPortalToken = null;
