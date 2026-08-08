@@ -566,6 +566,38 @@ gap('saved routes pick up later customer corrections',
   'reads r.data.stops directly and never re-looks-up the customer, so fixing an\n          ' +
   'address or gate code after scheduling never reaches the crew driving to it.');
 
+// --- gaps found during the 2026-08-08 system-map audit (not part of the
+// original P0-P3 work list — flagged for an owner decision, not blind-fixed) ---
+(function () {
+  const ibStart = admin.indexOf("ibImportBtn').addEventListener");
+  const ibSection = ibStart > -1 ? admin.slice(ibStart, ibStart + 2000) : '';
+  gap('Invoice Bulk Update preserves an existing removal charge and payments already on file',
+    /removal:\s*existingInv/.test(ibSection) || /deposit:\s*existingInv/.test(ibSection),
+    'admin.html ibImportBtn (Invoice Bulk Update) always writes removal:0, deposit:0 for every\n          ' +
+    'row, even when existingInv.exists() is true. Re-running this tool against a customer who\n          ' +
+    'already has a removal charge or a partial payment recorded silently erases both, with no\n          ' +
+    'confirmation and no way to tell afterward except the invoice looking wrong. Needs an owner\n          ' +
+    'decision (is this tool ever run against a customer who already has an invoice?), not a\n          ' +
+    'blind fix — if removal/deposit should carry over, they need to come from existingInv.data().');
+
+  // No "fixed" signature exists to detect yet — this needs an owner decision on
+  // desired behavior before any fix pattern is written, so it's always reported
+  // until a human updates this check alongside the real fix. (An earlier version
+  // of this check just grepped for the word "changeFees" nearby and false-passed
+  // against an unrelated status-display fix that happened to sit in the same
+  // block — don't repeat that mistake by loosening this back to a substring test.)
+  gap('an outstanding light-change fee carries over when a customer switches bill-to',
+    false,
+    'When a customer starts billing to someone else, admin.html either deletes their own\n          ' +
+    'standalone invoice (if nothing has been paid on it) or zeroes install/removal but keeps\n          ' +
+    'the deposit (if something has been paid). Neither path moves an outstanding changeFees\n          ' +
+    'balance onto the new payer\'s invoice, and syncPayerInvoice never folds changeFees into the\n          ' +
+    'group total either — so a customer with an unpaid $30 light-change fee who switches to\n          ' +
+    'bill-to someone else can end up with that fee billed to nobody. Needs an owner decision\n          ' +
+    '(should the fee move to the new payer, or be settled before the switch is allowed?), not a\n          ' +
+    'blind fix.');
+})();
+
 // =====================================================================
 // 7. HEALTH CHECK ENGINE
 // Runs the real hcRunChecks() from admin.html against fabricated data.
