@@ -3710,6 +3710,19 @@ const sendInvoicesNowFn = httpsCallable(fbFunctions, 'sendInvoicesNow');
 const CLOUDINARY_CLOUD = "highlighting-utah";
 const CLOUDINARY_PRESET = "highlighting_utah";
 
+/* Ask Cloudinary for a small version of an image instead of the full-size upload.
+   Thumbnail grids were downloading full 640px+ originals for every tile, which is
+   tens of megabytes on a page that only shows them ~200px wide. Cloudinary resizes
+   on its own servers when we put w_<width> in the URL path. Non-Cloudinary URLs
+   (and anything unexpected) are returned untouched, so this is always safe to wrap
+   around a src. */
+function cloudThumb(url, width){
+  if(!url || typeof url !== 'string') return url || '';
+  if(url.indexOf('res.cloudinary.com/'+CLOUDINARY_CLOUD+'/image/upload/') === -1) return url;
+  if(/\/image\/upload\/[a-z]_[^/]*\//.test(url)) return url; // already has transforms
+  return url.replace('/image/upload/', '/image/upload/w_'+(width||400)+',c_limit,q_auto,f_auto/');
+}
+
 /* ---------------- Toast ---------------- */
 function toast(msg){
   const t = document.getElementById('toast');
@@ -8618,7 +8631,7 @@ function loadGallery(){
     snap.forEach(function(docSnap){
       const d = docSnap.data();
       html += '<div class="gallery-admin-item">'+
-        '<img src="'+esc(d.imageUrl)+'" alt="">'+
+        '<img src="'+esc(cloudThumb(d.imageUrl, 400))+'" alt="" loading="lazy" decoding="async">'+
         '<div class="gcap">'+
           '<input type="text" value="'+esc(d.caption)+'" data-caption-id="'+docSnap.id+'">'+
           '<button class="icon-btn danger" data-del="gallery" data-id="'+docSnap.id+'" style="width:100%;">'+trashIcon()+'</button>'+
@@ -8682,7 +8695,7 @@ function loadHeroImages(){
     let html = '';
     heroImageDocs.forEach(function(item, i){
       html += '<div class="gallery-admin-item">'+
-        '<img src="'+esc(item.data.imageUrl)+'" alt="">'+
+        '<img src="'+esc(cloudThumb(item.data.imageUrl, 400))+'" alt="" loading="lazy" decoding="async">'+
         '<div class="gcap">'+
           '<div style="display:flex; gap:6px; margin-bottom:6px;">'+
             '<button class="icon-btn" data-move="up" data-idx="'+i+'" '+(i===0?'disabled style="opacity:.3;"':'')+' style="flex:1;">'+upIcon()+'</button>'+
@@ -13300,7 +13313,7 @@ function renderRouteOrderedList(ordered){
         '<div style="background:#FDECEA; border:1px solid #f0b3ac; border-radius:8px; padding:10px 12px; margin-top:8px;">'+
           '<strong style="font-size:12px; color:#8a3b32;">What needs fixing:</strong>'+
           (hd.fixNote ? '<div style="font-size:12.5px; color:var(--ink); margin-top:4px;">'+esc(hd.fixNote)+'</div>' : '')+
-          (hd.fixPhotoUrl ? '<img src="'+esc(hd.fixPhotoUrl)+'" style="max-width:220px; border-radius:8px; margin-top:8px; display:block;">' : '')+
+          (hd.fixPhotoUrl ? '<img src="'+esc(cloudThumb(hd.fixPhotoUrl, 440))+'" loading="lazy" decoding="async" style="max-width:220px; border-radius:8px; margin-top:8px; display:block;">' : '')+
         '</div>'
       ) : '')+
       (hd.housePhotoUrl ? (function(){
@@ -13310,7 +13323,7 @@ function renderRouteOrderedList(ordered){
           return '<div style="position:absolute; left:'+(h.x*100)+'%; top:'+(h.y*100)+'%; width:'+(h.w*100)+'%; height:'+(h.h*100)+'%; background:'+c+'55; border:2px solid '+c+'; box-sizing:border-box;"><span style="position:absolute; top:1px; left:1px; background:'+c+'; color:#fff; font-size:9.5px; font-weight:700; padding:1px 4px; border-radius:3px;">'+esc(h.label)+'</span></div>';
         }).join('');
         return '<div style="position:relative; max-width:260px; margin-top:8px; border-radius:8px; overflow:hidden; border:1px solid var(--line);">'+
-          '<img src="'+esc(hd.housePhotoUrl)+'" style="width:100%; display:block;">'+boxes+'</div>';
+          '<img src="'+esc(cloudThumb(hd.housePhotoUrl, 520))+'" loading="lazy" decoding="async" style="width:100%; display:block;">'+boxes+'</div>';
       })() : '')+
       '<div class="diff-pick-row" style="margin-top:6px;">'+
         '<select class="diff-select" data-setdiff="'+stop.id+'" style="border-radius:8px; border:1px solid var(--line); padding:6px 10px; font-size:13px; font-weight:600; background:var(--snow); color:var(--ink);">'+
