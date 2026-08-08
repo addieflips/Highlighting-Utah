@@ -1378,6 +1378,11 @@
                 <textarea id="rbEavesArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="Yes&#10;No&#10;(blank = leave as is)"></textarea>
                 <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">Type Yes or No (y/n also works). Blank leaves it unchanged.</p>
               </div>
+              <div class="form-row">
+                <label>Difficulty (optional) <span class="bulk-count" id="rbCountDifficulty">0 rows</span></label>
+                <textarea id="rbDifficultyArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="Easy&#10;Medium&#10;Hard&#10;(blank = leave as is)"></textarea>
+                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">Type Easy, Medium, Hard, or Unrated &mdash; not case-sensitive. This is the same difficulty pill you set on Routes. Blank leaves it unchanged.</p>
+              </div>
             </div>
             <button type="button" class="btn btn-gold" id="rbImportBtn" style="margin-top:6px;">Import / Update Customers</button>
             <span id="rbImportStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
@@ -9976,13 +9981,23 @@ function wireBulkCounts(areaIds, anchorId, countIdMap){
 }
 
 // --- Routes Bulk Update ---
-const rbAreaIds = ['rbNamesArea','rbPhonesArea','rbEmailsArea','rbStreetsArea','rbCitiesArea','rbStatesArea','rbZipsArea','rbDatesArea','rbColorsArea','rbAmountsArea','rbInstallPrefArea','rbCustNumbersArea','rbWireArea','rbTimerArea','rbEavesArea'];
+const rbAreaIds = ['rbNamesArea','rbPhonesArea','rbEmailsArea','rbStreetsArea','rbCitiesArea','rbStatesArea','rbZipsArea','rbDatesArea','rbColorsArea','rbAmountsArea','rbInstallPrefArea','rbCustNumbersArea','rbWireArea','rbTimerArea','rbEavesArea','rbDifficultyArea'];
 const rbCountIds = {
   rbNamesArea:'rbCountNames', rbPhonesArea:'rbCountPhones', rbEmailsArea:'rbCountEmails',
   rbStreetsArea:'rbCountStreets', rbCitiesArea:'rbCountCities', rbStatesArea:'rbCountStates', rbZipsArea:'rbCountZips', rbDatesArea:'rbCountDates',
   rbColorsArea:'rbCountColors', rbAmountsArea:'rbCountAmounts', rbInstallPrefArea:'rbCountInstallPref', rbCustNumbersArea:'rbCountCustNumbers',
-  rbWireArea:'rbCountWire', rbTimerArea:'rbCountTimer', rbEavesArea:'rbCountEaves'
+  rbWireArea:'rbCountWire', rbTimerArea:'rbCountTimer', rbEavesArea:'rbCountEaves',
+  rbDifficultyArea:'rbCountDifficulty'
 };
+// Bulk Difficulty mirrors the Routes difficulty pill: Unrated/Easy/Medium/Hard.
+// Anything else is rejected up front so a typo can't quietly write a junk value.
+const RB_DIFFICULTY_OPTIONS = ['Unrated','Easy','Medium','Hard'];
+function rbNormalizeDifficulty(raw){
+  if(!raw) return '';
+  const v = raw.trim().toLowerCase();
+  const match = RB_DIFFICULTY_OPTIONS.find(function(opt){ return opt.toLowerCase() === v; });
+  return match || '';
+}
 // Bulk Wire = White/Green; Bulk Timer + Use Eaves = Yes/No. Blank leaves the field as-is.
 function rbNormalizeWire(raw){
   if(!raw) return '';
@@ -10057,12 +10072,13 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
   const wireRaw = alignBulkRows(document.getElementById('rbWireArea').value.split('\n').map(s => s.trim()), streets.length);
   const timerRaw = alignBulkRows(document.getElementById('rbTimerArea').value.split('\n').map(s => s.trim()), streets.length);
   const eavesRaw = alignBulkRows(document.getElementById('rbEavesArea').value.split('\n').map(s => s.trim()), streets.length);
+  const difficultyRaw = alignBulkRows(document.getElementById('rbDifficultyArea').value.split('\n').map(s => s.trim()), streets.length);
 
   const checks = [
     ['Name', names],
     ['Phone Number', phones], ['Email', emails], ['City', cities], ['State', states], ['Zip Code', zips], ['Date Added', dates],
     ['Light Color(s)', colorsRaw], ['Payment Amount', amounts], ['Install Month', installPrefRaw],
-    ['Wire Color', wireRaw], ['Outlet Timer', timerRaw], ['Use Eaves', eavesRaw]
+    ['Wire Color', wireRaw], ['Outlet Timer', timerRaw], ['Use Eaves', eavesRaw], ['Difficulty', difficultyRaw]
   ];
   for(const [label, arr] of checks){
     const nonEmptyCount = arr.filter(Boolean).length;
@@ -10082,6 +10098,13 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
   for(let i = 0; i < amounts.length; i++){
     if(amounts[i] && isNaN(Number(amounts[i].replace(/[,$]/g,'')))){
       statusEl.textContent = 'Row ' + (i+1) + ' of Payment Amount ("' + amounts[i] + '") isn\'t a number — enter just digits, like 650.';
+      return;
+    }
+  }
+  // Validate any difficulties that were actually typed in before starting
+  for(let i = 0; i < difficultyRaw.length; i++){
+    if(difficultyRaw[i] && !rbNormalizeDifficulty(difficultyRaw[i])){
+      statusEl.textContent = 'Row ' + (i+1) + ' of Difficulty ("' + difficultyRaw[i] + '") isn\'t one I recognise — use Easy, Medium, Hard, or Unrated.';
       return;
     }
   }
@@ -10105,6 +10128,7 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
     const wireColorVal = rbNormalizeWire(wireRaw[i] || '');
     const outletTimerVal = rbNormalizeYesNo(timerRaw[i] || '');
     const useEavesVal = rbNormalizeYesNo(eavesRaw[i] || '');
+    const difficultyVal = rbNormalizeDifficulty(difficultyRaw[i] || '');
     const amountTypedIn = amounts[i] || '';
     const price = amountTypedIn ? Number(amountTypedIn.replace(/[,$]/g,'')) : null;
     try{
@@ -10141,12 +10165,13 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
         if(wireColorVal) updates.wireColor = wireColorVal;
         if(outletTimerVal) updates.outletTimer = outletTimerVal;
         if(useEavesVal) updates.useEaves = useEavesVal;
+        if(difficultyVal) updates.difficulty = difficultyVal;
         await updateDoc(doc(db,'jobAddresses',existing.id), updates);
         updated++;
       } else {
         await addDoc(collection(db,'jobAddresses'), {
           street: street, city: city, state: state, zip: zip,
-          address: fullAddress, name: name, phone: phone, email: email, difficulty: 'Unrated',
+          address: fullAddress, name: name, phone: phone, email: email, difficulty: difficultyVal || 'Unrated',
           lightColors: colors,
           lightsDescription: pattern,
           installPreference: installPref || 'Normal Schedule',
@@ -17710,6 +17735,7 @@ const TEST_SEED = [
   [165, 'Security', 'Shared staff login is app-side only', '1. This test does not require you to click through anything in the app - it is something to read and confirm you understand.\n2. Read and note this fact: the whole crew shares one single staff login, and then each person picks their own name after logging in.\n3. Understand what that means: any limits on which tabs a particular crew member can see are enforced by the phone app itself (the software), not by the database that stores the actual data.', 'Confirm that you understand this known limitation: anyone who has the shared staff login technically has full database-level access to everything, no matter which tabs the app shows or hides for them. Mark this test \'Pass\' once you have read this and accept it as-is, or mark it \'Fail\' if you think this should be changed.', 1, '', '', ''],
   [166, 'Health & Data', 'Invoice Bulk Update guard', '1. Open admin (the private office dashboard).\n2. In the menu on the left side of the screen, click \'Import Center\'.\n3. Find the box labeled \'Invoice Fields\'.\n4. Pick a real test customer who already has an invoice with at least one of the following on it: a removal charge, a deposit, or a change fee.\n5. Write down the exact removal charge, deposit, and change fee amounts currently sitting on their invoice, before doing anything else.\n6. Into the Invoice Fields box, paste that customer\'s name, their phone number, and a new payment amount that is different from what\'s on the invoice now.\n7. Click the button labeled \'Import / Update Invoices\'.\n8. In the menu on the left side of the screen, click \'Dashboard\'.\n9. Click \'Invoices\'.\n10. Click \'Invoice List\'.\n11. Find and open that same test customer\'s invoice again.', 'The install amount on the invoice should have updated to the new payment amount you entered. But the removal charge, deposit, and change fee you wrote down beforehand should all still be exactly the same as before - running this import tool should not quietly wipe them out to zero.', 1, '', '', ''],
   [167, 'Admin', 'Quote photo upload', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click "Quote Requests".\n3. Find any quote card.\n4. On that card, click the button called "Add Photo" (or "Replace Photo" if a photo is already there).\n5. Upload a house photo directly on the card.\n6. Click the button called "Mark Up Photo".\n7. Try drawing on the photo.', 'The photo you uploaded should appear on the quote card. Clicking Mark Up Photo should open a drawing tool that lets you draw on the photo. This is the manual photo-upload feature that replaced an old Street View lookup tool — it\'s a live feature that\'s actually used, not leftover code, so it should keep working correctly.', 1, '', '', ''],
+  [168, 'Admin', 'Bulk Difficulty column', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click \'Customers\'.\n3. Click the tab called \'Bulk Updates\'.\n4. Click the heading \'Customers & Routes\' to open it if it isn\'t already open.\n5. Scroll down to the row of boxes that has \'Wire Color\', \'Outlet Timer\' and \'Use Eaves\'. There should now be a fourth box there called \'Difficulty (optional)\'.\n6. Pick two real customers who are currently Unrated. Write down their street addresses exactly as they appear in Routes.\n7. Paste those two street addresses into the \'Street Address\' box, one per line.\n8. In the \'Difficulty\' box, type Hard on the first line and easy (lowercase, on purpose) on the second line.\n9. Check that the small grey counter above the Difficulty box says \'2 rows\'.\n10. Click \'Import / Update Customers\' and wait for it to finish.\n11. In the menu on the left side of the screen, click \'Routes\'.\n12. Search for each of those two customers and click \'Show Details\' on their card.\n13. Now go back to Bulk Updates and try it again with the same two addresses, but this time type the word Banana in the Difficulty box on the first line.\n14. Click \'Import / Update Customers\' again.', 'After step 10, the first customer\'s difficulty should read Hard and the second should read Easy — typing it in lowercase should still work. Leaving the Difficulty box completely empty should never change anyone\'s existing difficulty. In step 14, the import should refuse to run and show a message naming row 1 and the word Banana, and nothing at all should be imported or changed from that attempt.', 1, '', '', ''],
 ];
 
 function attachDeleteHandlers(container){
