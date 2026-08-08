@@ -68,6 +68,9 @@ service cloud.firestore {
     // ---- Staff-only: misc ----------------------------------------------
     match /customCodes/{id}            { allow read, write: if request.auth != null; }
     match /savedEmailTemplates/{id}    { allow read, write: if request.auth != null; }
+    // ---- Staff-only: internal QA / Test Checklist tab -------------------
+    match /projectPeople/{id}          { allow read, write: if request.auth != null; }
+    match /projectTests/{id}           { allow read, write: if request.auth != null; }
     // ---- Nightly invoice automation ------------------------------------
     // Written only by the sendNightlyInvoices Cloud Function, which uses the
     // Admin SDK and bypasses these rules — so the browser never needs write
