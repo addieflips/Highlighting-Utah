@@ -8,7 +8,7 @@ Never break money or delete customer data. Invoice math, prices, payments, custo
 Money/portal changes ship as ONE push. If a change spans the website and Cloud Functions (or Firestore rules), deploy them together (see §5). A half-deploy means the nightly automation, PayPal, or the customer portal disagree with what the office sees.
 Don't rewrite or delete working features unless the task says so. Before assuming something is dead code, check every read/write site — a field that looks orphaned from one angle can be a live feature entered from another (see §9, frontPhotoUrl).
 Small, explained commits. One logical change per commit, message in plain English.
-Keep the Project To-Do checklist truthful. Any change that alters what a checklist test (TEST_SEED in admin.html) describes — a renamed button, a moved feature, changed behavior — needs that test's wording fixed and its version number bumped in the same change, or it silently goes stale (see §2 and §7).
+Keep the Project To-Do checklist truthful. Any change that alters what a checklist test (TEST_SEED in admin.html) describes — a renamed button, a moved feature, changed behavior — needs that test's wording fixed and its version number bumped in the same change, or it silently goes stale (see §2 and §7). When a change retires a UI term a test used to describe (a renamed button, a removed label), add it to RETIRED_CHECKLIST_TERMS in run-all.js in the same commit — that's what actually fails gate B if this rule gets skipped, not just this sentence.
 Stop and report if a task needs owner data (e.g. the master customer sheet) or an irreversible decision.
 1. Stack & deploy commands (your automation primitives)
 Three static HTML files + Firebase backend + Netlify hosting. No build step for the HTML.
