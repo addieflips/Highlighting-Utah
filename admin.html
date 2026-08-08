@@ -1372,6 +1372,11 @@
                 <textarea id="rbEavesArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="Yes&#10;No&#10;(blank = leave as is)"></textarea>
                 <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">Type Yes or No (y/n also works). Blank leaves it unchanged.</p>
               </div>
+              <div class="form-row">
+                <label>Difficulty (optional) <span class="bulk-count" id="rbCountDifficulty">0 rows</span></label>
+                <textarea id="rbDifficultyArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="Easy&#10;Medium&#10;Hard&#10;(blank = leave as is)"></textarea>
+                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">Type Easy, Medium, Hard, or Unrated &mdash; not case-sensitive. This is the same difficulty pill you set on Routes. Blank leaves it unchanged.</p>
+              </div>
             </div>
             <button type="button" class="btn btn-gold" id="rbImportBtn" style="margin-top:6px;">Import / Update Customers</button>
             <span id="rbImportStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
@@ -3540,12 +3545,14 @@ Highlighting Utah</textarea>
       </div>
       <div class="card">
         <h3>&#128179; Payment Integrations</h3>
-        <p style="font-size:13px;">Choose what the "Pay Online" button in the Member Portal does. With PayPal selected, customers pay their balance plus an optional tip in one PayPal transaction right on the site, and it's automatically recorded on their invoice the moment they pay — no manual "Mark Paid" needed.</p>
+        <p style="font-size:13px;">Choose how customers can pay in the Member Portal. With PayPal selected, customers pay their balance plus an optional tip in one PayPal transaction right on the site, and it's automatically recorded on their invoice the moment they pay — no manual "Mark Paid" needed. Venmo opens the Venmo app with the amount pre-filled, and still has to be marked paid by hand.</p>
+        <p style="font-size:13px;"><strong>Both</strong> shows the Venmo button and the PayPal buttons together and lets the customer pick. PayPal only appears once a Client ID is saved below — so choosing PayPal or Both without one leaves Venmo showing, and a customer is never left with no way to pay.</p>
         <form id="settingsPaymentForm">
           <div class="form-row"><label>Payment Method Customers See</label>
             <select id="setPaymentProvider">
-              <option value="venmo">Venmo</option>
-              <option value="paypal">PayPal</option>
+              <option value="venmo">Venmo only</option>
+              <option value="paypal">PayPal only</option>
+              <option value="both">Both &mdash; let the customer choose</option>
             </select>
           </div>
           <div class="form-row"><label>PayPal Client ID</label><input type="text" id="setPaypalClientId" placeholder="From your PayPal Developer app"></div>
@@ -3679,6 +3686,19 @@ const sendInvoicesNowFn = httpsCallable(fbFunctions, 'sendInvoicesNow');
 
 const CLOUDINARY_CLOUD = "highlighting-utah";
 const CLOUDINARY_PRESET = "highlighting_utah";
+
+/* Ask Cloudinary for a small version of an image instead of the full-size upload.
+   Thumbnail grids were downloading full 640px+ originals for every tile, which is
+   tens of megabytes on a page that only shows them ~200px wide. Cloudinary resizes
+   on its own servers when we put w_<width> in the URL path. Non-Cloudinary URLs
+   (and anything unexpected) are returned untouched, so this is always safe to wrap
+   around a src. */
+function cloudThumb(url, width){
+  if(!url || typeof url !== 'string') return url || '';
+  if(url.indexOf('res.cloudinary.com/'+CLOUDINARY_CLOUD+'/image/upload/') === -1) return url;
+  if(/\/image\/upload\/[a-z]_[^/]*\//.test(url)) return url; // already has transforms
+  return url.replace('/image/upload/', '/image/upload/w_'+(width||400)+',c_limit,q_auto,f_auto/');
+}
 
 /* ---------------- Toast ---------------- */
 function toast(msg){
@@ -4591,7 +4611,10 @@ document.getElementById('loadBulkAutoCopyListBtn')?.addEventListener('click', fu
       const isOpen = panel.style.display !== 'none';
       if(isOpen){ panel.style.display = 'none'; return; }
       const includeVenmo = document.getElementById('bulkAutoIncludeVenmo')?.checked;
-      const inv = allInvoicesCache.find(i => i.data.phone === d.phone);
+      /* Match on the invoice KEY, not the phone field. A customer with no phone
+         is keyed by email, so comparing phones matched '' === '' and could pull
+         a different customer's invoice — and this amount goes out in an email. */
+      const inv = allCustInvoiceFor(item);
       const amount = inv ? balanceDueAmount(inv.data) : 0;
       const template = document.getElementById('bulkUpdateEmailTemplate')?.value;
       const message = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, d.name||'there').replace(/\{\{amount\}\}/g, fmtMoney(amount)), d.phone, amount) +
@@ -4674,7 +4697,9 @@ document.getElementById('sendBulkUpdateEmailBtn')?.addEventListener('click', asy
   let sent = 0, failed = 0;
   for(const item of withEmail){
     const d = item.data;
-    const inv = allInvoicesCache.find(i => i.data.phone === d.phone);
+    /* Key-based lookup, not phone-based — see the note in the single-send
+       handler above. This amount is emailed to a real customer. */
+    const inv = allCustInvoiceFor(item);
     const amount = inv ? balanceDueAmount(inv.data) : 0;
     const includeMessages = document.getElementById('bulkAutoIncludeMessages')?.checked;
     const footer = await buildOutgoingEmailFooter(d.phone, amount, {includePortal: includePortal, includeVenmo: includeVenmo, includeMessages: includeMessages});
@@ -8583,7 +8608,7 @@ function loadGallery(){
     snap.forEach(function(docSnap){
       const d = docSnap.data();
       html += '<div class="gallery-admin-item">'+
-        '<img src="'+esc(d.imageUrl)+'" alt="">'+
+        '<img src="'+esc(cloudThumb(d.imageUrl, 400))+'" alt="" loading="lazy" decoding="async">'+
         '<div class="gcap">'+
           '<input type="text" value="'+esc(d.caption)+'" data-caption-id="'+docSnap.id+'">'+
           '<button class="icon-btn danger" data-del="gallery" data-id="'+docSnap.id+'" style="width:100%;">'+trashIcon()+'</button>'+
@@ -8647,7 +8672,7 @@ function loadHeroImages(){
     let html = '';
     heroImageDocs.forEach(function(item, i){
       html += '<div class="gallery-admin-item">'+
-        '<img src="'+esc(item.data.imageUrl)+'" alt="">'+
+        '<img src="'+esc(cloudThumb(item.data.imageUrl, 400))+'" alt="" loading="lazy" decoding="async">'+
         '<div class="gcap">'+
           '<div style="display:flex; gap:6px; margin-bottom:6px;">'+
             '<button class="icon-btn" data-move="up" data-idx="'+i+'" '+(i===0?'disabled style="opacity:.3;"':'')+' style="flex:1;">'+upIcon()+'</button>'+
@@ -9395,18 +9420,55 @@ document.getElementById('addCustPrice').addEventListener('input', function(){
   const hasEmail = !!document.getElementById('addCustEmail').value.trim();
   document.getElementById('phoneRequiredMark').style.display = (anyFilled && !hasEmail) ? 'inline' : 'none';
 });
-async function syncPayerInvoice(payerPhone){
-  if(!payerPhone) return;
-  const selfSnap = await getDocs(query(collection(db,'jobAddresses'), where('phone','==',payerPhone)));
-  const billedSnap = await getDocs(query(collection(db,'jobAddresses'), where('billToPhone','==',payerPhone)));
+async function syncPayerInvoice(payerKey){
+  if(!payerKey) return;
+  const key = String(payerKey).trim();
+  if(!key) return;
+  /* An invoice is keyed by the payer's phone when they have one and by their
+     lowercased email when they don't (see custInvoiceKey). Looking an email key
+     up by phone matched nothing, so the group came back empty and this rebuilt
+     the invoice as install: 0 — silently wiping a real total. Resolve both. */
+  const isPhoneKey = /^\d+$/.test(key);
   const linked = [];
-  selfSnap.forEach(function(docSnap){ if(!docSnap.data().billToPhone) linked.push({id:docSnap.id, data:docSnap.data()}); });
-  billedSnap.forEach(function(docSnap){ linked.push({id:docSnap.id, data:docSnap.data()}); });
+  const seenHouseIds = {};
+  function addHouse(id, data){
+    if(seenHouseIds[id]) return;
+    seenHouseIds[id] = true;
+    linked.push({id: id, data: data});
+  }
+  if(isPhoneKey){
+    const selfSnap = await getDocs(query(collection(db,'jobAddresses'), where('phone','==',key)));
+    selfSnap.forEach(function(docSnap){ if(!docSnap.data().billToPhone) addHouse(docSnap.id, docSnap.data()); });
+  } else {
+    const emailSnap = await getDocs(query(collection(db,'jobAddresses'), where('email','==',key)));
+    emailSnap.forEach(function(docSnap){
+      const d = docSnap.data();
+      /* A house with a phone of its own keys off that phone, not this email. */
+      if(!d.billToPhone && custInvoiceKey(d) === key) addHouse(docSnap.id, d);
+    });
+    if(!linked.length && Array.isArray(jobAddresses)){
+      /* A stored email can differ in case from the lowercased invoice key, and
+         an equality query can't match that — fall back to the loaded list. */
+      jobAddresses.forEach(function(c){
+        const d = c.data || {};
+        if(!d.billToPhone && custInvoiceKey(d) === key) addHouse(c.id, d);
+      });
+    }
+  }
+  const billedSnap = await getDocs(query(collection(db,'jobAddresses'), where('billToPhone','==',key)));
+  billedSnap.forEach(function(docSnap){ addHouse(docSnap.id, docSnap.data()); });
+  if(!isPhoneKey && !linked.length){
+    /* Refuse to rebuild an email-keyed invoice from an empty group — that is the
+       exact failure this guard exists to stop, and zeroing a live total is worse
+       than leaving it stale. Phone keys keep the old behaviour so the bill-to
+       change flow can still zero a payer whose last house moved away. */
+    throw new Error('syncPayerInvoice: no houses resolved for invoice key ' + key);
+  }
   const total = linked.reduce((s,h) => s + (Number(h.data.housePrice)||0), 0);
-  const payerHouse = linked.find(h => (h.data.phone||'').replace(/\D/g,'') === payerPhone && !h.data.billToPhone);
+  const payerHouse = linked.find(h => custInvoiceKey(h.data) === key && !h.data.billToPhone);
   let existing = {};
   try{
-    const existingSnap = await getDoc(doc(db,'invoices',payerPhone));
+    const existingSnap = await getDoc(doc(db,'invoices',key));
     if(existingSnap.exists()) existing = existingSnap.data();
   } catch(err){ /* no existing invoice yet, fine */ }
   // Keep the $30 new-member fee that was already applied — the sum of house
@@ -9415,10 +9477,12 @@ async function syncPayerInvoice(payerPhone){
   // never go green).
   const memberFee = existing.newMemberFeeApplied ? 30 : 0;
   const installTotal = total + memberFee;
-  await setDoc(doc(db,'invoices',payerPhone), {
+  await setDoc(doc(db,'invoices',key), {
     name: (payerHouse && payerHouse.data.name) || existing.name || '',
-    phone: payerPhone,
-    email: (payerHouse && payerHouse.data.email) || existing.email || '',
+    /* The key doubles as the phone only when it IS a phone — writing an email
+       into the phone field would break everything that reads it back. */
+    phone: isPhoneKey ? key : ((payerHouse && String(payerHouse.data.phone || '').replace(/\D/g,'')) || existing.phone || ''),
+    email: (payerHouse && payerHouse.data.email) || existing.email || (isPhoneKey ? '' : key),
     install: installTotal, removal: existing.removal || 0, deposit: existing.deposit || 0,
     newMemberFeeApplied: !!existing.newMemberFeeApplied,
     status: computeInvoiceStatus(installTotal, existing.removal||0, existing.deposit||0, existing.credits||0, existing.changeFees||0),
@@ -9907,13 +9971,23 @@ function wireBulkCounts(areaIds, anchorId, countIdMap){
 }
 
 // --- Routes Bulk Update ---
-const rbAreaIds = ['rbNamesArea','rbPhonesArea','rbEmailsArea','rbStreetsArea','rbCitiesArea','rbStatesArea','rbZipsArea','rbDatesArea','rbColorsArea','rbAmountsArea','rbInstallPrefArea','rbCustNumbersArea','rbWireArea','rbTimerArea','rbEavesArea'];
+const rbAreaIds = ['rbNamesArea','rbPhonesArea','rbEmailsArea','rbStreetsArea','rbCitiesArea','rbStatesArea','rbZipsArea','rbDatesArea','rbColorsArea','rbAmountsArea','rbInstallPrefArea','rbCustNumbersArea','rbWireArea','rbTimerArea','rbEavesArea','rbDifficultyArea'];
 const rbCountIds = {
   rbNamesArea:'rbCountNames', rbPhonesArea:'rbCountPhones', rbEmailsArea:'rbCountEmails',
   rbStreetsArea:'rbCountStreets', rbCitiesArea:'rbCountCities', rbStatesArea:'rbCountStates', rbZipsArea:'rbCountZips', rbDatesArea:'rbCountDates',
   rbColorsArea:'rbCountColors', rbAmountsArea:'rbCountAmounts', rbInstallPrefArea:'rbCountInstallPref', rbCustNumbersArea:'rbCountCustNumbers',
-  rbWireArea:'rbCountWire', rbTimerArea:'rbCountTimer', rbEavesArea:'rbCountEaves'
+  rbWireArea:'rbCountWire', rbTimerArea:'rbCountTimer', rbEavesArea:'rbCountEaves',
+  rbDifficultyArea:'rbCountDifficulty'
 };
+// Bulk Difficulty mirrors the Routes difficulty pill: Unrated/Easy/Medium/Hard.
+// Anything else is rejected up front so a typo can't quietly write a junk value.
+const RB_DIFFICULTY_OPTIONS = ['Unrated','Easy','Medium','Hard'];
+function rbNormalizeDifficulty(raw){
+  if(!raw) return '';
+  const v = raw.trim().toLowerCase();
+  const match = RB_DIFFICULTY_OPTIONS.find(function(opt){ return opt.toLowerCase() === v; });
+  return match || '';
+}
 // Bulk Wire = White/Green; Bulk Timer + Use Eaves = Yes/No. Blank leaves the field as-is.
 function rbNormalizeWire(raw){
   if(!raw) return '';
@@ -9988,12 +10062,13 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
   const wireRaw = alignBulkRows(document.getElementById('rbWireArea').value.split('\n').map(s => s.trim()), streets.length);
   const timerRaw = alignBulkRows(document.getElementById('rbTimerArea').value.split('\n').map(s => s.trim()), streets.length);
   const eavesRaw = alignBulkRows(document.getElementById('rbEavesArea').value.split('\n').map(s => s.trim()), streets.length);
+  const difficultyRaw = alignBulkRows(document.getElementById('rbDifficultyArea').value.split('\n').map(s => s.trim()), streets.length);
 
   const checks = [
     ['Name', names],
     ['Phone Number', phones], ['Email', emails], ['City', cities], ['State', states], ['Zip Code', zips], ['Date Added', dates],
     ['Light Color(s)', colorsRaw], ['Payment Amount', amounts], ['Install Month', installPrefRaw],
-    ['Wire Color', wireRaw], ['Outlet Timer', timerRaw], ['Use Eaves', eavesRaw]
+    ['Wire Color', wireRaw], ['Outlet Timer', timerRaw], ['Use Eaves', eavesRaw], ['Difficulty', difficultyRaw]
   ];
   for(const [label, arr] of checks){
     const nonEmptyCount = arr.filter(Boolean).length;
@@ -10013,6 +10088,13 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
   for(let i = 0; i < amounts.length; i++){
     if(amounts[i] && isNaN(Number(amounts[i].replace(/[,$]/g,'')))){
       statusEl.textContent = 'Row ' + (i+1) + ' of Payment Amount ("' + amounts[i] + '") isn\'t a number — enter just digits, like 650.';
+      return;
+    }
+  }
+  // Validate any difficulties that were actually typed in before starting
+  for(let i = 0; i < difficultyRaw.length; i++){
+    if(difficultyRaw[i] && !rbNormalizeDifficulty(difficultyRaw[i])){
+      statusEl.textContent = 'Row ' + (i+1) + ' of Difficulty ("' + difficultyRaw[i] + '") isn\'t one I recognise — use Easy, Medium, Hard, or Unrated.';
       return;
     }
   }
@@ -10036,6 +10118,7 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
     const wireColorVal = rbNormalizeWire(wireRaw[i] || '');
     const outletTimerVal = rbNormalizeYesNo(timerRaw[i] || '');
     const useEavesVal = rbNormalizeYesNo(eavesRaw[i] || '');
+    const difficultyVal = rbNormalizeDifficulty(difficultyRaw[i] || '');
     const amountTypedIn = amounts[i] || '';
     const price = amountTypedIn ? Number(amountTypedIn.replace(/[,$]/g,'')) : null;
     try{
@@ -10072,12 +10155,13 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
         if(wireColorVal) updates.wireColor = wireColorVal;
         if(outletTimerVal) updates.outletTimer = outletTimerVal;
         if(useEavesVal) updates.useEaves = useEavesVal;
+        if(difficultyVal) updates.difficulty = difficultyVal;
         await updateDoc(doc(db,'jobAddresses',existing.id), updates);
         updated++;
       } else {
         await addDoc(collection(db,'jobAddresses'), {
           street: street, city: city, state: state, zip: zip,
-          address: fullAddress, name: name, phone: phone, email: email, difficulty: 'Unrated',
+          address: fullAddress, name: name, phone: phone, email: email, difficulty: difficultyVal || 'Unrated',
           lightColors: colors,
           lightsDescription: pattern,
           installPreference: installPref || 'Normal Schedule',
@@ -10938,8 +11022,12 @@ function renderWarehouseRecycleQueue(){
   const groups = {};
   jobAddresses.forEach(function(item){
     const d = item.data;
-    if(!d.needsLightRecycle || !d.lightsDescription) return;
-    const key = whGroupKey(d.lightsDescription, d.wireColor);
+    /* Everyone flagged for recycle belongs here, even with no lights recorded.
+       Requiring lightsDescription too meant an RSVP "no" flagged them and they
+       then never appeared in this list, so their customer number never came
+       back to the available pool. */
+    if(!d.needsLightRecycle) return;
+    const key = whGroupKey(d.lightsDescription || 'No lights recorded', d.wireColor);
     if(!groups[key]) groups[key] = [];
     groups[key].push(item);
   });
@@ -13202,7 +13290,7 @@ function renderRouteOrderedList(ordered){
         '<div style="background:#FDECEA; border:1px solid #f0b3ac; border-radius:8px; padding:10px 12px; margin-top:8px;">'+
           '<strong style="font-size:12px; color:#8a3b32;">What needs fixing:</strong>'+
           (hd.fixNote ? '<div style="font-size:12.5px; color:var(--ink); margin-top:4px;">'+esc(hd.fixNote)+'</div>' : '')+
-          (hd.fixPhotoUrl ? '<img src="'+esc(hd.fixPhotoUrl)+'" style="max-width:220px; border-radius:8px; margin-top:8px; display:block;">' : '')+
+          (hd.fixPhotoUrl ? '<img src="'+esc(cloudThumb(hd.fixPhotoUrl, 440))+'" loading="lazy" decoding="async" style="max-width:220px; border-radius:8px; margin-top:8px; display:block;">' : '')+
         '</div>'
       ) : '')+
       (hd.housePhotoUrl ? (function(){
@@ -13212,7 +13300,7 @@ function renderRouteOrderedList(ordered){
           return '<div style="position:absolute; left:'+(h.x*100)+'%; top:'+(h.y*100)+'%; width:'+(h.w*100)+'%; height:'+(h.h*100)+'%; background:'+c+'55; border:2px solid '+c+'; box-sizing:border-box;"><span style="position:absolute; top:1px; left:1px; background:'+c+'; color:#fff; font-size:9.5px; font-weight:700; padding:1px 4px; border-radius:3px;">'+esc(h.label)+'</span></div>';
         }).join('');
         return '<div style="position:relative; max-width:260px; margin-top:8px; border-radius:8px; overflow:hidden; border:1px solid var(--line);">'+
-          '<img src="'+esc(hd.housePhotoUrl)+'" style="width:100%; display:block;">'+boxes+'</div>';
+          '<img src="'+esc(cloudThumb(hd.housePhotoUrl, 520))+'" loading="lazy" decoding="async" style="width:100%; display:block;">'+boxes+'</div>';
       })() : '')+
       '<div class="diff-pick-row" style="margin-top:6px;">'+
         '<select class="diff-select" data-setdiff="'+stop.id+'" style="border-radius:8px; border:1px solid var(--line); padding:6px 10px; font-size:13px; font-weight:600; background:var(--snow); color:var(--ink);">'+
@@ -17383,7 +17471,7 @@ const TEST_SEED = [
   [8, 'Member Portal', 'Wrong credentials', '1. Open the Member Portal (the customer login area on highlightingutah.com).\n2. In the phone number box, type a real customer\'s phone number, but in the last name box type a last name that does NOT belong to that customer, so the two don\'t match.\n3. Click the \'Sign In\' button.', 'A friendly message should appear saying something like \'we couldn\'t find an account.\' The sign-in form should reappear so you can try again. You should NOT see a technical error code, and you should NOT see a blank screen.', 1, 'Pass', '', ''],
   [9, 'Member Portal', 'Personalized link', '1. Find an invoice email or an RSVP email that was sent to a customer (check your own email inbox from a test email that was sent to you).\n2. Inside that email, find the personalized link to the Member Portal.\n3. Copy that link.\n4. Open a new browser tab or window where you are NOT already signed in to the Member Portal.\n5. Paste the link into the address bar and go to it.', 'The link should open straight into that customer\'s account, showing the spinner while it loads. It should NOT ask you to sign in again — no phone number or last name box should appear.', 1, 'Fail', '', ''],
   [10, 'Member Portal', 'Balance reflects credits', '1. Open the admin site (the private office dashboard) and look at the menu on the left side of the screen. Click the word \'Dashboard\'.\n2. Click the \'Invoices\' tab.\n3. Click \'Invoice List\'.\n4. Find a customer and add a credit to their invoice — or, if you\'d rather not change anything, pick a customer who already has a credit on their invoice.\n5. Write down four numbers from that customer\'s invoice: the install amount, the removal amount, the credit amount, and the amount they have already paid.\n6. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as that same customer.\n7. Click the \'Payment\' tab.\n8. Look at the balance shown there.', 'The balance shown on the Payment tab should equal: the install amount plus the removal amount, minus the credit, minus whatever the customer has already paid. If you add up install and removal, subtract the credit, and subtract what\'s already been paid, that final number should match the balance shown in the portal exactly.', 1, 'N/A', '', ''],
-  [11, 'Member Portal', 'Pay with PayPal', '1. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as a customer who still owes money — use your own test customer record for this, not a real customer.\n2. Stay on the \'Payment\' tab.\n3. Look for a PayPal button on that tab.\n4. If there is an option to add a small tip, add one.\n5. Click through and complete a real payment for a small amount using PayPal.\n6. After the payment finishes, go back to the Member Portal and reload the page.', 'PayPal should charge you the exact balance that was shown on the Payment tab, plus whatever tip you added. After the payment goes through and you reload the portal, the balance should have dropped, and the account should now say \'Paid in Full\'.', 1, 'Fail', 'There is only a link to Venmo.', ''],
+  [11, 'Member Portal', 'Pay with PayPal', '1. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as a customer who still owes money — use your own test customer record for this, not a real customer.\n2. Stay on the \'Payment\' tab.\n3. Look for a PayPal button on that tab. Which buttons appear is controlled in admin under Websites > Site Settings > Payment Integrations: \'Venmo only\' shows just the Venmo button, \'PayPal only\' shows just PayPal, and \'Both\' shows Venmo and PayPal together. PayPal also needs a Client ID saved there before it will appear at all. Check that setting first — if it is set to \'Venmo only\', seeing only Venmo is correct and is not a fail.\n4. If there is an option to add a small tip, add one.\n5. Click through and complete a real payment for a small amount using PayPal.\n6. After the payment finishes, go back to the Member Portal and reload the page.', 'PayPal should charge you the exact balance that was shown on the Payment tab, plus whatever tip you added. After the payment goes through and you reload the portal, the balance should have dropped, and the account should now say \'Paid in Full\'.', 2, 'Fail', 'There is only a link to Venmo.', ''],
   [12, 'Member Portal', 'Change light colours', '1. Pick a test customer to use for this test — do NOT use a real customer, because changing light colours through the portal charges the customer a $30 fee.\n2. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as that test customer.\n3. Click the \'Light Colors\' tab (if you\'re using a phone, this tab is in the row of tabs across the bottom of the screen).\n4. Change the light colours to something different than what\'s currently selected.\n5. Click \'Save\'.\n6. Open the admin site (the private office dashboard) and look at the menu on the left side of the screen. Click the word \'Customers\'.\n7. Click \'All Customers\'.\n8. Find that test customer in the list and click \'Edit\' on their entry.\n9. Go back to the menu on the left side of the screen and click the word \'Warehouse\'.\n10. Click the \'Build\' tab.', 'The portal should show a message confirming the colour change was saved. In admin, the Edit Customer popup for that person should show the new colours you picked. That same customer should now also appear in the Warehouse Build list.', 1, 'Pass', '', ''],
   [13, 'Member Portal', 'Change contact info', '1. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as a test customer.\n2. Click the \'Information\' tab.\n3. Change the phone number to a different test value.\n4. Change the gate code to a different test value.\n5. Change the street address to a different test value.\n6. Click \'Save\'.\n7. Open the admin site (the private office dashboard) and look at the menu on the left side of the screen. Click the word \'Customers\'.\n8. Click \'All Customers\'.\n9. Find that test customer and click \'Edit\' on their entry.\n10. Go back to the menu on the left side of the screen and click the word \'Routes\'.\n11. Find an upcoming saved route that includes that test customer as a stop.', 'The Edit Customer popup should show the new phone number, gate code, and street address you just typed in the portal. The upcoming route stop for that customer should also show the new gate code and the new address.', 1, 'Pass', '', ''],
   [14, 'Member Portal', 'Change preferences', '1. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as a test customer.\n2. Click the \'Information\' tab and look through it, then also click the \'Changes\' tab and look through it.\n3. Change the wire colour to a different value.\n4. Save that change.\n5. Change the answer to the outlet timer question.\n6. Save that change.\n7. Change the install timing preference.\n8. Save that change.\n9. Type something new into the notes box.\n10. Save that change.\n11. Open the admin site (the private office dashboard) and look at the menu on the left side of the screen. Click the word \'Customers\'.\n12. Click \'All Customers\'.\n13. Find that test customer and click \'Edit\' on their entry.\n14. On the Edit Customer popup, look for each of the four things you just changed: the wire colour, the outlet timer answer, the install timing preference, and the notes.', 'All four things you changed — the wire colour, the outlet timer answer, the install timing preference, and the notes — should be visible somewhere on the Edit Customer popup in admin. If even one of those four is nowhere to be found on that popup, this test fails.', 1, 'Fail', 'There is nowhere to view it on the admin page.', ''],
@@ -17540,6 +17628,7 @@ const TEST_SEED = [
   [165, 'Security', 'Shared staff login is app-side only', '1. This test does not require you to click through anything in the app - it is something to read and confirm you understand.\n2. Read and note this fact: the whole crew shares one single staff login, and then each person picks their own name after logging in.\n3. Understand what that means: any limits on which tabs a particular crew member can see are enforced by the phone app itself (the software), not by the database that stores the actual data.', 'Confirm that you understand this known limitation: anyone who has the shared staff login technically has full database-level access to everything, no matter which tabs the app shows or hides for them. Mark this test \'Pass\' once you have read this and accept it as-is, or mark it \'Fail\' if you think this should be changed.', 1, '', '', ''],
   [166, 'Health & Data', 'Invoice Bulk Update guard', '1. Open admin (the private office dashboard).\n2. In the menu on the left side of the screen, click \'Import Center\'.\n3. Find the box labeled \'Invoice Fields\'.\n4. Pick a real test customer who already has an invoice with at least one of the following on it: a removal charge, a deposit, or a change fee.\n5. Write down the exact removal charge, deposit, and change fee amounts currently sitting on their invoice, before doing anything else.\n6. Into the Invoice Fields box, paste that customer\'s name, their phone number, and a new payment amount that is different from what\'s on the invoice now.\n7. Click the button labeled \'Import / Update Invoices\'.\n8. In the menu on the left side of the screen, click \'Dashboard\'.\n9. Click \'Invoices\'.\n10. Click \'Invoice List\'.\n11. Find and open that same test customer\'s invoice again.', 'The install amount on the invoice should have updated to the new payment amount you entered. But the removal charge, deposit, and change fee you wrote down beforehand should all still be exactly the same as before - running this import tool should not quietly wipe them out to zero.', 1, '', '', ''],
   [167, 'Admin', 'Quote photo upload', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click "Quote Requests".\n3. Find any quote card.\n4. On that card, click the button called "Add Photo" (or "Replace Photo" if a photo is already there).\n5. Upload a house photo directly on the card.\n6. Click the button called "Mark Up Photo".\n7. Try drawing on the photo.', 'The photo you uploaded should appear on the quote card. Clicking Mark Up Photo should open a drawing tool that lets you draw on the photo. This is the manual photo-upload feature that replaced an old Street View lookup tool — it\'s a live feature that\'s actually used, not leftover code, so it should keep working correctly.', 1, '', '', ''],
+  [168, 'Admin', 'Bulk Difficulty column', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click \'Customers\'.\n3. Click the tab called \'Bulk Updates\'.\n4. Click the heading \'Customers & Routes\' to open it if it isn\'t already open.\n5. Scroll down to the row of boxes that has \'Wire Color\', \'Outlet Timer\' and \'Use Eaves\'. There should now be a fourth box there called \'Difficulty (optional)\'.\n6. Pick two real customers who are currently Unrated. Write down their street addresses exactly as they appear in Routes.\n7. Paste those two street addresses into the \'Street Address\' box, one per line.\n8. In the \'Difficulty\' box, type Hard on the first line and easy (lowercase, on purpose) on the second line.\n9. Check that the small grey counter above the Difficulty box says \'2 rows\'.\n10. Click \'Import / Update Customers\' and wait for it to finish.\n11. In the menu on the left side of the screen, click \'Routes\'.\n12. Search for each of those two customers and click \'Show Details\' on their card.\n13. Now go back to Bulk Updates and try it again with the same two addresses, but this time type the word Banana in the Difficulty box on the first line.\n14. Click \'Import / Update Customers\' again.', 'After step 10, the first customer\'s difficulty should read Hard and the second should read Easy — typing it in lowercase should still work. Leaving the Difficulty box completely empty should never change anyone\'s existing difficulty. In step 14, the import should refuse to run and show a message naming row 1 and the word Banana, and nothing at all should be imported or changed from that attempt.', 1, '', '', ''],
 ];
 
 function attachDeleteHandlers(container){

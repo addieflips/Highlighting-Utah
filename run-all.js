@@ -684,6 +684,59 @@ check('flow', 'deleting a customer archives money already collected',
 check('flow', 'changing bill-to resyncs both payer invoices',
   editSave.includes('syncPayerInvoice'));
 
+// syncPayerInvoice used to look houses up by phone ONLY. An invoice is keyed by
+// custInvoiceKey — the phone when there is one, the lowercased email when there
+// isn't — so an email-keyed payer matched no houses at all, the group came back
+// empty, and the rebuild wrote install: 0 straight over a real total. Found
+// 2026-08-08 on a live 3-house group invoice sitting at $0 against $1500 of
+// houses; the same path runs on an ordinary House Price edit, not just the
+// Health Check fix button, so it could zero an invoice during normal office work.
+const syncPayerStart = admin.indexOf('async function syncPayerInvoice(');
+const syncPayer = syncPayerStart > -1
+  ? admin.slice(syncPayerStart, admin.indexOf('\n}', syncPayerStart))
+  : '';
+check('flow', 'payer invoice resync resolves an email-keyed payer, not just a phone',
+  /where\(\s*'email'\s*,\s*'=='\s*,\s*key\s*\)/.test(syncPayer),
+  'an email-keyed payer matches no houses by phone, so the invoice rebuilds as $0');
+check('flow', 'payer invoice resync refuses to zero an email-keyed invoice it cannot resolve',
+  /!isPhoneKey\s*&&\s*!linked\.length/.test(syncPayer) && /throw new Error/.test(syncPayer),
+  'silently writing install: 0 over a live total is worse than leaving it stale');
+check('flow', 'payer invoice resync never writes an email into the phone field',
+  /phone:\s*isPhoneKey\s*\?\s*key\s*:/.test(syncPayer),
+  'the phone field is read back by lookups that expect digits');
+
+// Same root confusion, different blast radius: the bulk/single "let these
+// customers know" senders matched an invoice by comparing phone fields. A
+// customer with no phone has phone '' on both sides, so '' === '' pulled back
+// whichever invoice happened to be first — and that amount is what gets emailed.
+check('flow', 'customer email amounts look the invoice up by key, not by phone',
+  !/allInvoicesCache\.find\(i => i\.data\.phone === d\.phone\)/.test(admin),
+  "a phone-less customer is keyed by email, so '' === '' could email them a stranger's balance");
+
+// Checklist row #15: portalRsvp sets needsLightRecycle on a flat "no", but the
+// recycle list also demanded a lightsDescription, so a customer with no lights
+// recorded was flagged and then never shown — and their customer number never
+// returned to the available pool.
+const recycleStart = admin.indexOf('function renderWarehouseRecycleQueue()');
+const recycleQueue = recycleStart > -1 ? admin.slice(recycleStart, recycleStart + 1200) : '';
+check('flow', 'recycle list shows everyone flagged, even with no lights recorded',
+  recycleQueue.length > 0 && !/!d\.needsLightRecycle \|\| !d\.lightsDescription/.test(recycleQueue),
+  'a flagged customer who never appears here never gets their number recycled');
+
+// Payment methods are not mutually exclusive any more — 'both' shows Venmo and
+// PayPal together. Venmo must stay visible unless PayPal is the sole method AND
+// actually usable, so a missing Client ID can never leave a customer unable to pay.
+const publicSite = read('index.html');
+check('flow', 'portal can offer Venmo and PayPal at the same time',
+  /provider === 'both'/.test(publicSite) && /function paypalAvailable/.test(publicSite) && /function venmoAvailable/.test(publicSite),
+  'the provider setting used to be either/or with no way to offer both');
+check('flow', 'PayPal is never offered without a Client ID',
+  /function paypalAvailable[\s\S]{0,260}paypalClientId/.test(publicSite),
+  'the buttons cannot render without one, so the customer would see nothing');
+check('flow', 'Site Settings offers the Both payment option',
+  /<option value="both"/.test(admin),
+  'the portal supports it but there would be no way to turn it on');
+
 // the two fixes above have subtleties that must not regress
 check('flow', 'price sync preserves the $30 new member fee',
   /newMemberFeeApplied \? 30 : 0/.test(editSave),
