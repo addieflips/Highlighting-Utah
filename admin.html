@@ -3443,6 +3443,7 @@ Highlighting Utah</textarea>
       <div class="route-tabs" id="projSectionTabs" style="margin-bottom:20px;">
         <button class="route-tab-btn active" data-projtab="todo" draggable="true">To-Do List <span class="proj-tabcount" id="tabCountTodo"></span></button>
         <button class="route-tab-btn" data-projtab="tests" draggable="true">Test Checklist <span class="proj-tabcount" id="tabCountTests"></span></button>
+        <button class="route-tab-btn" data-projtab="results" draggable="true">Tested Results <span class="proj-tabcount" id="tabCountResults"></span></button>
       </div>
 
       <!-- ============ TO-DO TAB: assigned tests only ============ -->
@@ -3515,6 +3516,20 @@ Highlighting Utah</textarea>
         </div>
 
         <div class="row-list" id="testList"><div class="empty-note">Loading&hellip;</div></div>
+      </div>
+
+      <!-- ============ TESTED RESULTS TAB: Pass + Fail ============ -->
+      <div id="projtab-results" style="display:none;">
+        <p style="font-size:12.5px; color:var(--slate); margin:-4px 0 14px;">Pass and Fail tests live here, not on the Test Checklist. Assign a Fail to whoever's fixing it - once it's actually fixed, whoever fixed it (not the office) should mark it Retest, which sends it back to the Test Checklist to run again and drops it off this tab.</p>
+
+        <div class="proj-filterrow">
+          <div class="proj-dd" id="ddResultsStatus"></div>
+          <div class="proj-dd" id="ddResultsArea"></div>
+          <div class="proj-dd" id="ddResultsWho"></div>
+          <button type="button" class="proj-dd-reset" id="resultsFilterReset">Clear filters</button>
+        </div>
+
+        <div class="row-list" id="resultsList"><div class="empty-note">Loading&hellip;</div></div>
       </div>
     </div>
 
@@ -16487,6 +16502,9 @@ let projTestAreaFilters = new Set();
 let projTestWhoFilter = new Set();
 let projAreaCardOpenIds = new Set();
 let projAreaProgressFilter = 'all';
+let projResultsStatusFilter = new Set();
+let projResultsAreaFilter = new Set();
+let projResultsWhoFilter = new Set();
 let projTestCache = [];
 let projVisibleTestIds = [];
 let projVisibleTodoTestIds = [];
@@ -16495,7 +16513,7 @@ document.querySelectorAll('#projSectionTabs [data-projtab]').forEach(function(bt
   btn.addEventListener('click', function(){
     document.querySelectorAll('#projSectionTabs [data-projtab]').forEach(b=>b.classList.remove('active'));
     btn.classList.add('active');
-    ['todo','tests'].forEach(function(name){
+    ['todo','tests','results'].forEach(function(name){
       document.getElementById('projtab-'+name).style.display = (btn.dataset.projtab === name) ? '' : 'none';
     });
   });
@@ -16916,11 +16934,11 @@ function projNoteHasFocus(){
   const a = document.activeElement;
   return !!(a && a.classList && a.classList.contains('proj-note-input'));
 }
-['todoList','testList'].forEach(function(id){
+['todoList','testList','resultsList'].forEach(function(id){
   document.getElementById(id).addEventListener('focusout', function(){
     setTimeout(function(){
       if(projNoteHasFocus()) return;
-      if(projRedrawPending){ projRedrawPending = false; renderTodos(); renderTests(); }
+      if(projRedrawPending){ projRedrawPending = false; renderTodos(); renderTests(); renderResults(); }
     }, 0);
   });
 });
@@ -17106,10 +17124,12 @@ function loadProjectTests(){
     projTestCache.sort(function(a,b){ return (a.num || 0) - (b.num || 0); });
     renderTests();
     renderTodos();
+    renderResults();
   }, function(err){
     projPeopleError = projExplainError(err);
     renderTests();
     renderTodos();
+    renderResults();
   });
 }
 
@@ -17260,6 +17280,52 @@ document.getElementById('testCopyBtn').addEventListener('click', function(){
   });
   projCopyText(out, 'Checklist copied - paste it to Claude');
 });
+
+/* ===================== TESTED RESULTS (Pass + Fail) ===================== */
+
+document.getElementById('resultsFilterReset').addEventListener('click', function(){
+  projResultsStatusFilter.clear();
+  projResultsAreaFilter.clear();
+  projResultsWhoFilter.clear();
+  renderResults();
+});
+
+function renderResults(){
+  if(projNoteHasFocus()){ projRedrawPending = true; return; }
+  const list = document.getElementById('resultsList');
+  const all = projTestCache.filter(function(t){ return t.result === 'Pass' || t.result === 'Fail'; });
+
+  const tc = document.getElementById('tabCountResults');
+  if(tc) tc.textContent = all.length ? '('+all.length+')' : '';
+
+  const c = function(r){ return all.filter(function(t){ return t.result === r; }).length; };
+  projDropdown('ddResultsStatus', 'Show', [
+    { value:'Fail', label:'Fail', count:c('Fail') },
+    { value:'Pass', label:'Pass', count:c('Pass') }
+  ], projResultsStatusFilter, renderResults);
+
+  let areaBase = all;
+  if(projResultsStatusFilter.size) areaBase = areaBase.filter(function(t){ return projResultsStatusFilter.has(t.result); });
+  areaBase = areaBase.filter(function(t){ return projWhoMatch(t, projResultsWhoFilter); });
+  projDropdown('ddResultsArea', 'Area', projAreaOptions(areaBase), projResultsAreaFilter, renderResults);
+  projDropdown('ddResultsWho', 'Assigned to', projWhoOptions(all), projResultsWhoFilter, renderResults);
+
+  let rows = all;
+  if(projResultsStatusFilter.size) rows = rows.filter(function(t){ return projResultsStatusFilter.has(t.result); });
+  if(projResultsAreaFilter.size) rows = rows.filter(function(t){ return projResultsAreaFilter.has(t.area); });
+  rows = rows.filter(function(t){ return projWhoMatch(t, projResultsWhoFilter); });
+  /* Fail floats above Pass so the things most likely to need a fix are seen first. */
+  rows = rows.slice().sort(function(a,b){
+    const ad = a.result === 'Fail' ? 0 : 1, bd = b.result === 'Fail' ? 0 : 1;
+    if(ad !== bd) return ad - bd;
+    return (a.num || 0) - (b.num || 0);
+  });
+
+  if(!rows.length){ list.innerHTML = '<div class="empty-note">Nothing scored Pass or Fail yet - try a different filter, or check back once tests have been run.</div>'; return; }
+  list.innerHTML = rows.map(function(t){ return projTestRowHtml(t, true); }).join('');
+  projWireTestRows(list);
+}
+
 /* One-off tests you add yourself. Numbered from 1000 up so a future seeded
    test can never land on the same number. */
 document.getElementById('testAddToggle').addEventListener('click', function(){
