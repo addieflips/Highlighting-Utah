@@ -721,6 +721,12 @@
     background:#fff; font:inherit; font-size:13px; max-width:200px;
   }
   .proj-row-assignhint{ font-size:11.5px; color:var(--slate, #999); }
+  .proj-fromtest{ border-left:3px solid #1F4E3D; }
+  .proj-testmark{
+    width:22px; height:22px; flex-shrink:0; margin-right:10px; border-radius:6px;
+    display:flex; align-items:center; justify-content:center;
+    background:#E4EDE6; color:#1F4E3D; font-size:12px; font-weight:700;
+  }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyByI2wHguK1JLNdUFJQKiA_gunoVtTkyqM"></script>
@@ -3362,70 +3368,57 @@ Highlighting Utah</textarea>
       <div class="row-list" id="faqList"><div class="empty-note">Loading…</div></div>
     </div>
 
-    <!-- PROJECT (To-Do + Test Checklist + Passed) -->
+    <!-- PROJECT (To-Do + Test Checklist) -->
     <div class="panel" id="panel-projecttodo">
-      <div class="panel-head"><div><h2>Project</h2><p>The running to-do list for the website, and the test checklist for what has been checked.</p></div></div>
+      <div class="panel-head"><div><h2>Project</h2><p>The checklist is every test there is. The To-Do list is the work that has been handed out.</p></div></div>
 
       <div class="route-tabs" id="projSectionTabs" style="margin-bottom:20px;">
-        <button class="route-tab-btn active" data-projtab="todo" draggable="true">To-Do List</button>
+        <button class="route-tab-btn active" data-projtab="todo" draggable="true">To-Do List <span class="proj-tabcount" id="tabCountTodo"></span></button>
         <button class="route-tab-btn" data-projtab="tests" draggable="true">Test Checklist <span class="proj-tabcount" id="tabCountTests"></span></button>
-        <button class="route-tab-btn" data-projtab="passed" draggable="true">Passed <span class="proj-tabcount" id="tabCountPassed"></span></button>
       </div>
 
-      <!-- ============ TO-DO TAB ============ -->
+      <!-- ============ TO-DO TAB: assigned tests only ============ -->
       <div id="projtab-todo">
-        <div class="proj-counts" id="todoCounts"></div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px;">
+          <button type="button" class="btn btn-gold" id="testAddToggle">Add a one-off test</button>
+          <button type="button" class="btn btn-outline" id="todoCopyBtn">Copy for Claude</button>
+        </div>
 
-        <div class="card">
-          <h3 id="todoFormTitle">Add a Task</h3>
-          <form id="todoForm">
-            <input type="hidden" id="todoEditId">
-            <div class="form-row"><label>Task</label><input type="text" id="todoTask" placeholder="What needs doing?" required></div>
+        <div class="card" id="testAddCard" style="display:none;">
+          <h3 id="testFormTitle">Add a one-off test</h3>
+          <form id="testForm">
+            <input type="hidden" id="testEditId">
             <div class="proj-field-row">
-              <div class="form-row"><label>Area</label><select id="todoArea">
-                <option>Public Site</option><option>Member Portal</option><option>Admin</option>
-                <option>Crew Portal</option><option>Routes</option><option>Warehouse</option>
-                <option>Money</option><option>Cloud Functions</option><option>Cleanup</option><option>Other</option>
-              </select></div>
-              <div class="form-row"><label>Type</label><select id="todoType">
-                <option>Bug</option><option>Feature</option><option>Improvement</option>
-                <option>Tech Debt</option><option>Question</option>
-              </select></div>
-              <div class="form-row"><label>Priority</label><select id="todoPriority">
-                <option>High</option><option selected>Medium</option><option>Low</option>
-              </select></div>
-              <div class="form-row"><label>Assigned to</label><select id="todoAssignee">
-                <option value="">Unassigned</option>
-              </select></div>
+              <div class="form-row"><label>Area</label><input type="text" id="testArea" placeholder="e.g. Member Portal" required></div>
+              <div class="form-row"><label>Name</label><input type="text" id="testName" placeholder="e.g. Sign in (phone)" required></div>
             </div>
-            <div class="form-row"><label>Notes (optional)</label><textarea id="todoNotes" rows="2"></textarea></div>
-            <button type="submit" class="btn btn-gold">Save Task</button>
-            <button type="button" class="btn btn-outline" id="todoCancelEdit" style="display:none;">Cancel Edit</button>
+            <div class="form-row"><label>Steps</label><textarea id="testSteps" rows="2" placeholder="What do you do?"></textarea></div>
+            <div class="form-row"><label>Expected result</label><textarea id="testExpected" rows="2" placeholder="What should happen?"></textarea></div>
+            <div class="form-row"><label>Assigned to</label><select id="testAssignee"><option value="">Unassigned</option></select></div>
+            <button type="submit" class="btn btn-gold">Save</button>
+            <button type="button" class="btn btn-outline" id="testCancelEdit">Cancel</button>
           </form>
         </div>
 
+        <div class="proj-counts" id="todoCounts"></div>
+
         <div class="proj-filterrow">
           <div class="proj-dd" id="ddTodoStatus"></div>
-          <div class="proj-dd" id="ddTodoPriority"></div>
+          <div class="proj-dd" id="ddTodoArea"></div>
           <div class="proj-dd" id="ddTodoWho"></div>
           <button type="button" class="proj-dd-reset" id="todoFilterReset">Clear filters</button>
-        </div>
-
-        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px;">
-          <button type="button" class="btn btn-outline" id="todoCopyBtn">Copy for Claude</button>
-          <button type="button" class="btn btn-outline" id="todoSeedBtn">Load starter items</button>
         </div>
 
         <div class="row-list" id="todoList"><div class="empty-note">Loading&hellip;</div></div>
       </div>
 
-      <!-- ============ TEST CHECKLIST TAB ============ -->
+      <!-- ============ TEST CHECKLIST TAB: everything ============ -->
       <div id="projtab-tests" style="display:none;">
         <div class="proj-counts" id="testCounts"></div>
 
         <div class="proj-syncbar">
           <button type="button" class="btn btn-gold" id="testSyncBtn">Sync checklist</button>
-          <span class="proj-synchelp">Adds any new tests and flags anything that needs re-testing. Your existing results are kept.</span>
+          <span class="proj-synchelp">Adds any new tests and moves anything that has been fixed back to Retest on its own. Your existing results are kept.</span>
         </div>
         <div id="testSyncReport" class="proj-syncreport" style="display:none;"></div>
 
@@ -3437,46 +3430,17 @@ Highlighting Utah</textarea>
         </div>
 
         <div class="proj-bulkbar">
-          <span class="proj-bulklabel">Assign the <b id="bulkCount">0</b> tests shown to</span>
+          <span class="proj-bulklabel">Hand the <b id="bulkCount">0</b> tests shown to</span>
           <select id="bulkAssignee"><option value="">Unassigned</option></select>
           <button type="button" class="btn btn-outline btn-sm" id="bulkAssignBtn">Assign</button>
-          <span class="proj-bulkhint">Filter to an area first, then assign the whole lot in one go.</span>
+          <span class="proj-bulkhint">Whoever you pick sees them on their To-Do list.</span>
         </div>
 
         <div style="display:flex; gap:10px; flex-wrap:wrap; margin:14px 0;">
           <button type="button" class="btn btn-outline" id="testCopyBtn">Copy for Claude</button>
-          <button type="button" class="btn btn-outline" id="testFailsToTodoBtn">Add all Fails to To-Do</button>
-          <button type="button" class="btn btn-outline" id="testAddToggle">Add a one-off test</button>
-        </div>
-
-        <div class="card" id="testAddCard" style="display:none;">
-          <h3 id="testFormTitle">Add a Test</h3>
-          <form id="testForm">
-            <input type="hidden" id="testEditId">
-            <div class="proj-field-row">
-              <div class="form-row"><label>Area</label><input type="text" id="testArea" placeholder="e.g. Member Portal" required></div>
-              <div class="form-row"><label>Test name</label><input type="text" id="testName" placeholder="e.g. Sign in (phone)" required></div>
-            </div>
-            <div class="form-row"><label>Steps</label><textarea id="testSteps" rows="2" placeholder="What do you do?"></textarea></div>
-            <div class="form-row"><label>Expected result</label><textarea id="testExpected" rows="2" placeholder="What should happen?"></textarea></div>
-            <div class="form-row"><label>Assigned to</label><select id="testAssignee"><option value="">Unassigned</option></select></div>
-            <button type="submit" class="btn btn-gold">Save Test</button>
-            <button type="button" class="btn btn-outline" id="testCancelEdit">Cancel</button>
-          </form>
         </div>
 
         <div class="row-list" id="testList"><div class="empty-note">Loading&hellip;</div></div>
-      </div>
-
-      <!-- ============ PASSED TAB ============ -->
-      <div id="projtab-passed" style="display:none;">
-        <div class="proj-counts" id="passedCounts"></div>
-        <p class="proj-synchelp" style="margin:0 0 16px;">Tests that have been signed off. If a change affects one of these, Sync moves it back to the checklist as Retest.</p>
-        <div class="proj-filterrow">
-          <div class="proj-dd" id="ddPassedArea"></div>
-          <button type="button" class="proj-dd-reset" id="passedFilterReset">Clear filter</button>
-        </div>
-        <div class="row-list" id="passedList" style="margin-top:14px;"><div class="empty-note">Loading&hellip;</div></div>
       </div>
     </div>
 
@@ -5167,7 +5131,6 @@ function initData(){
   loadGallery();
   loadHeroImages();
   loadFAQ();
-  loadProjectTodos();
   loadProjectTests();
   loadProjectPeople();
   loadSettings();
@@ -16245,48 +16208,49 @@ function runHealthCheck(){
 })();
 
 /* ---------------- PROJECT: TO-DO LIST + TEST CHECKLIST ----------------
-   Three tabs on one panel, backed by two collections of their own:
-     projectTodos  - the running work list for the website
-     projectTests  - the QA checklist
+   Two tabs, three collections:
+     projectTests   - every test there is (the Test Checklist tab)
+     projectPeople  - the list of names work can be handed to
+     adminUserPrefs - each login's own favourites and layout (elsewhere)
+
+   Test Checklist = everything, whatever state it is in.
+   To-Do List     = only the tests that have been handed to somebody. A test
+                    lands there the moment it is assigned and drops off if it
+                    is set back to Unassigned.
 
    A test is in one of five states:
      (blank) Needs Test | Retest | Fail | N/A | Pass
-   Pass means signed off, so those move to the Passed tab and out of the
-   working checklist. Sync can pull one back by setting it to Retest.
 
-   Seeded tests live at a fixed document id ('t' + number) and carry a
-   version. Sync creates anything missing, and bumps a test to Retest only
-   when its version has moved on - so scores already entered are never lost
-   by accident. Nothing else in the app reads or writes either collection. */
+   Seeded tests live at a fixed document id ('t' + number) and carry a version.
+   Sync creates anything missing and moves a test to Retest by itself when its
+   version has moved on - which is how a fix reopens a failing test without
+   anyone having to remember. Scores are never otherwise touched. */
 
-const PROJ_AREAS = ['Public Site','Member Portal','Admin','Crew Portal','Routes','Warehouse','Money','Cloud Functions','Cleanup','Other'];
 const PROJ_PRIORITY_ORDER = { High:0, Medium:1, Low:2 };
 const TEST_RESULTS = ['Pass','N/A','Fail','Retest'];
 const CUSTOM_TEST_START = 1000;   /* one-off tests are numbered from here, so they can never collide with a seeded number */
 
-let projTodoStatusFilter = new Set(['open']);   /* starts on Open; cleared = everything */
-let projTodoPriorityFilter = new Set();
+let projTodoStatusFilter = new Set();
+let projTodoAreaFilter = new Set();
 let projTodoWhoFilter = new Set();
+let projTestFilters = new Set();
+let projTestAreaFilters = new Set();
 let projTestWhoFilter = new Set();
-let projLoginUsers = [];
-let projTestFilters = new Set();      /* empty = All */
-let projTestAreaFilters = new Set();  /* empty = every area */
-let projPassedAreaFilters = new Set();
-let projTodoCache = [];
 let projTestCache = [];
+let projVisibleTestIds = [];
 
 document.querySelectorAll('#projSectionTabs [data-projtab]').forEach(function(btn){
   btn.addEventListener('click', function(){
     document.querySelectorAll('#projSectionTabs [data-projtab]').forEach(b=>b.classList.remove('active'));
     btn.classList.add('active');
-    ['todo','tests','passed'].forEach(function(name){
+    ['todo','tests'].forEach(function(name){
       document.getElementById('projtab-'+name).style.display = (btn.dataset.projtab === name) ? '' : 'none';
     });
   });
 });
 
 /* Drag the sub-tabs into whatever order suits, same as the Routes and
-   Customers tab rows. The order is remembered per browser. */
+   Customers tab rows. */
 projRegisterTabOrder('proj', 'projSectionTabs', 'data-projtab');
 projRegisterTabOrder('route', 'routeSectionTabs', 'data-routetab');
 projRegisterTabOrder('gensub', 'genSubTabs', 'data-gensubtab');
@@ -16294,7 +16258,6 @@ projRegisterTabOrder('gensub', 'genSubTabs', 'data-gensubtab');
   const container = document.getElementById('projSectionTabs');
   if(!container) return;
   let draggedEl = null;
-
   const savedOrder = (projUserPrefs.tabOrders && projUserPrefs.tabOrders['proj']) || null;
   if(savedOrder){
     savedOrder.forEach(function(key){
@@ -16307,19 +16270,13 @@ projRegisterTabOrder('gensub', 'genSubTabs', 'data-gensubtab');
     projSaveTabOrder('proj', order);
   }
   container.querySelectorAll('[data-projtab]').forEach(function(btn){
-    btn.addEventListener('dragstart', function(){
-      draggedEl = btn;
-      btn.classList.add('dragging');
-    });
+    btn.addEventListener('dragstart', function(){ draggedEl = btn; btn.classList.add('dragging'); });
     btn.addEventListener('dragend', function(){
       btn.classList.remove('dragging');
       container.querySelectorAll('[data-projtab]').forEach(b => b.classList.remove('drag-over'));
       saveOrder();
     });
-    btn.addEventListener('dragover', function(e){
-      e.preventDefault();
-      if(btn !== draggedEl) btn.classList.add('drag-over');
-    });
+    btn.addEventListener('dragover', function(e){ e.preventDefault(); if(btn !== draggedEl) btn.classList.add('drag-over'); });
     btn.addEventListener('dragleave', function(){ btn.classList.remove('drag-over'); });
     btn.addEventListener('drop', function(e){
       e.preventDefault();
@@ -16436,7 +16393,6 @@ function projCopyText(text, okMsg){
   } else { fallback(); }
 }
 
-/* ===================== TO-DO LIST ===================== */
 
 /* ---- People -----------------------------------------------------------
    A plain list of names you keep yourself, stored in projectPeople. No
@@ -16492,15 +16448,11 @@ async function projAddPerson(name){
 async function projRemovePerson(id){
   const person = projPeople.find(function(p){ return p.id === id; });
   if(!person) return;
-  const usedBy = projTodoCache.filter(function(t){ return t.assignee === id; }).length
-               + projTestCache.filter(function(t){ return t.assignee === id; }).length;
+  const usedBy = projTestCache.filter(function(t){ return t.assignee === id; }).length;
   const msg = usedBy
-    ? 'Remove ' + person.name + '? ' + usedBy + ' item(s) assigned to them will go back to Unassigned.'
+    ? 'Remove ' + person.name + '? ' + usedBy + ' test(s) handed to them will go back to Unassigned.'
     : 'Remove ' + person.name + ' from the list?';
   if(!confirm(msg)) return;
-  for(const t of projTodoCache.filter(function(x){ return x.assignee === id; })){
-    await updateDoc(doc(db,'projectTodos',t.id), { assignee: '' });
-  }
   for(const t of projTestCache.filter(function(x){ return x.assignee === id; })){
     await updateDoc(doc(db,'projectTests',t.id), { assignee: '' });
   }
@@ -16534,7 +16486,7 @@ function projOrphanAssignees(){
   const known = {};
   projPeople.forEach(function(p){ known[p.id] = true; });
   const out = [];
-  projTodoCache.concat(projTestCache).forEach(function(r){
+  projTestCache.forEach(function(r){
     if(r.assignee && !known[r.assignee] && out.indexOf(r.assignee) < 0) out.push(r.assignee);
   });
   return out;
@@ -16570,195 +16522,415 @@ function projWhoMatch(row, set){
   return set.has(row.assignee || '__none');
 }
 
-const todoForm = document.getElementById('todoForm');
-todoForm.addEventListener('submit', function(e){
-  e.preventDefault();
-  const editId = document.getElementById('todoEditId').value;
-  const data = {
-    task:     document.getElementById('todoTask').value.trim(),
-    area:     document.getElementById('todoArea').value,
-    type:     document.getElementById('todoType').value,
-    priority: document.getElementById('todoPriority').value,
-    assignee: document.getElementById('todoAssignee').value,
-    notes:    document.getElementById('todoNotes').value.trim()
-  };
-  if(!data.task) return;
-  let p;
-  if(editId){
-    p = updateDoc(doc(db,'projectTodos',editId), data);
-  } else {
-    data.status = 'open';
-    data.createdAt = serverTimestamp();
-    p = addDoc(collection(db,'projectTodos'), data);
-  }
-  p.then(function(){ toast('Task saved'); resetTodoForm(); });
-});
-document.getElementById('todoCancelEdit').addEventListener('click', resetTodoForm);
-function resetTodoForm(){
-  todoForm.reset();
-  document.getElementById('todoEditId').value = '';
-  document.getElementById('todoPriority').value = 'Medium';
-  document.getElementById('todoAssignee').value = '';
-  document.getElementById('todoCancelEdit').style.display = 'none';
-  document.getElementById('todoFormTitle').textContent = 'Add a Task';
+/* ===================== SHARED ROW PIECES ===================== */
+
+function testResultClass(result){
+  if(result === 'N/A') return 'res-NA';
+  if(TEST_RESULTS.indexOf(result) >= 0) return 'res-'+result;
+  return 'res-none';
+}
+function testResultLabel(result){ return result || 'Needs Test'; }
+
+/* Fails float to the top of a person's list, then anything waiting to be
+   re-run, then the rest. Nobody has to set a priority by hand. */
+function projTestPriority(result){
+  if(result === 'Fail') return 'High';
+  if(result === 'Retest') return 'Medium';
+  return 'Low';
+}
+function projSortTests(a, b){
+  const ad = a.result === 'Pass' ? 1 : 0, bd = b.result === 'Pass' ? 1 : 0;
+  if(ad !== bd) return ad - bd;
+  const ap = PROJ_PRIORITY_ORDER[projTestPriority(a.result)];
+  const bp = PROJ_PRIORITY_ORDER[projTestPriority(b.result)];
+  if(ap !== bp) return ap - bp;
+  return (a.num || 0) - (b.num || 0);
 }
 
-document.getElementById('todoFilterReset').addEventListener('click', function(){
-  projTodoStatusFilter.clear();
-  projTodoPriorityFilter.clear();
-  projTodoWhoFilter.clear();
-  renderTodos();
-});
-
-function loadProjectTodos(){
-  onSnapshot(collection(db,'projectTodos'), function(snap){
-    projTodoCache = [];
-    snap.forEach(function(d){ projTodoCache.push(Object.assign({ id:d.id }, d.data())); });
-    projTodoCache.sort(function(a,b){
-      const ad = a.status === 'done' ? 1 : 0, bd = b.status === 'done' ? 1 : 0;
-      if(ad !== bd) return ad - bd;
-      const ap = PROJ_PRIORITY_ORDER[a.priority] != null ? PROJ_PRIORITY_ORDER[a.priority] : 1;
-      const bp = PROJ_PRIORITY_ORDER[b.priority] != null ? PROJ_PRIORITY_ORDER[b.priority] : 1;
-      if(ap !== bp) return ap - bp;
-      const at = a.createdAt && a.createdAt.seconds ? a.createdAt.seconds : 0;
-      const bt = b.createdAt && b.createdAt.seconds ? b.createdAt.seconds : 0;
-      return at - bt;
-    });
-    renderTodos();
-  });
+function projResultButtonsHtml(t){
+  return '<div class="proj-result-row">'+
+    TEST_RESULTS.map(function(r){
+      return '<button type="button" class="proj-result-btn'+((t.result || '') === r ? ' on' : '')+'" data-testresult="'+t.id+'" data-value="'+r+'">'+r+'</button>';
+    }).join('')+
+  '</div>';
+}
+function projAssignSelectHtml(t){
+  return '<div class="proj-row-assign">'+
+    '<span class="proj-row-assignlabel">Assigned to</span>'+
+    '<select data-assign="'+t.id+'">'+
+      '<option value="">Unassigned</option>'+
+      projPeople.map(function(pn){
+        return '<option value="'+esc(pn.id)+'"'+(t.assignee === pn.id ? ' selected' : '')+'>'+esc(pn.name)+'</option>';
+      }).join('')+
+    '</select>'+
+    (projPeople.length ? '' : '<span class="proj-row-assignhint">Add someone in the Assigned to filter above</span>')+
+  '</div>';
 }
 
-function renderTodos(){
-  const list = document.getElementById('todoList');
-  const open = projTodoCache.filter(t => t.status !== 'done');
-  const done = projTodoCache.filter(t => t.status === 'done');
-  const high = open.filter(t => t.priority === 'High');
-  refreshAssigneeSelects();
-
-  document.getElementById('todoCounts').innerHTML =
-    '<span class="proj-count">Open <b>'+open.length+'</b></span>'+
-    '<span class="proj-count">High priority <b>'+high.length+'</b></span>'+
-    '<span class="proj-count">Done <b>'+done.length+'</b></span>';
-
-  const badge = document.getElementById('badgeProjTodo');
-  if(badge){
-    badge.textContent = open.length;
-    badge.style.display = open.length ? '' : 'none';
-  }
-
-  projDropdown('ddTodoStatus', 'Show', [
-    { value:'open', label:'Open', count: open.length },
-    { value:'done', label:'Done', count: done.length }
-  ], projTodoStatusFilter, renderTodos);
-  projDropdown('ddTodoPriority', 'Priority', ['High','Medium','Low'].map(function(pr){
-    return { value:pr, label:pr, count: projTodoCache.filter(function(t){ return (t.priority||'Medium') === pr; }).length };
-  }), projTodoPriorityFilter, renderTodos);
-  projDropdown('ddTodoWho', 'Assigned to', projWhoOptions(projTodoCache, true), projTodoWhoFilter, renderTodos, true);
-
-  let rows = projTodoCache;
-  if(projTodoStatusFilter.size){
-    rows = rows.filter(function(t){ return projTodoStatusFilter.has(t.status === 'done' ? 'done' : 'open'); });
-  }
-  if(projTodoPriorityFilter.size) rows = rows.filter(function(t){ return projTodoPriorityFilter.has(t.priority || 'Medium'); });
-  rows = rows.filter(function(t){ return projWhoMatch(t, projTodoWhoFilter); });
-
-  if(!rows.length){ list.innerHTML = '<div class="empty-note">Nothing here yet.</div>'; return; }
-
-  let html = '';
-  rows.forEach(function(t){
-    const isDone = t.status === 'done';
-    html += '<div class="row-item'+(isDone ? ' proj-done' : '')+'">'+
-      '<div class="rmain">'+
-        '<div class="proj-row-top">'+
-          '<input type="checkbox" class="proj-check" data-todotoggle="'+t.id+'"'+(isDone ? ' checked' : '')+'>'+
-          '<div style="flex:1;">'+
-            '<h4>'+esc(t.task || '')+'</h4>'+
-            '<div class="proj-meta">'+
-              '<span class="proj-tag area">'+esc(t.area || 'Other')+'</span>'+
-              '<span class="proj-tag type">'+esc(t.type || 'Task')+'</span>'+
-              '<span class="proj-tag pri-'+esc(t.priority || 'Medium')+'">'+esc(t.priority || 'Medium')+'</span>'+
-              (t.assignee ? '<span class="proj-tag who">'+esc(projAssigneeName(t.assignee))+'</span>' : '')+
-            '</div>'+
-            (t.notes ? '<div class="proj-sub">'+esc(t.notes)+'</div>' : '')+
-          '</div>'+
-        '</div>'+
+/* withAssign: the To-Do list lets you hand a test to someone else right there.
+   The checklist shows the owner as a tag and hands work out in bulk instead. */
+function projTestRowHtml(t, withAssign){
+  return '<div class="row-item'+(t.result === 'Pass' ? ' proj-done' : '')+'">'+
+    '<div class="rmain">'+
+      '<h4>'+(t.num ? t.num+'. ' : '')+esc(t.name || '')+'</h4>'+
+      '<div class="proj-meta">'+
+        '<span class="proj-tag area">'+esc(t.area || '')+'</span>'+
+        '<span class="proj-tag '+testResultClass(t.result || '')+'">'+esc(testResultLabel(t.result || ''))+'</span>'+
+        (!withAssign && t.assignee ? '<span class="proj-tag who">'+esc(projAssigneeName(t.assignee))+'</span>' : '')+
       '</div>'+
-      '<div class="row-actions">'+
-        '<button class="icon-btn" data-todoedit="'+t.id+'">'+editIcon()+'</button>'+
-        '<button class="icon-btn danger" data-del="projectTodos" data-id="'+t.id+'">'+trashIcon()+'</button>'+
-      '</div>'+
-    '</div>';
-  });
-  list.innerHTML = html;
+      (t.retestReason && t.result === 'Retest' ? '<div class="proj-retest">'+esc(t.retestReason)+'</div>' : '')+
+      (t.steps ? '<div class="proj-sub"><b>Do:</b> '+esc(t.steps)+'</div>' : '')+
+      (t.expected ? '<div class="proj-sub"><b>Expect:</b> '+esc(t.expected)+'</div>' : '')+
+      projResultButtonsHtml(t)+
+      (withAssign ? projAssignSelectHtml(t) : '')+
+      '<input type="text" class="proj-note-input" data-testnote="'+t.id+'" placeholder="Notes - what actually happened?" value="'+esc(t.notes || '')+'">'+
+    '</div>'+
+    '<div class="row-actions">'+
+      '<button class="icon-btn" data-testedit="'+t.id+'">'+editIcon()+'</button>'+
+      '<button class="icon-btn danger" data-del="projectTests" data-id="'+t.id+'">'+trashIcon()+'</button>'+
+    '</div>'+
+  '</div>';
+}
 
-  list.querySelectorAll('[data-todotoggle]').forEach(function(cb){
-    cb.addEventListener('change', function(){
-      updateDoc(doc(db,'projectTodos',cb.dataset.todotoggle), {
-        status: cb.checked ? 'done' : 'open',
-        doneAt: cb.checked ? serverTimestamp() : null
-      });
-    });
-  });
-  list.querySelectorAll('[data-todoedit]').forEach(function(btn){
+function projWireTestRows(list){
+  list.querySelectorAll('[data-testresult]').forEach(function(btn){
     btn.addEventListener('click', function(){
-      const t = projTodoCache.find(x => x.id === btn.dataset.todoedit);
+      const current = projTestCache.find(x => x.id === btn.dataset.testresult);
+      const next = (current && current.result === btn.dataset.value) ? '' : btn.dataset.value;
+      const patch = { result: next };
+      if(next !== 'Retest') patch.retestReason = '';
+      updateDoc(doc(db,'projectTests',btn.dataset.testresult), patch)
+        .catch(function(err){ toast(projExplainError(err)); });
+    });
+  });
+  list.querySelectorAll('[data-assign]').forEach(function(sel){
+    sel.addEventListener('change', function(){
+      updateDoc(doc(db,'projectTests',sel.dataset.assign), { assignee: sel.value }).then(function(){
+        toast(sel.value ? 'Handed to ' + projAssigneeName(sel.value) : 'Unassigned - off the To-Do list');
+      }).catch(function(err){ toast(projExplainError(err)); });
+    });
+  });
+  list.querySelectorAll('[data-testnote]').forEach(function(input){
+    input.addEventListener('change', function(){
+      updateDoc(doc(db,'projectTests',input.dataset.testnote), { notes: input.value.trim() })
+        .then(function(){ toast('Note saved'); })
+        .catch(function(err){ toast(projExplainError(err)); });
+    });
+  });
+  list.querySelectorAll('[data-testedit]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      const t = projTestCache.find(x => x.id === btn.dataset.testedit);
       if(!t) return;
-      document.getElementById('todoEditId').value = t.id;
-      document.getElementById('todoTask').value = t.task || '';
-      document.getElementById('todoArea').value = t.area || 'Other';
-      document.getElementById('todoType').value = t.type || 'Bug';
-      document.getElementById('todoPriority').value = t.priority || 'Medium';
-      refreshAssigneeSelect();
-      document.getElementById('todoAssignee').value = t.assignee || '';
-      document.getElementById('todoNotes').value = t.notes || '';
-      document.getElementById('todoFormTitle').textContent = 'Edit Task';
-      document.getElementById('todoCancelEdit').style.display = 'inline-flex';
+      document.getElementById('testEditId').value = t.id;
+      document.getElementById('testArea').value = t.area || '';
+      document.getElementById('testName').value = t.name || '';
+      document.getElementById('testSteps').value = t.steps || '';
+      document.getElementById('testExpected').value = t.expected || '';
+      refreshAssigneeSelects();
+      document.getElementById('testAssignee').value = t.assignee || '';
+      document.getElementById('testFormTitle').textContent = 'Edit test';
+      document.getElementById('testAddCard').style.display = '';
+      document.querySelector('#projSectionTabs [data-projtab="todo"]').click();
       window.scrollTo({top:0, behavior:'smooth'});
     });
   });
   attachDeleteHandlers(list);
 }
 
-document.getElementById('todoCopyBtn').addEventListener('click', function(){
-  if(!projTodoCache.length){ toast('Nothing to copy yet.'); return; }
-  let out = 'PROJECT TO-DO LIST\n\n';
-  ['open','done'].forEach(function(bucket){
-    const rows = projTodoCache.filter(t => (t.status === 'done') === (bucket === 'done'));
-    if(!rows.length) return;
-    out += (bucket === 'open' ? '-- OPEN --\n' : '\n-- DONE --\n');
-    rows.forEach(function(t){
-      out += '- ['+(t.priority || 'Medium')+'] '+(t.area || 'Other')+' / '+(t.type || 'Task')+': '+(t.task || '')+(t.assignee ? '  (@'+projAssigneeName(t.assignee)+')' : '')+'\n';
-      if(t.notes) out += '    notes: '+t.notes+'\n';
-    });
+/* Both lists rebuild whenever Firestore reports a change. Hold the redraw
+   while a note box has the cursor in it so half-typed text is not lost. */
+let projRedrawPending = false;
+function projNoteHasFocus(){
+  const a = document.activeElement;
+  return !!(a && a.classList && a.classList.contains('proj-note-input'));
+}
+['todoList','testList'].forEach(function(id){
+  document.getElementById(id).addEventListener('focusout', function(){
+    setTimeout(function(){
+      if(projNoteHasFocus()) return;
+      if(projRedrawPending){ projRedrawPending = false; renderTodos(); renderTests(); }
+    }, 0);
   });
-  projCopyText(out, 'To-Do list copied - paste it to Claude');
 });
 
-const TODO_SEED = [
-  ['Add outletTimer to the frozen route stop snapshot (audit #4)','Routes','Bug','Medium','Route stops freeze specificOutlet but not outletTimer, so a printed or frozen route card can miss a timer instruction.'],
-  ['Merge the two invoice-status functions into one shared copy (audit #7)','Money','Tech Debt','Medium','computeInvoiceStatus (admin) and computeInvoiceStatusServer (functions) are separate copies that must be edited together.'],
-  ['Add a way to re-measure feet after install (audit #8)','Admin','Improvement','Low','measuredFeet is copied from the quote estimate, and it drives bins, number series and bundles.'],
-  ['Trim the 6 unused collections from firestore.rules (audit #9)','Cleanup','Tech Debt','Low','houseMaps, inventoryItems, employeeMessages, teamMessages, smsTemplates, smsTemplateFolders - dead config.'],
-  ['Manage warehouse build-ahead goals from admin (audit #10)','Warehouse','Feature','Low','warehouseGoals is read and written only in employee.html; nothing in admin manages it.'],
-  ['Set the Member Portal function min-instances to 1','Cloud Functions','Improvement','Low','Removes the cold-start wait when a customer opens the portal. Small monthly cost.'],
-  ['Fix run-all.js: it looks for the HTML files one folder up','Cleanup','Bug','High','ROOT is __dirname/.. so node run-all.js from the repo root fails with ENOENT before running a single check.'],
-  ['Fix run-all.js crash: colorComboKey is not defined','Cleanup','Bug','High','The suite dies at line 244 on a clean clone, so only about 29 of the claimed 130+ checks ever run.']
-];
+function projAreaOptions(rows){
+  const counts = {};
+  rows.forEach(function(t){ if(t.area) counts[t.area] = (counts[t.area] || 0) + 1; });
+  return Object.keys(counts).sort().map(function(a){ return { value:a, label:a, count:counts[a] }; });
+}
+function projResultOptions(rows){
+  const c = function(r){ return rows.filter(function(t){ return (t.result || '') === r; }).length; };
+  return [
+    { value:'none',   label:'Needs Test', count:c('') },
+    { value:'Retest', label:'Retest',     count:c('Retest') },
+    { value:'Fail',   label:'Fail',       count:c('Fail') },
+    { value:'N/A',    label:'N/A',        count:c('N/A') },
+    { value:'Pass',   label:'Pass',       count:c('Pass') }
+  ];
+}
 
-document.getElementById('todoSeedBtn').addEventListener('click', async function(){
-  let added = 0;
-  for(const row of TODO_SEED){
-    if(projTodoCache.some(t => t.task === row[0])) continue;
-    await addDoc(collection(db,'projectTodos'), {
-      task: row[0], area: row[1], type: row[2], priority: row[3], notes: row[4],
-      status: 'open', createdAt: serverTimestamp()
-    });
-    added++;
+/* ===================== TO-DO LIST (assigned tests) ===================== */
+
+document.getElementById('todoFilterReset').addEventListener('click', function(){
+  projTodoStatusFilter.clear();
+  projTodoAreaFilter.clear();
+  projTodoWhoFilter.clear();
+  renderTodos();
+});
+
+function renderTodos(){
+  if(projNoteHasFocus()){ projRedrawPending = true; return; }
+  const list = document.getElementById('todoList');
+  const mine = projTestCache.filter(function(t){ return t.assignee; }).slice().sort(projSortTests);
+  const open = mine.filter(function(t){ return t.result !== 'Pass'; });
+  const fails = open.filter(function(t){ return t.result === 'Fail'; });
+  const retests = open.filter(function(t){ return t.result === 'Retest'; });
+
+  document.getElementById('todoCounts').innerHTML =
+    '<span class="proj-count">Handed out <b>'+open.length+'</b></span>'+
+    '<span class="proj-count">Fail <b>'+fails.length+'</b></span>'+
+    '<span class="proj-count">Retest <b>'+retests.length+'</b></span>'+
+    '<span class="proj-count">Done <b>'+(mine.length - open.length)+'</b></span>';
+
+  const badge = document.getElementById('badgeProjTodo');
+  if(badge){ badge.textContent = open.length; badge.style.display = open.length ? '' : 'none'; }
+  const tc = document.getElementById('tabCountTodo');
+  if(tc) tc.textContent = open.length ? '('+open.length+')' : '';
+
+  projDropdown('ddTodoStatus', 'Show', projResultOptions(mine), projTodoStatusFilter, renderTodos);
+  projDropdown('ddTodoArea', 'Area', projAreaOptions(mine), projTodoAreaFilter, renderTodos);
+  projDropdown('ddTodoWho', 'Assigned to', projWhoOptions(mine, true), projTodoWhoFilter, renderTodos, true);
+
+  let rows = mine;
+  if(projTodoStatusFilter.size) rows = rows.filter(function(t){ return projTodoStatusFilter.has(t.result || 'none'); });
+  if(projTodoAreaFilter.size) rows = rows.filter(function(t){ return projTodoAreaFilter.has(t.area); });
+  rows = rows.filter(function(t){ return projWhoMatch(t, projTodoWhoFilter); });
+
+  if(!rows.length){
+    list.innerHTML = '<div class="empty-note">'+
+      (projTestCache.some(function(t){ return t.assignee; })
+        ? 'Nothing here - try a different filter.'
+        : 'Nothing handed out yet. Go to the Test Checklist, filter to an area, and assign it to someone.')+
+      '</div>';
+    return;
   }
-  toast(added ? added+' starter item(s) added' : 'They were already on the list.');
+  list.innerHTML = rows.map(function(t){ return projTestRowHtml(t, true); }).join('');
+  projWireTestRows(list);
+}
+
+document.getElementById('todoCopyBtn').addEventListener('click', function(){
+  const mine = projTestCache.filter(function(t){ return t.assignee; }).slice().sort(projSortTests);
+  if(!mine.length){ toast('Nothing handed out yet.'); return; }
+  let out = 'WORK HANDED OUT\n\n';
+  projPeople.forEach(function(pn){
+    const rows = mine.filter(function(t){ return t.assignee === pn.id; });
+    if(!rows.length) return;
+    out += '-- ' + pn.name + ' (' + rows.length + ') --\n';
+    rows.forEach(function(t){
+      out += (t.num || '?')+'. ['+testResultLabel(t.result || '')+'] '+(t.area || '')+' - '+(t.name || '')+'\n';
+      if(t.result === 'Fail' || t.result === 'Retest'){
+        if(t.expected) out += '    expect: '+t.expected+'\n';
+        if(t.notes)    out += '    found: '+t.notes+'\n';
+      }
+    });
+    out += '\n';
+  });
+  projCopyText(out, 'Copied - paste it to Claude');
 });
 
-/* ===================== TEST CHECKLIST ===================== */
+/* ===================== TEST CHECKLIST (everything) ===================== */
+
+document.getElementById('testFilterReset').addEventListener('click', function(){
+  projTestFilters.clear();
+  projTestAreaFilters.clear();
+  projTestWhoFilter.clear();
+  renderTests();
+});
+
+function loadProjectTests(){
+  onSnapshot(collection(db,'projectTests'), function(snap){
+    projTestCache = [];
+    snap.forEach(function(d){ projTestCache.push(Object.assign({ id:d.id }, d.data())); });
+    projTestCache.sort(function(a,b){ return (a.num || 0) - (b.num || 0); });
+    renderTests();
+    renderTodos();
+  }, function(err){
+    projPeopleError = projExplainError(err);
+    renderTests();
+    renderTodos();
+  });
+}
+
+function renderTests(){
+  if(projNoteHasFocus()){ projRedrawPending = true; return; }
+  const list = document.getElementById('testList');
+  const all = projTestCache;
+  const c = function(r){ return all.filter(function(t){ return (t.result || '') === r; }).length; };
+
+  document.getElementById('testCounts').innerHTML =
+    '<span class="proj-count">All <b>'+all.length+'</b></span>'+
+    '<span class="proj-count">Needs Test <b>'+c('')+'</b></span>'+
+    '<span class="proj-count">Retest <b>'+c('Retest')+'</b></span>'+
+    '<span class="proj-count">Fail <b>'+c('Fail')+'</b></span>'+
+    '<span class="proj-count">N/A <b>'+c('N/A')+'</b></span>'+
+    '<span class="proj-count">Pass <b>'+c('Pass')+'</b></span>';
+  const tc = document.getElementById('tabCountTests');
+  if(tc) tc.textContent = all.length ? '('+all.length+')' : '';
+
+  projDropdown('ddTestResult', 'Show', projResultOptions(all), projTestFilters, renderTests);
+  projDropdown('ddTestArea', 'Area', projAreaOptions(all), projTestAreaFilters, renderTests);
+  projDropdown('ddTestWho', 'Assigned to', projWhoOptions(all), projTestWhoFilter, renderTests);
+
+  let rows = all;
+  if(projTestFilters.size) rows = rows.filter(function(t){ return projTestFilters.has(t.result || 'none'); });
+  if(projTestAreaFilters.size) rows = rows.filter(function(t){ return projTestAreaFilters.has(t.area); });
+  rows = rows.filter(function(t){ return projWhoMatch(t, projTestWhoFilter); });
+
+  projVisibleTestIds = rows.map(function(t){ return t.id; });
+  const bulkCount = document.getElementById('bulkCount');
+  if(bulkCount) bulkCount.textContent = rows.length;
+
+  if(!rows.length){ list.innerHTML = '<div class="empty-note">Nothing here - try a different filter, or press Sync checklist.</div>'; return; }
+  list.innerHTML = rows.map(function(t){ return projTestRowHtml(t, false); }).join('');
+  projWireTestRows(list);
+}
+
+document.getElementById('bulkAssignBtn').addEventListener('click', async function(){
+  const who = document.getElementById('bulkAssignee').value;
+  const ids = projVisibleTestIds.slice();
+  if(!ids.length){ toast('Nothing shown to assign.'); return; }
+  const label = who ? projAssigneeName(who) : 'Unassigned';
+  if(!confirm('Hand the '+ids.length+' tests currently shown to '+label+'?')) return;
+  this.disabled = true;
+  try{
+    for(const id of ids){ await updateDoc(doc(db,'projectTests',id), { assignee: who }); }
+    toast(ids.length+' test(s) handed to '+label);
+  } catch(err){ toast(projExplainError(err)); }
+  finally { this.disabled = false; }
+});
+
+document.getElementById('testCopyBtn').addEventListener('click', function(){
+  if(!projTestCache.length){ toast('Nothing to copy yet.'); return; }
+  const order = ['Fail','Retest','','N/A','Pass'];
+  let out = 'TEST CHECKLIST\n\n';
+  order.forEach(function(r){
+    const rows = projTestCache.filter(function(t){ return (t.result || '') === r; });
+    if(!rows.length) return;
+    out += '-- '+(r || 'NEEDS TEST')+' ('+rows.length+') --\n';
+    rows.forEach(function(t){
+      out += (t.num || '?')+'. '+(t.area || '')+' - '+(t.name || '')+(t.assignee ? '  (@'+projAssigneeName(t.assignee)+')' : '')+'\n';
+      if(r === 'Fail' || r === 'Retest'){
+        if(t.expected) out += '    expect: '+t.expected+'\n';
+        if(t.notes)    out += '    found: '+t.notes+'\n';
+      } else if(t.notes){
+        out += '    notes: '+t.notes+'\n';
+      }
+    });
+    out += '\n';
+  });
+  projCopyText(out, 'Checklist copied - paste it to Claude');
+});
+/* One-off tests you add yourself. Numbered from 1000 up so a future seeded
+   test can never land on the same number. */
+document.getElementById('testAddToggle').addEventListener('click', function(){
+  const card = document.getElementById('testAddCard');
+  card.style.display = card.style.display === 'none' ? '' : 'none';
+});
+const testForm = document.getElementById('testForm');
+testForm.addEventListener('submit', async function(e){
+  e.preventDefault();
+  const editId = document.getElementById('testEditId').value;
+  const data = {
+    area:     document.getElementById('testArea').value.trim(),
+    name:     document.getElementById('testName').value.trim(),
+    steps:    document.getElementById('testSteps').value.trim(),
+    expected: document.getElementById('testExpected').value.trim(),
+    assignee: document.getElementById('testAssignee').value
+  };
+  if(!data.area || !data.name) return;
+  if(editId){
+    await updateDoc(doc(db,'projectTests',editId), data);
+  } else {
+    let maxNum = CUSTOM_TEST_START - 1;
+    projTestCache.forEach(function(t){ if((t.num || 0) > maxNum) maxNum = t.num; });
+    data.num = maxNum + 1;
+    data.result = '';
+    data.notes = '';
+    data.version = 1;
+    data.retestReason = '';
+    data.createdAt = serverTimestamp();
+    await addDoc(collection(db,'projectTests'), data);
+  }
+  toast('Test saved');
+  resetTestForm();
+});
+document.getElementById('testCancelEdit').addEventListener('click', resetTestForm);
+function resetTestForm(){
+  testForm.reset();
+  document.getElementById('testEditId').value = '';
+  document.getElementById('testFormTitle').textContent = 'Add a one-off test';
+  document.getElementById('testAddCard').style.display = 'none';
+}
+
+/* Sync. Creates anything new, keeps every score already entered, and moves a
+   test to Retest only when its version has moved on since it was last run. */
+document.getElementById('testSyncBtn').addEventListener('click', async function(){
+  const btn = this;
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = 'Syncing...';
+  try{
+    const snap = await getDocs(collection(db,'projectTests'));
+    const existing = new Map();
+    snap.forEach(function(d){ existing.set(d.id, d.data()); });
+
+    let added = 0, flagged = 0, reworded = 0;
+    const flaggedNames = [];
+
+    for(const row of TEST_SEED){
+      const id = 't' + row[0];
+      const base = { num:row[0], area:row[1], name:row[2], steps:row[3], expected:row[4], version:row[5] };
+      const cur = existing.get(id);
+
+      if(!cur){
+        await setDoc(doc(db,'projectTests',id), Object.assign({}, base, {
+          result: row[6] || '', notes: row[7] || '', retestReason: '', createdAt: serverTimestamp()
+        }));
+        added++;
+        continue;
+      }
+      if((cur.version || 1) < row[5]){
+        await updateDoc(doc(db,'projectTests',id), Object.assign({}, base, {
+          result: 'Retest',
+          retestReason: row[8] || 'This changed since it was last run.'
+        }));
+        flagged++;
+        if(flaggedNames.length < 8) flaggedNames.push('#'+row[0]+' '+row[2]);
+        continue;
+      }
+      /* Same version: only rewrite if the wording actually drifted, so a sync
+         with nothing to do costs no writes. */
+      if(cur.area !== base.area || cur.name !== base.name || cur.steps !== base.steps || cur.expected !== base.expected){
+        await updateDoc(doc(db,'projectTests',id), base);
+        reworded++;
+      }
+    }
+
+    const report = document.getElementById('testSyncReport');
+    const bits = [];
+    if(added)    bits.push('<b>'+added+'</b> new test'+(added===1?'':'s')+' added');
+    if(flagged)  bits.push('<b>'+flagged+'</b> flagged for retest');
+    if(reworded) bits.push('<b>'+reworded+'</b> reworded');
+    report.innerHTML = bits.length
+      ? bits.join(' &middot; ') + (flaggedNames.length ? '<div class="proj-sub" style="margin-top:6px;">Retest: '+esc(flaggedNames.join(', '))+'</div>' : '')
+      : 'Everything is already up to date.';
+    report.style.display = '';
+    toast(added || flagged ? 'Checklist synced' : 'Already up to date');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+});
 
 const TEST_SEED = [
   [1, "Public Site", "Quote request form", "On the public site, fill out the full quote form (name, phone, email, street, city, zip, contact preference) and submit.", "A thank-you confirmation; a new quote appears in Admin > Quotes with all those fields and status New.", 1, "Pass", "", ""],
@@ -16930,366 +17102,6 @@ const TEST_SEED = [
 
 /* Sync. Creates anything new, keeps every score already entered, and moves a
    test to Retest only when its version has moved on since it was last run. */
-document.getElementById('testSyncBtn').addEventListener('click', async function(){
-  const btn = this;
-  btn.disabled = true;
-  const original = btn.textContent;
-  btn.textContent = 'Syncing...';
-  try{
-    const snap = await getDocs(collection(db,'projectTests'));
-    const existing = new Map();
-    snap.forEach(function(d){ existing.set(d.id, d.data()); });
-
-    let added = 0, flagged = 0, reworded = 0;
-    const flaggedNames = [];
-
-    for(const row of TEST_SEED){
-      const id = 't' + row[0];
-      const base = { num:row[0], area:row[1], name:row[2], steps:row[3], expected:row[4], version:row[5] };
-      const cur = existing.get(id);
-
-      if(!cur){
-        await setDoc(doc(db,'projectTests',id), Object.assign({}, base, {
-          result: row[6] || '', notes: row[7] || '', retestReason: '', createdAt: serverTimestamp()
-        }));
-        added++;
-        continue;
-      }
-      if((cur.version || 1) < row[5]){
-        await updateDoc(doc(db,'projectTests',id), Object.assign({}, base, {
-          result: 'Retest',
-          retestReason: row[8] || 'This changed since it was last run.'
-        }));
-        flagged++;
-        if(flaggedNames.length < 8) flaggedNames.push('#'+row[0]+' '+row[2]);
-        continue;
-      }
-      /* Same version: only rewrite if the wording actually drifted, so a sync
-         with nothing to do costs no writes. */
-      if(cur.area !== base.area || cur.name !== base.name || cur.steps !== base.steps || cur.expected !== base.expected){
-        await updateDoc(doc(db,'projectTests',id), base);
-        reworded++;
-      }
-    }
-
-    const report = document.getElementById('testSyncReport');
-    const bits = [];
-    if(added)    bits.push('<b>'+added+'</b> new test'+(added===1?'':'s')+' added');
-    if(flagged)  bits.push('<b>'+flagged+'</b> flagged for retest');
-    if(reworded) bits.push('<b>'+reworded+'</b> reworded');
-    report.innerHTML = bits.length
-      ? bits.join(' &middot; ') + (flaggedNames.length ? '<div class="proj-sub" style="margin-top:6px;">Retest: '+esc(flaggedNames.join(', '))+'</div>' : '')
-      : 'Everything is already up to date.';
-    report.style.display = '';
-    toast(added || flagged ? 'Checklist synced' : 'Already up to date');
-  } finally {
-    btn.disabled = false;
-    btn.textContent = original;
-  }
-});
-
-/* One-off tests you add yourself. Numbered from 1000 up so a future seeded
-   test can never land on the same number. */
-document.getElementById('testAddToggle').addEventListener('click', function(){
-  const card = document.getElementById('testAddCard');
-  card.style.display = card.style.display === 'none' ? '' : 'none';
-});
-const testForm = document.getElementById('testForm');
-testForm.addEventListener('submit', async function(e){
-  e.preventDefault();
-  const editId = document.getElementById('testEditId').value;
-  const data = {
-    area:     document.getElementById('testArea').value.trim(),
-    name:     document.getElementById('testName').value.trim(),
-    steps:    document.getElementById('testSteps').value.trim(),
-    expected: document.getElementById('testExpected').value.trim(),
-    assignee: document.getElementById('testAssignee').value
-  };
-  if(!data.area || !data.name) return;
-  if(editId){
-    await updateDoc(doc(db,'projectTests',editId), data);
-  } else {
-    let maxNum = CUSTOM_TEST_START - 1;
-    projTestCache.forEach(function(t){ if((t.num || 0) > maxNum) maxNum = t.num; });
-    data.num = maxNum + 1;
-    data.result = '';
-    data.notes = '';
-    data.version = 1;
-    data.retestReason = '';
-    data.createdAt = serverTimestamp();
-    await addDoc(collection(db,'projectTests'), data);
-  }
-  toast('Test saved');
-  resetTestForm();
-});
-document.getElementById('testCancelEdit').addEventListener('click', resetTestForm);
-function resetTestForm(){
-  testForm.reset();
-  document.getElementById('testEditId').value = '';
-  document.getElementById('testFormTitle').textContent = 'Add a Test';
-  document.getElementById('testAddCard').style.display = 'none';
-}
-
-document.getElementById('testFilterReset').addEventListener('click', function(){
-  projTestFilters.clear();
-  projTestAreaFilters.clear();
-  projTestWhoFilter.clear();
-  renderTests();
-});
-document.getElementById('passedFilterReset').addEventListener('click', function(){
-  projPassedAreaFilters.clear();
-  renderPassed();
-});
-
-/* Area options come from whatever areas actually exist, with a live count. */
-function projAreaOptions(rows){
-  const counts = {};
-  rows.forEach(function(t){ if(t.area) counts[t.area] = (counts[t.area] || 0) + 1; });
-  return Object.keys(counts).sort().map(function(a){ return { value:a, label:a, count:counts[a] }; });
-}
-
-function loadProjectTests(){
-  onSnapshot(collection(db,'projectTests'), function(snap){
-    projTestCache = [];
-    snap.forEach(function(d){ projTestCache.push(Object.assign({ id:d.id }, d.data())); });
-    projTestCache.sort(function(a,b){ return (a.num || 0) - (b.num || 0); });
-    renderTests();
-    renderPassed();
-  });
-}
-
-function testResultClass(result){
-  if(result === 'N/A') return 'res-NA';
-  if(TEST_RESULTS.indexOf(result) >= 0) return 'res-'+result;
-  return 'res-none';
-}
-function testResultLabel(result){ return result || 'Needs Test'; }
-
-/* The list is rebuilt whenever Firestore reports a change. If someone is
-   part-way through typing a note when that happens their text would be
-   thrown away, so hold the redraw while a note box has the cursor in it and
-   catch up when they click away. Result buttons still redraw instantly. */
-let projTestRedrawPending = false;
-function projNoteHasFocus(){
-  const a = document.activeElement;
-  return !!(a && a.classList && a.classList.contains('proj-note-input'));
-}
-document.getElementById('testList').addEventListener('focusout', function(){
-  setTimeout(function(){
-    if(projNoteHasFocus()) return;
-    if(projTestRedrawPending){ projTestRedrawPending = false; renderTests(); }
-  }, 0);
-});
-
-function testRowHtml(t, showRetestButtonOnly){
-  const result = t.result || '';
-  let html = '<div class="row-item">'+
-    '<div class="rmain">'+
-      '<h4>'+(t.num ? t.num+'. ' : '')+esc(t.name || '')+'</h4>'+
-      '<div class="proj-meta">'+
-        '<span class="proj-tag area">'+esc(t.area || '')+'</span>'+
-        '<span class="proj-tag '+testResultClass(result)+'">'+esc(testResultLabel(result))+'</span>'+
-        (showRetestButtonOnly && t.assignee ? '<span class="proj-tag who">'+esc(projAssigneeName(t.assignee))+'</span>' : '')+
-      '</div>'+
-      (t.retestReason && result === 'Retest' ? '<div class="proj-retest">'+esc(t.retestReason)+'</div>' : '')+
-      (t.steps ? '<div class="proj-sub"><b>Do:</b> '+esc(t.steps)+'</div>' : '')+
-      (t.expected ? '<div class="proj-sub"><b>Expect:</b> '+esc(t.expected)+'</div>' : '');
-  if(showRetestButtonOnly){
-    html += (t.notes ? '<div class="proj-sub"><b>Notes:</b> '+esc(t.notes)+'</div>' : '')+
-      '<div class="proj-result-row">'+
-        '<button type="button" class="proj-result-btn" data-sendretest="'+t.id+'">Send back to Retest</button>'+
-      '</div>';
-  } else {
-    html += '<div class="proj-result-row">'+
-        TEST_RESULTS.map(function(r){
-          return '<button type="button" class="proj-result-btn'+(result === r ? ' on' : '')+'" data-testresult="'+t.id+'" data-value="'+r+'">'+r+'</button>';
-        }).join('')+
-      '</div>'+
-      '<div class="proj-row-assign">'+
-        '<span class="proj-row-assignlabel">Assigned to</span>'+
-        '<select data-testassign="'+t.id+'">'+
-          '<option value="">Unassigned</option>'+
-          projPeople.map(function(pn){
-            return '<option value="'+esc(pn.id)+'"'+(t.assignee === pn.id ? ' selected' : '')+'>'+esc(pn.name)+'</option>';
-          }).join('')+
-        '</select>'+
-        (projPeople.length ? '' : '<span class="proj-row-assignhint">Add people on the To-Do tab</span>')+
-      '</div>'+
-      '<input type="text" class="proj-note-input" data-testnote="'+t.id+'" placeholder="Notes - what actually happened?" value="'+esc(t.notes || '')+'">';
-  }
-  html += '</div>'+
-    '<div class="row-actions">'+
-      '<button class="icon-btn" data-testedit="'+t.id+'">'+editIcon()+'</button>'+
-      '<button class="icon-btn danger" data-del="projectTests" data-id="'+t.id+'">'+trashIcon()+'</button>'+
-    '</div>'+
-  '</div>';
-  return html;
-}
-
-function projWireTestRows(list){
-  list.querySelectorAll('[data-testresult]').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      const current = projTestCache.find(x => x.id === btn.dataset.testresult);
-      const next = (current && current.result === btn.dataset.value) ? '' : btn.dataset.value;
-      const patch = { result: next };
-      if(next !== 'Retest') patch.retestReason = '';
-      updateDoc(doc(db,'projectTests',btn.dataset.testresult), patch).then(function(){
-        if(next === 'Pass') toast('Signed off - moved to the Passed tab');
-      });
-    });
-  });
-  list.querySelectorAll('[data-sendretest]').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      updateDoc(doc(db,'projectTests',btn.dataset.sendretest), {
-        result: 'Retest', retestReason: 'Sent back by hand.'
-      }).then(function(){ toast('Moved back to the checklist'); });
-    });
-  });
-  list.querySelectorAll('[data-testassign]').forEach(function(sel){
-    sel.addEventListener('change', function(){
-      updateDoc(doc(db,'projectTests',sel.dataset.testassign), { assignee: sel.value }).then(function(){
-        toast(sel.value ? 'Assigned to ' + projAssigneeName(sel.value) : 'Set back to unassigned');
-      }).catch(function(err){ toast(projExplainError(err)); });
-    });
-  });
-  list.querySelectorAll('[data-testnote]').forEach(function(input){
-    input.addEventListener('change', function(){
-      updateDoc(doc(db,'projectTests',input.dataset.testnote), { notes: input.value.trim() })
-        .then(function(){ toast('Note saved'); });
-    });
-  });
-  list.querySelectorAll('[data-testedit]').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      const t = projTestCache.find(x => x.id === btn.dataset.testedit);
-      if(!t) return;
-      document.getElementById('testEditId').value = t.id;
-      document.getElementById('testArea').value = t.area || '';
-      document.getElementById('testName').value = t.name || '';
-      document.getElementById('testSteps').value = t.steps || '';
-      document.getElementById('testExpected').value = t.expected || '';
-      refreshAssigneeSelects();
-      document.getElementById('testAssignee').value = t.assignee || '';
-      document.getElementById('testFormTitle').textContent = 'Edit Test';
-      document.getElementById('testAddCard').style.display = '';
-      window.scrollTo({top:0, behavior:'smooth'});
-    });
-  });
-  attachDeleteHandlers(list);
-}
-
-function renderTests(){
-  if(projNoteHasFocus()){ projTestRedrawPending = true; return; }
-  const list = document.getElementById('testList');
-  const working = projTestCache.filter(t => (t.result || '') !== 'Pass');
-  const passed  = projTestCache.filter(t => t.result === 'Pass');
-  const count = function(r){ return working.filter(t => (t.result || '') === r).length; };
-
-  document.getElementById('testCounts').innerHTML =
-    '<span class="proj-count">Needs Test <b>'+count('')+'</b></span>'+
-    '<span class="proj-count">Retest <b>'+count('Retest')+'</b></span>'+
-    '<span class="proj-count">Fail <b>'+count('Fail')+'</b></span>'+
-    '<span class="proj-count">N/A <b>'+count('N/A')+'</b></span>'+
-    '<span class="proj-count">Passed <b>'+passed.length+'</b></span>';
-  const tct = document.getElementById('tabCountTests');
-  if(tct) tct.textContent = working.length ? '('+working.length+')' : '';
-  const pct = document.getElementById('tabCountPassed');
-  if(pct) pct.textContent = passed.length ? '('+passed.length+')' : '';
-
-  projDropdown('ddTestResult', 'Show', [
-    { value:'none',   label:'Needs Test', count:count('') },
-    { value:'Retest', label:'Retest',     count:count('Retest') },
-    { value:'Fail',   label:'Fail',       count:count('Fail') },
-    { value:'N/A',    label:'N/A',        count:count('N/A') }
-  ], projTestFilters, renderTests);
-  projDropdown('ddTestArea', 'Area', projAreaOptions(working), projTestAreaFilters, renderTests);
-  projDropdown('ddTestWho', 'Assigned to', projWhoOptions(working), projTestWhoFilter, renderTests);
-
-  let rows = working;
-  if(projTestFilters.size) rows = rows.filter(t => projTestFilters.has(t.result || 'none'));
-  if(projTestAreaFilters.size) rows = rows.filter(t => projTestAreaFilters.has(t.area));
-  rows = rows.filter(function(t){ return projWhoMatch(t, projTestWhoFilter); });
-  projVisibleTestIds = rows.map(function(t){ return t.id; });
-  const bulkCount = document.getElementById('bulkCount');
-  if(bulkCount) bulkCount.textContent = rows.length;
-
-  if(!rows.length){ list.innerHTML = '<div class="empty-note">Nothing here - try a different filter.</div>'; return; }
-  list.innerHTML = rows.map(function(t){ return testRowHtml(t, false); }).join('');
-  projWireTestRows(list);
-}
-
-function renderPassed(){
-  const list = document.getElementById('passedList');
-  const passed = projTestCache.filter(t => t.result === 'Pass');
-  document.getElementById('passedCounts').innerHTML =
-    '<span class="proj-count">Signed off <b>'+passed.length+'</b></span>'+
-    '<span class="proj-count">Of <b>'+projTestCache.length+'</b> total</span>';
-
-  projDropdown('ddPassedArea', 'Area', projAreaOptions(passed), projPassedAreaFilters, renderPassed);
-
-  let rows = passed;
-  if(projPassedAreaFilters.size) rows = rows.filter(t => projPassedAreaFilters.has(t.area));
-  if(!rows.length){ list.innerHTML = '<div class="empty-note">Nothing signed off yet.</div>'; return; }
-  list.innerHTML = rows.map(function(t){ return testRowHtml(t, true); }).join('');
-  projWireTestRows(list);
-}
-
-document.getElementById('testCopyBtn').addEventListener('click', function(){
-  if(!projTestCache.length){ toast('Nothing to copy yet.'); return; }
-  const order = ['Fail','Retest','','N/A','Pass'];
-  let out = 'TEST CHECKLIST\n\n';
-  order.forEach(function(r){
-    const rows = projTestCache.filter(t => (t.result || '') === r);
-    if(!rows.length) return;
-    out += '-- '+(r || 'NEEDS TEST')+' ('+rows.length+') --\n';
-    rows.forEach(function(t){
-      out += (t.num || '?')+'. '+(t.area || '')+' - '+(t.name || '')+(t.assignee ? '  (@'+projAssigneeName(t.assignee)+')' : '')+'\n';
-      if(r === 'Fail' || r === 'Retest'){
-        if(t.expected) out += '    expect: '+t.expected+'\n';
-        if(t.notes)    out += '    found: '+t.notes+'\n';
-      } else if(t.notes){
-        out += '    notes: '+t.notes+'\n';
-      }
-    });
-    out += '\n';
-  });
-  projCopyText(out, 'Checklist copied - paste it to Claude');
-});
-
-let projVisibleTestIds = [];
-document.getElementById('bulkAssignBtn').addEventListener('click', async function(){
-  const who = document.getElementById('bulkAssignee').value;
-  const ids = projVisibleTestIds.slice();
-  if(!ids.length){ toast('Nothing shown to assign.'); return; }
-  const label = who ? projAssigneeName(who) : 'Unassigned';
-  if(!confirm('Assign the '+ids.length+' tests currently shown to '+label+'?')) return;
-  this.disabled = true;
-  try{
-    for(const id of ids){ await updateDoc(doc(db,'projectTests',id), { assignee: who }); }
-    toast(ids.length+' test(s) assigned to '+label);
-  } finally { this.disabled = false; }
-});
-
-document.getElementById('testFailsToTodoBtn').addEventListener('click', async function(){
-  const fails = projTestCache.filter(t => t.result === 'Fail');
-  if(!fails.length){ toast('No failing tests.'); return; }
-  let added = 0;
-  for(const t of fails){
-    const tag = 'Test #'+t.num;
-    if(projTodoCache.some(td => (td.task || '').indexOf(tag) === 0)) continue;
-    await addDoc(collection(db,'projectTodos'), {
-      task: tag+': '+(t.name || ''),
-      area: PROJ_AREAS.indexOf(t.area) >= 0 ? t.area : 'Other',
-      type: 'Bug',
-      priority: 'High',
-      assignee: t.assignee || '',
-      notes: (t.expected ? 'Expected: '+t.expected+' ' : '')+(t.notes ? '| Found: '+t.notes : ''),
-      status: 'open',
-      createdAt: serverTimestamp()
-    });
-    added++;
-  }
-  toast(added ? added+' failing test(s) added to the To-Do list' : 'They were already on the list.');
-});
 
 function attachDeleteHandlers(container){
   container.querySelectorAll('[data-del]').forEach(function(btn){
