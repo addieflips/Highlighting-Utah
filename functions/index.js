@@ -1303,3 +1303,106 @@ exports.sendInvoicesNow = onCall({ memory: '512MiB', timeoutSeconds: 300, secret
   }
   return await runInvoiceBatch('manual');
 });
+
+/* --- backfillStreetViewPhotos -----------------------------------------------
+ * "Fetch & Save Photos" button in Admin > Import Center > Street View Photo
+ * Backfill. Runs server-side (not in the browser) because Google's Street
+ * View Static API doesn't send CORS headers, so the browser can't fetch the
+ * image bytes itself to turn them into a real stored file — only a Cloud
+ * Function can. This uploads each shot to Cloudinary just like a manual photo
+ * upload does, so the result is a normal stored file (housePhotoUrl), not a
+ * live Google URL that would re-bill on every page view.
+ *
+ * Only touches customers with no housePhotoUrl yet and a saved lat/lng.
+ * Processes one small batch per call (the admin page loops, calling again
+ * until remainingCandidates is 0) to stay well under both the function's and
+ * the Firebase client SDK's timeouts. Addresses with genuinely no Street View
+ * coverage get flagged housePhotoStreetViewNoCoverage so they're skipped on
+ * future runs instead of being retried forever; anything that fails for a
+ * transient reason (a network hiccup, a bad upload) is left untouched so the
+ * next run retries it.
+ * --------------------------------------------------------------------------*/
+const STREETVIEW_KEY = 'AIzaSyByI2wHguK1JLNdUFJQKiA_gunoVtTkyqM';
+const CLOUDINARY_CLOUD = 'highlighting-utah';
+const CLOUDINARY_PRESET = 'highlighting_utah';
+
+async function fetchStreetViewImageBuffer(lat, lng, radius) {
+  const radiusQS = radius ? '&radius=' + radius : '';
+  const metaRes = await fetch('https://maps.googleapis.com/maps/api/streetview/metadata?location=' + lat + ',' + lng + radiusQS + '&key=' + STREETVIEW_KEY);
+  const meta = await metaRes.json();
+  if (meta.status === 'ZERO_RESULTS' || meta.status === 'NOT_FOUND') return { reason: 'no_coverage' };
+  if (meta.status !== 'OK') return { reason: 'lookup_failed' };
+  const panoLat = meta.location.lat, panoLng = meta.location.lng;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const toDeg = (r) => (r * 180) / Math.PI;
+  const dLng = toRad(lng - panoLng);
+  const y = Math.sin(dLng) * Math.cos(toRad(lat));
+  const x = Math.cos(toRad(panoLat)) * Math.sin(toRad(lat)) - Math.sin(toRad(panoLat)) * Math.cos(toRad(lat)) * Math.cos(dLng);
+  const heading = (toDeg(Math.atan2(y, x)) + 360) % 360;
+  const imgUrl = 'https://maps.googleapis.com/maps/api/streetview?size=640x400&location=' + lat + ',' + lng + radiusQS + '&heading=' + Math.round(heading) + '&pitch=0&key=' + STREETVIEW_KEY;
+  const imgRes = await fetch(imgUrl);
+  if (!imgRes.ok) return { reason: 'lookup_failed' };
+  return { buffer: Buffer.from(await imgRes.arrayBuffer()) };
+}
+
+// Tries a tight radius first for the most accurate angle, then falls back to
+// a much wider search so a rural/private-road address still gets *something*
+// — good enough for the crew to recognize the house beats no photo at all.
+async function getStreetViewBufferServer(lat, lng) {
+  const tight = await fetchStreetViewImageBuffer(lat, lng, null);
+  if (tight.buffer || tight.reason !== 'no_coverage') return tight;
+  return await fetchStreetViewImageBuffer(lat, lng, 500);
+}
+
+async function uploadBufferToCloudinary(buffer) {
+  const fd = new FormData();
+  fd.append('file', new Blob([buffer]), 'streetview.jpg');
+  fd.append('upload_preset', CLOUDINARY_PRESET);
+  const res = await fetch('https://api.cloudinary.com/v1_1/' + CLOUDINARY_CLOUD + '/image/upload', { method: 'POST', body: fd });
+  const data = await res.json();
+  if (!data.secure_url) throw new Error('Cloudinary upload failed');
+  return data.secure_url;
+}
+
+exports.backfillStreetViewPhotos = onCall({ memory: '512MiB', timeoutSeconds: 120 }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Sign in required.');
+  }
+  const batchSize = Math.min(Math.max(parseInt((request.data && request.data.batchSize) || 15, 10) || 15, 1), 30);
+
+  const snap = await db.collection('jobAddresses').get();
+  let skippedNoCoords = 0;
+  const candidates = [];
+  snap.forEach((docSnap) => {
+    const d = docSnap.data();
+    if (d.housePhotoUrl || d.housePhotoStreetViewNoCoverage) return;
+    if (typeof d.lat !== 'number' || typeof d.lng !== 'number') { skippedNoCoords++; return; }
+    candidates.push({ id: docSnap.id, name: d.name || '', address: d.address || '', lat: d.lat, lng: d.lng });
+  });
+
+  const batch = candidates.slice(0, batchSize);
+  const saved = [];
+  const noCoverage = [];
+  for (const c of batch) {
+    try {
+      const result = await getStreetViewBufferServer(c.lat, c.lng);
+      if (result.buffer) {
+        const url = await uploadBufferToCloudinary(result.buffer);
+        await db.collection('jobAddresses').doc(c.id).update({ housePhotoUrl: url, housePhotoOriginal: url, housePhotoIsStreetView: true });
+        saved.push({ id: c.id, name: c.name, address: c.address, url });
+      } else {
+        await db.collection('jobAddresses').doc(c.id).update({ housePhotoStreetViewNoCoverage: true });
+        noCoverage.push(c.name || c.address || c.id);
+      }
+    } catch (err) {
+      noCoverage.push((c.name || c.address || c.id) + ' (temporary error — will retry next run)');
+    }
+  }
+
+  return {
+    saved,
+    noCoverage,
+    skippedNoCoords,
+    remainingCandidates: Math.max(candidates.length - batch.length, 0),
+  };
+});

@@ -1614,7 +1614,7 @@
       </div>
       <div class="card">
         <h3>&#127968; Street View Photo Backfill</h3>
-        <p style="font-size:13px;">For customers who don't have a house photo on file yet, so the crew can see which house is theirs. Looks up a Google Street View shot using each customer's saved address coordinates and saves it automatically &mdash; only for customers missing a photo, never replaces one your team already uploaded. Coverage isn't guaranteed for every address (rural driveways, private roads) and the angle is a best-effort guess, not a guarantee it's a perfect view of the front door &mdash; auto-fetched photos are flagged so your team can swap in a real one whenever it's convenient.</p>
+        <p style="font-size:13px;">For customers who don't have a house photo on file yet, so the crew can see which house is theirs. Looks up a Google Street View shot using each customer's saved address coordinates and saves it automatically &mdash; only for customers missing a photo, never replaces one your team already uploaded. Coverage isn't guaranteed for every address (rural driveways, private roads) and the angle is a best-effort guess, not a guarantee it's a perfect view of the front door &mdash; auto-fetched photos are flagged so your team can swap in a real one whenever it's convenient. Can take a few minutes to run through your whole list; it's safe to close the page or click the button again if it gets interrupted, it just picks up where it left off.</p>
         <button type="button" class="btn btn-gold btn-sm" id="svBackfillRunBtn">Fetch &amp; Save Photos</button>
         <div id="svBackfillStatus" style="font-size:13px; color:var(--slate); margin-top:10px;"></div>
         <div id="svBackfillReport" style="margin-top:10px;"></div>
@@ -3631,6 +3631,7 @@ const db = getFirestore(app);
 const fbFunctions = getFunctions(app);
 const sendSmsFn = httpsCallable(fbFunctions, 'sendSms');
 const sendInvoicesNowFn = httpsCallable(fbFunctions, 'sendInvoicesNow');
+const backfillStreetViewPhotosFn = httpsCallable(fbFunctions, 'backfillStreetViewPhotos');
 
 const CLOUDINARY_CLOUD = "highlighting-utah";
 const CLOUDINARY_PRESET = "highlighting_utah";
@@ -8755,38 +8756,10 @@ function geocodeAddress(addressText){
     });
   });
 }
-const STREETVIEW_KEY = "AIzaSyByI2wHguK1JLNdUFJQKiA_gunoVtTkyqM";
-async function getStreetViewAtRadiusAdmin(lat, lng, radius){
-  try{
-    const radiusQS = radius ? '&radius='+radius : '';
-    const metaRes = await fetch('https://maps.googleapis.com/maps/api/streetview/metadata?location='+lat+','+lng+radiusQS+'&key='+STREETVIEW_KEY);
-    const meta = await metaRes.json();
-    if(meta.status === 'ZERO_RESULTS' || meta.status === 'NOT_FOUND'){
-      return {url: null, reason: 'no_coverage'};
-    }
-    if(meta.status !== 'OK'){
-      return {url: null, reason: 'lookup_failed'};
-    }
-    const panoLat = meta.location.lat, panoLng = meta.location.lng;
-    const toRad = d => d * Math.PI/180;
-    const toDeg = r => r * 180/Math.PI;
-    const dLng = toRad(lng - panoLng);
-    const y = Math.sin(dLng) * Math.cos(toRad(lat));
-    const x = Math.cos(toRad(panoLat))*Math.sin(toRad(lat)) - Math.sin(toRad(panoLat))*Math.cos(toRad(lat))*Math.cos(dLng);
-    const heading = (toDeg(Math.atan2(y,x)) + 360) % 360;
-    return {url: 'https://maps.googleapis.com/maps/api/streetview?size=640x400&location='+lat+','+lng+radiusQS+'&heading='+Math.round(heading)+'&pitch=0&key='+STREETVIEW_KEY, reason: null};
-  } catch(err){
-    return {url: null, reason: 'lookup_failed'};
-  }
-}
-// Tries a tight radius first for the most accurate angle, then falls back to
-// a much wider search so a rural/private-road address still gets *something*
-// — good enough for the crew to recognize the house beats no photo at all.
-async function getStreetViewFrontUrlAdmin(lat, lng){
-  const tight = await getStreetViewAtRadiusAdmin(lat, lng, null);
-  if(tight.url || tight.reason !== 'no_coverage') return tight;
-  return await getStreetViewAtRadiusAdmin(lat, lng, 500);
-}
+/* Street View lookup itself now happens server-side, in the
+   backfillStreetViewPhotos Cloud Function — Google's Street View Static API
+   doesn't send CORS headers, so the browser can fetch an <img> from it but
+   can't read the bytes back to store as a real file. See functions/index.js. */
 function haversine(lat1, lng1, lat2, lng2){
   const R = 3958.8;
   const dLat = (lat2-lat1) * Math.PI/180;
@@ -9671,12 +9644,16 @@ document.getElementById('goToBulkUpdatesBtn').addEventListener('click', function
 });
 
 /* ---- STREET VIEW PHOTO BACKFILL ----
-   Reuses getStreetViewFrontUrlAdmin() (defined earlier, was built for the
-   now-retired auto-photo-on-quote feature) against each customer's already-
-   geocoded lat/lng. Fetches and saves in one pass — no review gate — since
-   the point is just letting the crew recognize the right house; a wrong or
-   mediocre angle is still better than nothing, and the flag lets the office
-   swap in a real photo later without hunting for which ones are auto. */
+   Calls the backfillStreetViewPhotosFn Cloud Function (functions/index.js),
+   which does the actual Street View lookup + Cloudinary upload server-side —
+   Google's Street View Static API has no CORS headers, so the browser can
+   display it in an <img> but can't fetch the bytes to turn into a real
+   stored file, only a server can. One small batch per call so a single
+   invocation stays well under the callable-function timeout; the admin page
+   just keeps calling until the server says there's nothing left to do. Fully
+   resumable — if it's interrupted partway, running it again picks up right
+   where it left off (already-saved and no-coverage customers are excluded
+   server-side on the next call). */
 let svBackfillRunning = false;
 
 async function svBackfillRun(){
@@ -9687,49 +9664,39 @@ async function svBackfillRun(){
   const reportEl = document.getElementById('svBackfillReport');
   btn.disabled = true;
   reportEl.innerHTML = '';
+  statusEl.textContent = 'Starting…';
 
-  const candidates = jobAddresses.filter(a => !a.data.housePhotoUrl && typeof a.data.lat === 'number' && typeof a.data.lng === 'number');
-  const skippedNoCoords = jobAddresses.filter(a => !a.data.housePhotoUrl && !(typeof a.data.lat === 'number' && typeof a.data.lng === 'number'));
+  const allSaved = [];
+  const allNoCoverage = [];
+  let skippedNoCoords = 0;
+  let batchNum = 0;
 
-  if(!candidates.length){
-    statusEl.textContent = skippedNoCoords.length
-      ? 'Every customer already has a photo, except '+skippedNoCoords.length+' with no saved address coordinates (re-save their address to geocode them first).'
-      : 'Every customer already has a photo on file — nothing to do.';
-    btn.disabled = false;
-    svBackfillRunning = false;
-    return;
-  }
-
-  const saved = [];
-  const noCoverage = [];
-  for(let i = 0; i < candidates.length; i++){
-    const item = candidates[i];
-    statusEl.textContent = 'Fetching '+(i+1)+' of '+candidates.length+'…';
-    const result = await getStreetViewFrontUrlAdmin(item.data.lat, item.data.lng);
-    if(result.url){
-      try{
-        await updateDoc(doc(db,'jobAddresses', item.id), {housePhotoUrl: result.url, housePhotoOriginal: result.url, housePhotoIsStreetView: true});
-        saved.push({id: item.id, name: item.data.name || '(no name)', address: item.data.address || '', url: result.url});
-      } catch(err){
-        noCoverage.push((item.data.name || item.data.address || item.id)+' (save failed — try again)');
-      }
-    } else {
-      noCoverage.push(item.data.name || item.data.address || item.id);
+  try{
+    while(true){
+      batchNum++;
+      statusEl.textContent = allSaved.length+' saved so far, '+allNoCoverage.length+' with no coverage — fetching next batch (batch '+batchNum+')…';
+      const result = await backfillStreetViewPhotosFn({batchSize: 15});
+      const r = result.data || {};
+      (r.saved || []).forEach(f => allSaved.push(f));
+      (r.noCoverage || []).forEach(n => allNoCoverage.push(n));
+      skippedNoCoords = r.skippedNoCoords || 0;
+      if(!r.remainingCandidates) break;
     }
+    statusEl.textContent = allSaved.length+' photo(s) saved · '+allNoCoverage.length+' had no Street View coverage anywhere nearby'+(skippedNoCoords ? ' · '+skippedNoCoords+' skipped (no saved coordinates)' : '')+'.';
+    toast('Street View backfill: '+allSaved.length+' photo(s) saved'+(allNoCoverage.length ? ', '+allNoCoverage.length+' with no coverage' : ''));
+  } catch(err){
+    statusEl.textContent = (allSaved.length ? allSaved.length+' photo(s) saved before this happened. ' : '')+'Stopped — '+(err && err.message ? err.message : 'something went wrong')+'. Nothing already saved was lost — click the button again to pick up where it left off.';
   }
-
-  statusEl.textContent = saved.length+' photo(s) saved · '+noCoverage.length+' had no Street View coverage at all'+(skippedNoCoords.length ? ' · '+skippedNoCoords.length+' skipped (no saved coordinates)' : '')+'.';
-  toast('Street View backfill: '+saved.length+' photo(s) saved'+(noCoverage.length ? ', '+noCoverage.length+' with no coverage' : ''));
 
   reportEl.innerHTML =
-    (saved.length ? '<h4 style="font-size:13px; margin:10px 0 8px;">Saved ('+saved.length+')</h4>'+
+    (allSaved.length ? '<h4 style="font-size:13px; margin:10px 0 8px;">Saved ('+allSaved.length+')</h4>'+
       '<div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:10px; max-height:400px; overflow-y:auto; margin-bottom:14px;">'+
-      saved.map(f => '<div style="border:1px solid var(--line); border-radius:8px; padding:6px; font-size:11px;">'+
+      allSaved.map(f => '<div style="border:1px solid var(--line); border-radius:8px; padding:6px; font-size:11px;">'+
         '<img src="'+esc(f.url)+'" style="width:100%; border-radius:6px; display:block; margin-bottom:4px;" loading="lazy">'+
-        '<div style="font-weight:600;">'+esc(f.name)+'</div><div style="color:var(--slate);">'+esc(f.address)+'</div></div>').join('')+
+        '<div style="font-weight:600;">'+esc(f.name || '(no name)')+'</div><div style="color:var(--slate);">'+esc(f.address)+'</div></div>').join('')+
       '</div>' : '')+
-    (noCoverage.length ? '<h4 style="font-size:13px; margin:10px 0 8px;">No Street View imagery found anywhere nearby (needs a manual photo) &mdash; '+noCoverage.length+'</h4>'+
-      '<div style="font-size:12px; color:var(--slate); max-height:150px; overflow-y:auto;">'+noCoverage.map(esc).join(', ')+'</div>' : '');
+    (allNoCoverage.length ? '<h4 style="font-size:13px; margin:10px 0 8px;">No Street View imagery found anywhere nearby (needs a manual photo) &mdash; '+allNoCoverage.length+'</h4>'+
+      '<div style="font-size:12px; color:var(--slate); max-height:150px; overflow-y:auto;">'+allNoCoverage.map(esc).join(', ')+'</div>' : '');
 
   btn.disabled = false;
   svBackfillRunning = false;
