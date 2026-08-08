@@ -1470,6 +1470,7 @@
           <p class="form-note" id="payNoteText" style="margin-top:10px; text-align:center;">Opens Venmo with the amount and your name pre-filled &mdash; just confirm and send.</p>
           <button type="button" class="btn btn-outline btn-block" id="qrToggleBtn" style="margin-top:14px;">Show QR Code to Scan &#9662;</button>
           <div id="paypalButtonWrap" style="display:none; margin-top:20px;">
+            <p class="form-note" id="paypalOrNote" style="display:none; text-align:center; margin:0 0 12px;">&mdash; or pay by card / PayPal &mdash;</p>
             <div id="paypal-button-container"></div>
             <p class="form-note" id="paypalPaidMsg" style="display:none; text-align:center; color:#2E6B3E; font-weight:600; margin-top:10px;">&#10003; Payment received &mdash; thank you!</p>
             <p class="form-note" id="paypalErrorMsg" style="display:none; text-align:center; color:var(--ember); margin-top:10px;"></p>
@@ -2945,44 +2946,56 @@ function commitPendingPortalCreds(){
 
 var currentServiceDue = 0;
 var currentTipAmount = 0;
+/* Which payment methods the portal offers. 'venmo' and 'paypal' are one-or-the-
+   other; 'both' shows them side by side so the customer picks. PayPal needs a
+   Client ID to render at all, so it is never offered without one. */
+function paypalAvailable(){
+  return (PAYMENT_SETTINGS.provider === 'paypal' || PAYMENT_SETTINGS.provider === 'both')
+         && !!PAYMENT_SETTINGS.paypalClientId;
+}
+function venmoAvailable(){
+  /* Venmo is the fallback that must never leave a customer with no way to pay:
+     it hides only when PayPal is deliberately the sole method AND is actually
+     usable. Selecting PayPal without a Client ID keeps Venmo up. */
+  return !(PAYMENT_SETTINGS.provider === 'paypal' && paypalAvailable());
+}
 function updateTipBreakdown(){
   var total = currentServiceDue + currentTipAmount;
   document.getElementById('tipBreakdownService').textContent = fmt(currentServiceDue);
   document.getElementById('tipBreakdownTip').textContent = fmt(currentTipAmount);
   document.getElementById('tipBreakdownTotal').textContent = fmt(total);
   document.getElementById('venmoPayAmt').textContent = fmt(total);
-  var usingPaypal = PAYMENT_SETTINGS.provider === 'paypal' && PAYMENT_SETTINGS.paypalClientId;
+  var showPaypal = paypalAvailable();
+  var showVenmo = venmoAvailable();
   var venmoBtn = document.getElementById('venmoPayBtn');
   var payNote = document.getElementById('payNoteText');
   var qrBtn = document.getElementById('qrToggleBtn');
   var qrPanel = document.getElementById('qrPanel');
   var paypalWrap = document.getElementById('paypalButtonWrap');
-  if(usingPaypal){
-    if(venmoBtn) venmoBtn.style.display = 'none';
-    if(payNote) payNote.style.display = 'none';
-    if(qrBtn) qrBtn.style.display = 'none';
-    if(qrPanel) qrPanel.style.display = 'none';
-    if(paypalWrap) paypalWrap.style.display = 'block';
-  } else {
-    if(venmoBtn){
-      venmoBtn.style.display = 'block';
-      if(currentLookupRecord){
-        var venmoNote = 'Christmas Lights';
-        venmoBtn.href = 'https://venmo.com/HighLightingUtah?txn=pay&amount=' + total.toFixed(2) + '&note=' + encodeURIComponent(venmoNote);
-      }
+  var paypalOrNote = document.getElementById('paypalOrNote');
+  if(venmoBtn){
+    venmoBtn.style.display = showVenmo ? 'block' : 'none';
+    if(showVenmo && currentLookupRecord){
+      var venmoNote = 'Christmas Lights';
+      venmoBtn.href = 'https://venmo.com/HighLightingUtah?txn=pay&amount=' + total.toFixed(2) + '&note=' + encodeURIComponent(venmoNote);
     }
-    if(payNote){ payNote.style.display = ''; payNote.textContent = 'Opens Venmo with the amount and your name pre-filled — just confirm and send.'; }
-    if(qrBtn) qrBtn.style.display = '';
-    if(paypalWrap) paypalWrap.style.display = 'none';
   }
+  if(payNote){
+    payNote.style.display = showVenmo ? '' : 'none';
+    payNote.textContent = 'Opens Venmo with the amount and your name pre-filled — just confirm and send.';
+  }
+  if(qrBtn) qrBtn.style.display = showVenmo ? '' : 'none';
+  if(!showVenmo && qrPanel) qrPanel.style.display = 'none';
+  if(paypalWrap) paypalWrap.style.display = showPaypal ? 'block' : 'none';
+  /* Only worth a divider when both are on screen at once. */
+  if(paypalOrNote) paypalOrNote.style.display = (showPaypal && showVenmo) ? 'block' : 'none';
 }
 
 /* ---------------- PayPal Smart Buttons ---------------- */
 var paypalSdkLoadedForClientId = null;
 var paypalButtonsRendered = false;
 function setupPaypalButtonsIfNeeded(){
-  var usingPaypal = PAYMENT_SETTINGS.provider === 'paypal' && PAYMENT_SETTINGS.paypalClientId;
-  if(!usingPaypal) return;
+  if(!paypalAvailable()) return;
   if(paypalSdkLoadedForClientId === PAYMENT_SETTINGS.paypalClientId && window.paypal){
     renderPaypalButtons();
     return;

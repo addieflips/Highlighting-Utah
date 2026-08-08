@@ -3563,12 +3563,14 @@ Highlighting Utah</textarea>
       </div>
       <div class="card">
         <h3>&#128179; Payment Integrations</h3>
-        <p style="font-size:13px;">Choose what the "Pay Online" button in the Member Portal does. With PayPal selected, customers pay their balance plus an optional tip in one PayPal transaction right on the site, and it's automatically recorded on their invoice the moment they pay — no manual "Mark Paid" needed.</p>
+        <p style="font-size:13px;">Choose how customers can pay in the Member Portal. With PayPal selected, customers pay their balance plus an optional tip in one PayPal transaction right on the site, and it's automatically recorded on their invoice the moment they pay — no manual "Mark Paid" needed. Venmo opens the Venmo app with the amount pre-filled, and still has to be marked paid by hand.</p>
+        <p style="font-size:13px;"><strong>Both</strong> shows the Venmo button and the PayPal buttons together and lets the customer pick. PayPal only appears once a Client ID is saved below — so choosing PayPal or Both without one leaves Venmo showing, and a customer is never left with no way to pay.</p>
         <form id="settingsPaymentForm">
           <div class="form-row"><label>Payment Method Customers See</label>
             <select id="setPaymentProvider">
-              <option value="venmo">Venmo</option>
-              <option value="paypal">PayPal</option>
+              <option value="venmo">Venmo only</option>
+              <option value="paypal">PayPal only</option>
+              <option value="both">Both &mdash; let the customer choose</option>
             </select>
           </div>
           <div class="form-row"><label>PayPal Client ID</label><input type="text" id="setPaypalClientId" placeholder="From your PayPal Developer app"></div>
@@ -4614,7 +4616,10 @@ document.getElementById('loadBulkAutoCopyListBtn')?.addEventListener('click', fu
       const isOpen = panel.style.display !== 'none';
       if(isOpen){ panel.style.display = 'none'; return; }
       const includeVenmo = document.getElementById('bulkAutoIncludeVenmo')?.checked;
-      const inv = allInvoicesCache.find(i => i.data.phone === d.phone);
+      /* Match on the invoice KEY, not the phone field. A customer with no phone
+         is keyed by email, so comparing phones matched '' === '' and could pull
+         a different customer's invoice — and this amount goes out in an email. */
+      const inv = allCustInvoiceFor(item);
       const amount = inv ? balanceDueAmount(inv.data) : 0;
       const template = document.getElementById('bulkUpdateEmailTemplate')?.value;
       const message = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, d.name||'there').replace(/\{\{amount\}\}/g, fmtMoney(amount)), d.phone, amount) +
@@ -4697,7 +4702,9 @@ document.getElementById('sendBulkUpdateEmailBtn')?.addEventListener('click', asy
   let sent = 0, failed = 0;
   for(const item of withEmail){
     const d = item.data;
-    const inv = allInvoicesCache.find(i => i.data.phone === d.phone);
+    /* Key-based lookup, not phone-based — see the note in the single-send
+       handler above. This amount is emailed to a real customer. */
+    const inv = allCustInvoiceFor(item);
     const amount = inv ? balanceDueAmount(inv.data) : 0;
     const includeMessages = document.getElementById('bulkAutoIncludeMessages')?.checked;
     const footer = await buildOutgoingEmailFooter(d.phone, amount, {includePortal: includePortal, includeVenmo: includeVenmo, includeMessages: includeMessages});
@@ -9418,18 +9425,55 @@ document.getElementById('addCustPrice').addEventListener('input', function(){
   const hasEmail = !!document.getElementById('addCustEmail').value.trim();
   document.getElementById('phoneRequiredMark').style.display = (anyFilled && !hasEmail) ? 'inline' : 'none';
 });
-async function syncPayerInvoice(payerPhone){
-  if(!payerPhone) return;
-  const selfSnap = await getDocs(query(collection(db,'jobAddresses'), where('phone','==',payerPhone)));
-  const billedSnap = await getDocs(query(collection(db,'jobAddresses'), where('billToPhone','==',payerPhone)));
+async function syncPayerInvoice(payerKey){
+  if(!payerKey) return;
+  const key = String(payerKey).trim();
+  if(!key) return;
+  /* An invoice is keyed by the payer's phone when they have one and by their
+     lowercased email when they don't (see custInvoiceKey). Looking an email key
+     up by phone matched nothing, so the group came back empty and this rebuilt
+     the invoice as install: 0 — silently wiping a real total. Resolve both. */
+  const isPhoneKey = /^\d+$/.test(key);
   const linked = [];
-  selfSnap.forEach(function(docSnap){ if(!docSnap.data().billToPhone) linked.push({id:docSnap.id, data:docSnap.data()}); });
-  billedSnap.forEach(function(docSnap){ linked.push({id:docSnap.id, data:docSnap.data()}); });
+  const seenHouseIds = {};
+  function addHouse(id, data){
+    if(seenHouseIds[id]) return;
+    seenHouseIds[id] = true;
+    linked.push({id: id, data: data});
+  }
+  if(isPhoneKey){
+    const selfSnap = await getDocs(query(collection(db,'jobAddresses'), where('phone','==',key)));
+    selfSnap.forEach(function(docSnap){ if(!docSnap.data().billToPhone) addHouse(docSnap.id, docSnap.data()); });
+  } else {
+    const emailSnap = await getDocs(query(collection(db,'jobAddresses'), where('email','==',key)));
+    emailSnap.forEach(function(docSnap){
+      const d = docSnap.data();
+      /* A house with a phone of its own keys off that phone, not this email. */
+      if(!d.billToPhone && custInvoiceKey(d) === key) addHouse(docSnap.id, d);
+    });
+    if(!linked.length && Array.isArray(jobAddresses)){
+      /* A stored email can differ in case from the lowercased invoice key, and
+         an equality query can't match that — fall back to the loaded list. */
+      jobAddresses.forEach(function(c){
+        const d = c.data || {};
+        if(!d.billToPhone && custInvoiceKey(d) === key) addHouse(c.id, d);
+      });
+    }
+  }
+  const billedSnap = await getDocs(query(collection(db,'jobAddresses'), where('billToPhone','==',key)));
+  billedSnap.forEach(function(docSnap){ addHouse(docSnap.id, docSnap.data()); });
+  if(!isPhoneKey && !linked.length){
+    /* Refuse to rebuild an email-keyed invoice from an empty group — that is the
+       exact failure this guard exists to stop, and zeroing a live total is worse
+       than leaving it stale. Phone keys keep the old behaviour so the bill-to
+       change flow can still zero a payer whose last house moved away. */
+    throw new Error('syncPayerInvoice: no houses resolved for invoice key ' + key);
+  }
   const total = linked.reduce((s,h) => s + (Number(h.data.housePrice)||0), 0);
-  const payerHouse = linked.find(h => (h.data.phone||'').replace(/\D/g,'') === payerPhone && !h.data.billToPhone);
+  const payerHouse = linked.find(h => custInvoiceKey(h.data) === key && !h.data.billToPhone);
   let existing = {};
   try{
-    const existingSnap = await getDoc(doc(db,'invoices',payerPhone));
+    const existingSnap = await getDoc(doc(db,'invoices',key));
     if(existingSnap.exists()) existing = existingSnap.data();
   } catch(err){ /* no existing invoice yet, fine */ }
   // Keep the $30 new-member fee that was already applied — the sum of house
@@ -9438,10 +9482,12 @@ async function syncPayerInvoice(payerPhone){
   // never go green).
   const memberFee = existing.newMemberFeeApplied ? 30 : 0;
   const installTotal = total + memberFee;
-  await setDoc(doc(db,'invoices',payerPhone), {
+  await setDoc(doc(db,'invoices',key), {
     name: (payerHouse && payerHouse.data.name) || existing.name || '',
-    phone: payerPhone,
-    email: (payerHouse && payerHouse.data.email) || existing.email || '',
+    /* The key doubles as the phone only when it IS a phone — writing an email
+       into the phone field would break everything that reads it back. */
+    phone: isPhoneKey ? key : ((payerHouse && String(payerHouse.data.phone || '').replace(/\D/g,'')) || existing.phone || ''),
+    email: (payerHouse && payerHouse.data.email) || existing.email || (isPhoneKey ? '' : key),
     install: installTotal, removal: existing.removal || 0, deposit: existing.deposit || 0,
     newMemberFeeApplied: !!existing.newMemberFeeApplied,
     status: computeInvoiceStatus(installTotal, existing.removal||0, existing.deposit||0, existing.credits||0, existing.changeFees||0),
@@ -10961,8 +11007,12 @@ function renderWarehouseRecycleQueue(){
   const groups = {};
   jobAddresses.forEach(function(item){
     const d = item.data;
-    if(!d.needsLightRecycle || !d.lightsDescription) return;
-    const key = whGroupKey(d.lightsDescription, d.wireColor);
+    /* Everyone flagged for recycle belongs here, even with no lights recorded.
+       Requiring lightsDescription too meant an RSVP "no" flagged them and they
+       then never appeared in this list, so their customer number never came
+       back to the available pool. */
+    if(!d.needsLightRecycle) return;
+    const key = whGroupKey(d.lightsDescription || 'No lights recorded', d.wireColor);
     if(!groups[key]) groups[key] = [];
     groups[key].push(item);
   });
@@ -17503,7 +17553,7 @@ const TEST_SEED = [
   [8, 'Member Portal', 'Wrong credentials', '1. Open the Member Portal (the customer login area on highlightingutah.com).\n2. In the phone number box, type a real customer\'s phone number, but in the last name box type a last name that does NOT belong to that customer, so the two don\'t match.\n3. Click the \'Sign In\' button.', 'A friendly message should appear saying something like \'we couldn\'t find an account.\' The sign-in form should reappear so you can try again. You should NOT see a technical error code, and you should NOT see a blank screen.', 1, 'Pass', '', ''],
   [9, 'Member Portal', 'Personalized link', '1. Find an invoice email or an RSVP email that was sent to a customer (check your own email inbox from a test email that was sent to you).\n2. Inside that email, find the personalized link to the Member Portal.\n3. Copy that link.\n4. Open a new browser tab or window where you are NOT already signed in to the Member Portal.\n5. Paste the link into the address bar and go to it.', 'The link should open straight into that customer\'s account, showing the spinner while it loads. It should NOT ask you to sign in again — no phone number or last name box should appear.', 1, 'Fail', '', ''],
   [10, 'Member Portal', 'Balance reflects credits', '1. Open the admin site (the private office dashboard) and look at the menu on the left side of the screen. Click the word \'Dashboard\'.\n2. Click the \'Invoices\' tab.\n3. Click \'Invoice List\'.\n4. Find a customer and add a credit to their invoice — or, if you\'d rather not change anything, pick a customer who already has a credit on their invoice.\n5. Write down four numbers from that customer\'s invoice: the install amount, the removal amount, the credit amount, and the amount they have already paid.\n6. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as that same customer.\n7. Click the \'Payment\' tab.\n8. Look at the balance shown there.', 'The balance shown on the Payment tab should equal: the install amount plus the removal amount, minus the credit, minus whatever the customer has already paid. If you add up install and removal, subtract the credit, and subtract what\'s already been paid, that final number should match the balance shown in the portal exactly.', 1, 'N/A', '', ''],
-  [11, 'Member Portal', 'Pay with PayPal', '1. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as a customer who still owes money — use your own test customer record for this, not a real customer.\n2. Stay on the \'Payment\' tab.\n3. Look for a PayPal button on that tab.\n4. If there is an option to add a small tip, add one.\n5. Click through and complete a real payment for a small amount using PayPal.\n6. After the payment finishes, go back to the Member Portal and reload the page.', 'PayPal should charge you the exact balance that was shown on the Payment tab, plus whatever tip you added. After the payment goes through and you reload the portal, the balance should have dropped, and the account should now say \'Paid in Full\'.', 1, 'Fail', 'There is only a link to Venmo.', ''],
+  [11, 'Member Portal', 'Pay with PayPal', '1. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as a customer who still owes money — use your own test customer record for this, not a real customer.\n2. Stay on the \'Payment\' tab.\n3. Look for a PayPal button on that tab. Which buttons appear is controlled in admin under Websites > Site Settings > Payment Integrations: \'Venmo only\' shows just the Venmo button, \'PayPal only\' shows just PayPal, and \'Both\' shows Venmo and PayPal together. PayPal also needs a Client ID saved there before it will appear at all. Check that setting first — if it is set to \'Venmo only\', seeing only Venmo is correct and is not a fail.\n4. If there is an option to add a small tip, add one.\n5. Click through and complete a real payment for a small amount using PayPal.\n6. After the payment finishes, go back to the Member Portal and reload the page.', 'PayPal should charge you the exact balance that was shown on the Payment tab, plus whatever tip you added. After the payment goes through and you reload the portal, the balance should have dropped, and the account should now say \'Paid in Full\'.', 2, 'Fail', 'There is only a link to Venmo.', ''],
   [12, 'Member Portal', 'Change light colours', '1. Pick a test customer to use for this test — do NOT use a real customer, because changing light colours through the portal charges the customer a $30 fee.\n2. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as that test customer.\n3. Click the \'Light Colors\' tab (if you\'re using a phone, this tab is in the row of tabs across the bottom of the screen).\n4. Change the light colours to something different than what\'s currently selected.\n5. Click \'Save\'.\n6. Open the admin site (the private office dashboard) and look at the menu on the left side of the screen. Click the word \'Customers\'.\n7. Click \'All Customers\'.\n8. Find that test customer in the list and click \'Edit\' on their entry.\n9. Go back to the menu on the left side of the screen and click the word \'Warehouse\'.\n10. Click the \'Build\' tab.', 'The portal should show a message confirming the colour change was saved. In admin, the Edit Customer popup for that person should show the new colours you picked. That same customer should now also appear in the Warehouse Build list.', 1, 'Pass', '', ''],
   [13, 'Member Portal', 'Change contact info', '1. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as a test customer.\n2. Click the \'Information\' tab.\n3. Change the phone number to a different test value.\n4. Change the gate code to a different test value.\n5. Change the street address to a different test value.\n6. Click \'Save\'.\n7. Open the admin site (the private office dashboard) and look at the menu on the left side of the screen. Click the word \'Customers\'.\n8. Click \'All Customers\'.\n9. Find that test customer and click \'Edit\' on their entry.\n10. Go back to the menu on the left side of the screen and click the word \'Routes\'.\n11. Find an upcoming saved route that includes that test customer as a stop.', 'The Edit Customer popup should show the new phone number, gate code, and street address you just typed in the portal. The upcoming route stop for that customer should also show the new gate code and the new address.', 1, 'Pass', '', ''],
   [14, 'Member Portal', 'Change preferences', '1. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as a test customer.\n2. Click the \'Information\' tab and look through it, then also click the \'Changes\' tab and look through it.\n3. Change the wire colour to a different value.\n4. Save that change.\n5. Change the answer to the outlet timer question.\n6. Save that change.\n7. Change the install timing preference.\n8. Save that change.\n9. Type something new into the notes box.\n10. Save that change.\n11. Open the admin site (the private office dashboard) and look at the menu on the left side of the screen. Click the word \'Customers\'.\n12. Click \'All Customers\'.\n13. Find that test customer and click \'Edit\' on their entry.\n14. On the Edit Customer popup, look for each of the four things you just changed: the wire colour, the outlet timer answer, the install timing preference, and the notes.', 'All four things you changed — the wire colour, the outlet timer answer, the install timing preference, and the notes — should be visible somewhere on the Edit Customer popup in admin. If even one of those four is nowhere to be found on that popup, this test fails.', 1, 'Fail', 'There is nowhere to view it on the admin page.', ''],
