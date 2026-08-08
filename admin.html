@@ -9925,10 +9925,21 @@ document.getElementById('ibImportBtn').addEventListener('click', async function(
     statusEl.textContent = 'Processing ' + (i+1) + ' of ' + phones.length + '…';
     try{
       const existingInv = await getDoc(doc(db,'invoices',phone));
+      // Confirmed with the owner (2026-08) this tool is only ever run on brand
+      // new customers, never re-run against someone who already has an
+      // invoice — but guard it anyway rather than trust that stays true
+      // forever. A blind removal:0, deposit:0 here would erase a removal
+      // charge or a payment already on file the moment it ever is re-run.
+      const existingData = existingInv.exists() ? existingInv.data() : {};
+      const keepRemoval = Number(existingData.removal) || 0;
+      const keepDeposit = Number(existingData.deposit) || 0;
+      const keepCredits = Number(existingData.credits) || 0;
+      const keepFees = Number(existingData.changeFees) || 0;
       await setDoc(doc(db,'invoices',phone), {
         name: name, phone: phone, email: email,
-        install: amount, removal: 0, deposit: 0,
-        status: computeInvoiceStatus(amount, 0, 0), priceReviewed: true, updatedAt: serverTimestamp()
+        install: amount, removal: keepRemoval, deposit: keepDeposit,
+        status: computeInvoiceStatus(amount, keepRemoval, keepDeposit, keepCredits, keepFees),
+        priceReviewed: true, updatedAt: serverTimestamp()
       }, {merge:true});
       existingInv.exists() ? updated++ : added++;
 
@@ -12242,6 +12253,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     });
     const inv = allCustInvoiceFor(item);
     let resyncPayerAfter = null;
+    let migratingFeeNotes = null;
     if(!newBillTo){
       if(inv){
         const invoiceUpdates = {name: newName, phone: newPhone, email: newEmail};
@@ -12346,8 +12358,17 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
          so the recorded money isn't lost. */
       const isGroupInv = Array.isArray(inv.data.billedHouseIds) && inv.data.billedHouseIds.length > 1;
       if(!isGroupInv && inv.id === oldKey){
+        // A light-change fee isn't part of install/removal — it has to move to
+        // the new payer's invoice explicitly, or zeroing/deleting this one
+        // silently drops it and it never gets billed to anyone.
+        const movingFee = Number(inv.data.changeFees) || 0;
+        if(movingFee > 0){
+          migratingFeeNotes = Array.isArray(inv.data.changeFeeNotes) && inv.data.changeFeeNotes.length
+            ? inv.data.changeFeeNotes
+            : [{amount: movingFee, reason: 'Light change fee (moved when bill-to changed)', date: new Date().toISOString()}];
+        }
         if(Number(inv.data.deposit) > 0){
-          await updateDoc(doc(db,'invoices', inv.id), { install: 0, removal: 0, status: computeInvoiceStatus(0, 0, inv.data.deposit || 0, inv.data.credits || 0, inv.data.changeFees || 0), updatedAt: serverTimestamp() });
+          await updateDoc(doc(db,'invoices', inv.id), { install: 0, removal: 0, changeFees: 0, changeFeeNotes: [], status: computeInvoiceStatus(0, 0, inv.data.deposit || 0, inv.data.credits || 0, 0), updatedAt: serverTimestamp() });
         } else {
           await deleteDoc(doc(db,'invoices', inv.id));
         }
@@ -12356,6 +12377,20 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     if(resyncPayerAfter) await syncPayerInvoice(resyncPayerAfter);
     if(oldBillTo && oldBillTo !== newBillTo) await syncPayerInvoice(oldBillTo);
     if(newBillTo) await syncPayerInvoice(newBillTo);
+    // Fold the moved fee onto the payer's invoice after syncPayerInvoice has
+    // rebuilt it, so it lands on top of the correct fresh install/removal
+    // rather than being overwritten by that resync.
+    if(newBillTo && migratingFeeNotes){
+      const payerSnap = await getDoc(doc(db,'invoices', newBillTo));
+      const payerData = payerSnap.exists() ? payerSnap.data() : {};
+      const combinedFeeNotes = (Array.isArray(payerData.changeFeeNotes) ? payerData.changeFeeNotes : []).concat(migratingFeeNotes);
+      const combinedFees = combinedFeeNotes.reduce(function(sum, f){ return sum + (Number(f.amount) || 0); }, 0);
+      await updateDoc(doc(db,'invoices', newBillTo), {
+        changeFees: combinedFees, changeFeeNotes: combinedFeeNotes,
+        status: computeInvoiceStatus(payerData.install || 0, payerData.removal || 0, payerData.deposit || 0, payerData.credits || 0, combinedFees),
+        updatedAt: serverTimestamp()
+      });
+    }
     document.getElementById('editCustOverlay').style.display = 'none';
     editCustomerId = null;
     toast(geocodeFailed ? 'Saved — but the new address could not be located on the map. Check it manually so routes stay accurate.' : 'Customer info updated.');

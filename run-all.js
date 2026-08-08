@@ -541,6 +541,16 @@ check('flow', 'price only syncs when it actually changed',
 check('flow', 'price sync recomputes invoice status',
   /invoiceUpdates\.status\s*=\s*computeInvoiceStatus/.test(editSave),
   'otherwise a raised price leaves them still showing Paid in Full');
+
+// Fixed 2026-08 after confirming with the owner it wasn't relied on in
+// practice, but guarded anyway since a future re-run against an existing
+// invoice would otherwise erase real money already on file.
+const ibStart = admin.indexOf("ibImportBtn').addEventListener");
+const ibSection = ibStart > -1 ? admin.slice(ibStart, ibStart + 3000) : '';
+check('flow', 'Invoice Bulk Update preserves an existing removal charge and payments already on file',
+  /removal:\s*keepRemoval/.test(ibSection) && /deposit:\s*keepDeposit/.test(ibSection),
+  'a blind removal:0, deposit:0 on every row would erase both if this tool is ever re-run\n          ' +
+  'against a customer who already has an invoice');
 check('flow', 'route resync only touches upcoming routes',
   /dates\[i\] < todayStr/.test(admin),
   'past routes are history and should stay as they were on the day');
@@ -566,36 +576,15 @@ gap('saved routes pick up later customer corrections',
   'reads r.data.stops directly and never re-looks-up the customer, so fixing an\n          ' +
   'address or gate code after scheduling never reaches the crew driving to it.');
 
-// --- gaps found during the 2026-08-08 system-map audit (not part of the
-// original P0-P3 work list — flagged for an owner decision, not blind-fixed) ---
+// --- gap found during the 2026-08-08 system-map audit, fixed 2026-08 after
+// the owner confirmed the fee should move automatically ---
 (function () {
-  const ibStart = admin.indexOf("ibImportBtn').addEventListener");
-  const ibSection = ibStart > -1 ? admin.slice(ibStart, ibStart + 2000) : '';
-  gap('Invoice Bulk Update preserves an existing removal charge and payments already on file',
-    /removal:\s*existingInv/.test(ibSection) || /deposit:\s*existingInv/.test(ibSection),
-    'admin.html ibImportBtn (Invoice Bulk Update) always writes removal:0, deposit:0 for every\n          ' +
-    'row, even when existingInv.exists() is true. Re-running this tool against a customer who\n          ' +
-    'already has a removal charge or a partial payment recorded silently erases both, with no\n          ' +
-    'confirmation and no way to tell afterward except the invoice looking wrong. Needs an owner\n          ' +
-    'decision (is this tool ever run against a customer who already has an invoice?), not a\n          ' +
-    'blind fix — if removal/deposit should carry over, they need to come from existingInv.data().');
-
-  // No "fixed" signature exists to detect yet — this needs an owner decision on
-  // desired behavior before any fix pattern is written, so it's always reported
-  // until a human updates this check alongside the real fix. (An earlier version
-  // of this check just grepped for the word "changeFees" nearby and false-passed
-  // against an unrelated status-display fix that happened to sit in the same
-  // block — don't repeat that mistake by loosening this back to a substring test.)
-  gap('an outstanding light-change fee carries over when a customer switches bill-to',
-    false,
-    'When a customer starts billing to someone else, admin.html either deletes their own\n          ' +
-    'standalone invoice (if nothing has been paid on it) or zeroes install/removal but keeps\n          ' +
-    'the deposit (if something has been paid). Neither path moves an outstanding changeFees\n          ' +
-    'balance onto the new payer\'s invoice, and syncPayerInvoice never folds changeFees into the\n          ' +
-    'group total either — so a customer with an unpaid $30 light-change fee who switches to\n          ' +
-    'bill-to someone else can end up with that fee billed to nobody. Needs an owner decision\n          ' +
-    '(should the fee move to the new payer, or be settled before the switch is allowed?), not a\n          ' +
-    'blind fix.');
+  const switchStart = admin.indexOf('They now bill to someone else');
+  const switchSection = switchStart > -1 ? admin.slice(switchStart, switchStart + 1200) : '';
+  check('flow', 'an outstanding light-change fee carries over when a customer switches bill-to',
+    /migratingFeeNotes/.test(switchSection) && admin.includes('Fold the moved fee onto the payer'),
+    'zeroing/deleting the old standalone invoice without moving changeFees onto the new\n          ' +
+    'payer\'s invoice would bill an unpaid fee to nobody');
 })();
 
 // =====================================================================
