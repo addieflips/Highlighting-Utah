@@ -9231,7 +9231,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
     ? document.getElementById('addCustSpecificOutletNotes').value.trim()
     : '';
   const custNotes = document.getElementById('addCustNotes').value.trim();
-  const oneTimeNotes = document.getElementById('addCustOneTimeNotes').value.trim();
+  const oneTimeNote = document.getElementById('addCustOneTimeNotes').value.trim();
   const invoiceNotes = document.getElementById('addCustInvoiceNotes').value.trim();
   const referralCount = Math.max(0, parseInt(document.getElementById('addCustReferralCount').value, 10) || 0);
   const manualFee = Math.max(0, Number(document.getElementById('addCustFee').value) || 0);
@@ -9306,10 +9306,10 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
       housePhotoUrl: addCustPhotoUrl, housePhotoOriginal: addCustPhotoOriginal, housePhotoMarkup: addCustPhotoMarkup,
       houseHighlights: addCustHighlights, portalToken: generatePortalToken(), installPreference: installPreference,
       chargeNewMemberFee: chargeNewMemberFee,
-      oneTimeNotes: oneTimeNotes,
-      // Stamped so the "clear once they've paid, keep it if it was written
-      // after they paid" rule has something to compare against later.
-      oneTimeNotesAt: oneTimeNotes ? new Date().toISOString() : '',
+      // Same field the route/dispatch note editor and the crew portal already
+      // read and clear on completion — this used to be a differently-named
+      // field (oneTimeNotes) that nothing downstream ever looked at.
+      oneTimeNote: oneTimeNote,
       referralCount: referralCount,
       rsvpStatus: addCustFromQuoteId ? 'yes' : '',
       contactMethod: (addCustFromQuoteId ? (addCustContactMethodFromQuote || '') : ''),
@@ -11967,7 +11967,7 @@ function openEditCustomerModal(id){
   syncEditSpecificOutletNotes();
   document.getElementById('editCustBins').value = d.numberOfBins || 1;
   document.getElementById('editCustNumberDisplay').textContent = d.customerNumber || '\u2014';
-  document.getElementById('editCustOneTimeNotes').value = d.oneTimeNotes || '';
+  document.getElementById('editCustOneTimeNotes').value = d.oneTimeNote || '';
   document.getElementById('editCustNewMemberFee').checked = d.chargeNewMemberFee === true;
   document.getElementById('editCustReferralCount').value = d.referralCount || '';
   /* Manual discount and invoice notes live on the invoice, not the house, so
@@ -12160,7 +12160,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     ? document.getElementById('editCustSpecificOutletNotes').value.trim()
     : '';
   const newBins = parseInt(document.getElementById('editCustBins').value, 10) || 1;
-  const newOneTimeNotes = document.getElementById('editCustOneTimeNotes').value.trim();
+  const newOneTimeNote = document.getElementById('editCustOneTimeNotes').value.trim();
   const newChargeNewMemberFee = document.getElementById('editCustNewMemberFee').checked;
   const newReferralCount = Math.max(0, parseInt(document.getElementById('editCustReferralCount').value, 10) || 0);
   const newManualFee = Math.max(0, Number(document.getElementById('editCustFee').value) || 0);
@@ -12190,12 +12190,10 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     addrUpdates.lightColors = newColors;
     addrUpdates.installPreference = newInstallPref;
     addrUpdates.notes = newHouseNotes;
-    addrUpdates.oneTimeNotes = newOneTimeNotes;
-    if(newOneTimeNotes && newOneTimeNotes !== (item.data.oneTimeNotes || '')){
-      addrUpdates.oneTimeNotesAt = new Date().toISOString();
-    } else if(!newOneTimeNotes){
-      addrUpdates.oneTimeNotesAt = '';
-    }
+    // Same field the route/dispatch note editor and the crew portal already
+    // read and clear on completion — this used to write a differently-named
+    // field (oneTimeNotes) that nothing downstream ever looked at.
+    addrUpdates.oneTimeNote = newOneTimeNote;
     addrUpdates.chargeNewMemberFee = newChargeNewMemberFee;
     addrUpdates.referralCount = newReferralCount;
     const oldLightsForBuild = item.data.lightsDescription || '';
