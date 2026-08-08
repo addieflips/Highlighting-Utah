@@ -17109,7 +17109,14 @@ function renderTests(){
   if(tc) tc.textContent = all.length ? '('+all.length+')' : '';
 
   projDropdown('ddTestResult', 'Show', projResultOptions(all), projTestFilters, renderTests);
-  projDropdown('ddTestArea', 'Area', projAreaOptions(all), projTestAreaFilters, renderTests);
+  /* The Area list narrows to whatever Result/Assigned-to is already picked, so
+     picking Addie only offers areas she actually has tests in - not every
+     area in the whole checklist. Area's own filter is left out of its own
+     base, or picking one area would hide every other area to pick next. */
+  let areaOptionsBase = all;
+  if(projTestFilters.size) areaOptionsBase = areaOptionsBase.filter(function(t){ return projTestFilters.has(t.result || 'none'); });
+  areaOptionsBase = areaOptionsBase.filter(function(t){ return projWhoMatch(t, projTestWhoFilter); });
+  projDropdown('ddTestArea', 'Area', projAreaOptions(areaOptionsBase), projTestAreaFilters, renderTests);
   projDropdown('ddTestWho', 'Assigned to', projWhoOptions(all), projTestWhoFilter, renderTests);
 
   let rows = all;
