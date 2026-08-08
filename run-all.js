@@ -294,6 +294,35 @@ check('logic', 'projTestSyncDecision exists', typeof projTestSyncDecision === 'f
     missingVersionDecision.action === 'none');
 }
 
+/*
+ * Checklist wording drift. TEST_SEED can only stay accurate if it gets
+ * updated in the same change that renames a button or moves a feature — the
+ * sync mechanism has no way to detect that on its own (see CLAUDE.md §0/§2).
+ * This is the mechanical backstop: retired UI terms that must never show up
+ * in a test's steps/expected again. It caught nothing retroactively (the
+ * "approval link" tests were already fixed by hand before this existed) —
+ * its job is to catch the NEXT time it happens.
+ *
+ * Add an entry here every time a checklist-referenced button/label gets
+ * renamed. Format: [retired phrase, why/what replaced it].
+ */
+const RETIRED_CHECKLIST_TERMS = [
+  ['approval link', 'the Get Approval Link button was renamed to Send Email on 2026-08-08 (it now also shows the filled-in email, not just the link)'],
+  ['get approval link', 'renamed to Send Email on 2026-08-08'],
+  ['copy quote email', 'renamed to Show Quote Email Again on 2026-08-08 (Send Email now shows the email on the first click)'],
+];
+{
+  const seedStart = admin.indexOf('const TEST_SEED = [');
+  const seedEnd = admin.indexOf('\n];', seedStart) + 3;
+  const TEST_SEED = new Function(admin.slice(seedStart, seedEnd) + '; return TEST_SEED;')();
+  for (const [term, why] of RETIRED_CHECKLIST_TERMS) {
+    const hits = TEST_SEED.filter(row => (row[3] + ' ' + row[4]).toLowerCase().includes(term));
+    check('logic', 'checklist wording: no test still says "' + term + '"',
+      hits.length === 0,
+      hits.length ? ('#' + hits.map(r => r[0]).join(', #') + ' — ' + why) : undefined);
+  }
+}
+
 gap('colorComboKey exists in admin.html', typeof colorComboKey === 'function',
   'colorComboKey was removed from admin.html at some point; run-all.js still expects it. ' +
   'Either restore the helper or delete these colorComboKey checks if the feature is gone for good.');
