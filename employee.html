@@ -1264,7 +1264,14 @@ async function whToggleLightsNew(key, checked){
   await updateDoc(doc(db,'jobAddresses', key), {needsLightBuild: !checked});
 }
 async function whToggleLightsOld(key, checked){
-  if(checked){ await deleteDoc(doc(db,'warehouseExtras', key)); }
+  if(!checked) return;
+  // Buffer stock is a quantity, not a single item — ticking it means "one of
+  // these got used," so it should count down rather than wipe out the whole
+  // line (a ×5 buffer entry would otherwise vanish after the first pull).
+  const item = whLightsOld.find(function(i){ return i.id === key; });
+  const qty = item ? (Number(item.data.quantity) || 1) : 1;
+  if(qty > 1){ await updateDoc(doc(db,'warehouseExtras', key), {quantity: qty - 1}); }
+  else { await deleteDoc(doc(db,'warehouseExtras', key)); }
 }
 async function whToggleRecycle(key, checked){
   const item = whRecycle.find(function(i){ return i.key === key; });
