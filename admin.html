@@ -4792,7 +4792,7 @@ document.getElementById('pibLoadBtn')?.addEventListener('click', function(){
     const d = item.data;
     const inv = d.phone ? allInvoicesCache.find(function(i){ return i.data.phone === d.phone; }) : null;
     if(!inv){ noInvoiceCount++; return; }
-    const status = computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit, inv.data.credits);
+    const status = computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit, inv.data.credits, inv.data.changeFees);
     const row = {
       jobId: item.id, phone: d.phone || inv.data.phone || '',
       name: d.name || inv.data.name || '', email: inv.data.email || d.email || '',
@@ -5977,7 +5977,7 @@ function getLiveInvoiceStatus(phone){
   if(!phoneDigits) return null;
   const inv = allInvoicesCache.find(i => i.id === phoneDigits);
   if(!inv) return null;
-  return computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit, inv.data.credits);
+  return computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit, inv.data.credits, inv.data.changeFees);
 }
 function etPopulateTemplateSelect(){
   const sel = document.getElementById('etSendTemplateSelect');
@@ -6065,10 +6065,12 @@ function buildInvoiceDocHtml(member){
   const install = inv ? Number(inv.install)||0 : (basePrice + (isNewMember && !newMemberFeeAlreadyApplied ? 30 : 0));
   const removal = inv ? Number(inv.removal)||0 : 0;
   const deposit = inv ? Number(inv.deposit)||0 : 0;
-  const total = install + removal;
+  const changeFees = inv ? Number(inv.changeFees)||0 : 0;
+  const total = install + removal + changeFees;
   const credits = inv ? Number(inv.credits)||0 : 0;
   const creditNotes = inv && Array.isArray(inv.creditNotes) ? inv.creditNotes : [];
-  const status = computeInvoiceStatus(install, removal, deposit, credits);
+  const changeFeeNotes = inv && Array.isArray(inv.changeFeeNotes) ? inv.changeFeeNotes : [];
+  const status = computeInvoiceStatus(install, removal, deposit, credits, changeFees);
   const amountDue = Math.max(0, total - credits - deposit);
 
   const feetLineLabel = (feet && perFootRate)
@@ -6104,6 +6106,7 @@ function buildInvoiceDocHtml(member){
         '<tbody>'+
           '<tr style="border-bottom:1px solid var(--line);"><td style="padding:12px 0; font-size:14px; color:var(--ink);">'+esc(feetLineLabel)+'</td><td style="text-align:right; padding:12px 0; font-size:14px; color:var(--ink);">'+feetLineAmount+'</td></tr>'+
           (showNewMemberLine ? '<tr style="border-bottom:1px solid var(--line);"><td style="padding:12px 0; font-size:14px; color:var(--ink);">New member installation fee</td><td style="text-align:right; padding:12px 0; font-size:14px; color:var(--ink);">$30</td></tr>' : '')+
+          changeFeeNotes.map(function(f){ return '<tr style="border-bottom:1px solid var(--line);"><td style="padding:12px 0; font-size:14px; color:var(--ink);">'+esc(f.reason||'Light change fee')+'</td><td style="text-align:right; padding:12px 0; font-size:14px; color:var(--ink);">'+fmtMoney(Number(f.amount)||0)+'</td></tr>'; }).join('')+
           creditNotes.map(function(c){ return '<tr style="border-bottom:1px solid var(--line);"><td style="padding:12px 0; font-size:14px; color:var(--dusk);">'+esc(c.reason||'Credit')+'</td><td style="text-align:right; padding:12px 0; font-size:14px; color:var(--dusk);">−'+fmtMoney(Number(c.amount)||0)+'</td></tr>'; }).join('')+
         '</tbody>'+
       '</table>'+
@@ -6931,11 +6934,11 @@ let currentInvoicesForExport = [];
 document.getElementById('invoiceExportBtn').addEventListener('click', function(){
   if(!currentInvoicesForExport.length){ toast('No invoices to export yet'); return; }
   const rows = currentInvoicesForExport.map(function(d){
-    const balance = (d.install||0) + (d.removal||0) - (d.credits||0) - (d.deposit||0);
+    const balance = (d.install||0) + (d.removal||0) + (d.changeFees||0) - (d.credits||0) - (d.deposit||0);
     return {
-      Name: d.name, Phone: d.phone, 'Install Amount': d.install||0, Removal: d.removal||0,
+      Name: d.name, Phone: d.phone, 'Install Amount': d.install||0, Removal: d.removal||0, 'Change Fees': d.changeFees||0,
       Deposit: d.deposit||0, Balance: Math.max(balance,0),
-      Status: computeInvoiceStatus(d.install, d.removal, d.deposit, d.credits)
+      Status: computeInvoiceStatus(d.install, d.removal, d.deposit, d.credits, d.changeFees)
     };
   });
   const ws = XLSX.utils.json_to_sheet(rows);
@@ -6949,7 +6952,7 @@ let activeInvFilters = { unpaid:false, partial:false, paid:false, overdue:false 
 let invoiceSearchTerm = '';
 const OVERDUE_DAYS = 14;
 function isInvoiceOverdue(d){
-  const status = computeInvoiceStatus(d.install, d.removal, d.deposit, d.credits);
+  const status = computeInvoiceStatus(d.install, d.removal, d.deposit, d.credits, d.changeFees);
   if(status === 'Paid in Full') return false;
   if(!d.updatedAt || !d.updatedAt.toDate) return false;
   const days = (Date.now() - d.updatedAt.toDate().getTime()) / 86400000;
@@ -6985,16 +6988,16 @@ function renderInvoicesList(){
     const t = invoiceSearchTerm.toLowerCase();
     filtered = filtered.filter(item => (item.data.name||'').toLowerCase().indexOf(t) !== -1);
   }
-  if(activeInvFilters.paid) filtered = filtered.filter(item => computeInvoiceStatus(item.data.install, item.data.removal, item.data.deposit, item.data.credits) === 'Paid in Full');
-  if(activeInvFilters.partial) filtered = filtered.filter(item => computeInvoiceStatus(item.data.install, item.data.removal, item.data.deposit, item.data.credits) === 'Partial Payment');
-  if(activeInvFilters.unpaid) filtered = filtered.filter(item => computeInvoiceStatus(item.data.install, item.data.removal, item.data.deposit, item.data.credits) === 'Unpaid');
+  if(activeInvFilters.paid) filtered = filtered.filter(item => computeInvoiceStatus(item.data.install, item.data.removal, item.data.deposit, item.data.credits, item.data.changeFees) === 'Paid in Full');
+  if(activeInvFilters.partial) filtered = filtered.filter(item => computeInvoiceStatus(item.data.install, item.data.removal, item.data.deposit, item.data.credits, item.data.changeFees) === 'Partial Payment');
+  if(activeInvFilters.unpaid) filtered = filtered.filter(item => computeInvoiceStatus(item.data.install, item.data.removal, item.data.deposit, item.data.credits, item.data.changeFees) === 'Unpaid');
   if(activeInvFilters.overdue) filtered = filtered.filter(item => isInvoiceOverdue(item.data));
   if(!filtered.length){ list.innerHTML = '<div class="empty-note">No invoices match this view.</div>'; return; }
   let html = '';
   filtered.forEach(function(item){
     const d = item.data;
-    const balance = (d.install||0) + (d.removal||0) - (d.credits||0) - (d.deposit||0);
-    const liveStatus = computeInvoiceStatus(d.install, d.removal, d.deposit, d.credits);
+    const balance = (d.install||0) + (d.removal||0) + (d.changeFees||0) - (d.credits||0) - (d.deposit||0);
+    const liveStatus = computeInvoiceStatus(d.install, d.removal, d.deposit, d.credits, d.changeFees);
     const overdue = isInvoiceOverdue(d);
     const needsReview = d.priceReviewed === false;
     const rsvp = custRsvpStatusForPhone(d.phone || item.id);
@@ -7010,7 +7013,7 @@ function renderInvoicesList(){
           '<span>'+esc(d.phone)+'</span>'+(d.phone ? '<button type="button" class="copy-field-btn" data-copyval="'+esc(d.phone)+'" title="Copy phone number">'+copyIcon()+'</button>' : '')+
           (d.email ? ' &middot; <span>'+esc(d.email)+'</span><button type="button" class="copy-field-btn" data-copyval="'+esc(d.email)+'" title="Copy email">'+copyIcon()+'</button>' : '')+
         '</div>'+
-        '<div class="rtext">Amount: '+fmtMoney((d.install||0)+(d.removal||0))+(liveStatus==='Partial Payment' ? ' &mdash; Paid so far: '+fmtMoney(d.deposit||0)+', Balance: '+fmtMoney(balance) : '')+(needsReview ? ' <span style="color:var(--ember); font-weight:600;">&mdash; calculated from house photo, not yet confirmed</span>' : '')+'</div>'+
+        '<div class="rtext">Amount: '+fmtMoney((d.install||0)+(d.removal||0)+(d.changeFees||0))+(liveStatus==='Partial Payment' ? ' &mdash; Paid so far: '+fmtMoney(d.deposit||0)+', Balance: '+fmtMoney(balance) : '')+(needsReview ? ' <span style="color:var(--ember); font-weight:600;">&mdash; calculated from house photo, not yet confirmed</span>' : '')+'</div>'+
         (d.tipTotal ? '<div class="rtext" style="color:#2E6B3E;">&#128179; Tip received: '+fmtMoney(d.tipTotal)+(d.lastPaymentMethod === 'paypal' ? ' (via PayPal)' : '')+'</div>' : '')+
         (d.lastPaymentMethod === 'paypal' && !d.tipTotal ? '<div class="rtext" style="color:var(--slate); font-size:12px;">Last payment: PayPal'+(d.lastPaymentAt && d.lastPaymentAt.toDate ? ', '+fmtDate(d.lastPaymentAt) : '')+'</div>' : '')+
         billedNote+
@@ -7018,7 +7021,7 @@ function renderInvoicesList(){
       '</div>'+
       '<div class="row-actions">'+
         (needsReview ? '<button class="icon-btn" data-approveprice="'+item.id+'" title="Confirm this price is correct" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:#2E6B3E;">Approve Price</button>' : '')+
-        '<select class="paystatus-select" data-setpaystatus="'+item.id+'" data-total="'+((item.data.install||0)+(item.data.removal||0)-(item.data.credits||0))+'" style="border-radius:8px; border:1px solid var(--line); padding:6px 10px; font-size:12px; font-weight:600; background:var(--snow); color:var(--ink);">'+
+        '<select class="paystatus-select" data-setpaystatus="'+item.id+'" data-total="'+((item.data.install||0)+(item.data.removal||0)+(item.data.changeFees||0)-(item.data.credits||0))+'" style="border-radius:8px; border:1px solid var(--line); padding:6px 10px; font-size:12px; font-weight:600; background:var(--snow); color:var(--ink);">'+
           ['Unpaid','Partial Payment','Paid in Full'].map(function(opt){ return '<option value="'+opt+'"'+(liveStatus===opt?' selected':'')+'>'+opt+'</option>'; }).join('')+
         '</select>'+
         '<button class="icon-btn" data-edit="invoices" data-id="'+item.id+'">'+editIcon()+'</button>'+
@@ -7031,7 +7034,7 @@ function renderInvoicesList(){
     const invoiceId = sel.dataset.setpaystatus;
     const inv = allInvoicesCache.find(i => i.id === invoiceId);
     if(inv){
-      const status = computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit, inv.data.credits);
+      const status = computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit, inv.data.credits, inv.data.changeFees);
       sel.value = status;
     }
   });
@@ -7623,7 +7626,7 @@ function renderExpensesList(){
     const connectedHtml = connectedIds.length ? connectedIds.map(function(invId){
       const inv = allInvoicesCache.find(x => x.id === invId);
       if(!inv) return '';
-      const status = computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit, inv.data.credits);
+      const status = computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit, inv.data.credits, inv.data.changeFees);
       return '<span class="status-pill '+statusClass(status)+'" style="margin-right:4px;">'+esc(inv.data.name||invId)+' &mdash; '+status+'</span>';
     }).join('') : '';
     return '<div class="row-item">'+
@@ -9224,7 +9227,7 @@ async function syncPayerInvoice(payerPhone){
     email: (payerHouse && payerHouse.data.email) || existing.email || '',
     install: installTotal, removal: existing.removal || 0, deposit: existing.deposit || 0,
     newMemberFeeApplied: !!existing.newMemberFeeApplied,
-    status: computeInvoiceStatus(installTotal, existing.removal||0, existing.deposit||0, existing.credits||0),
+    status: computeInvoiceStatus(installTotal, existing.removal||0, existing.deposit||0, existing.credits||0, existing.changeFees||0),
     priceReviewed: true, updatedAt: serverTimestamp(),
     billedHouseIds: linked.map(h => h.id)
   }, {merge:true});
@@ -9651,8 +9654,8 @@ document.getElementById('paymentImportBtn').addEventListener('click', async func
     const inv = allInvoicesCache.find(i => i.data.phone === phone);
     if(!inv){ skipped++; continue; }
     const d = inv.data;
-    const total = (d.install||0) + (d.removal||0);
-    const currentStatus = computeInvoiceStatus(d.install, d.removal, d.deposit, d.credits);
+    const total = (d.install||0) + (d.removal||0) + (d.changeFees||0);
+    const currentStatus = computeInvoiceStatus(d.install, d.removal, d.deposit, d.credits, d.changeFees);
     if(currentStatus === 'Partial Payment' && amount > 0){
       await updateDoc(doc(db,'invoices',inv.id), {deposit: amount, updatedAt: serverTimestamp()});
       updated++;
@@ -9902,7 +9905,7 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
           if(price !== null){
             const existingInv = invSnap.data();
             invUpdates.install = price;
-            invUpdates.status = computeInvoiceStatus(price, existingInv.removal||0, existingInv.deposit||0, existingInv.credits||0);
+            invUpdates.status = computeInvoiceStatus(price, existingInv.removal||0, existingInv.deposit||0, existingInv.credits||0, existingInv.changeFees||0);
             billed++;
           }
           if(Object.keys(invUpdates).length) await updateDoc(doc(db,'invoices',phone), invUpdates);
@@ -10413,9 +10416,11 @@ function attachAddressRowHandlers(container){
       });
       useForInvoiceBtn.addEventListener('click', async function(){
         const total = currentHighlights.reduce((s,h) => s + (Number(h.price)||0), 0);
+        const existingHdInv = allInvoicesCache.find(i => i.id === d.phone);
+        const existingHdFees = existingHdInv ? Number(existingHdInv.data.changeFees)||0 : 0;
         await setDoc(doc(db,'invoices',d.phone), {
           name: d.name||'', phone: d.phone, install: total, removal: 0, deposit: 0,
-          status: computeInvoiceStatus(total, 0, 0), priceReviewed: false, updatedAt: serverTimestamp()
+          status: computeInvoiceStatus(total, 0, 0, 0, existingHdFees), priceReviewed: false, updatedAt: serverTimestamp()
         }, {merge:true});
         toast('Invoice updated to '+fmtMoney(total)+' — flagged for price review before sending');
       });
@@ -11846,7 +11851,7 @@ function renderAllCustomersTable(){
   let rows = jobAddresses.map(function(item){
     const d = item.data;
     const inv = allCustInvoiceFor(item);
-    const invStatus = inv ? computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit, inv.data.credits) : null;
+    const invStatus = inv ? computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit, inv.data.credits, inv.data.changeFees) : null;
     const hasMap = !!d.layoutMapUrl;
     const enrolled = memberExportDateAdded(d);
     return {item, d, inv, invStatus, hasMap, enrolled, routeStatus: allCustRouteStatus(d)};
@@ -12382,7 +12387,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       const isGroupInv = Array.isArray(inv.data.billedHouseIds) && inv.data.billedHouseIds.length > 1;
       if(!isGroupInv && inv.id === oldKey){
         if(Number(inv.data.deposit) > 0){
-          await updateDoc(doc(db,'invoices', inv.id), { install: 0, removal: 0, status: computeInvoiceStatus(0, 0, inv.data.deposit || 0, 0), updatedAt: serverTimestamp() });
+          await updateDoc(doc(db,'invoices', inv.id), { install: 0, removal: 0, status: computeInvoiceStatus(0, 0, inv.data.deposit || 0, inv.data.credits || 0, inv.data.changeFees || 0), updatedAt: serverTimestamp() });
         } else {
           await deleteDoc(doc(db,'invoices', inv.id));
         }
@@ -12429,11 +12434,11 @@ document.getElementById('allCustExportBtn').addEventListener('click', function()
   const rows = jobAddresses.map(function(item){
     const d = item.data;
     const inv = allCustInvoiceFor(item);
-    const invStatus = inv ? computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit, inv.data.credits) : 'No Invoice';
+    const invStatus = inv ? computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit, inv.data.credits, inv.data.changeFees) : 'No Invoice';
     return {
       Name: d.name||'', Phone: d.phone||'', Email: d.email||'', Address: d.address||'', 'Customer #': d.customerNumber||'',
       Enrolled: memberExportDateAdded(d), 'Route Status': allCustRouteStatus(d), Difficulty: d.difficulty||'Unrated',
-      'Invoice Status': invStatus, 'Invoice Total': inv ? ((inv.data.install||0)+(inv.data.removal||0)) : '',
+      'Invoice Status': invStatus, 'Invoice Total': inv ? ((inv.data.install||0)+(inv.data.removal||0)+(inv.data.changeFees||0)) : '',
       'Paid So Far': inv ? (inv.data.deposit||0) : '', 'Balance Due': inv ? balanceDueAmount(inv.data) : '',
       'Has Layout Map': d.layoutMapUrl ? 'Yes' : 'No'
     };
@@ -15952,7 +15957,7 @@ function hcRunChecks(){
     fixNote: 'No button: deleting an invoice can destroy a payment record. Check it before removing anything.',
     rows: allInvoicesCache.filter(function(i){ return !groups[i.id]; }).map(function(i){
       const d = i.data || {};
-      return {label: (d.name || i.id), detail: 'invoice key ' + i.id + ' matches no customer — total $' + ((Number(d.install)||0) + (Number(d.removal)||0))};
+      return {label: (d.name || i.id), detail: 'invoice key ' + i.id + ' matches no customer — total $' + ((Number(d.install)||0) + (Number(d.removal)||0) + (Number(d.changeFees)||0))};
     })
   });
 
@@ -15993,11 +15998,11 @@ function hcRunChecks(){
     fixNote: 'Safe to fix: the status is derived from the numbers, so it can always be rebuilt.',
     rows: allInvoicesCache.filter(function(i){
       const d = i.data || {};
-      const should = computeInvoiceStatus(d.install, d.removal, d.deposit, d.credits);
+      const should = computeInvoiceStatus(d.install, d.removal, d.deposit, d.credits, d.changeFees);
       return (d.status || '') !== should;
     }).map(function(i){
       const d = i.data || {};
-      return {label: (d.name || i.id), detail: 'says "' + (d.status || 'blank') + '", should be "' + computeInvoiceStatus(d.install, d.removal, d.deposit, d.credits) + '"', invId: i.id};
+      return {label: (d.name || i.id), detail: 'says "' + (d.status || 'blank') + '", should be "' + computeInvoiceStatus(d.install, d.removal, d.deposit, d.credits, d.changeFees) + '"', invId: i.id};
     })
   });
 
@@ -16166,7 +16171,7 @@ async function hcApplyFix(id, btn){
         const inv = allInvoicesCache.find(function(x){ return x.id === r.invId; });
         if(inv){
           const d = inv.data || {};
-          await updateDoc(doc(db,'invoices', r.invId), {status: computeInvoiceStatus(d.install, d.removal, d.deposit, d.credits)});
+          await updateDoc(doc(db,'invoices', r.invId), {status: computeInvoiceStatus(d.install, d.removal, d.deposit, d.credits, d.changeFees)});
         }
       } else if(id === 'ghostStops'){
         const route = (function(){

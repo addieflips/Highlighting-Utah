@@ -95,7 +95,7 @@ exports.paypalCreateOrder = onCall(
     const invSnap = await db.collection('invoices').doc(phone).get();
     if (!invSnap.exists) throw new HttpsError('not-found', 'No invoice found for this phone.');
     const inv = invSnap.data();
-    const total = (Number(inv.install) || 0) + (Number(inv.removal) || 0);
+    const total = (Number(inv.install) || 0) + (Number(inv.removal) || 0) + (Number(inv.changeFees) || 0);
     const credits = Number(inv.credits) || 0;
     const paid = Number(inv.deposit) || 0;
     const balanceDue = Math.max(0, total - credits - paid);
@@ -894,7 +894,7 @@ exports.publicConfig = onCall({ cors: true }, async (request) => {
 
 // Only the fields the invoice card renders. Internal costing, crew notes and
 // anything else on the invoice document stay on the server.
-const INVOICE_READ_FIELDS = ['name', 'phone', 'email', 'install', 'removal', 'deposit', 'credits', 'creditNotes'];
+const INVOICE_READ_FIELDS = ['name', 'phone', 'email', 'install', 'removal', 'deposit', 'credits', 'creditNotes', 'changeFees', 'changeFeeNotes'];
 
 function sanitizeInvoice(data) {
   const out = {};
