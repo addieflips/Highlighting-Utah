@@ -294,6 +294,28 @@ check('logic', 'projTestSyncDecision exists', typeof projTestSyncDecision === 'f
     missingVersionDecision.action === 'none');
 }
 
+const projShouldPruneTestSrc = extractFn(admin, 'projShouldPruneTest');
+eval('const CUSTOM_TEST_START = 1000;\n' + projShouldPruneTestSrc);
+
+check('logic', 'projShouldPruneTest exists', typeof projShouldPruneTest === 'function');
+{
+  const seededIds = new Set(['t1', 't2', 't3']);
+  check('logic', 'prune: a test still in TEST_SEED is never pruned, even if scored',
+    !projShouldPruneTest('t1', { num: 1, result: 'Pass' }, seededIds));
+  check('logic', 'prune: a retired test scored Pass is pruned',
+    projShouldPruneTest('t9', { num: 9, result: 'Pass' }, seededIds));
+  check('logic', 'prune: a retired test scored Fail is pruned',
+    projShouldPruneTest('t9', { num: 9, result: 'Fail' }, seededIds));
+  check('logic', 'prune: a retired test still Needs Test is left alone - not an automatic delete',
+    !projShouldPruneTest('t9', { num: 9, result: '' }, seededIds));
+  check('logic', 'prune: a retired test on Retest is left alone',
+    !projShouldPruneTest('t9', { num: 9, result: 'Retest' }, seededIds));
+  check('logic', 'prune: a retired test marked N/A is left alone',
+    !projShouldPruneTest('t9', { num: 9, result: 'N/A' }, seededIds));
+  check('logic', 'prune: a one-off test is never pruned, even if its own made-up id is missing from seededIds',
+    !projShouldPruneTest('abc123', { num: 1000, result: 'Pass' }, seededIds));
+}
+
 /*
  * Checklist wording drift. TEST_SEED can only stay accurate if it gets
  * updated in the same change that renames a button or moves a feature — the

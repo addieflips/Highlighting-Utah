@@ -16673,6 +16673,9 @@ function projCopyText(text, okMsg){
 let projPeople = [];
 
 let projPeopleError = '';
+let projPeopleLoaded = false;
+let projTestsLoaded = false;
+let projOrphanCleanupRunning = false;
 
 function loadProjectPeople(){
   onSnapshot(collection(db,'projectPeople'), function(snap){
@@ -16680,14 +16683,47 @@ function loadProjectPeople(){
     projPeople = [];
     snap.forEach(function(d){ projPeople.push({ id:d.id, name:(d.data().name || '') }); });
     projPeople.sort(function(a,b){ return a.name.localeCompare(b.name); });
+    projPeopleLoaded = true;
     refreshAssigneeSelects();
     renderTodos();
     renderTests();
+    renderResults();
+    projCleanupOrphanAssignees();
   }, function(err){
     projPeopleError = projExplainError(err);
     renderTodos();
     renderTests();
+    renderResults();
   });
+}
+
+/* A test can end up pointing at a person id that no longer exists in
+   projectPeople - normally projRemovePerson clears those itself, but data
+   from before that flow existed (or a person removed some other way) can
+   still be sitting there as "No longer on the list". Rather than show that
+   confusing label as a permanent filter option, just clear it - same as if
+   the person had been removed the normal way. Old-style email assignees are
+   left alone; they still show something meaningful (see projAssigneeName).
+   Waits for both collections to have loaded at least once, so an empty
+   projPeople list on first paint is never mistaken for "everyone was
+   removed" and wrongly clears every assignment. */
+async function projCleanupOrphanAssignees(){
+  if(!projPeopleLoaded || !projTestsLoaded || projOrphanCleanupRunning) return;
+  const known = {};
+  projPeople.forEach(function(p){ known[p.id] = true; });
+  const orphaned = projTestCache.filter(function(t){
+    return t.assignee && !known[t.assignee] && t.assignee.indexOf('@') < 0;
+  });
+  if(!orphaned.length) return;
+  projOrphanCleanupRunning = true;
+  try{
+    for(const t of orphaned){ await updateDoc(doc(db,'projectTests',t.id), { assignee:'' }); }
+    toast(orphaned.length + ' test(s) unassigned - assigned to someone no longer on the people list');
+  } catch(err){
+    /* Quiet failure - it's cleanup, not user-triggered work, and it'll try again next load. */
+  } finally {
+    projOrphanCleanupRunning = false;
+  }
 }
 
 function projExplainError(err){
@@ -16745,21 +16781,11 @@ function projAssigneeName(id){
   if(!id) return '';
   const hit = projPeople.find(function(p){ return p.id === id; });
   if(hit) return hit.name;
-  /* Older builds stored an email here instead of a person id. Show something
-     meaningful rather than a blank, and let projOrphanAssignees offer a fix. */
+  /* Older builds stored an email here instead of a person id - show the email
+     rather than a blank. Anything else pointing at someone who isn't in
+     projectPeople gets cleared automatically by projCleanupOrphanAssignees,
+     so this branch should be rare and short-lived. */
   return id.indexOf('@') >= 0 ? id : 'No longer on the list';
-}
-
-/* Assignments pointing at someone who is not in projectPeople - usually left
-   over from a build that stored emails. */
-function projOrphanAssignees(){
-  const known = {};
-  projPeople.forEach(function(p){ known[p.id] = true; });
-  const out = [];
-  projTestCache.forEach(function(r){
-    if(r.assignee && !known[r.assignee] && out.indexOf(r.assignee) < 0) out.push(r.assignee);
-  });
-  return out;
 }
 
 function refreshAssigneeSelects(){
@@ -16781,10 +16807,6 @@ function projWhoOptions(rows, manage){
              count: rows.filter(function(r){ return (r.assignee||'') === p.id; }).length };
   });
   opts.push({ value:'__none', label:'Unassigned', count: rows.filter(function(r){ return !r.assignee; }).length });
-  projOrphanAssignees().forEach(function(v){
-    const c = rows.filter(function(r){ return r.assignee === v; }).length;
-    if(c) opts.push({ value:v, label:projAssigneeName(v)+' (old)', count:c });
-  });
   return opts;
 }
 function projWhoMatch(row, set){
@@ -17122,9 +17144,11 @@ function loadProjectTests(){
     projTestCache = [];
     snap.forEach(function(d){ projTestCache.push(Object.assign({ id:d.id }, d.data())); });
     projTestCache.sort(function(a,b){ return (a.num || 0) - (b.num || 0); });
+    projTestsLoaded = true;
     renderTests();
     renderTodos();
     renderResults();
+    projCleanupOrphanAssignees();
   }, function(err){
     projPeopleError = projExplainError(err);
     renderTests();
@@ -17392,6 +17416,20 @@ function projTestSyncDecision(cur, row){
   return { action:'none' };
 }
 
+/* A test whose id is no longer in TEST_SEED at all - the feature it covered
+   is gone, not just changed. There's nothing left to sync it against, so
+   once it's already scored Pass or Fail (nobody's actively chasing it),
+   it's safe to delete rather than leave a stale result sitting around
+   forever. One-off tests (num >= CUSTOM_TEST_START) are never in TEST_SEED
+   to begin with, so they're never pruned here. Anything not yet scored
+   (Needs Test/Retest/N/A) is left alone - it still needs a human decision,
+   not an automatic delete. */
+function projShouldPruneTest(id, data, seededIds){
+  if((data.num || 0) >= CUSTOM_TEST_START) return false;
+  if(seededIds.has(id)) return false;
+  return data.result === 'Pass' || data.result === 'Fail';
+}
+
 /* Sync. Creates anything new, keeps every score already entered, and moves a
    test to Retest only when its version has moved on since it was last run.
    Runs once on its own right after login (see runProjectTestSync() in
@@ -17407,7 +17445,7 @@ async function runProjectTestSync(){
     const existing = new Map();
     snap.forEach(function(d){ existing.set(d.id, d.data()); });
 
-    let added = 0, flagged = 0, reworded = 0;
+    let added = 0, flagged = 0, reworded = 0, removed = 0;
     const flaggedNames = [];
 
     for(const row of TEST_SEED){
@@ -17427,12 +17465,20 @@ async function runProjectTestSync(){
       }
     }
 
+    const seededIds = new Set(TEST_SEED.map(function(row){ return 't' + row[0]; }));
+    for(const [id, data] of existing){
+      if(!projShouldPruneTest(id, data, seededIds)) continue;
+      await deleteDoc(doc(db,'projectTests',id));
+      removed++;
+    }
+
     const report = document.getElementById('testSyncReport');
     if(report){
       const bits = [];
       if(added)    bits.push('<b>'+added+'</b> new test'+(added===1?'':'s')+' added');
       if(flagged)  bits.push('<b>'+flagged+'</b> flagged for retest');
       if(reworded) bits.push('<b>'+reworded+'</b> reworded');
+      if(removed)  bits.push('<b>'+removed+'</b> retired test'+(removed===1?'':'s')+' removed');
       report.innerHTML = bits.length
         ? bits.join(' &middot; ') + (flaggedNames.length ? '<div class="proj-sub" style="margin-top:6px;">Retest: '+esc(flaggedNames.join(', '))+'</div>' : '')
         : 'Everything is already up to date.';
@@ -17440,8 +17486,8 @@ async function runProjectTestSync(){
     }
     // Stay quiet unless something actually changed - a toast every single
     // login for "already up to date" is just noise.
-    if(added || flagged) toast('Checklist synced');
-    return {added: added, flagged: flagged, reworded: reworded};
+    if(added || flagged || removed) toast('Checklist synced');
+    return {added: added, flagged: flagged, reworded: reworded, removed: removed};
   } finally {
     projTestSyncRunning = false;
   }
@@ -17615,9 +17661,6 @@ const TEST_SEED = [
   [166, 'Health & Data', 'Invoice Bulk Update guard', '1. Open admin (the private office dashboard).\n2. In the menu on the left side of the screen, click \'Import Center\'.\n3. Find the box labeled \'Invoice Fields\'.\n4. Pick a real test customer who already has an invoice with at least one of the following on it: a removal charge, a deposit, or a change fee.\n5. Write down the exact removal charge, deposit, and change fee amounts currently sitting on their invoice, before doing anything else.\n6. Into the Invoice Fields box, paste that customer\'s name, their phone number, and a new payment amount that is different from what\'s on the invoice now.\n7. Click the button labeled \'Import / Update Invoices\'.\n8. In the menu on the left side of the screen, click \'Dashboard\'.\n9. Click \'Invoices\'.\n10. Click \'Invoice List\'.\n11. Find and open that same test customer\'s invoice again.', 'The install amount on the invoice should have updated to the new payment amount you entered. But the removal charge, deposit, and change fee you wrote down beforehand should all still be exactly the same as before - running this import tool should not quietly wipe them out to zero.', 1, '', '', ''],
   [167, 'Admin', 'Quote photo upload', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click "Quote Requests".\n3. Find any quote card.\n4. On that card, click the button called "Add Photo" (or "Replace Photo" if a photo is already there).\n5. Upload a house photo directly on the card.\n6. Click the button called "Mark Up Photo".\n7. Try drawing on the photo.', 'The photo you uploaded should appear on the quote card. Clicking Mark Up Photo should open a drawing tool that lets you draw on the photo. This is the manual photo-upload feature that replaced an old Street View lookup tool — it\'s a live feature that\'s actually used, not leftover code, so it should keep working correctly.', 1, '', '', ''],
 ];
-
-/* Sync. Creates anything new, keeps every score already entered, and moves a
-   test to Retest only when its version has moved on since it was last run. */
 
 function attachDeleteHandlers(container){
   container.querySelectorAll('[data-del]').forEach(function(btn){
