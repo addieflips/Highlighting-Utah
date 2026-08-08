@@ -1631,10 +1631,12 @@
             <div class="portal-field" id="quoteTimingRow" style="display:none;"><span class="lbl">Timing</span><span class="val" id="quoteTimingDisplay"></span></div>
           </div>
           <button type="button" class="btn btn-gold btn-block" id="quoteApproveBtn">&#9989; Approve My Quote</button>
+          <button type="button" class="btn btn-outline btn-block" id="quoteMaybeBtn" style="margin-top:10px;">Maybe Next Year</button>
           <button type="button" class="btn btn-outline btn-block" id="quoteDeclineBtn" style="margin-top:10px;">Not Right Now</button>
           <div id="quoteActionStatus" style="font-size:13px; color:var(--slate); margin-top:8px; text-align:center;"></div>
           <div id="quoteApprovedMsg" class="portal-confirm-msg" style="display:none;">&#10003; Thanks for approving &mdash; we'll be in touch to schedule your installation!</div>
-          <div id="quoteDeclinedMsg" class="portal-confirm-msg" style="display:none;">Got it &mdash; thanks for letting us know. Reach out any time if you change your mind.</div>
+          <div id="quoteMaybeMsg" class="portal-confirm-msg" style="display:none;">We hope to see you next year! Happy Holidays! &#127876;</div>
+          <div id="quoteDeclinedMsg" class="portal-confirm-msg" style="display:none;">Thanks for letting us know. We hope to help you down the road. Happy Holidays!</div>
         </div>
         <div id="quoteResolvedMsg" class="invoice-empty" style="display:none;"></div>
 
@@ -2002,7 +2004,7 @@ function navigate(){
     var quoteParams = new URLSearchParams(queryString);
     var quoteToken = quoteParams.get('token');
     var quoteAction = quoteParams.get('action');
-    if(quoteToken && (quoteAction === 'approve' || quoteAction === 'decline') && typeof handleQuoteLink === 'function'){
+    if(quoteToken && (quoteAction === 'approve' || quoteAction === 'decline' || quoteAction === 'maybe_next_year') && typeof handleQuoteLink === 'function'){
       document.body.classList.add('rsvp-minimal');
       handleQuoteLink(quoteToken, quoteAction);
     }
@@ -2721,7 +2723,7 @@ function tryShowQuoteReview(raw, opts){
       var nameParts = (d.name||'').trim().split(/\s+/);
       var lastName = nameParts.length ? nameParts[0].toLowerCase() : '';
       if(!opts.skipLastNameCheck && lastName !== opts.lastNameInput) return;
-      if(d.approvalStatus === 'approved' || d.approvalStatus === 'declined'){
+      if(d.approvalStatus === 'approved' || d.approvalStatus === 'declined' || d.approvalStatus === 'maybe_next_year'){
         if(!resolved) resolved = {id: entry.id, data: d};
       } else if(!pending){
         pending = {id: entry.id, data: d};
@@ -2757,7 +2759,9 @@ function tryShowQuoteReview(raw, opts){
       empty.style.display = 'none';
       resolvedMsg.textContent = resolved.data.approvalStatus === 'approved'
         ? "You've already approved this quote — we'll be in touch to schedule!"
-        : "You've already let us know this isn't a fit right now. Reach out any time if that changes.";
+        : resolved.data.approvalStatus === 'maybe_next_year'
+          ? "You've already let us know you're thinking about next year. We hope to see you then!"
+          : "You've already let us know this isn't a fit right now. Reach out any time if that changes.";
       resolvedMsg.style.display = 'block';
       hideLoginPrompt();
       return;
@@ -2886,8 +2890,10 @@ function handleQuoteLink(token, action){
     }
     if(action === 'approve'){
       if(msg) msg.textContent = 'Thank you! Your quote is approved. We\'ll get you scheduled soon!';
+    } else if(action === 'maybe_next_year'){
+      if(msg) msg.textContent = 'We hope to see you next year! Happy Holidays! \ud83c\udf84';
     } else {
-      if(msg) msg.textContent = 'Got it \u2014 thanks for letting us know. Feel free to reach out anytime if you change your mind!';
+      if(msg) msg.textContent = 'Thanks for letting us know. We hope to help you down the road. Happy Holidays!';
     }
   }).catch(function(){
     if(msg) msg.textContent = "Something went wrong \u2014 please call or text us at (801) 901-0011 and we'll get it sorted out.";
@@ -3541,6 +3547,32 @@ document.getElementById('quoteApproveBtn').addEventListener('click', async funct
     statusEl.textContent = 'Something went wrong — please call/text us at (801) 901-0011.';
   }
 });
+document.getElementById('quoteMaybeBtn').addEventListener('click', async function(){
+  if(!currentQuoteId || !currentQuoteData){ return; }
+  var statusEl = document.getElementById('quoteActionStatus');
+  statusEl.textContent = 'Submitting…';
+  try{
+    await updateDoc(doc(db,'quotes', currentQuoteId), {approvalStatus: 'maybe_next_year'});
+    await addDoc(collection(db,'messages'), {
+      topic: 'Quote - Maybe Next Year', folder: 'Inbox',
+      name: currentQuoteData.name || '', phone: currentQuoteData.phone || '', email: currentQuoteData.email || '',
+      contactMethod: '', message: 'Said "maybe next year" for quote of ' + fmt(currentQuoteData.quotedPrice) + ' for ' + (currentQuoteData.address || 'their address') + '.',
+      createdAt: serverTimestamp()
+    });
+    notifyBusinessOfMessage({
+      customer_name: currentQuoteData.name || '', customer_phone: currentQuoteData.phone || '',
+      customer_email: currentQuoteData.email || '', topic: 'Quote - Maybe Next Year',
+      message: 'Said "maybe next year" for quote of ' + fmt(currentQuoteData.quotedPrice) + ' for ' + (currentQuoteData.address || 'their address') + '.'
+    });
+    statusEl.textContent = '';
+    document.getElementById('quoteApproveBtn').style.display = 'none';
+    document.getElementById('quoteMaybeBtn').style.display = 'none';
+    document.getElementById('quoteDeclineBtn').style.display = 'none';
+    document.getElementById('quoteMaybeMsg').style.display = 'block';
+  } catch(err){
+    statusEl.textContent = 'Something went wrong — please try again.';
+  }
+});
 document.getElementById('quoteDeclineBtn').addEventListener('click', async function(){
   if(!currentQuoteId || !currentQuoteData){ return; }
   if(!confirm("Let us know you're not moving forward with this quote?")) return;
@@ -3561,6 +3593,7 @@ document.getElementById('quoteDeclineBtn').addEventListener('click', async funct
     });
     statusEl.textContent = '';
     document.getElementById('quoteApproveBtn').style.display = 'none';
+    document.getElementById('quoteMaybeBtn').style.display = 'none';
     document.getElementById('quoteDeclineBtn').style.display = 'none';
     document.getElementById('quoteDeclinedMsg').style.display = 'block';
   } catch(err){

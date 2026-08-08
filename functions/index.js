@@ -739,19 +739,20 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
 });
 
 /* --- quoteRespond ---------------------------------------------------------
- * Input: { quoteToken, action }  where action = 'approve' | 'decline'
+ * Input: { quoteToken, action }  where action = 'approve' | 'decline' | 'maybe_next_year'
  *
  * Quote approval links have been failing silently from the public site because
  * the quotes collection is read/update restricted to staff. This runs the whole
  * flow server-side instead.
  */
+const QUOTE_ACTION_TO_STATUS = { approve: 'approved', decline: 'declined', maybe_next_year: 'maybe_next_year' };
 exports.quoteRespond = onCall({ cors: true }, async (request) => {
   const body = request.data || {};
   const quoteToken = body.quoteToken ? String(body.quoteToken).trim() : '';
   const action = String(body.action || '').toLowerCase();
 
   if (!quoteToken) throw new HttpsError('invalid-argument', 'Missing quote token.');
-  if (action !== 'approve' && action !== 'decline') {
+  if (!QUOTE_ACTION_TO_STATUS[action]) {
     throw new HttpsError('invalid-argument', 'Unknown quote action.');
   }
 
@@ -763,7 +764,7 @@ exports.quoteRespond = onCall({ cors: true }, async (request) => {
   const quoteData = snap.docs[0].data();
 
   await db.collection('quotes').doc(quoteId).update({
-    approvalStatus: action === 'approve' ? 'approved' : 'declined',
+    approvalStatus: QUOTE_ACTION_TO_STATUS[action],
     approvalRespondedAt: admin.firestore.FieldValue.serverTimestamp()
   });
 
