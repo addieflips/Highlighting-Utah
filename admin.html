@@ -706,6 +706,21 @@
     padding:7px 12px; border-radius:8px; border:none; cursor:pointer;
     background:var(--ink, #1c1c1c); color:#fff; font:inherit; font-size:12.5px; font-weight:600;
   }
+  .proj-dd-err{
+    margin:4px 6px; padding:9px 10px; border-radius:8px; font-size:12px; line-height:1.45;
+    background:#FDECEA; border:1px solid #F0B3AC; color:#8A1B25;
+  }
+  .proj-dd-empty{ margin:4px 6px; padding:8px 10px; font-size:12.5px; color:var(--slate, #888); }
+  .proj-row-assign{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:8px; }
+  .proj-row-assignlabel{
+    font-size:11px; font-weight:700; letter-spacing:.05em; text-transform:uppercase;
+    color:var(--slate, #888);
+  }
+  .proj-row-assign select{
+    padding:6px 10px; border-radius:8px; border:1px solid var(--line, #ddd);
+    background:#fff; font:inherit; font-size:13px; max-width:200px;
+  }
+  .proj-row-assignhint{ font-size:11.5px; color:var(--slate, #999); }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyByI2wHguK1JLNdUFJQKiA_gunoVtTkyqM"></script>
@@ -16319,9 +16334,18 @@ projRegisterTabOrder('gensub', 'genSubTabs', 'data-gensubtab');
 /* A tick-box dropdown. Several boxes can be ticked at once; nothing ticked
    means show everything. Rebuilt on every render, so it keeps its own open
    state rather than closing under the user mid-click. */
+const projDropdownPending = {};
 function projDropdown(hostId, label, options, selected, onChange, withPeople){
   const host = document.getElementById(hostId);
   if(!host) return;
+  /* Rebuilding wipes whatever is half-typed in the add-a-person box, and a
+     background update can land at any moment. Hold the redraw until they
+     click away. */
+  const active = document.activeElement;
+  if(active && active.classList && active.classList.contains('proj-dd-addinput') && host.contains(active)){
+    projDropdownPending[hostId] = true;
+    return;
+  }
   const wasOpen = host.classList.contains('open');
   const chosen = options.filter(o => selected.has(o.value));
   const summary = chosen.length === 0 ? 'All'
@@ -16341,6 +16365,8 @@ function projDropdown(hostId, label, options, selected, onChange, withPeople){
           (o.removable ? '<span class="proj-dd-remove" data-removeperson="'+esc(o.value)+'" title="Remove this person">&times;</span>' : '')+
         '</label>';
       }).join('')+
+      (withPeople && projPeopleError ? '<div class="proj-dd-err">'+esc(projPeopleError)+'</div>' : '')+
+      (withPeople && !projPeople.length && !projPeopleError ? '<div class="proj-dd-empty">No people yet \u2014 add one below.</div>' : '')+
       (withPeople
         ? '<div class="proj-dd-add"><input type="text" class="proj-dd-addinput" placeholder="Add a person\u2026" maxlength="40"><button type="button" class="proj-dd-addbtn">Add</button></div>'
         : '')+
@@ -16383,6 +16409,11 @@ function projDropdown(hostId, label, options, selected, onChange, withPeople){
       if(e.key === 'Enter'){ e.preventDefault(); commit(); }
     });
     addInput.addEventListener('click', function(e){ e.stopPropagation(); });
+    addInput.addEventListener('blur', function(){
+      setTimeout(function(){
+        if(projDropdownPending[hostId]){ projDropdownPending[hostId] = false; onChange(); }
+      }, 0);
+    });
   }
 }
 document.addEventListener('click', function(){
@@ -16415,15 +16446,30 @@ function projCopyText(text, okMsg){
    row that points at them. */
 let projPeople = [];
 
+let projPeopleError = '';
+
 function loadProjectPeople(){
   onSnapshot(collection(db,'projectPeople'), function(snap){
+    projPeopleError = '';
     projPeople = [];
     snap.forEach(function(d){ projPeople.push({ id:d.id, name:(d.data().name || '') }); });
     projPeople.sort(function(a,b){ return a.name.localeCompare(b.name); });
     refreshAssigneeSelects();
     renderTodos();
     renderTests();
+  }, function(err){
+    projPeopleError = projExplainError(err);
+    renderTodos();
+    renderTests();
   });
+}
+
+function projExplainError(err){
+  const code = (err && err.code) || '';
+  if(code.indexOf('permission-denied') >= 0){
+    return 'Blocked by the database rules. firestore.rules has not been published yet - do that and this will work.';
+  }
+  return 'Could not save: ' + ((err && err.message) || 'unknown error');
 }
 
 async function projAddPerson(name){
@@ -16433,8 +16479,14 @@ async function projAddPerson(name){
     toast('That name is already on the list.');
     return;
   }
-  await addDoc(collection(db,'projectPeople'), { name: clean, createdAt: serverTimestamp() });
-  toast(clean + ' added');
+  try{
+    await addDoc(collection(db,'projectPeople'), { name: clean, createdAt: serverTimestamp() });
+    toast(clean + ' added');
+  }catch(err){
+    projPeopleError = projExplainError(err);
+    toast(projPeopleError);
+    renderTodos();
+  }
 }
 
 async function projRemovePerson(id){
@@ -16470,7 +16522,22 @@ function projAssigneeOptions(){
 function projAssigneeName(id){
   if(!id) return '';
   const hit = projPeople.find(function(p){ return p.id === id; });
-  return hit ? hit.name : 'Someone removed';
+  if(hit) return hit.name;
+  /* Older builds stored an email here instead of a person id. Show something
+     meaningful rather than a blank, and let projOrphanAssignees offer a fix. */
+  return id.indexOf('@') >= 0 ? id : 'No longer on the list';
+}
+
+/* Assignments pointing at someone who is not in projectPeople - usually left
+   over from a build that stored emails. */
+function projOrphanAssignees(){
+  const known = {};
+  projPeople.forEach(function(p){ known[p.id] = true; });
+  const out = [];
+  projTodoCache.concat(projTestCache).forEach(function(r){
+    if(r.assignee && !known[r.assignee] && out.indexOf(r.assignee) < 0) out.push(r.assignee);
+  });
+  return out;
 }
 
 function refreshAssigneeSelects(){
@@ -16486,12 +16553,16 @@ function refreshAssigneeSelects(){
   });
 }
 function refreshAssigneeSelect(){ refreshAssigneeSelects(); }   /* kept for the roster-load hook */
-function projWhoOptions(rows){
+function projWhoOptions(rows, manage){
   const opts = projPeople.map(function(p){
-    return { value:p.id, label:p.name, removable:true,
+    return { value:p.id, label:p.name, removable: !!manage,
              count: rows.filter(function(r){ return (r.assignee||'') === p.id; }).length };
   });
   opts.push({ value:'__none', label:'Unassigned', count: rows.filter(function(r){ return !r.assignee; }).length });
+  projOrphanAssignees().forEach(function(v){
+    const c = rows.filter(function(r){ return r.assignee === v; }).length;
+    if(c) opts.push({ value:v, label:projAssigneeName(v)+' (old)', count:c });
+  });
   return opts;
 }
 function projWhoMatch(row, set){
@@ -16582,7 +16653,7 @@ function renderTodos(){
   projDropdown('ddTodoPriority', 'Priority', ['High','Medium','Low'].map(function(pr){
     return { value:pr, label:pr, count: projTodoCache.filter(function(t){ return (t.priority||'Medium') === pr; }).length };
   }), projTodoPriorityFilter, renderTodos);
-  projDropdown('ddTodoWho', 'Assigned to', projWhoOptions(projTodoCache), projTodoWhoFilter, renderTodos, true);
+  projDropdown('ddTodoWho', 'Assigned to', projWhoOptions(projTodoCache, true), projTodoWhoFilter, renderTodos, true);
 
   let rows = projTodoCache;
   if(projTodoStatusFilter.size){
@@ -17018,7 +17089,7 @@ function testRowHtml(t, showRetestButtonOnly){
       '<div class="proj-meta">'+
         '<span class="proj-tag area">'+esc(t.area || '')+'</span>'+
         '<span class="proj-tag '+testResultClass(result)+'">'+esc(testResultLabel(result))+'</span>'+
-        (t.assignee ? '<span class="proj-tag who">'+esc(projAssigneeName(t.assignee))+'</span>' : '')+
+        (showRetestButtonOnly && t.assignee ? '<span class="proj-tag who">'+esc(projAssigneeName(t.assignee))+'</span>' : '')+
       '</div>'+
       (t.retestReason && result === 'Retest' ? '<div class="proj-retest">'+esc(t.retestReason)+'</div>' : '')+
       (t.steps ? '<div class="proj-sub"><b>Do:</b> '+esc(t.steps)+'</div>' : '')+
@@ -17033,6 +17104,16 @@ function testRowHtml(t, showRetestButtonOnly){
         TEST_RESULTS.map(function(r){
           return '<button type="button" class="proj-result-btn'+(result === r ? ' on' : '')+'" data-testresult="'+t.id+'" data-value="'+r+'">'+r+'</button>';
         }).join('')+
+      '</div>'+
+      '<div class="proj-row-assign">'+
+        '<span class="proj-row-assignlabel">Assigned to</span>'+
+        '<select data-testassign="'+t.id+'">'+
+          '<option value="">Unassigned</option>'+
+          projPeople.map(function(pn){
+            return '<option value="'+esc(pn.id)+'"'+(t.assignee === pn.id ? ' selected' : '')+'>'+esc(pn.name)+'</option>';
+          }).join('')+
+        '</select>'+
+        (projPeople.length ? '' : '<span class="proj-row-assignhint">Add people on the To-Do tab</span>')+
       '</div>'+
       '<input type="text" class="proj-note-input" data-testnote="'+t.id+'" placeholder="Notes - what actually happened?" value="'+esc(t.notes || '')+'">';
   }
@@ -17062,6 +17143,13 @@ function projWireTestRows(list){
       updateDoc(doc(db,'projectTests',btn.dataset.sendretest), {
         result: 'Retest', retestReason: 'Sent back by hand.'
       }).then(function(){ toast('Moved back to the checklist'); });
+    });
+  });
+  list.querySelectorAll('[data-testassign]').forEach(function(sel){
+    sel.addEventListener('change', function(){
+      updateDoc(doc(db,'projectTests',sel.dataset.testassign), { assignee: sel.value }).then(function(){
+        toast(sel.value ? 'Assigned to ' + projAssigneeName(sel.value) : 'Set back to unassigned');
+      }).catch(function(err){ toast(projExplainError(err)); });
     });
   });
   list.querySelectorAll('[data-testnote]').forEach(function(input){
@@ -17114,7 +17202,7 @@ function renderTests(){
     { value:'N/A',    label:'N/A',        count:count('N/A') }
   ], projTestFilters, renderTests);
   projDropdown('ddTestArea', 'Area', projAreaOptions(working), projTestAreaFilters, renderTests);
-  projDropdown('ddTestWho', 'Assigned to', projWhoOptions(working), projTestWhoFilter, renderTests, true);
+  projDropdown('ddTestWho', 'Assigned to', projWhoOptions(working), projTestWhoFilter, renderTests);
 
   let rows = working;
   if(projTestFilters.size) rows = rows.filter(t => projTestFilters.has(t.result || 'none'));
@@ -17193,6 +17281,7 @@ document.getElementById('testFailsToTodoBtn').addEventListener('click', async fu
       area: PROJ_AREAS.indexOf(t.area) >= 0 ? t.area : 'Other',
       type: 'Bug',
       priority: 'High',
+      assignee: t.assignee || '',
       notes: (t.expected ? 'Expected: '+t.expected+' ' : '')+(t.notes ? '| Found: '+t.notes : ''),
       status: 'open',
       createdAt: serverTimestamp()
