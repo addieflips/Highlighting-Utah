@@ -3438,7 +3438,7 @@ Highlighting Utah</textarea>
 
     <!-- PROJECT (To-Do + Test Checklist) -->
     <div class="panel" id="panel-projecttodo">
-      <div class="panel-head"><div><h2>Project</h2><p>The checklist is every test there is. The To-Do list is what someone still has to run &mdash; only Needs Test and Retest land there.</p></div></div>
+      <div class="panel-head"><div><h2>Project</h2><p>The checklist shows what's still open &mdash; Needs Test, Retest, and N/A. Scoring a test Pass or Fail takes it off the checklist and unassigns it. The To-Do list is what someone still has to run &mdash; only Needs Test and Retest land there by default.</p></div></div>
 
       <div class="route-tabs" id="projSectionTabs" style="margin-bottom:20px;">
         <button class="route-tab-btn active" data-projtab="todo" draggable="true">To-Do List <span class="proj-tabcount" id="tabCountTodo"></span></button>
@@ -3507,7 +3507,7 @@ Highlighting Utah</textarea>
           <select id="bulkAssignee"><option value="">Unassigned</option></select>
           <button type="button" class="btn btn-outline btn-sm" id="bulkAssignBtn">Assign</button>
           <button type="button" class="btn btn-outline btn-sm" id="bulkUnassignBtn">Unassign all shown</button>
-          <span class="proj-bulkhint">Only Needs Test and Retest can be handed out this way - Pass/Fail keep their tester. Edit a single test (pencil icon) to change that.</span>
+          <span class="proj-bulkhint">Only Needs Test and Retest go out this way - N/A keeps its owner unless you pick it by hand on its own card.</span>
         </div>
 
         <div style="display:flex; gap:10px; flex-wrap:wrap; margin:14px 0;">
@@ -16862,8 +16862,14 @@ function projWireTestRows(list){
       const next = (current && current.result === btn.dataset.value) ? '' : btn.dataset.value;
       const patch = { result: next };
       if(next !== 'Retest') patch.retestReason = '';
+      /* Pass and Fail are final - nobody "has" a done test, so scoring one
+         either way hands it back to Unassigned automatically. */
+      const willUnassign = (next === 'Pass' || next === 'Fail') && current && current.assignee;
+      if(willUnassign) patch.assignee = '';
       updateDoc(doc(db,'projectTests',btn.dataset.testresult), patch).then(function(){
-        if(current && current.assignee && next && next !== 'Retest'){
+        if(willUnassign){
+          toast('Scored ' + next + ' - unassigned from ' + projAssigneeName(current.assignee));
+        } else if(current && current.assignee && next && next !== 'Retest'){
           toast('Scored ' + next + ' - off the To-Do list until it reopens');
         }
       }).catch(function(err){ toast(projExplainError(err)); });
@@ -16924,14 +16930,14 @@ function projAreaOptions(rows){
   rows.forEach(function(t){ if(t.area) counts[t.area] = (counts[t.area] || 0) + 1; });
   return Object.keys(counts).sort().map(function(a){ return { value:a, label:a, count:counts[a] }; });
 }
+/* Pass and Fail are done - they've already left the Test Checklist tab
+   entirely, so there's nothing left to filter to. */
 function projResultOptions(rows){
   const c = function(r){ return rows.filter(function(t){ return (t.result || '') === r; }).length; };
   return [
     { value:'none',   label:'Needs Test', count:c('') },
     { value:'Retest', label:'Retest',     count:c('Retest') },
-    { value:'Fail',   label:'Fail',       count:c('Fail') },
-    { value:'N/A',    label:'N/A',        count:c('N/A') },
-    { value:'Pass',   label:'Pass',       count:c('Pass') }
+    { value:'N/A',    label:'N/A',        count:c('N/A') }
   ];
 }
 
@@ -16993,7 +16999,7 @@ function projAreaCardHtml(area, areaAll, areaRows){
       '<span class="proj-area-count">'+scored+'/'+total+' scored</span>'+
     '</summary>'+
     '<div class="proj-area-body row-list">'+
-      areaRows.map(function(t){ return projTestRowHtml(t, false); }).join('')+
+      areaRows.map(function(t){ return projTestRowHtml(t, true); }).join('')+
     '</div>'+
   '</details>';
 }
@@ -17020,10 +17026,16 @@ function projIsTodo(t){
 function renderTodos(){
   if(projNoteHasFocus()){ projRedrawPending = true; return; }
   const list = document.getElementById('todoList');
+  /* Pass and Fail can't turn up here at all - scoring either one clears the
+     assignee automatically, so a done test never stays "assigned" to
+     anyone. N/A doesn't auto-clear, so it can still be handed out and found
+     here, just not by default (see the status filter below). */
   const assigned = projTestCache.filter(function(t){ return t.assignee; });
   const mine = assigned.filter(projIsTodo).slice().sort(projSortTests);
   const needs = mine.filter(function(t){ return !t.result; });
   const retests = mine.filter(function(t){ return t.result === 'Retest'; });
+  const naAssigned = assigned.filter(function(t){ return t.result === 'N/A'; });
+  const withNA = assigned.filter(function(t){ return projIsTodo(t) || t.result === 'N/A'; }).slice().sort(projSortTests);
 
   const badge = document.getElementById('badgeProjTodo');
   if(badge){ badge.textContent = mine.length; badge.style.display = mine.length ? '' : 'none'; }
@@ -17032,13 +17044,17 @@ function renderTodos(){
 
   projDropdown('ddTodoStatus', 'Show', [
     { value:'none',   label:'Needs Test', count: needs.length },
-    { value:'Retest', label:'Retest',     count: retests.length }
+    { value:'Retest', label:'Retest',     count: retests.length },
+    { value:'N/A',    label:'N/A',        count: naAssigned.length }
   ], projTodoStatusFilter, renderTodos);
-  projDropdown('ddTodoArea', 'Area', projAreaOptions(mine), projTodoAreaFilter, renderTodos);
-  projDropdown('ddTodoWho', 'Assigned to', projWhoOptions(mine, true), projTodoWhoFilter, renderTodos, true);
+  /* Nothing ticked defaults to actual to-do work. Tick N/A to also pull in
+     tests marked Not Applicable that are still assigned to someone. */
+  let rows = projTodoStatusFilter.size
+    ? withNA.filter(function(t){ return projTodoStatusFilter.has(t.result || 'none'); })
+    : mine;
+  projDropdown('ddTodoArea', 'Area', projAreaOptions(withNA), projTodoAreaFilter, renderTodos);
+  projDropdown('ddTodoWho', 'Assigned to', projWhoOptions(withNA, true), projTodoWhoFilter, renderTodos, true);
 
-  let rows = mine;
-  if(projTodoStatusFilter.size) rows = rows.filter(function(t){ return projTodoStatusFilter.has(t.result || 'none'); });
   if(projTodoAreaFilter.size) rows = rows.filter(function(t){ return projTodoAreaFilter.has(t.area); });
   rows = rows.filter(function(t){ return projWhoMatch(t, projTodoWhoFilter); });
 
@@ -17100,13 +17116,18 @@ function loadProjectTests(){
 function renderTests(){
   if(projNoteHasFocus()){ projRedrawPending = true; return; }
   const list = document.getElementById('testList');
-  const all = projTestCache;
+  const allFull = projTestCache;
 
-  document.getElementById('testCounts').innerHTML = renderProjHealthHtml(all);
+  document.getElementById('testCounts').innerHTML = renderProjHealthHtml(allFull);
   const rosterEl = document.getElementById('testRoster');
-  if(rosterEl) rosterEl.innerHTML = renderProjRosterHtml(all);
+  if(rosterEl) rosterEl.innerHTML = renderProjRosterHtml(allFull);
   const tc = document.getElementById('tabCountTests');
-  if(tc) tc.textContent = all.length ? '('+all.length+')' : '';
+  if(tc) tc.textContent = allFull.length ? '('+allFull.length+')' : '';
+
+  /* Pass and Fail are done - scoring one automatically clears its assignee
+     (see the result-button handler below), so this tab only ever needs to
+     deal with what's still open. */
+  const all = allFull.filter(function(t){ return t.result !== 'Pass' && t.result !== 'Fail'; });
 
   projDropdown('ddTestResult', 'Show', projResultOptions(all), projTestFilters, renderTests);
   /* The Area list narrows to whatever Result/Assigned-to is already picked, so
@@ -17125,8 +17146,8 @@ function renderTests(){
   rows = rows.filter(function(t){ return projWhoMatch(t, projTestWhoFilter); });
 
   projVisibleTestIds = rows.map(function(t){ return t.id; });
-  /* Pass/Fail are done - handing them out in bulk would just misfile someone's
-     tester history. Only tests still needing a run can be mass-assigned. */
+  /* Retest is the only "still needs someone" state left in bulk once Pass/Fail
+     are gone from this tab - N/A keeps its owner unless someone picks it by hand. */
   projVisibleTodoTestIds = rows.filter(projIsTodo).map(function(t){ return t.id; });
   const bulkCount = document.getElementById('bulkCount');
   if(bulkCount) bulkCount.textContent = projVisibleTodoTestIds.length;
@@ -17143,7 +17164,7 @@ function renderTests(){
 
   if(projAreaProgressFilter !== 'all'){
     shownAreas = shownAreas.filter(function(a){
-      const started = all.some(function(t){ return (t.area || 'Other') === a && t.result; });
+      const started = allFull.some(function(t){ return (t.area || 'Other') === a && t.result; });
       return projAreaProgressFilter === 'started' ? started : !started;
     });
   }
@@ -17159,7 +17180,9 @@ function renderTests(){
   if(!shownAreas.length){ list.innerHTML = '<div class="empty-note">Nothing here - try a different filter, or press Sync checklist.</div>'; return; }
 
   list.innerHTML = shownAreas.map(function(a){
-    const areaAll = all.filter(function(t){ return (t.area || 'Other') === a; });
+    /* The mini progress bar reflects the area's real, full standing -
+       including the Pass/Fail work that no longer has a card on this tab. */
+    const areaAll = allFull.filter(function(t){ return (t.area || 'Other') === a; });
     return projAreaCardHtml(a, areaAll, rowsByArea[a].slice().sort(projSortTests));
   }).join('');
 
