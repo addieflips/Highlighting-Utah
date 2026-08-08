@@ -240,6 +240,60 @@ check('logic', 'removal counts toward the total',
   'expected Partial — 500 paid against a 600 total');
 check('logic', 'zero-value invoice is Unpaid', computeInvoiceStatus(0, 0, 0) === 'Unpaid');
 
+const projTestSyncDecisionSrc = extractFn(admin, 'projTestSyncDecision');
+eval(projTestSyncDecisionSrc);
+
+check('logic', 'projTestSyncDecision exists', typeof projTestSyncDecision === 'function');
+{
+  // row shape: [num, area, name, steps, expected, version, result, notes, retestReason]
+  const freshRow    = [1, 'Public Site', 'Quote request form', 'steps v1', 'expected v1', 1, 'Pass', '', ''];
+  const blankRow     = [30, 'Admin', 'Quote declined', 'steps', 'expected', 1, '', '', ''];
+  const bumpedRow    = [23, 'Admin', 'Add Customer - feet drives number preview', 'steps v2', 'expected v2', 2, '', '', ''];
+  const bumpedRowMsg = [20, 'Admin', 'Quotes - detail form', 'steps v2', 'expected v2', 2, '', '', 'Feature changed since this last passed.'];
+  const rewordedRow  = [1, 'Public Site', 'Quote request form', 'steps v2 (clarified)', 'expected v1', 1, 'Pass', '', ''];
+  const unchangedRow = freshRow;
+
+  const addDecision = projTestSyncDecision(undefined, freshRow);
+  check('logic', 'sync: brand-new test gets added', addDecision.action === 'add');
+  check('logic', 'sync: a new test keeps its seeded starting result',
+    addDecision.action === 'add' && addDecision.data.result === 'Pass');
+
+  const addBlankDecision = projTestSyncDecision(undefined, blankRow);
+  check('logic', 'sync: a new never-scored test adds as blank (Needs Test), not undefined',
+    addBlankDecision.action === 'add' && addBlankDecision.data.result === '');
+
+  const retestDecision = projTestSyncDecision({ version: 1, result: 'Pass' }, bumpedRow);
+  check('logic', 'sync: version bump on an already-scored test flags Retest',
+    retestDecision.action === 'retest' && retestDecision.data.result === 'Retest');
+  check('logic', 'sync: Retest gets a default reason when the seed row gives none',
+    retestDecision.action === 'retest' && !!retestDecision.data.retestReason);
+  const retestMsgDecision = projTestSyncDecision({ version: 1, result: 'N/A' }, bumpedRowMsg);
+  check('logic', 'sync: Retest uses the seed row\'s own explanation when it has one',
+    retestMsgDecision.data.retestReason === 'Feature changed since this last passed.');
+
+  const rewordDecision = projTestSyncDecision(
+    { version: 1, area: 'Public Site', name: 'Quote request form', steps: 'steps v1 (old wording)', expected: 'expected v1', result: 'Pass' },
+    rewordedRow
+  );
+  check('logic', 'sync: same version but different wording rewords in place',
+    rewordDecision.action === 'reword');
+  check('logic', 'sync: a reword never carries a result - it must not overwrite an existing Pass/Fail',
+    rewordDecision.action === 'reword' && !('result' in rewordDecision.data));
+
+  const noneDecision = projTestSyncDecision(
+    { version: 1, area: 'Public Site', name: 'Quote request form', steps: 'steps v1', expected: 'expected v1', result: 'Pass' },
+    unchangedRow
+  );
+  check('logic', 'sync: nothing changed means nothing to do (no write)', noneDecision.action === 'none');
+
+  const missingVersionDecision = projTestSyncDecision(
+    { area: 'Public Site', name: 'Quote request form', steps: 'steps v1', expected: 'expected v1', result: 'Pass' },
+    unchangedRow
+  );
+  check('logic', 'sync: a doc saved before versioning existed defaults to version 1, not a false Retest',
+    missingVersionDecision.action === 'none');
+}
+
 gap('colorComboKey exists in admin.html', typeof colorComboKey === 'function',
   'colorComboKey was removed from admin.html at some point; run-all.js still expects it. ' +
   'Either restore the helper or delete these colorComboKey checks if the feature is gone for good.');

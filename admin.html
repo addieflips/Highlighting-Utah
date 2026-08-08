@@ -17110,6 +17110,30 @@ function resetTestForm(){
   document.getElementById('testAddCard').style.display = 'none';
 }
 
+/* The pure "what should happen to this one test" decision, pulled out of
+   runProjectTestSync so it can run - and be tested - without touching
+   Firestore. cur is the existing projectTests doc's data (or undefined if
+   it's never been seeded), row is one TEST_SEED entry.
+     - no existing doc            -> add it, seeded with the row's starting result/notes
+     - seed version moved on      -> retest, score reset, old notes left alone
+     - same version, text changed -> reword in place, score untouched
+     - same version, same text    -> none (costs no write) */
+function projTestSyncDecision(cur, row){
+  const base = { num:row[0], area:row[1], name:row[2], steps:row[3], expected:row[4], version:row[5] };
+  if(!cur){
+    return { action:'add', data: Object.assign({}, base, { result: row[6] || '', notes: row[7] || '', retestReason: '' }) };
+  }
+  if((cur.version || 1) < row[5]){
+    return { action:'retest', data: Object.assign({}, base, {
+      result: 'Retest', retestReason: row[8] || 'This changed since it was last run.'
+    }) };
+  }
+  if(cur.area !== base.area || cur.name !== base.name || cur.steps !== base.steps || cur.expected !== base.expected){
+    return { action:'reword', data: base };
+  }
+  return { action:'none' };
+}
+
 /* Sync. Creates anything new, keeps every score already entered, and moves a
    test to Retest only when its version has moved on since it was last run.
    Runs once on its own right after login (see runProjectTestSync() in
@@ -17130,29 +17154,17 @@ async function runProjectTestSync(){
 
     for(const row of TEST_SEED){
       const id = 't' + row[0];
-      const base = { num:row[0], area:row[1], name:row[2], steps:row[3], expected:row[4], version:row[5] };
-      const cur = existing.get(id);
+      const decision = projTestSyncDecision(existing.get(id), row);
 
-      if(!cur){
-        await setDoc(doc(db,'projectTests',id), Object.assign({}, base, {
-          result: row[6] || '', notes: row[7] || '', retestReason: '', createdAt: serverTimestamp()
-        }));
+      if(decision.action === 'add'){
+        await setDoc(doc(db,'projectTests',id), Object.assign({}, decision.data, { createdAt: serverTimestamp() }));
         added++;
-        continue;
-      }
-      if((cur.version || 1) < row[5]){
-        await updateDoc(doc(db,'projectTests',id), Object.assign({}, base, {
-          result: 'Retest',
-          retestReason: row[8] || 'This changed since it was last run.'
-        }));
+      } else if(decision.action === 'retest'){
+        await updateDoc(doc(db,'projectTests',id), decision.data);
         flagged++;
         if(flaggedNames.length < 8) flaggedNames.push('#'+row[0]+' '+row[2]);
-        continue;
-      }
-      /* Same version: only rewrite if the wording actually drifted, so a sync
-         with nothing to do costs no writes. */
-      if(cur.area !== base.area || cur.name !== base.name || cur.steps !== base.steps || cur.expected !== base.expected){
-        await updateDoc(doc(db,'projectTests',id), base);
+      } else if(decision.action === 'reword'){
+        await updateDoc(doc(db,'projectTests',id), decision.data);
         reworded++;
       }
     }
