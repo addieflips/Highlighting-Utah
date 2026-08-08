@@ -1631,8 +1631,10 @@
             <div class="portal-field" id="quoteTimingRow" style="display:none;"><span class="lbl">Timing</span><span class="val" id="quoteTimingDisplay"></span></div>
           </div>
           <button type="button" class="btn btn-gold btn-block" id="quoteApproveBtn">&#9989; Approve My Quote</button>
-          <button type="button" class="btn btn-outline btn-block" id="quoteMaybeBtn" style="margin-top:10px;">Maybe Next Year</button>
-          <button type="button" class="btn btn-outline btn-block" id="quoteDeclineBtn" style="margin-top:10px;">Not Right Now</button>
+          <div style="display:flex; gap:10px; margin-top:10px;">
+            <button type="button" class="btn btn-outline-dark" id="quoteMaybeBtn" style="flex:1;">Maybe Next Year</button>
+            <button type="button" class="btn btn-outline-dark" id="quoteDeclineBtn" style="flex:1;">Not Right Now</button>
+          </div>
           <div id="quoteActionStatus" style="font-size:13px; color:var(--slate); margin-top:8px; text-align:center;"></div>
           <div id="quoteApprovedMsg" class="portal-confirm-msg" style="display:none;">&#10003; Thanks for approving &mdash; we'll be in touch to schedule your installation!</div>
           <div id="quoteMaybeMsg" class="portal-confirm-msg" style="display:none;">We hope to see you next year! Happy Holidays! &#127876;</div>
@@ -3529,7 +3531,15 @@ document.getElementById('quoteApproveBtn').addEventListener('click', async funct
   var statusEl = document.getElementById('quoteActionStatus');
   statusEl.textContent = 'Submitting…';
   try{
-    await updateDoc(doc(db,'quotes', currentQuoteId), {approvalStatus: 'approved'});
+    // The quotes collection requires a signed-in user to update directly, and
+    // the public site has no login — so this goes through the same server-side
+    // quoteRespond function the emailed quote link uses, instead of writing to
+    // Firestore straight from the browser (which fails permission-denied).
+    var res = await callPortalFn('quoteRespond', {quoteToken: currentQuoteData.quoteToken, action: 'approve'});
+    if(!res || !res.ok){
+      statusEl.textContent = "We couldn't process that — please call or text us at (801) 901-0011.";
+      return;
+    }
     await addDoc(collection(db,'messages'), {
       topic: 'Quote Approved', folder: 'Inbox', important: true,
       name: currentQuoteData.name || '', phone: currentQuoteData.phone || '', email: currentQuoteData.email || '',
@@ -3552,7 +3562,11 @@ document.getElementById('quoteMaybeBtn').addEventListener('click', async functio
   var statusEl = document.getElementById('quoteActionStatus');
   statusEl.textContent = 'Submitting…';
   try{
-    await updateDoc(doc(db,'quotes', currentQuoteId), {approvalStatus: 'maybe_next_year'});
+    var res = await callPortalFn('quoteRespond', {quoteToken: currentQuoteData.quoteToken, action: 'maybe_next_year'});
+    if(!res || !res.ok){
+      statusEl.textContent = "We couldn't process that — please call or text us at (801) 901-0011.";
+      return;
+    }
     await addDoc(collection(db,'messages'), {
       topic: 'Quote - Maybe Next Year', folder: 'Inbox',
       name: currentQuoteData.name || '', phone: currentQuoteData.phone || '', email: currentQuoteData.email || '',
@@ -3579,7 +3593,11 @@ document.getElementById('quoteDeclineBtn').addEventListener('click', async funct
   var statusEl = document.getElementById('quoteActionStatus');
   statusEl.textContent = 'Submitting…';
   try{
-    await updateDoc(doc(db,'quotes', currentQuoteId), {approvalStatus: 'declined'});
+    var res = await callPortalFn('quoteRespond', {quoteToken: currentQuoteData.quoteToken, action: 'decline'});
+    if(!res || !res.ok){
+      statusEl.textContent = "We couldn't process that — please call or text us at (801) 901-0011.";
+      return;
+    }
     await addDoc(collection(db,'messages'), {
       topic: 'Quote Declined', folder: 'Inbox',
       name: currentQuoteData.name || '', phone: currentQuoteData.phone || '', email: currentQuoteData.email || '',

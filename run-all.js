@@ -324,6 +324,10 @@ if (JSDOM) {
       .replace('const quotePricingOpenIds = new Set();', 'global.quotePricingOpenIds = new Set();');
     eval(src + '\n}\n');
     const ts = d => ({ toDate: () => d });
+    // renderQuoteRows reads the module-level quoteStageFilter (which tab is
+    // active) to decide whether to show the Send Out Quotes extras below —
+    // default it to 'new' so the baseline checks render exactly as before.
+    global.quoteStageFilter = 'new';
 
     const fixtures = [
       { id: 'q1', data: { name: 'Dana Whitmore', phone: '(801) 555-0148',
@@ -422,6 +426,50 @@ if (JSDOM) {
       new Set(renderedIds).size === renderedIds.length);
     const wired = [...list.querySelectorAll('.quoteFeetInput')].map(el => el.dataset.id);
     check('render', 'each card wired to its own quote', new Set(wired).size === 3);
+
+    // ---- corrected approval link format + "maybe next year" status --------
+    check('render', 'approval link uses the quote-details page, not the payment page',
+      c2.querySelector('.quotelink-box').textContent.includes('/#/quote-details?token=qt_abc&action=approve') &&
+      !c2.querySelector('.quotelink-box').textContent.includes('/#/payment'));
+
+    const q4 = { id: 'q4', data: { name: 'Priya Shah', phone: '(801) 555-0233',
+        email: 'priya@x.com', address: '55 Winter Ln', contactMethod: 'Text', status: 'new',
+        quotedPrice: 375, quoteToken: 'qt_maybe', approvalStatus: 'maybe_next_year' } };
+    const fixturesWithMaybe = fixtures.concat([q4]);
+    renderQuoteRows(fixturesWithMaybe);
+    const listMaybe = document.getElementById('quotesList');
+    const c4 = listMaybe.querySelectorAll('.row-item')[3];
+    check('render', 'maybe_next_year — status pill shown',
+      c4.textContent.includes('Maybe Next Year'));
+    check('render', 'maybe_next_year — pricing panel explains the status',
+      pricingBody(c4).textContent.includes('Maybe Next Year'));
+
+    // ---- "Send Out Quotes" tab extras — only show on that tab -------------
+    global.quoteStageFilter = 'send';
+    renderQuoteRows(fixturesWithMaybe);
+    const listSend = document.getElementById('quotesList');
+    const c2send = listSend.querySelectorAll('.row-item')[1];
+    check('render', 'send tab — customer email shown for easy copying',
+      c2send.querySelector('[data-copyquoteemailaddr]') !== null && c2send.textContent.includes('m@x.com'));
+    check('render', 'send tab — Download Photo shown when there is a photo',
+      c2send.querySelector('[data-downloadquotephoto]') !== null);
+    check('render', 'send tab — Mark as Sent shown before it has been sent',
+      c2send.querySelector('[data-marksent]') !== null);
+
+    global.quoteStageFilter = 'new';
+    renderQuoteRows(fixturesWithMaybe);
+    const listBack = document.getElementById('quotesList');
+    const c2back = listBack.querySelectorAll('.row-item')[1];
+    check('render', 'Send Out Quotes extras hidden outside the send tab',
+      c2back.querySelector('[data-marksent]') === null && c2back.querySelector('[data-copyquoteemailaddr]') === null);
+
+    const q5 = { id: 'q5', data: Object.assign({}, fixtures[1].data, { quoteManuallySent: true }) };
+    global.quoteStageFilter = 'send';
+    renderQuoteRows([q5]);
+    const sentCard = document.getElementById('quotesList').querySelector('.row-item');
+    check('render', 'send tab — already-sent quote shows Undo instead of Mark as Sent',
+      sentCard.querySelector('[data-marksent]') === null && sentCard.querySelector('[data-unmarksent]') !== null);
+    global.quoteStageFilter = 'new';
   }
 }
 

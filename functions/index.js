@@ -745,7 +745,7 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
  * the quotes collection is read/update restricted to staff. This runs the whole
  * flow server-side instead.
  */
-const QUOTE_ACTION_TO_STATUS = { approve: 'approved', decline: 'declined', maybe_next_year: 'maybe_next_year' };
+const QUOTE_ACTION_TO_STATUS = { approve: 'approved', decline: 'declined', maybe_next_year: 'maybe_next_year', maybe: 'maybe_next_year' };
 exports.quoteRespond = onCall({ cors: true }, async (request) => {
   const body = request.data || {};
   const quoteToken = body.quoteToken ? String(body.quoteToken).trim() : '';

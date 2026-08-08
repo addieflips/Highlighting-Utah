@@ -5217,6 +5217,7 @@ document.getElementById('pfCalcFeet').addEventListener('input', updatePfCalcResu
 let quotesCache = [];
 let quoteFilter = 'all';
 let quoteStageFilter = 'new';   // one of: new, send, form, closed
+let showSentQuotes = false;   // "Send out Quotes" tab: reveal already-sent quotes
 /* The four stages a quote moves through, in the order they're worked:
      new    — it came in, nobody has priced it yet
      send   — priced, now waiting on the customer to approve or decline
@@ -5296,6 +5297,11 @@ function renderQuotesList(){
      approval dropdown, since the pipeline already encodes both. */
   let filtered = quotesCache.filter(item => quoteStage(item.data) === quoteStageFilter);
   if(quoteFilter === 'flagged') filtered = filtered.filter(item => !item.data.frontPhotoUrl);
+  let sentOnes = [];
+  if(quoteStageFilter === 'send'){
+    sentOnes = filtered.filter(item => item.data.quoteManuallySent);
+    if(!showSentQuotes) filtered = filtered.filter(item => !item.data.quoteManuallySent);
+  }
   if(!filtered.length){
     const emptyMsg = {
       new: 'No new quote requests waiting to be priced.',
@@ -5304,9 +5310,26 @@ function renderQuotesList(){
       closed: 'Nothing closed yet.'
     }[quoteStageFilter] || 'No quote requests match this view.';
     list.innerHTML = '<div class="empty-note">'+(quoteFilter==='flagged' ? 'Nothing flagged in this tab.' : emptyMsg)+'</div>';
+    if(quoteStageFilter === 'send' && sentOnes.length){
+      list.insertAdjacentHTML('afterbegin', '<div style="margin-bottom:10px;"><a href="#" data-toggleshowsent style="font-size:12.5px; font-weight:600;">Show already sent ('+sentOnes.length+')</a></div>');
+      list.querySelector('[data-toggleshowsent]').addEventListener('click', function(e){ e.preventDefault(); showSentQuotes = true; renderQuotesList(); });
+    }
     return;
   }
   renderQuoteRows(filtered);
+  if(quoteStageFilter === 'send'){
+    const toggleHtml = !sentOnes.length ? '' : (showSentQuotes
+      ? '<div style="margin-bottom:10px;"><a href="#" data-toggleshowsent style="font-size:12.5px; font-weight:600;">Hide already-sent quotes</a></div>'
+      : '<div style="margin-bottom:10px;"><a href="#" data-toggleshowsent style="font-size:12.5px; font-weight:600;">Show already sent ('+sentOnes.length+')</a></div>');
+    if(toggleHtml){
+      list.insertAdjacentHTML('afterbegin', toggleHtml);
+      list.querySelector('[data-toggleshowsent]').addEventListener('click', function(e){
+        e.preventDefault();
+        showSentQuotes = !showSentQuotes;
+        renderQuotesList();
+      });
+    }
+  }
 }
 // Which quote cards have their Pricing & Approval panel open. Keyed by quote
 // id so it survives the re-render a save triggers instead of collapsing
@@ -5351,8 +5374,17 @@ function renderQuoteRows(filtered){
             '<div class="form-row" style="margin-top:8px; max-width:220px;"><label style="font-size:11.5px;">Quoted Price ($) &mdash; what you\'ll ask them to approve</label><input type="number" class="quotePriceInput" data-id="'+item.id+'" min="0" step="1" value="'+(d.quotedPrice != null ? d.quotedPrice : (d.estimatedFeet && perFootRate ? Math.round(d.estimatedFeet*perFootRate) : ''))+'" placeholder="e.g. 450"></div>'+
             '<button type="button" class="btn btn-outline btn-sm" data-getquotelink="'+item.id+'">Get Approval Link</button>'+
             '<div class="quotelink-status" data-statusfor="'+item.id+'" style="font-size:12px; color:var(--slate); margin-top:6px;"></div>'+
-            (d.quoteToken ? '<div class="quotelink-box" data-linkfor="'+item.id+'" style="margin-top:6px; font-size:12.5px; word-break:break-all; background:var(--snow); border-radius:8px; padding:8px 10px;">https://highlightingutah.com/#/payment?token='+esc(d.quoteToken)+'</div>' : '<div class="quotelink-box" data-linkfor="'+item.id+'"></div>')+
+            (d.quoteToken ? '<div class="quotelink-box" data-linkfor="'+item.id+'" style="margin-top:6px; font-size:12.5px; word-break:break-all; background:var(--snow); border-radius:8px; padding:8px 10px;">https://highlightingutah.com/#/quote-details?token='+esc(d.quoteToken)+'&action=approve</div>' : '<div class="quotelink-box" data-linkfor="'+item.id+'"></div>')+
             (d.quoteToken && typeof d.quotedPrice === 'number' ? '<button type="button" class="btn btn-outline btn-sm" data-copyquoteemail="'+item.id+'" style="margin-top:6px;">Copy Quote Email</button><div class="quoteemail-result" data-resultfor="'+item.id+'" style="margin-top:8px;"></div>' : '')+
+            (quoteStageFilter === 'send' ? (
+              '<div class="form-row" style="margin-top:10px;"><label style="font-size:11.5px;">Customer Email</label>'+
+              '<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;"><span style="font-size:13px; font-weight:600;">'+esc(d.email||'')+'</span>'+
+              '<button type="button" class="btn btn-outline btn-sm" data-copyquoteemailaddr="'+item.id+'">Copy Email</button></div></div>'+
+              (d.frontPhotoUrl ? '<button type="button" class="btn btn-outline btn-sm" data-downloadquotephoto="'+item.id+'" style="margin-top:8px;">Download Photo</button>' : '')+
+              (d.quoteManuallySent
+                ? '<div class="rtext" style="margin-top:8px; color:var(--slate);">&#10003; Marked sent'+(d.quoteManuallySentAt ? ' &mdash; '+fmtDate(d.quoteManuallySentAt) : '')+' <a href="#" data-unmarksent="'+item.id+'" style="margin-left:6px;">Undo</a></div>'
+                : '<button type="button" class="btn btn-gold btn-sm" data-marksent="'+item.id+'" style="margin-top:8px; display:block;">Mark as Sent</button>')
+            ) : '')+
             (typeof d.quotedPrice === 'number' ? (function(){
               const st = d.approvalStatus || 'pending';
               if(st === 'approved') return '<div class="rtext" style="margin-top:8px; color:#2E6B3E; font-weight:600;">&#10003; Approved'+(d.quoteRespondedAt ? ' &mdash; '+fmtDate(d.quoteRespondedAt) : '')+'</div>';
@@ -5425,7 +5457,7 @@ function renderQuoteRows(filtered){
         const updates = {quotedPrice: price, quoteToken: token, quoteSentAt: serverTimestamp()};
         if(!item.data.approvalStatus || item.data.approvalStatus === 'pending') updates.approvalStatus = 'pending';
         await updateDoc(doc(db,'quotes', id), updates);
-        const link = 'https://highlightingutah.com/#/payment?token='+token;
+        const link = 'https://highlightingutah.com/#/quote-details?token='+token+'&action=approve';
         if(linkBox) linkBox.textContent = link;
         if(statusEl) statusEl.textContent = 'Saved! Copy the link below and text or email it to them.';
       } catch(err){
@@ -5440,10 +5472,9 @@ function renderQuoteRows(filtered){
       const resultEl = list.querySelector('.quoteemail-result[data-resultfor="'+id+'"]');
       if(!item || !resultEl) return;
       const d = item.data;
-      const template = getEmailTemplateByName('Quote Email');
+      const template = getEmailTemplateByName('Quote Ready for Review');
       const body = template ? template.data.body : DEFAULT_QUOTE_TEMPLATE_BODY;
-      const link = 'https://highlightingutah.com/#/payment?token=' + d.quoteToken;
-      const html = await resolveLinkTokens(body, d.phone, 0, {name: d.name || 'there', price: fmtMoney(d.quotedPrice), link: link, linkLabel: 'Approve or Decline Your Quote'});
+      const html = await resolveLinkTokens(body, d.phone, 0, {name: d.name || 'there', price: fmtMoney(d.quotedPrice)});
       const message = htmlEmailToPlainText(html);
       resultEl.innerHTML =
         '<label style="display:block; font-size:11.5px; font-weight:600; margin-bottom:6px;">Edit before sending if you want:</label>'+
@@ -5467,6 +5498,60 @@ function renderQuoteRows(filtered){
       try{
         await updateDoc(doc(db,'quotes', id), {approvalStatus: value, quoteRespondedAt: serverTimestamp()});
         toast(value === 'approved' ? 'Marked approved.' : 'Marked declined.');
+      } catch(err){
+        toast('Something went wrong — try again.');
+      }
+    });
+  });
+  list.querySelectorAll('[data-copyquoteemailaddr]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      const id = btn.dataset.copyquoteemailaddr;
+      const item = quotesCache.find(q => q.id === id);
+      if(!item || !item.data.email) return;
+      navigator.clipboard.writeText(item.data.email).then(function(){
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = 'Copy Email'; }, 2000);
+      });
+    });
+  });
+  list.querySelectorAll('[data-downloadquotephoto]').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      const id = btn.dataset.downloadquotephoto;
+      const item = quotesCache.find(q => q.id === id);
+      if(!item || !item.data.frontPhotoUrl) return;
+      try{
+        const resp = await fetch(item.data.frontPhotoUrl);
+        const blob = await resp.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = (item.data.name || 'quote').replace(/[^a-z0-9]+/gi,'-') + '-photo.jpg';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(blobUrl);
+      } catch(err){
+        window.open(item.data.frontPhotoUrl, '_blank');
+      }
+    });
+  });
+  list.querySelectorAll('[data-marksent]').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      const id = btn.dataset.marksent;
+      try{
+        await updateDoc(doc(db,'quotes', id), {quoteManuallySent: true, quoteManuallySentAt: serverTimestamp()});
+        toast('Marked as sent.');
+      } catch(err){
+        toast('Something went wrong — try again.');
+      }
+    });
+  });
+  list.querySelectorAll('[data-unmarksent]').forEach(function(btn){
+    btn.addEventListener('click', async function(e){
+      e.preventDefault();
+      const id = btn.dataset.unmarksent;
+      try{
+        await updateDoc(doc(db,'quotes', id), {quoteManuallySent: false});
       } catch(err){
         toast('Something went wrong — try again.');
       }
@@ -5602,7 +5687,7 @@ let etCurrentLinkedTokens = [];
 let etEditorDirty = false;
 const DEFAULT_QUOTE_TEMPLATE_BODY = 'Hi {{name}},\n\n' +
   'Here\'s your quote from Highlighting Utah: {{price}}.\n\n' +
-  '{{link_button}}\n\n' +
+  '{{quote_yes_button}}{{quote_maybe_button}}{{quote_decline_button}}\n\n' +
   '(Don\'t forget to attach a photo of their house before sending!)\n\n' +
   'Thanks,\nHighlighting Utah';
 const ET_PREBUILT_TEMPLATES = [
