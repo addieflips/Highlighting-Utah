@@ -3431,8 +3431,8 @@ Highlighting Utah</textarea>
         <div class="proj-counts" id="testCounts"></div>
 
         <div class="proj-syncbar">
-          <button type="button" class="btn btn-gold" id="testSyncBtn">Sync checklist</button>
-          <span class="proj-synchelp">Adds any new tests and moves anything that has been fixed back to Retest on its own. Your existing results are kept.</span>
+          <button type="button" class="btn btn-gold" id="testSyncBtn">Sync checklist now</button>
+          <span class="proj-synchelp">Runs automatically every time the app loads, so you don't need to press this. Adds any new tests and moves anything that has been fixed back to Retest on its own. Your existing results are kept. Use the button for an on-demand check without reloading.</span>
         </div>
         <div id="testSyncReport" class="proj-syncreport" style="display:none;"></div>
 
@@ -5158,6 +5158,9 @@ function initData(){
   loadFAQ();
   loadProjectTests();
   loadProjectPeople();
+  // Keep the checklist current without anyone having to remember to press
+  // Sync — quiet unless it actually finds something to add or flag.
+  runProjectTestSync(true).catch(function(){});
   loadSettings();
   loadJobAddresses();
   loadWarehouseExtras();
@@ -17037,12 +17040,17 @@ function resetTestForm(){
 }
 
 /* Sync. Creates anything new, keeps every score already entered, and moves a
-   test to Retest only when its version has moved on since it was last run. */
-document.getElementById('testSyncBtn').addEventListener('click', async function(){
-  const btn = this;
-  btn.disabled = true;
-  const original = btn.textContent;
-  btn.textContent = 'Syncing...';
+   test to Retest only when its version has moved on since it was last run.
+   Runs once on its own right after login (see runProjectTestSync(true) in
+   initData) so the checklist is never stale just because nobody remembered
+   to press the button - the button still works too, for an on-demand check
+   without waiting for the next page load. Same-version rows with unchanged
+   wording are skipped entirely, so a sync with nothing to do costs no writes
+   whether it's the automatic one or the manual one. */
+let projTestSyncRunning = false;
+async function runProjectTestSync(silent){
+  if(projTestSyncRunning) return null;
+  projTestSyncRunning = true;
   try{
     const snap = await getDocs(collection(db,'projectTests'));
     const existing = new Map();
@@ -17081,15 +17089,33 @@ document.getElementById('testSyncBtn').addEventListener('click', async function(
     }
 
     const report = document.getElementById('testSyncReport');
-    const bits = [];
-    if(added)    bits.push('<b>'+added+'</b> new test'+(added===1?'':'s')+' added');
-    if(flagged)  bits.push('<b>'+flagged+'</b> flagged for retest');
-    if(reworded) bits.push('<b>'+reworded+'</b> reworded');
-    report.innerHTML = bits.length
-      ? bits.join(' &middot; ') + (flaggedNames.length ? '<div class="proj-sub" style="margin-top:6px;">Retest: '+esc(flaggedNames.join(', '))+'</div>' : '')
-      : 'Everything is already up to date.';
-    report.style.display = '';
-    toast(added || flagged ? 'Checklist synced' : 'Already up to date');
+    if(report){
+      const bits = [];
+      if(added)    bits.push('<b>'+added+'</b> new test'+(added===1?'':'s')+' added');
+      if(flagged)  bits.push('<b>'+flagged+'</b> flagged for retest');
+      if(reworded) bits.push('<b>'+reworded+'</b> reworded');
+      report.innerHTML = bits.length
+        ? bits.join(' &middot; ') + (flaggedNames.length ? '<div class="proj-sub" style="margin-top:6px;">Retest: '+esc(flaggedNames.join(', '))+'</div>' : '')
+        : 'Everything is already up to date.';
+      report.style.display = '';
+    }
+    // On the automatic run, stay quiet unless something actually changed -
+    // a toast every single login for "already up to date" is just noise.
+    if(!silent || added || flagged){
+      toast(added || flagged ? 'Checklist synced' : 'Already up to date');
+    }
+    return {added: added, flagged: flagged, reworded: reworded};
+  } finally {
+    projTestSyncRunning = false;
+  }
+}
+document.getElementById('testSyncBtn').addEventListener('click', async function(){
+  const btn = this;
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = 'Syncing...';
+  try{
+    await runProjectTestSync(false);
   } finally {
     btn.disabled = false;
     btn.textContent = original;
