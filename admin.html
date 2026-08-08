@@ -2487,6 +2487,17 @@ Highlighting Utah</textarea>
         <button type="button" class="btn btn-sm" data-quotestage="closed" style="font-weight:700;">Closed<span id="quoteStageCountClosed" class="folder-count"></span></button>
       </div>
       <div id="quoteApprovalStats" style="margin-bottom:16px; display:flex; gap:10px; flex-wrap:wrap;"></div>
+      <div class="card" id="quoteMaybeCard" style="margin-bottom:16px; background:#FFF8E9; border-color:var(--gold-dim); display:none;">
+        <h3 style="margin:0 0 4px;">Maybe Next Year &mdash; Follow-up Emails <span id="quoteMaybeCount" class="folder-count"></span></h3>
+        <p style="font-size:13px; margin:0 0 10px;">Everyone who said Maybe Next Year on a quote. Check who to follow up with and press Generate &mdash; nothing sends on its own, you copy each one and send it yourself, so you can do a batch of them in one sitting.</p>
+        <div style="display:flex; gap:8px; margin-bottom:10px;">
+          <button type="button" class="btn btn-outline btn-sm" id="quoteMaybeSelectAllBtn" style="width:auto;">Select All</button>
+          <button type="button" class="btn btn-outline btn-sm" id="quoteMaybeSelectNoneBtn" style="width:auto;">Select None</button>
+        </div>
+        <div id="quoteMaybeList" style="max-height:220px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:10px; background:var(--snow); margin-bottom:12px;"></div>
+        <button type="button" class="btn btn-gold btn-sm" id="quoteMaybeGenerateBtn" style="width:auto;">Generate Follow-up Emails</button>
+        <div id="quoteMaybeEmails" style="margin-top:16px;"></div>
+      </div>
       <div style="margin-bottom:16px; display:flex; gap:10px; flex-wrap:wrap;">
         <select id="quoteFilterSelect" style="border-radius:999px; border:1px solid var(--line); padding:8px 14px; font-size:13.5px; font-weight:600; color:var(--ink); background:var(--snow);">
           <option value="all">All Quotes</option>
@@ -5264,8 +5275,88 @@ function loadQuotes(){
     document.getElementById('badgeQuotes').style.display = newCount ? 'inline-block' : 'none';
     document.getElementById('badgeQuotes').textContent = newCount;
     renderQuotesList();
+    renderQuoteMaybeCard();
   });
 }
+/* Maybe Next Year — Follow-up Emails. A bulk version of the same manual
+   "fill in the template, you copy and send it yourself" approach as the
+   Send Email button on individual quotes, so a batch of these can be done
+   in one sitting instead of hunting through the Closed tab one at a time.
+   Nothing here ever sends on its own. */
+function renderQuoteMaybeCard(){
+  const card = document.getElementById('quoteMaybeCard');
+  const listEl = document.getElementById('quoteMaybeList');
+  if(!card || !listEl) return;
+  const rows = quotesCache.filter(q => q.data.approvalStatus === 'maybe_next_year');
+  if(!rows.length){ card.style.display = 'none'; return; }
+  card.style.display = '';
+  document.getElementById('quoteMaybeCount').textContent = '(' + rows.length + ')';
+  const previouslyChecked = new Set(Array.from(listEl.querySelectorAll('.quotemaybe-cb:checked')).map(cb => cb.value));
+  const isFirstRender = !listEl.dataset.rendered;
+  listEl.innerHTML = rows.map(function(q){
+    const checked = isFirstRender || previouslyChecked.has(q.id);
+    return '<label style="display:flex; align-items:center; gap:8px; padding:5px 0; font-size:13.5px;">'+
+      '<input type="checkbox" class="quotemaybe-cb" value="'+q.id+'" '+(checked?'checked':'')+' style="width:auto;">'+
+      esc(q.data.name||'(no name)')+' <span style="color:var(--slate); font-size:12px;">'+esc(q.data.address||'')+(q.data.email ? ' · '+esc(q.data.email) : ' — no email on file')+'</span>'+
+    '</label>';
+  }).join('');
+  listEl.dataset.rendered = '1';
+}
+document.getElementById('quoteMaybeSelectAllBtn')?.addEventListener('click', function(){
+  document.querySelectorAll('.quotemaybe-cb').forEach(function(cb){ cb.checked = true; });
+});
+document.getElementById('quoteMaybeSelectNoneBtn')?.addEventListener('click', function(){
+  document.querySelectorAll('.quotemaybe-cb').forEach(function(cb){ cb.checked = false; });
+});
+document.getElementById('quoteMaybeGenerateBtn')?.addEventListener('click', async function(){
+  const btn = this;
+  const ids = Array.from(document.querySelectorAll('.quotemaybe-cb:checked')).map(cb => cb.value);
+  const box = document.getElementById('quoteMaybeEmails');
+  if(!ids.length){ box.innerHTML = '<div class="empty-note">Check at least one quote above.</div>'; return; }
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = 'Generating…';
+  try{
+    const template = getEmailTemplateByName('Quote Maybe Next Year Follow-up');
+    const body = template ? template.data.body : DEFAULT_QUOTE_MAYBE_TEMPLATE_BODY;
+    let html = '';
+    for(const id of ids){
+      const item = quotesCache.find(q => q.id === id);
+      if(!item) continue;
+      const d = item.data;
+      if(!d.email){
+        html += '<div class="quotemaybe-email-block" style="border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:12px; background:var(--paper);">'+
+          '<div style="font-weight:600; margin-bottom:4px;">'+esc(d.name||'')+'</div>'+
+          '<div style="font-size:12.5px; color:var(--ember);">No email on file — skipped. Text or call them instead.</div>'+
+        '</div>';
+        continue;
+      }
+      const resolved = await resolveLinkTokens(body, d.phone, 0, {name: d.name || 'there', price: fmtMoney(d.quotedPrice)});
+      const message = htmlEmailToPlainText(resolved);
+      html += '<div class="quotemaybe-email-block" style="border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:12px; background:var(--paper);">'+
+        '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:6px;">'+
+          '<div><strong>'+esc(d.name||'')+'</strong> <span style="font-size:12px; color:var(--slate);">'+esc(d.email)+'</span></div>'+
+          '<button type="button" class="btn btn-outline btn-sm quotemaybe-copy-btn">Copy Email</button>'+
+        '</div>'+
+        '<textarea rows="6" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); font-family:inherit; font-size:13px;">'+esc(message)+'</textarea>'+
+      '</div>';
+    }
+    box.innerHTML = html || '<div class="empty-note">Nothing to show — none of the checked quotes have an email on file.</div>';
+    box.querySelectorAll('.quotemaybe-copy-btn').forEach(function(cbtn){
+      cbtn.addEventListener('click', function(){
+        const block = cbtn.closest('.quotemaybe-email-block');
+        const text = block.querySelector('textarea').value;
+        navigator.clipboard.writeText(text).then(function(){
+          cbtn.textContent = 'Copied!';
+          setTimeout(() => { cbtn.textContent = 'Copy Email'; }, 2000);
+        });
+      });
+    });
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+});
 function renderQuotesList(){
   const list = document.getElementById('quotesList');
   const freshAwaiting = quotesCache.filter(q => isFreshAwaiting(q.data));
@@ -5712,6 +5803,11 @@ const DEFAULT_QUOTE_TEMPLATE_BODY = 'Hi {{name}},\n\n' +
   '{{quote_yes_button}}{{quote_maybe_button}}{{quote_decline_button}}\n\n' +
   '(Don\'t forget to attach a photo of their house before sending!)\n\n' +
   'Thanks,\nHighlighting Utah';
+const DEFAULT_QUOTE_MAYBE_TEMPLATE_BODY = 'Hi {{name}},\n\n' +
+  'Last year you said maybe next year on getting your Christmas lights hung with us — we\'d love to have you this season! Your price was {{price}}.\n\n' +
+  'Let us know if you\'d like to move forward.\n\n' +
+  '{{quote_yes_button}}{{quote_maybe_button}}{{quote_decline_button}}\n\n' +
+  'Thanks,\nHighlighting Utah';
 const ET_PREBUILT_TEMPLATES = [
   {name:'RSVP Email', folderName:'RSVP', body:'Hi {{name}} \uD83C\uDF84\n\nIt\'s almost time for the Christmas lighting season! Will you be getting lights hung again this year?\n\n{{rsvp_yes_button}}{{rsvp_no_button}}{{rsvp_back_button}}', linkedTokens:[{code:'rsvp_yes_button', style:'button'},{code:'rsvp_no_button', style:'button'},{code:'rsvp_back_button', style:'button'}]},
   {name:'Post-Install Invoice', folderName:'Billing', body:'Hi {{name}},\n\nThanks for having us out \u2014 your lights are up! Your balance for this season is {{amount}}. You can pay through your portal or Venmo using the links below.\n\n{{portal_link}}{{venmo_button}}', linkedTokens:[{code:'portal_link', style:'link'},{code:'venmo_button', style:'button'}]},
@@ -5719,7 +5815,8 @@ const ET_PREBUILT_TEMPLATES = [
   {name:'Nightly Auto-Invoice \u2014 Unpaid', folderName:'Billing', body:'Hi {{name}},\n\nThanks for having us out today \u2014 your lights are up!\n\n{{feet_line}}\n{{new_member_fee_line}}\n{{credit_lines}}\n\nAmount due: {{amount_due}}\n\nYou can pay through your portal or Venmo using the links below.\n\n{{portal_link}}{{venmo_button}}', linkedTokens:[{code:'portal_link', style:'link'},{code:'venmo_button', style:'button'}]},
   {name:'Nightly Auto-Invoice \u2014 Paid Receipt', folderName:'Billing', body:'Hi {{name}},\n\nYour lights are up! This confirms we\'ve already received your payment in full for this season \u2014 you\'re all set, nothing more to do.\n\n{{feet_line}}\n{{new_member_fee_line}}\n{{credit_lines}}\n\nAmount paid: {{amount_paid}}\n\nThank you for choosing Highlighting Utah!\n\n{{message_link}}', linkedTokens:[{code:'message_link', style:'link'}]},
   {name:'Quick Announcement', folderName:'Announcements', body:'Hi {{name}} \uD83C\uDF84\n\nIt\'s almost time for the Christmas lighting season! Tap below to update your info, check your balance, or send us a message anytime.\n\n{{portal_link}}{{message_link}}', linkedTokens:[{code:'portal_link', style:'link'},{code:'message_link', style:'link'}]},
-  {name:'Quote Ready for Review', folderName:'Quotes', body:'Hi {{name}},\n\nGreat news, your quote is ready! Your quoted price is {{price}}. Let us know if you\'d like to move forward.\n\n{{quote_yes_button}}{{quote_maybe_button}}{{quote_decline_button}}', linkedTokens:[{code:'quote_yes_button', style:'button'},{code:'quote_maybe_button', style:'button'},{code:'quote_decline_button', style:'button'}]}
+  {name:'Quote Ready for Review', folderName:'Quotes', body:'Hi {{name}},\n\nGreat news, your quote is ready! Your quoted price is {{price}}. Let us know if you\'d like to move forward.\n\n{{quote_yes_button}}{{quote_maybe_button}}{{quote_decline_button}}', linkedTokens:[{code:'quote_yes_button', style:'button'},{code:'quote_maybe_button', style:'button'},{code:'quote_decline_button', style:'button'}]},
+  {name:'Quote Maybe Next Year Follow-up', folderName:'Quotes', body: DEFAULT_QUOTE_MAYBE_TEMPLATE_BODY, linkedTokens:[{code:'quote_yes_button', style:'button'},{code:'quote_maybe_button', style:'button'},{code:'quote_decline_button', style:'button'}]}
 ];
 async function etSeedPrebuiltTemplates(){
   const folderIdByName = {};
