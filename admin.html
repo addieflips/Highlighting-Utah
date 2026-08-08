@@ -730,6 +730,75 @@
     display:flex; align-items:center; justify-content:center;
     background:#E4EDE6; color:#1F4E3D; font-size:12px; font-weight:700;
   }
+  /* ---- Test Checklist: health bar, roster, area cards ---- */
+  .proj-health{
+    padding:14px 16px; border-radius:12px; margin-bottom:12px;
+    background:#fff; border:1px solid var(--line, #e2e2e2);
+  }
+  .proj-healthtop{ display:flex; justify-content:space-between; align-items:baseline; margin-bottom:8px; }
+  .proj-healthtotal{ font-size:13px; font-weight:700; color:var(--ink, #1c1c1c); }
+  .proj-healthbar{
+    display:flex; width:100%; height:14px; border-radius:999px; overflow:hidden;
+    background:#F2F2F4; margin-bottom:10px;
+  }
+  .proj-healthseg{ height:100%; }
+  .proj-healthlegend{ display:flex; flex-wrap:wrap; gap:12px; }
+  .proj-healthleg{ display:inline-flex; align-items:center; gap:6px; font-size:12.5px; color:var(--slate, #555); }
+  .proj-healthleg b{ color:var(--ink, #1c1c1c); }
+  .proj-healthleg i{ display:inline-block; width:10px; height:10px; border-radius:3px; }
+  .proj-roster{ margin-bottom:14px; }
+  .proj-rosterlabel{
+    font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+    color:var(--slate, #888); margin-bottom:6px;
+  }
+  .proj-rchips{ display:flex; flex-wrap:wrap; gap:8px; }
+  .proj-rchip{
+    display:inline-flex; align-items:center; gap:5px; padding:6px 11px;
+    border-radius:999px; border:1px solid var(--line, #e2e2e2); background:#fff;
+    font-size:12.5px; font-weight:600; color:var(--slate, #555);
+  }
+  .proj-rchip b{ color:var(--ink, #1c1c1c); }
+  .proj-rchip i{ font-style:normal; color:#8A4B00; }
+  .proj-rchip.has-open{ border-color:#F0D6AE; background:#FFF8E9; }
+  .proj-rchip.unassigned{ color:var(--slate, #888); }
+  .proj-areatabs{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:14px 0 10px; }
+  .proj-areatab{
+    padding:8px 14px; border-radius:999px; border:1px solid var(--line, #ddd);
+    background:#fff; font:inherit; font-size:13px; font-weight:600; color:var(--slate, #555); cursor:pointer;
+  }
+  .proj-areatab:hover{ border-color:var(--slate, #999); }
+  .proj-areatab.active{ background:var(--ink, #1c1c1c); color:#fff; border-color:var(--ink, #1c1c1c); }
+  .proj-areajump{
+    margin-left:auto; padding:8px 12px; border-radius:999px; border:1px solid var(--line, #ddd);
+    background:#fff; font:inherit; font-size:13px; color:var(--ink, #222);
+  }
+  .proj-area{
+    border:1px solid var(--line, #e2e2e2); border-radius:12px; margin-bottom:10px;
+    background:#fff; overflow:hidden;
+  }
+  .proj-areahead{
+    display:flex; align-items:center; gap:12px; padding:13px 16px; cursor:pointer;
+    list-style:revert; font-weight:700; color:var(--ink, #1c1c1c);
+  }
+  .proj-areahead::-webkit-details-marker{ margin-right:2px; }
+  .proj-area-name{ font-size:14.5px; }
+  .proj-area-flag{
+    padding:2px 9px; border-radius:999px; font-size:11px; font-weight:700;
+    background:#FFD9DC; color:#8A1B25; flex-shrink:0;
+  }
+  .proj-area-minibar{
+    flex:1 1 80px; height:8px; border-radius:999px; background:#F2F2F4; overflow:hidden; min-width:60px;
+  }
+  .proj-area-minibar span{ display:block; height:100%; background:#1F4E3D; }
+  .proj-area-count{
+    font-size:12.5px; font-weight:600; color:var(--slate, #666); flex-shrink:0; white-space:nowrap;
+  }
+  .proj-area-body{ padding:0 16px 14px; border-top:1px solid var(--line, #eee); }
+  .proj-area-body .row-item:first-child{ margin-top:12px; }
+  @media(max-width:640px){
+    .proj-areajump{ margin-left:0; width:100%; }
+    .proj-areahead{ flex-wrap:wrap; }
+  }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyByI2wHguK1JLNdUFJQKiA_gunoVtTkyqM"></script>
@@ -3428,7 +3497,8 @@ Highlighting Utah</textarea>
 
       <!-- ============ TEST CHECKLIST TAB: everything ============ -->
       <div id="projtab-tests" style="display:none;">
-        <div class="proj-counts" id="testCounts"></div>
+        <div class="proj-health" id="testCounts"></div>
+        <div class="proj-roster" id="testRoster"></div>
 
         <div class="proj-syncbar">
           <span class="proj-synchelp">Checked and updated automatically every time the app loads &mdash; new tests get added and anything that's been fixed moves back to Retest on its own. Your existing results are kept.</span>
@@ -3440,6 +3510,13 @@ Highlighting Utah</textarea>
           <div class="proj-dd" id="ddTestArea"></div>
           <div class="proj-dd" id="ddTestWho"></div>
           <button type="button" class="proj-dd-reset" id="testFilterReset">Clear filters</button>
+        </div>
+
+        <div class="proj-areatabs" id="testAreaTabs">
+          <button type="button" class="proj-areatab active" data-areaprogress="all">All areas</button>
+          <button type="button" class="proj-areatab" data-areaprogress="started">Started</button>
+          <button type="button" class="proj-areatab" data-areaprogress="notstarted">Not started</button>
+          <select class="proj-areajump" id="testAreaJump"><option value="">Jump to area&hellip;</option></select>
         </div>
 
         <div class="proj-bulkbar">
@@ -16425,6 +16502,8 @@ let projTodoWhoFilter = new Set();
 let projTestFilters = new Set();
 let projTestAreaFilters = new Set();
 let projTestWhoFilter = new Set();
+let projAreaCardOpenIds = new Set();
+let projAreaProgressFilter = 'all';
 let projTestCache = [];
 let projVisibleTestIds = [];
 let projVisibleTodoIds = [];
@@ -16873,6 +16952,69 @@ function projResultOptions(rows){
   ];
 }
 
+/* A stacked bar showing the whole checklist's health at a glance, instead of
+   a row of plain count pills. */
+function renderProjHealthHtml(all){
+  const c = function(r){ return all.filter(function(t){ return (t.result || '') === r; }).length; };
+  const total = all.length || 1;
+  const segs = [
+    { label:'Pass',       n:c('Pass'),   color:'#1E5B27' },
+    { label:'Retest',     n:c('Retest'), color:'#C67D00' },
+    { label:'Fail',       n:c('Fail'),   color:'#B91C1C' },
+    { label:'N/A',        n:c('N/A'),    color:'#8A8A94' },
+    { label:'Needs Test', n:c(''),       color:'#D8D8DE' }
+  ];
+  const bar = segs.filter(function(s){ return s.n; }).map(function(s){
+    return '<span class="proj-healthseg" style="width:'+(s.n/total*100)+'%; background:'+s.color+';" title="'+s.label+': '+s.n+'"></span>';
+  }).join('');
+  const legend = segs.map(function(s){
+    return '<span class="proj-healthleg"><i style="background:'+s.color+';"></i>'+s.label+' <b>'+s.n+'</b></span>';
+  }).join('');
+  return '<div class="proj-healthtop"><span class="proj-healthtotal">'+all.length+' tests total</span></div>'+
+    '<div class="proj-healthbar">'+bar+'</div>'+
+    '<div class="proj-healthlegend">'+legend+'</div>';
+}
+
+/* "Who has what" - a quick roster of how many tests each person is carrying,
+   and how many of those are still open work (Needs Test or Retest). */
+function renderProjRosterHtml(all){
+  const rows = projPeople.map(function(p){
+    const mine = all.filter(function(t){ return t.assignee === p.id; });
+    return { name:p.name, total:mine.length, open:mine.filter(projIsTodo).length };
+  }).filter(function(r){ return r.total; });
+  const unassigned = all.filter(function(t){ return !t.assignee; }).length;
+  if(!rows.length && !unassigned) return '';
+  return '<div class="proj-rosterlabel">Who has what</div><div class="proj-rchips">'+
+    rows.map(function(r){
+      return '<span class="proj-rchip'+(r.open ? ' has-open' : '')+'">'+esc(r.name)+' <b>'+r.total+'</b>'+
+        (r.open ? ' <i>('+r.open+' to do)</i>' : '')+'</span>';
+    }).join('') +
+    (unassigned ? '<span class="proj-rchip unassigned">Unassigned <b>'+unassigned+'</b></span>' : '') +
+  '</div>';
+}
+
+/* One collapsible card per area. areaAll (every test in the area, ignoring
+   the result/who filters) drives the progress count so the mini-bar reflects
+   the whole area's real progress, not just what's currently showing. */
+function projAreaCardHtml(area, areaAll, areaRows){
+  const total = areaAll.length;
+  const scored = areaAll.filter(function(t){ return t.result; }).length;
+  const hasFail = areaAll.some(function(t){ return t.result === 'Fail'; });
+  const pct = total ? Math.round(scored / total * 100) : 0;
+  const isOpen = projAreaCardOpenIds.has(area);
+  return '<details class="proj-area"'+(isOpen ? ' open' : '')+' data-area="'+esc(area)+'">'+
+    '<summary class="proj-areahead">'+
+      '<span class="proj-area-name">'+esc(area)+'</span>'+
+      (hasFail ? '<span class="proj-area-flag">Fail</span>' : '')+
+      '<span class="proj-area-minibar"><span style="width:'+pct+'%;"></span></span>'+
+      '<span class="proj-area-count">'+scored+'/'+total+' scored</span>'+
+    '</summary>'+
+    '<div class="proj-area-body row-list">'+
+      areaRows.map(function(t){ return projTestRowHtml(t, false); }).join('')+
+    '</div>'+
+  '</details>';
+}
+
 /* ===================== TO-DO LIST (assigned tests) ===================== */
 
 document.getElementById('todoFilterReset').addEventListener('click', function(){
@@ -16987,15 +17129,10 @@ function renderTests(){
   if(projNoteHasFocus()){ projRedrawPending = true; return; }
   const list = document.getElementById('testList');
   const all = projTestCache;
-  const c = function(r){ return all.filter(function(t){ return (t.result || '') === r; }).length; };
 
-  document.getElementById('testCounts').innerHTML =
-    '<span class="proj-count">All <b>'+all.length+'</b></span>'+
-    '<span class="proj-count">Needs Test <b>'+c('')+'</b></span>'+
-    '<span class="proj-count">Retest <b>'+c('Retest')+'</b></span>'+
-    '<span class="proj-count">Fail <b>'+c('Fail')+'</b></span>'+
-    '<span class="proj-count">N/A <b>'+c('N/A')+'</b></span>'+
-    '<span class="proj-count">Pass <b>'+c('Pass')+'</b></span>';
+  document.getElementById('testCounts').innerHTML = renderProjHealthHtml(all);
+  const rosterEl = document.getElementById('testRoster');
+  if(rosterEl) rosterEl.innerHTML = renderProjRosterHtml(all);
   const tc = document.getElementById('tabCountTests');
   if(tc) tc.textContent = all.length ? '('+all.length+')' : '';
 
@@ -17012,10 +17149,67 @@ function renderTests(){
   const bulkCount = document.getElementById('bulkCount');
   if(bulkCount) bulkCount.textContent = rows.length;
 
-  if(!rows.length){ list.innerHTML = '<div class="empty-note">Nothing here - try a different filter, or press Sync checklist.</div>'; return; }
-  list.innerHTML = rows.map(function(t){ return projTestRowHtml(t, false); }).join('');
+  /* Group the filtered rows by area so the list reads as a set of area
+     cards instead of one long flat run. A blank area still gets its own
+     "Other" bucket rather than disappearing. */
+  const rowsByArea = {};
+  rows.forEach(function(t){
+    const key = t.area || 'Other';
+    (rowsByArea[key] = rowsByArea[key] || []).push(t);
+  });
+  let shownAreas = Object.keys(rowsByArea).sort();
+
+  if(projAreaProgressFilter !== 'all'){
+    shownAreas = shownAreas.filter(function(a){
+      const started = all.some(function(t){ return (t.area || 'Other') === a && t.result; });
+      return projAreaProgressFilter === 'started' ? started : !started;
+    });
+  }
+
+  const jump = document.getElementById('testAreaJump');
+  if(jump){
+    const keep = jump.value;
+    jump.innerHTML = '<option value="">Jump to area&hellip;</option>' +
+      shownAreas.map(function(a){ return '<option value="'+esc(a)+'">'+esc(a)+'</option>'; }).join('');
+    if(keep && shownAreas.indexOf(keep) >= 0) jump.value = keep;
+  }
+
+  if(!shownAreas.length){ list.innerHTML = '<div class="empty-note">Nothing here - try a different filter, or press Sync checklist.</div>'; return; }
+
+  list.innerHTML = shownAreas.map(function(a){
+    const areaAll = all.filter(function(t){ return (t.area || 'Other') === a; });
+    return projAreaCardHtml(a, areaAll, rowsByArea[a].slice().sort(projSortTests));
+  }).join('');
+
+  list.querySelectorAll('[data-area]').forEach(function(det){
+    det.addEventListener('toggle', function(){
+      const a = det.dataset.area;
+      if(det.open) projAreaCardOpenIds.add(a); else projAreaCardOpenIds.delete(a);
+    });
+  });
+
   projWireTestRows(list);
 }
+
+document.querySelectorAll('#testAreaTabs [data-areaprogress]').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    projAreaProgressFilter = btn.dataset.areaprogress;
+    document.querySelectorAll('#testAreaTabs [data-areaprogress]').forEach(function(b){ b.classList.remove('active'); });
+    btn.classList.add('active');
+    renderTests();
+  });
+});
+document.getElementById('testAreaJump').addEventListener('change', function(){
+  const val = this.value;
+  this.value = '';
+  if(!val) return;
+  projAreaCardOpenIds.add(val);
+  const target = Array.from(document.querySelectorAll('#testList [data-area]')).find(function(el){ return el.dataset.area === val; });
+  if(target){
+    target.open = true;
+    target.scrollIntoView({ behavior:'smooth', block:'start' });
+  }
+});
 
 /* Every bulk button goes through here so the confirm and the toast always
    read correctly, including when the target is nobody at all. */
