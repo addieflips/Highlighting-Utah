@@ -73,15 +73,17 @@
   .sidebar-brand svg{ width:28px; height:28px; flex-shrink:0; }
   .sidebar-brand span{ font-family:'Fraunces',serif; font-weight:600; font-size:16px; line-height:1.2; white-space:nowrap; overflow:hidden; }
   .sidebar-brand small{ display:block; font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:var(--gold); font-family:'Inter',sans-serif; font-weight:500; }
-  #sidebarCollapseBtn{
+  #homeLinkBtn, #sidebarCollapseBtn{
     background:rgba(255,255,255,.08); border:none; color:#fff; border-radius:7px; width:26px; height:26px;
-    flex-shrink:0; cursor:pointer; display:flex; align-items:center; justify-content:center;
+    flex-shrink:0; cursor:pointer; display:flex; align-items:center; justify-content:center; text-decoration:none;
   }
-  #sidebarCollapseBtn:hover{ background:rgba(255,255,255,.18); }
-  #sidebarCollapseBtn svg{ width:15px; height:15px; transition:transform .2s ease; }
+  #homeLinkBtn{ margin-right:8px; }
+  #homeLinkBtn:hover, #sidebarCollapseBtn:hover{ background:rgba(255,255,255,.18); }
+  #homeLinkBtn svg, #sidebarCollapseBtn svg{ width:15px; height:15px; transition:transform .2s ease; }
   .sidebar.collapsed{ width:68px; padding-left:10px; padding-right:10px; }
   .sidebar.collapsed .sidebar-brand{ display:none; }
   .sidebar.collapsed #sidebarCollapseBtn{ margin:0 auto; }
+  .sidebar.collapsed #homeLinkBtn{ margin:0 auto 8px; }
   .sidebar.collapsed #sidebarCollapseBtn svg{ transform:rotate(180deg); }
   .sidebar.collapsed .nav-item{ justify-content:center; padding:11px 0; }
   .sidebar.collapsed .nav-item .nav-label, .sidebar.collapsed .nav-badge{ display:none; }
@@ -853,6 +855,9 @@
 
   <div class="sidebar" id="sidebar">
     <div style="display:flex; align-items:center; margin-bottom:30px;">
+      <a href="https://highlightingutah.com" target="_blank" rel="noopener" id="homeLinkBtn" title="Go to highlightingutah.com">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V10"/></svg>
+      </a>
       <div class="sidebar-brand">
         <svg viewBox="0 0 40 40" fill="none"><path d="M20 4 L34 20 L27 20 L27 34 L13 34 L13 20 L6 20 Z" fill="#3E7A5B" stroke="#F4BE55" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 17 L14 11 L20 17 L26 11 L32 17" fill="none" stroke="#FFFFFF" stroke-width="0.7" opacity="0.5"/><circle cx="8" cy="17" r="1.4" fill="#E0574B"/><circle cx="14" cy="11" r="1.4" fill="#FFFFFF"/><circle cx="20" cy="17" r="1.4" fill="#E0574B"/><circle cx="26" cy="11" r="1.4" fill="#FFFFFF"/><circle cx="32" cy="17" r="1.4" fill="#E0574B"/><path d="M13 23 L17.7 29 L22.3 23 L27 29" fill="none" stroke="#FFFFFF" stroke-width="0.7" opacity="0.5"/><circle cx="13" cy="23" r="1.4" fill="#FFFFFF"/><circle cx="17.7" cy="29" r="1.4" fill="#E0574B"/><circle cx="22.3" cy="23" r="1.4" fill="#FFFFFF"/><circle cx="27" cy="29" r="1.4" fill="#E0574B"/></svg>
         <span>Highlighting Utah<small>Admin</small></span>
