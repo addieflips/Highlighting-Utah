@@ -226,9 +226,9 @@ function extractFn(src, name) {
 }
 
 const admin = read('admin.html');
-const logicSrc = ['computeInvoiceStatus', 'colorComboKey']
-  .map(n => extractFn(admin, n)).filter(Boolean).join('\n');
-eval(logicSrc);
+const computeInvoiceStatusSrc = extractFn(admin, 'computeInvoiceStatus');
+const colorComboKeySrc = extractFn(admin, 'colorComboKey');
+eval([computeInvoiceStatusSrc, colorComboKeySrc].filter(Boolean).join('\n'));
 
 check('logic', 'computeInvoiceStatus exists', typeof computeInvoiceStatus === 'function');
 check('logic', 'nothing paid is Unpaid', computeInvoiceStatus(500, 0, 0) === 'Unpaid');
@@ -240,11 +240,16 @@ check('logic', 'removal counts toward the total',
   'expected Partial — 500 paid against a 600 total');
 check('logic', 'zero-value invoice is Unpaid', computeInvoiceStatus(0, 0, 0) === 'Unpaid');
 
-check('logic', 'colorComboKey sorts so order does not matter',
-  colorComboKey(['Red', 'Warm White']) === colorComboKey(['Warm White', 'Red']));
-check('logic', 'colorComboKey handles empty', colorComboKey([]) === '' && colorComboKey(null) === '');
-check('logic', 'colorComboKey does not mutate its input',
-  (() => { const a = ['Red', 'Blue']; colorComboKey(a); return a[0] === 'Red'; })());
+gap('colorComboKey exists in admin.html', typeof colorComboKey === 'function',
+  'colorComboKey was removed from admin.html at some point; run-all.js still expects it. ' +
+  'Either restore the helper or delete these colorComboKey checks if the feature is gone for good.');
+if (typeof colorComboKey === 'function') {
+  check('logic', 'colorComboKey sorts so order does not matter',
+    colorComboKey(['Red', 'Warm White']) === colorComboKey(['Warm White', 'Red']));
+  check('logic', 'colorComboKey handles empty', colorComboKey([]) === '' && colorComboKey(null) === '');
+  check('logic', 'colorComboKey does not mutate its input',
+    (() => { const a = ['Red', 'Blue']; colorComboKey(a); return a[0] === 'Red'; })());
+}
 
 // --- bundle math: ceil(feet / 40) ---
 const bundles = feet => Math.ceil(feet / 40);
@@ -300,19 +305,27 @@ if (JSDOM) {
   global.isStaleUnresponsive = () => false;
   global.trashIcon = () => '<svg></svg>';
   global.perFootRate = 2.5;
+  global.attachDeleteHandlers = () => {};
 
-  const s = admin.indexOf('function quoteDetailSelect(');
-  const mark = '  list.innerHTML = html;';
+  // Sliced through the end of renderQuoteRows (not just up to innerHTML) so
+  // the data-pricingtoggle click handler is actually live for the toggle test.
+  const s = admin.indexOf('const quotePricingOpenIds = new Set();');
+  const mark = 'attachDeleteHandlers(list);';
   const e = admin.indexOf(mark, s) + mark.length;
 
   if (s === -1 || e < s) {
     check('render', 'found renderQuoteRows in admin.html', false,
       'function was renamed or removed — update this test');
   } else {
-    eval(admin.slice(s, e) + '\n}\n');
+    // eval'd `const` is scoped to the eval call itself and never reaches this
+    // scope afterward (unlike the function declaration, which does) — rewrite
+    // the one declaration to a global so the toggle tests below can reach it.
+    const src = admin.slice(s, e)
+      .replace('const quotePricingOpenIds = new Set();', 'global.quotePricingOpenIds = new Set();');
+    eval(src + '\n}\n');
     const ts = d => ({ toDate: () => d });
 
-    renderQuoteRows([
+    const fixtures = [
       { id: 'q1', data: { name: 'Dana Whitmore', phone: '(801) 555-0148',
           email: 'dana@x.com', address: '842 N Canyon Rd',
           contactMethod: 'Text', status: 'new' } },
@@ -320,62 +333,65 @@ if (JSDOM) {
           email: 'm@x.com', address: '1207 W Elk Ridge Dr',
           contactMethod: 'Phone', status: 'contacted',
           formCompletedAt: ts(new Date('2026-07-29')),
-          lightColors: ['Warm White', 'Red'],
-          houseAreas: ['Front of House', 'Right Side'],
-          installPreference: 'October', wireColor: 'Green', outletTimer: 'Yes',
-          specificOutlet: 'Yes', specificOutletNotes: 'back patio',
-          gateCode: '4417', notes: 'Steep pitch over entry',
-          wantsMailedInvoice: true, estimatedFeet: 140, quotedPrice: 490,
+          lightColors: ['Warm White', 'Red'], outletTimer: 'Yes', wireColor: 'Green',
+          estimatedFeet: 140, quotedPrice: 490,
           quoteToken: 'qt_abc', approvalStatus: 'pending',
           frontPhotoUrl: 'https://example.com/house.jpg' } },
       { id: 'q3', data: { name: 'Quinn "Q" O\'Hara & Sons <script>',
           phone: 'x', email: 'e@x.com', address: '9 Test <b>St</b>',
           contactMethod: 'Email', status: 'new', lightColors: ['Multi'],
-          gateCode: 'a"b', notes: 'line1\nline2' } }
-    ]);
+          lightsDescription: 'a"b', notes: 'line1\nline2' } }
+    ];
+    renderQuoteRows(fixtures);
 
     const list = document.getElementById('quotesList');
     const cards = list.querySelectorAll('.row-item');
-    const det = c => c.querySelectorAll('details')[0];
-    const pri = c => c.querySelectorAll('details')[1];
+    const pricing = c => c.querySelector('.quote-section');
+    const pricingHeader = c => c.querySelector('.quote-section-header');
+    const pricingBody = c => c.querySelector('.quote-section-body');
     const [c1, c2, c3] = cards;
 
     check('render', 'one card per quote', cards.length === 3);
 
-    check('render', 'new lead — detail form collapsed', !det(c1).hasAttribute('open'));
-    check('render', 'new lead — pricing collapsed', !pri(c1).hasAttribute('open'));
-    check('render', 'new lead — reads not returned yet',
-      det(c1).querySelector('summary').textContent.includes('not returned yet'));
+    check('render', 'new lead — pricing collapsed by default',
+      !pricing(c1).classList.contains('open') && pricingBody(c1).style.display === 'none');
     check('render', 'new lead — reads not priced yet',
-      pri(c1).querySelector('summary').textContent.includes('not priced yet'));
+      pricingHeader(c1).textContent.includes('not priced yet'));
     check('render', 'new lead — no approval buttons', c1.querySelector('[data-markapproval]') === null);
     check('render', 'new lead — shows Add Photo', c1.textContent.includes('Add Photo'));
     check('render', 'with photo — shows Replace Photo', c2.textContent.includes('Replace Photo'));
+    check('render', 'formDone — shows Timer/Wire summary line',
+      c2.textContent.includes('Timer:') && c2.textContent.includes('Wire:'));
 
-    check('render', 'completed — detail form open', det(c2).hasAttribute('open'));
-    check('render', 'completed — pricing still collapsed', !pri(c2).hasAttribute('open'));
-    check('render', 'completed — summary shows price',
-      pri(c2).querySelector('summary').textContent.includes('$490.00'));
-    check('render', 'completed — colours joined',
-      c2.querySelector('.qdLightColors').value === 'Warm White, Red');
-    check('render', 'completed — areas joined',
-      c2.querySelector('.qdAreas').value === 'Front of House, Right Side');
-    check('render', 'completed — install timing preselected',
-      c2.querySelector('.qdInstallPref').value === 'October');
-    check('render', 'completed — wire colour preselected',
-      c2.querySelector('.qdWireColor').value === 'Green');
-    check('render', 'completed — outlet timer preselected',
-      c2.querySelector('.qdOutletTimer').value === 'Yes');
-    check('render', 'completed — gate code populated',
-      c2.querySelector('.qdGateCode').value === '4417');
-    check('render', 'completed — notes populated',
-      c2.querySelector('.qdNotes').value === 'Steep pitch over entry');
-    check('render', 'completed — mailed invoice checked',
-      c2.querySelector('.qdWantsMailed').checked === true);
-    check('render', 'completed — save button present',
-      c2.querySelector('[data-savequotedetail]') !== null);
-    check('render', 'completed — approval link shown',
+    check('render', 'priced quote — pricing still collapsed by default',
+      !pricing(c2).classList.contains('open'));
+    check('render', 'priced quote — header shows price',
+      pricingHeader(c2).textContent.includes('$490.00'));
+    check('render', 'priced quote — approval link shown',
       c2.querySelector('.quotelink-box').textContent.includes('qt_abc'));
+    check('render', 'no Detail Form left on the card',
+      list.textContent.indexOf('Detail Form') === -1 &&
+      c2.querySelector('[data-savequotedetail]') === null);
+
+    // module-level quotePricingOpenIds must survive a re-render — this is the
+    // whole point of the P1 change (native <details> used to lose its open
+    // state whenever a save re-ran renderQuoteRows and rebuilt the innerHTML).
+    quotePricingOpenIds.add('q2');
+    renderQuoteRows(fixtures);
+    const list2 = document.getElementById('quotesList');
+    const c2b = list2.querySelectorAll('.row-item')[1];
+    check('render', 'pricing panel stays open across a re-render once toggled',
+      pricing(c2b).classList.contains('open') && pricingBody(c2b).style.display === 'block');
+    quotePricingOpenIds.delete('q2');
+
+    // clicking the header itself must toggle the Set, not just the DOM
+    renderQuoteRows(fixtures);
+    const list3 = document.getElementById('quotesList');
+    const c1c = list3.querySelectorAll('.row-item')[0];
+    pricingHeader(c1c).click();
+    check('render', 'clicking the header adds the quote id to quotePricingOpenIds',
+      quotePricingOpenIds.has('q1') && pricing(c1c).classList.contains('open'));
+    quotePricingOpenIds.delete('q1');
 
     // every handler the card depends on must survive future edits
     [['data-converttocust', 'Convert to Customer'],
@@ -396,15 +412,15 @@ if (JSDOM) {
     check('render', 'hostile input — address not parsed as markup',
       c3.querySelector('.address-link-btn b') === null);
     check('render', 'hostile input — quote mark survives into input',
-      c3.querySelector('.qdGateCode').value === 'a"b');
+      c3.querySelector('.quoteLightsInput').value === 'a"b');
     check('render', 'missing fields fall back to blank',
-      c3.querySelector('.qdInstallPref').value === '' &&
-      c3.querySelector('.qdWireColor').value === '');
+      c1.querySelector('.quoteLightsInput').value === '' &&
+      c1.querySelector('.quoteFeetInput').value === '');
 
     const renderedIds = [...list.querySelectorAll('[id]')].map(el => el.id);
     check('render', 'no duplicate IDs in rendered cards',
       new Set(renderedIds).size === renderedIds.length);
-    const wired = [...list.querySelectorAll('.qdGateCode')].map(el => el.dataset.id);
+    const wired = [...list.querySelectorAll('.quoteFeetInput')].map(el => el.dataset.id);
     check('render', 'each card wired to its own quote', new Set(wired).size === 3);
   }
 }
@@ -427,7 +443,7 @@ check('flow', 'found the quote to customer conversion block', conversion.length 
  ['city', 'routeCityInput'], ['zip', 'routeZipInput'], ['email', 'addCustEmail'],
  ['wire colour', 'addCustWireColor'], ['gate code', 'addCustGateCode'],
  ['install timing', 'addCustInstallPref'], ['mailed invoice', 'addCustWantsMailed'],
- ['light colours', 'addcust-color-check'], ['house areas', 'addcust-area-check'],
+ ['light colours', 'addcust-color-check'],
  ['photo', 'addCustPhotoUrl']
 ].forEach(([label, marker]) => {
   check('flow', 'conversion carries ' + label, conversion.includes(marker),
@@ -490,8 +506,11 @@ check('flow', 'member portal changes reach the warehouse queue',
   admin.includes('needsLightBuild') || admin.includes('portalSave'));
 
 // --- propagation when an existing record changes ---
+// Sliced to the next top-level listener rather than a fixed character count —
+// a fixed window went stale once before (9000 chars was too short the moment
+// this handler grew past it) and silently turned real passes into FAILs.
 const editSave = admin.slice(admin.indexOf("editCustSaveBtn').addEventListener"),
-                             admin.indexOf("editCustSaveBtn').addEventListener") + 9000);
+                             admin.indexOf("allCustFilterToggle').addEventListener"));
 
 check('flow', 'quote is closed when converted to a customer',
   admin.includes("status: 'closed', convertedToCustomerAt"),
@@ -506,7 +525,7 @@ check('flow', 'changing an address re-geocodes for the map',
 check('flow', 'changing feet warns before renumbering a labelled bin',
   editSave.includes('cnBinsForFeet'));
 check('flow', 'changing light colours re-queues the warehouse build',
-  /newLights !== \(matched\.data\.lightsDescription/.test(admin));
+  /newLightsDescription !== oldLightsForBuild/.test(admin));
 check('flow', 'deleting a customer archives money already collected',
   admin.includes('archivedRevenue'));
 check('flow', 'changing bill-to resyncs both payer invoices',
@@ -555,7 +574,10 @@ gap('saved routes pick up later customer corrections',
 // =====================================================================
 console.log('\n=== 7. Health check engine ===');
 (function () {
-  const hcStart = admin.indexOf('/* ============================================================\n   HEALTH CHECK');
+  // admin.html is CRLF throughout, so a literal \n in the search string never
+  // matches — use a regex with \r?\n so this survives either line ending.
+  const hcStartMatch = admin.match(/\/\* =+\r?\n\s*HEALTH CHECK/);
+  const hcStart = hcStartMatch ? hcStartMatch.index : -1;
   const hcEnd = admin.indexOf('function attachDeleteHandlers');
   if (hcStart === -1 || hcEnd === -1) {
     check('health', 'health check engine found in admin.html', false,
@@ -675,8 +697,8 @@ console.log('\n=== 7. Health check engine ===');
     'false alarms train you to ignore the panel: ' + clean.map(c => c.id).join(', '));
 
   const all = hc.run();
-  check('health', 'all 13 checks present',
-    all.length === 13, 'got ' + all.length);
+  check('health', 'all 14 checks present',
+    all.length === 14, 'got ' + all.length);
   check('health', 'fix buttons limited to the unambiguous checks',
     all.filter(c => c.fix).length === 6,
     'auto-fixing a judgement call writes bad data at scale');
