@@ -2487,17 +2487,6 @@ Highlighting Utah</textarea>
         <button type="button" class="btn btn-sm" data-quotestage="closed" style="font-weight:700;">Closed<span id="quoteStageCountClosed" class="folder-count"></span></button>
       </div>
       <div id="quoteApprovalStats" style="margin-bottom:16px; display:flex; gap:10px; flex-wrap:wrap;"></div>
-      <div class="card" id="quoteMaybeCard" style="margin-bottom:16px; background:#FFF8E9; border-color:var(--gold-dim); display:none;">
-        <h3 style="margin:0 0 4px;">Maybe Next Year &mdash; Follow-up Emails <span id="quoteMaybeCount" class="folder-count"></span></h3>
-        <p style="font-size:13px; margin:0 0 10px;">Everyone who said Maybe Next Year on a quote. Check who to follow up with and press Generate &mdash; nothing sends on its own, you copy each one and send it yourself, so you can do a batch of them in one sitting.</p>
-        <div style="display:flex; gap:8px; margin-bottom:10px;">
-          <button type="button" class="btn btn-outline btn-sm" id="quoteMaybeSelectAllBtn" style="width:auto;">Select All</button>
-          <button type="button" class="btn btn-outline btn-sm" id="quoteMaybeSelectNoneBtn" style="width:auto;">Select None</button>
-        </div>
-        <div id="quoteMaybeList" style="max-height:220px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:10px; background:var(--snow); margin-bottom:12px;"></div>
-        <button type="button" class="btn btn-gold btn-sm" id="quoteMaybeGenerateBtn" style="width:auto;">Generate Follow-up Emails</button>
-        <div id="quoteMaybeEmails" style="margin-top:16px;"></div>
-      </div>
       <div style="margin-bottom:16px; display:flex; gap:10px; flex-wrap:wrap;">
         <select id="quoteFilterSelect" style="border-radius:999px; border:1px solid var(--line); padding:8px 14px; font-size:13.5px; font-weight:600; color:var(--ink); background:var(--snow);">
           <option value="all">All Quotes</option>
@@ -5274,88 +5263,8 @@ function loadQuotes(){
     document.getElementById('badgeQuotes').style.display = newCount ? 'inline-block' : 'none';
     document.getElementById('badgeQuotes').textContent = newCount;
     renderQuotesList();
-    renderQuoteMaybeCard();
   });
 }
-/* Maybe Next Year — Follow-up Emails. A bulk version of the same manual
-   "fill in the template, you copy and send it yourself" approach as the
-   Send Email button on individual quotes, so a batch of these can be done
-   in one sitting instead of hunting through the Closed tab one at a time.
-   Nothing here ever sends on its own. */
-function renderQuoteMaybeCard(){
-  const card = document.getElementById('quoteMaybeCard');
-  const listEl = document.getElementById('quoteMaybeList');
-  if(!card || !listEl) return;
-  const rows = quotesCache.filter(q => q.data.approvalStatus === 'maybe_next_year');
-  if(!rows.length){ card.style.display = 'none'; return; }
-  card.style.display = '';
-  document.getElementById('quoteMaybeCount').textContent = '(' + rows.length + ')';
-  const previouslyChecked = new Set(Array.from(listEl.querySelectorAll('.quotemaybe-cb:checked')).map(cb => cb.value));
-  const isFirstRender = !listEl.dataset.rendered;
-  listEl.innerHTML = rows.map(function(q){
-    const checked = isFirstRender || previouslyChecked.has(q.id);
-    return '<label style="display:flex; align-items:center; gap:8px; padding:5px 0; font-size:13.5px;">'+
-      '<input type="checkbox" class="quotemaybe-cb" value="'+q.id+'" '+(checked?'checked':'')+' style="width:auto;">'+
-      esc(q.data.name||'(no name)')+' <span style="color:var(--slate); font-size:12px;">'+esc(q.data.address||'')+(q.data.email ? ' · '+esc(q.data.email) : ' — no email on file')+'</span>'+
-    '</label>';
-  }).join('');
-  listEl.dataset.rendered = '1';
-}
-document.getElementById('quoteMaybeSelectAllBtn')?.addEventListener('click', function(){
-  document.querySelectorAll('.quotemaybe-cb').forEach(function(cb){ cb.checked = true; });
-});
-document.getElementById('quoteMaybeSelectNoneBtn')?.addEventListener('click', function(){
-  document.querySelectorAll('.quotemaybe-cb').forEach(function(cb){ cb.checked = false; });
-});
-document.getElementById('quoteMaybeGenerateBtn')?.addEventListener('click', async function(){
-  const btn = this;
-  const ids = Array.from(document.querySelectorAll('.quotemaybe-cb:checked')).map(cb => cb.value);
-  const box = document.getElementById('quoteMaybeEmails');
-  if(!ids.length){ box.innerHTML = '<div class="empty-note">Check at least one quote above.</div>'; return; }
-  btn.disabled = true;
-  const original = btn.textContent;
-  btn.textContent = 'Generating…';
-  try{
-    const template = getEmailTemplateByName('Quote Maybe Next Year Follow-up');
-    const body = template ? template.data.body : DEFAULT_QUOTE_MAYBE_TEMPLATE_BODY;
-    let html = '';
-    for(const id of ids){
-      const item = quotesCache.find(q => q.id === id);
-      if(!item) continue;
-      const d = item.data;
-      if(!d.email){
-        html += '<div class="quotemaybe-email-block" style="border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:12px; background:var(--paper);">'+
-          '<div style="font-weight:600; margin-bottom:4px;">'+esc(d.name||'')+'</div>'+
-          '<div style="font-size:12.5px; color:var(--ember);">No email on file — skipped. Text or call them instead.</div>'+
-        '</div>';
-        continue;
-      }
-      const resolved = await resolveLinkTokens(body, d.phone, 0, {name: d.name || 'there', price: fmtMoney(d.quotedPrice)});
-      const message = htmlEmailToPlainText(resolved);
-      html += '<div class="quotemaybe-email-block" style="border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:12px; background:var(--paper);">'+
-        '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:6px;">'+
-          '<div><strong>'+esc(d.name||'')+'</strong> <span style="font-size:12px; color:var(--slate);">'+esc(d.email)+'</span></div>'+
-          '<button type="button" class="btn btn-outline btn-sm quotemaybe-copy-btn">Copy Email</button>'+
-        '</div>'+
-        '<textarea rows="6" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); font-family:inherit; font-size:13px;">'+esc(message)+'</textarea>'+
-      '</div>';
-    }
-    box.innerHTML = html || '<div class="empty-note">Nothing to show — none of the checked quotes have an email on file.</div>';
-    box.querySelectorAll('.quotemaybe-copy-btn').forEach(function(cbtn){
-      cbtn.addEventListener('click', function(){
-        const block = cbtn.closest('.quotemaybe-email-block');
-        const text = block.querySelector('textarea').value;
-        navigator.clipboard.writeText(text).then(function(){
-          cbtn.textContent = 'Copied!';
-          setTimeout(() => { cbtn.textContent = 'Copy Email'; }, 2000);
-        });
-      });
-    });
-  } finally {
-    btn.disabled = false;
-    btn.textContent = original;
-  }
-});
 function renderQuotesList(){
   const list = document.getElementById('quotesList');
   const freshAwaiting = quotesCache.filter(q => isFreshAwaiting(q.data));
@@ -5588,11 +5497,27 @@ function renderQuoteRows(filtered){
       window.open(item.data.frontPhotoUrl, '_blank');
     }
   }
+  /* Pricing a quote, or marking it approved/maybe/declined, can move it into
+     a different stage tab (quoteStage()) the instant the write lands - e.g.
+     a brand-new quote jumps from "Quotes" to "Send out Quotes" as soon as
+     it's priced. quotesCache only refreshes once the next Firestore snapshot
+     arrives, so without an optimistic local update, a re-render right after
+     the write still filters the card into its OLD tab, and any further work
+     against this card's DOM (status text, the email box) silently targets a
+     row that's no longer there - it looks like the card just vanished. This
+     patches the local copy immediately and switches to wherever the card
+     actually lives now, so the card (and the feedback about it) stays in view. */
+  function followQuoteToItsStage(id, patch){
+    const item = quotesCache.find(q => q.id === id);
+    if(!item) return;
+    Object.assign(item.data, patch);
+    quoteStageFilter = quoteStage(item.data);
+    renderQuotesList();
+  }
   list.querySelectorAll('[data-getquotelink]').forEach(function(btn){
     btn.addEventListener('click', async function(){
       const id = btn.dataset.getquotelink;
       const statusEl = list.querySelector('.quotelink-status[data-statusfor="'+id+'"]');
-      const linkBox = list.querySelector('.quotelink-box[data-linkfor="'+id+'"]');
       const priceInput = list.querySelector('.quotePriceInput[data-id="'+id+'"]');
       const price = Number(priceInput.value);
       if(!price || price <= 0){ if(statusEl) statusEl.textContent = 'Enter a price first.'; return; }
@@ -5605,9 +5530,12 @@ function renderQuoteRows(filtered){
         const updates = {quotedPrice: price, quoteToken: token, quoteSentAt: serverTimestamp()};
         if(!item.data.approvalStatus || item.data.approvalStatus === 'pending') updates.approvalStatus = 'pending';
         await updateDoc(doc(db,'quotes', id), updates);
+        followQuoteToItsStage(id, {quotedPrice: price, quoteToken: token, approvalStatus: updates.approvalStatus || item.data.approvalStatus});
         const link = 'https://highlightingutah.com/#/quote-details?token='+token+'&action=approve';
-        if(linkBox) linkBox.textContent = link;
-        if(statusEl) statusEl.textContent = 'Saved! Copy the email below, attach their house photo, and send it yourself.';
+        const freshStatusEl = list.querySelector('.quotelink-status[data-statusfor="'+id+'"]');
+        const freshLinkBox = list.querySelector('.quotelink-box[data-linkfor="'+id+'"]');
+        if(freshLinkBox) freshLinkBox.textContent = link;
+        if(freshStatusEl) freshStatusEl.textContent = 'Saved! Copy the email below, attach their house photo, and send it yourself.';
         await showQuoteEmailBox(id);
       } catch(err){
         if(statusEl) statusEl.textContent = 'Something went wrong — try again.';
@@ -5626,6 +5554,7 @@ function renderQuoteRows(filtered){
       if(value === 'declined' && !confirm('Mark this quote as declined?')) return;
       try{
         await updateDoc(doc(db,'quotes', id), {approvalStatus: value, quoteRespondedAt: serverTimestamp()});
+        followQuoteToItsStage(id, {approvalStatus: value});
         const label = value === 'approved' ? 'Marked approved.' : value === 'maybe_next_year' ? 'Marked maybe next year.' : 'Marked declined.';
         toast(label);
       } catch(err){
@@ -5830,22 +5759,54 @@ async function etSeedPrebuiltTemplates(){
     await addDoc(collection(db,'emailTemplates'), {name: preset.name, folderId: folderId, body: preset.body, linkedTokens: preset.linkedTokens, createdAt: serverTimestamp()});
   }
 }
+let etFoldersLoaded = false;
 function loadEmailTemplateFolders(){
   onSnapshot(collection(db,'emailTemplateFolders'), function(snap){
     emailTemplateFolders = [];
     snap.forEach(function(docSnap){ emailTemplateFolders.push({id: docSnap.id, name: docSnap.data().name}); });
+    etFoldersLoaded = true;
+    etEnsureMaybeTemplateExists();
     renderEmailTemplateFolders();
     renderEmailTemplateList();
   });
+}
+/* etSeedPrebuiltTemplates only ever runs once, the very first time the app
+   sees a completely empty template library — so a prebuilt added later (like
+   Quote Maybe Next Year Follow-up) never reaches an install that already has
+   templates. This is a narrow, one-time top-up for that one case: if it's
+   missing, create it for real so it's an actual editable template instead of
+   just a name in ET_PREBUILT_TEMPLATES nobody can find.
+   Folders and templates load from two independent listeners, so this is
+   called after each one settles and only actually runs once both have -
+   otherwise it could create a second "Quotes" folder before the existing
+   one (already used by Quote Ready for Review) has loaded in. */
+let etTemplatesLoaded = false;
+let etMaybeTemplateChecked = false;
+async function etEnsureMaybeTemplateExists(){
+  if(etMaybeTemplateChecked || !etFoldersLoaded || !etTemplatesLoaded) return;
+  etMaybeTemplateChecked = true;
+  if(emailTemplates.some(t => t.data.name === 'Quote Maybe Next Year Follow-up')) return;
+  const preset = ET_PREBUILT_TEMPLATES.find(t => t.name === 'Quote Maybe Next Year Follow-up');
+  if(!preset) return;
+  let folderId = emailTemplateFolders.find(f => f.name === preset.folderName)?.id;
+  if(!folderId){
+    const ref = await addDoc(collection(db,'emailTemplateFolders'), {name: preset.folderName, createdAt: serverTimestamp()});
+    folderId = ref.id;
+  }
+  await addDoc(collection(db,'emailTemplates'), {name: preset.name, folderId: folderId, body: preset.body, linkedTokens: preset.linkedTokens, createdAt: serverTimestamp()});
 }
 function loadEmailTemplates(){
   onSnapshot(collection(db,'emailTemplates'), async function(snap){
     emailTemplates = [];
     snap.forEach(function(docSnap){ emailTemplates.push({id: docSnap.id, data: docSnap.data()}); });
+    etTemplatesLoaded = true;
     if(!etTemplatesSeeded){
       etTemplatesSeeded = true;
       if(!emailTemplates.length){
         await etSeedPrebuiltTemplates();
+        etMaybeTemplateChecked = true;
+      } else {
+        await etEnsureMaybeTemplateExists();
       }
     }
     renderEmailTemplateFolders();
