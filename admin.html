@@ -1613,6 +1613,16 @@
         <p style="font-size:13px;">For anything else &mdash; a one-time list, an unusual spreadsheet, whatever doesn't fit the Bulk Updates columns &mdash; just share the file directly in a chat with Claude and describe where each column should go. No need to reformat it to match a template first.</p>
       </div>
       <div class="card">
+        <h3>&#127968; Street View Photo Backfill</h3>
+        <p style="font-size:13px;">For customers who don't have a house photo on file yet. Looks up a Google Street View shot using each customer's saved address coordinates &mdash; only for customers missing a photo, never replaces one your team already uploaded. Coverage isn't guaranteed for every address (rural driveways, private roads), and the angle is a best-effort guess, so always Check First and look over the previews before writing anything. Auto-fetched photos are flagged so your team knows to swap in a real one when convenient.</p>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:6px;">
+          <button type="button" class="btn btn-outline btn-sm" id="svBackfillCheckBtn">Check First (writes nothing)</button>
+          <button type="button" class="btn btn-gold btn-sm" id="svBackfillApplyBtn" disabled>Save Found Photos</button>
+        </div>
+        <div id="svBackfillStatus" style="font-size:13px; color:var(--slate); margin-top:10px;"></div>
+        <div id="svBackfillReport" style="margin-top:10px;"></div>
+      </div>
+      <div class="card">
         <h3>&#128179; Payment & Credit Card Import</h3>
         <p style="font-size:13px;">Upload an Excel or CSV file with payment data (phone numbers, amounts paid, etc.). Organize imports by folder and search past imports.</p>
         
@@ -9654,6 +9664,102 @@ document.getElementById('goToBulkUpdatesBtn').addEventListener('click', function
   setTimeout(function(){ document.querySelector('#custSectionTabs [data-custtab="bulk"]').click(); }, 50);
 });
 
+/* ---- STREET VIEW PHOTO BACKFILL ----
+   Reuses getStreetViewFrontUrlAdmin() (defined earlier, was built for the
+   now-retired auto-photo-on-quote feature) against each customer's already-
+   geocoded lat/lng. Check First only reads (Street View metadata lookups are
+   free); Save Found Photos is the only step that writes to Firestore, and it
+   only writes what Check First already showed the owner. */
+let svBackfillResults = null; // [{id,name,address,url}], set by Check First
+let svBackfillRunning = false;
+
+async function svBackfillCheck(){
+  if(svBackfillRunning) return;
+  svBackfillRunning = true;
+  svBackfillResults = null;
+  document.getElementById('svBackfillApplyBtn').disabled = true;
+  const checkBtn = document.getElementById('svBackfillCheckBtn');
+  const statusEl = document.getElementById('svBackfillStatus');
+  const reportEl = document.getElementById('svBackfillReport');
+  checkBtn.disabled = true;
+  reportEl.innerHTML = '';
+
+  const candidates = jobAddresses.filter(a => !a.data.housePhotoUrl && typeof a.data.lat === 'number' && typeof a.data.lng === 'number');
+  const skippedNoCoords = jobAddresses.filter(a => !a.data.housePhotoUrl && !(typeof a.data.lat === 'number' && typeof a.data.lng === 'number'));
+
+  if(!candidates.length){
+    statusEl.textContent = skippedNoCoords.length
+      ? 'Every customer already has a photo, except '+skippedNoCoords.length+' with no saved address coordinates (re-save their address to geocode them first).'
+      : 'Every customer already has a photo on file — nothing to do.';
+    checkBtn.disabled = false;
+    svBackfillRunning = false;
+    return;
+  }
+
+  const found = [];
+  const noCoverage = [];
+  for(let i = 0; i < candidates.length; i++){
+    const item = candidates[i];
+    statusEl.textContent = 'Checking '+(i+1)+' of '+candidates.length+'…';
+    const result = await getStreetViewFrontUrlAdmin(item.data.lat, item.data.lng);
+    if(result.url){
+      found.push({id: item.id, name: item.data.name || '(no name)', address: item.data.address || '', url: result.url});
+    } else {
+      noCoverage.push(item.data.name || item.data.address || item.id);
+    }
+  }
+
+  svBackfillResults = found;
+  statusEl.textContent = found.length+' photo(s) found and ready to save · '+noCoverage.length+' had no Street View coverage'+(skippedNoCoords.length ? ' · '+skippedNoCoords.length+' skipped (no saved coordinates)' : '')+'. Review the previews below, then click Save Found Photos.';
+
+  reportEl.innerHTML =
+    (found.length ? '<h4 style="font-size:13px; margin:10px 0 8px;">Ready to save ('+found.length+')</h4>'+
+      '<div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:10px; max-height:400px; overflow-y:auto; margin-bottom:14px;">'+
+      found.map(f => '<div style="border:1px solid var(--line); border-radius:8px; padding:6px; font-size:11px;">'+
+        '<img src="'+esc(f.url)+'" style="width:100%; border-radius:6px; display:block; margin-bottom:4px;" loading="lazy">'+
+        '<div style="font-weight:600;">'+esc(f.name)+'</div><div style="color:var(--slate);">'+esc(f.address)+'</div></div>').join('')+
+      '</div>' : '')+
+    (noCoverage.length ? '<h4 style="font-size:13px; margin:10px 0 8px;">No Street View coverage (needs a manual photo) &mdash; '+noCoverage.length+'</h4>'+
+      '<div style="font-size:12px; color:var(--slate); max-height:150px; overflow-y:auto;">'+noCoverage.map(esc).join(', ')+'</div>' : '');
+
+  document.getElementById('svBackfillApplyBtn').disabled = !found.length;
+  checkBtn.disabled = false;
+  svBackfillRunning = false;
+}
+
+async function svBackfillApply(){
+  if(svBackfillRunning || !svBackfillResults || !svBackfillResults.length) return;
+  svBackfillRunning = true;
+  const applyBtn = document.getElementById('svBackfillApplyBtn');
+  const checkBtn = document.getElementById('svBackfillCheckBtn');
+  const statusEl = document.getElementById('svBackfillStatus');
+  applyBtn.disabled = true;
+  checkBtn.disabled = true;
+
+  const toSave = svBackfillResults;
+  let saved = 0, failed = 0;
+  for(let i = 0; i < toSave.length; i++){
+    const f = toSave[i];
+    statusEl.textContent = 'Saving '+(i+1)+' of '+toSave.length+'…';
+    try{
+      await updateDoc(doc(db,'jobAddresses', f.id), {housePhotoUrl: f.url, housePhotoOriginal: f.url, housePhotoIsStreetView: true});
+      saved++;
+    } catch(err){
+      failed++;
+    }
+  }
+
+  statusEl.textContent = 'Done — saved '+saved+' photo(s)'+(failed ? ', '+failed+' failed to save' : '')+'.';
+  toast('Street View backfill: '+saved+' photo(s) saved'+(failed ? ', '+failed+' failed' : ''));
+  svBackfillResults = null;
+  applyBtn.disabled = true;
+  checkBtn.disabled = false;
+  svBackfillRunning = false;
+}
+
+document.getElementById('svBackfillCheckBtn').addEventListener('click', svBackfillCheck);
+document.getElementById('svBackfillApplyBtn').addEventListener('click', svBackfillApply);
+
 /* ---- PAYMENT IMPORT ---- */
 let paymentImportData = [];
 let paymentImportFolders = [];
@@ -10250,7 +10356,7 @@ function buildAddressRowHtml(item){
         (d.seasonStatus === 'cancellation_requested' && d.cancellationReason ? '<div class="row-phone-line" style="color:var(--ember);">&#128683; Cancellation reason: '+esc(d.cancellationReason)+'</div>' : '')+
         (d.contactMethod ? '<div class="row-phone-line">&#128172; Prefers: '+esc(d.contactMethod)+'</div>' : '')+
         (isEarliestInstallDateLocked(d) ? '<div class="row-phone-line" style="color:var(--ember); font-weight:600;">&#128197; Don\'t install before '+fmtDate(d.earliestInstallDate)+'</div>' : '')+
-        (d.housePhotoUrl ? '<div class="row-phone-line">&#128247; Photo on file'+(d.houseHighlights && d.houseHighlights.length ? ' &middot; '+d.houseHighlights.length+' section(s), '+fmtMoney(d.houseHighlights.reduce((s,h)=>s+(Number(h.price)||0),0)) : '')+'</div>' : '')+
+        (d.housePhotoUrl ? '<div class="row-phone-line">&#128247; Photo on file'+(d.houseHighlights && d.houseHighlights.length ? ' &middot; '+d.houseHighlights.length+' section(s), '+fmtMoney(d.houseHighlights.reduce((s,h)=>s+(Number(h.price)||0),0)) : '')+(d.housePhotoIsStreetView ? ' <span style="color:var(--gold-dim);">(auto &mdash; Street View, swap for a real photo when convenient)</span>' : '')+'</div>' : '')+
         '<div class="diff-pick-row">'+
           '<select class="diff-select" data-setdiff="'+item.id+'" style="border-radius:8px; border:1px solid var(--line); padding:6px 10px; font-size:13px; font-weight:600; background:var(--snow); color:var(--ink);">'+
             ['Unrated','Easy','Medium','Hard'].map(function(opt){
@@ -10416,6 +10522,7 @@ function attachAddressRowHandlers(container){
       // ---- photo + highlight tool state ----
       let currentPhotoUrl = housePhotoUrl;
       let currentHighlights = houseHighlights.slice();
+      let photoReplaced = false; // true once the office uploads/removes a photo here, so an auto Street View flag can be cleared on save
       const photoWrap = panel.querySelector('.hd-photo-wrap');
       const photoImg = panel.querySelector('.hd-photo-img');
       const highlightLayer = panel.querySelector('.hd-highlight-layer');
@@ -10439,6 +10546,7 @@ function attachAddressRowHandlers(container){
       if(removePhotoBtn) removePhotoBtn.addEventListener('click', function(){
         if(!confirm('Remove this house photo?\n\nThe sections you outlined stay saved with their feet and prices — they\'ll show again if you upload a new photo. Nothing is final until you press Save.')) return;
         currentPhotoUrl = '';
+        photoReplaced = true;
         photoImg.src = '';
         photoImg.classList.remove('hm-blueprint');
         photoWrap.style.display = 'none';
@@ -10495,6 +10603,7 @@ function attachAddressRowHandlers(container){
         try{
           const url = await uploadOneToCloudinary(file);
           currentPhotoUrl = url;
+          photoReplaced = true;
           photoImg.src = url;
           photoImg.classList.remove('hm-blueprint');
           photoWrap.style.display = 'block';
@@ -10596,6 +10705,7 @@ function attachAddressRowHandlers(container){
           needsLightBuild: newLights ? (newLights !== (existingCust.lightsDescription || '') ? true : !!existingCust.needsLightBuild) : false,
           housePhotoUrl: currentPhotoUrl, houseHighlights: currentHighlights
         };
+        if(photoReplaced) updates.housePhotoIsStreetView = false;
         if(diffSelect) updates.difficulty = diffSelect.value;
         await updateDoc(doc(db,'jobAddresses',id), updates);
         if(currentPhotoUrl){
@@ -12253,7 +12363,7 @@ document.getElementById('editCustPhotoFile').addEventListener('change', async fu
   try{
     const url = await uploadOneToCloudinary(file);
     // Save the photo straight away so the markup editor has something to work on.
-    await updateDoc(doc(db,'jobAddresses', editCustomerId), { housePhotoUrl: url, housePhotoOriginal: url });
+    await updateDoc(doc(db,'jobAddresses', editCustomerId), { housePhotoUrl: url, housePhotoOriginal: url, housePhotoIsStreetView: false });
     statusEl.textContent = 'Photo saved — click “Highlight / Mark Up Photo” to mark it up.';
     const fresh = jobAddresses.find(a => a.id === editCustomerId);
     renderEditCustPhotoThumb(fresh ? fresh.data : { housePhotoUrl: url });
