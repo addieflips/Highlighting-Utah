@@ -3503,11 +3503,11 @@ Highlighting Utah</textarea>
         </div>
 
         <div class="proj-bulkbar">
-          <span class="proj-bulklabel">Hand the <b id="bulkCount">0</b> tests shown to</span>
+          <span class="proj-bulklabel">Hand the <b id="bulkCount">0</b> still-open tests shown to</span>
           <select id="bulkAssignee"><option value="">Unassigned</option></select>
           <button type="button" class="btn btn-outline btn-sm" id="bulkAssignBtn">Assign</button>
           <button type="button" class="btn btn-outline btn-sm" id="bulkUnassignBtn">Unassign all shown</button>
-          <span class="proj-bulkhint">Whoever you pick sees them on their To-Do list.</span>
+          <span class="proj-bulkhint">Only Needs Test and Retest can be handed out this way - Pass/Fail keep their tester. Edit a single test (pencil icon) to change that.</span>
         </div>
 
         <div style="display:flex; gap:10px; flex-wrap:wrap; margin:14px 0;">
@@ -16489,6 +16489,7 @@ let projAreaCardOpenIds = new Set();
 let projAreaProgressFilter = 'all';
 let projTestCache = [];
 let projVisibleTestIds = [];
+let projVisibleTodoTestIds = [];
 
 document.querySelectorAll('#projSectionTabs [data-projtab]').forEach(function(btn){
   btn.addEventListener('click', function(){
@@ -17117,8 +17118,11 @@ function renderTests(){
   rows = rows.filter(function(t){ return projWhoMatch(t, projTestWhoFilter); });
 
   projVisibleTestIds = rows.map(function(t){ return t.id; });
+  /* Pass/Fail are done - handing them out in bulk would just misfile someone's
+     tester history. Only tests still needing a run can be mass-assigned. */
+  projVisibleTodoTestIds = rows.filter(projIsTodo).map(function(t){ return t.id; });
   const bulkCount = document.getElementById('bulkCount');
-  if(bulkCount) bulkCount.textContent = rows.length;
+  if(bulkCount) bulkCount.textContent = projVisibleTodoTestIds.length;
 
   /* Group the filtered rows by area so the list reads as a set of area
      cards instead of one long flat run. A blank area still gets its own
@@ -17200,7 +17204,7 @@ async function projBulkAssign(btn, ids, who){
 }
 
 document.getElementById('bulkAssignBtn').addEventListener('click', function(){
-  projBulkAssign(this, projVisibleTestIds.slice(), document.getElementById('bulkAssignee').value);
+  projBulkAssign(this, projVisibleTodoTestIds.slice(), document.getElementById('bulkAssignee').value);
 });
 document.getElementById('bulkUnassignBtn').addEventListener('click', function(){
   projBulkAssign(this, projVisibleTestIds.slice(), '');
