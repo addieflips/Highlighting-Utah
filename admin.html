@@ -3442,8 +3442,7 @@ Highlighting Utah</textarea>
         <div class="proj-counts" id="testCounts"></div>
 
         <div class="proj-syncbar">
-          <button type="button" class="btn btn-gold" id="testSyncBtn">Sync checklist now</button>
-          <span class="proj-synchelp">Runs automatically every time the app loads, so you don't need to press this. Adds any new tests and moves anything that has been fixed back to Retest on its own. Your existing results are kept. Use the button for an on-demand check without reloading.</span>
+          <span class="proj-synchelp">Checked and updated automatically every time the app loads &mdash; new tests get added and anything that's been fixed moves back to Retest on its own. Your existing results are kept.</span>
         </div>
         <div id="testSyncReport" class="proj-syncreport" style="display:none;"></div>
 
@@ -5171,7 +5170,7 @@ function initData(){
   loadProjectPeople();
   // Keep the checklist current without anyone having to remember to press
   // Sync — quiet unless it actually finds something to add or flag.
-  runProjectTestSync(true).catch(function(){});
+  runProjectTestSync().catch(function(){});
   loadSettings();
   loadJobAddresses();
   loadWarehouseExtras();
@@ -17152,14 +17151,12 @@ function resetTestForm(){
 
 /* Sync. Creates anything new, keeps every score already entered, and moves a
    test to Retest only when its version has moved on since it was last run.
-   Runs once on its own right after login (see runProjectTestSync(true) in
-   initData) so the checklist is never stale just because nobody remembered
-   to press the button - the button still works too, for an on-demand check
-   without waiting for the next page load. Same-version rows with unchanged
-   wording are skipped entirely, so a sync with nothing to do costs no writes
-   whether it's the automatic one or the manual one. */
+   Runs once on its own right after login (see runProjectTestSync() in
+   initData) - there is no manual button, so this is the only way the
+   checklist ever gets checked. Same-version rows with unchanged wording are
+   skipped entirely, so a sync with nothing to do costs no writes. */
 let projTestSyncRunning = false;
-async function runProjectTestSync(silent){
+async function runProjectTestSync(){
   if(projTestSyncRunning) return null;
   projTestSyncRunning = true;
   try{
@@ -17210,29 +17207,14 @@ async function runProjectTestSync(silent){
         : 'Everything is already up to date.';
       report.style.display = '';
     }
-    // On the automatic run, stay quiet unless something actually changed -
-    // a toast every single login for "already up to date" is just noise.
-    if(!silent || added || flagged){
-      toast(added || flagged ? 'Checklist synced' : 'Already up to date');
-    }
+    // Stay quiet unless something actually changed - a toast every single
+    // login for "already up to date" is just noise.
+    if(added || flagged) toast('Checklist synced');
     return {added: added, flagged: flagged, reworded: reworded};
   } finally {
     projTestSyncRunning = false;
   }
 }
-document.getElementById('testSyncBtn').addEventListener('click', async function(){
-  const btn = this;
-  btn.disabled = true;
-  const original = btn.textContent;
-  btn.textContent = 'Syncing...';
-  try{
-    await runProjectTestSync(false);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = original;
-  }
-});
-
 const TEST_SEED = [
   [1, "Public Site", "Quote request form", "Open highlightingutah.com in a normal browser window (not signed in anywhere).\nClick the gold Free Quote button in the top menu.\nFill in every box: name, phone, email, street, city, zip, and how they'd like to be contacted.\nPress Submit.\nSwitch to admin and click Quote Requests in the left menu.", "The site shows a thank-you message, and a new card is sitting at the top of Quote Requests with every detail you typed and a New label.", 1, "Pass", "", ""],
   [2, "Public Site", "Quick quote widget", "Open highlightingutah.com and scroll the whole homepage top to bottom.\nLook for a short quote box that only asks for a name and a way to contact you (not the full form).\nIf you find one, fill it in and submit.\nCheck Quote Requests in admin.", "The short widget exists, submits, and lands in Quote Requests. If there is no short widget anywhere on the page, mark this N/A.", 1, "N/A", "Could not find a quick quote widget on the site.", ""],
