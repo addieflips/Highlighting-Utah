@@ -3370,7 +3370,7 @@ Highlighting Utah</textarea>
 
     <!-- PROJECT (To-Do + Test Checklist) -->
     <div class="panel" id="panel-projecttodo">
-      <div class="panel-head"><div><h2>Project</h2><p>The checklist is every test there is. The To-Do list is the work that has been handed out.</p></div></div>
+      <div class="panel-head"><div><h2>Project</h2><p>The checklist is every test there is. The To-Do list is what someone still has to run &mdash; only Needs Test and Retest land there.</p></div></div>
 
       <div class="route-tabs" id="projSectionTabs" style="margin-bottom:20px;">
         <button class="route-tab-btn active" data-projtab="todo" draggable="true">To-Do List <span class="proj-tabcount" id="tabCountTodo"></span></button>
@@ -3409,6 +3409,14 @@ Highlighting Utah</textarea>
           <button type="button" class="proj-dd-reset" id="todoFilterReset">Clear filters</button>
         </div>
 
+        <div class="proj-bulkbar">
+          <span class="proj-bulklabel">The <b id="todoBulkCount">0</b> shown:</span>
+          <select id="todoBulkAssignee"><option value="">Unassigned</option></select>
+          <button type="button" class="btn btn-outline btn-sm" id="todoBulkAssignBtn">Move to</button>
+          <button type="button" class="btn btn-outline btn-sm" id="todoBulkUnassignBtn">Unassign all shown</button>
+          <span class="proj-bulkhint">Filter to a person first to hand their whole list over, or clear it. Scored tests keep their owner and come back here if a fix reopens them.</span>
+        </div>
+
         <div class="row-list" id="todoList"><div class="empty-note">Loading&hellip;</div></div>
       </div>
 
@@ -3433,6 +3441,7 @@ Highlighting Utah</textarea>
           <span class="proj-bulklabel">Hand the <b id="bulkCount">0</b> tests shown to</span>
           <select id="bulkAssignee"><option value="">Unassigned</option></select>
           <button type="button" class="btn btn-outline btn-sm" id="bulkAssignBtn">Assign</button>
+          <button type="button" class="btn btn-outline btn-sm" id="bulkUnassignBtn">Unassign all shown</button>
           <span class="proj-bulkhint">Whoever you pick sees them on their To-Do list.</span>
         </div>
 
@@ -16238,6 +16247,7 @@ let projTestAreaFilters = new Set();
 let projTestWhoFilter = new Set();
 let projTestCache = [];
 let projVisibleTestIds = [];
+let projVisibleTodoIds = [];
 
 document.querySelectorAll('#projSectionTabs [data-projtab]').forEach(function(btn){
   btn.addEventListener('click', function(){
@@ -16496,7 +16506,7 @@ function refreshAssigneeSelects(){
   const opts = projAssigneeOptions();
   const html = '<option value="">Unassigned</option>' +
     opts.map(function(o){ return '<option value="'+esc(o.email)+'">'+esc(o.name)+'</option>'; }).join('');
-  ['todoAssignee','testAssignee','bulkAssignee'].forEach(function(id){
+  ['testAssignee','bulkAssignee','todoBulkAssignee'].forEach(function(id){
     const sel = document.getElementById(id);
     if(!sel) return;
     const keep = sel.value;
@@ -16599,8 +16609,11 @@ function projWireTestRows(list){
       const next = (current && current.result === btn.dataset.value) ? '' : btn.dataset.value;
       const patch = { result: next };
       if(next !== 'Retest') patch.retestReason = '';
-      updateDoc(doc(db,'projectTests',btn.dataset.testresult), patch)
-        .catch(function(err){ toast(projExplainError(err)); });
+      updateDoc(doc(db,'projectTests',btn.dataset.testresult), patch).then(function(){
+        if(current && current.assignee && next && next !== 'Retest'){
+          toast('Scored ' + next + ' - off the To-Do list until it reopens');
+        }
+      }).catch(function(err){ toast(projExplainError(err)); });
     });
   });
   list.querySelectorAll('[data-assign]').forEach(function(sel){
@@ -16678,26 +16691,40 @@ document.getElementById('todoFilterReset').addEventListener('click', function(){
   renderTodos();
 });
 
+/* Only two states are actually work for a person: a test never run, and one
+   that needs running again. Anything already scored Pass, Fail or N/A has had
+   its turn, so it drops off the To-Do list - but it keeps its owner, so when a
+   fix flips it back to Retest it reappears on the same person's list without
+   anyone reassigning it. */
+function projIsTodo(t){
+  const r = t.result || '';
+  return r === '' || r === 'Retest';
+}
+
 function renderTodos(){
   if(projNoteHasFocus()){ projRedrawPending = true; return; }
   const list = document.getElementById('todoList');
-  const mine = projTestCache.filter(function(t){ return t.assignee; }).slice().sort(projSortTests);
-  const open = mine.filter(function(t){ return t.result !== 'Pass'; });
-  const fails = open.filter(function(t){ return t.result === 'Fail'; });
-  const retests = open.filter(function(t){ return t.result === 'Retest'; });
+  const assigned = projTestCache.filter(function(t){ return t.assignee; });
+  const mine = assigned.filter(projIsTodo).slice().sort(projSortTests);
+  const needs = mine.filter(function(t){ return !t.result; });
+  const retests = mine.filter(function(t){ return t.result === 'Retest'; });
+  const scored = assigned.length - mine.length;
 
   document.getElementById('todoCounts').innerHTML =
-    '<span class="proj-count">Handed out <b>'+open.length+'</b></span>'+
-    '<span class="proj-count">Fail <b>'+fails.length+'</b></span>'+
+    '<span class="proj-count">To do now <b>'+mine.length+'</b></span>'+
+    '<span class="proj-count">Needs Test <b>'+needs.length+'</b></span>'+
     '<span class="proj-count">Retest <b>'+retests.length+'</b></span>'+
-    '<span class="proj-count">Done <b>'+(mine.length - open.length)+'</b></span>';
+    '<span class="proj-count" title="Assigned but already scored Pass, Fail or N/A - they come back here if a fix reopens them">Scored, waiting <b>'+scored+'</b></span>';
 
   const badge = document.getElementById('badgeProjTodo');
-  if(badge){ badge.textContent = open.length; badge.style.display = open.length ? '' : 'none'; }
+  if(badge){ badge.textContent = mine.length; badge.style.display = mine.length ? '' : 'none'; }
   const tc = document.getElementById('tabCountTodo');
-  if(tc) tc.textContent = open.length ? '('+open.length+')' : '';
+  if(tc) tc.textContent = mine.length ? '('+mine.length+')' : '';
 
-  projDropdown('ddTodoStatus', 'Show', projResultOptions(mine), projTodoStatusFilter, renderTodos);
+  projDropdown('ddTodoStatus', 'Show', [
+    { value:'none',   label:'Needs Test', count: needs.length },
+    { value:'Retest', label:'Retest',     count: retests.length }
+  ], projTodoStatusFilter, renderTodos);
   projDropdown('ddTodoArea', 'Area', projAreaOptions(mine), projTodoAreaFilter, renderTodos);
   projDropdown('ddTodoWho', 'Assigned to', projWhoOptions(mine, true), projTodoWhoFilter, renderTodos, true);
 
@@ -16706,10 +16733,14 @@ function renderTodos(){
   if(projTodoAreaFilter.size) rows = rows.filter(function(t){ return projTodoAreaFilter.has(t.area); });
   rows = rows.filter(function(t){ return projWhoMatch(t, projTodoWhoFilter); });
 
+  projVisibleTodoIds = rows.map(function(t){ return t.id; });
+  const todoBulkCount = document.getElementById('todoBulkCount');
+  if(todoBulkCount) todoBulkCount.textContent = rows.length;
+
   if(!rows.length){
     list.innerHTML = '<div class="empty-note">'+
-      (projTestCache.some(function(t){ return t.assignee; })
-        ? 'Nothing here - try a different filter.'
+      (assigned.length
+        ? 'Nothing left to run. Everything handed out has been scored - it will come back here if a fix reopens it.'
         : 'Nothing handed out yet. Go to the Test Checklist, filter to an area, and assign it to someone.')+
       '</div>';
     return;
@@ -16719,9 +16750,9 @@ function renderTodos(){
 }
 
 document.getElementById('todoCopyBtn').addEventListener('click', function(){
-  const mine = projTestCache.filter(function(t){ return t.assignee; }).slice().sort(projSortTests);
-  if(!mine.length){ toast('Nothing handed out yet.'); return; }
-  let out = 'WORK HANDED OUT\n\n';
+  const mine = projTestCache.filter(function(t){ return t.assignee && projIsTodo(t); }).slice().sort(projSortTests);
+  if(!mine.length){ toast('Nothing left to run.'); return; }
+  let out = 'STILL TO RUN\n\n';
   projPeople.forEach(function(pn){
     const rows = mine.filter(function(t){ return t.assignee === pn.id; });
     if(!rows.length) return;
@@ -16795,18 +16826,34 @@ function renderTests(){
   projWireTestRows(list);
 }
 
-document.getElementById('bulkAssignBtn').addEventListener('click', async function(){
-  const who = document.getElementById('bulkAssignee').value;
-  const ids = projVisibleTestIds.slice();
-  if(!ids.length){ toast('Nothing shown to assign.'); return; }
-  const label = who ? projAssigneeName(who) : 'Unassigned';
-  if(!confirm('Hand the '+ids.length+' tests currently shown to '+label+'?')) return;
-  this.disabled = true;
+/* Every bulk button goes through here so the confirm and the toast always
+   read correctly, including when the target is nobody at all. */
+async function projBulkAssign(btn, ids, who){
+  if(!ids.length){ toast('Nothing shown to change.'); return; }
+  const label = who ? projAssigneeName(who) : '';
+  const question = who
+    ? 'Hand the '+ids.length+' test(s) currently shown to '+label+'?'
+    : 'Unassign all '+ids.length+' test(s) currently shown? They come off everyone\'s To-Do list.';
+  if(!confirm(question)) return;
+  btn.disabled = true;
   try{
     for(const id of ids){ await updateDoc(doc(db,'projectTests',id), { assignee: who }); }
-    toast(ids.length+' test(s) handed to '+label);
+    toast(who ? ids.length+' test(s) handed to '+label : ids.length+' test(s) unassigned');
   } catch(err){ toast(projExplainError(err)); }
-  finally { this.disabled = false; }
+  finally { btn.disabled = false; }
+}
+
+document.getElementById('bulkAssignBtn').addEventListener('click', function(){
+  projBulkAssign(this, projVisibleTestIds.slice(), document.getElementById('bulkAssignee').value);
+});
+document.getElementById('bulkUnassignBtn').addEventListener('click', function(){
+  projBulkAssign(this, projVisibleTestIds.slice(), '');
+});
+document.getElementById('todoBulkAssignBtn').addEventListener('click', function(){
+  projBulkAssign(this, projVisibleTodoIds.slice(), document.getElementById('todoBulkAssignee').value);
+});
+document.getElementById('todoBulkUnassignBtn').addEventListener('click', function(){
+  projBulkAssign(this, projVisibleTodoIds.slice(), '');
 });
 
 document.getElementById('testCopyBtn').addEventListener('click', function(){
