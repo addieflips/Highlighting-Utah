@@ -570,13 +570,6 @@
     .menu-toggle-mobile svg{ width:20px; height:20px; stroke:#fff; }
   }
   /* ---- Project To-Do + Test Checklist ---- */
-  .proj-counts{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px; }
-  .proj-count{
-    display:inline-flex; align-items:center; gap:6px; padding:7px 12px;
-    border-radius:999px; border:1px solid var(--line, #e2e2e2);
-    background:#fff; font-size:13px; font-weight:600; color:var(--slate, #555);
-  }
-  .proj-count b{ font-size:15px; color:var(--ink, #1c1c1c); }
   .proj-field-row{ display:flex; gap:12px; flex-wrap:wrap; }
   .proj-field-row .form-row{ flex:1 1 150px; min-width:140px; }
   .proj-tag{
@@ -3475,21 +3468,11 @@ Highlighting Utah</textarea>
           </form>
         </div>
 
-        <div class="proj-counts" id="todoCounts"></div>
-
         <div class="proj-filterrow">
           <div class="proj-dd" id="ddTodoStatus"></div>
           <div class="proj-dd" id="ddTodoArea"></div>
           <div class="proj-dd" id="ddTodoWho"></div>
           <button type="button" class="proj-dd-reset" id="todoFilterReset">Clear filters</button>
-        </div>
-
-        <div class="proj-bulkbar">
-          <span class="proj-bulklabel">The <b id="todoBulkCount">0</b> shown:</span>
-          <select id="todoBulkAssignee"><option value="">Unassigned</option></select>
-          <button type="button" class="btn btn-outline btn-sm" id="todoBulkAssignBtn">Move to</button>
-          <button type="button" class="btn btn-outline btn-sm" id="todoBulkUnassignBtn">Unassign all shown</button>
-          <span class="proj-bulkhint">Filter to a person first to hand their whole list over, or clear it. Scored tests keep their owner and come back here if a fix reopens them.</span>
         </div>
 
         <div class="row-list" id="todoList"><div class="empty-note">Loading&hellip;</div></div>
@@ -16506,7 +16489,6 @@ let projAreaCardOpenIds = new Set();
 let projAreaProgressFilter = 'all';
 let projTestCache = [];
 let projVisibleTestIds = [];
-let projVisibleTodoIds = [];
 
 document.querySelectorAll('#projSectionTabs [data-projtab]').forEach(function(btn){
   btn.addEventListener('click', function(){
@@ -16765,7 +16747,7 @@ function refreshAssigneeSelects(){
   const opts = projAssigneeOptions();
   const html = '<option value="">Unassigned</option>' +
     opts.map(function(o){ return '<option value="'+esc(o.email)+'">'+esc(o.name)+'</option>'; }).join('');
-  ['testAssignee','bulkAssignee','todoBulkAssignee'].forEach(function(id){
+  ['testAssignee','bulkAssignee'].forEach(function(id){
     const sel = document.getElementById(id);
     if(!sel) return;
     const keep = sel.value;
@@ -17041,13 +17023,6 @@ function renderTodos(){
   const mine = assigned.filter(projIsTodo).slice().sort(projSortTests);
   const needs = mine.filter(function(t){ return !t.result; });
   const retests = mine.filter(function(t){ return t.result === 'Retest'; });
-  const scored = assigned.length - mine.length;
-
-  document.getElementById('todoCounts').innerHTML =
-    '<span class="proj-count">To do now <b>'+mine.length+'</b></span>'+
-    '<span class="proj-count">Needs Test <b>'+needs.length+'</b></span>'+
-    '<span class="proj-count">Retest <b>'+retests.length+'</b></span>'+
-    '<span class="proj-count" title="Assigned but already scored Pass, Fail or N/A - they come back here if a fix reopens them">Scored, waiting <b>'+scored+'</b></span>';
 
   const badge = document.getElementById('badgeProjTodo');
   if(badge){ badge.textContent = mine.length; badge.style.display = mine.length ? '' : 'none'; }
@@ -17065,10 +17040,6 @@ function renderTodos(){
   if(projTodoStatusFilter.size) rows = rows.filter(function(t){ return projTodoStatusFilter.has(t.result || 'none'); });
   if(projTodoAreaFilter.size) rows = rows.filter(function(t){ return projTodoAreaFilter.has(t.area); });
   rows = rows.filter(function(t){ return projWhoMatch(t, projTodoWhoFilter); });
-
-  projVisibleTodoIds = rows.map(function(t){ return t.id; });
-  const todoBulkCount = document.getElementById('todoBulkCount');
-  if(todoBulkCount) todoBulkCount.textContent = rows.length;
 
   if(!rows.length){
     list.innerHTML = '<div class="empty-note">'+
@@ -17234,13 +17205,6 @@ document.getElementById('bulkAssignBtn').addEventListener('click', function(){
 document.getElementById('bulkUnassignBtn').addEventListener('click', function(){
   projBulkAssign(this, projVisibleTestIds.slice(), '');
 });
-document.getElementById('todoBulkAssignBtn').addEventListener('click', function(){
-  projBulkAssign(this, projVisibleTodoIds.slice(), document.getElementById('todoBulkAssignee').value);
-});
-document.getElementById('todoBulkUnassignBtn').addEventListener('click', function(){
-  projBulkAssign(this, projVisibleTodoIds.slice(), '');
-});
-
 document.getElementById('testCopyBtn').addEventListener('click', function(){
   if(!projTestCache.length){ toast('Nothing to copy yet.'); return; }
   const order = ['Fail','Retest','','N/A','Pass'];
