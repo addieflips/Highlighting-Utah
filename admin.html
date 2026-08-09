@@ -961,6 +961,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 20l-5.447-2.724A1 1 0 0 1 3 16.382V5.618a1 1 0 0 1 1.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0 0 21 18.382V7.618a1 1 0 0 0-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>
       <span class="nav-label">Routes</span>
     <span class="nav-pin-icon" data-pinpanel="routes" data-pinlabel="Routes" title="Pin to Favorites"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l1 6 3 2v2H5v-2l3-2z"/></svg></span></button>
+    <button class="nav-item" data-panel="schedule" title="">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+      <span class="nav-label">Schedule</span>
+    <span class="nav-pin-icon" data-pinpanel="schedule" data-pinlabel="Schedule" title="Pin to Favorites"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l1 6 3 2v2H5v-2l3-2z"/></svg></span></button>
     <button class="nav-item" data-panel="responsibilities" title="">
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
       <span class="nav-label">Responsibilities</span>
@@ -3017,6 +3021,12 @@ Highlighting Utah</textarea>
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- SCHEDULE (route dashboard) -->
+    <div class="panel" id="panel-schedule">
+      <div class="panel-head"><div><h2>Schedule</h2><p>Adjustable route plan, fixes, new-member placement, and takedowns. Saves to your Firebase, synced across your devices.</p></div></div>
+      <div id="scheduleHost"></div>
     </div>
 
     <!-- TIME LOGS -->
@@ -17639,6 +17649,366 @@ function attachDeleteHandlers(container){
     });
   });
 }
+
+/* ==================== SCHEDULE TAB (route dashboard, isolated in shadow DOM) ==================== */
+(function(){ try{
+  const host=document.getElementById("scheduleHost"); if(!host||host.shadowRoot) return;
+  const RT=host.attachShadow({mode:"open"});
+  const STYLE="\n:host{--green:#0f5132;--green-l:#1a7a4c;--red:#b02a37;--gold:#c99a2e;--bg:#eef1ef;--card:#fff;\n--ink:#1c2621;--muted:#6b776f;--line:#e2e8e4;--done:#dff3e6;--sel:#0f5132;\n--shadow:0 1px 3px rgba(20,40,30,.06),0 6px 20px rgba(20,40,30,.07);}\n*{box-sizing:border-box}\n.rdwrap{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Inter,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink);line-height:1.4;-webkit-font-smoothing:antialiased}\n.wrap{max-width:1400px;margin:0 auto;padding:0 18px 60px}\nheader.top{background:linear-gradient(120deg,#0f5132,#1a7a4c 60%,#14663f);color:#fff;padding:26px 0 24px;border-bottom:4px solid var(--gold)}\n.top .wrap{padding-bottom:0}\n.lights{display:flex;gap:6px;margin-bottom:8px}\n.lights i{width:10px;height:10px;border-radius:50%;box-shadow:0 0 8px currentColor}\n.lights i:nth-child(1){background:#ff5a5a;color:#ff5a5a}.lights i:nth-child(2){background:#ffd35a;color:#ffd35a}.lights i:nth-child(3){background:#5affa0;color:#5affa0}.lights i:nth-child(4){background:#5ab8ff;color:#5ab8ff}.lights i:nth-child(5){background:#e07bff;color:#e07bff}\nh1{font-size:24px;margin:0;font-weight:750;letter-spacing:-.01em}\n.sub{color:#d5e8dd;font-size:13.5px;margin-top:3px}\n.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin:-42px 0 16px;position:relative}\n.stat{background:var(--card);border-radius:13px;padding:14px 16px;box-shadow:var(--shadow);border:1px solid var(--line)}\n.stat .n{font-size:23px;font-weight:780;color:var(--green);letter-spacing:-.02em}\n.stat .l{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:2px;font-weight:650}\n.obar{height:9px;border-radius:6px;background:#e0e6e2;overflow:hidden;margin-top:9px}\n.obar>i{display:block;height:100%;background:linear-gradient(90deg,var(--green-l),var(--gold));transition:width .4s}\n.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:4px 0 16px}\n.search{flex:1;min-width:200px;position:relative}\n.search input{width:100%;padding:11px 13px 11px 38px;border:1px solid var(--line);border-radius:11px;font-size:15px;background:var(--card);box-shadow:var(--shadow);outline:none}\n.search input:focus{border-color:var(--green-l)}\n.search svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);opacity:.45}\n.btn{padding:11px 15px;border-radius:11px;font-size:14px;font-weight:650;border:1px solid var(--green-l);background:var(--green-l);color:#fff;cursor:pointer;box-shadow:var(--shadow)}\n.btn:hover{background:var(--green)}.btn.ghost{background:var(--card);color:var(--green-l)}\n.layout{display:grid;grid-template-columns:270px 1fr;gap:18px;align-items:start}\n.daylist{background:var(--card);border-radius:14px;box-shadow:var(--shadow);border:1px solid var(--line);overflow:hidden;max-height:78vh;overflow-y:auto;position:sticky;top:14px}\n.daylist h3{margin:0;padding:13px 15px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--card);z-index:1}\n.day{padding:11px 15px;border-bottom:1px solid var(--line);cursor:pointer;display:flex;flex-direction:column;gap:5px;transition:background .12s}\n.day:hover{background:#f4f8f5}\n.day.sel{background:var(--green);color:#fff}\n.day.sel .dmeta,.day.sel .dbar{color:#d5e8dd}\n.day.sel .dbar{background:rgba(255,255,255,.25)}\n.drow{display:flex;justify-content:space-between;align-items:baseline;gap:8px}\n.dname{font-weight:700;font-size:14.5px}\n.dcount{font-size:12px;font-weight:650;opacity:.85}\n.dmeta{font-size:12px;color:var(--muted);display:flex;justify-content:space-between}\n.dbar{height:5px;border-radius:4px;background:#e0e6e2;overflow:hidden}\n.dbar>i{display:block;height:100%;background:linear-gradient(90deg,var(--green-l),var(--gold))}\n.day.sel .dbar>i{background:#ffd98a}\n.check-badge{display:inline-block;width:15px;height:15px;border-radius:50%;background:var(--gold);color:#fff;font-size:10px;text-align:center;line-height:15px;margin-left:5px}\n.panel{background:var(--card);border-radius:14px;box-shadow:var(--shadow);border:1px solid var(--line);overflow:hidden}\n.phead{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;align-items:center;gap:12px}\n.phead .t{font-size:19px;font-weight:750}\n.phead .meta{font-size:13px;color:var(--muted);font-weight:600}\n.phead .prog{flex:1;min-width:120px}\n.phead .obar{margin-top:5px}\n.crewtag{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;background:#eef2f0;color:#48564e;padding:3px 9px;border-radius:999px}\n.stop{display:flex;gap:12px;padding:13px 16px;border-top:1px solid var(--line);align-items:flex-start}\n.stop:hover{background:#f7faf8}\n.stop.done{background:var(--done)}\n.stop.done .snm{text-decoration:line-through;color:var(--muted)}\n.seq{flex:none;width:30px;height:30px;border-radius:9px;background:var(--green);color:#fff;font-weight:750;font-size:13px;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}\n.stop.done .seq{background:var(--gold)}\n.chk{flex:none;margin-top:4px}\ninput[type=checkbox]{width:20px;height:20px;accent-color:var(--green-l);cursor:pointer;margin:0}\n.sbody{flex:1;min-width:0}\n.snm{font-weight:700;font-size:15px}\n.saddr{font-size:13.5px;margin-top:2px}\n.saddr a{color:var(--green-l);text-decoration:none}.saddr a:hover{text-decoration:underline}\n.sline{font-size:12.5px;color:var(--muted);margin-top:3px;display:flex;flex-wrap:wrap;gap:4px 12px}\n.sline a{color:var(--green-l);text-decoration:none}\n.sdetail{font-size:12.5px;color:#5a6b60;margin-top:4px;background:#f2f6f3;border-radius:7px;padding:5px 9px;display:inline-block}\n.stop.done .sdetail{background:rgba(255,255,255,.5)}\n.sprice{flex:none;text-align:right;font-weight:750;color:var(--green);font-variant-numeric:tabular-nums;white-space:nowrap;font-size:15px}\n.tag{display:inline-block;padding:1px 7px;border-radius:999px;font-size:11px;font-weight:650;background:#eef2f0;color:#48564e}\n.tag.oct{background:#fdeede;color:#9a5b16}.tag.nov{background:#e4eefc;color:#25548f}.tag.any{background:#e8f4ec;color:#2b6b45}.tag.thx{background:#f6e6f2;color:#8a3070}.tag.dec{background:#e7f0ff;color:#2a4d8f}\n.searchres .daygrp{border-top:1px solid var(--line)}\n.daygrp-h{padding:8px 16px;background:#f4f8f5;font-size:12px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.04em}\nfooter{margin-top:16px;font-size:12px;color:var(--muted);text-align:center;line-height:1.6}\n@media(max-width:820px){.layout{grid-template-columns:1fr}.daylist{position:static;max-height:none;display:flex;overflow-x:auto;flex-wrap:nowrap}.daylist h3{display:none}.day{min-width:150px;border-bottom:none;border-right:1px solid var(--line)}}\n\n\n/* ---- app additions ---- */\n.mockbadge{display:inline-block;background:var(--gold);color:#fff;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;margin-left:8px;vertical-align:middle;letter-spacing:.03em}\n.stat.remain .n{color:var(--gold)}\n.tabs{display:flex;gap:7px;margin:0 0 16px;flex-wrap:wrap}\n.tab{padding:11px 18px;border-radius:11px;font-size:14.5px;font-weight:700;border:1px solid var(--line);background:var(--card);color:var(--muted);cursor:pointer;box-shadow:var(--shadow)}\n.tab.active{background:var(--green);color:#fff;border-color:var(--green)}\n.tabpane[hidden]{display:none}\n.seasonbar{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);padding:12px 15px;margin:0 0 14px;display:flex;flex-wrap:wrap;align-items:center;gap:14px}\n.seasonbar .fld{display:flex;flex-direction:column;gap:3px}\n.seasonbar label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700}\n.seasonbar input[type=date]{padding:8px 10px;border:1px solid var(--line);border-radius:9px;font-size:14px;background:#fff}\n.seasonbar .read{font-size:13px;color:var(--muted);font-weight:600}\n.seasonbar .read b{color:var(--green)}\n.wknote{width:100%;font-size:12px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:7px 11px}\n.mini{padding:7px 11px;border-radius:9px;font-size:12.5px;font-weight:650;border:1px solid var(--line);background:#fff;color:var(--green);cursor:pointer}\n.mini:hover{background:#f4f8f5}\n.mini.warn{border-color:#e7c9cd;color:var(--red)}.mini.warn:hover{background:#fbeef0}\n.daycontrols{display:flex;gap:8px;flex-wrap:wrap;width:100%;align-items:center}\n.moveday{font-size:11.5px;border:1px solid var(--line);border-radius:7px;padding:4px 7px;background:#fff;color:#48564e;max-width:250px}\ninput.pin{padding:5px 7px;border:1px solid var(--line);border-radius:7px;font-size:12px;background:#fff}\n.qbtn{font-size:11px;font-weight:700;border-radius:7px;padding:3px 8px;cursor:pointer;border:1px solid}\n.qbtn.oct{border-color:#f0d5b6;background:#fdeede;color:#9a5b16}\n.qbtn.nov{border-color:#c5d8f4;background:#e4eefc;color:#25548f}\n.qbtn:hover{filter:brightness(.96)}\n.sctl{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px}\n.sctl .lbl{font-size:11px;color:var(--muted);font-weight:650}\n.darea{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.day.sel .darea{color:#cfe6d8}\n.pinbadge{display:inline-block;background:#e4eefc;color:#25548f;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px}\n.weekguide{border-top:1px solid var(--line);background:#fbfdfc}\n.wgh{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;padding:9px 16px 2px}\n.wgrow{display:flex;gap:8px;overflow-x:auto;padding:4px 16px 12px}\n.wchip{flex:none;min-width:118px;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:#fff}\n.wchip.here{border-color:var(--green-l);background:#eaf4ee}\n.wchip .wd{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase}\n.wchip .wc{font-size:13.5px;font-weight:750;color:var(--green);margin-top:1px}\n.wchip .wa{font-size:11.5px;color:#48564e;margin-top:3px;line-height:1.3}\n.wchip .wn{font-size:11px;color:var(--muted);margin-top:4px}\n.tray{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);margin:0 0 14px;overflow:hidden}\n.tray h3{margin:0;padding:12px 15px;font-size:13px;font-weight:750;color:var(--green);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;cursor:pointer}\n.tray h3.fix{color:var(--red)}\n.tray h3 .cnt{background:var(--green-l);color:#fff;font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px}\n.tray h3.fix .cnt{background:var(--red)}\n.tray h3 .chev{margin-left:auto;color:var(--muted);font-size:12px}\n.traynote{font-size:12px;color:var(--muted);padding:8px 15px 2px}\n.grouph{font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding:10px 15px 2px}\n.newrow{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:11px 15px;border-top:1px solid var(--line)}\n.newrow .who{font-weight:700;font-size:14px;min-width:140px}\n.newrow .meta{font-size:12.5px;color:var(--muted)}\n.newrow .auto{font-size:12px;color:#2b6b45;font-weight:650}\n.newrow .acts{margin-left:auto;display:flex;gap:7px;align-items:center;flex-wrap:wrap}\n.newbadge{display:inline-block;background:#fbeecd;color:#8a5a12;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.fixbadge{display:inline-block;background:#f7dfe1;color:#a12a35;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.stop.isnew{box-shadow:inset 3px 0 0 var(--gold)}\n.stop.isfix{box-shadow:inset 3px 0 0 var(--red)}\n.stop.istake{box-shadow:inset 3px 0 0 #6b776f}\n.day.fixroute{background:#fdf3f4}\n.day.fixroute.sel{background:#8f2530;color:#fff}\n.day.fixroute.sel .darea,.day.fixroute.sel .dmeta{color:#f3d6d9}\n.day.fixroute.sel .dbar{background:rgba(255,255,255,.25)}\n.frb{display:inline-block;background:#f7dfe1;color:#a12a35;font-size:9.5px;font-weight:800;padding:1px 5px;border-radius:5px;margin-left:6px;vertical-align:middle}\n.day.fixroute.sel .frb{background:#fff;color:#8f2530}\n.buildfix{margin:8px 15px}\n.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;padding:11px 18px;border-radius:11px;font-size:13.5px;font-weight:600;box-shadow:0 8px 30px rgba(0,0,0,.25);opacity:0;pointer-events:none;transition:.25s;z-index:50;max-width:90vw;text-align:center}\n.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}\n.emptyday{padding:20px 16px;color:var(--muted);font-size:13.5px;text-align:center}\n#gate{position:fixed;inset:0;background:linear-gradient(120deg,#0f5132,#14663f);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px}\n#gate .card{background:#fff;border-radius:16px;padding:26px;max-width:360px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3)}\n#gate h2{margin:0 0 4px;color:var(--green);font-size:20px}\n#gate p{margin:0 0 16px;color:var(--muted);font-size:13.5px}\n#gate input{width:100%;padding:11px;border:1px solid var(--line);border-radius:10px;font-size:15px;margin-bottom:10px}\n#gate .err{color:var(--red);font-size:13px;min-height:18px}\n#importBox{max-width:560px;margin:34px auto;background:#fff;border:1px solid var(--line);border-radius:14px;padding:26px;box-shadow:var(--shadow);text-align:center}\n#importBox h2{color:var(--green);margin:0 0 6px}\n#importBox p{color:var(--muted);font-size:13.5px;margin:0 0 16px}\n#importBox .err{color:var(--red);font-size:13px;margin-top:10px;min-height:18px}\n.topbar{display:flex;align-items:center;gap:12px;margin-top:6px}\n.savenote{font-size:12.5px;color:#d5e8dd;font-weight:600}\n.linkbtn{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;padding:6px 12px;border-radius:9px;font-size:12.5px;font-weight:650;cursor:pointer}\n.hide{display:none!important}\n";
+  const MARKUP="<div class=\"rdwrap\"><div class=\"wrap\"><div style=\"text-align:right;font-size:12px;color:var(--muted);margin:0 2px 6px;font-weight:600\" id=\"saveNote\"></div><div id=\"importBox\" class=\"hide\">\n    <h2>Import your route plan</h2>\n    <p>One-time setup. Choose your route CSV (export from your Excel, or the “Export progress CSV” from the old dashboard). Your data is saved to your private Firebase — it is never stored in this page.</p>\n    <input type=\"file\" id=\"importFile\" accept=\".csv,text/csv\">\n    <div class=\"err\" id=\"importErr\"></div>\n  </div>\n\n  <div id=\"dashboard\" class=\"hide\">\n    <div class=\"stats\" id=\"stats\"></div>\n    <div class=\"tabs\">\n      <button class=\"tab active\" data-tab=\"schedule\">📅 Scheduling</button>\n      <button class=\"tab\" data-tab=\"fixes\">🔧 Fixes</button>\n      <button class=\"tab\" data-tab=\"members\">🆕 New Members</button>\n      <button class=\"tab\" data-tab=\"takedowns\">📦 Takedowns</button>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-schedule\">\n      <div class=\"seasonbar\">\n        <div class=\"fld\"><label for=\"startDate\">Season start</label><input type=\"date\" id=\"startDate\"></div>\n        <div class=\"read\" id=\"shiftRead\"></div>\n        <button class=\"mini\" id=\"resetBtn\" style=\"margin-left:auto\">↺ Reload saved</button>\n        <div class=\"wknote\" id=\"wkNote\"></div>\n      </div>\n      <div class=\"toolbar\">\n        <div class=\"search\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"11\" cy=\"11\" r=\"7\"></circle><path d=\"M21 21l-4.3-4.3\"></path></svg>\n          <input id=\"q\" placeholder=\"Search name, address, city, phone…\" autocomplete=\"off\">\n        </div>\n        <button class=\"btn ghost\" id=\"clearBtn\" style=\"display:none\">Clear</button>\n        <button class=\"btn\" id=\"csvBtn\">Export CSV</button>\n      </div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Days · left · area</h3><div id=\"days\"></div></div><div class=\"panel\" id=\"panel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-fixes\" hidden>\n      <div class=\"tray\" id=\"fixtray\"></div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Fixer routes</h3><div id=\"fixDays\"></div></div><div class=\"panel\" id=\"fixPanel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-members\" hidden><div class=\"tray\" id=\"membersPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-takedowns\" hidden>\n      <div class=\"seasonbar\"><div class=\"fld\"><label for=\"takeStart\">Takedown start</label><input type=\"date\" id=\"takeStart\"></div><div class=\"read\" id=\"takeRead\"></div></div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Takedown days · left · area</h3><div id=\"takeDays\"></div></div><div class=\"panel\" id=\"takePanel\"></div></div>\n    </div>\n\n    <footer>\n      Live — saves to your private Firebase (routeSchedule), synced across your devices. This page only writes its own schedule; it does not touch customers, the crew’s routes, or billing.<br>\n      Weekends are skipped automatically; use “Force exact date” to place a route on a weekend.\n    </footer>\n  </div></div><div class=\"toast\" id=\"toast\"></div></div>";
+  RT.innerHTML="<style>"+STYLE+"</style>"+MARKUP;
+
+const PLAN_REF=()=>doc(db,'routeSchedule','plan');
+
+/* ---------- helpers ---------- */
+const WD=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const MO=['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const DAYMS=86400000, WINDOW=14, FIX_LOOKAHEAD=3;
+const TAKE_BASE_START=new Date(2027,0,4);
+function addDays(dt,n){const x=new Date(dt);x.setDate(x.getDate()+n);return x;}
+function daysBetween(a,b){return Math.round((a-b)/DAYMS);}
+function isWeekend(dt){const g=dt.getDay();return g===0||g===6;}
+function dlabel(dt){return{wd:WD[dt.getDay()],full:MO[dt.getMonth()+1]+' '+dt.getDate()};}
+function isoOf(dt){return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');}
+function esc(s){return(''+s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function fmtPhone(p){let s=(''+p).replace(/\D/g,'');return s.length===10?'('+s.slice(0,3)+') '+s.slice(3,6)+'-'+s.slice(6):(''+p)}
+function prefClass(v){let l=(''+v).trim().toLowerCase();if(l.startsWith('oct')||/^10\//.test(l))return'oct';if(l.includes('nov')||/^11\//.test(l))return'nov';if(l.startsWith('any'))return'any';if(l.includes('thx')||l.includes('thanks'))return'thx';if(l.startsWith('dec')||/^12\//.test(l))return'dec';return''}
+function prefTag(v){if(!v)return'';return'<span class="tag '+prefClass(v)+'">'+esc((''+v).trim())+'</span>'}
+function toast(msg){const t=RT.getElementById('toast');t.textContent=msg;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),2800);}
+
+/* ---------- model ---------- */
+let SEASON=[], ORDER=[], BASE_START, globalDelta=0, takeDelta=0;
+let selSchedule=null, selFix=null, selTake=null, activeTab='schedule';
+let fixOpen=true, FIXLIST=[], fixRouteSeq=0, loaded=false, saveTimer=null;
+
+/* ---------- date engine ---------- */
+function startFor(day){return day.isTakedown?TAKE_BASE_START:BASE_START;}
+function deltaFor(day){return day.isTakedown?takeDelta:globalDelta;}
+function desired(day){return addDays(startFor(day), day.base+deltaFor(day)+day.cascade);}
+function layoutSequence(days){
+  const arr=days.sort((a,b)=>{const ka=a.pin?a.pin:desired(a),kb=b.pin?b.pin:desired(b);return ka-kb||a.base-b.base;});
+  let cursor=null;
+  for(const day of arr){
+    if(day.pin){day._date=new Date(day.pin);if(!cursor||day._date>cursor)cursor=new Date(day._date);continue;}
+    let d=desired(day);
+    if(cursor&&d<=cursor)d=addDays(cursor,1);
+    while(isWeekend(d))d=addDays(d,1);
+    while(cursor&&d<=cursor){d=addDays(d,1);while(isWeekend(d))d=addDays(d,1);}
+    day._date=d;cursor=d;
+  }
+}
+function computeDates(){
+  layoutSequence(SEASON.filter(d=>!d.isFixRoute&&!d.isTakedown));
+  layoutSequence(SEASON.filter(d=>d.isTakedown));
+  SEASON.filter(d=>d.isFixRoute).forEach(d=>{d._date=new Date(d.pin);});
+  ORDER=SEASON.slice().sort((a,b)=>a._date-b._date||((a.isFixRoute?1:0)-(b.isFixRoute?1:0))||a.base-b.base);
+}
+function dayDate(day){return day._date;}
+function getDay(id){return SEASON.find(d=>d.id===id);}
+function orderedDays(){return ORDER.slice();}
+function installDays(){return ORDER.filter(d=>!d.isFixRoute&&!d.isTakedown);}
+function fixerRoutes(){return ORDER.filter(d=>d.isFixRoute);}
+function takedownDays(){return ORDER.filter(d=>d.isTakedown);}
+function phaseDays(day){return day.isTakedown?takedownDays():installDays();}
+function allHouses(){return SEASON.flatMap(d=>d.houses);}
+function findHouse(id){for(const d of SEASON){const h=d.houses.find(x=>String(x.id)===String(id));if(h)return{house:h,day:d};}return null;}
+function newHouses(){return allHouses().filter(h=>h.isNew);}
+function routedFixes(){return allHouses().filter(h=>h.isFix);}
+
+/* ---------- area ---------- */
+function cityOf(h){return (h.city||'').trim();}
+function zipNum(z){return parseInt((''+(z||'')).replace(/\D/g,''),10)||0;}
+function dayAreas(day){const c={};day.houses.forEach(h=>{const k=cityOf(h);if(k)c[k]=(c[k]||0)+1;});return Object.entries(c).sort((a,b)=>b[1]-a[1]).map(x=>x[0]);}
+function dayMainArea(day){const a=dayAreas(day);return a.length?a.slice(0,2).join(' · '):'—';}
+
+/* ---------- build from imported rows ---------- */
+function buildSeason(data){
+  const dates=[...new Set(data.map(r=>r.date))].sort((a,b)=>mdToDate(a)-mdToDate(b));
+  BASE_START=mdToDate(dates[0]); globalDelta=0; takeDelta=0; FIXLIST=[]; fixRouteSeq=0;
+  SEASON=dates.map((md,i)=>({id:'d'+i, base:daysBetween(mdToDate(md),BASE_START), cascade:0, pin:null,
+    houses:data.filter(r=>r.date===md).map(r=>Object.assign({},r,{done:false}))}));
+  computeDates(); seedTakedowns(); computeDates();
+  selSchedule=installDays()[0]?installDays()[0].id:null; selFix=null; selTake=takedownDays()[0]?takedownDays()[0].id:null;
+}
+function mdToDate(md){const[m,d]=(''+md).split('-').map(Number);return new Date(2026,m-1,d);}
+function seedTakedowns(){
+  const inst=SEASON.filter(d=>!d.isFixRoute&&!d.isTakedown);let k=0;
+  inst.forEach((d,i)=>{const houses=d.houses.filter(h=>!h.isFix).map(h=>({id:'t'+(k++),name:h.name,address:h.address,city:h.city,zip:h.zip,phone:h.phone,cu:h.cu,price:0,details:'Takedown / removal',isTakedown:true,done:false}));
+    SEASON.push({id:'td'+i,isTakedown:true,base:i,cascade:0,pin:null,houses:houses});});
+}
+
+/* ---------- area matching / fixes / signups (available for phase 2 wiring) ---------- */
+function areaScore(h,day){
+  const sc=cityOf(h).toLowerCase();
+  if(dayAreas(day).some(c=>c.toLowerCase()===sc))return 0;
+  const sz=''+(h.zip||'');
+  if(sz&&day.houses.some(x=>(''+x.zip)===sz))return 1;
+  if(sz&&day.houses.some(x=>(''+x.zip).slice(0,3)===sz.slice(0,3)))return 2;
+  const zn=zipNum(h.zip);let best=9e9;day.houses.forEach(x=>{const hz=zipNum(x.zip);if(hz)best=Math.min(best,Math.abs(hz-zn));});
+  return 3+Math.min(best/1000,6);
+}
+function fixToHouse(fx){return {id:fx.id,name:fx.name,address:fx.address,city:fx.city,zip:fx.zip,phone:fx.phone,cu:'',price:0,details:'FIX: '+fx.issue,done:false,isFix:true,issue:fx.issue,addedDate:fx.addedDate};}
+function sendFixToList(id){const f=findHouse(id);if(!f)return;f.day.houses=f.day.houses.filter(x=>x!==f.house);
+  FIXLIST.push({id:f.house.id,name:f.house.name,address:f.house.address,city:f.house.city,zip:f.house.zip,phone:f.house.phone,issue:f.house.issue,addedDate:f.house.addedDate});renderAll();toast(f.house.name+' moved to the fix list');}
+function addListFixToDay(id,dayId){const idx=FIXLIST.findIndex(x=>x.id===id);if(idx<0)return;const fx=FIXLIST[idx];const day=getDay(dayId);if(!day)return;
+  const h=fixToHouse(fx);const l=dlabel(day._date);h.autoDay=l.wd+' '+l.full;h.autoReason='added by you';day.houses.push(h);FIXLIST.splice(idx,1);selSchedule=dayId;renderAll();toast(fx.name+' fix added to '+l.full);}
+function nextWeekday(dt){let d=new Date(dt);while(isWeekend(d))d=addDays(d,1);return d;}
+function anchorToday(){return installDays().length?installDays()[0]._date:BASE_START;}
+function buildFixRoutes(){
+  if(!FIXLIST.length){toast('Fix list is empty');return;}
+  const items=FIXLIST.slice().sort((a,b)=>zipNum(a.zip)-zipNum(b.zip));const clusters=[];let cur=[];
+  items.forEach(fx=>{if(!cur.length){cur=[fx];return;}if(Math.abs(zipNum(fx.zip)-zipNum(cur[cur.length-1].zip))<=25)cur.push(fx);else{clusters.push(cur);cur=[fx];}});
+  if(cur.length)clusters.push(cur);
+  const usedFix=new Set(SEASON.filter(d=>d.isFixRoute).map(d=>isoOf(d._date)));let cursor=addDays(anchorToday(),3);
+  clusters.forEach(cl=>{let d=nextWeekday(cursor);let g=0;while(usedFix.has(isoOf(d))&&g<200){d=nextWeekday(addDays(d,1));g++;}usedFix.add(isoOf(d));cursor=addDays(d,1);
+    const l=dlabel(d);
+    SEASON.push({id:'fr'+(fixRouteSeq++),isFixRoute:true,base:daysBetween(d,BASE_START),cascade:0,pin:new Date(d),houses:cl.map(fx=>{const h=fixToHouse(fx);h.autoDay=l.wd+' '+l.full;h.autoReason='fixer’s dedicated run';return h;})});});
+  FIXLIST=[];computeDates();activeTab='fixes';selFix=SEASON[SEASON.length-1].id;syncTabs();renderAll();toast('Built '+clusters.length+' fixer route'+(clusters.length===1?'':'s'));
+}
+function disbandFixRoute(id){const idx=SEASON.findIndex(d=>d.id===id);if(idx<0)return;const day=SEASON[idx];
+  day.houses.forEach(h=>FIXLIST.push({id:h.id,name:h.name,address:h.address,city:h.city,zip:h.zip,phone:h.phone,issue:h.issue,addedDate:h.addedDate}));
+  SEASON.splice(idx,1);computeDates();selFix=fixerRoutes()[0]?fixerRoutes()[0].id:null;renderAll();toast('Fixer route disbanded');}
+
+/* ---------- stats ---------- */
+function renderStats(){
+  const installs=allHouses().filter(h=>!h.isFix&&!h.isTakedown);
+  const done=installs.filter(h=>h.done).length, remaining=installs.length-done;
+  const rev=installs.reduce((a,h)=>a+(typeof h.price==='number'?h.price:0),0), pct=installs.length?Math.round(done/installs.length*100):0;
+  const fixesTotal=routedFixes().length+FIXLIST.length, fixesDone=routedFixes().filter(h=>h.done).length;
+  const s=[['Houses',installs.length,''],['Remaining',remaining,'remain'],['Completed',done+' <span style="font-size:14px;color:var(--muted)">/ '+pct+'%</span>','bar'],['Revenue','$'+rev.toLocaleString(),''],['New members',newHouses().length,''],['Fixes done',fixesDone+' <span style="font-size:14px;color:var(--muted)">/ '+fixesTotal+'</span>','']];
+  RT.getElementById('stats').innerHTML=s.map(x=>'<div class="stat '+(x[2]==='remain'?'remain':'')+'"><div class="n">'+x[1]+'</div><div class="l">'+x[0]+'</div>'+(x[2]==='bar'?'<div class="obar"><i style="width:'+pct+'%"></i></div>':'')+'</div>').join('');
+}
+function renderSeasonBar(){
+  const first=installDays()[0]._date;
+  RT.getElementById('startDate').value=isoOf(addDays(BASE_START,globalDelta));
+  const rd=RT.getElementById('shiftRead'), lab=dlabel(first), last=dlabel(installDays()[installDays().length-1]._date);
+  rd.innerHTML=(globalDelta===0?'Plan runs ':'Shifted <b>'+(globalDelta>0?'+':'')+globalDelta+'d</b> — ')+'<b>'+lab.wd+' '+lab.full+'</b> → <b>'+last.full+'</b>.';
+  const bumped=SEASON.filter(d=>!d.isFixRoute&&!d.isTakedown&&!d.pin&&isWeekend(desired(d))).length, wk=RT.getElementById('wkNote');
+  if(bumped){wk.style.display='';wk.innerHTML='⤷ '+bumped+' route day'+(bumped===1?'':'s')+' landed on a weekend and moved to the next weekday.';}else wk.style.display='none';
+}
+function renderTakedownBar(){
+  const days=takedownDays();if(!days.length)return;
+  RT.getElementById('takeStart').value=isoOf(addDays(TAKE_BASE_START,takeDelta));
+  const first=dlabel(days[0]._date), last=dlabel(days[days.length-1]._date);
+  const done=days.reduce((a,d)=>a+d.houses.filter(h=>h.done).length,0), total=days.reduce((a,d)=>a+d.houses.length,0);
+  RT.getElementById('takeRead').innerHTML=(takeDelta===0?'':'Shifted <b>'+(takeDelta>0?'+':'')+takeDelta+'d</b> — ')+'<b>'+first.wd+' '+first.full+'</b> → <b>'+last.full+'</b> · <b>'+done+'</b> of '+total+' removed';
+}
+function renderDayList(elId,days,selId,listName){
+  const el=RT.getElementById(elId);
+  if(!days.length){el.innerHTML='<div class="emptyday" style="font-size:12.5px">'+(listName==='fix'?'No fixer routes yet.':'No days.')+'</div>';return;}
+  el.innerHTML=days.map(day=>{const dt=dayDate(day),lab=dlabel(dt),fr=day.isFixRoute;
+    const dc=day.houses.filter(h=>h.done).length,n=day.houses.length,left=n-dc,pct=n?Math.round(dc/n*100):0,full=n&&dc===n;
+    return '<div class="day'+(day.id===selId?' sel':'')+(fr?' fixroute':'')+'" data-day="'+day.id+'" data-list="'+listName+'">'+
+      '<div class="drow"><span class="dname">'+lab.wd+' '+lab.full+(fr?'<span class="frb">FIX RT</span>':(day.pin?'<span class="pinbadge">SET</span>':''))+(full?'<span class="check-badge">✓</span>':'')+'</span><span class="dcount">'+(full?'done':left+' left')+'</span></div>'+
+      '<div class="darea">'+esc(dayMainArea(day))+'</div><div class="dmeta"><span>'+dc+' / '+n+'</span><span>'+pct+'%</span></div><div class="dbar"><i style="width:'+pct+'%"></i></div></div>';}).join('');
+}
+function dayOptions(currentId,kind){
+  let days=orderedDays();
+  if(kind==='install')days=days.filter(d=>!d.isFixRoute&&!d.isTakedown);
+  else if(kind==='fix')days=days.filter(d=>!d.isTakedown);
+  else if(kind==='take')days=days.filter(d=>d.isTakedown);
+  return days.map(d=>{const l=dlabel(dayDate(d));return'<option value="'+d.id+'"'+(d.id===currentId?' selected':'')+'>'+(d.isFixRoute?'🔧 ':(d.isTakedown?'📦 ':''))+l.wd+' '+l.full+' · '+esc(dayMainArea(d))+' ('+d.houses.length+')</option>';}).join('');
+}
+function renderMembers(){
+  const el=RT.getElementById('membersPane'), news=newHouses();
+  if(!news.length){el.innerHTML='<h3>🆕 New members</h3><div class="traynote">New members from your website form will show here (with where they landed in the routes) once the customer feed is wired in the next phase.</div>';return;}
+  const rows=news.map(h=>{const f=findHouse(h.id),day=f?f.day:null;const where=day?('<b>'+dlabel(day._date).wd+' '+dlabel(day._date).full+'</b> · '+esc(dayMainArea(day))):'not placed';
+    return '<div class="newrow"><div><div class="who">'+esc(h.name)+'<span class="newbadge">NEW</span></div><div class="meta">'+esc(h.address)+', '+esc(h.city)+' '+prefTag(h.pref)+'</div></div>'+
+      '<div><div class="auto">📍 in the routes: '+where+'</div></div><div class="acts"><span class="lbl">Move to</span><select class="moveday" data-move="'+h.id+'">'+dayOptions(day?day.id:null,'install')+'</select></div></div>';}).join('');
+  el.innerHTML='<h3>🆕 New members — where they landed <span class="cnt">'+news.length+'</span></h3>'+rows;
+}
+function renderFixTray(){
+  const el=RT.getElementById('fixtray'), routed=routedFixes(), total=routed.length+FIXLIST.length;
+  if(!total){el.innerHTML='<h3 class="fix">🔧 Fixes</h3><div class="traynote">Fix requests will show here. When the crew will be near a fix within '+FIX_LOOKAHEAD+' days it rides along; otherwise it waits on the fix list to become the fixer’s own route.</div>';return;}
+  let body='';
+  const rowFor=h=>{const f=findHouse(h.id);return '<div class="newrow"><div><div class="who">'+esc(h.name)+'<span class="fixbadge">FIX</span></div><div class="meta">'+esc(h.address)+', '+esc(h.city)+'</div></div>'+
+    '<div><div class="auto">🔧 on '+esc(h.autoDay||'')+' — '+esc(h.autoReason||'')+'</div><div class="meta">'+esc(h.issue||'')+'</div></div>'+
+    '<div class="acts"><select class="moveday" data-move="'+h.id+'">'+dayOptions(f?f.day.id:null,'fix')+'</select><button class="mini warn" data-tolist="'+h.id+'">→ Fix list</button></div></div>';};
+  const rideAlong=routed.filter(h=>{const f=findHouse(h.id);return f&&!f.day.isFixRoute;});
+  const onFixer=routed.filter(h=>{const f=findHouse(h.id);return f&&f.day.isFixRoute;});
+  if(rideAlong.length)body+='<div class="grouph">Same day as a nearby route — the fixer catches these</div>'+rideAlong.map(rowFor).join('');
+  if(onFixer.length)body+='<div class="grouph">On the fixer’s dedicated routes</div>'+onFixer.map(rowFor).join('');
+  if(FIXLIST.length){body+='<div class="grouph">Fix list — no route near soon</div><button class="btn buildfix" data-buildfix>🚚 Build the fixer’s route(s) ('+FIXLIST.length+')</button>';
+    body+=FIXLIST.map(fx=>'<div class="newrow"><div><div class="who">'+esc(fx.name)+'</div><div class="meta">'+esc(fx.address)+', '+esc(fx.city)+'</div></div><div><div class="auto" style="color:#9a5b16">no route near '+esc(fx.city)+' soon</div><div class="meta">'+esc(fx.issue)+'</div></div><div class="acts"><span class="lbl">Add to a route</span><select class="moveday" data-fixadd="'+fx.id+'"><option value="">Choose a day…</option>'+dayOptions(null,'fix')+'</select></div></div>').join('');}
+  el.innerHTML='<h3 class="fix" id="fixH">🔧 Fixes <span class="cnt">'+total+'</span><span class="chev">'+(fixOpen?'▾':'▸')+'</span></h3>'+(fixOpen?body:'');
+}
+function weekGuideHTML(fromDay){const od=phaseDays(fromDay);const start=od.indexOf(fromDay);const week=od.slice(start,start+7);
+  return '<div class="weekguide"><div class="wgh">Where the crew will be — next '+week.length+' '+(fromDay.isTakedown?'takedown':'route')+' days</div><div class="wgrow">'+
+    week.map(d=>{const l=dlabel(dayDate(d));return'<div class="wchip'+(d.id===fromDay.id?' here':'')+'"><div class="wd">'+l.wd+'</div><div class="wc">'+l.full+'</div><div class="wa">'+esc(dayMainArea(d))+'</div><div class="wn">'+d.houses.length+' houses</div></div>';}).join('')+'</div></div>';}
+function stopHTML(h,n,dayId){
+  const maps='https://maps.google.com/?q='+encodeURIComponent((h.address||'')+' '+(h.city||'')+' UT '+(h.zip||''));
+  const ph=h.phone?'<a href="tel:'+h.phone+'">'+fmtPhone(h.phone)+'</a>':'';
+  const line=[ph,h.city?esc(h.city):'',h.pref?prefTag(h.pref):''].filter(Boolean).join('<span style="opacity:.4">·</span> ');
+  const cls='stop'+(h.done?' done':'')+(h.isNew?' isnew':'')+(h.isFix?' isfix':'')+(h.isTakedown?' istake':'');
+  const kind=h.isTakedown?'take':(h.isFix?'fix':'install');
+  let extra='<div class="sctl"><span class="lbl">'+(h.isTakedown?'Move takedown to':'Reschedule to')+'</span><select class="moveday" data-move="'+h.id+'">'+dayOptions(dayId,kind)+'</select>';
+  if(h.isFix)extra+='<button class="mini warn" data-tolist="'+h.id+'">→ Fix list</button>';
+  else if(!h.isTakedown)extra+='<button class="qbtn oct" data-reassign="'+h.id+'" data-month="10">→ Oct</button><button class="qbtn nov" data-reassign="'+h.id+'" data-month="11">→ Nov</button>';
+  extra+='</div>';
+  return '<div class="'+cls+'"><div class="chk"><input type="checkbox" data-id="'+h.id+'"'+(h.done?' checked':'')+'></div><div class="seq">'+n+'</div>'+
+    '<div class="sbody"><div class="snm">'+esc(h.name)+(h.isNew?'<span class="newbadge">NEW</span>':'')+(h.isFix?'<span class="fixbadge">FIX</span>':'')+(h.cu?' <span style="font-weight:600;color:var(--muted);font-size:12.5px">#'+esc(h.cu)+'</span>':'')+'</div>'+
+    '<div class="saddr"><a href="'+maps+'" target="_blank" rel="noopener">'+esc(h.address)+'</a></div>'+(line?'<div class="sline">'+line+'</div>':'')+(h.details?'<div class="sdetail">'+esc(h.details)+'</div>':'')+extra+'</div>'+
+    '<div class="sprice">'+(typeof h.price==='number'&&h.price?'$'+h.price:'')+'</div></div>';
+}
+function renderPanelInto(elId,day){
+  const el=RT.getElementById(elId);
+  if(!day){el.innerHTML='<div class="emptyday">'+(elId==='fixPanel'?'Pick a fixer route on the left, or build one from the fix list.':'No day selected.')+'</div>';return;}
+  const dt=dayDate(day),lab=dlabel(dt),dc=day.houses.filter(h=>h.done).length,n=day.houses.length,left=n-dc,pct=n?Math.round(dc/n*100):0;
+  const shift=deltaFor(day)+day.cascade,fr=day.isFixRoute,td=day.isTakedown;
+  const title=fr?('🚚 Fixer Route — '+esc(dayMainArea(day))):((td?'📦 ':'')+lab.wd+', '+lab.full+(day.pin&&!fr?' <span class="pinbadge">SET DATE</span>':''));
+  let h='<div class="phead"><div><div class="t">'+title+'</div><div class="meta">'+(fr?'on '+lab.wd+' '+lab.full+' · ':'')+left+' left · '+n+' total'+(fr?'':' · '+esc(dayMainArea(day)))+'</div></div>'+
+    '<div class="prog"><div class="meta">'+pct+'% '+(td?'removed':'complete')+'</div><div class="obar"><i style="width:'+pct+'%"></i></div></div>'+
+    '<button class="btn ghost" data-allbtn="'+day.id+'">'+(dc===n&&n?'Uncheck all':(td?'Mark all removed':'Mark all done'))+'</button>'+(fr?'<button class="mini warn" data-disband="'+day.id+'">Disband route</button>':'')+'</div>';
+  if(fr){h+='<div class="daycontrols" style="padding:10px 16px"><span class="lbl">Route date</span><input type="date" class="pin" data-pin="'+day.id+'" value="'+isoOf(dt)+'"><span class="read">the fixer’s route — can run the same day as installs'+(isWeekend(dt)?' · weekend':'')+'</span></div>';}
+  else{h+=weekGuideHTML(day)+'<div class="daycontrols" style="padding:10px 16px">'+
+      '<button class="mini" data-pull="'+day.id+'">◀ Pull this + rest earlier</button><button class="mini" data-push="'+day.id+'">Push this + rest later ▶</button>'+
+      '<button class="mini warn" data-skip="'+day.id+'">✕ Day off (push rest later)</button><span class="lbl">Force exact date</span><input type="date" class="pin" data-pin="'+day.id+'" value="'+isoOf(dt)+'">'+
+      (day.pin?'<button class="mini" data-unpin="'+day.id+'">clear</button>':'')+'<span class="read">'+(shift!==0?'shifted '+(shift>0?'+':'')+shift+'d':'on plan date')+(day.pin?' · manual date'+(isWeekend(dt)?' (weekend)':''):'')+'</span></div>';}
+  if(!n)h+='<div class="emptyday">No houses on this day.</div>';else h+=day.houses.map((x,i)=>stopHTML(x,i+1,day.id)).join('');
+  el.innerHTML=h;
+}
+function renderSearch(q){
+  const hits=installDays().flatMap(d=>d.houses).filter(h=>[h.name,h.address,h.city,h.phone,h.email,h.details].join(' ').toLowerCase().includes(q));
+  const byDay=new Map();installDays().forEach(d=>{const hs=d.houses.filter(h=>hits.includes(h));if(hs.length)byDay.set(d,hs);});
+  let h='<div class="phead"><div class="t">Search results</div><div class="meta">'+hits.length+' match “'+esc(q)+'”</div></div>';
+  if(!hits.length){h+='<div class="emptyday">No matches.</div>';RT.getElementById('panel').innerHTML=h;return;}
+  h+='<div class="searchres">';byDay.forEach((hs,d)=>{const l=dlabel(dayDate(d));h+='<div class="daygrp"><div class="daygrp-h">'+l.wd+' '+l.full+' · '+esc(dayMainArea(d))+'</div>'+hs.map((x)=>stopHTML(x,d.houses.indexOf(x)+1,d.id)).join('')+'</div>';});
+  RT.getElementById('panel').innerHTML=h+'</div>';
+}
+function renderActive(){
+  if(activeTab==='schedule'){renderSeasonBar();renderDayList('days',installDays(),selSchedule,'schedule');
+    const q=RT.getElementById('q').value.trim().toLowerCase();
+    if(q)renderSearch(q);else{let d=getDay(selSchedule);if(!d||d.isFixRoute||d.isTakedown)d=installDays()[0];selSchedule=d?d.id:null;renderPanelInto('panel',d);}}
+  else if(activeTab==='fixes'){renderFixTray();const fr=fixerRoutes();if(!fr.find(d=>d.id===selFix))selFix=fr[0]?fr[0].id:null;renderDayList('fixDays',fr,selFix,'fix');renderPanelInto('fixPanel',getDay(selFix));}
+  else if(activeTab==='members'){renderMembers();}
+  else{renderTakedownBar();const td=takedownDays();if(!td.find(d=>d.id===selTake))selTake=td[0]?td[0].id:null;renderDayList('takeDays',td,selTake,'take');renderPanelInto('takePanel',getDay(selTake));}
+}
+function renderAll(){computeDates();renderStats();renderActive();if(loaded)scheduleSave();}
+function syncTabs(){RT.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===activeTab));['schedule','fixes','members','takedowns'].forEach(n=>RT.getElementById('pane-'+n).hidden=(n!==activeTab));}
+function switchTab(name){activeTab=name;syncTabs();renderActive();}
+
+/* ---------- persistence (Firestore) ---------- */
+function serialize(){
+  return {v:1,baseStart:isoOf(BASE_START),globalDelta,takeDelta,fixRouteSeq,
+    fixList:FIXLIST.map(f=>Object.assign({},f,{addedDate:f.addedDate?isoOf(f.addedDate):null})),
+    days:SEASON.map(d=>({id:d.id,base:d.base,cascade:d.cascade,pin:d.pin?isoOf(d.pin):null,isFixRoute:!!d.isFixRoute,isTakedown:!!d.isTakedown,
+      houses:d.houses.map(h=>{const o=Object.assign({},h);delete o._date;if(o.addedDate instanceof Date)o.addedDate=isoOf(o.addedDate);return o;})}))};
+}
+function hydrate(o){
+  BASE_START=new Date(o.baseStart+'T00:00:00');globalDelta=o.globalDelta||0;takeDelta=o.takeDelta||0;fixRouteSeq=o.fixRouteSeq||0;
+  FIXLIST=(o.fixList||[]).map(f=>Object.assign({},f,{addedDate:f.addedDate?new Date(f.addedDate):null}));
+  SEASON=(o.days||[]).map(d=>({id:d.id,base:d.base,cascade:d.cascade,pin:d.pin?new Date(d.pin+'T00:00:00'):null,isFixRoute:!!d.isFixRoute,isTakedown:!!d.isTakedown,
+    houses:(d.houses||[]).map(h=>{const x=Object.assign({},h);if(x.addedDate)x.addedDate=new Date(x.addedDate);return x;})}));
+  computeDates();
+  selSchedule=installDays()[0]?installDays()[0].id:null;selFix=fixerRoutes()[0]?fixerRoutes()[0].id:null;selTake=takedownDays()[0]?takedownDays()[0].id:null;
+}
+function scheduleSave(){clearTimeout(saveTimer);RT.getElementById('saveNote').textContent='saving…';saveTimer=setTimeout(saveNow,1500);}
+async function saveNow(){try{await setDoc(PLAN_REF(),serialize());RT.getElementById('saveNote').textContent='all changes saved ✓';}catch(e){RT.getElementById('saveNote').textContent='save failed — check connection';}}
+function showDashboard(){RT.getElementById('importBox').classList.add('hide');RT.getElementById('dashboard').classList.remove('hide');}
+function showImport(msg){RT.getElementById('dashboard').classList.add('hide');RT.getElementById('importBox').classList.remove('hide');if(msg)RT.getElementById('importErr').textContent=msg;}
+async function loadPlan(){
+  try{const s=await getDoc(PLAN_REF());
+    if(s.exists()){hydrate(s.data());loaded=true;showDashboard();syncTabs();renderAll();}
+    else{showImport('');}
+  }catch(e){showImport('Could not load: '+e.message);}
+}
+
+/* ---------- CSV import ---------- */
+function parseCSV(text){
+  const rows=[];let i=0,f='',row=[],q=false;text=text.replace(/\r\n/g,'\n').replace(/\r/g,'\n');
+  while(i<text.length){const c=text[i];
+    if(q){if(c==='"'){if(text[i+1]==='"'){f+='"';i++;}else q=false;}else f+=c;}
+    else{if(c==='"')q=true;else if(c===','){row.push(f);f='';}else if(c==='\n'){row.push(f);rows.push(row);row=[];f='';}else f+=c;}
+    i++;}
+  if(f.length||row.length){row.push(f);rows.push(row);}
+  return rows.filter(r=>r.some(x=>(''+x).trim()!==''));
+}
+function normDate(s){s=(''+s).trim();let m,d;
+  let mm=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);if(mm){m=+mm[2];d=+mm[3];return m+'-'+d;}
+  mm=s.match(/^(\d{1,2})[\/](\d{1,2})/);if(mm){m=+mm[1];d=+mm[2];return m+'-'+d;}
+  mm=s.match(/^(\d{1,2})-(\d{1,2})$/);if(mm){return (+mm[1])+'-'+(+mm[2]);}
+  return s;
+}
+function importFromCSV(text){
+  const rows=parseCSV(text);if(rows.length<2)throw new Error('That file looks empty.');
+  const head=rows[0].map(h=>h.trim().toLowerCase());
+  const find=names=>{for(const n of names){const i=head.findIndex(h=>h===n);if(i>=0)return i;}for(const n of names){const i=head.findIndex(h=>h.replace(/[^a-z]/g,'').includes(n.replace(/[^a-z]/g,'')));if(i>=0)return i;}return -1;};
+  const ci={date:find(['date']),name:find(['name']),address:find(['address']),city:find(['city']),zip:find(['zip']),phone:find(['phone']),email:find(['email']),price:find(['price']),pref:find(['pref']),cu:find(['cu #','cu#','cu','customer number']),details:find(['details','notes']),type:find(['type'])};
+  if(ci.date<0||ci.name<0)throw new Error('CSV needs at least a Date column and a Name column.');
+  const val=(r,i)=>i>=0?(r[i]||'').trim():'';
+  const data=[];let id=0;
+  rows.slice(1).forEach(r=>{const name=val(r,ci.name);if(!name)return;const type=val(r,ci.type).toUpperCase();if(type==='TAKEDOWN'||type==='FIX')return;
+    const priceRaw=val(r,ci.price).replace(/[^0-9.]/g,'');
+    data.push({id:id++,date:normDate(val(r,ci.date)),name,address:val(r,ci.address),city:val(r,ci.city),zip:val(r,ci.zip),phone:val(r,ci.phone),email:val(r,ci.email),pref:val(r,ci.pref),cu:val(r,ci.cu),price:priceRaw?Number(priceRaw):'',details:val(r,ci.details)});});
+  if(!data.length)throw new Error('No route rows found in that file.');
+  return data;
+}
+
+/* ---------- interactions ---------- */
+function toggleClear(){RT.getElementById('clearBtn').style.display=RT.getElementById('q').value?'inline-block':'none';}
+RT.getElementById('q').addEventListener('input',function(){toggleClear();renderActive();});
+RT.getElementById('importFile').addEventListener('change',function(){const file=this.files[0];if(!file)return;const rd=new FileReader();rd.onload=async()=>{try{const data=importFromCSV(rd.result);buildSeason(data);loaded=true;showDashboard();syncTabs();await saveNow();renderAll();toast('Imported '+data.length+' houses — saved to your Firebase');}catch(e){RT.getElementById('importErr').textContent=e.message;}};rd.readAsText(file);});
+
+RT.addEventListener('change',e=>{const t=e.target;
+  if(t.id==='startDate'){if(t.value){globalDelta=daysBetween(new Date(t.value+'T00:00:00'),BASE_START);renderAll();toast(globalDelta===0?'Back to original dates':'Season shifted '+(globalDelta>0?'+':'')+globalDelta+' days');}return;}
+  if(t.id==='takeStart'){if(t.value){takeDelta=daysBetween(new Date(t.value+'T00:00:00'),TAKE_BASE_START);renderAll();toast('Takedowns shifted');}return;}
+  if(t.type==='checkbox'&&t.dataset.id!=null){const f=findHouse(t.dataset.id);if(f){f.house.done=t.checked;renderAll();}return;}
+  if(t.dataset.move){moveHouse(t.dataset.move,t.value);return;}
+  if(t.dataset.fixadd&&t.value){addListFixToDay(t.dataset.fixadd,t.value);return;}
+  if(t.dataset.pin){const d=getDay(t.dataset.pin);if(d&&t.value){d.pin=new Date(t.value+'T00:00:00');renderAll();toast('Date set'+(isWeekend(d.pin)?' (weekend)':''));}return;}
+});
+RT.addEventListener('click',e=>{const t=e.target;
+  const tab=t.closest('.tab');if(tab){switchTab(tab.dataset.tab);return;}
+  if(t.id==='resetBtn'){loadPlan();toast('Reloaded saved plan');return;}
+  if(t.id==='clearBtn'){RT.getElementById('q').value='';toggleClear();renderActive();return;}
+  if(t.id==='csvBtn'){exportCSV();return;}
+  const dayEl=t.closest('.day');if(dayEl){const L=dayEl.dataset.list;if(L==='fix')selFix=dayEl.dataset.day;else if(L==='take')selTake=dayEl.dataset.day;else selSchedule=dayEl.dataset.day;renderActive();return;}
+  if(t.dataset.allbtn){const d=getDay(t.dataset.allbtn);const all=d.houses.length&&d.houses.every(x=>x.done);d.houses.forEach(x=>x.done=!all);renderAll();return;}
+  if(t.dataset.pull){cascade(t.dataset.pull,-1);return;}
+  if(t.dataset.push){cascade(t.dataset.push,1);return;}
+  if(t.dataset.skip){cascade(t.dataset.skip,1,'Day off — pushed later');return;}
+  if(t.dataset.unpin){const d=getDay(t.dataset.unpin);d.pin=null;renderAll();toast('Manual date cleared');return;}
+  if(t.dataset.reassign){reassign(t.dataset.reassign,+t.dataset.month);return;}
+  if(t.dataset.tolist){sendFixToList(t.dataset.tolist);return;}
+  if(t.dataset.disband){disbandFixRoute(t.dataset.disband);return;}
+  if(t.dataset.buildfix||t.closest('[data-buildfix]')){buildFixRoutes();return;}
+  if(t.id==='fixH'||t.closest('#fixH')){fixOpen=!fixOpen;renderActive();return;}
+});
+function cascade(id,delta,msg){
+  const day0=getDay(id);if(!day0)return;const seq=phaseDays(day0);const idx=seq.indexOf(day0);if(idx<0)return;
+  const affected=seq.slice(idx);const before=day0._date.getTime();let steps=0;
+  do{affected.forEach(d=>d.cascade+=delta);computeDates();steps++;}while(getDay(id)._date.getTime()===before&&steps<10);
+  if(getDay(id)._date.getTime()===before){affected.forEach(d=>d.cascade-=delta*steps);computeDates();renderAll();toast(delta<0?'No earlier slot — no gap before this day':'Could not push later');return;}
+  renderAll();toast(msg||(delta<0?'Pulled a working day earlier — the rest moved up':'Pushed a working day later — the rest moved back'));
+}
+function moveHouse(id,dayId){const f=findHouse(id);if(!f)return;const target=getDay(dayId);if(!target||target===f.day)return;
+  f.day.houses=f.day.houses.filter(x=>x!==f.house);target.houses.push(f.house);
+  if(f.house.isNew||f.house.isFix){const l=dlabel(target._date);f.house.autoDay=l.wd+' '+l.full;f.house.autoReason='moved by you';}
+  if(target.isFixRoute)selFix=dayId;else if(target.isTakedown)selTake=dayId;else selSchedule=dayId;
+  renderAll();toast(f.house.name+' → '+dlabel(target._date).full+' ('+dayMainArea(target)+')');}
+function reassign(id,month){const f=findHouse(id);if(!f)return;f.house.pref=month===10?'OCT':'NOV';
+  const target=installDays().find(d=>dayDate(d).getMonth()+1===month)||installDays()[0];
+  if(target&&target!==f.day){f.day.houses=f.day.houses.filter(x=>x!==f.house);target.houses.push(f.house);selSchedule=target.id;}
+  renderAll();toast(f.house.name+' → '+(month===10?'October':'November')+' ('+dlabel(target._date).full+')');}
+function exportCSV(){
+  const H=['Date','Weekday','Route','Stop #','CU #','Name','Address','City','Zip','Phone','Price','Type','Details','Done'];
+  const q=v=>{if(v===true)return'TRUE';if(v===false)return'FALSE';if(v==null||v==='')return'';let s=''+v;return/[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};
+  let lines=[H.join(',')];
+  orderedDays().forEach(d=>{const l=dlabel(dayDate(d)),iso=isoOf(dayDate(d)),rt=d.isFixRoute?'FIXER ROUTE':(d.isTakedown?'TAKEDOWN':'Install');
+    d.houses.forEach((h,i)=>{lines.push([iso,l.wd,rt,i+1,h.cu,h.name,h.address,h.city,h.zip,h.phone,h.price,h.isTakedown?'TAKEDOWN':(h.isFix?'FIX':(h.isNew?'NEW':'INSTALL')),h.details,h.done?'TRUE':'FALSE'].map(q).join(','));});});
+  const blob=new Blob([lines.join('\n')],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='route_progress.csv';a.click();URL.revokeObjectURL(a.href);
+}
+
+/* ---------- boot ---------- */
+
+  let __started=false;
+  function __start(){ if(__started) return; __started=true; try{ loadPlan(); }catch(e){ console.error("Schedule load failed:",e);} }
+  const __nav=document.querySelector('.nav-item[data-panel="schedule"]');
+  if(__nav) __nav.addEventListener("click", __start);
+  const __p=document.getElementById("panel-schedule");
+  if(__p && __p.classList.contains("active")) __start();
+}catch(err){ console.error("Schedule tab init failed:", err); } })();
+
 </script>
 </body>
 </html>
