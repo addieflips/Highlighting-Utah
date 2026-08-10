@@ -5795,10 +5795,37 @@ function renderQuoteRows(filtered){
      own. Shared by the Send Email button (first time) and Show Quote Email
      Again (re-viewing later without touching the link/quoteSentAt below). */
   async function showQuoteEmailBox(id, kind){
+    try{
+      await buildQuoteEmailBox(id, kind);
+    } catch(err){
+      /* Anything that goes wrong building the preview used to leave the button
+         looking dead. Show it instead. */
+      console.error('Quote email preview failed:', err);
+      const box = document.querySelector('.quoteemail-result[data-resultfor="'+id+'"]');
+      const msg = (err && (err.message || err.text)) ? (err.message || err.text) : String(err);
+      if(box){
+        box.innerHTML = '<div class="rtext" style="color:var(--ember); font-weight:600;">Could not build the email: '+esc(msg)+'</div>';
+      } else {
+        toast('Could not build the email: ' + msg);
+      }
+    }
+  }
+  async function buildQuoteEmailBox(id, kind){
     kind = kind || 'quote';
     const item = quotesCache.find(q => q.id === id);
-    const resultEl = list.querySelector('.quoteemail-result[data-resultfor="'+id+'"]');
-    if(!item || !resultEl) return;
+    if(!item){ toast('That quote is no longer on screen — reload and try again.'); return; }
+    /* The preview lives inside the Pricing & Approval panel, so if that panel
+       is collapsed the email is built into something invisible and the button
+       looks like it did nothing. Force it open first. */
+    if(!quotePricingOpenIds.has(id)){
+      quotePricingOpenIds.add(id);
+      renderQuotesList();
+    }
+    const resultEl = document.querySelector('.quoteemail-result[data-resultfor="'+id+'"]');
+    if(!resultEl){
+      toast('Price this quote first, then the email preview appears here.');
+      return;
+    }
     const d = item.data;
     const tmplName = quoteTemplateFor(d, kind);
     const template = getEmailTemplateByName(tmplName);
@@ -5842,6 +5869,8 @@ function renderQuoteRows(filtered){
     const sendBtn = resultEl.querySelector('.quoteemail-send-btn');
     if(sendBtn) sendBtn.addEventListener('click', async function(){
       const statusEl = resultEl.querySelector('.quoteemail-sendstatus');
+      statusEl.style.color = 'var(--slate)';
+      statusEl.textContent = 'Checking your email setup\u2026';
       const cfg = await getEmailjsConfig();
       const missing = emailjsMissingParts(cfg);
       if(missing.length){
@@ -5883,8 +5912,14 @@ function renderQuoteRows(filtered){
         sendBtn.disabled = false;
         statusEl.style.color = 'var(--ember)';
         statusEl.textContent = 'Send failed: ' + (err && (err.text || err.message) ? (err.text || err.message) : 'check your Email Setup.');
+        console.error('Quote email send failed:', err);
       }
     });
+    /* Scrolling comes last and is guarded on purpose: it is a convenience, and
+       an older browser throwing here must never stop the buttons above from
+       being wired up. */
+    try{ resultEl.scrollIntoView({behavior:'smooth', block:'nearest'}); }
+    catch(scrollErr){ try{ resultEl.scrollIntoView(); }catch(e2){} }
   }
   async function downloadQuotePhoto(id){
     const item = quotesCache.find(q => q.id === id);
@@ -5926,8 +5961,9 @@ function renderQuoteRows(filtered){
       const id = btn.dataset.getquotelink;
       const statusEl = list.querySelector('.quotelink-status[data-statusfor="'+id+'"]');
       const priceInput = list.querySelector('.quotePriceInput[data-id="'+id+'"]');
-      const price = Number(priceInput.value);
+      const price = Number(priceInput ? priceInput.value : 0);
       if(!price || price <= 0){ if(statusEl) statusEl.textContent = 'Enter a price first.'; return; }
+      if(statusEl) statusEl.textContent = 'Building the email\u2026';
       const item = quotesCache.find(q => q.id === id);
       if(!item) return;
       let token = item.data.quoteToken;
@@ -5964,8 +6000,6 @@ function renderQuoteRows(filtered){
       quotePricingOpenIds.add(id);
       renderQuotesList();
       await showQuoteEmailBox(id, 'nudge');
-      const box = document.querySelector('.quoteemail-result[data-resultfor="'+id+'"]');
-      if(box) box.scrollIntoView({behavior:'smooth', block:'nearest'});
     });
   });
   list.querySelectorAll('[data-archivequote]').forEach(function(btn){
