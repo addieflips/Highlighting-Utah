@@ -2547,11 +2547,28 @@ Highlighting Utah</textarea>
       <div class="panel-head"><div><h2>Quote Requests</h2><p>Submitted from the homepage address checker and quote form. Click an address to preview it on the map.</p></div></div>
       <div id="quoteStageTabs" style="margin-bottom:16px; display:flex; gap:8px; flex-wrap:wrap; border-bottom:1px solid var(--line); padding-bottom:14px;">
         <button type="button" class="btn btn-sm" data-quotestage="new" style="font-weight:700;">Quotes<span id="quoteStageCountNew" class="folder-count"></span></button>
-        <button type="button" class="btn btn-sm" data-quotestage="send" style="font-weight:700;">Send out Quotes<span id="quoteStageCountSend" class="folder-count"></span></button>
-        <button type="button" class="btn btn-sm" data-quotestage="form" style="font-weight:700;">Fill out Form<span id="quoteStageCountForm" class="folder-count"></span></button>
+        <button type="button" class="btn btn-sm" data-quotestage="send" style="font-weight:700;">Awaiting Response<span id="quoteStageCountSend" class="folder-count"></span></button>
+        <button type="button" class="btn btn-sm" data-quotestage="form" style="font-weight:700;">Ready to Convert<span id="quoteStageCountForm" class="folder-count"></span></button>
         <button type="button" class="btn btn-sm" data-quotestage="closed" style="font-weight:700;">Closed<span id="quoteStageCountClosed" class="folder-count"></span></button>
       </div>
+      <div style="margin-bottom:14px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+        <button type="button" class="btn btn-gold btn-sm" id="qAddByHandBtn">+ Add a quote by hand</button>
+        <span style="font-size:12px; color:var(--slate);">for the ones who call instead of using the website</span>
+        <button type="button" class="btn btn-outline btn-sm" id="qTemplateSetupBtn" style="margin-left:auto;">Quote email settings</button>
+      </div>
+      <div id="qTemplateSetup" style="display:none; margin-bottom:16px; border:1px solid var(--line); border-radius:10px; background:var(--paper); padding:14px 16px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:4px;">Which template does each email use?</div>
+        <p class="rtext" style="margin:0 0 10px;">These pull live from Automation Emails &rarr; Templates. Rename a template and just re-pick it here.</p>
+        <div style="display:flex; gap:14px; flex-wrap:wrap;">
+          <div class="form-row" style="margin:0; min-width:210px;"><label style="font-size:11.5px;">New house quote</label><select id="qTmplNew" style="font-size:13px; padding:8px 10px;"></select></div>
+          <div class="form-row" style="margin:0; min-width:210px;"><label style="font-size:11.5px;">Re-quote (existing customer)</label><select id="qTmplRequote" style="font-size:13px; padding:8px 10px;"></select></div>
+          <div class="form-row" style="margin:0; min-width:210px;"><label style="font-size:11.5px;">Nudge</label><select id="qTmplNudge" style="font-size:13px; padding:8px 10px;"></select></div>
+        </div>
+        <button type="button" class="btn btn-gold btn-sm" id="qTmplSaveBtn" style="margin-top:12px;">Save</button>
+        <span id="qTmplSaveStatus" style="font-size:12.5px; color:var(--slate); margin-left:10px;"></span>
+      </div>
       <div id="quoteApprovalStats" style="margin-bottom:16px; display:flex; gap:10px; flex-wrap:wrap;"></div>
+      <div id="quoteStageControls" style="margin-bottom:14px;"></div>
       <div style="margin-bottom:16px; display:flex; gap:10px; flex-wrap:wrap;">
         <select id="quoteFilterSelect" style="border-radius:999px; border:1px solid var(--line); padding:8px 14px; font-size:13.5px; font-weight:600; color:var(--ink); background:var(--snow);">
           <option value="all">All Quotes</option>
@@ -5272,6 +5289,7 @@ function initData(){
   loadCcTransactions();
   loadCcRecurringOverrides();
   loadEmailjsSettings();
+  loadQuoteTemplateSettings();
   loadNightlyInvoiceSettings();
   loadNightlyInvoiceLog();
   loadTimecardApprovalsAdmin();
@@ -5311,7 +5329,9 @@ document.getElementById('pfCalcFeet').addEventListener('input', updatePfCalcResu
 let quotesCache = [];
 let quoteFilter = 'all';
 let quoteStageFilter = 'new';   // one of: new, send, form, closed
-let showSentQuotes = false;   // "Send out Quotes" tab: reveal already-sent quotes
+let showSentQuotes = false;   // "Awaiting Response" tab: reveal already-sent quotes
+let quoteQuietDays = 0;       // Awaiting Response: only show people quiet this many days
+let showArchivedQuotes = false; // Closed tab: swap between converted and archived
 /* The four stages a quote moves through, in the order they're worked:
      new    — it came in, nobody has priced it yet
      send   — priced, now waiting on the customer to approve or decline
@@ -5320,11 +5340,133 @@ let showSentQuotes = false;   // "Send out Quotes" tab: reveal already-sent quot
    Closed is checked first so a finished quote never reappears earlier in the
    pipeline. */
 function quoteStage(d){
-  if((d.status || 'new') === 'closed' || d.approvalStatus === 'declined' || d.approvalStatus === 'maybe_next_year') return 'closed';
+  if((d.status || 'new') === 'closed' || d.quoteArchived || d.approvalStatus === 'declined' || d.approvalStatus === 'maybe_next_year') return 'closed';
   if(typeof d.quotedPrice !== 'number') return 'new';
-  if(d.approvalStatus === 'approved') return 'form';
+  /* Approved is not the finish line - they still owe us their detail form.
+     Ready to Convert means approved AND the form is actually done, so nothing
+     lands there half-filled. Anyone we are still waiting on, for either the
+     answer or the form, sits in Awaiting Response. */
+  if(d.approvalStatus === 'approved' && d.formCompleted) return 'form';
   return 'send';
 }
+/* Which of the three quote templates a card should use. Names are picked in
+   Quote email settings and stored on settings/quoteTemplates, so renaming a
+   template in Automation Emails never silently breaks sending. */
+let quoteTemplateNames = {newQuote:'Quote Ready for Review', requote:'ReQuotes', nudge:'Nudge'};
+function quoteTemplateFor(d, kind){
+  if(kind === 'nudge') return quoteTemplateNames.nudge;
+  return d && d.existingCustomerId ? quoteTemplateNames.requote : quoteTemplateNames.newQuote;
+}
+/* The strip under the stage tabs. Only Awaiting Response and Closed need
+   anything, so the rest of the time it renders empty rather than leaving a
+   filter sitting there that does nothing. */
+function renderQuoteStageControls(){
+  const el = document.getElementById('quoteStageControls');
+  if(!el) return;
+  if(quoteStageFilter === 'send'){
+    el.innerHTML =
+      '<div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; background:var(--paper); border-radius:10px; padding:10px 14px; font-size:13px;">'+
+        '<strong style="font-size:12.5px;">Show only people quiet for</strong>'+
+        '<input type="number" id="qQuietDaysInput" min="0" step="1" value="'+quoteQuietDays+'" style="width:70px; padding:6px 8px; border-radius:8px; border:1px solid var(--line);">'+
+        '<span>days or more</span>'+
+        '<button type="button" class="btn btn-outline btn-sm" id="qQuietTenBtn">10 day unresponsive</button>'+
+        '<button type="button" class="btn btn-outline btn-sm" id="qQuietClearBtn">Show everyone</button>'+
+      '</div>';
+    el.querySelector('#qQuietDaysInput').addEventListener('input', function(){
+      quoteQuietDays = Math.max(0, Number(this.value) || 0);
+      renderQuotesList();
+    });
+    el.querySelector('#qQuietTenBtn').addEventListener('click', function(){ quoteQuietDays = 10; renderQuotesList(); });
+    el.querySelector('#qQuietClearBtn').addEventListener('click', function(){ quoteQuietDays = 0; renderQuotesList(); });
+    return;
+  }
+  if(quoteStageFilter === 'closed'){
+    const archCount = quotesCache.filter(q => q.data.quoteArchived && quoteStage(q.data) === 'closed').length;
+    el.innerHTML =
+      '<div style="display:flex; gap:8px; flex-wrap:wrap;">'+
+        '<button type="button" class="btn btn-sm '+(showArchivedQuotes ? 'btn-outline' : 'btn-gold')+'" data-qarch="0">Converted &amp; closed</button>'+
+        '<button type="button" class="btn btn-sm '+(showArchivedQuotes ? 'btn-gold' : 'btn-outline')+'" data-qarch="1">Archived ('+archCount+')</button>'+
+      '</div>';
+    el.querySelectorAll('[data-qarch]').forEach(function(b){
+      b.addEventListener('click', function(){ showArchivedQuotes = b.dataset.qarch === '1'; renderQuotesList(); });
+    });
+    return;
+  }
+  el.innerHTML = '';
+}
+/* Quote email settings: three dropdowns listing the real templates, so a
+   rename in Automation Emails is a re-pick here rather than a silent failure. */
+function renderQuoteTemplatePickers(){
+  const map = {qTmplNew:'newQuote', qTmplRequote:'requote', qTmplNudge:'nudge'};
+  Object.keys(map).forEach(function(elId){
+    const sel = document.getElementById(elId);
+    if(!sel) return;
+    const chosen = quoteTemplateNames[map[elId]] || '';
+    let html = '<option value="">— none picked —</option>';
+    emailTemplates.forEach(function(t){
+      const n = t.data.name || '';
+      html += '<option value="'+esc(n)+'"'+(n === chosen ? ' selected' : '')+'>'+esc(n)+'</option>';
+    });
+    if(chosen && !emailTemplates.some(t => t.data.name === chosen)){
+      html += '<option value="'+esc(chosen)+'" selected>'+esc(chosen)+' (not found)</option>';
+    }
+    sel.innerHTML = html;
+  });
+}
+async function loadQuoteTemplateSettings(){
+  try{
+    const snap = await getDoc(doc(db,'settings','quoteTemplates'));
+    if(snap.exists()){
+      const s = snap.data();
+      if(s.newQuote) quoteTemplateNames.newQuote = s.newQuote;
+      if(s.requote) quoteTemplateNames.requote = s.requote;
+      if(s.nudge) quoteTemplateNames.nudge = s.nudge;
+    }
+  } catch(err){ /* not saved yet, defaults stand */ }
+  renderQuoteTemplatePickers();
+}
+document.getElementById('qTemplateSetupBtn')?.addEventListener('click', function(){
+  const box = document.getElementById('qTemplateSetup');
+  const open = box.style.display !== 'none';
+  box.style.display = open ? 'none' : 'block';
+  if(!open) renderQuoteTemplatePickers();
+});
+document.getElementById('qTmplSaveBtn')?.addEventListener('click', async function(){
+  const statusEl = document.getElementById('qTmplSaveStatus');
+  quoteTemplateNames = {
+    newQuote: document.getElementById('qTmplNew').value,
+    requote: document.getElementById('qTmplRequote').value,
+    nudge: document.getElementById('qTmplNudge').value
+  };
+  try{
+    await setDoc(doc(db,'settings','quoteTemplates'), quoteTemplateNames, {merge:true});
+    statusEl.textContent = 'Saved.';
+    setTimeout(function(){ statusEl.textContent = ''; }, 2500);
+    renderQuotesList();
+  } catch(err){ statusEl.textContent = 'Could not save — try again.'; }
+});
+
+/* Someone calls instead of using the website. A name is enough to start -
+   everything else can be filled in later, and it cannot be sent until it has
+   a price, same as any other quote. */
+document.getElementById('qAddByHandBtn')?.addEventListener('click', async function(){
+  const name = prompt('Name? (that is all you need \u2014 you can come back and finish it later)');
+  if(!name || !name.trim()) return;
+  const phone = prompt('Phone number? (optional \u2014 leave blank to add later)') || '';
+  const email = prompt('Email address? (optional \u2014 needed before you can send them anything)') || '';
+  const address = prompt('Address? (optional)') || '';
+  try{
+    await addDoc(collection(db,'quotes'), {
+      name: name.trim(), phone: phone.trim(), email: email.trim().toLowerCase(),
+      address: address.trim(), contactMethod: '', frontPhotoUrl: '',
+      quoteToken: generatePortalToken(), formCompleted: false,
+      addedByHand: true, status: 'new', createdAt: serverTimestamp()
+    });
+    quoteStageFilter = 'new';
+    toast(name.trim() + ' added. Price it like any other quote.');
+  } catch(err){ toast('Could not add that quote \u2014 try again.'); }
+});
+
 function hasOpenQuote(phone){
   const phoneDigits = (phone||'').replace(/\D/g,'');
   if(!phoneDigits) return false;
@@ -5387,6 +5529,7 @@ function renderQuotesList(){
       };
     });
   }
+  renderQuoteStageControls();
   /* The tab IS the view now — no separate "awaiting" folder, and no status or
      approval dropdown, since the pipeline already encodes both. */
   let filtered = quotesCache.filter(item => quoteStage(item.data) === quoteStageFilter);
@@ -5395,13 +5538,25 @@ function renderQuotesList(){
   if(quoteStageFilter === 'send'){
     sentOnes = filtered.filter(item => item.data.quoteManuallySent);
     if(!showSentQuotes) filtered = filtered.filter(item => !item.data.quoteManuallySent);
+    if(quoteQuietDays > 0){
+      filtered = filtered.filter(function(item){
+        const days = daysSince(item.data.quoteSentAt);
+        return days !== null && days >= quoteQuietDays;
+      });
+    }
+  }
+  /* Closed holds two different things: real conversions and archived
+     no-thank-yous. Archived is off to the side rather than deleted, so an
+     address that comes back years later still has its history. */
+  if(quoteStageFilter === 'closed'){
+    filtered = filtered.filter(item => showArchivedQuotes ? !!item.data.quoteArchived : !item.data.quoteArchived);
   }
   if(!filtered.length){
     const emptyMsg = {
       new: 'No new quote requests waiting to be priced.',
-      send: 'Nothing waiting on a customer response.',
-      form: 'No approved quotes waiting on their form.',
-      closed: 'Nothing closed yet.'
+      send: quoteQuietDays > 0 ? 'Nobody has been quiet that long. Lower the number to see everyone.' : 'Nothing waiting on a customer right now.',
+      form: 'Nobody has finished their form yet.',
+      closed: showArchivedQuotes ? 'Nothing archived.' : 'Nothing closed yet.'
     }[quoteStageFilter] || 'No quote requests match this view.';
     list.innerHTML = '<div class="empty-note">'+(quoteFilter==='flagged' ? 'Nothing flagged in this tab.' : emptyMsg)+'</div>';
     if(quoteStageFilter === 'send' && sentOnes.length){
@@ -5438,7 +5593,12 @@ function renderQuoteRows(filtered){
     const formDone = !!d.formCompletedAt;
     html += '<div class="row-item">'+
       '<div class="rmain">'+
-        '<div class="row-name-line">'+esc(d.name)+' <span class="status-pill status-'+status+'">'+status+'</span>'+(d.existingCustomerAddressChange ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Existing Customer &mdash; Address Changed</span>' : '')+(d.approvalStatus === 'approved' ? ' <span class="status-pill status-paid">&#10003; Approved</span>' : '')+(d.approvalStatus === 'declined' ? ' <span class="status-pill status-due">Declined</span>' : '')+(d.approvalStatus === 'maybe_next_year' ? ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100;">Maybe Next Year</span>' : '')+(isStaleUnresponsive(d) ? ' <span class="status-pill" style="background:#FDECEA; color:#B91C1C; font-weight:700;">&#9200; 10 Day Unresponsive</span>' : '')+(d.outletTimer === 'Yes' ? ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">&#9201; Wants Timer</span>' : '')+'</div>'+
+        '<div class="row-name-line">'+esc(d.name)+' <span class="status-pill status-'+status+'">'+status+'</span>'+
+        (quoteStage(d) === 'new' ? (d.existingCustomerId
+          ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA; font-weight:700;">Old house &middot; re-quote</span>'
+          : ' <span class="status-pill" style="background:#E6F0E9; color:#2E6B3E; font-weight:700;">New house</span>') : '')+
+        (d.quoteArchived ? ' <span class="status-pill" style="background:#F0EFEC; color:#6E6858;">Archived</span>' : '')+
+        (Number(d.quoteNudgeCount) ? ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100;">Nudged '+d.quoteNudgeCount+'&times;</span>' : '')+(d.existingCustomerAddressChange ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Existing Customer &mdash; Address Changed</span>' : '')+(d.approvalStatus === 'approved' ? ' <span class="status-pill status-paid">&#10003; Approved</span>' : '')+(d.approvalStatus === 'declined' ? ' <span class="status-pill status-due">Declined</span>' : '')+(d.approvalStatus === 'maybe_next_year' ? ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100;">Maybe Next Year</span>' : '')+(isStaleUnresponsive(d) ? ' <span class="status-pill" style="background:#FDECEA; color:#B91C1C; font-weight:700;">&#9200; 10 Day Unresponsive</span>' : '')+(d.outletTimer === 'Yes' ? ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">&#9201; Wants Timer</span>' : '')+'</div>'+
         '<button type="button" class="address-link-btn" data-previewquoteaddr="'+esc(d.address)+'">'+esc(d.address)+'</button>'+
         '<div class="row-phone-line">'+esc(d.phone)+' &middot; '+esc(d.email)+' &middot; '+fmtDate(d.createdAt)+'</div>'+
         '<div class="rtext">Prefers: '+esc(d.contactMethod)+
@@ -5462,22 +5622,21 @@ function renderQuoteRows(filtered){
             (typeof d.quotedPrice === 'number' ? ' <span style="font-weight:400; color:var(--slate); font-size:12px;">&mdash; '+fmtMoney(d.quotedPrice)+((d.approvalStatus === 'approved') ? ', approved' : (d.approvalStatus === 'declined' ? ', declined' : (d.approvalStatus === 'maybe_next_year' ? ', said maybe next year' : ', awaiting response')))+'</span>' : ' <span style="font-weight:400; color:var(--slate); font-size:12px;">&mdash; not priced yet</span>')+
           '</div>'+
           '<div class="quote-section-body" style="padding:0 12px 12px; display:'+(quotePricingOpenIds.has(item.id) ? 'block' : 'none')+';">'+
-            '<div class="form-row" style="margin-top:4px;"><label style="font-size:11.5px;">What Lights Are They Getting?</label><input type="text" class="quoteLightsInput" data-id="'+item.id+'" value="'+esc(d.lightsDescription||'')+'" placeholder="e.g. Full roofline, warm white" style="font-size:13px; padding:8px 10px;"></div>'+
             '<div class="form-row" style="margin-top:8px; max-width:220px;"><label style="font-size:11.5px;">Estimated Feet (for pricing)</label><input type="number" class="quoteFeetInput" data-id="'+item.id+'" min="0" step="0.5" value="'+(d.estimatedFeet||'')+'" placeholder="e.g. 120" style="font-size:13px; padding:8px 10px;"></div>'+
             (d.estimatedFeet ? '<div class="rtext" style="font-weight:600; color:var(--dusk);">Estimated Price: '+(perFootRate ? fmtMoney(d.estimatedFeet*perFootRate) : 'Set a per-foot rate under Finance > Per Foot Pricing first.')+'</div>' : '')+
             '<div class="form-row" style="margin-top:8px; max-width:220px;"><label style="font-size:11.5px;">Quoted Price ($) &mdash; what you\'ll ask them to approve</label><input type="number" class="quotePriceInput" data-id="'+item.id+'" min="0" step="1" value="'+(d.quotedPrice != null ? d.quotedPrice : (d.estimatedFeet && perFootRate ? Math.round(d.estimatedFeet*perFootRate) : ''))+'" placeholder="e.g. 450"></div>'+
-            '<button type="button" class="btn btn-outline btn-sm" data-getquotelink="'+item.id+'">Send Email</button>'+
+            '<button type="button" class="btn btn-gold btn-sm" data-getquotelink="'+item.id+'">'+(d.existingCustomerId ? 'Send updated quote' : 'Send quote email')+'</button>'+
             '<div class="quotelink-status" data-statusfor="'+item.id+'" style="font-size:12px; color:var(--slate); margin-top:6px;"></div>'+
             (d.quoteToken ? '<div class="quotelink-box" data-linkfor="'+item.id+'" style="margin-top:6px; font-size:12.5px; word-break:break-all; background:var(--snow); border-radius:8px; padding:8px 10px;">https://highlightingutah.com/#/quote-details?token='+esc(d.quoteToken)+'&action=approve</div>' : '<div class="quotelink-box" data-linkfor="'+item.id+'"></div>')+
             (d.quoteToken && typeof d.quotedPrice === 'number' ? '<button type="button" class="btn btn-outline btn-sm" data-copyquoteemail="'+item.id+'" style="margin-top:6px;">Show Quote Email Again</button><div class="quoteemail-result" data-resultfor="'+item.id+'" style="margin-top:8px;"></div>' : '')+
             (quoteStageFilter === 'send' ? (
-              '<div class="form-row" style="margin-top:10px;"><label style="font-size:11.5px;">Customer Email</label>'+
-              '<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;"><span style="font-size:13px; font-weight:600;">'+esc(d.email||'')+'</span>'+
-              '<button type="button" class="btn btn-outline btn-sm" data-copyquoteemailaddr="'+item.id+'">Copy Email</button></div></div>'+
-              (d.frontPhotoUrl ? '<button type="button" class="btn btn-outline btn-sm" data-downloadquotephoto="'+item.id+'" style="margin-top:8px;">Download Photo</button>' : '')+
+              '<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">'+
+                '<button type="button" class="btn btn-gold btn-sm" data-nudgequote="'+item.id+'">Send a nudge</button>'+
+                '<button type="button" class="btn btn-outline btn-sm" data-copyquoteemailaddr="'+item.id+'">Copy their email address</button>'+
+              '</div>'+
               (d.quoteManuallySent
-                ? '<div class="rtext" style="margin-top:8px; color:var(--slate);">&#10003; Marked sent'+(d.quoteManuallySentAt ? ' &mdash; '+fmtDate(d.quoteManuallySentAt) : '')+' <a href="#" data-unmarksent="'+item.id+'" style="margin-left:6px;">Undo</a></div>'
-                : '<button type="button" class="btn btn-gold btn-sm" data-marksent="'+item.id+'" style="margin-top:8px; display:block;">Mark as Sent</button>')
+                ? '<div class="rtext" style="margin-top:6px; color:var(--slate);">&#10003; Sent'+(d.quoteManuallySentAt ? ' &mdash; '+fmtDate(d.quoteManuallySentAt) : '')+' <a href="#" data-unmarksent="'+item.id+'" style="margin-left:6px;">Undo</a></div>'
+                : '<button type="button" class="btn btn-outline btn-sm" data-marksent="'+item.id+'" style="margin-top:6px; display:block;">Mark as sent (if you sent it yourself)</button>')
             ) : '')+
             (typeof d.quotedPrice === 'number' ? (function(){
               const st = d.approvalStatus || 'pending';
@@ -5499,7 +5658,10 @@ function renderQuoteRows(filtered){
         '</div>'+
       '</div>'+
       '<div class="row-actions">'+
-        '<button type="button" class="icon-btn" data-converttocust="'+item.id+'" title="Convert to Customer" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:var(--gold-dim);">Convert to Customer</button>'+
+        (d.quoteArchived
+          ? '<button type="button" class="icon-btn" data-restorequote="'+item.id+'" title="Restore this quote" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:var(--gold-dim);">Restore</button>'
+          : '<button type="button" class="icon-btn" data-converttocust="'+item.id+'" title="Convert to Customer" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:var(--gold-dim);">Convert to Customer</button>'+
+            '<button type="button" class="icon-btn" data-archivequote="'+item.id+'" title="Archive this quote" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:var(--slate);">Archive</button>')+
         '<select data-id="'+item.id+'" class="quoteStatusSelect" style="border-radius:8px; border:1px solid var(--line); padding:6px 8px; font-size:12.5px;">'+
           '<option value="new"'+(status==='new'?' selected':'')+'>New</option>'+
           '<option value="contacted"'+(status==='contacted'?' selected':'')+'>Contacted</option>'+
@@ -5539,32 +5701,96 @@ function renderQuoteRows(filtered){
      send it from their own email client — this never sends anything on its
      own. Shared by the Send Email button (first time) and Show Quote Email
      Again (re-viewing later without touching the link/quoteSentAt below). */
-  async function showQuoteEmailBox(id){
+  async function showQuoteEmailBox(id, kind){
+    kind = kind || 'quote';
     const item = quotesCache.find(q => q.id === id);
     const resultEl = list.querySelector('.quoteemail-result[data-resultfor="'+id+'"]');
     if(!item || !resultEl) return;
     const d = item.data;
-    const template = getEmailTemplateByName('Quote Ready for Review');
+    const tmplName = quoteTemplateFor(d, kind);
+    const template = getEmailTemplateByName(tmplName);
+    if(!template && !(kind === 'quote' && !d.existingCustomerId)){
+      resultEl.innerHTML = '<div class="rtext" style="color:var(--ember); font-weight:600;">Can\'t find a template called &ldquo;'+esc(tmplName)+'&rdquo;. '+
+        'Open <strong>Quote email settings</strong> at the top of this page and pick the right one.</div>';
+      return;
+    }
     const body = template ? template.data.body : DEFAULT_QUOTE_TEMPLATE_BODY;
-    const html = await resolveLinkTokens(body, d.phone, 0, {name: d.name || 'there', price: fmtMoney(d.quotedPrice)});
-    const message = htmlEmailToPlainText(html);
+    /* Real HTML, not flattened to plain text - that flattening is what turned
+       the approve/maybe/decline buttons into spelled-out web addresses. The
+       house photo rides along as an <img> pointing at the copy already on
+       Cloudinary, so nothing is attached and it costs nothing extra. It sits
+       BELOW the buttons because some mail apps hide images until tapped. */
+    let html = await resolveLinkTokens(body, d.phone, 0, {name: d.name || 'there', price: fmtMoney(d.quotedPrice)});
+    if(d.frontPhotoUrl){
+      html += '<div style="margin-top:18px;"><img src="'+esc(d.frontPhotoUrl)+'" alt="Your house" style="max-width:100%; border-radius:8px; display:block;"></div>';
+    }
+    const subject = kind === 'nudge'
+      ? 'Just checking in on your quote'
+      : (d.existingCustomerId ? 'Your updated Highlighting Utah quote' : 'Your Highlighting Utah quote');
     resultEl.innerHTML =
-      '<label style="display:block; font-size:11.5px; font-weight:600; margin-bottom:6px;">Edit before sending if you want:</label>'+
-      '<textarea class="quoteemail-editable" rows="8" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:13.5px; margin-bottom:8px;">'+esc(message)+'</textarea>'+
-      '<div style="display:flex; gap:8px; flex-wrap:wrap;">'+
-        '<button type="button" class="btn btn-outline btn-sm quoteemail-copy-btn">Copy Email</button>'+
-        (d.frontPhotoUrl ? '<button type="button" class="btn btn-outline btn-sm" data-downloadquotephoto="'+id+'">Download Photo</button>' : '')+
+      '<div style="font-size:11.5px; background:#EEF1FF; border:1px solid #C7CEF5; border-radius:8px; padding:9px 11px; margin-bottom:10px; color:#33397a; line-height:1.5;">'+
+        'Pulled live from <strong>Automation Emails &rarr; Templates &rarr; '+esc(tmplName)+'</strong>. Change the wording there and it changes here.'+
       '</div>'+
-      '<p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Paste into your email client, attach their house photo, then send. (Plain-text emails can\'t show a real clickable button — the approve/decline link is spelled out clearly instead.)</p>';
+      '<div class="rtext" style="margin-bottom:6px;">To: <strong>'+esc(d.email||'')+'</strong> &middot; Subject: '+esc(subject)+'</div>'+
+      '<div class="quoteemail-preview" style="border:1px solid var(--line); border-radius:10px; background:#fff; padding:18px; font-family:Arial,sans-serif; font-size:14px; color:#222; line-height:1.55; max-height:520px; overflow:auto;">'+html+'</div>'+
+      '<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">'+
+        (d.email ? '<button type="button" class="btn btn-gold btn-sm quoteemail-send-btn" data-kind="'+kind+'">Send it</button>' : '<span class="rtext" style="color:var(--ember);">No email address on this quote.</span>')+
+        '<button type="button" class="btn btn-outline btn-sm quoteemail-copy-btn">Copy instead</button>'+
+      '</div>'+
+      '<div class="quoteemail-sendstatus rtext" style="margin-top:6px;"></div>';
+
     resultEl.querySelector('.quoteemail-copy-btn').addEventListener('click', function(){
-      const text = resultEl.querySelector('.quoteemail-editable').value;
-      navigator.clipboard.writeText(text).then(function(){
-        this.textContent = 'Copied!';
-        setTimeout(() => { this.textContent = 'Copy Email'; }, 2000);
-      }.bind(this));
+      const btn = this;
+      navigator.clipboard.writeText(htmlEmailToPlainText(html)).then(function(){
+        btn.textContent = 'Copied!';
+        setTimeout(function(){ btn.textContent = 'Copy instead'; }, 2000);
+      });
     });
-    const photoBtn = resultEl.querySelector('[data-downloadquotephoto]');
-    if(photoBtn) photoBtn.addEventListener('click', function(){ downloadQuotePhoto(id); });
+    const sendBtn = resultEl.querySelector('.quoteemail-send-btn');
+    if(sendBtn) sendBtn.addEventListener('click', async function(){
+      const statusEl = resultEl.querySelector('.quoteemail-sendstatus');
+      const serviceId = document.getElementById('emailjsServiceId').value.trim();
+      const templateId = document.getElementById('emailjsTemplateId').value.trim();
+      const publicKey = document.getElementById('emailjsPublicKey').value.trim();
+      if(!serviceId || !templateId || !publicKey){
+        statusEl.style.color = 'var(--ember)';
+        statusEl.textContent = 'Fill in your keys under Automation Emails \u2192 EmailJS Setup first.';
+        return;
+      }
+      if(!window.emailjs){
+        statusEl.style.color = 'var(--ember)';
+        statusEl.textContent = 'Email service failed to load \u2014 check your internet connection.';
+        return;
+      }
+      sendBtn.disabled = true;
+      statusEl.style.color = 'var(--slate)';
+      statusEl.textContent = 'Sending\u2026';
+      try{
+        emailjs.init(publicKey);
+        await emailjs.send(serviceId, templateId, {
+          to_email: d.email, to_name: d.name || '', subject: subject, message: html
+        });
+        if(kind === 'nudge'){
+          await updateDoc(doc(db,'quotes', id), {
+            quoteSentAt: serverTimestamp(),
+            quoteNudgeCount: (Number(d.quoteNudgeCount) || 0) + 1,
+            quoteLastNudgedAt: serverTimestamp()
+          });
+          toast('Nudge sent using the ' + tmplName + ' template.');
+        } else {
+          await updateDoc(doc(db,'quotes', id), {
+            quoteSentAt: serverTimestamp(), quoteManuallySent: true, quoteManuallySentAt: serverTimestamp()
+          });
+          toast('Sent using the ' + tmplName + ' template.');
+        }
+        statusEl.style.color = '#2E6B3E';
+        statusEl.textContent = 'Sent to ' + d.email + '.';
+      } catch(err){
+        sendBtn.disabled = false;
+        statusEl.style.color = 'var(--ember)';
+        statusEl.textContent = 'Send failed: ' + (err && (err.text || err.message) ? (err.text || err.message) : 'check your Email Setup.');
+      }
+    });
   }
   async function downloadQuotePhoto(id){
     const item = quotesCache.find(q => q.id === id);
@@ -5622,7 +5848,7 @@ function renderQuoteRows(filtered){
         const freshStatusEl = list.querySelector('.quotelink-status[data-statusfor="'+id+'"]');
         const freshLinkBox = list.querySelector('.quotelink-box[data-linkfor="'+id+'"]');
         if(freshLinkBox) freshLinkBox.textContent = link;
-        if(freshStatusEl) freshStatusEl.textContent = 'Saved! Copy the email below, attach their house photo, and send it yourself.';
+        if(freshStatusEl) freshStatusEl.textContent = 'Saved. Check the email below, then press Send it.';
         await showQuoteEmailBox(id);
       } catch(err){
         if(statusEl) statusEl.textContent = 'Something went wrong — try again.';
@@ -5631,17 +5857,59 @@ function renderQuoteRows(filtered){
   });
   list.querySelectorAll('[data-copyquoteemail]').forEach(function(btn){
     btn.addEventListener('click', async function(){
-      await showQuoteEmailBox(btn.dataset.copyquoteemail);
+      await showQuoteEmailBox(btn.dataset.copyquoteemail, 'quote');
+    });
+  });
+  /* A nudge is the same preview-then-send flow, just against the Nudge
+     template. Sending resets their quiet-day counter so they drop off the
+     unresponsive filter, and bumps a count so you can see who has already
+     been chased twice and needs a phone call instead. */
+  list.querySelectorAll('[data-nudgequote]').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      const id = btn.dataset.nudgequote;
+      quotePricingOpenIds.add(id);
+      renderQuotesList();
+      await showQuoteEmailBox(id, 'nudge');
+      const box = document.querySelector('.quoteemail-result[data-resultfor="'+id+'"]');
+      if(box) box.scrollIntoView({behavior:'smooth', block:'nearest'});
+    });
+  });
+  list.querySelectorAll('[data-archivequote]').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      const id = btn.dataset.archivequote;
+      const item = quotesCache.find(q => q.id === id);
+      if(!item) return;
+      if(!confirm('Archive ' + (item.data.name || 'this quote') + '?\n\nNothing is deleted \u2014 it moves to Closed \u2192 Archived and you can restore it any time.')) return;
+      try{
+        await updateDoc(doc(db,'quotes', id), {quoteArchived: true, quoteArchivedAt: serverTimestamp()});
+        followQuoteToItsStage(id, {quoteArchived: true});
+        toast('Archived. Find them under Closed \u2192 Archived.');
+      } catch(err){ toast('Something went wrong \u2014 try again.'); }
+    });
+  });
+  list.querySelectorAll('[data-restorequote]').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      const id = btn.dataset.restorequote;
+      try{
+        await updateDoc(doc(db,'quotes', id), {
+          quoteArchived: false, status: 'new', approvalStatus: 'pending',
+          quoteManuallySent: false, quoteRespondedAt: null
+        });
+        followQuoteToItsStage(id, {quoteArchived: false, status: 'new', approvalStatus: 'pending', quoteManuallySent: false});
+        toast('Restored with their old feet, price and photo. Check the price, then send.');
+      } catch(err){ toast('Something went wrong \u2014 try again.'); }
     });
   });
   list.querySelectorAll('[data-markapproval]').forEach(function(btn){
     btn.addEventListener('click', async function(){
       const id = btn.dataset.markapproval;
       const value = btn.dataset.value;
-      if(value === 'declined' && !confirm('Mark this quote as declined?')) return;
+      if(value === 'declined' && !confirm('Mark this quote as declined?\n\nIt will be archived \u2014 nothing is deleted, and you can restore it any time.')) return;
       try{
-        await updateDoc(doc(db,'quotes', id), {approvalStatus: value, quoteRespondedAt: serverTimestamp()});
-        followQuoteToItsStage(id, {approvalStatus: value});
+        const updates = {approvalStatus: value, quoteRespondedAt: serverTimestamp()};
+        if(value === 'declined'){ updates.quoteArchived = true; updates.quoteArchivedAt = serverTimestamp(); }
+        await updateDoc(doc(db,'quotes', id), updates);
+        followQuoteToItsStage(id, updates);
         const label = value === 'approved' ? 'Marked approved.' : value === 'maybe_next_year' ? 'Marked maybe next year.' : 'Marked declined.';
         toast(label);
       } catch(err){
@@ -5898,6 +6166,9 @@ function loadEmailTemplates(){
     }
     renderEmailTemplateFolders();
     renderEmailTemplateList();
+    /* The quote-email pickers list real templates, so they have to refill
+       whenever the template list itself changes. */
+    if(typeof renderQuoteTemplatePickers === 'function') renderQuoteTemplatePickers();
   });
 }
 function getEmailTemplateByName(name){
