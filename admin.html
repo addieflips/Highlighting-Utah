@@ -2566,6 +2566,16 @@ Highlighting Utah</textarea>
         </div>
         <button type="button" class="btn btn-gold btn-sm" id="qTmplSaveBtn" style="margin-top:12px;">Save</button>
         <span id="qTmplSaveStatus" style="font-size:12.5px; color:var(--slate); margin-left:10px;"></span>
+        <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--line);">
+          <div style="font-size:13px; font-weight:700; margin-bottom:4px;">Is email working?</div>
+          <p class="rtext" style="margin:0 0 10px;">Checks your keys and the three templates, then sends you a real one so you can see the buttons and photo.</p>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+            <button type="button" class="btn btn-outline btn-sm" id="qEmailCheckBtn">Check my email setup</button>
+            <input type="email" id="qEmailTestTo" placeholder="send a test to this address" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:13px; min-width:230px;">
+            <button type="button" class="btn btn-outline btn-sm" id="qEmailTestBtn">Send me a test</button>
+          </div>
+          <div id="qEmailCheckOut" style="margin-top:10px; font-size:12.5px; line-height:1.7;"></div>
+        </div>
       </div>
       <div id="quoteApprovalStats" style="margin-bottom:16px; display:flex; gap:10px; flex-wrap:wrap;"></div>
       <div id="quoteStageControls" style="margin-bottom:14px;"></div>
@@ -5413,6 +5423,42 @@ function renderQuoteTemplatePickers(){
     sel.innerHTML = html;
   });
 }
+/* The keys live in settings/emailjs. Reading them straight from the screen
+   only works if the EmailJS Setup tab has been filled in during this session,
+   which is why a send could fail with a message about missing keys even
+   though they were saved. This reads Firestore first and falls back to the
+   screen, so it works whichever way round they were entered. */
+let emailjsCfgCache = null;
+async function getEmailjsConfig(){
+  const fromScreen = {
+    serviceId: (document.getElementById('emailjsServiceId')?.value || '').trim(),
+    templateId: (document.getElementById('emailjsTemplateId')?.value || '').trim(),
+    publicKey: (document.getElementById('emailjsPublicKey')?.value || '').trim()
+  };
+  if(fromScreen.serviceId && fromScreen.templateId && fromScreen.publicKey) return fromScreen;
+  if(emailjsCfgCache) return emailjsCfgCache;
+  try{
+    const snap = await getDoc(doc(db,'settings','emailjs'));
+    if(snap.exists()){
+      const d = snap.data();
+      emailjsCfgCache = {
+        serviceId: (d.serviceId || fromScreen.serviceId || '').trim(),
+        templateId: (d.templateId || fromScreen.templateId || '').trim(),
+        publicKey: (d.publicKey || fromScreen.publicKey || '').trim()
+      };
+      return emailjsCfgCache;
+    }
+  } catch(err){ /* fall through to whatever the screen had */ }
+  return fromScreen;
+}
+/* Says exactly what is missing rather than a vague failure. */
+function emailjsMissingParts(cfg){
+  const missing = [];
+  if(!cfg.serviceId) missing.push('Service ID');
+  if(!cfg.templateId) missing.push('Template ID');
+  if(!cfg.publicKey) missing.push('Public Key');
+  return missing;
+}
 async function loadQuoteTemplateSettings(){
   try{
     const snap = await getDoc(doc(db,'settings','quoteTemplates'));
@@ -5430,6 +5476,53 @@ document.getElementById('qTemplateSetupBtn')?.addEventListener('click', function
   const open = box.style.display !== 'none';
   box.style.display = open ? 'none' : 'block';
   if(!open) renderQuoteTemplatePickers();
+});
+document.getElementById('qEmailCheckBtn')?.addEventListener('click', async function(){
+  const out = document.getElementById('qEmailCheckOut');
+  out.innerHTML = 'Checking\u2026';
+  const cfg = await getEmailjsConfig();
+  function line(ok, label, detail){
+    return '<div style="color:'+(ok ? '#2E6B3E' : 'var(--ember)')+'; font-weight:600;">'+
+      (ok ? '&#10003; ' : '&#10007; ')+esc(label)+(detail ? ' <span style="color:var(--slate); font-weight:400;">&mdash; '+esc(detail)+'</span>' : '')+'</div>';
+  }
+  let html = '';
+  html += line(!!window.emailjs, 'Email service loaded', window.emailjs ? '' : 'reload the page');
+  html += line(!!cfg.serviceId, 'Service ID', cfg.serviceId ? cfg.serviceId : 'missing');
+  html += line(!!cfg.templateId, 'Template ID', cfg.templateId ? cfg.templateId : 'missing');
+  html += line(!!cfg.publicKey, 'Public Key', cfg.publicKey ? (cfg.publicKey.slice(0,4)+'\u2026') : 'missing');
+  ['newQuote','requote','nudge'].forEach(function(k){
+    const label = {newQuote:'New house template', requote:'Re-quote template', nudge:'Nudge template'}[k];
+    const name = quoteTemplateNames[k];
+    const found = !!getEmailTemplateByName(name);
+    html += line(found, label, found ? name : '\u201C'+name+'\u201D not found \u2014 pick it above');
+  });
+  if(emailTemplates.length) html += '<div class="rtext" style="margin-top:6px;">Templates you have: '+emailTemplates.map(t => esc(t.data.name||'(unnamed)')).join(', ')+'</div>';
+  out.innerHTML = html;
+});
+document.getElementById('qEmailTestBtn')?.addEventListener('click', async function(){
+  const out = document.getElementById('qEmailCheckOut');
+  const to = (document.getElementById('qEmailTestTo').value || '').trim();
+  if(!to){ out.innerHTML = '<span style="color:var(--ember);">Type an address to send the test to.</span>'; return; }
+  const cfg = await getEmailjsConfig();
+  const missing = emailjsMissingParts(cfg);
+  if(missing.length){ out.innerHTML = '<span style="color:var(--ember);">Missing '+esc(missing.join(', '))+'. Add them under Automation Emails &rarr; EmailJS Setup.</span>'; return; }
+  if(!window.emailjs){ out.innerHTML = '<span style="color:var(--ember);">Email service failed to load \u2014 reload the page.</span>'; return; }
+  out.innerHTML = 'Sending\u2026';
+  try{
+    const tmpl = getEmailTemplateByName(quoteTemplateNames.newQuote);
+    const body = tmpl ? tmpl.data.body : DEFAULT_QUOTE_TEMPLATE_BODY;
+    let html = await resolveLinkTokens(body, '', 0, {name:'Test Customer', price: fmtMoney(450)});
+    html = '[TEST EMAIL \u2014 sample data]<br><br>' + html +
+      '<div style="margin-top:18px;"><img src="https://res.cloudinary.com/highlighting-utah/image/upload/sample.jpg" alt="Sample house" style="max-width:100%; border-radius:8px; display:block;"></div>';
+    emailjs.init(cfg.publicKey);
+    await emailjs.send(cfg.serviceId, cfg.templateId, {
+      to_email: to, to_name: 'Test Customer', subject: 'Test quote email', message: html,
+      button_url: 'https://highlightingutah.com/#/quote-details', button_label: 'View Your Quote'
+    });
+    out.innerHTML = '<span style="color:#2E6B3E; font-weight:600;">Sent to '+esc(to)+'. If the buttons show as web addresses instead of buttons, tell Claude \u2014 that is one setting on the EmailJS website.</span>';
+  } catch(err){
+    out.innerHTML = '<span style="color:var(--ember); font-weight:600;">Send failed: '+esc(err && (err.text || err.message) ? (err.text || err.message) : 'unknown error')+'</span>';
+  }
 });
 document.getElementById('qTmplSaveBtn')?.addEventListener('click', async function(){
   const statusEl = document.getElementById('qTmplSaveStatus');
@@ -5749,26 +5842,27 @@ function renderQuoteRows(filtered){
     const sendBtn = resultEl.querySelector('.quoteemail-send-btn');
     if(sendBtn) sendBtn.addEventListener('click', async function(){
       const statusEl = resultEl.querySelector('.quoteemail-sendstatus');
-      const serviceId = document.getElementById('emailjsServiceId').value.trim();
-      const templateId = document.getElementById('emailjsTemplateId').value.trim();
-      const publicKey = document.getElementById('emailjsPublicKey').value.trim();
-      if(!serviceId || !templateId || !publicKey){
+      const cfg = await getEmailjsConfig();
+      const missing = emailjsMissingParts(cfg);
+      if(missing.length){
         statusEl.style.color = 'var(--ember)';
-        statusEl.textContent = 'Fill in your keys under Automation Emails \u2192 EmailJS Setup first.';
+        statusEl.textContent = 'Missing ' + missing.join(', ') + '. Add them under Automation Emails \u2192 EmailJS Setup and press Save there.';
         return;
       }
       if(!window.emailjs){
         statusEl.style.color = 'var(--ember)';
-        statusEl.textContent = 'Email service failed to load \u2014 check your internet connection.';
+        statusEl.textContent = 'Email service failed to load \u2014 check your internet connection, then reload.';
         return;
       }
       sendBtn.disabled = true;
       statusEl.style.color = 'var(--slate)';
       statusEl.textContent = 'Sending\u2026';
       try{
-        emailjs.init(publicKey);
-        await emailjs.send(serviceId, templateId, {
-          to_email: d.email, to_name: d.name || '', subject: subject, message: html
+        emailjs.init(cfg.publicKey);
+        await emailjs.send(cfg.serviceId, cfg.templateId, {
+          to_email: d.email, to_name: d.name || '', subject: subject, message: html,
+          button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || ''),
+          button_label: 'View Your Quote'
         });
         if(kind === 'nudge'){
           await updateDoc(doc(db,'quotes', id), {
