@@ -5341,15 +5341,6 @@ let quoteFilter = 'all';
 let quoteStageFilter = 'new';   // one of: new, send, form, closed
 let showSentQuotes = false;   // "Awaiting Response" tab: reveal already-sent quotes
 let quoteQuietDays = 0;       // Awaiting Response: only show people quiet this many days
-/* Sending writes to Firestore, which fires a snapshot, which rebuilds the whole
-   list - so the button you just pressed, and the box the confirmation was
-   written into, are both gone by the time the send finishes. These survive the
-   rebuild so the result can be repainted onto the fresh card:
-     quoteSendResults - the message to show, per quote id
-     quoteSendInFlight - ids currently sending, so a second press cannot fire
-                         and send the customer a duplicate email */
-const quoteSendResults = new Map();
-const quoteSendInFlight = new Set();
 let showArchivedQuotes = false; // Closed tab: swap between converted and archived
 /* The four stages a quote moves through, in the order they're worked:
      new    — it came in, nobody has priced it yet
@@ -5375,22 +5366,6 @@ let quoteTemplateNames = {newQuote:'Quote Ready for Review', requote:'ReQuotes',
 function quoteTemplateFor(d, kind){
   if(kind === 'nudge') return quoteTemplateNames.nudge;
   return d && d.existingCustomerId ? quoteTemplateNames.requote : quoteTemplateNames.newQuote;
-}
-/* Puts any send confirmation back onto the card after the list rebuilds.
-   Without this the green "Sent to..." is written to a node that has already
-   been thrown away, which read as the button doing nothing at all. */
-function repaintQuoteSendResults(){
-  quoteSendResults.forEach(function(res, id){
-    const box = document.querySelector('.quoteemail-result[data-resultfor="'+id+'"]');
-    if(!box) return;
-    box.innerHTML = '<div class="rtext" style="color:'+(res.ok ? '#2E6B3E' : 'var(--ember)')+'; font-weight:600;">'+esc(res.text)+'</div>'+
-      (res.ok ? '<button type="button" class="btn btn-outline btn-sm" data-copyquoteemail="'+id+'" style="margin-top:6px;">Show the email again</button>' : '');
-    const again = box.querySelector('[data-copyquoteemail]');
-    if(again) again.addEventListener('click', function(){
-      quoteSendResults.delete(id);
-      showQuoteEmailBox(id, 'quote');
-    });
-  });
 }
 /* The strip under the stage tabs. Only Awaiting Response and Closed need
    anything, so the rest of the time it renders empty rather than leaving a
@@ -5664,10 +5639,11 @@ function renderQuotesList(){
   let sentOnes = [];
   if(quoteStageFilter === 'send'){
     sentOnes = filtered.filter(item => item.data.quoteManuallySent);
-    /* Hiding already-sent quotes made a card disappear the instant you pressed
-       Send, which read as a failure. Anything sent in this session stays put -
-       you are still waiting on that person, which is what this tab is for. */
-    if(!showSentQuotes) filtered = filtered.filter(item => !item.data.quoteManuallySent || quoteSendResults.has(item.id));
+    /* A card whose email preview is open must not vanish out from under the
+       person reading it. Sending sets quoteManuallySent, which is exactly what
+       this filter hides - so the card used to disappear the instant the mail
+       went out, which is a large part of why sending looked like it failed. */
+    if(!showSentQuotes) filtered = filtered.filter(item => !item.data.quoteManuallySent || quoteEmailPreviews.has(item.id));
     if(quoteQuietDays > 0){
       filtered = filtered.filter(function(item){
         const days = daysSince(item.data.quoteSentAt);
@@ -5696,7 +5672,6 @@ function renderQuotesList(){
     return;
   }
   renderQuoteRows(filtered);
-  repaintQuoteSendResults();
   if(quoteStageFilter === 'send'){
     const toggleHtml = !sentOnes.length ? '' : (showSentQuotes
       ? '<div style="margin-bottom:10px;"><a href="#" data-toggleshowsent style="font-size:12.5px; font-weight:600;">Hide already-sent quotes</a></div>'
@@ -5715,6 +5690,141 @@ function renderQuotesList(){
 // id so it survives the re-render a save triggers instead of collapsing
 // mid-edit (native <details> loses its open state when innerHTML is rebuilt).
 const quotePricingOpenIds = new Set();
+/* Built quote-email previews, keyed by quote id. This has to live outside the
+   DOM: every quotes snapshot rebuilds the whole list with list.innerHTML, so a
+   preview left sitting in the page - along with its Send button and its
+   "Sent to ..." confirmation - is destroyed mid-read. Sending writes
+   quoteManuallySent, which fires exactly such a snapshot, so the success
+   message was being written into an orphaned node and the button was gone
+   before anyone saw it. The mail really was sent; only the proof was lost.
+   Keeping the built preview here and repainting it after every render is what
+   makes the confirmation stick. */
+const quoteEmailPreviews = new Map();
+/* Status text is cached alongside the preview for the same reason - a re-render
+   half a second after "Sending..." must not swallow the answer. */
+function setQuoteEmailStatus(id, text, color){
+  const p = quoteEmailPreviews.get(id);
+  if(p) p.status = {text: text, color: color};
+  const el = document.querySelector('.quoteemail-result[data-resultfor="'+id+'"] .quoteemail-sendstatus');
+  if(el){ el.textContent = text; el.style.color = color; }
+}
+/* Paints a cached preview into whatever result box is currently on the page and
+   wires its buttons. Safe to call as often as you like - after every render, and
+   again after a send changes the button's state. */
+function paintQuoteEmailBox(id){
+  const p = quoteEmailPreviews.get(id);
+  if(!p) return;
+  const resultEl = document.querySelector('.quoteemail-result[data-resultfor="'+id+'"]');
+  if(!resultEl) return;
+  resultEl.innerHTML =
+    (p.usingDefault
+      ? '<div style="font-size:11.5px; background:#FFF3D6; border:1px solid #E6C980; border-radius:8px; padding:9px 11px; margin-bottom:10px; color:#6B4E00; line-height:1.5;">'+
+          'There is no template named <strong>'+esc(p.tmplName)+'</strong>, so this is the built-in wording. '+
+          'Open <strong>Quote email settings</strong> at the top of this page and pick a real template if you want to control this text.'+
+        '</div>'
+      : '<div style="font-size:11.5px; background:#EEF1FF; border:1px solid #C7CEF5; border-radius:8px; padding:9px 11px; margin-bottom:10px; color:#33397a; line-height:1.5;">'+
+          'Pulled live from <strong>Automation Emails &rarr; Templates &rarr; '+esc(p.tmplName)+'</strong>. Change the wording there and it changes here.'+
+        '</div>')+
+    '<div class="rtext" style="margin-bottom:6px;">To: <strong>'+esc(p.email)+'</strong> &middot; Subject: '+esc(p.subject)+'</div>'+
+    '<div class="quoteemail-preview" style="border:1px solid var(--line); border-radius:10px; background:#fff; padding:18px; font-family:Arial,sans-serif; font-size:14px; color:#222; line-height:1.55; max-height:520px; overflow:auto;">'+p.html+'</div>'+
+    '<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">'+
+      (p.email
+        ? '<button type="button" class="btn btn-gold btn-sm quoteemail-send-btn"'+((p.sending || p.sent) ? ' disabled' : '')+'>'+(p.sent ? '&#10003; Sent' : (p.sending ? 'Sending\u2026' : 'Send it'))+'</button>'
+        : '<span class="rtext" style="color:var(--ember);">No email address on this quote.</span>')+
+      '<button type="button" class="btn btn-outline btn-sm quoteemail-copy-btn">Copy instead</button>'+
+      '<button type="button" class="btn btn-outline btn-sm quoteemail-close-btn">Close</button>'+
+    '</div>'+
+    '<div class="quoteemail-sendstatus rtext" style="margin-top:6px;"></div>';
+  const statusEl = resultEl.querySelector('.quoteemail-sendstatus');
+  if(statusEl && p.status){ statusEl.textContent = p.status.text; statusEl.style.color = p.status.color; }
+  const copyBtn = resultEl.querySelector('.quoteemail-copy-btn');
+  if(copyBtn) copyBtn.addEventListener('click', function(){
+    const btn = this;
+    navigator.clipboard.writeText(htmlEmailToPlainText(p.html)).then(function(){
+      btn.textContent = 'Copied!';
+      setTimeout(function(){ btn.textContent = 'Copy instead'; }, 2000);
+    });
+  });
+  /* The card no longer disappears on send, so there has to be a way to put the
+     preview away and let it drop back under "already sent". */
+  const closeBtn = resultEl.querySelector('.quoteemail-close-btn');
+  if(closeBtn) closeBtn.addEventListener('click', function(){
+    quoteEmailPreviews.delete(id);
+    resultEl.innerHTML = '';
+    renderQuotesList();
+  });
+  const sendBtn = resultEl.querySelector('.quoteemail-send-btn');
+  /* Nothing in here may throw silently: a dead-looking button is the whole bug
+     this code exists to fix. */
+  if(sendBtn) sendBtn.addEventListener('click', function(){
+    sendQuoteEmail(id).catch(function(err){
+      console.error('Quote email send failed:', err);
+      setQuoteEmailStatus(id, 'Send failed: ' + ((err && (err.text || err.message)) ? (err.text || err.message) : String(err)), 'var(--ember)');
+    });
+  });
+}
+async function sendQuoteEmail(id){
+  const p = quoteEmailPreviews.get(id);
+  /* This claim has to happen synchronously, before the first await. A button
+     that looks dead is what this whole fix is about, and the reflex when one
+     looks dead is to press it again - three fast presses used to clear this
+     guard together and send the customer three copies. */
+  if(!p || p.sending || p.sent) return;
+  p.sending = true;
+  paintQuoteEmailBox(id);
+  setQuoteEmailStatus(id, 'Checking your email setup\u2026', 'var(--slate)');
+  const cfg = await getEmailjsConfig();
+  const missing = emailjsMissingParts(cfg);
+  if(missing.length){
+    p.sending = false;
+    paintQuoteEmailBox(id);
+    setQuoteEmailStatus(id, 'Missing ' + missing.join(', ') + '. Add them under Automation Emails \u2192 EmailJS Setup and press Save there.', 'var(--ember)');
+    return;
+  }
+  if(!window.emailjs){
+    p.sending = false;
+    paintQuoteEmailBox(id);
+    setQuoteEmailStatus(id, 'Email service failed to load \u2014 check your internet connection, then reload.', 'var(--ember)');
+    return;
+  }
+  setQuoteEmailStatus(id, 'Sending\u2026', 'var(--slate)');
+  try{
+    emailjs.init(cfg.publicKey);
+    const resp = await emailjs.send(cfg.serviceId, cfg.templateId, {
+      to_email: p.email, to_name: p.name, subject: p.subject, message: p.html,
+      button_url: 'https://highlightingutah.com/#/quote-details?token=' + p.token,
+      button_label: 'View Your Quote'
+    });
+    console.log('Quote email accepted by EmailJS:', resp && resp.status, resp && resp.text);
+    p.sending = false;
+    p.sent = true;
+    /* Marked sent only after the mail is away, so a failed send never flags the
+       quote. This write fires a quotes snapshot that rebuilds the list - the
+       preview is repainted from the cache on the other side, which is why the
+       confirmation below now survives. */
+    const fresh = quotesCache.find(q => q.id === id);
+    if(p.kind === 'nudge'){
+      await updateDoc(doc(db,'quotes', id), {
+        quoteSentAt: serverTimestamp(),
+        quoteNudgeCount: (fresh ? Number(fresh.data.quoteNudgeCount) || 0 : 0) + 1,
+        quoteLastNudgedAt: serverTimestamp()
+      });
+      toast('Nudge sent using the ' + p.tmplName + ' template.');
+    } else {
+      await updateDoc(doc(db,'quotes', id), {
+        quoteSentAt: serverTimestamp(), quoteManuallySent: true, quoteManuallySentAt: serverTimestamp()
+      });
+      toast('Sent using the ' + p.tmplName + ' template.');
+    }
+    setQuoteEmailStatus(id, '\u2713 Sent to ' + p.email + ' \u2014 press Close when you are done reading it.', '#2E6B3E');
+    paintQuoteEmailBox(id);
+  } catch(err){
+    p.sending = false;
+    console.error('Quote email send failed:', err);
+    setQuoteEmailStatus(id, 'Send failed: ' + ((err && (err.text || err.message)) ? (err.text || err.message) : 'check your Email Setup.'), 'var(--ember)');
+    paintQuoteEmailBox(id);
+  }
+}
 function renderQuoteRows(filtered){
   const list = document.getElementById('quotesList');
   let html = '';
@@ -5827,11 +5937,9 @@ function renderQuoteRows(filtered){
   list.querySelectorAll('[data-markupphoto]').forEach(function(btn){
     btn.addEventListener('click', function(){ openQuoteMarkup(btn.dataset.markupphoto); });
   });
-  /* Builds the filled-out "Quote Ready for Review" email into the card's
-     result box so the office can copy it, attach the photo themselves, and
-     send it from their own email client — this never sends anything on its
-     own. Shared by the Send Email button (first time) and Show Quote Email
-     Again (re-viewing later without touching the link/quoteSentAt below). */
+  /* Builds the quote email for a card and hands it to the cache above, which
+     is what actually paints it. Shared by Send quote email (first time), Show
+     Quote Email Again, and Send a nudge. Building never sends anything. */
   async function showQuoteEmailBox(id, kind){
     try{
       await buildQuoteEmailBox(id, kind);
@@ -5851,7 +5959,7 @@ function renderQuoteRows(filtered){
   async function buildQuoteEmailBox(id, kind){
     kind = kind || 'quote';
     const item = quotesCache.find(q => q.id === id);
-    if(!item){ toast('That quote is no longer on screen — reload and try again.'); return; }
+    if(!item){ toast('That quote is no longer on screen \u2014 reload and try again.'); return; }
     /* The preview lives inside the Pricing & Approval panel, so if that panel
        is collapsed the email is built into something invisible and the button
        looks like it did nothing. Force it open first. */
@@ -5859,17 +5967,16 @@ function renderQuoteRows(filtered){
       quotePricingOpenIds.add(id);
       renderQuotesList();
     }
-    const resultEl = document.querySelector('.quoteemail-result[data-resultfor="'+id+'"]');
-    if(!resultEl){
-      toast('Price this quote first, then the email preview appears here.');
-      return;
-    }
     const d = item.data;
     const tmplName = quoteTemplateFor(d, kind);
     const template = getEmailTemplateByName(tmplName);
     if(!template && !(kind === 'quote' && !d.existingCustomerId)){
-      resultEl.innerHTML = '<div class="rtext" style="color:var(--ember); font-weight:600;">Can\'t find a template called &ldquo;'+esc(tmplName)+'&rdquo;. '+
-        'Open <strong>Quote email settings</strong> at the top of this page and pick the right one.</div>';
+      quoteEmailPreviews.delete(id);
+      const missingEl = document.querySelector('.quoteemail-result[data-resultfor="'+id+'"]');
+      if(missingEl){
+        missingEl.innerHTML = '<div class="rtext" style="color:var(--ember); font-weight:600;">Can\'t find a template called &ldquo;'+esc(tmplName)+'&rdquo;. '+
+          'Open <strong>Quote email settings</strong> at the top of this page and pick the right one.</div>';
+      }
       return;
     }
     const body = template ? template.data.body : DEFAULT_QUOTE_TEMPLATE_BODY;
@@ -5885,100 +5992,22 @@ function renderQuoteRows(filtered){
     const subject = kind === 'nudge'
       ? 'Just checking in on your quote'
       : (d.existingCustomerId ? 'Your updated Highlighting Utah quote' : 'Your Highlighting Utah quote');
-    resultEl.innerHTML =
-      '<div style="font-size:11.5px; background:#EEF1FF; border:1px solid #C7CEF5; border-radius:8px; padding:9px 11px; margin-bottom:10px; color:#33397a; line-height:1.5;">'+
-        'Pulled live from <strong>Automation Emails &rarr; Templates &rarr; '+esc(tmplName)+'</strong>. Change the wording there and it changes here.'+
-      '</div>'+
-      '<div class="rtext" style="margin-bottom:6px;">To: <strong>'+esc(d.email||'')+'</strong> &middot; Subject: '+esc(subject)+'</div>'+
-      '<div class="quoteemail-preview" style="border:1px solid var(--line); border-radius:10px; background:#fff; padding:18px; font-family:Arial,sans-serif; font-size:14px; color:#222; line-height:1.55; max-height:520px; overflow:auto;">'+html+'</div>'+
-      '<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">'+
-        (d.email ? '<button type="button" class="btn btn-gold btn-sm quoteemail-send-btn" data-kind="'+kind+'">Send it</button>' : '<span class="rtext" style="color:var(--ember);">No email address on this quote.</span>')+
-        '<button type="button" class="btn btn-outline btn-sm quoteemail-copy-btn">Copy instead</button>'+
-      '</div>'+
-      '<div class="quoteemail-sendstatus rtext" style="margin-top:6px;"></div>';
-
-    resultEl.querySelector('.quoteemail-copy-btn').addEventListener('click', function(){
-      const btn = this;
-      navigator.clipboard.writeText(htmlEmailToPlainText(html)).then(function(){
-        btn.textContent = 'Copied!';
-        setTimeout(function(){ btn.textContent = 'Copy instead'; }, 2000);
-      });
+    /* Everything the send needs is captured here rather than read off the card
+       later, because the card is rebuilt from scratch on every snapshot. */
+    quoteEmailPreviews.set(id, {
+      kind: kind, tmplName: tmplName, subject: subject, html: html,
+      email: d.email || '', name: d.name || '', token: d.quoteToken || '',
+      usingDefault: !template, status: null, sending: false, sent: false
     });
-    const sendBtn = resultEl.querySelector('.quoteemail-send-btn');
-    if(sendBtn) sendBtn.addEventListener('click', async function(){
-      const statusEl = resultEl.querySelector('.quoteemail-sendstatus');
-      /* Sending rebuilds the list, so the button can come back looking
-         pressable while the first send is still in the air. Without this
-         guard a second press sends the customer a duplicate email. */
-      if(quoteSendInFlight.has(id)){
-        statusEl.style.color = 'var(--slate)';
-        statusEl.textContent = 'Already sending \u2014 give it a second.';
-        return;
-      }
-      quoteSendInFlight.add(id);
-      sendBtn.disabled = true;
-      statusEl.style.color = 'var(--slate)';
-      statusEl.textContent = 'Checking your email setup\u2026';
-      const cfg = await getEmailjsConfig();
-      const missing = emailjsMissingParts(cfg);
-      if(missing.length){
-        quoteSendInFlight.delete(id);
-        sendBtn.disabled = false;
-        statusEl.style.color = 'var(--ember)';
-        statusEl.textContent = 'Missing ' + missing.join(', ') + '. Add them under Automation Emails \u2192 EmailJS Setup and press Save there.';
-        return;
-      }
-      if(!window.emailjs){
-        quoteSendInFlight.delete(id);
-        sendBtn.disabled = false;
-        statusEl.style.color = 'var(--ember)';
-        statusEl.textContent = 'Email service failed to load \u2014 check your internet connection, then reload.';
-        return;
-      }
-      statusEl.textContent = 'Sending\u2026';
-      try{
-        emailjs.init(cfg.publicKey);
-        await emailjs.send(cfg.serviceId, cfg.templateId, {
-          to_email: d.email, to_name: d.name || '', subject: subject, message: html,
-          button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || ''),
-          button_label: 'View Your Quote'
-        });
-        if(kind === 'nudge'){
-          await updateDoc(doc(db,'quotes', id), {
-            quoteSentAt: serverTimestamp(),
-            quoteNudgeCount: (Number(d.quoteNudgeCount) || 0) + 1,
-            quoteLastNudgedAt: serverTimestamp()
-          });
-          toast('Nudge sent using the ' + tmplName + ' template.');
-        } else {
-          await updateDoc(doc(db,'quotes', id), {
-            quoteSentAt: serverTimestamp(), quoteManuallySent: true, quoteManuallySentAt: serverTimestamp()
-          });
-          toast('Sent using the ' + tmplName + ' template.');
-        }
-        /* Recorded rather than just written to the screen, because the write
-           above triggers a re-render that throws this element away. */
-        quoteSendResults.set(id, {ok:true, text:'\u2713 Sent to ' + d.email + (kind === 'nudge' ? ' (nudge)' : '') + '.'});
-        repaintQuoteSendResults();
-        const stillThere = document.querySelector('.quoteemail-sendstatus');
-        if(stillThere){ stillThere.style.color = '#2E6B3E'; stillThere.textContent = '\u2713 Sent to ' + d.email + '.'; }
-      } catch(err){
-        const msg = 'Send failed: ' + (err && (err.text || err.message) ? (err.text || err.message) : 'check your Email Setup.');
-        quoteSendResults.set(id, {ok:false, text:msg});
-        repaintQuoteSendResults();
-        statusEl.style.color = 'var(--ember)';
-        statusEl.textContent = msg;
-        sendBtn.disabled = false;
-        console.error('Quote email send failed:', err);
-      } finally {
-        quoteSendInFlight.delete(id);
-      }
-    });
+    paintQuoteEmailBox(id);
     /* Scrolling comes last and is guarded on purpose: it is a convenience, and
        an older browser throwing here must never stop the buttons above from
        being wired up. */
-    try{ resultEl.scrollIntoView({behavior:'smooth', block:'nearest'}); }
-    catch(scrollErr){ try{ resultEl.scrollIntoView(); }catch(e2){} }
+    const resultEl = document.querySelector('.quoteemail-result[data-resultfor="'+id+'"]');
+    if(resultEl){
+      try{ resultEl.scrollIntoView({behavior:'smooth', block:'nearest'}); }
+      catch(scrollErr){ try{ resultEl.scrollIntoView(); }catch(e2){} }
+    }
   }
   async function downloadQuotePhoto(id){
     const item = quotesCache.find(q => q.id === id);
@@ -6248,6 +6277,10 @@ function renderQuoteRows(filtered){
     });
   });
   attachDeleteHandlers(list);
+  /* Repaint any open email preview. The list was just rebuilt from scratch,
+     so without this the preview, its Send button and its confirmation are
+     gone - which is what made a successful send look like nothing happened. */
+  quoteEmailPreviews.forEach(function(p, id){ paintQuoteEmailBox(id); });
 }
 document.getElementById('quoteFilterSelect').addEventListener('change', function(){
   quoteFilter = this.value;

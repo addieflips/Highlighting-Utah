@@ -411,6 +411,16 @@ if (JSDOM) {
   global.trashIcon = () => '<svg></svg>';
   global.perFootRate = 2.5;
   global.attachDeleteHandlers = () => {};
+  // renderQuoteRows calls quoteStage(d) for the New house / Old house badge.
+  // Mirrors the real one in admin.html — without it the whole suite crashed
+  // out here rather than reporting a failure.
+  global.quoteStage = d => {
+    if ((d.status || 'new') === 'closed' || d.quoteArchived ||
+        d.approvalStatus === 'declined' || d.approvalStatus === 'maybe_next_year') return 'closed';
+    if (typeof d.quotedPrice !== 'number') return 'new';
+    if (d.approvalStatus === 'approved' && d.formCompleted) return 'form';
+    return 'send';
+  };
 
   // Sliced through the end of renderQuoteRows (not just up to innerHTML) so
   // the data-pricingtoggle click handler is actually live for the toggle test.
@@ -520,11 +530,14 @@ if (JSDOM) {
       c3.textContent.includes('Quinn "Q" O\'Hara & Sons'));
     check('render', 'hostile input — address not parsed as markup',
       c3.querySelector('.address-link-btn b') === null);
-    check('render', 'hostile input — quote mark survives into input',
-      c3.querySelector('.quoteLightsInput').value === 'a"b');
+    // The "What Lights Are They Getting?" field (.quoteLightsInput) was removed
+    // from Pricing & Approval, so these two now test the same escaping and
+    // fallback behaviour against fields that still exist.
+    check('render', 'hostile input — markup survives into a data attribute intact',
+      c3.querySelector('[data-previewquoteaddr]').dataset.previewquoteaddr === '9 Test <b>St</b>');
     check('render', 'missing fields fall back to blank',
-      c1.querySelector('.quoteLightsInput').value === '' &&
-      c1.querySelector('.quoteFeetInput').value === '');
+      c1.querySelector('.quoteFeetInput').value === '' &&
+      c1.querySelector('.quotePriceInput').value === '');
 
     const renderedIds = [...list.querySelectorAll('[id]')].map(el => el.id);
     check('render', 'no duplicate IDs in rendered cards',
@@ -556,8 +569,14 @@ if (JSDOM) {
     const c2send = listSend.querySelectorAll('.row-item')[1];
     check('render', 'send tab — customer email shown for easy copying',
       c2send.querySelector('[data-copyquoteemailaddr]') !== null && c2send.textContent.includes('m@x.com'));
-    check('render', 'send tab — Download Photo shown when there is a photo',
-      c2send.querySelector('[data-downloadquotephoto]') !== null);
+    // Download Photo was retired: the house photo now rides inside the quote
+    // email as a Cloudinary <img>, so there is nothing to save off and attach
+    // by hand any more. The click handler for it is still wired in admin.html
+    // against markup nothing renders — harmless, but flagged so it self-heals.
+    gap('orphaned downloadQuotePhoto handler in admin.html',
+      c2send.querySelector('[data-downloadquotephoto]') !== null,
+      'admin.html still wires data-downloadquotephoto but no markup emits it — ' +
+      'delete the handler, or re-add the button if the feature is wanted back');
     check('render', 'send tab — Mark as Sent shown before it has been sent',
       c2send.querySelector('[data-marksent]') !== null);
 
