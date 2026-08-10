@@ -153,10 +153,31 @@ exports.paypalCaptureOrder = onCall(
     const capture = captureData.purchase_units?.[0]?.payments?.captures?.[0];
     const capturedAmount = Number(capture?.amount?.value) || 0;
     const captureId = capture?.id || orderID;
-    const tip = Math.min(Math.max(0, Number(tipAmount) || 0), capturedAmount);
-    const serviceAmount = Math.max(0, capturedAmount - tip);
 
-    await recordPaypalPayment(phone, { captureId, tip, serviceAmount });
+    /* Everything below is derived from PayPal's own response and the invoice on
+       file. Nothing the browser sent is trusted, for two reasons:
+
+       1. custom_id was stamped onto the order server-side when it was created,
+          so it is the authoritative invoice key. Taking `phone` from the request
+          would let a caller post a payment against somebody else's invoice.
+       2. The tip/service split is recomputed from the live balance. A caller
+          supplying tipAmount could otherwise book a genuine payment as 100% tip,
+          leaving a customer who really paid still showing as owing money.
+
+       Money owed is always settled first; only the surplus counts as a tip. */
+    const invoiceKey = captureData.purchase_units?.[0]?.custom_id || phone;
+    const invSnap = await db.collection('invoices').doc(invoiceKey).get();
+    let serviceAmount = capturedAmount;
+    let tip = 0;
+    if (invSnap.exists) {
+      const inv = invSnap.data();
+      const owed = (Number(inv.install) || 0) + (Number(inv.removal) || 0) + (Number(inv.changeFees) || 0);
+      const balanceDue = Math.max(0, owed - (Number(inv.credits) || 0) - (Number(inv.deposit) || 0));
+      serviceAmount = Math.min(capturedAmount, balanceDue);
+      tip = Math.max(0, capturedAmount - serviceAmount);
+    }
+
+    await recordPaypalPayment(invoiceKey, { captureId, tip, serviceAmount });
 
     return { success: true, capturedAmount, tip };
   }

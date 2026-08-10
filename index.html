@@ -1432,7 +1432,7 @@
           <div style="text-align:center; margin-bottom:18px;"><span id="invAmount" style="font-size:44px; font-weight:700; color:var(--ink); line-height:1;">$0</span></div>
 
           <div id="invPaidMsg" style="display:none; text-align:center; background:#E6F2EA; border:1px solid #b8d9c2; border-radius:12px; padding:16px; margin-top:16px; font-weight:600; color:#2E6B3E;">
-            &#10003; Paid in full &mdash; thank you!
+            &#10003; You&rsquo;re all paid up &mdash; thank you!
           </div>
 
           <div id="invTipRow" style="display:none; margin-top:18px; padding-top:18px; border-top:1px solid var(--line);">
@@ -3054,11 +3054,23 @@ function renderPaypalButtons(){
     onApprove: function(data){
       var phone = currentPortalPhone || (currentLookupRecord ? currentLookupRecord.phone : '');
       return captureOrderFn({ orderID: data.orderID, phone: phone, tipAmount: currentTipAmount }).then(function(){
-        var msg = document.getElementById('paypalPaidMsg');
-        if(msg) msg.style.display = 'block';
-        document.getElementById('paypal-button-container').style.display = 'none';
-        var paidCard = document.getElementById('paypal-card-button-container');
-        if(paidCard) paidCard.style.display = 'none';
+        /* Take the whole pay panel down at once - card, PayPal, Venmo, the QR
+           and the tip row - so someone who has just paid is not still looking
+           at four more ways to pay. All that is left is the thank-you. */
+        var wrap = document.getElementById('payButtonsWrap');
+        if(wrap) wrap.style.display = 'none';
+        var tipRow = document.getElementById('invTipRow');
+        if(tipRow) tipRow.style.display = 'none';
+        var paidMsg = document.getElementById('invPaidMsg');
+        if(paidMsg) paidMsg.style.display = 'block';
+        var statusEl = document.getElementById('invStatus');
+        if(statusEl){
+          statusEl.textContent = 'Paid in Full';
+          statusEl.style.background = '#E6F2EA';
+          statusEl.style.color = '#2E6B3E';
+        }
+        var amtEl = document.getElementById('invAmount');
+        if(amtEl) amtEl.textContent = fmt(0);
       }).catch(function(){
         var errEl = document.getElementById('paypalErrorMsg');
         if(errEl){ errEl.style.display = 'block'; errEl.textContent = 'Payment may not have gone through — please call/text us at (801) 901-0011 to double check before paying again.'; }
