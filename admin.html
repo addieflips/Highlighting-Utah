@@ -5341,6 +5341,15 @@ let quoteFilter = 'all';
 let quoteStageFilter = 'new';   // one of: new, send, form, closed
 let showSentQuotes = false;   // "Awaiting Response" tab: reveal already-sent quotes
 let quoteQuietDays = 0;       // Awaiting Response: only show people quiet this many days
+/* Sending writes to Firestore, which fires a snapshot, which rebuilds the whole
+   list - so the button you just pressed, and the box the confirmation was
+   written into, are both gone by the time the send finishes. These survive the
+   rebuild so the result can be repainted onto the fresh card:
+     quoteSendResults - the message to show, per quote id
+     quoteSendInFlight - ids currently sending, so a second press cannot fire
+                         and send the customer a duplicate email */
+const quoteSendResults = new Map();
+const quoteSendInFlight = new Set();
 let showArchivedQuotes = false; // Closed tab: swap between converted and archived
 /* The four stages a quote moves through, in the order they're worked:
      new    — it came in, nobody has priced it yet
@@ -5366,6 +5375,22 @@ let quoteTemplateNames = {newQuote:'Quote Ready for Review', requote:'ReQuotes',
 function quoteTemplateFor(d, kind){
   if(kind === 'nudge') return quoteTemplateNames.nudge;
   return d && d.existingCustomerId ? quoteTemplateNames.requote : quoteTemplateNames.newQuote;
+}
+/* Puts any send confirmation back onto the card after the list rebuilds.
+   Without this the green "Sent to..." is written to a node that has already
+   been thrown away, which read as the button doing nothing at all. */
+function repaintQuoteSendResults(){
+  quoteSendResults.forEach(function(res, id){
+    const box = document.querySelector('.quoteemail-result[data-resultfor="'+id+'"]');
+    if(!box) return;
+    box.innerHTML = '<div class="rtext" style="color:'+(res.ok ? '#2E6B3E' : 'var(--ember)')+'; font-weight:600;">'+esc(res.text)+'</div>'+
+      (res.ok ? '<button type="button" class="btn btn-outline btn-sm" data-copyquoteemail="'+id+'" style="margin-top:6px;">Show the email again</button>' : '');
+    const again = box.querySelector('[data-copyquoteemail]');
+    if(again) again.addEventListener('click', function(){
+      quoteSendResults.delete(id);
+      showQuoteEmailBox(id, 'quote');
+    });
+  });
 }
 /* The strip under the stage tabs. Only Awaiting Response and Closed need
    anything, so the rest of the time it renders empty rather than leaving a
@@ -5430,26 +5455,35 @@ function renderQuoteTemplatePickers(){
    screen, so it works whichever way round they were entered. */
 let emailjsCfgCache = null;
 async function getEmailjsConfig(){
-  const fromScreen = {
-    serviceId: (document.getElementById('emailjsServiceId')?.value || '').trim(),
-    templateId: (document.getElementById('emailjsTemplateId')?.value || '').trim(),
-    publicKey: (document.getElementById('emailjsPublicKey')?.value || '').trim()
+  const pick = v => (v || '').trim();
+  const cfg = {
+    serviceId: pick(document.getElementById('emailjsServiceId')?.value),
+    templateId: pick(document.getElementById('emailjsTemplateId')?.value),
+    publicKey: pick(document.getElementById('emailjsPublicKey')?.value)
   };
-  if(fromScreen.serviceId && fromScreen.templateId && fromScreen.publicKey) return fromScreen;
-  if(emailjsCfgCache) return emailjsCfgCache;
-  try{
-    const snap = await getDoc(doc(db,'settings','emailjs'));
-    if(snap.exists()){
-      const d = snap.data();
-      emailjsCfgCache = {
-        serviceId: (d.serviceId || fromScreen.serviceId || '').trim(),
-        templateId: (d.templateId || fromScreen.templateId || '').trim(),
-        publicKey: (d.publicKey || fromScreen.publicKey || '').trim()
-      };
-      return emailjsCfgCache;
+  /* Fill in field by field rather than all-or-nothing: the screen can hold two
+     of the three (for instance if the settings load half-finished), and the
+     old version threw the whole lot away and fell back to Firestore, or worse
+     cached an empty public key and reused it for the rest of the session. */
+  const needsLookup = !cfg.serviceId || !cfg.templateId || !cfg.publicKey;
+  if(needsLookup){
+    let saved = emailjsCfgCache;
+    if(!saved){
+      try{
+        const snap = await getDoc(doc(db,'settings','emailjs'));
+        if(snap.exists()) saved = snap.data();
+      } catch(err){ /* leave saved null; whatever the screen had still stands */ }
     }
-  } catch(err){ /* fall through to whatever the screen had */ }
-  return fromScreen;
+    if(saved){
+      if(!cfg.serviceId) cfg.serviceId = pick(saved.serviceId);
+      if(!cfg.templateId) cfg.templateId = pick(saved.templateId);
+      if(!cfg.publicKey) cfg.publicKey = pick(saved.publicKey);
+      /* Only worth remembering once it is actually complete. Caching a
+         half-empty result is what made this fail over and over. */
+      if(saved.serviceId && saved.templateId && saved.publicKey) emailjsCfgCache = saved;
+    }
+  }
+  return cfg;
 }
 /* Says exactly what is missing rather than a vague failure. */
 function emailjsMissingParts(cfg){
@@ -5630,7 +5664,10 @@ function renderQuotesList(){
   let sentOnes = [];
   if(quoteStageFilter === 'send'){
     sentOnes = filtered.filter(item => item.data.quoteManuallySent);
-    if(!showSentQuotes) filtered = filtered.filter(item => !item.data.quoteManuallySent);
+    /* Hiding already-sent quotes made a card disappear the instant you pressed
+       Send, which read as a failure. Anything sent in this session stays put -
+       you are still waiting on that person, which is what this tab is for. */
+    if(!showSentQuotes) filtered = filtered.filter(item => !item.data.quoteManuallySent || quoteSendResults.has(item.id));
     if(quoteQuietDays > 0){
       filtered = filtered.filter(function(item){
         const days = daysSince(item.data.quoteSentAt);
@@ -5659,6 +5696,7 @@ function renderQuotesList(){
     return;
   }
   renderQuoteRows(filtered);
+  repaintQuoteSendResults();
   if(quoteStageFilter === 'send'){
     const toggleHtml = !sentOnes.length ? '' : (showSentQuotes
       ? '<div style="margin-bottom:10px;"><a href="#" data-toggleshowsent style="font-size:12.5px; font-weight:600;">Hide already-sent quotes</a></div>'
@@ -5869,22 +5907,34 @@ function renderQuoteRows(filtered){
     const sendBtn = resultEl.querySelector('.quoteemail-send-btn');
     if(sendBtn) sendBtn.addEventListener('click', async function(){
       const statusEl = resultEl.querySelector('.quoteemail-sendstatus');
+      /* Sending rebuilds the list, so the button can come back looking
+         pressable while the first send is still in the air. Without this
+         guard a second press sends the customer a duplicate email. */
+      if(quoteSendInFlight.has(id)){
+        statusEl.style.color = 'var(--slate)';
+        statusEl.textContent = 'Already sending \u2014 give it a second.';
+        return;
+      }
+      quoteSendInFlight.add(id);
+      sendBtn.disabled = true;
       statusEl.style.color = 'var(--slate)';
       statusEl.textContent = 'Checking your email setup\u2026';
       const cfg = await getEmailjsConfig();
       const missing = emailjsMissingParts(cfg);
       if(missing.length){
+        quoteSendInFlight.delete(id);
+        sendBtn.disabled = false;
         statusEl.style.color = 'var(--ember)';
         statusEl.textContent = 'Missing ' + missing.join(', ') + '. Add them under Automation Emails \u2192 EmailJS Setup and press Save there.';
         return;
       }
       if(!window.emailjs){
+        quoteSendInFlight.delete(id);
+        sendBtn.disabled = false;
         statusEl.style.color = 'var(--ember)';
         statusEl.textContent = 'Email service failed to load \u2014 check your internet connection, then reload.';
         return;
       }
-      sendBtn.disabled = true;
-      statusEl.style.color = 'var(--slate)';
       statusEl.textContent = 'Sending\u2026';
       try{
         emailjs.init(cfg.publicKey);
@@ -5906,13 +5956,22 @@ function renderQuoteRows(filtered){
           });
           toast('Sent using the ' + tmplName + ' template.');
         }
-        statusEl.style.color = '#2E6B3E';
-        statusEl.textContent = 'Sent to ' + d.email + '.';
+        /* Recorded rather than just written to the screen, because the write
+           above triggers a re-render that throws this element away. */
+        quoteSendResults.set(id, {ok:true, text:'\u2713 Sent to ' + d.email + (kind === 'nudge' ? ' (nudge)' : '') + '.'});
+        repaintQuoteSendResults();
+        const stillThere = document.querySelector('.quoteemail-sendstatus');
+        if(stillThere){ stillThere.style.color = '#2E6B3E'; stillThere.textContent = '\u2713 Sent to ' + d.email + '.'; }
       } catch(err){
-        sendBtn.disabled = false;
+        const msg = 'Send failed: ' + (err && (err.text || err.message) ? (err.text || err.message) : 'check your Email Setup.');
+        quoteSendResults.set(id, {ok:false, text:msg});
+        repaintQuoteSendResults();
         statusEl.style.color = 'var(--ember)';
-        statusEl.textContent = 'Send failed: ' + (err && (err.text || err.message) ? (err.text || err.message) : 'check your Email Setup.');
+        statusEl.textContent = msg;
+        sendBtn.disabled = false;
         console.error('Quote email send failed:', err);
+      } finally {
+        quoteSendInFlight.delete(id);
       }
     });
     /* Scrolling comes last and is guarded on purpose: it is a convenience, and
