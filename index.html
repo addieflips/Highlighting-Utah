@@ -1250,7 +1250,12 @@
   <section class="page-block">
     <div class="wrap">
       <div class="form-shell">
+        <div class="form-success" id="quoteLinkConfirm" style="display:none; text-align:center;">
+          <div id="quoteLinkConfirmMsg" style="font-size:16px; font-weight:600; line-height:1.6;"></div>
+          <p style="margin-top:14px; font-size:13.5px;">Questions? Call or text us at <a href="tel:8019010011">(801) 901-0011</a>.</p>
+        </div>
         <div id="quoteDetailFormWrap">
+          <div id="quoteDetailGreeting" style="display:none; font-size:15px; font-weight:600; margin-bottom:16px; color:var(--dusk);"></div>
           <form id="quoteDetailForm">
             <div class="form-row">
               <label>Which light color(s) would you like?</label>
@@ -2271,9 +2276,14 @@ quoteFormEl.addEventListener('submit', async function(e){
 
 /* ---- Quote details form, reached after Approve on the Member Portal quote card ---- */
 var quoteDetailQuoteId = null;
+/* Set when they arrive from an emailed approve link. The detail form saves
+   through a Cloud Function using this token, because Firestore only allows a
+   signed-in staff account to update a quote - a customer's direct write was
+   always being denied. */
+var quoteDetailToken = null;
 quoteDetailFormEl.addEventListener('submit', async function(e){
   e.preventDefault();
-  if(!quoteDetailQuoteId){ alert('Something went wrong — please call/text us at (801) 901-0011.'); return; }
+  if(!quoteDetailQuoteId && !quoteDetailToken){ alert('Something went wrong — please call/text us at (801) 901-0011.'); return; }
   var fd = new FormData(quoteDetailFormEl);
   var qdIsSpecific = document.getElementById('qdSpecificPatternToggle').checked;
   var qdFinalSequence = qdIsSpecific ? qdSequence : qdSimpleColors;
@@ -2286,19 +2296,28 @@ quoteDetailFormEl.addEventListener('submit', async function(e){
   var submitBtn = quoteDetailFormEl.querySelector('button[type="submit"]');
   submitBtn.disabled = true;
   submitBtn.textContent = 'Submitting…';
+  var detailPayload = {
+    lightColors: lightColors,
+    lightsDescription: lightsDescription,
+    wireColor: fd.get('wire_color') || 'Any',
+    outletTimer: fd.get('outlet_timer') || 'No',
+    specificOutlet: fd.get('specific_outlet') || 'No',
+    specificOutletNotes: fd.get('specific_outlet') === 'Yes' ? (fd.get('specific_outlet_notes') || '').trim() : '',
+    notes: fd.get('notes') || '', gateCode: fd.get('gate_code') || '',
+    installPreference: fd.get('install_month') || 'Normal Schedule',
+    wantsMailedInvoice: fd.get('wants_mailed') === 'on'
+  };
   try{
-    await updateDoc(doc(db,'quotes', quoteDetailQuoteId), {
-      lightColors: lightColors,
-      lightsDescription: lightsDescription,
-      wireColor: fd.get('wire_color') || 'Any',
-      outletTimer: fd.get('outlet_timer') || 'No',
-      specificOutlet: fd.get('specific_outlet') || 'No',
-      specificOutletNotes: fd.get('specific_outlet') === 'Yes' ? (fd.get('specific_outlet_notes') || '').trim() : '',
-      notes: fd.get('notes') || '', gateCode: fd.get('gate_code') || '',
-      installPreference: fd.get('install_month') || 'Normal Schedule',
-      wantsMailedInvoice: fd.get('wants_mailed') === 'on',
-      formCompleted: true, formCompletedAt: serverTimestamp()
-    });
+    if(quoteDetailToken){
+      /* Came in from an emailed link: no login, so the write has to go through
+         the server or Firestore refuses it. */
+      var saveRes = await callPortalFn('quoteSaveDetails', {quoteToken: quoteDetailToken, details: detailPayload});
+      if(!saveRes || !saveRes.ok) throw new Error('save failed');
+    } else {
+      await updateDoc(doc(db,'quotes', quoteDetailQuoteId), Object.assign({}, detailPayload, {
+        formCompleted: true, formCompletedAt: serverTimestamp()
+      }));
+    }
     document.getElementById('quoteDetailFormWrap').style.display = 'none';
     document.getElementById('quoteDetailSuccess').style.display = 'block';
   } catch(err){
@@ -2897,28 +2916,49 @@ function handleBackNextYear(token){
   });
 }
 function handleQuoteLink(token, action){
-  var wrap = document.getElementById('quoteConfirm');
-  var msg = document.getElementById('quoteConfirmMsg');
-  if(!wrap) wrap = document.getElementById('rsvpConfirmCard');
-  if(!msg) msg = document.getElementById('rsvpConfirmMsg');
-  if(wrap) wrap.style.display = 'block';
-  if(msg) msg.textContent = 'One moment\u2026';
+  /* The confirmation now lives on the quote-details page rather than inside
+     the payment page, so the customer sees it where they actually landed. */
+  var formWrap = document.getElementById('quoteDetailFormWrap');
+  var successWrap = document.getElementById('quoteDetailSuccess');
+  var confirmWrap = document.getElementById('quoteLinkConfirm');
+  var confirmMsg = document.getElementById('quoteLinkConfirmMsg');
+  if(formWrap) formWrap.style.display = 'none';
+  if(successWrap) successWrap.style.display = 'none';
+  if(confirmWrap) confirmWrap.style.display = 'block';
+  if(confirmMsg) confirmMsg.textContent = 'One moment\u2026';
+
   // Quote approve/decline runs server-side; the quotes collection is not
   // readable from the public site.
   callPortalFn('quoteRespond', {quoteToken: token, action: action}).then(function(res){
     if(!res || !res.ok){
-      if(msg) msg.textContent = "We couldn't find your quote \u2014 please call or text us at (801) 901-0011 and we'll help you out.";
+      if(confirmMsg) confirmMsg.textContent = "We couldn't find your quote \u2014 please call or text us at (801) 901-0011 and we'll help you out.";
       return;
     }
     if(action === 'approve'){
-      if(msg) msg.textContent = 'Thank you! Your quote is approved. We\'ll get you scheduled soon!';
+      /* Approving is not the end of it - they still have to tell us their
+         colours. The old version stopped at a thank-you and never opened the
+         form, which is why nothing appeared to happen. */
+      quoteDetailQuoteId = res.quoteId || null;
+      quoteDetailToken = token;
+      if(res.formCompleted){
+        if(confirmMsg) confirmMsg.textContent = 'Thank you! Your quote is approved and we already have your details \u2014 we\'ll be in touch to schedule your install.';
+        return;
+      }
+      document.body.classList.remove('rsvp-minimal');
+      if(confirmWrap) confirmWrap.style.display = 'none';
+      if(formWrap) formWrap.style.display = 'block';
+      var greet = document.getElementById('quoteDetailGreeting');
+      if(greet && res.name){
+        greet.textContent = 'Thanks ' + String(res.name).split(' ')[0] + '! Just a few details and we\'re all set.';
+        greet.style.display = 'block';
+      }
     } else if(action === 'maybe_next_year'){
-      if(msg) msg.textContent = 'We hope to see you next year! Happy Holidays! \ud83c\udf84';
+      if(confirmMsg) confirmMsg.textContent = 'We hope to see you next year! Happy Holidays! \ud83c\udf84';
     } else {
-      if(msg) msg.textContent = 'Thanks for letting us know. We hope to help you down the road. Happy Holidays!';
+      if(confirmMsg) confirmMsg.textContent = 'Thanks for letting us know. We hope to help you down the road. Happy Holidays!';
     }
   }).catch(function(){
-    if(msg) msg.textContent = "Something went wrong \u2014 please call or text us at (801) 901-0011 and we'll get it sorted out.";
+    if(confirmMsg) confirmMsg.textContent = "Something went wrong \u2014 please call or text us at (801) 901-0011 and we'll get it sorted out.";
   });
 }
 
