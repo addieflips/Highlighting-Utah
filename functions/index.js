@@ -801,8 +801,65 @@ exports.quoteRespond = onCall({ cors: true }, async (request) => {
   return {
     ok: true,
     action: action,
-    quotedPrice: quoteData.quotedPrice || 0
+    quotedPrice: quoteData.quotedPrice || 0,
+    /* The page needs to know WHICH quote it just approved so it can open the
+       detail form against it. Without this the approval was recorded and the
+       customer was left looking at an empty page. Nothing sensitive: the id
+       is useless without the token they already hold. */
+    quoteId: quoteId,
+    name: quoteData.name || '',
+    formCompleted: !!quoteData.formCompleted
   };
+});
+
+/* --- quoteSaveDetails -----------------------------------------------------
+ * The detail form used to write straight to Firestore from the customer's
+ * browser. The rules only allow an UPDATE to a quote when request.auth is set,
+ * and a customer holding a quote token is not signed in - so every submission
+ * was denied. This does the write server-side after checking the token, the
+ * same way quoteRespond does.
+ *
+ * Input:  { quoteToken, details:{...} }
+ * Output: { ok: true }
+ * ------------------------------------------------------------------------- */
+exports.quoteSaveDetails = onCall({ cors: true }, async (request) => {
+  const body = request.data || {};
+  const quoteToken = body.quoteToken ? String(body.quoteToken).trim() : '';
+  const details = body.details || {};
+  if (!quoteToken) throw new HttpsError('invalid-argument', 'Missing quote token.');
+
+  const snap = await db.collection('quotes')
+    .where('quoteToken', '==', quoteToken).limit(1).get();
+  if (snap.empty) throw new HttpsError('not-found', 'Quote not found.');
+
+  const quoteId = snap.docs[0].id;
+  const str = (v, max) => String(v == null ? '' : v).slice(0, max || 500);
+  const yesNo = v => (String(v) === 'Yes' ? 'Yes' : 'No');
+
+  /* Only the fields the form is allowed to set, each trimmed to a sane length.
+     Nothing here can touch price, status or approval. */
+  const colors = Array.isArray(details.lightColors)
+    ? details.lightColors.slice(0, 20).map(c => str(c, 40))
+    : [];
+  if (!colors.length) throw new HttpsError('invalid-argument', 'Please choose at least one light color.');
+
+  const specific = yesNo(details.specificOutlet);
+  await db.collection('quotes').doc(quoteId).update({
+    lightColors: colors,
+    lightsDescription: str(details.lightsDescription, 400),
+    wireColor: str(details.wireColor, 40) || 'Any',
+    outletTimer: yesNo(details.outletTimer),
+    specificOutlet: specific,
+    specificOutletNotes: specific === 'Yes' ? str(details.specificOutletNotes, 500) : '',
+    notes: str(details.notes, 1500),
+    gateCode: str(details.gateCode, 60),
+    installPreference: str(details.installPreference, 60) || 'Normal Schedule',
+    wantsMailedInvoice: details.wantsMailedInvoice === true,
+    formCompleted: true,
+    formCompletedAt: admin.firestore.FieldValue.serverTimestamp()
+  });
+
+  return { ok: true };
 });
 
 /* --- publicQuoteLookup ----------------------------------------------------
