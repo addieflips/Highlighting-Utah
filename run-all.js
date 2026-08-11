@@ -1002,6 +1002,12 @@ suite('8. Quote decline / maybe next year');
   check('quoteresp', 'undo does not silently re-route them',
     /NOT put them back on a route|NOT added back to any route/.test(admin),
     'quietly rebuilding a route behind the office is worse than re-adding a stop');
+  // Caught live: the write landed but the row kept showing the badge until the
+  // search was retyped, so Undo read as a dead button — the same failure the
+  // quote email had. Nothing re-renders this table on a jobAddresses change.
+  check('quoteresp', 'undo repaints the row it just changed',
+    /renderAllCustomersTable\(\);[\s\S]{0,120}toast\(who/.test(admin),
+    'the badge would stay on screen after Undo and the button would look dead');
 
   // every route-building list honours the tag
   const routeLists = (admin.match(/let available = jobAddresses\.filter\([^;]*;/g) || []);

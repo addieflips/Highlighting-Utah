@@ -12746,6 +12746,13 @@ function renderAllCustomersTable(){
           maybeNextYear: false, maybeNextYearAt: null,
           rsvpStatus: '', rsvpRespondedAt: null
         });
+        /* Nothing re-renders this table on a jobAddresses change, so without
+           this the badge stays on screen until the search is retyped and Undo
+           reads as a button that does nothing. Local update first, because the
+           row is rebuilt from jobAddresses rather than re-read from Firestore. */
+        const local = jobAddresses.find(a => a.id === id);
+        if(local){ local.data.maybeNextYear = false; local.data.rsvpStatus = ''; }
+        renderAllCustomersTable();
         toast(who + ' is back in the pool — schedule them when you\'re ready.');
       } catch(err){
         btn.disabled = false;
