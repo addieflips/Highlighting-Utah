@@ -1756,7 +1756,7 @@ const fbFunctions = getFunctions(fbApp);
 ========================================================= */
 /* Printed to the console on every load, so it is possible to tell at a glance
    whether the browser is running the newest file or a cached one. */
-console.log('%cHighlighting Utah build: 2026-08-11 16:59 UTC', 'color:#3E7A5B; font-weight:bold;');
+console.log('%cHighlighting Utah build: 2026-08-11 17:28 UTC', 'color:#3E7A5B; font-weight:bold;');
 async function callPortalFn(name, payload){
   var fn = httpsCallable(fbFunctions, name);
   var res = await fn(payload || {});
@@ -2300,12 +2300,16 @@ quoteFormEl.addEventListener('submit', async function(e){
 });
 
 /* ---- Quote details form, reached after Approve on the Member Portal quote card ---- */
-var quoteDetailQuoteId = null;
-/* Set when they arrive from an emailed approve link. The detail form saves
-   through a Cloud Function using this token, because Firestore only allows a
-   signed-in staff account to update a quote - a customer's direct write was
-   always being denied. */
-var quoteDetailToken = null;
+/* These are declared with var and NOT initialised, on purpose. The router
+   (navigate(), line ~2088) runs before this point in the file and may already
+   have stored the token from an emailed link - writing "= null" here was
+   silently wiping it, which made every form submit fall back to the direct
+   Firestore write and get denied. Hoisting makes the names exist from the
+   start; nothing here may reset them. */
+var quoteDetailQuoteId;
+var quoteDetailToken;
+if(typeof quoteDetailQuoteId === 'undefined') quoteDetailQuoteId = null;
+if(typeof quoteDetailToken === 'undefined') quoteDetailToken = null;
 quoteDetailFormEl.addEventListener('submit', async function(e){
   e.preventDefault();
   if(!quoteDetailQuoteId && !quoteDetailToken){ alert('Something went wrong — please call/text us at (801) 901-0011.'); return; }
@@ -3036,6 +3040,9 @@ function handleQuoteLink(token, action, confirmed){
         return;
       }
       quoteDetailQuoteId = res.quoteId || null;
+      /* Re-asserted here as well: this runs after everything else on the page
+         has finished loading, so nothing can wipe it afterwards. */
+      quoteDetailToken = token;
       /* Already done it once - no point making them fill it in twice. */
       if(res.formCompleted){
         if(formWrap) formWrap.style.display = 'none';
