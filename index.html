@@ -95,6 +95,15 @@
   .btn[disabled]{ opacity:.5; cursor:not-allowed; }
 
   /* ---------- RSVP minimal mode: hides site chrome for a Google-Forms-style confirmation ---------- */
+  /* Used after someone answers a quote link. Everything except the message
+     comes off - no menu, no footer, nothing to browse - so it reads like a
+     receipt rather than dropping them into the website. Kept separate from
+     rsvp-minimal, which force-shows the payment and home pages. */
+  body.quote-minimal header, body.quote-minimal footer, body.quote-minimal .page-hero{ display:none !important; }
+  body.quote-minimal #page-quote-details{ display:flex !important; min-height:100vh; align-items:center; }
+  body.quote-minimal #page-quote-details .wrap{ width:100%; }
+  body.quote-minimal #page-quote-details .section-title,
+  body.quote-minimal #page-quote-details .section-sub{ display:none !important; }
   body.rsvp-minimal header, body.rsvp-minimal footer, body.rsvp-minimal .page-hero{ display:none !important; }
   body.rsvp-minimal #page-payment{ display:flex !important; min-height:100vh; align-items:center; }
   body.rsvp-minimal #page-payment .wrap{ width:100%; }
@@ -1252,7 +1261,9 @@
       <div class="form-shell">
         <div class="form-success" id="quoteLinkConfirm" style="display:none; text-align:center;">
           <div id="quoteLinkConfirmMsg" style="font-size:16px; font-weight:600; line-height:1.6;"></div>
-          <p style="margin-top:14px; font-size:13.5px;">Questions? Call or text us at <a href="tel:8019010011">(801) 901-0011</a>.</p>
+          <div id="quoteLinkConfirmSub" style="font-size:14px; color:var(--slate); line-height:1.65; margin-top:10px;"></div>
+          <div id="quoteLinkConfirmActions" style="display:none; margin-top:20px;"></div>
+          <p style="margin-top:16px; font-size:13.5px;">Questions? Call or text us at <a href="tel:8019010011">(801) 901-0011</a>.</p>
         </div>
         <div id="quoteDetailFormWrap">
           <div id="quoteDetailGreeting" style="display:none; font-size:15px; font-weight:600; margin-bottom:16px; color:var(--dusk);"></div>
@@ -1342,77 +1353,6 @@
           <div class="check">&#10003;</div>
           <h3>You're All Set!</h3>
           <p>Thanks! We've got everything we need and will be in touch to schedule your install.</p>
-        </div>
-      </div>
-    </div>
-  </section>
-</div>
-
-<!-- ============ AFTER "MAYBE NEXT YEAR" ============
-     Its own page rather than a message on the quote page, so the answer lands
-     somewhere final. Reachable only by actually answering: navigate() bounces
-     anyone who types the address straight to the homepage (see quoteFarewell). -->
-<div id="page-quote-maybe" class="page">
-  <div class="page-hero">
-    <div class="wrap">
-      <div class="eyebrow" style="color:var(--gold); justify-content:center;">Thanks for letting us know</div>
-      <h1>We&rsquo;ll See You Next Year</h1>
-      <p>Nothing else for you to do &mdash; we&rsquo;ve got you on the list for next season.</p>
-    </div>
-  </div>
-  <section class="page-block">
-    <div class="wrap">
-      <div class="form-shell" style="text-align:center;">
-        <div style="font-size:44px; line-height:1; margin-bottom:14px;">&#127876;</div>
-        <div style="font-size:17px; font-weight:600; line-height:1.6; color:var(--dusk);">
-          No worries at all &mdash; we&rsquo;ll reach out next season.
-        </div>
-        <p style="margin-top:14px; font-size:15px; line-height:1.7;">
-          You&rsquo;re all set for this year. We&rsquo;ll get in touch before next Christmas
-          to see if the timing works better then &mdash; no need to remember us, we&rsquo;ll come to you.
-        </p>
-        <p style="margin-top:14px; font-size:15px; line-height:1.7;">
-          And if you change your mind before then, we&rsquo;d love to hear from you.
-          Just call or text <a href="tel:8019010011" style="color:var(--gold-dim); font-weight:600;">(801) 901-0011</a>.
-        </p>
-        <p style="margin-top:20px; font-size:15px; font-weight:600;">Happy Holidays from all of us at Highlighting Utah!</p>
-        <div style="margin-top:22px;">
-          <a href="#/" class="btn btn-gold">Back to our site</a>
-        </div>
-      </div>
-    </div>
-  </section>
-</div>
-
-<!-- ============ AFTER "DECLINE" ============ -->
-<div id="page-quote-declined" class="page">
-  <div class="page-hero">
-    <div class="wrap">
-      <div class="eyebrow" style="color:var(--gold); justify-content:center;">Thanks for letting us know</div>
-      <h1>Thank You for Lighting Up With Us</h1>
-      <p>It&rsquo;s been a pleasure &mdash; and the door stays open.</p>
-    </div>
-  </div>
-  <section class="page-block">
-    <div class="wrap">
-      <div class="form-shell" style="text-align:center;">
-        <div style="font-size:44px; line-height:1; margin-bottom:14px;">&#127876;</div>
-        <div style="font-size:17px; font-weight:600; line-height:1.6; color:var(--dusk);">
-          Thank you for doing Christmas lights with us &mdash; we loved having you.
-        </div>
-        <p style="margin-top:14px; font-size:15px; line-height:1.7;">
-          We&rsquo;re sorry it isn&rsquo;t the right year for lights, and we&rsquo;re grateful you
-          gave us the chance. It&rsquo;s been a pleasure lighting up your home.
-        </p>
-        <p style="margin-top:14px; font-size:15px; line-height:1.7;">
-          If you ever change your mind, we&rsquo;d be glad to hear from you &mdash; there&rsquo;s no
-          hard feelings and no catch. Just call or text
-          <a href="tel:8019010011" style="color:var(--gold-dim); font-weight:600;">(801) 901-0011</a>
-          and we&rsquo;ll pick right back up.
-        </p>
-        <p style="margin-top:20px; font-size:15px; font-weight:600;">Merry Christmas and Happy Holidays!</p>
-        <div style="margin-top:22px;">
-          <a href="#/" class="btn btn-gold">Back to our site</a>
         </div>
       </div>
     </div>
@@ -1720,6 +1660,8 @@
           </div>
           <div id="quoteActionStatus" style="font-size:13px; color:var(--slate); margin-top:8px; text-align:center;"></div>
           <div id="quoteApprovedMsg" class="portal-confirm-msg" style="display:none;">&#10003; Thanks for approving &mdash; we'll be in touch to schedule your installation!</div>
+          <div id="quoteMaybeMsg" class="portal-confirm-msg" style="display:none;">We hope to see you next year! Happy Holidays! &#127876;</div>
+          <div id="quoteDeclinedMsg" class="portal-confirm-msg" style="display:none;">Thanks for letting us know. We hope to help you down the road. Happy Holidays!</div>
         </div>
         <div id="quoteResolvedMsg" class="invoice-empty" style="display:none;"></div>
 
@@ -2037,42 +1979,17 @@ onSnapshot(doc(db,'siteContent','main'), function(snap){
 /* =========================================================
    ROUTING
 ========================================================= */
-var routes = ['/', '/how-it-works', '/gallery', '/reviews', '/areas', '/faq', '/contact', '/quote', '/quote-details', '/payment', '/quote-maybe', '/quote-declined'];
+var routes = ['/', '/how-it-works', '/gallery', '/reviews', '/areas', '/faq', '/contact', '/quote', '/quote-details', '/payment'];
 var pageIds = {
   '/': 'page-home', '/how-it-works':'page-how', '/gallery':'page-gallery', '/reviews':'page-reviews',
-  '/areas':'page-areas', '/faq':'page-faq', '/contact':'page-contact', '/quote':'page-quote', '/quote-details':'page-quote-details', '/payment':'page-payment',
-  '/quote-maybe':'page-quote-maybe', '/quote-declined':'page-quote-declined'
+  '/areas':'page-areas', '/faq':'page-faq', '/contact':'page-contact', '/quote':'page-quote', '/quote-details':'page-quote-details', '/payment':'page-payment'
 };
-/* The two farewell pages are only meant to exist as the thing you land on after
-   actually answering a quote - not as addresses anyone can wander onto, and not
-   in the nav. Answering sets a one-shot pass in sessionStorage; navigate()
-   spends it on arrival and sends anyone without one to the homepage. It closes
-   the front door, not a vault: there is nothing private on either page. */
-var QUOTE_FAREWELL_PASS = 'huQuoteFarewell';
-function grantQuoteFarewell(which){
-  try{ sessionStorage.setItem(QUOTE_FAREWELL_PASS, which); }catch(e){ /* private browsing - the page just shows anyway */ }
-}
-function spendQuoteFarewell(which){
-  var pass;
-  try{ pass = sessionStorage.getItem(QUOTE_FAREWELL_PASS); }
-  catch(e){ return true; }   // storage blocked entirely - don't strand them
-  if(pass !== which) return false;
-  try{ sessionStorage.removeItem(QUOTE_FAREWELL_PASS); }catch(e){}
-  return true;
-}
 function navigate(){
   var fullHash = window.location.hash.replace('#','') || '/';
   var qIndex = fullHash.indexOf('?');
   var hash = qIndex === -1 ? fullHash : fullHash.slice(0, qIndex);
   var queryString = qIndex === -1 ? '' : fullHash.slice(qIndex+1);
   if(routes.indexOf(hash)===-1) hash='/';
-  /* replaceState rather than reassigning the hash: it corrects the address bar
-     without firing another navigate(), so there is no bounce loop. */
-  if((hash === '/quote-maybe' && !spendQuoteFarewell('maybe')) ||
-     (hash === '/quote-declined' && !spendQuoteFarewell('declined'))){
-    hash = '/';
-    try{ history.replaceState(null, '', window.location.pathname + window.location.search + '#/'); }catch(e){}
-  }
   Object.values(pageIds).forEach(function(id){ document.getElementById(id).classList.remove('active'); });
   document.getElementById(pageIds[hash]).classList.add('active');
   document.querySelectorAll('.nav-links a').forEach(function(a){
@@ -2091,7 +2008,7 @@ function navigate(){
     var contactParam = params.get('c');
     var lastNameParam = params.get('ln');
     if(token && (rsvp === 'yes' || rsvp === 'no') && typeof handleRsvpLink === 'function'){
-      document.body.classList.add('rsvp-minimal');
+      document.body.classList.add('quote-minimal');
       handleRsvpLink(token, rsvp);
     } else if(token && typeof loadPortalByToken === 'function'){
       loadPortalByToken(token);
@@ -2105,7 +2022,7 @@ function navigate(){
     var backToken = homeParams.get('token');
     var backRsvp = homeParams.get('rsvp');
     if(backToken && backRsvp === 'back' && typeof handleBackNextYear === 'function'){
-      document.body.classList.add('rsvp-minimal');
+      document.body.classList.add('quote-minimal');
       handleBackNextYear(backToken);
     }
   } else if(hash === '/quote-details' && queryString){
@@ -2113,7 +2030,7 @@ function navigate(){
     var quoteToken = quoteParams.get('token');
     var quoteAction = quoteParams.get('action');
     if(quoteToken && (quoteAction === 'approve' || quoteAction === 'decline' || quoteAction === 'maybe_next_year') && typeof handleQuoteLink === 'function'){
-      document.body.classList.add('rsvp-minimal');
+      document.body.classList.add('quote-minimal');
       handleQuoteLink(quoteToken, quoteAction);
     }
   }
@@ -3009,7 +2926,41 @@ function handleBackNextYear(token){
     if(msg) msg.textContent = "Something went wrong \u2014 please call or text us at (801) 901-0011 and we'll get it sorted out.";
   });
 }
-function handleQuoteLink(token, action){
+function setQuoteConfirmSub(html){
+  var sub = document.getElementById('quoteLinkConfirmSub');
+  if(sub) sub.innerHTML = html || '';
+}
+/* Declining is the one choice a customer can't undo themselves, and it arrives
+   from a single tap in an email, so it asks once first. The other two options
+   are offered right there rather than leaving them at a dead end - someone who
+   meant "not this year" often taps No. */
+function confirmQuoteDecline(token){
+  var confirmWrap = document.getElementById('quoteLinkConfirm');
+  var confirmMsg = document.getElementById('quoteLinkConfirmMsg');
+  var actions = document.getElementById('quoteLinkConfirmActions');
+  var formWrap = document.getElementById('quoteDetailFormWrap');
+  if(formWrap) formWrap.style.display = 'none';
+  if(confirmWrap) confirmWrap.style.display = 'block';
+  document.body.classList.add('quote-minimal');
+  if(confirmMsg) confirmMsg.textContent = 'Before we close this out \u2014 are you sure?';
+  setQuoteConfirmSub('No pressure either way, and nothing has been charged. If it\'s the price or the timing, just tell us \u2014 we can often work something out.');
+  if(!actions) return;
+  actions.style.display = 'block';
+  actions.innerHTML =
+    '<button type="button" class="btn btn-gold btn-block" data-qd="approve" style="margin-bottom:10px;">Actually, I\'d like to approve</button>'+
+    '<button type="button" class="btn btn-outline btn-block" data-qd="maybe_next_year" style="margin-bottom:10px;">Maybe next year instead</button>'+
+    '<button type="button" class="btn btn-outline btn-block" data-qd="decline" style="opacity:.75;">No thanks \u2014 close it out</button>';
+  actions.querySelectorAll('[data-qd]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      actions.style.display = 'none';
+      actions.innerHTML = '';
+      setQuoteConfirmSub('');
+      handleQuoteLink(token, btn.dataset.qd, true);
+    });
+  });
+}
+function handleQuoteLink(token, action, confirmed){
+  if(action === 'decline' && !confirmed) return confirmQuoteDecline(token);
   /* The confirmation now lives on the quote-details page rather than inside
      the payment page, so the customer sees it where they actually landed. */
   var formWrap = document.getElementById('quoteDetailFormWrap');
@@ -3020,6 +2971,9 @@ function handleQuoteLink(token, action){
   if(successWrap) successWrap.style.display = 'none';
   if(confirmWrap) confirmWrap.style.display = 'block';
   if(confirmMsg) confirmMsg.textContent = 'One moment\u2026';
+  setQuoteConfirmSub('');
+  var actionsEl = document.getElementById('quoteLinkConfirmActions');
+  if(actionsEl){ actionsEl.style.display = 'none'; actionsEl.innerHTML = ''; }
 
   // Quote approve/decline runs server-side; the quotes collection is not
   // readable from the public site.
@@ -3039,6 +2993,7 @@ function handleQuoteLink(token, action){
         return;
       }
       document.body.classList.remove('rsvp-minimal');
+      document.body.classList.remove('quote-minimal');
       if(confirmWrap) confirmWrap.style.display = 'none';
       if(formWrap) formWrap.style.display = 'block';
       var greet = document.getElementById('quoteDetailGreeting');
@@ -3047,25 +3002,21 @@ function handleQuoteLink(token, action){
         greet.style.display = 'block';
       }
     } else if(action === 'maybe_next_year'){
-      /* Both answers now land on their own page instead of swapping text in on
-         this one, so the reply reads as finished rather than as a note stuck on
-         the form they were just looking at. */
-      sendToQuoteFarewell('maybe');
+      /* Nothing further is being asked of them, so the site chrome comes off -
+         no menu, no footer, nothing to wander into. Just the message. */
+      document.body.classList.add('quote-minimal');
+      if(confirmMsg) confirmMsg.textContent = 'Sounds good \u2014 we\'ll check back next year. \ud83c\udf84';
+      setQuoteConfirmSub('We\'ve made a note so you don\'t have to remember, and your measurements are saved, which makes next season quicker. Nothing else to do.');
     } else {
-      sendToQuoteFarewell('declined');
+      document.body.classList.add('quote-minimal');
+      if(confirmMsg) confirmMsg.textContent = 'Thanks for letting us know.';
+      /* Written for someone who has never been a customer - no "pleasure
+         lighting up your home", because we never have. */
+      setQuoteConfirmSub('We appreciate you taking the time to consider us. If anything changes \u2014 this year or years from now \u2014 we\'d be glad to hear from you. There\'s no catch and no hard feelings.<br><br>Merry Christmas from all of us at Highlighting Utah.');
     }
   }).catch(function(){
     if(confirmMsg) confirmMsg.textContent = "Something went wrong \u2014 please call or text us at (801) 901-0011 and we'll get it sorted out.";
   });
-}
-
-/* Hands out the one-shot pass and moves them to the matching farewell page.
-   The minimal RSVP chrome is dropped first, because these are real pages with
-   a way back to the site rather than a bare confirmation strip. */
-function sendToQuoteFarewell(which){
-  grantQuoteFarewell(which);
-  document.body.classList.remove('rsvp-minimal');
-  window.location.hash = which === 'maybe' ? '/quote-maybe' : '/quote-declined';
 }
 
 /* ---- Portal token helpers ---- */
@@ -3785,7 +3736,10 @@ document.getElementById('quoteMaybeBtn').addEventListener('click', async functio
       message: 'Said "maybe next year" for quote of ' + fmt(currentQuoteData.quotedPrice) + ' for ' + (currentQuoteData.address || 'their address') + '.'
     });
     statusEl.textContent = '';
-    sendToQuoteFarewell('maybe');
+    document.getElementById('quoteApproveBtn').style.display = 'none';
+    document.getElementById('quoteMaybeBtn').style.display = 'none';
+    document.getElementById('quoteDeclineBtn').style.display = 'none';
+    document.getElementById('quoteMaybeMsg').style.display = 'block';
   } catch(err){
     statusEl.textContent = 'Something went wrong — please try again.';
   }
@@ -3813,7 +3767,10 @@ document.getElementById('quoteDeclineBtn').addEventListener('click', async funct
       message: 'Declined quote of ' + fmt(currentQuoteData.quotedPrice) + ' for ' + (currentQuoteData.address || 'their address') + '.'
     });
     statusEl.textContent = '';
-    sendToQuoteFarewell('declined');
+    document.getElementById('quoteApproveBtn').style.display = 'none';
+    document.getElementById('quoteMaybeBtn').style.display = 'none';
+    document.getElementById('quoteDeclineBtn').style.display = 'none';
+    document.getElementById('quoteDeclinedMsg').style.display = 'block';
   } catch(err){
     statusEl.textContent = 'Something went wrong — please try again.';
   }
