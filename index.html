@@ -2742,10 +2742,9 @@ function renderCustomerInvoicePage(raw, opts){
     document.getElementById('quoteReviewCard').classList.remove('show');
     document.getElementById('quoteResolvedMsg').style.display = 'none';
     var record = res.record || {};
-    var nameParts = (record.name || '').trim().split(/\s+/);
     var recordWords = (record.name || '').toLowerCase().trim().split(/\s+/).filter(Boolean);
     var typedName = (opts.lastNameInput || '').toLowerCase().trim();
-    var displayName = nameParts.length > 1 ? nameParts.slice(1).join(' ') + ' ' + nameParts[0] : (record.name || '');
+    var displayName = record.name || '';
     if(!opts.skipLastNameCheck && (!typedName || recordWords.indexOf(typedName) === -1)){
       card.classList.remove('show');
       if(tabsLayout) tabsLayout.style.display = 'none';

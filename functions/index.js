@@ -353,7 +353,8 @@ function sanitizeRecord(data) {
 
 // Mirrors the last-name check the browser used to do, so behaviour is
 // unchanged for customers: the typed name must match a word in the stored
-// name, or appear inside it. Stored names are "Last First" format.
+// name, or appear inside it. Word-order independent on purpose — names are
+// stored "First Last", but this must keep working during the changeover.
 function nameMatches(storedName, typedName) {
   const stored = String(storedName || '').toLowerCase().trim();
   const typed = String(typedName || '').toLowerCase().trim();

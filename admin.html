@@ -1434,6 +1434,21 @@
           </div>
         </div>
       </div>
+
+      <div class="card" style="margin-top:20px;">
+        <h3 style="margin:0 0 6px;">Fix Name Order (One-Time Cleanup)</h3>
+        <p class="form-note" style="margin:0 0 10px;">The original customer list came in as "Last First". This flips every current customer's name to "First Last" &mdash; nothing is written until you review the list below and click Apply. New customers going forward are already First Last, so this should only need to run once.</p>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
+          <button type="button" class="btn btn-outline btn-sm" id="fixNameLoadBtn">Load Customers to Review</button>
+          <button type="button" class="btn btn-outline btn-sm" id="fixNameSelectAllBtn" style="display:none;">Select All</button>
+          <button type="button" class="btn btn-outline btn-sm" id="fixNameSelectNoneBtn" style="display:none;">Select None</button>
+          <input type="text" id="fixNameFilterInput" placeholder="Filter by name…" style="display:none; padding:8px 12px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:13px;">
+        </div>
+        <div id="fixNameStatus" style="font-size:13px; color:var(--slate); margin-bottom:10px;"></div>
+        <div id="fixNameList" class="row-list" style="max-height:420px; overflow-y:auto;"></div>
+        <button type="button" class="btn btn-gold btn-sm" id="fixNameApplyBtn" style="display:none; margin-top:12px;">Apply Selected Flips</button>
+        <div id="fixNameResult" style="font-size:13px; margin-top:10px;"></div>
+      </div>
       </div>
 
       <div class="route-tab-panel" id="custtab-danger">
@@ -4848,11 +4863,11 @@ document.getElementById('bulkAutoTestBtn')?.addEventListener('click', async func
   }
 });
 
-// Members are stored as "Last First" — RSVP emails should greet by first name only,
-// which is the last word in the stored name.
+// Members are stored "First Last" — RSVP emails should greet by first name only,
+// which is the first word in the stored name.
 function rsvpFirstNameOnly(fullName){
   const parts = (fullName || '').trim().split(/\s+/).filter(Boolean);
-  return parts.length > 1 ? parts[parts.length - 1] : (parts[0] || '');
+  return parts[0] || '';
 }
 document.getElementById('sendRsvpEmailBtn')?.addEventListener('click', async function(){
   const serviceId = document.getElementById('emailjsServiceId').value.trim();
@@ -11551,6 +11566,87 @@ document.getElementById('ibImportBtn').addEventListener('click', async function(
   statusEl.textContent = added + ' invoice(s) added, ' + updated + ' updated' + (customersCreated ? ', ' + customersCreated + ' new customer record(s) created' : '') + (skipped ? ', ' + skipped + ' skipped' : '') + '.';
   ibAreaIds.forEach(function(id){ document.getElementById(id).value = ''; });
   wireBulkCounts(ibAreaIds, 'ibPhonesArea', ibCountIds)();
+});
+
+// --- Fix Name Order (one-time "Last First" -> "First Last" cleanup) ---
+// Moves the first word of a name to the end, e.g. "Smith John" -> "John Smith".
+// Same heuristic the portal used to (wrongly) apply on every display.
+function flipNameOrder(raw){
+  const parts = String(raw||'').trim().split(/\s+/).filter(Boolean);
+  if(parts.length < 2) return null; // single word - nothing to flip
+  return parts.slice(1).join(' ') + ' ' + parts[0];
+}
+let fixNameRows = []; // [{id, oldName, newName}]
+function renderFixNameList(filterText){
+  const list = document.getElementById('fixNameList');
+  const filt = (filterText||'').toLowerCase().trim();
+  const rows = fixNameRows.filter(function(r){ return !filt || r.oldName.toLowerCase().indexOf(filt) !== -1; });
+  if(!rows.length){ list.innerHTML = '<div class="empty-note">No matching customers.</div>'; return; }
+  list.innerHTML = rows.map(function(r){
+    return '<div class="row-item"><div class="rmain">'+
+      '<label style="display:flex; align-items:center; gap:10px; cursor:pointer;">'+
+        '<input type="checkbox" class="fixname-check" data-id="'+r.id+'" checked>'+
+        '<span>'+esc(r.oldName)+' &rarr; <strong>'+esc(r.newName)+'</strong></span>'+
+      '</label>'+
+    '</div></div>';
+  }).join('');
+}
+document.getElementById('fixNameLoadBtn').addEventListener('click', function(){
+  const statusEl = document.getElementById('fixNameStatus');
+  fixNameRows = [];
+  let skippedSingleWord = 0;
+  jobAddresses.forEach(function(item){
+    const newName = flipNameOrder(item.data.name);
+    if(!newName){ if((item.data.name||'').trim()) skippedSingleWord++; return; }
+    fixNameRows.push({id: item.id, oldName: item.data.name, newName: newName});
+  });
+  fixNameRows.sort(function(a,b){ return a.oldName.localeCompare(b.oldName); });
+  renderFixNameList('');
+  document.getElementById('fixNameSelectAllBtn').style.display = 'inline-flex';
+  document.getElementById('fixNameSelectNoneBtn').style.display = 'inline-flex';
+  document.getElementById('fixNameFilterInput').style.display = 'inline-block';
+  document.getElementById('fixNameApplyBtn').style.display = 'inline-flex';
+  statusEl.textContent = fixNameRows.length + ' customer(s) ready to review, all checked by default' + (skippedSingleWord ? '. ' + skippedSingleWord + ' single-word name(s) skipped (nothing to flip).' : '.');
+});
+document.getElementById('fixNameFilterInput').addEventListener('input', function(){
+  renderFixNameList(this.value);
+});
+document.getElementById('fixNameSelectAllBtn').addEventListener('click', function(){
+  document.querySelectorAll('.fixname-check').forEach(function(cb){ cb.checked = true; });
+});
+document.getElementById('fixNameSelectNoneBtn').addEventListener('click', function(){
+  document.querySelectorAll('.fixname-check').forEach(function(cb){ cb.checked = false; });
+});
+document.getElementById('fixNameApplyBtn').addEventListener('click', async function(){
+  const checkedIds = Array.from(document.querySelectorAll('.fixname-check:checked')).map(function(cb){ return cb.dataset.id; });
+  if(!checkedIds.length){ document.getElementById('fixNameResult').textContent = 'Nothing checked.'; return; }
+  if(!confirm('Flip the name order for ' + checkedIds.length + ' customer(s)? This updates their record, their invoice, and any upcoming route they\'re on.')) return;
+  const btn = this;
+  btn.disabled = true;
+  const resultEl = document.getElementById('fixNameResult');
+  const failedIds = [];
+  let done = 0;
+  for(const id of checkedIds){
+    const row = fixNameRows.find(function(r){ return r.id === id; });
+    if(!row) continue;
+    resultEl.textContent = 'Applying ' + (done+failedIds.length+1) + ' of ' + checkedIds.length + '…';
+    try{
+      await updateDoc(doc(db,'jobAddresses', id), {name: row.newName});
+      const item = jobAddresses.find(function(a){ return a.id === id; });
+      if(item){
+        const inv = allCustInvoiceFor(item);
+        if(inv) await updateDoc(doc(db,'invoices', inv.id), {name: row.newName});
+      }
+      await resyncSavedRouteStops(id, {name: row.newName});
+      done++;
+    } catch(err){
+      failedIds.push(id);
+    }
+  }
+  btn.disabled = false;
+  resultEl.textContent = done + ' name(s) flipped' + (failedIds.length ? ', ' + failedIds.length + ' failed — try those again' : '') + '.';
+  fixNameRows = fixNameRows.filter(function(r){ return checkedIds.indexOf(r.id) === -1 || failedIds.indexOf(r.id) !== -1; });
+  renderFixNameList(document.getElementById('fixNameFilterInput').value);
 });
 
 let activeDiffFilters = [];
