@@ -13741,6 +13741,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const statusEl = document.getElementById('editCustStatus');
   const item = jobAddresses.find(a => a.id === editCustomerId);
   if(!item) return;
+  const d = item.data;
   const newName = document.getElementById('editCustName').value.trim();
   const newPhone = document.getElementById('editCustPhone').value.replace(/\D/g,'');
   const newPhone2 = document.getElementById('editCustPhone2').value.replace(/\D/g,'');
