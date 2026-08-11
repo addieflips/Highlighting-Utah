@@ -1377,6 +1377,188 @@ exports.listAdminUsers = onCall({ cors: true }, async (request) => {
   return { users };
 });
 
+/* --- runQuoteNudgeBatch / sendQuoteNudges ---------------------------------
+ * Chases quotes nobody has answered.
+ *
+ * The rules, all deliberate:
+ *   - 10 clear days since the quote (or since the last nudge) before we chase.
+ *   - Two nudges maximum, ever. If someone has ignored two, they have answered.
+ *   - Nothing goes out on or after 1 November. Chasing people once the season
+ *     has started is not a sale, it is a nuisance.
+ *   - Anyone who asked to be contacted by phone or text is skipped entirely.
+ *     We have no automated texting, so those people need a human - they are
+ *     counted and reported rather than silently ignored.
+ *   - Approved, declined, maybe-next-year and archived quotes are all left be.
+ * ------------------------------------------------------------------------- */
+const QUOTE_NUDGE_WAIT_DAYS = 10;
+const QUOTE_NUDGE_MAX = 2;
+
+function prefersNotEmail(contactMethod) {
+  return /phone|call|text|sms/i.test(String(contactMethod || ''));
+}
+function toMillis(v) {
+  if (!v) return 0;
+  if (typeof v.toDate === 'function') return v.toDate().getTime();
+  if (v.seconds) return v.seconds * 1000;
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? 0 : d.getTime();
+}
+
+async function runQuoteNudgeBatch(source) {
+  const now = new Date();
+  const denverMonth = Number(now.toLocaleString('en-US', { timeZone: 'America/Denver', month: 'numeric' }));
+  /* November onward the season is underway - stop chasing. */
+  if (denverMonth >= 11 || denverMonth <= 1) {
+    return { sent: 0, skipped: 0, needsHuman: 0, stopped: 'outside the quoting season (November to January)' };
+  }
+
+  const setSnap = await db.collection('settings').doc('quoteNudgeAutomation').get();
+  if (source === 'schedule' && (!setSnap.exists || !setSnap.data().enabled)) {
+    return { sent: 0, skipped: 0, needsHuman: 0, stopped: 'automation is switched off' };
+  }
+  const waitDays = Number((setSnap.exists && setSnap.data().waitDays) || QUOTE_NUDGE_WAIT_DAYS) || QUOTE_NUDGE_WAIT_DAYS;
+  const maxNudges = Number((setSnap.exists && setSnap.data().maxNudges) || QUOTE_NUDGE_MAX) || QUOTE_NUDGE_MAX;
+
+  const cfgSnap = await db.collection('settings').doc('emailjs').get();
+  const cfg = cfgSnap.exists ? cfgSnap.data() : {};
+  if (!cfg.serviceId || !cfg.templateId || !cfg.privateKey) {
+    return { sent: 0, skipped: 0, needsHuman: 0, stopped: 'EmailJS is not set up on the server' };
+  }
+
+  const tplNameSnap = await db.collection('settings').doc('quoteTemplates').get();
+  const nudgeName = (tplNameSnap.exists && tplNameSnap.data().nudge) || 'Nudge';
+  const tplSnap = await db.collection('emailTemplates').where('name', '==', nudgeName).limit(1).get();
+  if (tplSnap.empty) {
+    return { sent: 0, skipped: 0, needsHuman: 0, stopped: 'no template called "' + nudgeName + '"' };
+  }
+  const templateBody = tplSnap.docs[0].data().body || '';
+
+  const cutoff = Date.now() - waitDays * 24 * 60 * 60 * 1000;
+  const snap = await db.collection('quotes').get();
+
+  let sent = 0, skipped = 0, needsHuman = 0;
+  const errors = [];
+  const humanFollowUp = [];
+
+  for (const docSnap of snap.docs) {
+    const q = docSnap.data();
+    if (q.quoteArchived) { skipped++; continue; }
+    if ((q.status || 'new') === 'closed') { skipped++; continue; }
+    if (['approved', 'declined', 'maybe_next_year'].indexOf(q.approvalStatus) !== -1) { skipped++; continue; }
+    if (typeof q.quotedPrice !== 'number') { skipped++; continue; }
+    if (Number(q.quoteNudgeCount || 0) >= maxNudges) { skipped++; continue; }
+
+    const lastContact = toMillis(q.quoteSentAt);
+    if (!lastContact || lastContact > cutoff) { skipped++; continue; }
+
+    /* They asked for a phone call or a text. We cannot do either automatically,
+       so flag them for a person rather than emailing them anyway. */
+    if (prefersNotEmail(q.contactMethod) || !q.email) {
+      needsHuman++;
+      humanFollowUp.push({
+        id: docSnap.id, name: q.name || '', phone: q.phone || '',
+        prefers: q.contactMethod || (q.email ? '' : 'no email address')
+      });
+      continue;
+    }
+
+    try {
+      const quoteToken = q.quoteToken || '';
+      const btn = 'display:inline-block; padding:11px 18px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:14px; margin:6px 4px;';
+      const base = 'https://highlightingutah.com/#/quote-details?token=' + quoteToken;
+      const price = '$' + Number(q.quotedPrice).toFixed(2).replace(/\.00$/, '');
+
+      let body = templateBody;
+      body = body.split('{{name}}').join(properNameServer(q.name) || 'there');
+      body = body.split('{{price}}').join(price);
+      body = body.split('{{price_block}}').join(
+        '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:4px 0 14px;">' +
+          '<tr><td align="center" style="background:#F1F5EB; border-radius:10px; padding:18px 20px; font-family:Arial,sans-serif;">' +
+            '<div style="font-size:11px; letter-spacing:1.2px; text-transform:uppercase; color:#6E6858; font-weight:bold;">Your quote</div>' +
+            '<div style="font-size:32px; font-weight:bold; color:#1E3B2C; padding:4px 0 2px;">' + price + '</div>' +
+            '<div style="font-size:12.5px; color:#6E6858;">installed, maintained all season, and taken down in January</div>' +
+          '</td></tr></table>');
+      const photoHtml = q.frontPhotoUrl
+        ? ('<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:4px 0 14px;"><tr><td>' +
+            '<img src="' + q.frontPhotoUrl + '" alt="Your home" width="560" style="width:100%; max-width:560px; height:auto; border-radius:8px; display:block; border:0;">' +
+            '<p style="margin:8px 0 0; font-size:12px; color:#6E6858; font-family:Arial,sans-serif;">Not showing? <a href="' + q.frontPhotoUrl + '" style="color:#3E7A5B;">View the photo here</a>.</p>' +
+          '</td></tr></table>')
+        : '';
+      body = body.replace(/(?:\s|<br\s*\/?>)*\{\{photo\}\}(?:\s|<br\s*\/?>)*/gi, photoHtml || '<br>');
+      body = body.split('{{quote_yes_button}}').join('<a href="' + base + '&action=approve" style="' + btn + ' background:#2E6B3E; color:#ffffff;">Approve Quote</a>');
+      body = body.split('{{quote_maybe_button}}').join('<a href="' + base + '&action=maybe_next_year" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">Maybe Next Year</a>');
+      body = body.split('{{quote_decline_button}}').join('<a href="' + base + '&action=decline" style="' + btn + ' background:#8A8F9C; color:#ffffff;">Decline Quote</a>');
+      body = body.split('{{link}}').join(base);
+      body = body.replace(/\n/g, '<br>');
+      if (!photoHtml && body.indexOf('<img') === -1 && q.frontPhotoUrl) body += photoHtml;
+
+      const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          service_id: cfg.serviceId,
+          template_id: cfg.templateId,
+          user_id: cfg.publicKey || '',
+          accessToken: cfg.privateKey,
+          /* Both names, because the browser sends "message" and the nightly
+             invoice job sends "body" - whichever the EmailJS template uses,
+             one of these fills it. */
+          template_params: { to_email: q.email, to_name: q.name || '', subject: 'Just checking in on your quote', message: body, body: body }
+        })
+      });
+      if (!res.ok) throw new Error(await res.text());
+
+      await docSnap.ref.update({
+        quoteNudgeCount: Number(q.quoteNudgeCount || 0) + 1,
+        quoteLastNudgedAt: admin.firestore.FieldValue.serverTimestamp(),
+        /* Resets the clock, so the second nudge is another 10 days out. */
+        quoteSentAt: admin.firestore.FieldValue.serverTimestamp(),
+        quoteNudgedAutomatically: true
+      });
+      sent++;
+    } catch (err) {
+      errors.push((q.name || q.email || docSnap.id) + ': ' + String((err && err.message) || err));
+    }
+  }
+
+  await db.collection('settings').doc('quoteNudgeAutomation').set({
+    lastRunAt: admin.firestore.FieldValue.serverTimestamp(),
+    lastRunSource: source,
+    lastRunSent: sent,
+    lastRunNeedsHuman: needsHuman,
+    lastRunErrors: errors.slice(0, 10),
+    /* The list of people who wanted a call or a text - shown in admin so they
+       do not quietly fall through the cracks. */
+    needsHumanList: humanFollowUp.slice(0, 50)
+  }, { merge: true });
+
+  return { sent: sent, skipped: skipped, needsHuman: needsHuman, errors: errors };
+}
+
+function properNameServer(raw) {
+  const str = String(raw == null ? '' : raw).trim();
+  if (!str) return '';
+  if (str !== str.toUpperCase() && str !== str.toLowerCase()) return str.split(/\s+/)[0];
+  const tidied = str.toLowerCase().replace(/[a-z]+(?:['\u2019-][a-z]+)*/g, function (word) {
+    return word.replace(/(^|['\u2019-])([a-z])/g, function (m, sep, ch) { return sep + ch.toUpperCase(); })
+      .replace(/^Mc([a-z])/, function (m, ch) { return 'Mc' + ch.toUpperCase(); });
+  });
+  const first = tidied.split(/\s+/)[0].replace(/[,;]+$/, '');
+  if (/^(the|mr|mrs|ms|miss|dr|rev|pastor)\.?$/i.test(first)) return tidied;
+  return first;
+}
+
+exports.sendQuoteNudges = onSchedule(
+  { schedule: '0 10 * * *', timeZone: 'America/Denver', memory: '512MiB' },
+  async () => { await runQuoteNudgeBatch('schedule'); }
+);
+
+/* Manual "run it now" for testing, from admin. */
+exports.runQuoteNudgesNow = onCall({ memory: '512MiB', timeoutSeconds: 300 }, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in required.');
+  return await runQuoteNudgeBatch('manual');
+});
+
 exports.sendNightlyInvoices = onSchedule(
   { schedule: '0 19 * * *', timeZone: 'America/Denver', memory: '512MiB', secrets: [TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER] },
   async () => {
