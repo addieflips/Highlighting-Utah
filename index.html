@@ -100,10 +100,21 @@
      receipt rather than dropping them into the website. Kept separate from
      rsvp-minimal, which force-shows the payment and home pages. */
   body.quote-minimal header, body.quote-minimal footer, body.quote-minimal .page-hero{ display:none !important; }
-  body.quote-minimal #page-quote-details{ display:flex !important; min-height:100vh; align-items:center; }
-  body.quote-minimal #page-quote-details .wrap{ width:100%; }
+  body.quote-minimal #page-quote-details{ display:block !important; padding:7vh 16px 6vh; }
+  body.quote-minimal #page-quote-details section{ width:100%; padding:0 !important; }
+  body.quote-minimal #page-quote-details .wrap{ width:100%; max-width:520px; margin:0 auto; padding:0; }
   body.quote-minimal #page-quote-details .section-title,
   body.quote-minimal #page-quote-details .section-sub{ display:none !important; }
+  body.quote-minimal #quoteLinkConfirm{ text-align:center; }
+  #quoteLinkConfirmActions .qbtn{
+    display:block; width:100%; border-radius:11px; padding:15px 16px;
+    font-family:'Inter',sans-serif; font-size:15px; font-weight:700;
+    cursor:pointer; margin-bottom:10px; border:1px solid transparent; text-align:center;
+  }
+  #quoteLinkConfirmActions .qbtn-gold{ background:var(--gold); color:#4A3608; }
+  #quoteLinkConfirmActions .qbtn-plain{ background:#fff; color:var(--ink); border-color:var(--line); }
+  #quoteLinkConfirmActions .qbtn-quiet{ background:#fff; color:var(--slate); border-color:var(--line); font-weight:600; font-size:14px; }
+  #quoteLinkConfirmActions .qbtn:hover{ filter:brightness(.97); }
   body.rsvp-minimal header, body.rsvp-minimal footer, body.rsvp-minimal .page-hero{ display:none !important; }
   body.rsvp-minimal #page-payment{ display:flex !important; min-height:100vh; align-items:center; }
   body.rsvp-minimal #page-payment .wrap{ width:100%; }
@@ -2947,9 +2958,9 @@ function confirmQuoteDecline(token){
   if(!actions) return;
   actions.style.display = 'block';
   actions.innerHTML =
-    '<button type="button" class="btn btn-gold btn-block" data-qd="approve" style="margin-bottom:10px;">Actually, I\'d like to approve</button>'+
-    '<button type="button" class="btn btn-outline btn-block" data-qd="maybe_next_year" style="margin-bottom:10px;">Maybe next year instead</button>'+
-    '<button type="button" class="btn btn-outline btn-block" data-qd="decline" style="opacity:.75;">No thanks \u2014 close it out</button>';
+    '<button type="button" class="qbtn qbtn-gold" data-qd="approve">Actually, I\'d like to approve</button>'+
+    '<button type="button" class="qbtn qbtn-plain" data-qd="maybe_next_year">Maybe next year instead</button>'+
+    '<button type="button" class="qbtn qbtn-quiet" data-qd="decline">No thanks \u2014 close it out</button>';
   actions.querySelectorAll('[data-qd]').forEach(function(btn){
     btn.addEventListener('click', function(){
       actions.style.display = 'none';
@@ -2961,57 +2972,75 @@ function confirmQuoteDecline(token){
 }
 function handleQuoteLink(token, action, confirmed){
   if(action === 'decline' && !confirmed) return confirmQuoteDecline(token);
-  /* The confirmation now lives on the quote-details page rather than inside
-     the payment page, so the customer sees it where they actually landed. */
+
   var formWrap = document.getElementById('quoteDetailFormWrap');
   var successWrap = document.getElementById('quoteDetailSuccess');
   var confirmWrap = document.getElementById('quoteLinkConfirm');
   var confirmMsg = document.getElementById('quoteLinkConfirmMsg');
-  if(formWrap) formWrap.style.display = 'none';
-  if(successWrap) successWrap.style.display = 'none';
-  if(confirmWrap) confirmWrap.style.display = 'block';
-  if(confirmMsg) confirmMsg.textContent = 'One moment\u2026';
-  setQuoteConfirmSub('');
   var actionsEl = document.getElementById('quoteLinkConfirmActions');
+  if(successWrap) successWrap.style.display = 'none';
+  setQuoteConfirmSub('');
   if(actionsEl){ actionsEl.style.display = 'none'; actionsEl.innerHTML = ''; }
 
-  // Quote approve/decline runs server-side; the quotes collection is not
-  // readable from the public site.
-  callPortalFn('quoteRespond', {quoteToken: token, action: action}).then(function(res){
-    if(!res || !res.ok){
-      if(confirmMsg) confirmMsg.textContent = "We couldn't find your quote \u2014 please call or text us at (801) 901-0011 and we'll help you out.";
-      return;
-    }
-    if(action === 'approve'){
-      /* Approving is not the end of it - they still have to tell us their
-         colours. The old version stopped at a thank-you and never opened the
-         form, which is why nothing appeared to happen. */
-      quoteDetailQuoteId = res.quoteId || null;
-      quoteDetailToken = token;
-      if(res.formCompleted){
-        if(confirmMsg) confirmMsg.textContent = 'Thank you! Your quote is approved and we already have your details \u2014 we\'ll be in touch to schedule your install.';
+  /* The form saves using the token from their link, not anything the server
+     hands back - so there is no reason to make them watch a spinner while a
+     cold Cloud Function wakes up. Show the form straight away and let the
+     approval record itself in the background. They spend a minute filling it
+     in; the call finishes long before they press submit. */
+  if(action === 'approve'){
+    quoteDetailToken = token;
+    document.body.classList.remove('rsvp-minimal');
+    document.body.classList.remove('quote-minimal');
+    if(confirmWrap) confirmWrap.style.display = 'none';
+    if(formWrap) formWrap.style.display = 'block';
+
+    callPortalFn('quoteRespond', {quoteToken: token, action: 'approve'}).then(function(res){
+      if(!res || !res.ok){
+        if(formWrap) formWrap.style.display = 'none';
+        if(confirmWrap) confirmWrap.style.display = 'block';
+        if(confirmMsg) confirmMsg.textContent = "We couldn't find your quote \u2014 please call or text us at (801) 901-0011 and we'll help you out.";
         return;
       }
-      document.body.classList.remove('rsvp-minimal');
-      document.body.classList.remove('quote-minimal');
-      if(confirmWrap) confirmWrap.style.display = 'none';
-      if(formWrap) formWrap.style.display = 'block';
+      quoteDetailQuoteId = res.quoteId || null;
+      /* Already done it once - no point making them fill it in twice. */
+      if(res.formCompleted){
+        if(formWrap) formWrap.style.display = 'none';
+        document.body.classList.add('quote-minimal');
+        if(confirmWrap) confirmWrap.style.display = 'block';
+        if(confirmMsg) confirmMsg.textContent = 'Thank you! Your quote is approved.';
+        setQuoteConfirmSub('We already have your details, so there\'s nothing else to do \u2014 we\'ll be in touch to get you scheduled.');
+        return;
+      }
       var greet = document.getElementById('quoteDetailGreeting');
       if(greet && res.name){
         greet.textContent = 'Thanks ' + String(res.name).split(' ')[0] + '! Just a few details and we\'re all set.';
         greet.style.display = 'block';
       }
-    } else if(action === 'maybe_next_year'){
-      /* Nothing further is being asked of them, so the site chrome comes off -
-         no menu, no footer, nothing to wander into. Just the message. */
-      document.body.classList.add('quote-minimal');
+    }).catch(function(){
+      if(formWrap) formWrap.style.display = 'none';
+      if(confirmWrap) confirmWrap.style.display = 'block';
+      if(confirmMsg) confirmMsg.textContent = "Something went wrong \u2014 please call or text us at (801) 901-0011 and we'll get it sorted out.";
+    });
+    return;
+  }
+
+  /* Maybe and decline have nothing to show afterwards, so they do wait - but
+     the message is friendly rather than a bare "one moment". */
+  if(formWrap) formWrap.style.display = 'none';
+  document.body.classList.add('quote-minimal');
+  if(confirmWrap) confirmWrap.style.display = 'block';
+  if(confirmMsg) confirmMsg.textContent = 'Got it \u2014 saving your answer\u2026';
+
+  callPortalFn('quoteRespond', {quoteToken: token, action: action}).then(function(res){
+    if(!res || !res.ok){
+      if(confirmMsg) confirmMsg.textContent = "We couldn't find your quote \u2014 please call or text us at (801) 901-0011 and we'll help you out.";
+      return;
+    }
+    if(action === 'maybe_next_year'){
       if(confirmMsg) confirmMsg.textContent = 'Sounds good \u2014 we\'ll check back next year. \ud83c\udf84';
       setQuoteConfirmSub('We\'ve made a note so you don\'t have to remember, and your measurements are saved, which makes next season quicker. Nothing else to do.');
     } else {
-      document.body.classList.add('quote-minimal');
       if(confirmMsg) confirmMsg.textContent = 'Thanks for letting us know.';
-      /* Written for someone who has never been a customer - no "pleasure
-         lighting up your home", because we never have. */
       setQuoteConfirmSub('We appreciate you taking the time to consider us. If anything changes \u2014 this year or years from now \u2014 we\'d be glad to hear from you. There\'s no catch and no hard feelings.<br><br>Merry Christmas from all of us at Highlighting Utah.');
     }
   }).catch(function(){
