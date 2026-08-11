@@ -569,14 +569,13 @@ if (JSDOM) {
     const c2send = listSend.querySelectorAll('.row-item')[1];
     check('render', 'send tab — customer email shown for easy copying',
       c2send.querySelector('[data-copyquoteemailaddr]') !== null && c2send.textContent.includes('m@x.com'));
-    // Download Photo was retired: the house photo now rides inside the quote
-    // email as a Cloudinary <img>, so there is nothing to save off and attach
-    // by hand any more. The click handler for it is still wired in admin.html
-    // against markup nothing renders — harmless, but flagged so it self-heals.
-    gap('orphaned downloadQuotePhoto handler in admin.html',
+    // The button went missing in a markup rewrite while its click handler stayed
+    // wired, so the feature was live but unreachable. Restored — this check is
+    // what catches it going missing again.
+    check('render', 'Download Photo shown when there is a photo',
       c2send.querySelector('[data-downloadquotephoto]') !== null,
-      'admin.html still wires data-downloadquotephoto but no markup emits it — ' +
-      'delete the handler, or re-add the button if the feature is wanted back');
+      'the handler is still wired in admin.html, so the feature would be live ' +
+      'but unreachable');
     check('render', 'send tab — Mark as Sent shown before it has been sent',
       c2send.querySelector('[data-marksent]') !== null);
 

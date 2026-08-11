@@ -5851,6 +5851,12 @@ function renderQuoteRows(filtered){
           (d.frontPhotoUrl ? '<img src="'+esc(d.frontPhotoUrl)+'" class="quote-photo-img" data-photofor="'+item.id+'" style="max-width:240px; border-radius:8px; border:1px solid var(--line); display:block; margin-bottom:6px;">' : '')+
           '<label class="btn btn-outline btn-sm" style="cursor:pointer;">'+(d.frontPhotoUrl ? 'Replace Photo' : 'Add Photo')+'<input type="file" accept="image/*" class="quote-photo-input" data-photofor="'+item.id+'" style="display:none;"></label>'+
           (d.frontPhotoUrl ? '<button type="button" class="btn btn-outline btn-sm" data-markupphoto="'+item.id+'" style="margin-left:6px;">Mark Up Photo</button>' : '')+
+          /* Saves the house photo to the computer. The wiring for this survived
+             a markup rewrite that dropped the button itself, which left a
+             working feature unreachable - the leftover handler is how it was
+             spotted. Nothing to do with the email: that carries its own copy
+             as a Cloudinary <img>, never an attachment. */
+          (d.frontPhotoUrl ? '<button type="button" class="btn btn-outline btn-sm" data-downloadquotephoto="'+item.id+'" style="margin-left:6px;">Download Photo</button>' : '')+
           '<span class="quote-photo-status" data-statusfor="'+item.id+'" style="font-size:12px; color:var(--slate); margin-left:8px;"></span>'+
         '</div>'+
 
