@@ -4349,6 +4349,7 @@ async function resolveLinkTokens(text, phone, amount, opts){
         '</td></tr>'+
       '</table>');
   }
+  if(opts.setupFeeLine !== undefined) out = out.split('{{setup_fee_line}}').join(opts.setupFeeLine || '');
   if(opts.link){
     out = out.split('{{link}}').join(opts.link);
     out = out.split('{{link_button}}').join('<a href="'+opts.link+'" style="'+btnStyleGold+'">'+(opts.linkLabel || 'View & Respond')+'</a>');
@@ -6202,6 +6203,10 @@ function renderQuoteRows(filtered){
             '<div class="form-row" style="margin-top:8px; max-width:220px;"><label style="font-size:11.5px;">Estimated Feet (for pricing)</label><input type="number" class="quoteFeetInput" data-id="'+item.id+'" min="0" step="0.5" value="'+(d.estimatedFeet||'')+'" placeholder="e.g. 120" style="font-size:13px; padding:8px 10px;"></div>'+
             (d.estimatedFeet ? '<div class="rtext" style="font-weight:600; color:var(--dusk);">Estimated Price: '+(perFootRate ? fmtMoney(d.estimatedFeet*perFootRate) : 'Set a per-foot rate under Finance > Per Foot Pricing first.')+'</div>' : '')+
             '<div class="form-row" style="margin-top:8px; max-width:220px;"><label style="font-size:11.5px;">Quoted Price ($) &mdash; what you\'ll ask them to approve</label><input type="number" class="quotePriceInput" data-id="'+item.id+'" min="0" step="1" value="'+(d.quotedPrice != null ? d.quotedPrice : (d.estimatedFeet && perFootRate ? Math.round(d.estimatedFeet*perFootRate) : ''))+'" placeholder="e.g. 450"></div>'+
+            /* Defaults on for a brand-new quote and off for a re-quote (an
+               existing customer already paid this once) - but only until she
+               actually sets it herself, at which point d.chargeSetupFee wins. */
+            '<label style="display:flex; align-items:center; gap:6px; margin-top:8px; font-size:12.5px; cursor:pointer;"><input type="checkbox" class="quoteSetupFeeCheck" data-id="'+item.id+'"'+((d.chargeSetupFee !== undefined ? d.chargeSetupFee : !d.existingCustomerId) ? ' checked' : '')+'> Charge $30 one-time set-up fee'+(d.existingCustomerId ? ' <span style="color:var(--slate);">(unusual for a re-quote)</span>' : '')+'</label>'+
             '<button type="button" class="btn btn-gold btn-sm" data-getquotelink="'+item.id+'">'+
               (d.quoteManuallySent ? 'Send again' : (d.existingCustomerId ? 'Send updated quote' : 'Send quote email'))+'</button>'+
             '<button type="button" class="btn btn-outline btn-sm" data-copyquoteemail="'+item.id+'" style="margin-left:6px;">Preview first</button>'+
@@ -6307,7 +6312,8 @@ function renderQuoteRows(filtered){
        house photo rides along as an <img> pointing at the copy already on
        Cloudinary, so nothing is attached and it costs nothing extra. It sits
        BELOW the buttons because some mail apps hide images until tapped. */
-    let html = await resolveLinkTokens(body, d.phone, 0, {name: properName(d.name) || 'there', price: fmtMoney(d.quotedPrice)});
+    const chargesSetupFee = d.chargeSetupFee !== undefined ? d.chargeSetupFee : !d.existingCustomerId;
+    let html = await resolveLinkTokens(body, d.phone, 0, {name: properName(d.name) || 'there', price: fmtMoney(d.quotedPrice), setupFeeLine: chargesSetupFee ? 'Plus a one-time $30 set-up fee.' : ''});
     /* The photo goes directly under the price and above the buttons - where it
        does its work, next to the number it justifies. It used to sit below the
        sign-off, which almost nobody scrolls to. If the template says where it
@@ -6987,6 +6993,11 @@ function renderQuoteRows(filtered){
       } else if(d.estimatedFeet && perFootRate){
         document.getElementById('addCustPrice').value = Math.round(d.estimatedFeet * perFootRate);
       }
+      // Same fee decision made on the quote's Pricing & Approval panel -
+      // otherwise a "yes" checked there and a default here could disagree,
+      // and the customer gets charged something different than what the
+      // quote email actually told them.
+      document.getElementById('addCustNewMemberFee').checked = d.chargeSetupFee !== undefined ? d.chargeSetupFee : !d.existingCustomerId;
       addCustFromQuoteId = btn.dataset.converttocust;
       // Preferred contact method was collected on the quote and used to be
       // dropped here — carry it onto the customer so it isn't lost.
@@ -7031,6 +7042,11 @@ function renderQuoteRows(filtered){
   list.querySelectorAll('.quoteFeetInput').forEach(function(input){
     input.addEventListener('change', function(){
       updateDoc(doc(db,'quotes',input.dataset.id), {estimatedFeet: Number(input.value) || 0});
+    });
+  });
+  list.querySelectorAll('.quoteSetupFeeCheck').forEach(function(cb){
+    cb.addEventListener('change', function(){
+      updateDoc(doc(db,'quotes',cb.dataset.id), {chargeSetupFee: cb.checked});
     });
   });
   list.querySelectorAll('[data-pricingtoggle]').forEach(function(header){
@@ -7842,6 +7858,7 @@ const IC_CODES = {
     {token:'{{name}}', label:'Customer name'},
     {token:'{{price}}', label:'Quoted price (plain text)'},
     {token:'{{price_block}}', label:'Quoted price (big price panel)'},
+    {token:'{{setup_fee_line}}', label:'One-time $30 set-up fee line (only if checked on the quote)'},
     {token:'{{photo}}', label:'Their house photo'},
     {token:'{{link}}', label:'Quote link (plain URL)'},
     {token:'{{link_button}}', label:'Quote link (button)'},
