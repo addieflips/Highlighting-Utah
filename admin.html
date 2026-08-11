@@ -6158,7 +6158,9 @@ function renderQuoteRows(filtered){
             '<div class="form-row" style="margin-top:8px; max-width:220px;"><label style="font-size:11.5px;">Estimated Feet (for pricing)</label><input type="number" class="quoteFeetInput" data-id="'+item.id+'" min="0" step="0.5" value="'+(d.estimatedFeet||'')+'" placeholder="e.g. 120" style="font-size:13px; padding:8px 10px;"></div>'+
             (d.estimatedFeet ? '<div class="rtext" style="font-weight:600; color:var(--dusk);">Estimated Price: '+(perFootRate ? fmtMoney(d.estimatedFeet*perFootRate) : 'Set a per-foot rate under Finance > Per Foot Pricing first.')+'</div>' : '')+
             '<div class="form-row" style="margin-top:8px; max-width:220px;"><label style="font-size:11.5px;">Quoted Price ($) &mdash; what you\'ll ask them to approve</label><input type="number" class="quotePriceInput" data-id="'+item.id+'" min="0" step="1" value="'+(d.quotedPrice != null ? d.quotedPrice : (d.estimatedFeet && perFootRate ? Math.round(d.estimatedFeet*perFootRate) : ''))+'" placeholder="e.g. 450"></div>'+
-            '<button type="button" class="btn btn-gold btn-sm" data-getquotelink="'+item.id+'">'+(d.existingCustomerId ? 'Send updated quote' : 'Send quote email')+'</button>'+
+            '<button type="button" class="btn btn-gold btn-sm" data-getquotelink="'+item.id+'">'+
+              (d.quoteManuallySent ? 'Send again' : (d.existingCustomerId ? 'Send updated quote' : 'Send quote email'))+'</button>'+
+            '<button type="button" class="btn btn-outline btn-sm" data-copyquoteemail="'+item.id+'" style="margin-left:6px;">Preview first</button>'+
             (d.phone && !d.smsOptedOut ? '<button type="button" class="btn btn-outline btn-sm" data-textquote="'+item.id+'" style="margin-left:6px;">Send as text instead</button>' : '')+
             (d.smsOptedOut
               ? '<div class="rtext" style="margin-top:5px; color:var(--ember); font-weight:600;">\ud83d\udeab Do not text \u2014 '+esc(d.smsOptedOutReason || 'they asked us not to')+'. '+
@@ -6240,46 +6242,9 @@ function renderQuoteRows(filtered){
      send it from their own email client — this never sends anything on its
      own. Shared by the Send Email button (first time) and Show Quote Email
      Again (re-viewing later without touching the link/quoteSentAt below). */
-  async function showQuoteEmailBox(id, kind){
-    try{
-      await buildQuoteEmailBox(id, kind);
-    } catch(err){
-      /* Anything that goes wrong building the preview used to leave the button
-         looking dead. Show it instead. */
-      console.error('Quote email preview failed:', err);
-      const box = document.querySelector('.quoteemail-result[data-resultfor="'+id+'"]');
-      const msg = (err && (err.message || err.text)) ? (err.message || err.text) : String(err);
-      if(box){
-        box.innerHTML = '<div class="rtext" style="color:var(--ember); font-weight:600;">Could not build the email: '+esc(msg)+'</div>';
-      } else {
-        toast('Could not build the email: ' + msg);
-      }
-    }
-  }
-  async function buildQuoteEmailBox(id, kind){
-    kind = kind || 'quote';
-    const item = quotesCache.find(q => q.id === id);
-    if(!item){ toast('That quote is no longer on screen — reload and try again.'); return; }
-    /* The preview lives inside the Pricing & Approval panel, so if that panel
-       is collapsed the email is built into something invisible and the button
-       looks like it did nothing. Force it open first. */
-    if(!quotePricingOpenIds.has(id)){
-      quotePricingOpenIds.add(id);
-      renderQuotesList();
-    }
-    const resultEl = document.querySelector('.quoteemail-result[data-resultfor="'+id+'"]');
-    if(!resultEl){
-      toast('Price this quote first, then the email preview appears here.');
-      return;
-    }
-    const d = item.data;
-    const tmplName = quoteTemplateFor(d, kind);
-    const template = getEmailTemplateByName(tmplName);
-    if(!template && !(kind === 'quote' && !d.existingCustomerId)){
-      resultEl.innerHTML = '<div class="rtext" style="color:var(--ember); font-weight:600;">Can\'t find a template called &ldquo;'+esc(tmplName)+'&rdquo;. '+
-        'Open <strong>Quote email settings</strong> at the top of this page and pick the right one.</div>';
-      return;
-    }
+  /* Builds exactly what the customer receives - shared by the preview and the
+     one-press send, so what you see and what goes out cannot drift apart. */
+  async function buildQuoteEmailHtml(d, kind, template){
     const body = template ? template.data.body : DEFAULT_QUOTE_TEMPLATE_BODY;
     /* Real HTML, not flattened to plain text - that flattening is what turned
        the approve/maybe/decline buttons into spelled-out web addresses. The
@@ -6322,6 +6287,105 @@ function renderQuoteRows(filtered){
     const subject = kind === 'nudge'
       ? 'Just checking in on your quote'
       : (d.existingCustomerId ? 'Your updated Highlighting Utah quote' : 'Your Highlighting Utah quote');
+    return {html: html, subject: subject};
+  }
+
+  /* One press: saves the price, builds the email from the template, sends it,
+     and moves the card to Awaiting Response. The preview is still there under
+     "Show the email again" if you want to see what went - but you no longer
+     have to press twice to send a quote you have already decided to send.
+     Sending twice is blocked: the second press asks first. */
+  async function sendQuoteEmailNow(id){
+    const item = quotesCache.find(q => q.id === id);
+    if(!item) return;
+    const d = item.data;
+    const statusEl = () => document.querySelector('.quotelink-status[data-statusfor="'+id+'"]');
+    const say = (text, colour) => { const el = statusEl(); if(el){ el.style.color = colour || 'var(--slate)'; el.textContent = text; } };
+
+    if(!d.email){ say('No email address on this quote \u2014 add one first.', 'var(--ember)'); return; }
+    if(quoteSendInFlight.has(id)){ say('Already sending \u2014 give it a second.'); return; }
+    if(d.quoteManuallySent && !confirm((d.name || 'This customer') + ' has already been sent their quote.\n\nSend it again?')) return;
+
+    const tmplName = quoteTemplateFor(d, 'quote');
+    const template = getEmailTemplateByName(tmplName);
+    if(!template && d.existingCustomerId){
+      say('Can\'t find a template called \u201C'+tmplName+'\u201D \u2014 pick one in Quote email settings.', 'var(--ember)');
+      return;
+    }
+    const cfg = await getEmailjsConfig();
+    const missing = emailjsMissingParts(cfg);
+    if(missing.length){ say('Missing ' + missing.join(', ') + ' \u2014 check EmailJS Setup.', 'var(--ember)'); return; }
+    if(!window.emailjs){ say('Email service failed to load \u2014 reload the page.', 'var(--ember)'); return; }
+
+    quoteSendInFlight.add(id);
+    say('Sending\u2026');
+    try{
+      const built = await buildQuoteEmailHtml(d, 'quote', template);
+      emailjs.init(cfg.publicKey);
+      await emailjs.send(cfg.serviceId, cfg.templateId, {
+        to_email: d.email, to_name: d.name || '', subject: built.subject, message: built.html,
+        button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || ''),
+        button_label: 'View Your Quote'
+      });
+      await updateDoc(doc(db,'quotes', id), {
+        quoteSentAt: serverTimestamp(), quoteManuallySent: true, quoteManuallySentAt: serverTimestamp()
+      });
+      quoteSendResults.set(id, {ok:true, text:'\u2713 Sent to ' + d.email + '. Chasing is automatic from here.'});
+      repaintQuoteSendResults();
+      toast('Quote sent to ' + d.email + '.');
+    } catch(err){
+      const msg = 'Send failed: ' + (err && (err.text || err.message) ? (err.text || err.message) : 'check your Email Setup.');
+      quoteSendResults.set(id, {ok:false, text: msg});
+      repaintQuoteSendResults();
+      say(msg, 'var(--ember)');
+      console.error('Quote send failed:', err);
+    } finally {
+      quoteSendInFlight.delete(id);
+    }
+  }
+  async function showQuoteEmailBox(id, kind){
+    try{
+      await buildQuoteEmailBox(id, kind);
+    } catch(err){
+      /* Anything that goes wrong building the preview used to leave the button
+         looking dead. Show it instead. */
+      console.error('Quote email preview failed:', err);
+      const box = document.querySelector('.quoteemail-result[data-resultfor="'+id+'"]');
+      const msg = (err && (err.message || err.text)) ? (err.message || err.text) : String(err);
+      if(box){
+        box.innerHTML = '<div class="rtext" style="color:var(--ember); font-weight:600;">Could not build the email: '+esc(msg)+'</div>';
+      } else {
+        toast('Could not build the email: ' + msg);
+      }
+    }
+  }
+  async function buildQuoteEmailBox(id, kind){
+    kind = kind || 'quote';
+    const item = quotesCache.find(q => q.id === id);
+    if(!item){ toast('That quote is no longer on screen — reload and try again.'); return; }
+    /* The preview lives inside the Pricing & Approval panel, so if that panel
+       is collapsed the email is built into something invisible and the button
+       looks like it did nothing. Force it open first. */
+    if(!quotePricingOpenIds.has(id)){
+      quotePricingOpenIds.add(id);
+      renderQuotesList();
+    }
+    const resultEl = document.querySelector('.quoteemail-result[data-resultfor="'+id+'"]');
+    if(!resultEl){
+      toast('Price this quote first, then the email preview appears here.');
+      return;
+    }
+    const d = item.data;
+    const tmplName = quoteTemplateFor(d, kind);
+    const template = getEmailTemplateByName(tmplName);
+    if(!template && !(kind === 'quote' && !d.existingCustomerId)){
+      resultEl.innerHTML = '<div class="rtext" style="color:var(--ember); font-weight:600;">Can\'t find a template called &ldquo;'+esc(tmplName)+'&rdquo;. '+
+        'Open <strong>Quote email settings</strong> at the top of this page and pick the right one.</div>';
+      return;
+    }
+    const built = await buildQuoteEmailHtml(d, kind, template);
+    const html = built.html;
+    const subject = built.subject;
     resultEl.innerHTML =
       '<div style="font-size:11.5px; background:#EEF1FF; border:1px solid #C7CEF5; border-radius:8px; padding:9px 11px; margin-bottom:10px; color:#33397a; line-height:1.5;">'+
         'Pulled live from <strong>Automation Emails &rarr; Templates &rarr; '+esc(tmplName)+'</strong>. Change the wording there and it changes here.'+
@@ -6590,7 +6654,7 @@ function renderQuoteRows(filtered){
       const priceInput = list.querySelector('.quotePriceInput[data-id="'+id+'"]');
       const price = Number(priceInput ? priceInput.value : 0);
       if(!price || price <= 0){ if(statusEl) statusEl.textContent = 'Enter a price first.'; return; }
-      if(statusEl) statusEl.textContent = 'Building the email\u2026';
+      if(statusEl) statusEl.textContent = 'Saving the price\u2026';
       const item = quotesCache.find(q => q.id === id);
       if(!item) return;
       let token = item.data.quoteToken;
@@ -6605,8 +6669,8 @@ function renderQuoteRows(filtered){
         const freshStatusEl = list.querySelector('.quotelink-status[data-statusfor="'+id+'"]');
         const freshLinkBox = list.querySelector('.quotelink-box[data-linkfor="'+id+'"]');
         if(freshLinkBox) freshLinkBox.textContent = link;
-        if(freshStatusEl) freshStatusEl.textContent = 'Saved. Check the email below, then press Send it.';
-        await showQuoteEmailBox(id);
+        if(freshStatusEl) freshStatusEl.textContent = 'Saved \u2014 sending\u2026';
+        await sendQuoteEmailNow(id);
       } catch(err){
         if(statusEl) statusEl.textContent = 'Something went wrong — try again.';
       }
