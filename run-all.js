@@ -996,18 +996,65 @@ suite('8. Quote decline / maybe next year');
     (admin.match(/<th style="padding:8px 10px;"><\/th>/g) || []).length >= 2 &&
     /colspan="8"/.test(admin),
     'header and body would disagree and the table would render misaligned');
-  check('quoteresp', 'the badge can be undone from All Customers',
-    /data-undomaybe/.test(admin) && /maybeNextYear: false/.test(admin),
-    'a wrong tag would need a hand edit to clear');
-  check('quoteresp', 'undo does not silently re-route them',
+  // Sliced to the next real statement rather than a fixed window — a character
+  // count here goes stale the moment the cell grows (see CLAUDE.md §7).
+  const maybeCellStart = admin.indexOf('const maybeCell = r.d.maybeNextYear');
+  const maybeCell = admin.slice(maybeCellStart,
+    admin.indexOf('return \'<tr style="border-bottom', maybeCellStart));
+  check('quoteresp', 'every customer reads Confirmed or Maybe Next Year',
+    maybeCell.includes('Maybe Next Year<') && maybeCell.includes('Confirmed<'),
+    'a blank cell is ambiguous between "confirmed" and "nobody has looked yet"');
+  check('quoteresp', 'the badge can be flipped both ways from All Customers',
+    /data-seasontoggle/.test(admin) && /data-to="maybe"/.test(admin) && /data-to="confirmed"/.test(admin),
+    'the office could only ever set it one way');
+  check('quoteresp', 'confirming does not silently re-route them',
     /NOT put them back on a route|NOT added back to any route/.test(admin),
     'quietly rebuilding a route behind the office is worse than re-adding a stop');
   // Caught live: the write landed but the row kept showing the badge until the
-  // search was retyped, so Undo read as a dead button — the same failure the
-  // quote email had. Nothing re-renders this table on a jobAddresses change.
-  check('quoteresp', 'undo repaints the row it just changed',
-    /renderAllCustomersTable\(\);[\s\S]{0,120}toast\(who/.test(admin),
-    'the badge would stay on screen after Undo and the button would look dead');
+  // search was retyped, so the button read as dead — the same failure the quote
+  // email had. Nothing re-renders this table on a jobAddresses change.
+  check('quoteresp', 'the toggle repaints the row it just changed',
+    /renderAllCustomersTable\(\);[\s\S]{0,200}toast\(toMaybe/.test(admin),
+    'the badge would stay on screen after the click and the button would look dead');
+  // All Customers was the only list left out of the jobAddresses snapshot sweep,
+  // so a saved edit sat stale until the search was retyped. Caught live.
+  check('quoteresp', 'All Customers refreshes on any customer change',
+    /safeRender\('allCustomersTable'/.test(admin),
+    'an Edit Customer save would not show up in the table until you retyped the search');
+
+  // --- the manual toggle in Edit Customer -------------------------------
+  check('quoteresp', 'Edit Customer offers both states',
+    /id="editCustSeasonConfirmed"/.test(admin) && /id="editCustSeasonMaybe"/.test(admin),
+    'there would be no way to set this by hand');
+  check('quoteresp', 'only one state can be active at a time',
+    (admin.match(/name="editCustSeason"/g) || []).length === 2 &&
+    /type="radio" name="editCustSeason"/.test(admin),
+    'two checkboxes would eventually end up both on or both off — a radio group cannot');
+  check('quoteresp', 'the toggle is loaded when the modal opens',
+    /editCustSeasonMaybe' : 'editCustSeasonConfirmed'\)\.checked = true/.test(admin),
+    'it would always show Confirmed regardless of the real value');
+  check('quoteresp', 'saving applies the season fields after the rest',
+    admin.indexOf('addrUpdates.maybeNextYear = newSeasonMaybe') >
+      admin.indexOf('addrUpdates.needsLightBuild = newLightsDescription') &&
+    admin.indexOf('addrUpdates.maybeNextYear = newSeasonMaybe') <
+      admin.indexOf("await updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates)"),
+    'the RSVP dropdown or the build flag would overwrite it and leave a half state');
+  check('quoteresp', 'coming back to Confirmed clears a stale Back Next Year RSVP',
+    /newRsvp === 'backnextyear'\)\{ addrUpdates\.rsvpStatus = ''/.test(admin),
+    'they would be unroutable behind a Confirmed badge');
+  check('quoteresp', 'saving Maybe Next Year pulls them off upcoming routes',
+    /newSeasonMaybe && !item\.data\.maybeNextYear[\s\S]{0,120}removeCustomerFromUpcomingRoutes/.test(admin),
+    'the badge would say they are out while the crew still turns up');
+  const seasonFn = admin.slice(admin.indexOf('async function setCustomerSeason'),
+    admin.indexOf('async function setCustomerSeason') + 1400);
+  check('quoteresp', 'the manual toggle touches no money either',
+    !/(install|removal|deposit|credits|changeFees)\s*:/.test(seasonFn),
+    'sitting out next season says nothing about what is owed for work already done');
+  check('quoteresp', 'manual route removal leaves past routes alone',
+    /dates\[i\] < todayStr\) continue/.test(
+      admin.slice(admin.indexOf('async function removeCustomerFromUpcomingRoutes'),
+        admin.indexOf('async function removeCustomerFromUpcomingRoutes') + 900)),
+    'rewriting a finished route changes what the crew actually did');
 
   // every route-building list honours the tag
   const routeLists = (admin.match(/let available = jobAddresses\.filter\([^;]*;/g) || []);

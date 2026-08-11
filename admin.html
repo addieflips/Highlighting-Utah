@@ -1511,6 +1511,22 @@
             <div class="form-row"><label>Don't Install Before This Date (staff only)</label><input type="date" id="editCustEarliestInstall"></div>
           </div>
           <p class="form-note" style="margin:-4px 0 16px;">Customers never see or can change this &mdash; use it when someone needs us to hold off until a specific date (e.g. they're out of town until then). Leave blank for no restriction.</p>
+          <!-- Radio group rather than two checkboxes: the browser enforces that
+               only one can be on, so the pair can never end up both set or both
+               clear the way two checkboxes eventually would. -->
+          <div class="form-row"><label>This Season</label>
+            <div style="display:flex; gap:20px; flex-wrap:wrap; align-items:center; padding:4px 0;">
+              <label style="display:flex; align-items:center; gap:7px; font-weight:600; cursor:pointer; margin:0;">
+                <input type="radio" name="editCustSeason" id="editCustSeasonConfirmed" value="confirmed" style="width:auto; margin:0;">
+                <span class="status-pill" style="background:#E6F2EA; color:#2E6B3E;">Confirmed</span>
+              </label>
+              <label style="display:flex; align-items:center; gap:7px; font-weight:600; cursor:pointer; margin:0;">
+                <input type="radio" name="editCustSeason" id="editCustSeasonMaybe" value="maybe" style="width:auto; margin:0;">
+                <span class="status-pill" style="background:#FFF3D6; color:#8A6100;">Maybe Next Year</span>
+              </label>
+            </div>
+          </div>
+          <p class="form-note" style="margin:-4px 0 16px;">This is the badge shown next to them in All Customers. Switching someone to <strong>Maybe Next Year</strong> takes them out of this season &mdash; off the routes, the schedule and the warehouse build list &mdash; and removes them from any upcoming route they are already on. It never touches what they owe. Set it back to Confirmed to put them back in the pool (you'll still need to schedule them yourself).</p>
 
           <!-- ===================== HOUSE INFO ===================== -->
           <div style="border-top:2px solid var(--gold-dim); margin:20px 0 0; padding-top:16px;">
@@ -11623,6 +11639,11 @@ function loadJobAddresses(){
     safeRender('rsvpRecipients', typeof rsvpRenderRecipientList === 'function' ? rsvpRenderRecipientList : null);
     safeRender('rsvpPreview', typeof rsvpUpdatePreview === 'function' ? rsvpUpdatePreview : null);
     safeRender('whCustomerList', typeof whRefreshCustomerList === 'function' ? whRefreshCustomerList : null);
+    /* All Customers was the one list missing from this sweep, so every panel
+       stayed live on a customer change except the table people actually work
+       from - a saved edit only appeared after retyping the search or switching
+       tabs. It renders from jobAddresses, which has just been rebuilt above. */
+    safeRender('allCustomersTable', typeof renderAllCustomersTable === 'function' ? renderAllCustomersTable : null);
   });
 }
 let warehouseExtras = [];
@@ -12708,13 +12729,17 @@ function renderAllCustomersTable(){
     const timingLabel = r.d.installPreference === 'November - Before Thanksgiving' ? 'November — Before Thanksgiving' : (r.d.installPreference === 'Normal Schedule' || !r.d.installPreference ? 'Any' : r.d.installPreference);
     const mapCell = r.hasMap ? '<a class="btn btn-outline btn-sm" href="'+esc(r.d.layoutMapUrl)+'" target="_blank" rel="noopener">View Map</a>' : '<span style="color:var(--slate); font-size:12px;">No map yet</span>';
     const binBadge = (r.d.numberOfBins && r.d.numberOfBins > 1) ? ' <span style="display:inline-block; background:#EAF1FA; color:#2B5C8A; border:1px solid #C3D8EC; border-radius:999px; padding:1px 8px; font-size:11px; font-weight:600; vertical-align:middle;">'+r.d.numberOfBins+' bins</span>' : '';
-    /* They stay in All Customers - this badge is the only thing that marks them
-       as sitting out the season, so it reads next to the invoice status the
-       same way Paid / Unpaid does. Undo puts them straight back in the pool. */
+    /* Everyone carries one of these two, so the column answers "is this person
+       in for this season?" at a glance rather than only flagging the exceptions
+       - a blank cell used to be ambiguous between "confirmed" and "nobody has
+       looked at this yet". Confirmed is the default because that is what being
+       in All Customers has always meant; the RSVP email will set it properly
+       once it is wired up. The button flips them the other way. */
     const maybeCell = r.d.maybeNextYear
       ? '<span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">Maybe Next Year</span>'+
-        '<br><button type="button" class="btn btn-outline btn-sm" data-undomaybe="'+r.item.id+'" style="margin-top:4px; font-size:11px;">Undo</button>'
-      : '';
+        '<br><button type="button" class="btn btn-outline btn-sm" data-seasontoggle="'+r.item.id+'" data-to="confirmed" style="margin-top:4px; font-size:11px;">Confirm</button>'
+      : '<span class="status-pill" style="background:#E6F2EA; color:#2E6B3E; font-weight:700;">Confirmed</span>'+
+        '<br><button type="button" class="btn btn-outline btn-sm" data-seasontoggle="'+r.item.id+'" data-to="maybe" style="margin-top:4px; font-size:11px;">Maybe next year</button>';
     return '<tr style="border-bottom:1px solid var(--line);">'+
       '<td style="padding:8px 10px;"><strong>'+esc(r.d.name||'(no name)')+'</strong>'+binBadge+'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.address||'')+'</span>'+(r.d.phone?'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.phone)+'</span>':'')+'</td>'+
       '<td style="padding:8px 10px; font-size:12.5px;">'+esc(r.enrolled||'—')+'</td>'+
@@ -12731,32 +12756,31 @@ function renderAllCustomersTable(){
       openEditCustomerModal(btn.dataset.editcust);
     });
   });
-  /* Clearing the badge puts them back in the normal pool, but deliberately does
-     NOT put them back on a route. Rebuilding a route behind the office's back
-     would be a worse surprise than making them re-add one stop by hand. */
-  body.querySelectorAll('[data-undomaybe]').forEach(function(btn){
+  /* Flipping to Confirmed deliberately does NOT put anyone back on a route.
+     Rebuilding a route behind the office's back would be a worse surprise than
+     making them re-add one stop by hand, so both directions say what they do. */
+  body.querySelectorAll('[data-seasontoggle]').forEach(function(btn){
     btn.addEventListener('click', async function(){
-      const id = btn.dataset.undomaybe;
+      const id = btn.dataset.seasontoggle;
+      const toMaybe = btn.dataset.to === 'maybe';
       const cust = jobAddresses.find(a => a.id === id);
       const who = (cust && cust.data.name) || 'this customer';
-      if(!confirm('Put ' + who + ' back in this season?\n\nThe Maybe Next Year badge is removed and their RSVP goes back to pending, so they can be routed again. They are NOT added back to any route — you\'ll need to schedule them like anyone else.')) return;
+      const ask = toMaybe
+        ? 'Mark ' + who + ' as Maybe Next Year?\n\nThey stay in All Customers and keep everything they owe, but they come off the routes, the schedule and the warehouse build list — including any upcoming route they are already on.'
+        : 'Confirm ' + who + ' for this season?\n\nThe Maybe Next Year badge is removed and their RSVP goes back to pending, so they can be routed again. They are NOT added back to any route — you\'ll need to schedule them like anyone else.';
+      if(!confirm(ask)) return;
       btn.disabled = true;
       try{
-        await updateDoc(doc(db,'jobAddresses', id), {
-          maybeNextYear: false, maybeNextYearAt: null,
-          rsvpStatus: '', rsvpRespondedAt: null
-        });
+        const removed = await setCustomerSeason(id, toMaybe);
         /* Nothing re-renders this table on a jobAddresses change, so without
-           this the badge stays on screen until the search is retyped and Undo
-           reads as a button that does nothing. Local update first, because the
-           row is rebuilt from jobAddresses rather than re-read from Firestore. */
-        const local = jobAddresses.find(a => a.id === id);
-        if(local){ local.data.maybeNextYear = false; local.data.rsvpStatus = ''; }
+           this the badge stays on screen and the button reads as dead. */
         renderAllCustomersTable();
-        toast(who + ' is back in the pool — schedule them when you\'re ready.');
+        toast(toMaybe
+          ? who + ' is out for this season' + (removed ? ' — taken off ' + removed + ' upcoming route' + (removed === 1 ? '' : 's') + '.' : '.')
+          : who + ' is back in the pool — schedule them when you\'re ready.');
       } catch(err){
         btn.disabled = false;
-        toast('Could not undo that — try again.');
+        toast('Could not change that — try again.');
       }
     });
   });
@@ -12835,6 +12859,9 @@ function openEditCustomerModal(id){
   document.getElementById('editCustAddress').value = d.address || '';
   document.getElementById('editCustEnrolled').value = (d.createdAt && d.createdAt.toDate) ? toDateStr(d.createdAt.toDate()) : '';
   document.getElementById('editCustRsvp').value = d.rsvpStatus || '';
+  /* Confirmed is the default for anyone not explicitly sitting out, which is
+     what an All Customers record has always meant. */
+  document.getElementById(d.maybeNextYear ? 'editCustSeasonMaybe' : 'editCustSeasonConfirmed').checked = true;
   document.getElementById('editCustEarliestInstall').value = (d.earliestInstallDate && d.earliestInstallDate.toDate) ? toDateStr(d.earliestInstallDate.toDate()) : '';
   document.getElementById('editCustFeet').value = d.measuredFeet || '';
   document.getElementById('editCustHousePrice').value = d.housePrice || '';
@@ -13028,6 +13055,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const newAddress = document.getElementById('editCustAddress').value.trim();
   const newEnrolledStr = document.getElementById('editCustEnrolled').value;
   const newRsvp = document.getElementById('editCustRsvp').value;
+  const newSeasonMaybe = document.getElementById('editCustSeasonMaybe').checked;
   const newEarliestInstallStr = document.getElementById('editCustEarliestInstall').value;
   const newHousePrice = Number(document.getElementById('editCustHousePrice').value) || 0;
   const newMeasuredFeet = Number(document.getElementById('editCustFeet').value) || 0;
@@ -13079,6 +13107,27 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     addrUpdates.referralCount = newReferralCount;
     const oldLightsForBuild = item.data.lightsDescription || '';
     addrUpdates.needsLightBuild = newLightsDescription ? (newLightsDescription !== oldLightsForBuild ? true : !!item.data.needsLightBuild) : false;
+    /* Applied last so it beats the RSVP dropdown and the build flag above:
+       the toggle is the explicit statement about this season, and letting the
+       two disagree is how someone ends up badged Maybe Next Year while still
+       sitting on a route. Money fields are untouched on purpose. */
+    addrUpdates.maybeNextYear = newSeasonMaybe;
+    if(newSeasonMaybe){
+      if(!item.data.maybeNextYear) addrUpdates.maybeNextYearAt = serverTimestamp();
+      addrUpdates.rsvpStatus = 'backnextyear';
+      addrUpdates.rsvpRespondedAt = serverTimestamp();
+      addrUpdates.needsLightRecycle = false;
+      addrUpdates.needsLightBuild = false;
+      addrUpdates.scheduled = false;
+      addrUpdates.scheduledDate = null;
+      addrUpdates.assignedCrew = null;
+    } else if(item.data.maybeNextYear){
+      addrUpdates.maybeNextYearAt = null;
+      /* Coming back in with the dropdown still reading Back Next Year would
+         leave them unroutable behind a Confirmed badge, so reset it to
+         pending unless the office picked something else themselves. */
+      if(newRsvp === 'backnextyear'){ addrUpdates.rsvpStatus = ''; addrUpdates.rsvpRespondedAt = null; }
+    }
     let geocodeFailed = false;
     if(newAddress && newAddress !== oldAddress){
       statusEl.textContent = 'Address changed — relocating on map…';
@@ -13121,6 +13170,12 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       specificOutlet: newSpecificOutlet, specificOutletNotes: newSpecificOutletNotes,
       customerNumber: addrUpdates.customerNumber, lat: addrUpdates.lat, lng: addrUpdates.lng
     });
+    /* Switching someone to Maybe Next Year has to take them off the routes as
+       well as flag them, or the crew still turns up. Only on the transition,
+       so re-saving an already-flagged customer is not a repeated sweep. */
+    if(newSeasonMaybe && !item.data.maybeNextYear){
+      await removeCustomerFromUpcomingRoutes(editCustomerId);
+    }
     const inv = allCustInvoiceFor(item);
     let resyncPayerAfter = null;
     let migratingFeeNotes = null;
@@ -14099,6 +14154,52 @@ async function resyncSavedRouteStops(customerId, fields){
       catch(err){ console.warn('Route stop resync failed for ' + route.id, err); }
     }
   }
+}
+/* Takes a customer off every UPCOMING saved route. Past routes are left exactly
+   as they are - they are history, and rewriting them would change what the crew
+   actually did. Mirrors pullCustomerFromSeason in functions/index.js, which does
+   the same job when the customer answers "maybe next year" themselves. */
+async function removeCustomerFromUpcomingRoutes(customerId){
+  const todayStr = toDateStr(new Date());
+  const dates = Object.keys(scheduledRoutesCache || {});
+  let removed = 0;
+  for(let i = 0; i < dates.length; i++){
+    if(dates[i] < todayStr) continue;
+    const routes = scheduledRoutesCache[dates[i]] || [];
+    for(let r = 0; r < routes.length; r++){
+      const route = routes[r];
+      if(!route.stops || !route.stops.some(function(st){ return st.id === customerId; })) continue;
+      const kept = route.stops.filter(function(st){ return st.id !== customerId; });
+      try { await updateDoc(doc(db,'scheduledRoutes', route.id), {stops: kept}); removed++; }
+      catch(err){ console.warn('Could not remove stop from ' + route.id, err); }
+    }
+  }
+  return removed;
+}
+/* The one place that flips a customer between Confirmed and Maybe Next Year, so
+   the badge, the Edit Customer toggle and (later) the RSVP email can never drift
+   into disagreeing about what the pair of states means. Deliberately writes no
+   money field: sitting out next season says nothing about what is owed for work
+   already done. */
+async function setCustomerSeason(id, toMaybe){
+  const updates = toMaybe
+    ? { maybeNextYear: true, maybeNextYearAt: serverTimestamp(),
+        rsvpStatus: 'backnextyear', rsvpRespondedAt: serverTimestamp(),
+        needsLightRecycle: false, needsLightBuild: false,
+        scheduled: false, scheduledDate: null, assignedCrew: null }
+    : { maybeNextYear: false, maybeNextYearAt: null,
+        rsvpStatus: '', rsvpRespondedAt: null };
+  await updateDoc(doc(db,'jobAddresses', id), updates);
+  /* The table is rebuilt from jobAddresses rather than re-read from Firestore,
+     so the local copy has to move first or the row repaints the old value. */
+  const local = jobAddresses.find(a => a.id === id);
+  if(local) Object.assign(local.data, {
+    maybeNextYear: !!toMaybe,
+    rsvpStatus: toMaybe ? 'backnextyear' : '',
+    scheduled: toMaybe ? false : local.data.scheduled,
+    needsLightBuild: toMaybe ? false : local.data.needsLightBuild
+  });
+  return toMaybe ? await removeCustomerFromUpcomingRoutes(id) : 0;
 }
 function loadRouteIntoView(route, dateStr){
   routeMapInstance = null;
