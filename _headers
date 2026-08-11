@@ -1,0 +1,25 @@
+# Netlify custom headers.
+#
+# The three HTML files are the app itself — when a new version deploys, every
+# browser must pick it up on the next load, not days later. Without this,
+# browsers were holding old copies of index.html/admin.html after deploys,
+# which made fresh fixes look broken (the file was right on Netlify, stale in
+# the browser). no-cache does NOT mean "never store": it means "check with the
+# server before using your copy", which costs one cheap request and always
+# yields the current build.
+#
+# Images, fonts and other assets keep normal caching — they change rarely and
+# are heavy, so re-downloading them every visit would slow the site for no
+# benefit.
+
+/index.html
+  Cache-Control: no-cache
+
+/admin.html
+  Cache-Control: no-cache
+
+/employee.html
+  Cache-Control: no-cache
+
+/
+  Cache-Control: no-cache
