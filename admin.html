@@ -5991,8 +5991,19 @@ function loadQuotes(){
   onSnapshot(q, function(snap){
     quotesCache = [];
     snap.forEach(function(docSnap){ quotesCache.push({id: docSnap.id, data: docSnap.data()}); });
+    /* Counts only the two stages that need YOUR attention: a brand-new,
+       unpriced request (Quotes), and a finished form waiting to be turned
+       into a customer (Ready to Convert). Awaiting Response and Closed do not
+       count - a quote sitting there isn't something for you to act on right
+       now, it's already in motion or done. This used to count raw
+       status:'new', which is true for almost every quote until it's
+       converted, so the badge was showing everything still open rather than
+       what actually needs looking at. */
     let newCount = 0;
-    quotesCache.forEach(function(item){ if((item.data.status||'new') === 'new') newCount++; });
+    quotesCache.forEach(function(item){
+      const stage = quoteStage(item.data);
+      if(stage === 'new' || stage === 'form') newCount++;
+    });
     document.getElementById('badgeQuotes').style.display = newCount ? 'inline-block' : 'none';
     document.getElementById('badgeQuotes').textContent = newCount;
     renderQuotesList();
@@ -6162,6 +6173,11 @@ function renderQuoteRows(filtered){
               (d.quoteManuallySent ? 'Send again' : (d.existingCustomerId ? 'Send updated quote' : 'Send quote email'))+'</button>'+
             '<button type="button" class="btn btn-outline btn-sm" data-copyquoteemail="'+item.id+'" style="margin-left:6px;">Preview first</button>'+
             (d.phone && !d.smsOptedOut ? '<button type="button" class="btn btn-outline btn-sm" data-textquote="'+item.id+'" style="margin-left:6px;">Send as text instead</button>' : '')+
+            ((typeof d.quotedPrice !== 'number' || d.quotedPrice <= 0)
+              ? '<div class="rtext" style="margin-top:6px; color:var(--ember); font-weight:600;">Needs a price before it can be sent.</div>'
+              : (!d.frontPhotoUrl
+                  ? '<div class="rtext" style="margin-top:6px; color:#8A6100; font-weight:600;">No photo yet \u2014 you can still send, but it will ask first.</div>'
+                  : ''))+
             (d.smsOptedOut
               ? '<div class="rtext" style="margin-top:5px; color:var(--ember); font-weight:600;">\ud83d\udeab Do not text \u2014 '+esc(d.smsOptedOutReason || 'they asked us not to')+'. '+
                 '<a href="#" data-untext="'+item.id+'" style="font-weight:600;">Undo</a></div>'
@@ -6303,6 +6319,18 @@ function renderQuoteRows(filtered){
     const say = (text, colour) => { const el = statusEl(); if(el){ el.style.color = colour || 'var(--slate)'; el.textContent = text; } };
 
     if(!d.email){ say('No email address on this quote \u2014 add one first.', 'var(--ember)'); return; }
+    /* A price is not optional: the whole email is built around it, and a quote
+       without one is nonsense to the customer. */
+    if(typeof d.quotedPrice !== 'number' || d.quotedPrice <= 0){
+      say('Add a quoted price before sending.', 'var(--ember)');
+      return;
+    }
+    /* A photo is strongly wanted but not essential - sometimes there simply
+       isn't one yet and the quote still needs to go. So it asks rather than
+       blocks, and names what they will be missing. */
+    if(!d.frontPhotoUrl && !confirm('There is no photo on ' + (d.name || 'this quote') + '.\n\n' +
+        'The email works without one, but a customer seeing their own house next to the price is the best part of it.\n\n' +
+        'Send it anyway?')) return;
     if(quoteSendInFlight.has(id)){ say('Already sending \u2014 give it a second.'); return; }
     if(d.quoteManuallySent && !confirm((d.name || 'This customer') + ' has already been sent their quote.\n\nSend it again?')) return;
 
@@ -13713,7 +13741,6 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const statusEl = document.getElementById('editCustStatus');
   const item = jobAddresses.find(a => a.id === editCustomerId);
   if(!item) return;
-  const d = item.data;
   const newName = document.getElementById('editCustName').value.trim();
   const newPhone = document.getElementById('editCustPhone').value.replace(/\D/g,'');
   const newPhone2 = document.getElementById('editCustPhone2').value.replace(/\D/g,'');
