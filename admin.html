@@ -1459,7 +1459,12 @@
         </div>
         <div id="fixNameStatus" style="font-size:13px; color:var(--slate); margin-bottom:10px;"></div>
         <div id="fixNameList" class="row-list" style="max-height:420px; overflow-y:auto;"></div>
-        <button type="button" class="btn btn-gold btn-sm" id="fixNameApplyBtn" style="display:none; margin-top:12px;">Apply Selected Flips</button>
+        <div id="fixNameApplyWrap" style="display:none; align-items:center; gap:8px; flex-wrap:wrap; margin-top:12px;">
+          <button type="button" class="btn btn-gold btn-sm" id="fixNameApplyBtn">Apply Next Batch</button>
+          <label style="font-size:13px; color:var(--slate); display:flex; align-items:center; gap:6px;">
+            at a time: <input type="number" id="fixNameBatchSize" value="100" min="1" style="width:70px; padding:6px 8px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:13px;">
+          </label>
+        </div>
         <div id="fixNameResult" style="font-size:13px; margin-top:10px;"></div>
       </div>
       </div>
@@ -11667,7 +11672,7 @@ document.getElementById('fixNameLoadBtn').addEventListener('click', function(){
   document.getElementById('fixNameFilterInput').style.display = 'inline-block';
   document.getElementById('fixNameStatusFilter').style.display = 'inline-block';
   document.getElementById('fixNamePasteWrap').style.display = 'block';
-  document.getElementById('fixNameApplyBtn').style.display = 'inline-flex';
+  document.getElementById('fixNameApplyWrap').style.display = 'flex';
   statusEl.textContent = fixNameRows.length + ' customer(s) to review — '
     + guessNeedsFlip + ' look backwards and are checked, ' + guessAlreadyOk + ' look correct already and are left unchecked, '
     + guessUnsure + ' are unsure (marked with a warning badge, left unchecked — check the box yourself for any that actually need flipping)'
@@ -11724,9 +11729,16 @@ document.getElementById('fixNameSelectNoneBtn').addEventListener('click', functi
   renderFixNameList(document.getElementById('fixNameFilterInput').value);
 });
 document.getElementById('fixNameApplyBtn').addEventListener('click', async function(){
-  const checkedIds = fixNameRows.filter(function(r){ return r.checked; }).map(function(r){ return r.id; });
-  if(!checkedIds.length){ document.getElementById('fixNameResult').textContent = 'Nothing checked.'; return; }
-  if(!confirm('Flip the name order for ' + checkedIds.length + ' customer(s)? This updates their record, their invoice, and any upcoming route they\'re on.')) return;
+  const allCheckedIds = fixNameRows.filter(function(r){ return r.checked; }).map(function(r){ return r.id; });
+  if(!allCheckedIds.length){ document.getElementById('fixNameResult').textContent = 'Nothing checked.'; return; }
+  const batchSize = Math.max(1, parseInt(document.getElementById('fixNameBatchSize').value, 10) || 100);
+  // Only ever a slice of what's checked - if the browser closes or crashes
+  // partway through a batch, nothing beyond this batch was ever attempted,
+  // and everything in this batch is either done (marked nameOrderFixedAt) or
+  // safely retried next click. No unattended long-running loop.
+  const checkedIds = allCheckedIds.slice(0, batchSize);
+  const remainingAfter = allCheckedIds.length - checkedIds.length;
+  if(!confirm('Flip the name order for this batch of ' + checkedIds.length + ' customer(s)' + (remainingAfter ? ' (' + remainingAfter + ' more checked, waiting for the next batch)' : '') + '? This updates their record, their invoice, and any upcoming route they\'re on.')) return;
   const btn = this;
   btn.disabled = true;
   const resultEl = document.getElementById('fixNameResult');
@@ -11735,7 +11747,7 @@ document.getElementById('fixNameApplyBtn').addEventListener('click', async funct
   for(const id of checkedIds){
     const row = fixNameRows.find(function(r){ return r.id === id; });
     if(!row) continue;
-    resultEl.textContent = 'Applying ' + (done+failedIds.length+1) + ' of ' + checkedIds.length + '…';
+    resultEl.textContent = 'Applying ' + (done+failedIds.length+1) + ' of ' + checkedIds.length + ' in this batch…';
     try{
       await updateDoc(doc(db,'jobAddresses', id), {name: row.newName, nameOrderFixedAt: serverTimestamp()});
       const item = jobAddresses.find(function(a){ return a.id === id; });
@@ -11750,9 +11762,11 @@ document.getElementById('fixNameApplyBtn').addEventListener('click', async funct
     }
   }
   btn.disabled = false;
-  resultEl.textContent = done + ' name(s) flipped' + (failedIds.length ? ', ' + failedIds.length + ' failed — try those again' : '') + '.';
   fixNameRows = fixNameRows.filter(function(r){ return checkedIds.indexOf(r.id) === -1 || failedIds.indexOf(r.id) !== -1; });
   renderFixNameList(document.getElementById('fixNameFilterInput').value);
+  const stillToGo = fixNameRows.filter(function(r){ return r.checked; }).length;
+  resultEl.textContent = done + ' name(s) flipped in this batch' + (failedIds.length ? ', ' + failedIds.length + ' failed — try those again' : '')
+    + (stillToGo ? '. ' + stillToGo + ' more checked and waiting — click Apply Next Batch again to continue.' : '. All checked names are done.');
 });
 
 let activeDiffFilters = [];
