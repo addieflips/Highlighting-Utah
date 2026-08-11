@@ -71,6 +71,14 @@ service cloud.firestore {
     // ---- Staff-only: internal QA / Test Checklist tab -------------------
     match /projectPeople/{id}          { allow read, write: if request.auth != null; }
     match /projectTests/{id}           { allow read, write: if request.auth != null; }
+    // ---- Per-login preferences -----------------------------------------
+    // Favourites, pinned nav items, collapsed sections and sub-tab order.
+    // The document id IS the signed-in user's uid (see savePrefs /
+    // loadUserPrefs in admin.html), so each person can only touch their own.
+    // Without this block every preference write was silently denied.
+    match /adminUserPrefs/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
     // ---- Nightly invoice automation ------------------------------------
     // Written only by the sendNightlyInvoices Cloud Function, which uses the
     // Admin SDK and bypasses these rules — so the browser never needs write
