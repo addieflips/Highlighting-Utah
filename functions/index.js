@@ -938,9 +938,26 @@ exports.publicQuoteLookup = onCall({ cors: true }, async (request) => {
       const e = data.email;
       if (!e || String(e).toLowerCase().trim() !== email) return;
     }
-    out.push({ id: d.id, data: sanitizeQuote(data) });
+    out.push({ id: d.id, data: sanitizeQuote(data), _raw: data, _ref: d.ref });
   });
 
+  /* A quote made before tokens existed has none to hand back, and the detail
+     form needs one to save through - without it the customer's write goes
+     straight to Firestore and is refused. Mint one here so every route into
+     the form has something to prove who they are. */
+  for (const entry of out) {
+    if (!entry.data.quoteToken) {
+      const fresh = generatePortalToken();
+      try {
+        await entry._ref.update({ quoteToken: fresh });
+        entry.data.quoteToken = fresh;
+      } catch (err) {
+        // Leave it; the form will report a clear error rather than failing oddly.
+      }
+    }
+    delete entry._raw;
+    delete entry._ref;
+  }
   return { quotes: out };
 });
 
