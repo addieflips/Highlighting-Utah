@@ -1443,6 +1443,12 @@
           <button type="button" class="btn btn-outline btn-sm" id="fixNameSelectAllBtn" style="display:none;">Select All</button>
           <button type="button" class="btn btn-outline btn-sm" id="fixNameSelectNoneBtn" style="display:none;">Select None</button>
           <input type="text" id="fixNameFilterInput" placeholder="Filter by name…" style="display:none; padding:8px 12px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:13px;">
+          <select id="fixNameStatusFilter" style="display:none; padding:8px 12px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:13px;">
+            <option value="all">Show all</option>
+            <option value="unsure">Please check only</option>
+            <option value="needs-flip">Looks backwards only</option>
+            <option value="already-correct">Looks correct already only</option>
+          </select>
         </div>
         <div id="fixNameStatus" style="font-size:13px; color:var(--slate); margin-bottom:10px;"></div>
         <div id="fixNameList" class="row-list" style="max-height:420px; overflow-y:auto;"></div>
@@ -11593,11 +11599,20 @@ function nameOrderGuess(raw){
   if(lastIsCommon && !firstIsCommon) return 'needs-flip';      // "Smith John" - word 2 reads like a first name
   return 'unsure';                                             // both or neither matched - a human has to call it
 }
-let fixNameRows = []; // [{id, oldName, newName, guess}]
+let fixNameRows = []; // [{id, oldName, newName, guess, checked}]
+// Shared by rendering AND Select All/None, so both agree on what "currently
+// visible" means under the active text + status filters.
+function fixNameFilteredRows(filterText){
+  const filt = (filterText!==undefined ? filterText : document.getElementById('fixNameFilterInput').value || '').toLowerCase().trim();
+  const statusFilt = document.getElementById('fixNameStatusFilter').value;
+  return fixNameRows.filter(function(r){
+    if(statusFilt !== 'all' && r.guess !== statusFilt) return false;
+    return !filt || r.oldName.toLowerCase().indexOf(filt) !== -1;
+  });
+}
 function renderFixNameList(filterText){
   const list = document.getElementById('fixNameList');
-  const filt = (filterText||'').toLowerCase().trim();
-  const rows = fixNameRows.filter(function(r){ return !filt || r.oldName.toLowerCase().indexOf(filt) !== -1; });
+  const rows = fixNameFilteredRows(filterText);
   if(!rows.length){ list.innerHTML = '<div class="empty-note">No matching customers.</div>'; return; }
   const badges = {
     'needs-flip': '<span class="status-pill" style="background:#FDECEA; color:#9A2A1F; font-weight:600;">looks backwards</span>',
@@ -11605,11 +11620,10 @@ function renderFixNameList(filterText){
     'unsure': '<span class="status-pill" style="background:#FDF3E3; color:#7A5B1E; font-weight:700;">&#9888; not sure — please check</span>'
   };
   list.innerHTML = rows.map(function(r){
-    // Only the confident "still backwards" guess is pre-checked. Both
-    // "already correct" and "unsure" default OFF - if she skims past one,
-    // the safe outcome is it stays untouched, not that it gets flipped
-    // wrongly. She has to actively opt an "unsure" row in after looking.
-    const checkedAttr = r.guess === 'needs-flip' ? ' checked' : '';
+    // Checked state lives on the row itself (r.checked), not just the
+    // checkbox - the list re-renders on every filter change, and a re-render
+    // must not forget a box she just ticked in a filtered view.
+    const checkedAttr = r.checked ? ' checked' : '';
     return '<div class="row-item"><div class="rmain">'+
       '<label style="display:flex; align-items:center; gap:10px; cursor:pointer; flex-wrap:wrap;">'+
         '<input type="checkbox" class="fixname-check" data-id="'+r.id+'"'+checkedAttr+'>'+
@@ -11633,13 +11647,16 @@ document.getElementById('fixNameLoadBtn').addEventListener('click', function(){
     if(guess === 'needs-flip') guessNeedsFlip++;
     else if(guess === 'already-correct') guessAlreadyOk++;
     else guessUnsure++;
-    fixNameRows.push({id: item.id, oldName: item.data.name, newName: newName, guess: guess});
+    fixNameRows.push({id: item.id, oldName: item.data.name, newName: newName, guess: guess, checked: guess === 'needs-flip'});
   });
   fixNameRows.sort(function(a,b){ return a.oldName.localeCompare(b.oldName); });
+  document.getElementById('fixNameFilterInput').value = '';
+  document.getElementById('fixNameStatusFilter').value = 'all';
   renderFixNameList('');
   document.getElementById('fixNameSelectAllBtn').style.display = 'inline-flex';
   document.getElementById('fixNameSelectNoneBtn').style.display = 'inline-flex';
   document.getElementById('fixNameFilterInput').style.display = 'inline-block';
+  document.getElementById('fixNameStatusFilter').style.display = 'inline-block';
   document.getElementById('fixNameApplyBtn').style.display = 'inline-flex';
   statusEl.textContent = fixNameRows.length + ' customer(s) to review — '
     + guessNeedsFlip + ' look backwards and are checked, ' + guessAlreadyOk + ' look correct already and are left unchecked, '
@@ -11650,14 +11667,27 @@ document.getElementById('fixNameLoadBtn').addEventListener('click', function(){
 document.getElementById('fixNameFilterInput').addEventListener('input', function(){
   renderFixNameList(this.value);
 });
+document.getElementById('fixNameStatusFilter').addEventListener('change', function(){
+  renderFixNameList(document.getElementById('fixNameFilterInput').value);
+});
+// Delegated so it keeps working after every re-render, and writes the tick
+// onto the row itself - the DOM checkbox gets rebuilt on the next filter
+// change, but r.checked survives.
+document.getElementById('fixNameList').addEventListener('change', function(e){
+  if(!e.target.classList || !e.target.classList.contains('fixname-check')) return;
+  const row = fixNameRows.find(function(r){ return r.id === e.target.dataset.id; });
+  if(row) row.checked = e.target.checked;
+});
 document.getElementById('fixNameSelectAllBtn').addEventListener('click', function(){
-  document.querySelectorAll('.fixname-check').forEach(function(cb){ cb.checked = true; });
+  fixNameFilteredRows().forEach(function(r){ r.checked = true; });
+  renderFixNameList(document.getElementById('fixNameFilterInput').value);
 });
 document.getElementById('fixNameSelectNoneBtn').addEventListener('click', function(){
-  document.querySelectorAll('.fixname-check').forEach(function(cb){ cb.checked = false; });
+  fixNameFilteredRows().forEach(function(r){ r.checked = false; });
+  renderFixNameList(document.getElementById('fixNameFilterInput').value);
 });
 document.getElementById('fixNameApplyBtn').addEventListener('click', async function(){
-  const checkedIds = Array.from(document.querySelectorAll('.fixname-check:checked')).map(function(cb){ return cb.dataset.id; });
+  const checkedIds = fixNameRows.filter(function(r){ return r.checked; }).map(function(r){ return r.id; });
   if(!checkedIds.length){ document.getElementById('fixNameResult').textContent = 'Nothing checked.'; return; }
   if(!confirm('Flip the name order for ' + checkedIds.length + ' customer(s)? This updates their record, their invoice, and any upcoming route they\'re on.')) return;
   const btn = this;
