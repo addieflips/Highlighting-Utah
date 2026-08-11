@@ -2600,6 +2600,23 @@ Highlighting Utah</textarea>
         <button type="button" class="btn btn-gold btn-sm" id="qTmplSaveBtn" style="margin-top:12px;">Save</button>
         <span id="qTmplSaveStatus" style="font-size:12.5px; color:var(--slate); margin-left:10px;"></span>
         <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--line);">
+          <div style="font-size:13px; font-weight:700; margin-bottom:4px;">Chase quotes automatically</div>
+          <p class="rtext" style="margin:0 0 10px;">Emails the Nudge template to anyone who hasn&rsquo;t answered. Stops on 1 November, and nobody is chased more than twice. Anyone who asked for a call or a text is listed for you instead of emailed.</p>
+          <label style="display:flex; align-items:flex-start; gap:8px; font-size:13px; margin-bottom:10px;">
+            <input type="checkbox" id="qNudgeAutoOn" style="width:auto; margin-top:3px;">
+            <span>Chase unanswered quotes on their own</span>
+          </label>
+          <div style="display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end;">
+            <div class="form-row" style="margin:0; max-width:130px;"><label style="font-size:11.5px;">Wait this many days</label><input type="number" id="qNudgeWaitDays" min="1" step="1" value="10" style="font-size:13px; padding:8px 10px;"></div>
+            <div class="form-row" style="margin:0; max-width:130px;"><label style="font-size:11.5px;">Nudge at most</label><input type="number" id="qNudgeMax" min="1" max="5" step="1" value="2" style="font-size:13px; padding:8px 10px;"></div>
+            <button type="button" class="btn btn-gold btn-sm" id="qNudgeAutoSave">Save</button>
+            <button type="button" class="btn btn-outline btn-sm" id="qNudgeRunNow">Run it now</button>
+          </div>
+          <div id="qNudgeAutoStatus" class="rtext" style="margin-top:8px;"></div>
+          <div id="qNudgeHumanList" style="margin-top:10px;"></div>
+        </div>
+
+        <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--line);">
           <div style="font-size:13px; font-weight:700; margin-bottom:4px;">Is email working?</div>
           <p class="rtext" style="margin:0 0 10px;">Checks your keys and the three templates, then sends you a real one so you can see the buttons and photo.</p>
           <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
@@ -3753,6 +3770,7 @@ const db = getFirestore(app);
 const fbFunctions = getFunctions(app);
 const sendSmsFn = httpsCallable(fbFunctions, 'sendSms');
 const sendInvoicesNowFn = httpsCallable(fbFunctions, 'sendInvoicesNow');
+const runQuoteNudgesNowFn = httpsCallable(fbFunctions, 'runQuoteNudgesNow');
 
 const CLOUDINARY_CLOUD = "highlighting-utah";
 const CLOUDINARY_PRESET = "highlighting_utah";
@@ -4290,7 +4308,7 @@ async function resolveLinkTokens(text, phone, amount, opts){
        sentence - a big number with a line saying what it covers. Built with a
        table and inline styles because Outlook ignores most CSS. */
     out = out.split('{{price_block}}').join(
-      '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:6px 0 18px;">'+
+      '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:4px 0 14px;">'+
         '<tr><td align="center" style="background:#F1F5EB; border-radius:10px; padding:18px 20px; font-family:Arial,sans-serif;">'+
           '<div style="font-size:11px; letter-spacing:1.2px; text-transform:uppercase; color:#6E6858; font-weight:bold;">Your quote</div>'+
           '<div style="font-size:32px; font-weight:bold; color:#1E3B2C; padding:4px 0 2px;">'+(opts.price || '')+'</div>'+
@@ -5346,6 +5364,7 @@ function initData(){
   loadCcRecurringOverrides();
   loadEmailjsSettings();
   loadQuoteTemplateSettings();
+  loadQuoteNudgeSettings();
   loadNightlyInvoiceSettings();
   loadNightlyInvoiceLog();
   loadTimecardApprovalsAdmin();
@@ -5796,6 +5815,77 @@ document.getElementById('qMakeTextTmplBtn')?.addEventListener('click', async fun
     statusEl.textContent = 'Could not create them: ' + (err && err.message ? err.message : 'try again.');
   }
 });
+async function loadQuoteNudgeSettings(){
+  try{
+    const snap = await getDoc(doc(db,'settings','quoteNudgeAutomation'));
+    const d = snap.exists() ? snap.data() : {};
+    document.getElementById('qNudgeAutoOn').checked = d.enabled === true;
+    if(d.waitDays) document.getElementById('qNudgeWaitDays').value = d.waitDays;
+    if(d.maxNudges) document.getElementById('qNudgeMax').value = d.maxNudges;
+    renderQuoteNudgeStatus(d);
+  } catch(err){ /* not set up yet */ }
+}
+function renderQuoteNudgeStatus(d){
+  const el = document.getElementById('qNudgeAutoStatus');
+  const listEl = document.getElementById('qNudgeHumanList');
+  if(!el) return;
+  if(d.lastRunAt){
+    el.style.color = 'var(--slate)';
+    el.textContent = 'Last run ' + fmtDate(d.lastRunAt) + ' \u2014 ' + (d.lastRunSent || 0) + ' nudged' +
+      (d.lastRunNeedsHuman ? ', ' + d.lastRunNeedsHuman + ' need a call or text' : '') +
+      ((d.lastRunErrors && d.lastRunErrors.length) ? ', ' + d.lastRunErrors.length + ' failed' : '') + '.';
+  } else {
+    el.style.color = 'var(--slate)';
+    el.textContent = 'Has not run yet.';
+  }
+  /* People who asked for a call or a text cannot be chased automatically, so
+     they are listed here rather than quietly skipped. */
+  const list = d.needsHumanList || [];
+  listEl.innerHTML = list.length
+    ? '<div style="background:#FFF8E9; border:1px solid var(--gold-dim); border-radius:9px; padding:11px 13px;">'+
+        '<div style="font-size:12.5px; font-weight:700; color:#5a4a20; margin-bottom:6px;">Needs a call or text from you (' + list.length + ')</div>'+
+        list.map(function(p){
+          return '<div style="font-size:12.5px; color:#5a4a20;">'+esc(p.name || '(no name)')+
+            (p.phone ? ' \u00b7 ' + esc(p.phone) : '')+
+            (p.prefers ? ' \u00b7 <em>prefers ' + esc(p.prefers) + '</em>' : '')+'</div>';
+        }).join('')+
+      '</div>'
+    : '';
+}
+document.getElementById('qNudgeAutoSave')?.addEventListener('click', async function(){
+  const el = document.getElementById('qNudgeAutoStatus');
+  try{
+    await setDoc(doc(db,'settings','quoteNudgeAutomation'), {
+      enabled: document.getElementById('qNudgeAutoOn').checked,
+      waitDays: Math.max(1, Number(document.getElementById('qNudgeWaitDays').value) || 10),
+      maxNudges: Math.max(1, Number(document.getElementById('qNudgeMax').value) || 2)
+    }, {merge:true});
+    el.style.color = '#2E6B3E';
+    el.textContent = 'Saved.';
+  } catch(err){
+    el.style.color = 'var(--ember)';
+    el.textContent = 'Could not save \u2014 try again.';
+  }
+});
+document.getElementById('qNudgeRunNow')?.addEventListener('click', async function(){
+  const el = document.getElementById('qNudgeAutoStatus');
+  if(!confirm('Run the chase now?\n\nThis sends real emails to anyone who is due one.')) return;
+  el.style.color = 'var(--slate)';
+  el.textContent = 'Running\u2026';
+  try{
+    const res = await runQuoteNudgesNowFn({});
+    const r = (res && res.data) || {};
+    el.style.color = r.stopped ? 'var(--ember)' : '#2E6B3E';
+    el.textContent = r.stopped
+      ? ('Nothing sent \u2014 ' + r.stopped + '.')
+      : ('Nudged ' + (r.sent || 0) + '.' + (r.needsHuman ? ' ' + r.needsHuman + ' need a call or text.' : '') +
+         ((r.errors && r.errors.length) ? ' ' + r.errors.length + ' failed.' : ''));
+    loadQuoteNudgeSettings();
+  } catch(err){
+    el.style.color = 'var(--ember)';
+    el.textContent = 'Could not run it: ' + (err && err.message ? err.message : 'try again.');
+  }
+});
 document.getElementById('qEmailCheckBtn')?.addEventListener('click', async function(){
   const out = document.getElementById('qEmailCheckOut');
   out.innerHTML = 'Checking\u2026';
@@ -6208,7 +6298,7 @@ function renderQuoteRows(filtered){
          hide remote images until you tap "show images", and without these the
          customer just sees a gap and assumes we forgot. */
       photoHtml =
-        '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 18px;"><tr><td style="font-family:Arial,sans-serif;">'+
+        '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:4px 0 14px;"><tr><td style="font-family:Arial,sans-serif;">'+
 
           '<img src="'+esc(d.frontPhotoUrl)+'" alt="Your home" width="560" style="width:100%; max-width:560px; height:auto; border-radius:8px; display:block; border:0;">'+
           '<p style="margin:8px 0 0; font-size:12px; color:#6E6858;">Not showing? <a href="'+esc(d.frontPhotoUrl)+'" style="color:#3E7A5B;">View the photo here</a>.</p>'+
@@ -6216,7 +6306,10 @@ function renderQuoteRows(filtered){
     }
     if(photoHtml){
       if(html.indexOf('{{photo}}') !== -1){
-        html = html.split('{{photo}}').join(photoHtml);
+        /* Blank lines either side of the token turn into <br> tags and pile up
+           around the picture. The block brings its own spacing, so any stray
+           line breaks touching it are absorbed. */
+        html = html.replace(/(?:\s|<br\s*\/?>)*\{\{photo\}\}(?:\s|<br\s*\/?>)*/gi, photoHtml);
       } else {
         const firstBtn = html.search(/<a [^>]*class="?ebtn|<a [^>]*style="[^"]*background:#2E6B3E/i);
         const anchorAt = html.indexOf('<a ');
@@ -6224,7 +6317,7 @@ function renderQuoteRows(filtered){
         html = cut !== -1 ? (html.slice(0, cut) + photoHtml + html.slice(cut)) : (html + photoHtml);
       }
     } else {
-      html = html.split('{{photo}}').join('');
+      html = html.replace(/(?:\s|<br\s*\/?>)*\{\{photo\}\}(?:\s|<br\s*\/?>)*/gi, '<br>');
     }
     const subject = kind === 'nudge'
       ? 'Just checking in on your quote'
