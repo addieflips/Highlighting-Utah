@@ -11576,17 +11576,45 @@ function flipNameOrder(raw){
   if(parts.length < 2) return null; // single word - nothing to flip
   return parts.slice(1).join(' ') + ' ' + parts[0];
 }
-let fixNameRows = []; // [{id, oldName, newName}]
+/* Used only to guess which customers the interrupted first run already got
+   to, so the recovery pass doesn't require checking all ~962 by hand. Not a
+   real name database - just enough common first names that "is word 1 or
+   word 2 a common first name, but not both" gets most two-word names right.
+   Anything it can't call confidently is left for a human to decide. */
+const FIXNAME_COMMON_FIRST_NAMES = new Set(['aaron','abigail','adam','addison','adrian','aiden','alan','albert','alex','alexa','alexander','alexandra','alexis','alice','alicia','allison','alyssa','amanda','amber','amy','andrea','andrew','angela','angie','anna','anne','annette','ansley','anthony','april','ariana','arianna','ashley','ashton','aspen','audrey','austin','autumn','ava','barbara','beau','becky','ben','benjamin','bentley','bethany','betty','beverly','bill','billy','blake','bo','bob','bobby','bonnie','brad','bradley','braden','braxton','breanna','brenda','brendan','brent','brett','brian','brianna','brigham','britney','brittany','brody','brooke','brooklyn','bruce','bryan','bryce','caitlin','caitlyn','caleb','callie','cameron','camille','candace','candice','cara','carl','carla','carly','carmen','carol','carolina','caroline','carolyn','carrie','carson','carter','casey','cassandra','cassidy','catherine','cathy','cecelia','chad','charity','charles','charlie','charlotte','chase','chelsea','cheryl','chloe','chris','christina','christine','christopher','christy','cindy','claire','clara','clark','claude','clayton','clint','clinton','cody','colby','cole','colin','colleen','colton','connor','conor','cooper','corey','cory','courtney','craig','crystal','curtis','cynthia','dakota','dale','dallin','dallas','dan','dana','daniel','danielle','danny','darlene','darren','dave','david','dawn','dean','deanna','debbie','deborah','debra','dennis','derek','desiree','destiny','devin','diana','diane','dianna','dillon','dominic','don','donald','donna','doris','dorothy','doug','douglas','drew','dustin','dylan','earl','eddie','eden','edith','edward','edwin','eileen','elaine','eleanor','eli','elijah','elise','elizabeth','ella','ellen','elliott','elsie','elyse','emily','emma','eric','erica','erik','erika','erin','ethan','eugene','eva','evan','evelyn','faith','felicia','fernando','finn','frances','francis','frank','frankie','fred','frederick','gabriel','gabriella','gabrielle','garrett','gary','gavin','gayle','gene','george','gerald','gina','ginger','glen','glenda','glenn','gloria','gordon','grace','grady','grant','greg','gregory','gretchen','hailey','hallie','hannah','harley','harold','harper','harrison','harry','hazel','heather','heidi','helen','henry','holly','hope','howard','hunter','ian','isaac','isabel','isabella','isabelle','ivan','jack','jackson','jacob','jacqueline','jade','jaden','jaime','jake','jamal','james','jamie','jan','jana','jane','janel','janelle','janet','janice','janie','jared','jasmine','jason','jay','jayden','jayla','jaylen','jean','jeanette','jeanne','jeff','jeffrey','jen','jenna','jennie','jennifer','jenny','jeremiah','jeremy','jerome','jerry','jesse','jessica','jill','jim','jimmy','joan','joann','joanna','joanne','jody','joe','joel','joey','john','johnny','jon','jonah','jonathan','jordan','jorge','jose','joseph','josephine','josh','joshua','josie','joy','joyce','juan','judith','judy','julia','julian','julie','june','justin','kaden','kaitlin','kaitlyn','kaleb','kambree','kara','karen','kari','karin','karl','karla','kate','katelyn','katherine','kathleen','kathryn','kathy','katie','katrina','kay','kaylee','kayla','keith','kelli','kellie','kelly','kelsey','ken','kendall','kendra','kennedy','kenneth','kent','kerri','kerry','kevin','kim','kimberly','kirk','kirsten','kris','krista','kristen','kristi','kristin','kristina','kristine','kristy','kyle','kylie','lacey','lance','landon','lane','larry','laura','lauren','laurie','lawrence','layla','leah','lee','leigh','leo','leon','leonard','leslie','levi','lexi','liam','libby','lila','lily','lincoln','linda','lindsay','lindsey','lisa','logan','lori','lorraine','louis','louise','luann','luis','luke','lydia','lynn','lynne','mackenzie','madeline','madelyn','madison','maggie','malia','malinda','malorie','marcia','marcus','margaret','margie','maria','marian','marie','marilyn','marion','mark','marlene','marlon','marsha','martha','martin','marty','marvin','mary','mason','matt','matthew','maureen','maverick','max','maxwell','maya','megan','meghan','melanie','melinda','melissa','melody','meredith','mia','micah','michael','michelle','mike','miles','miranda','misty','mitchell','molly','mona','monica','morgan','myra','nancy','naomi','natalie','natasha','nathan','nathaniel','neil','nellie','nephi','nicholas','nick','nicole','nikki','nina','noah','nolan','nora','norma','norman','olivia','oliver','opal','oscar','owen','pam','pamela','parker','pat','patricia','patrick','patti','patty','paul','paula','paulette','payton','peggy','penny','perry','pete','peter','philip','phillip','phyllis','preston','quinn','rachael','rachel','ralph','randall','randy','raquel','raul','ray','raymond','rebecca','reed','regina','reid','rene','renee','rex','rhonda','ricardo','richard','rick','ricky','riley','rita','rob','robert','roberta','robin','robyn','rochelle','rocky','rod','rodney','roger','ron','ronald','ronda','rosa','rose','rosemary','ross','roy','ruby','russell','ruth','ryan','sabrina','sadie','sage','sally','sam','samantha','sammy','samuel','sandra','sandy','sara','sarah','savannah','scott','sean','shane','shannon','shari','sharon','shauna','shawn','shawna','sheila','shelby','shelia','shelley','shelly','sheri','sherri','sherry','shirley','shyanne','sierra','skylar','sonia','sophia','sophie','spencer','stacey','staci','stacy','stan','stanley','stella','stephanie','stephen','steve','steven','sue','summer','susan','suzanne','sydney','sylvia','tabitha','tami','tammy','tanner','tanya','tara','taryn','taylor','ted','teresa','teri','terrance','terri','terry','tessa','thelma','theodore','theresa','thomas','tiffany','tim','timothy','tina','todd','tom','tommy','toni','tony','tracey','traci','tracy','travis','trent','trevor','trey','tricia','trisha','troy','tyler','valerie','vanessa','vera','veronica','vicki','vickie','vicky','victor','victoria','vincent','violet','virginia','vivian','wade','walter','wanda','warren','wendy','wesley','whitney','will','william','willie','wyatt','xander','yolanda','zachary','zack','zane','zoe']);
+function nameOrderGuess(raw){
+  const parts = String(raw||'').trim().split(/\s+/).filter(Boolean);
+  if(parts.length < 2) return 'skip';
+  const w1 = parts[0].toLowerCase().replace(/[^a-z]/g,'');
+  const w2 = parts[parts.length-1].toLowerCase().replace(/[^a-z]/g,'');
+  const firstIsCommon = FIXNAME_COMMON_FIRST_NAMES.has(w1);
+  const lastIsCommon = FIXNAME_COMMON_FIRST_NAMES.has(w2);
+  if(firstIsCommon && !lastIsCommon) return 'already-correct'; // "John Smith" - word 1 reads like a first name
+  if(lastIsCommon && !firstIsCommon) return 'needs-flip';      // "Smith John" - word 2 reads like a first name
+  return 'unsure';                                             // both or neither matched - a human has to call it
+}
+let fixNameRows = []; // [{id, oldName, newName, guess}]
 function renderFixNameList(filterText){
   const list = document.getElementById('fixNameList');
   const filt = (filterText||'').toLowerCase().trim();
   const rows = fixNameRows.filter(function(r){ return !filt || r.oldName.toLowerCase().indexOf(filt) !== -1; });
   if(!rows.length){ list.innerHTML = '<div class="empty-note">No matching customers.</div>'; return; }
+  const badges = {
+    'needs-flip': '<span class="status-pill" style="background:#FDECEA; color:#9A2A1F; font-weight:600;">looks backwards</span>',
+    'already-correct': '<span class="status-pill" style="background:#E6F2EA; color:#2E6B3E; font-weight:600;">looks correct already</span>',
+    'unsure': '<span class="status-pill" style="background:#FDF3E3; color:#7A5B1E; font-weight:700;">&#9888; not sure — please check</span>'
+  };
   list.innerHTML = rows.map(function(r){
+    // Only the confident "still backwards" guess is pre-checked. Both
+    // "already correct" and "unsure" default OFF - if she skims past one,
+    // the safe outcome is it stays untouched, not that it gets flipped
+    // wrongly. She has to actively opt an "unsure" row in after looking.
+    const checkedAttr = r.guess === 'needs-flip' ? ' checked' : '';
     return '<div class="row-item"><div class="rmain">'+
-      '<label style="display:flex; align-items:center; gap:10px; cursor:pointer;">'+
-        '<input type="checkbox" class="fixname-check" data-id="'+r.id+'" checked>'+
+      '<label style="display:flex; align-items:center; gap:10px; cursor:pointer; flex-wrap:wrap;">'+
+        '<input type="checkbox" class="fixname-check" data-id="'+r.id+'"'+checkedAttr+'>'+
         '<span>'+esc(r.oldName)+' &rarr; <strong>'+esc(r.newName)+'</strong></span>'+
+        (badges[r.guess] || '')+
       '</label>'+
     '</div></div>';
   }).join('');
@@ -11594,14 +11622,18 @@ function renderFixNameList(filterText){
 document.getElementById('fixNameLoadBtn').addEventListener('click', function(){
   const statusEl = document.getElementById('fixNameStatus');
   fixNameRows = [];
-  let skippedSingleWord = 0, skippedAlreadyFixed = 0;
+  let skippedSingleWord = 0, skippedAlreadyFixed = 0, guessNeedsFlip = 0, guessAlreadyOk = 0, guessUnsure = 0;
   jobAddresses.forEach(function(item){
     // Already flipped by a previous run of this tool (including one that got
     // interrupted partway through) - skip it so it can never be flipped twice.
     if(item.data.nameOrderFixedAt){ skippedAlreadyFixed++; return; }
     const newName = flipNameOrder(item.data.name);
     if(!newName){ if((item.data.name||'').trim()) skippedSingleWord++; return; }
-    fixNameRows.push({id: item.id, oldName: item.data.name, newName: newName});
+    const guess = nameOrderGuess(item.data.name);
+    if(guess === 'needs-flip') guessNeedsFlip++;
+    else if(guess === 'already-correct') guessAlreadyOk++;
+    else guessUnsure++;
+    fixNameRows.push({id: item.id, oldName: item.data.name, newName: newName, guess: guess});
   });
   fixNameRows.sort(function(a,b){ return a.oldName.localeCompare(b.oldName); });
   renderFixNameList('');
@@ -11609,7 +11641,9 @@ document.getElementById('fixNameLoadBtn').addEventListener('click', function(){
   document.getElementById('fixNameSelectNoneBtn').style.display = 'inline-flex';
   document.getElementById('fixNameFilterInput').style.display = 'inline-block';
   document.getElementById('fixNameApplyBtn').style.display = 'inline-flex';
-  statusEl.textContent = fixNameRows.length + ' customer(s) ready to review, all checked by default'
+  statusEl.textContent = fixNameRows.length + ' customer(s) to review — '
+    + guessNeedsFlip + ' look backwards and are checked, ' + guessAlreadyOk + ' look correct already and are left unchecked, '
+    + guessUnsure + ' are unsure (marked with a warning badge, left unchecked — check the box yourself for any that actually need flipping)'
     + (skippedAlreadyFixed ? '. ' + skippedAlreadyFixed + ' already fixed by a previous run and skipped automatically.' : '')
     + (skippedSingleWord ? '. ' + skippedSingleWord + ' single-word name(s) skipped (nothing to flip).' : '.');
 });
