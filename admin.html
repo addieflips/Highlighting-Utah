@@ -5626,7 +5626,11 @@ function repaintQuoteSendResults(){
     const again = box.querySelector('[data-copyquoteemail]');
     if(again) again.addEventListener('click', function(){
       quoteSendResults.delete(id);
-      showQuoteEmailBox(id, 'quote');
+      quotePreviewOpenIds.set(id, 'quote');
+      /* Was a bare showQuoteEmailBox(...) call, which lives inside
+         renderQuoteRows and is not visible from out here - so this button
+         threw a ReferenceError and looked dead. */
+      if(quoteEmailBoxOpener) quoteEmailBoxOpener(id, 'quote');
     });
   });
 }
@@ -6137,6 +6141,16 @@ function renderQuotesList(){
 // id so it survives the re-render a save triggers instead of collapsing
 // mid-edit (native <details> loses its open state when innerHTML is rebuilt).
 const quotePricingOpenIds = new Set();
+/* Which cards currently have an email preview open, and which template kind
+   it was built from. The preview is part of the card HTML, so it is thrown
+   away every time the list re-renders - and a re-render is exactly what
+   saving a new price causes. Without this the preview vanished instead of
+   redrawing with the new number, which read as the preview being stuck. */
+const quotePreviewOpenIds = new Map();
+/* buildQuoteEmailBox and showQuoteEmailBox are declared inside
+   renderQuoteRows, so nothing out here can reach them. renderQuoteRows
+   parks a reference here each time it runs. */
+let quoteEmailBoxOpener = null;
 function renderQuoteRows(filtered){
   const list = document.getElementById('quotesList');
   let html = '';
@@ -6456,6 +6470,10 @@ function renderQuoteRows(filtered){
       toast('Open that quote\'s Pricing & Approval panel, then try Preview again.');
       return;
     }
+    /* Recorded before the price check below, not after, so that a preview
+       opened on an unpriced quote redraws into the real email the moment a
+       price is actually entered. */
+    quotePreviewOpenIds.set(id, kind);
     const d = item.data;
     /* The email quotes a number, so there has to be one. This is the check
        that used to be done by accident, by the preview box only existing
@@ -6858,6 +6876,8 @@ function renderQuoteRows(filtered){
   list.querySelectorAll('[data-textquote]').forEach(function(btn){
     btn.addEventListener('click', async function(){
       quoteSendResults.delete(btn.dataset.textquote);
+      /* The text box draws into the same node as the email preview. */
+      quotePreviewOpenIds.delete(btn.dataset.textquote);
       await showQuoteTextBox(btn.dataset.textquote);
     });
   });
@@ -7111,6 +7131,24 @@ function renderQuoteRows(filtered){
         section.classList.add('open');
         body.style.display = 'block';
       }
+    });
+  });
+  /* Hand the opener out to module scope (see quoteEmailBoxOpener). */
+  quoteEmailBoxOpener = showQuoteEmailBox;
+  /* Redraw any preview that was open before this render wiped it out. This
+     is what makes a price change show up in the preview: the save triggers
+     a re-render, and the preview is rebuilt here from the freshly cached
+     quote, so it quotes the new number instead of disappearing.
+     Skipped when a send confirmation is showing - that message matters more
+     than the preview and repaintQuoteSendResults owns the box in that case.
+     Only runs for panels that are actually open, which also means
+     buildQuoteEmailBox cannot re-enter renderQuotesList from here. */
+  quotePreviewOpenIds.forEach(function(kind, id){
+    if(quoteSendResults.has(id)) return;
+    if(!quotePricingOpenIds.has(id)){ quotePreviewOpenIds.delete(id); return; }
+    if(!list.querySelector('.quoteemail-result[data-resultfor="'+id+'"]')) return;
+    buildQuoteEmailBox(id, kind).catch(function(err){
+      console.error('Quote email preview repaint failed:', err);
     });
   });
   attachDeleteHandlers(list);
