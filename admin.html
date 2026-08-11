@@ -5418,6 +5418,31 @@ function quoteTemplateFor(d, kind){
 /* Texts cover the first quote and re-quotes only. Chasing someone who has gone
    quiet is done by email - a text nudge reads as pressure on someone who is
    simply busy, and one unanswered email chase is answer enough. */
+/* Names arrive however they were typed or imported - "DELANA", "delana",
+   "MCDONALD-SMITH". Shouting a customer's name back at them in every message
+   looks careless, so it is tidied on the way into a template. What is stored
+   on the record is untouched; this only changes what gets sent. */
+function properName(raw){
+  const str = String(raw == null ? '' : raw).trim();
+  if(!str) return '';
+  /* Mixed case means a person typed it deliberately - leave it alone. */
+  if(str !== str.toUpperCase() && str !== str.toLowerCase()) return str;
+  return str.toLowerCase().replace(/[a-z]+(?:['\u2019-][a-z]+)*/g, function(word){
+    return word
+      .replace(/(^|['\u2019-])([a-z])/g, function(m, sep, ch){ return sep + ch.toUpperCase(); })
+      .replace(/^Mc([a-z])/, function(m, ch){ return 'Mc' + ch.toUpperCase(); })
+      .replace(/^Mac([a-z])/, function(m, ch){ return 'Mac' + ch.toUpperCase(); });
+  });
+}
+function firstName(raw){
+  const full = properName(raw).replace(/[,;]+$/,'').trim();
+  if(!full) return 'there';
+  const first = (full.split(/\s+/)[0] || '').replace(/[,;]+$/,'');
+  /* "The Hollands" must not become "Hi The," and "Mr Webb" should not lose the
+     part that matters - in those cases use the whole name. */
+  if(/^(the|mr|mrs|ms|miss|dr|rev|pastor)\.?$/i.test(first)) return full;
+  return first || 'there';
+}
 function quoteTextTemplateFor(d){
   return d && d.existingCustomerId ? quoteTemplateNames.requoteText : quoteTemplateNames.newQuoteText;
 }
@@ -5490,7 +5515,7 @@ async function nudgeEveryoneShown(){
     statusEl.style.color = 'var(--slate)';
     statusEl.textContent = 'Sending ' + (sent + failures.length + 1) + ' of ' + targets.length + '\u2026 (' + (d.name || '') + ')';
     try{
-      let html = await resolveLinkTokens(template.data.body, d.phone, 0, {name: d.name || 'there', price: fmtMoney(d.quotedPrice)});
+      let html = await resolveLinkTokens(template.data.body, d.phone, 0, {name: properName(d.name) || 'there', price: fmtMoney(d.quotedPrice)});
       if(d.frontPhotoUrl){
         html += '<div style="margin-top:18px;"><img src="' + d.frontPhotoUrl + '" alt="Your house" style="max-width:100%; border-radius:8px; display:block;"></div>';
       }
@@ -6162,7 +6187,7 @@ function renderQuoteRows(filtered){
        house photo rides along as an <img> pointing at the copy already on
        Cloudinary, so nothing is attached and it costs nothing extra. It sits
        BELOW the buttons because some mail apps hide images until tapped. */
-    let html = await resolveLinkTokens(body, d.phone, 0, {name: d.name || 'there', price: fmtMoney(d.quotedPrice)});
+    let html = await resolveLinkTokens(body, d.phone, 0, {name: properName(d.name) || 'there', price: fmtMoney(d.quotedPrice)});
     if(d.frontPhotoUrl){
       html += '<div style="margin-top:18px;"><img src="'+esc(d.frontPhotoUrl)+'" alt="Your house" style="max-width:100%; border-radius:8px; display:block;"></div>';
     }
@@ -6291,7 +6316,7 @@ function renderQuoteRows(filtered){
        rather than sent as-is, so a template picked by mistake degrades to
        readable text instead of arriving as code. */
     let msg = htmlEmailToPlainText(template.data.body || '')
-      .split('{{name}}').join((d.name || '').split(' ')[0] || 'there')
+      .split('{{name}}').join(firstName(d.name))
       .split('{{price}}').join(fmtMoney(d.quotedPrice))
       .split('{{link}}').join(link)
       .replace(/\n{3,}/g, '\n\n')
@@ -6497,7 +6522,7 @@ function renderQuoteRows(filtered){
       }
       const link = 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || '');
       let msg = htmlEmailToPlainText(template.data.body || '')
-        .split('{{name}}').join((d.name || '').split(' ')[0] || 'there')
+        .split('{{name}}').join(firstName(d.name))
         .split('{{price}}').join(fmtMoney(d.quotedPrice))
         .split('{{link}}').join(link)
         .replace(/\n{3,}/g, '\n\n').trim();
@@ -7102,7 +7127,7 @@ document.getElementById('etSendConfirmBtn').addEventListener('click', async func
   for(const phone of phones){
     const customer = jobAddresses.find(a => a.data.phone === phone);
     if(!customer) continue;
-    const name = customer.data.name || 'there';
+    const name = properName(customer.data.name) || 'there';
     const to = (customer.data.email || '').trim();
     if(!to){ noEmail++; continue; }
     statusEl.textContent = 'Sending ' + (sent + failures.length + 1) + ' of ' + phones.length + '… (' + name + ')';
