@@ -2596,7 +2596,6 @@ Highlighting Utah</textarea>
         <div style="display:flex; gap:14px; flex-wrap:wrap;">
           <div class="form-row" style="margin:0; min-width:210px;"><label style="font-size:11.5px;">New house text</label><select id="qTmplNewText" style="font-size:13px; padding:8px 10px;"></select></div>
           <div class="form-row" style="margin:0; min-width:210px;"><label style="font-size:11.5px;">Re-quote text</label><select id="qTmplRequoteText" style="font-size:13px; padding:8px 10px;"></select></div>
-          <div class="form-row" style="margin:0; min-width:210px;"><label style="font-size:11.5px;">Nudge text</label><select id="qTmplNudgeText" style="font-size:13px; padding:8px 10px;"></select></div>
         </div>
         <button type="button" class="btn btn-gold btn-sm" id="qTmplSaveBtn" style="margin-top:12px;">Save</button>
         <span id="qTmplSaveStatus" style="font-size:12.5px; color:var(--slate); margin-left:10px;"></span>
@@ -5407,7 +5406,7 @@ function quoteStage(d){
    template in Automation Emails never silently breaks sending. */
 let quoteTemplateNames = {
   newQuote:'Quote Email', requote:'ReQuotes', nudge:'Nudge',
-  newQuoteText:'', requoteText:'', nudgeText:''
+  newQuoteText:'', requoteText:''
 };
 function quoteTemplateFor(d, kind){
   if(kind === 'nudge') return quoteTemplateNames.nudge;
@@ -5416,8 +5415,10 @@ function quoteTemplateFor(d, kind){
 /* Same idea for the text versions. Kept separate from the email ones on
    purpose: an email body is HTML and would arrive on a phone as raw code, so
    the two must never share a template. */
-function quoteTextTemplateFor(d, kind){
-  if(kind === 'nudge') return quoteTemplateNames.nudgeText;
+/* Texts cover the first quote and re-quotes only. Chasing someone who has gone
+   quiet is done by email - a text nudge reads as pressure on someone who is
+   simply busy, and one unanswered email chase is answer enough. */
+function quoteTextTemplateFor(d){
   return d && d.existingCustomerId ? quoteTemplateNames.requoteText : quoteTemplateNames.newQuoteText;
 }
 /* Texts are billed in 160-character blocks (153 once it spills past one), so
@@ -5578,7 +5579,7 @@ function renderQuoteStageControls(){
    rename in Automation Emails is a re-pick here rather than a silent failure. */
 function renderQuoteTemplatePickers(){
   const map = {qTmplNew:'newQuote', qTmplRequote:'requote', qTmplNudge:'nudge',
-               qTmplNewText:'newQuoteText', qTmplRequoteText:'requoteText', qTmplNudgeText:'nudgeText'};
+               qTmplNewText:'newQuoteText', qTmplRequoteText:'requoteText'};
   Object.keys(map).forEach(function(elId){
     const sel = document.getElementById(elId);
     if(!sel) return;
@@ -5644,7 +5645,7 @@ async function loadQuoteTemplateSettings(){
     const snap = await getDoc(doc(db,'settings','quoteTemplates'));
     if(snap.exists()){
       const s = snap.data();
-      ['newQuote','requote','nudge','newQuoteText','requoteText','nudgeText'].forEach(function(k){
+      ['newQuote','requote','nudge','newQuoteText','requoteText'].forEach(function(k){
         if(typeof s[k] === 'string') quoteTemplateNames[k] = s[k];
       });
     }
@@ -5678,6 +5679,17 @@ const DEFAULT_QUOTE_NUDGE_BODY = 'Just checking in on the quote we sent over - {
    listening for. Replies are read by a person, and anyone who asks to stop
    gets marked "don't text" on their card. Business name goes first so it does
    not read as spam from an unknown number. */
+/* The re-quote email: an existing customer whose feet or address changed, so
+   the price has moved. No "Hi {{name}}," line - the EmailJS wrapper already
+   greets them. It names the reason the number is different up front, because
+   that is the first thing a returning customer wonders and the main reason
+   they pick up the phone. */
+const DEFAULT_REQUOTE_BODY = 'We\'ve re-measured and updated your Highlighting Utah quote for this season:\n\n' +
+  'Your price this season: {{price}}\n\n' +
+  'Take a look and confirm below. Everything else stays exactly as you had it, unless you tell us otherwise.\n\n' +
+  '{{quote_yes_button}}{{quote_maybe_button}}{{quote_decline_button}}\n\n' +
+  'Questions? Just reply to this email, or call or text us at (801) 901-0011.\n\n' +
+  'Thanks,\nHighlighting Utah';
 const QUOTE_TEXT_TEMPLATES = [
   {
     name: 'Quote Text',
@@ -5687,10 +5699,6 @@ const QUOTE_TEXT_TEMPLATES = [
     name: 'ReQuote Text',
     body: 'Hi {{name}}, your Highlighting Utah quote is updated for this season: {{price}}.\nSee it and confirm:\n{{link}}'
   },
-  {
-    name: 'Nudge Text',
-    body: 'Hi {{name}}, just checking in on your Highlighting Utah quote ({{price}}). Still good, and there is time to get on this season\u2019s schedule.\n{{link}}'
-  }
 ];
 document.getElementById('qMakeTextTmplBtn')?.addEventListener('click', async function(){
   const statusEl = document.getElementById('qMakeTextTmplStatus');
@@ -5705,6 +5713,19 @@ document.getElementById('qMakeTextTmplBtn')?.addEventListener('click', async fun
     let made = 0, already = 0;
     /* The email nudge belongs with the other quote emails, not in the text
        folder, so it is created separately. */
+    if(!emailTemplates.some(x => x.data.name === 'ReQuotes')){
+      let rFolderId = emailTemplateFolders.find(f => f.name === 'Quotes')?.id;
+      if(!rFolderId){
+        const rRef = await addDoc(collection(db,'emailTemplateFolders'), {name:'Quotes', createdAt: serverTimestamp()});
+        rFolderId = rRef.id;
+      }
+      await addDoc(collection(db,'emailTemplates'), {
+        name: 'ReQuotes', folderId: rFolderId, body: DEFAULT_REQUOTE_BODY,
+        linkedTokens: ['price','quote_yes_button','quote_maybe_button','quote_decline_button'],
+        createdAt: serverTimestamp()
+      });
+      made++;
+    }
     if(!emailTemplates.some(x => x.data.name === 'Nudge')){
       let qFolderId = emailTemplateFolders.find(f => f.name === 'Quotes')?.id;
       if(!qFolderId){
@@ -5730,7 +5751,6 @@ document.getElementById('qMakeTextTmplBtn')?.addEventListener('click', async fun
        step to forget. */
     quoteTemplateNames.newQuoteText = 'Quote Text';
     quoteTemplateNames.requoteText = 'ReQuote Text';
-    quoteTemplateNames.nudgeText = 'Nudge Text';
     await setDoc(doc(db,'settings','quoteTemplates'), quoteTemplateNames, {merge:true});
     renderQuoteTemplatePickers();
     statusEl.style.color = '#2E6B3E';
@@ -5796,8 +5816,7 @@ document.getElementById('qTmplSaveBtn')?.addEventListener('click', async functio
     requote: document.getElementById('qTmplRequote').value,
     nudge: document.getElementById('qTmplNudge').value,
     newQuoteText: document.getElementById('qTmplNewText').value,
-    requoteText: document.getElementById('qTmplRequoteText').value,
-    nudgeText: document.getElementById('qTmplNudgeText').value
+    requoteText: document.getElementById('qTmplRequoteText').value
   };
   try{
     await setDoc(doc(db,'settings','quoteTemplates'), quoteTemplateNames, {merge:true});
@@ -5971,6 +5990,20 @@ function renderQuoteRows(filtered){
           (formDone ? ' &middot; Timer: <strong>'+(d.outletTimer === 'Yes' ? 'Yes' : 'No')+'</strong>' : '')+
           (formDone && d.wireColor ? ' &middot; Wire: <strong>'+esc(d.wireColor)+'</strong>' : '')+'</div>'+
 
+        // ---- Why this is a re-quote --------------------------------------
+        ((quoteStage(d) === 'new' && d.existingCustomerId && d.changed) ? (
+          '<div style="margin-top:10px; background:#EEF1FF; border:1px solid #C7CEF5; border-radius:9px; padding:10px 12px; font-size:12.5px; color:#33397a; line-height:1.55;">'+
+            '<strong>Existing customer</strong>'+(d.existingCustomerNumber ? ' &middot; Bin #'+esc(d.existingCustomerNumber) : '')+
+            (d.changed.what === 'feet'
+              ? '<div style="margin-top:4px;">Feet changed <strong>'+d.changed.oldFeet+' ft &rarr; '+d.changed.newFeet+' ft</strong>'+
+                (d.changed.oldPrice ? '. They were paying '+fmtMoney(d.changed.oldPrice)+'.' : '.')+
+                ((Number(d.changed.newFeet) > 200 && Number(d.changed.oldFeet) <= 200)
+                  ? '<div style="margin-top:4px; color:#B91C1C; font-weight:700;">Now over 200 ft \u2014 needs 2 bins and a 5000-series number. Their old number goes back to the pool.</div>' : '')+
+                '</div>'
+              : '<div style="margin-top:4px;">Address changed from <strong>'+esc(d.changed.oldAddress || '')+'</strong>. Needs re-geocoding, and any saved route still holds the old one.</div>')+
+          '</div>'
+        ) : '')+
+
         // ---- Photo -------------------------------------------------------
         '<div style="margin-top:8px;">'+
           (d.frontPhotoUrl
@@ -6014,7 +6047,6 @@ function renderQuoteRows(filtered){
             (quoteStageFilter === 'send' ? (
               '<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">'+
                 '<button type="button" class="btn btn-gold btn-sm" data-nudgequote="'+item.id+'">Send a nudge</button>'+
-                (d.phone && !d.smsOptedOut ? '<button type="button" class="btn btn-outline btn-sm" data-textnudge="'+item.id+'">Nudge by text</button>' : '')+
                 '<button type="button" class="btn btn-outline btn-sm" data-copyquoteemailaddr="'+item.id+'">Copy their email address</button>'+
               '</div>'+
               (d.quoteManuallySent
@@ -6235,8 +6267,7 @@ function renderQuoteRows(filtered){
   /* The text version. Deliberately its own path rather than a flag on the
      email one: the email sends HTML so its buttons survive, and that same
      content on a phone arrives as raw code. */
-  async function showQuoteTextBox(id, kind){
-    kind = kind || 'quote';
+  async function showQuoteTextBox(id){
     const item = quotesCache.find(q => q.id === id);
     if(!item) return;
     if(!quotePricingOpenIds.has(id)){ quotePricingOpenIds.add(id); renderQuotesList(); }
@@ -6247,7 +6278,7 @@ function renderQuoteRows(filtered){
       resultEl.innerHTML = '<div class="rtext" style="color:var(--ember); font-weight:600;">No phone number on this quote.</div>';
       return;
     }
-    const tmplName = quoteTextTemplateFor(d, kind);
+    const tmplName = quoteTextTemplateFor(d);
     const template = tmplName ? getEmailTemplateByName(tmplName) : null;
     if(!template){
       resultEl.innerHTML = '<div class="rtext" style="color:var(--ember); font-weight:600;">'+
@@ -6285,7 +6316,7 @@ function renderQuoteRows(filtered){
       '<div class="quoteemail-sendstatus rtext" style="margin-top:6px;"></div>';
 
     const again = resultEl.querySelector('[data-copyquoteemail]');
-    if(again) again.addEventListener('click', function(){ showQuoteEmailBox(id, kind); });
+    if(again) again.addEventListener('click', function(){ showQuoteEmailBox(id, 'quote'); });
 
     resultEl.querySelector('.quotetext-send-btn').addEventListener('click', async function(){
       const btn = this;
@@ -6297,18 +6328,13 @@ function renderQuoteRows(filtered){
       statusEl.textContent = 'Sending\u2026';
       try{
         await sendSmsFn({to: d.phone, body: msg});
-        const updates = {quoteSentVia: 'sms', quoteSmsSentAt: serverTimestamp()};
-        if(kind === 'nudge'){
-          updates.quoteSentAt = serverTimestamp();
-          updates.quoteNudgeCount = (Number(d.quoteNudgeCount) || 0) + 1;
-          updates.quoteLastNudgedAt = serverTimestamp();
-        } else {
-          updates.quoteSentAt = serverTimestamp();
-          updates.quoteManuallySent = true;
-          updates.quoteManuallySentAt = serverTimestamp();
-        }
+        const updates = {
+          quoteSentVia: 'sms', quoteSmsSentAt: serverTimestamp(),
+          quoteSentAt: serverTimestamp(),
+          quoteManuallySent: true, quoteManuallySentAt: serverTimestamp()
+        };
         await updateDoc(doc(db,'quotes', id), updates);
-        quoteSendResults.set(id, {ok:true, text:'\u2713 Text sent to ' + d.phone + (kind === 'nudge' ? ' (nudge)' : '') + '.'});
+        quoteSendResults.set(id, {ok:true, text:'\u2713 Text sent to ' + d.phone + '.'});
         repaintQuoteSendResults();
         toast('Text sent to ' + d.phone + '.');
       } catch(err){
@@ -6345,20 +6371,45 @@ function renderQuoteRows(filtered){
   }
   async function downloadQuotePhoto(id){
     const item = quotesCache.find(q => q.id === id);
-    if(!item || !item.data.frontPhotoUrl) return;
-    try{
-      const resp = await fetch(item.data.frontPhotoUrl);
-      const blob = await resp.blob();
-      const blobUrl = URL.createObjectURL(blob);
+    if(!item || !item.data.frontPhotoUrl){ toast('There is no photo on this quote yet.'); return false; }
+    const url = item.data.frontPhotoUrl;
+    const fileName = (item.data.name || 'quote').replace(/[^a-z0-9]+/gi,'-').replace(/^-|-$/g,'') + '-photo.jpg';
+
+    function triggerDownload(href, revokeAfter){
       const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = (item.data.name || 'quote').replace(/[^a-z0-9]+/gi,'-') + '-photo.jpg';
+      a.href = href;
+      a.download = fileName;
+      a.rel = 'noopener';
       document.body.appendChild(a);
       a.click();
-      a.remove();
-      URL.revokeObjectURL(blobUrl);
+      /* The cleanup used to run on the very next line, which cancels the
+         download in some browsers before it has started. Give it a moment. */
+      setTimeout(function(){
+        a.remove();
+        if(revokeAfter) URL.revokeObjectURL(href);
+      }, 4000);
+    }
+
+    try{
+      const resp = await fetch(url, {mode:'cors'});
+      if(!resp.ok) throw new Error('fetch failed');
+      const blob = await resp.blob();
+      triggerDownload(URL.createObjectURL(blob), true);
+      return true;
     } catch(err){
-      window.open(item.data.frontPhotoUrl, '_blank');
+      /* Cloudinary can refuse a cross-site read. It will, however, serve the
+         same image as a download if asked - fl_attachment does exactly that,
+         so this works without a popup being blocked. */
+      try{
+        const direct = url.indexOf('/image/upload/') !== -1
+          ? url.replace('/image/upload/', '/image/upload/fl_attachment/')
+          : url;
+        triggerDownload(direct, false);
+        return true;
+      } catch(err2){
+        toast('Could not save the photo \u2014 right-click it and choose Save Image instead.');
+        return false;
+      }
     }
   }
   /* Pricing a quote, or marking it approved/maybe/declined, can move it into
@@ -6452,8 +6503,12 @@ function renderQuoteRows(filtered){
         .replace(/\n{3,}/g, '\n\n').trim();
       if(msg.indexOf(link) === -1) msg += '\n\n' + link;
       try{ await navigator.clipboard.writeText(msg); } catch(err){ toast('Could not copy the message.'); return; }
-      downloadQuotePhoto(id);
-      toast('Message copied and photo saved \u2014 paste it, then attach the photo.');
+      /* The clipboard holds one thing at a time, so the photo cannot travel
+         with the text - it downloads instead, and gets attached by hand. */
+      const gotPhoto = await downloadQuotePhoto(id);
+      toast(gotPhoto
+        ? 'Message copied and photo saved to Downloads \u2014 paste the text, then attach the photo.'
+        : 'Message copied. The photo did not save \u2014 right-click it and choose Save Image.');
     });
   });
   list.querySelectorAll('[data-photodel]').forEach(function(b){
@@ -6497,13 +6552,7 @@ function renderQuoteRows(filtered){
   list.querySelectorAll('[data-textquote]').forEach(function(btn){
     btn.addEventListener('click', async function(){
       quoteSendResults.delete(btn.dataset.textquote);
-      await showQuoteTextBox(btn.dataset.textquote, 'quote');
-    });
-  });
-  list.querySelectorAll('[data-textnudge]').forEach(function(btn){
-    btn.addEventListener('click', async function(){
-      quoteSendResults.delete(btn.dataset.textnudge);
-      await showQuoteTextBox(btn.dataset.textnudge, 'nudge');
+      await showQuoteTextBox(btn.dataset.textquote);
     });
   });
   list.querySelectorAll('[data-nudgequote]').forEach(function(btn){
@@ -13534,7 +13583,44 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
         }
       }
     }
+    /* Changing the feet or the address means the price they agreed to no longer
+       matches the house. Raise a re-quote so it goes back to them for approval
+       rather than a new number appearing on an invoice unannounced. Marked with
+       existingCustomerId, which is what makes the card show "Old house" and use
+       the ReQuotes wording instead of the new-customer one. */
+    const feetChanged = Number(d.measuredFeet || 0) !== Number(newMeasuredFeet || 0);
+    const addressChanged = String(d.address || '').trim().toLowerCase() !== String(newAddress || '').trim().toLowerCase();
     await updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates);
+    if(feetChanged || addressChanged){
+      try{
+        const already = quotesCache.find(function(q){
+          return q.data.existingCustomerId === editCustomerId && quoteStage(q.data) === 'new';
+        });
+        const changeNote = feetChanged
+          ? {what:'feet', oldFeet: Number(d.measuredFeet || 0), newFeet: Number(newMeasuredFeet || 0), oldPrice: Number(d.housePrice || 0)}
+          : {what:'address', oldAddress: String(d.address || '')};
+        if(already){
+          /* One open re-quote per customer - editing twice before sending it
+             should update the card, not stack up a second one. */
+          await updateDoc(doc(db,'quotes', already.id), {
+            name: newName, phone: newPhone, email: newEmail, address: newAddress,
+            estimatedFeet: Number(newMeasuredFeet || 0) || '', changed: changeNote
+          });
+        } else {
+          await addDoc(collection(db,'quotes'), {
+            name: newName, phone: newPhone, email: (newEmail || '').toLowerCase(),
+            address: newAddress, frontPhotoUrl: d.frontPhotoUrl || '',
+            estimatedFeet: Number(newMeasuredFeet || 0) || '',
+            existingCustomerId: editCustomerId,
+            existingCustomerNumber: d.customerNumber || '',
+            changed: changeNote,
+            quoteToken: generatePortalToken(), formCompleted: false,
+            status: 'new', createdAt: serverTimestamp()
+          });
+          toast((newName || 'They') + ' need a re-quote \u2014 it\'s waiting in Quotes.');
+        }
+      } catch(err){ console.error('Could not raise a re-quote:', err); }
+    }
     /* Saved routes carry a copy of the customer taken when the route was built,
        and the crew portal reads that copy rather than looking the customer up.
        Without this, correcting an address or gate code never reaches a crew
