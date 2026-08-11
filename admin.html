@@ -1445,10 +1445,17 @@
           <input type="text" id="fixNameFilterInput" placeholder="Filter by name…" style="display:none; padding:8px 12px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:13px;">
           <select id="fixNameStatusFilter" style="display:none; padding:8px 12px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:13px;">
             <option value="all">Show all</option>
+            <option value="confirmed">Confirmed from your list only</option>
             <option value="unsure">Please check only</option>
             <option value="needs-flip">Looks backwards only</option>
             <option value="already-correct">Looks correct already only</option>
           </select>
+        </div>
+        <div id="fixNamePasteWrap" style="display:none; margin-bottom:14px; padding:12px; border:1px solid var(--line); border-radius:10px; background:var(--paper);">
+          <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:6px;">Paste your own list of names still in "Last First" order (one per line) — this matches them exactly and checks only those, instead of guessing.</label>
+          <textarea id="fixNamePasteArea" rows="6" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="Cattani Julie&#10;Beckstead Lacey"></textarea>
+          <button type="button" class="btn btn-outline btn-sm" id="fixNameMatchListBtn" style="margin-top:8px;">Match My List</button>
+          <div id="fixNameMatchStatus" style="font-size:13px; color:var(--slate); margin-top:8px;"></div>
         </div>
         <div id="fixNameStatus" style="font-size:13px; color:var(--slate); margin-bottom:10px;"></div>
         <div id="fixNameList" class="row-list" style="max-height:420px; overflow-y:auto;"></div>
@@ -11606,7 +11613,8 @@ function fixNameFilteredRows(filterText){
   const filt = (filterText!==undefined ? filterText : document.getElementById('fixNameFilterInput').value || '').toLowerCase().trim();
   const statusFilt = document.getElementById('fixNameStatusFilter').value;
   return fixNameRows.filter(function(r){
-    if(statusFilt !== 'all' && r.guess !== statusFilt) return false;
+    if(statusFilt === 'confirmed'){ if(!r.confirmed) return false; }
+    else if(statusFilt !== 'all' && r.guess !== statusFilt) return false;
     return !filt || r.oldName.toLowerCase().indexOf(filt) !== -1;
   });
 }
@@ -11619,6 +11627,7 @@ function renderFixNameList(filterText){
     'already-correct': '<span class="status-pill" style="background:#E6F2EA; color:#2E6B3E; font-weight:600;">looks correct already</span>',
     'unsure': '<span class="status-pill" style="background:#FDF3E3; color:#7A5B1E; font-weight:700;">&#9888; not sure — please check</span>'
   };
+  const confirmedBadge = '<span class="status-pill" style="background:#E0E7FF; color:#4338CA; font-weight:700;">&#10003; confirmed from your list</span>';
   list.innerHTML = rows.map(function(r){
     // Checked state lives on the row itself (r.checked), not just the
     // checkbox - the list re-renders on every filter change, and a re-render
@@ -11628,7 +11637,7 @@ function renderFixNameList(filterText){
       '<label style="display:flex; align-items:center; gap:10px; cursor:pointer; flex-wrap:wrap;">'+
         '<input type="checkbox" class="fixname-check" data-id="'+r.id+'"'+checkedAttr+'>'+
         '<span>'+esc(r.oldName)+' &rarr; <strong>'+esc(r.newName)+'</strong></span>'+
-        (badges[r.guess] || '')+
+        (r.confirmed ? confirmedBadge : (badges[r.guess] || ''))+
       '</label>'+
     '</div></div>';
   }).join('');
@@ -11647,7 +11656,7 @@ document.getElementById('fixNameLoadBtn').addEventListener('click', function(){
     if(guess === 'needs-flip') guessNeedsFlip++;
     else if(guess === 'already-correct') guessAlreadyOk++;
     else guessUnsure++;
-    fixNameRows.push({id: item.id, oldName: item.data.name, newName: newName, guess: guess, checked: guess === 'needs-flip'});
+    fixNameRows.push({id: item.id, oldName: item.data.name, newName: newName, guess: guess, checked: guess === 'needs-flip', confirmed: false});
   });
   fixNameRows.sort(function(a,b){ return a.oldName.localeCompare(b.oldName); });
   document.getElementById('fixNameFilterInput').value = '';
@@ -11657,12 +11666,40 @@ document.getElementById('fixNameLoadBtn').addEventListener('click', function(){
   document.getElementById('fixNameSelectNoneBtn').style.display = 'inline-flex';
   document.getElementById('fixNameFilterInput').style.display = 'inline-block';
   document.getElementById('fixNameStatusFilter').style.display = 'inline-block';
+  document.getElementById('fixNamePasteWrap').style.display = 'block';
   document.getElementById('fixNameApplyBtn').style.display = 'inline-flex';
   statusEl.textContent = fixNameRows.length + ' customer(s) to review — '
     + guessNeedsFlip + ' look backwards and are checked, ' + guessAlreadyOk + ' look correct already and are left unchecked, '
     + guessUnsure + ' are unsure (marked with a warning badge, left unchecked — check the box yourself for any that actually need flipping)'
     + (skippedAlreadyFixed ? '. ' + skippedAlreadyFixed + ' already fixed by a previous run and skipped automatically.' : '')
     + (skippedSingleWord ? '. ' + skippedSingleWord + ' single-word name(s) skipped (nothing to flip).' : '.');
+});
+function normalizeNameForMatch(s){
+  return String(s||'').trim().replace(/\s+/g,' ').toLowerCase();
+}
+document.getElementById('fixNameMatchListBtn').addEventListener('click', function(){
+  const matchStatusEl = document.getElementById('fixNameMatchStatus');
+  const pastedLines = document.getElementById('fixNamePasteArea').value.split('\n').map(function(s){ return s.trim(); }).filter(Boolean);
+  if(!pastedLines.length){ matchStatusEl.textContent = 'Paste at least one name first.'; return; }
+  if(!fixNameRows.length){ matchStatusEl.textContent = 'Click "Load Customers to Review" first.'; return; }
+  const pastedSet = new Set(pastedLines.map(normalizeNameForMatch));
+  const matchedNormalized = new Set();
+  let matchedCount = 0;
+  fixNameRows.forEach(function(r){
+    const norm = normalizeNameForMatch(r.oldName);
+    if(pastedSet.has(norm)){
+      r.confirmed = true;
+      r.guess = 'needs-flip';
+      r.checked = true;
+      matchedNormalized.add(norm);
+      matchedCount++;
+    }
+  });
+  const unmatchedLines = pastedLines.filter(function(line){ return !matchedNormalized.has(normalizeNameForMatch(line)); });
+  document.getElementById('fixNameStatusFilter').value = 'confirmed';
+  renderFixNameList(document.getElementById('fixNameFilterInput').value);
+  matchStatusEl.innerHTML = matchedCount + ' of ' + pastedLines.length + ' pasted name(s) matched a current customer and are now checked.'
+    + (unmatchedLines.length ? '<br><br>' + unmatchedLines.length + ' line(s) from your list did not match any current customer (typo, extra space, or already fixed) — double check these by hand:<br>' + unmatchedLines.map(esc).join('<br>') : '');
 });
 document.getElementById('fixNameFilterInput').addEventListener('input', function(){
   renderFixNameList(this.value);
