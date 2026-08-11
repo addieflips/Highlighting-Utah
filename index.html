@@ -2345,7 +2345,23 @@ quoteDetailFormEl.addEventListener('submit', async function(e){
   } catch(err){
     submitBtn.disabled = false;
     submitBtn.textContent = 'Submit Details';
-    alert('Something went wrong — please call/text us at (801) 901-0011.');
+    /* The old catch swallowed every failure into one message, which made a
+       missing Cloud Function look identical to a dropped connection. Say which
+       it is - the customer gets something useful, and so does anyone helping
+       them on the phone. */
+    console.error('Quote detail form failed:', err);
+    var code = (err && (err.code || '')) + '';
+    var msg;
+    if(code.indexOf('not-found') !== -1 || code.indexOf('internal') !== -1){
+      msg = "We couldn't save your details just now — our system is updating. Please try again in a few minutes, or call/text us at (801) 901-0011 and we'll take them down for you.";
+    } else if(code.indexOf('unavailable') !== -1 || code.indexOf('deadline') !== -1){
+      msg = "That took too long — check your connection and try again. If it keeps happening, call or text us at (801) 901-0011.";
+    } else if(code.indexOf('invalid-argument') !== -1){
+      msg = (err && err.message) ? err.message : "Something on the form wasn't quite right — please check it and try again.";
+    } else {
+      msg = "Something went wrong — please call or text us at (801) 901-0011 and we'll finish this with you.";
+    }
+    alert(msg);
   }
 });
 
