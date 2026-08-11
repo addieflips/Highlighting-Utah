@@ -11594,8 +11594,11 @@ function renderFixNameList(filterText){
 document.getElementById('fixNameLoadBtn').addEventListener('click', function(){
   const statusEl = document.getElementById('fixNameStatus');
   fixNameRows = [];
-  let skippedSingleWord = 0;
+  let skippedSingleWord = 0, skippedAlreadyFixed = 0;
   jobAddresses.forEach(function(item){
+    // Already flipped by a previous run of this tool (including one that got
+    // interrupted partway through) - skip it so it can never be flipped twice.
+    if(item.data.nameOrderFixedAt){ skippedAlreadyFixed++; return; }
     const newName = flipNameOrder(item.data.name);
     if(!newName){ if((item.data.name||'').trim()) skippedSingleWord++; return; }
     fixNameRows.push({id: item.id, oldName: item.data.name, newName: newName});
@@ -11606,7 +11609,9 @@ document.getElementById('fixNameLoadBtn').addEventListener('click', function(){
   document.getElementById('fixNameSelectNoneBtn').style.display = 'inline-flex';
   document.getElementById('fixNameFilterInput').style.display = 'inline-block';
   document.getElementById('fixNameApplyBtn').style.display = 'inline-flex';
-  statusEl.textContent = fixNameRows.length + ' customer(s) ready to review, all checked by default' + (skippedSingleWord ? '. ' + skippedSingleWord + ' single-word name(s) skipped (nothing to flip).' : '.');
+  statusEl.textContent = fixNameRows.length + ' customer(s) ready to review, all checked by default'
+    + (skippedAlreadyFixed ? '. ' + skippedAlreadyFixed + ' already fixed by a previous run and skipped automatically.' : '')
+    + (skippedSingleWord ? '. ' + skippedSingleWord + ' single-word name(s) skipped (nothing to flip).' : '.');
 });
 document.getElementById('fixNameFilterInput').addEventListener('input', function(){
   renderFixNameList(this.value);
@@ -11631,7 +11636,7 @@ document.getElementById('fixNameApplyBtn').addEventListener('click', async funct
     if(!row) continue;
     resultEl.textContent = 'Applying ' + (done+failedIds.length+1) + ' of ' + checkedIds.length + '…';
     try{
-      await updateDoc(doc(db,'jobAddresses', id), {name: row.newName});
+      await updateDoc(doc(db,'jobAddresses', id), {name: row.newName, nameOrderFixedAt: serverTimestamp()});
       const item = jobAddresses.find(function(a){ return a.id === id; });
       if(item){
         const inv = allCustInvoiceFor(item);
