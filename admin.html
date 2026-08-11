@@ -5531,7 +5531,7 @@ async function nudgeEveryoneShown(){
       let html = await resolveLinkTokens(template.data.body, d.phone, 0, {name: properName(d.name) || 'there', price: fmtMoney(d.quotedPrice)});
       if(d.frontPhotoUrl){
         html += '<div style="margin-top:20px;">'+
-          '<p style="margin:0 0 8px; font-size:14px;">Here&rsquo;s your home:</p>'+
+
           '<img src="' + esc(d.frontPhotoUrl) + '" alt="Your home" width="520" style="max-width:100%; height:auto; border-radius:8px; display:block; border:0;">'+
           '<p style="margin:8px 0 0; font-size:12px; color:#6E6858;">Not showing? <a href="' + esc(d.frontPhotoUrl) + '">View the photo here</a>.</p>'+
         '</div>';
@@ -6209,7 +6209,7 @@ function renderQuoteRows(filtered){
          customer just sees a gap and assumes we forgot. */
       photoHtml =
         '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 18px;"><tr><td style="font-family:Arial,sans-serif;">'+
-          '<p style="margin:0 0 8px; font-size:14px; color:#222;">Here&rsquo;s your home:</p>'+
+
           '<img src="'+esc(d.frontPhotoUrl)+'" alt="Your home" width="560" style="width:100%; max-width:560px; height:auto; border-radius:8px; display:block; border:0;">'+
           '<p style="margin:8px 0 0; font-size:12px; color:#6E6858;">Not showing? <a href="'+esc(d.frontPhotoUrl)+'" style="color:#3E7A5B;">View the photo here</a>.</p>'+
         '</td></tr></table>';
