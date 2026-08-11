@@ -13,6 +13,26 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
+  /* ---- Photo actions (the same pattern on every photo in the app) --------
+     Icons sit on the photo and stay out of the way until you hover, or tap on
+     a phone. Delete is last and always confirms - it is the one action here
+     that cannot be undone. */
+  .photo-wrap{ position:relative; display:inline-block; max-width:100%; }
+  .photo-acts{ position:absolute; top:8px; right:8px; display:flex; gap:6px; opacity:0; transition:opacity .15s; pointer-events:none; }
+  .photo-wrap:hover .photo-acts, .photo-wrap.show .photo-acts{ opacity:1; pointer-events:auto; }
+  .photo-acts button{
+    width:34px; height:34px; border-radius:9px; border:none; cursor:pointer;
+    background:rgba(20,32,25,.82); color:#fff; font-size:15px; line-height:1;
+    display:flex; align-items:center; justify-content:center; padding:0;
+  }
+  .photo-acts button:hover{ background:rgba(20,32,25,.97); }
+  .photo-acts button.danger:hover{ background:#E0574B; }
+  /* Phones have no hover, so a hint shows until the photo is tapped. */
+  .photo-hint{ position:absolute; left:8px; bottom:8px; background:rgba(20,32,25,.72); color:#fff;
+    font-size:10.5px; padding:3px 7px; border-radius:6px; pointer-events:none; }
+  .photo-wrap.show .photo-hint{ display:none; }
+  @media (hover:hover){ .photo-hint{ display:none; } }
+
   :root{
     --ink:#1E3B2C; --dusk:#3E7A5B; --dusk-2:#5B9678;
     --gold:#F4BE55; --gold-dim:#D89F3D; --ember:#E0574B;
@@ -1490,6 +1510,11 @@
             <div class="form-row"><label>Name</label><input type="text" id="editCustName"></div>
             <div class="form-row"><label>Phone</label><input type="tel" id="editCustPhone"></div>
             <div class="form-row"><label>Secondary Phone</label><input type="tel" id="editCustPhone2"></div>
+            <div class="form-row" style="display:flex; align-items:flex-start; gap:8px;">
+              <input type="checkbox" id="editCustNoTexts" style="width:auto; margin-top:3px;">
+              <label for="editCustNoTexts" style="font-weight:500; line-height:1.45;">Don&rsquo;t text this customer<br>
+                <span style="font-size:11.5px; color:var(--slate); font-weight:400;">Tick if they&rsquo;ve asked not to get texts. Email is unaffected.</span></label>
+            </div>
             <div class="form-row"><label>Email</label><input type="email" id="editCustEmail"></div>
             <div class="form-row"><label>Secondary Email</label><input type="email" id="editCustEmail2"></div>
             <div class="form-row"><label>Enrolled Date</label><input type="date" id="editCustEnrolled"></div>
@@ -5648,18 +5673,23 @@ const DEFAULT_QUOTE_NUDGE_BODY = 'Just checking in on the quote we sent over - {
   'If now is not the right year, "Maybe Next Year" is honestly just as helpful - we will check back next season and leave you be until then.\n\n' +
   'Questions about anything? Just reply to this email, or call or text us at (801) 901-0011.\n\n' +
   'Thanks,\nHighlighting Utah';
+/* Sent by hand rather than through an automated system, so there is
+   deliberately no "Reply STOP" line - that promises a keyword nothing is
+   listening for. Replies are read by a person, and anyone who asks to stop
+   gets marked "don't text" on their card. Business name goes first so it does
+   not read as spam from an unknown number. */
 const QUOTE_TEXT_TEMPLATES = [
   {
     name: 'Quote Text',
-    body: 'Hi {{name}}, your Highlighting Utah quote is ready: {{price}}.\n\nSee your house and approve:\n{{link}}\n\nReply STOP to opt out.'
+    body: 'Hi {{name}}, your Highlighting Utah Christmas light quote is ready: {{price}}.\nSee your home and approve:\n{{link}}'
   },
   {
     name: 'ReQuote Text',
-    body: 'Hi {{name}}, your Highlighting Utah quote is updated for this season: {{price}}.\n\nSee it and confirm:\n{{link}}\n\nReply STOP to opt out.'
+    body: 'Hi {{name}}, your Highlighting Utah quote is updated for this season: {{price}}.\nSee it and confirm:\n{{link}}'
   },
   {
     name: 'Nudge Text',
-    body: 'Hi {{name}}, checking in on your quote ({{price}}). Still good, and there is time to get on this season\u2019s schedule.\n\n{{link}}\n\nReply STOP to opt out.'
+    body: 'Hi {{name}}, just checking in on your Highlighting Utah quote ({{price}}). Still good, and there is time to get on this season\u2019s schedule.\n{{link}}'
   }
 ];
 document.getElementById('qMakeTextTmplBtn')?.addEventListener('click', async function(){
@@ -5943,7 +5973,17 @@ function renderQuoteRows(filtered){
 
         // ---- Photo -------------------------------------------------------
         '<div style="margin-top:8px;">'+
-          (d.frontPhotoUrl ? '<img src="'+esc(d.frontPhotoUrl)+'" class="quote-photo-img" data-photofor="'+item.id+'" style="max-width:240px; border-radius:8px; border:1px solid var(--line); display:block; margin-bottom:6px;">' : '')+
+          (d.frontPhotoUrl
+            ? '<div class="photo-wrap" style="margin-bottom:6px;">'+
+                '<img src="'+esc(d.frontPhotoUrl)+'" class="quote-photo-img" data-photofor="'+item.id+'" style="max-width:240px; border-radius:8px; border:1px solid var(--line); display:block;">'+
+                '<div class="photo-acts">'+
+                  '<button type="button" data-photodl="'+item.id+'" title="Download the photo">&#8681;</button>'+
+                  '<button type="button" data-photocopy="'+item.id+'" title="Copy the text message and save the photo">&#10697;</button>'+
+                  '<button type="button" class="danger" data-photodel="'+item.id+'" title="Delete the photo">&#128465;</button>'+
+                '</div>'+
+                '<span class="photo-hint">tap for options</span>'+
+              '</div>'
+            : '')+
           '<label class="btn btn-outline btn-sm" style="cursor:pointer;">'+(d.frontPhotoUrl ? 'Replace Photo' : 'Add Photo')+'<input type="file" accept="image/*" class="quote-photo-input" data-photofor="'+item.id+'" style="display:none;"></label>'+
           (d.frontPhotoUrl ? '<button type="button" class="btn btn-outline btn-sm" data-markupphoto="'+item.id+'" style="margin-left:6px;">Mark Up Photo</button>' : '')+
           '<span class="quote-photo-status" data-statusfor="'+item.id+'" style="font-size:12px; color:var(--slate); margin-left:8px;"></span>'+
@@ -5963,7 +6003,10 @@ function renderQuoteRows(filtered){
             '<div class="form-row" style="margin-top:8px; max-width:220px;"><label style="font-size:11.5px;">Quoted Price ($) &mdash; what you\'ll ask them to approve</label><input type="number" class="quotePriceInput" data-id="'+item.id+'" min="0" step="1" value="'+(d.quotedPrice != null ? d.quotedPrice : (d.estimatedFeet && perFootRate ? Math.round(d.estimatedFeet*perFootRate) : ''))+'" placeholder="e.g. 450"></div>'+
             '<button type="button" class="btn btn-gold btn-sm" data-getquotelink="'+item.id+'">'+(d.existingCustomerId ? 'Send updated quote' : 'Send quote email')+'</button>'+
             (d.phone && !d.smsOptedOut ? '<button type="button" class="btn btn-outline btn-sm" data-textquote="'+item.id+'" style="margin-left:6px;">Send as text instead</button>' : '')+
-            (d.smsOptedOut ? '<div class="rtext" style="margin-top:5px; color:var(--ember); font-weight:600;">They replied STOP \u2014 texting is off for this number. Email only.</div>' : '')+
+            (d.smsOptedOut
+              ? '<div class="rtext" style="margin-top:5px; color:var(--ember); font-weight:600;">\ud83d\udeab Do not text \u2014 '+esc(d.smsOptedOutReason || 'they asked us not to')+'. '+
+                '<a href="#" data-untext="'+item.id+'" style="font-weight:600;">Undo</a></div>'
+              : (d.phone ? '<div style="margin-top:5px;"><a href="#" data-donttext="'+item.id+'" class="rtext" style="color:var(--slate);">Mark &ldquo;don\'t text&rdquo;</a></div>' : ''))+
             (d.contactMethod && /text|sms|phone/i.test(d.contactMethod) ? '<div class="rtext" style="margin-top:5px; color:#8A6100;">They asked to be contacted by '+esc(d.contactMethod)+'.</div>' : '')+
             '<div class="quotelink-status" data-statusfor="'+item.id+'" style="font-size:12px; color:var(--slate); margin-top:6px;"></div>'+
             (d.quoteToken ? '<div class="quotelink-box" data-linkfor="'+item.id+'" style="margin-top:6px; font-size:12.5px; word-break:break-all; background:var(--snow); border-radius:8px; padding:8px 10px;">https://highlightingutah.com/#/quote-details?token='+esc(d.quoteToken)+'&action=approve</div>' : '<div class="quotelink-box" data-linkfor="'+item.id+'"></div>')+
@@ -6373,6 +6416,84 @@ function renderQuoteRows(filtered){
      template. Sending resets their quiet-day counter so they drop off the
      unresponsive filter, and bumps a count so you can see who has already
      been chased twice and needs a phone call instead. */
+  /* Sending by hand means nobody is watching for a STOP reply, so there has to
+     be somewhere to record "she asked me not to" other than memory. */
+  /* Tap-to-reveal, because a phone has no hover. Tapping the photo itself
+     toggles the icons; tapping an icon does its job instead. */
+  list.querySelectorAll('.photo-wrap').forEach(function(w){
+    w.addEventListener('click', function(e){
+      if(e.target.closest('.photo-acts')) return;
+      w.classList.toggle('show');
+    });
+  });
+  list.querySelectorAll('[data-photodl]').forEach(function(b){
+    b.addEventListener('click', function(){ downloadQuotePhoto(b.dataset.photodl); });
+  });
+  /* One press: the message text goes to the clipboard and the photo saves to
+     Downloads. The clipboard can only hold one thing, so the photo cannot ride
+     along with the text - paste the message, then attach the file. */
+  list.querySelectorAll('[data-photocopy]').forEach(function(b){
+    b.addEventListener('click', async function(){
+      const id = b.dataset.photocopy;
+      const item = quotesCache.find(q => q.id === id);
+      if(!item) return;
+      const d = item.data;
+      const tmplName = quoteTextTemplateFor(d, 'quote');
+      const template = tmplName ? getEmailTemplateByName(tmplName) : null;
+      if(!template){
+        toast('No text template picked yet \u2014 open Quote email settings first.');
+        return;
+      }
+      const link = 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || '');
+      let msg = htmlEmailToPlainText(template.data.body || '')
+        .split('{{name}}').join((d.name || '').split(' ')[0] || 'there')
+        .split('{{price}}').join(fmtMoney(d.quotedPrice))
+        .split('{{link}}').join(link)
+        .replace(/\n{3,}/g, '\n\n').trim();
+      if(msg.indexOf(link) === -1) msg += '\n\n' + link;
+      try{ await navigator.clipboard.writeText(msg); } catch(err){ toast('Could not copy the message.'); return; }
+      downloadQuotePhoto(id);
+      toast('Message copied and photo saved \u2014 paste it, then attach the photo.');
+    });
+  });
+  list.querySelectorAll('[data-photodel]').forEach(function(b){
+    b.addEventListener('click', async function(){
+      const id = b.dataset.photodel;
+      const item = quotesCache.find(q => q.id === id);
+      if(!confirm('Delete this photo?\n\nThis cannot be undone. Everything else on ' + ((item && item.data.name) || 'this quote') + ' stays exactly as it is.')) return;
+      try{
+        await updateDoc(doc(db,'quotes', id), {frontPhotoUrl: '', photoMarkup: null});
+        toast('Photo deleted.');
+      } catch(err){ toast('Could not delete that \u2014 try again.'); }
+    });
+  });
+  list.querySelectorAll('[data-donttext]').forEach(function(a){
+    a.addEventListener('click', async function(e){
+      e.preventDefault();
+      const id = a.dataset.donttext;
+      const item = quotesCache.find(q => q.id === id);
+      const why = prompt('Why? (shows on the card \u2014 leave blank for "they asked us not to")\n\nThis only stops texts. Email is unaffected.', '');
+      if(why === null) return;
+      try{
+        await updateDoc(doc(db,'quotes', id), {
+          smsOptedOut: true, smsOptedOutAt: serverTimestamp(),
+          smsOptedOutReason: (why || '').trim() || 'they asked us not to'
+        });
+        toast((item && item.data.name ? item.data.name : 'They') + ' won\'t be texted again.');
+      } catch(err){ toast('Could not save that \u2014 try again.'); }
+    });
+  });
+  list.querySelectorAll('[data-untext]').forEach(function(a){
+    a.addEventListener('click', async function(e){
+      e.preventDefault();
+      const id = a.dataset.untext;
+      if(!confirm('Turn texting back on for this number?\n\nOnly do this if they have told you it is okay.')) return;
+      try{
+        await updateDoc(doc(db,'quotes', id), {smsOptedOut: false, smsOptedOutReason: ''});
+        toast('Texting turned back on.');
+      } catch(err){ toast('Could not save that \u2014 try again.'); }
+    });
+  });
   list.querySelectorAll('[data-textquote]').forEach(function(btn){
     btn.addEventListener('click', async function(){
       quoteSendResults.delete(btn.dataset.textquote);
@@ -13131,6 +13252,7 @@ function openEditCustomerModal(id){
   document.getElementById('editCustName').value = d.name || '';
   document.getElementById('editCustPhone').value = d.phone || '';
   document.getElementById('editCustPhone2').value = d.phone2 || '';
+  document.getElementById('editCustNoTexts').checked = d.smsOptedOut === true;
   document.getElementById('editCustEmail').value = d.email || '';
   document.getElementById('editCustEmail2').value = d.email2 || '';
   document.getElementById('editCustAddress').value = d.address || '';
@@ -13363,7 +13485,8 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const oldAddress = item.data.address || '';
   statusEl.textContent = 'Saving…';
   try{
-    const addrUpdates = {name: newName, phone: newPhone, phone2: newPhone2, email: newEmail, email2: newEmail2, address: newAddress, rsvpStatus: newRsvp, needsLightRecycle: newRsvp === 'no', housePrice: newHousePrice, measuredFeet: newMeasuredFeet, wireColor: newWireColor, billToPhone: newBillTo, gateCode: newGateCode, outletTimer: newOutletTimer, useEaves: newUseEaves, specificOutlet: newSpecificOutlet, specificOutletNotes: newSpecificOutletNotes, numberOfBins: newBins, wantsMailedInvoice: newWantsMailed, layoutMapUrl: editCustLayoutMapUrl, earliestInstallDate: newEarliestInstallStr ? new Date(newEarliestInstallStr + 'T00:00:00') : null};
+    const newNoTexts = document.getElementById('editCustNoTexts').checked;
+    const addrUpdates = {smsOptedOut: newNoTexts, name: newName, phone: newPhone, phone2: newPhone2, email: newEmail, email2: newEmail2, address: newAddress, rsvpStatus: newRsvp, needsLightRecycle: newRsvp === 'no', housePrice: newHousePrice, measuredFeet: newMeasuredFeet, wireColor: newWireColor, billToPhone: newBillTo, gateCode: newGateCode, outletTimer: newOutletTimer, useEaves: newUseEaves, specificOutlet: newSpecificOutlet, specificOutletNotes: newSpecificOutletNotes, numberOfBins: newBins, wantsMailedInvoice: newWantsMailed, layoutMapUrl: editCustLayoutMapUrl, earliestInstallDate: newEarliestInstallStr ? new Date(newEarliestInstallStr + 'T00:00:00') : null};
     if(newEnrolledStr) addrUpdates.createdAt = new Date(newEnrolledStr + 'T12:00:00');
     // Lights, house areas, install timing and permanent notes now live on the
     // customer. A colour change means a new pattern to build, so it re-queues
