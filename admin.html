@@ -7596,6 +7596,7 @@ const IC_CODES = {
   general: [
     {token:'{{name}}', label:'Customer name'},
     {token:'{{price}}', label:'Balance / price'},
+    {token:'{{price_block}}', label:'Price shown as a big panel'},
     {token:'{{amount}}', label:'Amount (billing)'},
     {token:'{{portal_link}}', label:'Portal link (plain URL)'},
     {token:'{{portal_button}}', label:'Portal link (button)'},
@@ -7614,7 +7615,9 @@ const IC_CODES = {
   ],
   quote: [
     {token:'{{name}}', label:'Customer name'},
-    {token:'{{price}}', label:'Quoted price'},
+    {token:'{{price}}', label:'Quoted price (plain text)'},
+    {token:'{{price_block}}', label:'Quoted price (big price panel)'},
+    {token:'{{photo}}', label:'Their house photo'},
     {token:'{{link}}', label:'Quote link (plain URL)'},
     {token:'{{link_button}}', label:'Quote link (button)'},
     {token:'{{quote_yes_button}}', label:'Quote Approve (button)'},
