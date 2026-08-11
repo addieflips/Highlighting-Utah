@@ -1021,6 +1021,34 @@ suite('8. Quote decline / maybe next year');
     /loved having you/.test(idx), 'the decline screen would still be the old bare one-liner');
   check('quoteresp', 'maybe next year promises contact next season',
     /reach out next season/.test(idx), 'they would not know we are keeping them on file');
+
+  // --- the two farewell pages -------------------------------------------
+  ['quote-maybe', 'quote-declined'].forEach(r => {
+    check('quoteresp', r + ' is a real route',
+      new RegExp("'/" + r + "'").test(idx) && new RegExp("'/" + r + "':'page-" + r + "'").test(idx),
+      'the link would fall through to the homepage');
+    check('quoteresp', r + ' has a page to show',
+      new RegExp('id="page-' + r + '"').test(idx),
+      'navigate() would throw on a missing element and kill routing entirely');
+  });
+  check('quoteresp', 'the farewell pages are gated behind actually answering',
+    /spendQuoteFarewell\('maybe'\)/.test(idx) && /spendQuoteFarewell\('declined'\)/.test(idx),
+    'anyone could wander onto "sorry you did not want lights" by typing the address');
+  check('quoteresp', 'the gate redirects without a bounce loop',
+    /history\.replaceState/.test(idx.slice(idx.indexOf('function navigate()'), idx.indexOf('function navigate()') + 1200)),
+    'reassigning the hash here would fire navigate() again');
+  check('quoteresp', 'both answers hand out a pass before redirecting',
+    (idx.match(/sendToQuoteFarewell\('maybe'\)/g) || []).length >= 2 &&
+    (idx.match(/sendToQuoteFarewell\('declined'\)/g) || []).length >= 2,
+    'the emailed link and the in-portal buttons are two separate paths — both must redirect');
+  check('quoteresp', 'a blocked sessionStorage does not strand the customer',
+    /catch\(e\)\{ return true; \}/.test(idx),
+    'private browsing would bounce them off the page they just earned');
+  ['quoteMaybeMsg', 'quoteDeclinedMsg'].forEach(id => {
+    check('quoteresp', 'no orphaned ' + id + ' left behind',
+      !idx.includes(id),
+      'its content moved to a real page — leaving the div is dead markup');
+  });
 })();
 
 // =====================================================================
