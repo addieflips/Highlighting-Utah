@@ -6274,12 +6274,18 @@ function renderQuoteRows(filtered){
       if(!file) return;
       const statusEl = list.querySelector('.quote-photo-status[data-statusfor="'+id+'"]');
       if(statusEl) statusEl.textContent = 'Uploading\u2026';
+      let url;
       try{
-        const url = await uploadOneToCloudinary(file);
+        url = await uploadOneToCloudinary(file);
+      } catch(err){
+        if(statusEl) statusEl.textContent = 'Upload failed \u2014 ' + ((err && err.message) || 'unknown error') + '.';
+        return;
+      }
+      try{
         await updateDoc(doc(db,'quotes', id), {frontPhotoUrl: url});
         if(statusEl) statusEl.textContent = '';
       } catch(err){
-        if(statusEl) statusEl.textContent = 'Upload failed \u2014 try again.';
+        if(statusEl) statusEl.textContent = 'Photo uploaded, but saving it to the quote failed \u2014 ' + ((err && err.message) || 'unknown error') + '.';
       }
     });
   });
@@ -9792,7 +9798,7 @@ async function uploadOneToCloudinary(file){
   fd.append('upload_preset', CLOUDINARY_PRESET);
   const res = await fetch('https://api.cloudinary.com/v1_1/'+CLOUDINARY_CLOUD+'/image/upload', { method:'POST', body: fd });
   const data = await res.json();
-  if(!data.secure_url) throw new Error('Upload failed');
+  if(!data.secure_url) throw new Error((data.error && data.error.message) || 'Upload failed');
   return data.secure_url;
 }
 
