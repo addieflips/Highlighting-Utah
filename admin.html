@@ -4284,7 +4284,20 @@ async function resolveLinkTokens(text, phone, amount, opts){
   let out = text;
   const btnStyleGold = 'display:inline-block; padding:12px 28px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:15px; margin:6px 8px 6px 0; background:#D89F3D; color:#1E3B2C;';
   if(opts.name !== undefined) out = out.split('{{name}}').join(opts.name || 'there');
-  if(opts.price !== undefined) out = out.split('{{price}}').join(opts.price || '');
+  if(opts.price !== undefined){
+    out = out.split('{{price}}').join(opts.price || '');
+    /* {{price_block}} is the price laid out properly rather than buried in a
+       sentence - a big number with a line saying what it covers. Built with a
+       table and inline styles because Outlook ignores most CSS. */
+    out = out.split('{{price_block}}').join(
+      '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:6px 0 18px;">'+
+        '<tr><td align="center" style="background:#F1F5EB; border-radius:10px; padding:18px 20px; font-family:Arial,sans-serif;">'+
+          '<div style="font-size:11px; letter-spacing:1.2px; text-transform:uppercase; color:#6E6858; font-weight:bold;">Your quote</div>'+
+          '<div style="font-size:32px; font-weight:bold; color:#1E3B2C; padding:4px 0 2px;">'+(opts.price || '')+'</div>'+
+          '<div style="font-size:12.5px; color:#6E6858;">installed, maintained all season, and taken down in January</div>'+
+        '</td></tr>'+
+      '</table>');
+  }
   if(opts.link){
     out = out.split('{{link}}').join(opts.link);
     out = out.split('{{link_button}}').join('<a href="'+opts.link+'" style="'+btnStyleGold+'">'+(opts.linkLabel || 'View & Respond')+'</a>');
@@ -5517,7 +5530,11 @@ async function nudgeEveryoneShown(){
     try{
       let html = await resolveLinkTokens(template.data.body, d.phone, 0, {name: properName(d.name) || 'there', price: fmtMoney(d.quotedPrice)});
       if(d.frontPhotoUrl){
-        html += '<div style="margin-top:18px;"><img src="' + d.frontPhotoUrl + '" alt="Your house" style="max-width:100%; border-radius:8px; display:block;"></div>';
+        html += '<div style="margin-top:20px;">'+
+          '<p style="margin:0 0 8px; font-size:14px;">Here&rsquo;s your home:</p>'+
+          '<img src="' + esc(d.frontPhotoUrl) + '" alt="Your home" width="520" style="max-width:100%; height:auto; border-radius:8px; display:block; border:0;">'+
+          '<p style="margin:8px 0 0; font-size:12px; color:#6E6858;">Not showing? <a href="' + esc(d.frontPhotoUrl) + '">View the photo here</a>.</p>'+
+        '</div>';
       }
       await emailjs.send(cfg.serviceId, cfg.templateId, {
         to_email: d.email, to_name: d.name || '', subject: 'Just checking in on your quote', message: html,
@@ -5692,26 +5709,18 @@ document.getElementById('qTemplateSetupBtn')?.addEventListener('click', function
    short - a chase that reads as pushy does more harm than not sending one. */
 /* No "Hi {{name}}," line on purpose - the EmailJS wrapper already greets them
    by name, and having both gives the customer two greetings in a row. */
-const DEFAULT_QUOTE_NUDGE_BODY = 'Just checking in on the quote we sent over - {{price}} to have your home lit up this Christmas. ' +
+const DEFAULT_QUOTE_NUDGE_BODY = 'Just checking in on the quote we sent over. ' +
   'No rush at all, but there is still time to get you on this season\'s schedule, and spots do fill up as we get closer.\n\n' +
-  'Whenever you are ready:\n\n' +
+  '{{price_block}}\n' +
+  '{{photo}}\n' +
   '{{quote_yes_button}}{{quote_maybe_button}}{{quote_decline_button}}\n\n' +
   'If now is not the right year, "Maybe Next Year" is honestly just as helpful - we will check back next season and leave you be until then.\n\n' +
   'Questions about anything? Just reply to this email, or call or text us at (801) 901-0011.\n\n' +
   'Thanks,\nHighlighting Utah';
-/* Sent by hand rather than through an automated system, so there is
-   deliberately no "Reply STOP" line - that promises a keyword nothing is
-   listening for. Replies are read by a person, and anyone who asks to stop
-   gets marked "don't text" on their card. Business name goes first so it does
-   not read as spam from an unknown number. */
-/* The re-quote email: an existing customer whose feet or address changed, so
-   the price has moved. No "Hi {{name}}," line - the EmailJS wrapper already
-   greets them. It names the reason the number is different up front, because
-   that is the first thing a returning customer wonders and the main reason
-   they pick up the phone. */
 const DEFAULT_REQUOTE_BODY = 'We\'ve re-measured and updated your Highlighting Utah quote for this season:\n\n' +
-  'Your price this season: {{price}}\n\n' +
+  '{{price_block}}\n' +
   'Take a look and confirm below. Everything else stays exactly as you had it, unless you tell us otherwise.\n\n' +
+  '{{photo}}\n' +
   '{{quote_yes_button}}{{quote_maybe_button}}{{quote_decline_button}}\n\n' +
   'Questions? Just reply to this email, or call or text us at (801) 901-0011.\n\n' +
   'Thanks,\nHighlighting Utah';
@@ -6188,8 +6197,34 @@ function renderQuoteRows(filtered){
        Cloudinary, so nothing is attached and it costs nothing extra. It sits
        BELOW the buttons because some mail apps hide images until tapped. */
     let html = await resolveLinkTokens(body, d.phone, 0, {name: properName(d.name) || 'there', price: fmtMoney(d.quotedPrice)});
+    /* The photo goes directly under the price and above the buttons - where it
+       does its work, next to the number it justifies. It used to sit below the
+       sign-off, which almost nobody scrolls to. If the template says where it
+       goes with {{photo}}, that wins; otherwise it is slotted in ahead of the
+       buttons, falling back to the end if there are none. */
+    let photoHtml = '';
     if(d.frontPhotoUrl){
-      html += '<div style="margin-top:18px;"><img src="'+esc(d.frontPhotoUrl)+'" alt="Your house" style="max-width:100%; border-radius:8px; display:block;"></div>';
+      /* A caption and a plain link either side of the picture. Most mail apps
+         hide remote images until you tap "show images", and without these the
+         customer just sees a gap and assumes we forgot. */
+      photoHtml =
+        '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 18px;"><tr><td style="font-family:Arial,sans-serif;">'+
+          '<p style="margin:0 0 8px; font-size:14px; color:#222;">Here&rsquo;s your home:</p>'+
+          '<img src="'+esc(d.frontPhotoUrl)+'" alt="Your home" width="560" style="width:100%; max-width:560px; height:auto; border-radius:8px; display:block; border:0;">'+
+          '<p style="margin:8px 0 0; font-size:12px; color:#6E6858;">Not showing? <a href="'+esc(d.frontPhotoUrl)+'" style="color:#3E7A5B;">View the photo here</a>.</p>'+
+        '</td></tr></table>';
+    }
+    if(photoHtml){
+      if(html.indexOf('{{photo}}') !== -1){
+        html = html.split('{{photo}}').join(photoHtml);
+      } else {
+        const firstBtn = html.search(/<a [^>]*class="?ebtn|<a [^>]*style="[^"]*background:#2E6B3E/i);
+        const anchorAt = html.indexOf('<a ');
+        const cut = firstBtn !== -1 ? firstBtn : anchorAt;
+        html = cut !== -1 ? (html.slice(0, cut) + photoHtml + html.slice(cut)) : (html + photoHtml);
+      }
+    } else {
+      html = html.split('{{photo}}').join('');
     }
     const subject = kind === 'nudge'
       ? 'Just checking in on your quote'
@@ -6200,6 +6235,7 @@ function renderQuoteRows(filtered){
       '</div>'+
       '<div class="rtext" style="margin-bottom:6px;">To: <strong>'+esc(d.email||'')+'</strong> &middot; Subject: '+esc(subject)+'</div>'+
       '<div class="quoteemail-preview" style="border:1px solid var(--line); border-radius:10px; background:#fff; padding:18px; font-family:Arial,sans-serif; font-size:14px; color:#222; line-height:1.55; max-height:520px; overflow:auto;">'+html+'</div>'+
+      (d.frontPhotoUrl ? '' : '<div class="rtext" style="color:var(--ember); margin-top:6px;">No photo on this quote \u2014 add one above and reopen this to include it.</div>')+
       '<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">'+
         (d.email ? '<button type="button" class="btn btn-gold btn-sm quoteemail-send-btn" data-kind="'+kind+'">Send it</button>' : '<span class="rtext" style="color:var(--ember);">No email address on this quote.</span>')+
         '<button type="button" class="btn btn-outline btn-sm quoteemail-copy-btn">Copy instead</button>'+
