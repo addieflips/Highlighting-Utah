@@ -950,6 +950,74 @@ console.log('\n=== 7. Health check engine ===');
 })();
 
 // =====================================================================
+suite('8. Quote decline / maybe next year');
+(() => {
+  const fns = read('functions/index.js');
+  const idx = read('index.html');
+
+  // --- decline files the quote away -------------------------------------
+  check('quoteresp', 'declining archives the quote',
+    /quoteUpdates\.quoteArchived\s*=\s*true/.test(fns),
+    'a declined quote would sit in Closed waiting to be archived by hand');
+  check('quoteresp', 'archiving is a flag, not a delete',
+    !/collection\('quotes'\)\.doc\(quoteId\)\.delete\(\)/.test(fns),
+    'declining must never destroy the quote — Closed → Archived has a Restore button');
+
+  // --- maybe next year reaches the customer record ----------------------
+  check('quoteresp', 'maybe next year pulls the customer from the season',
+    /action === 'maybe_next_year'/.test(fns) && /pullCustomerFromSeason/.test(fns),
+    'they would keep their routes and schedule for a season they said no to');
+  check('quoteresp', 'the customer is matched by phone',
+    /findByPhone\(digitsOnly\(quoteData\.phone\)\)/.test(fns),
+    'quotes carry no link to jobAddresses, so phone is the only join available');
+  ['maybeNextYear', 'rsvpStatus', 'scheduled', 'needsLightBuild'].forEach(f => {
+    check('quoteresp', 'pulling from the season clears ' + f,
+      new RegExp(f + ':').test(fns.slice(fns.indexOf('async function pullCustomerFromSeason'),
+        fns.indexOf('async function pullCustomerFromSeason') + 1800)),
+      'they would still show up somewhere outside All Customers');
+  });
+  check('quoteresp', 'past routes are left alone as history',
+    /\(rd\.date \|\| ''\) < todayStr/.test(fns.slice(fns.indexOf('async function pullCustomerFromSeason'))),
+    'rewriting a finished route changes what the crew actually did');
+
+  // --- money is not touched ---------------------------------------------
+  const pull = fns.slice(fns.indexOf('async function pullCustomerFromSeason'),
+    fns.indexOf('async function pullCustomerFromSeason') + 1800);
+  check('quoteresp', 'sitting out the season does not touch money',
+    !/(install|removal|deposit|credits|changeFees|status)\s*:/.test(pull),
+    'not coming back next year is not the same as not owing for last year — ' +
+    'this must never zero a balance or flip an invoice to paid');
+
+  // --- admin surfaces ----------------------------------------------------
+  check('quoteresp', 'All Customers shows the Maybe Next Year badge',
+    /maybeNextYear\s*\?[\s\S]{0,200}Maybe Next Year/.test(admin),
+    'the office would have no way to see who is sitting out');
+  check('quoteresp', 'the badge column has a matching empty header',
+    (admin.match(/<th style="padding:8px 10px;"><\/th>/g) || []).length >= 2 &&
+    /colspan="8"/.test(admin),
+    'header and body would disagree and the table would render misaligned');
+  check('quoteresp', 'the badge can be undone from All Customers',
+    /data-undomaybe/.test(admin) && /maybeNextYear: false/.test(admin),
+    'a wrong tag would need a hand edit to clear');
+  check('quoteresp', 'undo does not silently re-route them',
+    /NOT put them back on a route|NOT added back to any route/.test(admin),
+    'quietly rebuilding a route behind the office is worse than re-adding a stop');
+
+  // every route-building list honours the tag
+  const routeLists = (admin.match(/let available = jobAddresses\.filter\([^;]*;/g) || []);
+  check('quoteresp', 'every route list excludes Maybe Next Year',
+    routeLists.length >= 4 && routeLists.every(l => l.includes('!a.data.maybeNextYear')),
+    'found ' + routeLists.length + ' route lists, ' +
+    routeLists.filter(l => !l.includes('!a.data.maybeNextYear')).length + ' not honouring the tag');
+
+  // --- what the customer is told ----------------------------------------
+  check('quoteresp', 'decline thanks them for their business',
+    /loved having you/.test(idx), 'the decline screen would still be the old bare one-liner');
+  check('quoteresp', 'maybe next year promises contact next season',
+    /reach out next season/.test(idx), 'they would not know we are keeping them on file');
+})();
+
+// =====================================================================
 console.log('\n' + '='.repeat(55));
 console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));
 if (fail) {

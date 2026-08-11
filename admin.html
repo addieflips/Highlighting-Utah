@@ -1464,6 +1464,10 @@
                   <th style="padding:8px 10px;">Route</th>
                   <th style="padding:8px 10px;">Timing</th>
                   <th style="padding:8px 10px;">Invoice</th>
+                  <!-- Deliberately unheaded: it only ever holds the Maybe Next
+                       Year badge, and a column title would read as a heading
+                       over a mostly empty column. -->
+                  <th style="padding:8px 10px;"></th>
                   <th style="padding:8px 10px;">House Map</th>
                   <th style="padding:8px 10px;"></th>
                 </tr>
@@ -11519,7 +11523,7 @@ function updateFixAvailableCount(){
   const el = document.getElementById('fixAvailableCount');
   if(!el) return;
   const cityChoice = document.getElementById('fixCitySelect').value;
-  let available = jobAddresses.filter(a => a.data.needsFix && !a.data.fixScheduled);
+  let available = jobAddresses.filter(a => a.data.needsFix && !a.data.fixScheduled && !a.data.maybeNextYear);
   if(cityChoice !== 'all') available = available.filter(a => extractCleanCity(a.data.city) === cityChoice);
   el.textContent = available.length + ' house' + (available.length===1?'':'s') + ' currently need' + (available.length===1?'s':'') + ' a fix' + (cityChoice !== 'all' ? ' in ' + cityChoice : '') + '.';
 }
@@ -12134,7 +12138,7 @@ function computeColorDemand(){
     });
   }
   jobAddresses.forEach(function(item){
-    if(item.data.needsLightBuild && item.data.lightsDescription) addPattern(item.data.lightsDescription, 1);
+    if(item.data.needsLightBuild && item.data.lightsDescription && !item.data.maybeNextYear) addPattern(item.data.lightsDescription, 1);
   });
   warehouseExtras.forEach(function(item){
     addPattern(item.data.pattern, Number(item.data.quantity)||0);
@@ -12142,7 +12146,7 @@ function computeColorDemand(){
   return colorCounts;
 }
 function computePendingHouseCount(){
-  let total = jobAddresses.filter(function(item){ return item.data.needsLightBuild && item.data.lightsDescription; }).length;
+  let total = jobAddresses.filter(function(item){ return item.data.needsLightBuild && item.data.lightsDescription && !item.data.maybeNextYear; }).length;
   warehouseExtras.forEach(function(item){ total += Number(item.data.quantity)||0; });
   return total;
 }
@@ -12238,7 +12242,9 @@ function renderWarehouseQueue(){
   const groups = {};
   jobAddresses.forEach(function(item){
     const d = item.data;
-    if(!d.needsLightBuild || !d.lightsDescription) return;
+    /* Sitting out the season means nothing gets built for them, even if a
+       needsLightBuild flag was already set before they answered. */
+    if(!d.needsLightBuild || !d.lightsDescription || d.maybeNextYear) return;
     const key = whGroupKey(d.lightsDescription, d.wireColor);
     if(!groups[key]) groups[key] = {houses:[], extras:[]};
     groups[key].houses.push(item);
@@ -12689,7 +12695,7 @@ function renderAllCustomersTable(){
   });
 
   document.getElementById('allCustCount').textContent = rows.length + ' customer' + (rows.length===1?'':'s') + ' shown.';
-  if(!rows.length){ body.innerHTML = '<tr><td colspan="7" style="padding:16px; color:var(--slate);">No customers match this view.</td></tr>'; return; }
+  if(!rows.length){ body.innerHTML = '<tr><td colspan="8" style="padding:16px; color:var(--slate);">No customers match this view.</td></tr>'; return; }
 
   body.innerHTML = rows.map(function(r){
     const billedElsewhere = jobAddresses.find(a => (a.data.phone||'').replace(/\D/g,'') === (r.d.billToPhone||''));
@@ -12702,12 +12708,20 @@ function renderAllCustomersTable(){
     const timingLabel = r.d.installPreference === 'November - Before Thanksgiving' ? 'November — Before Thanksgiving' : (r.d.installPreference === 'Normal Schedule' || !r.d.installPreference ? 'Any' : r.d.installPreference);
     const mapCell = r.hasMap ? '<a class="btn btn-outline btn-sm" href="'+esc(r.d.layoutMapUrl)+'" target="_blank" rel="noopener">View Map</a>' : '<span style="color:var(--slate); font-size:12px;">No map yet</span>';
     const binBadge = (r.d.numberOfBins && r.d.numberOfBins > 1) ? ' <span style="display:inline-block; background:#EAF1FA; color:#2B5C8A; border:1px solid #C3D8EC; border-radius:999px; padding:1px 8px; font-size:11px; font-weight:600; vertical-align:middle;">'+r.d.numberOfBins+' bins</span>' : '';
+    /* They stay in All Customers - this badge is the only thing that marks them
+       as sitting out the season, so it reads next to the invoice status the
+       same way Paid / Unpaid does. Undo puts them straight back in the pool. */
+    const maybeCell = r.d.maybeNextYear
+      ? '<span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">Maybe Next Year</span>'+
+        '<br><button type="button" class="btn btn-outline btn-sm" data-undomaybe="'+r.item.id+'" style="margin-top:4px; font-size:11px;">Undo</button>'
+      : '';
     return '<tr style="border-bottom:1px solid var(--line);">'+
       '<td style="padding:8px 10px;"><strong>'+esc(r.d.name||'(no name)')+'</strong>'+binBadge+'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.address||'')+'</span>'+(r.d.phone?'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.phone)+'</span>':'')+'</td>'+
       '<td style="padding:8px 10px; font-size:12.5px;">'+esc(r.enrolled||'—')+'</td>'+
       '<td style="padding:8px 10px;">'+routeCell+'</td>'+
       '<td style="padding:8px 10px; font-size:12.5px;">'+esc(timingLabel)+'</td>'+
       '<td style="padding:8px 10px;">'+invCell+'</td>'+
+      '<td style="padding:8px 10px;">'+maybeCell+'</td>'+
       '<td style="padding:8px 10px;">'+mapCell+'</td>'+
       '<td style="padding:8px 10px;"><button type="button" class="icon-btn" data-editcust="'+r.item.id+'" title="Edit Personal Info">'+editIcon()+'</button></td>'+
     '</tr>';
@@ -12715,6 +12729,28 @@ function renderAllCustomersTable(){
   body.querySelectorAll('[data-editcust]').forEach(function(btn){
     btn.addEventListener('click', function(){
       openEditCustomerModal(btn.dataset.editcust);
+    });
+  });
+  /* Clearing the badge puts them back in the normal pool, but deliberately does
+     NOT put them back on a route. Rebuilding a route behind the office's back
+     would be a worse surprise than making them re-add one stop by hand. */
+  body.querySelectorAll('[data-undomaybe]').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      const id = btn.dataset.undomaybe;
+      const cust = jobAddresses.find(a => a.id === id);
+      const who = (cust && cust.data.name) || 'this customer';
+      if(!confirm('Put ' + who + ' back in this season?\n\nThe Maybe Next Year badge is removed and their RSVP goes back to pending, so they can be routed again. They are NOT added back to any route — you\'ll need to schedule them like anyone else.')) return;
+      btn.disabled = true;
+      try{
+        await updateDoc(doc(db,'jobAddresses', id), {
+          maybeNextYear: false, maybeNextYearAt: null,
+          rsvpStatus: '', rsvpRespondedAt: null
+        });
+        toast(who + ' is back in the pool — schedule them when you\'re ready.');
+      } catch(err){
+        btn.disabled = false;
+        toast('Could not undo that — try again.');
+      }
     });
   });
 }
@@ -13624,7 +13660,11 @@ async function runGenerateInstallRoute(){
   const seedPref = document.getElementById('routeSeedPref').value;
   const statusEl = document.getElementById('generateRouteStatus');
   const isTest = document.getElementById('testGenerateCheck').checked;
-  let available = jobAddresses.filter(a => !a.data.scheduled && !a.data.completed && typeof a.data.lat === 'number' && !isInstallPrefLocked(a.data.installPreference) && !isEarliestInstallDateLocked(a.data) && (isTest || !isLightsLocked(a.data)) && (isTest || a.data.rsvpStatus === 'yes'));
+  /* maybeNextYear is checked on its own rather than leaning on the rsvpStatus
+     test beside it: the badge is what the office sets and sees, so it has to
+     be the thing that keeps someone off a route even if an RSVP gets edited
+     back to yes by hand. Same reason it repeats on the fix and removal lists. */
+  let available = jobAddresses.filter(a => !a.data.scheduled && !a.data.completed && typeof a.data.lat === 'number' && !isInstallPrefLocked(a.data.installPreference) && !isEarliestInstallDateLocked(a.data) && (isTest || !isLightsLocked(a.data)) && (isTest || a.data.rsvpStatus === 'yes') && !a.data.maybeNextYear);
   if(cityChoice !== 'all') available = available.filter(a => extractCleanCity(a.data.city) === cityChoice || a.data.installPreference === 'November - Before Thanksgiving');
 
   const startText = document.getElementById('routeStartInput').value.trim();
@@ -13671,7 +13711,7 @@ document.getElementById('generateFixBtn').addEventListener('click', async functi
   const crewChoice = document.getElementById('fixCrewSelect').value;
   const seedPref = document.getElementById('fixSeedPref').value;
   const statusEl = document.getElementById('generateFixStatus');
-  let available = jobAddresses.filter(a => a.data.needsFix && !a.data.fixScheduled && typeof a.data.lat === 'number');
+  let available = jobAddresses.filter(a => a.data.needsFix && !a.data.fixScheduled && typeof a.data.lat === 'number' && !a.data.maybeNextYear);
   if(cityChoice !== 'all') available = available.filter(a => extractCleanCity(a.data.city) === cityChoice);
   const wantFix = document.getElementById('wantFixAll').checked ? available.length : (Number(document.getElementById('wantFix').value) || 0);
 
@@ -13694,7 +13734,7 @@ document.getElementById('generateRemovalBtn').addEventListener('click', async fu
   const crewChoice = document.getElementById('removalCrewSelect').value;
   const seedPref = document.getElementById('removalSeedPref').value;
   const statusEl = document.getElementById('generateRemovalStatus');
-  let available = jobAddresses.filter(a => a.data.completed && !a.data.removalDone && !a.data.removalScheduled && typeof a.data.lat === 'number');
+  let available = jobAddresses.filter(a => a.data.completed && !a.data.removalDone && !a.data.removalScheduled && typeof a.data.lat === 'number' && !a.data.maybeNextYear);
   if(cityChoice !== 'all') available = available.filter(a => extractCleanCity(a.data.city) === cityChoice);
 
   const startText = document.getElementById('removalStartInput').value.trim();

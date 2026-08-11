@@ -1649,8 +1649,8 @@
           </div>
           <div id="quoteActionStatus" style="font-size:13px; color:var(--slate); margin-top:8px; text-align:center;"></div>
           <div id="quoteApprovedMsg" class="portal-confirm-msg" style="display:none;">&#10003; Thanks for approving &mdash; we'll be in touch to schedule your installation!</div>
-          <div id="quoteMaybeMsg" class="portal-confirm-msg" style="display:none;">We hope to see you next year! Happy Holidays! &#127876;</div>
-          <div id="quoteDeclinedMsg" class="portal-confirm-msg" style="display:none;">Thanks for letting us know. We hope to help you down the road. Happy Holidays!</div>
+          <div id="quoteMaybeMsg" class="portal-confirm-msg" style="display:none;"><strong>No worries at all &mdash; we&rsquo;ll reach out next season.</strong><br><br>You&rsquo;re all set for this year, and there&rsquo;s nothing else you need to do. We&rsquo;ll be in touch before next Christmas to see if the timing works better then.<br><br>Happy Holidays from all of us at Highlighting Utah! &#127876;</div>
+          <div id="quoteDeclinedMsg" class="portal-confirm-msg" style="display:none;"><strong>Thank you for doing Christmas lights with us &mdash; we loved having you.</strong><br><br>It&rsquo;s been a pleasure lighting up your home, and we&rsquo;re grateful you chose us. If you ever want them back up, we&rsquo;d be glad to hear from you &mdash; just call or text (801) 901-0011.<br><br>Merry Christmas and Happy Holidays! &#127876;</div>
         </div>
         <div id="quoteResolvedMsg" class="invoice-empty" style="display:none;"></div>
 
@@ -2953,9 +2953,17 @@ function handleQuoteLink(token, action){
         greet.style.display = 'block';
       }
     } else if(action === 'maybe_next_year'){
-      if(confirmMsg) confirmMsg.textContent = 'We hope to see you next year! Happy Holidays! \ud83c\udf84';
+      /* Deliberately says we will reach out, because that is now true: they
+         keep their customer record and get picked back up next season. */
+      if(confirmMsg) confirmMsg.innerHTML = '<strong>No worries at all \u2014 we\u2019ll reach out next season.</strong><br><br>' +
+        'You\u2019re all set for this year, and there\u2019s nothing else you need to do. ' +
+        'We\u2019ll be in touch before next Christmas to see if the timing works better then.<br><br>' +
+        'Happy Holidays from all of us at Highlighting Utah! \ud83c\udf84';
     } else {
-      if(confirmMsg) confirmMsg.textContent = 'Thanks for letting us know. We hope to help you down the road. Happy Holidays!';
+      if(confirmMsg) confirmMsg.innerHTML = '<strong>Thank you for doing Christmas lights with us \u2014 we loved having you.</strong><br><br>' +
+        'It\u2019s been a pleasure lighting up your home, and we\u2019re grateful you chose us. ' +
+        'If you ever want them back up, we\u2019d be glad to hear from you \u2014 just call or text (801) 901-0011.<br><br>' +
+        'Merry Christmas and Happy Holidays! \ud83c\udf84';
     }
   }).catch(function(){
     if(confirmMsg) confirmMsg.textContent = "Something went wrong \u2014 please call or text us at (801) 901-0011 and we'll get it sorted out.";

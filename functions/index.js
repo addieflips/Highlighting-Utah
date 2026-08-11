@@ -767,6 +767,56 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
  * flow server-side instead.
  */
 const QUOTE_ACTION_TO_STATUS = { approve: 'approved', decline: 'declined', maybe_next_year: 'maybe_next_year', maybe: 'maybe_next_year' };
+
+/* --- pullCustomerFromSeason ------------------------------------------------
+ * A "maybe next year" answer takes someone out of THIS season without taking
+ * them out of the business. They keep their record, their history and their
+ * customer number; they just stop being part of the work.
+ *
+ * This deliberately rides the RSVP rails that already exist rather than adding
+ * a parallel set of switches: route building only ever takes rsvpStatus
+ * 'yes' (admin.html), and 'backnextyear' is the one answer that never marks
+ * lights for recycling - which is right, because nothing was installed.
+ *
+ * Money is untouched on purpose. If they still owe for work already done, that
+ * invoice stands and keeps chasing. Not coming back next year is not the same
+ * as not owing for last year.
+ */
+async function pullCustomerFromSeason(customerId) {
+  await db.collection('jobAddresses').doc(customerId).update({
+    maybeNextYear: true,
+    maybeNextYearAt: admin.firestore.FieldValue.serverTimestamp(),
+    rsvpStatus: 'backnextyear',
+    rsvpRespondedAt: admin.firestore.FieldValue.serverTimestamp(),
+    needsLightRecycle: false,
+    needsLightBuild: false,
+    scheduled: false,
+    scheduledDate: null,
+    assignedCrew: null
+  });
+
+  /* Clearing the scheduled flag alone would leave them sitting on any route a
+     crew has already been handed. Past routes stay exactly as they are - they
+     are history, and rewriting them would change what the crew actually did. */
+  let removedFrom = 0;
+  try {
+    const todayStr = todayStrInDenver();
+    const routesSnap = await db.collection('scheduledRoutes').get();
+    for (const rDoc of routesSnap.docs) {
+      const rd = rDoc.data();
+      if ((rd.date || '') < todayStr) continue;
+      const stops = Array.isArray(rd.stops) ? rd.stops : [];
+      const kept = stops.filter(function (s) { return !s || s.id !== customerId; });
+      if (kept.length !== stops.length) {
+        await rDoc.ref.update({ stops: kept });
+        removedFrom++;
+      }
+    }
+  } catch (err) {
+    console.error('[HU] maybe-next-year route removal failed:', err);
+  }
+  return removedFrom;
+}
 exports.quoteRespond = onCall({ cors: true }, async (request) => {
   const body = request.data || {};
   const quoteToken = body.quoteToken ? String(body.quoteToken).trim() : '';
@@ -784,10 +834,39 @@ exports.quoteRespond = onCall({ cors: true }, async (request) => {
   const quoteId = snap.docs[0].id;
   const quoteData = snap.docs[0].data();
 
-  await db.collection('quotes').doc(quoteId).update({
+  const quoteUpdates = {
     approvalStatus: QUOTE_ACTION_TO_STATUS[action],
     approvalRespondedAt: admin.firestore.FieldValue.serverTimestamp()
-  });
+  };
+  /* Declining files the quote away rather than leaving it sitting in Closed for
+     someone to tidy up by hand. Nothing is deleted - it lands in
+     Quotes -> Closed -> Archived with the existing Restore button on it. */
+  if (action === 'decline') {
+    quoteUpdates.quoteArchived = true;
+    quoteUpdates.quoteArchivedAt = admin.firestore.FieldValue.serverTimestamp();
+  }
+  await db.collection('quotes').doc(quoteId).update(quoteUpdates);
+
+  /* A "maybe next year" from someone who is already a customer has to reach
+     their customer record, not just the quote - otherwise they stay on the
+     routes and the schedule for a season they already said no to. Quotes carry
+     no link to jobAddresses (existingCustomerId and jobAddressId are read in
+     several places but never written anywhere), so the phone number is the only
+     join available, and it is the same one the rest of the app matches on. */
+  let pulledFromSeason = false;
+  if (action === 'maybe_next_year' || action === 'maybe') {
+    try {
+      const cust = await findByPhone(digitsOnly(quoteData.phone));
+      if (cust) {
+        await pullCustomerFromSeason(cust.id);
+        pulledFromSeason = true;
+      }
+    } catch (err) {
+      /* Never let this sink the customer's answer - the quote is already
+         recorded, and the office can pull them off by hand. */
+      console.error('[HU] maybe-next-year customer update failed:', err);
+    }
+  }
 
   if (action === 'approve' && quoteData.jobAddressId) {
     try {
@@ -808,7 +887,8 @@ exports.quoteRespond = onCall({ cors: true }, async (request) => {
        is useless without the token they already hold. */
     quoteId: quoteId,
     name: quoteData.name || '',
-    formCompleted: !!quoteData.formCompleted
+    formCompleted: !!quoteData.formCompleted,
+    pulledFromSeason: pulledFromSeason
   };
 });
 
