@@ -6276,7 +6276,8 @@ function renderQuoteRows(filtered){
       if(statusEl) statusEl.textContent = 'Uploading\u2026';
       let url;
       try{
-        url = await uploadOneToCloudinary(file);
+        const uploadFile = await shrinkImageFileIfTooLarge(file, 9*1024*1024, 2000, 0.85);
+        url = await uploadOneToCloudinary(uploadFile);
       } catch(err){
         if(statusEl) statusEl.textContent = 'Upload failed \u2014 ' + ((err && err.message) || 'unknown error') + '.';
         return;
@@ -9800,6 +9801,37 @@ async function uploadOneToCloudinary(file){
   const data = await res.json();
   if(!data.secure_url) throw new Error((data.error && data.error.message) || 'Upload failed');
   return data.secure_url;
+}
+/* Cloudinary's hard cap is 10MB, and a phone screenshot or a photo straight
+   off a modern camera can easily blow past that. Nothing this app displays a
+   photo at is bigger than a browser window, so there is no reason to keep
+   the original resolution - shrink it before it ever leaves the browser
+   instead of making someone manually resize a file and try again. Only
+   touches files that are actually over the limit; a normal-sized photo goes
+   through untouched. */
+function shrinkImageFileIfTooLarge(file, maxBytes, maxDimension, quality){
+  return new Promise(function(resolve){
+    if(!file.type || file.type.indexOf('image/') !== 0 || file.size <= maxBytes){ resolve(file); return; }
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = function(){
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, maxDimension / Math.max(img.naturalWidth, img.naturalHeight));
+      const w = Math.max(1, Math.round(img.naturalWidth * scale));
+      const h = Math.max(1, Math.round(img.naturalHeight * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob(function(blob){
+        if(!blob){ resolve(file); return; }
+        const newName = (file.name || 'photo').replace(/\.[a-zA-Z0-9]+$/, '') + '.jpg';
+        resolve(new File([blob], newName, {type: 'image/jpeg'}));
+      }, 'image/jpeg', quality);
+    };
+    img.onerror = function(){ URL.revokeObjectURL(url); resolve(file); };
+    img.src = url;
+  });
 }
 
 function hexToRgba(hex, alpha){
