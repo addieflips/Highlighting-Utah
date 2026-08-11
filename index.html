@@ -2330,6 +2330,11 @@ quoteDetailFormEl.addEventListener('submit', async function(e){
     wantsMailedInvoice: fd.get('wants_mailed') === 'on'
   };
   try{
+    if(!quoteDetailToken && quoteDetailQuoteId){
+      /* No token means the direct write below, which Firestore will refuse.
+         Better to say so than to let it fail with "insufficient permissions". */
+      console.warn('No quote token on this route - the direct write will be denied.');
+    }
     if(quoteDetailToken){
       /* Came in from an emailed link: no login, so the write has to go through
          the server or Firestore refuses it. */
@@ -2360,6 +2365,11 @@ quoteDetailFormEl.addEventListener('submit', async function(e){
       msg = (err && err.message) ? err.message : "Something on the form wasn't quite right — please check it and try again.";
     } else {
       msg = "Something went wrong — please call or text us at (801) 901-0011 and we'll finish this with you.";
+      /* Anything we haven't specifically recognised carries its real reason, the
+         same way the portal lookup messages do. Ugly, but a customer reading it
+         down the phone is far more useful than "something went wrong". */
+      msg += "\n\n[detail: " + (code || 'no-code') + " / " + ((err && err.message) || 'no message') +
+             " / token=" + (quoteDetailToken ? 'yes' : 'no') + " / id=" + (quoteDetailQuoteId || 'none') + "]";
     }
     alert(msg);
   }
@@ -2832,6 +2842,11 @@ function tryShowQuoteReview(raw, opts){
         currentQuoteId = resolved.id;
         currentQuoteData = resolved.data;
         quoteDetailQuoteId = resolved.id;
+        /* The form saves through a Cloud Function, because Firestore only lets
+           a signed-in staff account update a quote - a customer's direct write
+           is denied. The token is what proves who they are, so it has to be
+           carried on EVERY route into this form, not just the emailed link. */
+        quoteDetailToken = resolved.data.quoteToken || null;
         window.location.hash = '/quote-details';
         return;
       }
@@ -3754,6 +3769,7 @@ document.getElementById('quoteApproveBtn').addEventListener('click', async funct
       message: 'Approved quote of ' + fmt(currentQuoteData.quotedPrice) + ' for ' + (currentQuoteData.address || 'their address') + '.'
     });
     quoteDetailQuoteId = currentQuoteId;
+    quoteDetailToken = (currentQuoteData && currentQuoteData.quoteToken) || quoteDetailToken || null;
     window.location.hash = '/quote-details';
   } catch(err){
     statusEl.textContent = 'Something went wrong — please call/text us at (801) 901-0011.';
