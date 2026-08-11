@@ -6223,7 +6223,14 @@ function renderQuoteRows(filtered){
             (d.contactMethod && /text|sms|phone/i.test(d.contactMethod) ? '<div class="rtext" style="margin-top:5px; color:#8A6100;">They asked to be contacted by '+esc(d.contactMethod)+'.</div>' : '')+
             '<div class="quotelink-status" data-statusfor="'+item.id+'" style="font-size:12px; color:var(--slate); margin-top:6px;"></div>'+
             (d.quoteToken ? '<div class="quotelink-box" data-linkfor="'+item.id+'" style="margin-top:6px; font-size:12.5px; word-break:break-all; background:var(--snow); border-radius:8px; padding:8px 10px;">https://highlightingutah.com/#/quote-details?token='+esc(d.quoteToken)+'&action=approve</div>' : '<div class="quotelink-box" data-linkfor="'+item.id+'"></div>')+
-            (d.quoteToken && typeof d.quotedPrice === 'number' ? '<button type="button" class="btn btn-outline btn-sm" data-copyquoteemail="'+item.id+'" style="margin-top:6px;">Show Quote Email Again</button><div class="quoteemail-result" data-resultfor="'+item.id+'" style="margin-top:8px;"></div>' : '')+
+            (d.quoteToken && typeof d.quotedPrice === 'number' ? '<button type="button" class="btn btn-outline btn-sm" data-copyquoteemail="'+item.id+'" style="margin-top:6px;">Show Quote Email Again</button>' : '')+
+            /* The preview box is always in the panel now, even for a quote
+               that has never been sent. It used to render only once a
+               quoteToken existed - and a token is only created by the send
+               button - so "Preview first" had nothing to draw into and
+               quietly gave up, which is the whole reason you could not
+               preview before sending. */
+            '<div class="quoteemail-result" data-resultfor="'+item.id+'" style="margin-top:8px;"></div>'+
             (quoteStageFilter === 'send' ? (
               '<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">'+
                 '<button type="button" class="btn btn-gold btn-sm" data-nudgequote="'+item.id+'">Send a nudge</button>'+
@@ -6446,10 +6453,17 @@ function renderQuoteRows(filtered){
     }
     const resultEl = document.querySelector('.quoteemail-result[data-resultfor="'+id+'"]');
     if(!resultEl){
-      toast('Price this quote first, then the email preview appears here.');
+      toast('Open that quote\'s Pricing & Approval panel, then try Preview again.');
       return;
     }
     const d = item.data;
+    /* The email quotes a number, so there has to be one. This is the check
+       that used to be done by accident, by the preview box only existing
+       after a send - now it is explicit and says what is actually wrong. */
+    if(typeof d.quotedPrice !== 'number' || d.quotedPrice <= 0){
+      resultEl.innerHTML = '<div class="rtext" style="color:var(--ember); font-weight:600;">Add a Quoted Price above first \u2014 the email quotes that number.</div>';
+      return;
+    }
     const tmplName = quoteTemplateFor(d, kind);
     const template = getEmailTemplateByName(tmplName);
     if(!template && !(kind === 'quote' && !d.existingCustomerId)){
