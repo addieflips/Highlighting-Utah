@@ -1464,10 +1464,6 @@
                   <th style="padding:8px 10px;">Route</th>
                   <th style="padding:8px 10px;">Timing</th>
                   <th style="padding:8px 10px;">Invoice</th>
-                  <!-- Deliberately unheaded: it only ever holds the Maybe Next
-                       Year badge, and a column title would read as a heading
-                       over a mostly empty column. -->
-                  <th style="padding:8px 10px;"></th>
                   <th style="padding:8px 10px;">House Map</th>
                   <th style="padding:8px 10px;"></th>
                 </tr>
@@ -1511,22 +1507,6 @@
             <div class="form-row"><label>Don't Install Before This Date (staff only)</label><input type="date" id="editCustEarliestInstall"></div>
           </div>
           <p class="form-note" style="margin:-4px 0 16px;">Customers never see or can change this &mdash; use it when someone needs us to hold off until a specific date (e.g. they're out of town until then). Leave blank for no restriction.</p>
-          <!-- Radio group rather than two checkboxes: the browser enforces that
-               only one can be on, so the pair can never end up both set or both
-               clear the way two checkboxes eventually would. -->
-          <div class="form-row"><label>This Season</label>
-            <div style="display:flex; gap:20px; flex-wrap:wrap; align-items:center; padding:4px 0;">
-              <label style="display:flex; align-items:center; gap:7px; font-weight:600; cursor:pointer; margin:0;">
-                <input type="radio" name="editCustSeason" id="editCustSeasonConfirmed" value="confirmed" style="width:auto; margin:0;">
-                <span class="status-pill" style="background:#E6F2EA; color:#2E6B3E;">Confirmed</span>
-              </label>
-              <label style="display:flex; align-items:center; gap:7px; font-weight:600; cursor:pointer; margin:0;">
-                <input type="radio" name="editCustSeason" id="editCustSeasonMaybe" value="maybe" style="width:auto; margin:0;">
-                <span class="status-pill" style="background:#FFF3D6; color:#8A6100;">Maybe Next Year</span>
-              </label>
-            </div>
-          </div>
-          <p class="form-note" style="margin:-4px 0 16px;">This is the badge shown next to them in All Customers. Switching someone to <strong>Maybe Next Year</strong> takes them out of this season &mdash; off the routes, the schedule and the warehouse build list &mdash; and removes them from any upcoming route they are already on. It never touches what they owe. Set it back to Confirmed to put them back in the pool (you'll still need to schedule them yourself).</p>
 
           <!-- ===================== HOUSE INFO ===================== -->
           <div style="border-top:2px solid var(--gold-dim); margin:20px 0 0; padding-top:16px;">
@@ -2583,6 +2563,15 @@ Highlighting Utah</textarea>
           <div class="form-row" style="margin:0; min-width:210px;"><label style="font-size:11.5px;">New house quote</label><select id="qTmplNew" style="font-size:13px; padding:8px 10px;"></select></div>
           <div class="form-row" style="margin:0; min-width:210px;"><label style="font-size:11.5px;">Re-quote (existing customer)</label><select id="qTmplRequote" style="font-size:13px; padding:8px 10px;"></select></div>
           <div class="form-row" style="margin:0; min-width:210px;"><label style="font-size:11.5px;">Nudge</label><select id="qTmplNudge" style="font-size:13px; padding:8px 10px;"></select></div>
+        </div>
+        <div style="font-size:13px; font-weight:700; margin:18px 0 4px; padding-top:14px; border-top:1px solid var(--line);">Text message versions</div>
+        <p class="rtext" style="margin:0 0 10px;">Plain wording only &mdash; a text can&rsquo;t show buttons or a photo, so these should be short and end with the link. Make them in Automation Emails like any other template.</p>
+        <button type="button" class="btn btn-outline btn-sm" id="qMakeTextTmplBtn" style="margin-bottom:12px;">Create the missing templates for me</button>
+        <span id="qMakeTextTmplStatus" style="font-size:12.5px; color:var(--slate); margin-left:10px;"></span>
+        <div style="display:flex; gap:14px; flex-wrap:wrap;">
+          <div class="form-row" style="margin:0; min-width:210px;"><label style="font-size:11.5px;">New house text</label><select id="qTmplNewText" style="font-size:13px; padding:8px 10px;"></select></div>
+          <div class="form-row" style="margin:0; min-width:210px;"><label style="font-size:11.5px;">Re-quote text</label><select id="qTmplRequoteText" style="font-size:13px; padding:8px 10px;"></select></div>
+          <div class="form-row" style="margin:0; min-width:210px;"><label style="font-size:11.5px;">Nudge text</label><select id="qTmplNudgeText" style="font-size:13px; padding:8px 10px;"></select></div>
         </div>
         <button type="button" class="btn btn-gold btn-sm" id="qTmplSaveBtn" style="margin-top:12px;">Save</button>
         <span id="qTmplSaveStatus" style="font-size:12.5px; color:var(--slate); margin-left:10px;"></span>
@@ -5361,6 +5350,15 @@ let quoteFilter = 'all';
 let quoteStageFilter = 'new';   // one of: new, send, form, closed
 let showSentQuotes = false;   // "Awaiting Response" tab: reveal already-sent quotes
 let quoteQuietDays = 0;       // Awaiting Response: only show people quiet this many days
+/* Sending writes to Firestore, which fires a snapshot, which rebuilds the whole
+   list - so the button you just pressed, and the box the confirmation was
+   written into, are both gone by the time the send finishes. These survive the
+   rebuild so the result can be repainted onto the fresh card:
+     quoteSendResults - the message to show, per quote id
+     quoteSendInFlight - ids currently sending, so a second press cannot fire
+                         and send the customer a duplicate email */
+const quoteSendResults = new Map();
+const quoteSendInFlight = new Set();
 let showArchivedQuotes = false; // Closed tab: swap between converted and archived
 /* The four stages a quote moves through, in the order they're worked:
      new    — it came in, nobody has priced it yet
@@ -5382,10 +5380,134 @@ function quoteStage(d){
 /* Which of the three quote templates a card should use. Names are picked in
    Quote email settings and stored on settings/quoteTemplates, so renaming a
    template in Automation Emails never silently breaks sending. */
-let quoteTemplateNames = {newQuote:'Quote Ready for Review', requote:'ReQuotes', nudge:'Nudge'};
+let quoteTemplateNames = {
+  newQuote:'Quote Email', requote:'ReQuotes', nudge:'Nudge',
+  newQuoteText:'', requoteText:'', nudgeText:''
+};
 function quoteTemplateFor(d, kind){
   if(kind === 'nudge') return quoteTemplateNames.nudge;
   return d && d.existingCustomerId ? quoteTemplateNames.requote : quoteTemplateNames.newQuote;
+}
+/* Same idea for the text versions. Kept separate from the email ones on
+   purpose: an email body is HTML and would arrive on a phone as raw code, so
+   the two must never share a template. */
+function quoteTextTemplateFor(d, kind){
+  if(kind === 'nudge') return quoteTemplateNames.nudgeText;
+  return d && d.existingCustomerId ? quoteTemplateNames.requoteText : quoteTemplateNames.newQuoteText;
+}
+/* Texts are billed in 160-character blocks (153 once it spills past one), so
+   the count is worth showing before anything is sent. */
+function smsSegments(text){
+  const n = (text || '').length;
+  return n === 0 ? 0 : (n <= 160 ? 1 : Math.ceil(n / 153));
+}
+/* Who a bulk nudge would actually reach: everyone on Awaiting Response who
+   matches the current quiet-days filter, has an email address, and has been
+   sent a price. Same list you can see on screen, so there are no surprises. */
+function quotesToNudge(){
+  return quotesCache.filter(function(item){
+    const d = item.data;
+    if(quoteStage(d) !== 'send') return false;
+    if(!d.email) return false;
+    if(typeof d.quotedPrice !== 'number') return false;
+    if(quoteQuietDays > 0){
+      const days = daysSince(d.quoteSentAt);
+      if(days === null || days < quoteQuietDays) return false;
+    }
+    return true;
+  });
+}
+/* Sends the Nudge template to all of them, one at a time with a small gap so
+   EmailJS doesn't rate-limit, reporting progress as it goes. Each person's
+   quiet counter resets and their nudge count goes up, so nobody gets chased
+   twice in the same run and you can see who has already had two. */
+async function nudgeEveryoneShown(){
+  const statusEl = document.getElementById('qNudgeAllStatus');
+  const targets = quotesToNudge();
+  const noEmail = quotesCache.filter(item => quoteStage(item.data) === 'send' && !item.data.email).length;
+  if(!targets.length){
+    statusEl.style.color = 'var(--slate)';
+    statusEl.textContent = 'Nobody to nudge' + (noEmail ? ' (' + noEmail + ' have no email address on file).' : '.');
+    return;
+  }
+  const tmplName = quoteTemplateNames.nudge;
+  const template = tmplName ? getEmailTemplateByName(tmplName) : null;
+  if(!template){
+    statusEl.style.color = 'var(--ember)';
+    statusEl.textContent = 'No Nudge template found. Open Quote email settings and pick one, or press "Create the missing templates for me".';
+    return;
+  }
+  const names = targets.slice(0, 8).map(t => t.data.name || '(no name)').join(', ');
+  if(!confirm('Send the "' + tmplName + '" email to ' + targets.length + ' ' + (targets.length === 1 ? 'person' : 'people') + '?\n\n' +
+      names + (targets.length > 8 ? ', and ' + (targets.length - 8) + ' more' : '') +
+      (noEmail ? '\n\n' + noEmail + ' others have no email address and will be skipped.' : '') +
+      '\n\nThis sends real emails.')) return;
+  const cfg = await getEmailjsConfig();
+  const missing = emailjsMissingParts(cfg);
+  if(missing.length){
+    statusEl.style.color = 'var(--ember)';
+    statusEl.textContent = 'Missing ' + missing.join(', ') + '. Add them under Automation Emails \u2192 EmailJS Setup.';
+    return;
+  }
+  if(!window.emailjs){
+    statusEl.style.color = 'var(--ember)';
+    statusEl.textContent = 'Email service failed to load \u2014 reload the page.';
+    return;
+  }
+  const btn = document.getElementById('qNudgeAllBtn');
+  if(btn) btn.disabled = true;
+  emailjs.init(cfg.publicKey);
+  let sent = 0;
+  const failures = [];
+  for(const item of targets){
+    const d = item.data;
+    statusEl.style.color = 'var(--slate)';
+    statusEl.textContent = 'Sending ' + (sent + failures.length + 1) + ' of ' + targets.length + '\u2026 (' + (d.name || '') + ')';
+    try{
+      let html = await resolveLinkTokens(template.data.body, d.phone, 0, {name: d.name || 'there', price: fmtMoney(d.quotedPrice)});
+      if(d.frontPhotoUrl){
+        html += '<div style="margin-top:18px;"><img src="' + d.frontPhotoUrl + '" alt="Your house" style="max-width:100%; border-radius:8px; display:block;"></div>';
+      }
+      await emailjs.send(cfg.serviceId, cfg.templateId, {
+        to_email: d.email, to_name: d.name || '', subject: 'Just checking in on your quote', message: html,
+        button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || ''),
+        button_label: 'View Your Quote'
+      });
+      await updateDoc(doc(db,'quotes', item.id), {
+        quoteSentAt: serverTimestamp(),
+        quoteNudgeCount: (Number(d.quoteNudgeCount) || 0) + 1,
+        quoteLastNudgedAt: serverTimestamp()
+      });
+      sent++;
+    } catch(err){
+      failures.push((d.name || d.email) + ': ' + (err && (err.text || err.message) ? (err.text || err.message) : 'failed'));
+      console.error('Bulk nudge failed for', d.email, err);
+    }
+    /* A small gap keeps EmailJS from rate-limiting a run of them. */
+    await new Promise(r => setTimeout(r, 700));
+  }
+  if(btn) btn.disabled = false;
+  statusEl.style.color = failures.length ? 'var(--ember)' : '#2E6B3E';
+  statusEl.innerHTML = '\u2713 Nudged ' + sent + ' of ' + targets.length + '.' +
+    (failures.length ? '<br>Failed: ' + esc(failures.join(' \u00b7 ')) : '') +
+    (noEmail ? '<br><span style="color:var(--slate);">' + noEmail + ' skipped \u2014 no email address on file.</span>' : '');
+  toast('Nudged ' + sent + ' ' + (sent === 1 ? 'person' : 'people') + '.');
+}
+/* Puts any send confirmation back onto the card after the list rebuilds.
+   Without this the green "Sent to..." is written to a node that has already
+   been thrown away, which read as the button doing nothing at all. */
+function repaintQuoteSendResults(){
+  quoteSendResults.forEach(function(res, id){
+    const box = document.querySelector('.quoteemail-result[data-resultfor="'+id+'"]');
+    if(!box) return;
+    box.innerHTML = '<div class="rtext" style="color:'+(res.ok ? '#2E6B3E' : 'var(--ember)')+'; font-weight:600;">'+esc(res.text)+'</div>'+
+      (res.ok ? '<button type="button" class="btn btn-outline btn-sm" data-copyquoteemail="'+id+'" style="margin-top:6px;">Show the email again</button>' : '');
+    const again = box.querySelector('[data-copyquoteemail]');
+    if(again) again.addEventListener('click', function(){
+      quoteSendResults.delete(id);
+      showQuoteEmailBox(id, 'quote');
+    });
+  });
 }
 /* The strip under the stage tabs. Only Awaiting Response and Closed need
    anything, so the rest of the time it renders empty rather than leaving a
@@ -5401,13 +5523,16 @@ function renderQuoteStageControls(){
         '<span>days or more</span>'+
         '<button type="button" class="btn btn-outline btn-sm" id="qQuietTenBtn">10 day unresponsive</button>'+
         '<button type="button" class="btn btn-outline btn-sm" id="qQuietClearBtn">Show everyone</button>'+
-      '</div>';
+        '<button type="button" class="btn btn-gold btn-sm" id="qNudgeAllBtn" style="margin-left:auto;">Nudge everyone shown</button>'+
+      '</div>'+
+      '<div id="qNudgeAllStatus" class="rtext" style="margin-top:8px;"></div>';
     el.querySelector('#qQuietDaysInput').addEventListener('input', function(){
       quoteQuietDays = Math.max(0, Number(this.value) || 0);
       renderQuotesList();
     });
     el.querySelector('#qQuietTenBtn').addEventListener('click', function(){ quoteQuietDays = 10; renderQuotesList(); });
     el.querySelector('#qQuietClearBtn').addEventListener('click', function(){ quoteQuietDays = 0; renderQuotesList(); });
+    el.querySelector('#qNudgeAllBtn').addEventListener('click', nudgeEveryoneShown);
     return;
   }
   if(quoteStageFilter === 'closed'){
@@ -5427,7 +5552,8 @@ function renderQuoteStageControls(){
 /* Quote email settings: three dropdowns listing the real templates, so a
    rename in Automation Emails is a re-pick here rather than a silent failure. */
 function renderQuoteTemplatePickers(){
-  const map = {qTmplNew:'newQuote', qTmplRequote:'requote', qTmplNudge:'nudge'};
+  const map = {qTmplNew:'newQuote', qTmplRequote:'requote', qTmplNudge:'nudge',
+               qTmplNewText:'newQuoteText', qTmplRequoteText:'requoteText', qTmplNudgeText:'nudgeText'};
   Object.keys(map).forEach(function(elId){
     const sel = document.getElementById(elId);
     if(!sel) return;
@@ -5493,9 +5619,9 @@ async function loadQuoteTemplateSettings(){
     const snap = await getDoc(doc(db,'settings','quoteTemplates'));
     if(snap.exists()){
       const s = snap.data();
-      if(s.newQuote) quoteTemplateNames.newQuote = s.newQuote;
-      if(s.requote) quoteTemplateNames.requote = s.requote;
-      if(s.nudge) quoteTemplateNames.nudge = s.nudge;
+      ['newQuote','requote','nudge','newQuoteText','requoteText','nudgeText'].forEach(function(k){
+        if(typeof s[k] === 'string') quoteTemplateNames[k] = s[k];
+      });
     }
   } catch(err){ /* not saved yet, defaults stand */ }
   renderQuoteTemplatePickers();
@@ -5505,6 +5631,86 @@ document.getElementById('qTemplateSetupBtn')?.addEventListener('click', function
   const open = box.style.display !== 'none';
   box.style.display = open ? 'none' : 'block';
   if(!open) renderQuoteTemplatePickers();
+});
+/* The three text templates, written short on purpose. Every one of them is
+   under 160 characters once the name and price are filled in - but the quote
+   link alone is about 75 characters, so there is very little room. Keep any
+   edits tight and watch the counter on the card. */
+/* The nudge email. Same three buttons as the original quote so they can act
+   straight from the reminder instead of digging out the first email. Warm and
+   short - a chase that reads as pushy does more harm than not sending one. */
+/* No "Hi {{name}}," line on purpose - the EmailJS wrapper already greets them
+   by name, and having both gives the customer two greetings in a row. */
+const DEFAULT_QUOTE_NUDGE_BODY = 'Just checking in on the quote we sent over - {{price}} to have your home lit up this Christmas. ' +
+  'No rush at all, but there is still time to get you on this season\'s schedule, and spots do fill up as we get closer.\n\n' +
+  'Whenever you are ready:\n\n' +
+  '{{quote_yes_button}}{{quote_maybe_button}}{{quote_decline_button}}\n\n' +
+  'If now is not the right year, "Maybe Next Year" is honestly just as helpful - we will check back next season and leave you be until then.\n\n' +
+  'Questions about anything? Just reply to this email, or call or text us at (801) 901-0011.\n\n' +
+  'Thanks,\nHighlighting Utah';
+const QUOTE_TEXT_TEMPLATES = [
+  {
+    name: 'Quote Text',
+    body: 'Hi {{name}}, your Highlighting Utah quote is ready: {{price}}.\n\nSee your house and approve:\n{{link}}\n\nReply STOP to opt out.'
+  },
+  {
+    name: 'ReQuote Text',
+    body: 'Hi {{name}}, your Highlighting Utah quote is updated for this season: {{price}}.\n\nSee it and confirm:\n{{link}}\n\nReply STOP to opt out.'
+  },
+  {
+    name: 'Nudge Text',
+    body: 'Hi {{name}}, checking in on your quote ({{price}}). Still good, and there is time to get on this season\u2019s schedule.\n\n{{link}}\n\nReply STOP to opt out.'
+  }
+];
+document.getElementById('qMakeTextTmplBtn')?.addEventListener('click', async function(){
+  const statusEl = document.getElementById('qMakeTextTmplStatus');
+  statusEl.style.color = 'var(--slate)';
+  statusEl.textContent = 'Working\u2026';
+  try{
+    let folderId = emailTemplateFolders.find(f => f.name === 'Text Messages')?.id;
+    if(!folderId){
+      const ref = await addDoc(collection(db,'emailTemplateFolders'), {name:'Text Messages', createdAt: serverTimestamp()});
+      folderId = ref.id;
+    }
+    let made = 0, already = 0;
+    /* The email nudge belongs with the other quote emails, not in the text
+       folder, so it is created separately. */
+    if(!emailTemplates.some(x => x.data.name === 'Nudge')){
+      let qFolderId = emailTemplateFolders.find(f => f.name === 'Quotes')?.id;
+      if(!qFolderId){
+        const qRef = await addDoc(collection(db,'emailTemplateFolders'), {name:'Quotes', createdAt: serverTimestamp()});
+        qFolderId = qRef.id;
+      }
+      await addDoc(collection(db,'emailTemplates'), {
+        name: 'Nudge', folderId: qFolderId, body: DEFAULT_QUOTE_NUDGE_BODY,
+        linkedTokens: ['name','price','quote_yes_button','quote_maybe_button','quote_decline_button'],
+        createdAt: serverTimestamp()
+      });
+      made++;
+    }
+    for(const t of QUOTE_TEXT_TEMPLATES){
+      if(emailTemplates.some(x => x.data.name === t.name)){ already++; continue; }
+      await addDoc(collection(db,'emailTemplates'), {
+        name: t.name, folderId: folderId, body: t.body,
+        linkedTokens: ['name','price','link'], isTextMessage: true, createdAt: serverTimestamp()
+      });
+      made++;
+    }
+    /* Point the three text slots at them straight away, so there is no second
+       step to forget. */
+    quoteTemplateNames.newQuoteText = 'Quote Text';
+    quoteTemplateNames.requoteText = 'ReQuote Text';
+    quoteTemplateNames.nudgeText = 'Nudge Text';
+    await setDoc(doc(db,'settings','quoteTemplates'), quoteTemplateNames, {merge:true});
+    renderQuoteTemplatePickers();
+    statusEl.style.color = '#2E6B3E';
+    statusEl.textContent = made
+      ? ('Made ' + made + ' template' + (made === 1 ? '' : 's') + (already ? ' (' + already + ' already existed)' : '') + ' in a Text Messages folder, and picked them below.')
+      : 'They already existed \u2014 picked them below.';
+  } catch(err){
+    statusEl.style.color = 'var(--ember)';
+    statusEl.textContent = 'Could not create them: ' + (err && err.message ? err.message : 'try again.');
+  }
 });
 document.getElementById('qEmailCheckBtn')?.addEventListener('click', async function(){
   const out = document.getElementById('qEmailCheckOut');
@@ -5558,7 +5764,10 @@ document.getElementById('qTmplSaveBtn')?.addEventListener('click', async functio
   quoteTemplateNames = {
     newQuote: document.getElementById('qTmplNew').value,
     requote: document.getElementById('qTmplRequote').value,
-    nudge: document.getElementById('qTmplNudge').value
+    nudge: document.getElementById('qTmplNudge').value,
+    newQuoteText: document.getElementById('qTmplNewText').value,
+    requoteText: document.getElementById('qTmplRequoteText').value,
+    nudgeText: document.getElementById('qTmplNudgeText').value
   };
   try{
     await setDoc(doc(db,'settings','quoteTemplates'), quoteTemplateNames, {merge:true});
@@ -5659,11 +5868,10 @@ function renderQuotesList(){
   let sentOnes = [];
   if(quoteStageFilter === 'send'){
     sentOnes = filtered.filter(item => item.data.quoteManuallySent);
-    /* A card whose email preview is open must not vanish out from under the
-       person reading it. Sending sets quoteManuallySent, which is exactly what
-       this filter hides - so the card used to disappear the instant the mail
-       went out, which is a large part of why sending looked like it failed. */
-    if(!showSentQuotes) filtered = filtered.filter(item => !item.data.quoteManuallySent || quoteEmailPreviews.has(item.id));
+    /* Hiding already-sent quotes made a card disappear the instant you pressed
+       Send, which read as a failure. Anything sent in this session stays put -
+       you are still waiting on that person, which is what this tab is for. */
+    if(!showSentQuotes) filtered = filtered.filter(item => !item.data.quoteManuallySent || quoteSendResults.has(item.id));
     if(quoteQuietDays > 0){
       filtered = filtered.filter(function(item){
         const days = daysSince(item.data.quoteSentAt);
@@ -5692,6 +5900,7 @@ function renderQuotesList(){
     return;
   }
   renderQuoteRows(filtered);
+  repaintQuoteSendResults();
   if(quoteStageFilter === 'send'){
     const toggleHtml = !sentOnes.length ? '' : (showSentQuotes
       ? '<div style="margin-bottom:10px;"><a href="#" data-toggleshowsent style="font-size:12.5px; font-weight:600;">Hide already-sent quotes</a></div>'
@@ -5710,141 +5919,6 @@ function renderQuotesList(){
 // id so it survives the re-render a save triggers instead of collapsing
 // mid-edit (native <details> loses its open state when innerHTML is rebuilt).
 const quotePricingOpenIds = new Set();
-/* Built quote-email previews, keyed by quote id. This has to live outside the
-   DOM: every quotes snapshot rebuilds the whole list with list.innerHTML, so a
-   preview left sitting in the page - along with its Send button and its
-   "Sent to ..." confirmation - is destroyed mid-read. Sending writes
-   quoteManuallySent, which fires exactly such a snapshot, so the success
-   message was being written into an orphaned node and the button was gone
-   before anyone saw it. The mail really was sent; only the proof was lost.
-   Keeping the built preview here and repainting it after every render is what
-   makes the confirmation stick. */
-const quoteEmailPreviews = new Map();
-/* Status text is cached alongside the preview for the same reason - a re-render
-   half a second after "Sending..." must not swallow the answer. */
-function setQuoteEmailStatus(id, text, color){
-  const p = quoteEmailPreviews.get(id);
-  if(p) p.status = {text: text, color: color};
-  const el = document.querySelector('.quoteemail-result[data-resultfor="'+id+'"] .quoteemail-sendstatus');
-  if(el){ el.textContent = text; el.style.color = color; }
-}
-/* Paints a cached preview into whatever result box is currently on the page and
-   wires its buttons. Safe to call as often as you like - after every render, and
-   again after a send changes the button's state. */
-function paintQuoteEmailBox(id){
-  const p = quoteEmailPreviews.get(id);
-  if(!p) return;
-  const resultEl = document.querySelector('.quoteemail-result[data-resultfor="'+id+'"]');
-  if(!resultEl) return;
-  resultEl.innerHTML =
-    (p.usingDefault
-      ? '<div style="font-size:11.5px; background:#FFF3D6; border:1px solid #E6C980; border-radius:8px; padding:9px 11px; margin-bottom:10px; color:#6B4E00; line-height:1.5;">'+
-          'There is no template named <strong>'+esc(p.tmplName)+'</strong>, so this is the built-in wording. '+
-          'Open <strong>Quote email settings</strong> at the top of this page and pick a real template if you want to control this text.'+
-        '</div>'
-      : '<div style="font-size:11.5px; background:#EEF1FF; border:1px solid #C7CEF5; border-radius:8px; padding:9px 11px; margin-bottom:10px; color:#33397a; line-height:1.5;">'+
-          'Pulled live from <strong>Automation Emails &rarr; Templates &rarr; '+esc(p.tmplName)+'</strong>. Change the wording there and it changes here.'+
-        '</div>')+
-    '<div class="rtext" style="margin-bottom:6px;">To: <strong>'+esc(p.email)+'</strong> &middot; Subject: '+esc(p.subject)+'</div>'+
-    '<div class="quoteemail-preview" style="border:1px solid var(--line); border-radius:10px; background:#fff; padding:18px; font-family:Arial,sans-serif; font-size:14px; color:#222; line-height:1.55; max-height:520px; overflow:auto;">'+p.html+'</div>'+
-    '<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">'+
-      (p.email
-        ? '<button type="button" class="btn btn-gold btn-sm quoteemail-send-btn"'+((p.sending || p.sent) ? ' disabled' : '')+'>'+(p.sent ? '&#10003; Sent' : (p.sending ? 'Sending\u2026' : 'Send it'))+'</button>'
-        : '<span class="rtext" style="color:var(--ember);">No email address on this quote.</span>')+
-      '<button type="button" class="btn btn-outline btn-sm quoteemail-copy-btn">Copy instead</button>'+
-      '<button type="button" class="btn btn-outline btn-sm quoteemail-close-btn">Close</button>'+
-    '</div>'+
-    '<div class="quoteemail-sendstatus rtext" style="margin-top:6px;"></div>';
-  const statusEl = resultEl.querySelector('.quoteemail-sendstatus');
-  if(statusEl && p.status){ statusEl.textContent = p.status.text; statusEl.style.color = p.status.color; }
-  const copyBtn = resultEl.querySelector('.quoteemail-copy-btn');
-  if(copyBtn) copyBtn.addEventListener('click', function(){
-    const btn = this;
-    navigator.clipboard.writeText(htmlEmailToPlainText(p.html)).then(function(){
-      btn.textContent = 'Copied!';
-      setTimeout(function(){ btn.textContent = 'Copy instead'; }, 2000);
-    });
-  });
-  /* The card no longer disappears on send, so there has to be a way to put the
-     preview away and let it drop back under "already sent". */
-  const closeBtn = resultEl.querySelector('.quoteemail-close-btn');
-  if(closeBtn) closeBtn.addEventListener('click', function(){
-    quoteEmailPreviews.delete(id);
-    resultEl.innerHTML = '';
-    renderQuotesList();
-  });
-  const sendBtn = resultEl.querySelector('.quoteemail-send-btn');
-  /* Nothing in here may throw silently: a dead-looking button is the whole bug
-     this code exists to fix. */
-  if(sendBtn) sendBtn.addEventListener('click', function(){
-    sendQuoteEmail(id).catch(function(err){
-      console.error('Quote email send failed:', err);
-      setQuoteEmailStatus(id, 'Send failed: ' + ((err && (err.text || err.message)) ? (err.text || err.message) : String(err)), 'var(--ember)');
-    });
-  });
-}
-async function sendQuoteEmail(id){
-  const p = quoteEmailPreviews.get(id);
-  /* This claim has to happen synchronously, before the first await. A button
-     that looks dead is what this whole fix is about, and the reflex when one
-     looks dead is to press it again - three fast presses used to clear this
-     guard together and send the customer three copies. */
-  if(!p || p.sending || p.sent) return;
-  p.sending = true;
-  paintQuoteEmailBox(id);
-  setQuoteEmailStatus(id, 'Checking your email setup\u2026', 'var(--slate)');
-  const cfg = await getEmailjsConfig();
-  const missing = emailjsMissingParts(cfg);
-  if(missing.length){
-    p.sending = false;
-    paintQuoteEmailBox(id);
-    setQuoteEmailStatus(id, 'Missing ' + missing.join(', ') + '. Add them under Automation Emails \u2192 EmailJS Setup and press Save there.', 'var(--ember)');
-    return;
-  }
-  if(!window.emailjs){
-    p.sending = false;
-    paintQuoteEmailBox(id);
-    setQuoteEmailStatus(id, 'Email service failed to load \u2014 check your internet connection, then reload.', 'var(--ember)');
-    return;
-  }
-  setQuoteEmailStatus(id, 'Sending\u2026', 'var(--slate)');
-  try{
-    emailjs.init(cfg.publicKey);
-    const resp = await emailjs.send(cfg.serviceId, cfg.templateId, {
-      to_email: p.email, to_name: p.name, subject: p.subject, message: p.html,
-      button_url: 'https://highlightingutah.com/#/quote-details?token=' + p.token,
-      button_label: 'View Your Quote'
-    });
-    console.log('Quote email accepted by EmailJS:', resp && resp.status, resp && resp.text);
-    p.sending = false;
-    p.sent = true;
-    /* Marked sent only after the mail is away, so a failed send never flags the
-       quote. This write fires a quotes snapshot that rebuilds the list - the
-       preview is repainted from the cache on the other side, which is why the
-       confirmation below now survives. */
-    const fresh = quotesCache.find(q => q.id === id);
-    if(p.kind === 'nudge'){
-      await updateDoc(doc(db,'quotes', id), {
-        quoteSentAt: serverTimestamp(),
-        quoteNudgeCount: (fresh ? Number(fresh.data.quoteNudgeCount) || 0 : 0) + 1,
-        quoteLastNudgedAt: serverTimestamp()
-      });
-      toast('Nudge sent using the ' + p.tmplName + ' template.');
-    } else {
-      await updateDoc(doc(db,'quotes', id), {
-        quoteSentAt: serverTimestamp(), quoteManuallySent: true, quoteManuallySentAt: serverTimestamp()
-      });
-      toast('Sent using the ' + p.tmplName + ' template.');
-    }
-    setQuoteEmailStatus(id, '\u2713 Sent to ' + p.email + ' \u2014 press Close when you are done reading it.', '#2E6B3E');
-    paintQuoteEmailBox(id);
-  } catch(err){
-    p.sending = false;
-    console.error('Quote email send failed:', err);
-    setQuoteEmailStatus(id, 'Send failed: ' + ((err && (err.text || err.message)) ? (err.text || err.message) : 'check your Email Setup.'), 'var(--ember)');
-    paintQuoteEmailBox(id);
-  }
-}
 function renderQuoteRows(filtered){
   const list = document.getElementById('quotesList');
   let html = '';
@@ -5858,7 +5932,8 @@ function renderQuoteRows(filtered){
         (quoteStage(d) === 'new' ? (d.existingCustomerId
           ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA; font-weight:700;">Old house &middot; re-quote</span>'
           : ' <span class="status-pill" style="background:#E6F0E9; color:#2E6B3E; font-weight:700;">New house</span>') : '')+
-        (d.quoteArchived ? ' <span class="status-pill" style="background:#F0EFEC; color:#6E6858;">Archived</span>' : '')+
+        (d.quoteArchived ? ' <span class="status-pill" style="background:#F0EFEC; color:#6E6858;">Archived'+(d.quoteArchivedReason ? ' \u2014 '+esc(d.quoteArchivedReason) : '')+'</span>' : '')+
+        (d.smsOptedOut ? ' <span class="status-pill" style="background:#FDECEA; color:#B91C1C;">No texts (STOP)</span>' : '')+
         (Number(d.quoteNudgeCount) ? ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100;">Nudged '+d.quoteNudgeCount+'&times;</span>' : '')+(d.existingCustomerAddressChange ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Existing Customer &mdash; Address Changed</span>' : '')+(d.approvalStatus === 'approved' ? ' <span class="status-pill status-paid">&#10003; Approved</span>' : '')+(d.approvalStatus === 'declined' ? ' <span class="status-pill status-due">Declined</span>' : '')+(d.approvalStatus === 'maybe_next_year' ? ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100;">Maybe Next Year</span>' : '')+(isStaleUnresponsive(d) ? ' <span class="status-pill" style="background:#FDECEA; color:#B91C1C; font-weight:700;">&#9200; 10 Day Unresponsive</span>' : '')+(d.outletTimer === 'Yes' ? ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">&#9201; Wants Timer</span>' : '')+'</div>'+
         '<button type="button" class="address-link-btn" data-previewquoteaddr="'+esc(d.address)+'">'+esc(d.address)+'</button>'+
         '<div class="row-phone-line">'+esc(d.phone)+' &middot; '+esc(d.email)+' &middot; '+fmtDate(d.createdAt)+'</div>'+
@@ -5871,12 +5946,6 @@ function renderQuoteRows(filtered){
           (d.frontPhotoUrl ? '<img src="'+esc(d.frontPhotoUrl)+'" class="quote-photo-img" data-photofor="'+item.id+'" style="max-width:240px; border-radius:8px; border:1px solid var(--line); display:block; margin-bottom:6px;">' : '')+
           '<label class="btn btn-outline btn-sm" style="cursor:pointer;">'+(d.frontPhotoUrl ? 'Replace Photo' : 'Add Photo')+'<input type="file" accept="image/*" class="quote-photo-input" data-photofor="'+item.id+'" style="display:none;"></label>'+
           (d.frontPhotoUrl ? '<button type="button" class="btn btn-outline btn-sm" data-markupphoto="'+item.id+'" style="margin-left:6px;">Mark Up Photo</button>' : '')+
-          /* Saves the house photo to the computer. The wiring for this survived
-             a markup rewrite that dropped the button itself, which left a
-             working feature unreachable - the leftover handler is how it was
-             spotted. Nothing to do with the email: that carries its own copy
-             as a Cloudinary <img>, never an attachment. */
-          (d.frontPhotoUrl ? '<button type="button" class="btn btn-outline btn-sm" data-downloadquotephoto="'+item.id+'" style="margin-left:6px;">Download Photo</button>' : '')+
           '<span class="quote-photo-status" data-statusfor="'+item.id+'" style="font-size:12px; color:var(--slate); margin-left:8px;"></span>'+
         '</div>'+
 
@@ -5893,12 +5962,16 @@ function renderQuoteRows(filtered){
             (d.estimatedFeet ? '<div class="rtext" style="font-weight:600; color:var(--dusk);">Estimated Price: '+(perFootRate ? fmtMoney(d.estimatedFeet*perFootRate) : 'Set a per-foot rate under Finance > Per Foot Pricing first.')+'</div>' : '')+
             '<div class="form-row" style="margin-top:8px; max-width:220px;"><label style="font-size:11.5px;">Quoted Price ($) &mdash; what you\'ll ask them to approve</label><input type="number" class="quotePriceInput" data-id="'+item.id+'" min="0" step="1" value="'+(d.quotedPrice != null ? d.quotedPrice : (d.estimatedFeet && perFootRate ? Math.round(d.estimatedFeet*perFootRate) : ''))+'" placeholder="e.g. 450"></div>'+
             '<button type="button" class="btn btn-gold btn-sm" data-getquotelink="'+item.id+'">'+(d.existingCustomerId ? 'Send updated quote' : 'Send quote email')+'</button>'+
+            (d.phone && !d.smsOptedOut ? '<button type="button" class="btn btn-outline btn-sm" data-textquote="'+item.id+'" style="margin-left:6px;">Send as text instead</button>' : '')+
+            (d.smsOptedOut ? '<div class="rtext" style="margin-top:5px; color:var(--ember); font-weight:600;">They replied STOP \u2014 texting is off for this number. Email only.</div>' : '')+
+            (d.contactMethod && /text|sms|phone/i.test(d.contactMethod) ? '<div class="rtext" style="margin-top:5px; color:#8A6100;">They asked to be contacted by '+esc(d.contactMethod)+'.</div>' : '')+
             '<div class="quotelink-status" data-statusfor="'+item.id+'" style="font-size:12px; color:var(--slate); margin-top:6px;"></div>'+
             (d.quoteToken ? '<div class="quotelink-box" data-linkfor="'+item.id+'" style="margin-top:6px; font-size:12.5px; word-break:break-all; background:var(--snow); border-radius:8px; padding:8px 10px;">https://highlightingutah.com/#/quote-details?token='+esc(d.quoteToken)+'&action=approve</div>' : '<div class="quotelink-box" data-linkfor="'+item.id+'"></div>')+
             (d.quoteToken && typeof d.quotedPrice === 'number' ? '<button type="button" class="btn btn-outline btn-sm" data-copyquoteemail="'+item.id+'" style="margin-top:6px;">Show Quote Email Again</button><div class="quoteemail-result" data-resultfor="'+item.id+'" style="margin-top:8px;"></div>' : '')+
             (quoteStageFilter === 'send' ? (
               '<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">'+
                 '<button type="button" class="btn btn-gold btn-sm" data-nudgequote="'+item.id+'">Send a nudge</button>'+
+                (d.phone && !d.smsOptedOut ? '<button type="button" class="btn btn-outline btn-sm" data-textnudge="'+item.id+'">Nudge by text</button>' : '')+
                 '<button type="button" class="btn btn-outline btn-sm" data-copyquoteemailaddr="'+item.id+'">Copy their email address</button>'+
               '</div>'+
               (d.quoteManuallySent
@@ -5963,9 +6036,11 @@ function renderQuoteRows(filtered){
   list.querySelectorAll('[data-markupphoto]').forEach(function(btn){
     btn.addEventListener('click', function(){ openQuoteMarkup(btn.dataset.markupphoto); });
   });
-  /* Builds the quote email for a card and hands it to the cache above, which
-     is what actually paints it. Shared by Send quote email (first time), Show
-     Quote Email Again, and Send a nudge. Building never sends anything. */
+  /* Builds the filled-out "Quote Ready for Review" email into the card's
+     result box so the office can copy it, attach the photo themselves, and
+     send it from their own email client — this never sends anything on its
+     own. Shared by the Send Email button (first time) and Show Quote Email
+     Again (re-viewing later without touching the link/quoteSentAt below). */
   async function showQuoteEmailBox(id, kind){
     try{
       await buildQuoteEmailBox(id, kind);
@@ -5985,7 +6060,7 @@ function renderQuoteRows(filtered){
   async function buildQuoteEmailBox(id, kind){
     kind = kind || 'quote';
     const item = quotesCache.find(q => q.id === id);
-    if(!item){ toast('That quote is no longer on screen \u2014 reload and try again.'); return; }
+    if(!item){ toast('That quote is no longer on screen — reload and try again.'); return; }
     /* The preview lives inside the Pricing & Approval panel, so if that panel
        is collapsed the email is built into something invisible and the button
        looks like it did nothing. Force it open first. */
@@ -5993,16 +6068,17 @@ function renderQuoteRows(filtered){
       quotePricingOpenIds.add(id);
       renderQuotesList();
     }
+    const resultEl = document.querySelector('.quoteemail-result[data-resultfor="'+id+'"]');
+    if(!resultEl){
+      toast('Price this quote first, then the email preview appears here.');
+      return;
+    }
     const d = item.data;
     const tmplName = quoteTemplateFor(d, kind);
     const template = getEmailTemplateByName(tmplName);
     if(!template && !(kind === 'quote' && !d.existingCustomerId)){
-      quoteEmailPreviews.delete(id);
-      const missingEl = document.querySelector('.quoteemail-result[data-resultfor="'+id+'"]');
-      if(missingEl){
-        missingEl.innerHTML = '<div class="rtext" style="color:var(--ember); font-weight:600;">Can\'t find a template called &ldquo;'+esc(tmplName)+'&rdquo;. '+
-          'Open <strong>Quote email settings</strong> at the top of this page and pick the right one.</div>';
-      }
+      resultEl.innerHTML = '<div class="rtext" style="color:var(--ember); font-weight:600;">Can\'t find a template called &ldquo;'+esc(tmplName)+'&rdquo;. '+
+        'Open <strong>Quote email settings</strong> at the top of this page and pick the right one.</div>';
       return;
     }
     const body = template ? template.data.body : DEFAULT_QUOTE_TEMPLATE_BODY;
@@ -6018,22 +6094,211 @@ function renderQuoteRows(filtered){
     const subject = kind === 'nudge'
       ? 'Just checking in on your quote'
       : (d.existingCustomerId ? 'Your updated Highlighting Utah quote' : 'Your Highlighting Utah quote');
-    /* Everything the send needs is captured here rather than read off the card
-       later, because the card is rebuilt from scratch on every snapshot. */
-    quoteEmailPreviews.set(id, {
-      kind: kind, tmplName: tmplName, subject: subject, html: html,
-      email: d.email || '', name: d.name || '', token: d.quoteToken || '',
-      usingDefault: !template, status: null, sending: false, sent: false
+    resultEl.innerHTML =
+      '<div style="font-size:11.5px; background:#EEF1FF; border:1px solid #C7CEF5; border-radius:8px; padding:9px 11px; margin-bottom:10px; color:#33397a; line-height:1.5;">'+
+        'Pulled live from <strong>Automation Emails &rarr; Templates &rarr; '+esc(tmplName)+'</strong>. Change the wording there and it changes here.'+
+      '</div>'+
+      '<div class="rtext" style="margin-bottom:6px;">To: <strong>'+esc(d.email||'')+'</strong> &middot; Subject: '+esc(subject)+'</div>'+
+      '<div class="quoteemail-preview" style="border:1px solid var(--line); border-radius:10px; background:#fff; padding:18px; font-family:Arial,sans-serif; font-size:14px; color:#222; line-height:1.55; max-height:520px; overflow:auto;">'+html+'</div>'+
+      '<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">'+
+        (d.email ? '<button type="button" class="btn btn-gold btn-sm quoteemail-send-btn" data-kind="'+kind+'">Send it</button>' : '<span class="rtext" style="color:var(--ember);">No email address on this quote.</span>')+
+        '<button type="button" class="btn btn-outline btn-sm quoteemail-copy-btn">Copy instead</button>'+
+      '</div>'+
+      '<div class="quoteemail-sendstatus rtext" style="margin-top:6px;"></div>';
+
+    resultEl.querySelector('.quoteemail-copy-btn').addEventListener('click', function(){
+      const btn = this;
+      navigator.clipboard.writeText(htmlEmailToPlainText(html)).then(function(){
+        btn.textContent = 'Copied!';
+        setTimeout(function(){ btn.textContent = 'Copy instead'; }, 2000);
+      });
     });
-    paintQuoteEmailBox(id);
+    const sendBtn = resultEl.querySelector('.quoteemail-send-btn');
+    if(sendBtn) sendBtn.addEventListener('click', async function(){
+      const statusEl = resultEl.querySelector('.quoteemail-sendstatus');
+      /* Sending rebuilds the list, so the button can come back looking
+         pressable while the first send is still in the air. Without this
+         guard a second press sends the customer a duplicate email. */
+      if(quoteSendInFlight.has(id)){
+        statusEl.style.color = 'var(--slate)';
+        statusEl.textContent = 'Already sending \u2014 give it a second.';
+        return;
+      }
+      quoteSendInFlight.add(id);
+      sendBtn.disabled = true;
+      statusEl.style.color = 'var(--slate)';
+      statusEl.textContent = 'Checking your email setup\u2026';
+      const cfg = await getEmailjsConfig();
+      const missing = emailjsMissingParts(cfg);
+      if(missing.length){
+        quoteSendInFlight.delete(id);
+        sendBtn.disabled = false;
+        statusEl.style.color = 'var(--ember)';
+        statusEl.textContent = 'Missing ' + missing.join(', ') + '. Add them under Automation Emails \u2192 EmailJS Setup and press Save there.';
+        return;
+      }
+      if(!window.emailjs){
+        quoteSendInFlight.delete(id);
+        sendBtn.disabled = false;
+        statusEl.style.color = 'var(--ember)';
+        statusEl.textContent = 'Email service failed to load \u2014 check your internet connection, then reload.';
+        return;
+      }
+      statusEl.textContent = 'Sending\u2026';
+      try{
+        emailjs.init(cfg.publicKey);
+        await emailjs.send(cfg.serviceId, cfg.templateId, {
+          to_email: d.email, to_name: d.name || '', subject: subject, message: html,
+          button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || ''),
+          button_label: 'View Your Quote'
+        });
+        if(kind === 'nudge'){
+          await updateDoc(doc(db,'quotes', id), {
+            quoteSentAt: serverTimestamp(),
+            quoteNudgeCount: (Number(d.quoteNudgeCount) || 0) + 1,
+            quoteLastNudgedAt: serverTimestamp()
+          });
+          toast('Nudge sent using the ' + tmplName + ' template.');
+        } else {
+          await updateDoc(doc(db,'quotes', id), {
+            quoteSentAt: serverTimestamp(), quoteManuallySent: true, quoteManuallySentAt: serverTimestamp()
+          });
+          toast('Sent using the ' + tmplName + ' template.');
+        }
+        /* Recorded rather than just written to the screen, because the write
+           above triggers a re-render that throws this element away. */
+        quoteSendResults.set(id, {ok:true, text:'\u2713 Sent to ' + d.email + (kind === 'nudge' ? ' (nudge)' : '') + '.'});
+        repaintQuoteSendResults();
+        const stillThere = document.querySelector('.quoteemail-sendstatus');
+        if(stillThere){ stillThere.style.color = '#2E6B3E'; stillThere.textContent = '\u2713 Sent to ' + d.email + '.'; }
+      } catch(err){
+        const msg = 'Send failed: ' + (err && (err.text || err.message) ? (err.text || err.message) : 'check your Email Setup.');
+        quoteSendResults.set(id, {ok:false, text:msg});
+        repaintQuoteSendResults();
+        statusEl.style.color = 'var(--ember)';
+        statusEl.textContent = msg;
+        sendBtn.disabled = false;
+        console.error('Quote email send failed:', err);
+      } finally {
+        quoteSendInFlight.delete(id);
+      }
+    });
     /* Scrolling comes last and is guarded on purpose: it is a convenience, and
        an older browser throwing here must never stop the buttons above from
        being wired up. */
+    try{ resultEl.scrollIntoView({behavior:'smooth', block:'nearest'}); }
+    catch(scrollErr){ try{ resultEl.scrollIntoView(); }catch(e2){} }
+  }
+  /* The text version. Deliberately its own path rather than a flag on the
+     email one: the email sends HTML so its buttons survive, and that same
+     content on a phone arrives as raw code. */
+  async function showQuoteTextBox(id, kind){
+    kind = kind || 'quote';
+    const item = quotesCache.find(q => q.id === id);
+    if(!item) return;
+    if(!quotePricingOpenIds.has(id)){ quotePricingOpenIds.add(id); renderQuotesList(); }
     const resultEl = document.querySelector('.quoteemail-result[data-resultfor="'+id+'"]');
-    if(resultEl){
-      try{ resultEl.scrollIntoView({behavior:'smooth', block:'nearest'}); }
-      catch(scrollErr){ try{ resultEl.scrollIntoView(); }catch(e2){} }
+    if(!resultEl){ toast('Price this quote first.'); return; }
+    const d = item.data;
+    if(!(d.phone || '').replace(/\D/g,'')){
+      resultEl.innerHTML = '<div class="rtext" style="color:var(--ember); font-weight:600;">No phone number on this quote.</div>';
+      return;
     }
+    const tmplName = quoteTextTemplateFor(d, kind);
+    const template = tmplName ? getEmailTemplateByName(tmplName) : null;
+    if(!template){
+      resultEl.innerHTML = '<div class="rtext" style="color:var(--ember); font-weight:600;">'+
+        (tmplName ? 'Can\'t find a template called \u201C'+esc(tmplName)+'\u201D.' : 'No text template picked yet.')+
+        ' Open <strong>Quote email settings</strong> above and pick one under Text message versions.</div>';
+      return;
+    }
+    const link = 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || '');
+    /* Plain characters only. Anything HTML in the template body is stripped
+       rather than sent as-is, so a template picked by mistake degrades to
+       readable text instead of arriving as code. */
+    let msg = htmlEmailToPlainText(template.data.body || '')
+      .split('{{name}}').join((d.name || '').split(' ')[0] || 'there')
+      .split('{{price}}').join(fmtMoney(d.quotedPrice))
+      .split('{{link}}').join(link)
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+    if(msg.indexOf(link) === -1) msg += '\n\n' + link;
+    const segs = smsSegments(msg);
+    resultEl.innerHTML =
+      '<div style="font-size:11.5px; background:#EEF1FF; border:1px solid #C7CEF5; border-radius:8px; padding:9px 11px; margin-bottom:10px; color:#33397a; line-height:1.5;">'+
+        'Text, pulled live from <strong>Automation Emails &rarr; Templates &rarr; '+esc(tmplName)+'</strong>. '+
+        'A text can\'t show buttons or a photo &mdash; the link opens the page that has both.'+
+      '</div>'+
+      '<div class="rtext" style="margin-bottom:6px;">To: <strong>'+esc(d.phone||'')+'</strong></div>'+
+      '<div style="background:#E9E9EB; color:#000; border-radius:16px; padding:11px 14px; font-size:14.5px; line-height:1.45; white-space:pre-wrap; max-width:330px;">'+esc(msg)+'</div>'+
+      '<div class="rtext" style="margin-top:8px; color:'+(segs > 1 ? 'var(--ember)' : 'var(--slate)')+'; font-weight:'+(segs > 1 ? '700' : '400')+';">'+
+        msg.length+' characters &middot; billed as '+segs+' message'+(segs === 1 ? '' : 's')+
+        (segs > 1 ? ' \u2014 trim the template to get under 160.' : '')+
+      '</div>'+
+      '<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">'+
+        '<button type="button" class="btn btn-gold btn-sm quotetext-send-btn">Send the text</button>'+
+        '<button type="button" class="btn btn-outline btn-sm" data-copyquoteemail="'+id+'">Show the email instead</button>'+
+      '</div>'+
+      '<div class="quoteemail-sendstatus rtext" style="margin-top:6px;"></div>';
+
+    const again = resultEl.querySelector('[data-copyquoteemail]');
+    if(again) again.addEventListener('click', function(){ showQuoteEmailBox(id, kind); });
+
+    resultEl.querySelector('.quotetext-send-btn').addEventListener('click', async function(){
+      const btn = this;
+      const statusEl = resultEl.querySelector('.quoteemail-sendstatus');
+      if(quoteSendInFlight.has(id)){ statusEl.textContent = 'Already sending \u2014 give it a second.'; return; }
+      quoteSendInFlight.add(id);
+      btn.disabled = true;
+      statusEl.style.color = 'var(--slate)';
+      statusEl.textContent = 'Sending\u2026';
+      try{
+        await sendSmsFn({to: d.phone, body: msg});
+        const updates = {quoteSentVia: 'sms', quoteSmsSentAt: serverTimestamp()};
+        if(kind === 'nudge'){
+          updates.quoteSentAt = serverTimestamp();
+          updates.quoteNudgeCount = (Number(d.quoteNudgeCount) || 0) + 1;
+          updates.quoteLastNudgedAt = serverTimestamp();
+        } else {
+          updates.quoteSentAt = serverTimestamp();
+          updates.quoteManuallySent = true;
+          updates.quoteManuallySentAt = serverTimestamp();
+        }
+        await updateDoc(doc(db,'quotes', id), updates);
+        quoteSendResults.set(id, {ok:true, text:'\u2713 Text sent to ' + d.phone + (kind === 'nudge' ? ' (nudge)' : '') + '.'});
+        repaintQuoteSendResults();
+        toast('Text sent to ' + d.phone + '.');
+      } catch(err){
+        const raw = (err && (err.message || err.text)) ? (err.message || err.text) : String(err);
+        /* Twilio blocks anyone who has replied STOP and reports 21610 on the
+           next attempt. Record it on the quote so nothing texts them again,
+           and archive the card. STOP withdraws permission to TEXT, not
+           necessarily interest in the quote, so the reason is stored and the
+           card stays restorable rather than being deleted. */
+        let msgOut;
+        if(/21610/.test(raw)){
+          msgOut = 'They replied STOP to a text, so this number can\'t be texted. Archived \u2014 restore it from Closed \u2192 Archived if you want to reach them by email.';
+          try{
+            await updateDoc(doc(db,'quotes', id), {
+              smsOptedOut: true, smsOptedOutAt: serverTimestamp(),
+              quoteArchived: true, quoteArchivedAt: serverTimestamp(),
+              quoteArchivedReason: 'Replied STOP to a text message'
+            });
+            followQuoteToItsStage(id, {smsOptedOut: true, quoteArchived: true, quoteArchivedReason: 'Replied STOP to a text message'});
+          } catch(e){ /* the message below still explains what happened */ }
+        } else {
+          msgOut = 'Text failed: ' + raw;
+        }
+        quoteSendResults.set(id, {ok:false, text: msgOut});
+        repaintQuoteSendResults();
+        statusEl.style.color = 'var(--ember)';
+        statusEl.textContent = msgOut;
+        btn.disabled = false;
+        console.error('Quote text send failed:', err);
+      } finally {
+        quoteSendInFlight.delete(id);
+      }
+    });
   }
   async function downloadQuotePhoto(id){
     const item = quotesCache.find(q => q.id === id);
@@ -6108,6 +6373,18 @@ function renderQuoteRows(filtered){
      template. Sending resets their quiet-day counter so they drop off the
      unresponsive filter, and bumps a count so you can see who has already
      been chased twice and needs a phone call instead. */
+  list.querySelectorAll('[data-textquote]').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      quoteSendResults.delete(btn.dataset.textquote);
+      await showQuoteTextBox(btn.dataset.textquote, 'quote');
+    });
+  });
+  list.querySelectorAll('[data-textnudge]').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      quoteSendResults.delete(btn.dataset.textnudge);
+      await showQuoteTextBox(btn.dataset.textnudge, 'nudge');
+    });
+  });
   list.querySelectorAll('[data-nudgequote]').forEach(function(btn){
     btn.addEventListener('click', async function(){
       const id = btn.dataset.nudgequote;
@@ -6133,12 +6410,17 @@ function renderQuoteRows(filtered){
     btn.addEventListener('click', async function(){
       const id = btn.dataset.restorequote;
       try{
+        /* smsOptedOut is deliberately left alone. Restoring the quote does not
+           give permission to text them again - only they can do that. */
         await updateDoc(doc(db,'quotes', id), {
-          quoteArchived: false, status: 'new', approvalStatus: 'pending',
-          quoteManuallySent: false, quoteRespondedAt: null
+          quoteArchived: false, quoteArchivedReason: '', status: 'new',
+          approvalStatus: 'pending', quoteManuallySent: false, quoteRespondedAt: null
         });
-        followQuoteToItsStage(id, {quoteArchived: false, status: 'new', approvalStatus: 'pending', quoteManuallySent: false});
-        toast('Restored with their old feet, price and photo. Check the price, then send.');
+        followQuoteToItsStage(id, {quoteArchived: false, quoteArchivedReason: '', status: 'new', approvalStatus: 'pending', quoteManuallySent: false});
+        const wasOptedOut = quotesCache.find(q => q.id === id)?.data?.smsOptedOut;
+        toast(wasOptedOut
+          ? 'Restored. They still can\'t be texted \u2014 reach them by email.'
+          : 'Restored with their old feet, price and photo. Check the price, then send.');
       } catch(err){ toast('Something went wrong \u2014 try again.'); }
     });
   });
@@ -6149,7 +6431,16 @@ function renderQuoteRows(filtered){
       if(value === 'declined' && !confirm('Mark this quote as declined?\n\nIt will be archived \u2014 nothing is deleted, and you can restore it any time.')) return;
       try{
         const updates = {approvalStatus: value, quoteRespondedAt: serverTimestamp()};
-        if(value === 'declined'){ updates.quoteArchived = true; updates.quoteArchivedAt = serverTimestamp(); }
+        if(value === 'declined'){
+          updates.quoteArchived = true;
+          updates.quoteArchivedAt = serverTimestamp();
+          updates.quoteArchivedReason = 'Marked declined in admin';
+        } else {
+          /* Anything other than declined pulls it back out of the archive,
+             so a change of mind lands in the right tab. */
+          updates.quoteArchived = false;
+          updates.quoteArchivedReason = '';
+        }
         await updateDoc(doc(db,'quotes', id), updates);
         followQuoteToItsStage(id, updates);
         const label = value === 'approved' ? 'Marked approved.' : value === 'maybe_next_year' ? 'Marked maybe next year.' : 'Marked declined.';
@@ -6303,10 +6594,6 @@ function renderQuoteRows(filtered){
     });
   });
   attachDeleteHandlers(list);
-  /* Repaint any open email preview. The list was just rebuilt from scratch,
-     so without this the preview, its Send button and its confirmation are
-     gone - which is what made a successful send look like nothing happened. */
-  quoteEmailPreviews.forEach(function(p, id){ paintQuoteEmailBox(id); });
 }
 document.getElementById('quoteFilterSelect').addEventListener('change', function(){
   quoteFilter = this.value;
@@ -6613,29 +6900,66 @@ document.getElementById('etSendConfirmBtn').addEventListener('click', async func
   const phones = Array.from(checked).map(cb => cb.dataset.sendto);
   const template = window.etSendingTemplate;
   const statusEl = document.getElementById('etSendStatus');
-  statusEl.textContent = 'Sending...';
-  
+
+  /* This used to reference bare `emailjsServiceId` / `emailjsTemplateId`, which
+     were never declared anywhere. The browser turns any element id into a
+     global, so those names silently resolved to the INPUT BOXES rather than the
+     text in them, and emailjs.init() was never called at all - hence "The
+     public key is required" on every send. Now it reads the real settings and
+     initialises properly, the same way every other send in this file does. */
+  const cfg = await getEmailjsConfig();
+  const missingParts = emailjsMissingParts(cfg);
+  if(missingParts.length){
+    statusEl.style.color = 'var(--ember)';
+    statusEl.textContent = 'Missing ' + missingParts.join(', ') + '. Fill them in under EmailJS Setup and press Save.';
+    return;
+  }
+  if(!window.emailjs){
+    statusEl.style.color = 'var(--ember)';
+    statusEl.textContent = 'Email service failed to load — reload the page.';
+    return;
+  }
+  emailjs.init(cfg.publicKey);
+
+  const btn = this;
+  btn.disabled = true;
+  statusEl.style.color = 'var(--slate)';
+  statusEl.textContent = 'Sending…';
+
   let sent = 0;
+  let noEmail = 0;
+  const failures = [];
   for(const phone of phones){
     const customer = jobAddresses.find(a => a.data.phone === phone);
     if(!customer) continue;
     const name = customer.data.name || 'there';
-    const body = template.data.body.replace(/{{name}}/g, name);
-    
+    const to = (customer.data.email || '').trim();
+    if(!to){ noEmail++; continue; }
+    statusEl.textContent = 'Sending ' + (sent + failures.length + 1) + ' of ' + phones.length + '… (' + name + ')';
     try {
-      await emailjs.send(emailjsServiceId, emailjsTemplateId, {
+      /* Tokens are resolved the same way as everywhere else, so buttons and
+         links in a template actually work here too. */
+      const body = await resolveLinkTokens(template.data.body, phone, 0, {name: name});
+      await emailjs.send(cfg.serviceId, cfg.templateId, {
         from_name: 'Highlighting Utah',
-        to_email: customer.data.email || '',
+        to_email: to,
+        to_name: name,
         customer_name: name,
         message: body
       });
       sent++;
     } catch(err){
+      failures.push(name + ': ' + (err && (err.text || err.message) ? (err.text || err.message) : 'failed'));
       console.error('Email send failed:', err);
     }
+    await new Promise(r => setTimeout(r, 600));
   }
-  
-  statusEl.textContent = 'Sent to '+sent+' customer'+(sent===1?'':'s');
+
+  btn.disabled = false;
+  statusEl.style.color = failures.length ? 'var(--ember)' : '#2E6B3E';
+  statusEl.innerHTML = 'Sent to ' + sent + ' customer' + (sent===1?'':'s') + '.' +
+    (noEmail ? '<br><span style="color:var(--slate);">' + noEmail + ' skipped — no email address on file.</span>' : '') +
+    (failures.length ? '<br>Failed: ' + esc(failures.join(' · ')) : '');
   setTimeout(() => {
     document.getElementById('etSendOverlay').style.display = 'none';
     document.getElementById('etSendMemberList').innerHTML = '';
@@ -11539,7 +11863,7 @@ function updateFixAvailableCount(){
   const el = document.getElementById('fixAvailableCount');
   if(!el) return;
   const cityChoice = document.getElementById('fixCitySelect').value;
-  let available = jobAddresses.filter(a => a.data.needsFix && !a.data.fixScheduled && !a.data.maybeNextYear);
+  let available = jobAddresses.filter(a => a.data.needsFix && !a.data.fixScheduled);
   if(cityChoice !== 'all') available = available.filter(a => extractCleanCity(a.data.city) === cityChoice);
   el.textContent = available.length + ' house' + (available.length===1?'':'s') + ' currently need' + (available.length===1?'s':'') + ' a fix' + (cityChoice !== 'all' ? ' in ' + cityChoice : '') + '.';
 }
@@ -11639,11 +11963,6 @@ function loadJobAddresses(){
     safeRender('rsvpRecipients', typeof rsvpRenderRecipientList === 'function' ? rsvpRenderRecipientList : null);
     safeRender('rsvpPreview', typeof rsvpUpdatePreview === 'function' ? rsvpUpdatePreview : null);
     safeRender('whCustomerList', typeof whRefreshCustomerList === 'function' ? whRefreshCustomerList : null);
-    /* All Customers was the one list missing from this sweep, so every panel
-       stayed live on a customer change except the table people actually work
-       from - a saved edit only appeared after retyping the search or switching
-       tabs. It renders from jobAddresses, which has just been rebuilt above. */
-    safeRender('allCustomersTable', typeof renderAllCustomersTable === 'function' ? renderAllCustomersTable : null);
   });
 }
 let warehouseExtras = [];
@@ -12159,7 +12478,7 @@ function computeColorDemand(){
     });
   }
   jobAddresses.forEach(function(item){
-    if(item.data.needsLightBuild && item.data.lightsDescription && !item.data.maybeNextYear) addPattern(item.data.lightsDescription, 1);
+    if(item.data.needsLightBuild && item.data.lightsDescription) addPattern(item.data.lightsDescription, 1);
   });
   warehouseExtras.forEach(function(item){
     addPattern(item.data.pattern, Number(item.data.quantity)||0);
@@ -12167,7 +12486,7 @@ function computeColorDemand(){
   return colorCounts;
 }
 function computePendingHouseCount(){
-  let total = jobAddresses.filter(function(item){ return item.data.needsLightBuild && item.data.lightsDescription && !item.data.maybeNextYear; }).length;
+  let total = jobAddresses.filter(function(item){ return item.data.needsLightBuild && item.data.lightsDescription; }).length;
   warehouseExtras.forEach(function(item){ total += Number(item.data.quantity)||0; });
   return total;
 }
@@ -12263,9 +12582,7 @@ function renderWarehouseQueue(){
   const groups = {};
   jobAddresses.forEach(function(item){
     const d = item.data;
-    /* Sitting out the season means nothing gets built for them, even if a
-       needsLightBuild flag was already set before they answered. */
-    if(!d.needsLightBuild || !d.lightsDescription || d.maybeNextYear) return;
+    if(!d.needsLightBuild || !d.lightsDescription) return;
     const key = whGroupKey(d.lightsDescription, d.wireColor);
     if(!groups[key]) groups[key] = {houses:[], extras:[]};
     groups[key].houses.push(item);
@@ -12716,7 +13033,7 @@ function renderAllCustomersTable(){
   });
 
   document.getElementById('allCustCount').textContent = rows.length + ' customer' + (rows.length===1?'':'s') + ' shown.';
-  if(!rows.length){ body.innerHTML = '<tr><td colspan="8" style="padding:16px; color:var(--slate);">No customers match this view.</td></tr>'; return; }
+  if(!rows.length){ body.innerHTML = '<tr><td colspan="7" style="padding:16px; color:var(--slate);">No customers match this view.</td></tr>'; return; }
 
   body.innerHTML = rows.map(function(r){
     const billedElsewhere = jobAddresses.find(a => (a.data.phone||'').replace(/\D/g,'') === (r.d.billToPhone||''));
@@ -12729,24 +13046,12 @@ function renderAllCustomersTable(){
     const timingLabel = r.d.installPreference === 'November - Before Thanksgiving' ? 'November — Before Thanksgiving' : (r.d.installPreference === 'Normal Schedule' || !r.d.installPreference ? 'Any' : r.d.installPreference);
     const mapCell = r.hasMap ? '<a class="btn btn-outline btn-sm" href="'+esc(r.d.layoutMapUrl)+'" target="_blank" rel="noopener">View Map</a>' : '<span style="color:var(--slate); font-size:12px;">No map yet</span>';
     const binBadge = (r.d.numberOfBins && r.d.numberOfBins > 1) ? ' <span style="display:inline-block; background:#EAF1FA; color:#2B5C8A; border:1px solid #C3D8EC; border-radius:999px; padding:1px 8px; font-size:11px; font-weight:600; vertical-align:middle;">'+r.d.numberOfBins+' bins</span>' : '';
-    /* Everyone carries one of these two, so the column answers "is this person
-       in for this season?" at a glance rather than only flagging the exceptions
-       - a blank cell used to be ambiguous between "confirmed" and "nobody has
-       looked at this yet". Confirmed is the default because that is what being
-       in All Customers has always meant; the RSVP email will set it properly
-       once it is wired up. The button flips them the other way. */
-    const maybeCell = r.d.maybeNextYear
-      ? '<span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">Maybe Next Year</span>'+
-        '<br><button type="button" class="btn btn-outline btn-sm" data-seasontoggle="'+r.item.id+'" data-to="confirmed" style="margin-top:4px; font-size:11px;">Confirm</button>'
-      : '<span class="status-pill" style="background:#E6F2EA; color:#2E6B3E; font-weight:700;">Confirmed</span>'+
-        '<br><button type="button" class="btn btn-outline btn-sm" data-seasontoggle="'+r.item.id+'" data-to="maybe" style="margin-top:4px; font-size:11px;">Maybe next year</button>';
     return '<tr style="border-bottom:1px solid var(--line);">'+
       '<td style="padding:8px 10px;"><strong>'+esc(r.d.name||'(no name)')+'</strong>'+binBadge+'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.address||'')+'</span>'+(r.d.phone?'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.phone)+'</span>':'')+'</td>'+
       '<td style="padding:8px 10px; font-size:12.5px;">'+esc(r.enrolled||'—')+'</td>'+
       '<td style="padding:8px 10px;">'+routeCell+'</td>'+
       '<td style="padding:8px 10px; font-size:12.5px;">'+esc(timingLabel)+'</td>'+
       '<td style="padding:8px 10px;">'+invCell+'</td>'+
-      '<td style="padding:8px 10px;">'+maybeCell+'</td>'+
       '<td style="padding:8px 10px;">'+mapCell+'</td>'+
       '<td style="padding:8px 10px;"><button type="button" class="icon-btn" data-editcust="'+r.item.id+'" title="Edit Personal Info">'+editIcon()+'</button></td>'+
     '</tr>';
@@ -12754,34 +13059,6 @@ function renderAllCustomersTable(){
   body.querySelectorAll('[data-editcust]').forEach(function(btn){
     btn.addEventListener('click', function(){
       openEditCustomerModal(btn.dataset.editcust);
-    });
-  });
-  /* Flipping to Confirmed deliberately does NOT put anyone back on a route.
-     Rebuilding a route behind the office's back would be a worse surprise than
-     making them re-add one stop by hand, so both directions say what they do. */
-  body.querySelectorAll('[data-seasontoggle]').forEach(function(btn){
-    btn.addEventListener('click', async function(){
-      const id = btn.dataset.seasontoggle;
-      const toMaybe = btn.dataset.to === 'maybe';
-      const cust = jobAddresses.find(a => a.id === id);
-      const who = (cust && cust.data.name) || 'this customer';
-      const ask = toMaybe
-        ? 'Mark ' + who + ' as Maybe Next Year?\n\nThey stay in All Customers and keep everything they owe, but they come off the routes, the schedule and the warehouse build list — including any upcoming route they are already on.'
-        : 'Confirm ' + who + ' for this season?\n\nThe Maybe Next Year badge is removed and their RSVP goes back to pending, so they can be routed again. They are NOT added back to any route — you\'ll need to schedule them like anyone else.';
-      if(!confirm(ask)) return;
-      btn.disabled = true;
-      try{
-        const removed = await setCustomerSeason(id, toMaybe);
-        /* Nothing re-renders this table on a jobAddresses change, so without
-           this the badge stays on screen and the button reads as dead. */
-        renderAllCustomersTable();
-        toast(toMaybe
-          ? who + ' is out for this season' + (removed ? ' — taken off ' + removed + ' upcoming route' + (removed === 1 ? '' : 's') + '.' : '.')
-          : who + ' is back in the pool — schedule them when you\'re ready.');
-      } catch(err){
-        btn.disabled = false;
-        toast('Could not change that — try again.');
-      }
     });
   });
 }
@@ -12859,9 +13136,6 @@ function openEditCustomerModal(id){
   document.getElementById('editCustAddress').value = d.address || '';
   document.getElementById('editCustEnrolled').value = (d.createdAt && d.createdAt.toDate) ? toDateStr(d.createdAt.toDate()) : '';
   document.getElementById('editCustRsvp').value = d.rsvpStatus || '';
-  /* Confirmed is the default for anyone not explicitly sitting out, which is
-     what an All Customers record has always meant. */
-  document.getElementById(d.maybeNextYear ? 'editCustSeasonMaybe' : 'editCustSeasonConfirmed').checked = true;
   document.getElementById('editCustEarliestInstall').value = (d.earliestInstallDate && d.earliestInstallDate.toDate) ? toDateStr(d.earliestInstallDate.toDate()) : '';
   document.getElementById('editCustFeet').value = d.measuredFeet || '';
   document.getElementById('editCustHousePrice').value = d.housePrice || '';
@@ -13055,7 +13329,6 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const newAddress = document.getElementById('editCustAddress').value.trim();
   const newEnrolledStr = document.getElementById('editCustEnrolled').value;
   const newRsvp = document.getElementById('editCustRsvp').value;
-  const newSeasonMaybe = document.getElementById('editCustSeasonMaybe').checked;
   const newEarliestInstallStr = document.getElementById('editCustEarliestInstall').value;
   const newHousePrice = Number(document.getElementById('editCustHousePrice').value) || 0;
   const newMeasuredFeet = Number(document.getElementById('editCustFeet').value) || 0;
@@ -13107,27 +13380,6 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     addrUpdates.referralCount = newReferralCount;
     const oldLightsForBuild = item.data.lightsDescription || '';
     addrUpdates.needsLightBuild = newLightsDescription ? (newLightsDescription !== oldLightsForBuild ? true : !!item.data.needsLightBuild) : false;
-    /* Applied last so it beats the RSVP dropdown and the build flag above:
-       the toggle is the explicit statement about this season, and letting the
-       two disagree is how someone ends up badged Maybe Next Year while still
-       sitting on a route. Money fields are untouched on purpose. */
-    addrUpdates.maybeNextYear = newSeasonMaybe;
-    if(newSeasonMaybe){
-      if(!item.data.maybeNextYear) addrUpdates.maybeNextYearAt = serverTimestamp();
-      addrUpdates.rsvpStatus = 'backnextyear';
-      addrUpdates.rsvpRespondedAt = serverTimestamp();
-      addrUpdates.needsLightRecycle = false;
-      addrUpdates.needsLightBuild = false;
-      addrUpdates.scheduled = false;
-      addrUpdates.scheduledDate = null;
-      addrUpdates.assignedCrew = null;
-    } else if(item.data.maybeNextYear){
-      addrUpdates.maybeNextYearAt = null;
-      /* Coming back in with the dropdown still reading Back Next Year would
-         leave them unroutable behind a Confirmed badge, so reset it to
-         pending unless the office picked something else themselves. */
-      if(newRsvp === 'backnextyear'){ addrUpdates.rsvpStatus = ''; addrUpdates.rsvpRespondedAt = null; }
-    }
     let geocodeFailed = false;
     if(newAddress && newAddress !== oldAddress){
       statusEl.textContent = 'Address changed — relocating on map…';
@@ -13170,12 +13422,6 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       specificOutlet: newSpecificOutlet, specificOutletNotes: newSpecificOutletNotes,
       customerNumber: addrUpdates.customerNumber, lat: addrUpdates.lat, lng: addrUpdates.lng
     });
-    /* Switching someone to Maybe Next Year has to take them off the routes as
-       well as flag them, or the crew still turns up. Only on the transition,
-       so re-saving an already-flagged customer is not a repeated sweep. */
-    if(newSeasonMaybe && !item.data.maybeNextYear){
-      await removeCustomerFromUpcomingRoutes(editCustomerId);
-    }
     const inv = allCustInvoiceFor(item);
     let resyncPayerAfter = null;
     let migratingFeeNotes = null;
@@ -13722,11 +13968,7 @@ async function runGenerateInstallRoute(){
   const seedPref = document.getElementById('routeSeedPref').value;
   const statusEl = document.getElementById('generateRouteStatus');
   const isTest = document.getElementById('testGenerateCheck').checked;
-  /* maybeNextYear is checked on its own rather than leaning on the rsvpStatus
-     test beside it: the badge is what the office sets and sees, so it has to
-     be the thing that keeps someone off a route even if an RSVP gets edited
-     back to yes by hand. Same reason it repeats on the fix and removal lists. */
-  let available = jobAddresses.filter(a => !a.data.scheduled && !a.data.completed && typeof a.data.lat === 'number' && !isInstallPrefLocked(a.data.installPreference) && !isEarliestInstallDateLocked(a.data) && (isTest || !isLightsLocked(a.data)) && (isTest || a.data.rsvpStatus === 'yes') && !a.data.maybeNextYear);
+  let available = jobAddresses.filter(a => !a.data.scheduled && !a.data.completed && typeof a.data.lat === 'number' && !isInstallPrefLocked(a.data.installPreference) && !isEarliestInstallDateLocked(a.data) && (isTest || !isLightsLocked(a.data)) && (isTest || a.data.rsvpStatus === 'yes'));
   if(cityChoice !== 'all') available = available.filter(a => extractCleanCity(a.data.city) === cityChoice || a.data.installPreference === 'November - Before Thanksgiving');
 
   const startText = document.getElementById('routeStartInput').value.trim();
@@ -13773,7 +14015,7 @@ document.getElementById('generateFixBtn').addEventListener('click', async functi
   const crewChoice = document.getElementById('fixCrewSelect').value;
   const seedPref = document.getElementById('fixSeedPref').value;
   const statusEl = document.getElementById('generateFixStatus');
-  let available = jobAddresses.filter(a => a.data.needsFix && !a.data.fixScheduled && typeof a.data.lat === 'number' && !a.data.maybeNextYear);
+  let available = jobAddresses.filter(a => a.data.needsFix && !a.data.fixScheduled && typeof a.data.lat === 'number');
   if(cityChoice !== 'all') available = available.filter(a => extractCleanCity(a.data.city) === cityChoice);
   const wantFix = document.getElementById('wantFixAll').checked ? available.length : (Number(document.getElementById('wantFix').value) || 0);
 
@@ -13796,7 +14038,7 @@ document.getElementById('generateRemovalBtn').addEventListener('click', async fu
   const crewChoice = document.getElementById('removalCrewSelect').value;
   const seedPref = document.getElementById('removalSeedPref').value;
   const statusEl = document.getElementById('generateRemovalStatus');
-  let available = jobAddresses.filter(a => a.data.completed && !a.data.removalDone && !a.data.removalScheduled && typeof a.data.lat === 'number' && !a.data.maybeNextYear);
+  let available = jobAddresses.filter(a => a.data.completed && !a.data.removalDone && !a.data.removalScheduled && typeof a.data.lat === 'number');
   if(cityChoice !== 'all') available = available.filter(a => extractCleanCity(a.data.city) === cityChoice);
 
   const startText = document.getElementById('removalStartInput').value.trim();
@@ -14154,52 +14396,6 @@ async function resyncSavedRouteStops(customerId, fields){
       catch(err){ console.warn('Route stop resync failed for ' + route.id, err); }
     }
   }
-}
-/* Takes a customer off every UPCOMING saved route. Past routes are left exactly
-   as they are - they are history, and rewriting them would change what the crew
-   actually did. Mirrors pullCustomerFromSeason in functions/index.js, which does
-   the same job when the customer answers "maybe next year" themselves. */
-async function removeCustomerFromUpcomingRoutes(customerId){
-  const todayStr = toDateStr(new Date());
-  const dates = Object.keys(scheduledRoutesCache || {});
-  let removed = 0;
-  for(let i = 0; i < dates.length; i++){
-    if(dates[i] < todayStr) continue;
-    const routes = scheduledRoutesCache[dates[i]] || [];
-    for(let r = 0; r < routes.length; r++){
-      const route = routes[r];
-      if(!route.stops || !route.stops.some(function(st){ return st.id === customerId; })) continue;
-      const kept = route.stops.filter(function(st){ return st.id !== customerId; });
-      try { await updateDoc(doc(db,'scheduledRoutes', route.id), {stops: kept}); removed++; }
-      catch(err){ console.warn('Could not remove stop from ' + route.id, err); }
-    }
-  }
-  return removed;
-}
-/* The one place that flips a customer between Confirmed and Maybe Next Year, so
-   the badge, the Edit Customer toggle and (later) the RSVP email can never drift
-   into disagreeing about what the pair of states means. Deliberately writes no
-   money field: sitting out next season says nothing about what is owed for work
-   already done. */
-async function setCustomerSeason(id, toMaybe){
-  const updates = toMaybe
-    ? { maybeNextYear: true, maybeNextYearAt: serverTimestamp(),
-        rsvpStatus: 'backnextyear', rsvpRespondedAt: serverTimestamp(),
-        needsLightRecycle: false, needsLightBuild: false,
-        scheduled: false, scheduledDate: null, assignedCrew: null }
-    : { maybeNextYear: false, maybeNextYearAt: null,
-        rsvpStatus: '', rsvpRespondedAt: null };
-  await updateDoc(doc(db,'jobAddresses', id), updates);
-  /* The table is rebuilt from jobAddresses rather than re-read from Firestore,
-     so the local copy has to move first or the row repaints the old value. */
-  const local = jobAddresses.find(a => a.id === id);
-  if(local) Object.assign(local.data, {
-    maybeNextYear: !!toMaybe,
-    rsvpStatus: toMaybe ? 'backnextyear' : '',
-    scheduled: toMaybe ? false : local.data.scheduled,
-    needsLightBuild: toMaybe ? false : local.data.needsLightBuild
-  });
-  return toMaybe ? await removeCustomerFromUpcomingRoutes(id) : 0;
 }
 function loadRouteIntoView(route, dateStr){
   routeMapInstance = null;
