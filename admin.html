@@ -1424,11 +1424,11 @@
             <span id="fnApplyStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
 
             <div style="border-top:1px solid var(--line); margin:16px 0 0; padding-top:14px;">
-              <p style="font-size:13px;">Already have both lists lined up yourself (like from a Claude chat)? Paste each customer's phone number and their corrected name below, in matching order — this looks each one up by phone instead of by name, since names can repeat (two "John Smith"s) but phone numbers don't. Anyone not found, matching more than one customer, or already correct is left untouched and reported instead of guessed at.</p>
+              <p style="font-size:13px;">Already have both lists lined up yourself (like from a Claude chat)? Paste each customer's street address and their corrected name below, in matching order — this looks each one up by address instead of by name, since names can repeat (two "John Smith"s) but addresses don't. Anyone not found, matching more than one customer, or already correct is left untouched and reported instead of guessed at.</p>
               <div class="form-grid-2">
                 <div class="form-row">
-                  <label>Phone Numbers <span class="bulk-count" id="fnPairCountOld">0 rows</span></label>
-                  <textarea id="fnPairOldArea" rows="8" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="8015550123&#10;8015550456"></textarea>
+                  <label>Street Addresses <span class="bulk-count" id="fnPairCountOld">0 rows</span></label>
+                  <textarea id="fnPairOldArea" rows="8" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="123 Main St&#10;456 Oak Ave"></textarea>
                 </div>
                 <div class="form-row">
                   <label>Corrected Names — same order <span class="bulk-count" id="fnPairCountNew">0 rows</span></label>
@@ -11667,16 +11667,18 @@ document.getElementById('fnApplyBtn').addEventListener('click', async function()
 
 // Matched-pair variant: for when the corrected list came from outside the app
 // (e.g. a hand-reviewed spreadsheet) and doesn't line up with Step 1's live,
-// alphabetized export. Looks each row up by PHONE NUMBER instead of by name
-// or position — names can collide (two different "John Smith"s) or shift
-// when half the list is already fixed, but a phone number uniquely
-// identifies one customer. Anyone whose name already matches the correction
+// alphabetized export. Looks each row up by STREET ADDRESS instead of by
+// name or position — names can collide (two different "John Smith"s) or
+// shift when half the list is already fixed, but an address uniquely
+// identifies one customer. Reuses cnNormStreet (the same street normalizer
+// the Customer Numbers bulk-assign tool uses) so "123 Main St" and
+// "123 Main Street" match. Anyone whose name already matches the correction
 // is left alone rather than re-written.
 function fnNormMatch(s){
   return String(s||'').trim().replace(/\s+/g,' ').toLowerCase();
 }
-function fnNormPhone(s){
-  return String(s||'').replace(/\D/g,'');
+function fnStreetOf(data){
+  return data.street || (data.address||'').split(',')[0];
 }
 let fnPairPlan = null;
 ['fnPairOldArea','fnPairNewArea'].forEach(function(id){
@@ -11687,26 +11689,26 @@ let fnPairPlan = null;
   });
 });
 function fnPairAnalyze(){
-  let phoneLines = document.getElementById('fnPairOldArea').value.split('\n').map(function(s){ return s.trim(); });
+  let streetLines = document.getElementById('fnPairOldArea').value.split('\n').map(function(s){ return s.trim(); });
   let newLines = document.getElementById('fnPairNewArea').value.split('\n').map(function(s){ return s.trim(); });
-  while(phoneLines.length && !phoneLines[phoneLines.length-1]) phoneLines.pop();
+  while(streetLines.length && !streetLines[streetLines.length-1]) streetLines.pop();
   while(newLines.length && !newLines[newLines.length-1]) newLines.pop();
-  if(!phoneLines.length) return {error: 'Paste the phone numbers first.'};
-  if(phoneLines.length !== newLines.length){
-    return {error: 'Phone Numbers has ' + phoneLines.length + ' row(s) but Corrected Names has ' + newLines.length + ' — the two lists have to line up 1-for-1. Fix the row count and try again.'};
+  if(!streetLines.length) return {error: 'Paste the street addresses first.'};
+  if(streetLines.length !== newLines.length){
+    return {error: 'Street Addresses has ' + streetLines.length + ' row(s) but Corrected Names has ' + newLines.length + ' — the two lists have to line up 1-for-1. Fix the row count and try again.'};
   }
   const toChange = [], alreadyCorrect = [], unmatched = [], ambiguous = [];
   const claimed = {};
-  for(let i = 0; i < phoneLines.length; i++){
-    const phoneRaw = phoneLines[i], newRaw = newLines[i];
-    if(!phoneRaw) continue;
-    const phoneNorm = fnNormPhone(phoneRaw);
-    const matches = jobAddresses.filter(function(it){ return fnNormPhone(it.data.phone) === phoneNorm; });
-    if(!matches.length){ unmatched.push(phoneRaw); continue; }
-    if(matches.length > 1){ ambiguous.push(phoneRaw + ' (' + matches.length + ' customers share that phone number)'); continue; }
+  for(let i = 0; i < streetLines.length; i++){
+    const streetRaw = streetLines[i], newRaw = newLines[i];
+    if(!streetRaw) continue;
+    const streetNorm = cnNormStreet(streetRaw);
+    const matches = jobAddresses.filter(function(it){ return cnNormStreet(fnStreetOf(it.data)) === streetNorm; });
+    if(!matches.length){ unmatched.push(streetRaw); continue; }
+    if(matches.length > 1){ ambiguous.push(streetRaw + ' (' + matches.length + ' customers share that address)'); continue; }
     const match = matches[0];
-    if(claimed[match.id]){ ambiguous.push(phoneRaw + ' (matched again by a later row)'); continue; }
-    if(!newRaw || fnNormMatch(match.data.name) === fnNormMatch(newRaw)){ alreadyCorrect.push(phoneRaw); continue; }
+    if(claimed[match.id]){ ambiguous.push(streetRaw + ' (matched again by a later row)'); continue; }
+    if(!newRaw || fnNormMatch(match.data.name) === fnNormMatch(newRaw)){ alreadyCorrect.push(streetRaw); continue; }
     claimed[match.id] = true;
     toChange.push({id: match.id, oldName: match.data.name, newName: newRaw});
   }
