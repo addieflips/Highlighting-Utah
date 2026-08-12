@@ -3882,6 +3882,9 @@ function switchToAdminPanel(panelName){
   if(panelEl) panelEl.classList.add('active');
   document.getElementById('sidebar').classList.remove('open');
   renderFavoritesSection();
+  // Remembered per-browser so a refresh lands back on this panel instead of
+  // resetting to whichever one is marked active in the raw HTML.
+  try{ localStorage.setItem('huActivePanel', panelName); }catch(err){}
 }
 document.querySelectorAll('.nav-item[data-panel]').forEach(function(btn){
   btn.addEventListener('click', function(e){
@@ -3889,6 +3892,17 @@ document.querySelectorAll('.nav-item[data-panel]').forEach(function(btn){
     switchToAdminPanel(btn.dataset.panel);
   });
 });
+// Restore the last panel open before a refresh. Only acts on a panel that
+// genuinely exists (both the nav button and the panel div), so a removed or
+// renamed panel from an old saved value can't leave the page on nothing.
+(function restoreLastAdminPanel(){
+  try{
+    const saved = localStorage.getItem('huActivePanel');
+    if(saved && document.querySelector('.nav-item[data-panel="'+saved+'"]') && document.getElementById('panel-'+saved)){
+      switchToAdminPanel(saved);
+    }
+  } catch(err){}
+})();
 document.getElementById('mobileSidebarToggle').addEventListener('click', function(){
   document.getElementById('sidebar').classList.toggle('open');
 });
@@ -10492,6 +10506,10 @@ function setupDraggableTabBar(containerId, dataAttr, storageKey, onActivate){
   const container = document.getElementById(containerId);
   if(!container) return;
   let draggedEl = null;
+  // Separate key from the tab-order one above, so remembering which sub-tab
+  // was open can't collide with (or get overwritten by) remembering the
+  // order the tabs were dragged into.
+  const activeStorageKey = storageKey + '__active';
 
   const savedOrder = JSON.parse(localStorage.getItem(storageKey) || 'null');
   if(savedOrder){
@@ -10504,8 +10522,12 @@ function setupDraggableTabBar(containerId, dataAttr, storageKey, onActivate){
     const order = Array.from(container.querySelectorAll('[data-'+dataAttr+']')).map(b => b.dataset[dataAttr]);
     localStorage.setItem(storageKey, JSON.stringify(order));
   }
+  function activate(tabName){
+    if(onActivate) onActivate(tabName);
+    try{ localStorage.setItem(activeStorageKey, tabName); }catch(err){}
+  }
   container.querySelectorAll('[data-'+dataAttr+']').forEach(function(btn){
-    btn.addEventListener('click', function(){ if(onActivate) onActivate(btn.dataset[dataAttr]); });
+    btn.addEventListener('click', function(){ activate(btn.dataset[dataAttr]); });
     btn.addEventListener('dragstart', function(){ draggedEl = btn; btn.classList.add('dragging'); });
     btn.addEventListener('dragend', function(){
       btn.classList.remove('dragging');
@@ -10527,6 +10549,11 @@ function setupDraggableTabBar(containerId, dataAttr, storageKey, onActivate){
       if(draggedIdx < targetIdx){ btn.after(draggedEl); } else { btn.before(draggedEl); }
     });
   });
+  // Restore whichever sub-tab was open before a refresh, if it still exists.
+  try{
+    const savedActive = localStorage.getItem(activeStorageKey);
+    if(savedActive && container.querySelector('[data-'+dataAttr+'="'+savedActive+'"]')) activate(savedActive);
+  } catch(err){}
 }
 
 function switchInvTab(tabName){
