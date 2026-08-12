@@ -1422,6 +1422,23 @@
             </div>
             <button type="button" class="btn btn-gold" id="fnApplyBtn" style="margin-top:6px;">2. Apply Corrected Names</button>
             <span id="fnApplyStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
+
+            <div style="border-top:1px solid var(--line); margin:16px 0 0; padding-top:14px;">
+              <p style="font-size:13px;">Already have both lists lined up yourself (like from a Claude chat)? Paste the current (backwards) names and the corrected names below, in matching order — this looks each one up by their current name instead of relying on Step 1's order. Anyone already correct, not found, or matching more than one customer is left untouched and reported instead of guessed at.</p>
+              <div class="form-grid-2">
+                <div class="form-row">
+                  <label>Current Names — still backwards <span class="bulk-count" id="fnPairCountOld">0 rows</span></label>
+                  <textarea id="fnPairOldArea" rows="8" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="Cattani Julie&#10;Brown Kathy"></textarea>
+                </div>
+                <div class="form-row">
+                  <label>Corrected Names — same order <span class="bulk-count" id="fnPairCountNew">0 rows</span></label>
+                  <textarea id="fnPairNewArea" rows="8" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="Julie Cattani&#10;Kathy Brown"></textarea>
+                </div>
+              </div>
+              <button type="button" class="btn btn-outline btn-sm" id="fnPairCheckBtn" style="margin-top:6px;">Check Matches</button>
+              <button type="button" class="btn btn-gold btn-sm" id="fnPairApplyBtn" style="margin-top:6px; margin-left:8px; display:none;">Apply Matched Names</button>
+              <div id="fnPairStatus" style="font-size:13px; color:var(--slate); margin-top:8px;"></div>
+            </div>
           </div>
 
           <div style="border-top:1px solid var(--line); margin:20px 0 0; padding-top:16px;">
@@ -11636,6 +11653,91 @@ document.getElementById('fnApplyBtn').addEventListener('click', async function()
   document.getElementById('fnCountNames').textContent = '0 rows';
   fnExportedList = [];
   document.getElementById('fnExportStatus').textContent = '';
+});
+
+// Matched-pair variant: for when the corrected list came from outside the app
+// (e.g. a hand-reviewed spreadsheet) and doesn't line up with Step 1's live,
+// alphabetized export. Looks each row up by its current name instead of by
+// position, so it can't misalign even if the pasted list is a subset of all
+// customers or in a different order. Anyone whose current name already
+// matches the correction is left alone rather than re-written.
+function fnNormMatch(s){
+  return String(s||'').trim().replace(/\s+/g,' ').toLowerCase();
+}
+let fnPairPlan = null;
+['fnPairOldArea','fnPairNewArea'].forEach(function(id){
+  document.getElementById(id).addEventListener('input', function(){
+    const n = countRows(this.value);
+    const countEl = document.getElementById(id === 'fnPairOldArea' ? 'fnPairCountOld' : 'fnPairCountNew');
+    countEl.textContent = n + ' row' + (n===1?'':'s');
+  });
+});
+function fnPairAnalyze(){
+  let oldLines = document.getElementById('fnPairOldArea').value.split('\n').map(function(s){ return s.trim(); });
+  let newLines = document.getElementById('fnPairNewArea').value.split('\n').map(function(s){ return s.trim(); });
+  while(oldLines.length && !oldLines[oldLines.length-1]) oldLines.pop();
+  while(newLines.length && !newLines[newLines.length-1]) newLines.pop();
+  if(!oldLines.length) return {error: 'Paste the current (backwards) names first.'};
+  if(oldLines.length !== newLines.length){
+    return {error: 'Current Names has ' + oldLines.length + ' row(s) but Corrected Names has ' + newLines.length + ' — the two lists have to line up 1-for-1. Fix the row count and try again.'};
+  }
+  const toChange = [], alreadyCorrect = [], unmatched = [], ambiguous = [];
+  const claimed = {};
+  for(let i = 0; i < oldLines.length; i++){
+    const oldRaw = oldLines[i], newRaw = newLines[i];
+    if(!oldRaw) continue;
+    const oldNorm = fnNormMatch(oldRaw);
+    const matches = jobAddresses.filter(function(it){ return fnNormMatch(it.data.name) === oldNorm; });
+    if(!matches.length){ unmatched.push(oldRaw); continue; }
+    if(matches.length > 1){ ambiguous.push(oldRaw + ' (' + matches.length + ' customers currently share that name)'); continue; }
+    const match = matches[0];
+    if(claimed[match.id]){ ambiguous.push(oldRaw + ' (matched again by a later row)'); continue; }
+    if(!newRaw || fnNormMatch(match.data.name) === fnNormMatch(newRaw)){ alreadyCorrect.push(oldRaw); continue; }
+    claimed[match.id] = true;
+    toChange.push({id: match.id, oldName: match.data.name, newName: newRaw});
+  }
+  return {toChange: toChange, alreadyCorrect: alreadyCorrect, unmatched: unmatched, ambiguous: ambiguous};
+}
+document.getElementById('fnPairCheckBtn').addEventListener('click', function(){
+  const statusEl = document.getElementById('fnPairStatus');
+  const applyBtn = document.getElementById('fnPairApplyBtn');
+  const res = fnPairAnalyze();
+  if(res.error){ statusEl.textContent = res.error; applyBtn.style.display = 'none'; fnPairPlan = null; return; }
+  fnPairPlan = res;
+  applyBtn.style.display = res.toChange.length ? 'inline-flex' : 'none';
+  statusEl.innerHTML = res.toChange.length + ' customer(s) ready to rename, ' + res.alreadyCorrect.length + ' already correct (skipped), '
+    + res.unmatched.length + ' not found, ' + res.ambiguous.length + ' ambiguous (skipped).'
+    + (res.unmatched.length ? '<br><br>Not found — typo, extra space, or already fixed:<br>' + res.unmatched.slice(0,20).map(esc).join('<br>') + (res.unmatched.length>20?'<br>…and '+(res.unmatched.length-20)+' more.':'') : '')
+    + (res.ambiguous.length ? '<br><br>Ambiguous — check these by hand:<br>' + res.ambiguous.slice(0,20).map(esc).join('<br>') + (res.ambiguous.length>20?'<br>…and '+(res.ambiguous.length-20)+' more.':'') : '');
+});
+document.getElementById('fnPairApplyBtn').addEventListener('click', async function(){
+  const statusEl = document.getElementById('fnPairStatus');
+  if(!fnPairPlan || !fnPairPlan.toChange.length){ statusEl.textContent = 'Click "Check Matches" first.'; return; }
+  const toChange = fnPairPlan.toChange;
+  if(!confirm('Rename ' + toChange.length + ' customer(s)? Only their Name field (and matching invoice/upcoming routes) changes — nothing else.')) return;
+
+  let updated = 0, failed = 0;
+  for(const row of toChange){
+    statusEl.textContent = 'Updating ' + (updated+failed+1) + ' of ' + toChange.length + '…';
+    try{
+      await updateDoc(doc(db,'jobAddresses', row.id), {name: row.newName});
+      const rec = jobAddresses.find(function(it){ return it.id === row.id; });
+      if(rec){
+        const inv = allCustInvoiceFor(rec);
+        if(inv) await updateDoc(doc(db,'invoices', inv.id), {name: row.newName});
+      }
+      await resyncSavedRouteStops(row.id, {name: row.newName});
+      updated++;
+    } catch(err){ failed++; }
+  }
+  statusEl.textContent = updated + ' name(s) updated' + (failed ? ', ' + failed + ' failed' : '') + '.';
+  toast(updated + ' customer name(s) updated');
+  document.getElementById('fnPairOldArea').value = '';
+  document.getElementById('fnPairNewArea').value = '';
+  document.getElementById('fnPairCountOld').textContent = '0 rows';
+  document.getElementById('fnPairCountNew').textContent = '0 rows';
+  document.getElementById('fnPairApplyBtn').style.display = 'none';
+  fnPairPlan = null;
 });
 
 // --- Invoice Bulk Update ---
