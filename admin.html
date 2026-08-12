@@ -1412,6 +1412,19 @@
           </div>
 
           <div style="border-top:1px solid var(--line); margin:20px 0 0; padding-top:16px;">
+            <h4 style="margin:0 0 6px;">Fix Backwards Names</h4>
+            <p style="font-size:13px;">For renaming customers already in the system — just the name, nothing else, so there's no address matching or map lookup to slow it down. Step 1: copy the current names in a fixed order. Step 2: line up your corrections beside them in your sheet, then paste just the corrected column back below in that same order.</p>
+            <button type="button" class="btn btn-outline btn-sm" id="fnExportBtn">1. Copy Current Names (in order)</button>
+            <div id="fnExportStatus" style="font-size:12.5px; color:var(--slate); margin-top:6px;"></div>
+            <div class="form-row" style="margin-top:10px;">
+              <label>Corrected Names — same order as the copied list <span class="bulk-count" id="fnCountNames">0 rows</span></label>
+              <textarea id="fnCorrectedArea" rows="6" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="Corrected names, one per line, same order as Step 1. Leave a line blank to leave that customer unchanged."></textarea>
+            </div>
+            <button type="button" class="btn btn-gold" id="fnApplyBtn" style="margin-top:6px;">2. Apply Corrected Names</button>
+            <span id="fnApplyStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
+          </div>
+
+          <div style="border-top:1px solid var(--line); margin:20px 0 0; padding-top:16px;">
             <h4 style="margin:0 0 6px;">Invoice Fields</h4>
             <p style="font-size:13px;">Same idea, for billing info. Matches an existing customer by phone number and creates their invoice — and creates the customer record too if one doesn't exist yet, so nothing lives only in Invoices.</p>
             <div class="form-grid-2">
@@ -11598,6 +11611,64 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
   rbAreaIds.forEach(function(id){ document.getElementById(id).value = ''; });
   document.getElementById('rbFlipNamesChk').checked = false;
   wireBulkCounts(rbAreaIds, 'rbStreetsArea', rbCountIds)();
+});
+
+// --- Fix Backwards Names ---
+// Positional pairing, not text matching: export captures each customer's id in a fixed
+// order, so the corrected list pastes back onto the exact same customers no matter how
+// many names in the list are identical or ambiguous as text. No address/geocoding, so
+// it's fast even for a full-list pass.
+let fnExportedList = [];
+document.getElementById('fnExportBtn').addEventListener('click', function(){
+  fnExportedList = jobAddresses.slice()
+    .sort(function(a,b){ return (a.data.name||'').toLowerCase().localeCompare((b.data.name||'').toLowerCase()); })
+    .map(function(it){ return {id: it.id, name: it.data.name || ''}; });
+  const text = fnExportedList.map(function(x){ return x.name; }).join('\n');
+  projCopyText(text, fnExportedList.length + ' name(s) copied');
+  document.getElementById('fnExportStatus').textContent = fnExportedList.length + ' name(s) copied to your clipboard, in this order — paste them into your sheet, line up your corrections beside them, then paste just the corrected column into the box below and hit Apply.';
+});
+document.getElementById('fnCorrectedArea').addEventListener('input', function(){
+  const n = countRows(this.value);
+  document.getElementById('fnCountNames').textContent = n + ' row' + (n===1?'':'s');
+});
+document.getElementById('fnApplyBtn').addEventListener('click', async function(){
+  const statusEl = document.getElementById('fnApplyStatus');
+  if(!fnExportedList.length){ statusEl.textContent = 'Copy the current names first (step 1).'; return; }
+  let correctedLines = document.getElementById('fnCorrectedArea').value.split('\n').map(function(s){ return s.trim(); });
+  if(correctedLines.length > fnExportedList.length){
+    statusEl.textContent = 'You pasted ' + correctedLines.length + ' row(s) but copied ' + fnExportedList.length + ' name(s) — remove the extra row(s) and try again.';
+    return;
+  }
+  correctedLines = alignBulkRows(correctedLines, fnExportedList.length);
+
+  const toChange = [];
+  for(let i = 0; i < fnExportedList.length; i++){
+    const newName = correctedLines[i];
+    if(newName && newName !== fnExportedList[i].name) toChange.push({id: fnExportedList[i].id, newName: newName});
+  }
+  if(!toChange.length){ statusEl.textContent = 'Nothing to change — every row is blank or already matches.'; return; }
+  if(!confirm('Rename ' + toChange.length + ' customer(s)? Only their Name field (and matching invoice, if any) changes — nothing else.')) return;
+
+  let updated = 0, failed = 0;
+  for(const row of toChange){
+    statusEl.textContent = 'Updating ' + (updated+failed+1) + ' of ' + toChange.length + '…';
+    try{
+      await updateDoc(doc(db,'jobAddresses', row.id), {name: row.newName});
+      const rec = jobAddresses.find(function(it){ return it.id === row.id; });
+      const phone = rec && rec.data.phone;
+      if(phone){
+        const invSnap = await getDoc(doc(db,'invoices', phone));
+        if(invSnap.exists()) await updateDoc(doc(db,'invoices', phone), {name: row.newName});
+      }
+      updated++;
+    } catch(err){ failed++; }
+  }
+  statusEl.textContent = updated + ' name(s) updated' + (failed ? ', ' + failed + ' failed' : '') + '.';
+  toast(updated + ' customer name(s) updated');
+  document.getElementById('fnCorrectedArea').value = '';
+  document.getElementById('fnCountNames').textContent = '0 rows';
+  fnExportedList = [];
+  document.getElementById('fnExportStatus').textContent = '';
 });
 
 // --- Invoice Bulk Update ---
