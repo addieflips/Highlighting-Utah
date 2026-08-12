@@ -353,8 +353,7 @@ function sanitizeRecord(data) {
 
 // Mirrors the last-name check the browser used to do, so behaviour is
 // unchanged for customers: the typed name must match a word in the stored
-// name, or appear inside it. Word-order independent on purpose — names are
-// stored "First Last", but this must keep working during the changeover.
+// name, or appear inside it. Stored names are "Last First" format.
 function nameMatches(storedName, typedName) {
   const stored = String(storedName || '').toLowerCase().trim();
   const typed = String(typedName || '').toLowerCase().trim();
@@ -1200,17 +1199,11 @@ async function runInvoiceBatch(triggeredBy) {
           ? invSnap.data()
           : { install: Number(cust.housePrice) || 0, removal: 0, deposit: 0, name: cust.name, phone, email };
 
-        // chargeNewMemberFee (set on the Add Customer form, and now carried
-        // over automatically from the quote's set-up fee checkbox) is the
-        // real decision the office made about this specific customer, so it
-        // wins whenever it has actually been set - true charges the fee,
-        // false explicitly skips it, overriding the date guess either way.
-        // Older records from before that field existed have it undefined,
-        // so they fall back to the enrollment-year guess this always used,
-        // read robustly however createdAt was stored (Firestore Timestamp, a
-        // raw {seconds} object, a JS Date, an epoch number, or an ISO
-        // string) - a Timestamp-only check silently missed the fee whenever
-        // the field had been written in any other shape.
+        // New-member detection drives the $30 fee, so read the enrollment year
+        // robustly however createdAt was stored (Firestore Timestamp, a raw
+        // {seconds} object, a JS Date, an epoch number, or an ISO string). A
+        // Timestamp-only check silently missed the fee whenever the field had
+        // been written in any other shape.
         let enrollYear = null;
         const _ca = cust.createdAt;
         try {
@@ -1220,8 +1213,7 @@ async function runInvoiceBatch(triggeredBy) {
           else if (typeof _ca === 'number') enrollYear = new Date(_ca).getFullYear();
           else if (typeof _ca === 'string') { const _d = new Date(_ca); if (!isNaN(_d.getTime())) enrollYear = _d.getFullYear(); }
         } catch (e) { enrollYear = null; }
-        const dateGuessedNewMember = enrollYear !== null && enrollYear === new Date().getFullYear();
-        const isNewMember = cust.chargeNewMemberFee === undefined ? dateGuessedNewMember : cust.chargeNewMemberFee === true;
+        const isNewMember = enrollYear !== null && enrollYear === new Date().getFullYear();
         if (isNewMember && !inv.newMemberFeeApplied) {
           inv.install = (Number(inv.install) || 0) + 30;
           inv.newMemberFeeApplied = true;
@@ -1429,6 +1421,15 @@ function toMillis(v) {
   return isNaN(d.getTime()) ? 0 : d.getTime();
 }
 
+/* Mirrors quotePhotosOf() in admin.html - quotes made before multi-photo
+   existed still have one photo in frontPhotoUrl; anything newer holds an
+   array. Kept in sync deliberately: the automated nudge must show the same
+   photos as a hand-sent one. */
+function quotePhotosOfServer(q) {
+  if (Array.isArray(q.photos) && q.photos.length) return q.photos;
+  if (q.frontPhotoUrl) return [{ url: q.frontPhotoUrl }];
+  return [];
+}
 async function runQuoteNudgeBatch(source) {
   const now = new Date();
   const denverMonth = Number(now.toLocaleString('en-US', { timeZone: 'America/Denver', month: 'numeric' }));
@@ -1503,19 +1504,19 @@ async function runQuoteNudgeBatch(source) {
             '<div style="font-size:32px; font-weight:bold; color:#1E3B2C; padding:4px 0 2px;">' + price + '</div>' +
             '<div style="font-size:12.5px; color:#6E6858;">installed, maintained all season, and taken down in January</div>' +
           '</td></tr></table>');
-      const photoHtml = q.frontPhotoUrl
-        ? ('<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:4px 0 14px;"><tr><td>' +
-            '<img src="' + q.frontPhotoUrl + '" alt="Your home" width="560" style="width:100%; max-width:560px; height:auto; border-radius:8px; display:block; border:0;">' +
-            '<p style="margin:8px 0 0; font-size:12px; color:#6E6858; font-family:Arial,sans-serif;">Not showing? <a href="' + q.frontPhotoUrl + '" style="color:#3E7A5B;">View the photo here</a>.</p>' +
-          '</td></tr></table>')
-        : '';
+      const photoHtml = quotePhotosOfServer(q).map(function (ph) {
+        return '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:4px 0 14px;"><tr><td>' +
+            '<img src="' + ph.url + '" alt="Your home" width="560" style="width:100%; max-width:560px; height:auto; border-radius:8px; display:block; border:0;">' +
+            '<p style="margin:8px 0 0; font-size:12px; color:#6E6858; font-family:Arial,sans-serif;">Not showing? <a href="' + ph.url + '" style="color:#3E7A5B;">View the photo here</a>.</p>' +
+          '</td></tr></table>';
+      }).join('');
       body = body.replace(/(?:\s|<br\s*\/?>)*\{\{photo\}\}(?:\s|<br\s*\/?>)*/gi, photoHtml || '<br>');
       body = body.split('{{quote_yes_button}}').join('<a href="' + base + '&action=approve" style="' + btn + ' background:#2E6B3E; color:#ffffff;">Approve Quote</a>');
       body = body.split('{{quote_maybe_button}}').join('<a href="' + base + '&action=maybe_next_year" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">Maybe Next Year</a>');
       body = body.split('{{quote_decline_button}}').join('<a href="' + base + '&action=decline" style="' + btn + ' background:#8A8F9C; color:#ffffff;">Decline Quote</a>');
       body = body.split('{{link}}').join(base);
       body = body.replace(/\n/g, '<br>');
-      if (!photoHtml && body.indexOf('<img') === -1 && q.frontPhotoUrl) body += photoHtml;
+      if (!photoHtml && body.indexOf('<img') === -1 && quotePhotosOfServer(q).length) body += photoHtml;
 
       const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
         method: 'POST',
