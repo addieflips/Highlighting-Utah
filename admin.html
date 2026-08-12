@@ -1323,6 +1323,7 @@
               <div class="form-row">
                 <label>Name (optional) <span class="bulk-count" id="rbCountNames">0 rows</span></label>
                 <textarea id="rbNamesArea" rows="6" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="Kaitlyn Roberts&#10;Trevor Miles&#10;(blank line if unknown)"></textarea>
+                <label style="display:flex; align-items:center; gap:6px; font-size:12.5px; font-weight:400; margin-top:6px;"><input type="checkbox" id="rbFlipNamesChk"> Names are pasted as "Last First" &mdash; flip to "First Last" on import</label>
               </div>
               <div class="form-row">
                 <label>Phone Number (optional) <span class="bulk-count" id="rbCountPhones">0 rows</span></label>
@@ -11401,12 +11402,30 @@ function rbDetectColorsAndPattern(raw){
   return hasRepeat ? {colors: Array.from(new Set(list)), pattern: list.join(', ')} : {colors: list, pattern: ''};
 }
 wireBulkCounts(rbAreaIds, 'rbStreetsArea', rbCountIds);
+// A two-word name can be swapped Last First -> First Last with no ambiguity.
+// Anything else (blank, one word, or three-plus words like "Van Dyke" or "Smith Jr")
+// can't be reordered by a blind rule, so it's left exactly as pasted.
+function rbSwapLastFirst(raw){
+  const s = String(raw||'').trim();
+  if(!s) return {name: s, flipped: false, left: false};
+  const parts = s.split(/\s+/);
+  if(parts.length === 2) return {name: parts[1] + ' ' + parts[0], flipped: true, left: false};
+  return {name: s, flipped: false, left: true};
+}
 document.getElementById('rbImportBtn').addEventListener('click', async function(){
   const statusEl = document.getElementById('rbImportStatus');
   const streets = document.getElementById('rbStreetsArea').value.split('\n').map(s => s.trim()).filter(Boolean);
   if(!streets.length){ statusEl.textContent = 'Paste at least the Street Address column.'; return; }
 
-  const names = alignBulkRows(document.getElementById('rbNamesArea').value.split('\n').map(s => s.trim()), streets.length);
+  const namesRaw = alignBulkRows(document.getElementById('rbNamesArea').value.split('\n').map(s => s.trim()), streets.length);
+  const flipNames = document.getElementById('rbFlipNamesChk').checked;
+  let namesFlipped = 0, namesLeftAsIs = 0;
+  const names = flipNames ? namesRaw.map(function(n){
+    const r = rbSwapLastFirst(n);
+    if(r.flipped) namesFlipped++;
+    if(r.left) namesLeftAsIs++;
+    return r.name;
+  }) : namesRaw;
   const custNumbers = alignBulkRows(document.getElementById('rbCustNumbersArea').value.split('\n').map(s => s.trim()), streets.length);
   // Validate every number up front — a half-finished numbering run is worse than none.
   const numProblems = [];
@@ -11575,8 +11594,9 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
       failed++;
     }
   }
-  statusEl.textContent = streets.length + ' row(s) read \u2014 ' + added + ' added, ' + updated + ' updated' + (billed ? ', ' + billed + ' invoice(s) billed' : '') + (noPhoneNoInvoice ? ', ' + noPhoneNoInvoice + ' amount(s) skipped (no phone on file)' : '') + (noPin ? ', ' + noPin + ' added without a map pin (search "Needs Pin" in the customer list to fix)' : '') + (failed ? ', ' + failed + ' failed' : '') + '.';
+  statusEl.textContent = streets.length + ' row(s) read \u2014 ' + added + ' added, ' + updated + ' updated' + (billed ? ', ' + billed + ' invoice(s) billed' : '') + (noPhoneNoInvoice ? ', ' + noPhoneNoInvoice + ' amount(s) skipped (no phone on file)' : '') + (noPin ? ', ' + noPin + ' added without a map pin (search "Needs Pin" in the customer list to fix)' : '') + (failed ? ', ' + failed + ' failed' : '') + (flipNames ? ', ' + namesFlipped + ' name(s) flipped to First Last' + (namesLeftAsIs ? ', ' + namesLeftAsIs + ' left as pasted (not exactly two words \u2014 check these by hand)' : '') : '') + '.';
   rbAreaIds.forEach(function(id){ document.getElementById(id).value = ''; });
+  document.getElementById('rbFlipNamesChk').checked = false;
   wireBulkCounts(rbAreaIds, 'rbStreetsArea', rbCountIds)();
 });
 
