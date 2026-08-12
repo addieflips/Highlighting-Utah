@@ -11681,13 +11681,40 @@ function fnStreetOf(data){
   return data.street || (data.address||'').split(',')[0];
 }
 let fnPairPlan = null;
+// Remembers what's pasted in the browser's own storage (never sent anywhere,
+// never written into this file) so a page refresh doesn't lose it and force
+// a re-paste. Lets Addie run a batch, refresh to clear memory, and land
+// right back where she was instead of pasting the two lists again each time.
+const FN_PAIR_STORAGE_KEYS = {fnPairOldArea: 'fnPairOldArea', fnPairNewArea: 'fnPairNewArea'};
 ['fnPairOldArea','fnPairNewArea'].forEach(function(id){
   document.getElementById(id).addEventListener('input', function(){
     const n = countRows(this.value);
     const countEl = document.getElementById(id === 'fnPairOldArea' ? 'fnPairCountOld' : 'fnPairCountNew');
     countEl.textContent = n + ' row' + (n===1?'':'s');
+    try{ localStorage.setItem(FN_PAIR_STORAGE_KEYS[id], this.value); }catch(err){}
   });
 });
+// Restores from storage (only into an empty box, so it never overwrites
+// something already typed) and re-checks. Called once after the customer
+// list first loads, and again on every later data change, so the
+// correct/wrong count stays live without a manual re-check.
+function fnPairRestoreAndCheck(){
+  ['fnPairOldArea','fnPairNewArea'].forEach(function(id){
+    const el = document.getElementById(id);
+    if(!el.value){
+      try{
+        const saved = localStorage.getItem(FN_PAIR_STORAGE_KEYS[id]);
+        if(saved) el.value = saved;
+      } catch(err){}
+    }
+    const n = countRows(el.value);
+    document.getElementById(id === 'fnPairOldArea' ? 'fnPairCountOld' : 'fnPairCountNew').textContent = n + ' row' + (n===1?'':'s');
+  });
+  if(document.getElementById('fnPairOldArea').value.trim()){
+    const res = fnPairAnalyze();
+    if(!res.error){ fnPairPlan = res; fnPairRenderStatus(res); }
+  }
+}
 function fnPairAnalyze(){
   let streetLines = document.getElementById('fnPairOldArea').value.split('\n').map(function(s){ return s.trim(); });
   let newLines = document.getElementById('fnPairNewArea').value.split('\n').map(function(s){ return s.trim(); });
@@ -12650,6 +12677,7 @@ function loadJobAddresses(){
       catch(err){ console.error('Render failed: ' + label, err); }
     }
     safeRender('cityDropdowns', populateCityDropdowns);
+    safeRender('fixBackwardsNamesRestore', typeof fnPairRestoreAndCheck === 'function' ? fnPairRestoreAndCheck : null);
     safeRender('routeAddressList', renderRouteAddressList);
     safeRender('takedowns', renderTakedownsList);
     safeRender('overviewMap', renderOverviewMap);
