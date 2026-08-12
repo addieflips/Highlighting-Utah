@@ -11603,10 +11603,10 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
 // many names in the list are identical or ambiguous as text. No address/geocoding, so
 // it's fast even for a full-list pass.
 // Applied in batches, not all at once — a few hundred writes in one unbroken
-// loop is what made the old tool crash. 30 at a time, click Apply again to
+// loop is what made the old tool crash. 10 at a time, click Apply again to
 // keep going; each batch is independent so a crash mid-run only ever loses
 // the batch in flight, never the whole run.
-const FN_BATCH_SIZE = 30;
+const FN_BATCH_SIZE = 10;
 let fnExportedList = [];
 document.getElementById('fnExportBtn').addEventListener('click', function(){
   fnExportedList = jobAddresses.slice()
@@ -11714,23 +11714,25 @@ function fnPairAnalyze(){
   }
   return {toChange: toChange, alreadyCorrect: alreadyCorrect, unmatched: unmatched, ambiguous: ambiguous};
 }
-document.getElementById('fnPairCheckBtn').addEventListener('click', function(){
-  const statusEl = document.getElementById('fnPairStatus');
-  const applyBtn = document.getElementById('fnPairApplyBtn');
-  const res = fnPairAnalyze();
-  if(res.error){ statusEl.textContent = res.error; applyBtn.style.display = 'none'; fnPairPlan = null; return; }
-  fnPairPlan = res;
-  applyBtn.style.display = res.toChange.length ? 'inline-flex' : 'none';
+function fnPairSummaryText(res){
   const wrong = res.toChange.length + res.unmatched.length + res.ambiguous.length;
-  statusEl.textContent = res.alreadyCorrect.length + ' correct, ' + wrong + ' wrong.';
+  return res.alreadyCorrect.length + ' correct, ' + wrong + ' wrong.';
+}
+function fnPairRenderStatus(res){
+  document.getElementById('fnPairApplyBtn').style.display = res.toChange.length ? 'inline-flex' : 'none';
+  document.getElementById('fnPairStatus').textContent = fnPairSummaryText(res);
+}
+document.getElementById('fnPairCheckBtn').addEventListener('click', function(){
+  const res = fnPairAnalyze();
+  if(res.error){ document.getElementById('fnPairStatus').textContent = res.error; document.getElementById('fnPairApplyBtn').style.display = 'none'; fnPairPlan = null; return; }
+  fnPairPlan = res;
+  fnPairRenderStatus(res);
 });
 document.getElementById('fnPairApplyBtn').addEventListener('click', async function(){
   const statusEl = document.getElementById('fnPairStatus');
   if(!fnPairPlan || !fnPairPlan.toChange.length){ statusEl.textContent = 'Click "Check Matches" first.'; return; }
-  const allToChange = fnPairPlan.toChange;
-  const batch = allToChange.slice(0, FN_BATCH_SIZE);
-  const remainingAfter = allToChange.length - batch.length;
-  if(!confirm('Rename ' + batch.length + ' customer(s)' + (remainingAfter ? ' (' + remainingAfter + ' more queued — click Apply again after this)' : '') + '? Only their Name field (and matching invoice/upcoming routes) changes — nothing else.')) return;
+  const batch = fnPairPlan.toChange.slice(0, FN_BATCH_SIZE);
+  if(!confirm('Rename ' + batch.length + ' customer(s)? Only their Name field (and matching invoice/upcoming routes) changes — nothing else.')) return;
 
   let updated = 0, failed = 0;
   for(const row of batch){
@@ -11739,6 +11741,7 @@ document.getElementById('fnPairApplyBtn').addEventListener('click', async functi
       await updateDoc(doc(db,'jobAddresses', row.id), {name: row.newName});
       const rec = jobAddresses.find(function(it){ return it.id === row.id; });
       if(rec){
+        rec.data.name = row.newName; // keep the local cache current so the re-check below is accurate right away, without waiting on the Firestore listener
         const inv = allCustInvoiceFor(rec);
         if(inv) await updateDoc(doc(db,'invoices', inv.id), {name: row.newName});
       }
@@ -11746,15 +11749,18 @@ document.getElementById('fnPairApplyBtn').addEventListener('click', async functi
       updated++;
     } catch(err){ failed++; }
   }
-  fnPairPlan.toChange = allToChange.slice(batch.length);
-  statusEl.textContent = updated + ' name(s) updated' + (failed ? ', ' + failed + ' failed' : '') + (remainingAfter ? '. ' + remainingAfter + ' more queued — click Apply again to continue.' : '. All done.');
+  // Re-check from scratch against the now-updated data, rather than just
+  // trimming the old plan, so the count on screen is always the live truth.
+  const res = fnPairAnalyze();
+  fnPairPlan = res.error ? null : res;
+  statusEl.textContent = updated + ' name(s) updated' + (failed ? ', ' + failed + ' failed' : '') + (fnPairPlan ? '. ' + fnPairSummaryText(fnPairPlan) : '.');
   toast(updated + ' customer name(s) updated');
-  if(!fnPairPlan.toChange.length){
+  document.getElementById('fnPairApplyBtn').style.display = (fnPairPlan && fnPairPlan.toChange.length) ? 'inline-flex' : 'none';
+  if(!fnPairPlan || !fnPairPlan.toChange.length){
     document.getElementById('fnPairOldArea').value = '';
     document.getElementById('fnPairNewArea').value = '';
     document.getElementById('fnPairCountOld').textContent = '0 rows';
     document.getElementById('fnPairCountNew').textContent = '0 rows';
-    document.getElementById('fnPairApplyBtn').style.display = 'none';
     fnPairPlan = null;
   }
 });
