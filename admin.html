@@ -11715,10 +11715,8 @@ document.getElementById('fnPairCheckBtn').addEventListener('click', function(){
   if(res.error){ statusEl.textContent = res.error; applyBtn.style.display = 'none'; fnPairPlan = null; return; }
   fnPairPlan = res;
   applyBtn.style.display = res.toChange.length ? 'inline-flex' : 'none';
-  statusEl.innerHTML = res.toChange.length + ' customer(s) ready to rename, ' + res.alreadyCorrect.length + ' already correct (skipped), '
-    + res.unmatched.length + ' not found, ' + res.ambiguous.length + ' ambiguous (skipped).'
-    + (res.unmatched.length ? '<br><br>Not found — typo, extra space, or already fixed:<br>' + res.unmatched.slice(0,20).map(esc).join('<br>') + (res.unmatched.length>20?'<br>…and '+(res.unmatched.length-20)+' more.':'') : '')
-    + (res.ambiguous.length ? '<br><br>Ambiguous — check these by hand:<br>' + res.ambiguous.slice(0,20).map(esc).join('<br>') + (res.ambiguous.length>20?'<br>…and '+(res.ambiguous.length-20)+' more.':'') : '');
+  const wrong = res.toChange.length + res.unmatched.length + res.ambiguous.length;
+  statusEl.textContent = res.alreadyCorrect.length + ' correct, ' + wrong + ' wrong.';
 });
 document.getElementById('fnPairApplyBtn').addEventListener('click', async function(){
   const statusEl = document.getElementById('fnPairStatus');
