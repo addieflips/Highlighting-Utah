@@ -1373,7 +1373,7 @@
                 <input type="checkbox" id="addCustNewMemberFee">
                 <span>Charge $30 new member installation fee</span>
               </label>
-              <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Off by default. Turn this on only for customers who should pay the one-time join fee. It is added to their invoice automatically the night their install is marked complete.</p>
+              <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Off by default. Turn this on only for customers who should pay the one-time join fee. It is added to their invoice automatically the night their install is marked complete. Ticking it also marks the house as a <strong>New Hang</strong> on the Routes list and the map until the install is scheduled.</p>
             </div>
 
             <div class="form-row" style="margin-top:14px;"><label>Invoice Notes (optional)</label><textarea id="addCustInvoiceNotes" rows="2" placeholder="e.g. split payment agreed, billed after Thanksgiving" style="width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea></div>
@@ -1619,6 +1619,10 @@
                   <th style="padding:8px 10px;">Route</th>
                   <th style="padding:8px 10px;">Timing</th>
                   <th style="padding:8px 10px;">Invoice</th>
+                  <!-- Deliberately unheaded: it only ever holds the Maybe Next
+                       Year badge, and a column title would read as a heading
+                       over a mostly empty column. -->
+                  <th style="padding:8px 10px;"></th>
                   <th style="padding:8px 10px;">House Map</th>
                   <th style="padding:8px 10px;"></th>
                 </tr>
@@ -1679,6 +1683,22 @@
             <div class="form-row"><label>Don't Install Before This Date (staff only)</label><input type="date" id="editCustEarliestInstall"></div>
           </div>
           <p class="form-note" style="margin:-4px 0 16px;">Customers never see or can change this &mdash; use it when someone needs us to hold off until a specific date (e.g. they're out of town until then). Leave blank for no restriction.</p>
+          <!-- Radio group rather than two checkboxes: the browser enforces that
+               only one can be on, so the pair can never end up both set or both
+               clear the way two checkboxes eventually would. -->
+          <div class="form-row"><label>This Season</label>
+            <div style="display:flex; gap:20px; flex-wrap:wrap; align-items:center; padding:4px 0;">
+              <label style="display:flex; align-items:center; gap:7px; font-weight:600; cursor:pointer; margin:0;">
+                <input type="radio" name="editCustSeason" id="editCustSeasonConfirmed" value="confirmed" style="width:auto; margin:0;">
+                <span class="status-pill" style="background:#E6F2EA; color:#2E6B3E;">Confirmed</span>
+              </label>
+              <label style="display:flex; align-items:center; gap:7px; font-weight:600; cursor:pointer; margin:0;">
+                <input type="radio" name="editCustSeason" id="editCustSeasonMaybe" value="maybe" style="width:auto; margin:0;">
+                <span class="status-pill" style="background:#FFF3D6; color:#8A6100;">Maybe Next Year</span>
+              </label>
+            </div>
+          </div>
+          <p class="form-note" style="margin:-4px 0 16px;">This is the badge shown next to them in All Customers. Switching someone to <strong>Maybe Next Year</strong> takes them out of this season &mdash; off the routes, the schedule and the warehouse build list &mdash; and removes them from any upcoming route they are already on. It never touches what they owe. Set it back to Confirmed to put them back in the pool (you'll still need to schedule them yourself).</p>
 
           <!-- ===================== HOUSE INFO ===================== -->
           <div style="border-top:2px solid var(--gold-dim); margin:20px 0 0; padding-top:16px;">
@@ -1790,7 +1810,7 @@
               <input type="checkbox" id="editCustNewMemberFee">
               <span>Charge $30 new member installation fee</span>
             </label>
-            <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Added to their invoice automatically the night their install is marked complete. If it has already been applied, unticking this won't remove it &mdash; adjust the invoice amount directly.</p>
+            <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Added to their invoice automatically the night their install is marked complete. If it has already been applied, unticking this won't remove it &mdash; adjust the invoice amount directly. Ticking it also marks the house as a <strong>New Hang</strong> on the Routes list and the map until the install is scheduled.</p>
           </div>
 
           <div class="form-row" style="margin-top:14px;"><label>Invoice Notes (optional)</label><textarea id="editCustInvoiceNotes" rows="2" placeholder="e.g. split payment agreed, billed after Thanksgiving" style="width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea></div>
@@ -2998,7 +3018,7 @@
               <span class="status-pill" style="background:#FCE7F3; color:#BE185D; font-weight:700;">⚠ New Hang — Install ASAP</span>
               <span class="status-pill diff-Fix" style="font-weight:600;">Needs Fix (separate from timing)</span>
             </div>
-            <p class="form-note" style="margin:10px 0 0;">These show on every house's row below, and as a colored ring around its pin on the Map View. The &#9888; warning icon marks anything that needs action soon. New Hang can appear alongside a timing badge — they're separate reasons for urgency. Needs Fix is a completely separate system (shown in its own reddish pill) and won't be confused with these.</p>
+            <p class="form-note" style="margin:10px 0 0;">These show on every house's row below, and as a colored ring around its pin on the Map View. The &#9888; warning icon marks anything that needs action soon. New Hang marks a first-time customer who isn't scheduled or installed yet — it comes from the &ldquo;Charge $30 new member installation fee&rdquo; box on their customer record, so tick that box on a new member and this badge follows automatically. It can appear alongside a timing badge — they're separate reasons for urgency. Needs Fix is a completely separate system (shown in its own reddish pill) and won't be confused with these.</p>
           </div>
           <div class="form-row"><input type="text" id="routeSearchInput" placeholder="Search by name, house number, or street..." style="padding:12px 14px; border-radius:10px; border:1px solid var(--line); background:var(--snow); font-size:14.5px;"></div>
           <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:16px; position:relative;">
@@ -6690,6 +6710,11 @@ function renderQuoteRows(filtered){
               '<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">'+
                 '<button type="button" class="btn btn-gold btn-sm" data-nudgequote="'+item.id+'">Send a nudge</button>'+
                 '<button type="button" class="btn btn-outline btn-sm" data-copyquoteemailaddr="'+item.id+'">Copy their email address</button>'+
+                /* The click handler for this has stayed wired through two markup
+                   rewrites that each dropped the button, leaving the feature live but
+                   unreachable. quotePhotoList() covers both the newer quotePhotos
+                   array and the older single frontPhotoUrl. */
+                (quotePhotoList(d).length ? '<button type="button" class="btn btn-outline btn-sm" data-downloadquotephoto="'+item.id+'">Download Photo</button>' : '')+
               '</div>'+
               (d.quoteManuallySent
                 ? '<div class="rtext" style="margin-top:6px; color:var(--slate);">&#10003; Sent'+(d.quoteManuallySentAt ? ' &mdash; '+fmtDate(d.quoteManuallySentAt) : '')+' <a href="#" data-unmarksent="'+item.id+'" style="margin-left:6px;">Undo</a></div>'
@@ -11667,11 +11692,17 @@ function isEarliestInstallDateLocked(data){
 }
 
 // ---- Install-timing urgency flags (used in Routes list + Overview Map) ----
-// New Hang: a first-time customer (proxied by how recently they enrolled) who still isn't scheduled/completed 2+ weeks after signing up.
+// New Hang: a first-time customer who still isn't scheduled or installed.
+// "First-time" is read off chargeNewMemberFee - the "Charge $30 new member installation fee"
+// box on Add/Edit Customer - because that is the one place the office actually records the
+// decision "this one is new to us". It is the same signal the nightly invoice function trusts
+// (looksLikeNewMember in functions/index.js).
+// This used to be guessed from createdAt ("enrolled 2+ weeks ago and still not scheduled"),
+// which quietly flagged all ~945 houses: the bulk import stamped every record with the same
+// createdAt, and out of season nobody is scheduled yet, so every house matched the guess.
 function isNewHangUrgent(d){
   if(!d || d.completed || d.scheduled) return false;
-  const days = daysSince(d.createdAt);
-  return days !== null && days >= 14;
+  return d.chargeNewMemberFee === true;
 }
 // October houses need to be done before Oct 31 — flag starting 2 weeks out (Oct 17).
 function isOctoberUrgent(d){
@@ -11722,10 +11753,11 @@ function installTimingBadge(d){
   return {label:'Any', bg:'#EEF1F5', color:'#5B6472'};
 }
 // New Hang badge is separate from (and can appear alongside) the timing badge above — different color on purpose so the two reasons for urgency are never confused.
+// No "(Nd waiting)" count any more - it was read off createdAt, and every imported record
+// carries the same import date, so that number was the same for everybody and told us nothing.
 function newHangBadge(d){
   if(!isNewHangUrgent(d)) return null;
-  const days = daysSince(d.createdAt);
-  return {label:'⚠ New Hang — Install ASAP ('+days+'d waiting)', bg:'#FCE7F3', color:'#BE185D'};
+  return {label:'⚠ New Hang — Install ASAP', bg:'#FCE7F3', color:'#BE185D'};
 }
 
 // ---- Shared marker color-coding: pin color = install timing, ring = time-sensitive, corner badge = fix/new-hang.
@@ -14192,7 +14224,7 @@ function updateFixAvailableCount(){
   const el = document.getElementById('fixAvailableCount');
   if(!el) return;
   const cityChoice = document.getElementById('fixCitySelect').value;
-  let available = jobAddresses.filter(a => a.data.needsFix && !a.data.fixScheduled);
+  let available = jobAddresses.filter(a => a.data.needsFix && !a.data.fixScheduled && !a.data.maybeNextYear);
   if(cityChoice !== 'all') available = available.filter(a => extractCleanCity(a.data.city) === cityChoice);
   el.textContent = available.length + ' house' + (available.length===1?'':'s') + ' currently need' + (available.length===1?'s':'') + ' a fix' + (cityChoice !== 'all' ? ' in ' + cityChoice : '') + '.';
 }
@@ -14292,6 +14324,11 @@ function loadJobAddresses(){
     safeRender('rsvpRecipients', typeof rsvpRenderRecipientList === 'function' ? rsvpRenderRecipientList : null);
     safeRender('rsvpPreview', typeof rsvpUpdatePreview === 'function' ? rsvpUpdatePreview : null);
     safeRender('whCustomerList', typeof whRefreshCustomerList === 'function' ? whRefreshCustomerList : null);
+    /* All Customers was the one list missing from this sweep, so every panel
+       stayed live on a customer change except the table people actually work
+       from - a saved edit only appeared after retyping the search or switching
+       tabs. It renders from jobAddresses, which has just been rebuilt above. */
+    safeRender('allCustomersTable', typeof renderAllCustomersTable === 'function' ? renderAllCustomersTable : null);
   });
 }
 let warehouseExtras = [];
@@ -14807,7 +14844,7 @@ function computeColorDemand(){
     });
   }
   jobAddresses.forEach(function(item){
-    if(item.data.needsLightBuild && item.data.lightsDescription) addPattern(item.data.lightsDescription, 1);
+    if(item.data.needsLightBuild && item.data.lightsDescription && !item.data.maybeNextYear) addPattern(item.data.lightsDescription, 1);
   });
   warehouseExtras.forEach(function(item){
     addPattern(item.data.pattern, Number(item.data.quantity)||0);
@@ -14815,7 +14852,7 @@ function computeColorDemand(){
   return colorCounts;
 }
 function computePendingHouseCount(){
-  let total = jobAddresses.filter(function(item){ return item.data.needsLightBuild && item.data.lightsDescription; }).length;
+  let total = jobAddresses.filter(function(item){ return item.data.needsLightBuild && item.data.lightsDescription && !item.data.maybeNextYear; }).length;
   warehouseExtras.forEach(function(item){ total += Number(item.data.quantity)||0; });
   return total;
 }
@@ -14911,7 +14948,9 @@ function renderWarehouseQueue(){
   const groups = {};
   jobAddresses.forEach(function(item){
     const d = item.data;
-    if(!d.needsLightBuild || !d.lightsDescription) return;
+    /* Sitting out the season means nothing gets built for them, even if a
+       needsLightBuild flag was already set before they answered. */
+    if(!d.needsLightBuild || !d.lightsDescription || d.maybeNextYear) return;
     const key = whGroupKey(d.lightsDescription, d.wireColor);
     if(!groups[key]) groups[key] = {houses:[], extras:[]};
     groups[key].houses.push(item);
@@ -15362,7 +15401,7 @@ function renderAllCustomersTable(){
   });
 
   document.getElementById('allCustCount').textContent = rows.length + ' customer' + (rows.length===1?'':'s') + ' shown.';
-  if(!rows.length){ body.innerHTML = '<tr><td colspan="7" style="padding:16px; color:var(--slate);">No customers match this view.</td></tr>'; return; }
+  if(!rows.length){ body.innerHTML = '<tr><td colspan="8" style="padding:16px; color:var(--slate);">No customers match this view.</td></tr>'; return; }
 
   body.innerHTML = rows.map(function(r){
     const billedElsewhere = jobAddresses.find(a => (a.data.phone||'').replace(/\D/g,'') === (r.d.billToPhone||''));
@@ -15375,12 +15414,24 @@ function renderAllCustomersTable(){
     const timingLabel = r.d.installPreference === 'November - Before Thanksgiving' ? 'November — Before Thanksgiving' : (r.d.installPreference === 'Normal Schedule' || !r.d.installPreference ? 'Any' : r.d.installPreference);
     const mapCell = r.hasMap ? '<a class="btn btn-outline btn-sm" href="'+esc(r.d.layoutMapUrl)+'" target="_blank" rel="noopener">View Map</a>' : '<span style="color:var(--slate); font-size:12px;">No map yet</span>';
     const binBadge = (r.d.numberOfBins && r.d.numberOfBins > 1) ? ' <span style="display:inline-block; background:#EAF1FA; color:#2B5C8A; border:1px solid #C3D8EC; border-radius:999px; padding:1px 8px; font-size:11px; font-weight:600; vertical-align:middle;">'+r.d.numberOfBins+' bins</span>' : '';
+    /* Everyone carries one of these two, so the column answers "is this person
+       in for this season?" at a glance rather than only flagging the exceptions
+       - a blank cell used to be ambiguous between "confirmed" and "nobody has
+       looked at this yet". Confirmed is the default because that is what being
+       in All Customers has always meant; the RSVP email will set it properly
+       once it is wired up. The button flips them the other way. */
+    const maybeCell = r.d.maybeNextYear
+      ? '<span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">Maybe Next Year</span>'+
+        '<br><button type="button" class="btn btn-outline btn-sm" data-seasontoggle="'+r.item.id+'" data-to="confirmed" style="margin-top:4px; font-size:11px;">Confirm</button>'
+      : '<span class="status-pill" style="background:#E6F2EA; color:#2E6B3E; font-weight:700;">Confirmed</span>'+
+        '<br><button type="button" class="btn btn-outline btn-sm" data-seasontoggle="'+r.item.id+'" data-to="maybe" style="margin-top:4px; font-size:11px;">Maybe next year</button>';
     return '<tr style="border-bottom:1px solid var(--line);">'+
       '<td style="padding:8px 10px;"><strong>'+esc(r.d.name||'(no name)')+'</strong>'+binBadge+'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.address||'')+'</span>'+propLabelChip(r.d)+(r.d.phone?'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.phone)+'</span>':'')+'</td>'+
       '<td style="padding:8px 10px; font-size:12.5px;">'+esc(r.enrolled||'—')+'</td>'+
       '<td style="padding:8px 10px;">'+routeCell+'</td>'+
       '<td style="padding:8px 10px; font-size:12.5px;">'+esc(timingLabel)+'</td>'+
       '<td style="padding:8px 10px;">'+invCell+'</td>'+
+      '<td style="padding:8px 10px;">'+maybeCell+'</td>'+
       '<td style="padding:8px 10px;">'+mapCell+'</td>'+
       '<td style="padding:8px 10px;"><button type="button" class="icon-btn" data-editcust="'+r.item.id+'" title="Edit Personal Info">'+editIcon()+'</button></td>'+
     '</tr>';
@@ -15388,6 +15439,34 @@ function renderAllCustomersTable(){
   body.querySelectorAll('[data-editcust]').forEach(function(btn){
     btn.addEventListener('click', function(){
       openEditCustomerModal(btn.dataset.editcust);
+    });
+  });
+  /* Flipping to Confirmed deliberately does NOT put anyone back on a route.
+     Rebuilding a route behind the office's back would be a worse surprise than
+     making them re-add one stop by hand, so both directions say what they do. */
+  body.querySelectorAll('[data-seasontoggle]').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      const id = btn.dataset.seasontoggle;
+      const toMaybe = btn.dataset.to === 'maybe';
+      const cust = jobAddresses.find(a => a.id === id);
+      const who = (cust && cust.data.name) || 'this customer';
+      const ask = toMaybe
+        ? 'Mark ' + who + ' as Maybe Next Year?\n\nThey stay in All Customers and keep everything they owe, but they come off the routes, the schedule and the warehouse build list — including any upcoming route they are already on.'
+        : 'Confirm ' + who + ' for this season?\n\nThe Maybe Next Year badge is removed and their RSVP goes back to pending, so they can be routed again. They are NOT added back to any route — you\'ll need to schedule them like anyone else.';
+      if(!confirm(ask)) return;
+      btn.disabled = true;
+      try{
+        const removed = await setCustomerSeason(id, toMaybe);
+        /* Nothing re-renders this table on a jobAddresses change, so without
+           this the badge stays on screen and the button reads as dead. */
+        renderAllCustomersTable();
+        toast(toMaybe
+          ? who + ' is out for this season' + (removed ? ' — taken off ' + removed + ' upcoming route' + (removed === 1 ? '' : 's') + '.' : '.')
+          : who + ' is back in the pool — schedule them when you\'re ready.');
+      } catch(err){
+        btn.disabled = false;
+        toast('Could not change that — try again.');
+      }
     });
   });
 }
@@ -15467,6 +15546,9 @@ function openEditCustomerModal(id){
   document.getElementById('editCustAddress').value = d.address || '';
   document.getElementById('editCustEnrolled').value = (d.createdAt && d.createdAt.toDate) ? toDateStr(d.createdAt.toDate()) : '';
   document.getElementById('editCustRsvp').value = d.rsvpStatus || '';
+  /* Confirmed is the default for anyone not explicitly sitting out, which is
+     what an All Customers record has always meant. */
+  document.getElementById(d.maybeNextYear ? 'editCustSeasonMaybe' : 'editCustSeasonConfirmed').checked = true;
   document.getElementById('editCustEarliestInstall').value = (d.earliestInstallDate && d.earliestInstallDate.toDate) ? toDateStr(d.earliestInstallDate.toDate()) : '';
   document.getElementById('editCustFeet').value = d.measuredFeet || '';
   document.getElementById('editCustHousePrice').value = d.housePrice || '';
@@ -15669,6 +15751,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const newAddress = document.getElementById('editCustAddress').value.trim();
   const newEnrolledStr = document.getElementById('editCustEnrolled').value;
   const newRsvp = document.getElementById('editCustRsvp').value;
+  const newSeasonMaybe = document.getElementById('editCustSeasonMaybe').checked;
   const newEarliestInstallStr = document.getElementById('editCustEarliestInstall').value;
   const newHousePrice = Number(document.getElementById('editCustHousePrice').value) || 0;
   const newMeasuredFeet = Number(document.getElementById('editCustFeet').value) || 0;
@@ -15721,6 +15804,27 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     addrUpdates.referralCount = newReferralCount;
     const oldLightsForBuild = item.data.lightsDescription || '';
     addrUpdates.needsLightBuild = newLightsDescription ? (newLightsDescription !== oldLightsForBuild ? true : !!item.data.needsLightBuild) : false;
+    /* Applied last so it beats the RSVP dropdown and the build flag above:
+       the toggle is the explicit statement about this season, and letting the
+       two disagree is how someone ends up badged Maybe Next Year while still
+       sitting on a route. Money fields are untouched on purpose. */
+    addrUpdates.maybeNextYear = newSeasonMaybe;
+    if(newSeasonMaybe){
+      if(!item.data.maybeNextYear) addrUpdates.maybeNextYearAt = serverTimestamp();
+      addrUpdates.rsvpStatus = 'backnextyear';
+      addrUpdates.rsvpRespondedAt = serverTimestamp();
+      addrUpdates.needsLightRecycle = false;
+      addrUpdates.needsLightBuild = false;
+      addrUpdates.scheduled = false;
+      addrUpdates.scheduledDate = null;
+      addrUpdates.assignedCrew = null;
+    } else if(item.data.maybeNextYear){
+      addrUpdates.maybeNextYearAt = null;
+      /* Coming back in with the dropdown still reading Back Next Year would
+         leave them unroutable behind a Confirmed badge, so reset it to
+         pending unless the office picked something else themselves. */
+      if(newRsvp === 'backnextyear'){ addrUpdates.rsvpStatus = ''; addrUpdates.rsvpRespondedAt = null; }
+    }
     let geocodeFailed = false;
     if(newAddress && newAddress !== oldAddress){
       statusEl.textContent = 'Address changed — relocating on map…';
@@ -15800,6 +15904,12 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       specificOutlet: newSpecificOutlet, specificOutletNotes: newSpecificOutletNotes,
       customerNumber: addrUpdates.customerNumber, lat: addrUpdates.lat, lng: addrUpdates.lng
     });
+    /* Switching someone to Maybe Next Year has to take them off the routes as
+       well as flag them, or the crew still turns up. Only on the transition,
+       so re-saving an already-flagged customer is not a repeated sweep. */
+    if(newSeasonMaybe && !item.data.maybeNextYear){
+      await removeCustomerFromUpcomingRoutes(editCustomerId);
+    }
     const inv = allCustInvoiceFor(item);
     let resyncPayerAfter = null;
     let migratingFeeNotes = null;
@@ -16346,7 +16456,11 @@ async function runGenerateInstallRoute(){
   const seedPref = document.getElementById('routeSeedPref').value;
   const statusEl = document.getElementById('generateRouteStatus');
   const isTest = document.getElementById('testGenerateCheck').checked;
-  let available = jobAddresses.filter(a => !a.data.scheduled && !a.data.completed && typeof a.data.lat === 'number' && !isInstallPrefLocked(a.data.installPreference) && !isEarliestInstallDateLocked(a.data) && (isTest || !isLightsLocked(a.data)) && (isTest || a.data.rsvpStatus === 'yes'));
+  /* maybeNextYear is checked on its own rather than leaning on the rsvpStatus
+     test beside it: the badge is what the office sets and sees, so it has to
+     be the thing that keeps someone off a route even if an RSVP gets edited
+     back to yes by hand. Same reason it repeats on the fix and removal lists. */
+  let available = jobAddresses.filter(a => !a.data.scheduled && !a.data.completed && typeof a.data.lat === 'number' && !isInstallPrefLocked(a.data.installPreference) && !isEarliestInstallDateLocked(a.data) && (isTest || !isLightsLocked(a.data)) && (isTest || a.data.rsvpStatus === 'yes') && !a.data.maybeNextYear);
   if(cityChoice !== 'all') available = available.filter(a => extractCleanCity(a.data.city) === cityChoice || a.data.installPreference === 'November - Before Thanksgiving');
 
   const startText = document.getElementById('routeStartInput').value.trim();
@@ -16393,7 +16507,7 @@ document.getElementById('generateFixBtn').addEventListener('click', async functi
   const crewChoice = document.getElementById('fixCrewSelect').value;
   const seedPref = document.getElementById('fixSeedPref').value;
   const statusEl = document.getElementById('generateFixStatus');
-  let available = jobAddresses.filter(a => a.data.needsFix && !a.data.fixScheduled && typeof a.data.lat === 'number');
+  let available = jobAddresses.filter(a => a.data.needsFix && !a.data.fixScheduled && typeof a.data.lat === 'number' && !a.data.maybeNextYear);
   if(cityChoice !== 'all') available = available.filter(a => extractCleanCity(a.data.city) === cityChoice);
   const wantFix = document.getElementById('wantFixAll').checked ? available.length : (Number(document.getElementById('wantFix').value) || 0);
 
@@ -16416,7 +16530,7 @@ document.getElementById('generateRemovalBtn').addEventListener('click', async fu
   const crewChoice = document.getElementById('removalCrewSelect').value;
   const seedPref = document.getElementById('removalSeedPref').value;
   const statusEl = document.getElementById('generateRemovalStatus');
-  let available = jobAddresses.filter(a => a.data.completed && !a.data.removalDone && !a.data.removalScheduled && typeof a.data.lat === 'number');
+  let available = jobAddresses.filter(a => a.data.completed && !a.data.removalDone && !a.data.removalScheduled && typeof a.data.lat === 'number' && !a.data.maybeNextYear);
   if(cityChoice !== 'all') available = available.filter(a => extractCleanCity(a.data.city) === cityChoice);
 
   const startText = document.getElementById('removalStartInput').value.trim();
@@ -16780,6 +16894,52 @@ async function resyncSavedRouteStops(customerId, fields){
       catch(err){ console.warn('Route stop resync failed for ' + route.id, err); }
     }
   }
+}
+/* Takes a customer off every UPCOMING saved route. Past routes are left exactly
+   as they are - they are history, and rewriting them would change what the crew
+   actually did. Mirrors pullCustomerFromSeason in functions/index.js, which does
+   the same job when the customer answers "maybe next year" themselves. */
+async function removeCustomerFromUpcomingRoutes(customerId){
+  const todayStr = toDateStr(new Date());
+  const dates = Object.keys(scheduledRoutesCache || {});
+  let removed = 0;
+  for(let i = 0; i < dates.length; i++){
+    if(dates[i] < todayStr) continue;
+    const routes = scheduledRoutesCache[dates[i]] || [];
+    for(let r = 0; r < routes.length; r++){
+      const route = routes[r];
+      if(!route.stops || !route.stops.some(function(st){ return st.id === customerId; })) continue;
+      const kept = route.stops.filter(function(st){ return st.id !== customerId; });
+      try { await updateDoc(doc(db,'scheduledRoutes', route.id), {stops: kept}); removed++; }
+      catch(err){ console.warn('Could not remove stop from ' + route.id, err); }
+    }
+  }
+  return removed;
+}
+/* The one place that flips a customer between Confirmed and Maybe Next Year, so
+   the badge, the Edit Customer toggle and (later) the RSVP email can never drift
+   into disagreeing about what the pair of states means. Deliberately writes no
+   money field: sitting out next season says nothing about what is owed for work
+   already done. */
+async function setCustomerSeason(id, toMaybe){
+  const updates = toMaybe
+    ? { maybeNextYear: true, maybeNextYearAt: serverTimestamp(),
+        rsvpStatus: 'backnextyear', rsvpRespondedAt: serverTimestamp(),
+        needsLightRecycle: false, needsLightBuild: false,
+        scheduled: false, scheduledDate: null, assignedCrew: null }
+    : { maybeNextYear: false, maybeNextYearAt: null,
+        rsvpStatus: '', rsvpRespondedAt: null };
+  await updateDoc(doc(db,'jobAddresses', id), updates);
+  /* The table is rebuilt from jobAddresses rather than re-read from Firestore,
+     so the local copy has to move first or the row repaints the old value. */
+  const local = jobAddresses.find(a => a.id === id);
+  if(local) Object.assign(local.data, {
+    maybeNextYear: !!toMaybe,
+    rsvpStatus: toMaybe ? 'backnextyear' : '',
+    scheduled: toMaybe ? false : local.data.scheduled,
+    needsLightBuild: toMaybe ? false : local.data.needsLightBuild
+  });
+  return toMaybe ? await removeCustomerFromUpcomingRoutes(id) : 0;
 }
 function loadRouteIntoView(route, dateStr){
   routeMapInstance = null;
@@ -20863,7 +21023,7 @@ const TEST_SEED = [
   [164, 'Security', 'Portal token minted when missing', '1. In admin, find a customer who has never signed into the Member Portal before and has never received an invoice email before.\n2. Go to the Member Portal and sign in using that customer\'s phone number and last name.\n3. Once their account opens successfully, sign back out of the portal.\n4. Have an invoice email sent to that same customer (ask whoever normally handles this how to trigger it, or wait for the nightly automatic invoice email).\n5. Open that invoice email and click the personalized link inside it - a link made just for that one customer.', 'Signing in with the phone number and last name worked the first time, even though this customer had never used the portal before. The personalized link in the invoice email also works and takes you into the same account. Behind the scenes, a portal token (a private access code) was automatically created for this customer the first time one was needed.', 1, '', '', ''],
   [165, 'Security', 'Shared staff login is app-side only', '1. This test does not require you to click through anything in the app - it is something to read and confirm you understand.\n2. Read and note this fact: the whole crew shares one single staff login, and then each person picks their own name after logging in.\n3. Understand what that means: any limits on which tabs a particular crew member can see are enforced by the phone app itself (the software), not by the database that stores the actual data.', 'Confirm that you understand this known limitation: anyone who has the shared staff login technically has full database-level access to everything, no matter which tabs the app shows or hides for them. Mark this test \'Pass\' once you have read this and accept it as-is, or mark it \'Fail\' if you think this should be changed.', 1, '', '', ''],
   [166, 'Health & Data', 'Invoice Bulk Update guard', '1. Open admin (the private office dashboard).\n2. In the menu on the left side of the screen, click \'Import Center\'.\n3. Find the box labeled \'Invoice Fields\'.\n4. Pick a real test customer who already has an invoice with at least one of the following on it: a removal charge, a deposit, or a change fee.\n5. Write down the exact removal charge, deposit, and change fee amounts currently sitting on their invoice, before doing anything else.\n6. Into the Invoice Fields box, paste that customer\'s name, their phone number, and a new payment amount that is different from what\'s on the invoice now.\n7. Click the button labeled \'Import / Update Invoices\'.\n8. In the menu on the left side of the screen, click \'Invoices\'.\n9. Click \'Invoice List\'.\n10. Find and open that same test customer\'s invoice again.', 'The install amount on the invoice should have updated to the new payment amount you entered. But the removal charge, deposit, and change fee you wrote down beforehand should all still be exactly the same as before - running this import tool should not quietly wipe them out to zero.', 2, '', '', 'Invoices is now its own item in the left menu instead of a tab inside Dashboard - the click-by-click steps were rewritten, so this needs running against the new path.'],
-  [167, 'Admin', 'Quote photo upload', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click "Quote Requests".\n3. Find any quote card.\n4. On that card, click the button called "Add Photo" (or "Replace Photo" if a photo is already there).\n5. Upload a house photo directly on the card.\n6. Click the button called "Mark Up Photo".\n7. Try drawing on the photo.', 'The photo you uploaded should appear on the quote card. Clicking Mark Up Photo should open a drawing tool that lets you draw on the photo. This is the manual photo-upload feature that replaced an old Street View lookup tool — it\'s a live feature that\'s actually used, not leftover code, so it should keep working correctly.', 1, '', '', ''],
+  [167, 'Admin', 'Quote photo upload', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click "Quote Requests".\n3. Find any quote card.\n4. On that card, click the button called "Add Photo" (or "Add More Photos" if a photo is already there).\n5. Upload a house photo directly on the card.\n6. Click the button called "Mark Up Photo".\n7. Try drawing on the photo.', 'The photo you uploaded should appear on the quote card. Clicking Mark Up Photo should open a drawing tool that lets you draw on the photo. This is the manual photo-upload feature that replaced an old Street View lookup tool — it\'s a live feature that\'s actually used, not leftover code, so it should keep working correctly.', 2, '', '', ''],
   [168, 'Admin', 'Bulk Difficulty column', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click \'Customers\'.\n3. Click the tab called \'Bulk Updates\'.\n4. Click the heading \'Customers & Routes\' to open it if it isn\'t already open.\n5. Scroll down to the row of boxes that has \'Wire Color\', \'Outlet Timer\' and \'Use Eaves\'. There should now be a fourth box there called \'Difficulty (optional)\'.\n6. Pick two real customers who are currently Unrated. Write down their street addresses exactly as they appear in Routes.\n7. Paste those two street addresses into the \'Street Address\' box, one per line.\n8. In the \'Difficulty\' box, type Hard on the first line and easy (lowercase, on purpose) on the second line.\n9. Check that the small grey counter above the Difficulty box says \'2 rows\'.\n10. Click \'Import / Update Customers\' and wait for it to finish.\n11. In the menu on the left side of the screen, click \'Routes\'.\n12. Search for each of those two customers and click \'Show Details\' on their card.\n13. Now go back to Bulk Updates and try it again with the same two addresses, but this time type the word Banana in the Difficulty box on the first line.\n14. Click \'Import / Update Customers\' again.', 'After step 10, the first customer\'s difficulty should read Hard and the second should read Easy — typing it in lowercase should still work. Leaving the Difficulty box completely empty should never change anyone\'s existing difficulty. In step 14, the import should refuse to run and show a message naming row 1 and the word Banana, and nothing at all should be imported or changed from that attempt.', 1, '', '', ''],
   [169, 'Invoices', 'Overdue now means 30 days', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click \'Invoices\'.\n3. Click the \'Invoice List\' tab.\n4. Click the button that says \'Filter\'.\n5. Read the wording next to the Overdue tick box.\n6. Tick Overdue and click \'Apply\'.\n7. Look at which customers come back, and check how long ago each of their invoices was last updated.', 'The tick box should read \'Overdue (30+ days unpaid)\', not 14. Only customers whose unpaid invoice is at least 30 days old should appear - someone unpaid for around 20 days should no longer be flagged. This is what makes the list agree with the 30-day due date now printed on the invoice.', 1, '', '', ''],
   [170, 'Invoices', 'Printed invoice shows a number and a due date', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click \'Automation Emails\'.\n3. Click the tab labeled \'Invoices\'.\n4. Tick one customer who still owes money, to show their invoice.\n5. Read the top right corner of the invoice that appears, and then the top left.', 'The top right should show an invoice number starting \'HU-\', the season year, an \'Issued\' date, and a \'Due\' date exactly 30 days after the issued date. The business phone, email and website should appear under the Highlighting Utah name on the left.', 1, '', '', ''],
