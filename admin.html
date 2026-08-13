@@ -4336,6 +4336,30 @@ function balanceDueAmount(d){
   // Light-change fees ($30 each) add on, the same way they do server-side.
   return Math.max((Number(d.install)||0)+(Number(d.removal)||0)+(Number(d.changeFees)||0)-(Number(d.credits)||0)-(Number(d.deposit)||0), 0);
 }
+/* Template names are typed by hand, and an em dash, en dash and hyphen all
+   look near enough identical in a text box. Matching on the exact characters
+   meant a template that was plainly there "did not exist". This compares names
+   with dashes, spacing and case flattened, so any of them match. */
+function tplNameKey(n){
+  return String(n||'')
+    .replace(/[\u2010-\u2015\u2212-]+/g, '-')   // any dash-like character -> a plain hyphen
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+function findTemplateByName(name){
+  const want = tplNameKey(name);
+  return emailTemplates.find(t => t.data && tplNameKey(t.data.name) === want) || null;
+}
+/* Used in error messages: what IS in the library, so a mismatch is obvious
+   instead of leaving you guessing at punctuation. */
+function billingTemplateNames(){
+  const folder = emailTemplateFolders.find(f => tplNameKey(f.name) === 'billing');
+  const inFolder = folder ? emailTemplates.filter(t => t.data && t.data.folderId === folder.id) : [];
+  const list = (inFolder.length ? inFolder : emailTemplates).map(t => t.data && t.data.name).filter(Boolean);
+  return list.length ? list.join(', ') : '(the template library looks empty)';
+}
+
 /* ---- Payment receipts ------------------------------------------------
    Sent when a payment is recorded from admin (by hand, or by the payment
    importer). PayPal payments are receipted server-side in
@@ -4379,8 +4403,8 @@ async function sendPaymentReceipt(invId, invData, paidNow){
 
     const tplName = paidInFull ? 'Nightly Auto-Invoice \u2014 Paid Receipt'
                                : 'Payment Received \u2014 Balance Remaining';
-    const tpl = emailTemplates.find(t => t.data && t.data.name === tplName);
-    if(!tpl) return {sent:false, quiet:false, why:'No receipt sent: there is no email template named "'+tplName+'". Create it under Automation Emails > Templates > Billing, spelled exactly that way (note the long dash). The payment was still recorded.'};
+    const tpl = findTemplateByName(tplName);
+    if(!tpl) return {sent:false, quiet:false, why:'No receipt sent: no email template matching "'+tplName+'" could be found. The templates it can see are: '+billingTemplateNames()+'. Either rename one to match, or create it under Automation Emails > Templates > Billing. The payment was still recorded.'};
 
     let body = tpl.data.body || '';
     body = body.split('{{payment_amount}}').join(fmtMoney(paidNow));
@@ -4478,6 +4502,15 @@ async function resolveLinkTokens(text, phone, amount, opts){
   if(opts.link){
     out = out.split('{{link}}').join(opts.link);
     out = out.split('{{link_button}}').join('<a href="'+opts.link+'" style="'+btnStyleGold+'">'+(opts.linkLabel || 'View & Respond')+'</a>');
+  }
+  /* The due date the customer is told must be the same one the Invoice List
+     chases them by, so it is worked out from the invoice's own timestamp using
+     PAYMENT_TERMS_DAYS - the single constant the printed invoice uses too. */
+  if(out.indexOf('{{due_date}}') !== -1){
+    const dueKey = (String(phone||'').replace(/\D/g,'')) || String(phone||'').toLowerCase().trim();
+    const dueInv = allInvoicesCache.find(i => i.id === dueKey);
+    const issued = (dueInv && (toJsDate(dueInv.data.invoicedAt) || toJsDate(dueInv.data.updatedAt))) || new Date();
+    out = out.split('{{due_date}}').join(niceDate(addDays(issued, PAYMENT_TERMS_DAYS)));
   }
   if(out.indexOf('{{feet_line}}') !== -1 || out.indexOf('{{new_member_fee_line}}') !== -1 || out.indexOf('{{amount_due}}') !== -1 || out.indexOf('{{amount_paid}}') !== -1){
     const phoneDigits = (phone||'').replace(/\D/g,'');
@@ -7192,7 +7225,7 @@ const ET_PREBUILT_TEMPLATES = [
   {name:'RSVP Email', folderName:'RSVP', body:'Hi {{name}} \uD83C\uDF84\n\nIt\'s almost time for the Christmas lighting season! Will you be getting lights hung again this year?\n\n{{rsvp_yes_button}}{{rsvp_no_button}}{{rsvp_back_button}}', linkedTokens:[{code:'rsvp_yes_button', style:'button'},{code:'rsvp_no_button', style:'button'},{code:'rsvp_back_button', style:'button'}]},
   {name:'Post-Install Invoice', folderName:'Billing', body:'Hi {{name}},\n\nThanks for having us out \u2014 your lights are up! Your balance for this season is {{amount}}. You can pay through your portal or Venmo using the links below.\n\n{{portal_link}}{{venmo_button}}', linkedTokens:[{code:'portal_link', style:'link'},{code:'venmo_button', style:'button'}]},
   {name:'Already Paid - Say Thanks', folderName:'Billing', body:'Hi {{name}},\n\nYour lights are up! Just confirming we received your payment of {{amount}} for this season \u2014 you\'re all set.\n\n{{message_link}}', linkedTokens:[{code:'message_link', style:'link'}]},
-  {name:'Nightly Auto-Invoice \u2014 Unpaid', folderName:'Billing', body:'Hi {{name}},\n\nThanks for having us out today \u2014 your lights are up!\n\n{{feet_line}}\n{{new_member_fee_line}}\n{{credit_lines}}\n\nAmount due: {{amount_due}}\n\nPay your invoice here:\n\n{{pay_button}}{{venmo_button}}', linkedTokens:[{code:'pay_button', style:'button'},{code:'venmo_button', style:'button'}]},
+  {name:'Nightly Auto-Invoice \u2014 Unpaid', folderName:'Billing', body:'Hi {{name}},\n\nThanks for having us out today \u2014 your lights are up!\n\n{{feet_line}}\n{{new_member_fee_line}}\n{{credit_lines}}\n\nAmount due: {{amount_due}}\nPlease pay by {{due_date}}.\n\nPay your invoice here:\n\n{{pay_button}}{{venmo_button}}', linkedTokens:[{code:'pay_button', style:'button'},{code:'venmo_button', style:'button'}]},
   {name:'Nightly Auto-Invoice \u2014 Paid Receipt', folderName:'Billing', body:'Hi {{name}},\n\nYour lights are up! This confirms we\'ve already received your payment in full for this season \u2014 you\'re all set, nothing more to do.\n\n{{feet_line}}\n{{new_member_fee_line}}\n{{credit_lines}}\n\nAmount paid: {{amount_paid}}\n\nThank you for choosing Highlighting Utah!\n\n{{view_portal_button}}{{message_link}}', linkedTokens:[{code:'view_portal_button', style:'button'},{code:'message_link', style:'link'}]},
   {name:'Payment Received \u2014 Balance Remaining', folderName:'Billing', body:'Hi {{name}},\n\nThanks \u2014 we\'ve received your payment of {{payment_amount}}.\n\nInvoice total: {{amount_total}}\nPaid so far: {{amount_paid}}\nAmount still due: {{amount_due}}\n\nYou can finish paying any time using the button below.\n\n{{pay_button}}{{venmo_button}}\n\n{{message_link}}', linkedTokens:[{code:'pay_button', style:'button'},{code:'venmo_button', style:'button'},{code:'message_link', style:'link'}]},
   {name:'Quick Announcement', folderName:'Announcements', body:'Hi {{name}} \uD83C\uDF84\n\nIt\'s almost time for the Christmas lighting season! Tap below to update your info, check your balance, or send us a message anytime.\n\n{{portal_link}}{{message_link}}', linkedTokens:[{code:'portal_link', style:'link'},{code:'message_link', style:'link'}]},
@@ -7903,8 +7936,8 @@ async function invTestSend(){
   const tplName = status === 'Paid in Full'
     ? 'Nightly Auto-Invoice \u2014 Paid Receipt'
     : 'Nightly Auto-Invoice \u2014 Unpaid';
-  const tpl = emailTemplates.find(t => t.data && t.data.name === tplName);
-  if(!tpl) return say('There is no template named "'+tplName+'". Create it under Templates > Billing, spelled exactly that way (note the long dash).', true);
+  const tpl = findTemplateByName(tplName);
+  if(!tpl) return say('No template matching "'+tplName+'" could be found. The templates it can see are: '+billingTemplateNames()+'. Either rename one to match, or create it under Templates > Billing.', true);
 
   if(!window.emailjs) return say('The email service did not load - check your internet connection.', true);
   const serviceId = document.getElementById('emailjsServiceId').value.trim();
@@ -7929,6 +7962,8 @@ async function invTestSend(){
     body = body.split('{{fee_lines}}').join(feeLines);
     body = body.split('{{amount_due}}').join(fmtMoney(amountDue));
     body = body.split('{{amount_paid}}').join(fmtMoney(deposit));
+    const issuedOn = toJsDate(inv.invoicedAt) || toJsDate(inv.updatedAt) || new Date();
+    body = body.split('{{due_date}}').join(niceDate(addDays(issuedOn, PAYMENT_TERMS_DAYS)));
     body = await resolveLinkTokens(body.replace(/\{\{name\}\}/g, d.name || 'there'), d.phone || key, amountDue);
     body = body.replace(/\n/g, '<br>');
     body = '<div style="background:#FFF8E9; border:1px solid #D89F3D; border-radius:8px; padding:10px 12px; font-family:Arial,sans-serif; font-size:13px; margin-bottom:16px;">'+
@@ -8118,6 +8153,7 @@ const IC_CODES = {
     {token:'{{amount}}', label:'Amount (billing)'},
     {token:'{{portal_link}}', label:'Portal link (plain URL)'},
     {token:'{{portal_button}}', label:'Portal link (button)'},
+    {token:'{{due_date}}', label:'Payment due date (30 days from the invoice)'},
     {token:'{{pay_button}}', label:'Pay Your Invoice (button)'},
     {token:'{{view_portal_button}}', label:'View Your Portal (button)'},
     {token:'{{messages_link}}', label:'Send-us-a-message link (plain URL)'},
