@@ -1,1 +1,9 @@
 node_modules/
+
+# The test suite lives at the repo root but its code expects a tests/ subfolder,
+# so running it copies run-all.js + quote-card.test.js into tests/ and deletes
+# the folder afterwards (see CLAUDE.md section 3, gate B). On Windows the
+# node_modules link inside it is a real copy, so the cleanup sometimes fails and
+# leaves the folder behind. Ignoring it means a half-deleted tests/ can never be
+# committed by accident.
+tests/
