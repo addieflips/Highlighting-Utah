@@ -33,6 +33,50 @@
   .photo-wrap.show .photo-hint{ display:none; }
   @media (hover:hover){ .photo-hint{ display:none; } }
 
+  /* ---- A quote's photos: one at a time, with a count badge, arrows, a
+     thumbnail strip underneath, and swipe on a phone. The frame takes the
+     shape of whatever picture is in it, so nothing is ever stretched. Only
+     the little thumbnails crop, because they have to line up. ---- */
+  .qp-wrap{ display:block; max-width:280px; }
+  .qp-main{ width:100%; height:auto; display:block; border-radius:8px; border:1px solid var(--line); background:var(--paper); }
+  .qp-count{ position:absolute; top:8px; left:8px; background:rgba(20,32,25,.78); color:#fff;
+    font-size:11px; font-weight:700; padding:3px 8px; border-radius:999px; pointer-events:none; }
+  .qp-nav{ position:absolute; top:50%; transform:translateY(-50%); width:30px; height:30px; border:none;
+    border-radius:50%; background:rgba(20,32,25,.6); color:#fff; font-size:18px; line-height:1; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; padding:0; }
+  .qp-nav:hover{ background:rgba(20,32,25,.95); }
+  .qp-prev{ left:6px; }
+  .qp-next{ right:6px; }
+  .qp-thumbs{ display:flex; gap:6px; flex-wrap:wrap; margin:6px 0 8px; }
+  .qp-thumb{ width:52px; height:40px; border-radius:6px; overflow:hidden; border:2px solid transparent;
+    padding:0; background:var(--paper); cursor:pointer; }
+  .qp-thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .qp-thumb.on{ border-color:var(--gold-dim); }
+
+  /* ---- The same photo-at-a-time frame, reused for a customer's house
+     pictures: on the customer record, on the route card, and anywhere else a
+     house photo is shown. All the pictures are in the page; only one is
+     displayed, so moving between them never re-fetches anything. Section
+     highlights only ever sit on the main photo. ---- */
+  .pc{ position:relative; }
+  .pc-frame{ position:relative; }
+  .pc-slide{ display:none; position:relative; }
+  .pc-slide.on{ display:block; }
+  .pc-slide img{ width:100%; display:block; }
+  .pc-count{ position:absolute; top:8px; left:8px; background:rgba(20,32,25,.78); color:#fff;
+    font-size:11px; font-weight:700; padding:3px 8px; border-radius:999px; pointer-events:none; z-index:3; }
+  .pc-nav{ position:absolute; top:50%; transform:translateY(-50%); width:30px; height:30px; border:none;
+    border-radius:50%; background:rgba(20,32,25,.6); color:#fff; font-size:18px; line-height:1; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; padding:0; z-index:3; }
+  .pc-nav:hover{ background:rgba(20,32,25,.95); }
+  .pc-prev{ left:6px; }
+  .pc-next{ right:6px; }
+  .pc-thumbs{ display:flex; gap:6px; flex-wrap:wrap; margin:6px 0 0; }
+  .pc-thumb{ width:46px; height:36px; border-radius:6px; overflow:hidden; border:2px solid transparent;
+    padding:0; background:var(--paper); cursor:pointer; }
+  .pc-thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .pc-thumb.on{ border-color:var(--gold-dim); }
+
   :root{
     --ink:#1E3B2C; --dusk:#3E7A5B; --dusk-2:#5B9678;
     --gold:#F4BE55; --gold-dim:#D89F3D; --ember:#E0574B;
@@ -1206,7 +1250,7 @@
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
             <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">House Pictures</label>
             <p style="font-size:12px; color:var(--slate); margin:0 0 8px;">Upload a photo (a Google Maps/satellite screenshot works great), then drag on it to outline each section they want lit. Feet and price per section are calculated automatically, and the total feeds straight into Measured Feet and Total Price below &mdash; shared automatically with Routes and House Maps. Use the toggle to switch between the marked-up photo and the drawn-out blueprint view.</p>
-            <input type="file" accept="image/*" id="addCustPhoto">
+            <input type="file" accept="image/*" multiple id="addCustPhoto">
             <div class="addcust-view-toggle" id="addCustViewToggle" style="display:none; gap:8px; margin:10px 0;">
               <button type="button" class="btn btn-outline btn-sm" id="addCustViewOriginal" style="background:var(--ink); color:#fff;">Original Photo</button>
               <button type="button" class="btn btn-outline btn-sm" id="addCustViewBlueprint">Blueprint View</button>
@@ -1225,6 +1269,8 @@
               <button type="button" class="btn btn-gold btn-sm" id="addCustNewHAdd">Add This Section</button>
               <button type="button" class="btn btn-outline btn-sm" id="addCustNewHCancel">Cancel</button>
             </div>
+            <div id="addCustExtraPhotos" class="pc-thumbs" style="display:none;"></div>
+            <p id="addCustExtraNote" style="font-size:12px; color:var(--slate); margin:6px 0 0; display:none;"></p>
             <div id="addCustHighlightList"></div>
             <div id="addCustHighlightTotal" style="font-weight:700; margin:10px 0;"></div>
             <button type="button" class="btn btn-outline btn-sm" id="addCustUseTotalBtn" style="display:none;">Use This Total for Measured Feet &amp; Price</button>
@@ -1631,7 +1677,7 @@
             <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:6px;">House Pictures</label>
             <p style="font-size:12px; color:var(--slate); margin:0 0 8px;">Upload, then highlight and mark it up &mdash; this is the only place photos are edited.</p>
             <div id="editCustPhotoThumb" style="margin-bottom:8px;"></div>
-            <input type="file" accept="image/*" id="editCustPhotoFile">
+            <input type="file" accept="image/*" multiple id="editCustPhotoFile">
             <div id="editCustPhotoStatus" style="font-size:12px; color:var(--slate); margin-top:4px;"></div>
             <div class="form-row" style="margin-top:14px;">
               <label>Layout Map <span style="font-weight:400; color:var(--slate);">(the hand-drawn light plan, scanned &mdash; stays on this house year after year)</span></label>
@@ -3863,6 +3909,32 @@ function cloudThumb(url, width){
   return url.replace('/image/upload/', '/image/upload/w_'+(width||400)+',c_limit,q_auto,f_auto/');
 }
 
+/* Photos in the quote email.
+
+   They go one under another, each the full width of the email, and the
+   customer scrolls. That is the one layout where every picture is WHOLE and
+   every picture is the SAME SIZE as the others - they all share one width, and
+   each one's height simply follows its own shape. Nothing is cropped, nothing
+   is squashed, and there is no leftover space to fill with a blur or a band.
+
+   Side by side was tried first and every version of it forces a choice between
+   trimming the edges off a photo and padding it out. Stacked needs neither.
+
+   (A swipeable slideshow is not an option in email: Gmail and Outlook strip
+   the parts that make it move, so most people would get a stuck frame or a
+   single photo. Scrolling is the thing every mail app on earth can do.)
+
+   c_limit only ever shrinks - a picture smaller than the limit is left alone,
+   and nothing is ever cropped or stretched. The width is asked for at 2x so it
+   stays sharp on a phone. Anything not on Cloudinary is handed back as it is. */
+const EMAIL_PHOTO_W = 560;
+function cloudEmailPhoto(url){
+  if(!url || typeof url !== 'string') return url || '';
+  if(url.indexOf('res.cloudinary.com/'+CLOUDINARY_CLOUD+'/image/upload/') === -1) return url;
+  if(/\/image\/upload\/[a-z]_[^/]*\//.test(url)) return url; // already has transforms
+  return url.replace('/image/upload/', '/image/upload/w_'+(EMAIL_PHOTO_W*2)+',c_limit,q_auto,f_auto/');
+}
+
 /* ---------------- Toast ---------------- */
 function toast(msg){
   const t = document.getElementById('toast');
@@ -5621,13 +5693,10 @@ async function nudgeEveryoneShown(){
     statusEl.textContent = 'Sending ' + (sent + failures.length + 1) + ' of ' + targets.length + '\u2026 (' + (d.name || '') + ')';
     try{
       let html = await resolveLinkTokens(template.data.body, d.phone, 0, {name: properName(d.name) || 'there', price: fmtMoney(d.quotedPrice)});
-      if(d.frontPhotoUrl){
-        html += '<div style="margin-top:20px;">'+
-
-          '<img src="' + esc(d.frontPhotoUrl) + '" alt="Your home" width="520" style="max-width:100%; height:auto; border-radius:8px; display:block; border:0;">'+
-          '<p style="margin:8px 0 0; font-size:12px; color:#6E6858;">Not showing? <a href="' + esc(d.frontPhotoUrl) + '">View the photo here</a>.</p>'+
-        '</div>';
-      }
+      /* Same photo grid the quote email uses, so a nudge shows them everything
+         they were sent the first time. */
+      const nudgePhotos = quotePhotoEmailHtml(quotePhotoList(d));
+      if(nudgePhotos) html += '<div style="margin-top:20px;">' + nudgePhotos + '</div>';
       await emailjs.send(cfg.serviceId, cfg.templateId, {
         to_email: d.email, to_name: d.name || '', subject: 'Just checking in on your quote', message: html,
         button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || ''),
@@ -6190,6 +6259,224 @@ const quotePreviewOpenIds = new Map();
    renderQuoteRows, so nothing out here can reach them. renderQuoteRows
    parks a reference here each time it runs. */
 let quoteEmailBoxOpener = null;
+/* ---------------- HOUSE PHOTOS ON A CUSTOMER ----------------
+   Same idea as the quote: `housePhotos` is the list, and photo #1 is mirrored
+   onto the old housePhotoUrl / housePhotoOriginal / housePhotoMarkup fields.
+   Everything that only ever wanted one picture - the Member Portal's house
+   map, the invoice map, older saved routes - carries on reading that mirror
+   and never knows the difference.
+
+   The outlined sections (houseHighlights, which drive feet and price) stay on
+   the MAIN photo only. The extra photos are there so the crew can see the
+   other sides of the house; nothing about pricing changed. */
+function customerPhotoList(d){
+  if(d && Array.isArray(d.housePhotos) && d.housePhotos.length){
+    return d.housePhotos.filter(function(p){ return p && p.url; }).map(function(p){
+      return {url: p.url, original: p.original || p.url, markup: Array.isArray(p.markup) ? p.markup : [], label: p.label || ''};
+    });
+  }
+  if(d && d.housePhotoUrl){
+    return [{url: d.housePhotoUrl, original: d.housePhotoOriginal || d.housePhotoUrl,
+             markup: Array.isArray(d.housePhotoMarkup) ? d.housePhotoMarkup : [], label: ''}];
+  }
+  return [];
+}
+function customerPhotoUpdates(photos){
+  const clean = (photos || []).filter(function(p){ return p && p.url; }).map(function(p){
+    return {url: p.url, original: p.original || p.url, markup: Array.isArray(p.markup) ? p.markup : [], label: p.label || ''};
+  });
+  const main = clean[0];
+  return {
+    housePhotos: clean,
+    housePhotoUrl: main ? main.url : '',
+    housePhotoOriginal: main ? main.original : '',
+    housePhotoMarkup: main ? main.markup : []
+  };
+}
+/* ---------------- THE PHOTO FRAME (shared) ----------------
+   Builds one frame holding every photo, with only one shown at a time, a
+   count badge, arrows and thumbnails. Used by the customer record and the
+   route card. It is deliberately dumb HTML with no per-screen wiring: the
+   handlers below are hung on the document once, so a list that re-renders
+   itself (routes does this constantly) never needs re-wiring. */
+function photoFrameHtml(photos, opts){
+  opts = opts || {};
+  if(!photos || !photos.length) return '';
+  const many = photos.length > 1;
+  const thumbW = opts.thumbWidth || 120;
+  const imgW = opts.imgWidth || 0;   // run through cloudThumb when given
+  const slides = photos.map(function(p, i){
+    const src = imgW && typeof cloudThumb === 'function' ? cloudThumb(p.url, imgW) : p.url;
+    return '<div class="pc-slide'+(i === 0 ? ' on' : '')+'" data-pcslide="'+i+'">'+
+      '<img'+(opts.imgClass ? ' class="'+opts.imgClass+'"' : '')+' src="'+esc(src)+'" loading="lazy" decoding="async"'+
+        (opts.imgStyle ? ' style="'+opts.imgStyle+'"' : '')+'>'+
+      /* Section outlines belong to the main photo - they were drawn on it. */
+      (i === 0 ? (opts.overlayOnMain || '') : '')+
+    '</div>';
+  }).join('');
+  const thumbs = many
+    ? '<div class="pc-thumbs">'+photos.map(function(p, i){
+        const src = typeof cloudThumb === 'function' ? cloudThumb(p.url, thumbW) : p.url;
+        return '<button type="button" class="pc-thumb'+(i === 0 ? ' on' : '')+'" data-pcindex="'+i+'" title="Photo '+(i+1)+' of '+photos.length+'"><img src="'+esc(src)+'" alt=""></button>';
+      }).join('')+'</div>'
+    : '';
+  return '<div class="pc"'+(opts.style ? ' style="'+opts.style+'"' : '')+'>'+
+    '<div class="pc-frame"'+(opts.frameStyle ? ' style="'+opts.frameStyle+'"' : '')+'>'+
+      slides+
+      (many
+        ? '<span class="pc-count">&#128247; 1 / '+photos.length+'</span>'+
+          '<button type="button" class="pc-nav pc-prev" data-pcdelta="-1" title="Previous photo">&#8249;</button>'+
+          '<button type="button" class="pc-nav pc-next" data-pcdelta="1" title="Next photo">&#8250;</button>'
+        : '')+
+    '</div>'+
+    thumbs+
+  '</div>';
+}
+function pcShow(pc, i){
+  if(!pc) return;
+  const slides = pc.querySelectorAll('.pc-slide');
+  if(!slides.length) return;
+  const n = slides.length;
+  const idx = ((Number(i) || 0) % n + n) % n;
+  slides.forEach(function(s, k){ s.classList.toggle('on', k === idx); });
+  pc.querySelectorAll('.pc-thumb').forEach(function(t, k){ t.classList.toggle('on', k === idx); });
+  const count = pc.querySelector('.pc-count');
+  if(count) count.innerHTML = '&#128247; ' + (idx+1) + ' / ' + n;
+  /* House Details lets you drag section outlines on the photo. That only makes
+     sense on the main one, so it says so while you are looking at another. */
+  const note = pc.parentElement ? pc.parentElement.querySelector('.pc-mainonly-note') : null;
+  if(note) note.style.display = idx === 0 ? 'none' : 'block';
+  return idx;
+}
+function pcActiveIndex(pc){
+  if(!pc) return 0;
+  const slides = [].slice.call(pc.querySelectorAll('.pc-slide'));
+  const at = slides.findIndex(function(s){ return s.classList.contains('on'); });
+  return at < 0 ? 0 : at;
+}
+/* Hung on the document once, in the capture phase, so a press on an arrow
+   moves the photo instead of also opening/closing whatever card it sits in. */
+(function wirePhotoFrames(){
+  document.addEventListener('click', function(e){
+    if(!e.target || !e.target.closest) return;
+    const nav = e.target.closest('.pc-nav');
+    if(nav){
+      e.preventDefault(); e.stopPropagation();
+      const pc = nav.closest('.pc');
+      pcShow(pc, pcActiveIndex(pc) + Number(nav.dataset.pcdelta || 1));
+      return;
+    }
+    const thumb = e.target.closest('.pc-thumb');
+    if(thumb){
+      e.preventDefault(); e.stopPropagation();
+      pcShow(thumb.closest('.pc'), Number(thumb.dataset.pcindex || 0));
+    }
+  }, true);
+  let sx = null, sy = null, sPc = null;
+  document.addEventListener('touchstart', function(e){
+    if(!e.target || !e.target.closest) return;
+    const frame = e.target.closest('.pc-frame');
+    if(!frame || !e.touches || !e.touches.length) return;
+    sPc = frame.closest('.pc'); sx = e.touches[0].clientX; sy = e.touches[0].clientY;
+  }, {passive:true, capture:true});
+  document.addEventListener('touchend', function(e){
+    if(sx === null || !sPc || !e.changedTouches || !e.changedTouches.length){ sx = null; sPc = null; return; }
+    const dx = e.changedTouches[0].clientX - sx;
+    const dy = e.changedTouches[0].clientY - sy;
+    const pc = sPc;
+    sx = null; sy = null; sPc = null;
+    if(Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy)) return;  // a tap, or a scroll
+    pcShow(pc, pcActiveIndex(pc) + (dx < 0 ? 1 : -1));
+  }, {passive:true, capture:true});
+})();
+
+/* ---------------- QUOTE PHOTOS (a list, not a single picture) ----------------
+   A quote can carry as many photos as you want, each with its own highlighting.
+   They live in `quotePhotos` as [{url, original, markup}].
+
+   Photo #1 is the MAIN one and is always mirrored back onto the old
+   frontPhotoUrl / frontPhotoOriginal / frontPhotoMarkup fields. That mirror is
+   deliberate: the server's automatic nudge emails, the copy-as-text button and
+   Convert to Customer all read frontPhotoUrl, and every quote already in the
+   system has one. Keeping it in step means none of that had to change, and no
+   Cloud Function needed redeploying. */
+function quotePhotoList(d){
+  if(d && Array.isArray(d.quotePhotos) && d.quotePhotos.length){
+    return d.quotePhotos.filter(function(p){ return p && p.url; }).map(function(p){
+      /* `label` is which side of the house this is - "Front of house",
+         "Right side". Optional; a blank one simply never shows. */
+      return {url: p.url, original: p.original || p.url, markup: Array.isArray(p.markup) ? p.markup : [], label: p.label || ''};
+    });
+  }
+  /* An older quote, from before this existed - read its single photo as a
+     one-item list so it behaves exactly like a new one. */
+  if(d && d.frontPhotoUrl){
+    return [{url: d.frontPhotoUrl, original: d.frontPhotoOriginal || d.frontPhotoUrl,
+             markup: Array.isArray(d.frontPhotoMarkup) ? d.frontPhotoMarkup : [], label: ''}];
+  }
+  return [];
+}
+function quotePhotoUpdates(photos){
+  const clean = (photos || []).filter(function(p){ return p && p.url; }).map(function(p){
+    return {url: p.url, original: p.original || p.url, markup: Array.isArray(p.markup) ? p.markup : [], label: p.label || ''};
+  });
+  const main = clean[0];
+  return {
+    quotePhotos: clean,
+    frontPhotoUrl: main ? main.url : '',
+    frontPhotoOriginal: main ? main.original : '',
+    frontPhotoMarkup: main ? main.markup : []
+  };
+}
+/* The photos as they appear in the quote email. One picture goes full width,
+   the way it always has. Two or more go in a grid two across - two on top, two
+   under, and an odd last one stays the same half width in the left column
+   rather than being stretched across the bottom.
+
+   Each picture is given a WIDTH only, never a height, so it keeps its own
+   shape - nothing is squashed and nothing is cropped. Laid out with tables
+   because that is the only thing Outlook and Gmail can be trusted with; CSS
+   grid silently collapses in both. */
+function quotePhotoEmailHtml(photos){
+  if(!photos || !photos.length) return '';
+  const rows = photos.map(function(p, i){
+    const last = i === photos.length - 1;
+    const label = (p.label || '').trim();
+    /* A little space under each one, and none under the last, so the block
+       sits tight against whatever follows it. The label (which side of the
+       house this is) sits directly under its own picture. */
+    return '<tr><td style="font-family:Arial,sans-serif; padding:0 0 '+(label ? '4' : (last ? '0' : '10'))+'px;">'+
+      '<img src="'+esc(cloudEmailPhoto(p.url))+'" alt="'+esc(label || 'Your home')+'" width="'+EMAIL_PHOTO_W+'" style="width:100%; max-width:'+EMAIL_PHOTO_W+'px; height:auto; border-radius:8px; display:block; border:0;">'+
+      '</td></tr>'+
+      (label
+        ? '<tr><td style="font-family:Arial,sans-serif; padding:0 0 '+(last ? '0' : '12')+'px;">'+
+            '<p style="margin:0; font-size:12.5px; color:#6E6858; font-weight:700;">'+esc(label)+'</p></td></tr>'
+        : '');
+  }).join('');
+  /* Most mail apps hide remote images until they are tapped, so there is a
+     plain link to each one - otherwise the customer sees gaps and assumes we
+     forgot the photos entirely. */
+  const links = photos.length === 1
+    ? '<a href="'+esc(photos[0].url)+'" style="color:#3E7A5B;">View the photo here</a>'
+    : 'View the photos here: '+photos.map(function(p, i){
+        return '<a href="'+esc(p.url)+'" style="color:#3E7A5B;">'+(i+1)+'</a>';
+      }).join(', ');
+  return '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:4px 0 14px; max-width:'+EMAIL_PHOTO_W+'px;">'+
+    rows+
+    '<tr><td style="font-family:Arial,sans-serif;"><p style="margin:8px 0 0; font-size:12px; color:#6E6858;">Not showing? '+links+'.</p></td></tr>'+
+    '</table>';
+}
+
+/* Which photo each card is showing. Kept out here, keyed by quote id, so it
+   survives the re-render that saving anything on the card triggers - the same
+   trick quotePricingOpenIds uses for the pricing panel. */
+const quotePhotoIndex = new Map();
+function currentQuotePhotoIndex(id, count){
+  let i = quotePhotoIndex.has(id) ? Number(quotePhotoIndex.get(id)) : 0;
+  if(!(i >= 0)) i = 0;
+  if(i > count - 1) i = count > 0 ? count - 1 : 0;
+  return i;
+}
 function renderQuoteRows(filtered){
   const list = document.getElementById('quotesList');
   let html = '';
@@ -6226,23 +6513,63 @@ function renderQuoteRows(filtered){
           '</div>'
         ) : '')+
 
-        // ---- Photo -------------------------------------------------------
-        '<div style="margin-top:8px;">'+
-          (d.frontPhotoUrl
-            ? '<div class="photo-wrap" style="margin-bottom:6px;">'+
-                '<img src="'+esc(d.frontPhotoUrl)+'" class="quote-photo-img" data-photofor="'+item.id+'" style="max-width:240px; border-radius:8px; border:1px solid var(--line); display:block;">'+
-                '<div class="photo-acts">'+
-                  '<button type="button" data-photodl="'+item.id+'" title="Download the photo">&#8681;</button>'+
-                  '<button type="button" data-photocopy="'+item.id+'" title="Copy the text message and save the photo">&#10697;</button>'+
-                  '<button type="button" class="danger" data-photodel="'+item.id+'" title="Delete the photo">&#128465;</button>'+
+        // ---- Photos ------------------------------------------------------
+        // One picture on screen at a time with "2 / 4" on it; the arrows,
+        // the thumbnails and a swipe move through the rest. Every photo keeps
+        // its own highlighting, and the first one is the main one.
+        (function(){
+          const photos = quotePhotoList(d);
+          const idx = currentQuotePhotoIndex(item.id, photos.length);
+          const cur = photos[idx];
+          return '<div class="qp-block" data-qpfor="'+item.id+'" style="margin-top:8px;">'+
+            (cur
+              ? '<div class="photo-wrap qp-wrap" style="margin-bottom:6px;">'+
+                  '<img src="'+esc(cur.url)+'" class="quote-photo-img qp-main" data-photofor="'+item.id+'">'+
+                  '<div class="photo-acts">'+
+                    '<button type="button" data-photodl="'+item.id+'" title="Download this photo">&#8681;</button>'+
+                    '<button type="button" data-photocopy="'+item.id+'" title="Copy the text message and save this photo">&#10697;</button>'+
+                    '<button type="button" class="danger" data-photodel="'+item.id+'" title="Delete this photo">&#128465;</button>'+
+                  '</div>'+
+                  '<span class="qp-count">&#128247; '+(idx+1)+' / '+photos.length+'</span>'+
+                  (photos.length > 1
+                    ? '<button type="button" class="qp-nav qp-prev" data-qpprev="'+item.id+'" title="Previous photo">&#8249;</button>'+
+                      '<button type="button" class="qp-nav qp-next" data-qpnext="'+item.id+'" title="Next photo">&#8250;</button>'
+                    : '')+
+                  '<span class="photo-hint">tap for options</span>'+
                 '</div>'+
-                '<span class="photo-hint">tap for options</span>'+
-              '</div>'
-            : '')+
-          '<label class="btn btn-outline btn-sm" style="cursor:pointer;">'+(d.frontPhotoUrl ? 'Replace Photo' : 'Add Photo')+'<input type="file" accept="image/*" class="quote-photo-input" data-photofor="'+item.id+'" style="display:none;"></label>'+
-          (d.frontPhotoUrl ? '<button type="button" class="btn btn-outline btn-sm" data-markupphoto="'+item.id+'" style="margin-left:6px;">Mark Up Photo</button>' : '')+
-          '<span class="quote-photo-status" data-statusfor="'+item.id+'" style="font-size:12px; color:var(--slate); margin-left:8px;"></span>'+
-        '</div>'+
+                (photos.length > 1
+                  ? '<div class="qp-thumbs">'+photos.map(function(p, i){
+                      return '<button type="button" class="qp-thumb'+(i === idx ? ' on' : '')+'" data-qpthumb="'+i+'" data-qpfor="'+item.id+'" title="Photo '+(i+1)+' of '+photos.length+'">'+
+                        '<img src="'+esc(p.url)+'" alt=""></button>';
+                    }).join('')+'</div>'
+                  : '')
+              : '')+
+            '<label class="btn btn-outline btn-sm" style="cursor:pointer;">'+(photos.length ? 'Add More Photos' : 'Add Photo')+
+              '<input type="file" accept="image/*" multiple class="quote-photo-input" data-photofor="'+item.id+'" style="display:none;"></label>'+
+            (cur
+              ? '<button type="button" class="btn btn-outline btn-sm" data-markupphoto="'+item.id+'" style="margin-left:6px;">Mark Up This Photo</button>'+
+                '<label class="btn btn-outline btn-sm" style="cursor:pointer; margin-left:6px;">Replace This One'+
+                  '<input type="file" accept="image/*" class="quote-photo-replace" data-photofor="'+item.id+'" style="display:none;"></label>'+
+                '<button type="button" class="btn btn-outline btn-sm" data-qpmain="'+item.id+'" style="margin-left:6px; display:'+(idx > 0 ? 'inline-block' : 'none')+';">Make Main</button>'
+              : '')+
+            '<span class="quote-photo-status" data-statusfor="'+item.id+'" style="font-size:12px; color:var(--slate); margin-left:8px;"></span>'+
+            /* Which side of the house this picture is. It prints under the
+               photo in the quote email, so the customer is never looking at a
+               wall wondering what they are seeing. Blank shows nothing. */
+            (cur
+              ? '<div class="qp-labelrow" style="margin-top:8px; display:flex; align-items:center; gap:6px; flex-wrap:wrap;">'+
+                  '<label style="font-size:11.5px; color:var(--slate);">This photo is:</label>'+
+                  '<input type="text" class="qp-label" data-qplabelfor="'+item.id+'" value="'+esc(cur.label || '')+'" placeholder="e.g. Front of house" style="max-width:190px; padding:6px 9px; border-radius:8px; border:1px solid var(--line); font-size:12.5px;">'+
+                  ['Front of house','Right side','Left side','Back'].map(function(preset){
+                    return '<button type="button" class="btn btn-outline btn-sm qp-labelpreset" data-qplabelfor="'+item.id+'" data-preset="'+esc(preset)+'" style="padding:4px 8px; font-size:11px;">'+esc(preset)+'</button>';
+                  }).join('')+
+                '</div>'
+              : '')+
+            (photos.length > 1
+              ? '<div class="rtext" style="color:var(--slate); margin-top:4px;">All '+photos.length+' go in the quote email, one under another. The first one is the main photo — that is the one the text message and the customer record use.</div>'
+              : '')+
+          '</div>';
+        })()+
 
         // ---- Pricing & approval: manual toggle, state kept in
         // quotePricingOpenIds so it survives the re-render a save triggers.
@@ -6272,7 +6599,10 @@ function renderQuoteRows(filtered){
             (d.smsOptedOut
               ? '<div class="rtext" style="margin-top:5px; color:var(--ember); font-weight:600;">\ud83d\udeab Do not text \u2014 '+esc(d.smsOptedOutReason || 'they asked us not to')+'. '+
                 '<a href="#" data-untext="'+item.id+'" style="font-weight:600;">Undo</a></div>'
-              : (d.phone ? '<div style="margin-top:5px;"><a href="#" data-donttext="'+item.id+'" class="rtext" style="color:var(--slate);">Mark &ldquo;don\'t text&rdquo;</a></div>' : ''))+
+              /* The manual "Mark don't text" link was removed - a STOP reply
+                 already sets this on its own, and the Undo above is still
+                 there if it ever needs taking back. */
+              : '')+
             (d.contactMethod && /text|sms|phone/i.test(d.contactMethod) ? '<div class="rtext" style="margin-top:5px; color:#8A6100;">They asked to be contacted by '+esc(d.contactMethod)+'.</div>' : '')+
             '<div class="quotelink-status" data-statusfor="'+item.id+'" style="font-size:12px; color:var(--slate); margin-top:6px;"></div>'+
             (d.quoteToken ? '<div class="quotelink-box" data-linkfor="'+item.id+'" style="margin-top:6px; font-size:12.5px; word-break:break-all; background:var(--snow); border-radius:8px; padding:8px 10px;">https://highlightingutah.com/#/quote-details?token='+esc(d.quoteToken)+'&action=approve</div>' : '<div class="quotelink-box" data-linkfor="'+item.id+'"></div>')+
@@ -6332,31 +6662,206 @@ function renderQuoteRows(filtered){
       showMapPreviewByAddress('quoteListMap', btn.dataset.previewquoteaddr);
     });
   });
+  /* Writes the whole list back in one go and keeps the local copy in step, so
+     the card can redraw immediately instead of waiting on Firestore. */
+  async function saveQuotePhotos(id, photos){
+    const updates = quotePhotoUpdates(photos);
+    await updateDoc(doc(db,'quotes', id), updates);
+    const item = quotesCache.find(function(q){ return q.id === id; });
+    if(item) Object.assign(item.data, updates);
+    return updates;
+  }
+  /* Moving between photos only swaps what is on screen - it touches nothing in
+     the database, so it must NOT redraw the whole list (that would throw away
+     any half-typed price on every other card). */
+  function repaintQuotePhoto(id){
+    const item = quotesCache.find(function(q){ return q.id === id; });
+    const block = list.querySelector('.qp-block[data-qpfor="'+id+'"]');
+    if(!item || !block) return;
+    const photos = quotePhotoList(item.data);
+    if(!photos.length) return;
+    const idx = currentQuotePhotoIndex(id, photos.length);
+    const img = block.querySelector('.qp-main');
+    const count = block.querySelector('.qp-count');
+    if(img) img.src = photos[idx].url;
+    if(count) count.innerHTML = '&#128247; ' + (idx+1) + ' / ' + photos.length;
+    block.querySelectorAll('.qp-thumb').forEach(function(t){
+      t.classList.toggle('on', Number(t.dataset.qpthumb) === idx);
+    });
+    const mainBtn = block.querySelector('[data-qpmain]');
+    if(mainBtn) mainBtn.style.display = idx > 0 ? 'inline-block' : 'none';
+    const labelInput = block.querySelector('.qp-label');
+    if(labelInput) labelInput.value = photos[idx].label || '';
+  }
+  function stepQuotePhoto(id, delta){
+    const item = quotesCache.find(function(q){ return q.id === id; });
+    if(!item) return;
+    const photos = quotePhotoList(item.data);
+    if(photos.length < 2) return;
+    const idx = currentQuotePhotoIndex(id, photos.length);
+    quotePhotoIndex.set(id, (idx + delta + photos.length) % photos.length);
+    repaintQuotePhoto(id);
+  }
+  /* Adding photos: several at once is normal - you walk the house taking
+     pictures and then upload the lot. They upload one after another so a
+     failure on one doesn't lose the others, and the card lands on the last
+     one added so you can go straight into marking it up. */
   list.querySelectorAll('.quote-photo-input').forEach(function(input){
+    input.addEventListener('change', async function(){
+      const id = input.dataset.photofor;
+      const files = Array.prototype.slice.call(input.files || []);
+      if(!files.length) return;
+      const item = quotesCache.find(function(q){ return q.id === id; });
+      if(!item) return;
+      const statusEl = list.querySelector('.quote-photo-status[data-statusfor="'+id+'"]');
+      const photos = quotePhotoList(item.data);
+      const failed = [];
+      let added = 0;
+      for(let i = 0; i < files.length; i++){
+        if(statusEl) statusEl.textContent = files.length > 1
+          ? 'Uploading ' + (i+1) + ' of ' + files.length + '\u2026'
+          : 'Uploading\u2026';
+        try{
+          const uploadFile = await shrinkImageFileIfTooLarge(files[i], 9*1024*1024, 2000, 0.85);
+          const url = await uploadOneToCloudinary(uploadFile);
+          photos.push({url: url, original: url, markup: []});
+          added++;
+        } catch(err){
+          failed.push(files[i].name || ('photo ' + (i+1)));
+        }
+      }
+      input.value = '';
+      if(!added){
+        if(statusEl) statusEl.textContent = 'Upload failed \u2014 nothing was added.';
+        return;
+      }
+      try{
+        await saveQuotePhotos(id, photos);
+        quotePhotoIndex.set(id, photos.length - 1);
+        if(statusEl) statusEl.textContent = failed.length ? ('Added ' + added + '. Could not upload: ' + failed.join(', ')) : '';
+        renderQuotesList();
+      } catch(err){
+        if(statusEl) statusEl.textContent = 'Uploaded, but saving to the quote failed \u2014 ' + ((err && err.message) || 'unknown error') + '.';
+      }
+    });
+  });
+  /* Replace swaps the photo you are looking at, and drops its old markup with
+     it - the highlighting belonged to the old picture. */
+  list.querySelectorAll('.quote-photo-replace').forEach(function(input){
     input.addEventListener('change', async function(){
       const id = input.dataset.photofor;
       const file = input.files[0];
       if(!file) return;
+      const item = quotesCache.find(function(q){ return q.id === id; });
+      if(!item) return;
       const statusEl = list.querySelector('.quote-photo-status[data-statusfor="'+id+'"]');
+      const photos = quotePhotoList(item.data);
+      const idx = currentQuotePhotoIndex(id, photos.length);
+      if(!photos[idx]) return;
       if(statusEl) statusEl.textContent = 'Uploading\u2026';
-      let url;
       try{
         const uploadFile = await shrinkImageFileIfTooLarge(file, 9*1024*1024, 2000, 0.85);
-        url = await uploadOneToCloudinary(uploadFile);
+        const url = await uploadOneToCloudinary(uploadFile);
+        photos[idx] = {url: url, original: url, markup: []};
       } catch(err){
         if(statusEl) statusEl.textContent = 'Upload failed \u2014 ' + ((err && err.message) || 'unknown error') + '.';
         return;
       }
+      input.value = '';
       try{
-        await updateDoc(doc(db,'quotes', id), {frontPhotoUrl: url});
+        await saveQuotePhotos(id, photos);
         if(statusEl) statusEl.textContent = '';
+        renderQuotesList();
       } catch(err){
         if(statusEl) statusEl.textContent = 'Photo uploaded, but saving it to the quote failed \u2014 ' + ((err && err.message) || 'unknown error') + '.';
       }
     });
   });
+  list.querySelectorAll('[data-qpprev]').forEach(function(b){
+    b.addEventListener('click', function(e){ e.stopPropagation(); stepQuotePhoto(b.dataset.qpprev, -1); });
+  });
+  list.querySelectorAll('[data-qpnext]').forEach(function(b){
+    b.addEventListener('click', function(e){ e.stopPropagation(); stepQuotePhoto(b.dataset.qpnext, 1); });
+  });
+  list.querySelectorAll('[data-qpthumb]').forEach(function(b){
+    b.addEventListener('click', function(e){
+      e.stopPropagation();
+      quotePhotoIndex.set(b.dataset.qpfor, Number(b.dataset.qpthumb));
+      repaintQuotePhoto(b.dataset.qpfor);
+    });
+  });
+  /* Swipe on a phone, since that is where these get looked at. A short drag
+     is a tap (which reveals the download/delete icons) - only a real sideways
+     swipe changes photo. */
+  list.querySelectorAll('.qp-wrap').forEach(function(wrap){
+    const id = wrap.querySelector('.qp-main') ? wrap.querySelector('.qp-main').dataset.photofor : null;
+    if(!id) return;
+    let startX = null, startY = null;
+    wrap.addEventListener('touchstart', function(e){
+      if(!e.touches || !e.touches.length) return;
+      startX = e.touches[0].clientX; startY = e.touches[0].clientY;
+    }, {passive:true});
+    wrap.addEventListener('touchend', function(e){
+      if(startX === null || !e.changedTouches || !e.changedTouches.length) return;
+      const dx = e.changedTouches[0].clientX - startX;
+      const dy = e.changedTouches[0].clientY - startY;
+      startX = null; startY = null;
+      if(Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy)) return;  // a tap, or a scroll
+      stepQuotePhoto(id, dx < 0 ? 1 : -1);
+    }, {passive:true});
+  });
+  /* Promotes the photo you are looking at to #1. That matters: #1 is what the
+     text message sends and what follows the quote onto the customer record. */
+  list.querySelectorAll('[data-qpmain]').forEach(function(b){
+    b.addEventListener('click', async function(){
+      const id = b.dataset.qpmain;
+      const item = quotesCache.find(function(q){ return q.id === id; });
+      if(!item) return;
+      const photos = quotePhotoList(item.data);
+      const idx = currentQuotePhotoIndex(id, photos.length);
+      if(idx === 0 || !photos[idx]) return;
+      photos.unshift(photos.splice(idx, 1)[0]);
+      try{
+        await saveQuotePhotos(id, photos);
+        quotePhotoIndex.set(id, 0);
+        renderQuotesList();
+        toast('That is now the main photo.');
+      } catch(err){ toast('Could not save that \u2014 try again.'); }
+    });
+  });
+  /* Saved on blur (or Enter), and deliberately WITHOUT a re-render - a
+     re-render mid-typing would take the box away from under your fingers. */
+  async function saveQuotePhotoLabel(id, text){
+    const item = quotesCache.find(function(q){ return q.id === id; });
+    if(!item) return;
+    const photos = quotePhotoList(item.data);
+    const idx = currentQuotePhotoIndex(id, photos.length);
+    if(!photos[idx] || photos[idx].label === text) return;
+    photos[idx].label = text;
+    try{ await saveQuotePhotos(id, photos); }
+    catch(err){ toast('Could not save that label — try again.'); }
+  }
+  list.querySelectorAll('.qp-label').forEach(function(input){
+    input.addEventListener('change', function(){
+      saveQuotePhotoLabel(input.dataset.qplabelfor, input.value.trim());
+    });
+    input.addEventListener('keydown', function(e){ if(e.key === 'Enter') input.blur(); });
+  });
+  list.querySelectorAll('.qp-labelpreset').forEach(function(b){
+    b.addEventListener('click', function(){
+      const id = b.dataset.qplabelfor;
+      const box = list.querySelector('.qp-label[data-qplabelfor="'+id+'"]');
+      if(box) box.value = b.dataset.preset;
+      saveQuotePhotoLabel(id, b.dataset.preset);
+    });
+  });
   list.querySelectorAll('[data-markupphoto]').forEach(function(btn){
-    btn.addEventListener('click', function(){ openQuoteMarkup(btn.dataset.markupphoto); });
+    btn.addEventListener('click', function(){
+      const id = btn.dataset.markupphoto;
+      const item = quotesCache.find(function(q){ return q.id === id; });
+      const count = item ? quotePhotoList(item.data).length : 0;
+      openQuoteMarkup(id, currentQuotePhotoIndex(id, count));
+    });
   });
   /* Builds the filled-out "Quote Ready for Review" email into the card's
      result box so the office can copy it, attach the photo themselves, and
@@ -6379,30 +6884,52 @@ function renderQuoteRows(filtered){
        sign-off, which almost nobody scrolls to. If the template says where it
        goes with {{photo}}, that wins; otherwise it is slotted in ahead of the
        buttons, falling back to the end if there are none. */
-    let photoHtml = '';
-    if(d.frontPhotoUrl){
-      /* A caption and a plain link either side of the picture. Most mail apps
-         hide remote images until you tap "show images", and without these the
-         customer just sees a gap and assumes we forgot. */
-      photoHtml =
-        '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:4px 0 14px;"><tr><td style="font-family:Arial,sans-serif;">'+
-
-          '<img src="'+esc(d.frontPhotoUrl)+'" alt="Your home" width="560" style="width:100%; max-width:560px; height:auto; border-radius:8px; display:block; border:0;">'+
-          '<p style="margin:8px 0 0; font-size:12px; color:#6E6858;">Not showing? <a href="'+esc(d.frontPhotoUrl)+'" style="color:#3E7A5B;">View the photo here</a>.</p>'+
-        '</td></tr></table>';
-    }
+    /* Every photo on the quote goes in, not just the first - stacked one
+       under another, each the full width of the email. */
+    const photos = quotePhotoList(d);
+    const photoHtml = quotePhotoEmailHtml(photos);
     if(photoHtml){
+      /* The photos are dropped in as a marker first, so the code below can see
+         where they landed relative to the approve/decline buttons. */
+      const MARK = '<!--HU_PHOTOS-->';
       if(html.indexOf('{{photo}}') !== -1){
         /* Blank lines either side of the token turn into <br> tags and pile up
            around the picture. The block brings its own spacing, so any stray
            line breaks touching it are absorbed. */
-        html = html.replace(/(?:\s|<br\s*\/?>)*\{\{photo\}\}(?:\s|<br\s*\/?>)*/gi, photoHtml);
+        html = html.replace(/(?:\s|<br\s*\/?>)*\{\{photo\}\}(?:\s|<br\s*\/?>)*/gi, MARK);
       } else {
         const firstBtn = html.search(/<a [^>]*class="?ebtn|<a [^>]*style="[^"]*background:#2E6B3E/i);
         const anchorAt = html.indexOf('<a ');
         const cut = firstBtn !== -1 ? firstBtn : anchorAt;
-        html = cut !== -1 ? (html.slice(0, cut) + photoHtml + html.slice(cut)) : (html + photoHtml);
+        html = cut !== -1 ? (html.slice(0, cut) + MARK + html.slice(cut)) : (html + MARK);
       }
+      /* With several photos stacked, whichever side of them the buttons are on
+         they end up a long way from the other side - on a phone that meant
+         scrolling past three pictures to reach "Yes". So the buttons are
+         repeated on the far side of the photos. The template still only holds
+         them once; this copy is made here, and only when it is actually
+         needed (two or more photos). */
+      if(photos.length > 1){
+        /* Any styled button in the body, whatever colour the template gives
+           it - matching only the green and gold ones left "Decline" behind on
+           the copied set, so the two sets did not match. */
+        const btnRe = /<a\b[^>]*(?:class="?ebtn|style="[^"]*background:\s*#)[^>]*>[\s\S]*?<\/a>/gi;
+        let first = null, last = null, m;
+        while((m = btnRe.exec(html)) !== null){
+          if(first === null) first = m.index;
+          last = m.index + m[0].length;
+        }
+        if(first !== null && last !== null){
+          const buttons = html.slice(first, last);
+          const markAt = html.indexOf(MARK);
+          /* Buttons above the photos -> put the copy below them, and the other
+             way round. Either way you get one set on each side. */
+          html = markAt > first
+            ? html.replace(MARK, MARK + '<div style="margin-top:14px;">' + buttons + '</div>')
+            : html.replace(MARK, '<div style="margin-bottom:14px;">' + buttons + '</div>' + MARK);
+        }
+      }
+      html = html.replace(MARK, photoHtml);
     } else {
       html = html.replace(/(?:\s|<br\s*\/?>)*\{\{photo\}\}(?:\s|<br\s*\/?>)*/gi, '<br>');
     }
@@ -6732,11 +7259,15 @@ function renderQuoteRows(filtered){
       }
     });
   }
+  /* Downloads the photo currently on screen, not blindly the first one. */
   async function downloadQuotePhoto(id){
     const item = quotesCache.find(q => q.id === id);
-    if(!item || !item.data.frontPhotoUrl){ toast('There is no photo on this quote yet.'); return false; }
-    const url = item.data.frontPhotoUrl;
-    const fileName = (item.data.name || 'quote').replace(/[^a-z0-9]+/gi,'-').replace(/^-|-$/g,'') + '-photo.jpg';
+    const photos = item ? quotePhotoList(item.data) : [];
+    if(!photos.length){ toast('There is no photo on this quote yet.'); return false; }
+    const idx = currentQuotePhotoIndex(id, photos.length);
+    const url = photos[idx].url;
+    const fileName = (item.data.name || 'quote').replace(/[^a-z0-9]+/gi,'-').replace(/^-|-$/g,'') +
+      (photos.length > 1 ? '-photo-' + (idx+1) : '-photo') + '.jpg';
 
     function triggerDownload(href, revokeAfter){
       const a = document.createElement('a');
@@ -6836,7 +7367,9 @@ function renderQuoteRows(filtered){
      toggles the icons; tapping an icon does its job instead. */
   list.querySelectorAll('.photo-wrap').forEach(function(w){
     w.addEventListener('click', function(e){
-      if(e.target.closest('.photo-acts')) return;
+      /* The arrows sit on top of the photo, so a press on one must move
+         through the photos rather than also toggling the icons. */
+      if(e.target.closest('.photo-acts') || e.target.closest('.qp-nav')) return;
       w.classList.toggle('show');
     });
   });
@@ -6874,31 +7407,25 @@ function renderQuoteRows(filtered){
         : 'Message copied. The photo did not save \u2014 right-click it and choose Save Image.');
     });
   });
+  /* Deletes only the photo on screen. The rest of the strip, and everything
+     else on the quote, is left alone. */
   list.querySelectorAll('[data-photodel]').forEach(function(b){
     b.addEventListener('click', async function(){
       const id = b.dataset.photodel;
       const item = quotesCache.find(q => q.id === id);
-      if(!confirm('Delete this photo?\n\nThis cannot be undone. Everything else on ' + ((item && item.data.name) || 'this quote') + ' stays exactly as it is.')) return;
+      if(!item) return;
+      const photos = quotePhotoList(item.data);
+      if(!photos.length) return;
+      const idx = currentQuotePhotoIndex(id, photos.length);
+      const which = photos.length > 1 ? ('photo ' + (idx+1) + ' of ' + photos.length) : 'this photo';
+      if(!confirm('Delete ' + which + '?\n\nThis cannot be undone. Everything else on ' + ((item && item.data.name) || 'this quote') + ' stays exactly as it is.')) return;
+      photos.splice(idx, 1);
       try{
-        await updateDoc(doc(db,'quotes', id), {frontPhotoUrl: '', photoMarkup: null});
+        await saveQuotePhotos(id, photos);
+        quotePhotoIndex.set(id, Math.max(0, idx - 1));
+        renderQuotesList();
         toast('Photo deleted.');
       } catch(err){ toast('Could not delete that \u2014 try again.'); }
-    });
-  });
-  list.querySelectorAll('[data-donttext]').forEach(function(a){
-    a.addEventListener('click', async function(e){
-      e.preventDefault();
-      const id = a.dataset.donttext;
-      const item = quotesCache.find(q => q.id === id);
-      const why = prompt('Why? (shows on the card \u2014 leave blank for "they asked us not to")\n\nThis only stops texts. Email is unaffected.', '');
-      if(why === null) return;
-      try{
-        await updateDoc(doc(db,'quotes', id), {
-          smsOptedOut: true, smsOptedOutAt: serverTimestamp(),
-          smsOptedOutReason: (why || '').trim() || 'they asked us not to'
-        });
-        toast((item && item.data.name ? item.data.name : 'They') + ' won\'t be texted again.');
-      } catch(err){ toast('Could not save that \u2014 try again.'); }
     });
   });
   list.querySelectorAll('[data-untext]').forEach(function(a){
@@ -7077,10 +7604,15 @@ function renderQuoteRows(filtered){
       addCustContactMethodFromQuote = d.contactMethod || '';
       // Carry the quote's photo across too — including any markup, since that
       // replaces the photo. Without this the route card has nothing to show.
-      if(d.frontPhotoUrl){
-        addCustPhotoUrl = d.frontPhotoUrl;
-        addCustPhotoOriginal = d.frontPhotoOriginal || '';
-        addCustPhotoMarkup = d.frontPhotoMarkup || [];
+      const quotePhotosToCarry = quotePhotoList(d);
+      if(quotePhotosToCarry.length){
+        addCustPhotoUrl = quotePhotosToCarry[0].url;
+        addCustPhotoOriginal = quotePhotosToCarry[0].original || '';
+        addCustPhotoMarkup = quotePhotosToCarry[0].markup || [];
+        /* Every other photo on the quote comes across too, in the same order,
+           so the crew sees the same pictures the customer was quoted from. */
+        addCustExtraPhotos = quotePhotosToCarry.slice(1);
+        renderAddCustExtraPhotos();
         const img = document.getElementById('addCustPhotoImg');
         img.src = addCustPhotoUrl;
         img.classList.remove('hm-blueprint');
@@ -7088,7 +7620,9 @@ function renderQuoteRows(filtered){
         document.getElementById('addCustViewToggle').style.display = 'flex';
         document.getElementById('addCustViewOriginal').style.background = 'var(--ink)';
         document.getElementById('addCustViewOriginal').style.color = '#fff';
-        document.getElementById('addCustPhotoStatus').textContent = 'Photo carried over from the quote.';
+        document.getElementById('addCustPhotoStatus').textContent = quotePhotosToCarry.length > 1
+          ? ('All ' + quotePhotosToCarry.length + ' photos carried over from the quote.')
+          : 'Photo carried over from the quote.';
       }
       document.querySelector('.nav-item[data-panel="addcustomer"]').click();
       // Opening the Customers panel isn't enough — it has inner tabs, and it
@@ -7096,7 +7630,7 @@ function renderQuoteRows(filtered){
       // the freshly filled form hidden behind a tab. Same two-step the Bulk
       // Updates button uses.
       setTimeout(function(){ document.querySelector('#custSectionTabs [data-custtab="add"]').click(); }, 50);
-      toast('Quote details filled in' + (d.frontPhotoUrl ? ', photo included' : '') + (typeof d.quotedPrice === 'number' && d.quotedPrice > 0 ? ', using the approved quote price' : (d.estimatedFeet && perFootRate ? ', price estimated from footage' : '')) + ' — review and click Add Customer');
+      toast('Quote details filled in' + (quotePhotosToCarry.length ? (quotePhotosToCarry.length > 1 ? ', all ' + quotePhotosToCarry.length + ' photos included' : ', photo included') : '') + (typeof d.quotedPrice === 'number' && d.quotedPrice > 0 ? ', using the approved quote price' : (d.estimatedFeet && perFootRate ? ', price estimated from footage' : '')) + ' — review and click Add Customer');
     });
   });
   list.querySelectorAll('.quoteStatusSelect').forEach(function(sel){
@@ -9449,27 +9983,89 @@ function openPhotoMarkup(target){
   qmSetWidth(qmWidth);
   document.getElementById('quoteMarkupOverlay').style.display = 'flex';
 }
-function openQuoteMarkup(quoteId){
+/* Marks up ONE photo out of the quote's list. Each picture carries its own
+   shapes, so highlighting the garage never disturbs the front of the house.
+   The save goes back into that slot in the list (and re-mirrors photo #1 onto
+   the old frontPhoto* fields) rather than through the generic field writer. */
+function openQuoteMarkup(quoteId, index){
   const item = quotesCache.find(function(q){ return q.id === quoteId; });
-  if(!item || !item.data.frontPhotoUrl) return;
+  if(!item) return;
+  const photos = quotePhotoList(item.data);
+  if(!photos.length) return;
+  let i = Number(index);
+  if(!(i >= 0) || i > photos.length - 1) i = 0;
+  const p = photos[i];
   openPhotoMarkup({
-    kind: 'quote', id: quoteId, field: 'frontPhoto',
-    url: item.data.frontPhotoUrl,
-    original: item.data.frontPhotoOriginal || item.data.frontPhotoUrl,
-    shapes: item.data.frontPhotoMarkup || [],
-    title: 'Mark Up Photo \u2014 ' + (item.data.name || 'Quote')
+    kind: 'quote', id: quoteId,
+    url: p.url,
+    original: p.original,
+    shapes: p.markup,
+    title: 'Mark Up Photo \u2014 ' + (item.data.name || 'Quote') + (photos.length > 1 ? ' (' + (i+1) + ' of ' + photos.length + ')' : ''),
+    save: async function(finalUrl, original, shapes){
+      /* Re-read the list on the way out: an upload on another card could have
+         landed while the editor was open, and writing the stale copy back
+         would silently undo it. */
+      const fresh = quotesCache.find(function(q){ return q.id === quoteId; });
+      const listNow = fresh ? quotePhotoList(fresh.data) : photos;
+      if(!listNow[i]) return;
+      listNow[i] = {url: finalUrl, original: original, markup: shapes, label: listNow[i].label || ''};
+      const updates = quotePhotoUpdates(listNow);
+      await updateDoc(doc(db, 'quotes', quoteId), updates);
+      if(fresh) Object.assign(fresh.data, updates);
+      renderQuotesList();
+    }
   });
 }
-function openCustomerMarkup(custId){
+/* Marks up one of the customer's house photos. Photo #1 saves back onto the
+   old housePhoto* fields as well as into the list, so the crew app, the route
+   card and the portal all see the markup exactly as they always did. */
+function openCustomerMarkup(custId, index){
   const item = jobAddresses.find(function(a){ return a.id === custId; });
-  if(!item || !item.data.housePhotoUrl) return;
+  if(!item) return;
+  const photos = customerPhotoList(item.data);
+  if(!photos.length) return;
+  let i = Number(index);
+  if(!(i >= 0) || i > photos.length - 1) i = 0;
+  const p = photos[i];
   openPhotoMarkup({
-    kind: 'customer', id: custId, field: 'housePhoto',
-    url: item.data.housePhotoUrl,
-    original: item.data.housePhotoOriginal || item.data.housePhotoUrl,
-    shapes: item.data.housePhotoMarkup || [],
-    title: 'Mark Up Photo \u2014 ' + (item.data.name || 'Customer')
+    kind: 'customer', id: custId,
+    url: p.url,
+    original: p.original,
+    shapes: p.markup,
+    title: 'Mark Up Photo \u2014 ' + (item.data.name || 'Customer') + (photos.length > 1 ? ' (' + (i+1) + ' of ' + photos.length + ')' : ''),
+    save: async function(finalUrl, original, shapes){
+      const fresh = jobAddresses.find(function(a){ return a.id === custId; });
+      const listNow = fresh ? customerPhotoList(fresh.data) : photos;
+      if(!listNow[i]) return;
+      listNow[i] = {url: finalUrl, original: original, markup: shapes, label: listNow[i].label || ''};
+      const updates = customerPhotoUpdates(listNow);
+      await updateDoc(doc(db, 'jobAddresses', custId), updates);
+      if(fresh) Object.assign(fresh.data, updates);
+    }
   });
+}
+/* Adds house photos to a customer, appending to whatever is already there.
+   Shared by House Details and the Edit Customer popup so both behave the
+   same. Returns how many actually made it. */
+async function addCustomerPhotos(custId, files, onProgress){
+  const item = jobAddresses.find(function(a){ return a.id === custId; });
+  if(!item) return 0;
+  const photos = customerPhotoList(item.data);
+  let added = 0;
+  for(let i = 0; i < files.length; i++){
+    if(onProgress) onProgress(i + 1, files.length);
+    try{
+      const uploadFile = await shrinkImageFileIfTooLarge(files[i], 9*1024*1024, 2000, 0.85);
+      const url = await uploadOneToCloudinary(uploadFile);
+      photos.push({url: url, original: url, markup: []});
+      added++;
+    } catch(err){ /* the caller reports what got through */ }
+  }
+  if(!added) return 0;
+  const updates = customerPhotoUpdates(photos);
+  await updateDoc(doc(db, 'jobAddresses', custId), updates);
+  Object.assign(item.data, updates);
+  return added;
 }
 function qmFlattenToBlob(imageUrl){
   return new Promise(function(resolve){
@@ -9561,13 +10157,20 @@ function qmFlattenToBlob(imageUrl){
         if(!blob){ statusEl.textContent = 'Could not save \u2014 the photo could not be read back for editing. Try re-uploading it, then mark it up again.'; return; }
         finalUrl = await uploadOneToCloudinary(blob);
       }
-      const f = qmTarget.field;
-      const updates = {};
-      updates[f + 'Url'] = finalUrl;
-      updates[f + 'Original'] = original;
-      updates[f + 'Markup'] = qmShapes;
-      const coll = qmTarget.kind === 'quote' ? 'quotes' : 'jobAddresses';
-      await updateDoc(doc(db, coll, qmTarget.id), updates);
+      /* A quote's photos live in a list, so it hands in its own saver that
+         writes back into the right slot. Everything else (the customer photo)
+         still saves straight onto its three fields, untouched. */
+      if(typeof qmTarget.save === 'function'){
+        await qmTarget.save(finalUrl, original, qmShapes);
+      } else {
+        const f = qmTarget.field;
+        const updates = {};
+        updates[f + 'Url'] = finalUrl;
+        updates[f + 'Original'] = original;
+        updates[f + 'Markup'] = qmShapes;
+        const coll = qmTarget.kind === 'quote' ? 'quotes' : 'jobAddresses';
+        await updateDoc(doc(db, coll, qmTarget.id), updates);
+      }
       document.getElementById('quoteMarkupOverlay').style.display = 'none';
       toast(qmShapes.length ? 'Markup saved' : 'Markup cleared');
     } catch(err){
@@ -11120,6 +11723,32 @@ let addCustPhotoMarkup = [];
 let addCustFromQuoteId = null;
 let addCustContactMethodFromQuote = '';
 let addCustHighlights = [];
+/* Photos beyond the main one. They ride along to the customer record as
+   photos 2, 3, ... - the sections you outline are always on the main one. */
+let addCustExtraPhotos = [];
+function renderAddCustExtraPhotos(){
+  const wrap = document.getElementById('addCustExtraPhotos');
+  const note = document.getElementById('addCustExtraNote');
+  if(!wrap || !note) return;
+  if(!addCustExtraPhotos.length){
+    wrap.style.display = 'none'; wrap.innerHTML = '';
+    note.style.display = 'none'; note.textContent = '';
+    return;
+  }
+  wrap.style.display = 'flex';
+  wrap.innerHTML = addCustExtraPhotos.map(function(p, i){
+    return '<button type="button" class="pc-thumb" data-removeextra="'+i+'" title="Remove this photo"><img src="'+esc(p.url)+'" alt=""></button>';
+  }).join('');
+  note.style.display = 'block';
+  note.textContent = addCustExtraPhotos.length + ' more photo' + (addCustExtraPhotos.length === 1 ? '' : 's') +
+    ' will be saved with this customer (tap one to remove it). The photo above is the main one.';
+  wrap.querySelectorAll('[data-removeextra]').forEach(function(b){
+    b.addEventListener('click', function(){
+      addCustExtraPhotos.splice(Number(b.dataset.removeextra), 1);
+      renderAddCustExtraPhotos();
+    });
+  });
+}
 const ACH_COLORS = ['#F4BE55','#E0574B','#2E6B3E','#4338CA','#F97316','#3E7A5B'];
 function renderAddCustHighlights(){
   const layer = document.getElementById('addCustHighlightLayer');
@@ -11167,24 +11796,39 @@ document.getElementById('addCustViewBlueprint').addEventListener('click', functi
   orig.style.background = ''; orig.style.color = '';
 });
 document.getElementById('addCustPhoto').addEventListener('change', async function(e){
-  const file = e.target.files[0];
-  if(!file) return;
+  const files = Array.prototype.slice.call(e.target.files || []);
+  if(!files.length) return;
   const statusEl = document.getElementById('addCustPhotoStatus');
-  statusEl.textContent = 'Uploading…';
-  try{
-    addCustPhotoUrl = await uploadOneToCloudinary(file);
-    const img = document.getElementById('addCustPhotoImg');
-    img.src = addCustPhotoUrl;
-    img.classList.remove('hm-blueprint');
-    document.getElementById('addCustPhotoWrap').style.display = 'block';
-    document.getElementById('addCustViewToggle').style.display = 'flex';
-    document.getElementById('addCustViewOriginal').style.background = 'var(--ink)';
-    document.getElementById('addCustViewOriginal').style.color = '#fff';
-    statusEl.textContent = 'Photo uploaded — drag on it to outline a section.';
-  } catch(err){
-    statusEl.textContent = 'Upload failed — try again.';
-    addCustPhotoUrl = '';
+  let failed = 0;
+  for(let i = 0; i < files.length; i++){
+    statusEl.textContent = files.length > 1 ? ('Uploading ' + (i+1) + ' of ' + files.length + '…') : 'Uploading…';
+    let url;
+    try{
+      const uploadFile = await shrinkImageFileIfTooLarge(files[i], 9*1024*1024, 2000, 0.85);
+      url = await uploadOneToCloudinary(uploadFile);
+    } catch(err){ failed++; continue; }
+    /* The first photo is the main one - it is the one you outline sections on
+       and the one the crew sees first. Anything after it is an extra. */
+    if(!addCustPhotoUrl){
+      addCustPhotoUrl = url;
+      const img = document.getElementById('addCustPhotoImg');
+      img.src = addCustPhotoUrl;
+      img.classList.remove('hm-blueprint');
+      document.getElementById('addCustPhotoWrap').style.display = 'block';
+      document.getElementById('addCustViewToggle').style.display = 'flex';
+      document.getElementById('addCustViewOriginal').style.background = 'var(--ink)';
+      document.getElementById('addCustViewOriginal').style.color = '#fff';
+    } else {
+      addCustExtraPhotos.push({url: url, original: url, markup: []});
+    }
   }
+  e.target.value = '';
+  renderAddCustExtraPhotos();
+  statusEl.textContent = failed
+    ? (failed + ' photo' + (failed === 1 ? '' : 's') + ' failed to upload — try those again.')
+    : (addCustExtraPhotos.length
+        ? 'Photos uploaded — drag on the main photo to outline a section.'
+        : 'Photo uploaded — drag on it to outline a section.');
 });
 document.getElementById('addCustPhotoRemove').addEventListener('click', function(){
   if(!confirm('Remove this photo?\n\nAny sections you outlined stay in the list below with their feet and prices.')) return;
@@ -11468,6 +12112,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
       street: street, city: city, state: 'UT', zip: zip,
       address: fullAddress, difficulty: difficulty, name: name, phone: phone, email: email,
       phone2: phone2, email2: email2, lightsDescription: lightsDescription,
+      housePhotos: customerPhotoUpdates([{url: addCustPhotoUrl, original: addCustPhotoOriginal || addCustPhotoUrl, markup: addCustPhotoMarkup}].concat(addCustExtraPhotos)).housePhotos,
       housePhotoUrl: addCustPhotoUrl, housePhotoOriginal: addCustPhotoOriginal, housePhotoMarkup: addCustPhotoMarkup,
       houseHighlights: addCustHighlights, portalToken: generatePortalToken(), installPreference: installPreference,
       chargeNewMemberFee: chargeNewMemberFee,
@@ -11577,6 +12222,8 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
     document.getElementById('addCustViewToggle').style.display = 'none';
     document.getElementById('addCustPhotoStatus').textContent = '';
     addCustPhotoUrl = '';
+    addCustExtraPhotos = [];
+    renderAddCustExtraPhotos();
     addCustHighlights = [];
     renderAddCustHighlights();
     statusEl.textContent = 'Added!' + invoiceMsg;
@@ -12630,7 +13277,8 @@ function attachAddressRowHandlers(container){
       if(isOpen){ panel.style.display = 'none'; return; }
       const item = jobAddresses.find(a => a.id === id);
       const d = item ? item.data : {};
-      const housePhotoUrl = d.housePhotoUrl || '';
+      const housePhotos = customerPhotoList(d);
+      const housePhotoUrl = housePhotos.length ? housePhotos[0].url : '';
       const houseHighlights = d.houseHighlights || [];
       panel.innerHTML =
         '<div class="form-grid-2">'+
@@ -12641,17 +13289,23 @@ function attachAddressRowHandlers(container){
         lightsPickerFieldsHtml('hd-lights', d.lightsDescription||'')+
         '<div style="border-top:1px solid var(--line); margin-top:16px; padding-top:16px;">'+
           '<label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:8px;">House Photo</label>'+
-          '<p style="font-size:12.5px; color:var(--slate); margin:0 0 10px;">Upload a photo of the house, then drag on it to outline each section they want lit (front, left side, full house, etc.) and set a price for each. Great for new houses so the crew knows exactly what was quoted.</p>'+
-          '<input type="file" accept="image/*" class="hd-photo-input" style="margin-bottom:10px;">'+
-          '<div class="hd-view-toggle" style="display:'+(housePhotoUrl?'flex':'none')+'; gap:8px; margin-bottom:10px;">'+
+          '<p style="font-size:12.5px; color:var(--slate); margin:0 0 10px;">Upload as many photos as you like &mdash; the arrows and the thumbnails move between them, and each one can be marked up on its own. Drag on the <strong>main</strong> photo (the first one) to outline each section they want lit and set a price for each; that is what feeds feet and price.</p>'+
+          '<input type="file" accept="image/*" multiple class="hd-photo-input" style="margin-bottom:10px;">'+
+          '<div class="hd-view-toggle" style="display:'+(housePhotos.length?'flex':'none')+'; gap:8px; margin-bottom:10px; flex-wrap:wrap;">'+
             '<button type="button" class="btn btn-outline btn-sm hd-view-original" style="background:var(--ink); color:#fff;">Original Photo</button>'+
             '<button type="button" class="btn btn-outline btn-sm hd-view-blueprint">Blueprint View</button>'+
-            '<button type="button" class="btn btn-outline btn-sm hd-markup-photo" data-markupcust="'+id+'">Mark Up Photo</button>'+
-            '<button type="button" class="btn btn-outline btn-sm hd-photo-remove" style="color:var(--ember); margin-left:auto;">Remove Photo</button>'+
+            '<button type="button" class="btn btn-outline btn-sm hd-markup-photo" data-markupcust="'+id+'">Mark Up This Photo</button>'+
+            '<button type="button" class="btn btn-outline btn-sm hd-photo-main" style="display:none;">Make Main</button>'+
+            '<button type="button" class="btn btn-outline btn-sm hd-photo-remove" style="color:var(--ember); margin-left:auto;">Remove This Photo</button>'+
           '</div>'+
-          '<div class="hd-photo-wrap" style="position:relative; display:'+(housePhotoUrl?'block':'none')+'; max-width:480px; margin-bottom:10px; border-radius:10px; overflow:hidden; border:1px solid var(--line); cursor:crosshair; user-select:none;">'+
-            '<img class="hd-photo-img" src="'+esc(housePhotoUrl)+'" style="width:100%; display:block; pointer-events:none;">'+
-            '<div class="hd-highlight-layer" style="position:absolute; inset:0;"></div>'+
+          '<div class="hd-photo-outer" style="display:'+(housePhotos.length?'block':'none')+'; max-width:480px; margin-bottom:10px;">'+
+            photoFrameHtml(housePhotos.length ? housePhotos : [{url: housePhotoUrl}], {
+              imgClass: 'hd-photo-img',
+              imgStyle: 'width:100%; display:block; pointer-events:none;',
+              frameStyle: 'border-radius:10px; overflow:hidden; border:1px solid var(--line); cursor:crosshair; user-select:none;',
+              overlayOnMain: '<div class="hd-highlight-layer" style="position:absolute; inset:0;"></div>'
+            })+
+            '<div class="pc-mainonly-note rtext" style="display:none; color:var(--slate); margin-top:4px;">Sections are outlined on the main photo &mdash; go back to photo 1 to draw one, or press Make Main to move this photo to the front.</div>'+
           '</div>'+
           '<div class="hd-new-highlight-form" style="display:none; background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:10px;">'+
             '<div class="form-grid-2">'+
@@ -12672,7 +13326,11 @@ function attachAddressRowHandlers(container){
       // ---- photo + highlight tool state ----
       let currentPhotoUrl = housePhotoUrl;
       let currentHighlights = houseHighlights.slice();
-      const photoWrap = panel.querySelector('.hd-photo-wrap');
+      const photoOuter = panel.querySelector('.hd-photo-outer');
+      const pcEl = panel.querySelector('.pc');
+      /* Outlines are dragged on the main photo, so the drag frame is slide 1.
+         (Only one slide is ever on screen, so its box is the photo's box.) */
+      const photoWrap = panel.querySelector('.pc-slide[data-pcslide="0"]') || panel.querySelector('.pc-frame');
       const photoImg = panel.querySelector('.hd-photo-img');
       const highlightLayer = panel.querySelector('.hd-highlight-layer');
       const listEl = panel.querySelector('.hd-highlight-list');
@@ -12684,33 +13342,85 @@ function attachAddressRowHandlers(container){
       const viewToggleWrap = panel.querySelector('.hd-view-toggle');
       const viewOriginalBtn = panel.querySelector('.hd-view-original');
       const viewBlueprintBtn = panel.querySelector('.hd-view-blueprint');
+      const mainPhotoBtn = panel.querySelector('.hd-photo-main');
+      /* Make Main only appears while you are looking at one of the extras. */
+      if(pcEl && mainPhotoBtn){
+        const syncMainBtn = function(){
+          mainPhotoBtn.style.display = pcActiveIndex(pcEl) > 0 ? 'inline-flex' : 'none';
+        };
+        pcEl.addEventListener('click', function(){ setTimeout(syncMainBtn, 0); });
+        pcEl.addEventListener('touchend', function(){ setTimeout(syncMainBtn, 0); });
+        syncMainBtn();
+      }
       const markupBtn = panel.querySelector('.hd-markup-photo');
       if(markupBtn) markupBtn.addEventListener('click', function(){
         // Close House Details first — it holds its own copy of the photo URL and
         // would write the stale one back over the markup on its next Save.
+        const at = pcActiveIndex(pcEl);
         panel.style.display = 'none';
-        openCustomerMarkup(markupBtn.dataset.markupcust);
+        openCustomerMarkup(markupBtn.dataset.markupcust, at);
+      });
+      /* Promoting an extra to main saves straight away: the main photo is what
+         the crew app, the route card and the portal show, so leaving it
+         half-changed behind an unpressed Save button would be worse. */
+      if(mainPhotoBtn) mainPhotoBtn.addEventListener('click', async function(){
+        const at = pcActiveIndex(pcEl);
+        if(at < 1) return;
+        const fresh = jobAddresses.find(function(a){ return a.id === id; });
+        const photos = customerPhotoList(fresh ? fresh.data : d);
+        if(!photos[at]) return;
+        if(currentHighlights.length && !confirm('Make this the main photo?\n\nThe sections you outlined were drawn on the current main photo, so they will need outlining again on this one.')) return;
+        photos.unshift(photos.splice(at, 1)[0]);
+        const updates = customerPhotoUpdates(photos);
+        try{
+          await updateDoc(doc(db,'jobAddresses', id), updates);
+          if(fresh) Object.assign(fresh.data, updates);
+          reopenHouseDetails();
+          toast('Main photo changed.');
+        } catch(err){ statusEl2.textContent = 'Could not save that — try again.'; }
       });
       const removePhotoBtn = panel.querySelector('.hd-photo-remove');
-      if(removePhotoBtn) removePhotoBtn.addEventListener('click', function(){
-        if(!confirm('Remove this house photo?\n\nThe sections you outlined stay saved with their feet and prices — they\'ll show again if you upload a new photo. Nothing is final until you press Save.')) return;
+      if(removePhotoBtn) removePhotoBtn.addEventListener('click', async function(){
+        const at = pcActiveIndex(pcEl);
+        const fresh = jobAddresses.find(function(a){ return a.id === id; });
+        const photos = customerPhotoList(fresh ? fresh.data : d);
+        /* An extra photo is deleted on the spot. The main one still works the
+           way it always has - cleared here, made final by Save - because the
+           outlined sections and the price hang off it. */
+        if(at > 0 && photos[at]){
+          if(!confirm('Remove photo ' + (at+1) + ' of ' + photos.length + '?\n\nThe main photo and the sections you outlined are untouched.')) return;
+          photos.splice(at, 1);
+          const updates = customerPhotoUpdates(photos);
+          try{
+            await updateDoc(doc(db,'jobAddresses', id), updates);
+            if(fresh) Object.assign(fresh.data, updates);
+            reopenHouseDetails();
+            toast('Photo removed.');
+          } catch(err){ statusEl2.textContent = 'Could not remove that — try again.'; }
+          return;
+        }
+        if(!confirm('Remove the main house photo?\n\nThe sections you outlined stay saved with their feet and prices — they\'ll show again if you upload a new photo. Nothing is final until you press Save.')) return;
         currentPhotoUrl = '';
         photoImg.src = '';
         photoImg.classList.remove('hm-blueprint');
-        photoWrap.style.display = 'none';
+        photoOuter.style.display = 'none';
         viewToggleWrap.style.display = 'none';
         newHighlightForm.style.display = 'none';
         const fileInput = panel.querySelector('.hd-photo-input');
         if(fileInput) fileInput.value = '';
-        statusEl2.textContent = 'Photo removed — press Save to make it stick.';
+        statusEl2.textContent = 'Main photo removed — press Save to make it stick.';
       });
+      /* The blueprint view applies to every photo in the frame, not just the
+         main one, so flipping it and then moving across doesn't drop back to a
+         photograph halfway through. */
+      const allPhotoImgs = panel.querySelectorAll('.hd-photo-img');
       viewOriginalBtn.addEventListener('click', function(){
-        photoImg.classList.remove('hm-blueprint');
+        allPhotoImgs.forEach(function(im){ im.classList.remove('hm-blueprint'); });
         viewOriginalBtn.style.background = 'var(--ink)'; viewOriginalBtn.style.color = '#fff';
         viewBlueprintBtn.style.background = ''; viewBlueprintBtn.style.color = '';
       });
       viewBlueprintBtn.addEventListener('click', function(){
-        photoImg.classList.add('hm-blueprint');
+        allPhotoImgs.forEach(function(im){ im.classList.add('hm-blueprint'); });
         viewBlueprintBtn.style.background = 'var(--ink)'; viewBlueprintBtn.style.color = '#fff';
         viewOriginalBtn.style.background = ''; viewOriginalBtn.style.color = '';
       });
@@ -12744,23 +13454,26 @@ function attachAddressRowHandlers(container){
       }
       renderHighlights();
 
+      /* Rebuilds this panel from the freshest copy of the customer - the same
+         two presses you would do by hand. Used after anything that saves a
+         photo change straight away, so the frame, the thumbnails and the
+         buttons all come back in step. */
+      function reopenHouseDetails(){
+        panel.style.display = 'none';
+        btn.click();
+      }
       panel.querySelector('.hd-photo-input').addEventListener('change', async function(e){
-        const file = e.target.files[0];
-        if(!file) return;
-        statusEl2.textContent = 'Uploading photo…';
-        try{
-          const url = await uploadOneToCloudinary(file);
-          currentPhotoUrl = url;
-          photoImg.src = url;
-          photoImg.classList.remove('hm-blueprint');
-          photoWrap.style.display = 'block';
-          viewToggleWrap.style.display = 'flex';
-          viewOriginalBtn.style.background = 'var(--ink)'; viewOriginalBtn.style.color = '#fff';
-          viewBlueprintBtn.style.background = ''; viewBlueprintBtn.style.color = '';
-          statusEl2.textContent = 'Photo uploaded — drag on it to outline a section.';
-        } catch(err){
-          statusEl2.textContent = 'Upload failed — try again.';
-        }
+        const files = Array.prototype.slice.call(e.target.files || []);
+        if(!files.length) return;
+        /* Photos save as they upload rather than waiting for Save, so that
+           marking one up straight afterwards has something to work on. */
+        const added = await addCustomerPhotos(id, files, function(n, total){
+          statusEl2.textContent = total > 1 ? ('Uploading ' + n + ' of ' + total + '…') : 'Uploading photo…';
+        });
+        e.target.value = '';
+        if(!added){ statusEl2.textContent = 'Upload failed — try again.'; return; }
+        statusEl2.textContent = '';
+        reopenHouseDetails();
       });
 
       let dragStart = null, dragBox = null;
@@ -12846,12 +13559,26 @@ function attachAddressRowHandlers(container){
           statusEl2.textContent = 'Saving highlighted photo…';
           currentPhotoUrl = await getHighlightedPhotoUrl(currentPhotoUrl, currentHighlights);
         }
-        const updates = {
+        /* The main photo is slot 1 of the list. Rebuild the list from the
+           freshest copy of the customer (an extra photo may have been added
+           while this panel was open) and drop the new main into slot 1, so
+           saving here can never quietly wipe the others. */
+        const freshCust = jobAddresses.find(function(a){ return a.id === id; });
+        const photosNow = customerPhotoList(freshCust ? freshCust.data : d);
+        const oldMain = photosNow[0];
+        if(currentPhotoUrl){
+          photosNow[0] = (oldMain && oldMain.url === currentPhotoUrl)
+            ? oldMain
+            : {url: currentPhotoUrl, original: currentPhotoUrl, markup: []};
+        } else if(photosNow.length){
+          photosNow.shift();   // main photo was removed above
+        }
+        const updates = Object.assign({
           phone2: newPhone2, email2: newEmail2, lightsDescription: newLights,
           // A colour change means a new pattern to build, so send it to the warehouse.
           needsLightBuild: newLights ? (newLights !== (existingCust.lightsDescription || '') ? true : !!existingCust.needsLightBuild) : false,
-          housePhotoUrl: currentPhotoUrl, houseHighlights: currentHighlights
-        };
+          houseHighlights: currentHighlights
+        }, customerPhotoUpdates(photosNow));
         if(diffSelect) updates.difficulty = diffSelect.value;
         await updateDoc(doc(db,'jobAddresses',id), updates);
         if(currentPhotoUrl){
@@ -14496,31 +15223,38 @@ function renderEditCustCarryover(d){
 function renderEditCustPhotoThumb(d){
   const wrap = document.getElementById('editCustPhotoThumb');
   if(!wrap) return;
-  const url = d && d.housePhotoUrl ? d.housePhotoUrl : '';
-  if(!url){
+  const photos = customerPhotoList(d);
+  if(!photos.length){
     wrap.innerHTML = '<span style="font-size:12.5px; color:var(--slate);">No photo yet. Upload one below, then you can highlight it.</span>';
     return;
   }
-  wrap.innerHTML = '<img src="'+esc(url)+'" style="max-width:220px; border-radius:8px; border:1px solid var(--line); display:block; margin-bottom:6px;">'+
-    '<button type="button" class="btn btn-outline btn-sm" id="editCustMarkupBtn">Highlight / Mark Up Photo</button>';
+  /* Same frame as everywhere else, and Mark Up works on whichever photo you
+     are looking at. */
+  wrap.innerHTML = photoFrameHtml(photos, {
+      style: 'max-width:220px; margin-bottom:6px;',
+      frameStyle: 'border-radius:8px; overflow:hidden; border:1px solid var(--line);'
+    })+
+    '<button type="button" class="btn btn-outline btn-sm" id="editCustMarkupBtn" style="margin-top:6px;">Highlight / Mark Up This Photo</button>';
   const b = document.getElementById('editCustMarkupBtn');
-  if(b) b.addEventListener('click', function(){ openCustomerMarkup(editCustomerId); });
+  if(b) b.addEventListener('click', function(){
+    openCustomerMarkup(editCustomerId, pcActiveIndex(wrap.querySelector('.pc')));
+  });
 }
 document.getElementById('editCustPhotoFile').addEventListener('change', async function(e){
-  const file = e.target.files[0];
-  if(!file || !editCustomerId) return;
+  const files = Array.prototype.slice.call(e.target.files || []);
+  if(!files.length || !editCustomerId) return;
   const statusEl = document.getElementById('editCustPhotoStatus');
-  statusEl.textContent = 'Uploading photo…';
-  try{
-    const url = await uploadOneToCloudinary(file);
-    // Save the photo straight away so the markup editor has something to work on.
-    await updateDoc(doc(db,'jobAddresses', editCustomerId), { housePhotoUrl: url, housePhotoOriginal: url });
-    statusEl.textContent = 'Photo saved — click “Highlight / Mark Up Photo” to mark it up.';
-    const fresh = jobAddresses.find(a => a.id === editCustomerId);
-    renderEditCustPhotoThumb(fresh ? fresh.data : { housePhotoUrl: url });
-  } catch(err){
-    statusEl.textContent = 'Upload failed — try again.';
-  }
+  // Saved straight away so the markup editor has something to work on.
+  const added = await addCustomerPhotos(editCustomerId, files, function(n, total){
+    statusEl.textContent = total > 1 ? ('Uploading ' + n + ' of ' + total + '…') : 'Uploading photo…';
+  });
+  e.target.value = '';
+  if(!added){ statusEl.textContent = 'Upload failed — try again.'; return; }
+  statusEl.textContent = added > 1
+    ? (added + ' photos saved — use the arrows to move between them.')
+    : 'Photo saved — click “Highlight / Mark Up This Photo” to mark it up.';
+  const fresh = jobAddresses.find(a => a.id === editCustomerId);
+  renderEditCustPhotoThumb(fresh ? fresh.data : {});
 });
 let editCustLayoutMapUrl = '';
 function renderEditCustLayoutMapThumb(){
@@ -15453,14 +16187,20 @@ function renderRouteOrderedList(ordered){
           (hd.fixPhotoUrl ? '<img src="'+esc(cloudThumb(hd.fixPhotoUrl, 440))+'" loading="lazy" decoding="async" style="max-width:220px; border-radius:8px; margin-top:8px; display:block;">' : '')+
         '</div>'
       ) : '')+
+      /* Every house photo, one at a time - arrows, thumbnails and swipe. The
+         outlined sections sit on the main photo, which is the one the crew
+         sees first. */
       (hd.housePhotoUrl ? (function(){
         const HL_COLORS = ['#F4BE55','#E0574B','#2E6B3E','#4338CA','#F97316','#3E7A5B'];
         const boxes = (hd.houseHighlights||[]).map(function(h,i){
           const c = HL_COLORS[i%HL_COLORS.length];
           return '<div style="position:absolute; left:'+(h.x*100)+'%; top:'+(h.y*100)+'%; width:'+(h.w*100)+'%; height:'+(h.h*100)+'%; background:'+c+'55; border:2px solid '+c+'; box-sizing:border-box;"><span style="position:absolute; top:1px; left:1px; background:'+c+'; color:#fff; font-size:9.5px; font-weight:700; padding:1px 4px; border-radius:3px;">'+esc(h.label)+'</span></div>';
         }).join('');
-        return '<div style="position:relative; max-width:260px; margin-top:8px; border-radius:8px; overflow:hidden; border:1px solid var(--line);">'+
-          '<img src="'+esc(cloudThumb(hd.housePhotoUrl, 520))+'" loading="lazy" decoding="async" style="width:100%; display:block;">'+boxes+'</div>';
+        return photoFrameHtml(customerPhotoList(hd), {
+          imgWidth: 520, thumbWidth: 120, overlayOnMain: boxes,
+          style: 'max-width:260px; margin-top:8px;',
+          frameStyle: 'border-radius:8px; overflow:hidden; border:1px solid var(--line);'
+        });
       })() : '')+
       '<div class="diff-pick-row" style="margin-top:6px;">'+
         '<select class="diff-select" data-setdiff="'+stop.id+'" style="border-radius:8px; border:1px solid var(--line); padding:6px 10px; font-size:13px; font-weight:600; background:var(--snow); color:var(--ink);">'+
