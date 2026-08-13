@@ -11979,6 +11979,14 @@ async function syncPayerInvoice(payerKey){
      functions/index.js) — summing it back in here would silently undo that the
      next time an admin edit resyncs this invoice. */
   const active = linked.filter(h => String(h.data.rsvpStatus||'') !== 'no');
+  if(linked.length && !active.length){
+    /* Every linked house sat out this season. That is not the same as the
+       payer having no houses at all (the case the guard above protects) — the
+       houses are still real, just not billed. runInvoiceBatch leaves a payer
+       like this alone entirely rather than zeroing them out, so do the same
+       here instead of writing install: 0 over a real balance. */
+    return;
+  }
   const total = active.reduce((s,h) => s + (Number(h.data.housePrice)||0), 0);
   const payerHouse = linked.find(h => custInvoiceKey(h.data) === key && !h.data.billToPhone);
   let existing = {};
@@ -15601,11 +15609,15 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       const payerData = payerSnap.exists() ? payerSnap.data() : {};
       const combinedFeeNotes = (Array.isArray(payerData.changeFeeNotes) ? payerData.changeFeeNotes : []).concat(migratingFeeNotes);
       const combinedFees = combinedFeeNotes.reduce(function(sum, f){ return sum + (Number(f.amount) || 0); }, 0);
-      await updateDoc(doc(db,'invoices', newBillTo), {
+      /* setDoc+merge, not updateDoc: syncPayerInvoice above skips writing (on
+         purpose) when every one of the payer's houses sat out the season, so
+         this invoice doc may not exist yet — updateDoc would throw "No
+         document to update" and the fee would be lost mid-save. */
+      await setDoc(doc(db,'invoices', newBillTo), {
         changeFees: combinedFees, changeFeeNotes: combinedFeeNotes,
         status: computeInvoiceStatus(payerData.install || 0, payerData.removal || 0, payerData.deposit || 0, payerData.credits || 0, combinedFees),
         updatedAt: serverTimestamp()
-      });
+      }, {merge:true});
     }
     document.getElementById('editCustOverlay').style.display = 'none';
     editCustomerId = null;

@@ -729,6 +729,19 @@ check('flow', 'payer invoice resync never writes an email into the phone field',
   /phone:\s*isPhoneKey\s*\?\s*key\s*:/.test(syncPayer),
   'the phone field is read back by lookups that expect digits');
 
+// A multi-house payer with one house RSVP'd 'no' would have that house's price
+// summed back into the invoice on the next resync (e.g. an Edit Customer save)
+// — undoing runInvoiceBatch's own exclusion of it. Fixed 2026-08-13 to filter
+// active houses the same way the server does, and to skip the write entirely
+// (not zero the invoice) when every linked house has opted out — a payer with
+// zero active houses is not the same as a payer with zero houses at all.
+check('flow', 'payer invoice resync excludes RSVP-no houses from the total',
+  /rsvpStatus\|\|''\)\s*!==\s*'no'/.test(syncPayer),
+  "a cancelled house's price would get resummed back onto the invoice on the next edit");
+check('flow', 'payer invoice resync does not zero an invoice when every house opted out',
+  /linked\.length\s*&&\s*!active\.length/.test(syncPayer),
+  'a payer whose houses are all RSVP-no would have their real balance wiped to $0');
+
 // Same root confusion, different blast radius: the bulk/single "let these
 // customers know" senders matched an invoice by comparing phone fields. A
 // customer with no phone has phone '' on both sides, so '' === '' pulled back
