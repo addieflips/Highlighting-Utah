@@ -240,6 +240,32 @@ check('logic', 'removal counts toward the total',
   'expected Partial — 500 paid against a 600 total');
 check('logic', 'zero-value invoice is Unpaid', computeInvoiceStatus(0, 0, 0) === 'Unpaid');
 
+/*
+ * New Hang badge. This used to be guessed from createdAt ("enrolled 14+ days ago
+ * and still not scheduled"), which flagged all ~945 houses at once, because the
+ * bulk import stamped every record with the same createdAt and out of season
+ * nobody is scheduled. It now reads the office's own chargeNewMemberFee decision.
+ * These checks exist so it can never quietly drift back to a date guess.
+ */
+const isNewHangUrgentSrc = extractFn(admin, 'isNewHangUrgent');
+eval(isNewHangUrgentSrc);
+const oldCreatedAt = { toDate: () => new Date(Date.now() - 400 * 86400000) };
+check('logic', 'isNewHangUrgent exists', typeof isNewHangUrgent === 'function');
+check('logic', 'New Hang flags a new member awaiting install',
+  isNewHangUrgent({ chargeNewMemberFee: true, createdAt: oldCreatedAt }) === true);
+check('logic', 'New Hang ignores a returning customer, however long enrolled',
+  isNewHangUrgent({ createdAt: oldCreatedAt }) === false,
+  'a record with chargeNewMemberFee unset must never be flagged — that is the ~945-house bug');
+check('logic', 'New Hang ignores an explicit non-new member',
+  isNewHangUrgent({ chargeNewMemberFee: false, createdAt: oldCreatedAt }) === false);
+check('logic', 'New Hang clears once scheduled',
+  isNewHangUrgent({ chargeNewMemberFee: true, scheduled: true }) === false);
+check('logic', 'New Hang clears once completed',
+  isNewHangUrgent({ chargeNewMemberFee: true, completed: true }) === false);
+check('logic', 'New Hang no longer reads createdAt at all',
+  !/createdAt|daysSince/.test(isNewHangUrgentSrc || ''),
+  'the enrollment-date guess is back — every imported house shares one createdAt, so it flags everybody');
+
 const projTestSyncDecisionSrc = extractFn(admin, 'projTestSyncDecision');
 eval(projTestSyncDecisionSrc);
 
