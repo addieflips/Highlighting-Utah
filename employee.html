@@ -211,6 +211,27 @@
     padding:8px 14px; font-size:12.5px; font-weight:600; color:var(--ink);
   }
   .empty-note{ text-align:center; padding:30px; color:var(--slate); font-size:14px; background:#fff; border-radius:14px; border:1px dashed var(--line); }
+  /* ---- Photo frame (matches admin.html) ----
+     One frame holding every photo of the house, only one shown at a time,
+     with a count badge, arrows, thumbnails and swipe. A house with a single
+     photo renders as a plain picture with none of the extras. */
+  .pc-frame{ position:relative; }
+  .pc-slide{ display:none; position:relative; }
+  .pc-slide.on{ display:block; }
+  .pc-slide img{ width:100%; display:block; }
+  .pc-count{ position:absolute; top:8px; left:8px; background:rgba(20,32,25,.78); color:#fff;
+    font-size:11.5px; font-weight:700; padding:3px 8px; border-radius:999px; }
+  .pc-nav{ position:absolute; top:50%; transform:translateY(-50%); width:34px; height:34px; border:none;
+    border-radius:50%; background:rgba(20,32,25,.78); color:#fff; font-size:19px; line-height:1;
+    display:flex; align-items:center; justify-content:center; }
+  .pc-prev{ left:6px; }
+  .pc-next{ right:6px; }
+  .pc-label{ font-size:12.5px; color:var(--slate); margin:5px 2px 0; }
+  .pc-thumbs{ display:flex; gap:6px; flex-wrap:wrap; margin:6px 0 0; }
+  .pc-thumb{ width:52px; height:40px; border-radius:6px; overflow:hidden; border:2px solid transparent;
+    padding:0; background:none; }
+  .pc-thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .pc-thumb.on{ border-color:var(--gold-dim); }
 </style>
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyByI2wHguK1JLNdUFJQKiA_gunoVtTkyqM"></script>
 </head>
@@ -2597,14 +2618,21 @@ async function loadRoutesForDate(){
           '</div>';
         }
         const photoEl = document.getElementById('housephoto-'+id);
-        if(photoEl && d.housePhotoUrl){
+        const housePhotos = customerPhotoList(d);
+        if(photoEl && housePhotos.length){
           const HL_COLORS = ['#F4BE55','#E0574B','#2E6B3E','#4338CA','#F97316','#3E7A5B'];
           const boxes = (d.houseHighlights||[]).map(function(h,i){
             const c = HL_COLORS[i%HL_COLORS.length];
             return '<div style="position:absolute; left:'+(h.x*100)+'%; top:'+(h.y*100)+'%; width:'+(h.w*100)+'%; height:'+(h.h*100)+'%; background:'+c+'55; border:2px solid '+c+'; box-sizing:border-box;"><span style="position:absolute; top:1px; left:1px; background:'+c+'; color:#fff; font-size:10px; font-weight:700; padding:1px 5px; border-radius:3px;">'+esc(h.label)+'</span></div>';
           }).join('');
           photoEl.style.display = 'block';
-          photoEl.innerHTML = '<div style="position:relative; border-radius:10px; overflow:hidden; border:1px solid var(--line);"><img src="'+esc(cloudThumb(d.housePhotoUrl, 800))+'" loading="lazy" decoding="async" style="width:100%; display:block;">'+boxes+'</div>';
+          /* The outlined sections were drawn on the main photo, so they only
+             belong on photo #1 - hence overlayOnMain rather than every slide. */
+          photoEl.innerHTML = photoFrameHtml(housePhotos, {
+            imgWidth: 800,
+            frameStyle: 'border-radius:10px; overflow:hidden; border:1px solid var(--line);',
+            overlayOnMain: boxes
+          });
         }
         renderStopStatus(id, d);
       } catch(err){ ta.value = ''; }
@@ -2669,6 +2697,119 @@ function esc(s){
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
   });
 }
+/* ---------------- THE PHOTO FRAME (ported from admin.html) ----------------
+   A customer can carry several photos of the house in `housePhotos`, each
+   with its own label ("Front of house", "Right side"). Photo #1 is the main
+   one and is always mirrored onto the old single-photo fields, so a record
+   from before multiple photos existed reads back as a one-item list and
+   looks exactly as it always did.
+   The crew's view is read-only - swipe, arrows and thumbnails, nothing that
+   writes. */
+function customerPhotoList(d){
+  if(d && Array.isArray(d.housePhotos) && d.housePhotos.length){
+    return d.housePhotos.filter(function(p){ return p && p.url; }).map(function(p){
+      return {url: p.url, label: p.label || ''};
+    });
+  }
+  if(d && d.housePhotoUrl) return [{url: d.housePhotoUrl, label: ''}];
+  return [];
+}
+function photoFrameHtml(photos, opts){
+  opts = opts || {};
+  if(!photos || !photos.length) return '';
+  const many = photos.length > 1;
+  const thumbW = opts.thumbWidth || 120;
+  const imgW = opts.imgWidth || 800;
+  const slides = photos.map(function(p, i){
+    return '<div class="pc-slide'+(i === 0 ? ' on' : '')+'" data-pcslide="'+i+'"'+
+        ' data-pclabel="'+esc(p.label || '')+'">'+
+      '<img src="'+esc(cloudThumb(p.url, imgW))+'" loading="lazy" decoding="async"'+
+        (opts.imgStyle ? ' style="'+opts.imgStyle+'"' : '')+'>'+
+      /* Section outlines belong to the main photo - they were drawn on it. */
+      (i === 0 ? (opts.overlayOnMain || '') : '')+
+    '</div>';
+  }).join('');
+  const thumbs = many
+    ? '<div class="pc-thumbs">'+photos.map(function(p, i){
+        return '<button type="button" class="pc-thumb'+(i === 0 ? ' on' : '')+'" data-pcindex="'+i+'" title="Photo '+(i+1)+' of '+photos.length+'"><img src="'+esc(cloudThumb(p.url, thumbW))+'" alt=""></button>';
+      }).join('')+'</div>'
+    : '';
+  const firstLabel = photos[0] && photos[0].label ? esc(photos[0].label) : '';
+  return '<div class="pc"'+(opts.style ? ' style="'+opts.style+'"' : '')+'>'+
+    '<div class="pc-frame"'+(opts.frameStyle ? ' style="'+opts.frameStyle+'"' : '')+'>'+
+      slides+
+      (many
+        ? '<span class="pc-count">&#128247; 1 / '+photos.length+'</span>'+
+          '<button type="button" class="pc-nav pc-prev" data-pcdelta="-1" title="Previous photo">&#8249;</button>'+
+          '<button type="button" class="pc-nav pc-next" data-pcdelta="1" title="Next photo">&#8250;</button>'
+        : '')+
+    '</div>'+
+    '<div class="pc-label"'+(firstLabel ? '' : ' style="display:none;"')+'>'+firstLabel+'</div>'+
+    thumbs+
+  '</div>';
+}
+function pcShow(pc, i){
+  if(!pc) return;
+  const slides = pc.querySelectorAll('.pc-slide');
+  if(!slides.length) return;
+  const n = slides.length;
+  const idx = ((Number(i) || 0) % n + n) % n;
+  slides.forEach(function(s, k){ s.classList.toggle('on', k === idx); });
+  pc.querySelectorAll('.pc-thumb').forEach(function(t, k){ t.classList.toggle('on', k === idx); });
+  const count = pc.querySelector('.pc-count');
+  if(count) count.innerHTML = '&#128247; ' + (idx+1) + ' / ' + n;
+  /* Which side of the house you are looking at. Blank labels show nothing at
+     all rather than an empty gap. */
+  const lab = pc.querySelector('.pc-label');
+  if(lab){
+    const text = slides[idx].getAttribute('data-pclabel') || '';
+    lab.textContent = text;
+    lab.style.display = text ? 'block' : 'none';
+  }
+  return idx;
+}
+function pcActiveIndex(pc){
+  if(!pc) return 0;
+  const slides = [].slice.call(pc.querySelectorAll('.pc-slide'));
+  const at = slides.findIndex(function(s){ return s.classList.contains('on'); });
+  return at < 0 ? 0 : at;
+}
+/* Hung on the document once, in the capture phase, so a press on an arrow
+   moves the photo instead of also opening/closing the stop card it sits in.
+   Route lists redraw themselves constantly and never need re-wiring. */
+(function wirePhotoFrames(){
+  document.addEventListener('click', function(e){
+    if(!e.target || !e.target.closest) return;
+    const nav = e.target.closest('.pc-nav');
+    if(nav){
+      e.preventDefault(); e.stopPropagation();
+      const pc = nav.closest('.pc');
+      pcShow(pc, pcActiveIndex(pc) + Number(nav.dataset.pcdelta || 1));
+      return;
+    }
+    const thumb = e.target.closest('.pc-thumb');
+    if(thumb){
+      e.preventDefault(); e.stopPropagation();
+      pcShow(thumb.closest('.pc'), Number(thumb.dataset.pcindex || 0));
+    }
+  }, true);
+  let sx = null, sy = null, sPc = null;
+  document.addEventListener('touchstart', function(e){
+    if(!e.target || !e.target.closest) return;
+    const frame = e.target.closest('.pc-frame');
+    if(!frame || !e.touches || !e.touches.length) return;
+    sPc = frame.closest('.pc'); sx = e.touches[0].clientX; sy = e.touches[0].clientY;
+  }, {passive:true, capture:true});
+  document.addEventListener('touchend', function(e){
+    if(sx === null || !sPc || !e.changedTouches || !e.changedTouches.length){ sx = null; sPc = null; return; }
+    const dx = e.changedTouches[0].clientX - sx;
+    const dy = e.changedTouches[0].clientY - sy;
+    const pc = sPc;
+    sx = null; sy = null; sPc = null;
+    if(Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy)) return;  // a tap, or a scroll
+    pcShow(pc, pcActiveIndex(pc) + (dx < 0 ? 1 : -1));
+  }, {passive:true, capture:true});
+})();
 /* Ask Cloudinary for a phone-sized version of a photo instead of the full-size
    upload. Crews load route cards on mobile data, and q_auto/f_auto also hands
    back WebP where the phone supports it. Non-Cloudinary URLs pass through
