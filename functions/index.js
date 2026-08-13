@@ -56,6 +56,131 @@ async function getPaypalAccessToken(clientId, secret, env) {
   return data.access_token;
 }
 
+
+/**
+ * Emails a payment receipt. Called after a payment has been recorded.
+ *
+ * Which template depends on whether the payment cleared the balance:
+ *   balance now zero -> "Nightly Auto-Invoice - Paid Receipt" (existing wording)
+ *   balance remaining -> "Payment Received - Balance Remaining" (new)
+ *
+ * Deliberately quiet in three cases, all agreed with Addie 2026-08-11:
+ *   - payments under RECEIPT_MIN_AMOUNT, so a token payment doesn't send mail
+ *   - corrections, where the deposit went DOWN or didn't move
+ *   - a receipt already sent for this same deposit figure, which is what stops
+ *     a PayPal capture and its webhook both emailing the same payment
+ *
+ * Never throws. A failed receipt must not roll back a recorded payment - the
+ * money landing is what matters, the email is a courtesy.
+ */
+const RECEIPT_MIN_AMOUNT = 10;
+
+async function sendPaymentReceipt(invoiceId, { paidNow }) {
+  const invRef = db.collection('invoices').doc(invoiceId);
+  // Records why a receipt did not go out, on the invoice itself, so a failure
+  // that happened at 2am with nobody watching still shows up in admin later.
+  // Nothing here is ever allowed to fail silently.
+  const fail = async (why) => {
+    console.error('Payment receipt not sent for ' + invoiceId + ': ' + why);
+    try {
+      await invRef.update({
+        receiptError: why,
+        receiptErrorAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+    } catch (e) { /* invoice vanished; the console line above is the record */ }
+  };
+  try {
+    if (!(paidNow >= RECEIPT_MIN_AMOUNT)) return;   // by design, not a failure
+
+    const snap = await invRef.get();
+    if (!snap.exists) { console.error('Payment receipt: no invoice ' + invoiceId); return; }
+    const inv = snap.data();
+
+    const deposit = Number(inv.deposit) || 0;
+    if (inv.receiptSentForDeposit === deposit) return;   // by design: already sent for this figure
+
+    const total = (Number(inv.install) || 0) + (Number(inv.removal) || 0) + (Number(inv.changeFees) || 0);
+    const credits = Number(inv.credits) || 0;
+    const amountDue = Math.max(0, total - credits - deposit);
+    const email = (inv.email || '').trim();
+    if (!email) return fail('This customer has no email address on their record, so no payment receipt could be sent. The payment itself was recorded correctly.');
+
+    const emailSettingsSnap = await db.collection('settings').doc('emailjs').get();
+    const emailSettings = emailSettingsSnap.exists ? emailSettingsSnap.data() : {};
+    const { serviceId, templateId, privateKey, publicKey } = emailSettings;
+    if (!serviceId || !templateId || !privateKey) return fail('The EmailJS keys are missing or incomplete under Automation Emails > EmailJS Setup, so no payment receipt could be sent. The payment itself was recorded correctly.');
+
+    const paidInFull = amountDue <= 0;
+    const templateName = paidInFull
+      ? 'Nightly Auto-Invoice \u2014 Paid Receipt'
+      : 'Payment Received \u2014 Balance Remaining';
+    const tplSnap = await db.collection('emailTemplates').where('name', '==', templateName).limit(1).get();
+
+    let body;
+    if (tplSnap.empty) {
+      // A renamed or deleted template must not silently swallow the receipt: the
+      // email still goes out from a built-in body, and the gap is recorded on the
+      // invoice so the missing template gets noticed and restored.
+      await fail('There is no email template named "' + templateName + '", so a plain built-in version was sent instead. Create it under Automation Emails > Templates > Billing, spelled exactly that way.');
+      body = paidInFull
+        ? 'Hi {{name}},<br><br>Thank you \u2014 your Christmas lights invoice is paid in full.<br><br>Amount paid: {{amount_paid}}<br><br>{{view_portal_button}}<br><br>\u2014 Highlighting Utah'
+        : 'Hi {{name}},<br><br>Thanks \u2014 we have received your payment of {{payment_amount}}.<br><br>Invoice total: {{amount_total}}<br>Paid so far: {{amount_paid}}<br>Amount still due: {{amount_due}}<br><br>You can finish paying any time using the button below.<br><br>{{pay_button}} {{venmo_button}}<br><br>\u2014 Highlighting Utah';
+    } else {
+      body = tplSnap.docs[0].data().body || '';
+    }
+
+    const portalUrl = 'https://highlightingutah.com/#/payment'
+      + (inv.portalToken ? ('?token=' + inv.portalToken) : '');
+    const venmoUrl = 'https://venmo.com/HighLightingUtah?txn=pay&amount='
+      + amountDue.toFixed(2) + '&note=' + encodeURIComponent('Christmas Lights');
+    const messagesUrl = 'https://highlightingutah.com/#/contact';
+    const btnStyleGold = 'display:inline-block; padding:12px 28px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:15px; margin:6px 8px 6px 0; background:#D89F3D; color:#1E3B2C;';
+
+    body = body.split('{{name}}').join(inv.name || 'there');
+    body = body.split('{{payment_amount}}').join('$' + paidNow.toFixed(2));
+    body = body.split('{{amount_total}}').join('$' + Math.max(0, total - credits).toFixed(2));
+    body = body.split('{{amount_paid}}').join('$' + deposit.toFixed(2));
+    body = body.split('{{amount_due}}').join('$' + amountDue.toFixed(2));
+    body = body.split('{{feet_line}}').join('');
+    body = body.split('{{new_member_fee_line}}').join('');
+    body = body.split('{{credit_lines}}').join('');
+    body = body.split('{{fee_lines}}').join('');
+    body = body.split('{{portal_link}}').join(portalUrl);
+    body = body.split('{{portal_button}}').join('<a href="' + portalUrl + '" style="' + btnStyleGold + '">Log Into Your Portal</a>');
+    body = body.split('{{pay_button}}').join('<a href="' + portalUrl + '" style="' + btnStyleGold + '">Pay Your Invoice</a>');
+    body = body.split('{{view_portal_button}}').join('<a href="' + portalUrl + '" style="' + btnStyleGold + '">View Your Portal</a>');
+    body = body.split('{{venmo_link}}').join(venmoUrl);
+    body = body.split('{{venmo_button}}').join('<a href="' + venmoUrl + '" style="' + btnStyleGold + '">Pay with Venmo</a>');
+    body = body.split('{{message_link}}').join(messagesUrl);
+    body = body.replace(/\n/g, '<br>');
+
+    const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        service_id: serviceId,
+        template_id: templateId,
+        user_id: publicKey || '',
+        accessToken: privateKey,
+        template_params: { to_email: email, body: body }
+      })
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      return fail('The email service rejected the payment receipt: ' + text + ' The payment itself was recorded correctly.');
+    }
+
+    await invRef.update({
+      receiptSentForDeposit: deposit,
+      receiptSentAt: admin.firestore.FieldValue.serverTimestamp(),
+      receiptError: '',
+      receiptErrorAt: null
+    });
+  } catch (err) {
+    await fail('Payment receipt failed to send: ' + ((err && err.message) || err) + ' The payment itself was recorded correctly.');
+  }
+}
+
 /**
  * Records a captured PayPal payment on the matching invoice.
  * Safe to call more than once for the same captureId — it only
@@ -63,12 +188,14 @@ async function getPaypalAccessToken(clientId, secret, env) {
  */
 async function recordPaypalPayment(phone, { captureId, tip, serviceAmount }) {
   const invRef = db.collection('invoices').doc(phone);
+  let recorded = false;
   await db.runTransaction(async (t) => {
     const snap = await t.get(invRef);
     if (!snap.exists) return;
     const inv = snap.data();
     const existingPayments = inv.paypalPayments || [];
     if (existingPayments.some((p) => p.captureId === captureId)) return; // already recorded
+    recorded = true;
     t.update(invRef, {
       deposit: admin.firestore.FieldValue.increment(serviceAmount),
       tipTotal: admin.firestore.FieldValue.increment(tip),
@@ -82,6 +209,11 @@ async function recordPaypalPayment(phone, { captureId, tip, serviceAmount }) {
       })
     });
   });
+  // Outside the transaction on purpose: the payment is already safely written,
+  // and a slow or failed email must never roll it back. Both paypalCaptureOrder
+  // and the webhook come through here, and the receiptSentForDeposit guard
+  // inside sendPaymentReceipt stops them emailing the same payment twice.
+  if (recorded) await sendPaymentReceipt(phone, { paidNow: Number(serviceAmount) || 0 });
 }
 
 // Called from the Member Portal right before showing the PayPal button.
@@ -353,7 +485,8 @@ function sanitizeRecord(data) {
 
 // Mirrors the last-name check the browser used to do, so behaviour is
 // unchanged for customers: the typed name must match a word in the stored
-// name, or appear inside it. Stored names are "Last First" format.
+// name, or appear inside it. Word-order independent on purpose — names are
+// stored "First Last", but this must keep working during the changeover.
 function nameMatches(storedName, typedName) {
   const stored = String(storedName || '').toLowerCase().trim();
   const typed = String(typedName || '').toLowerCase().trim();
@@ -1199,11 +1332,17 @@ async function runInvoiceBatch(triggeredBy) {
           ? invSnap.data()
           : { install: Number(cust.housePrice) || 0, removal: 0, deposit: 0, name: cust.name, phone, email };
 
-        // New-member detection drives the $30 fee, so read the enrollment year
-        // robustly however createdAt was stored (Firestore Timestamp, a raw
-        // {seconds} object, a JS Date, an epoch number, or an ISO string). A
-        // Timestamp-only check silently missed the fee whenever the field had
-        // been written in any other shape.
+        // chargeNewMemberFee (set on the Add Customer form, and now carried
+        // over automatically from the quote's set-up fee checkbox) is the
+        // real decision the office made about this specific customer, so it
+        // wins whenever it has actually been set - true charges the fee,
+        // false explicitly skips it, overriding the date guess either way.
+        // Older records from before that field existed have it undefined,
+        // so they fall back to the enrollment-year guess this always used,
+        // read robustly however createdAt was stored (Firestore Timestamp, a
+        // raw {seconds} object, a JS Date, an epoch number, or an ISO
+        // string) - a Timestamp-only check silently missed the fee whenever
+        // the field had been written in any other shape.
         let enrollYear = null;
         const _ca = cust.createdAt;
         try {
@@ -1213,7 +1352,8 @@ async function runInvoiceBatch(triggeredBy) {
           else if (typeof _ca === 'number') enrollYear = new Date(_ca).getFullYear();
           else if (typeof _ca === 'string') { const _d = new Date(_ca); if (!isNaN(_d.getTime())) enrollYear = _d.getFullYear(); }
         } catch (e) { enrollYear = null; }
-        const isNewMember = enrollYear !== null && enrollYear === new Date().getFullYear();
+        const dateGuessedNewMember = enrollYear !== null && enrollYear === new Date().getFullYear();
+        const isNewMember = cust.chargeNewMemberFee === undefined ? dateGuessedNewMember : cust.chargeNewMemberFee === true;
         if (isNewMember && !inv.newMemberFeeApplied) {
           inv.install = (Number(inv.install) || 0) + 30;
           inv.newMemberFeeApplied = true;
@@ -1290,8 +1430,8 @@ async function runInvoiceBatch(triggeredBy) {
           // back to a built-in body (with all the tokens) so the invoice still
           // goes out; note it in the run log so staff can restore the template.
           body = status === 'Paid in Full'
-            ? 'Hi {{name}},<br><br>Thank you — your Christmas lights invoice is paid in full.<br><br>{{feet_line}}<br>{{new_member_fee_line}}<br>{{fee_lines}}<br>{{credit_lines}}<br><br>Amount paid: {{amount_paid}}<br><br>{{portal_button}}<br><br>— Highlighting Utah'
-            : 'Hi {{name}},<br><br>Here is your Christmas lights invoice.<br><br>{{feet_line}}<br>{{new_member_fee_line}}<br>{{fee_lines}}<br>{{credit_lines}}<br><br>Amount due: {{amount_due}}<br><br>{{portal_button}} {{venmo_button}}<br><br>Questions? {{message_link}}<br><br>— Highlighting Utah';
+            ? 'Hi {{name}},<br><br>Thank you — your Christmas lights invoice is paid in full.<br><br>{{feet_line}}<br>{{new_member_fee_line}}<br>{{fee_lines}}<br>{{credit_lines}}<br><br>Amount paid: {{amount_paid}}<br><br>{{view_portal_button}}<br><br>— Highlighting Utah'
+            : 'Hi {{name}},<br><br>Here is your Christmas lights invoice.<br><br>{{feet_line}}<br>{{new_member_fee_line}}<br>{{fee_lines}}<br>{{credit_lines}}<br><br>Amount due: {{amount_due}}<br><br>Pay your invoice here:<br><br>{{pay_button}} {{venmo_button}}<br><br>Questions? {{message_link}}<br><br>— Highlighting Utah';
           if (errors.length < 10) errors.push('Template missing, used built-in fallback: ' + templateName);
         } else {
           body = tplSnap.docs[0].data().body || '';
@@ -1312,6 +1452,10 @@ async function runInvoiceBatch(triggeredBy) {
         body = body.split('{{amount_paid}}').join('$' + paid.toFixed(2));
         body = body.split('{{portal_link}}').join(portalUrl);
         body = body.split('{{portal_button}}').join('<a href="' + portalUrl + '" style="' + btnStyleGold + '">Log Into Your Portal</a>');
+        // Same destination as portal_button; separate wording so a bill can say
+        // "Pay Your Invoice" and a receipt can say "View Your Portal".
+        body = body.split('{{pay_button}}').join('<a href="' + portalUrl + '" style="' + btnStyleGold + '">Pay Your Invoice</a>');
+        body = body.split('{{view_portal_button}}').join('<a href="' + portalUrl + '" style="' + btnStyleGold + '">View Your Portal</a>');
         body = body.split('{{venmo_link}}').join(venmoUrl);
         body = body.split('{{venmo_button}}').join('<a href="' + venmoUrl + '" style="' + btnStyleGold + '">Pay with Venmo</a>');
         body = body.split('{{message_link}}').join(messagesUrl);
@@ -1421,15 +1565,6 @@ function toMillis(v) {
   return isNaN(d.getTime()) ? 0 : d.getTime();
 }
 
-/* Mirrors quotePhotosOf() in admin.html - quotes made before multi-photo
-   existed still have one photo in frontPhotoUrl; anything newer holds an
-   array. Kept in sync deliberately: the automated nudge must show the same
-   photos as a hand-sent one. */
-function quotePhotosOfServer(q) {
-  if (Array.isArray(q.photos) && q.photos.length) return q.photos;
-  if (q.frontPhotoUrl) return [{ url: q.frontPhotoUrl }];
-  return [];
-}
 async function runQuoteNudgeBatch(source) {
   const now = new Date();
   const denverMonth = Number(now.toLocaleString('en-US', { timeZone: 'America/Denver', month: 'numeric' }));
@@ -1504,19 +1639,19 @@ async function runQuoteNudgeBatch(source) {
             '<div style="font-size:32px; font-weight:bold; color:#1E3B2C; padding:4px 0 2px;">' + price + '</div>' +
             '<div style="font-size:12.5px; color:#6E6858;">installed, maintained all season, and taken down in January</div>' +
           '</td></tr></table>');
-      const photoHtml = quotePhotosOfServer(q).map(function (ph) {
-        return '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:4px 0 14px;"><tr><td>' +
-            '<img src="' + ph.url + '" alt="Your home" width="560" style="width:100%; max-width:560px; height:auto; border-radius:8px; display:block; border:0;">' +
-            '<p style="margin:8px 0 0; font-size:12px; color:#6E6858; font-family:Arial,sans-serif;">Not showing? <a href="' + ph.url + '" style="color:#3E7A5B;">View the photo here</a>.</p>' +
-          '</td></tr></table>';
-      }).join('');
+      const photoHtml = q.frontPhotoUrl
+        ? ('<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:4px 0 14px;"><tr><td>' +
+            '<img src="' + q.frontPhotoUrl + '" alt="Your home" width="560" style="width:100%; max-width:560px; height:auto; border-radius:8px; display:block; border:0;">' +
+            '<p style="margin:8px 0 0; font-size:12px; color:#6E6858; font-family:Arial,sans-serif;">Not showing? <a href="' + q.frontPhotoUrl + '" style="color:#3E7A5B;">View the photo here</a>.</p>' +
+          '</td></tr></table>')
+        : '';
       body = body.replace(/(?:\s|<br\s*\/?>)*\{\{photo\}\}(?:\s|<br\s*\/?>)*/gi, photoHtml || '<br>');
       body = body.split('{{quote_yes_button}}').join('<a href="' + base + '&action=approve" style="' + btn + ' background:#2E6B3E; color:#ffffff;">Approve Quote</a>');
       body = body.split('{{quote_maybe_button}}').join('<a href="' + base + '&action=maybe_next_year" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">Maybe Next Year</a>');
       body = body.split('{{quote_decline_button}}').join('<a href="' + base + '&action=decline" style="' + btn + ' background:#8A8F9C; color:#ffffff;">Decline Quote</a>');
       body = body.split('{{link}}').join(base);
       body = body.replace(/\n/g, '<br>');
-      if (!photoHtml && body.indexOf('<img') === -1 && quotePhotosOfServer(q).length) body += photoHtml;
+      if (!photoHtml && body.indexOf('<img') === -1 && q.frontPhotoUrl) body += photoHtml;
 
       const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
         method: 'POST',
