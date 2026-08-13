@@ -226,9 +226,35 @@ function extractFn(src, name) {
 }
 
 const admin = read('admin.html');
-const computeInvoiceStatusSrc = extractFn(admin, 'computeInvoiceStatus');
+
+/* The money and sizing rules moved out of admin.html into js/money.js so they
+   can be tested on their own. extractFn matches "function name(" which is still
+   there inside "export function name(", so the same helper reads either file.
+   If a rule ever moves back into admin.html, these two reads are what to fix. */
+const money = read('js/money.js');
+const computeInvoiceStatusSrc = extractFn(money, 'computeInvoiceStatus');
+const cnBinsForFeetSrc = extractFn(money, 'cnBinsForFeet');
+const custInvoiceKeySrc = extractFn(money, 'custInvoiceKey');
+const statusClassSrc = extractFn(money, 'statusClass');
 const colorComboKeySrc = extractFn(admin, 'colorComboKey');
-eval([computeInvoiceStatusSrc, colorComboKeySrc].filter(Boolean).join('\n'));
+const CN_DOUBLE_BIN_FEET = Number((money.match(/CN_DOUBLE_BIN_FEET\s*=\s*(\d+)/) || [])[1]);
+eval([computeInvoiceStatusSrc, cnBinsForFeetSrc, custInvoiceKeySrc, statusClassSrc,
+      colorComboKeySrc].filter(Boolean).join('\n'));
+
+/* The split only works if admin.html actually pulls the rules back in. Without
+   these two checks, deleting the import would leave every balance on screen
+   undefined and no test would notice. */
+check('logic', 'admin.html imports the rules from js/money.js',
+  /from\s+['"]\.\/js\/money\.js['"]/.test(admin),
+  'admin.html no longer imports js/money.js — balances and bin counts will be undefined on screen');
+check('logic', 'admin.html imports every name it lost',
+  ['computeInvoiceStatus', 'statusClass', 'enrollmentYearOf', 'custInvoiceKey',
+   'cnBinsForFeet', 'fmtMoney', 'CN_DOUBLE_BIN_FEET'].every(n => new RegExp('\\b' + n + '\\b').test(
+     (admin.match(/import\s*\{[\s\S]*?\}\s*from\s*['"]\.\/js\/money\.js['"]/) || [''])[0])),
+  'one of the moved names is used in admin.html but missing from the money.js import list');
+check('logic', 'the rules are not also still defined in admin.html',
+  !/\bfunction\s+computeInvoiceStatus\s*\(/.test(admin),
+  'computeInvoiceStatus is defined in admin.html AND exported from money.js — two copies will drift apart');
 
 check('logic', 'computeInvoiceStatus exists', typeof computeInvoiceStatus === 'function');
 check('logic', 'nothing paid is Unpaid', computeInvoiceStatus(500, 0, 0) === 'Unpaid');
@@ -265,6 +291,64 @@ check('logic', 'New Hang clears once completed',
 check('logic', 'New Hang no longer reads createdAt at all',
   !/createdAt|daysSince/.test(isNewHangUrgentSrc || ''),
   'the enrollment-date guess is back — every imported house shares one createdAt, so it flags everybody');
+/* ---- rules that could not be tested until they moved into js/money.js ----
+   These cover the two things that have actually gone wrong before: the light-
+   change fee being dropped from a balance (which once made PayPal undercharge)
+   and credits pushing a balance below zero. */
+
+check('logic', 'light-change fee counts toward the total',
+  computeInvoiceStatus(500, 0, 500, 0, 30) === 'Partial Payment',
+  'expected Partial — 500 paid against 500 install + 30 change fee. This is the PayPal undercharge bug.');
+check('logic', 'a fee on its own leaves the invoice Unpaid',
+  computeInvoiceStatus(0, 0, 0, 0, 30) === 'Unpaid');
+check('logic', 'credits reduce what is owed',
+  computeInvoiceStatus(500, 0, 450, 50) === 'Paid in Full',
+  'expected Paid in Full — 450 paid plus a 50 credit covers 500');
+check('logic', 'a credit larger than the bill still reads Paid in Full',
+  computeInvoiceStatus(400, 0, 0, 500) === 'Paid in Full',
+  'a credit bigger than the charge must never leave the invoice Unpaid');
+check('logic', 'a credit exactly equal to the bill reads Paid in Full',
+  computeInvoiceStatus(400, 0, 0, 400) === 'Paid in Full');
+check('logic', 'money paid against nothing charged is not left Unpaid',
+  computeInvoiceStatus(0, 0, 50) === 'Paid in Full',
+  'gross is 0 but 50 was paid, so the blank-invoice rule must not apply');
+check('logic', 'missing credits/fees arguments are treated as zero',
+  computeInvoiceStatus(500, 0, 500) === computeInvoiceStatus(500, 0, 500, 0, 0),
+  'old three-argument call sites must behave identically to the full five-argument form');
+
+check('logic', 'statusClass maps each status to a pill colour',
+  statusClass('Paid in Full') === 'status-paid' &&
+  statusClass('Partial Payment') === 'status-partial' &&
+  statusClass('Unpaid') === 'status-due');
+
+check('logic', 'the bin cutoff is 260 feet, not 200',
+  CN_DOUBLE_BIN_FEET === 260,
+  'some UI text and older notes say 200 — the code has always used 260');
+check('logic', '260 feet is still one bin',
+  cnBinsForFeet(260) === 1, 'the cutoff is "over 260", so 260 itself stays single-bin');
+check('logic', '261 feet needs two bins', cnBinsForFeet(261) === 2);
+check('logic', 'blank or junk feet does not become a two-bin house',
+  cnBinsForFeet(0) === 1 && cnBinsForFeet('') === 1 &&
+  cnBinsForFeet(null) === 1 && cnBinsForFeet('abc') === 1);
+
+check('logic', 'invoice key uses phone digits when a phone exists',
+  custInvoiceKey({ phone: '(801) 555-1234', email: 'A@B.com' }) === '8015551234');
+check('logic', 'invoice key ignores how the phone was typed',
+  custInvoiceKey({ phone: '(801) 555-1234' }) === custInvoiceKey({ phone: '801-555-1234' }) &&
+  custInvoiceKey({ phone: '801-555-1234' }) === custInvoiceKey({ phone: '8015551234' }),
+  'the same person typed three ways must resolve to one invoice, not three');
+check('logic', 'invoice key falls back to a lowercased email',
+  custInvoiceKey({ email: '  Jane@Example.COM ' }) === 'jane@example.com');
+check('logic', 'a customer with no phone and no email has no invoice key',
+  custInvoiceKey({}) === '' && custInvoiceKey(null) === '',
+  'callers must treat an empty key as "cannot bill this customer" rather than writing to a blank document id');
+
+/* Not a bug in this file — a property of the design, recorded so nobody is
+   surprised by it later. Two customers sharing a household phone resolve to the
+   same invoice. See the duplicate-phone test in the QA workbook. */
+gap('two customers sharing a phone share one invoice key',
+  false,
+  'custInvoiceKey({phone:X}) is identical for two different people with the same number, so they map to one invoice document. Verify what this does in practice before the season.');
 
 const projTestSyncDecisionSrc = extractFn(admin, 'projTestSyncDecision');
 eval(projTestSyncDecisionSrc);

@@ -3942,6 +3942,10 @@
 <div class="toast" id="toast"></div>
 
 <script type="module">
+import {
+  CN_DOUBLE_BIN_FEET, cnBinsForFeet, fmtMoney,
+  computeInvoiceStatus, statusClass, enrollmentYearOf, custInvoiceKey
+} from './js/money.js';
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut
@@ -4294,7 +4298,6 @@ function isStaleUnresponsive(d){
   const days = daysSince(d.quoteSentAt);
   return days !== null && days >= 10;
 }
-function fmtMoney(n){ return '$' + (Number(n)||0).toLocaleString(); }
 function trashIcon(){ return '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0l-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/></svg>'; }
 function editIcon(){ return '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg>'; }
 function copyIcon(){ return '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>'; }
@@ -9513,35 +9516,6 @@ function loadMessages(){
 }
 
 /* ---------------- INVOICES ---------------- */
-function computeInvoiceStatus(install, removal, deposit, credits, changeFees){
-  const gross = (Number(install)||0) + (Number(removal)||0) + (Number(changeFees)||0);      // the real charge (incl. light-change fees)
-  const total = gross - (Number(credits)||0);                     // what's owed after credits
-  const paid = Number(deposit)||0;
-  if(gross <= 0 && paid <= 0) return 'Unpaid';                    // a truly blank invoice
-  if(total <= 0) return 'Paid in Full';                          // credits (and/or payments) cover it all
-  if(paid <= 0) return 'Unpaid';
-  if(paid >= total) return 'Paid in Full';
-  return 'Partial Payment';
-}
-// Read the enrollment year however createdAt was stored (Firestore Timestamp,
-// {seconds}, Date, epoch number, or ISO string) so the $30 new-member fee is
-// detected the same way here as in the nightly Cloud Function.
-function enrollmentYearOf(createdAt){
-  if(!createdAt) return null;
-  try{
-    if(typeof createdAt.toDate === 'function') return createdAt.toDate().getFullYear();
-    if(createdAt instanceof Date) return createdAt.getFullYear();
-    if(typeof createdAt.seconds === 'number') return new Date(createdAt.seconds*1000).getFullYear();
-    if(typeof createdAt === 'number') return new Date(createdAt).getFullYear();
-    if(typeof createdAt === 'string'){ const _d = new Date(createdAt); return isNaN(_d.getTime()) ? null : _d.getFullYear(); }
-  }catch(e){}
-  return null;
-}
-function statusClass(status){
-  if(status === 'Paid in Full') return 'status-paid';
-  if(status === 'Partial Payment') return 'status-partial';
-  return 'status-due';
-}
 document.getElementById('fixMissingInvoicesBtn').addEventListener('click', async function(){
   const statusEl = document.getElementById('fixMissingInvoicesStatus');
   if(!confirm('This will scan every customer with a price set, and create an invoice for anyone who is missing one. Continue?')) return;
@@ -11595,14 +11569,6 @@ function generatePortalToken(){
   let out = '';
   for(let i=0;i<20;i++){ out += chars.charAt(Math.floor(Math.random()*chars.length)); }
   return out;
-}
-/* Invoice doc IDs are the customer's phone digits — or, for customers with no
-   phone, their lowercase primary email. Matches invoiceKeyFor() in
-   functions/index.js; keep the two in sync. */
-function custInvoiceKey(d){
-  const phone = String((d && d.phone) || '').replace(/\D/g,'');
-  if(phone) return phone;
-  return String((d && d.email) || '').toLowerCase().trim();
 }
 function buildFullAddress(street, city, zip){
   var parts = [street];
@@ -14348,11 +14314,6 @@ function loadAvailableCustomerNumbers(){
     snap.forEach(function(docSnap){ availableCustomerNumbers.push({id: docSnap.id, data: docSnap.data()}); });
     renderCustomerNumbersPanel();
   });
-}
-/* One place for the bin rule: over 260 feet is a double-bin house. */
-const CN_DOUBLE_BIN_FEET = 260;
-function cnBinsForFeet(feet){
-  return (Number(feet) || 0) > CN_DOUBLE_BIN_FEET ? 2 : 1;
 }
 function cnHighestAssigned(type){
   let highest = type === 'double' ? 5000 : 0;
