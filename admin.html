@@ -405,12 +405,26 @@
   .msg-sidebar-item.drag-over{ background:#FFF3D6; outline:2px dashed var(--gold-dim); }
   .msg-sidebar-item .folder-count{ font-size:11px; font-weight:700; color:var(--slate); }
   .msg-sidebar-item.active .folder-count{ color:rgba(255,255,255,.7); }
-  .msg-sidebar-item .folder-del{
-    display:none; background:none; border:none; color:rgba(0,0,0,.3); font-size:14px; line-height:1; padding:0 2px;
+  /* Always visible, not hover-only: a phone or tablet has no hover, so a
+     hover-only delete button is invisible on exactly the devices Mom and the
+     crew use most. Dimmed until touched instead of hidden. */
+  .msg-sidebar-item .folder-del, .msg-sidebar-item .folder-ren{
+    display:inline-block; background:none; border:none; color:rgba(0,0,0,.32);
+    font-size:14px; line-height:1; padding:0 2px; cursor:pointer;
   }
-  .msg-sidebar-item:hover .folder-del{ display:inline-block; }
-  .msg-sidebar-item.active .folder-del{ color:rgba(255,255,255,.6); }
+  .msg-sidebar-item:hover .folder-del, .msg-sidebar-item:hover .folder-ren{ color:rgba(0,0,0,.55); }
+  .msg-sidebar-item.active .folder-del, .msg-sidebar-item.active .folder-ren{ color:rgba(255,255,255,.6); }
   .msg-sidebar-item .folder-del:hover{ color:var(--ember); }
+  .msg-sidebar-item .folder-ren:hover{ color:var(--gold-dim); }
+  /* Template folder rows (Automation Emails) — same idea, own markup */
+  .et-folder-row{ display:flex; align-items:center; gap:4px; margin-top:4px; }
+  .et-folder-row .et-folder-btn{ flex:1; min-width:0; }
+  .et-folder-act{
+    background:none; border:none; color:rgba(0,0,0,.32); font-size:14px; line-height:1;
+    padding:2px 4px; cursor:pointer; border-radius:6px;
+  }
+  .et-folder-act:hover{ background:var(--paper); color:var(--ink); }
+  .et-folder-act.del:hover{ color:var(--ember); }
 
   .row-item[draggable="true"]{ cursor:grab; }
   .row-item.dragging{ opacity:.4; }
@@ -2439,9 +2453,12 @@
               <span id="etFolderCountAll" style="font-size:11px;">0</span>
             </button>
             <div id="etFolderList"></div>
-            <div style="display:flex; align-items:center; gap:8px; margin-top:12px;">
-              <input type="text" id="etNewFolderInput" placeholder="New folder" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-size:12px; flex:1;">
-              <button type="button" class="btn btn-outline btn-sm" id="etAddFolderBtn" style="width:auto;">+</button>
+            <div style="margin-top:12px;">
+              <input type="text" id="etNewFolderInput" placeholder="New folder" style="width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-size:12px; margin-bottom:6px;">
+              <select id="etNewFolderParent" style="width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:12px; margin-bottom:6px;">
+                <option value="">-- Top Level --</option>
+              </select>
+              <button type="button" class="btn btn-outline btn-sm" id="etAddFolderBtn" style="width:100%;">+ Add Folder</button>
             </div>
           </div>
         </div>
@@ -7782,7 +7799,7 @@ let etFoldersLoaded = false;
 function loadEmailTemplateFolders(){
   onSnapshot(collection(db,'emailTemplateFolders'), function(snap){
     emailTemplateFolders = [];
-    snap.forEach(function(docSnap){ emailTemplateFolders.push({id: docSnap.id, name: docSnap.data().name}); });
+    snap.forEach(function(docSnap){ emailTemplateFolders.push({id: docSnap.id, name: docSnap.data().name, parentId: docSnap.data().parentId || null}); });
     etFoldersLoaded = true;
     etEnsureMaybeTemplateExists();
     renderEmailTemplateFolders();
@@ -7841,51 +7858,169 @@ function getEmailTemplateByName(name){
 let etSelectedFolder = 'all';
 let etTemplateSearch = '';
 
+/* Three folders are looked up BY NAME elsewhere in the app: Billing (the nightly
+   invoice emails), Quotes and Text Messages (the quote/SMS pickers). Renaming or
+   deleting one of those would silently break sending, so they can't be renamed or
+   deleted here — everything else can. */
+const ET_PROTECTED_FOLDERS = ['Billing','Quotes','Text Messages'];
+function etIsProtectedFolder(name){
+  return ET_PROTECTED_FOLDERS.some(n => n.toLowerCase() === (name||'').toLowerCase());
+}
+/* Folder tree, same shape as the Inbox sidebar: a folder whose parent is missing
+   falls back to top level rather than disappearing. */
+function etBuildFolderTree(){
+  const byId = {};
+  emailTemplateFolders.forEach(f => { byId[f.id] = Object.assign({}, f, {children:[]}); });
+  const roots = [];
+  emailTemplateFolders.forEach(function(f){
+    if(f.parentId && byId[f.parentId]) byId[f.parentId].children.push(byId[f.id]);
+    else roots.push(byId[f.id]);
+  });
+  return roots;
+}
+// A folder plus everything nested underneath it — picking a parent shows its children's templates too.
+function etFolderAndDescendantIds(folderId){
+  const ids = [folderId];
+  let added = true;
+  while(added){
+    added = false;
+    emailTemplateFolders.forEach(function(f){
+      if(f.parentId && ids.indexOf(f.parentId) !== -1 && ids.indexOf(f.id) === -1){ ids.push(f.id); added = true; }
+    });
+  }
+  return ids;
+}
+function etIsFolderDescendantOf(folderId, ancestorId){
+  let current = emailTemplateFolders.find(f => f.id === folderId);
+  while(current && current.parentId){
+    if(current.parentId === ancestorId) return true;
+    current = emailTemplateFolders.find(f => f.id === current.parentId);
+  }
+  return false;
+}
+function etFolderTemplateCount(folderId){
+  const ids = etFolderAndDescendantIds(folderId);
+  return emailTemplates.filter(t => ids.indexOf(t.data.folderId) !== -1).length;
+}
+// Flat, depth-ordered list — used for the two dropdowns so nesting reads as indentation.
+function etFlatFolders(){
+  const out = [];
+  (function walk(nodes, depth){
+    nodes.forEach(function(n){ out.push({id:n.id, name:n.name, depth:depth}); walk(n.children, depth+1); });
+  })(etBuildFolderTree(), 0);
+  return out;
+}
+
+function etRenderFolderNode(node, depth){
+  const active = etSelectedFolder === node.id;
+  const protectedFolder = etIsProtectedFolder(node.name);
+  let html = '<div class="et-folder-row" style="margin-left:'+(depth*10)+'px;">'+
+    '<button type="button" class="et-folder-btn" data-folder="'+node.id+'" style="display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-radius:8px; border:1px solid '+(active?'#B8D9C2':'var(--line)')+'; background:'+(active?'#E6F2EA':'var(--snow)')+'; color:'+(active?'#2E6B3E':'var(--ink)')+'; font-weight:'+(active?'600':'500')+'; font-size:13px; cursor:pointer; text-align:left;">'+
+      '<span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">\uD83D\uDCC1 '+esc(node.name)+'</span>'+
+      '<span style="font-size:11px; color:var(--slate);">'+etFolderTemplateCount(node.id)+'</span>'+
+    '</button>';
+  if(!protectedFolder){
+    html += '<button type="button" class="et-folder-act" data-etrenfolder="'+node.id+'" title="Rename folder">&#9998;</button>'+
+            '<button type="button" class="et-folder-act del" data-etdelfolder="'+node.id+'" title="Delete folder">&times;</button>';
+  }
+  html += '</div>';
+  node.children.forEach(function(child){ html += etRenderFolderNode(child, depth+1); });
+  return html;
+}
+
 function renderEmailTemplateFolders(){
   const list = document.getElementById('etFolderList');
   const sel = document.getElementById('etTemplateFolder');
   if(!list || !sel) return;
-  
+
   // Update count for "All templates"
   document.getElementById('etFolderCountAll').textContent = emailTemplates.length;
-  
-  // Sidebar folder buttons
-  if(!emailTemplateFolders.length){
-    list.innerHTML = '';
-  } else {
-    list.innerHTML = emailTemplateFolders.map(function(f){
-      const count = emailTemplates.filter(t => t.data.folderId === f.id).length;
-      return '<button type="button" class="et-folder-btn" data-folder="'+f.id+'" style="display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-radius:8px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-weight:500; font-size:13px; width:100%; cursor:pointer; text-align:left; margin-top:4px;">'+
-        '<span>📁 '+esc(f.name)+'</span>'+
-        '<span style="font-size:11px; color:var(--slate);">'+count+'</span>'+
-      '</button>';
-    }).join('');
-    
-    list.querySelectorAll('.et-folder-btn').forEach(btn => {
-      btn.addEventListener('click', function(){
-        etSelectedFolder = btn.dataset.folder;
-        document.querySelectorAll('.et-folder-btn').forEach(b => b.style.background = 'var(--snow)');
-        document.querySelectorAll('.et-folder-btn[data-folder="all"]').forEach(b => b.style.background = 'var(--snow)');
-        btn.style.background = '#E6F2EA';
-        renderEmailTemplateList();
-      });
+
+  // If the selected folder was just deleted, fall back to All rather than showing nothing.
+  if(etSelectedFolder !== 'all' && !emailTemplateFolders.some(f => f.id === etSelectedFolder)) etSelectedFolder = 'all';
+
+  const allBtn = document.querySelector('.et-folder-btn[data-folder="all"]');
+  if(allBtn) allBtn.style.background = (etSelectedFolder === 'all') ? '#E6F2EA' : 'var(--snow)';
+
+  // Sidebar folder buttons (nested)
+  list.innerHTML = etBuildFolderTree().map(node => etRenderFolderNode(node, 0)).join('');
+
+  list.querySelectorAll('.et-folder-btn').forEach(btn => {
+    btn.addEventListener('click', function(){
+      etSelectedFolder = btn.dataset.folder;
+      renderEmailTemplateFolders();
+      renderEmailTemplateList();
     });
-  }
-  
-  // Folder select in editor
+  });
+
+  const flat = etFlatFolders();
+  const indent = d => new Array(d+1).join('\u2014 ');
+
+  // Folder select in the template editor — indented so a subfolder is pickable and readable
   const currentVal = sel.value;
-  sel.innerHTML = '<option value="">(No folder — top level)</option>' +
-    emailTemplateFolders.map(f => '<option value="'+f.id+'">'+esc(f.name)+'</option>').join('');
-  if(emailTemplateFolders.some(f => f.id === currentVal)) sel.value = currentVal;
-  
-  // Setup "All templates" button handler
+  sel.innerHTML = '<option value="">(No folder \u2014 top level)</option>' +
+    flat.map(f => '<option value="'+f.id+'">'+esc(indent(f.depth) + f.name)+'</option>').join('');
+  if(flat.some(f => f.id === currentVal)) sel.value = currentVal;
+
+  // Parent select on the New-folder box
+  const psel = document.getElementById('etNewFolderParent');
+  if(psel){
+    const pcur = psel.value;
+    psel.innerHTML = '<option value="">-- Top Level --</option>' +
+      flat.map(f => '<option value="'+f.id+'">'+esc(indent(f.depth) + f.name)+'</option>').join('');
+    if(flat.some(f => f.id === pcur)) psel.value = pcur;
+  }
+
+  /* Rename. Templates point at the folder by id, so nothing else has to move. */
+  list.querySelectorAll('[data-etrenfolder]').forEach(function(btn){
+    btn.addEventListener('click', async function(e){
+      e.stopPropagation();
+      const folderId = btn.dataset.etrenfolder;
+      const folder = emailTemplateFolders.find(f => f.id === folderId);
+      if(!folder) return;
+      const entered = prompt('Rename this folder:', folder.name);
+      if(entered === null) return;
+      const newName = entered.trim();
+      if(!newName || newName === folder.name) return;
+      if(etIsProtectedFolder(newName)){ toast('That name is used by the app \u2014 pick another'); return; }
+      if(emailTemplateFolders.some(f => f.id !== folderId && f.name.toLowerCase() === newName.toLowerCase())){ toast('A folder with that name already exists'); return; }
+      await updateDoc(doc(db,'emailTemplateFolders',folderId), {name: newName});
+      toast('Folder renamed');
+    });
+  });
+
+  /* Delete. Templates inside move to top level and subfolders move up one level —
+     nothing is deleted except the folder itself. */
+  list.querySelectorAll('[data-etdelfolder]').forEach(function(btn){
+    btn.addEventListener('click', async function(e){
+      e.stopPropagation();
+      const folderId = btn.dataset.etdelfolder;
+      const folder = emailTemplateFolders.find(f => f.id === folderId);
+      if(!folder) return;
+      const inside = emailTemplates.filter(t => t.data.folderId === folderId);
+      const kids = emailTemplateFolders.filter(f => f.parentId === folderId);
+      let msg = 'Delete the "'+folder.name+'" folder?';
+      if(inside.length) msg += '\n\n'+inside.length+' template'+(inside.length===1?'':'s')+' inside will move to top level (no template is deleted).';
+      if(kids.length) msg += '\n\n'+kids.length+' subfolder'+(kids.length===1?'':'s')+' will move up to where this one was.';
+      if(!confirm(msg)) return;
+      if(!confirm('Are you sure? This can\'t be undone.')) return;
+      for(const t of inside){ await updateDoc(doc(db,'emailTemplates',t.id), {folderId: null}); }
+      for(const k of kids){ await updateDoc(doc(db,'emailTemplateFolders',k.id), {parentId: folder.parentId || null}); }
+      await deleteDoc(doc(db,'emailTemplateFolders',folderId));
+      if(etSelectedFolder === folderId) etSelectedFolder = 'all';
+      toast('Folder deleted');
+    });
+  });
+
+  /* "All templates" lives in the page rather than in the list we just rebuilt,
+     so its click handler is attached once and not on every re-render — otherwise
+     the listeners would stack up every time a folder changes. */
   document.querySelectorAll('.et-folder-btn[data-folder="all"]').forEach(btn => {
+    if(btn.dataset.bound === '1') return;
+    btn.dataset.bound = '1';
     btn.addEventListener('click', function(){
       etSelectedFolder = 'all';
-      document.querySelectorAll('.et-folder-btn').forEach(b => {
-        if(b.dataset.folder === 'all') b.style.background = '#E6F2EA';
-        else b.style.background = 'var(--snow)';
-      });
+      renderEmailTemplateFolders();
       renderEmailTemplateList();
     });
   });
@@ -7893,10 +8028,15 @@ function renderEmailTemplateFolders(){
 
 document.getElementById('etAddFolderBtn').addEventListener('click', async function(){
   const input = document.getElementById('etNewFolderInput');
+  const parentSel = document.getElementById('etNewFolderParent');
   const name = input.value.trim();
+  const parentId = parentSel ? (parentSel.value || null) : null;
   if(!name) return;
-  await addDoc(collection(db,'emailTemplateFolders'), {name: name, createdAt: serverTimestamp()});
+  if(emailTemplateFolders.some(f => f.name.toLowerCase() === name.toLowerCase())){ toast('That folder already exists'); return; }
+  await addDoc(collection(db,'emailTemplateFolders'), {name: name, parentId: parentId, createdAt: serverTimestamp()});
   input.value = '';
+  if(parentSel) parentSel.value = '';
+  toast('Folder added');
   renderEmailTemplateFolders();
   renderEmailTemplateList();
 });
@@ -7915,7 +8055,9 @@ function renderEmailTemplateList(){
   
   // Filter by folder
   if(etSelectedFolder !== 'all'){
-    filtered = filtered.filter(t => t.data.folderId === etSelectedFolder);
+    // includes anything filed in a subfolder of the one that's picked
+    const ids = etFolderAndDescendantIds(etSelectedFolder);
+    filtered = filtered.filter(t => ids.indexOf(t.data.folderId) !== -1);
   }
   
   // Filter by search
@@ -8968,8 +9110,9 @@ function isFolderDescendantOf(folderId, ancestorId){
 function renderFolderNode(node, depth){
   const indent = 14 * depth;
   let html = '<div class="msg-sidebar-item'+(selectedFolder===node.name?' active':'')+'" data-folder="'+esc(node.name)+'" data-folderid="'+node.id+'" draggable="true" style="padding-left:'+(12+indent)+'px;">'+
-    '<span>'+esc(node.name)+'</span>'+
+    '<span style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">'+esc(node.name)+'</span>'+
     '<span class="folder-count">'+folderCount(node.name)+'</span>'+
+    '<button type="button" class="folder-ren" data-renfolder="'+node.id+'" data-renname="'+esc(node.name)+'" title="Rename folder">&#9998;</button>'+
     '<button type="button" class="folder-del" data-delfolder="'+node.id+'" data-delname="'+esc(node.name)+'" title="Delete folder">&times;</button>'+
   '</div>';
   node.children.forEach(function(child){ html += renderFolderNode(child, depth+1); });
@@ -8980,7 +9123,12 @@ function populateNewFolderParentSelect(){
   const sel = document.getElementById('newFolderParent');
   if(!sel) return;
   const current = sel.value;
-  sel.innerHTML = '<option value="">-- Top Level --</option>' + messageFolders.map(f => '<option value="'+f.id+'">'+esc(f.name)+'</option>').join('');
+  // depth-ordered and indented, so nesting is obvious when picking a parent
+  const flat = [];
+  (function walk(nodes, depth){
+    nodes.forEach(function(n){ flat.push({id:n.id, name:n.name, depth:depth}); walk(n.children, depth+1); });
+  })(buildFolderTree(), 0);
+  sel.innerHTML = '<option value="">-- Top Level --</option>' + flat.map(f => '<option value="'+f.id+'">'+esc(new Array(f.depth+1).join('\u2014 ') + f.name)+'</option>').join('');
   if([...sel.options].some(o => o.value === current)) sel.value = current;
 }
 
@@ -9002,7 +9150,7 @@ function renderFolderSidebar(){
   // click to select folder (all sidebar items, including Inbox)
   document.querySelectorAll('.msg-sidebar-item').forEach(function(item){
     item.addEventListener('click', function(e){
-      if(e.target.closest('.folder-del')) return;
+      if(e.target.closest('.folder-del') || e.target.closest('.folder-ren')) return;
       selectedFolder = item.dataset.folder;
       document.getElementById('currentFolderLabel').textContent = selectedFolder;
       renderFolderSidebar();
@@ -9036,6 +9184,32 @@ function renderFolderSidebar(){
       }
       const messageId = e.dataTransfer.getData('text/plain');
       if(messageId) updateDoc(doc(db,'messages',messageId), {folder: item.dataset.folder});
+    });
+  });
+
+  /* Rename. Messages store the folder by NAME (not id), so a rename has to
+     rewrite every message sitting in it or they'd be pointing at a folder
+     that no longer exists and would quietly vanish from every list. */
+  wrap.querySelectorAll('[data-renfolder]').forEach(function(btn){
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      const folderId = btn.dataset.renfolder;
+      const oldName = btn.dataset.renname;
+      const entered = prompt('Rename this folder:', oldName);
+      if(entered === null) return;
+      const newName = entered.trim();
+      if(!newName || newName === oldName) return;
+      if(newName.toLowerCase() === 'inbox' || newName.toLowerCase() === 'system'){ toast('That name is reserved'); return; }
+      if(messageFolders.some(f => f.id !== folderId && f.name.toLowerCase() === newName.toLowerCase())){ toast('A folder with that name already exists'); return; }
+      updateDoc(doc(db,'messageFolders',folderId), {name: newName});
+      allMessages.filter(m => m.data.folder === oldName).forEach(function(m){
+        updateDoc(doc(db,'messages',m.id), {folder: newName});
+      });
+      if(selectedFolder === oldName){
+        selectedFolder = newName;
+        document.getElementById('currentFolderLabel').textContent = newName;
+      }
+      toast('Folder renamed');
     });
   });
 
@@ -20505,7 +20679,7 @@ const TEST_SEED = [
   [131, 'Inbox & Templates', 'System folder collects automatic notices', '1. Open the Member Portal (the private website customers log into to manage their own account) and sign in as a test customer.\n2. Find the setting for light colours, change it to a different colour, and save the change.\n3. Find the setting for wire colour, change it to a different colour, and save the change.\n4. Find the question about the outlet timer, change the answer, and save the change.\n5. Open admin (the private office dashboard).\n6. In the menu on the left side of the screen, click \'Customer Messages\'.\n7. Find the folder labeled \'System\' (it should be pinned near the top of the list) and click it to open it.', 'All three notices - one for changing light colours, one for changing wire colour, and one for changing the outlet timer answer - should have filed themselves automatically into the System folder in Customer Messages, not into the main Inbox where they\'d clutter things up.', 1, '', '', ''],
   [132, 'Inbox & Templates', 'Decisions stay in the main Inbox', '1. Open a new tab in your web browser and go to highlightingutah.com (this is the public website that customers see).\n2. Find the public contact form on the site and send a test message through it.\n3. Open the Member Portal (the private website customers log into to manage their own account) and sign in as a test customer.\n4. Find the option to submit a cancellation request, and submit one.\n5. Open admin (the private office dashboard).\n6. In the menu on the left side of the screen, click \'Customer Messages\'.\n7. Look at the main Inbox and note what messages are sitting there.\n8. Click into the folder labeled \'System\' and look at what\'s in there too.', 'Both the contact-form message and the cancellation request should show up in the main Inbox, not in the System folder. Anything that needs a decision from you must never get buried in System - it should always land in the main Inbox where you\'ll actually see it.', 1, '', '', ''],
   [133, 'Inbox & Templates', 'Drag between folders', '1. Open admin (the private office dashboard).\n2. In the menu on the left side of the screen, click \'Customer Messages\'.\n3. Pick any one message sitting in one folder, and drag it with your mouse into a different folder.\n4. Refresh the whole browser page (reload it completely).\n5. Open the folder the message used to be in, and check whether it\'s still there.\n6. Open the folder you dragged the message into, and check whether it\'s there.', 'The message should now be sitting in the new folder you dragged it into, and it should no longer be in the old folder. After refreshing the page, it should still be in the new folder - the move actually saved, it didn\'t just change on screen temporarily.', 1, '', '', ''],
-  [134, 'Inbox & Templates', 'Email templates and folders', '1. Open admin (the private office dashboard).\n2. In the menu on the left side of the screen, click \'Automation Emails\'.\n3. Click the tab labeled \'Templates\'.\n4. Create a new folder to hold email templates.\n5. Inside that new folder, create a new email template.\n6. Edit the wording of that template.\n7. Save the template.\n8. Go to a place in admin where templates get used - for example, in the left menu click \'Automation Emails\', stay on the \'Templates\' tab, and open the \'Send to Selected\' flow, where a template gets picked.\n9. Check whether your new test template shows up there and can be selected.\n10. Go back to Automation Emails, then Templates, and delete the test template you created.\n11. Delete the test folder you created.', 'Creating the folder, creating the template inside it, editing its wording, and saving should all work without errors. The new template should actually appear as a selectable choice wherever templates get used, like the Send to Selected flow. Deleting the test template and the test folder afterward should also work cleanly, with nothing left behind.', 2, '', '', 'Invoices is now its own item in the left menu instead of a tab inside Dashboard - the click-by-click steps were rewritten, so this needs running against the new path.'],
+  [134, 'Inbox & Templates', 'Email templates and folders', '1. Open admin (the private office dashboard).\n2. In the menu on the left side of the screen, click \'Automation Emails\'.\n3. Click the tab labeled \'Templates\'.\n4. Create a new folder to hold email templates.\n5. Inside that new folder, create a new email template.\n6. Edit the wording of that template.\n7. Save the template.\n8. Go to a place in admin where templates get used - for example, in the left menu click \'Automation Emails\', stay on the \'Templates\' tab, and open the \'Send to Selected\' flow, where a template gets picked.\n9. Check whether your new test template shows up there and can be selected.\n10. Go back to Automation Emails, then Templates, and delete the test template you created.\n11. Delete the test folder you created.', 'Creating the folder, creating the template inside it, editing its wording, and saving should all work without errors. The new template should actually appear as a selectable choice wherever templates get used, like the Send to Selected flow. Deleting the test template and the test folder afterward should also work cleanly, with nothing left behind.', 3, '', '', 'Template folders changed: folders can now be deleted and renamed, and can be nested inside another folder. Re-run it, and this time also make a subfolder inside your test folder and check the parent folder shows its templates too.'],
   [135, 'Inbox & Templates', 'Saved templates and custom codes', '1. Open admin (the private office dashboard).\n2. In the menu on the left side of the screen, click \'Automation Emails\'.\n3. Click the tab labeled \'Templates\'.\n4. Create a template (or use an existing one) and save it.\n5. Create a custom discount code.\n6. Refresh the whole browser page (reload it completely).\n7. Go to a place in admin where a discount can be applied to a customer or invoice.\n8. Try applying the custom discount code you just created.', 'Both the saved template and the custom discount code should still exist after refreshing the page - neither one should have disappeared. The discount code should actually work when you try to apply it - it should be accepted and applied, not rejected or missing.', 1, '', '', ''],
   [136, 'Health & Data', 'Health Check runs', '1. Open admin (the private office dashboard).\n2. In the menu on the left side of the screen, click \'Health Check\'.\n3. Find the checkbox labeled \'Hide checks that pass\' and untick it (uncheck it) so every check shows, not just the failing ones.\n4. Click the button labeled \'Run Health Check\'.\n5. Read down through the entire list of checks that appears, top to bottom.', 'Health Check should finish running without throwing any errors, and it should show what it found for every single check in the list. Running it should not change any of your actual data on its own - only the buttons you press yourself, not Health Check itself, are allowed to change data.', 1, '', '', ''],
   [137, 'Health & Data', 'Import Center', '1. Open admin (the private office dashboard).\n2. In the menu on the left side of the screen, click \'Import Center\'.\n3. Prepare a small Excel file with just a couple of rows of payments in it, so you can check the numbers by hand afterward.\n4. Import that Excel file\'s payments through Import Center.\n5. Open the folder that the imported payments went into.\n6. Compare each imported amount against the matching amount in your original Excel file.', 'The imported batch of payments should be sitting in the correct folder, and every single amount should match exactly what was in the Excel file, down to the penny.', 1, '', '', ''],
