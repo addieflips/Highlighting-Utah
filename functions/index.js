@@ -1331,63 +1331,123 @@ async function runInvoiceBatch(triggeredBy) {
     // simply gets caught on the very next nightly run instead of being skipped.
     // invoiceEmailSent is the only guard that matters, so each house is only
     // ever billed once, exactly once, whenever it first becomes eligible.
-    const custsSnap = await db.collection('jobAddresses')
-      .where('completed', '==', true)
-      .get();
+    /* --- Billing runs per PAYER, not per house ---------------------------
+       A customer can own more than one address (a second home, a cabin). Each
+       address stays its own jobAddresses record with its own price, customer
+       number, bins and route stop - but they share ONE invoice, keyed by the
+       payer's phone (see invoiceKeyFor here and syncPayerInvoice in admin).
 
-    for (const custDoc of custsSnap.docs) {
-      const id = custDoc.id;
+       Running house-by-house broke that in two ways: when an invoice already
+       existed the second house's price was never added to it, and the customer
+       got a separate email for every house. So the run now groups every house
+       by its payer key first, and bills a payer only once EVERY one of their
+       houses is installed - one invoice covering them all, sent the night the
+       last one goes up.
+
+       A house that has RSVP'd 'no' is not coming this season, so it is left
+       out of the "are they all finished" test - otherwise one cancelled
+       address would hold up that payer's bill forever.
+
+       Single-house customers are completely unaffected: same total, same
+       wording, same one email, same timing as before. -------------------- */
+    const allCustsSnap = await db.collection('jobAddresses').get();
+
+    const payerGroups = new Map();
+    allCustsSnap.forEach(function (d) {
+      const data = d.data() || {};
+      // A house billed to somebody else joins THAT payer's group instead.
+      const billTo = digitsOnly(data.billToPhone);
+      const key = billTo || invoiceKeyFor(data);
+      if (!key) return;                    // no phone and no email: nothing to bill to
+      if (!payerGroups.has(key)) payerGroups.set(key, []);
+      payerGroups.get(key).push({ id: d.id, ref: d.ref, data: data });
+    });
+
+    /* The $30 join fee is a decision about the CUSTOMER, so it is asked of each
+       of their houses and charged once if any of them qualifies. Unchanged
+       logic, just lifted out of the loop so a group can ask it per house. */
+    function looksLikeNewMember(cust) {
+      // chargeNewMemberFee (set on the Add Customer form, and carried over
+      // automatically from the quote's set-up fee checkbox) is the real
+      // decision the office made about this specific customer, so it wins
+      // whenever it has actually been set - true charges the fee, false
+      // explicitly skips it, overriding the date guess either way. Older
+      // records from before that field existed have it undefined, so they fall
+      // back to the enrollment-year guess this always used, read robustly
+      // however createdAt was stored (Firestore Timestamp, a raw {seconds}
+      // object, a JS Date, an epoch number, or an ISO string) - a
+      // Timestamp-only check silently missed the fee whenever the field had
+      // been written in any other shape.
+      let enrollYear = null;
+      const _ca = cust.createdAt;
       try {
-        const custRef = custDoc.ref;
-        const cust = custDoc.data();
+        if (_ca && typeof _ca.toDate === 'function') enrollYear = _ca.toDate().getFullYear();
+        else if (_ca instanceof Date) enrollYear = _ca.getFullYear();
+        else if (_ca && typeof _ca.seconds === 'number') enrollYear = new Date(_ca.seconds * 1000).getFullYear();
+        else if (typeof _ca === 'number') enrollYear = new Date(_ca).getFullYear();
+        else if (typeof _ca === 'string') { const _d = new Date(_ca); if (!isNaN(_d.getTime())) enrollYear = _d.getFullYear(); }
+      } catch (e) { enrollYear = null; }
+      const dateGuessedNewMember = enrollYear !== null && enrollYear === new Date().getFullYear();
+      return cust.chargeNewMemberFee === undefined ? dateGuessedNewMember : cust.chargeNewMemberFee === true;
+    }
 
-        if (cust.needsFix) { skippedNeedsFix++; continue; }
-        if (cust.invoiceEmailSent) { skippedNotDone++; continue; } // already billed previously
+    for (const [invoiceKey, houses] of payerGroups) {
+      try {
+        // Houses that said no are not part of this season at all.
+        const active = houses.filter(function (h) { return String(h.data.rsvpStatus || '') !== 'no'; });
+        if (!active.length) continue;
 
-        const email = cust.email;
-        if (!email) { continue; } // nothing to send to
+        // Nothing to do unless at least one of them is waiting on its first bill.
+        const unbilled = active.filter(function (h) { return !h.data.invoiceEmailSent; });
+        if (!unbilled.length) continue;      // this payer was billed on an earlier run
 
-        const phone = digitsOnly(cust.phone);
-        const invoiceKey = phone || String(cust.email || '').toLowerCase().trim();
+        // HOLD until every active house is finished. A house still needing a
+        // fix counts as unfinished - the whole bill waits for the fix.
+        if (active.some(function (h) { return h.data.completed === true && h.data.needsFix; })) {
+          skippedNeedsFix++; continue;
+        }
+        if (active.some(function (h) { return h.data.completed !== true; })) {
+          skippedNotDone++; continue;
+        }
+
+        // The payer is the house the invoice key actually belongs to; a group
+        // made only of bill-to houses falls back to the first one.
+        const payer = active.find(function (h) {
+          return !digitsOnly(h.data.billToPhone) && invoiceKeyFor(h.data) === invoiceKey;
+        }) || active[0];
+
+        const withEmail = active.find(function (h) { return !!h.data.email; });
+        const email = payer.data.email || (withEmail ? withEmail.data.email : '');
+        if (!email) { continue; }            // nothing to send to
+
+        const phone = digitsOnly(payer.data.phone);
+        const groupSum = active.reduce(function (s, h) { return s + (Number(h.data.housePrice) || 0); }, 0);
+
         const invRef = db.collection('invoices').doc(invoiceKey);
         const invSnap = await invRef.get();
         const inv = invSnap.exists
           ? invSnap.data()
-          : { install: Number(cust.housePrice) || 0, removal: 0, deposit: 0, name: cust.name, phone, email };
+          : { install: groupSum, removal: 0, deposit: 0, name: payer.data.name, phone: phone, email: email };
 
-        // chargeNewMemberFee (set on the Add Customer form, and now carried
-        // over automatically from the quote's set-up fee checkbox) is the
-        // real decision the office made about this specific customer, so it
-        // wins whenever it has actually been set - true charges the fee,
-        // false explicitly skips it, overriding the date guess either way.
-        // Older records from before that field existed have it undefined,
-        // so they fall back to the enrollment-year guess this always used,
-        // read robustly however createdAt was stored (Firestore Timestamp, a
-        // raw {seconds} object, a JS Date, an epoch number, or an ISO
-        // string) - a Timestamp-only check silently missed the fee whenever
-        // the field had been written in any other shape.
-        let enrollYear = null;
-        const _ca = cust.createdAt;
-        try {
-          if (_ca && typeof _ca.toDate === 'function') enrollYear = _ca.toDate().getFullYear();
-          else if (_ca instanceof Date) enrollYear = _ca.getFullYear();
-          else if (_ca && typeof _ca.seconds === 'number') enrollYear = new Date(_ca.seconds * 1000).getFullYear();
-          else if (typeof _ca === 'number') enrollYear = new Date(_ca).getFullYear();
-          else if (typeof _ca === 'string') { const _d = new Date(_ca); if (!isNaN(_d.getTime())) enrollYear = _d.getFullYear(); }
-        } catch (e) { enrollYear = null; }
-        const dateGuessedNewMember = enrollYear !== null && enrollYear === new Date().getFullYear();
-        const isNewMember = cust.chargeNewMemberFee === undefined ? dateGuessedNewMember : cust.chargeNewMemberFee === true;
+        /* An existing single-house invoice keeps whatever total the office put
+           on it - exactly how this has always behaved. A payer with more than
+           one house is re-summed from their house prices, because that is the
+           bug being fixed here: house two's price was never being added. */
+        if (invSnap.exists && active.length > 1) inv.install = groupSum;
+
+        const isNewMember = active.some(function (h) { return looksLikeNewMember(h.data); });
         if (isNewMember && !inv.newMemberFeeApplied) {
           inv.install = (Number(inv.install) || 0) + 30;
           inv.newMemberFeeApplied = true;
         }
-        if (inv.install == null) inv.install = Number(cust.housePrice) || 0;
+        if (inv.install == null) inv.install = groupSum;
 
         // Draw down any credit the customer carried over (e.g. a referral earned
         // while already paid up). Credit only reduces the balance to $0; whatever
-        // is left keeps waiting on the customer for the next invoice.
+        // is left keeps waiting on the customer for the next invoice. Carryover
+        // lives on the payer's own record, since the invoice is theirs.
         let carryoverApplied = 0;
-        const carryAvail = Number(cust.carryoverCredit) || 0;
+        const carryAvail = Number(payer.data.carryoverCredit) || 0;
         if (carryAvail > 0) {
           const grossNow = (Number(inv.install) || 0) + (Number(inv.removal) || 0) + (Number(inv.changeFees) || 0);
           const preBalance = Math.max(0, grossNow - (Number(inv.credits) || 0) - (Number(inv.deposit) || 0));
@@ -1401,21 +1461,21 @@ async function runInvoiceBatch(triggeredBy) {
 
         const status = computeInvoiceStatusServer(inv.install, inv.removal || 0, inv.deposit || 0, inv.credits || 0, inv.changeFees || 0);
         inv.status = status;
-        inv.name = inv.name || cust.name || '';
-        inv.email = inv.email || cust.email || '';
+        inv.name = inv.name || payer.data.name || '';
+        inv.email = inv.email || email;
         inv.phone = inv.phone || phone;
         inv.updatedAt = admin.firestore.FieldValue.serverTimestamp();
         await invRef.set(inv, { merge: true });
 
         // Draw the used carryover off the customer NOW, right after the invoice
-        // write — NOT after the email. If it waited for a successful send and the
+        // write - NOT after the email. If it waited for a successful send and the
         // email failed, the invoice would keep the applied credit while
         // carryoverCredit stayed full, and the next run would apply it a second
         // time (double credit = under-charge). Writing it here makes the two
         // docs consistent even if the email later fails.
         if (carryoverApplied > 0) {
           const carryLeft = Math.max(0, carryAvail - carryoverApplied);
-          await custRef.update({
+          await payer.ref.update({
             carryoverCredit: carryLeft,
             carryoverNotes: carryLeft > 0
               ? [{ amount: carryLeft, reason: 'Carryover credit remaining', date: new Date().toISOString() }]
@@ -1423,11 +1483,22 @@ async function runInvoiceBatch(triggeredBy) {
           });
         }
 
-        const feet = Number(cust.measuredFeet) || 0;
-        const basePrice = Number(cust.housePrice) || 0;
-        const feetLine = (feet && perFootRate)
-          ? ('Installation service \u2014 ' + feet + ' ft @ $' + perFootRate.toFixed(2) + '/ft = $' + basePrice.toFixed(2))
-          : ('Installation service = $' + basePrice.toFixed(2));
+        /* One house reads exactly as it always has. Two or more get a line per
+           address so the customer can see what each one cost - the whole point
+           of a combined bill is that it still itemises. */
+        function feetLineFor(c) {
+          const feet = Number(c.measuredFeet) || 0;
+          const basePrice = Number(c.housePrice) || 0;
+          return (feet && perFootRate)
+            ? ('Installation service \u2014 ' + feet + ' ft @ $' + perFootRate.toFixed(2) + '/ft = $' + basePrice.toFixed(2))
+            : ('Installation service = $' + basePrice.toFixed(2));
+        }
+        const feetLine = active.length === 1
+          ? feetLineFor(active[0].data)
+          : active.map(function (h) {
+              const where = h.data.address || h.data.street || 'This address';
+              return '<b>' + where + '</b><br>' + feetLineFor(h.data);
+            }).join('<br><br>');
         const newMemberLine = isNewMember ? 'New member installation fee = $30.00' : '';
 
         const changeFeesTotal = Number(inv.changeFees) || 0;
@@ -1464,13 +1535,13 @@ async function runInvoiceBatch(triggeredBy) {
           body = tplSnap.docs[0].data().body || '';
         }
 
-        const token = await ensureToken(id, cust);
+        const token = await ensureToken(payer.id, payer.data);
         const portalUrl = 'https://highlightingutah.com/#/payment' + (token ? ('?token=' + token) : '');
         const messagesUrl = 'https://highlightingutah.com/#/contact';
         const venmoUrl = 'https://venmo.com/HighLightingUtah?txn=pay&amount=' + amountDue.toFixed(2) + '&note=' + encodeURIComponent('Christmas Lights');
         const btnStyleGold = 'display:inline-block; padding:12px 28px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:15px; margin:6px 8px 6px 0; background:#D89F3D; color:#1E3B2C;';
 
-        body = body.split('{{name}}').join(cust.name || 'there');
+        body = body.split('{{name}}').join(payer.data.name || 'there');
         body = body.split('{{feet_line}}').join(feetLine);
         body = body.split('{{new_member_fee_line}}').join(newMemberLine);
         body = body.split('{{credit_lines}}').join(creditLines);
@@ -1513,11 +1584,14 @@ async function runInvoiceBatch(triggeredBy) {
         }
 
         // Carryover was already drawn down with the invoice write above, so here
-        // we only mark the email sent.
-        await custRef.update({
-          invoiceEmailSent: true,
-          invoiceEmailSentAt: admin.firestore.FieldValue.serverTimestamp()
-        });
+        // we only mark the email sent - on EVERY house the bill covered, so no
+        // house in the group can trigger a second invoice on a later run.
+        for (const h of active) {
+          await h.ref.update({
+            invoiceEmailSent: true,
+            invoiceEmailSentAt: admin.firestore.FieldValue.serverTimestamp()
+          });
+        }
         sentCount++;
       } catch (err) {
         errorCount++;
