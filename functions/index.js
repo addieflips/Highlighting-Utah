@@ -1600,6 +1600,84 @@ function toMillis(v) {
   return isNaN(d.getTime()) ? 0 : d.getTime();
 }
 
+/* ---------------- QUOTE PHOTOS (server side) ----------------
+   A quote holds a list of photos in `quotePhotos`, and photo #1 is mirrored
+   onto the old `frontPhotoUrl` field by the admin screen. Reading the list
+   first and falling back to that field means both new and old quotes work,
+   and nothing here has to know which is which.
+
+   The layout matches admin.html deliberately: one photo per row, each the
+   full width of the email, its label (which side of the house it is)
+   underneath. Stacked is the only arrangement where every picture is whole
+   AND every picture is the same size - side by side forces you to either crop
+   the edges off or pad them out. Do not "improve" this into a grid. */
+function quotePhotosServer(q) {
+  if (q && Array.isArray(q.quotePhotos) && q.quotePhotos.length) {
+    return q.quotePhotos
+      .filter(function (p) { return p && p.url; })
+      .map(function (p) { return { url: p.url, label: p.label || '' }; });
+  }
+  if (q && q.frontPhotoUrl) return [{ url: q.frontPhotoUrl, label: '' }];
+  return [];
+}
+/* c_limit only ever shrinks, and never crops or stretches. Asked for at 2x
+   the display width so it stays sharp on a phone. */
+function cloudEmailPhotoServer(url) {
+  if (!url || typeof url !== 'string') return url || '';
+  if (url.indexOf('res.cloudinary.com/') === -1 || url.indexOf('/image/upload/') === -1) return url;
+  if (/\/image\/upload\/[a-z]_[^/]*\//.test(url)) return url;   // already has transforms
+  return url.replace('/image/upload/', '/image/upload/w_1120,c_limit,q_auto,f_auto/');
+}
+function escServer(str) {
+  return String(str == null ? '' : str)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function quotePhotoEmailHtmlServer(photos) {
+  if (!photos || !photos.length) return '';
+  const rows = photos.map(function (p, i) {
+    const last = i === photos.length - 1;
+    const label = (p.label || '').trim();
+    return '<tr><td style="font-family:Arial,sans-serif; padding:0 0 ' + (label ? '4' : (last ? '0' : '10')) + 'px;">' +
+        '<img src="' + escServer(cloudEmailPhotoServer(p.url)) + '" alt="' + escServer(label || 'Your home') + '" width="560" style="width:100%; max-width:560px; height:auto; border-radius:8px; display:block; border:0;">' +
+      '</td></tr>' +
+      (label
+        ? '<tr><td style="font-family:Arial,sans-serif; padding:0 0 ' + (last ? '0' : '12') + 'px;">' +
+            '<p style="margin:0; font-size:12.5px; color:#6E6858; font-weight:bold;">' + escServer(label) + '</p></td></tr>'
+        : '');
+  }).join('');
+  /* Most mail apps hide remote images until they are tapped, so there is a
+     plain link to each one - otherwise it reads as photos we forgot. */
+  const links = photos.length === 1
+    ? '<a href="' + escServer(photos[0].url) + '" style="color:#3E7A5B;">View the photo here</a>'
+    : 'View the photos here: ' + photos.map(function (p, i) {
+        return '<a href="' + escServer(p.url) + '" style="color:#3E7A5B;">' + (i + 1) + '</a>';
+      }).join(', ');
+  return '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:4px 0 14px; max-width:560px;">' +
+    rows +
+    '<tr><td style="font-family:Arial,sans-serif;"><p style="margin:8px 0 0; font-size:12px; color:#6E6858;">Not showing? ' + links + '.</p></td></tr>' +
+    '</table>';
+}
+/* Copies the approve/maybe/decline buttons onto the far side of the photo
+   block, so there is a set above them and a set below. The template still
+   only contains them once. */
+function repeatQuoteButtonsServer(body, photoHtml) {
+  const at = body.indexOf(photoHtml);
+  if (at === -1) return body;
+  const btnRe = /<a\b[^>]*(?:background:\s*#2E6B3E|background:\s*#D89F3D|background:\s*#8A8F9C)[^>]*>[\s\S]*?<\/a>/gi;
+  let first = null, last = null, m;
+  while ((m = btnRe.exec(body)) !== null) {
+    if (m.index > at && m.index < at + photoHtml.length) continue;   // ignore anything inside the photos
+    if (first === null) first = m.index;
+    last = m.index + m[0].length;
+  }
+  if (first === null || last === null) return body;
+  const buttons = body.slice(first, last);
+  return at > first
+    ? body.slice(0, at + photoHtml.length) + '<div style="margin-top:14px;">' + buttons + '</div>' + body.slice(at + photoHtml.length)
+    : body.slice(0, at) + '<div style="margin-bottom:14px;">' + buttons + '</div>' + body.slice(at);
+}
+
 async function runQuoteNudgeBatch(source) {
   const now = new Date();
   const denverMonth = Number(now.toLocaleString('en-US', { timeZone: 'America/Denver', month: 'numeric' }));
@@ -1674,19 +1752,21 @@ async function runQuoteNudgeBatch(source) {
             '<div style="font-size:32px; font-weight:bold; color:#1E3B2C; padding:4px 0 2px;">' + price + '</div>' +
             '<div style="font-size:12.5px; color:#6E6858;">installed, maintained all season, and taken down in January</div>' +
           '</td></tr></table>');
-      const photoHtml = q.frontPhotoUrl
-        ? ('<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:4px 0 14px;"><tr><td>' +
-            '<img src="' + q.frontPhotoUrl + '" alt="Your home" width="560" style="width:100%; max-width:560px; height:auto; border-radius:8px; display:block; border:0;">' +
-            '<p style="margin:8px 0 0; font-size:12px; color:#6E6858; font-family:Arial,sans-serif;">Not showing? <a href="' + q.frontPhotoUrl + '" style="color:#3E7A5B;">View the photo here</a>.</p>' +
-          '</td></tr></table>')
-        : '';
+      /* Every photo on the quote, not just the first - the same stacked
+         layout the admin screen sends, so a chasing email looks exactly like
+         the quote it is chasing. */
+      const quotePhotos = quotePhotosServer(q);
+      const photoHtml = quotePhotoEmailHtmlServer(quotePhotos);
       body = body.replace(/(?:\s|<br\s*\/?>)*\{\{photo\}\}(?:\s|<br\s*\/?>)*/gi, photoHtml || '<br>');
       body = body.split('{{quote_yes_button}}').join('<a href="' + base + '&action=approve" style="' + btn + ' background:#2E6B3E; color:#ffffff;">Approve Quote</a>');
       body = body.split('{{quote_maybe_button}}').join('<a href="' + base + '&action=maybe_next_year" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">Maybe Next Year</a>');
       body = body.split('{{quote_decline_button}}').join('<a href="' + base + '&action=decline" style="' + btn + ' background:#8A8F9C; color:#ffffff;">Decline Quote</a>');
       body = body.split('{{link}}').join(base);
       body = body.replace(/\n/g, '<br>');
-      if (!photoHtml && body.indexOf('<img') === -1 && q.frontPhotoUrl) body += photoHtml;
+      /* Buttons on both sides of a stack of photos, so "Approve" is never
+         three screens down a phone. Only when there is more than one photo -
+         with a single one the template's own placement is fine. */
+      if (photoHtml && quotePhotos.length > 1) body = repeatQuoteButtonsServer(body, photoHtml);
 
       const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
         method: 'POST',
