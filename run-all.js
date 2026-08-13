@@ -7,7 +7,7 @@
  * that render wrong.
  *
  * Setup (once):   npm install jsdom
- * Run:            node tests/run-all.js
+ * Run:            node run-all.js   (from the repo root)
  *
  * Exits 0 if everything passes, 1 if anything fails.
  * Runs entirely offline — never touches Firebase or real customer data.
@@ -17,7 +17,13 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const ROOT = path.join(__dirname, '..');
+// Works whether this file sits at the repo root (normal case) or has been
+// copied into a tests/ subfolder alongside the repo (the old CLAUDE.md shim) —
+// resolve ROOT by finding which one actually has admin.html next to it,
+// instead of assuming a fixed layout.
+const ROOT = fs.existsSync(path.join(__dirname, 'admin.html'))
+  ? __dirname
+  : path.join(__dirname, '..');
 const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
 
 let pass = 0, fail = 0, warn = 0;
