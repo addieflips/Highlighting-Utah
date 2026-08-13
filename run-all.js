@@ -332,6 +332,7 @@ const RETIRED_CHECKLIST_TERMS = [
   ['approval link', 'the Get Approval Link button was renamed to Send Email on 2026-08-08 (it now also shows the filled-in email, not just the link)'],
   ['get approval link', 'renamed to Send Email on 2026-08-08'],
   ['copy quote email', 'renamed to Show Quote Email Again on 2026-08-08 (Send Email now shows the email on the first click)'],
+  ['replace photo', 'quote cards hold several photos now, so the button reads Add More Photos (2026-08-13)'],
 ];
 {
   const seedStart = admin.indexOf('const TEST_SEED = [');
@@ -478,7 +479,10 @@ if (JSDOM) {
       pricingHeader(c1).textContent.includes('not priced yet'));
     check('render', 'new lead — no approval buttons', c1.querySelector('[data-markapproval]') === null);
     check('render', 'new lead — shows Add Photo', c1.textContent.includes('Add Photo'));
-    check('render', 'with photo — shows Replace Photo', c2.textContent.includes('Replace Photo'));
+    /* Quote cards used to hold one photo, so the button read "Replace Photo".
+       They now hold several, and it reads "Add More Photos" once there is at
+       least one. Renamed here to match — not a regression. */
+    check('render', 'with photo — offers to add more', c2.textContent.includes('Add More Photos'));
     check('render', 'formDone — shows Timer/Wire summary line',
       c2.textContent.includes('Timer:') && c2.textContent.includes('Wire:'));
 
@@ -1063,39 +1067,41 @@ suite('8. Quote decline / maybe next year');
     'found ' + routeLists.length + ' route lists, ' +
     routeLists.filter(l => !l.includes('!a.data.maybeNextYear')).length + ' not honouring the tag');
 
-  // --- what the customer is told ----------------------------------------
-  check('quoteresp', 'decline thanks them for their business',
-    /loved having you/.test(idx), 'the decline screen would still be the old bare one-liner');
-  check('quoteresp', 'maybe next year promises contact next season',
-    /reach out next season/.test(idx), 'they would not know we are keeping them on file');
+  /* --- what the customer is told ----------------------------------------
+     These used to test a design where "maybe next year" and "declined" each got
+     their own page and their own route (/quote-maybe, /quote-declined), gated
+     behind a sessionStorage pass so nobody could wander onto a farewell screen
+     by typing the address.
 
-  // --- the two farewell pages -------------------------------------------
-  ['quote-maybe', 'quote-declined'].forEach(r => {
-    check('quoteresp', r + ' is a real route',
-      new RegExp("'/" + r + "'").test(idx) && new RegExp("'/" + r + "':'page-" + r + "'").test(idx),
-      'the link would fall through to the homepage');
-    check('quoteresp', r + ' has a page to show',
-      new RegExp('id="page-' + r + '"').test(idx),
-      'navigate() would throw on a missing element and kill routing entirely');
-  });
-  check('quoteresp', 'the farewell pages are gated behind actually answering',
-    /spendQuoteFarewell\('maybe'\)/.test(idx) && /spendQuoteFarewell\('declined'\)/.test(idx),
-    'anyone could wander onto "sorry you did not want lights" by typing the address');
-  check('quoteresp', 'the gate redirects without a bounce loop',
-    /history\.replaceState/.test(idx.slice(idx.indexOf('function navigate()'), idx.indexOf('function navigate()') + 1200)),
-    'reassigning the hash here would fire navigate() again');
-  check('quoteresp', 'both answers hand out a pass before redirecting',
-    (idx.match(/sendToQuoteFarewell\('maybe'\)/g) || []).length >= 2 &&
-    (idx.match(/sendToQuoteFarewell\('declined'\)/g) || []).length >= 2,
-    'the emailed link and the in-portal buttons are two separate paths — both must redirect');
-  check('quoteresp', 'a blocked sessionStorage does not strand the customer',
-    /catch\(e\)\{ return true; \}/.test(idx),
-    'private browsing would bounce them off the page they just earned');
-  ['quoteMaybeMsg', 'quoteDeclinedMsg'].forEach(id => {
-    check('quoteresp', 'no orphaned ' + id + ' left behind',
-      !idx.includes(id),
-      'its content moved to a real page — leaving the div is dead markup');
-  });
+     That design was replaced the next day (2026-08-11) by an inline confirmation
+     on the quote page itself, which is what ships today. The replacement is
+     NEWER, not a revert — so these now test the design that actually exists.
+     If the separate pages ever come back, the old checks are in git at b16adce. */
+  const quoteAnswer = idx.slice(idx.indexOf("callPortalFn('quoteRespond'"),
+    idx.indexOf('/* ---- Portal token helpers ---- */'));
+
+  check('quoteresp', 'the answer is acknowledged before the server replies',
+    /saving your answer/.test(quoteAnswer),
+    'the customer taps a button and sees nothing change until the round trip finishes');
+  check('quoteresp', 'maybe next year promises contact next season',
+    /check back next year/.test(quoteAnswer) && /measurements are saved/.test(quoteAnswer),
+    'they would not know we are keeping them on file, and would expect to start over next year');
+  check('quoteresp', 'decline thanks them rather than just recording it',
+    /Thanks for letting us know/.test(quoteAnswer) && /no hard feelings/.test(quoteAnswer),
+    'a bare acknowledgement reads as annoyance at a customer who owes us nothing');
+  check('quoteresp', 'both answers give a follow-up line, not just a headline',
+    (quoteAnswer.match(/setQuoteConfirmSub\(/g) || []).length >= 2,
+    'one of the two answers would show a bare one-liner with no explanation');
+  check('quoteresp', 'a quote that cannot be found tells them who to call',
+    /couldn't find your quote[\s\S]{0,120}901-0011/.test(quoteAnswer),
+    'a dead end with no phone number turns a lost quote into a lost customer');
+  check('quoteresp', 'a failed call still gives them a way through',
+    /catch\(function\(\)\{[\s\S]{0,220}901-0011/.test(quoteAnswer),
+    'a network blip would leave "saving your answer..." on screen forever');
+  check('quoteresp', 'the confirmation actually gets shown',
+    /confirmWrap\.style\.display = 'block'/.test(quoteAnswer) ||
+    /confirmWrap\) confirmWrap\.style\.display/.test(idx.slice(idx.indexOf('quote-minimal'))),
+    'the message would be written into a hidden element and nobody would see it');
 })();
 
 // =====================================================================
