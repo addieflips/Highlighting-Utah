@@ -114,7 +114,7 @@ async function sendPaymentReceipt(invoiceId, { paidNow }) {
     const templateName = paidInFull
       ? 'Nightly Auto-Invoice \u2014 Paid Receipt'
       : 'Payment Received \u2014 Balance Remaining';
-    const tplSnap = await db.collection('emailTemplates').where('name', '==', templateName).limit(1).get();
+    const tplSnap = await findTemplateSnapByName(templateName);
 
     let body;
     if (tplSnap.empty) {
@@ -179,6 +179,29 @@ async function sendPaymentReceipt(invoiceId, { paidNow }) {
   } catch (err) {
     await fail('Payment receipt failed to send: ' + ((err && err.message) || err) + ' The payment itself was recorded correctly.');
   }
+}
+
+
+/**
+ * Finds an email template by name, ignoring dash style, spacing and case.
+ * Exact-character matching quietly failed whenever a template was typed with
+ * a hyphen instead of an em dash, which sent the built-in fallback wording
+ * instead of the real template - with nothing to say it had happened.
+ */
+function tplNameKey(n) {
+  return String(n || '')
+    .replace(/[\u2010-\u2015\u2212-]+/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+async function findTemplateSnapByName(name) {
+  const exact = await db.collection('emailTemplates').where('name', '==', name).limit(1).get();
+  if (!exact.empty) return exact;
+  const all = await db.collection('emailTemplates').get();
+  const want = tplNameKey(name);
+  const hit = all.docs.find((d) => tplNameKey((d.data() || {}).name) === want);
+  return hit ? { empty: false, docs: [hit] } : { empty: true, docs: [] };
 }
 
 /**
@@ -1423,7 +1446,11 @@ async function runInvoiceBatch(triggeredBy) {
         const templateName = status === 'Paid in Full'
           ? 'Nightly Auto-Invoice \u2014 Paid Receipt'
           : 'Nightly Auto-Invoice \u2014 Unpaid';
-        const tplSnap = await db.collection('emailTemplates').where('name', '==', templateName).limit(1).get();
+        // Match on a flattened name (dashes, spacing and case ignored) rather
+        // than the exact characters: an em dash, en dash and hyphen are
+        // indistinguishable in a text box, and an invoice must not fall back to
+        // the built-in wording just because someone typed a hyphen.
+        const tplSnap = await findTemplateSnapByName(templateName);
         let body;
         if (tplSnap.empty) {
           // A missing or renamed template must NOT silently stop billing. Fall
@@ -1431,7 +1458,7 @@ async function runInvoiceBatch(triggeredBy) {
           // goes out; note it in the run log so staff can restore the template.
           body = status === 'Paid in Full'
             ? 'Hi {{name}},<br><br>Thank you — your Christmas lights invoice is paid in full.<br><br>{{feet_line}}<br>{{new_member_fee_line}}<br>{{fee_lines}}<br>{{credit_lines}}<br><br>Amount paid: {{amount_paid}}<br><br>{{view_portal_button}}<br><br>— Highlighting Utah'
-            : 'Hi {{name}},<br><br>Here is your Christmas lights invoice.<br><br>{{feet_line}}<br>{{new_member_fee_line}}<br>{{fee_lines}}<br>{{credit_lines}}<br><br>Amount due: {{amount_due}}<br><br>Pay your invoice here:<br><br>{{pay_button}} {{venmo_button}}<br><br>Questions? {{message_link}}<br><br>— Highlighting Utah';
+            : 'Hi {{name}},<br><br>Here is your Christmas lights invoice.<br><br>{{feet_line}}<br>{{new_member_fee_line}}<br>{{fee_lines}}<br>{{credit_lines}}<br><br>Amount due: {{amount_due}}<br>Please pay by {{due_date}}.<br><br>Pay your invoice here:<br><br>{{pay_button}} {{venmo_button}}<br><br>Questions? {{message_link}}<br><br>— Highlighting Utah';
           if (errors.length < 10) errors.push('Template missing, used built-in fallback: ' + templateName);
         } else {
           body = tplSnap.docs[0].data().body || '';
@@ -1448,6 +1475,14 @@ async function runInvoiceBatch(triggeredBy) {
         body = body.split('{{new_member_fee_line}}').join(newMemberLine);
         body = body.split('{{credit_lines}}').join(creditLines);
         body = body.split('{{fee_lines}}').join(feeLines);
+        // Same 30-day rule the printed invoice and the Overdue flag use, worked
+        // out from the invoice's own timestamp so all three always agree.
+        const PAYMENT_TERMS_DAYS = 30;
+        const issuedOn = (inv.invoicedAt && inv.invoicedAt.toDate) ? inv.invoicedAt.toDate()
+                       : ((inv.updatedAt && inv.updatedAt.toDate) ? inv.updatedAt.toDate() : new Date());
+        const dueOn = new Date(issuedOn.getTime());
+        dueOn.setDate(dueOn.getDate() + PAYMENT_TERMS_DAYS);
+        body = body.split('{{due_date}}').join(dueOn.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }));
         body = body.split('{{amount_due}}').join('$' + amountDue.toFixed(2));
         body = body.split('{{amount_paid}}').join('$' + paid.toFixed(2));
         body = body.split('{{portal_link}}').join(portalUrl);
