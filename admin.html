@@ -2583,6 +2583,20 @@
           <div id="invRecipientList" style="max-height:240px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:10px; margin-top:10px; background:var(--snow);"><div class="empty-note">Loading…</div></div>
           <button type="button" class="btn btn-outline btn-sm" style="margin-top:14px;" onclick="window.print()">Print / Save as PDF</button>
         </div>
+
+        <!-- Send one real invoice email to yourself, for a chosen customer, without
+             touching that customer's record. Fills the gap where the only way to
+             send an invoice was to run the whole nightly batch. -->
+        <div class="card">
+          <h3 style="margin-top:0;">Send yourself one customer's invoice</h3>
+          <p style="font-size:13px;">Picks the same template the nightly run would pick for that customer &mdash; unpaid or paid receipt &mdash; fills in their real figures, and emails it to an address you type. <strong>The customer is not emailed, nothing is marked as billed, and no fee is applied.</strong> It is a real copy of their invoice, sent to you.</p>
+          <div class="form-grid-2">
+            <div class="form-row"><label>Which customer</label><select id="invTestWho"><option value="">Choose a customer…</option></select></div>
+            <div class="form-row"><label>Send it to</label><input type="email" id="invTestTo" placeholder="you@example.com"></div>
+          </div>
+          <button type="button" class="btn btn-gold" id="invTestSendBtn">Send me this invoice</button>
+          <div id="invTestStatus" style="font-size:13px; margin-top:10px;"></div>
+        </div>
         <div id="invPreviewDoc" style="margin-top:20px;"><div class="empty-note">Check one or more customers above to see their invoices.</div></div>
       </div>
 
@@ -7841,7 +7855,98 @@ function buildInvoiceDocHtml(member){
     '</div>';
 }
 let invRecipientSearchTerm = '';
+/* ---- Send one customer's invoice to yourself ---------------------------
+   There was no way to send a single invoice: the only send was the whole
+   nightly batch, which meant the only way to see a real invoice email was to
+   bill everybody. This renders exactly what that customer would receive -
+   same template choice, same tokens, same figures - and sends it to an
+   address you type. It writes nothing: no invoiceEmailSent, no $30 fee, no
+   change to the customer at all. */
+function invTestPopulate(){
+  const sel = document.getElementById('invTestWho');
+  if(!sel) return;
+  const keep = sel.value;
+  const people = etGetMembers().slice().sort(function(a,b){
+    return String(a.data.name||'').localeCompare(String(b.data.name||''));
+  });
+  sel.innerHTML = '<option value="">Choose a customer…</option>' + people.map(function(m){
+    const st = getLiveInvoiceStatus(m.data.phone);
+    return '<option value="'+esc(m.id)+'">'+esc(m.data.name||'(no name)')+' — '+esc(st)+'</option>';
+  }).join('');
+  if(keep) sel.value = keep;
+}
+async function invTestSend(){
+  const statusEl = document.getElementById('invTestStatus');
+  const say = function(msg, bad){
+    statusEl.innerHTML = '<span style="color:'+(bad?'#9A2A1F':'#2E6B3E')+'; font-weight:600;">'+esc(msg)+'</span>';
+  };
+  const custId = document.getElementById('invTestWho').value;
+  const to = document.getElementById('invTestTo').value.trim();
+  if(!custId) return say('Choose a customer first.', true);
+  if(!to || to.indexOf('@') === -1) return say('Enter the email address to send it to.', true);
+
+  const member = etGetMembers().find(m => m.id === custId);
+  if(!member) return say('That customer could not be found - try reloading the page.', true);
+  const d = member.data;
+
+  const key = custInvoiceKey(d);
+  const invEntry = allInvoicesCache.find(i => i.id === key);
+  if(!invEntry) return say('That customer has no invoice yet, so there is nothing to send. They get one the night their house is marked Done.', true);
+  const inv = invEntry.data;
+
+  const total = (Number(inv.install)||0) + (Number(inv.removal)||0) + (Number(inv.changeFees)||0);
+  const credits = Number(inv.credits)||0;
+  const deposit = Number(inv.deposit)||0;
+  const amountDue = Math.max(0, total - credits - deposit);
+  const status = computeInvoiceStatus(inv.install, inv.removal, inv.deposit, inv.credits, inv.changeFees);
+
+  const tplName = status === 'Paid in Full'
+    ? 'Nightly Auto-Invoice \u2014 Paid Receipt'
+    : 'Nightly Auto-Invoice \u2014 Unpaid';
+  const tpl = emailTemplates.find(t => t.data && t.data.name === tplName);
+  if(!tpl) return say('There is no template named "'+tplName+'". Create it under Templates > Billing, spelled exactly that way (note the long dash).', true);
+
+  if(!window.emailjs) return say('The email service did not load - check your internet connection.', true);
+  const serviceId = document.getElementById('emailjsServiceId').value.trim();
+  const templateId = document.getElementById('emailjsTemplateId').value.trim();
+  const publicKey = document.getElementById('emailjsPublicKey').value.trim();
+  if(!serviceId || !templateId || !publicKey) return say('Fill in the EmailJS keys on the EmailJS Setup tab first.', true);
+
+  say('Sending…');
+  try{
+    const feetLine = (Number(d.measuredFeet) && perFootRate)
+      ? ('Installation service \u2014 ' + Number(d.measuredFeet) + ' ft @ ' + fmtMoney(perFootRate) + '/ft')
+      : 'Installation service';
+    const creditLines = (Array.isArray(inv.creditNotes) ? inv.creditNotes : [])
+      .map(function(c){ return (c.reason||'Credit') + ' = -' + fmtMoney(Number(c.amount)||0); }).join('<br>');
+    const feeLines = (Array.isArray(inv.changeFeeNotes) ? inv.changeFeeNotes : [])
+      .map(function(f){ return (f.reason||'Light change fee') + ' = ' + fmtMoney(Number(f.amount)||0); }).join('<br>');
+
+    let body = tpl.data.body || '';
+    body = body.split('{{feet_line}}').join(feetLine);
+    body = body.split('{{new_member_fee_line}}').join(inv.newMemberFeeApplied ? 'New member installation fee = $30.00' : '');
+    body = body.split('{{credit_lines}}').join(creditLines);
+    body = body.split('{{fee_lines}}').join(feeLines);
+    body = body.split('{{amount_due}}').join(fmtMoney(amountDue));
+    body = body.split('{{amount_paid}}').join(fmtMoney(deposit));
+    body = await resolveLinkTokens(body.replace(/\{\{name\}\}/g, d.name || 'there'), d.phone || key, amountDue);
+    body = body.replace(/\n/g, '<br>');
+    body = '<div style="background:#FFF8E9; border:1px solid #D89F3D; border-radius:8px; padding:10px 12px; font-family:Arial,sans-serif; font-size:13px; margin-bottom:16px;">'+
+      '<strong>Test copy.</strong> This is ' + esc(d.name || 'this customer') + '\'s real invoice, sent to you. They were not emailed and nothing on their record changed.'+
+      '</div>' + body;
+
+    emailjs.init(publicKey);
+    await emailjs.send(serviceId, templateId, { to_email: to, to_name: 'Test', message: body });
+    say('Sent to ' + to + ' \u2014 using the "' + tplName + '" template, amount due ' + fmtMoney(amountDue) + '. ' + (d.name||'The customer') + ' was not emailed.');
+  } catch(err){
+    const msg = (err && (err.text || err.message)) ? (err.text || err.message) : String(err);
+    say('Send failed: ' + msg, true);
+  }
+}
+if(document.getElementById('invTestSendBtn')) document.getElementById('invTestSendBtn').addEventListener('click', invTestSend);
+
 function invRenderRecipientList(){
+  invTestPopulate();
   const list = document.getElementById('invRecipientList');
   if(!list) return;
   const all = etGetMembers();
@@ -19666,6 +19771,9 @@ const TEST_SEED = [
   [183, 'Invoices', 'A receipt is never sent twice for one payment', '1. Log into admin (the private office dashboard).\n2. On a test customer with your own email, record a payment that clears their balance.\n3. Wait for the receipt to arrive.\n4. Without changing the amount, set the payment status to Paid in Full again.\n5. Check the inbox.\n6. If you can, also pay a test invoice through PayPal in the Member Portal and watch for duplicates.', 'Only one receipt should ever arrive for the same amount paid. The invoice records what figure it last sent a receipt for, which is also what stops a PayPal payment and its background confirmation both emailing the same customer.', 1, '', '', ''],
   [184, 'Invoices', 'Importing payments asks before emailing', '1. Log into admin (the private office dashboard).\n2. Click \'Invoices\', then the \'Import / Export\' tab.\n3. Import a small test payment file with two or three rows.\n4. Read the question that appears before the import runs.\n5. Choose Cancel on that question the first time, and check nobody was emailed.\n6. Import again and choose OK this time.', 'Before importing it should ask whether to email receipts, and say how many rows the file has so you know how much mail could go out. Cancelling should still import the payments but send nothing. Choosing OK should import and then report how many receipts were emailed.', 1, '', '', ''],
   [185, 'Invoices', 'PayPal payments receipt themselves', '1. Open the Member Portal as a test customer who owes money and has your own email on their record.\n2. Pay through PayPal.\n3. Check that inbox.\n4. Check the invoice in admin.', 'A receipt should arrive without anyone touching admin, because PayPal payments are receipted by the server rather than the browser. If the payment cleared the balance it should be the Paid Receipt wording; if it only covered part, the Balance Remaining one. The invoice should show the payment recorded.', 1, '', '', ''],
+  [186, 'Invoices', 'Send one invoice to yourself', '1. Log into admin (the private office dashboard).\n2. In the menu on the left, click \'Automation Emails\', then the \'Invoices\' tab.\n3. Find the card headed \'Send yourself one customer\'s invoice\'.\n4. Pick a customer who still owes money, put your own email address in the box, and press \'Send me this invoice\'.\n5. Open your inbox.\n6. Then check that customer in the Invoice List, and ask them if they got anything.', 'You should receive that customer\'s real invoice, with a note at the top saying it is a test copy. The figures should match what their invoice actually says. The customer themselves should receive nothing, their invoice should be unchanged, no $30 fee should have appeared, and they should not be marked as billed.', 1, '', '', ''],
+  [187, 'Invoices', 'Test send picks the right template', '1. Log into admin (the private office dashboard).\n2. Go to \'Automation Emails\', then the \'Invoices\' tab.\n3. Send yourself the invoice of a customer who still owes money.\n4. Now send yourself the invoice of a customer who is paid in full.\n5. Compare the two emails, and read the confirmation line under the button each time.', 'The unpaid customer\'s email should use the \'Nightly Auto-Invoice - Unpaid\' wording with an amount due and a Pay button. The paid one should use the Paid Receipt wording. The line under the button should name which template it used and the amount, so you can tell at a glance which one went.', 1, '', '', ''],
+  [188, 'Invoices', 'Fee Check agrees with real invoices', '1. Log into admin (the private office dashboard).\n2. Click \'Invoices\' in the left menu, then the \'Fee Check\' tab.\n3. Press \'Run all checks\' and read the result.\n4. Now pick a real customer from the Invoice List and note their price, credits, change fees and amount paid.\n5. Type those same numbers into the Fee Check boxes.\n6. Compare the balance and status it shows against what the Invoice List shows for that customer.', 'All 16 checks should come out green. The balance and status from the typed-in numbers should match that real customer\'s row exactly. If they differ, the two are calculating money differently and that needs looking at before anything else.', 1, '', '', ''],
 ];
 
 function attachDeleteHandlers(container){
