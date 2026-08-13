@@ -11975,7 +11975,16 @@ async function syncPayerInvoice(payerKey){
        change flow can still zero a payer whose last house moved away. */
     throw new Error('syncPayerInvoice: no houses resolved for invoice key ' + key);
   }
-  const total = linked.reduce((s,h) => s + (Number(h.data.housePrice)||0), 0);
+  /* A house that has RSVP'd 'no' isn't coming this season, so it must not be
+     billed. The nightly run drops those houses from its total; this has to
+     agree or the two silently fight — the server bills the right amount, then
+     the next admin edit resyncs and pushes the cancelled house's price back on.
+     If EVERY house said no the filter would zero a live invoice (which could
+     already be paid), so in that one case keep the unfiltered sum and let the
+     office clear it by hand rather than wiping a real total automatically. */
+  const activeLinked = linked.filter(h => String(h.data.rsvpStatus || '') !== 'no');
+  const forTotal = activeLinked.length ? activeLinked : linked;
+  const total = forTotal.reduce((s,h) => s + (Number(h.data.housePrice)||0), 0);
   const payerHouse = linked.find(h => custInvoiceKey(h.data) === key && !h.data.billToPhone);
   let existing = {};
   try{
@@ -11998,7 +12007,10 @@ async function syncPayerInvoice(payerKey){
     newMemberFeeApplied: !!existing.newMemberFeeApplied,
     status: computeInvoiceStatus(installTotal, existing.removal||0, existing.deposit||0, existing.credits||0, existing.changeFees||0),
     priceReviewed: true, updatedAt: serverTimestamp(),
-    billedHouseIds: linked.map(h => h.id)
+    /* The same houses the total was summed from, so the printed invoice's rows
+       always add up to the amount printed beside them. A cancelled house is
+       excluded from both, not one. */
+    billedHouseIds: forTotal.map(h => h.id)
   }, {merge:true});
 }
 document.addEventListener('change', function(e){
