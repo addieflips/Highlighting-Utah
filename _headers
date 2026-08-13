@@ -11,8 +11,17 @@
 # Images, fonts and other assets keep normal caching — they change rarely and
 # are heavy, so re-downloading them every visit would slow the site for no
 # benefit.
+#
+# /js/* is part of the app too, for exactly the same reason. As code moves out
+# of the big HTML files into modules under /js, a cached copy of one of those
+# would be a stale half of the app running against a fresh half — the same
+# "fixed on Netlify, broken in the browser" problem, but harder to spot because
+# the page itself would look up to date.
 
 /index.html
+  Cache-Control: no-cache
+
+/js/*
   Cache-Control: no-cache
 
 /admin.html
