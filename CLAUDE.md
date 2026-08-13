@@ -8,8 +8,19 @@ Never break money or delete customer data. Invoice math, prices, payments, custo
 Money/portal changes ship as ONE push. If a change spans the website and Cloud Functions (or Firestore rules), deploy them together (see §5). A half-deploy means the nightly automation, PayPal, or the customer portal disagree with what the office sees.
 Don't rewrite or delete working features unless the task says so. Before assuming something is dead code, check every read/write site — a field that looks orphaned from one angle can be a live feature entered from another (see §9, frontPhotoUrl).
 Small, explained commits. One logical change per commit, message in plain English.
+Work on the branch for the area you are touching. There is a standing branch per part of the admin portal (created 2026-08-13), so parallel work — the owner's and her sister's included — doesn't pile onto one file:
+  tab/customers   Add a Customer, All Customers, Bulk Updates, Danger Zone
+  tab/quotes      Quote Requests: pricing, Send Email, convert, nudges, quote email settings
+  tab/messages    Customer Messages: inbox, folders, System notices
+  tab/routes      Routes and Schedule: generate, save, print, fix and removal routes, calendar
+  tab/warehouse   Warehouse and Customer Numbers: build queue, recycle, bins, number pool
+  tab/invoices    Invoices, Dashboard finance, Per Foot Pricing — anything touching money
+  tab/automation  Automation and Automation Emails: nightly invoicing, templates, SMS, weather
+  tab/employees   Responsibilities and Time Logs: staff, crews, timecards, payroll export
+  tab/website     Public site content: Reviews, Gallery, Hero Images, FAQ, Site Settings
+Bring the branch up to date from main first (git merge main), work, run the gates, then merge back to main and push. These branches are long-lived — don't delete them after merging. Anything that doesn't fit one of them, or spans several, goes straight to main or onto a one-off claude/... branch.
 Keep the Project To-Do checklist truthful. Any change that alters what a checklist test (TEST_SEED in admin.html) describes — a renamed button, a moved feature, changed behavior — needs that test's wording fixed and its version number bumped in the same change, or it silently goes stale (see §2 and §7). When a change retires a UI term a test used to describe (a renamed button, a removed label), add it to RETIRED_CHECKLIST_TERMS in run-all.js in the same commit — that's what actually fails gate B if this rule gets skipped, not just this sentence.
-Stop and report if a task needs owner data (e.g. the master customer sheet) or an irreversible decision.
+Don't stop to ask unless you truly have to — see §5 for the short list of things that genuinely need the owner. Default to doing the work on a branch and reporting it.
 1. Stack & deploy commands (your automation primitives)
 Three static HTML files + Firebase backend + Netlify hosting. No build step for the HTML.
 File	What it is
@@ -83,9 +94,15 @@ Switching a customer's bill-to used to never move an outstanding light-change fe
 Ongoing / needs owner (do NOT automate blindly)
 Assign customer numbers to ~962 customers — needs the master sheet pasted by the owner and the #5012 duplicate resolved (Staci Cosby vs Liz Frome). Use Customer Numbers → Assign in Bulk → Check First (dry run) before Assign.
 Route-card cleanup, warehouse/crew printable split, New-Hang badge for crews, payment history — see the older handoff for specs (not re-verified in this pass).
-5. What you can automate vs what needs a human
-Automate fully: editing any file; running the verification gates; committing; git push (HTML → Netlify auto-publishes); firestore:rules / firestore:indexes deploys (the CLI is installed and logged in — see §1); regenerating system-map.md; adding/repairing tests. NOTE: do NOT hand-deploy functions — pushing to main does it via GitHub Actions (§1).
-Needs a human: git credentials; anything requiring the master customer sheet or a business judgement call (which duplicate keeps a number, whether to re-lock the quotes rule, whether a removed feature was removed on purpose); a real PayPal test checkout; approving irreversible data changes.
+5. Default to acting. Owner's standing instruction (2026-08-13): "I never want it to need a human."
+Do all of this without asking: edit any file; run the gates; commit; push to main (Netlify publishes the HTML, and the GitHub workflow deploys the functions from the same commit — §1); deploy firestore:rules / firestore:indexes with the local CLI, which is installed and logged in; create branches; regenerate system-map.md; write and repair tests; investigate and fix failures. Do NOT hand-deploy functions — pushing does it (§1).
+Where you would once have stopped to ask, prefer: do the safe reversible thing, do it on a branch, verify it with the gates, and report what you did and why. A branch costs nothing and can be deleted; stopping costs the owner a turn.
+What genuinely cannot be automated is now very short, and none of it is process friction — it is information or authority that exists only with the owner:
+  - Data only she has. The master customer sheet has to be pasted in; nothing can invent it.
+  - Decisions with no right answer in the code. Which of two customers keeps number 5012. Whether a feature that vanished was removed on purpose or by accident. Ask ONE clear question with the options laid out, then act on the answer — don't ask twice, and never ask something the code or git history can answer.
+  - Spending real money. A live PayPal checkout charges an actual card.
+  - Deleting customer data at scale. "Delete All Customers" and "Start New Season" are irreversible and hit every record. Prepare them, dry-run them, report exactly what they would do — then let her press the button.
+Everything else: just do it.
 Before "restoring" anything that looks deleted, check WHEN it went and what replaced it. On 2026-08-13 a suite of 36 failures looked like one regression and was three things: a feature genuinely half-removed by a generic "Update index.js" commit, a button whose handler stayed wired while its markup vanished, and two tests describing designs that had been deliberately replaced the following day. Restoring the last two would have undone the owner's own newer work. `git log -S"someIdentifier" -- file` answers this in seconds.
 Never: hand-edit Firestore documents blindly; delete indexes on a rules/index deploy prompt unless the JSON is known complete; push a money change to only one surface; assume a field is dead code without checking every read/write site.
 6. Standing task — regenerate the System Map + audit (do this at the start of a fresh session unless told otherwise)
