@@ -1429,26 +1429,22 @@ async function runInvoiceBatch(triggeredBy) {
     function looksLikeNewMember(cust) {
       // chargeNewMemberFee (set on the Add Customer form, and carried over
       // automatically from the quote's set-up fee checkbox) is the real
-      // decision the office made about this specific customer, so it wins
-      // whenever it has actually been set - true charges the fee, false
-      // explicitly skips it, overriding the date guess either way. Older
-      // records from before that field existed have it undefined, so they fall
-      // back to the enrollment-year guess this always used, read robustly
-      // however createdAt was stored (Firestore Timestamp, a raw {seconds}
-      // object, a JS Date, an epoch number, or an ISO string) - a
-      // Timestamp-only check silently missed the fee whenever the field had
-      // been written in any other shape.
-      let enrollYear = null;
-      const _ca = cust.createdAt;
-      try {
-        if (_ca && typeof _ca.toDate === 'function') enrollYear = _ca.toDate().getFullYear();
-        else if (_ca instanceof Date) enrollYear = _ca.getFullYear();
-        else if (_ca && typeof _ca.seconds === 'number') enrollYear = new Date(_ca.seconds * 1000).getFullYear();
-        else if (typeof _ca === 'number') enrollYear = new Date(_ca).getFullYear();
-        else if (typeof _ca === 'string') { const _d = new Date(_ca); if (!isNaN(_d.getTime())) enrollYear = _d.getFullYear(); }
-      } catch (e) { enrollYear = null; }
-      const dateGuessedNewMember = enrollYear !== null && enrollYear === new Date().getFullYear();
-      return cust.chargeNewMemberFee === undefined ? dateGuessedNewMember : cust.chargeNewMemberFee === true;
+      // decision the office made about this specific customer, and it is now
+      // the ONLY thing that charges the $30 join fee. Anything else - unset,
+      // false, or a record predating the field - is treated as "not new" and
+      // is never charged.
+      //
+      // There used to be a fallback for undefined: guess from the enrollment
+      // year, charging anyone whose createdAt fell in the current year. That
+      // turned into a real money risk once the customer list was bulk
+      // imported, because the import stamped all ~945 records with the same
+      // createdAt in the current year and none of them has the checkbox set -
+      // so the guess said "new member" for essentially the whole book, and
+      // every one of them would have picked up a $30 fee the night their
+      // install was marked complete. Charging nobody by mistake is a bad day;
+      // charging 945 people by mistake is a much worse one, so an unset box
+      // now means no fee and the office ticks it for anyone who owes it.
+      return cust.chargeNewMemberFee === true;
     }
 
     for (const [invoiceKey, houses] of payerGroups) {

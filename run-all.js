@@ -273,6 +273,10 @@ check('logic', 'zero-value invoice is Unpaid', computeInvoiceStatus(0, 0, 0) ===
  * nobody is scheduled. It now reads the office's own chargeNewMemberFee decision.
  * These checks exist so it can never quietly drift back to a date guess.
  */
+// Comments are stripped before any "does this code still mention X" test below.
+// Both of these functions carry a comment explaining the createdAt trap they
+// exist to avoid, and a naive source search matches that explanation and fails.
+const stripComments = s => (s || '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
 const isNewHangUrgentSrc = extractFn(admin, 'isNewHangUrgent');
 eval(isNewHangUrgentSrc);
 const oldCreatedAt = { toDate: () => new Date(Date.now() - 400 * 86400000) };
@@ -289,8 +293,35 @@ check('logic', 'New Hang clears once scheduled',
 check('logic', 'New Hang clears once completed',
   isNewHangUrgent({ chargeNewMemberFee: true, completed: true }) === false);
 check('logic', 'New Hang no longer reads createdAt at all',
-  !/createdAt|daysSince/.test(isNewHangUrgentSrc || ''),
+  !/createdAt|daysSince/.test(stripComments(isNewHangUrgentSrc)),
   'the enrollment-date guess is back — every imported house shares one createdAt, so it flags everybody');
+
+/*
+ * The $30 new member fee, decided by looksLikeNewMember in the nightly invoice
+ * function. Same trap as the badge above, but this one spends money: an unset
+ * checkbox used to fall back to "did they enrol this calendar year?", and the
+ * bulk import stamped all ~945 records with a current-year createdAt, so the
+ * whole book would have been charged $30 the night each install completed.
+ * The checkbox is now the only authority. These checks keep it that way.
+ */
+const fnsSrc = read('functions/index.js');
+const looksLikeNewMemberSrc = extractFn(fnsSrc, 'looksLikeNewMember');
+eval(looksLikeNewMemberSrc);
+const importedRecord = { createdAt: { toDate: () => new Date() } };   // this year, as the import left it
+check('logic', 'looksLikeNewMember exists', typeof looksLikeNewMember === 'function');
+check('logic', 'the fee follows a ticked new-member box',
+  looksLikeNewMember({ chargeNewMemberFee: true }) === true);
+check('logic', 'an unset box never charges the fee',
+  looksLikeNewMember(importedRecord) === false,
+  'this is the ~945-customer overcharge — an untouched checkbox must mean no fee');
+check('logic', 'an unticked box never charges the fee',
+  looksLikeNewMember(Object.assign({ chargeNewMemberFee: false }, importedRecord)) === false);
+check('logic', 'the fee decision no longer reads createdAt',
+  !/createdAt/.test(stripComments(looksLikeNewMemberSrc)),
+  'the enrollment-year guess is back — it would charge $30 to every imported customer');
+check('logic', 'admin preview and the nightly function agree on who is new',
+  /chargeNewMemberFee === true/.test(admin) && /chargeNewMemberFee === true/.test(fnsSrc),
+  'if these two drift apart, the office sees one invoice total and the customer is billed another');
 /* ---- rules that could not be tested until they moved into js/money.js ----
    These cover the two things that have actually gone wrong before: the light-
    change fee being dropped from a balance (which once made PayPal undercharge)
