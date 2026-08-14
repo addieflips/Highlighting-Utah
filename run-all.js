@@ -4423,6 +4423,228 @@ suite('17. A new customer lands on the next day in their city');
 }
 
 // =====================================================================
+/*
+ * Suite 18. The upcoming routes reconcile themselves.
+ *
+ * A saved route is a snapshot that goes stale: somebody says no, an address is
+ * corrected, a house is installed early, a customer is deleted. This sweep is
+ * what keeps the crew's days true, so it is EXECUTED here rather than pattern
+ * matched — the whole function is run against a fake Firestore that records
+ * every write, exactly the way suite 10 runs syncPayerInvoice.
+ *
+ * Every date is relative to today, so these still mean something next season.
+ */
+{
+  const recStart = admin.indexOf('const RECONCILE_INTERVAL_MS');
+  const recEnd = admin.indexOf('function scheduledFieldForType');
+  const NEEDED = ['thanksgivingDate','earliestAllowedInstallDate','extractCleanCity','toDateStr',
+                  'formatDateNice','routeCityOf','findNextRouteDayInCity','customerToStop',
+                  'haversine','twoOptImprove','reorderFlatStops','nextDayStr',
+                  'scheduledFieldForType','freeUpFieldForType'];
+
+  if (recStart === -1 || recEnd < recStart) {
+    check('reconcile', 'the route reconciler is findable',
+      false, 'renamed or removed — update this test rather than deleting it');
+  } else {
+    const helpers = NEEDED.map(n => extractFn(admin, n)).join('\n');
+    const src = helpers + '\n' + admin.slice(recStart, recEnd);
+
+    const dstr = n => { const d = new Date(); d.setDate(d.getDate() + n); return toDateStr(d); };
+
+    // A fake Firestore that records writes instead of making them.
+    function makeRec(houses, cache) {
+      const writes = [];   // {path, payload}
+      const added = [];    // documents added to a collection
+      const ctx = {
+        db: {},
+        doc: (...a) => ({ __path: a.slice(1).join('/') }),
+        collection: (...a) => ({ __col: a[1] }),
+        serverTimestamp: () => '__ts__',
+        updateDoc: async (ref, payload) => { writes.push({ path: ref.__path, payload }); },
+        addDoc: async (col, payload) => { added.push({ col: col.__col, payload }); },
+        jobAddresses: houses,
+        scheduledRoutesCache: cache,
+        console: { error(){}, warn(){}, log(){} }
+      };
+      const names = Object.keys(ctx);
+      const api = new Function(...names, src +
+        '\nreturn {reconcile: reconcileUpcomingRoutes, problem: stopProblem, drifted: stopDrifted,' +
+        ' upcoming: upcomingInstallRoutes};')(...names.map(n => ctx[n]));
+      return { api, writes, added };
+    }
+
+    // ---- 18.1 stopProblem — why a house should not be on a day -------------
+    {
+      const h = makeRec([], {}).api;
+      const soon = dstr(5);
+      check('reconcile', 'a house that is simply due is left alone',
+        h.problem({data:{}}, soon) === '');
+      check('reconcile', 'a stop whose customer no longer exists is a problem',
+        /no longer a customer/.test(h.problem(null, soon)));
+      check('reconcile', 'a customer sitting out the season is a problem',
+        /sitting out/.test(h.problem({data:{maybeNextYear:true}}, soon)));
+      check('reconcile', 'a customer who said no is a problem',
+        /said no/.test(h.problem({data:{rsvpStatus:'no'}}, soon)) &&
+        /said no/.test(h.problem({data:{rsvpStatus:'backnextyear'}}, soon)));
+      check('reconcile', 'a house already installed is a problem on an install day',
+        /already installed/.test(h.problem({data:{completed:true}}, soon)));
+      check('reconcile', 'a house cannot sit on a day earlier than its timing allows',
+        /cannot be installed until/.test(
+          h.problem({data:{earliestInstallDate: new Date(Date.now() + 30*86400000)}}, soon)),
+        'this is the November rule holding AFTER the customer is already on a route');
+      check('reconcile', 'drift is judged on the fields the crew actually drives with',
+        h.drifted({address:'1 A St', name:'Kim'}, {address:'1 A St', name:'Kim'}) === false &&
+        h.drifted({address:'1 A St'}, {address:'2 B St'}) === true);
+    }
+
+    // ---- 18.2 The sweep itself ---------------------------------------------
+    /* Two upcoming Lehi days and one Orem day, plus a past day, a fix day and a
+       removal day that must all be left alone. */
+    const buildCase = () => {
+      const houses = [
+        {id:'ok',    data:{name:'Fine House',  city:'Lehi', address:'1 Fine St', lat:40.4, lng:-111.8, rsvpStatus:'yes'}},
+        {id:'said',  data:{name:'Said No',     city:'Lehi', address:'2 No St',   lat:40.4, lng:-111.8, rsvpStatus:'no'}},
+        {id:'drift', data:{name:'Moved House', city:'Lehi', address:'9 NEW Rd',  lat:40.4, lng:-111.8, rsvpStatus:'yes'}},
+        {id:'dupe',  data:{name:'Twice Booked',city:'Lehi', address:'4 Two Way', lat:40.4, lng:-111.8, rsvpStatus:'yes'}},
+        {id:'late',  data:{name:'Later Please',city:'Lehi', address:'5 Wait Ln', lat:40.4, lng:-111.8, rsvpStatus:'yes',
+                           earliestInstallDate: new Date(Date.now() + 9*86400000)}},
+        {id:'strand',data:{name:'Left Over',   city:'Lehi', address:'6 Miss Ct', lat:40.4, lng:-111.8, rsvpStatus:'yes',
+                           scheduled:true, scheduledDate: dstr(-9)}},
+        {id:'nocity',data:{name:'No Town',     city:'',     address:'7 Lost Way',lat:40.4, lng:-111.8, rsvpStatus:'yes',
+                           scheduled:true, scheduledDate: dstr(-9)}},
+        {id:'done',  data:{name:'All Done',    city:'Lehi', address:'8 Done Dr', lat:40.4, lng:-111.8, rsvpStatus:'yes',
+                           scheduled:true, scheduledDate: dstr(-9), completed:true}}
+      ];
+      const cache = {};
+      cache[dstr(-20)] = [{id:'past', date:dstr(-20), type:'install', crew:'1',
+        stops:[{id:'said', name:'Said No', address:'2 No St', lat:40.4, lng:-111.8}]}];
+      cache[dstr(3)] = [
+        {id:'soonLehi', date:dstr(3), type:'install', crew:'1', stops:[
+          {id:'ok',    name:'Fine House',  address:'1 Fine St', lat:40.4, lng:-111.8, difficulty:'Unrated',
+           phone:'', gateCode:'', specificOutlet:'', specificOutletNotes:'', customerNumber:''},
+          {id:'said',  name:'Said No',     address:'2 No St',   lat:40.4, lng:-111.8},
+          {id:'gone',  name:'Deleted Guy', address:'3 Gone Av', lat:40.4, lng:-111.8},
+          {id:'drift', name:'Moved House', address:'9 OLD Rd',  lat:40.4, lng:-111.8},
+          {id:'dupe',  name:'Twice Booked',address:'4 Two Way', lat:40.4, lng:-111.8},
+          {id:'late',  name:'Later Please',address:'5 Wait Ln', lat:40.4, lng:-111.8}
+        ]},
+        {id:'fixday', date:dstr(3), type:'fix', crew:'1',
+          stops:[{id:'said', name:'Said No', address:'2 No St', lat:40.4, lng:-111.8}]},
+        {id:'remday', date:dstr(3), type:'removal', crew:'1',
+          stops:[{id:'done', name:'All Done', address:'8 Done Dr', lat:40.4, lng:-111.8}]}
+      ];
+      cache[dstr(14)] = [{id:'lateLehi', date:dstr(14), type:'install', crew:'1',
+        stops:[{id:'dupe', name:'Twice Booked', address:'4 Two Way', lat:40.4, lng:-111.8}]}];
+      return {houses, cache};
+    };
+
+    pendingAsync.push((async () => {
+      suite('18. The upcoming routes reconcile themselves');
+      const c = buildCase();
+      const h = makeRec(c.houses, c.cache);
+      let threw = null, report = null;
+      try { report = await h.api.reconcile(); } catch (e) { threw = e; }
+
+      check('reconcile', 'the sweep runs without throwing',
+        threw === null,
+        threw ? ('it threw ' + threw.message + ' — the routes then silently never reconcile') : undefined);
+      if (threw) return;
+
+      const routeWrite = id => h.writes.filter(w => w.path === 'scheduledRoutes/' + id).pop();
+      const custWrite  = id => h.writes.filter(w => w.path === 'jobAddresses/' + id).pop();
+      const soon = routeWrite('soonLehi');
+      const soonIds = soon ? soon.payload.stops.map(s => s.id) : [];
+
+      check('reconcile', 'a past day is never edited — it is the record of what the crew was sent out with',
+        !routeWrite('past'),
+        'rewriting history makes it impossible to answer "what did we actually send them to do?"');
+      check('reconcile', 'a fix day is left alone',
+        !routeWrite('fixday'), 'a fix visit has its own lifecycle and its own eligibility');
+      check('reconcile', 'a removal day keeps its completed house',
+        !routeWrite('remday'), 'a house that IS installed is exactly who belongs on a takedown');
+
+      check('reconcile', 'the upcoming day was rewritten', !!soon);
+      check('reconcile', 'a customer who said no comes off the day',
+        soonIds.indexOf('said') === -1);
+      check('reconcile', 'a stop whose customer was deleted comes off the day',
+        soonIds.indexOf('gone') === -1,
+        'the crew was being sent to a house that is not in the book any more');
+      check('reconcile', 'the house that is fine stays exactly where it is',
+        soonIds.indexOf('ok') !== -1);
+      check('reconcile', 'a house booked on two days keeps only the earlier one',
+        soonIds.indexOf('dupe') !== -1 &&
+        (routeWrite('lateLehi') || {payload:{stops:[]}}).payload.stops.every(s => s.id !== 'dupe'),
+        'two stops for one house means one crew drives to an empty job');
+
+      const driftStop = (soon ? soon.payload.stops : []).find(s => s.id === 'drift');
+      check('reconcile', 'a stop is refreshed when the customer record moved on',
+        !!driftStop && driftStop.address === '9 NEW Rd',
+        'the crew drives to the address that was true a fortnight ago');
+      check('reconcile', 'refreshing a stop is counted and reported',
+        report.refreshed >= 1);
+
+      check('reconcile', 'a house that cannot be installed that soon is taken off',
+        soonIds.indexOf('late') === -1,
+        'THE NOVEMBER RULE, holding after the fact — a preference changed since the day was built');
+      check('reconcile', 'and is put on a later day it IS allowed on',
+        (custWrite('late') || {payload:{}}).payload.scheduledDate === dstr(14) &&
+        ((routeWrite('lateLehi') || {payload:{stops:[]}}).payload.stops || []).some(s => s.id === 'late'),
+        'taking it off without rebooking it is just losing the customer more slowly');
+
+      check('reconcile', 'a house stranded on a day that has been and gone is rescued',
+        (custWrite('strand') || {payload:{}}).payload.scheduledDate === dstr(3),
+        'route generation only looks at UNSCHEDULED houses, so these are invisible to every tool');
+      check('reconcile', 'a completed house is never dragged back onto a route',
+        !custWrite('done') || custWrite('done').payload.scheduled !== true);
+      check('reconcile', 'a stranded house with nowhere to go is handed back to the pool',
+        (custWrite('nocity') || {payload:{}}).payload.scheduled === false &&
+        report.freed.some(f => f.name === 'No Town'),
+        'leaving it pointing at a day it is not on is how it stays invisible forever');
+
+      check('reconcile', 'everything that changed is reported, not just done',
+        report.changed === true && report.dropped.length >= 3 && report.moved.length >= 1);
+      check('reconcile', 'one System notice for the whole sweep, not one per house',
+        h.added.filter(a => a.col === 'messages').length === 1,
+        'a sweep that tidies twelve things must not put twelve notices in front of somebody');
+      const note = (h.added.find(a => a.col === 'messages') || {payload:{}}).payload;
+      check('reconcile', 'the notice goes to the System folder and names names',
+        note.folder === 'System' && /Left Over|Said No|No Town/.test(note.message || ''),
+        'a notice nobody can act on is noise');
+
+      // ---- 18.3 Nothing to do must cost nothing ---------------------------
+      const clean = {
+        houses: [{id:'ok', data:{name:'Fine House', city:'Lehi', address:'1 Fine St',
+                                 lat:40.4, lng:-111.8, rsvpStatus:'yes'}}],
+        cache: {}
+      };
+      clean.cache[dstr(3)] = [{id:'cleanDay', date:dstr(3), type:'install', crew:'1', stops:[
+        {id:'ok', name:'Fine House', address:'1 Fine St', lat:40.4, lng:-111.8, difficulty:'Unrated',
+         phone:'', gateCode:'', specificOutlet:'', specificOutletNotes:'', customerNumber:''}
+      ]}];
+      const h2 = makeRec(clean.houses, clean.cache);
+      const clean2 = await h2.api.reconcile();
+      check('reconcile', 'a set of routes that is already right writes NOTHING',
+        h2.writes.length === 0 && h2.added.length === 0 && clean2.changed === false,
+        'this runs every fifteen minutes in four browsers — the normal case has to be free');
+    })());
+  }
+}
+
+// ---- 18.4 How it is wired in -------------------------------------------
+check('reconcile', 'the sweep starts itself, like the health check does',
+  /startReconcileAuto\(\);/.test(admin) && /setInterval\(runReconcileAuto, RECONCILE_INTERVAL_MS\)/.test(admin),
+  'a reconciler nobody runs is a reconciler that does nothing');
+check('reconcile', 'the sweep can never take the page down with it',
+  /reconcileUpcomingRoutes\(\)[\s\S]{0,600}\.catch\(function\(err\)\{/.test(admin.replace(/\r/g,'')),
+  'a background job that throws must not break the dashboard it runs behind');
+check('reconcile', 'two sweeps can never overlap',
+  /if\(reconcileRunning\) return;/.test(admin),
+  'a second pass reading the first one\'s half-finished writes would double-move houses');
+check('reconcile', 'houses left over are given a grace period before being moved',
+  /LEFTOVER_GRACE_DAYS/.test(admin),
+  'the office marks a day done the next morning — same-night moves would move finished houses');
+
+// =====================================================================
 // Wait for the async suites before totalling up — see pendingAsync at the top.
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
