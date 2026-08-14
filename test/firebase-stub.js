@@ -129,7 +129,14 @@ const FAKE_FUNCTIONS_MODULE = `
     portalLookup:  lookup,
     portalInvoice: invoice,
     portalRsvp:    p => ({ ok: true, rsvpStatus: p && p.answer }),
-    portalSave:    () => ({ ok: true, saved: true })
+    portalSave:    () => ({ ok: true, saved: true }),
+
+    /* index.html calls this on load to fetch the three public-safe EmailJS
+     * identifiers. It is fire-and-forget with a .catch() that swallows
+     * failure, so a missing fake does not break the page — but it DOES send a
+     * request to the real backend, which the guard then reports. Faked as
+     * not-configured: notification emails simply do not send in a test. */
+    publicConfig: () => ({ configured: false })
   };
 
   export function getFunctions() { return { __stub: true }; }
@@ -198,24 +205,37 @@ async function installFirebaseStub(page, overrides = {}) {
     { fx: fixtures, customers: Object.assign({}, CUSTOMERS, overrides.customers || {}) }
   );
 
-  // Serve the fake Firebase modules in place of the CDN ones.
-  for (const [needle, body] of MODULE_BY_URL) {
-    await page.route(url => url.href.includes(needle), route =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/javascript; charset=utf-8',
-        body
-      })
-    );
-  }
-
-  // THE GUARD. Anything heading for a real backend is killed and recorded.
+  /* ONE handler for everything, deliberately.
+   *
+   * This was originally four separate page.route() calls: three serving the
+   * fake Firebase modules, then a catch-all guard. That was BROKEN, and
+   * silently so. Playwright matches routes LAST-REGISTERED-FIRST, so the
+   * catch-all won for every URL including the gstatic ones, called
+   * continue() on them, and the page loaded the REAL Firebase SDK. Every
+   * portal call then went to the live project. The guard caught it — which is
+   * the only reason it was noticed — but the fakes never ran at all.
+   *
+   * A single handler has no ordering to get wrong. Order INSIDE it is
+   * explicit and readable: fake the modules first, then block anything real,
+   * then let ordinary page assets (HTML, CSS, fonts) through. */
   await page.route('**/*', route => {
     const url = route.request().url();
+
+    for (const [needle, body] of MODULE_BY_URL) {
+      if (url.includes(needle)) {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/javascript; charset=utf-8',
+          body
+        });
+      }
+    }
+
     if (FORBIDDEN_HOSTS.some(h => url.includes(h))) {
       escapes.push(url);
       return route.abort();
     }
+
     return route.continue();
   });
 
