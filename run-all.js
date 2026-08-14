@@ -1015,6 +1015,159 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
   recycleQueue.length > 0 && !/!d\.needsLightRecycle \|\| !d\.lightsDescription/.test(recycleQueue),
   'a flagged customer who never appears here never gets their number recycled');
 
+/* --- rejoining after a recycle, and re-saving a declined customer ----------
+ *
+ * needsLightRecycle used to be re-derived from rsvpStatus === 'no' on every
+ * write, which conflated a lasting fact ("they said no") with a job that gets
+ * finished ("their lights need pulling back into stock"). Two bugs came out of
+ * that: a customer who rejoined AFTER being recycled had no lights built and no
+ * customer number yet looked completely normal, and any later Edit Customer save
+ * put an already-recycled customer back in the recycle queue.
+ *
+ * These checks RUN the code rather than reading it. A regex would happily pass
+ * on a branch that reads correctly and evaluates the wrong way round, and the
+ * branch that matters most here is the one that must NOT change — a flat "no"
+ * still has to recycle, every time.
+ */
+(function () {
+  const fnSrc = read('functions/index.js');
+  const start = fnSrc.indexOf('exports.portalRsvp = onCall(');
+  const end = start > -1 ? fnSrc.indexOf('\n});', start) : -1;
+  if (end === -1) {
+    check('flow', 'portalRsvp found in functions/index.js', false,
+      'renamed or removed — update this test rather than deleting it');
+    return;
+  }
+  const src = fnSrc.slice(start, end + 4);
+
+  // Fake Firestore + callable wrapper. update() merges what would have been
+  // written; add() records Inbox notes with the collection they landed in.
+  function runRsvp(record, response) {
+    const written = {};
+    const added = [];
+    const ctx = {
+      exports: {},
+      onCall: (opts, handler) => handler,
+      HttpsError: function (code, msg) { const e = new Error(msg); e.code = code; return e; },
+      admin: { firestore: { FieldValue: { serverTimestamp: () => '__ts__' } } },
+      findByToken: async () => ({ id: 'h1', data: record }),
+      db: {
+        collection: (name) => ({
+          doc: () => ({ update: async (u) => { Object.assign(written, u); } }),
+          add: async (m) => { added.push(Object.assign({ __col: name }, m)); }
+        })
+      },
+      console
+    };
+    const names = Object.keys(ctx);
+    new Function(...names, src)(...names.map(n => ctx[n]));
+    return ctx.exports.portalRsvp({ data: { token: 't', response } })
+      .then(res => ({ res, written, added }));
+  }
+
+  const notes = a => a.filter(m => m.__col === 'messages' && m.topic === 'Rejoined After Recycling');
+
+  pendingAsync.push((async () => {
+    suite('6b. Rejoining after a recycle (portalRsvp actually runs)');
+
+    // 1. Recycle completed (flag already cleared by the warehouse) → rebuild.
+    const done = await runRsvp({ name: 'Rejoiner', phone: '8011112222', rsvpStatus: 'no', needsLightRecycle: false }, 'yes');
+    check('flow', 'rejoining after a completed recycle queues the lights to be rebuilt',
+      done.written.needsLightBuild === true,
+      'their lights were physically pulled back into stock — nothing would build a new bundle, ' +
+      'and the crew arrives on install day to no lights');
+    check('flow', 'rejoining after a completed recycle raises an Inbox note',
+      notes(done.added).length === 1,
+      'their customer number went back to the pool at recycle time, so a house with no number ' +
+      'would go on a route with nothing to tell the office');
+    check('flow', 'the rejoin note does not assign a customer number itself',
+      !('customerNumber' in done.written),
+      'taking one from the pool programmatically could collide with a number written on a bin by hand');
+
+    // 2. Recycle not done yet → nothing was pulled, so nothing to rebuild.
+    const early = await runRsvp({ name: 'Quick Change', rsvpStatus: 'no', needsLightRecycle: true }, 'yes');
+    check('flow', 'rejoining BEFORE the recycle happened does not queue a rebuild',
+      early.written.needsLightBuild === undefined && early.written.needsLightRecycle === false,
+      'their bundle was never taken apart — re-queuing it would have the warehouse build a second one');
+    check('flow', 'rejoining before the recycle happened raises no Inbox note',
+      notes(early.added).length === 0,
+      'every ordinary change of mind would drop noise in the office Inbox');
+
+    // 3. THE ONE THAT MATTERS MOST: a flat no must still recycle, every time.
+    const declining = await runRsvp({ name: 'Decliner', rsvpStatus: '', needsLightRecycle: false }, 'no');
+    check('flow', 'a flat "no" still flags the lights for recycling',
+      declining.written.needsLightRecycle === true && declining.written.needsLightBuild === undefined,
+      'declines would stop reaching the recycle queue and customer numbers would never come back');
+
+    // 4. Back next year is a distinct third answer, never a soft no.
+    const back = await runRsvp({ name: 'Sitting Out', rsvpStatus: 'no', needsLightRecycle: false }, 'backnextyear');
+    check('flow', 'back next year never recycles and never rebuilds',
+      back.written.needsLightRecycle === false && back.written.needsLightBuild === undefined &&
+      notes(back.added).length === 0);
+
+    // 5. An ordinary yes from someone who never declined is untouched.
+    const plain = await runRsvp({ name: 'Normal', rsvpStatus: '', needsLightRecycle: false }, 'yes');
+    check('flow', 'a first-time yes does not look like a rejoin',
+      plain.written.needsLightBuild === undefined && notes(plain.added).length === 0);
+  })());
+})();
+
+/* The same two decisions on the admin side, lifted out of the Edit Customer
+   save and executed. The save function itself is DOM-bound and 300 lines long,
+   so only the block that decides the two flags is run — which is exactly the
+   part that was wrong. Both paths must agree: the portal and the office cannot
+   behave differently for the same customer. */
+(function () {
+  const startMarker = 'const oldRsvpForRecycle';
+  const endMarker = 'if(rejoinedAfterRecycle) addrUpdates.needsLightBuild = true;';
+  const start = admin.indexOf(startMarker);
+  const end = start > -1 ? admin.indexOf(endMarker, start) : -1;
+  if (end === -1) {
+    check('flow', 'the Edit Customer recycle decision block is findable',
+      false, 'renamed or removed — update this test rather than deleting it');
+    return;
+  }
+  const src = admin.slice(start, end + endMarker.length);
+
+  function runSave(record, newRsvp) {
+    const addrUpdates = {};
+    new Function('item', 'newRsvp', 'addrUpdates', src)({ data: record }, newRsvp, addrUpdates);
+    return addrUpdates;
+  }
+
+  // An edit that touches nothing to do with the RSVP must leave the flag alone.
+  const resaved = runSave({ rsvpStatus: 'no', needsLightRecycle: false }, 'no');
+  check('flow', 'saving an already-declined customer does not re-raise the recycle flag',
+    !('needsLightRecycle' in resaved),
+    'fixing a phone number months later put them back in the recycle queue with no number ' +
+    'and no lights left to pull');
+
+  // The normal path must not regress.
+  const declined = runSave({ rsvpStatus: '', needsLightRecycle: false }, 'no');
+  check('flow', 'changing an RSVP to "no" in admin still raises the recycle flag',
+    declined.needsLightRecycle === true,
+    'this is the behaviour that is correct — the fix must not stop declines from recycling');
+
+  // Bug 1, admin side.
+  const rejoined = runSave({ rsvpStatus: 'no', needsLightRecycle: false }, 'yes');
+  check('flow', 'admin rejoin after a completed recycle queues the lights to be rebuilt',
+    rejoined.needsLightBuild === true,
+    'the portal handles this — the office path has to agree or the same customer gets two outcomes');
+
+  // Changing their mind before the warehouse got to them clears the queued job.
+  const cancelled = runSave({ rsvpStatus: 'no', needsLightRecycle: true }, 'yes');
+  check('flow', 'admin rejoin before the recycle happened clears the queued recycle only',
+    cancelled.needsLightRecycle === false && cancelled.needsLightBuild === undefined,
+    'nothing was pulled, so there is nothing to rebuild and they must leave the recycle queue');
+
+  check('flow', 'the Edit Customer save no longer re-derives the recycle flag every time',
+    !/needsLightRecycle: newRsvp === 'no'/.test(admin),
+    'that one expression is Bug 2 — it ran on every save, not just on the change');
+  check('flow', 'admin raises the same rejoin note as the portal',
+    /topic: 'Rejoined After Recycling'/.test(admin),
+    'without it the office never learns the customer needs a number assigned');
+})();
+
 // Payment methods are not mutually exclusive any more — 'both' shows Venmo and
 // PayPal together. Venmo must stay visible unless PayPal is the sole method AND
 // actually usable, so a missing Client ID can never leave a customer unable to pay.
