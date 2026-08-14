@@ -1,4 +1,10 @@
 {
+  "scripts": {
+    "verify": "node scripts/verify-syntax.js",
+    "test:money": "node money-parity.test.js",
+    "test:suite": "node run-all.js",
+    "test": "npm run verify && npm run test:money && npm run test:suite"
+  },
   "dependencies": {
     "jsdom": "^30.0.1"
   }
