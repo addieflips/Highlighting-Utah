@@ -193,19 +193,17 @@ const INVOICES = {
  * the price they were quoted, along with an 'Approve' button and a
  * 'Decline' button").
  *
- * ⚠ tryShowQuoteReview() in index.html checks the FIRST word of the quote's
- * name against the typed last name (nameParts[0], not the last word), so
- * what it actually enforces is "type the customer's first name into the
- * last-name box" — not what checklist step 3 describes a real person
- * writing down and typing. That looks like a pre-existing mismatch in
- * tryShowQuoteReview, separate from what this fixture exists to fix, so
- * lastNameInput below is set to match what the CODE checks today rather
- * than silently working around it.
+ * lastNameInput below is the customer's actual last name — tryShowQuoteReview()
+ * used to check only the FIRST word of the stored name (nameParts[0]), so
+ * typing your real last name was refused unless your name happened to be
+ * stored surname-first. Fixed to a whole-word, word-order-independent match
+ * (same rule as nameMatches() in functions/index.js). This fixture typing the
+ * real last name is what proves that fix, not a workaround for it.
  */
 const QUOTES = {
   pendingReview: {
     id: 'quote-pending-review-1',
-    lastNameInput: 'morgan',
+    lastNameInput: 'ashby',
     data: {
       name: 'Morgan Ashby',
       phone: '(801) 555-0166',
