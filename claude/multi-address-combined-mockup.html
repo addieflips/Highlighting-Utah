@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Highlighting Utah — multiple addresses (combined mockup)</title>
+<style>
+  :root{
+    --green:#1E3B2C; --green-soft:#2d5642; --gold:#D89F3D; --gold-soft:#f0dcb4;
+    --bg:#F4F6F4; --card:#ffffff; --line:#dfe4e0; --ink:#17211c; --muted:#6d7d74;
+    --red:#b4432f;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:560px;margin:0 auto;padding:0 14px 60px}
+
+  /* ---- mockup chrome ---- */
+  .bar{background:var(--green);color:#fff;padding:14px 16px;position:sticky;top:0;z-index:20}
+  .bar h1{margin:0;font-size:15px;font-weight:600;letter-spacing:.02em}
+  .bar p{margin:2px 0 0;font-size:12px;opacity:.75}
+  .tabs{display:flex;gap:5px;max-width:560px;margin:0 auto;padding:10px 14px 0}
+  .tabs button{flex:1;padding:9px 4px;font-size:12.5px;font-weight:600;border:1px solid var(--line);
+    background:#fff;color:var(--muted);border-radius:9px 9px 0 0;border-bottom:none;cursor:pointer}
+  .tabs button.on{background:var(--green);color:#fff;border-color:var(--green)}
+  .screen{display:none}
+  .screen.on{display:block}
+
+  .note{background:#fffaf0;border:1px solid var(--gold-soft);border-left:4px solid var(--gold);
+    padding:10px 12px;border-radius:8px;font-size:13px;color:#5c4a24;margin:12px 0}
+
+  /* ---- cards ---- */
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin:14px 0}
+  .card h2{margin:0 0 3px;font-size:17px;font-weight:700;color:var(--green)}
+  .sub{color:var(--muted);font-size:13px;margin:0 0 14px}
+  label{display:block;font-size:12px;font-weight:700;color:var(--muted);
+    text-transform:uppercase;letter-spacing:.06em;margin:12px 0 5px}
+  input[type=text]{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:9px;font-size:15px;background:#fff}
+  input[type=number]{padding:9px 10px;border:1px solid var(--line);border-radius:9px;font-size:15px;background:#fff;text-align:right}
+  textarea{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:9px;font-size:15px;
+    font-family:inherit;min-height:80px;background:#fff}
+  .row2{display:flex;gap:10px}.row2>div{flex:1}
+
+  /* ---- property / building ---- */
+  .prop{border:1px solid var(--line);border-radius:12px;padding:14px;margin:14px 0;background:#fbfcfb}
+  .prop.added{border-color:var(--gold);background:#fffdf8}
+  .prophead{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .prophead strong{font-size:14px;color:var(--green)}
+  .bldg{border-left:3px solid var(--gold-soft);padding:2px 0 2px 12px;margin:14px 0}
+  .bldgname{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+  .bldgname input{font-weight:700;padding:7px 10px;font-size:14px}
+
+  /* ---- photo buttons ---- */
+  .sides{display:flex;flex-wrap:wrap;gap:7px;margin-top:8px}
+  .side{padding:9px 13px;border:1.5px solid var(--green);background:#fff;color:var(--green);
+    border-radius:999px;font-size:13.5px;font-weight:600;cursor:pointer}
+  .side:active{background:var(--green);color:#fff}
+  .side.extra{border-style:dashed;border-color:var(--muted);color:var(--muted)}
+  .shots{margin-top:10px}
+  .shot{display:flex;align-items:center;gap:11px;background:#fff;border:1px solid var(--line);
+    border-radius:10px;padding:8px;margin-top:7px}
+  .thumb{width:52px;height:52px;border-radius:7px;flex:none;object-fit:cover;
+    background:linear-gradient(140deg,#2d5642,#5d8a72);display:block}
+  .shot .nm{flex:1;font-size:14px;font-weight:600}
+  .shot .nm small{display:block;font-weight:400;color:var(--muted);font-size:12px}
+  .x{border:none;background:none;color:var(--muted);font-size:20px;cursor:pointer;padding:4px 8px}
+
+  .addbtn{width:100%;margin-top:12px;padding:11px;border:1.5px dashed var(--green);background:#fff;
+    color:var(--green);border-radius:10px;font-size:14px;font-weight:700;cursor:pointer}
+  .addbtn.big{border-style:solid;background:var(--green);color:#fff}
+  .submit{width:100%;margin-top:16px;padding:15px;border:none;background:var(--gold);color:var(--green);
+    border-radius:10px;font-size:16px;font-weight:800;cursor:pointer}
+
+  /* ---- portal ---- */
+  .shared{background:var(--green);color:#fff;border-radius:14px;padding:16px;margin:14px 0}
+  .shared .nm{font-size:19px;font-weight:700}
+  .shared .meta{font-size:13px;opacity:.8;margin-top:2px}
+  .bal{display:flex;justify-content:space-between;align-items:flex-end;
+    margin-top:14px;padding-top:13px;border-top:1px solid rgba(255,255,255,.22)}
+  .bal .amt{font-size:27px;font-weight:800;color:var(--gold);line-height:1}
+  .bal small{display:block;font-size:11.5px;opacity:.75;text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px}
+  .paybtn{background:var(--gold);color:var(--green);border:none;padding:11px 17px;
+    border-radius:9px;font-weight:800;font-size:14px;cursor:pointer}
+  .split{font-size:12.5px;opacity:.8;margin-top:9px;line-height:1.7}
+
+  .addrtabs{display:flex;gap:6px;overflow-x:auto;padding:2px 0 0;margin-top:6px}
+  .addrtabs button{white-space:nowrap;padding:10px 15px;border:1px solid var(--line);background:#fff;
+    color:var(--muted);border-radius:10px 10px 0 0;border-bottom:none;font-size:13.5px;font-weight:700;cursor:pointer}
+  .addrtabs button.on{background:#fff;color:var(--green);border-color:var(--gold);
+    border-top:3px solid var(--gold);box-shadow:0 -2px 0 #fff}
+  .pane{background:#fff;border:1px solid var(--line);border-radius:0 12px 12px 12px;padding:16px;margin-bottom:14px}
+  .fieldrow{display:flex;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid var(--line);font-size:14.5px}
+  .fieldrow:last-of-type{border-bottom:none}
+  .fieldrow span:first-child{color:var(--muted)}
+  .fieldrow span:last-child{font-weight:600;text-align:right}
+  .rsvp{margin-top:14px;padding-top:14px;border-top:2px solid var(--line)}
+  .rsvpbtns{display:flex;gap:7px;margin-top:9px}
+  .rsvpbtns button{flex:1;padding:11px 4px;border:1.5px solid var(--line);background:#fff;
+    border-radius:9px;font-size:13px;font-weight:700;color:var(--muted);cursor:pointer}
+  .rsvpbtns button.on{border-color:var(--green);background:var(--green);color:#fff}
+
+  /* ---- email ---- */
+  .mail{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden;margin:14px 0}
+  .mailhead{background:#eef1ef;padding:11px 15px;font-size:12.5px;color:var(--muted);border-bottom:1px solid var(--line)}
+  .mailbody{padding:20px 17px}
+  .mailbody h3{margin:0 0 12px;color:var(--green);font-size:19px}
+  .photostack img,.fakephoto{width:100%;height:150px;border-radius:9px;
+    background:linear-gradient(140deg,#2d5642,#7ba58e);display:flex;align-items:center;
+    justify-content:center;color:#fff;font-size:14px;font-weight:600;margin-bottom:5px}
+  .plabel{text-align:center;font-size:12.5px;color:var(--muted);margin-bottom:15px}
+  .btnrow{text-align:center;margin:17px 0}
+  .ebtn{display:inline-block;padding:13px 22px;border-radius:8px;text-decoration:none;
+    font-weight:800;font-size:14.5px;margin:4px}
+  .ebtn.ok{background:var(--gold);color:var(--green)}
+  .ebtn.no{background:#fff;color:var(--muted);border:1.5px solid var(--line)}
+  .tot{background:#f6f8f6;border-radius:10px;padding:14px;margin:17px 0;font-size:14.5px}
+  .tot .li{display:flex;justify-content:space-between;padding:6px 0;color:var(--muted)}
+  .tot .li.this{color:var(--ink);font-weight:700}
+  .tot .li.sum{border-top:1.5px solid var(--line);margin-top:7px;padding-top:11px;
+    color:var(--green);font-weight:800;font-size:16px}
+  .why{font-size:12.5px;color:var(--muted);font-style:italic}
+
+  /* ---- admin ---- */
+  .chip{display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;
+    background:#eef1ef;color:var(--muted);border:1px solid var(--line);margin-left:6px;vertical-align:1px}
+  .sibling{display:flex;align-items:center;gap:7px;margin-top:9px;padding:8px 10px;background:#f6f8f6;
+    border-radius:8px;font-size:12.5px;color:var(--muted)}
+  .sibling b{color:var(--green);font-weight:700}
+  .acard{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px;margin:11px 0}
+  .acard .anm{font-size:15.5px;font-weight:700;color:var(--green)}
+  .acard .aaddr{font-size:13.5px;margin-top:3px}
+  .acard .ameta{font-size:12.5px;color:var(--muted);margin-top:2px}
+  .proprows{border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-top:6px}
+  .prow{display:flex;align-items:center;gap:11px;padding:11px 12px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .prow:last-child{border-bottom:none}
+  .prow .pa{flex:1 1 190px;min-width:0;font-size:13.5px;line-height:1.35}
+  .prow .pa small{display:block;color:var(--muted);font-size:11.5px;margin-top:2px}
+  .prow input{width:100px}
+  .pfoot{display:flex;justify-content:space-between;padding:11px 12px;background:#f6f8f6;font-size:13px;font-weight:700}
+  .pfoot .fee{font-weight:500;color:var(--muted)}
+  .locked{background:#eef0ee !important;color:var(--muted);cursor:not-allowed}
+  .ro{font-size:11.5px;color:var(--muted);margin-top:6px;line-height:1.5}
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <h1>Highlighting Utah — multiple addresses</h1>
+  <p>Mockup for review. Nothing here saves.</p>
+</div>
+
+<div class="tabs">
+  <button class="on" onclick="go(0,this)">Quote</button>
+  <button onclick="go(1,this)">Portal</button>
+  <button onclick="go(2,this)">Email</button>
+  <button onclick="go(3,this)">Admin</button>
+</div>
+
+<div class="wrap">
+
+<!-- ================= 1. QUOTE ================= -->
+<div class="screen on" id="s0">
+  <div class="card">
+    <h2>Get a quote</h2>
+    <p class="sub">Tell us about your place and we'll send a price.</p>
+
+    <label>Your name</label><input type="text" value="Sarah Whitmore">
+    <div class="row2">
+      <div><label>Phone</label><input type="text" value="(801) 555-0147"></div>
+      <div><label>Email</label><input type="text" value="sarah@email.com"></div>
+    </div>
+
+    <div id="props"></div>
+
+    <button class="addbtn big" onclick="addProp()">+ Add another address</button>
+
+    <label style="margin-top:22px">Anything else we should know?</label>
+    <textarea placeholder="Dogs in the yard, a tricky driveway, a tree you'd like lit — anything at all."></textarea>
+
+    <button class="submit">Send my quote request</button>
+  </div>
+
+  <div class="note">
+    <strong>What to try:</strong> tap a side — it opens your camera or photo
+    library for real. Back out and nothing is added; pick a photo and it shows up
+    with its file size. The button retires once used and returns if you delete the
+    photo. Then add a second building, and a second address.
+  </div>
+</div>
+
+<!-- ================= 2. PORTAL ================= -->
+<div class="screen" id="s1">
+  <div class="shared">
+    <div class="nm">Sarah Whitmore</div>
+    <div class="meta">(801) 555-0147 · sarah@email.com</div>
+    <div class="bal">
+      <div><small>Balance due</small><div class="amt">$1,050.00</div></div>
+      <button class="paybtn">Pay now</button>
+    </div>
+    <div class="split">
+      412 Aspen Ridge Dr (main house) — $650.00<br>
+      88 Elk Hollow Rd (cabin) — $400.00
+    </div>
+  </div>
+
+  <div class="addrtabs">
+    <button class="on" onclick="pick(0,this)">412 Aspen Ridge</button>
+    <button onclick="pick(1,this)">88 Elk Hollow</button>
+  </div>
+
+  <div class="pane" id="p0">
+    <div class="fieldrow"><span>Lights</span><span>Warm white</span></div>
+    <div class="fieldrow"><span>Wire</span><span>Brown</span></div>
+    <div class="fieldrow"><span>Buildings</span><span>Main house · Shop</span></div>
+    <div class="fieldrow"><span>Outlet timer</span><span>Yes</span></div>
+    <div class="fieldrow"><span>Gate code</span><span>4417</span></div>
+    <div class="fieldrow"><span>Install</span><span>November</span></div>
+    <div class="fieldrow"><span>Price</span><span>$650.00</span></div>
+    <button class="addbtn" style="margin-top:14px">Change this house</button>
+    <div class="rsvp">
+      <strong style="font-size:14.5px">Coming back next season?</strong>
+      <div class="rsvpbtns">
+        <button class="on">Yes</button><button>Back next year</button><button>No thanks</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="pane" id="p1" style="display:none">
+    <div class="fieldrow"><span>Lights</span><span>Multicolour</span></div>
+    <div class="fieldrow"><span>Wire</span><span>Green</span></div>
+    <div class="fieldrow"><span>Buildings</span><span>Main house</span></div>
+    <div class="fieldrow"><span>Outlet timer</span><span>No</span></div>
+    <div class="fieldrow"><span>Gate code</span><span>None</span></div>
+    <div class="fieldrow"><span>Install</span><span>Any time</span></div>
+    <div class="fieldrow"><span>Price</span><span>$400.00</span></div>
+    <button class="addbtn" style="margin-top:14px">Change this house</button>
+    <div class="rsvp">
+      <strong style="font-size:14.5px">Coming back next season?</strong>
+      <div class="rsvpbtns">
+        <button class="on">Yes</button><button>Back next year</button><button>No thanks</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    One bill up top covering both houses. Everything below the tabs belongs to
+    the house you've selected — including the RSVP, so the cabin can be
+    cancelled without touching the main house. A customer with one house never
+    sees the tabs at all.
+  </div>
+</div>
+
+<!-- ================= 3. EMAIL ================= -->
+<div class="screen" id="s2">
+  <div class="mail">
+    <div class="mailhead">
+      To: sarah@email.com<br>
+      <strong style="color:#17211c">Your quote for 88 Elk Hollow Rd</strong>
+    </div>
+    <div class="mailbody">
+      <h3>Hi Sarah,</h3>
+      <p>Here's the price for the cabin you added. Your other house is already
+         approved — nothing there has changed.</p>
+
+      <div class="btnrow">
+        <a class="ebtn ok" href="#">Approve the cabin — $400</a>
+        <a class="ebtn no" href="#">Decline</a>
+      </div>
+
+      <div class="photostack">
+        <div class="fakephoto">88 Elk Hollow Rd — front</div>
+        <div class="plabel">Front of house</div>
+        <div class="fakephoto">88 Elk Hollow Rd — back</div>
+        <div class="plabel">Back</div>
+      </div>
+
+      <div class="tot">
+        <div class="li this"><span>88 Elk Hollow Rd (cabin)</span><span>$400.00</span></div>
+        <div class="li"><span>412 Aspen Ridge Dr (main house) — approved</span><span>$650.00</span></div>
+        <div class="li sum"><span>Season total</span><span>$1,050.00</span></div>
+      </div>
+
+      <div class="btnrow">
+        <a class="ebtn ok" href="#">Approve the cabin — $400</a>
+        <a class="ebtn no" href="#">Decline</a>
+      </div>
+
+      <p class="why">One bill goes out at the end, after the last house is installed.</p>
+    </div>
+  </div>
+
+  <div class="note">
+    Only the changed address carries photos. The approved house is a single
+    line, no picture — enough to make the season total add up without
+    re-asking for something already agreed. Buttons sit above and below,
+    so nobody scrolls past photos to find Approve. The label under each photo is
+    the side they picked.
+  </div>
+</div>
+
+<!-- ================= 4. ADMIN ================= -->
+<div class="screen" id="s3">
+  <div class="card">
+    <h2>Customers</h2>
+    <p class="sub">Two records, one payer. The label is what stops these reading
+      as two identical Sarah Whitmore rows.</p>
+
+    <div class="acard">
+      <div class="anm">Sarah Whitmore</div>
+      <div class="aaddr">412 Aspen Ridge Dr, Draper <span class="chip">Main house</span></div>
+      <div class="ameta">(801) 555-0147 · sarah@email.com · $650.00</div>
+      <div class="sibling">🏠 Also has <b>88 Elk Hollow Rd</b> — billed together</div>
+      <button class="addbtn" onclick="alert('Opens Add a Customer with the name, phone, email and Bill To already filled in.')">+ Add another address for this customer</button>
+    </div>
+
+    <div class="acard">
+      <div class="anm">Sarah Whitmore</div>
+      <div class="aaddr">88 Elk Hollow Rd, Kamas <span class="chip">Cabin</span></div>
+      <div class="ameta">(801) 555-0147 · sarah@email.com · $400.00</div>
+      <div class="sibling">🏠 Also has <b>412 Aspen Ridge Dr</b> — billed together</div>
+    </div>
+  </div>
+
+  <div class="note">
+    The marker and the <strong>Add another address</strong> button are the new
+    bits. Today you'd have to know to retype the whole customer and match the
+    phone exactly for them to land on one invoice.
+  </div>
+
+  <div class="card">
+    <h2>Their invoice</h2>
+    <p class="sub">This half already shipped — shown here so you can see it in context.</p>
+
+    <label style="margin-top:0">Price per property ($)</label>
+    <div class="proprows">
+      <div class="prow">
+        <div class="pa">412 Aspen Ridge Dr, Draper <span class="chip">Main house</span><small>310 ft</small></div>
+        <input type="number" class="hp" value="650">
+      </div>
+      <div class="prow">
+        <div class="pa">88 Elk Hollow Rd, Kamas <span class="chip">Cabin</span><small>220 ft</small></div>
+        <input type="number" class="hp" value="400">
+      </div>
+      <div class="pfoot"><span class="fee">New member fee</span><span>+$30</span></div>
+    </div>
+
+    <div class="row2" style="margin-top:14px">
+      <div>
+        <label style="margin-top:0">Amount ($)</label>
+        <input type="number" id="lockedTotal" class="locked" value="1080" readonly style="width:100%">
+      </div>
+      <div>
+        <label style="margin-top:0">Paid so far ($)</label>
+        <input type="number" value="0" style="width:100%">
+      </div>
+    </div>
+    <p class="ro">Added up from the properties above. To change it, change a
+      property price. A one-off discount goes in Credits &amp; Discounts.</p>
+  </div>
+</div>
+
+</div>
+
+<script>
+const SIDES=['Front of house','Right side','Left side','Back'];
+let pn=0;
+
+function go(i,b){
+  document.querySelectorAll('.screen').forEach((s,n)=>s.classList.toggle('on',n===i));
+  document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on'); scrollTo(0,0);
+}
+function pick(i,b){
+  document.querySelectorAll('.addrtabs button').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on');
+  p0.style.display = i===0?'block':'none';
+  p1.style.display = i===1?'block':'none';
+}
+
+function buildingHtml(id,name){
+  return `<div class="bldg" id="${id}">
+    <div class="bldgname"><input type="text" value="${name}"></div>
+    <div class="sides">
+      ${SIDES.map(s=>`<button class="side" onclick="shoot(this,'${id}','${s}')">+ ${s}</button>`).join('')}
+      <button class="side extra" onclick="shoot(this,'${id}','Another photo',1)">+ Add another photo</button>
+    </div>
+    <div class="shots" id="sh-${id}"></div>
+  </div>`;
+}
+
+function propHtml(n){
+  const first = n===0, id='pr'+n;
+  return `<div class="prop ${first?'':'added'}" id="${id}">
+    <div class="prophead">
+      <strong>${first?'Your address':'Another address'}</strong>
+      ${first?'':`<button class="x" onclick="this.closest('.prop').remove()">×</button>`}
+    </div>
+    <label>Street</label><input type="text" value="${first?'412 Aspen Ridge Dr':''}" placeholder="Street address">
+    <div class="row2">
+      <div><label>City</label><input type="text" value="${first?'Draper':''}"></div>
+      <div><label>Zip</label><input type="text" value="${first?'84020':''}"></div>
+    </div>
+    ${first?'':`<div class="note" style="margin:13px 0 0">
+      Not showing up on Google Maps? A rural route, a new build or an unlisted
+      road can be hard for us to find. A quick photo of the property or the
+      entrance helps.
+      <div class="sides" style="margin-top:9px">
+        <button class="side extra" onclick="shoot(this,'${id}ent','Entrance',1)">+ Photo of the entrance</button>
+      </div>
+      <div class="shots" id="sh-${id}ent"></div>
+      </div>`}
+    ${buildingHtml(id+'b0','Main house')}
+    <div id="more-${id}"></div>
+    <button class="addbtn" onclick="addBldg('${id}')">+ Add another building on this property</button>
+  </div>`;
+}
+
+function addProp(){
+  document.getElementById('props').insertAdjacentHTML('beforeend',propHtml(pn++));
+}
+let bc=0;
+function addBldg(pid){
+  const id=pid+'b'+(++bc);
+  document.getElementById('more-'+pid).insertAdjacentHTML('beforeend',buildingHtml(id,''));
+  const inp=document.querySelector('#'+id+' input'); inp.placeholder='Shop, guest house, shed…'; inp.focus();
+}
+
+/* Opens the phone's camera/library picker. Nothing is added unless a photo
+   actually comes back — backing out of the picker leaves the button sitting
+   there, which is the whole point. */
+function shoot(btn,id,label,keep){
+  const box=document.getElementById('sh-'+id);
+  if(!box) return;
+  const file=document.createElement('input');
+  file.type='file'; file.accept='image/*'; file.style.display='none';
+  document.body.appendChild(file);
+  file.onchange=function(){
+    const f=file.files && file.files[0];
+    document.body.removeChild(file);
+    if(!f) return;                       // cancelled — button stays put
+    addShot(box,btn,label,keep,f);
+  };
+  file.click();
+}
+
+function addShot(box,btn,label,keep,f){
+  const row=document.createElement('div');
+  row.className='shot';
+  row.innerHTML=`<img class="thumb" alt="">
+    <div class="nm">${label}<small class="sz">…</small></div>
+    <button class="x">×</button>`;
+  const img=row.querySelector('.thumb');
+  img.src=URL.createObjectURL(f);
+  const mb=f.size/1048576;
+  row.querySelector('.sz').textContent=mb.toFixed(1)+' MB'+(mb>2?' — will be shrunk before sending':'');
+  row.querySelector('.x').onclick=()=>{
+    URL.revokeObjectURL(img.src);
+    row.remove();
+    if(!keep) btn.style.display='';
+  };
+  box.appendChild(row);
+  if(!keep) btn.style.display='none';
+}
+
+/* live re-sum on the admin invoice */
+function resum(){
+  let sum=0;
+  document.querySelectorAll('.hp').forEach(i=>sum+=Number(i.value)||0);
+  document.getElementById('lockedTotal').value=sum+30;
+}
+document.querySelectorAll('.hp').forEach(i=>i.addEventListener('input',resum));
+
+addProp();
+</script>
+</body>
+</html>
