@@ -1,6 +1,27 @@
 /*
  * Member Portal — browser specs
  *
+ * ⚠ PARKED 2026-08-14. These do NOT run in CI any more and nothing depends on
+ * them. They are kept, not deleted, because they work and were expensive to
+ * get right — four of the eight pass, and t17 found a real bug.
+ *
+ * To run them by hand:
+ *     npx playwright install chromium   (once per machine)
+ *     npm run test:browser
+ *
+ * STATE WHEN PARKED — 4 pass, 4 fail:
+ *   PASS  t15, wrong-last-name, cancelled-customer, the stub guard
+ *   FAIL  t9, t14   — a tab fix was applied but never verified with a run.
+ *                     Almost certainly green now; nobody has checked.
+ *   FAIL  t11       — the PayPal SDK never loads. Cause unknown. The spec now
+ *                     prints page errors, which should say why on the next run.
+ *   FAIL  t17       — A REAL BUG, not a test bug. index.html has no
+ *                     portal-side quote approve/decline view at all. This one
+ *                     should stay red until that view is built.
+ *
+ * Picking this up again: Claude Code can run and fix these directly, which
+ * avoids the copy-a-file-between-machines loop that made this painful.
+ *
  * These target the five KNOWN FAILURES on the Project To-Do checklist
  * (tests 9, 11, 14, 15, 17). They are expected to go RED on the first run.
  * That is the point: red first, then fix the code until they go green
