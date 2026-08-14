@@ -60,7 +60,7 @@ test.describe('Member Portal', () => {
    */
   test('t11 — a PayPal button renders when the provider allows cards', async ({ page }) => {
     const stub = await open(page, `/index.html#/payment?token=${CUSTOMERS.standard.token}`, {
-      settings: { payments: { paymentProvider: 'both' } }
+      settings: { main: { paymentProvider: 'both', paypalClientId: 'test-client-id-not-a-real-one' } }
     });
 
     const container = page.locator('#paypal-button-container');
