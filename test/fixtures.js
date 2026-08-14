@@ -240,10 +240,44 @@ function customerByContact(contact, lastName) {
   }) || null;
 }
 
+/* --- Quotes, as publicQuoteLookup returns them ----------------------------
+ * The portal reads quotes ONLY through that callable — the quotes collection
+ * is not publicly readable. It answers { quotes: [{id, data}] } for the phone
+ * or email asked about, and index.html then picks a PENDING one (a numeric
+ * quotedPrice, and an approvalStatus that is not approved/declined/
+ * maybe_next_year) to offer for approval.
+ *
+ * Keyed by the same phone digits / lowercased email the portal looks up with.
+ */
+const QUOTES = {
+  // Alex Nakamura — priced, not yet answered. This is the t17 case: a real
+  // customer, with an invoice, who ALSO has a quote waiting on them.
+  '8015550188': [
+    { id: 'quote-pending-1', data: {
+        name: 'Alex Nakamura', phone: '(801) 555-0188', email: 'alex@example.com',
+        address: '311 Mill Race Rd, Pleasant Grove, UT 84062',
+        lightColors: ['Warm White', 'Blue'],
+        installPreference: 'November',
+        estimatedFeet: 160, quotedPrice: 640,
+        quoteToken: 'qt_pending_1',
+        approvalStatus: 'pending', status: 'new' } }
+  ],
+  // Dana Petersen — already approved, so nothing should be offered. Guards
+  // against showing an approve button for a quote that is already settled.
+  '8015550142': [
+    { id: 'quote-approved-1', data: {
+        name: 'Dana Petersen', phone: '(801) 555-0142', email: 'dana@example.com',
+        address: '742 Evergreen Ln, Pleasant Grove, UT 84062',
+        quotedPrice: 450, quoteToken: 'qt_approved_1',
+        approvalStatus: 'approved', status: 'closed' } }
+  ]
+};
+
 module.exports = {
   FROZEN_NOW,
   CUSTOMERS,
   INVOICES,
+  QUOTES,
   SETTINGS,
   customerByToken,
   customerByContact
