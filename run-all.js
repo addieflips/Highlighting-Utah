@@ -2367,8 +2367,46 @@ suite('11. Reliability pass');
     (admin.match(/onceAtATime\(async function/g) || []).length >= 4,
     'Add Customer, both bulk imports and the payment import all ran twice on a double click');
   check('reliability', 'the guard re-enables the button even when the handler throws',
-    /function onceAtATime[\s\S]{0,900}finally \{[\s\S]{0,200}btn\.disabled = false;/.test(admin.replace(/\r/g,'')),
+    /function onceAtATime[\s\S]{0,1400}finally \{[\s\S]{0,200}btn\.disabled = false;/.test(admin.replace(/\r/g,'')),
     'a dead button that needs a page refresh is worse than the double click');
+  check('reliability', 'an unexpected throw in a guarded tool is shown to whoever clicked',
+    /function onceAtATime[\s\S]{0,1200}catch\(err\)\{?[\s\S]{0,900}toast\('Something went wrong: '[\s\S]{0,200}throw err;/
+      .test(admin.replace(/\r/g,'')),
+    'a programming error left the button alive, nothing saved and NOTHING on screen — ' +
+    'which is exactly what "Add Customer does not work" looked like');
+
+  // ---- 2.10b Widget-only helpers called from the main app -----------------
+  /* The Route Dashboard at the bottom of admin.html is a self-contained widget
+     inside an IIFE, rendering into a shadow root. It declares its own esc(),
+     toast(), fmtPhone() and friends. Those are NOT in scope for the rest of the
+     file, but they LOOK like it — and the duplicate-address warning on Add
+     Customer called fmtPhone anyway, so adding a customer to a house already on
+     file threw "fmtPhone is not defined", died before writing anything, and
+     showed up only as "Unhandled promise" in the error catcher.
+     Rather than pin this to fmtPhone, read the widget's own declarations and
+     insist that anything the main app calls is also declared in the main app. */
+  const widgetStart = admin.indexOf('const RT=host.attachShadow');
+  check('reliability', 'the route dashboard widget is still a self-contained IIFE',
+    widgetStart > -1,
+    'the scope check below silently passes on everything if this anchor moves');
+  if(widgetStart > -1){
+    const mainApp = admin.slice(0, widgetStart);
+    const widget  = admin.slice(widgetStart);
+    const widgetFns = new Set();
+    let m;
+    const declRe = /\bfunction\s+([A-Za-z_$][\w$]*)\s*\(/g;
+    while((m = declRe.exec(widget))) widgetFns.add(m[1]);
+    const leaked = [];
+    widgetFns.forEach(function(fn){
+      const calledInMain = new RegExp('[^.\\w$]' + fn + '\\s*\\(').test(mainApp);
+      const declaredInMain = new RegExp('\\bfunction\\s+' + fn + '\\s*\\(').test(mainApp);
+      if(calledInMain && !declaredInMain) leaked.push(fn);
+    });
+    check('reliability', 'the main app never calls a helper that only exists inside the route widget',
+      leaked.length === 0,
+      'those are scoped to the widget, so the call throws "is not defined" and kills the handler' +
+      (leaked.length ? ' — leaked: ' + leaked.join(', ') : ''));
+  }
 
   // ---- 2.11 Search -------------------------------------------------------
   check('reliability', 'the customer numbers list has a search box',

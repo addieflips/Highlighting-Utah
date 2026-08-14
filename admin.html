@@ -4056,6 +4056,17 @@ function onceAtATime(handler, getBtn){
     if(btn){ btn.disabled = true; btn.style.opacity = '.55'; btn.style.cursor = 'wait'; }
     try{
       return await handler.call(this, e);
+    } catch(err){
+      /* An unexpected throw used to leave NOTHING on screen. These handlers do
+         their own validation and report it in a status line, but a genuine
+         programming error — a helper that is not in scope, say — escaped all of
+         that and became a bare unhandled promise rejection: the button came
+         back to life, nothing was saved, and no message appeared anywhere the
+         person clicking could see. That is exactly what "Add Customer doesn't
+         work" looked like. Say it out loud, then rethrow so the error catcher
+         still records it with its stack. */
+      toast('Something went wrong: ' + ((err && err.message) || err));
+      throw err;
     } finally {
       busy = false;
       // Never leave the button dead — not even if the handler threw.
@@ -4395,6 +4406,21 @@ function esc(s){
   return (s||'').toString().replace(/[&<>"']/g, function(c){
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
   });
+}
+/* (801) 555-0123 out of 8015550123, and anything that is not ten digits back
+   out unchanged so a half-typed or international number is shown as typed
+   rather than mangled.
+   ⚠ There is a SECOND fmtPhone, identical, inside the Route Dashboard widget's
+   IIFE near the bottom of this file. That one is scoped to the widget and was
+   never reachable from here — but the duplicate-address warning on Add Customer
+   called it anyway, so adding a customer to a house already on file threw
+   "fmtPhone is not defined", killed the handler before the record was written,
+   and surfaced only as "Unhandled promise" in the error catcher. Deleting the
+   widget's copy is not the fix: it renders into a shadow root and is meant to
+   stay self-contained. This one is the module-scope original. */
+function fmtPhone(p){
+  const s = ('' + (p || '')).replace(/\D/g,'');
+  return s.length === 10 ? '(' + s.slice(0,3) + ') ' + s.slice(3,6) + '-' + s.slice(6) : ('' + (p || ''));
 }
 function fmtDate(ts){
   if(!ts || !ts.toDate) return '';
