@@ -2293,6 +2293,64 @@ suite('10f. Portal sign-in reads, and multi-property customers');
     'the same rule as the schedule strip — the date is theirs, the routing is not');
 })();
 
+suite('10g. All Customers on a phone');
+(function () {
+  /* An 8-column table that scrolled sideways, with the Edit button in the LAST
+     column — so on a phone you swiped past seven columns to reach the one
+     control on the row, for all ~967 rows. */
+  const mobile = admin.slice(admin.indexOf('@media (max-width:760px)'),
+    admin.indexOf('@media (max-width:760px)') + 2600);
+  check('mobile', 'All Customers stacks into cards on a phone',
+    /#allCustTable thead\{ display:none; \}/.test(mobile) && /#allCustTable tr\{/.test(mobile),
+    'an 8-column table on a phone is a sideways scroll, once per row');
+  check('mobile', 'the Edit button is reachable without scrolling sideways',
+    /#allCustTable td:last-child \.icon-btn\{[\s\S]{0,160}width:100%/.test(mobile.replace(/\r/g, '')),
+    'it was the last column of eight — the one thing you needed, furthest from your thumb');
+  check('mobile', 'cells that lose their column header get a label',
+    /td:nth-child\(2\)::before\{ content:'Enrolled: '/.test(mobile),
+    'a bare date in a stacked card means nothing without the header that explained it');
+})();
+
+suite('10h. Public write rules');
+(function () {
+  const rules = read('firestore.rules');
+  const idx = read('index.html');
+
+  /* `allow create: if true` let a stranger write ANY fields onto a quote —
+     including quotedPrice and approvalStatus — so a quote could arrive in the
+     office queue already claiming a price, or already claiming to be approved. */
+  check('public-rules', 'a public quote cannot assert its own price',
+    /!\('quotedPrice' in request\.resource\.data\)/.test(rules),
+    'anyone could have posted a quote that already carried a price');
+  check('public-rules', 'a public quote cannot assert its own approval',
+    /!\('approvalStatus' in request\.resource\.data\)/.test(rules) &&
+    /!\('convertedToCustomerAt' in request\.resource\.data\)/.test(rules),
+    'a quote claiming to be approved would look real in the queue');
+  check('public-rules', 'a public quote must start as new',
+    /request\.resource\.data\.status == 'new'/.test(rules),
+    'the status field is what the whole quote pipeline keys off');
+  check('public-rules', 'a public message cannot arrive pre-read or pre-answered',
+    /'read' in request\.resource\.data && request\.resource\.data\.read == true/.test(rules),
+    'a message that arrives already ticked off is a message nobody reads');
+  check('public-rules', 'a public message cannot be enormous',
+    /request\.resource\.data\.message\.size\(\) < 5000/.test(rules),
+    'an unbounded public write is a bill as much as a risk');
+
+  /* The rule has to keep matching what the form actually sends. Both public
+     creates set status:'new' — if that ever stops being true, real customers
+     silently stop being able to request a quote, and rules are covered by
+     neither CI nor Netlify. */
+  check('public-rules', 'the public quote form still sends status:new',
+    (idx.match(/status: 'new'/g) || []).length >= 2,
+    'the create rule requires it — if the form stops sending it, quote requests fail for real customers');
+  check('public-rules', 'the public form sends no field the rule refuses',
+    !/addDoc\(collection\(db,'quotes'\)[\s\S]{0,700}(quotedPrice|approvalStatus|convertedToCustomerAt|quoteArchived)/.test(idx),
+    'that combination would be refused at the database and the customer would just see an error');
+  check('public-rules', 'update and delete stay staff-only',
+    /allow read, update, delete: if request\.auth != null;/.test(rules),
+    'the public needs to CREATE a quote, never to change one');
+})();
+
 suite('11. Reliability pass');
 /*
  * The 2026-08-14 audit's §2 items. None of these are money bugs on their own;

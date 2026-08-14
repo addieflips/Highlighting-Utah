@@ -2,8 +2,45 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     // ---- Public-facing collections -------------------------------------
-    match /quotes/{id}                 { allow create: if true; allow read, update, delete: if request.auth != null; }
-    match /messages/{id}               { allow create: if true; allow read, update, delete: if request.auth != null; }
+    /* A quote request has to be creatable by a stranger — that is the whole
+       point of the public form — but `allow create: if true` let anyone write
+       ANY fields, including quotedPrice and approvalStatus. Somebody could
+       have posted a quote that already claimed a price, or already claimed to
+       be approved, and it would have landed in the office queue looking real.
+       Both public creates (the quote form, and the address-change quote in the
+       portal) set status:'new' and never touch pricing, so requiring that and
+       refusing the staff-only fields costs the customer nothing.
+
+       ⚠ Written as a DENY LIST, not an allow list, deliberately. An allow list
+       has to name every field the public form sends, and the moment somebody
+       adds one — `buildings` arrived with the multi-address work — the form
+       starts failing for real customers with no test to catch it, because
+       rules are covered by neither CI nor Netlify. A deny list closes the
+       actual hole (asserting a price or an approval) and cannot break a form
+       that grows.
+
+       NOT changed: update/read/delete were already staff-only. CLAUDE.md §8
+       describes the quotes collection as open to unauthenticated updates for
+       the approve flow — that is out of date; the flow moved server-side into
+       quoteRespond and the rule was tightened. */
+    match /quotes/{id} {
+      allow create: if request.resource.data.status == 'new'
+                    && !('quotedPrice' in request.resource.data)
+                    && !('approvalStatus' in request.resource.data)
+                    && !('convertedToCustomerAt' in request.resource.data)
+                    && !('quoteArchived' in request.resource.data);
+      allow read, update, delete: if request.auth != null;
+    }
+    /* Same shape of problem, smaller blast radius: a message cannot claim to
+       have already been read or replied to, and cannot be enormous. The portal
+       writes these with several different shapes (light changes, cancellations,
+       RSVP notes), so again a deny list rather than an allow list. */
+    match /messages/{id} {
+      allow create: if !('read' in request.resource.data && request.resource.data.read == true)
+                    && !('responded' in request.resource.data && request.resource.data.responded == true)
+                    && (!('message' in request.resource.data) || request.resource.data.message.size() < 5000);
+      allow read, update, delete: if request.auth != null;
+    }
     match /reviews/{id}                { allow read: if true; allow write: if request.auth != null; }
     match /gallery/{id}                { allow read: if true; allow write: if request.auth != null; }
     match /heroImages/{id}             { allow read: if true; allow write: if request.auth != null; }

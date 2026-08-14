@@ -467,6 +467,35 @@
   @media (max-width:760px){
     .messages-layout{ flex-direction:column; }
     .messages-sidebar{ width:100%; }
+
+    /* All Customers on a phone. It is an 8-column table that scrolled sideways,
+       with the Edit button in the LAST column — so on a phone you swiped right
+       past seven columns to reach the one control on the row, for all ~967 of
+       them. Each row becomes a stacked card instead, with the labels the header
+       used to carry moved onto the cells themselves. */
+    #allCustTable thead{ display:none; }
+    #allCustTable, #allCustTable tbody, #allCustTable tr, #allCustTable td{ display:block; width:100%; }
+    #allCustTable tr{
+      border:1px solid var(--line); border-radius:12px; padding:10px 12px;
+      margin-bottom:10px; background:#fff;
+    }
+    #allCustTable td{ border:none !important; padding:3px 0 !important; }
+    /* The name cell carries the customer number and address already. */
+    #allCustTable td:first-child{ font-size:14px; padding-bottom:6px !important; }
+    /* Label the cells that lose meaning without their column header. */
+    #allCustTable td:nth-child(2)::before{ content:'Enrolled: '; color:var(--slate); font-size:11.5px; }
+    #allCustTable td:nth-child(4)::before{ content:'Timing: ';   color:var(--slate); font-size:11.5px; }
+    #allCustTable td:nth-child(2):empty, #allCustTable td:nth-child(4):empty{ display:none; }
+    /* The Edit button was the thing you had to swipe to reach. Put it where a
+       thumb already is, and make it a real target rather than an icon. */
+    #allCustTable td:last-child{
+      padding-top:8px !important; border-top:1px solid var(--line) !important; margin-top:6px;
+    }
+    #allCustTable td:last-child .icon-btn{
+      width:100%; height:auto; padding:10px; border:1px solid var(--line); border-radius:9px;
+    }
+    /* Nothing left to scroll sideways for. */
+    #allCustTable{ font-size:13px; }
   }
   .route-filter-btn.active{ background:var(--ink); color:#fff; border-color:var(--ink); }
   .diff-Easy{ background:#E6F2EA; color:#2E6B3E; }
