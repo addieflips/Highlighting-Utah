@@ -1452,7 +1452,20 @@ exports.portalInvoice = onCall({ cors: true }, async (request) => {
 
   if (!authorized) return { found: false };
 
-  return { found: true, record: sanitizeInvoice(data) };
+  const record = sanitizeInvoice(data);
+  /* Computed, not copied via INVOICE_READ_FIELDS — lastLightChangeFeeAt
+     itself stays server-only; only the free-window END TIME needs to reach
+     the browser, and only so the portal can decide BEFORE a save whether to
+     warn about a $30 charge that, this same 48h window, portalSave's
+     'lights' section would refuse to actually apply. Without this the
+     browser has no way to know it's still in the free window until AFTER
+     saving, so the confirm dialog warned about a fee even on a genuinely
+     free change. */
+  const lastFeeAt = data.lastLightChangeFeeAt && data.lastLightChangeFeeAt.toMillis
+    ? data.lastLightChangeFeeAt.toMillis() : 0;
+  record.lightChangeFreeUntil = lastFeeAt > 0 ? lastFeeAt + (48 * 60 * 60 * 1000) : null;
+
+  return { found: true, record };
 });
 
 /* ---------------------------------------------------------------------------

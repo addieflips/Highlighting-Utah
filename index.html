@@ -3550,9 +3550,18 @@ async function saveLightsPattern(){
   var previousLights = (currentJobAddressData && currentJobAddressData.lightsDescription) ||
                        (currentLookupRecord && currentLookupRecord.lightsDescription) || '';
   var lightsActuallyChanged = newLightsDescription !== previousLights;
+  // Server-computed (portalInvoice's lightChangeFreeUntil) so this can know,
+  // BEFORE saving, whether portalSave's own 48h window would actually charge
+  // anything — without it, this warned about a $30 fee even on a change that
+  // was genuinely still free, which the confirmation note AFTER saving would
+  // then immediately contradict ("No new charge — you're still within your
+  // free 48-hour window").
+  var stillInFreeWindow = !!(currentLookupRecord && currentLookupRecord.lightChangeFreeUntil &&
+    Date.now() < currentLookupRecord.lightChangeFreeUntil);
   // Warn + confirm before an actual change, since it can add a $30 fee. Re-saving
-  // the same pattern (no real change) never charges, so it never prompts.
-  if(lightsActuallyChanged && newLightsDescription){
+  // the same pattern (no real change) never charges, so it never prompts —
+  // and neither does a change made inside the free window.
+  if(lightsActuallyChanged && newLightsDescription && !stillInFreeWindow){
     var ok = window.confirm('Changing your lights adds a one-time $30 change fee, and then gives you 48 hours to keep adjusting them for free. Do you want to continue?');
     if(!ok){
       statusEl.textContent = '';

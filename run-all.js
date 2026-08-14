@@ -2212,6 +2212,38 @@ suite('9. Portal sign-in security');
 })();
 
 // =====================================================================
+/* ⚠ THE BUG THIS SUITE CATCHES.
+ *
+ * The lights-change confirm() dialog always warned about a $30 fee, even
+ * for a customer genuinely inside their free 48-hour re-edit window — the
+ * browser had no way to know that window was still open until AFTER
+ * saving (portalSave's response), by which point the warning had already
+ * potentially talked them out of clicking Save. Not a money bug — the
+ * server-side charge logic was already correct either way — but exactly
+ * the kind of customer-facing surprise CLAUDE.md's owner-facing rules want
+ * avoided. Fixed by having portalInvoice compute and return
+ * lightChangeFreeUntil so the confirm can be skipped when it's genuinely free.
+ */
+(function () {
+  const piStart = fnsSrc.indexOf('exports.portalInvoice');
+  const piSrc = piStart > -1 ? fnsSrc.slice(piStart, piStart + 2800) : '';
+  check('light-fee-warning', 'portalInvoice found in functions/index.js', piStart > -1,
+    'renamed or removed — update this test rather than deleting it');
+  check('light-fee-warning', 'portalInvoice computes and returns lightChangeFreeUntil',
+    /record\.lightChangeFreeUntil = lastFeeAt > 0 \? lastFeeAt \+ \(48 \* 60 \* 60 \* 1000\) : null;/.test(piSrc),
+    'without this the browser has no way to know, before saving, whether the 48h free window is still open');
+
+  const idx = read('index.html');
+  const saveStart = idx.indexOf('async function saveLightsPattern(){');
+  const saveSrc = saveStart > -1 ? idx.slice(saveStart, saveStart + 2500) : '';
+  check('light-fee-warning', 'saveLightsPattern found in index.html', saveStart > -1,
+    'renamed or removed — update this test rather than deleting it');
+  check('light-fee-warning', 'the $30 confirm dialog is skipped when still inside the free window',
+    /stillInFreeWindow/.test(saveSrc) && /&& !stillInFreeWindow\)/.test(saveSrc),
+    'a customer inside their free re-edit window would still be warned about a charge that was never going to happen');
+})();
+
+// =====================================================================
 // Wait for the async suites before totalling up — see pendingAsync at the top.
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
