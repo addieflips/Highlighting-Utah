@@ -3886,7 +3886,7 @@ document.getElementById('cancelFinalBtn').addEventListener('click', async functi
   var contactPhone = (currentLookupRecord && currentLookupRecord.phone) || (currentJobAddressData && currentJobAddressData.phone) || '';
   var contactEmail = (currentLookupRecord && currentLookupRecord.email) || (currentJobAddressData && currentJobAddressData.email) || '';
   try{
-    await addDoc(collection(db,'messages'), {
+    var cancelMsgRef = await addDoc(collection(db,'messages'), {
       topic: 'Cancellation Request', folder: 'Inbox', important: true,
       name: contactName, phone: contactPhone, email: contactEmail,
       contactMethod: '', message: reason || 'No reason given',
@@ -3898,7 +3898,21 @@ document.getElementById('cancelFinalBtn').addEventListener('click', async functi
         section: 'cancel',
         data: {cancellationReason: reason || ''}
       });
-    }catch(cancelErr){ console.error('[HU] cancel status save failed:', cancelErr); }
+    }catch(cancelErr){
+      /* The message above is the reliable path — it just went through, so the
+         office WILL see this request. But their account's own Cancellation
+         Requested status (and the warehouse recycle flag it drives) failed to
+         set, and that failure used to be swallowed here with nothing but a
+         console.error nobody reads. Flag it right on the message they're
+         about to read instead, so it isn't invisible. */
+      console.error('[HU] cancel status save failed:', cancelErr);
+      try{
+        await updateDoc(cancelMsgRef, {
+          message: (reason || 'No reason given') +
+            '\n\n⚠ Their account could not be flagged Cancellation Requested automatically — please set it by hand in Edit Customer.'
+        });
+      }catch(flagErr){ console.error('[HU] could not flag the cancel message either:', flagErr); }
+    }
     notifyBusinessOfMessage({
       customer_name: contactName, customer_phone: contactPhone,
       customer_email: contactEmail, topic: 'Cancellation Request', message: reason || 'No reason given'

@@ -815,6 +815,14 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
 
   if (section === 'cancel') {
     updates.seasonStatus = 'cancellation_requested';
+    /* Without this, a customer who cancels through this dedicated Cancel tab
+       never appears in the Warehouse Recycle queue (which keys strictly off
+       needsLightRecycle) — their bin/customer number stays locked to an
+       inactive account until someone separately notices the
+       "Cancellation Requested" pill and flips RSVP to No by hand in Edit
+       Customer. RSVP "no" already sets this; a full cancellation request is
+       at least as strong a signal and had fallen through the same gap. */
+    updates.needsLightRecycle = true;
   }
 
   /* A colour change means a new pattern to build. Flagging it here sends the
@@ -833,6 +841,13 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
   }
 
   await db.collection('jobAddresses').doc(match.id).update(updates);
+
+  /* A cancellation request means this customer is sitting out, same as an
+     RSVP "no" or "back next year" — so it has to pull them off any route a
+     crew has already been handed, or the crew still turns up. */
+  if (section === 'cancel') {
+    await removeCustomerFromUpcomingRoutes(match.id);
+  }
 
   // The Lights tab mirrors the description onto the invoice record AND enforces
   // the $30 light-change fee. The customer gets a 48-hour free window after a

@@ -1891,6 +1891,43 @@ suite('9. Portal sign-in security');
 })();
 
 // =====================================================================
+/* ⚠ THE BUG THIS SUITE CATCHES.
+ *
+ * A customer who fully cancels through the Member Portal's own Cancel tab
+ * (not just an RSVP "no") never set needsLightRecycle, so they never
+ * appeared in the Warehouse Recycle queue (which keys strictly off that one
+ * flag) — their bin/customer number stayed locked to an inactive account
+ * until someone separately noticed the "Cancellation Requested" pill and
+ * manually flipped RSVP to No in Edit Customer. And they never got pulled
+ * off an already-scheduled route either, same gap as RSVP no/back-next-year
+ * (suite 11). Both are fixed in portalSave's 'cancel' section. Separately,
+ * index.html's cancel handler used to swallow a failed portalSave with
+ * nothing but a console.error nobody reads — that failure is now flagged
+ * directly on the message the office is about to read.
+ */
+(function () {
+  const psStart = fnsSrc.indexOf('exports.portalSave');
+  const psSrc = psStart > -1 ? fnsSrc.slice(psStart, psStart + 6000) : '';
+  check('cancel-flow', 'portalSave found in functions/index.js', psStart > -1,
+    'renamed or removed — update this test rather than deleting it');
+  check('cancel-flow', 'a full cancellation flags needsLightRecycle, same as RSVP no',
+    /section === 'cancel'\) \{[\s\S]{0,700}needsLightRecycle = true;/.test(psSrc),
+    'without this a cancelled customer never appears in the Warehouse Recycle queue — their number stays locked forever');
+  check('cancel-flow', 'a full cancellation is pulled off any already-scheduled route',
+    /section === 'cancel'\) \{\s*await removeCustomerFromUpcomingRoutes\(match\.id\);/.test(psSrc),
+    'a customer who cancels through the portal would still show up on the crew\'s route, same gap as RSVP no/back-next-year');
+
+  const idx = read('index.html');
+  const cancelStart = idx.indexOf("cancelFinalBtn').addEventListener('click'");
+  const cancelSrc = cancelStart > -1 ? idx.slice(cancelStart, cancelStart + 2200) : '';
+  check('cancel-flow', 'cancelFinalBtn handler found in index.html', cancelStart > -1,
+    'renamed or removed — update this test rather than deleting it');
+  check('cancel-flow', 'a failed account-status save is surfaced, not just console.error\'d',
+    /catch\(cancelErr\)\{[\s\S]{0,700}updateDoc\(cancelMsgRef/.test(cancelSrc),
+    'the office\'s Inbox message would read like nothing went wrong even when the account never actually got flagged');
+})();
+
+// =====================================================================
 // Wait for the async suites before totalling up — see pendingAsync at the top.
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
