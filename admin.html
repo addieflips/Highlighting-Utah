@@ -7644,6 +7644,10 @@ function renderQuoteRows(filtered){
         cb.checked = colors.includes(cb.value);
         cb.closest('.pill-check').classList.toggle('checked', cb.checked);
       });
+      // See addCustQuoteLightsPattern above — carry the real pattern across
+      // rather than letting the checkboxes flatten it on submit.
+      addCustQuoteLightsPattern = rbDetectColorsAndPattern(d.lightsDescription || colors.join(', ')).pattern;
+      addCustQuoteColorsSnapshot = colors.slice();
       document.getElementById('addCustWireColor').value = d.wireColor || 'White';
       document.getElementById('addCustInstallPref').value = d.installPreference || 'Normal Schedule';
       document.getElementById('addCustGateCode').value = d.gateCode || '';
@@ -12036,6 +12040,15 @@ let addCustPhotoMarkup = [];
    close that quote out instead of leaving it sitting in the list. */
 let addCustFromQuoteId = null;
 let addCustContactMethodFromQuote = '';
+/* The customer's exact light-colour PATTERN (order + repeats), captured off
+   the quote's own lightsDescription so Convert to Customer can carry it
+   through instead of flattening it. The colour checkboxes only carry a SET,
+   so submitting always rebuilt lightsDescription from checkbox DOM order —
+   silently discarding a real "Red, Red, Warm White, Warm White, repeating"
+   pattern the customer specified on the detail form. Cleared alongside
+   addCustFromQuoteId. */
+let addCustQuoteLightsPattern = '';
+let addCustQuoteColorsSnapshot = [];
 let addCustHighlights = [];
 /* Photos beyond the main one. They ride along to the customer record as
    photos 2, 3, ... - the sections you outline are always on the main one. */
@@ -12362,7 +12375,16 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
   // The free-text "Additional Notes" input under Lights was removed from the
   // form, so the description is just the colours now. Crew-facing detail lives
   // in the One-Time / Permanent notes fields instead.
-  const lightsDescription = compileLightsDescription(selectedColors.join(', '), '');
+  // If this came from a quote with a genuine pattern (order/repeats) and staff
+  // didn't change which colours are checked, keep that exact pattern instead
+  // of rebuilding a plain comma-joined list from checkbox DOM order — see
+  // addCustQuoteLightsPattern above for why that flattening was a real bug.
+  const keptQuotePattern = addCustFromQuoteId && addCustQuoteLightsPattern &&
+    selectedColors.length === addCustQuoteColorsSnapshot.length &&
+    selectedColors.every(c => addCustQuoteColorsSnapshot.includes(c));
+  const lightsDescription = keptQuotePattern
+    ? addCustQuoteLightsPattern
+    : compileLightsDescription(selectedColors.join(', '), '');
   const wireColor = document.getElementById('addCustWireColor').value;
   const installPreference = document.getElementById('addCustInstallPref').value;
   const chargeNewMemberFee = document.getElementById('addCustNewMemberFee').checked;
@@ -12488,6 +12510,8 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
     if(addCustFromQuoteId){
       await updateDoc(doc(db,'quotes', addCustFromQuoteId), {status: 'closed', convertedToCustomerAt: serverTimestamp()}).catch(function(){});
       addCustFromQuoteId = null;
+      addCustQuoteLightsPattern = '';
+      addCustQuoteColorsSnapshot = [];
     }
     if(customerNumber) toast('Added as customer #' + customerNumber + ' \u2014 ' + numberOfBins + ' bin' + (numberOfBins===1?'':'s'));
     let invoiceMsg = '';
@@ -12551,6 +12575,8 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
     document.getElementById('addCustBins').value = '1';
     document.getElementById('addCustNumber').value = '';
     addCustFromQuoteId = null;
+    addCustQuoteLightsPattern = '';
+    addCustQuoteColorsSnapshot = [];
     document.getElementById('addCustWantsMailed').checked = false;
     document.getElementById('addCustFeet').value = '';
     document.getElementById('addCustFeetNote').textContent = 'Enter Measured Feet to bill automatically at your Per Foot Pricing rate — you can still adjust Total Price by hand afterward. Deposit and removal fee can be added later from the Invoices tab if needed.';

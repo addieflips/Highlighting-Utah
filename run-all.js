@@ -2128,6 +2128,46 @@ suite('9. Portal sign-in security');
 })();
 
 // =====================================================================
+/* ⚠ THE BUG THIS SUITE CATCHES.
+ *
+ * A customer's exact light-colour PATTERN (order + repeats, e.g. "Red, Red,
+ * Warm White, Warm White, repeating" from the quote detail form's sequence
+ * builder) was silently flattened on Convert to Customer. The colour
+ * checkboxes on the Add a Customer form only ever carry a SET of colours —
+ * submitting always rebuilt lightsDescription from checkbox DOM order via
+ * compileLightsDescription, discarding order and repeat counts entirely,
+ * with no on-screen cue to staff that a pattern existed. lightsDescription
+ * drives the warehouse build queue and the crew's build instructions, so a
+ * real pattern request could get built wrong. This is a text-based check —
+ * the state (addCustQuoteLightsPattern) is captured in one click handler and
+ * consumed in a different, much larger submit handler full of DOM/geocoding
+ * calls not worth mocking here — but it targets the exact expressions, not
+ * just "the words appear somewhere".
+ */
+(function () {
+  const captureStart = admin.indexOf('addCustQuoteLightsPattern = rbDetectColorsAndPattern');
+  check('light-pattern', 'the quote\'s pattern is captured when converting to a customer',
+    captureStart > -1,
+    'renamed or removed — update this test rather than deleting it');
+
+  const submitStart = admin.indexOf('const keptQuotePattern');
+  const submitSrc = submitStart > -1 ? admin.slice(submitStart, submitStart + 500) : '';
+  check('light-pattern', 'submitting Add Customer keeps the captured pattern when the colours are unchanged',
+    /selectedColors\.length === addCustQuoteColorsSnapshot\.length/.test(submitSrc) &&
+    /keptQuotePattern\s*\?\s*addCustQuoteLightsPattern/.test(submitSrc),
+    'without this, converting a quote with a real pattern always rebuilt a plain comma-joined colour list, ' +
+    'losing the order and repeat counts the customer actually specified');
+  check('light-pattern', 'changing the colours during conversion does NOT keep the stale original pattern',
+    /compileLightsDescription\(selectedColors\.join/.test(submitSrc),
+    'if staff pick different colours than the quote had, the description must be rebuilt fresh, not keep an now-wrong pattern');
+
+  const resetCount = (admin.match(/addCustQuoteLightsPattern = '';/g) || []).length;
+  check('light-pattern', 'the captured pattern is cleared everywhere addCustFromQuoteId is',
+    resetCount >= 2,
+    'a stale pattern from a previous conversion could leak onto an unrelated manual Add Customer submission');
+})();
+
+// =====================================================================
 // Wait for the async suites before totalling up — see pendingAsync at the top.
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
