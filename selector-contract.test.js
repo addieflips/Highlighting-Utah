@@ -50,6 +50,17 @@ const RUNTIME_IDS = {
   // (none yet — add as "id": "why it is created at runtime")
 };
 
+/* Same idea for data-testid. These are created by a test double rather than
+ * living in the page, so they will never appear in the HTML — but they are
+ * still real contracts, just owned by tests/firebase-stub.js instead. Each
+ * needs a reason, so an unexplained entry stands out as a mistake. */
+const RUNTIME_TESTIDS = {
+  'paypal-fake-button':
+    'rendered by the fake PayPal SDK in tests/firebase-stub.js. The real SDK ' +
+    'is never fetched (paypal.com is blocked), so this button cannot exist in ' +
+    'index.html — the page renders it THROUGH the double at runtime.'
+};
+
 let pass = 0, fail = 0;
 const failures = [];
 
@@ -153,7 +164,7 @@ specFiles.forEach(specFile => {
 
   testIds.forEach(t => {
     check(specFile + ' → [data-testid="' + t + '"] exists in ' + target,
-      target_.testIds.has(t),
+      target_.testIds.has(t) || Object.prototype.hasOwnProperty.call(RUNTIME_TESTIDS, t),
       'no data-testid="' + t + '" in ' + target + ' — add it to the element, ' +
       'or fix the spec. A testid is a contract (CLAUDE.md §9.3).');
   });
