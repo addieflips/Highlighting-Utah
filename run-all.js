@@ -649,6 +649,9 @@ if (JSDOM) {
     if (d.approvalStatus === 'approved' && d.formCompleted) return 'form';
     return 'send';
   };
+  // renderQuoteRows also calls isRequote(d) — for the "Send updated quote"
+  // button label and the re-quote wording. Mirrors the real one in admin.html.
+  global.isRequote = d => !!(d && (d.existingCustomerId || Number(d.requoteCount) > 0));
 
   // Sliced through the end of renderQuoteRows (not just up to innerHTML) so
   // the data-pricingtoggle click handler is actually live for the toggle test.
@@ -830,6 +833,71 @@ if (JSDOM) {
     const sentCard = document.getElementById('quotesList').querySelector('.row-item');
     check('render', 'send tab — already-sent quote shows Undo instead of Mark as Sent',
       sentCard.querySelector('[data-marksent]') === null && sentCard.querySelector('[data-unmarksent]') !== null);
+    global.quoteStageFilter = 'new';
+
+    // ---- Re-quote --------------------------------------------------------
+    /* The customer writes back wanting another side of the house doing. The
+       button clears the price and the answer and sends the same card back for
+       a new price — one card, not two, and nothing gets billed at a number
+       they never agreed to. */
+    global.quoteStageFilter = 'send';
+    renderQuoteRows([fixtures[1]]);
+    const pricedCard = document.getElementById('quotesList').querySelector('.row-item');
+    check('render', 're-quote — button offered on a quote that has a price',
+      pricedCard.querySelector('[data-requote]') !== null,
+      'without it there is no way to reopen a quote she has already sent');
+    check('render', 're-quote — not offered on a quote nobody has priced yet',
+      (function () {
+        global.quoteStageFilter = 'new';
+        renderQuoteRows([fixtures[0]]);
+        return document.getElementById('quotesList')
+          .querySelector('[data-requote]') === null;
+      })(),
+      'there is nothing to re-quote until there is a price to revise');
+
+    /* What the card looks like straight after the button is pressed: price
+       gone, answer gone, back in the Quotes tab needing a new number. */
+    const reQ = { id: 'q6', data: Object.assign({}, fixtures[1].data, {
+      quotedPrice: null, approvalStatus: 'pending', requoteCount: 1,
+      requoteFrom: { price: 490, status: 'approved' },
+      requoteReason: 'They asked for another side of the house quoted'
+    }) };
+    global.quoteStageFilter = 'new';
+    renderQuoteRows([reQ]);
+    const reCard = document.getElementById('quotesList').querySelector('.row-item');
+    check('render', 're-quote — card says re-quote, not New house',
+      reCard.textContent.includes('Re-quote') && !reCard.textContent.includes('New house'),
+      'calling it a New house sends her looking for a first quote she already sent');
+    check('render', 're-quote — the old price is still on screen',
+      reCard.textContent.includes('$490.00'),
+      'with the price cleared there is nothing to check the new number against');
+    check('render', 're-quote — says they had approved it',
+      reCard.textContent.includes('which they approved'));
+    check('render', 're-quote — her reason is shown',
+      reCard.textContent.includes('another side of the house'));
+    check('render', 're-quote — price box starts on the old price',
+      reCard.querySelector('.quotePriceInput').value === '490',
+      'she is adding to a price she can see, not working one out from nothing');
+    check('render', 're-quote — no approval buttons until it is priced again',
+      reCard.querySelector('[data-markapproval]') === null);
+
+    /* Priced and sent again, waiting on them. The wording has to say "again"
+       or a second approval reads exactly like the first. */
+    const reSent = { id: 'q7', data: Object.assign({}, reQ.data, { quotedPrice: 615 }) };
+    global.quoteStageFilter = 'send';
+    renderQuoteRows([reSent]);
+    const reSentCard = document.getElementById('quotesList').querySelector('.row-item');
+    check('render', 're-quote — send button reads Send updated quote',
+      reSentCard.querySelector('[data-getquotelink]').textContent.includes('Send updated quote'));
+    check('render', 're-quote — approve button says Again',
+      /Mark Approved Again/.test(reSentCard.textContent),
+      'without "again" there is no telling which price they said yes to');
+
+    const reOk = { id: 'q8', data: Object.assign({}, reSent.data, { approvalStatus: 'approved' }) };
+    renderQuoteRows([reOk]);
+    const reOkCard = document.getElementById('quotesList').querySelector('.row-item');
+    check('render', 're-quote — approved reads "Approved again" at the new price',
+      reOkCard.textContent.includes('Approved again') && reOkCard.textContent.includes('$615.00'));
     global.quoteStageFilter = 'new';
   }
 }
