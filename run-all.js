@@ -342,6 +342,28 @@ check('logic', 'the fee decision no longer reads createdAt',
 check('logic', 'admin preview and the nightly function agree on who is new',
   /chargeNewMemberFee === true/.test(admin) && /chargeNewMemberFee === true/.test(fnsSrc),
   'if these two drift apart, the office sees one invoice total and the customer is billed another');
+
+/*
+ * A third place reads the same "who is new" signal: the Schedule tab's own
+ * 🆕 New Members panel (a separate, CSV-imported route-planning tool, isolated
+ * in a shadow DOM). It used to carry a THIRD, disconnected idea of new — an
+ * h.isNew flag that nothing ever set, on any house, ever (its own empty state
+ * said as much: "...once the customer feed is wired in the next phase.",
+ * 2026-08-08 through 2026-08-14). Fixed by having it look the imported house up
+ * in the live jobAddresses list (by customer number, falling back to phone) and
+ * read chargeNewMemberFee off THAT record — the same authority as the two
+ * checks above, not a fourth copy of the rule.
+ */
+const isNewMemberHouseSrc = extractFn(admin, 'isNewMemberHouse');
+check('logic', 'the Schedule tab has a live isNewMemberHouse lookup',
+  typeof isNewMemberHouseSrc === 'string');
+check('logic', 'the Schedule tab\'s "new member" reads chargeNewMemberFee, not a flag of its own',
+  isNewMemberHouseSrc && /chargeNewMemberFee === true/.test(isNewMemberHouseSrc),
+  'the panel has drifted back to some other idea of "new" than the office\'s own checkbox');
+check('logic', 'the dead h.isNew flag is gone from the Schedule tab',
+  !/\.isNew\b/.test(stripComments(admin)),
+  'a bare .isNew read is back — that flag is never set by the CSV import, so it silently shows nobody as new again');
+
 /* ---- rules that could not be tested until they moved into js/money.js ----
    These cover the two things that have actually gone wrong before: the light-
    change fee being dropped from a balance (which once made PayPal undercharge)
