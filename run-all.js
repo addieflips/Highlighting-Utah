@@ -1070,8 +1070,26 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
   }
   const src = fnSrc.slice(start, end + 4);
 
+  // portalRsvp's own 'no'/'back next year' path (added after this suite was
+  // first written) calls removeCustomerFromUpcomingRoutes directly, which in
+  // turn calls todayStrInDenver — both live outside the sliced portalRsvp
+  // body above, so they have to be pulled in too or the sandboxed call throws
+  // a bare ReferenceError the moment either RSVP answer runs for real.
+  // extractFn matches from the "function" keyword, dropping any "async" that
+  // preceded it — has to go back on, or an extracted async body's own await
+  // is a syntax error the moment it actually runs.
+  const removeFromRoutesSrc = extractFn(fnSrc, 'removeCustomerFromUpcomingRoutes');
+  const todayStrSrc = extractFn(fnSrc, 'todayStrInDenver');
+  check('flow', 'removeCustomerFromUpcomingRoutes and todayStrInDenver found in functions/index.js',
+    !!removeFromRoutesSrc && !!todayStrSrc,
+    'renamed or removed — update this test rather than deleting it, or portalRsvp\'s no/back-next-year path cannot run here');
+  const fullSrc = [todayStrSrc, removeFromRoutesSrc && ('async ' + removeFromRoutesSrc), src]
+    .filter(Boolean).join('\n');
+
   // Fake Firestore + callable wrapper. update() merges what would have been
-  // written; add() records Inbox notes with the collection they landed in.
+  // written; add() records Inbox notes with the collection they landed in;
+  // get() backs removeCustomerFromUpcomingRoutes's own route scan — empty on
+  // purpose, since no test here needs a real route to already exist.
   function runRsvp(record, response) {
     const written = {};
     const added = [];
@@ -1084,13 +1102,14 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
       db: {
         collection: (name) => ({
           doc: () => ({ update: async (u) => { Object.assign(written, u); } }),
-          add: async (m) => { added.push(Object.assign({ __col: name }, m)); }
+          add: async (m) => { added.push(Object.assign({ __col: name }, m)); },
+          get: async () => ({ docs: [] })
         })
       },
       console
     };
     const names = Object.keys(ctx);
-    new Function(...names, src)(...names.map(n => ctx[n]));
+    new Function(...names, fullSrc)(...names.map(n => ctx[n]));
     return ctx.exports.portalRsvp({ data: { token: 't', response } })
       .then(res => ({ res, written, added }));
   }
@@ -1499,8 +1518,11 @@ suite('8. Quote decline / maybe next year');
         fns.indexOf('async function pullCustomerFromSeason') + 1800)),
       'they would still show up somewhere outside All Customers');
   });
+  // pullCustomerFromSeason used to inline the past-route filter itself; it now
+  // delegates to the shared removeCustomerFromUpcomingRoutes helper (also used
+  // by portalRsvp's own no/back-next-year path), so that is where to look.
   check('quoteresp', 'past routes are left alone as history',
-    /\(rd\.date \|\| ''\) < todayStr/.test(fns.slice(fns.indexOf('async function pullCustomerFromSeason'))),
+    /\(rd\.date \|\| ''\) < todayStr/.test(extractFn(fns, 'removeCustomerFromUpcomingRoutes') || ''),
     'rewriting a finished route changes what the crew actually did');
 
   // --- money is not touched ---------------------------------------------
