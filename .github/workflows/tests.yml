@@ -6,14 +6,15 @@
 #                 No browser, ~5 seconds, and it BLOCKS the functions deploy
 #                 (see deploy-functions.yml). This is the real gate.
 #
-#   browser-tests — Playwright. Slower, needs a 150MB browser download, and
-#                 is currently EXPECTED TO FAIL: five of its specs target the
-#                 five known Member Portal bugs (t9, t11, t14, t15, t17), so
-#                 they are red on purpose until those bugs are fixed.
-#                 continue-on-error keeps that honest redness visible without
-#                 blocking every unrelated change. FLIP IT OFF (delete the
-#                 continue-on-error line) the moment those specs go green —
-#                 a permanently-allowed-to-fail job is one nobody reads.
+#   browser-tests — Playwright. Slower, needs a 150MB browser download. It
+#                 used to be expected to fail (t9, t11, t14, t17 targeted
+#                 known Member Portal bugs), but all eight specs in
+#                 test/portal.spec.js are green now — those four failures
+#                 turned out to be test-harness bugs (a fake portalInvoice
+#                 shape, a synchronous fake onSnapshot, a missing
+#                 window.paypal.FUNDING, and a spec that tested the wrong
+#                 scenario), not real app bugs. continue-on-error is gone —
+#                 this job gates like any other now.
 #
 # Netlify is NOT gated by this. It publishes the HTML from main regardless of
 # whether this run passed — that was a deliberate decision (CLAUDE.md §9.10 and
@@ -61,8 +62,6 @@ jobs:
   browser-tests:
     name: Browser tests (Playwright)
     runs-on: ubuntu-latest
-    # See the header: red on purpose until the five known portal bugs are fixed.
-    continue-on-error: true
     steps:
       - name: Get the code
         uses: actions/checkout@v4
