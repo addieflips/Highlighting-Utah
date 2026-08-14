@@ -38,8 +38,11 @@ test.describe('Member Portal', () => {
     const cust = CUSTOMERS.standard;
     const stub = await open(page, `/index.html#/payment?token=${cust.token}`);
 
-    // Their name proves the account actually loaded, not just the page.
-    await expect(page.getByText(cust.record.name)).toBeVisible();
+    /* Their name proves the account actually loaded, not just the page.
+     * It lives in the #infoName INPUT, so it is a value, not page text —
+     * getByText() cannot see input values and this originally failed for that
+     * reason alone, not because sign-in was broken. */
+    await expect(page.locator('#infoName')).toHaveValue(cust.record.name);
 
     // And they must NOT be asked to sign in again.
     await expect(page.locator('#lookupForm')).toBeHidden();
@@ -63,10 +66,18 @@ test.describe('Member Portal', () => {
       settings: { main: { paymentProvider: 'both', paypalClientId: 'test-client-id-not-a-real-one' } }
     });
 
+    /* The real SDK is never fetched — paypal.com is blocked. tests/firebase-stub
+     * serves a test double instead, so the page's OWN setupPaypalButtonsIfNeeded()
+     * runs for real and renders through it. What is proved here is that the
+     * portal decides to offer PayPal and wires up a button; whether PayPal
+     * itself works is not something a test may check (CLAUDE.md §9.11). */
+    await expect.poll(() => page.evaluate(() => !!window.__HU_PAYPAL_LOADED__),
+      { message: 'the portal should have loaded the PayPal SDK when provider allows cards' })
+      .toBeTruthy();
+
     const container = page.locator('#paypal-button-container');
     await expect(container).toBeVisible();
-    await expect(container.locator('iframe, button, [role="button"]').first())
-      .toBeVisible({ timeout: 10_000 });
+    await expect(container.getByTestId('paypal-fake-button')).toBeVisible();
 
     stub.assertNoRealCalls();
   });
@@ -82,8 +93,12 @@ test.describe('Member Portal', () => {
 
     await expect(page.locator('#portalTabsLayout')).toBeVisible();
 
+    /* The portal has three separate save buttons — #infoSaveBtn (contact
+     * details), #lightsSaveBtn (colours) and #changesSaveBtn. Target the one
+     * this test means. A getByRole('button', {name:/save/i}) match timed out
+     * here because it could not settle on one. */
     const before = (await stub.calls()).length;
-    await page.getByRole('button', { name: /save/i }).first().click();
+    await page.locator('#infoSaveBtn').click();
 
     await expect.poll(async () => (await stub.calls()).length,
       { message: 'clicking Save should have produced a portalSave call' })
@@ -126,6 +141,11 @@ test.describe('Member Portal', () => {
       }
     });
 
+    /* ⚠ EXPECTED TO FAIL — this is checklist test 17, a KNOWN BUG: "Pending-quote
+     * approve/decline view does not show." Searching index.html finds no
+     * portal-side quote review at all; the approve/decline flow only exists on
+     * the emailed link. This spec stays red until that view is built. Do NOT
+     * weaken it to make the suite green (CLAUDE.md §9.6). */
     await expect(page.getByRole('button', { name: /approve|accept/i })).toBeVisible();
     await expect(page.getByRole('button', { name: /decline/i })).toBeVisible();
 
