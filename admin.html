@@ -9304,7 +9304,14 @@ document.getElementById('addFolderBtn').addEventListener('click', async function
   const name = input.value.trim();
   const parentId = document.getElementById('newFolderParent').value || null;
   if(!name){ return; }
-  if(name.toLowerCase() === 'inbox' || messageFolders.some(f => f.name.toLowerCase() === name.toLowerCase())){ toast('That folder already exists'); return; }
+  /* 'system' is reserved the same way 'inbox' is (see the rename handler
+     above, which already blocked it) — a folder literally named "System"
+     is indistinguishable from real automated system notices: messages
+     moved into it vanish from Customer Messages (folder === 'System' is
+     filtered out there unconditionally), and the folder itself becomes
+     unclickable in the sidebar, which resets straight back to Inbox
+     whenever selectedFolder === 'System'. */
+  if(name.toLowerCase() === 'inbox' || name.toLowerCase() === 'system' || messageFolders.some(f => f.name.toLowerCase() === name.toLowerCase())){ toast('That folder already exists'); return; }
   await addDoc(collection(db,'messageFolders'), {name: name, parentId: parentId, createdAt: serverTimestamp()});
   input.value = '';
   document.getElementById('newFolderParent').value = '';

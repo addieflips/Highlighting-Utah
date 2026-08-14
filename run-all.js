@@ -2023,6 +2023,30 @@ suite('9. Portal sign-in security');
 })();
 
 // =====================================================================
+/* ⚠ THE BUG THIS SUITE CATCHES.
+ *
+ * 'system' is a reserved folder name — the RENAME handler already blocked
+ * it (folders can't be renamed to it), but the CREATE handler only blocked
+ * 'inbox'. A staff member could create a folder literally named "System"
+ * (or "system"/"SYSTEM"). Once created it's a trap: any message moved into
+ * it vanishes from Customer Messages (folder === 'System' is filtered out
+ * there unconditionally, so it only shows in System Messages mixed with
+ * real automated notices), and the folder becomes unclickable in the
+ * sidebar (renderFolderSidebar resets selectedFolder straight back to
+ * Inbox whenever it equals 'System').
+ */
+(function () {
+  const addStart = admin.indexOf("addFolderBtn').addEventListener('click'");
+  const addSrc = addStart > -1 ? admin.slice(addStart, addStart + 1200) : '';
+  check('folder-names', 'addFolderBtn handler found in admin.html', addStart > -1,
+    'renamed or removed — update this test rather than deleting it');
+  check('folder-names', 'creating a folder named "system" is blocked, same as "inbox"',
+    /name\.toLowerCase\(\) === 'inbox'[\s\S]{0,60}name\.toLowerCase\(\) === 'system'/.test(addSrc),
+    'a folder named "System" is indistinguishable from real automated notices — messages moved into it ' +
+    'vanish from Customer Messages and the folder itself becomes unclickable in the sidebar');
+})();
+
+// =====================================================================
 // Wait for the async suites before totalling up — see pendingAsync at the top.
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
