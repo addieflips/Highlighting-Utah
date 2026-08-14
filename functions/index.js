@@ -24,6 +24,7 @@ const { onCall, onRequest, HttpsError } = require('firebase-functions/v2/https')
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { defineSecret } = require('firebase-functions/params');
 const admin = require('firebase-admin');
+const crypto = require('crypto');
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -32,6 +33,15 @@ const PAYPAL_CLIENT_ID = defineSecret('PAYPAL_CLIENT_ID');
 const PAYPAL_CLIENT_SECRET = defineSecret('PAYPAL_CLIENT_SECRET');
 const PAYPAL_WEBHOOK_ID = defineSecret('PAYPAL_WEBHOOK_ID');
 const PAYPAL_ENV = defineSecret('PAYPAL_ENV'); // "sandbox" or "live"
+
+// Same Cloudinary account admin.html already uploads to (CLOUDINARY_CLOUD
+// there), signed here so the public quote form never sees an upload preset
+// name it could reuse to post arbitrary files into the account.
+//   firebase functions:secrets:set CLOUDINARY_API_KEY
+//   firebase functions:secrets:set CLOUDINARY_API_SECRET
+const CLOUDINARY_CLOUD_NAME = 'highlighting-utah';
+const CLOUDINARY_API_KEY = defineSecret('CLOUDINARY_API_KEY');
+const CLOUDINARY_API_SECRET = defineSecret('CLOUDINARY_API_SECRET');
 
 function paypalApiBase(env) {
   return env === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com';
@@ -1201,6 +1211,49 @@ exports.publicConfig = onCall({ cors: true }, async (request) => {
     publicKey: data.publicKey || ''
   };
 });
+
+/* --- cloudinarySignature ---------------------------------------------------
+ * The public quote form has no Cloudinary code at all today — photos are
+ * added by hand on the admin quote card. admin.html's own upload uses an
+ * UNSIGNED preset (CLOUDINARY_PRESET), which is fine there because the preset
+ * name only ever ships inside the staff-only admin bundle. Putting that same
+ * preset in index.html's public source would let anyone POST arbitrary files
+ * into the account forever, from outside this app entirely.
+ *
+ * So the public form uses a SIGNED upload instead: the browser asks this
+ * function for a one-time timestamp + signature, then uploads straight to
+ * Cloudinary with them. The API secret never leaves the server; only a
+ * signature (a SHA-1 hash) does, and it's only valid for this one upload.
+ *
+ * Deliberately un-gated by any quote token: a customer picks photos WHILE
+ * filling out the form, before any `quotes` document (and so any token)
+ * exists. Nothing sensitive is returned here — the signature is worthless
+ * without also knowing which timestamp it was issued for, which travels
+ * with it, and Cloudinary itself is what actually enforces it.
+ *
+ * Output: { timestamp, signature, apiKey, cloudName }
+ * ------------------------------------------------------------------------- */
+exports.cloudinarySignature = onCall(
+  { cors: true, secrets: [CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET] },
+  async (request) => {
+    const timestamp = Math.floor(Date.now() / 1000);
+    const secret = CLOUDINARY_API_SECRET.value();
+    // Cloudinary's signing rule: sort every param except file/api_key/
+    // cloud_name/resource_type, join as key=value&key=value, append the API
+    // secret, SHA-1 the result. We only send `timestamp`, so there's exactly
+    // one param to sign.
+    const signature = crypto
+      .createHash('sha1')
+      .update('timestamp=' + timestamp + secret)
+      .digest('hex');
+    return {
+      timestamp,
+      signature,
+      apiKey: CLOUDINARY_API_KEY.value(),
+      cloudName: CLOUDINARY_CLOUD_NAME
+    };
+  }
+);
 
 /* --- portalInvoice --------------------------------------------------------
  * The last direct Firestore read the public site did. invoices carried

@@ -1245,6 +1245,19 @@
               <option value="Email">Email</option>
             </select>
           </div>
+          <!-- Phase 1 photo upload — minimal on purpose. Phase 2 replaces this
+               with the full buildings/side-labelled picker from the approved
+               mockup; this is just enough UI to prove the signed-upload pipeline
+               end to end (index.html -> cloudinarySignature -> Cloudinary ->
+               quotePhotos / frontPhotoUrl -> admin quote card). -->
+          <div class="form-row" id="quotePhotoRow">
+            <label>Photos (optional)</label>
+            <p class="form-note" style="margin:0 0 8px;">A photo or two of your home helps us quote accurately.</p>
+            <div id="quotePhotoThumbs" style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:10px;"></div>
+            <input type="file" id="quotePhotoInput" accept="image/*" multiple style="display:none;">
+            <button type="button" class="btn btn-outline-dark btn-sm" id="quotePhotoAddBtn">+ Add Photos</button>
+            <div id="quotePhotoStatus" class="form-note" style="margin-top:8px;"></div>
+          </div>
           <button type="submit" class="btn btn-gold btn-block">Submit Quote Request</button>
           <p class="form-note">No obligation. We'll follow up by your preferred contact method with your custom estimate.</p>
         </form>
@@ -2266,8 +2279,148 @@ document.getElementById('qdClearPattern').addEventListener('click', function(){
   renderQdSequence();
 });
 renderQdSequence();
+
+/* =========================================================
+   QUOTE FORM PHOTOS — Phase 1 (signed Cloudinary upload)
+   Minimal on purpose: a single "+ Add Photos" button, no building/side
+   labels yet. Phase 2 rebuilds this whole block to match the approved
+   mockup (Main house + per-side buttons + additional buildings); this
+   exists only to prove the upload pipeline end to end — index.html asks
+   cloudinarySignature for a one-time signature, uploads straight to
+   Cloudinary with it (the API secret never reaches the browser), and the
+   result lands in quotePhotos / frontPhotoUrl exactly like admin.html's
+   own uploads do, so the admin quote card already knows how to show it.
+========================================================= */
+var QUOTE_PHOTO_MAX = 12;
+var quotePendingPhotos = []; // [{id, url, original}], in upload order
+var quotePhotoUploadsInFlight = 0;
+var quotePhotoNextId = 1;
+
+// Phone photos run 3–12MB and a submission can carry a dozen of them — on a
+// driveway connection that's an abandoned form, not a slow one. Shrinking to
+// ~1600px on the long edge before upload is not optional; nothing this site
+// displays a photo at is bigger than that anyway.
+function downscaleImageFile(file, maxDim, quality){
+  return new Promise(function(resolve){
+    if(!file.type || file.type.indexOf('image/') !== 0){ resolve(file); return; }
+    var url = URL.createObjectURL(file);
+    var img = new Image();
+    img.onload = function(){
+      URL.revokeObjectURL(url);
+      var scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
+      var w = Math.max(1, Math.round(img.naturalWidth * scale));
+      var h = Math.max(1, Math.round(img.naturalHeight * scale));
+      var canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      canvas.toBlob(function(blob){
+        if(!blob){ resolve(file); return; }
+        resolve(new File([blob], file.name || 'photo.jpg', {type: blob.type || 'image/jpeg'}));
+      }, 'image/jpeg', quality || 0.85);
+    };
+    img.onerror = function(){ URL.revokeObjectURL(url); resolve(file); };
+    img.src = url;
+  });
+}
+function uploadPhotoToCloudinary(file, onProgress){
+  return downscaleImageFile(file, 1600, 0.85).then(function(resizedFile){
+    return callPortalFn('cloudinarySignature', {}).then(function(sig){
+      return new Promise(function(resolve, reject){
+        var body = new FormData();
+        body.append('file', resizedFile);
+        body.append('api_key', sig.apiKey);
+        body.append('timestamp', sig.timestamp);
+        body.append('signature', sig.signature);
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', 'https://api.cloudinary.com/v1_1/' + sig.cloudName + '/image/upload');
+        xhr.upload.onprogress = function(e){
+          if(onProgress && e.lengthComputable) onProgress(Math.round(e.loaded / e.total * 100));
+        };
+        xhr.onload = function(){
+          var data = null;
+          try{ data = JSON.parse(xhr.responseText); } catch(err){}
+          if(data && data.secure_url) resolve(data.secure_url);
+          else reject(new Error((data && data.error && data.error.message) || 'Upload failed'));
+        };
+        xhr.onerror = function(){ reject(new Error('Network error during upload')); };
+        xhr.send(body);
+      });
+    });
+  });
+}
+function quotePhotoStatusText(msg){
+  var el = document.getElementById('quotePhotoStatus');
+  if(el) el.textContent = msg || '';
+}
+function removeQuotePendingPhoto(id){
+  quotePendingPhotos = quotePendingPhotos.filter(function(p){ return p.id !== id; });
+  var thumb = document.getElementById('quotePhotoThumb-' + id);
+  if(thumb) thumb.remove();
+}
+var quotePhotoAddBtnEl = document.getElementById('quotePhotoAddBtn');
+var quotePhotoInputEl = document.getElementById('quotePhotoInput');
+if(quotePhotoAddBtnEl && quotePhotoInputEl){
+  quotePhotoAddBtnEl.addEventListener('click', function(){ quotePhotoInputEl.click(); });
+  quotePhotoInputEl.addEventListener('change', function(){
+    var files = Array.prototype.slice.call(this.files || []);
+    this.value = ''; // lets the same file be re-picked later if removed
+    if(!files.length) return;
+
+    var remaining = QUOTE_PHOTO_MAX - quotePendingPhotos.length - quotePhotoUploadsInFlight;
+    if(remaining <= 0){
+      quotePhotoStatusText("You've reached the maximum of " + QUOTE_PHOTO_MAX + ' photos.');
+      return;
+    }
+    if(files.length > remaining){
+      files = files.slice(0, remaining);
+      quotePhotoStatusText('Only added ' + remaining + ' — that\'s the maximum of ' + QUOTE_PHOTO_MAX + ' photos.');
+    } else {
+      quotePhotoStatusText('');
+    }
+
+    var thumbsEl = document.getElementById('quotePhotoThumbs');
+    files.forEach(function(file){
+      var id = quotePhotoNextId++;
+      quotePhotoUploadsInFlight++;
+      var thumb = document.createElement('div');
+      thumb.id = 'quotePhotoThumb-' + id;
+      thumb.style.cssText = 'position:relative; width:72px; height:72px; border-radius:10px; overflow:hidden; background:var(--paper); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; font-size:11px; color:var(--slate); text-align:center;';
+      thumb.textContent = 'Uploading…';
+      thumbsEl.appendChild(thumb);
+
+      uploadPhotoToCloudinary(file, function(pct){ thumb.textContent = pct + '%'; }).then(function(url){
+        quotePendingPhotos.push({id: id, url: url, original: url});
+        thumb.textContent = '';
+        thumb.style.color = '';
+        var img = document.createElement('img');
+        img.src = url;
+        img.style.cssText = 'width:100%; height:100%; object-fit:cover; display:block;';
+        var removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.textContent = '×';
+        removeBtn.setAttribute('aria-label', 'Remove photo');
+        removeBtn.style.cssText = 'position:absolute; top:2px; right:2px; width:20px; height:20px; border-radius:50%; border:none; background:rgba(0,0,0,.6); color:#fff; font-size:14px; line-height:1; cursor:pointer;';
+        removeBtn.addEventListener('click', function(){ removeQuotePendingPhoto(id); });
+        thumb.appendChild(img);
+        thumb.appendChild(removeBtn);
+      }).catch(function(err){
+        console.error('[HU] quote photo upload failed:', err);
+        thumb.textContent = 'Failed — tap Add Photos to retry';
+        thumb.style.color = 'var(--ember)';
+        setTimeout(function(){ thumb.remove(); }, 3000);
+      }).finally(function(){
+        quotePhotoUploadsInFlight--;
+      });
+    });
+  });
+}
+
 quoteFormEl.addEventListener('submit', async function(e){
   e.preventDefault();
+  if(quotePhotoUploadsInFlight > 0){
+    alert('Please wait for your photo(s) to finish uploading before submitting.');
+    return;
+  }
   var fd = new FormData(quoteFormEl);
   var street = fd.get('street'), city = fd.get('city'), zip = fd.get('zip');
   var fullAddress = street + ', ' + city + ' ' + zip;
@@ -2276,16 +2429,25 @@ quoteFormEl.addEventListener('submit', async function(e){
   submitBtn.disabled = true;
   submitBtn.textContent = 'Submitting…';
 
-  /* Automatic Street View photo lookup was retired — photos are added by hand
-     on the quote card in the admin, so a quote no longer waits on Google. */
-  var frontPhotoUrl = null;
+  /* quotePhotos is the array admin.html, the quote email builder, and
+     Convert-to-Customer already read (quotePhotoList in admin.html). Photo #1
+     is mirrored onto the legacy flat frontPhotoUrl/frontPhotoOriginal/
+     frontPhotoMarkup fields the same way admin.html's own uploader does, so
+     every existing reader of a single front photo keeps working untouched. */
+  var quotePhotosPayload = quotePendingPhotos.map(function(p){
+    return {url: p.url, original: p.original, markup: [], label: ''};
+  });
+  var mainPhoto = quotePhotosPayload[0] || null;
 
   addDoc(collection(db,'quotes'), {
     name: fd.get('name'), phone: fd.get('phone'), email: fd.get('email'),
     street: street, city: city, zip: zip,
     address: street + ', ' + city + ' ' + zip,
     contactMethod: fd.get('contact_method'),
-    frontPhotoUrl: frontPhotoUrl,
+    quotePhotos: quotePhotosPayload,
+    frontPhotoUrl: mainPhoto ? mainPhoto.url : null,
+    frontPhotoOriginal: mainPhoto ? mainPhoto.original : null,
+    frontPhotoMarkup: [],
     quoteToken: generatePortalToken(),
     formCompleted: false,
     status: 'new', createdAt: serverTimestamp()
