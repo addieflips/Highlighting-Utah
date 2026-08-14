@@ -137,36 +137,89 @@ const CUSTOMERS = {
  * Money formula, everywhere: (install + removal + changeFees) - credits
  * - deposit, floored at 0. These fixtures are hand-checked against it.
  */
+/* name/phone/email mirror the corresponding CUSTOMERS record — the real
+ * portalInvoice reads these off the invoice document itself (INVOICE_READ_FIELDS
+ * in functions/index.js), not off jobAddresses, but the two are kept in sync in
+ * production and every fixture below matches its customer. Without them here,
+ * the portal's #infoName/#infoPhone/#infoEmail fields render blank even though
+ * the invoice was found — that blank #infoName was checklist test 9's failure,
+ * and it cascaded into test 14 too (the Save button refuses to submit without
+ * a name). */
 const INVOICES = {
   '8015550142': {                    // standard — part paid
     found: true,
+    name: 'Dana Petersen', phone: '8015550142', email: 'dana@example.com',
     install: 450, removal: 0, deposit: 200, credits: 0, changeFees: 0,
     status: 'Partial Payment',
     newMemberFeeApplied: false
   },
   'jordan.reyes@example.com': {      // email-only — nothing paid yet
     found: true,
+    name: 'Jordan Reyes', phone: '', email: 'jordan.reyes@example.com',
     install: 380, removal: 0, deposit: 0, credits: 0, changeFees: 0,
     status: 'Unpaid',
     newMemberFeeApplied: false
   },
   '8015550199': {                    // multi-house — three houses on one bill
     found: true,
+    name: 'Sam Whitfield', phone: '8015550199', email: 'sam@example.com',
     install: 1275, removal: 0, deposit: 0, credits: 0, changeFees: 0,
     status: 'Unpaid',
     newMemberFeeApplied: false
   },
   '8015550188': {                    // a $30 light-change fee and a referral credit
     found: true,
+    name: 'Alex Nakamura', phone: '8015550188', email: 'alex@example.com',
     install: 520, removal: 0, deposit: 0, credits: 25, changeFees: 30,
     status: 'Unpaid',
     newMemberFeeApplied: false
   },
   '8015550177': {                    // deactivated, settled
     found: true,
+    name: 'Riley Cortez', phone: '8015550177', email: 'riley@example.com',
     install: 400, removal: 0, deposit: 400, credits: 0, changeFees: 0,
     status: 'Paid in Full',
     newMemberFeeApplied: false
+  }
+};
+
+/* --- Quotes ----------------------------------------------------------------
+ * publicQuoteLookup (functions/index.js) reads the 'quotes' collection
+ * directly, filtered by phone or email — completely separate from
+ * CUSTOMERS/jobAddresses and keyed by nothing a portal token can reach. This
+ * one is priced but not yet converted to a customer: checklist test 17
+ * ("Quote review" — "Instead of showing an invoice like it would for a
+ * regular customer, the portal should show that person's quote details and
+ * the price they were quoted, along with an 'Approve' button and a
+ * 'Decline' button").
+ *
+ * ⚠ tryShowQuoteReview() in index.html checks the FIRST word of the quote's
+ * name against the typed last name (nameParts[0], not the last word), so
+ * what it actually enforces is "type the customer's first name into the
+ * last-name box" — not what checklist step 3 describes a real person
+ * writing down and typing. That looks like a pre-existing mismatch in
+ * tryShowQuoteReview, separate from what this fixture exists to fix, so
+ * lastNameInput below is set to match what the CODE checks today rather
+ * than silently working around it.
+ */
+const QUOTES = {
+  pendingReview: {
+    id: 'quote-pending-review-1',
+    lastNameInput: 'morgan',
+    data: {
+      name: 'Morgan Ashby',
+      phone: '(801) 555-0166',
+      email: 'morgan.ashby@example.com',
+      address: '77 Aspen Ct, Lehi, UT 84043',
+      houseAreas: ['Roofline', 'Bushes'],
+      lightColors: ['Warm White'],
+      installPreference: 'Any',
+      quotedPrice: 495,
+      quoteToken: 'quotetoken0000000001'
+      // No approvalStatus — this is what makes it "pending" in
+      // tryShowQuoteReview's eyes (only approved/declined/maybe_next_year
+      // are treated as resolved).
+    }
   }
 };
 
@@ -225,6 +278,7 @@ module.exports = {
   CUSTOMERS,
   INVOICES,
   SETTINGS,
+  QUOTES,
   customerByToken,
   customerByContact
 };

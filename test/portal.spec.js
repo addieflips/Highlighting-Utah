@@ -18,7 +18,7 @@
 
 const { test, expect } = require('@playwright/test');
 const { installFirebaseStub } = require('./firebase-stub');
-const { CUSTOMERS } = require('./fixtures');
+const { CUSTOMERS, QUOTES } = require('./fixtures');
 
 /* Fresh stub per test. Playwright gives each test its own page, so there is no
  * shared state to leak between them. */
@@ -161,25 +161,44 @@ test.describe('Member Portal', () => {
   });
 
   /* ---- t17 — a pending quote --------------------------------------------
-   * KNOWN FAILURE: "Pending-quote approve/decline view does not show."
+   * Checklist test 17, "Quote review": find someone in Quote Requests who has
+   * been priced but is NOT yet a paying customer (no invoice), then sign in
+   * to the Member Portal with their phone + last name. Expected: instead of
+   * an invoice, the portal shows the quote details, the price, and Approve /
+   * Decline buttons.
+   *
+   * The original version of this spec used CUSTOMERS.pendingRsvp (an
+   * existing customer, WITH an invoice) with a token link, and asserted a
+   * getByRole button-name match against /decline/i. Neither matched the real
+   * app: an existing customer's portalInvoice lookup always succeeds, which
+   * unconditionally hides #quoteReviewCard (index.html renderCustomerInvoicePage) —
+   * the quote review only ever appears for someone with NO invoice yet, found
+   * via tryShowQuoteReview(). And the real Decline button's text is "Not
+   * Right Now" (id quoteDeclineBtn), which /decline/i never matched — so this
+   * spec could not have passed no matter what the app did. Fixed to use the
+   * QUOTES fixture (a quote-only lead, no CUSTOMERS/INVOICES entry) signed in
+   * through the lookup form, and to target the real #quoteApproveBtn /
+   * #quoteDeclineBtn ids per CLAUDE.md §9.3 (prefer an existing id over a
+   * text/role guess).
    */
   test('t17 — a customer with a pending quote is offered approve or decline', async ({ page }) => {
-    const stub = await open(page, `/index.html#/payment?token=${CUSTOMERS.pendingRsvp.token}`, {
-      customers: {
-        pendingRsvp: {
-          ...CUSTOMERS.pendingRsvp,
-          record: { ...CUSTOMERS.pendingRsvp.record, quoteDetailQuoteId: 'quote-pending-1' }
-        }
-      }
-    });
+    const quote = QUOTES.pendingReview;
+    const stub = await open(page, '/index.html#/payment');
 
-    /* ⚠ EXPECTED TO FAIL — this is checklist test 17, a KNOWN BUG: "Pending-quote
-     * approve/decline view does not show." Searching index.html finds no
-     * portal-side quote review at all; the approve/decline flow only exists on
-     * the emailed link. This spec stays red until that view is built. Do NOT
-     * weaken it to make the suite green (CLAUDE.md §9.6). */
-    await expect(page.getByRole('button', { name: /approve|accept/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /decline/i })).toBeVisible();
+    await page.fill('#lookupPhone', quote.data.phone);
+    await page.fill('#lookupLastName', quote.lastNameInput);
+    await page.click('#lookupBtn');
+
+    await expect(page.locator('#quoteReviewCard')).toBeVisible();
+    await expect(page.locator('#quotePriceAmount')).toHaveText('$495');
+    await expect(page.locator('#quoteAddressDisplay')).toHaveText(quote.data.address);
+
+    await expect(page.locator('#quoteApproveBtn')).toBeVisible();
+    await expect(page.locator('#quoteDeclineBtn')).toBeVisible();
+
+    const calls = await stub.calls();
+    expect(calls.some(c => c.name === 'publicQuoteLookup'),
+      'signing in with only a quote on file should look the quote up').toBeTruthy();
 
     stub.assertNoRealCalls();
   });

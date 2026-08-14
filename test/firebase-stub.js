@@ -24,7 +24,7 @@
  * than no test, so this must never be softened into a warning.
  */
 
-const { CUSTOMERS, INVOICES, SETTINGS, FROZEN_NOW,
+const { CUSTOMERS, INVOICES, SETTINGS, QUOTES, FROZEN_NOW,
         customerByToken, customerByContact } = require('./fixtures');
 
 /* Hosts a test must never reach. Matched as substrings against the URL. */
@@ -73,15 +73,26 @@ const FAKE_FIRESTORE_MODULE = `
   }
   export function onSnapshot(ref, cb) {
     const bucket = (ref && settings[ref.__id]) || null;
-    try {
-      cb({ exists: () => bucket !== null, data: () => bucket || {},
-           empty: true, docs: [], forEach: () => {} });
-    } catch (e) {
-      /* The page's own snapshot handler threw. Swallowing this silently hid a
-       * real cause once already — record it so a test can report it. */
-      (window.__HU_SNAPSHOT_ERRORS__ = window.__HU_SNAPSHOT_ERRORS__ || []).push(String(e));
-      console.error('snapshot handler threw:', e);
-    }
+    /* Real onSnapshot NEVER fires its callback synchronously, even for a
+     * cached/local read — it always resolves after the current script has
+     * finished running. Firing synchronously here made this fake report
+     * hoisted-but-not-yet-assigned page variables (e.g. "var currentTipAmount
+     * = 0;" declared further down the file) as undefined at snapshot time,
+     * when the real SDK would already see the page's top-level script done
+     * and the variable initialized. That crashed updateTipBreakdown() before
+     * it reached setupPaypalButtonsIfNeeded() — a fake-only bug, not a real
+     * one, and it was masking the actual t11 PayPal behaviour. */
+    Promise.resolve().then(() => {
+      try {
+        cb({ exists: () => bucket !== null, data: () => bucket || {},
+             empty: true, docs: [], forEach: () => {} });
+      } catch (e) {
+        /* The page's own snapshot handler threw. Swallowing this silently hid a
+         * real cause once already — record it so a test can report it. */
+        (window.__HU_SNAPSHOT_ERRORS__ = window.__HU_SNAPSHOT_ERRORS__ || []).push(String(e));
+        console.error('snapshot handler threw:', e);
+      }
+    });
     return () => {};
   }
 
@@ -123,18 +134,72 @@ const FAKE_FUNCTIONS_MODULE = `
     };
   }
 
+  /* Mirrors the real portalInvoice (functions/index.js): fetch the invoice
+   * doc by payload.key, then authorize via a matching token OR a whole-word
+   * last-name match against the invoice's own name field — and hand back
+   * only { found, record } with record trimmed to INVOICE_READ_FIELDS. This
+   * used to return the raw fixture object with no "record" wrapper at all,
+   * so #infoName/#infoPhone/#infoEmail always rendered blank (checklist
+   * test 9), which in turn made test 14's Save button refuse to submit
+   * ("Name, phone, and address are required"). */
   function invoice(payload) {
-    const cust = payload.token ? F.byToken(payload.token) : null;
-    const key  = (cust && cust.invoiceKey) || payload.invoiceKey;
-    const inv  = key ? F.invoices[key] : null;
-    return inv ? Object.assign({}, inv) : { found: false };
+    const key = payload.key || '';
+    const inv = key ? F.invoices[key] : null;
+    if (!inv) return { found: false };
+
+    let authorized = false;
+    if (payload.token) {
+      const cust = F.byToken(payload.token);
+      if (cust && cust.invoiceKey === key) authorized = true;
+    }
+    if (!authorized && payload.lastName) {
+      const typed = String(payload.lastName).toLowerCase().trim();
+      const stored = String(inv.name || '').toLowerCase().trim();
+      if (stored && (stored === typed || stored.split(/[\\s\\-']+/).filter(Boolean).indexOf(typed) !== -1)) {
+        authorized = true;
+      }
+    }
+    if (!authorized) return { found: false };
+
+    const READ_FIELDS = ['name', 'phone', 'email', 'install', 'removal',
+      'deposit', 'credits', 'creditNotes', 'changeFees', 'changeFeeNotes'];
+    const record = {};
+    READ_FIELDS.forEach(f => { if (inv[f] !== undefined) record[f] = inv[f]; });
+    return { found: true, record };
+  }
+
+  /* Mirrors the real publicQuoteLookup (functions/index.js): the 'quotes'
+   * collection, filtered by phone or email, with NO last-name check — that
+   * matching happens client-side in tryShowQuoteReview(). This callable had
+   * no fake at all until checklist test 17 needed one; before this, calling
+   * it rejected with "no fake for callable" and tryShowQuoteReview()'s own
+   * .catch() silently swallowed that into the empty/not-found state, which
+   * is why the quote review card could never appear in a test. */
+  function publicQuoteLookup(payload) {
+    const phone = String(payload.phone || '').replace(/\\D/g, '');
+    const email = String(payload.email || '').toLowerCase().trim();
+    const quotes = [];
+    Object.keys(F.quotes || {}).forEach(function (k) {
+      const q = F.quotes[k];
+      const d = q.data;
+      if (phone) {
+        if (String(d.phone || '').replace(/\\D/g, '') !== phone) return;
+      } else if (email) {
+        if (String(d.email || '').toLowerCase().trim() !== email) return;
+      } else {
+        return;
+      }
+      quotes.push({ id: q.id, data: Object.assign({}, d) });
+    });
+    return { quotes: quotes };
   }
 
   const HANDLERS = {
-    portalLookup:  lookup,
-    portalInvoice: invoice,
-    portalRsvp:    p => ({ ok: true, rsvpStatus: p && p.answer }),
-    portalSave:    () => ({ ok: true, saved: true }),
+    portalLookup:      lookup,
+    portalInvoice:     invoice,
+    portalRsvp:        p => ({ ok: true, rsvpStatus: p && p.answer }),
+    portalSave:        () => ({ ok: true, saved: true }),
+    publicQuoteLookup: publicQuoteLookup,
 
     /* index.html calls this on load to fetch the three public-safe EmailJS
      * identifiers. It is fire-and-forget with a .catch() that swallows
@@ -175,6 +240,12 @@ const FAKE_FUNCTIONS_MODULE = `
 const FAKE_PAYPAL_SDK = `
   window.__HU_PAYPAL_LOADED__ = true;
   window.paypal = {
+    /* The real SDK always exports these funding-source constants; index.html
+     * reads window.paypal.FUNDING.CARD and .PAYPAL unconditionally when
+     * wiring up the buttons. Omitting this crashed renderPaypalButtons() with
+     * "Cannot read properties of undefined (reading 'PAYPAL')" — a fake-only
+     * gap, not a real app bug. */
+    FUNDING: { CARD: 'card', PAYPAL: 'paypal', VENMO: 'venmo' },
     Buttons: function (opts) {
       window.__HU_PAYPAL_OPTS__ = opts || {};
       return {
@@ -221,9 +292,10 @@ async function installFirebaseStub(page, overrides = {}) {
 
   // Fixture data + the two lookup helpers, injected before any page script runs.
   await page.addInitScript(
-    ({ fx, customers }) => {
+    ({ fx, customers, quotes }) => {
       window.__HU_FIXTURES__ = Object.assign({}, fx, {
         customers,
+        quotes,
         byToken(token) {
           return Object.values(customers).find(c => c.token === token) || null;
         },
@@ -243,7 +315,11 @@ async function installFirebaseStub(page, overrides = {}) {
         }
       });
     },
-    { fx: fixtures, customers: Object.assign({}, CUSTOMERS, overrides.customers || {}) }
+    {
+      fx: fixtures,
+      customers: Object.assign({}, CUSTOMERS, overrides.customers || {}),
+      quotes: Object.assign({}, QUOTES, overrides.quotes || {})
+    }
   );
 
   /* ONE handler for everything, deliberately.
