@@ -517,10 +517,23 @@ check('logic', 'footage estimate pads upward, never down',
 check('logic', 'footage estimate then bundles up',
   bundles(estFeet(400, 2)) === Math.ceil(210 / 40));
 
-// --- bin rule: over 200 ft = 2 bins, 200 or under = 1 ---
-const bins = feet => (feet > 200 ? 2 : 1);
-check('logic', 'bins: 200 ft is 1 bin', bins(200) === 1);
-check('logic', 'bins: 201 ft is 2 bins', bins(201) === 2);
+/* --- bin rule ------------------------------------------------------------
+ * FIXED 2026-08-14. This block used to define its own
+ *     const bins = feet => (feet > 200 ? 2 : 1);
+ * and then assert against THAT — a lambda living in this test file, not the
+ * app. It passed no matter what admin.html or js/money.js did, and it encoded
+ * the OLD 200ft rule, which the real cutoff (CN_DOUBLE_BIN_FEET = 260) has not
+ * matched for some time. A test that cannot fail is worse than no test: it
+ * reports confidence it has not earned.
+ * Now it calls the real cnBinsForFeet, lifted out of js/money.js above.
+ * The 260/261 boundary is already covered around line 362 — these add the
+ * everyday values and the one that used to be wrong. */
+check('logic', 'bins: 200 ft is 1 bin (real cnBinsForFeet, not a local copy)',
+  cnBinsForFeet(200) === 1);
+check('logic', 'bins: 201 ft is STILL 1 bin — the cutoff is 260, not 200',
+  cnBinsForFeet(201) === 1,
+  'if this fails the bin cutoff moved back to 200 — check CN_DOUBLE_BIN_FEET in js/money.js');
+check('logic', 'bins: 400 ft is 2 bins', cnBinsForFeet(400) === 2);
 
 // --- comma-separated colour parsing (quote Detail Form save handler) ---
 const csv = v => v.split(',').map(s => s.trim()).filter(Boolean);
