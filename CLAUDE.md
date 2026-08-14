@@ -30,7 +30,10 @@ js/money.js	The invoice and bin rules, pulled out of admin.html so they can be u
 employee.html	Crew/Warehouse Portal
 functions/index.js	Cloud Functions (Firebase v2, Blaze). Node 22 runtime, firebase-functions 7.x, firebase-admin 13.x as of 2026-08-13. ⚠ Do NOT bump firebase-admin to 14 as a routine update: 14 removes the namespaced API (admin.firestore, admin.auth are undefined there) and this file uses it in ~30 places, including admin.firestore.FieldValue.increment on deposits and tips in the PayPal capture path. That migration to the modular API is its own job with its own testing. Keep engines.node in functions/package.json matching node-version in .github/workflows/deploy-functions.yml.
 firestore.rules / firestore.indexes.json	DB security + indexes
-run-all.js, quote-card.test.js	Test suite (see §3) — needs `npm install` once at repo root (installs jsdom; package.json/package-lock.json are committed)
+run-all.js	Main test suite (see §3) — needs `npm install` once at repo root (installs jsdom; package.json/package-lock.json are committed). Run it with `npm test`, which also runs the two below.
+money-parity.test.js	Proves the browser and server copies of the invoice maths still agree. See §9.2 — this is the one that stops the office and the nightly billing run disagreeing about a bill.
+scripts/verify-syntax.js	Verification gate A (inline JS parses, <div> tags balance). `npm run verify`.
+quote-card.test.js	⚠ currently broken — its extraction marker was renamed out of admin.html. Excluded from `npm test`. See §3 gate B.
 system-map.md	Plain-English map of the whole app — regenerate per §6
 Firebase project id: highlighting-utah (billing on).
 Deploy — each surface is separate. Netlify does NOT deploy Firebase, and Firebase does NOT deploy the HTML.
@@ -66,23 +69,19 @@ Project To-Do checklist: TEST_SEED (a plain-English test list hardcoded near the
 Run these and paste results into the commit/PR description.
 A. Inline-JS syntax + <div> balance (catches the two most common breakages):
 bash
-python3 - <<'PY'
-import re
-for f in ['index.html','admin.html','employee.html']:
-    s=open(f,encoding='utf-8').read()
-    js='\n;\n'.join(re.findall(r'<script(?![^>]*src=)[^>]*>(.*?)</script>', s, re.S))
-    open('/tmp/'+f+'.js','w',encoding='utf-8').write(js)
-    o,c=len(re.findall(r'<div\b',s)),len(re.findall(r'</div>',s))
-    print(f, 'div', o, c, 'OK' if o==c else 'MISMATCH')
-PY
-node --check /tmp/admin.html.js && node --check /tmp/index.html.js && node --check /tmp/employee.html.js
-(This still works now that admin.html's module script contains an `import`, because Node 22+ auto-detects module syntax in a .js file. Verified on Node v24.19.0. On an older Node it would fail with "Cannot use import statement outside a module" — if that happens, extract the <script type="module"> block to a .mjs file and check that separately.)
-node --check functions/index.js
-(On Windows/Git Bash, /tmp may not exist — write the extracted JS to your scratchpad directory instead and node --check that path.)
-B. Test suite. The suite lives at repo root but its code expects a tests/ subfolder (__dirname/'..'). Run it via a shim:
+npm run verify
+This runs scripts/verify-syntax.js. It parses every inline <script> in the three HTML files, parses functions/index.js, and checks that <div> opens equal </div> closes in each file. Exits non-zero on any failure, so it is safe to chain in CI.
+It replaced a python3 heredoc that used to be pasted in here. Same checks, but it is Node-only (no python dependency on Windows or in CI) and it checks classic scripts and <script type="module"> blocks SEPARATELY. That separation matters: concatenating them forced the classic code to be parsed in strict mode, where a few legal-but-old constructs are syntax errors — that could report a failure that does not exist in a real browser.
+An unbalanced <div> silently swallows every panel below it, which is why the count is printed even when it passes.
+B. Test suite.
 bash
-mkdir -p tests && cp run-all.js quote-card.test.js tests/ && (cd tests && ln -s ../node_modules node_modules 2>/dev/null; node run-all.js); rm -rf tests
-Needs `npm install` once at repo root (jsdom — package.json is committed). Without it, Suite 5 (quote card rendering) silently skips instead of running — don't mistake that for a pass. GAP lines are known disconnects (non-blocking, self-heal to PASS when fixed). Real regressions show as FAIL. A change is only clean if it introduces no new FAIL and doesn't turn a PASS/gap closed back into a GAP/FAIL. As of 2026-08-13: 224 passed, 0 failed, 3 notes, 1 GAP (colorComboKey — a helper the suite still expects that admin.html no longer has; either restore it or delete those checks). Suite 4 now also unit-tests js/money.js directly, which is why the count jumped.
+npm test
+That runs all three gates in order — verify (gate A), the money parity test, then run-all.js — and stops at the first failure.
+⚠ CORRECTED 2026-08-14: the old instructions here told you to copy the suite into a tests/ subfolder via a shim (mkdir -p tests && cp run-all.js ...). That is no longer needed and has not been for some time — run-all.js resolves its own root by looking for admin.html next to itself, so `node run-all.js` works directly from the repo root. The shim still works, it is just pointless. Ignore any older note saying the suite is broken from the root; it is not.
+Needs `npm install` once at repo root (jsdom — package.json and package-lock.json are committed). Without it, the quote-card rendering checks silently skip instead of running — don't mistake that for a pass.
+GAP lines are known disconnects (non-blocking, self-heal to PASS when fixed). Real regressions show as FAIL. A change is only clean if it introduces no new FAIL and doesn't turn a PASS or a closed gap back into a GAP/FAIL.
+Baseline on 2026-08-14: 232 passed, 0 failed, 3 notes, 2 known GAPs (colorComboKey; two customers sharing a phone share one invoice key). Plus 9 passed on gate A and 10 passed on the money parity test.
+⚠ KNOWN BROKEN, not yet fixed: `quote-card.test.js` no longer runs. It extracts renderQuoteRows out of admin.html starting from a marker function `quoteDetailSelect(` that has since been renamed or removed, and renderQuoteRows has grown roughly four new helper dependencies (quoteStage, quotePhotoList, currentQuotePhotoIndex …) that the file does not stub. It is deliberately NOT part of `npm test` so the suite stays honest — fixing it is its own small task. Do not "fix" it by deleting it.
 C. Element-ID sanity (a lesson learned the hard way): every element ID referenced in JS must exist in the HTML, there must be no duplicate IDs, and after any big HTML deletion re-check the <div> balance (gate A). This is folded into Suite 1 of gate B above. ?. optional chaining hides missing markup as a silent no-op — don't trust "no error" as "it works."
 4. Work queue history (P0-P3, completed 2026-08-08)
 The P0-P3 items from the 2026-08-07 audit are done and deployed (HTML side confirmed live via Netlify; the Cloud Functions half of P0 hit the deploy issue noted in §1 and needs the owner to confirm it actually landed — check the PayPal charge amount against a real discounted/fee'd invoice, or check the Firebase Console function source directly). Summary, for context on anything that references "the P0 fix" etc.:
@@ -127,3 +126,64 @@ A fixed-length character-window extraction in a test (e.g. "next 9000 chars afte
 A Project To-Do checklist test's wording drifts the same way any other doc does — it doesn't auto-detect that a button got renamed. On 2026-08-08 five Admin quote tests (#19/20/30/31/33) still told the reader to open "the approval link" hours after that button had been renamed to "Send Email" in the same session; the owner caught it by actually reading a rewritten test's steps, not by any automated check. Whenever a change touches something a test describes, update+version-bump that TEST_SEED entry in the same change (see §0).
 8. Current security note
 The quotes collection is currently open to unauthenticated scoped updates (Option A) so the customer approve/detail flow works without a login. Price and all other fields stay staff-only. This is a deliberate, owner-approved tradeoff, unchanged in this pass. If future work re-introduces the function-based quote flow, re-tighten this rule to staff-only update and confirm the portal still saves through the functions.
+9. Automated testing — rules, conventions, and how the pieces fit
+Added 2026-08-14. Read this before writing any test or any selector.
+9.1 The three test systems and what each is for
+There are three, deliberately. Do not merge them and do not duplicate a check across them.
+run-all.js (repo root) — structure, wiring, and logic read straight out of the source files. Fast, no browser. This is where "does admin.html still call this function", "do these two files agree about a field name", and the js/money.js unit tests live. Biggest suite, run on every change.
+money-parity.test.js (repo root) — one job: prove the browser copy and the server copy of the money maths still agree. See §9.2.
+Playwright specs (tests/) — real browser, real DOM, real click handlers, fake database. For user flows: filling the quote form, logging into the portal, editing an invoice amount, marking a house done. Slower, so keep it to flows that matter.
+Project To-Do checklist (Firestore projectTests, TEST_SEED in admin.html) — the owner's manual sign-off list, 165 tests. NOT automated and not replaced by any of the above. When a Playwright spec covers a checklist test, put the checklist id at the front of the spec title — test('t11 — portal shows a PayPal button', ...) — so the two point at each other instead of drifting into two separate truths.
+9.2 The money parity rule (the most important test in the repo)
+The invoice maths exists TWICE and cannot be shared, because one runs as a browser ES module and the other runs on Node inside Cloud Functions:
+  js/money.js          computeInvoiceStatus()        what the office sees
+  functions/index.js   computeInvoiceStatusServer()  what the customer is actually billed
+  js/money.js          custInvoiceKey()             which invoice a customer files under (admin)
+  functions/index.js   invoiceKeyFor()              the same decision, server side
+money-parity.test.js lifts all four out of the real files, runs them side by side over ~13,000 money combinations plus blank/text/broken inputs, and fails the moment the two disagree. It does not care what the formula IS — only that both copies say the same thing — so it keeps working when pricing rules change.
+If you change one of these formulas, change the other in the same commit. If the parity test fails, the office screen and the nightly billing run disagree about someone's bill. Do not push. Do not "fix" it by editing the test.
+If a rename makes the test unable to find one of the four functions, it FAILS loudly rather than skipping — that is intentional. A test that cannot find its target must never report green.
+9.3 Selectors — how to target elements in a browser test
+Prefer, in this order:
+1. An existing id. admin.html is full of stable ids and gate C already checks every id referenced in JS exists. Use them: page.locator('#invoiceAmount').
+2. data-testid, added only where there is no stable id, and only on elements a test actually touches. Add them AS YOU GO, not in a big sweep — a mass edit of a 21,000-line file is risk without benefit (owner's decision, 2026-08-14).
+3. Visible text, for buttons whose label is the thing being tested.
+Never use CSS descendant chains (.panel > div:nth-child(3) input) or XPath. They break on any layout change and produce failures that look like bugs but aren't.
+Naming: data-testid="area-thing-action", lowercase and hyphenated — data-testid="invoice-amount-input", data-testid="quote-send-btn". A testid is part of the contract; renaming one is a change that needs its test updated in the same commit, exactly like a TEST_SEED entry.
+9.4 Tests NEVER touch real Firebase
+Non-negotiable. There are ~967 real customers and real money in that project.
+Playwright serves the real HTML with a STUBBED Firebase module. No credentials in any config, any spec, any fixture, or any CI secret used by tests.
+The stub must THROW LOUDLY if anything reaches a real Firestore or Auth endpoint. A test that silently falls through to production is worse than no test.
+Never point a test at project highlighting-utah. If you ever genuinely need real backend behaviour, that is the Firestore emulator, it is a separate decision, and it needs the owner's say-so first.
+This rule outranks getting a test to pass. If the only way to make a test work is to touch real data, the test does not get written.
+9.5 Fixtures
+One shared fixture file. Do not let each spec invent its own fake customer — they drift and then nobody trusts any of them. The fixtures must include the edge cases that have actually caused problems here: a multi-house billToPhone group, an email-only customer (no phone), a 260ft double-bin house (CN_DOUBLE_BIN_FEET, NOT the 200ft some old UI text still claims), a customer carrying carryoverCredit, and an unrated-difficulty house.
+9.6 TDD — red, green, refactor
+For a bug fix: write the failing spec FIRST, watch it fail for the right reason, then fix the code. A spec that has never failed has not been shown to test anything.
+For a new feature: write the spec alongside the code, not after the fact. "After the fact" reliably becomes "never".
+Start new browser coverage on the five known Member Portal failures (checklist tests 9, 11, 14, 15, 17) rather than on things that already work — those are real bugs with a real green state to reach.
+9.7 Flaky tests
+A flaky test is fixed or deleted. It is never retried until it goes green, and retries are never added to paper over one.
+The reason is not purity: a suite with known-flaky tests trains you to dismiss failures, and then the real one gets dismissed too.
+9.8 Speed budget
+The whole of `npm test` stays under 60 seconds. If it creeps over, cut or parallelise — a suite slow enough to skip is a suite that gets skipped.
+9.9 The standing rule — tests follow every change (owner's instruction, 2026-08-14)
+Any change to the website updates its tests IN THE SAME COMMIT. Concretely, all four of these, whichever apply:
+  1. the relevant run-all.js / Playwright check
+  2. the TEST_SEED entry in admin.html, with its version bumped and a retestReason (§0, §7)
+  3. RETIRED_CHECKLIST_TERMS in run-all.js, if the change retires a UI term a test used to describe
+  4. money-parity.test.js, if a money function was renamed
+Shipping code without its test update is not "finishing early", it is leaving a trap. This is the rule the owner asked for by name — do not skip it.
+9.10 Deploy safety — decisions already made, do not re-propose
+Canary / percentage rollout with automatic rollback: CONSIDERED AND REJECTED, 2026-08-14, with the owner's agreement. Do not build it and do not suggest it again without new information.
+Why it does not fit: the site is three static HTML files on Netlify's CDN. A broken admin.html still returns HTTP 200 — it fails in the browser, not at the server. There is no 5xx spike for an auto-rollback to trigger on, so the whole mechanism would watch a signal that never arrives. On top of that, 5% of the admin audience is a fraction of one person (the owner, her mother, her father, the crew), and Netlify's split testing uses branch affinity, so whoever draws the canary is PINNED to the broken version while everyone else sees a working one — an unreproducible bug report by design.
+What is used instead, and is enough at this scale:
+  1. Netlify instant rollback. Every previous deploy is retained and republished in one click from the Netlify UI (Deploys → pick a known-good deploy → Publish deploy). This is the "roll back to the safe version" step, available in about fifteen seconds. Reach for it FIRST when something is wrong in production — diagnose afterwards, not before.
+  2. Deploy previews. A branch deploy gives a real URL to look at before anything reaches main. At this scale that beats a canary: the person reviewing is the owner, who knows the system, rather than 5% of random traffic.
+Firestore rules and Cloud Functions are NOT covered by a Netlify rollback — they are separate surfaces (§1). Rolling back the HTML does not roll back a functions deploy. If a bad change spanned both, roll back the HTML and then revert the functions commit so CI redeploys the previous version.
+9.11 Production monitoring — read-only only
+Synthetic monitoring of the LIVE site is approved in principle (Phase 5), with one hard limit: checks are READ-ONLY.
+Never write a synthetic that exercises a write path in production. The obvious "log in, add to cart, check out" pattern maps here to creating a real quote in the quotes collection — at one run every ten minutes that is roughly 4,300 junk quotes a month landing in the office queue, plus whatever a synthetic payment does to invoice data. A write-path synthetic would need a designated test customer excluded from every list, route, invoice and export; that is its own project and has not been approved.
+Safe checks: does the public site load, does the portal login function respond, does admin.html load with a clean console, is the Cloud Function answering.
+Cost note (verified 2026-08-14): Checkly's free Hobby tier allows 1,000 browser check runs and 10,000 API check runs a month. A browser check every 15 minutes is ~2,880 runs and overruns the free tier three times over; hourly is ~720 and fits. A light API check every 5 minutes is ~8,640 and fits. So: API checks frequent, browser checks hourly. A scheduled GitHub Actions workflow running the same Playwright specs against production is the $0 alternative.
+The highest-value monitor already exists and predates all of this: the nightly billing summary text and the stale-run banner (§6 of system-map.md). Do not let a monitoring project quietly replace them — they watch the thing most likely to silently cost money.
