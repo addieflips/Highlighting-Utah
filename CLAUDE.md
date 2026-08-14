@@ -32,7 +32,12 @@ functions/index.js	Cloud Functions (Firebase v2, Blaze). Node 22 runtime, fireba
 firestore.rules / firestore.indexes.json	DB security + indexes
 run-all.js	Main test suite (see §3) — needs `npm install` once at repo root (installs jsdom; package.json/package-lock.json are committed). Run it with `npm test`, which also runs the two below.
 money-parity.test.js	Proves the browser and server copies of the invoice maths still agree. See §9.2 — this is the one that stops the office and the nightly billing run disagreeing about a bill.
-scripts/verify-syntax.js	Verification gate A (inline JS parses, <div> tags balance). `npm run verify`.
+verify-syntax.js	Verification gate A (inline JS parses, <div> tags balance). `npm run verify`. Lives at the REPO ROOT alongside run-all.js, not in a scripts/ folder.
+selector-contract.test.js	Checks every #id a browser spec uses still exists in the page it drives. `npm run test:selectors`. No browser needed — see §9.3.
+playwright.config.js	Browser test config. Serves the repo statically on :4173, chromium, no retries.
+tests/fixtures.js	The ONE set of fake customers and invoices (§9.5).
+tests/firebase-stub.js	Fakes Firebase and BLOCKS every real backend call (§9.4).
+tests/*.spec.js	Browser specs. `npm run test:browser`.
 quote-card.test.js	⚠ currently broken — its extraction marker was renamed out of admin.html. Excluded from `npm test`. See §3 gate B.
 system-map.md	Plain-English map of the whole app — regenerate per §6
 Firebase project id: highlighting-utah (billing on).
@@ -70,7 +75,7 @@ Run these and paste results into the commit/PR description.
 A. Inline-JS syntax + <div> balance (catches the two most common breakages):
 bash
 npm run verify
-This runs scripts/verify-syntax.js. It parses every inline <script> in the three HTML files, parses functions/index.js, and checks that <div> opens equal </div> closes in each file. Exits non-zero on any failure, so it is safe to chain in CI.
+This runs verify-syntax.js at the repo root. It parses every inline <script> in the three HTML files, parses functions/index.js, and checks that <div> opens equal </div> closes in each file. Exits non-zero on any failure, so it is safe to chain in CI.
 It replaced a python3 heredoc that used to be pasted in here. Same checks, but it is Node-only (no python dependency on Windows or in CI) and it checks classic scripts and <script type="module"> blocks SEPARATELY. That separation matters: concatenating them forced the classic code to be parsed in strict mode, where a few legal-but-old constructs are syntax errors — that could report a failure that does not exist in a real browser.
 An unbalanced <div> silently swallows every panel below it, which is why the count is printed even when it passes.
 B. Test suite.
@@ -187,3 +192,19 @@ Never write a synthetic that exercises a write path in production. The obvious "
 Safe checks: does the public site load, does the portal login function respond, does admin.html load with a clean console, is the Cloud Function answering.
 Cost note (verified 2026-08-14): Checkly's free Hobby tier allows 1,000 browser check runs and 10,000 API check runs a month. A browser check every 15 minutes is ~2,880 runs and overruns the free tier three times over; hourly is ~720 and fits. A light API check every 5 minutes is ~8,640 and fits. So: API checks frequent, browser checks hourly. A scheduled GitHub Actions workflow running the same Playwright specs against production is the $0 alternative.
 The highest-value monitor already exists and predates all of this: the nightly billing summary text and the stale-run banner (§6 of system-map.md). Do not let a monitoring project quietly replace them — they watch the thing most likely to silently cost money.
+9.12 The commands, in one place
+bash
+npm install                    # once per machine
+npx playwright install chromium # once per machine, ONLY for browser tests (~150MB)
+npm test                       # gate A + selectors + money parity + run-all.js. No browser. ~4 seconds.
+npm run test:browser           # Playwright specs. Needs the chromium install above.
+npm run test:all               # both
+npm run test:browser:headed    # watch a browser test run, for debugging
+`npm test` is deliberately browser-free so it always works, on any machine, with no 150MB download. Browser tests are a separate command and a separate CI step. Keep it that way — the fast suite is the one that actually gets run.
+9.13 How the browser tests are wired (read before editing tests/)
+No change to index.html was needed, and none should be. index.html imports Firebase as ES modules from https://www.gstatic.com/firebasejs/10.12.2/... — Playwright intercepts those three URLs and serves fake modules in their place. The page's own code runs exactly as it does in production; only what sits underneath it is fake.
+The entire member portal reaches the backend through ONE helper, callPortalFn() → httpsCallable(), across four callables: portalLookup, portalInvoice, portalRsvp, portalSave. Faking those four plus a couple of settings reads covers the portal completely. That is why tests/firebase-stub.js is short — it is not cutting corners, the app is genuinely that well funnelled. Preserve that funnel; if a new portal feature calls Firestore directly from the browser instead, the stub gets harder and the security story gets worse.
+The fixture field names are PORTAL_READ_FIELDS from functions/index.js verbatim — that is the only set of fields portalLookup ever sends to the browser. Change that list in the Cloud Function and change tests/fixtures.js in the same commit, or the tests assert against a shape production no longer returns.
+Every spec ends with stub.assertNoRealCalls(). Do not remove it and do not soften the FORBIDDEN_HOSTS list to make something pass (§9.4). One spec deliberately tries to reach real Firestore and asserts it is blocked — that one proves the guard is still alive.
+The first run of tests/portal.spec.js is EXPECTED TO BE RED. Five of its specs target the five known checklist failures (t9, t11, t14, t15, t17). Red first, then fix the code (§9.6). Do not weaken a spec to turn it green.
+t11 is worth trying before writing any code: index.html reads paymentProvider and falls back to 'venmo'. The spec runs with it set to 'both'. If that alone goes green, the "no PayPal button" bug was only ever a Firestore setting, not a code defect.
