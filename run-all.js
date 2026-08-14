@@ -720,6 +720,9 @@ if (JSDOM) {
     if (d.approvalStatus === 'approved' && d.formCompleted) return 'form';
     return 'send';
   };
+  // renderQuoteRows also calls isRequote(d) — for the "Send updated quote"
+  // button label and the re-quote wording. Mirrors the real one in admin.html.
+  global.isRequote = d => !!(d && (d.existingCustomerId || Number(d.requoteCount) > 0));
 
   // Sliced through the end of renderQuoteRows (not just up to innerHTML) so
   // the data-pricingtoggle click handler is actually live for the toggle test.
@@ -790,6 +793,13 @@ if (JSDOM) {
       pricingHeader(c2).textContent.includes('$490.00'));
     check('render', 'priced quote — approval link shown',
       c2.querySelector('.quotelink-box').textContent.includes('qt_abc'));
+    /* Ported from quote-card.test.js when that file was retired (see the note
+       at the top of this suite). It was the ONE check in there with no
+       equivalent here, and the line is still live in the card: measured feet
+       times the per-foot rate, shown to the office before a price is set. */
+    check('render', 'estimated price line shown when feet are known',
+      c2.textContent.includes('Estimated Price'),
+      'estimatedFeet x perFootRate is what the office prices from');
     check('render', 'no Detail Form left on the card',
       list.textContent.indexOf('Detail Form') === -1 &&
       c2.querySelector('[data-savequotedetail]') === null);
@@ -894,6 +904,71 @@ if (JSDOM) {
     const sentCard = document.getElementById('quotesList').querySelector('.row-item');
     check('render', 'send tab — already-sent quote shows Undo instead of Mark as Sent',
       sentCard.querySelector('[data-marksent]') === null && sentCard.querySelector('[data-unmarksent]') !== null);
+    global.quoteStageFilter = 'new';
+
+    // ---- Re-quote --------------------------------------------------------
+    /* The customer writes back wanting another side of the house doing. The
+       button clears the price and the answer and sends the same card back for
+       a new price — one card, not two, and nothing gets billed at a number
+       they never agreed to. */
+    global.quoteStageFilter = 'send';
+    renderQuoteRows([fixtures[1]]);
+    const pricedCard = document.getElementById('quotesList').querySelector('.row-item');
+    check('render', 're-quote — button offered on a quote that has a price',
+      pricedCard.querySelector('[data-requote]') !== null,
+      'without it there is no way to reopen a quote she has already sent');
+    check('render', 're-quote — not offered on a quote nobody has priced yet',
+      (function () {
+        global.quoteStageFilter = 'new';
+        renderQuoteRows([fixtures[0]]);
+        return document.getElementById('quotesList')
+          .querySelector('[data-requote]') === null;
+      })(),
+      'there is nothing to re-quote until there is a price to revise');
+
+    /* What the card looks like straight after the button is pressed: price
+       gone, answer gone, back in the Quotes tab needing a new number. */
+    const reQ = { id: 'q6', data: Object.assign({}, fixtures[1].data, {
+      quotedPrice: null, approvalStatus: 'pending', requoteCount: 1,
+      requoteFrom: { price: 490, status: 'approved' },
+      requoteReason: 'They asked for another side of the house quoted'
+    }) };
+    global.quoteStageFilter = 'new';
+    renderQuoteRows([reQ]);
+    const reCard = document.getElementById('quotesList').querySelector('.row-item');
+    check('render', 're-quote — card says re-quote, not New house',
+      reCard.textContent.includes('Re-quote') && !reCard.textContent.includes('New house'),
+      'calling it a New house sends her looking for a first quote she already sent');
+    check('render', 're-quote — the old price is still on screen',
+      reCard.textContent.includes('$490.00'),
+      'with the price cleared there is nothing to check the new number against');
+    check('render', 're-quote — says they had approved it',
+      reCard.textContent.includes('which they approved'));
+    check('render', 're-quote — her reason is shown',
+      reCard.textContent.includes('another side of the house'));
+    check('render', 're-quote — price box starts on the old price',
+      reCard.querySelector('.quotePriceInput').value === '490',
+      'she is adding to a price she can see, not working one out from nothing');
+    check('render', 're-quote — no approval buttons until it is priced again',
+      reCard.querySelector('[data-markapproval]') === null);
+
+    /* Priced and sent again, waiting on them. The wording has to say "again"
+       or a second approval reads exactly like the first. */
+    const reSent = { id: 'q7', data: Object.assign({}, reQ.data, { quotedPrice: 615 }) };
+    global.quoteStageFilter = 'send';
+    renderQuoteRows([reSent]);
+    const reSentCard = document.getElementById('quotesList').querySelector('.row-item');
+    check('render', 're-quote — send button reads Send updated quote',
+      reSentCard.querySelector('[data-getquotelink]').textContent.includes('Send updated quote'));
+    check('render', 're-quote — approve button says Again',
+      /Mark Approved Again/.test(reSentCard.textContent),
+      'without "again" there is no telling which price they said yes to');
+
+    const reOk = { id: 'q8', data: Object.assign({}, reSent.data, { approvalStatus: 'approved' }) };
+    renderQuoteRows([reOk]);
+    const reOkCard = document.getElementById('quotesList').querySelector('.row-item');
+    check('render', 're-quote — approved reads "Approved again" at the new price',
+      reOkCard.textContent.includes('Approved again') && reOkCard.textContent.includes('$615.00'));
     global.quoteStageFilter = 'new';
   }
 }
@@ -1111,21 +1186,15 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
   }
   const src = fnSrc.slice(start, end + 4);
 
-  // portalRsvp's own 'no'/'back next year' path (added after this suite was
-  // first written) calls removeCustomerFromUpcomingRoutes directly, which in
-  // turn calls todayStrInDenver — both live outside the sliced portalRsvp
-  // body above, so they have to be pulled in too or the sandboxed call throws
-  // a bare ReferenceError the moment either RSVP answer runs for real.
-  // extractFn matches from the "function" keyword, dropping any "async" that
-  // preceded it — has to go back on, or an extracted async body's own await
-  // is a syntax error the moment it actually runs.
-  const removeFromRoutesSrc = extractFn(fnSrc, 'removeCustomerFromUpcomingRoutes');
-  const todayStrSrc = extractFn(fnSrc, 'todayStrInDenver');
-  check('flow', 'removeCustomerFromUpcomingRoutes and todayStrInDenver found in functions/index.js',
-    !!removeFromRoutesSrc && !!todayStrSrc,
-    'renamed or removed — update this test rather than deleting it, or portalRsvp\'s no/back-next-year path cannot run here');
-  const fullSrc = [todayStrSrc, removeFromRoutesSrc && ('async ' + removeFromRoutesSrc), src]
-    .filter(Boolean).join('\n');
+  /* portalRsvp's 'no'/'back next year' path calls removeCustomerFromUpcomingRoutes,
+     which lives outside the slice above. An earlier version of this suite pasted
+     the REAL helper in alongside it — but a real function declaration shadows the
+     stub below, so sweptFromRoutes stayed empty and the two "clears them off built
+     routes" checks could never pass no matter what portalRsvp did. The stub is the
+     point here: this suite proves portalRsvp CALLS the sweep. What the sweep itself
+     does (including leaving past routes alone) is proved by executing the real
+     helper in suite 11. */
+  const fullSrc = src;
 
   // Fake Firestore + callable wrapper. update() merges what would have been
   // written; add() records Inbox notes with the collection they landed in;
@@ -1134,12 +1203,21 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
   function runRsvp(record, response) {
     const written = {};
     const added = [];
+    const sweptFromRoutes = [];
     const ctx = {
       exports: {},
       onCall: (opts, handler) => handler,
       HttpsError: function (code, msg) { const e = new Error(msg); e.code = code; return e; },
       admin: { firestore: { FieldValue: { serverTimestamp: () => '__ts__' } } },
       findByToken: async () => ({ id: 'h1', data: record }),
+      /* portalRsvp does TWO things now, from two different sessions' work
+         merged together: it raises the rejoined-after-recycle note, AND it
+         sweeps a declining customer off any route a crew has already been
+         handed. This suite is about the first; the second has its own suite.
+         Stubbed rather than left out, because leaving it out made the whole
+         async suite die on a ReferenceError, which reads as "everything here
+         is broken" instead of "one helper is missing". */
+      removeCustomerFromUpcomingRoutes: async (id) => { sweptFromRoutes.push(id); return 0; },
       db: {
         collection: (name) => ({
           doc: () => ({ update: async (u) => { Object.assign(written, u); } }),
@@ -1152,7 +1230,7 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
     const names = Object.keys(ctx);
     new Function(...names, fullSrc)(...names.map(n => ctx[n]));
     return ctx.exports.portalRsvp({ data: { token: 't', response } })
-      .then(res => ({ res, written, added }));
+      .then(res => ({ res, written, added, sweptFromRoutes }));
   }
 
   const notes = a => a.filter(m => m.__col === 'messages' && m.topic === 'Rejoined After Recycling');
@@ -1188,6 +1266,20 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
     check('flow', 'a flat "no" still flags the lights for recycling',
       declining.written.needsLightRecycle === true && declining.written.needsLightBuild === undefined,
       'declines would stop reaching the recycle queue and customer numbers would never come back');
+
+    /* ⚠ portalRsvp carries TWO behaviours that were built by two different
+       sessions and merged on 2026-08-14: flagging the lights for recycling
+       (above) and sweeping the customer off any route a crew has already been
+       handed. A merge is exactly where one of a pair like this gets dropped
+       silently, so this asserts they BOTH still fire on the same "no". */
+    check('flow', 'a "no" both recycles the lights AND clears them off built routes',
+      declining.written.needsLightRecycle === true &&
+      declining.sweptFromRoutes.length === 1,
+      'one of the two halves was lost — a declining customer either keeps their lights ' +
+      'reserved, or has a crew turn up to install lights they said no to');
+    check('flow', 'back next year also clears them off built routes',
+      (await runRsvp({ name: 'Sitting Out 2', rsvpStatus: '', needsLightRecycle: false }, 'backnextyear')).sweptFromRoutes.length === 1,
+      'sitting the season out must not leave them on a route a crew is already holding');
 
     // 4. Back next year is a distinct third answer, never a soft no.
     const back = await runRsvp({ name: 'Sitting Out', rsvpStatus: 'no', needsLightRecycle: false }, 'backnextyear');
@@ -1565,6 +1657,11 @@ suite('8. Quote decline / maybe next year');
   check('quoteresp', 'past routes are left alone as history',
     /\(rd\.date \|\| ''\) < todayStr/.test(extractFn(fns, 'removeCustomerFromUpcomingRoutes') || ''),
     'rewriting a finished route changes what the crew actually did');
+  check('quoteresp', 'pulling from the season sweeps upcoming routes',
+    /removeCustomerFromUpcomingRoutes\(customerId\)/.test(fns.slice(fns.indexOf('async function pullCustomerFromSeason'))),
+    'they would still show up on a route the crew has already been handed — the actual sweep logic ' +
+    '(and that past routes are left alone) is proved by executing removeCustomerFromUpcomingRoutes ' +
+    'directly, see suite 11');
 
   // --- money is not touched ---------------------------------------------
   const pull = fns.slice(fns.indexOf('async function pullCustomerFromSeason'),
@@ -1943,6 +2040,27 @@ suite('12. Season prep — customer portal (§3)');
   check('season', 'saying no this season asks first',
     /answer === 'no' && !window\.confirm/.test(idx),
     'that answer starts recycling their lights');
+
+  /* ---- t17: a pending quote must reach a customer who already has a bill --
+   * The approve/decline card existed, but the only path that rendered it ran
+   * when portalInvoice found NOTHING — so anyone who had ever been billed
+   * could not see a new quote, and the only way to approve one was the emailed
+   * link. Delete the email and you had to telephone. */
+  check('season', 'a signed-in customer is offered a pending quote',
+    /function offerPendingQuote/.test(idx) && /offerPendingQuote\(raw\);/.test(idx),
+    'the quote card only rendered for someone who was not yet a customer');
+  check('season', 'an already-answered quote is not offered again',
+    /d\.approvalStatus === 'approved' \|\| d\.approvalStatus === 'declined'/.test(
+      idx.slice(idx.indexOf('function offerPendingQuote'), idx.indexOf('function offerPendingQuote') + 1800)),
+    'showing Approve for a settled quote is a second bite at a decision already made');
+
+  /* ---- the PayPal buttons must survive an SDK without FUNDING ------------
+   * index.html guarded FUNDING.CARD but not FUNDING.PAYPAL, so an SDK that did
+   * not expose FUNDING threw AFTER the card button rendered and killed the
+   * rest — leaving the customer an empty PayPal area and a console error. */
+  check('season', 'the PayPal button does not assume FUNDING exists',
+    /if\(window\.paypal\.FUNDING && window\.paypal\.FUNDING\.PAYPAL\)\{/.test(idx),
+    'an unguarded FUNDING.PAYPAL read leaves the customer with no way to pay');
 
   /* ---- 3.8 basics for an older customer base ----------------------------- */
   check('season', 'the portal forms have real labels',
@@ -2352,7 +2470,10 @@ if (!JSDOM) {
 
     // The Add From Inbox helpers live further down the file than the renderers.
     const formStart = admin.indexOf('let whExtraPatternFromRecord');
-    const formEnd = admin.indexOf("document.getElementById('whAddExtraBtn')", formStart);
+    /* Anchored on the LISTENER, not just the button id. whCancelEditExtra
+       relabels that same button ("Add to Queue" / "Save Changes"), so a plain
+       id search now lands inside a function and the slice ends mid-body. */
+    const formEnd = admin.indexOf("document.getElementById('whAddExtraBtn').addEventListener", formStart);
     if (formStart === -1 || formEnd < formStart) {
       check('warehouse', 'the Add From Inbox helpers are findable',
         false, 'renamed or removed — update this test rather than deleting it');
@@ -2488,6 +2609,504 @@ if (!JSDOM) {
       'a "houses finished" box on a single person invites the same over-count mistake');
   }
 }
+/* ⚠ THE BUG THIS SUITE CATCHES.
+ *
+ * A customer who answers "no" or "back next year" on the RSVP link was
+ * updated in jobAddresses, but never pulled off a route the crew had already
+ * been handed — the same "sitting the season out" concept the admin-side
+ * Maybe Next Year toggle (setCustomerSeason/removeCustomerFromUpcomingRoutes
+ * in admin.html) has always handled correctly. A text check on portalRsvp's
+ * source could pass even with the route-removal call missing entirely, so
+ * this suite actually EXECUTES removeCustomerFromUpcomingRoutes against a
+ * fake Firestore and proves it strips the right stop from the right route —
+ * then a text check confirms portalRsvp is actually wired to call it.
+ */
+(function () {
+  const rStart = fnsSrc.indexOf('async function removeCustomerFromUpcomingRoutes(');
+  if (rStart === -1) {
+    check('rsvp-routes', 'removeCustomerFromUpcomingRoutes found in functions/index.js', false,
+      'renamed or removed — update this test rather than deleting it');
+    return;
+  }
+  const rSrc = fnsSrc.slice(rStart, fnsSrc.indexOf('\n}', rStart) + 2);
+
+  function makeRouteHarness(routes) {
+    const updated = [];
+    const ctx = {
+      db: {
+        collection: () => ({
+          get: async () => ({
+            docs: routes.map(r => ({
+              data: () => r,
+              ref: { update: async (payload) => { updated.push({ id: r.id, payload }); r.stops = payload.stops; } }
+            }))
+          })
+        })
+      },
+      todayStrInDenver: () => '2026-11-20',
+      console
+    };
+    const names = Object.keys(ctx);
+    const fn = new Function(...names, rSrc + '\nreturn removeCustomerFromUpcomingRoutes;')(...names.map(n => ctx[n]));
+    return { fn, updated };
+  }
+
+  const upcomingRoute = { id: 'r-upcoming', date: '2026-11-25', stops: [{ id: 'cust-1' }, { id: 'cust-2' }] };
+  const pastRoute = { id: 'r-past', date: '2026-11-01', stops: [{ id: 'cust-1' }] };
+  const harness = makeRouteHarness([upcomingRoute, pastRoute]);
+
+  pendingAsync.push((async () => {
+    suite('11. RSVP no / back-next-year removes the customer from upcoming routes');
+    let removedCount = null, threw = null;
+    try { removedCount = await harness.fn('cust-1'); } catch (e) { threw = e; }
+
+    check('rsvp-routes', 'removeCustomerFromUpcomingRoutes runs without throwing',
+      threw === null,
+      'it threw ' + (threw && threw.message) + ' — every caller silently fails to sweep routes');
+    check('rsvp-routes', 'the customer is stripped from the upcoming route\'s stops',
+      !upcomingRoute.stops.some(s => s.id === 'cust-1'),
+      'a customer who declined would still be a stop on a route the crew is about to run');
+    check('rsvp-routes', 'other stops on the same upcoming route are left alone',
+      upcomingRoute.stops.some(s => s.id === 'cust-2'),
+      'removing one customer should not remove their neighbors on the same route');
+    check('rsvp-routes', 'a PAST route is left alone as history',
+      pastRoute.stops.some(s => s.id === 'cust-1'),
+      'rewriting a past route would change what the crew actually did that day');
+    check('rsvp-routes', 'the function reports how many routes it actually changed',
+      removedCount === 1,
+      'the return value is what a caller would log — it should count only the route actually changed');
+
+    // Wiring check: portalRsvp must actually call this for 'no' and 'backnextyear'.
+    const prStart = fnsSrc.indexOf('exports.portalRsvp');
+    const prSrc = prStart > -1 ? fnsSrc.slice(prStart, fnsSrc.indexOf('\n});', prStart) + 4) : '';
+    check('rsvp-routes', 'portalRsvp found in functions/index.js', prStart > -1,
+      'renamed or removed — update this test rather than deleting it');
+    check('rsvp-routes', 'portalRsvp removes the customer from upcoming routes on "no" or "back next year"',
+      /response === 'no' \|\| response === 'backnextyear'/.test(prSrc) &&
+      /removeCustomerFromUpcomingRoutes\(match\.id\)/.test(prSrc),
+      'a customer who declines or asks for next year by email link would still show up on the crew\'s route');
+
+    // Same gap, admin side: setting RSVP to No from the Edit Customer dropdown
+    // (not just the Maybe Next Year toggle) must sweep routes too.
+    const ecStart = admin.indexOf("editCustSaveBtn').addEventListener('click'");
+    /* Sliced to the handler's real END — the first `\n});` at column 0 — not to
+       a fixed character count.
+       ⚠ This WAS `ecStart + 15000`, and it broke exactly the way CLAUDE.md §7
+       warns a magic window always eventually breaks: the Edit Customer save
+       handler grew (the §2 reliability work added to it), the
+       removeCustomerFromUpcomingRoutes call ended up 15,304 characters in, and
+       a correct, present, working line started reporting as a FAILURE. A test
+       that fails because the file got longer teaches you to distrust the
+       suite. */
+    const ecEnd = ecStart > -1 ? admin.indexOf('\n});', ecStart) : -1;
+    const ecSrc = ecStart > -1 ? admin.slice(ecStart, ecEnd > -1 ? ecEnd : admin.length) : admin;
+    check('rsvp-routes', 'Edit Customer removes the customer from upcoming routes when RSVP is set to No',
+      /newRsvp === 'no' && item\.data\.rsvpStatus !== 'no'/.test(ecSrc) &&
+      (ecSrc.match(/removeCustomerFromUpcomingRoutes\(editCustomerId\)/g) || []).length >= 1,
+      'setting RSVP straight to No from the dropdown had the same gap as the portal link — the crew still turns up');
+  })());
+})();
+
+// =====================================================================
+/* ⚠ THE BUG THIS SUITE CATCHES.
+ *
+ * buildInvoiceDocHtml (the printable/on-screen Invoice Preview panel in
+ * admin's Invoices tab — NOT the automation email, which is a separate,
+ * template-driven path and out of scope here) computes
+ * total = install + removal + changeFees and shows that total, but the
+ * itemized rows above it never included a removal line — the same class of
+ * bug the P0 fix eliminated for changeFees (CLAUDE.md §4), just missed for
+ * removal. A customer with a removal charge saw a total that didn't match
+ * what the line items added up to. This suite EXECUTES the real function
+ * against a fake invoice and checks the rendered HTML directly, rather than
+ * trusting a text/regex check that could pass on dead code.
+ */
+(function () {
+  const biStart = admin.indexOf('function buildInvoiceDocHtml(member){');
+  if (biStart === -1) {
+    check('invoice-doc', 'buildInvoiceDocHtml found in admin.html', false,
+      'renamed or removed — update this test rather than deleting it');
+    return;
+  }
+  const biEnd = admin.indexOf('\nlet invRecipientSearchTerm', biStart);
+  const biSrc = admin.slice(biStart, biEnd);
+
+  // fmtMoney is real (lifted from js/money.js, not stubbed) so this suite
+  // fails if the actual formatting rule ever changes underneath it.
+  const fmtMoneySrc = extractFn(money, 'fmtMoney');
+
+  function makeInvoiceHarness(invoiceOverrides) {
+    const ctx = {
+      allInvoicesCache: [{
+        id: '8015551234',
+        data: Object.assign({
+          install: 400, removal: 0, deposit: 0, credits: 0, changeFees: 0,
+          newMemberFeeApplied: false, creditNotes: [], changeFeeNotes: []
+        }, invoiceOverrides)
+      }],
+      jobAddresses: [],
+      perFootRate: 4,
+      siteContentCache: {},
+      computeInvoiceStatus: computeInvoiceStatus,
+      esc: s => String(s == null ? '' : s),
+      toJsDate: v => (v instanceof Date ? v : null),
+      addDays: (d, n) => new Date((d instanceof Date ? d.getTime() : Date.now()) + n * 86400000),
+      niceDate: () => 'Nov 20, 2026',
+      invoiceNumberFor: () => 'INV-0001',
+      PORTAL_ADDRESS: 'highlightingutah.com/#/payment',
+      VENMO_HANDLE: 'HighLightingUtah',
+      PAYMENT_TERMS_DAYS: 14
+    };
+    const names = Object.keys(ctx);
+    const fn = new Function(...names,
+      fmtMoneySrc + '\n' + biSrc + '\nreturn buildInvoiceDocHtml;'
+    )(...names.map(n => ctx[n]));
+    return fn;
+  }
+
+  const member = { data: {
+    phone: '8015551234', email: 'test@example.com', measuredFeet: 100,
+    housePrice: 400, chargeNewMemberFee: false, address: '1 Test St', name: 'Test Customer'
+  } };
+
+  suite('12. Printable invoice line items match the total shown');
+
+  let withRemovalHtml = null, threwWithRemoval = null;
+  try { withRemovalHtml = makeInvoiceHarness({ install: 400, removal: 150 })(member); }
+  catch (e) { threwWithRemoval = e; }
+  check('invoice-doc', 'buildInvoiceDocHtml runs without throwing',
+    threwWithRemoval === null,
+    'it threw ' + (threwWithRemoval && threwWithRemoval.message));
+  check('invoice-doc', 'a removal charge shows as its own line item',
+    !!withRemovalHtml && /Removal service/.test(withRemovalHtml) && withRemovalHtml.includes('$150.00'),
+    'the Total includes removal but the line items above it never showed it — a customer with a removal ' +
+    'charge sees numbers that silently don\'t add up');
+
+  const noRemovalHtml = makeInvoiceHarness({ install: 400, removal: 0 })(member);
+  check('invoice-doc', 'no removal line when there is no removal charge',
+    !/Removal service/.test(noRemovalHtml),
+    'an empty "Removal service — $0.00" row on every ordinary invoice would be clutter, not a fix');
+})();
+
+// =====================================================================
+/* ⚠ THE BUG THIS SUITE CATCHES.
+ *
+ * The Bulk Updates "Address Fields" importer (rbImportBtn) parses a
+ * Customer # column, validates every number up front — bad format, an
+ * in-batch duplicate, or a number already belonging to someone else all
+ * block the whole import with a specific row-numbered error — and then
+ * never actually wrote it to any record. The office would watch real
+ * validation errors fire for typos, reasonably conclude the numbers were
+ * being taken seriously, and every customer would come out with no
+ * customerNumber at all. This is a text-based check, not an execution one:
+ * rbImportBtn is a huge click handler wired to a page full of textareas and
+ * a real geocoder, and mocking all of that for one field is not worth it
+ * here — but the check is specific enough (exact assignment expressions,
+ * not just "cn appears somewhere") that it can't pass on dead code.
+ */
+(function () {
+  const start = admin.indexOf("rbImportBtn').addEventListener('click'");
+  if (start === -1) {
+    check('bulk-address', 'rbImportBtn found in admin.html', false,
+      'renamed or removed — update this test rather than deleting it');
+    return;
+  }
+  const src = admin.slice(start, start + 12000);
+
+  check('bulk-address', 'the Customer # column is parsed into cn',
+    /const custNumbers = alignBulkRows/.test(src) && /const cn = custNumbers\[i\] \|\| ''/.test(src),
+    'without this the column is read for validation only and the value itself is thrown away');
+  check('bulk-address', 'an existing customer actually gets the number written',
+    /updates\.customerNumber = cn;/.test(src),
+    'validation ran, no error shown, but the update object never carried the number through');
+  check('bulk-address', 'a newly-created customer actually gets the number written',
+    /newDoc\.customerNumber = cn;/.test(src),
+    'validation ran, no error shown, but the new customer document never carried the number through');
+  check('bulk-address', 'under-5000 numbers set Number of Bins to 1, matching the help text under the box',
+    (src.match(/if\(parseInt\(cn,10\) < 5000\) updates\.numberOfBins = 1;/) || []).length +
+    (src.match(/if\(parseInt\(cn,10\) < 5000\) newDoc\.numberOfBins = 1;/) || []).length >= 2,
+    'the box\'s own help text promises this and a human would trust it without checking');
+  check('bulk-address', 'a number already sitting in the recycled pool is cleared once assigned',
+    /deleteDoc\(doc\(db,'availableCustomerNumbers', cn\)\)/.test(src),
+    'without this a manually-typed number could still be handed out again later by Assign in Bulk');
+})();
+
+// =====================================================================
+/* ⚠ THE BUG THIS SUITE CATCHES.
+ *
+ * A customer who fully cancels through the Member Portal's own Cancel tab
+ * (not just an RSVP "no") never set needsLightRecycle, so they never
+ * appeared in the Warehouse Recycle queue (which keys strictly off that one
+ * flag) — their bin/customer number stayed locked to an inactive account
+ * until someone separately noticed the "Cancellation Requested" pill and
+ * manually flipped RSVP to No in Edit Customer. And they never got pulled
+ * off an already-scheduled route either, same gap as RSVP no/back-next-year
+ * (suite 11). Both are fixed in portalSave's 'cancel' section. Separately,
+ * index.html's cancel handler used to swallow a failed portalSave with
+ * nothing but a console.error nobody reads — that failure is now flagged
+ * directly on the message the office is about to read.
+ */
+(function () {
+  const psStart = fnsSrc.indexOf('exports.portalSave');
+  const psSrc = psStart > -1 ? fnsSrc.slice(psStart, psStart + 6000) : '';
+  check('cancel-flow', 'portalSave found in functions/index.js', psStart > -1,
+    'renamed or removed — update this test rather than deleting it');
+  check('cancel-flow', 'a full cancellation flags needsLightRecycle, same as RSVP no',
+    /section === 'cancel'\) \{[\s\S]{0,700}needsLightRecycle = true;/.test(psSrc),
+    'without this a cancelled customer never appears in the Warehouse Recycle queue — their number stays locked forever');
+  check('cancel-flow', 'a full cancellation is pulled off any already-scheduled route',
+    /section === 'cancel'\) \{\s*await removeCustomerFromUpcomingRoutes\(match\.id\);/.test(psSrc),
+    'a customer who cancels through the portal would still show up on the crew\'s route, same gap as RSVP no/back-next-year');
+
+  const idx = read('index.html');
+  const cancelStart = idx.indexOf("cancelFinalBtn').addEventListener('click'");
+  const cancelSrc = cancelStart > -1 ? idx.slice(cancelStart, cancelStart + 2200) : '';
+  check('cancel-flow', 'cancelFinalBtn handler found in index.html', cancelStart > -1,
+    'renamed or removed — update this test rather than deleting it');
+  check('cancel-flow', 'a failed account-status save is surfaced, not just console.error\'d',
+    /catch\(cancelErr\)\{[\s\S]{0,700}updateDoc\(cancelMsgRef/.test(cancelSrc),
+    'the office\'s Inbox message would read like nothing went wrong even when the account never actually got flagged');
+})();
+
+// =====================================================================
+/* ⚠ THE BUG THIS SUITE CATCHES.
+ *
+ * "Convert to Customer" on a quote card never checked whether that quote had
+ * already been converted — only whether it was archived. Converting sets
+ * status:'closed' and convertedToCustomerAt, but the button stayed live and
+ * clickable on an already-closed quote, and the Add Customer submit handler
+ * did an unconditional addDoc with no dedup check. A second click created a
+ * genuine duplicate: a second jobAddresses record, invoice, warehouse entry
+ * and customer number for the same person. Fixed on both ends — the button
+ * itself no longer renders once convertedToCustomerAt is set, and the submit
+ * handler independently re-checks the quote against the server right before
+ * writing, so a second staff member converting the same quote in a different
+ * tab is caught too, not just a double-click in one tab.
+ */
+(function () {
+  const cardStart = admin.indexOf("Restore this quote");
+  const cardSrc = cardStart > -1 ? admin.slice(cardStart, cardStart + 1200) : '';
+  check('convert-dup', 'quote card render found in admin.html', cardStart > -1,
+    'renamed or removed — update this test rather than deleting it');
+  check('convert-dup', 'the Convert to Customer button no longer shows once a quote is converted',
+    /d\.convertedToCustomerAt[\s\S]{0,300}data-converttocust/.test(cardSrc),
+    'a converted quote still offered a live "Convert to Customer" button, inviting a second, duplicate conversion');
+
+  const guardStart = admin.indexOf('dupCheckSnap');
+  const guardSrc = guardStart > -1 ? admin.slice(Math.max(0, guardStart - 400), guardStart + 500) : '';
+  check('convert-dup', 'Add Customer guard found in admin.html', guardStart > -1,
+    'renamed or removed — update this test rather than deleting it');
+  check('convert-dup', 'submitting Add Customer re-checks the quote for a prior conversion before writing',
+    /if\(addCustFromQuoteId\)\{[\s\S]{0,150}dupCheckSnap[\s\S]{0,150}convertedToCustomerAt[\s\S]{0,150}return;/.test(guardSrc),
+    'clicking Add Customer twice on the same pre-filled form (or two staff converting the same quote at once) ' +
+    'created a second jobAddresses record, invoice, warehouse entry and customer number for one person');
+})();
+
+// =====================================================================
+/* ⚠ THE BUGS THIS SUITE CATCHES.
+ *
+ * Deleting a customer (either one at a time from Edit Customer, or all of
+ * them from Danger Zone) never cleaned up fully:
+ *   - Neither path removed the customer from an already-built route, so a
+ *     deleted customer left a phantom stop behind — the crew's Mark Done had
+ *     nothing to update against and failed with no feedback. Single delete
+ *     is fixed with the same removeCustomerFromUpcomingRoutes() sweep every
+ *     other "customer is gone for the season" path already uses.
+ *   - Delete All Customers never released customerNumber back to the
+ *     available pool, unlike the single-delete path — whose own confirm()
+ *     dialog explicitly promises "Number #X goes back into the available
+ *     pool." A full wipe left every number permanently unlisted as
+ *     recycled, even though nobody held it anymore.
+ */
+(function () {
+  const singleStart = admin.indexOf("editCustDeleteBtn').addEventListener('click'");
+  const singleSrc = singleStart > -1 ? admin.slice(singleStart, singleStart + 2000) : '';
+  check('delete-cleanup', 'Delete This Customer handler found in admin.html', singleStart > -1,
+    'renamed or removed — update this test rather than deleting it');
+  check('delete-cleanup', 'deleting a single customer sweeps them off upcoming routes',
+    /removeCustomerFromUpcomingRoutes\(item\.id\)/.test(singleSrc) &&
+    singleSrc.indexOf('removeCustomerFromUpcomingRoutes(item.id)') < singleSrc.indexOf("deleteDoc(doc(db,'jobAddresses', item.id))"),
+    'a deleted customer left a phantom stop on any route already built — the crew\'s Mark Done had nothing to update and failed silently');
+
+  const allStart = admin.indexOf("deleteAllAddressesBtn').addEventListener('click'");
+  const allSrc = allStart > -1 ? admin.slice(allStart, allStart + 2000) : '';
+  check('delete-cleanup', 'Delete All Customers handler found in admin.html', allStart > -1,
+    'renamed or removed — update this test rather than deleting it');
+  check('delete-cleanup', 'Delete All Customers releases every customer\'s number back to the pool',
+    /availableCustomerNumbers['"]?,\s*num\)/.test(allSrc) || /'availableCustomerNumbers', num\)/.test(allSrc),
+    'the single-delete confirm dialog promises this exact behavior — a full wipe silently didn\'t do it');
+})();
+
+// =====================================================================
+/* ⚠ THE BUG THIS SUITE CATCHES.
+ *
+ * attachAddressRowHandlers (the route/address-row .paystatus-select
+ * dropdown, used on Routes and other address-row views) called
+ * computeInvoiceStatus with only 4 arguments — install, removal, deposit,
+ * credits — silently dropping changeFees (defaults to undefined, treated as
+ * 0). Every other one of the ~40 call sites in admin.html correctly passes
+ * all 5. For a customer carrying a light-change fee, this one dropdown
+ * could disagree with every other status display in the app (Invoice List,
+ * Dashboard, exports, emails) — e.g. reading "Paid in Full" while the real
+ * invoice, fee included, is still Partial Payment.
+ */
+(function () {
+  const rowStart = admin.indexOf('function attachAddressRowHandlers(container){');
+  if (rowStart === -1) {
+    check('invoice-status-args', 'attachAddressRowHandlers found in admin.html', false,
+      'renamed or removed — update this test rather than deleting it');
+    return;
+  }
+  const rowSrc = admin.slice(rowStart, rowStart + 600);
+  check('invoice-status-args', 'the paystatus dropdown includes changeFees, like every other invoice status call',
+    /computeInvoiceStatus\(inv\.data\.install, inv\.data\.removal, inv\.data\.deposit, inv\.data\.credits, inv\.data\.changeFees\)/.test(rowSrc),
+    'a customer with a light-change fee could show a status here that disagrees with every other status display in the app');
+})();
+
+// =====================================================================
+/* ⚠ THE BUG THIS SUITE CATCHES.
+ *
+ * 'system' is a reserved folder name — the RENAME handler already blocked
+ * it (folders can't be renamed to it), but the CREATE handler only blocked
+ * 'inbox'. A staff member could create a folder literally named "System"
+ * (or "system"/"SYSTEM"). Once created it's a trap: any message moved into
+ * it vanishes from Customer Messages (folder === 'System' is filtered out
+ * there unconditionally, so it only shows in System Messages mixed with
+ * real automated notices), and the folder becomes unclickable in the
+ * sidebar (renderFolderSidebar resets selectedFolder straight back to
+ * Inbox whenever it equals 'System').
+ */
+(function () {
+  const addStart = admin.indexOf("addFolderBtn').addEventListener('click'");
+  const addSrc = addStart > -1 ? admin.slice(addStart, addStart + 1200) : '';
+  check('folder-names', 'addFolderBtn handler found in admin.html', addStart > -1,
+    'renamed or removed — update this test rather than deleting it');
+  check('folder-names', 'creating a folder named "system" is blocked, same as "inbox"',
+    /name\.toLowerCase\(\) === 'inbox'[\s\S]{0,60}name\.toLowerCase\(\) === 'system'/.test(addSrc),
+    'a folder named "System" is indistinguishable from real automated notices — messages moved into it ' +
+    'vanish from Customer Messages and the folder itself becomes unclickable in the sidebar');
+})();
+
+// =====================================================================
+/* ⚠ THE BUGS THIS SUITE CATCHES.
+ *
+ * Public-site content rendering (index.html) had two gaps against what
+ * admin actually offers:
+ *   - Gallery photo captions (typed in admin, single upload/bulk
+ *     upload/inline edit) were never rendered by the real-data gallery
+ *     listener — only the static placeholder gallery showed captions,
+ *     which is presumably why nobody noticed: captions only visibly
+ *     worked before any real photo existed.
+ *   - Reviews and FAQ had no client-side sort at all, unlike Gallery and
+ *     Hero Images (both sort by createdAt/order just above them in the
+ *     same file). Admin's own lists ARE ordered (reviews newest-first,
+ *     FAQ oldest-first) — a plain onSnapshot with no orderBy returns
+ *     Firestore's implementation-defined order, not creation order, so
+ *     what staff see in admin and what the public site shows could
+ *     legitimately disagree.
+ */
+(function () {
+  const idx = read('index.html');
+  const galStart = idx.indexOf("onSnapshot(collection(db,'gallery')");
+  const galSrc = galStart > -1 ? idx.slice(galStart, galStart + 700) : '';
+  check('public-content', 'gallery listener found in index.html', galStart > -1,
+    'renamed or removed — update this test rather than deleting it');
+  check('public-content', 'a gallery caption entered in admin actually renders on the public site',
+    /g\.caption/.test(galSrc),
+    'captions only ever worked on the static placeholder gallery, before any real photo was uploaded');
+
+  const revStart = idx.indexOf("onSnapshot(collection(db,'reviews')");
+  const revSrc = revStart > -1 ? idx.slice(revStart, revStart + 700) : '';
+  check('public-content', 'reviews are sorted to match admin\'s newest-first order',
+    /docs\.sort/.test(revSrc),
+    'admin shows reviews newest-first; the public site showed Firestore\'s undefined default order instead');
+
+  const faqStart = idx.indexOf("onSnapshot(collection(db,'faq')");
+  const faqSrc = faqStart > -1 ? idx.slice(faqStart, faqStart + 500) : '';
+  check('public-content', 'FAQ is sorted to match admin\'s oldest-first order',
+    /docs\.sort/.test(faqSrc),
+    'admin shows FAQ oldest-first (so the "top 3" preview is deterministic); the public site had no sort at all');
+})();
+
+// =====================================================================
+/* ⚠ THE BUG THIS SUITE CATCHES.
+ *
+ * whBundlesFor (the crew portal's build-sheet bundle count, employee.html)
+ * fell back to 0 bundles for a house with NEITHER measured feet NOR a
+ * price to estimate from — contradicting its own neighboring comment
+ * ("bundles are estimated from the price... so the crew doesn't see
+ * '0 bundles' and under-build"), which only actually held when a price
+ * existed. Admin's own houseBundleNeed uses the same fallback chain and
+ * assumes 1 bundle in that exact case. The mismatch meant the printed
+ * warehouse sheet the crew builds from could under-total by 1 bundle per
+ * such house, disagreeing with what the office dashboard shows for the
+ * same customer. Executed directly against the real function, not just a
+ * text check — this is exactly the kind of "which number does the
+ * fallback branch return" bug a regex can't see.
+ */
+(function () {
+  const wbSrc = extractFn(employee, 'whBundlesFor');
+  if (!wbSrc) {
+    check('bundle-fallback', 'whBundlesFor found in employee.html', false,
+      'renamed or removed — update this test rather than deleting it');
+    return;
+  }
+  const fn = new Function('empPfRateVal', wbSrc + '\nreturn whBundlesFor;')(0);
+
+  const noFeetNoPrice = fn({ measuredFeet: 0, housePrice: 0 });
+  check('bundle-fallback', 'a house with no feet and no price still counts as at least 1 bundle',
+    noFeetNoPrice.bundles === 1,
+    'it returned ' + noFeetNoPrice.bundles + ' — a 0-bundle house is silently missing from the group/printable-sheet totals, ' +
+    'disagreeing with admin\'s own houseBundleNeed, which assumes 1 in this exact case');
+  check('bundle-fallback', 'that fallback is still flagged unknown, so the crew knows it\'s a guess',
+    noFeetNoPrice.unknown === true,
+    'losing the "unknown" flag would hide that this number was never actually measured');
+
+  const withFeet = fn({ measuredFeet: 80, housePrice: 0 });
+  check('bundle-fallback', 'a house WITH feet on file is unaffected by the fallback',
+    withFeet.bundles === 2 && withFeet.unknown === false,
+    'the fallback for missing data must never override a real measurement');
+})();
+
+// =====================================================================
+/* ⚠ THE BUG THIS SUITE CATCHES.
+ *
+ * A customer's exact light-colour PATTERN (order + repeats, e.g. "Red, Red,
+ * Warm White, Warm White, repeating" from the quote detail form's sequence
+ * builder) was silently flattened on Convert to Customer. The colour
+ * checkboxes on the Add a Customer form only ever carry a SET of colours —
+ * submitting always rebuilt lightsDescription from checkbox DOM order via
+ * compileLightsDescription, discarding order and repeat counts entirely,
+ * with no on-screen cue to staff that a pattern existed. lightsDescription
+ * drives the warehouse build queue and the crew's build instructions, so a
+ * real pattern request could get built wrong. This is a text-based check —
+ * the state (addCustQuoteLightsPattern) is captured in one click handler and
+ * consumed in a different, much larger submit handler full of DOM/geocoding
+ * calls not worth mocking here — but it targets the exact expressions, not
+ * just "the words appear somewhere".
+ */
+(function () {
+  const captureStart = admin.indexOf('addCustQuoteLightsPattern = rbDetectColorsAndPattern');
+  check('light-pattern', 'the quote\'s pattern is captured when converting to a customer',
+    captureStart > -1,
+    'renamed or removed — update this test rather than deleting it');
+
+  const submitStart = admin.indexOf('const keptQuotePattern');
+  const submitSrc = submitStart > -1 ? admin.slice(submitStart, submitStart + 500) : '';
+  check('light-pattern', 'submitting Add Customer keeps the captured pattern when the colours are unchanged',
+    /selectedColors\.length === addCustQuoteColorsSnapshot\.length/.test(submitSrc) &&
+    /keptQuotePattern\s*\?\s*addCustQuoteLightsPattern/.test(submitSrc),
+    'without this, converting a quote with a real pattern always rebuilt a plain comma-joined colour list, ' +
+    'losing the order and repeat counts the customer actually specified');
+  check('light-pattern', 'changing the colours during conversion does NOT keep the stale original pattern',
+    /compileLightsDescription\(selectedColors\.join/.test(submitSrc),
+    'if staff pick different colours than the quote had, the description must be rebuilt fresh, not keep an now-wrong pattern');
+
+  const resetCount = (admin.match(/addCustQuoteLightsPattern = '';/g) || []).length;
+  check('light-pattern', 'the captured pattern is cleared everywhere addCustFromQuoteId is',
+    resetCount >= 2,
+    'a stale pattern from a previous conversion could leak onto an unrelated manual Add Customer submission');
+})();
 
 // =====================================================================
 // Wait for the async suites before totalling up — see pendingAsync at the top.
