@@ -186,11 +186,22 @@
   }
   .badge-done{ background:#E6F2EA; color:#2E6B3E; }
   .badge-flag{ background:#FDECEA; color:var(--ember); }
-  .stop-actions{ display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
+  /* 14px apart, not 8px. "Mark Done" and "Flag Issue" do opposite things and
+     sat a thumb's width from each other on a phone held in gloves. */
+  .stop-actions{ display:flex; gap:14px; margin-top:12px; flex-wrap:wrap; }
   .stop-action-btn{
     flex:1; min-width:130px; border-radius:10px; border:1px solid var(--line); background:var(--snow);
-    padding:11px; font-weight:700; font-size:13px; cursor:pointer;
+    padding:14px 11px; font-weight:700; font-size:13px; cursor:pointer;
   }
+  /* A finished stop collapses to a single line — the crew is looking for the
+     NEXT house, not the last one. Tapping the card still opens it. */
+  .stop-card.stop-finished .stop-notes,
+  .stop-card.stop-finished .stop-actions,
+  .stop-card.stop-finished .stop-perm-note,
+  .stop-card.stop-finished [id^="housephoto-"],
+  .stop-card.stop-finished [id^="stopdetails-"]{ display:none !important; }
+  .stop-card.stop-finished{ opacity:.62; }
+  body.route-hide-done .stop-card.stop-finished{ display:none; }
   .done-btn{ color:#2E6B3E; border-color:#bfe0c8; }
   .done-btn:hover{ background:#E6F2EA; }
   .flag-btn{ color:var(--ember); border-color:#f0b3ac; }
@@ -254,12 +265,13 @@
 <div id="whoScreen" style="display:none; min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; background:linear-gradient(150deg,var(--ink),var(--dusk));">
   <div class="login-card">
     <h1>Who's clocking in?</h1>
-    <p style="font-size:13px;">Type your first name &mdash; this device will remember it.</p>
-    <form id="whoForm" style="margin-top:16px;">
-      <div class="field"><input type="text" id="whoNameInput" placeholder="Your name" autocomplete="off"></div>
-      <button type="submit" class="btn btn-gold">Continue</button>
-      <div id="whoError" style="color:#E0574B; font-size:13px; margin-top:10px; min-height:16px;"></div>
-    </form>
+    <p style="font-size:13px;">Tap your name &mdash; this device will remember it.</p>
+    <!-- A tap list, not a text box. Typing a first name matched the FIRST
+         person with that first name, so a second hire called Jose silently
+         became the first one — same shifts, same pay rate, no error. Full
+         names on buttons cannot be ambiguous, and it is fewer taps in gloves. -->
+    <div id="whoNameList" style="margin-top:16px; display:flex; flex-direction:column; gap:8px;"></div>
+    <div id="whoError" style="color:#E0574B; font-size:13px; margin-top:10px; min-height:16px;"></div>
   </div>
 </div>
 
@@ -267,6 +279,10 @@
   <div class="topbar">
     <div class="brand" id="topbarTitle">Clock In</div>
     <div style="display:flex; gap:14px; align-items:center;">
+      <!-- Offline is normal in a canyon and is NOT a failure: Firestore queues
+           the writes and sends them when signal returns. Saying so stops the
+           crew re-tapping, or ringing in to report the app broken. -->
+      <span id="offlineBadge" role="status" aria-live="polite" style="display:none; font-size:12px; font-weight:700; background:#FDF6E7; color:#7A5C16; border:1px solid #EBD7A6; border-radius:999px; padding:3px 10px;">Offline — saving on this phone</span>
       <button id="switchPersonBtn" style="font-size:13px;">Not <span id="currentPersonName"></span>?</button>
       <button id="logoutBtn">Log Out</button>
     </div>
@@ -381,6 +397,16 @@
         <div id="dayMap" style="width:100%; height:260px; border-radius:14px; border:1px solid var(--line); background:var(--snow);"></div>
       </div>
 
+      <!-- The route never got shorter as the day went on: a finished stop
+           stayed fully expanded, photo and all, so the crew scrolled past
+           everything they had already done to find the next house. The
+           Warehouse tab has had this toggle all along. -->
+      <div style="display:flex; align-items:center; justify-content:flex-end; padding:0 2px 10px;">
+        <label style="display:flex; align-items:center; gap:6px; font-size:13px; color:var(--slate); cursor:pointer;">
+          <input type="checkbox" id="routeHideDone" style="width:auto;">
+          Hide finished stops
+        </label>
+      </div>
       <div id="routesWrap"></div>
     </div>
   </div>
@@ -592,32 +618,42 @@ function showWhoScreen(){
   whoScreen.style.display = 'flex';
   appEl.classList.remove('show');
   document.getElementById('whoError').textContent = '';
-  document.getElementById('whoNameInput').value = '';
   onSnapshot(collection(db,'employeeNames'), function(snap){
     knownEmployeeNames = [];
     snap.forEach(function(d){ knownEmployeeNames.push(d.data().name); });
+    // Repaint the tap list every time the roster changes — a new hire appears
+    // without anyone reloading the page.
+    renderWhoNameList();
   }, function(err){
     document.getElementById('whoError').textContent = 'Couldn\'t load names (' + err.message + '). Ask your manager to check the Firestore rules.';
   });
-  setTimeout(function(){ document.getElementById('whoNameInput').focus(); }, 100);
+  // (No text box to focus any more — the names are buttons.)
 }
-document.getElementById('whoForm').addEventListener('submit', function(e){
-  e.preventDefault();
-  const typed = document.getElementById('whoNameInput').value.trim();
+/* Paint the known names as buttons. Called once the employee list has loaded;
+   safe to call again, so a late-arriving list simply fills the screen in. */
+function renderWhoNameList(){
+  const list = document.getElementById('whoNameList');
   const errEl = document.getElementById('whoError');
-  if(!typed){ errEl.textContent = 'Type your name first.'; return; }
-  if(!knownEmployeeNames.length){ errEl.textContent = 'No names have been added yet — ask your manager to add employee names in the admin panel.'; return; }
-  const typedFirst = typed.split(/\s+/)[0].toLowerCase();
-  const match = knownEmployeeNames.find(function(n){
-    return n.split(/\s+/)[0].toLowerCase() === typedFirst;
-  });
-  if(!match){
-    errEl.textContent = 'That name isn\'t recognized — ask your manager to add you in the admin panel.';
+  if(!list) return;
+  if(!knownEmployeeNames.length){
+    list.innerHTML = '';
+    if(errEl) errEl.textContent = 'No names have been added yet — ask your manager to add employee names in the admin panel.';
     return;
   }
-  errEl.textContent = '';
-  localStorage.setItem('huEmployeeName', match);
-  startAppAs(match);
+  if(errEl) errEl.textContent = '';
+  list.innerHTML = knownEmployeeNames.slice().sort(function(a,b){ return a.localeCompare(b); })
+    .map(function(n){
+      // Full name, never just the first — that ambiguity is the bug.
+      return '<button type="button" class="btn btn-gold" data-whoname="' + esc(n) + '" style="width:100%; padding:15px; font-size:16px;">' + esc(n) + '</button>';
+    }).join('');
+}
+document.addEventListener('click', function(e){
+  const btn = e.target.closest && e.target.closest('[data-whoname]');
+  if(!btn) return;
+  const name = btn.dataset.whoname;
+  if(!name) return;
+  localStorage.setItem('huEmployeeName', name);
+  startAppAs(name);
 });
 let crewConfigCache = { count: 1, members: {} };
 async function loadCrewConfigOnce(){
@@ -626,12 +662,17 @@ async function loadCrewConfigOnce(){
     if(snap.exists()) crewConfigCache = snap.data();
   } catch(err){ /* fall back to defaults */ }
 }
+/* Which crew is this person on? Returns null when nobody has assigned them,
+   rather than silently answering "1".
+   ⚠ Falling back to '1' meant an unassigned person was shown CREW 1's route —
+   a real route, for real houses, that was not theirs. They would work it, and
+   crew 1 would arrive to find it half done. "I don't know" has to be sayable. */
 function crewFromConfig(name){
   const members = crewConfigCache.members || {};
   for(const crewNum of Object.keys(members)){
     if((members[crewNum]||[]).includes(name)) return crewNum;
   }
-  return '1';
+  return null;
 }
 async function getCrewForDate(name, dateStr){
   try{
@@ -2519,6 +2560,11 @@ function mapsLink(lat, lng){
   return 'https://www.google.com/maps/dir/?api=1&destination=' + lat + ',' + lng;
 }
 let dayMapInstance = null;
+/* The last customer record loaded for each stop on screen. Used so a status
+   badge can be repainted immediately from what we already know, before the
+   server has acknowledged the write — see the Mark Done handler. Offline that
+   acknowledgement never comes at all, and the crew needs to see the tap land. */
+const stopDataCache = {};
 function renderDayMap(stops){
   const mapDiv = document.getElementById('dayMap');
   if(!mapDiv) return;
@@ -2543,6 +2589,29 @@ function renderDayMap(stops){
   });
   dayMapInstance.fitBounds(bounds);
 }
+/* (801) 555-0142 rather than 8015550142 — read out loud over a phone, and
+   easier to check against what the office told you. */
+/* Offline indicator. Everything the crew does is queued locally by Firestore
+   and sent when signal returns, so this is information rather than a warning —
+   but without it a tap that visibly does nothing looks like a broken app. */
+(function(){
+  const badge = document.getElementById('offlineBadge');
+  if(!badge) return;
+  function paint(){ badge.style.display = navigator.onLine ? 'none' : 'inline-block'; }
+  window.addEventListener('online', paint);
+  window.addEventListener('offline', paint);
+  paint();
+})();
+(function(){
+  const cb = document.getElementById('routeHideDone');
+  if(cb) cb.addEventListener('change', function(){
+    document.body.classList.toggle('route-hide-done', cb.checked);
+  });
+})();
+function fmtPhoneCrew(p){
+  const s = String(p || '').replace(/\D/g,'');
+  return s.length === 10 ? '(' + s.slice(0,3) + ') ' + s.slice(3,6) + '-' + s.slice(6) : String(p || '');
+}
 function pinIcon(){
   return '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>';
 }
@@ -2552,8 +2621,28 @@ async function loadRoutesForDate(){
   wrap.innerHTML = '<div class="empty-note">Loading…</div>';
   const crew = await getCrewForDate(currentPersonName, dateStr);
   const crewLabelEl = document.getElementById('crewLabel');
-  if(crewLabelEl) crewLabelEl.textContent = 'Crew ' + crew;
-  const types = ['install','fix'];
+  if(crewLabelEl) crewLabelEl.textContent = crew ? ('Crew ' + crew) : 'No crew assigned';
+  /* Nobody has put this person on a crew. Say so, rather than handing them
+     crew 1's route — see crewFromConfig. */
+  if(!crew){
+    wrap.innerHTML = '<div class="empty-note" style="color:#9F1239;"><strong>You are not on a crew for ' + esc(dateStr) + '.</strong><br>' +
+      'Ask the office to add you to a crew — until they do there is no route to show you, and the one you would have been shown belongs to someone else.</div>';
+    renderDayMap([]);
+    return;
+  }
+  /* ⚠ 'removal' was missing here until 2026-08-14, so EVERY DAY OF JANUARY a
+     crew opening Today's Route saw "No route scheduled for this day" — Admin
+     saves removal routes as <date>_removal_<crew>, exactly the same pattern as
+     the other two, and nothing here ever asked for them.
+
+     This ships together with the Done button change below, and must not be
+     separated from it: marking a stop done writes `completed: true`, and
+     `completed` is the flag the nightly biller keys off to decide a house is
+     ready to INVOICE FOR AN INSTALL. A crew marking January takedowns done
+     against that field would bill the whole route for an install a second
+     time. A removal stop writes removalDone instead — the field Admin's own
+     "Removal Done" checkbox has always used. */
+  const types = ['install','fix','removal'];
   let anyFound = false;
   let html = '';
   let allStopsForMap = [];
@@ -2565,7 +2654,7 @@ async function loadRoutesForDate(){
         const route = snap.data();
         route.stops.forEach(function(s){ allStopsForMap.push(Object.assign({}, s, {routeType:type})); });
         html += '<div class="route-section">'+
-          '<h2>'+(type==='fix' ? 'Fix Visits' : 'Installs')+' <span class="tag tag-'+type+'">'+route.stops.length+' stop'+(route.stops.length===1?'':'s')+'</span></h2>'+
+          '<h2>'+(type==='fix' ? 'Fix Visits' : (type==='removal' ? 'Take Downs' : 'Installs'))+' <span class="tag tag-'+type+'">'+route.stops.length+' stop'+(route.stops.length===1?'':'s')+'</span></h2>'+
           route.stops.map(function(stop, i){
             return '<div class="stop-card" id="stopcard-'+stop.id+'">'+
               '<div class="stop-head">'+
@@ -2576,6 +2665,12 @@ async function loadRoutesForDate(){
                     (stop.gateCode ? '<span class="tag" style="background:#FAEEDA; color:#633806; flex-shrink:0; white-space:nowrap;">&#128274; '+esc(stop.gateCode)+'</span>' : '')+
                   '</div>'+
                   '<a class="stop-address-link" href="'+mapsLink(stop.lat, stop.lng)+'" target="_blank" rel="noopener">'+pinIcon()+esc(stop.address)+'</a>'+
+                  /* Call the customer from the stop. The phone number has
+                     always been frozen into the route snapshot and was never
+                     shown, so a crew standing at a locked gate had to ring the
+                     office to be given a number the phone in their hand
+                     already had. */
+                  (stop.phone ? '<a class="stop-address-link" href="tel:'+esc(String(stop.phone).replace(/[^\d+]/g,''))+'" style="margin-top:2px;">&#128222; '+esc(fmtPhoneCrew(stop.phone))+'</a>' : '')+
 
                   '<div id="stopdetails-'+stop.id+'"></div>'+
                   '<div id="outletlive-'+stop.id+'"></div>'+
@@ -2587,7 +2682,7 @@ async function loadRoutesForDate(){
               '<div id="fixnote-'+stop.id+'" style="display:none; margin-top:10px;"></div>'+
               '<div id="housephoto-'+stop.id+'" style="display:none; margin-top:10px;"></div>'+
               '<div class="stop-actions">'+
-                '<button type="button" class="stop-action-btn done-btn" data-markdone="'+stop.id+'">&#10003; Mark Done</button>'+
+                '<button type="button" class="stop-action-btn done-btn" data-markdone="'+stop.id+'" data-routetype="'+type+'">&#10003; '+(type==='removal' ? 'Mark Taken Down' : 'Mark Done')+'</button>'+
                 '<button type="button" class="stop-action-btn flag-btn" data-flagissue="'+stop.id+'">&#9873; Flag Issue</button>'+
                 '<button type="button" class="stop-action-btn notdone-btn" data-notdone="'+stop.id+'" data-routetype="'+type+'">&#8635; Didn\'t Get To</button>'+
               '</div>'+
@@ -2664,8 +2759,23 @@ async function loadRoutesForDate(){
             overlayOnMain: boxes
           });
         }
+        stopDataCache[id] = d;
         renderStopStatus(id, d);
-      } catch(err){ ta.value = ''; }
+      } catch(err){
+        /* ⚠ This used to be `catch { ta.value = ''; }` — the card then rendered
+           looking completely normal with the warnings MISSING. Everything
+           fetched here is the dangerous half of a stop: the gate code, the
+           wire colour, the outlet notes, the "⚠ this visit only" note and the
+           photo. A crew that cannot see the one-time note does not know the
+           note exists, so a silent failure is worse than a visible one. */
+        console.error('[HU] stop details failed for ' + id, err);
+        ta.value = '';
+        const warn = document.getElementById('stopdetails-' + id);
+        if(warn){
+          warn.innerHTML = '<div style="margin-top:8px; padding:9px 11px; border-radius:8px; background:#FDECEA; border:1px solid #f0b3ac; color:#9F1239; font-size:13px; font-weight:600; cursor:pointer;" data-retrystop="' + id + '">' +
+            '⚠ Couldn\'t load this house\'s details (colours, gate code, notes). Tap to retry.</div>';
+        }
+      }
     });
     wrap.querySelectorAll('[data-savenote]').forEach(function(btn){
       btn.addEventListener('click', async function(){
@@ -2684,19 +2794,60 @@ async function loadRoutesForDate(){
     wrap.querySelectorAll('[data-markdone]').forEach(function(btn){
       btn.addEventListener('click', async function(){
         const id = btn.dataset.markdone;
-        // Clear the one-time note now the visit is done — it's labelled
-        // "this visit only" and shouldn't carry into the next visit or season.
-        await updateDoc(doc(db,'jobAddresses',id), {completed: true, completedAt: serverTimestamp(), oneTimeNote: ''});
-        const snap = await getDoc(doc(db,'jobAddresses',id));
-        renderStopStatus(id, snap.data());
+        const routeType = btn.dataset.routetype || 'install';
+        /* ⚠ WHICH FIELD THIS WRITES IS A MONEY DECISION.
+           `completed` means "the lights are UP" and is what the nightly biller
+           looks for to decide a house is ready to be invoiced for an install.
+           A January takedown must therefore never write it — that would bill
+           the whole removal route for an install all over again. Removals
+           write removalDone, the same field Admin's "Removal Done" checkbox
+           has always used. */
+        const updates = routeType === 'removal'
+          ? {removalDone: true, removalDoneAt: serverTimestamp(), oneTimeNote: ''}
+          // Clear the one-time note now the visit is done — it's labelled
+          // "this visit only" and shouldn't carry into the next visit or season.
+          : {completed: true, completedAt: serverTimestamp(), oneTimeNote: ''};
+        /* Paint the badge FIRST, then write. Offline the write is queued
+           locally and the server acknowledgement never arrives, so awaiting it
+           left the button looking like it had done nothing — the crew taps
+           again, or reports the app broken. The local cache is updated
+           immediately either way, so the badge is telling the truth. */
+        renderStopStatus(id, Object.assign({}, stopDataCache[id] || {}, updates, {__optimistic: true}));
+        try{
+          await updateDoc(doc(db,'jobAddresses',id), updates);
+          const snap = await getDoc(doc(db,'jobAddresses',id));
+          stopDataCache[id] = snap.data();
+          renderStopStatus(id, snap.data());
+        } catch(err){
+          // Queued offline is normal and not an error; a real failure is.
+          console.error('[HU] mark done failed', err);
+        }
       });
     });
     wrap.querySelectorAll('[data-flagissue]').forEach(function(btn){
       btn.addEventListener('click', async function(){
         const id = btn.dataset.flagissue;
-        await updateDoc(doc(db,'jobAddresses',id), {needsFix: true});
-        const snap = await getDoc(doc(db,'jobAddresses',id));
-        renderStopStatus(id, snap.data());
+        /* Flagging used to write only `needsFix: true` — that something is
+           wrong, but never WHAT. The card already knows how to display
+           fixNote, and a flagged house holds up its payer's whole invoice, so
+           a flag with no explanation stops money moving and nobody knows why.
+           Asking one question at the moment the crew is standing in front of
+           the house is the only time the answer is cheap to get. */
+        const why = window.prompt('What needs fixing at this house?\n\n(This holds the invoice until it is sorted, so please be specific — e.g. "3 bulbs out on the north eave", "outlet dead".)', '');
+        if(why === null) return;                 // cancelled — do not flag
+        const note = String(why).trim();
+        if(!note){
+          alert('Please describe the problem — a flag with no reason cannot be acted on.');
+          return;
+        }
+        const updates = {needsFix: true, fixNote: note, fixFlaggedAt: serverTimestamp(), fixFlaggedBy: currentPersonName || ''};
+        renderStopStatus(id, Object.assign({}, stopDataCache[id] || {}, updates, {__optimistic: true}));
+        try{
+          await updateDoc(doc(db,'jobAddresses',id), updates);
+          const snap = await getDoc(doc(db,'jobAddresses',id));
+          stopDataCache[id] = snap.data();
+          renderStopStatus(id, snap.data());
+        } catch(err){ console.error('[HU] flag issue failed', err); }
       });
     });
     wrap.querySelectorAll('[data-notdone]').forEach(function(btn){
@@ -2718,9 +2869,18 @@ function renderStopStatus(id, d){
   if(!el) return;
   let badges = '';
   if(d.completed) badges += '<span class="stop-badge badge-done">&#10003; Done</span>';
+  // Removals write removalDone, never completed — see the Mark Done handler.
+  if(d.removalDone) badges += '<span class="stop-badge badge-done">&#10003; Taken Down</span>';
   if(d.needsFix) badges += '<span class="stop-badge badge-flag">&#9873; Flagged for Fix</span>';
-  if(!d.completed && !d.needsFix && d.notCompletedAt) badges += '<span class="stop-badge badge-notdone">&#8635; Sent Back to Schedule</span>';
+  if(!d.completed && !d.removalDone && !d.needsFix && d.notCompletedAt) badges += '<span class="stop-badge badge-notdone">&#8635; Sent Back to Schedule</span>';
+  // A queued write shows the same badge with a hint that it is still going up.
+  if(d.__optimistic) badges += '<span class="stop-badge" style="background:#EAF1FA; color:#2B5C8A;">saving…</span>';
   el.innerHTML = badges;
+  /* Collapse the card once the visit is over, so the route gets shorter as the
+     day goes on instead of staying the same length with the done stops still
+     fully expanded. A flagged house stays open — that one still needs reading. */
+  const card = document.getElementById('stopcard-' + id);
+  if(card) card.classList.toggle('stop-finished', (!!d.completed || !!d.removalDone) && !d.needsFix);
 }
 function esc(s){
   return (s||'').toString().replace(/[&<>"']/g, function(c){

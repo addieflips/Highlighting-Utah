@@ -541,7 +541,12 @@ const PORTAL_READ_FIELDS = [
   'lightsDescription', 'installPreference', 'wireColor', 'outletTimer',
   'specificOutlet', 'specificOutletNotes', 'notes', 'rsvpStatus',
   'seasonStatus', 'cancellationReason', 'housePhotoUrl', 'houseHighlights',
-  'quoteDetailQuoteId'
+  'quoteDetailQuoteId',
+  /* "When are you coming?" is the most-asked question of the season and the
+     answer was already on the record, just never sent. The DATE only — never
+     assignedCrew and never the stop order, which are internal and would turn
+     into "why am I last?" calls. */
+  'scheduledDate', 'completed', 'removalDone'
 ];
 
 function generatePortalToken() {
@@ -1371,7 +1376,17 @@ exports.cloudinarySignature = onCall(
 
 // Only the fields the invoice card renders. Internal costing, crew notes and
 // anything else on the invoice document stay on the server.
-const INVOICE_READ_FIELDS = ['name', 'phone', 'email', 'install', 'removal', 'deposit', 'credits', 'creditNotes', 'changeFees', 'changeFeeNotes'];
+/* ⚠ Anything added here is sent to the customer's browser. Keep it to what the
+   invoice card actually renders — internal costing, crew notes and everything
+   else on the invoice document stay on the server.
+
+   lastPaymentAt / lastPaymentMethod were written by the payment paths from the
+   start and never whitelisted, so "did you get my payment?" could not be
+   answered on screen even though the answer was sitting on the record. They
+   are only ever a date and one of a few words ('paypal', 'venmo', 'manual') —
+   nothing about how the payment was taken. */
+const INVOICE_READ_FIELDS = ['name', 'phone', 'email', 'install', 'removal', 'deposit', 'credits', 'creditNotes', 'changeFees', 'changeFeeNotes',
+  'lastPaymentAt', 'lastPaymentMethod'];
 
 function sanitizeInvoice(data) {
   const out = {};

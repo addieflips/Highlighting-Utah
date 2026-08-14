@@ -5,7 +5,7 @@
 
 // Bump this version string on any change here. Changing it is what clears
 // out the old cache on everyone's phones.
-const CACHE_NAME = 'hu-crew-shell-v3';
+const CACHE_NAME = 'hu-crew-shell-v4';
 
 // The page itself. Always fetched fresh when there's signal, so a deploy
 // shows up on the very next open instead of the one after.
@@ -20,12 +20,42 @@ const STATIC_PATHS = [
   '/icons/icon-512.png'
 ];
 
+/* ⚠ THE APP ITSELF IS CROSS-ORIGIN, AND WITHOUT THIS THE OFFLINE STORY DID
+   NOT SURVIVE A RELOAD.
+   employee.html is a cached page whose entire code lives in three ES modules
+   loaded from www.gstatic.com. The fetch handler below deliberately ignores
+   every cross-origin request, so on a reload with no signal the crew got the
+   cached page and then nothing at all: a shell that could not boot. Firestore's
+   own offline persistence was working perfectly underneath an app that never
+   started.
+
+   These three URLs are safe to cache hard because they are VERSION-PINNED
+   (10.12.2). They only change when someone edits that version in
+   employee.html, and CACHE_NAME must be bumped in the same commit when they
+   do — which is the same rule that already applies to everything else here. */
+const VENDOR_URLS = [
+  'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js',
+  'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js',
+  'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js'
+];
+
 const APP_SHELL = PAGE_PATHS.concat(STATIC_PATHS);
 
 // Install: pre-cache the app shell
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL))
+    caches.open(CACHE_NAME).then(function (cache) {
+      /* Same-origin shell must succeed — if it cannot, the install should
+         fail loudly rather than leave a half-cached worker in place. The
+         vendor modules are added separately and allowed to fail: gstatic
+         being unreachable at install time must not stop the page itself
+         being cached, and they will be picked up on the next fetch. */
+      return cache.addAll(APP_SHELL).then(function () {
+        return Promise.all(VENDOR_URLS.map(function (u) {
+          return cache.add(new Request(u, { mode: 'cors' })).catch(function () {});
+        }));
+      });
+    })
   );
   self.skipWaiting();
 });
@@ -50,7 +80,33 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  if (event.request.method !== 'GET' || url.origin !== self.location.origin) {
+  if (event.request.method !== 'GET') {
+    return;
+  }
+
+  /* The three version-pinned Firebase modules are the ONLY cross-origin
+     requests this worker touches. Cache-first, then network: they never change
+     for a given version, and without them a cached employee.html is a page
+     with no app in it. Everything else cross-origin — Firestore's own traffic,
+     Google Maps, Cloudinary — still passes straight through untouched, which
+     is what the origin check below is protecting. */
+  if (VENDOR_URLS.indexOf(url.href) !== -1) {
+    event.respondWith(
+      caches.match(event.request).then(function (hit) {
+        if (hit) return hit;
+        return fetch(event.request).then(function (res) {
+          if (res && (res.ok || res.type === 'opaque')) {
+            const copy = res.clone();
+            caches.open(CACHE_NAME).then(function (c) { c.put(event.request, copy); });
+          }
+          return res;
+        });
+      })
+    );
+    return;
+  }
+
+  if (url.origin !== self.location.origin) {
     return;
   }
 

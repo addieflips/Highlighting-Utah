@@ -48,7 +48,14 @@ const CUSTOMERS = {
       rsvpStatus: 'yes',
       seasonStatus: 'active',
       housePhotoUrl: 'https://example.invalid/house-standard.jpg',
-      houseHighlights: []
+      houseHighlights: [],
+      /* Added when scheduledDate / completed / removalDone joined
+         PORTAL_READ_FIELDS so the portal could answer "when are you coming?".
+         FROZEN_NOW is mid-season, so this one is already installed — the
+         schedule strip should read Installed, not Scheduled. */
+      scheduledDate: '2026-11-12',
+      completed: true,
+      removalDone: false
     }
   },
 
@@ -70,7 +77,10 @@ const CUSTOMERS = {
       wireColor: 'Green',
       outletTimer: 'No',
       rsvpStatus: 'yes',
-      seasonStatus: 'active'
+      seasonStatus: 'active',
+      // Scheduled but NOT yet installed — the other half of the schedule strip.
+      scheduledDate: '2026-11-18',
+      completed: false
     }
   },
 
@@ -140,30 +150,40 @@ const CUSTOMERS = {
 const INVOICES = {
   '8015550142': {                    // standard — part paid
     found: true,
+    name: 'Dana Petersen', phone: '8015550142', email: 'dana@example.com',
     install: 450, removal: 0, deposit: 200, credits: 0, changeFees: 0,
     status: 'Partial Payment',
-    newMemberFeeApplied: false
+    newMemberFeeApplied: false,
+    /* Added when lastPaymentAt / lastPaymentMethod joined INVOICE_READ_FIELDS,
+       so the portal can answer "did you get my payment?" instead of showing a
+       balance that looks like the payment never arrived. */
+    lastPaymentAt: '2026-11-10T18:30:00-07:00',
+    lastPaymentMethod: 'paypal'
   },
   'jordan.reyes@example.com': {      // email-only — nothing paid yet
     found: true,
+    name: 'Jordan Reyes', phone: '', email: 'Jordan.Reyes@Example.com',
     install: 380, removal: 0, deposit: 0, credits: 0, changeFees: 0,
     status: 'Unpaid',
     newMemberFeeApplied: false
   },
   '8015550199': {                    // multi-house — three houses on one bill
     found: true,
+    name: 'Sam Whitfield', phone: '8015550199', email: 'sam@example.com',
     install: 1275, removal: 0, deposit: 0, credits: 0, changeFees: 0,
     status: 'Unpaid',
     newMemberFeeApplied: false
   },
   '8015550188': {                    // a $30 light-change fee and a referral credit
     found: true,
+    name: 'Alex Nakamura', phone: '8015550188', email: 'alex@example.com',
     install: 520, removal: 0, deposit: 0, credits: 25, changeFees: 30,
     status: 'Unpaid',
     newMemberFeeApplied: false
   },
   '8015550177': {                    // deactivated, settled
     found: true,
+    name: 'Riley Cortez', phone: '8015550177', email: 'riley@example.com',
     install: 400, removal: 0, deposit: 400, credits: 0, changeFees: 0,
     status: 'Paid in Full',
     newMemberFeeApplied: false
