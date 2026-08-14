@@ -1289,6 +1289,17 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
       HttpsError: function (code, msg) { const e = new Error(msg); e.code = code; return e; },
       admin: { firestore: { FieldValue: { serverTimestamp: () => '__ts__' } } },
       findByToken: async () => ({ id: 'h1', data: record }),
+      /* portalRsvp writes through the same update path as portalSave, which
+         now keeps the normalised sign-in fields (phoneDigits / emailLower) in
+         step. Stubbed to the real shape rather than to {} so the write this
+         suite inspects looks like the real one. */
+      contactIndexFields: (d) => {
+        const out = {};
+        if (d.phone !== undefined) out.phoneDigits = String(d.phone || '').replace(/\D/g, '');
+        if (d.email !== undefined) out.emailLower = String(d.email || '').toLowerCase().trim();
+        if (d.email2 !== undefined) out.email2Lower = String(d.email2 || '').toLowerCase().trim();
+        return out;
+      },
       /* portalRsvp does TWO things now, from two different sessions' work
          merged together: it raises the rejoined-after-recycle note, AND it
          sweeps a declining customer off any route a crew has already been
@@ -2214,6 +2225,72 @@ suite('10e. Import safety, and the abandoned quote link');
   check('schedule-age', 'a stale snapshot is flagged, not just dated',
     /days > 14 \? 'var\(--ember\)'/.test(admin),
     'this plan does not follow customer changes, so age is the whole risk');
+})();
+
+suite('10f. Portal sign-in reads, and multi-property customers');
+(function () {
+  const fns = read('functions/index.js');
+  const idx = read('index.html');
+
+  // ---- §5.8 stop downloading every customer on every sign-in ------------
+  /* findByEmail read the ENTIRE jobAddresses collection unconditionally, and
+     findByPhone did whenever the stored phone had a bracket or a dash in it.
+     ~967 document reads to answer "is this one person a customer?", on every
+     visit — most of what the portal's "this can take a few seconds" spinner
+     was apologising for. */
+  check('signin-reads', 'a sign-in looks the customer up by an indexed field',
+    /async function findByIndexedField/.test(fns) &&
+    /findByIndexedField\('phoneDigits'/.test(fns) && /findByIndexedField\('emailLower'/.test(fns),
+    'a phone stored as "(801) 555-0142" cannot be matched by an equality query — hence the normalised copy');
+  check('signin-reads', 'the second email is indexed too',
+    /findByIndexedField\('email2Lower'/.test(fns),
+    'a spouse signing in with their own address would otherwise still trigger the full scan');
+  check('signin-reads', 'the full scan survives as a LAST resort',
+    /full-collection scan for phone/.test(fns) && /full-collection scan for email/.test(fns),
+    'a record written before these fields existed must still be findable — locking a customer out would be far worse than a slow read');
+  check('signin-reads', 'the slow path says so, rather than staying a mystery',
+    /console\.warn\('\[HU\] full-collection scan/.test(fns),
+    'a persistently slow sign-in should point at the backfill');
+  check('signin-reads', 'the normalised fields are kept in step on a portal save',
+    (fns.match(/Object\.assign\(updates, contactIndexFields\(updates\)\)/g) || []).length >= 2,
+    'a customer editing their own phone would otherwise drop back to the full scan');
+  check('signin-reads', 'admin keeps them in step too',
+    /Object\.assign\(addrUpdates, contactIndexFields\(addrUpdates\)\)/.test(admin) &&
+    /function contactIndexFields/.test(admin),
+    'the office edits the same records');
+  check('signin-reads', 'there is a backfill for customers added before this',
+    /contactIdxCheckBtn/.test(admin) && /contactIdxRunBtn/.test(admin),
+    'without it the ~967 existing customers all still take the slow path');
+  check('signin-reads', 'the backfill reports before it writes',
+    /Nothing has been written\. ' \+ todo\.length/.test(admin),
+    'a bulk write across every customer gets a dry run, like every other bulk tool here');
+  check('signin-reads', 'the backfill compares against what the value SHOULD be',
+    /function contactIdxPlan/.test(admin) && /!== want\.phoneDigits/.test(admin),
+    'checking only whether the field EXISTS would miss a record whose phone changed by some path that forgot to update it');
+
+  // ---- §5.9 a customer with more than one property ----------------------
+  /* Multi-property billing has always worked on the back end: houses grouped
+     by billToPhone, billed as ONE invoice with a line per address. The portal
+     showed the FIRST address and a combined balance, so the number simply
+     looked too big for the house on screen. */
+  check('multi-house', 'portalLookup returns every house on the bill',
+    /const sibSnap = await db\.collection\('jobAddresses'\)\.where\('billToPhone', '==', billKey\)/.test(fns),
+    'the portal stopped at the first match and the rest were invisible');
+  check('multi-house', 'a single-house customer is sent nothing extra',
+    /houses: houses\.length > 1 \? houses : \[\]/.test(fns),
+    'the ordinary customer should see no change at all');
+  check('multi-house', 'a failed sibling lookup cannot block sign-in',
+    /multi-house lookup failed/.test(fns) && /houses = \[\];/.test(fns),
+    'nothing about a second property should stand between somebody and their account');
+  check('multi-house', 'the portal names the properties the bill covers',
+    /function renderPortalHouses/.test(idx) && /This bill covers /.test(idx),
+    'a balance covering three houses shown against one address is just a wrong-looking number');
+  check('multi-house', 'it says the balance is the total for all of them',
+    /the total for all of them together/.test(idx),
+    'that sentence is the entire point of the panel');
+  check('multi-house', 'no crew or stop order reaches the customer',
+    !/assignedCrew/.test(fns.slice(fns.indexOf('const sibSnap'), fns.indexOf('const sibSnap') + 900)),
+    'the same rule as the schedule strip — the date is theirs, the routing is not');
 })();
 
 suite('11. Reliability pass');

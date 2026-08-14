@@ -663,12 +663,50 @@ async function findByToken(token) {
   return { id: snap.docs[0].id, data: snap.docs[0].data() };
 }
 
+/* ---- finding a customer, without downloading all of them -----------------
+ *
+ * ⚠ These used to read the ENTIRE jobAddresses collection on an ordinary
+ * sign-in — findByEmail did it unconditionally, findByPhone whenever the
+ * stored phone had a bracket or a dash in it. That is ~967 document reads to
+ * answer "is this one person a customer?", on every visit, and it is most of
+ * what the portal's "this can take a few seconds" spinner was apologising for.
+ *
+ * A phone or email is stored as the customer typed it — "(801) 555-0142",
+ * "Dana@Example.com" — so it cannot be matched with an equality query. The fix
+ * is to keep NORMALISED copies alongside (phoneDigits, emailLower,
+ * email2Lower) and query those.
+ *
+ * The full scan stays as a LAST resort, because a record written before those
+ * fields existed has none of them and must still be findable — a customer
+ * locked out of their own account would be a far worse bug than a slow read.
+ * It logs when it happens, so a persistently slow sign-in points at the
+ * backfill rather than staying a mystery. Admin's "Fill in the sign-in
+ * shortcuts" tool writes the fields for existing records.
+ */
+async function findByIndexedField(field, value) {
+  if (!value) return null;
+  try {
+    const snap = await db.collection('jobAddresses').where(field, '==', value).limit(1).get();
+    if (!snap.empty) return { id: snap.docs[0].id, data: snap.docs[0].data() };
+  } catch (err) {
+    // A missing index must not break sign-in — fall through to the scan.
+    console.error('[HU] indexed lookup failed on ' + field, err);
+  }
+  return null;
+}
+
 async function findByPhone(phoneDigits) {
   if (!phoneDigits) return null;
+  // 1. The normalised field — one read.
+  const indexed = await findByIndexedField('phoneDigits', phoneDigits);
+  if (indexed) return indexed;
+  // 2. The raw field, for a customer who typed a bare number — one read.
   const snap = await db.collection('jobAddresses')
     .where('phone', '==', phoneDigits).limit(1).get();
   if (!snap.empty) return { id: snap.docs[0].id, data: snap.docs[0].data() };
-  // Fallback for records whose stored phone has formatting characters in it.
+  // 3. Last resort: everyone. Only reachable for records that predate
+  //    phoneDigits, and loud about it so the backfill gets run.
+  console.warn('[HU] full-collection scan for phone ' + phoneDigits + ' — run the sign-in shortcut backfill');
   const all = await db.collection('jobAddresses').get();
   let found = null;
   all.forEach(function (d) {
@@ -680,6 +718,13 @@ async function findByPhone(phoneDigits) {
 
 async function findByEmail(emailLower) {
   if (!emailLower) return null;
+  // Primary first, then the second address a spouse might sign in with.
+  const byPrimary = await findByIndexedField('emailLower', emailLower);
+  if (byPrimary) return byPrimary;
+  const bySecondary = await findByIndexedField('email2Lower', emailLower);
+  if (bySecondary) return bySecondary;
+
+  console.warn('[HU] full-collection scan for email ' + emailLower + ' — run the sign-in shortcut backfill');
   const all = await db.collection('jobAddresses').get();
   let found = null;
   // Primary email matches win over secondary matches if both exist somewhere.
@@ -695,6 +740,17 @@ async function findByEmail(emailLower) {
     if (e2 && String(e2).toLowerCase().trim() === emailLower) found = { id: d.id, data: d.data() };
   });
   return found;
+}
+
+/* Keep the normalised copies in step whenever contact details change. Returns
+   the fields to merge into a jobAddresses write — used by portalSave, and
+   mirrored by admin's own customer saves. */
+function contactIndexFields(data) {
+  const out = {};
+  if (data.phone !== undefined) out.phoneDigits = digitsOnly(data.phone);
+  if (data.email !== undefined) out.emailLower = String(data.email || '').toLowerCase().trim();
+  if (data.email2 !== undefined) out.email2Lower = String(data.email2 || '').toLowerCase().trim();
+  return out;
 }
 
 /* --- Invoice key ----------------------------------------------------------
@@ -793,13 +849,58 @@ exports.portalLookup = onCall({ cors: true }, async (request) => {
 
   const activeToken = await ensureToken(match.id, match.data);
 
+  /* ---- every house this person has, not just the first one --------------
+   *
+   * The back end has supported multi-property billing all along: houses are
+   * grouped by billToPhone and billed as ONE invoice with a line per address.
+   * The portal stopped at the first match, so a customer with a cabin as well
+   * as a house saw ONE address and a combined balance covering both, with
+   * nothing on screen to explain why the number was bigger than the house
+   * they were looking at.
+   *
+   * Returns the sibling addresses so the portal can name them. Deliberately
+   * cheap: one query on the billing key, and only the fields needed to tell
+   * the houses apart — nothing here is a second full customer record.
+   */
+  let houses = [];
+  try {
+    const billKey = digitsOnly(match.data.billToPhone) || invoiceKeyFor(match.data);
+    if (billKey) {
+      const sibSnap = await db.collection('jobAddresses').where('billToPhone', '==', billKey).get();
+      const seen = {};
+      const add = function (id, d) {
+        if (seen[id]) return;
+        seen[id] = true;
+        houses.push({
+          id: id,
+          address: d.address || '',
+          propertyLabel: d.propertyLabel || '',
+          lightsDescription: d.lightsDescription || '',
+          scheduledDate: d.scheduledDate || null,
+          completed: !!d.completed,
+          removalDone: !!d.removalDone
+        });
+      };
+      // The payer's own house first, then anything billed to them.
+      add(match.id, match.data);
+      sibSnap.forEach(function (d) { add(d.id, d.data()); });
+    }
+  } catch (err) {
+    // A failed sibling lookup must never stop somebody reaching their account.
+    console.error('[HU] multi-house lookup failed', err);
+    houses = [];
+  }
+
   return {
     found: true,
     id: match.id,
     token: activeToken,
     deactivated: match.data.rsvpStatus === 'no',
     invoiceKey: invoiceKeyFor(match.data),
-    record: sanitizeRecord(match.data)
+    record: sanitizeRecord(match.data),
+    // Only sent when there is genuinely more than one — the ordinary
+    // single-house customer sees no change at all.
+    houses: houses.length > 1 ? houses : []
   };
 });
 
@@ -871,6 +972,10 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
     // must not re-queue a house Dad has already built.
   }
 
+  // Keep the normalised sign-in fields in step with whatever just changed —
+  // see contactIndexFields. Without this a customer who edits their own phone
+  // or email through the portal drops back to the full-collection scan.
+  Object.assign(updates, contactIndexFields(updates));
   await db.collection('jobAddresses').doc(match.id).update(updates);
 
   /* A cancellation request means this customer is sitting out, same as an
@@ -1089,6 +1194,10 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
   };
   if (rejoinedAfterRecycle) updates.needsLightBuild = true;
 
+  // Keep the normalised sign-in fields in step with whatever just changed —
+  // see contactIndexFields. Without this a customer who edits their own phone
+  // or email through the portal drops back to the full-collection scan.
+  Object.assign(updates, contactIndexFields(updates));
   await db.collection('jobAddresses').doc(match.id).update(updates);
 
   /* No customer number is assigned here on purpose. Taking one from the pool

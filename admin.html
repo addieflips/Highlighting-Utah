@@ -1885,6 +1885,18 @@
         <div id="ledgerBackfillStatus" role="status" aria-live="polite" style="font-size:12.5px; color:var(--slate); margin-top:8px;"></div>
         <div id="ledgerBackfillReport" style="margin-top:10px;"></div>
       </div>
+
+      <div class="card">
+        <h3>Make customer sign-in fast</h3>
+        <p style="font-size:13px;">A phone number is stored the way the customer typed it &mdash; <em>(801) 555-0142</em> &mdash; which the database cannot look up directly. So when someone signs in to the Member Portal, the server has been downloading <strong>every customer record</strong> to find the one. That is what the &ldquo;this can take a few seconds&rdquo; wait on the portal has been.</p>
+        <p style="font-size:13px;">This writes a plain, searchable copy of each customer&rsquo;s phone and email alongside the real ones, so a sign-in reads <strong>one</strong> record instead of all of them. Nothing a customer or the crew sees changes, and no phone number, email or price is altered &mdash; it only adds the tidy copies.</p>
+        <p style="font-size:13px;">New and edited customers already get them automatically. This is a one-off for everyone added before now, and it is safe to run more than once.</p>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
+          <button type="button" class="btn btn-outline btn-sm" id="contactIdxCheckBtn">Check First (changes nothing)</button>
+          <button type="button" class="btn btn-gold btn-sm" id="contactIdxRunBtn" style="display:none;">Fill in the sign-in shortcuts</button>
+        </div>
+        <div id="contactIdxStatus" role="status" aria-live="polite" style="font-size:12.5px; color:var(--slate); margin-top:8px;"></div>
+      </div>
       <div class="card">
         <h3>&#128179; Payment & Credit Card Import</h3>
         <p style="font-size:13px;">Upload an Excel or CSV file with payment data (phone numbers, amounts paid, etc.). Organize imports by folder and search past imports.</p>
@@ -4893,6 +4905,63 @@ document.getElementById('ledgerBackfillRunBtn')?.addEventListener('click', onceA
   document.getElementById('ledgerBackfillReport').innerHTML = '';
   document.getElementById('ledgerBackfillRunBtn').style.display = 'none';
 }, function(){ return document.getElementById('ledgerBackfillRunBtn'); }));
+/* The normalised copies of phone and email that let the Cloud Functions find a
+   customer with ONE read instead of downloading all ~967 of them on every
+   portal sign-in. Written alongside the real fields wherever contact details
+   are saved; see findByPhone / findByEmail in functions/index.js. */
+function contactIndexFields(d){
+  const out = {};
+  if(d.phone !== undefined) out.phoneDigits = String(d.phone || '').replace(/D/g,'');
+  if(d.email !== undefined) out.emailLower = String(d.email || '').toLowerCase().trim();
+  if(d.email2 !== undefined) out.email2Lower = String(d.email2 || '').toLowerCase().trim();
+  return out;
+}
+/* Which customers are still missing the normalised sign-in fields. Compared
+   against what the fields SHOULD be, not merely whether they exist, so a
+   customer whose phone was changed by some path that forgot to update them is
+   caught too. */
+function contactIdxPlan(){
+  return jobAddresses.filter(function(item){
+    const d = item.data || {};
+    const want = contactIndexFields({phone: d.phone || '', email: d.email || '', email2: d.email2 || ''});
+    return (d.phoneDigits || '') !== want.phoneDigits ||
+           (d.emailLower || '') !== want.emailLower ||
+           (d.email2Lower || '') !== want.email2Lower;
+  });
+}
+document.getElementById('contactIdxCheckBtn')?.addEventListener('click', function(){
+  const status = document.getElementById('contactIdxStatus');
+  const runBtn = document.getElementById('contactIdxRunBtn');
+  const todo = contactIdxPlan();
+  if(!todo.length){
+    status.textContent = 'Nothing to do — every customer already has them, so sign-in is already reading one record.';
+    runBtn.style.display = 'none';
+    return;
+  }
+  status.textContent = 'Nothing has been written. ' + todo.length + ' of ' + jobAddresses.length +
+    ' customer(s) are missing the shortcuts. Until they have them, a portal sign-in still reads every record.';
+  runBtn.style.display = 'inline-block';
+});
+document.getElementById('contactIdxRunBtn')?.addEventListener('click', onceAtATime(async function(){
+  const status = document.getElementById('contactIdxStatus');
+  const todo = contactIdxPlan();
+  if(!todo.length){ status.textContent = 'Nothing to do.'; return; }
+  if(!confirm('Add the sign-in shortcuts to ' + todo.length + ' customer(s)?\n\nThis only adds a tidy copy of the phone and email already on each record. No phone number, email, price, balance or anything a customer sees is changed.')) return;
+  let done = 0, failed = 0;
+  for(const chunk of ssnChunk(todo, 25)){
+    await Promise.all(chunk.map(function(item){
+      const d = item.data || {};
+      return updateDoc(doc(db,'jobAddresses', item.id),
+        contactIndexFields({phone: d.phone || '', email: d.email || '', email2: d.email2 || ''})
+      ).then(function(){ done++; }).catch(function(){ failed++; });
+    }));
+    status.textContent = 'Writing… ' + (done + failed) + '/' + todo.length;
+  }
+  status.textContent = '✓ ' + done + ' updated' + (failed ? ', ' + failed + ' failed' : '') +
+    '. Portal sign-in now reads one record instead of every one.';
+  logActivity('Filled in the customer sign-in shortcuts for ' + done + ' customer(s)', 'maintenance', '');
+  document.getElementById('contactIdxRunBtn').style.display = 'none';
+}, function(){ return document.getElementById('contactIdxRunBtn'); }));
 function balanceDueAmount(d){
   // Credits (referrals, service adjustments) come off the balance, never below $0.
   // Light-change fees ($30 each) add on, the same way they do server-side.
@@ -17553,6 +17622,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        check above has nothing to compare — a customer record carried no
        updatedAt at all, so "has anyone touched this since I opened it?" was
        unanswerable, and "who changed this?" had never been recorded anywhere. */
+    Object.assign(addrUpdates, contactIndexFields(addrUpdates));
     addrUpdates.updatedAt = serverTimestamp();
     addrUpdates.lastEditedBy = paymentLedgerUser();
     if(newEnrolledStr) addrUpdates.createdAt = new Date(newEnrolledStr + 'T12:00:00');

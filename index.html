@@ -1486,6 +1486,13 @@
                figure with no explanation, which is what generates the "what is
                this charge?" phone call. Every field here already arrives in
                portalInvoice's read whitelist; nothing new is exposed. -->
+          <!-- More than one property on this bill. The back end has always
+               billed a cabin and a house together as ONE invoice with a line
+               per address; the portal showed the first address and a combined
+               balance, with nothing to say why the number covered more than
+               the house on screen. -->
+          <div id="invHouses" style="display:none; margin-bottom:14px; background:#EAF1FA; border:1px solid #C3D8EC; border-radius:12px; padding:12px 14px; font-size:13px; color:#2B5C8A;"></div>
+
           <div id="invBreakdown" style="display:none; margin-bottom:18px;"></div>
 
           <!-- "Did you get my payment?" — written by every payment path from
@@ -3165,6 +3172,7 @@ function renderCustomerInvoicePage(raw, opts){
       install: invInstall, removal: invRemoval, changeFees: invChangeFee,
       credits: invCredits, deposit: invDeposit, totalDue: totalDue
     });
+    renderPortalHouses();
     renderLastPaymentNote(record);
     renderScheduleStrip(currentJobAddressData || currentLookupRecord);
     renderPortalRsvp();
@@ -3208,6 +3216,35 @@ function renderCustomerInvoicePage(raw, opts){
     showLookupFormAgain();
   });
   }
+}
+
+/* Name every property on this bill.
+ *
+ * A customer with a house and a cabin is billed once, for both — that is
+ * deliberate and it is what the office set up. But the portal showed the first
+ * address and a balance covering all of them, so the number simply looked too
+ * big for the house on the screen. Saying which properties are included costs
+ * one line and removes a whole category of phone call.
+ *
+ * Only ever shown when there IS more than one; the ordinary customer sees no
+ * change at all.
+ */
+var portalHouses = [];
+function renderPortalHouses(){
+  var box = document.getElementById('invHouses');
+  if(!box) return;
+  if(!portalHouses || portalHouses.length < 2){ box.style.display = 'none'; return; }
+  box.innerHTML = '<div style="font-weight:700; margin-bottom:6px;">This bill covers ' + portalHouses.length + ' properties</div>' +
+    portalHouses.map(function(h){
+      var label = h.propertyLabel ? escapeHtmlPortal(h.propertyLabel) + ' — ' : '';
+      var state = h.removalDone ? 'taken down'
+                : (h.completed ? 'installed'
+                : (h.scheduledDate ? 'scheduled for ' + escapeHtmlPortal(portalNiceDate(h.scheduledDate)) : 'not scheduled yet'));
+      return '<div style="padding:2px 0;">• ' + label + escapeHtmlPortal(h.address || 'address on file') +
+             ' <span style="opacity:.75;">(' + state + ')</span></div>';
+    }).join('') +
+    '<div style="margin-top:6px; opacity:.85;">The balance below is the total for all of them together.</div>';
+  box.style.display = 'block';
 }
 
 /* Break the balance down into the lines it is made of.
@@ -3591,6 +3628,7 @@ function loadPortalByToken(token, extraOpts){
        the quote review and, importantly, do NOT savePortalLogin: storing a
        quote token as a portal login leaves it to be replayed on the next visit
        against an account it was never entitled to. */
+    portalHouses = (res && res.houses) || [];
     if(res.isQuote){
       if(lookupFormWrap) lookupFormWrap.style.display = 'none';
       var quotePhone = String((res.record && res.record.phone) || '').replace(/\D/g,'');
