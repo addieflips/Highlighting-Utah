@@ -610,9 +610,32 @@ const RETIRED_CHECKLIST_TERMS = [
   ['replace photo', 'quote cards hold several photos now, so the button reads Add More Photos (2026-08-13)'],
 ];
 {
-  const seedStart = admin.indexOf('const TEST_SEED = [');
-  const seedEnd = admin.indexOf('\n];', seedStart) + 3;
-  const TEST_SEED = new Function(admin.slice(seedStart, seedEnd) + '; return TEST_SEED;')();
+  /* MOVED 2026-08-14: the seed lives in js/test-seed.js now, not inline in
+     admin.html. It was ~217KB — 12.8% of the page — downloaded on every admin
+     load and pushed down the wire again on every deploy, even though the test
+     list changes far less often than the dashboard wrapped around it.
+     Strip the `export ` so it still evaluates as a plain script, exactly the
+     way it did when it was inline. */
+  const seedSrc = read('js/test-seed.js');
+  const seedStart = seedSrc.indexOf('const TEST_SEED = [');
+  const seedEnd = seedSrc.indexOf('\n];', seedStart) + 3;
+  const TEST_SEED = new Function(seedSrc.slice(seedStart, seedEnd) + '; return TEST_SEED;')();
+
+  /* The move itself, guarded from both ends. Inlining it again silently undoes
+     the saving; failing to import it silently stops the checklist syncing, and
+     the caller swallows that error (see runProjectTestSync in admin.html). */
+  check('logic', 'admin.html no longer inlines the checklist seed',
+    !/const TEST_SEED = \[/.test(admin),
+    'the 217KB seed is back inside admin.html — every admin page load pays for it again');
+  check('logic', 'admin.html still loads the seed from js/test-seed.js',
+    /import\(\s*['"]\.\/js\/test-seed\.js['"]\s*\)/.test(admin),
+    'nothing in admin.html imports js/test-seed.js — the checklist would silently stop syncing');
+  check('logic', 'js/test-seed.js exports TEST_SEED',
+    /export const TEST_SEED = \[/.test(seedSrc),
+    'the seed file does not export TEST_SEED — the dynamic import comes back undefined');
+  check('logic', 'the checklist seed survived the move intact',
+    TEST_SEED.length >= 160,
+    'only ' + TEST_SEED.length + ' tests in the seed — the move truncated the list');
   for (const [term, why] of RETIRED_CHECKLIST_TERMS) {
     const hits = TEST_SEED.filter(row => (row[3] + ' ' + row[4]).toLowerCase().includes(term));
     check('logic', 'checklist wording: no test still says "' + term + '"',
@@ -4223,6 +4246,173 @@ check('leftovers', 'picking a day inside the panel does not jump the screen away
 check('leftovers', 'the panel closes itself once nothing is left',
   /if\(!day\|\|!list\.length\)\{[\s\S]{0,120}leftoverFor=null/.test(admin),
   'an empty list sitting on screen reads as "something went wrong"');
+
+// =====================================================================
+suite('17. A new customer lands on the next day in their city');
+/*
+ * The rule, in the owner's words: a new customer goes on the next day we are in
+ * their city — unless they asked for November and it is still October, in which
+ * case they go on the FIRST day we are in that city in November.
+ *
+ * The dates are real logic and are tested as such, not by regex. Everything here
+ * is written to be date-independent: the assertions compute what the answer
+ * should be from today's date rather than hard-coding a month, so they still
+ * mean something in December and next season.
+ */
+{
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const nov1  = new Date(now.getFullYear(), 10, 1);
+
+  eval(extractFn(admin, 'thanksgivingDate'));
+  eval(extractFn(admin, 'earliestAllowedInstallDate'));
+  eval(extractFn(admin, 'extractCleanCity'));
+  eval(extractFn(admin, 'toDateStr'));
+  eval(extractFn(admin, 'nextDayStr'));
+  eval(extractFn(admin, 'routeCityOf'));
+  eval(extractFn(admin, 'findNextRouteDayInCity'));
+
+  check('autosched', 'earliestAllowedInstallDate exists',
+    typeof earliestAllowedInstallDate === 'function',
+    'renamed or removed — the November rule lives in it');
+
+  // ---- 17.1 The timing preference decides the earliest date ---------------
+  check('autosched', 'a normal-schedule house can go out today',
+    earliestAllowedInstallDate({installPreference:'Normal Schedule'}).getTime() === today.getTime());
+  check('autosched', 'an October house can go out today',
+    earliestAllowedInstallDate({installPreference:'October'}).getTime() === today.getTime(),
+    'October houses are the ones that must NOT be held back');
+  check('autosched', 'a house with no preference at all can go out today',
+    earliestAllowedInstallDate({}).getTime() === today.getTime());
+
+  const novWant = today > nov1 ? today : nov1;
+  check('autosched', 'a November house waits for November 1',
+    earliestAllowedInstallDate({installPreference:'November'}).getTime() === novWant.getTime());
+  check('autosched', 'a November-before-Thanksgiving house also waits for November 1',
+    earliestAllowedInstallDate({installPreference:'November - Before Thanksgiving'}).getTime() === novWant.getTime());
+  /* THE RULE, stated as the invariant it actually is. True in every month:
+     before Nov 1 the answer is Nov 1, after it the answer is today, and neither
+     of those can ever be a day in October. */
+  check('autosched', 'a November house is NEVER given a date in October',
+    earliestAllowedInstallDate({installPreference:'November'}).getMonth() !== 9 &&
+    earliestAllowedInstallDate({installPreference:'November - Before Thanksgiving'}).getMonth() !== 9,
+    'this is the whole point of the rule — added in October, hung in November');
+
+  const tg = thanksgivingDate(now.getFullYear());
+  const dayAfter = new Date(tg.getFullYear(), tg.getMonth(), tg.getDate() + 1);
+  check('autosched', 'an after-Thanksgiving house waits for the day after Thanksgiving',
+    earliestAllowedInstallDate({installPreference:'After Thanksgiving'}).getTime() ===
+      (today > dayAfter ? today : dayAfter).getTime());
+
+  // A staff-only earliestInstallDate outranks the customer's own preference.
+  const farOff = new Date(now.getFullYear() + 1, 5, 9);
+  check('autosched', 'a staff-set earliest date beats the timing preference',
+    earliestAllowedInstallDate({installPreference:'October', earliestInstallDate: farOff}).getTime() === farOff.getTime(),
+    'the staff date is the one restriction the customer cannot see or override');
+  check('autosched', 'a staff date already in the past never pulls the answer backwards',
+    earliestAllowedInstallDate({installPreference:'Normal Schedule',
+      earliestInstallDate: new Date(now.getFullYear() - 1, 0, 1)}).getTime() === today.getTime());
+
+  // ---- 17.2 Finding the next day the crew is in that city ----------------
+  /* Two towns, several days, plus a fix day and a removal day that must not
+     count — the crew being in Lehi to fix something is not an install day. */
+  global.jobAddresses = [
+    {id:'a1', data:{city:'Lehi'}},   {id:'a2', data:{city:'Lehi'}},
+    {id:'b1', data:{city:'Orem'}},   {id:'b2', data:{city:'Orem'}},
+    /* "Lehi 84043" is the messy-but-real form extractCleanCity cleans up. Note
+       "Lehi, UT 84043" is NOT — that one comes back blank, because the function
+       takes the LAST comma segment (it was written for "123 Main St, Lehi").
+       A customer stored that way has no clean city and is reported as such
+       rather than being dropped onto some other town's day. */
+    {id:'c1', data:{city:'Lehi 84043'}}
+  ];
+  global.scheduledRoutesCache = {
+    '2026-10-05': [{id:'r-oct-lehi',  date:'2026-10-05', type:'install', crew:'1', stops:[{id:'a1'},{id:'a2'}]}],
+    '2026-10-08': [{id:'r-oct-orem',  date:'2026-10-08', type:'install', crew:'1', stops:[{id:'b1'},{id:'b2'}]}],
+    '2026-10-12': [{id:'r-fix-lehi',  date:'2026-10-12', type:'fix',     crew:'1', stops:[{id:'a1'}]},
+                   {id:'r-rem-lehi',  date:'2026-10-12', type:'removal', crew:'1', stops:[{id:'a2'}]}],
+    '2026-11-03': [{id:'r-nov-lehi',  date:'2026-11-03', type:'install', crew:'1', stops:[{id:'c1'}]}],
+    '2026-11-19': [{id:'r-nov2-lehi', date:'2026-11-19', type:'install', crew:'1', stops:[{id:'a1'}]}]
+  };
+
+  check('autosched', 'a route knows which city it is in, from the houses on it',
+    routeCityOf(global.scheduledRoutesCache['2026-10-05'][0]) === 'Lehi' &&
+    routeCityOf(global.scheduledRoutesCache['2026-10-08'][0]) === 'Orem',
+    'a stop snapshot has never carried a city, so it is read back off the customer');
+  check('autosched', 'a messy city field still matches the clean city name',
+    routeCityOf(global.scheduledRoutesCache['2026-11-03'][0]) === 'Lehi',
+    '"Lehi, UT 84043" and "Lehi" are the same town');
+
+  const oct1 = '2026-10-01';
+  check('autosched', 'the earliest matching day in that city wins',
+    (findNextRouteDayInCity('Lehi', oct1, []) || {}).id === 'r-oct-lehi');
+  check('autosched', 'a day in a different city is not offered',
+    (findNextRouteDayInCity('Orem', oct1, []) || {}).id === 'r-oct-orem');
+  check('autosched', 'a fix or removal day does not count as being in that city',
+    (findNextRouteDayInCity('Lehi', '2026-10-10', []) || {}).id === 'r-nov-lehi',
+    'the crew going back to fix one house is not an install day');
+  check('autosched', 'a day already passed is never offered',
+    (findNextRouteDayInCity('Lehi', '2026-11-10', []) || {}).id === 'r-nov2-lehi');
+  check('autosched', 'a city we are never in again returns nothing, rather than guessing',
+    findNextRouteDayInCity('Provo', oct1, []) === null &&
+    findNextRouteDayInCity('Lehi', '2027-01-01', []) === null,
+    'putting them on a day in the wrong town is worse than leaving them for the next generate');
+  check('autosched', 'the day somebody is being bumped OFF is skippable',
+    (findNextRouteDayInCity('Lehi', oct1, ['r-oct-lehi']) || {}).id === 'r-nov-lehi');
+  check('autosched', 'no city means no guess',
+    findNextRouteDayInCity('', oct1, []) === null);
+
+  // ---- 17.3 The November rule, end to end --------------------------------
+  /* The two halves joined up: a November customer looking for a Lehi day from
+     Nov 1 onwards gets the November day, NOT the October one that is sooner. */
+  const novEarliest = toDateStr(new Date(2026, 10, 1));
+  check('autosched', 'a November house skips the sooner October day in the same city',
+    (findNextRouteDayInCity('Lehi', novEarliest, []) || {}).id === 'r-nov-lehi',
+    'THE RULE: added in October, asked for November, hung in November');
+  check('autosched', 'an October house in the same city takes the October day',
+    (findNextRouteDayInCity('Lehi', toDateStr(new Date(2026, 9, 1)), []) || {}).id === 'r-oct-lehi');
+
+  check('autosched', 'the next day after a route is the day after, not the same day',
+    nextDayStr('2026-10-05') === '2026-10-06' && nextDayStr('2026-10-31') === '2026-11-01',
+    'a bumped customer landing back on the day they were bumped off is an infinite shuffle');
+
+  delete global.jobAddresses;
+  delete global.scheduledRoutesCache;
+}
+
+// ---- 17.4 How it is wired in, and what it must never do -----------------
+{
+  const autoSrc = admin.slice(admin.indexOf('async function autoScheduleNewCustomer'),
+                              admin.indexOf('function nextDayStr'));
+  check('autosched', 'adding a customer puts them on a route',
+    /autoScheduleNewCustomer\(newAddrRef\.id/.test(admin),
+    'the whole feature is unreachable if nothing calls it');
+  check('autosched', 'a house with no map pin is never put on a route',
+    /typeof d\.lat !== 'number'/.test(autoSrc),
+    'a stop with no coordinates breaks the driving order for everyone else on that day');
+  check('autosched', 'failing to schedule can never lose the customer record',
+    /catch\(err\)\{[\s\S]{0,400}Could not put them on a route automatically/.test(autoSrc.replace(/\r/g,'')) &&
+    admin.indexOf('const autoSched = await autoScheduleNewCustomer') > admin.indexOf('const newAddrRef = await addDoc'),
+    'the customer and their invoice must survive a scheduling problem');
+  check('autosched', 'every outcome comes back as something to say, not silence',
+    (autoSrc.match(/return \{done:/g) || []).length >= 4,
+    'a customer who quietly did not get scheduled is the bug this feature exists to fix');
+  check('autosched', 'the new house is marked as new on the route',
+    /addedNew/.test(admin),
+    'the crew needs to see who turned up after the day was planned');
+  check('autosched', 'an existing customer is only moved if there is a later day for them',
+    /bumpTo = findNextRouteDayInCity/.test(autoSrc) && /if\(bumped && bumpTo\)/.test(autoSrc),
+    'leaving somebody unscheduled to make room for a newcomer is worse than a day one house bigger');
+  check('autosched', 'a house that was moved raises a System notice',
+    /noticeCustomerPushedBack/.test(autoSrc) && /folder: 'System'/.test(admin),
+    'their day changed and nobody told them — that has to reach the office');
+  check('autosched', 'a house added new is never itself the one bumped',
+    /withNew\[i\]\.addedNew\) continue/.test(autoSrc),
+    'two customers added in a row would just push each other around');
+  check('autosched', 'the November rule is driven by the same dates that hide them from route generation',
+    /Mirrors isInstallPrefLocked/.test(admin),
+    'two copies of the November cutoff that can disagree is how a house goes out in the wrong month');
+}
 
 // =====================================================================
 // Wait for the async suites before totalling up — see pendingAsync at the top.
