@@ -108,13 +108,22 @@ const serverStatusSrc = extractFn(fnsSrc, 'computeInvoiceStatusServer');
 const clientKeySrc = extractFn(moneySrc, 'custInvoiceKey');
 const serverKeySrc = extractFn(fnsSrc, 'invoiceKeyFor');
 const digitsOnlySrc = extractFn(fnsSrc, 'digitsOnly');
+/* Both status formulas compare whole cents, so each one's own centsOf helper
+   has to come along into the sandbox with it. They are listed as required
+   below rather than stubbed here on purpose: if one file's rounding helper is
+   renamed or deleted, that must fail loudly instead of the test quietly
+   substituting a helper of its own and proving nothing. */
+const clientCentsSrc = extractFn(moneySrc, 'centsOf');
+const serverCentsSrc = extractFn(fnsSrc, 'centsOf');
 
 const found = {
   'js/money.js computeInvoiceStatus': clientStatusSrc,
   'functions/index.js computeInvoiceStatusServer': serverStatusSrc,
   'js/money.js custInvoiceKey': clientKeySrc,
   'functions/index.js invoiceKeyFor': serverKeySrc,
-  'functions/index.js digitsOnly': digitsOnlySrc
+  'functions/index.js digitsOnly': digitsOnlySrc,
+  'js/money.js centsOf': clientCentsSrc,
+  'functions/index.js centsOf': serverCentsSrc
 };
 
 let missing = false;
@@ -132,8 +141,8 @@ if (missing) {
   process.exit(1);
 }
 
-const clientStatus = compile([clientStatusSrc], 'computeInvoiceStatus');
-const serverStatus = compile([serverStatusSrc], 'computeInvoiceStatusServer');
+const clientStatus = compile([clientCentsSrc, clientStatusSrc], 'computeInvoiceStatus');
+const serverStatus = compile([serverCentsSrc, serverStatusSrc], 'computeInvoiceStatusServer');
 const clientKey = compile([clientKeySrc], 'custInvoiceKey');
 const serverKey = compile([digitsOnlySrc, serverKeySrc], 'invoiceKeyFor');
 

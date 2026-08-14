@@ -7,3 +7,8 @@ node_modules/
 # leaves the folder behind. Ignoring it means a half-deleted tests/ can never be
 # committed by accident.
 tests/
+
+# Playwright failure screenshots and traces. Written by npm run test:browser,
+# never useful in the repo, and currently large enough to notice.
+test-results/
+playwright-report/

@@ -93,6 +93,12 @@ service cloud.firestore {
     // run can tell what CHANGED. Written only by the weatherWatch Cloud
     // Function, which uses the Admin SDK and bypasses these rules.
     match /weatherWatch/{id}           { allow read: if request.auth != null; allow write: if false; }
+    // ---- Unmatched payments ---------------------------------------------
+    // A PayPal capture that succeeded but had no invoice to apply it to (the
+    // invoice doc moves when a customer changes their phone or email). Written
+    // only by recordUnmatchedPayment in the Cloud Function, which uses the
+    // Admin SDK and bypasses these rules. Staff read it to chase the money.
+    match /unmatchedPayments/{id}      { allow read: if request.auth != null; allow write: if false; }
     // portalRateLimits is written only by Cloud Functions, which bypass rules.
     // No match block is needed — anything unlisted is denied by default.
   }

@@ -3053,6 +3053,25 @@ function loadPortalByToken(token, extraOpts){
       showLookupFormAgain();
       return;
     }
+    /* A quote token is not an account. portalLookup answers a quote token with
+       the quote and nothing else (isQuote), because that token was generated in
+       the visitor's own browser when the quote form was submitted — it proves
+       somebody filled in a form, not that they are the customer. Send them to
+       the quote review and, importantly, do NOT savePortalLogin: storing a
+       quote token as a portal login leaves it to be replayed on the next visit
+       against an account it was never entitled to. */
+    if(res.isQuote){
+      if(lookupFormWrap) lookupFormWrap.style.display = 'none';
+      var quotePhone = String((res.record && res.record.phone) || '').replace(/\D/g,'');
+      var quoteEmail = String((res.record && res.record.email) || '').toLowerCase().trim();
+      if(quotePhone || quoteEmail){
+        tryShowQuoteReview(quotePhone || quoteEmail, {skipLastNameCheck: true});
+      } else {
+        document.getElementById('lookupEmpty').style.display = 'block';
+        showLookupFormAgain();
+      }
+      return;
+    }
     // Prefer the server-computed invoice key: phone digits when the account
     // has a phone, lowercase email when it doesn't. Falls back to the record
     // fields for older function deployments.

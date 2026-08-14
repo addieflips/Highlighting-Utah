@@ -222,9 +222,21 @@ async function findTemplateSnapByName(name) {
 async function recordPaypalPayment(phone, { captureId, tip, serviceAmount }) {
   const invRef = db.collection('invoices').doc(phone);
   let recorded = false;
+  let orphaned = false;
   await db.runTransaction(async (t) => {
+    // Reset per attempt: Firestore retries a contended transaction, and a flag
+    // left set by an abandoned attempt would file a payment that did land.
+    recorded = false;
+    orphaned = false;
     const snap = await t.get(invRef);
-    if (!snap.exists) return;
+    /* The card has already been charged by the time we get here. If there is no
+       invoice under this key the money is real and the record is missing — this
+       used to `return` silently, leaving no log, no alert, and a customer whose
+       screen still said "Paid in Full". It is reachable in normal use: portalSave
+       moves the invoice doc when a customer changes their phone or email, so
+       anyone who updates their number between opening the pay screen and
+       approving the payment lands here. File it and raise the alarm instead. */
+    if (!snap.exists) { orphaned = true; return; }
     const inv = snap.data();
     const existingPayments = inv.paypalPayments || [];
     if (existingPayments.some((p) => p.captureId === captureId)) return; // already recorded
@@ -247,6 +259,42 @@ async function recordPaypalPayment(phone, { captureId, tip, serviceAmount }) {
   // and the webhook come through here, and the receiptSentForDeposit guard
   // inside sendPaymentReceipt stops them emailing the same payment twice.
   if (recorded) await sendPaymentReceipt(phone, { paidNow: Number(serviceAmount) || 0 });
+
+  if (orphaned) await recordUnmatchedPayment(phone, { captureId, tip, serviceAmount });
+}
+
+/* A captured payment with no invoice to put it on. Filed so the money is never
+ * just lost, and texted to the office so somebody actually goes and looks.
+ * The doc ID is the captureId, so the webhook and the browser both landing here
+ * for the same payment write one record, not two. */
+async function recordUnmatchedPayment(phone, { captureId, tip, serviceAmount }) {
+  try {
+    await db.collection('unmatchedPayments').doc(String(captureId)).set({
+      phone: phone,
+      captureId: captureId,
+      tip: Number(tip) || 0,
+      serviceAmount: Number(serviceAmount) || 0,
+      reason: 'No invoice document exists for this key — it may have moved when the customer changed their phone or email.',
+      resolved: false,
+      capturedAt: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+  } catch (e) {
+    // Nothing else can be done here, but it must be loud in the logs.
+    console.error('[HU] FAILED to file an unmatched PayPal payment', captureId, phone, e);
+  }
+  // The alert is best-effort and must never throw back into the payment path.
+  try {
+    const cfgSnap = await db.collection('settings').doc('nightlyInvoiceAutomation').get();
+    const alertPhone = cfgSnap.exists ? (cfgSnap.data().alertPhone || '') : '';
+    if (alertPhone) {
+      await twilioSendRaw(alertPhone,
+        'Highlighting Utah: a PayPal payment of $' + (Number(serviceAmount) || 0).toFixed(2) +
+        ' from ' + phone + ' was charged but has no invoice to apply it to. ' +
+        'It is saved under Unmatched Payments — please check.');
+    }
+  } catch (e) {
+    console.error('[HU] unmatched-payment alert SMS failed:', e);
+  }
 }
 
 // Called from the Member Portal right before showing the PayPal button.
@@ -516,16 +564,31 @@ function sanitizeRecord(data) {
   return out;
 }
 
-// Mirrors the last-name check the browser used to do, so behaviour is
-// unchanged for customers: the typed name must match a word in the stored
-// name, or appear inside it. Word-order independent on purpose — names are
-// stored "First Last", but this must keep working during the changeover.
+/* The last-name half of the portal sign-in.
+ *
+ * ⚠ This used to end with `stored.indexOf(typed) !== -1` — a plain substring
+ * test. Typing the single letter "a" therefore matched "Sarah Adams", "Frome"
+ * and "Cosby": nearly every name in the book. Five attempts are allowed per
+ * phone per 15 minutes and one was enough, so anyone who knew a customer's
+ * phone number could open their account. Fixed 2026-08-14.
+ *
+ * Now the typed name must be a WHOLE WORD of the stored name, or the stored
+ * name in full. Word-order independent on purpose — names are stored
+ * "First Last" but customers type either part.
+ *
+ * Deliberately NO minimum length: the whole-word rule closes the hole by
+ * itself, and Le, Ho, Ng and Vu are real surnames that a 3-character floor
+ * would lock out of their own accounts permanently.
+ *
+ * Split on hyphens and apostrophes as well as spaces, so "Adams" still signs
+ * in "Sarah Adams-Brown" and "Brien" still signs in "Sarah O'Brien". */
 function nameMatches(storedName, typedName) {
   const stored = String(storedName || '').toLowerCase().trim();
   const typed = String(typedName || '').toLowerCase().trim();
   if (!typed || !stored) return false;
-  const words = stored.split(/\s+/).filter(Boolean);
-  return words.indexOf(typed) !== -1 || stored.indexOf(typed) !== -1;
+  if (stored === typed) return true;                       // they typed their full name
+  const words = stored.split(/[\s\-'’]+/).filter(Boolean);
+  return words.indexOf(typed) !== -1;
 }
 
 /* --- Rate limiting --------------------------------------------------------
@@ -657,20 +720,29 @@ exports.portalLookup = onCall({ cors: true }, async (request) => {
         const qData = qSnap.docs[0].data();
         const qPhone = digitsOnly(qData.phone);
         if (qPhone) {
-          // Prefer the real customer record if one exists for that phone.
-          const byPhone = await findByPhone(qPhone);
-          if (byPhone) {
-            match = byPhone;
-          } else {
-            return {
-              found: true,
-              id: qSnap.docs[0].id,
-              token: quoteToken,
-              deactivated: false,
-              isQuote: true,
-              record: { name: qData.name || '', phone: qPhone, email: qData.email || '' }
-            };
-          }
+          /* ⚠ A quote token is NOT a customer credential and must never be
+             upgraded into one. The public quote form generates quoteToken in
+             the visitor's own browser (index.html) and saves it on the quote,
+             so whoever submitted the form already knows it. This branch used
+             to look the quote's phone up in jobAddresses and, on a hit, return
+             that customer's real portalToken, invoiceKey and record — which
+             includes their home address and gate code. Anyone who knew a
+             customer's phone number could submit a quote against it and take
+             over the account, then edit it through portalSave. Token lookups
+             are deliberately not rate limited, so there was nothing slowing it
+             down either. Fixed 2026-08-14.
+
+             A quote token now only ever returns the quote. A returning
+             customer who wants their account signs in with phone/email + last
+             name, which is rate limited and name checked. */
+          return {
+            found: true,
+            id: qSnap.docs[0].id,
+            token: quoteToken,
+            deactivated: false,
+            isQuote: true,
+            record: { name: qData.name || '', phone: qPhone, email: qData.email || '' }
+          };
         }
       }
     }
@@ -1311,12 +1383,21 @@ exports.portalInvoice = onCall({ cors: true }, async (request) => {
   }
 
   if (!authorized && lastName) {
-    // Deliberately NOT rate limited. Every route into this function has
-    // already passed through portalLookup's limiter on the guessable
-    // phone/email + last name path, and this runs again on every portal
-    // render — a second limiter here locks customers out of their own
-    // invoice after a handful of ordinary page loads.
-    if (nameMatches(data.name, lastName)) authorized = true;
+    /* Rate limited on FAILURE ONLY, and only on this branch.
+     *
+     * The original comment here said this path must not be limited at all,
+     * because portalInvoice re-runs on every portal render and a naive counter
+     * would lock a customer out of their own invoice after a few page loads.
+     * That reasoning is right, and it is preserved: a successful match spends
+     * nothing. But invoice doc IDs are phone digits, so with no limit at all
+     * this was a freely enumerable balance lookup — and it is the second door
+     * the weak nameMatches opened. Counting only misses closes it without
+     * touching anyone signing in correctly. */
+    if (nameMatches(data.name, lastName)) {
+      authorized = true;
+    } else {
+      await checkRateLimit('invoice_' + key);
+    }
   }
 
   if (!authorized) return { found: false };
@@ -1395,8 +1476,16 @@ async function logNightlyInvoiceRun(data) {
       const parts = [(data.sentCount || 0) + ' sent'];
       if (data.skippedNeedsFix) parts.push(data.skippedNeedsFix + ' need fix');
       if (data.skippedNotDone) parts.push(data.skippedNotDone + ' skipped');
+      // Called out by name, not folded into the generic skip count — an
+      // uninvoiceable customer is a bill that will never be sent, not a bill
+      // that is waiting.
+      if (data.skippedNoEmail) parts.push(data.skippedNoEmail + ' NO EMAIL (cannot be billed)');
       parts.push((data.errorCount || 0) + ' error' + (data.errorCount === 1 ? '' : 's'));
       let body = 'Highlighting Utah billing (' + (data.triggeredBy || 'run') + '): ' + parts.join(', ') + '.';
+      if (data.skippedNoEmail && data.noEmailNames && data.noEmailNames.length) {
+        body += ' No email: ' + data.noEmailNames.slice(0, 3).join(', ') +
+          (data.noEmailNames.length > 3 ? ' +' + (data.noEmailNames.length - 3) + ' more' : '') + '.';
+      }
       if (data.errorCount && data.errors && data.errors.length) body += ' First issue: ' + String(data.errors[0]).slice(0, 90);
       await twilioSendRaw(alertPhone, body);
     }
@@ -1405,10 +1494,21 @@ async function logNightlyInvoiceRun(data) {
   }
 }
 
+/* Round to whole cents. Money arithmetic in floating point leaves crumbs:
+ * 0.1 + 0.2 is 0.30000000000000004, so a customer who has paid every cent can
+ * come out a fraction short and be billed as "Partial Payment" against a
+ * balance that prints as $0.00.
+ *
+ * ⚠ js/money.js has its own copy of this (centsOf). Change both, same push. */
+function centsOf(n) {
+  return Math.round(((Number(n) || 0) + Number.EPSILON) * 100);
+}
+
 function computeInvoiceStatusServer(install, removal, deposit, credits, changeFees) {
-  const gross = (Number(install) || 0) + (Number(removal) || 0) + (Number(changeFees) || 0);   // the real charge (incl. light-change fees)
-  const total = gross - (Number(credits) || 0);                    // owed after credits
-  const paid = Number(deposit) || 0;
+  // Compared in whole cents — see centsOf.
+  const gross = centsOf(install) + centsOf(removal) + centsOf(changeFees);   // the real charge (incl. light-change fees)
+  const total = gross - centsOf(credits);                          // owed after credits
+  const paid = centsOf(deposit);
   if (gross <= 0 && paid <= 0) return 'Unpaid';                    // a truly blank invoice
   if (total <= 0) return 'Paid in Full';                         // credits (and/or payments) cover it all
   if (paid <= 0) return 'Unpaid';
@@ -1419,6 +1519,11 @@ function computeInvoiceStatusServer(install, removal, deposit, credits, changeFe
 async function runInvoiceBatch(triggeredBy) {
   const todayStr = todayStrInDenver();
   let sentCount = 0, skippedNeedsFix = 0, skippedNotDone = 0, errorCount = 0;
+  // Payers with an installed house and no email address anywhere in their
+  // group. They cannot be invoiced at all, so they are named in the run log
+  // rather than silently passed over.
+  let skippedNoEmail = 0;
+  const noEmailNames = [];
   const errors = [];
 
   try {
@@ -1428,6 +1533,7 @@ async function runInvoiceBatch(triggeredBy) {
     if (!serviceId || !templateId || !privateKey) {
       const result = {
         dateStr: todayStr, sentCount: 0, skippedNeedsFix: 0, skippedNotDone: 0,
+        skippedNoEmail: 0, noEmailNames: [],
         errorCount: 1, errors: ['EmailJS not fully set up yet \u2014 need Service ID, Template ID, and Private Key under Automation > EmailJS Setup.'],
         triggeredBy
       };
@@ -1527,7 +1633,18 @@ async function runInvoiceBatch(triggeredBy) {
 
         const withEmail = active.find(function (h) { return !!h.data.email; });
         const email = payer.data.email || (withEmail ? withEmail.data.email : '');
-        if (!email) { continue; }            // nothing to send to
+        /* No email address anywhere in this payer's group, so there is nothing
+           to send an invoice to. This used to be a bare `continue`: not counted
+           as sent, skipped or errored, so the nightly text read "0 sent, 0
+           errors" and looked healthy while an installed house went unbilled all
+           season. A phone-only signup is the ordinary case for a phone enquiry,
+           so this is not rare. Counted and named now, and Health Check has a
+           matching "Customer with no email address" row. */
+        if (!email) {
+          skippedNoEmail++;
+          noEmailNames.push(payer.data.name || payer.data.address || payer.id);
+          continue;
+        }
 
         const phone = digitsOnly(payer.data.phone);
         const groupSum = active.reduce(function (s, h) { return s + (Number(h.data.housePrice) || 0); }, 0);
@@ -1542,7 +1659,14 @@ async function runInvoiceBatch(triggeredBy) {
            on it - exactly how this has always behaved. A payer with more than
            one house is re-summed from their house prices, because that is the
            bug being fixed here: house two's price was never being added. */
-        if (invSnap.exists && active.length > 1) inv.install = groupSum;
+        /* Re-add the $30 join fee when re-summing. groupSum is house prices
+           only, so overwriting install with it dropped a fee an earlier run had
+           already folded in — and the isNewMember block below won't put it back,
+           because newMemberFeeApplied is already true. syncPayerInvoice in
+           admin.html does exactly this; the two must agree. */
+        if (invSnap.exists && active.length > 1) {
+          inv.install = groupSum + (inv.newMemberFeeApplied ? 30 : 0);
+        }
 
         const isNewMember = active.some(function (h) { return looksLikeNewMember(h.data); });
         if (isNewMember && !inv.newMemberFeeApplied) {
@@ -1719,6 +1843,7 @@ async function runInvoiceBatch(triggeredBy) {
 
     const result = {
       dateStr: todayStr, sentCount, skippedNeedsFix, skippedNotDone,
+      skippedNoEmail, noEmailNames: noEmailNames.slice(0, 20),
       errorCount, errors: errors.slice(0, 10), triggeredBy
     };
     await logNightlyInvoiceRun(result);
@@ -1726,6 +1851,7 @@ async function runInvoiceBatch(triggeredBy) {
   } catch (err) {
     const result = {
       dateStr: todayStr, sentCount, skippedNeedsFix, skippedNotDone,
+      skippedNoEmail, noEmailNames: noEmailNames.slice(0, 20),
       errorCount: errorCount + 1, errors: errors.concat([String((err && err.message) || err)]).slice(0, 10),
       triggeredBy
     };

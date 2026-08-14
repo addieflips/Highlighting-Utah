@@ -50,6 +50,14 @@ function gap(name, fixed, detail) {
   else { console.log('  GAP   ' + name + '\n          ' + detail); gaps.push(name + ' — ' + detail); }
 }
 function suite(title) { console.log('\n=== ' + title + ' ==='); }
+/*
+ * Most of this suite is synchronous. A few checks have to RUN real app code
+ * that is written as `async` (syncPayerInvoice), and an async function's body
+ * finishes after this file's last line unless something waits for it. Anything
+ * pushed here is awaited before the summary is printed — otherwise those checks
+ * score after the totals and a failure would exit 0.
+ */
+const pendingAsync = [];
 
 const HTML_FILES = ['index.html', 'admin.html', 'employee.html'];
 
@@ -242,11 +250,15 @@ const computeInvoiceStatusSrc = extractFn(money, 'computeInvoiceStatus');
 const cnBinsForFeetSrc = extractFn(money, 'cnBinsForFeet');
 const custInvoiceKeySrc = extractFn(money, 'custInvoiceKey');
 const statusClassSrc = extractFn(money, 'statusClass');
+// computeInvoiceStatus compares whole cents, so its rounding helper has to be
+// eval'd alongside it. Lifted from the real file, never stubbed here — a stub
+// would keep the tests green through a change to the actual rounding rule.
+const centsOfSrc = extractFn(money, 'centsOf');
 const whGroupKeySrc      = extractFn(admin, 'whGroupKey');
 const whNormalizeLightsSrc = extractFn(admin, 'whNormalizeLights');
 const whWireLabelSrc     = extractFn(admin, 'whWireLabel');
 const CN_DOUBLE_BIN_FEET = Number((money.match(/CN_DOUBLE_BIN_FEET\s*=\s*(\d+)/) || [])[1]);
-eval([computeInvoiceStatusSrc, cnBinsForFeetSrc, custInvoiceKeySrc, statusClassSrc,
+eval([centsOfSrc, computeInvoiceStatusSrc, cnBinsForFeetSrc, custInvoiceKeySrc, statusClassSrc,
       whWireLabelSrc, whNormalizeLightsSrc, whGroupKeySrc].filter(Boolean).join('\n'));
 
 /* The split only works if admin.html actually pulls the rules back in. Without
@@ -346,6 +358,28 @@ check('logic', 'credits reduce what is owed',
 check('logic', 'a credit larger than the bill still reads Paid in Full',
   computeInvoiceStatus(400, 0, 0, 500) === 'Paid in Full',
   'a credit bigger than the charge must never leave the invoice Unpaid');
+
+/* ---- cents ---------------------------------------------------------------
+   Floating point leaves crumbs: 0.1 + 0.2 is 0.30000000000000004. A customer
+   who has paid every cent could come out a fraction short, get filed as
+   "Partial Payment" against a balance that PRINTS as $0.00, and sit on the
+   unpaid list forever with nothing on screen to explain why. Both copies of
+   the formula compare whole cents now (centsOf) — money-parity.test.js proves
+   they still agree with each other. */
+check('logic', 'a payment made of awkward thirds still reads Paid in Full',
+  computeInvoiceStatus(0.1, 0.2, 0.3) === 'Paid in Full',
+  'a third of a cent left over would leave a fully paid invoice looking Partial');
+check('logic', 'paying an exact cent total is Paid in Full',
+  computeInvoiceStatus(499.99, 0, 499.99) === 'Paid in Full');
+check('logic', 'install plus fee paid to the cent is Paid in Full',
+  computeInvoiceStatus(1234.5, 0, 1264.5, 0, 30) === 'Paid in Full',
+  'the real shape of the bug: install + a $30 change fee, paid in full');
+check('logic', 'a genuine cent still short is still Partial Payment',
+  computeInvoiceStatus(500, 0, 499.99) === 'Partial Payment',
+  'rounding must not round a real shortfall away');
+check('logic', 'fmtMoney always shows cents',
+  /minimumFractionDigits:\s*2/.test(money) && /maximumFractionDigits:\s*2/.test(money),
+  '$1,234.50 printed as "$1,234.5", and disagreed with the customer\'s emailed invoice');
 check('logic', 'a credit exactly equal to the bill reads Paid in Full',
   computeInvoiceStatus(400, 0, 0, 400) === 'Paid in Full');
 check('logic', 'money paid against nothing charged is not left Unpaid',
@@ -899,6 +933,36 @@ check('flow', 'deleting a customer archives money already collected',
 check('flow', 'changing bill-to resyncs both payer invoices',
   editSave.includes('syncPayerInvoice'));
 
+/* ---- the invoice edit panel -----------------------------------------------
+   Saving an invoice used to write `removal: 0` unconditionally and clamp the
+   payment box against the install amount alone. A customer who paid $130
+   against a $100 install plus a $30 light-change fee had their recorded
+   payment quietly cut to $100 the next time anyone opened and saved that
+   invoice — and then got chased for money they had already sent. The Invoice
+   Bulk Update tool carries a comment explaining exactly this; the lesson had
+   not reached this handler. */
+const ieSaveStart = admin.indexOf("panel.querySelector('.ie-save').addEventListener");
+const ieSave = ieSaveStart > -1
+  ? admin.slice(ieSaveStart, admin.indexOf('syncedNote', ieSaveStart) + 2000)
+  : '';
+check('flow', 'saving an invoice keeps the removal charge',
+  ieSave.length > 0 && !/removal: 0,/.test(ieSave),
+  'a real takedown charge was wiped every time anyone opened and saved the invoice');
+check('flow', 'saving an invoice clamps the payment against the real total',
+  /grossCharge/.test(ieSave) && /derivedGross/.test(ieSave),
+  'clamping to the install amount deletes a payment that also covered fees or removal');
+check('flow', 'the invoice status is recomputed with the removal it kept',
+  /computeInvoiceStatus\(newAmount, keptRemoval, newDeposit/.test(ieSave),
+  'status computed against a removal the write did not use');
+
+check('flow', 'the dashboard outstanding figure uses the one balance formula',
+  /return s \+ balanceDueAmount\(i\.data\)/.test(admin),
+  'the last hand-rolled balance — it left light-change fees out of the total owed');
+
+check('flow', 'the nightly re-sum keeps the $30 join fee',
+  /inv\.install = groupSum \+ \(inv\.newMemberFeeApplied \? 30 : 0\)/.test(read('functions/index.js')),
+  'a multi-house payer silently lost the join fee on any re-run; the browser copy gets this right');
+
 // syncPayerInvoice used to look houses up by phone ONLY. An invoice is keyed by
 // custInvoiceKey — the phone when there is one, the lowercased email when there
 // isn't — so an email-keyed payer matched no houses at all, the group came back
@@ -1141,8 +1205,39 @@ console.log('\n=== 7. Health check engine ===');
     lq.rows.length === 1 && lq.rows[0].label === 'Fell Through',
     'work they agreed to and you never did');
 
+  /* Invoices only go out by email, so a customer with no email address cannot
+     be billed at all. The nightly run used to pass over them with a bare
+     `continue` — not sent, not skipped, not an error — so the summary text read
+     "0 sent, 0 errors" while an installed house went unbilled all season.
+     Health Check only ever caught customers with NEITHER phone nor email, so a
+     phone-only signup (the ordinary case for a phone enquiry) was invisible
+     everywhere. Added 2026-08-14 alongside the skippedNoEmail counter. */
   hc.set({
-    j: [{ id: 'a', data: { name: 'Smith', phone: '8011112222', address: '1 St', housePrice: 400, customerNumber: '101', measuredFeet: 100 } }],
+    j: [{ id: 'a', data: { name: 'No Email', phone: '8011112222', address: '1 St', housePrice: 400, customerNumber: '101', measuredFeet: 100 } },
+        { id: 'b', data: { name: 'Has Email', phone: '8015556666', email: 'has@x.com', address: '2 St', housePrice: 400, customerNumber: '102', measuredFeet: 100 } }],
+    i: [{ id: '8011112222', data: { install: 400, removal: 0, deposit: 0, status: 'Unpaid' } },
+        { id: '8015556666', data: { install: 400, removal: 0, deposit: 0, status: 'Unpaid' } }]
+  });
+  const ne = get(hc.run(), 'noEmail');
+  check('health', 'a customer with a phone but no email is caught',
+    ne.rows.length === 1 && ne.rows[0].label.indexOf('No Email') !== -1,
+    'they can never be invoiced, and the nightly run reports it as a healthy night');
+
+  /* Grouped the way the nightly run groups: it looks for an email across the
+     whole payer group, so a bill-to house with no email of its own is fine as
+     long as somebody on that bill has one. Flagging per-house would put every
+     multi-house group on the list and train you to ignore the panel. */
+  hc.set({
+    j: [{ id: 'a', data: { name: 'Payer', phone: '8011112222', email: 'payer@x.com', address: '1 St', housePrice: 400, customerNumber: '101', measuredFeet: 100 } },
+        { id: 'b', data: { name: 'Rental', phone: '8013334444', billToPhone: '8011112222', address: '2 St', housePrice: 300, customerNumber: '102', measuredFeet: 80 } }],
+    i: [{ id: '8011112222', data: { install: 700, removal: 0, deposit: 0, status: 'Unpaid' } }]
+  });
+  check('health', 'a bill-to house is not flagged when the payer has the email',
+    get(hc.run(), 'noEmail').rows.length === 0,
+    'every multi-house group would land on the list and the panel becomes noise');
+
+  hc.set({
+    j: [{ id: 'a', data: { name: 'Smith', phone: '8011112222', email: 'smith@x.com', address: '1 St', housePrice: 400, customerNumber: '101', measuredFeet: 100 } }],
     i: [{ id: '8011112222', data: { install: 400, removal: 0, deposit: 0, status: 'Unpaid' } }],
     a: [{ id: '999', data: {} }]
   });
@@ -1152,8 +1247,8 @@ console.log('\n=== 7. Health check engine ===');
     'false alarms train you to ignore the panel: ' + clean.map(c => c.id).join(', '));
 
   const all = hc.run();
-  check('health', 'all 14 checks present',
-    all.length === 14, 'got ' + all.length);
+  check('health', 'all 15 checks present',
+    all.length === 15, 'got ' + all.length);
   check('health', 'fix buttons limited to the unambiguous checks',
     all.filter(c => c.fix).length === 6,
     'auto-fixing a judgement call writes bad data at scale');
@@ -1311,19 +1406,299 @@ suite('8. Quote decline / maybe next year');
 })();
 
 // =====================================================================
-console.log('\n' + '='.repeat(55));
-console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));
-if (fail) {
-  console.log('\nFailures:');
-  results.forEach(r => console.log('  - ' + r));
-  console.log('\nFix these before pushing.');
-} else {
-  console.log('\nAll good. Safe to push.');
-}
-if (gaps.length) {
-  console.log('\n' + gaps.length + ' known data-flow gaps (not blockers, but worth fixing):');
-  gaps.forEach(g => console.log('  - ' + g.split(' — ')[0]));
-  console.log('  See the GAP lines above for detail.');
-}
-console.log('='.repeat(55) + '\n');
-process.exit(fail ? 1 : 0);
+/* Header printed inside the async block below, so it appears above its own
+   results rather than above an empty gap. */
+/*
+ * ⚠ THE LESSON IN THIS SUITE.
+ *
+ * On 2026-08-13 commit 9e2bb9b left `billedHouseIds: forTotal.map(h => h.id)`
+ * in syncPayerInvoice. There is no variable called forTotal — the real one is
+ * `active`. JavaScript builds that whole object literal before setDoc ever
+ * sees it, so the function threw ReferenceError and wrote NOTHING, every single
+ * time it ran, for a day. It is on five money paths: changing who a customer is
+ * billed to, saving a multi-house invoice (where it throws AFTER the payment is
+ * written, so the panel just hangs), Health Check's "Resync totals", and bulk
+ * price updates.
+ *
+ * The suite stayed green the whole time, because the checks above only ever
+ * read this function as TEXT. So this suite RUNS it, against fake Firestore
+ * calls. A regex cannot catch an undefined variable; executing the code can.
+ */
+(function () {
+  const start = admin.indexOf('async function syncPayerInvoice(');
+  if (start === -1) {
+    check('sync', 'syncPayerInvoice found in admin.html', false,
+      'renamed or removed — update this test rather than deleting it');
+    return;
+  }
+  // Slice to the closing brace at column 0, the same way the text checks do.
+  const src = admin.slice(start, admin.indexOf('\n}', start) + 2);
+
+  // A tiny fake Firestore. Every call records what it was asked for; setDoc
+  // captures the document that would have been written.
+  function makeHarness(houses, existingInvoice) {
+    const written = [];
+    const ctx = {
+      db: {},
+      doc: (...a) => ({ __path: a.slice(1).join('/') }),
+      collection: (...a) => ({ __col: a[1] }),
+      query: (col, ...rest) => ({ __col: col.__col, __where: rest }),
+      where: (f, op, v) => ({ f, op, v }),
+      serverTimestamp: () => '__ts__',
+      getDoc: async () => ({
+        exists: () => !!existingInvoice,
+        data: () => existingInvoice || {}
+      }),
+      getDocs: async (q) => {
+        // Only the billToPhone query returns rows here; the email/phone
+        // fallbacks resolve out of the jobAddresses list below.
+        const w = (q.__where || [])[0] || {};
+        const rows = houses.filter(h => w.f && String(h.data[w.f] || '') === String(w.v));
+        return { forEach: (fn) => rows.forEach(r => fn({ id: r.id, data: () => r.data })) };
+      },
+      setDoc: async (ref, payload) => { written.push(payload); },
+      jobAddresses: houses,
+      custInvoiceKey,
+      computeInvoiceStatus,
+      console
+    };
+    const names = Object.keys(ctx);
+    const fn = new Function(...names, src + '\nreturn syncPayerInvoice;')(...names.map(n => ctx[n]));
+    return { fn, written };
+  }
+
+  const houses = [
+    { id: 'h1', data: { name: 'Payer', phone: '8011112222', housePrice: 400 } },
+    { id: 'h2', data: { name: 'Rental', phone: '8013334444', billToPhone: '8011112222', housePrice: 300 } }
+  ];
+
+  // THE REGRESSION TEST. Before the fix this threw ReferenceError: forTotal.
+  let threw = null, harness = makeHarness(houses, { install: 700, removal: 50, deposit: 100 });
+  pendingAsync.push((async () => {
+    suite('10. syncPayerInvoice actually runs');
+    try { await harness.fn('8011112222'); } catch (e) { threw = e; }
+
+    check('sync', 'syncPayerInvoice runs without throwing',
+      threw === null,
+      'it threw ' + (threw && threw.message) + ' — every caller writes nothing, silently');
+    check('sync', 'syncPayerInvoice actually writes the invoice',
+      harness.written.length === 1,
+      'the write never happened, so the invoice keeps its stale total');
+
+    const w = harness.written[0] || {};
+    check('sync', 'billedHouseIds names the houses the total was summed from',
+      Array.isArray(w.billedHouseIds) && w.billedHouseIds.length === 2 &&
+      w.billedHouseIds.indexOf('h1') !== -1 && w.billedHouseIds.indexOf('h2') !== -1,
+      'the printed invoice rows must add up to the amount printed beside them');
+    check('sync', 'the total is the sum of the houses',
+      w.install === 700, 'got ' + w.install);
+    check('sync', 'an existing removal charge survives the rebuild',
+      w.removal === 50, 'a real takedown charge would be wiped');
+    check('sync', 'a recorded payment survives the rebuild',
+      w.deposit === 100, 'wiping a payment means chasing money already sent');
+
+    // A cancelled house must be excluded from BOTH the total and the row list,
+    // not one of them — that is the pairing billedHouseIds exists to guarantee.
+    const cancelled = [
+      houses[0],
+      { id: 'h2', data: { name: 'Rental', phone: '8013334444', billToPhone: '8011112222', housePrice: 300, rsvpStatus: 'no' } }
+    ];
+    const h2 = makeHarness(cancelled, { install: 700 });
+    await h2.fn('8011112222');
+    const w2 = h2.written[0] || {};
+    check('sync', 'a cancelled house leaves both the total and the row list',
+      w2.install === 400 && Array.isArray(w2.billedHouseIds) &&
+      w2.billedHouseIds.length === 1 && w2.billedHouseIds[0] === 'h1',
+      'the invoice rows and the invoice total would disagree');
+
+    // The $30 join fee is not part of any house price, so a rebuild that
+    // forgets it silently un-charges the fee.
+    const h3 = makeHarness(houses, { install: 730, newMemberFeeApplied: true });
+    await h3.fn('8011112222');
+    check('sync', 'the $30 join fee survives a rebuild',
+      (h3.written[0] || {}).install === 730,
+      'the fee would be quietly refunded on the next price edit');
+  })());
+})();
+
+// =====================================================================
+suite('9. Portal sign-in security');
+/*
+ * These run the REAL functions out of functions/index.js, not a regex over
+ * their text. Both bugs in this suite shipped past a suite that only read
+ * source code as strings.
+ */
+(function () {
+  const fns = read('functions/index.js');
+  const idx = read('index.html');
+
+  // ---- nameMatches: the last-name half of the portal sign-in --------------
+  /* Until 2026-08-14 this ended with `stored.indexOf(typed) !== -1`, a plain
+     substring test. Typing the single letter "a" matched "Sarah Adams",
+     "Frome" and "Cosby" — nearly every name in the book. Five attempts are
+     allowed per phone per 15 minutes and one was enough, so anyone who knew a
+     customer's phone number could open their account, read their address and
+     gate code, and edit them through portalSave. */
+  const nameMatchesSrc = extractFn(fns, 'nameMatches');
+  check('security', 'nameMatches found in functions/index.js',
+    !!nameMatchesSrc,
+    'renamed or removed — the sign-in check can no longer be proved');
+
+  if (nameMatchesSrc) {
+    const nameMatches = new Function(nameMatchesSrc + '\nreturn nameMatches;')();
+
+    // The attack. A single letter, and a partial word, must both be refused.
+    check('security', 'a single letter is not a last name',
+      nameMatches('Sarah Adams', 'a') === false,
+      'one letter matched almost every customer — account takeover with just a phone number');
+    check('security', 'a partial word is not a last name',
+      nameMatches('Sarah Adams', 'ada') === false &&
+      nameMatches('Staci Cosby', 'os') === false,
+      'substring matching lets a guesser in without knowing the name');
+    check('security', 'an empty last name never matches',
+      nameMatches('Sarah Adams', '') === false &&
+      nameMatches('Sarah Adams', '   ') === false);
+
+    // Real customers must still get in. These are the cases that make a
+    // stricter rule safe to ship.
+    check('security', 'the real last name still signs in',
+      nameMatches('Sarah Adams', 'Adams') === true &&
+      nameMatches('Sarah Adams', 'adams') === true &&
+      nameMatches('Sarah Adams', '  Adams  ') === true);
+    check('security', 'the first name still signs in',
+      nameMatches('Sarah Adams', 'Sarah') === true,
+      'word-order independence is deliberate — customers type either part');
+    check('security', 'typing the full name still signs in',
+      nameMatches('Sarah Adams', 'Sarah Adams') === true,
+      'people put their whole name in the last-name box');
+    check('security', 'a hyphenated surname signs in on either half',
+      nameMatches('Sarah Adams-Brown', 'Adams') === true &&
+      nameMatches('Sarah Adams-Brown', 'Brown') === true,
+      'married and double-barrelled names are common and must not be locked out');
+    check('security', 'an apostrophe surname signs in',
+      nameMatches("Sarah O'Brien", 'Brien') === true ||
+      nameMatches("Sarah O'Brien", "O'Brien") === true);
+    /* Deliberately no minimum length. The audit suggested rejecting anything
+       under 3 characters; the whole-word rule closes the hole on its own, and
+       Le, Ho, Ng and Vu are real surnames that a length floor would lock out
+       of their own accounts permanently. */
+    check('security', 'a genuine two-letter surname is not locked out',
+      nameMatches('Minh Le', 'Le') === true && nameMatches('Wei Ng', 'Ng') === true,
+      'a 3-character minimum would permanently exclude these customers');
+  }
+
+  // ---- portalLookup must never upgrade a quote token into a portal token --
+  /* The public quote form generates quoteToken in the VISITOR'S OWN BROWSER
+     (index.html) and saves it on the quote, so whoever submitted the form
+     already knows it. portalLookup used to take that token, look the quote's
+     phone up in jobAddresses, and on a hit return that customer's real
+     portalToken, invoiceKey and sanitized record — address and gate code
+     included. Token lookups are deliberately not rate limited. */
+  const lookupStart = fns.indexOf("exports.portalLookup");
+  const lookupSrc = lookupStart > -1
+    ? fns.slice(lookupStart, fns.indexOf('exports.portalSave'))
+    : '';
+  check('security', 'portalLookup found',
+    lookupSrc.length > 0, 'renamed or moved — update this test');
+  check('security', 'a quote token is never traded for a customer record',
+    lookupSrc.length > 0 && !/const byPhone = await findByPhone\(qPhone\)/.test(lookupSrc),
+    'anyone who knows a customer phone number could submit a quote and take over the account');
+  check('security', 'the quote-token path still answers with the quote itself',
+    /isQuote: true/.test(lookupSrc),
+    'a genuine quote email link must still open the quote review');
+  check('security', 'the quote form still generates its token in the browser',
+    /quoteToken: generatePortalToken\(\)/.test(idx),
+    'if this ever moves server-side the threat model above changes — revisit this suite');
+  check('security', 'the site sends a quote token to the quote review, not the portal',
+    /if\(res\.isQuote\)\{[\s\S]{0,600}tryShowQuoteReview/.test(idx),
+    'the quote-only answer used to fall through to the invoice page and fail to load');
+  check('security', 'a quote token is never stored as a portal login',
+    /if\(res\.isQuote\)\{[\s\S]{0,600}return;/.test(idx) &&
+    idx.indexOf('savePortalLogin(res.token || token)') > idx.indexOf('if(res.isQuote){'),
+    'a stored quote token would be replayed on the next visit');
+
+  // ---- portalInvoice: balances keyed by phone digits ----------------------
+  /* Invoice doc IDs are phone digits, so with no limiter at all this was a
+     freely enumerable balance lookup. The original comment was right that
+     limiting every call locks customers out (it re-runs on every portal
+     render) — so only misses are counted. */
+  // ---- a captured payment must never be dropped on the floor -------------
+  /* recordPaypalPayment used to `return` silently when the invoice document
+     was missing: no log, no alert, no record, and the customer's screen still
+     said "Paid in Full". Reachable in ordinary use — portalSave MOVES the
+     invoice doc when a customer changes their phone or email, so anyone who
+     updates their number between opening the pay screen and approving the
+     payment lands here. The card has already been charged by then. */
+  const rppStart = fns.indexOf('async function recordPaypalPayment');
+  const rppSrc = rppStart > -1 ? fns.slice(rppStart, rppStart + 4000) : '';
+  check('money', 'a captured payment with no invoice is filed, not discarded',
+    /orphaned = true/.test(rppSrc) && /recordUnmatchedPayment/.test(rppSrc),
+    'the money was charged and then silently forgotten');
+  check('money', 'an unmatched payment raises an alert',
+    /twilioSendRaw/.test(fns.slice(fns.indexOf('async function recordUnmatchedPayment'), fns.indexOf('async function recordUnmatchedPayment') + 2000)),
+    'a record nobody is told about is a record nobody reads');
+  check('money', 'unmatchedPayments is readable by staff and writable only by the function',
+    /match \/unmatchedPayments\/\{id\}\s*\{\s*allow read: if request\.auth != null; allow write: if false;/.test(read('firestore.rules')),
+    'a collection missing from the rules is denied by default and the panel renders empty');
+  check('money', 'an unmatched payment is keyed so the webhook and the browser cannot double-file it',
+    /collection\('unmatchedPayments'\)\.doc\(String\(captureId\)\)/.test(rppSrc + fns.slice(fns.indexOf('async function recordUnmatchedPayment'), fns.indexOf('async function recordUnmatchedPayment') + 2000)),
+    'both paths run for the same capture — an add() would file it twice');
+
+  // ---- the nightly run must never skip a customer in silence -------------
+  /* A customer with no email address was passed over with a bare `continue`:
+     not counted as sent, skipped or errored. The summary text read "0 sent, 0
+     errors" and looked healthy while an installed house went unbilled all
+     season. A phone-only signup is the ordinary case for a phone enquiry. */
+  check('money', 'a customer with no email is counted, not silently skipped',
+    /skippedNoEmail\+\+/.test(fns),
+    'the nightly text says "0 sent, 0 errors" while a house goes unbilled all season');
+  check('money', 'the no-email count reaches the run log',
+    (fns.match(/skippedNoEmail,/g) || []).length >= 2 && /skippedNoEmail: 0/.test(fns),
+    'a counter that never reaches the result object is a counter nobody sees');
+  check('money', 'the alert text names the customers who could not be billed',
+    /noEmailNames/.test(fns) && /NO EMAIL \(cannot be billed\)/.test(fns),
+    'a number with no names gives you nothing to act on');
+  check('money', 'admin shows the no-email count in the nightly log',
+    (admin.match(/skippedNoEmail/g) || []).length >= 2,
+    'both the run-now message and the last-10-runs list must show it');
+
+  const piStart = fns.indexOf('exports.portalInvoice');
+  const piSrc = piStart > -1 ? fns.slice(piStart, piStart + 3000) : '';
+  check('security', 'portalInvoice rate-limits a failed last-name guess',
+    /checkRateLimit\('invoice_'/.test(piSrc),
+    'invoice IDs are phone digits — balances were enumerable with no limit at all');
+  check('security', 'portalInvoice does not rate-limit a successful sign-in',
+    /if \(nameMatches\(data\.name, lastName\)\) \{\s*authorized = true;\s*\} else \{/.test(piSrc),
+    'this function re-runs on every portal render — charging successes locks customers out');
+  check('security', 'portalInvoice never rate-limits the token path',
+    !/token[\s\S]{0,200}checkRateLimit/.test(piSrc.slice(0, piSrc.indexOf('lastName)'))),
+    'a customer following their own emailed link must never be throttled');
+})();
+
+// =====================================================================
+// Wait for the async suites before totalling up — see pendingAsync at the top.
+// A check that scores after this summary is a check that cannot fail the build.
+Promise.all(pendingAsync).then(function () {
+  console.log('\n' + '='.repeat(55));
+  console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));
+  if (fail) {
+    console.log('\nFailures:');
+    results.forEach(r => console.log('  - ' + r));
+    console.log('\nFix these before pushing.');
+  } else {
+    console.log('\nAll good. Safe to push.');
+  }
+  if (gaps.length) {
+    console.log('\n' + gaps.length + ' known data-flow gaps (not blockers, but worth fixing):');
+    gaps.forEach(g => console.log('  - ' + g.split(' — ')[0]));
+    console.log('  See the GAP lines above for detail.');
+  }
+  console.log('='.repeat(55) + '\n');
+  process.exit(fail ? 1 : 0);
+}).catch(function (e) {
+  // An async suite that blew up must never be mistaken for a clean run.
+  console.log('\n  FAIL  an async suite crashed: ' + (e && e.stack || e));
+  console.log('\n' + '='.repeat(55));
+  console.log(pass + ' passed, ' + (fail + 1) + ' failed\n');
+  process.exit(1);
+});
