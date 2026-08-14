@@ -2047,6 +2047,47 @@ suite('9. Portal sign-in security');
 })();
 
 // =====================================================================
+/* ⚠ THE BUGS THIS SUITE CATCHES.
+ *
+ * Public-site content rendering (index.html) had two gaps against what
+ * admin actually offers:
+ *   - Gallery photo captions (typed in admin, single upload/bulk
+ *     upload/inline edit) were never rendered by the real-data gallery
+ *     listener — only the static placeholder gallery showed captions,
+ *     which is presumably why nobody noticed: captions only visibly
+ *     worked before any real photo existed.
+ *   - Reviews and FAQ had no client-side sort at all, unlike Gallery and
+ *     Hero Images (both sort by createdAt/order just above them in the
+ *     same file). Admin's own lists ARE ordered (reviews newest-first,
+ *     FAQ oldest-first) — a plain onSnapshot with no orderBy returns
+ *     Firestore's implementation-defined order, not creation order, so
+ *     what staff see in admin and what the public site shows could
+ *     legitimately disagree.
+ */
+(function () {
+  const idx = read('index.html');
+  const galStart = idx.indexOf("onSnapshot(collection(db,'gallery')");
+  const galSrc = galStart > -1 ? idx.slice(galStart, galStart + 700) : '';
+  check('public-content', 'gallery listener found in index.html', galStart > -1,
+    'renamed or removed — update this test rather than deleting it');
+  check('public-content', 'a gallery caption entered in admin actually renders on the public site',
+    /g\.caption/.test(galSrc),
+    'captions only ever worked on the static placeholder gallery, before any real photo was uploaded');
+
+  const revStart = idx.indexOf("onSnapshot(collection(db,'reviews')");
+  const revSrc = revStart > -1 ? idx.slice(revStart, revStart + 700) : '';
+  check('public-content', 'reviews are sorted to match admin\'s newest-first order',
+    /docs\.sort/.test(revSrc),
+    'admin shows reviews newest-first; the public site showed Firestore\'s undefined default order instead');
+
+  const faqStart = idx.indexOf("onSnapshot(collection(db,'faq')");
+  const faqSrc = faqStart > -1 ? idx.slice(faqStart, faqStart + 500) : '';
+  check('public-content', 'FAQ is sorted to match admin\'s oldest-first order',
+    /docs\.sort/.test(faqSrc),
+    'admin shows FAQ oldest-first (so the "top 3" preview is deterministic); the public site had no sort at all');
+})();
+
+// =====================================================================
 // Wait for the async suites before totalling up — see pendingAsync at the top.
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {

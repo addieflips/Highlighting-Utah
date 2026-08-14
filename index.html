@@ -1904,7 +1904,8 @@ onSnapshot(collection(db,'gallery'), function(snap){
   });
   var full = document.getElementById('galleryFull');
   full.innerHTML = docs.map(function(g){
-    return '<div class="gallery-item"><img src="'+g.imageUrl+'" alt="Christmas light installation" style="width:100%;height:100%;object-fit:cover;"></div>';
+    return '<div class="gallery-item"><img src="'+g.imageUrl+'" alt="Christmas light installation" style="width:100%;height:100%;object-fit:cover;">'+
+      (g.caption ? '<div class="gallery-cap">'+g.caption+'</div>' : '')+'</div>';
   }).join('');
 }, function(){ /* Firestore not reachable yet — keep placeholder gallery */ });
 
@@ -1935,6 +1936,16 @@ onSnapshot(collection(db,'reviews'), function(snap){
   if(snap.empty) return;
   var docs = [];
   snap.forEach(function(d){ docs.push(d.data()); });
+  /* Admin's own Reviews list is ordered newest-first (orderBy('createdAt',
+     'desc')), but a plain onSnapshot with no orderBy returns Firestore's
+     implementation-defined order, not creation order — so this has to sort
+     client-side to actually match what staff see when they add one, the
+     same way Gallery and Hero Images already do just above. */
+  docs.sort(function(a,b){
+    var at = a.createdAt && a.createdAt.toMillis ? a.createdAt.toMillis() : 0;
+    var bt = b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : 0;
+    return bt - at;
+  });
   REVIEWS = docs;
   renderReviews();
 }, function(){});
@@ -1942,7 +1953,14 @@ onSnapshot(collection(db,'reviews'), function(snap){
 onSnapshot(collection(db,'faq'), function(snap){
   if(snap.empty) return;
   var docs = [];
-  snap.forEach(function(d){ docs.push({q:d.data().question, a:d.data().answer}); });
+  snap.forEach(function(d){ docs.push({q:d.data().question, a:d.data().answer, createdAt:d.data().createdAt}); });
+  // Admin's own FAQ list is ordered oldest-first (orderBy('createdAt','asc')) —
+  // same reasoning as the reviews sort just above, opposite direction.
+  docs.sort(function(a,b){
+    var at = a.createdAt && a.createdAt.toMillis ? a.createdAt.toMillis() : 0;
+    var bt = b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : 0;
+    return at - bt;
+  });
   FAQS = docs;
   renderFAQ();
 }, function(){});
