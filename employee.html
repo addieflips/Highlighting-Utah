@@ -1438,7 +1438,13 @@ function whBundlesFor(data){
     const b = Math.max(1, Math.ceil(estFeet / 40));
     return {bundles: b, label: '~' + b + ' bundle' + (b===1?'':'s') + ' (est. from price)', unknown:true};
   }
-  return {bundles: 0, label: 'no feet on file', unknown:true};
+  /* Matches admin's own houseBundleNeed fallback (assume 1, not 0) for a
+     house with neither feet nor a price to estimate from. This function's
+     own comment above (whCurrentLightsItems) already promised "so the crew
+     doesn't see '0 bundles' and under-build" — that promise only held when
+     a price existed; a house with NEITHER feet nor price still showed 0
+     and was left out of the group/printable-sheet totals entirely. */
+  return {bundles: 1, label: 'no feet on file — assuming 1 bundle', unknown:true};
 }
 function whCurrentLightsItems(){
   const newItems = whLightsNew.map(function(d, i){
