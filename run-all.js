@@ -1997,6 +1997,32 @@ suite('9. Portal sign-in security');
 })();
 
 // =====================================================================
+/* ⚠ THE BUG THIS SUITE CATCHES.
+ *
+ * attachAddressRowHandlers (the route/address-row .paystatus-select
+ * dropdown, used on Routes and other address-row views) called
+ * computeInvoiceStatus with only 4 arguments — install, removal, deposit,
+ * credits — silently dropping changeFees (defaults to undefined, treated as
+ * 0). Every other one of the ~40 call sites in admin.html correctly passes
+ * all 5. For a customer carrying a light-change fee, this one dropdown
+ * could disagree with every other status display in the app (Invoice List,
+ * Dashboard, exports, emails) — e.g. reading "Paid in Full" while the real
+ * invoice, fee included, is still Partial Payment.
+ */
+(function () {
+  const rowStart = admin.indexOf('function attachAddressRowHandlers(container){');
+  if (rowStart === -1) {
+    check('invoice-status-args', 'attachAddressRowHandlers found in admin.html', false,
+      'renamed or removed — update this test rather than deleting it');
+    return;
+  }
+  const rowSrc = admin.slice(rowStart, rowStart + 600);
+  check('invoice-status-args', 'the paystatus dropdown includes changeFees, like every other invoice status call',
+    /computeInvoiceStatus\(inv\.data\.install, inv\.data\.removal, inv\.data\.deposit, inv\.data\.credits, inv\.data\.changeFees\)/.test(rowSrc),
+    'a customer with a light-change fee could show a status here that disagrees with every other status display in the app');
+})();
+
+// =====================================================================
 // Wait for the async suites before totalling up — see pendingAsync at the top.
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {

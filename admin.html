@@ -13359,7 +13359,7 @@ function attachAddressRowHandlers(container){
     const invoiceId = sel.dataset.setpaystatus;
     const inv = allInvoicesCache.find(i => i.id === invoiceId);
     if(inv){
-      const status = computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit, inv.data.credits);
+      const status = computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit, inv.data.credits, inv.data.changeFees);
       sel.value = status;
     }
   });
