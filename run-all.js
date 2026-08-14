@@ -344,22 +344,30 @@ check('logic', 'admin preview and the nightly function agree on who is new',
   'if these two drift apart, the office sees one invoice total and the customer is billed another');
 
 /*
- * A third place reads the same "who is new" signal: the Schedule tab's own
- * 🆕 New Members panel (a separate, CSV-imported route-planning tool, isolated
- * in a shadow DOM). It used to carry a THIRD, disconnected idea of new — an
- * h.isNew flag that nothing ever set, on any house, ever (its own empty state
- * said as much: "...once the customer feed is wired in the next phase.",
- * 2026-08-08 through 2026-08-14). Fixed by having it look the imported house up
- * in the live jobAddresses list (by customer number, falling back to phone) and
- * read chargeNewMemberFee off THAT record — the same authority as the two
- * checks above, not a fourth copy of the rule.
+ * A separate tool reads a related but NOT identical signal: the Schedule tab's
+ * own 🆕 New Members panel (a CSV-imported route-planning tool, isolated in a
+ * shadow DOM). It used to carry a disconnected idea of new — an h.isNew flag
+ * that nothing ever set, on any house, ever (its own empty state said as much:
+ * "...once the customer feed is wired in the next phase.", 2026-08-08 through
+ * 2026-08-14). A first fix pointed it at chargeNewMemberFee, same as the two
+ * checks above — but that box is wrong for THIS panel specifically: it stays
+ * ticked on a record forever (Start New Season never clears it, only the
+ * invoice-side newMemberFeeApplied does), so it flagged every past customer who
+ * still happened to have it checked, not just this season's actual signups —
+ * confirmed against real data on 2026-08-14 (owner: "the only person that
+ * should show is [the one real signup]"). The office's own correction: a house
+ * belongs here when its quote has gone Closed — the status Convert-to-Customer
+ * itself sets — matched by phone, since quotes and jobAddresses share no id.
  */
 const isNewMemberHouseSrc = extractFn(admin, 'isNewMemberHouse');
+// The actual "who counts as new" logic lives in closedQuoteFor, which
+// isNewMemberHouse just calls — check that one, not the thin wrapper.
+const closedQuoteForSrc = extractFn(admin, 'closedQuoteFor');
 check('logic', 'the Schedule tab has a live isNewMemberHouse lookup',
-  typeof isNewMemberHouseSrc === 'string');
-check('logic', 'the Schedule tab\'s "new member" reads chargeNewMemberFee, not a flag of its own',
-  isNewMemberHouseSrc && /chargeNewMemberFee === true/.test(isNewMemberHouseSrc),
-  'the panel has drifted back to some other idea of "new" than the office\'s own checkbox');
+  typeof isNewMemberHouseSrc === 'string' && typeof closedQuoteForSrc === 'string');
+check('logic', 'the Schedule tab\'s "new member" reads a Closed quote, not the new-member-fee checkbox',
+  closedQuoteForSrc && /status === 'closed'/.test(closedQuoteForSrc) && !/chargeNewMemberFee/.test(isNewMemberHouseSrc + closedQuoteForSrc),
+  'that fee checkbox never clears once ticked, so using it here re-flags every past customer who happens to still have it checked, not just this season\'s signups');
 check('logic', 'the dead h.isNew flag is gone from the Schedule tab',
   !/\.isNew\b/.test(stripComments(admin)),
   'a bare .isNew read is back — that flag is never set by the CSV import, so it silently shows nobody as new again');
