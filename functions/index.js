@@ -994,29 +994,31 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
     needsLightRecycle: response === 'no'
   });
 
-  return { ok: true, rsvpStatus: response };
+  /* A "no" or "back next year" answered through the portal means this
+     customer is sitting the season out, exactly like the office's own Maybe
+     Next Year toggle (setCustomerSeason in admin.html) - so it has to pull
+     them off any route a crew has already been handed the same way that
+     toggle does. Without this, someone who declines by email after their
+     route is built still gets a crew show up to install lights they said no
+     to. This used to only happen for the admin-triggered "maybe next year"
+     path (pullCustomerFromSeason); a self-service "no"/"back next year"
+     through the RSVP link fell through the gap entirely. */
+  let removedFrom = 0;
+  if (response === 'no' || response === 'backnextyear') {
+    removedFrom = await removeCustomerFromUpcomingRoutes(match.id);
+  }
+
+  return { ok: true, rsvpStatus: response, removedFromRoutes: removedFrom };
 });
 
-/* Sitting a customer out for a season. Clearing the scheduled flag alone would
-   leave them on any route a crew has already been handed, so upcoming routes
-   are edited too. Past routes stay exactly as they are - they are history, and
-   rewriting them would change what the crew actually did.
-
-   Deliberately touches no money: not coming back next year is not the same as
-   not owing for last year. */
-async function pullCustomerFromSeason(customerId) {
-  await db.collection('jobAddresses').doc(customerId).update({
-    maybeNextYear: true,
-    maybeNextYearAt: admin.firestore.FieldValue.serverTimestamp(),
-    rsvpStatus: 'backnextyear',
-    rsvpRespondedAt: admin.firestore.FieldValue.serverTimestamp(),
-    needsLightRecycle: false,
-    needsLightBuild: false,
-    scheduled: false,
-    scheduledDate: null,
-    assignedCrew: null
-  });
-
+/* The one place that strips a customer out of any route a crew has already
+   been handed for today or later. Past routes stay exactly as they are -
+   they are history, and rewriting them would change what the crew actually
+   did. Shared by every path that can put a customer on "not this season":
+   the admin Maybe Next Year toggle, the portal's own RSVP no/back-next-year
+   answer, and quoteRespond's maybe-next-year handling for an existing
+   customer. */
+async function removeCustomerFromUpcomingRoutes(customerId) {
   let removedFrom = 0;
   try {
     const todayStr = todayStrInDenver();
@@ -1032,9 +1034,29 @@ async function pullCustomerFromSeason(customerId) {
       }
     }
   } catch (err) {
-    console.error('[HU] maybe-next-year route removal failed:', err);
+    console.error('[HU] upcoming-route removal failed:', err);
   }
   return removedFrom;
+}
+
+/* Sitting a customer out for a season via the admin-triggered Maybe Next Year
+   path (quoteRespond's maybe_next_year handling for an existing customer).
+   Deliberately touches no money: not coming back next year is not the same as
+   not owing for last year. */
+async function pullCustomerFromSeason(customerId) {
+  await db.collection('jobAddresses').doc(customerId).update({
+    maybeNextYear: true,
+    maybeNextYearAt: admin.firestore.FieldValue.serverTimestamp(),
+    rsvpStatus: 'backnextyear',
+    rsvpRespondedAt: admin.firestore.FieldValue.serverTimestamp(),
+    needsLightRecycle: false,
+    needsLightBuild: false,
+    scheduled: false,
+    scheduledDate: null,
+    assignedCrew: null
+  });
+
+  return await removeCustomerFromUpcomingRoutes(customerId);
 }
 
 /* --- quoteRespond ---------------------------------------------------------

@@ -15703,10 +15703,15 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       specificOutlet: newSpecificOutlet, specificOutletNotes: newSpecificOutletNotes,
       customerNumber: addrUpdates.customerNumber, lat: addrUpdates.lat, lng: addrUpdates.lng
     });
-    /* Switching someone to Maybe Next Year has to take them off the routes as
-       well as flag them, or the crew still turns up. Only on the transition,
-       so re-saving an already-flagged customer is not a repeated sweep. */
-    if(newSeasonMaybe && !item.data.maybeNextYear){
+    /* Switching someone to Maybe Next Year, or setting their RSVP to No, has to
+       take them off the routes as well as flag them, or the crew still turns
+       up for a job the customer said no to. Only on the transition, so
+       re-saving an already-flagged customer is not a repeated sweep. This used
+       to only cover the Maybe Next Year toggle - setting RSVP straight to No
+       from the dropdown here fell through the same gap the portal's own RSVP
+       link had (fixed in functions/index.js's portalRsvp). */
+    if((newSeasonMaybe && !item.data.maybeNextYear) ||
+       (newRsvp === 'no' && item.data.rsvpStatus !== 'no')){
       await removeCustomerFromUpcomingRoutes(editCustomerId);
     }
     const inv = allCustInvoiceFor(item);

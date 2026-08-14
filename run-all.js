@@ -1281,9 +1281,11 @@ suite('8. Quote decline / maybe next year');
         fns.indexOf('async function pullCustomerFromSeason') + 1800)),
       'they would still show up somewhere outside All Customers');
   });
-  check('quoteresp', 'past routes are left alone as history',
-    /\(rd\.date \|\| ''\) < todayStr/.test(fns.slice(fns.indexOf('async function pullCustomerFromSeason'))),
-    'rewriting a finished route changes what the crew actually did');
+  check('quoteresp', 'pulling from the season sweeps upcoming routes',
+    /removeCustomerFromUpcomingRoutes\(customerId\)/.test(fns.slice(fns.indexOf('async function pullCustomerFromSeason'))),
+    'they would still show up on a route the crew has already been handed — the actual sweep logic ' +
+    '(and that past routes are left alone) is proved by executing removeCustomerFromUpcomingRoutes ' +
+    'directly, see suite 11');
 
   // --- money is not touched ---------------------------------------------
   const pull = fns.slice(fns.indexOf('async function pullCustomerFromSeason'),
@@ -1673,6 +1675,95 @@ suite('9. Portal sign-in security');
   check('security', 'portalInvoice never rate-limits the token path',
     !/token[\s\S]{0,200}checkRateLimit/.test(piSrc.slice(0, piSrc.indexOf('lastName)'))),
     'a customer following their own emailed link must never be throttled');
+})();
+
+// =====================================================================
+/* ⚠ THE BUG THIS SUITE CATCHES.
+ *
+ * A customer who answers "no" or "back next year" on the RSVP link was
+ * updated in jobAddresses, but never pulled off a route the crew had already
+ * been handed — the same "sitting the season out" concept the admin-side
+ * Maybe Next Year toggle (setCustomerSeason/removeCustomerFromUpcomingRoutes
+ * in admin.html) has always handled correctly. A text check on portalRsvp's
+ * source could pass even with the route-removal call missing entirely, so
+ * this suite actually EXECUTES removeCustomerFromUpcomingRoutes against a
+ * fake Firestore and proves it strips the right stop from the right route —
+ * then a text check confirms portalRsvp is actually wired to call it.
+ */
+(function () {
+  const rStart = fnsSrc.indexOf('async function removeCustomerFromUpcomingRoutes(');
+  if (rStart === -1) {
+    check('rsvp-routes', 'removeCustomerFromUpcomingRoutes found in functions/index.js', false,
+      'renamed or removed — update this test rather than deleting it');
+    return;
+  }
+  const rSrc = fnsSrc.slice(rStart, fnsSrc.indexOf('\n}', rStart) + 2);
+
+  function makeRouteHarness(routes) {
+    const updated = [];
+    const ctx = {
+      db: {
+        collection: () => ({
+          get: async () => ({
+            docs: routes.map(r => ({
+              data: () => r,
+              ref: { update: async (payload) => { updated.push({ id: r.id, payload }); r.stops = payload.stops; } }
+            }))
+          })
+        })
+      },
+      todayStrInDenver: () => '2026-11-20',
+      console
+    };
+    const names = Object.keys(ctx);
+    const fn = new Function(...names, rSrc + '\nreturn removeCustomerFromUpcomingRoutes;')(...names.map(n => ctx[n]));
+    return { fn, updated };
+  }
+
+  const upcomingRoute = { id: 'r-upcoming', date: '2026-11-25', stops: [{ id: 'cust-1' }, { id: 'cust-2' }] };
+  const pastRoute = { id: 'r-past', date: '2026-11-01', stops: [{ id: 'cust-1' }] };
+  const harness = makeRouteHarness([upcomingRoute, pastRoute]);
+
+  pendingAsync.push((async () => {
+    suite('11. RSVP no / back-next-year removes the customer from upcoming routes');
+    let removedCount = null, threw = null;
+    try { removedCount = await harness.fn('cust-1'); } catch (e) { threw = e; }
+
+    check('rsvp-routes', 'removeCustomerFromUpcomingRoutes runs without throwing',
+      threw === null,
+      'it threw ' + (threw && threw.message) + ' — every caller silently fails to sweep routes');
+    check('rsvp-routes', 'the customer is stripped from the upcoming route\'s stops',
+      !upcomingRoute.stops.some(s => s.id === 'cust-1'),
+      'a customer who declined would still be a stop on a route the crew is about to run');
+    check('rsvp-routes', 'other stops on the same upcoming route are left alone',
+      upcomingRoute.stops.some(s => s.id === 'cust-2'),
+      'removing one customer should not remove their neighbors on the same route');
+    check('rsvp-routes', 'a PAST route is left alone as history',
+      pastRoute.stops.some(s => s.id === 'cust-1'),
+      'rewriting a past route would change what the crew actually did that day');
+    check('rsvp-routes', 'the function reports how many routes it actually changed',
+      removedCount === 1,
+      'the return value is what a caller would log — it should count only the route actually changed');
+
+    // Wiring check: portalRsvp must actually call this for 'no' and 'backnextyear'.
+    const prStart = fnsSrc.indexOf('exports.portalRsvp');
+    const prSrc = prStart > -1 ? fnsSrc.slice(prStart, fnsSrc.indexOf('\n});', prStart) + 4) : '';
+    check('rsvp-routes', 'portalRsvp found in functions/index.js', prStart > -1,
+      'renamed or removed — update this test rather than deleting it');
+    check('rsvp-routes', 'portalRsvp removes the customer from upcoming routes on "no" or "back next year"',
+      /response === 'no' \|\| response === 'backnextyear'/.test(prSrc) &&
+      /removeCustomerFromUpcomingRoutes\(match\.id\)/.test(prSrc),
+      'a customer who declines or asks for next year by email link would still show up on the crew\'s route');
+
+    // Same gap, admin side: setting RSVP to No from the Edit Customer dropdown
+    // (not just the Maybe Next Year toggle) must sweep routes too.
+    const ecStart = admin.indexOf("editCustSaveBtn').addEventListener('click'");
+    const ecSrc = ecStart > -1 ? admin.slice(ecStart, ecStart + 15000) : admin;
+    check('rsvp-routes', 'Edit Customer removes the customer from upcoming routes when RSVP is set to No',
+      /newRsvp === 'no' && item\.data\.rsvpStatus !== 'no'/.test(ecSrc) &&
+      (ecSrc.match(/removeCustomerFromUpcomingRoutes\(editCustomerId\)/g) || []).length >= 1,
+      'setting RSVP straight to No from the dropdown had the same gap as the portal link — the crew still turns up');
+  })());
 })();
 
 // =====================================================================
