@@ -5739,9 +5739,17 @@ let quoteTemplateNames = {
   newQuote:'Quote Email', requote:'ReQuotes', nudge:'Nudge',
   newQuoteText:'', requoteText:''
 };
+/* A quote counts as a re-quote either because it was raised off an existing
+   customer (feet or address changed), or because the office pressed Re-quote on
+   a quote that had already gone out - the customer wrote back wanting another
+   side of the house included. Both are "here is your updated quote", so both
+   use the ReQuotes wording rather than the new-house one. */
+function isRequote(d){
+  return !!(d && (d.existingCustomerId || Number(d.requoteCount) > 0));
+}
 function quoteTemplateFor(d, kind){
   if(kind === 'nudge') return quoteTemplateNames.nudge;
-  return d && d.existingCustomerId ? quoteTemplateNames.requote : quoteTemplateNames.newQuote;
+  return isRequote(d) ? quoteTemplateNames.requote : quoteTemplateNames.newQuote;
 }
 /* Same idea for the text versions. Kept separate from the email ones on
    purpose: an email body is HTML and would arrive on a phone as raw code, so
@@ -5775,7 +5783,13 @@ function firstName(raw){
   return first || 'there';
 }
 function quoteTextTemplateFor(d){
-  return d && d.existingCustomerId ? quoteTemplateNames.requoteText : quoteTemplateNames.newQuoteText;
+  if(!isRequote(d)) return quoteTemplateNames.newQuoteText;
+  /* A re-quote raised by the button on an ordinary quote falls back to the
+     first-quote text if no ReQuote Text has been picked, rather than telling
+     her there is no template. A re-quote off an existing customer keeps
+     insisting on the re-quote wording. */
+  if(quoteTemplateNames.requoteText) return quoteTemplateNames.requoteText;
+  return (d && d.existingCustomerId) ? quoteTemplateNames.requoteText : quoteTemplateNames.newQuoteText;
 }
 /* Texts are billed in 160-character blocks (153 once it spills past one), so
    the count is worth showing before anything is sent. */
@@ -6643,7 +6657,12 @@ function renderQuoteRows(filtered){
         '<div class="row-name-line">'+esc(d.name)+' <span class="status-pill status-'+status+'">'+status+'</span>'+
         (quoteStage(d) === 'new' ? (d.existingCustomerId
           ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA; font-weight:700;">Old house &middot; re-quote</span>'
-          : ' <span class="status-pill" style="background:#E6F0E9; color:#2E6B3E; font-weight:700;">New house</span>') : '')+
+          : (Number(d.requoteCount) > 0
+            /* Re-quoted by hand: it is not a fresh lead any more, so calling it
+               a New house would send her looking for a first quote she has
+               already sent. */
+            ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA; font-weight:700;">Re-quote &middot; needs a new price</span>'
+            : ' <span class="status-pill" style="background:#E6F0E9; color:#2E6B3E; font-weight:700;">New house</span>')) : '')+
         (d.quoteArchived ? ' <span class="status-pill" style="background:#F0EFEC; color:#6E6858;">Archived'+(d.quoteArchivedReason ? ' \u2014 '+esc(d.quoteArchivedReason) : '')+'</span>' : '')+
         (d.smsOptedOut ? ' <span class="status-pill" style="background:#FDECEA; color:#B91C1C;">No texts (STOP)</span>' : '')+
         (Number(d.quoteNudgeCount) ? ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100;">Nudged '+d.quoteNudgeCount+'&times;</span>' : '')+(d.existingCustomerAddressChange ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Existing Customer &mdash; Address Changed</span>' : '')+(d.approvalStatus === 'approved' ? ' <span class="status-pill status-paid">&#10003; Approved</span>' : '')+(d.approvalStatus === 'declined' ? ' <span class="status-pill status-due">Declined</span>' : '')+(d.approvalStatus === 'maybe_next_year' ? ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100;">Maybe Next Year</span>' : '')+(isStaleUnresponsive(d) ? ' <span class="status-pill" style="background:#FDECEA; color:#B91C1C; font-weight:700;">&#9200; 10 Day Unresponsive</span>' : '')+(d.outletTimer === 'Yes' ? ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">&#9201; Wants Timer</span>' : '')+'</div>'+
@@ -6664,6 +6683,27 @@ function renderQuoteRows(filtered){
                   ? '<div style="margin-top:4px; color:#B91C1C; font-weight:700;">Now over 200 ft \u2014 needs 2 bins and a 5000-series number. Their old number goes back to the pool.</div>' : '')+
                 '</div>'
               : '<div style="margin-top:4px;">Address changed from <strong>'+esc(d.changed.oldAddress || '')+'</strong>. Needs re-geocoding, and any saved route still holds the old one.</div>')+
+          '</div>'
+        ) : '')+
+
+        // ---- Re-quoted by hand -------------------------------------------
+        /* What the old quote said, kept on screen after the price is cleared.
+           Without it the card looks like a quote that was never priced, and
+           there is nothing to check the new number against. */
+        (d.requoteFrom ? (
+          '<div style="margin-top:10px; background:#EEF1FF; border:1px solid #C7CEF5; border-radius:9px; padding:10px 12px; font-size:12.5px; color:#33397a; line-height:1.55;">'+
+            '<strong>Re-quoted</strong>'+(Number(d.requoteCount) > 1 ? ' &middot; '+d.requoteCount+' times' : '')+
+            (d.requotedAt ? ' &middot; '+fmtDate(d.requotedAt) : '')+
+            '<div style="margin-top:4px;">Last quote was <strong>'+fmtMoney(Number(d.requoteFrom.price) || 0)+'</strong>'+
+              (d.requoteFrom.status === 'approved' ? ', which they approved' :
+               d.requoteFrom.status === 'declined' ? ', which they declined' :
+               d.requoteFrom.status === 'maybe_next_year' ? ', and they said maybe next year' :
+               ', still awaiting their answer')+'.</div>'+
+            (d.requoteReason ? '<div style="margin-top:4px;">Why: '+esc(d.requoteReason)+'</div>' : '')+
+            (quoteStage(d) === 'new' ? '<div style="margin-top:4px;">Add the new photo and price below, then send it for approval again.</div>' : '')+
+            /* Converting a second time would build a second customer for the
+               same house, complete with its own number and its own invoice. */
+            (d.convertedToCustomerAt ? '<div style="margin-top:6px; color:#B91C1C; font-weight:700;">Already a customer. When they approve, change the price on their customer record &mdash; do not Convert to Customer again.</div>' : '')+
           '</div>'
         ) : '')+
 
@@ -6736,13 +6776,16 @@ function renderQuoteRows(filtered){
           '<div class="quote-section-body" style="padding:0 12px 12px; display:'+(quotePricingOpenIds.has(item.id) ? 'block' : 'none')+';">'+
             '<div class="form-row" style="margin-top:8px; max-width:220px;"><label style="font-size:11.5px;">Estimated Feet (for pricing)</label><input type="number" class="quoteFeetInput" data-id="'+item.id+'" min="0" step="0.5" value="'+(d.estimatedFeet||'')+'" placeholder="e.g. 120" style="font-size:13px; padding:8px 10px;"></div>'+
             (d.estimatedFeet ? '<div class="rtext" style="font-weight:600; color:var(--dusk);">Estimated Price: '+(perFootRate ? fmtMoney(d.estimatedFeet*perFootRate) : 'Set a per-foot rate under Finance > Per Foot Pricing first.')+'</div>' : '')+
-            '<div class="form-row" style="margin-top:8px; max-width:220px;"><label style="font-size:11.5px;">Quoted Price ($) &mdash; what you\'ll ask them to approve</label><input type="number" class="quotePriceInput" data-id="'+item.id+'" min="0" step="1" value="'+(d.quotedPrice != null ? d.quotedPrice : (d.estimatedFeet && perFootRate ? Math.round(d.estimatedFeet*perFootRate) : ''))+'" placeholder="e.g. 450"></div>'+
+            '<div class="form-row" style="margin-top:8px; max-width:220px;"><label style="font-size:11.5px;">Quoted Price ($) &mdash; what you\'ll ask them to approve</label><input type="number" class="quotePriceInput" data-id="'+item.id+'" min="0" step="1" value="'+(d.quotedPrice != null ? d.quotedPrice : (d.requoteFrom && Number(d.requoteFrom.price) ? Number(d.requoteFrom.price) : (d.estimatedFeet && perFootRate ? Math.round(d.estimatedFeet*perFootRate) : '')))+'" placeholder="e.g. 450"></div>'+
+            /* On a re-quote the box starts on the old number, so she is adding
+               to a price she can see rather than working one out from nothing. */
+            ((d.quotedPrice == null && d.requoteFrom && Number(d.requoteFrom.price)) ? '<div class="rtext" style="color:var(--slate); margin-top:-4px;">Starts on their last price ('+fmtMoney(Number(d.requoteFrom.price))+') &mdash; type over it with the new one.</div>' : '')+
             /* Defaults on for a brand-new quote and off for a re-quote (an
                existing customer already paid this once) - but only until she
                actually sets it herself, at which point d.chargeSetupFee wins. */
             '<label style="display:flex; align-items:center; gap:6px; margin-top:8px; font-size:12.5px; cursor:pointer;"><input type="checkbox" class="quoteSetupFeeCheck" data-id="'+item.id+'"'+((d.chargeSetupFee !== undefined ? d.chargeSetupFee : !d.existingCustomerId) ? ' checked' : '')+'> Charge $30 one-time set-up fee'+(d.existingCustomerId ? ' <span style="color:var(--slate);">(unusual for a re-quote)</span>' : '')+'</label>'+
             '<button type="button" class="btn btn-gold btn-sm" data-getquotelink="'+item.id+'">'+
-              (d.quoteManuallySent ? 'Send again' : (d.existingCustomerId ? 'Send updated quote' : 'Send quote email'))+'</button>'+
+              (d.quoteManuallySent ? 'Send again' : (isRequote(d) ? 'Send updated quote' : 'Send quote email'))+'</button>'+
             '<button type="button" class="btn btn-outline btn-sm" data-copyquoteemail="'+item.id+'" style="margin-left:6px;">Preview first</button>'+
             (d.phone && !d.smsOptedOut ? '<button type="button" class="btn btn-outline btn-sm" data-textquote="'+item.id+'" style="margin-left:6px;">Send as text instead</button>' : '')+
             ((typeof d.quotedPrice !== 'number' || d.quotedPrice <= 0)
@@ -6784,20 +6827,37 @@ function renderQuoteRows(filtered){
             ) : '')+
             (typeof d.quotedPrice === 'number' ? (function(){
               const st = d.approvalStatus || 'pending';
-              if(st === 'approved') return '<div class="rtext" style="margin-top:8px; color:#2E6B3E; font-weight:600;">&#10003; Approved'+(d.quoteRespondedAt ? ' &mdash; '+fmtDate(d.quoteRespondedAt) : '')+'</div>';
+              /* Once a quote has been re-quoted, every approval word on the card
+                 says "again" - otherwise a second approval reads exactly like
+                 the first and there is no way to tell which price they said yes
+                 to. */
+              const again = Number(d.requoteCount) > 0;
+              if(st === 'approved') return '<div class="rtext" style="margin-top:8px; color:#2E6B3E; font-weight:600;">&#10003; Approved'+(again ? ' again' : '')+(d.quoteRespondedAt ? ' &mdash; '+fmtDate(d.quoteRespondedAt) : '')+(again ? ' at '+fmtMoney(d.quotedPrice) : '')+'</div>';
               if(st === 'declined') return '<div class="rtext" style="margin-top:8px; color:var(--ember); font-weight:600;">Declined'+(d.quoteRespondedAt ? ' &mdash; '+fmtDate(d.quoteRespondedAt) : '')+'</div>'+
-                '<button type="button" class="btn btn-outline btn-sm" data-markapproval="'+item.id+'" data-value="approved" style="margin-top:6px;">Actually, Mark Approved</button>';
+                '<button type="button" class="btn btn-outline btn-sm" data-markapproval="'+item.id+'" data-value="approved" style="margin-top:6px;">Actually, Mark Approved'+(again ? ' Again' : '')+'</button>';
               if(st === 'maybe_next_year') return '<div class="rtext" style="margin-top:8px; color:#8A6100; font-weight:600;">Maybe Next Year'+(d.quoteRespondedAt ? ' &mdash; '+fmtDate(d.quoteRespondedAt) : '')+'</div>'+
-                '<button type="button" class="btn btn-outline btn-sm" data-markapproval="'+item.id+'" data-value="approved" style="margin-top:6px;">Actually, Mark Approved</button>';
+                '<button type="button" class="btn btn-outline btn-sm" data-markapproval="'+item.id+'" data-value="approved" style="margin-top:6px;">Actually, Mark Approved'+(again ? ' Again' : '')+'</button>';
               const days = daysSince(d.quoteSentAt);
               const isStale = days !== null && days >= 10;
-              return '<div class="rtext" style="margin-top:8px; color:'+(isStale?'#B91C1C; font-weight:700;':'var(--slate);')+'">'+(isStale ? "10 Day Unresponsive — give them a call or send another email" : 'Awaiting response'+(days !== null ? ' &mdash; sent '+days+(days===1?' day':' days')+' ago' : ''))+'</div>'+
+              return '<div class="rtext" style="margin-top:8px; color:'+(isStale?'#B91C1C; font-weight:700;':'var(--slate);')+'">'+(isStale ? "10 Day Unresponsive — give them a call or send another email" : 'Awaiting'+(again ? ' their answer on the new price' : ' response')+(days !== null ? ' &mdash; sent '+days+(days===1?' day':' days')+' ago' : ''))+'</div>'+
                 '<div style="display:flex; gap:8px; margin-top:6px; flex-wrap:wrap;">'+
-                  '<button type="button" class="btn btn-gold btn-sm" data-markapproval="'+item.id+'" data-value="approved">Mark Approved</button>'+
+                  '<button type="button" class="btn btn-gold btn-sm" data-markapproval="'+item.id+'" data-value="approved">Mark Approved'+(again ? ' Again' : '')+'</button>'+
                   '<button type="button" class="btn btn-outline btn-sm" data-markapproval="'+item.id+'" data-value="maybe_next_year">Mark Maybe Next Year</button>'+
                   '<button type="button" class="btn btn-outline btn-sm" data-markapproval="'+item.id+'" data-value="declined">Mark Declined</button>'+
                 '</div>';
             })() : '')+
+            /* Re-quote: they wrote back wanting another side of the house doing.
+               Clears the price and the answer they already gave, and drops the
+               card back into Quotes so it is re-priced and re-approved rather
+               than a new number turning up on an invoice they never agreed to.
+               Only offered once there is a price to revise - a quote nobody has
+               priced yet has nothing to re-quote. */
+            (typeof d.quotedPrice === 'number'
+              ? '<div style="margin-top:12px; padding-top:10px; border-top:1px dashed var(--line);">'+
+                  '<button type="button" class="btn btn-outline btn-sm" data-requote="'+item.id+'">Re-quote this house</button>'+
+                  '<div class="rtext" style="color:var(--slate); margin-top:4px;">They asked for another side doing, or something changed. Sends it back for a new price and a fresh approval.</div>'+
+                '</div>'
+              : '')+
           '</div>'+
         '</div>'+
       '</div>'+
@@ -7094,7 +7154,7 @@ function renderQuoteRows(filtered){
     }
     const subject = kind === 'nudge'
       ? 'Just checking in on your quote'
-      : (d.existingCustomerId ? 'Your updated Highlighting Utah quote' : 'Your Highlighting Utah quote');
+      : (isRequote(d) ? 'Your updated Highlighting Utah quote' : 'Your Highlighting Utah quote');
     return {html: html, subject: subject};
   }
 
@@ -7127,7 +7187,15 @@ function renderQuoteRows(filtered){
     if(d.quoteManuallySent && !confirm((d.name || 'This customer') + ' has already been sent their quote.\n\nSend it again?')) return;
 
     const tmplName = quoteTemplateFor(d, 'quote');
-    const template = getEmailTemplateByName(tmplName);
+    let template = getEmailTemplateByName(tmplName);
+    /* A re-quote raised by the button falls back to the ordinary quote template
+       if no ReQuotes one has been picked yet - she pressed a button on a quote
+       card, and the send should not die on a setting she has never opened. A
+       re-quote off an existing customer still stops, because that wording
+       really does need to be the existing-customer one. */
+    if(!template && !d.existingCustomerId){
+      template = getEmailTemplateByName(quoteTemplateNames.newQuote);
+    }
     if(!template && d.existingCustomerId){
       say('Can\'t find a template called \u201C'+tmplName+'\u201D \u2014 pick one in Quote email settings.', 'var(--ember)');
       return;
@@ -7207,8 +7275,14 @@ function renderQuoteRows(filtered){
       resultEl.innerHTML = '<div class="rtext" style="color:var(--ember); font-weight:600;">Add a Quoted Price above first \u2014 the email quotes that number.</div>';
       return;
     }
-    const tmplName = quoteTemplateFor(d, kind);
-    const template = getEmailTemplateByName(tmplName);
+    let tmplName = quoteTemplateFor(d, kind);
+    let template = getEmailTemplateByName(tmplName);
+    /* Same fallback the send uses, so the preview shows the email that would
+       actually go out rather than the built-in default. */
+    if(!template && kind === 'quote' && !d.existingCustomerId && getEmailTemplateByName(quoteTemplateNames.newQuote)){
+      tmplName = quoteTemplateNames.newQuote;
+      template = getEmailTemplateByName(tmplName);
+    }
     if(!template && !(kind === 'quote' && !d.existingCustomerId)){
       resultEl.innerHTML = '<div class="rtext" style="color:var(--ember); font-weight:600;">Can\'t find a template called &ldquo;'+esc(tmplName)+'&rdquo;. '+
         'Open <strong>Quote email settings</strong> at the top of this page and pick the right one.</div>';
@@ -7625,6 +7699,75 @@ function renderQuoteRows(filtered){
         followQuoteToItsStage(id, {quoteArchived: true});
         toast('Archived. Find them under Closed \u2192 Archived.');
       } catch(err){ toast('Something went wrong \u2014 try again.'); }
+    });
+  });
+  /* Re-quote: the customer wrote back wanting another side of the house doing,
+     so the number they were given no longer covers the job. Presses the same
+     quote back to the start of the pipeline - price cleared, answer cleared,
+     everything else (photos, feet, detail form, their token) left exactly as it
+     is - so it is re-priced and re-approved on one card rather than a second
+     card appearing for the same house. */
+  list.querySelectorAll('[data-requote]').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      const id = btn.dataset.requote;
+      const item = quotesCache.find(function(q){ return q.id === id; });
+      if(!item) return;
+      const d = item.data;
+      const who = d.name || 'this customer';
+      /* One box, not two: Cancel here backs out of the whole thing, and
+         whatever is typed is only ever a note for her own card. */
+      const why = prompt('Re-quote ' + who + '?\n\n' +
+        'Their price (' + fmtMoney(d.quotedPrice) + ')' +
+        (d.approvalStatus === 'approved' ? ' and their approval' : ' and their answer') +
+        ' are cleared, and the card goes back to Quotes for a new price. ' +
+        'Photos, feet and everything else stay.\n\n' +
+        (d.convertedToCustomerAt
+          ? 'Heads up: this one is already a customer. When they approve the new price, change it on their customer record — do not convert them a second time.\n\n'
+          : '') +
+        'What changed? (optional — it shows on the card)',
+        'They asked for another side of the house quoted');
+      if(why === null) return;
+      try{
+        const updates = {
+          requoteCount: (Number(d.requoteCount) || 0) + 1,
+          requoteFrom: {price: Number(d.quotedPrice) || 0, status: d.approvalStatus || 'pending'},
+          requoteReason: String(why || '').trim(),
+          requotedAt: serverTimestamp(),
+          /* The price genuinely has to go rather than just be flagged: it is
+             what quoteStage reads, so leaving it there keeps the card sitting
+             in Awaiting Response looking like it is still out with them. */
+          quotedPrice: null,
+          approvalStatus: 'pending',
+          /* Both answer stamps go: admin's Mark Approved writes one and the
+             customer's own approve link writes the other, and either left
+             behind would date the new answer to the old one. */
+          quoteRespondedAt: null,
+          approvalRespondedAt: null,
+          /* Nothing has been sent at the new price yet, so the send button
+             offers to send instead of warning that it already went. */
+          quoteManuallySent: false,
+          quoteManuallySentAt: null,
+          quoteNudgeCount: 0,
+          /* Live work again - comes back out of Closed and out of the archive,
+             whichever of the two it was sitting in. */
+          status: 'new',
+          quoteArchived: false,
+          quoteArchivedReason: ''
+        };
+        await updateDoc(doc(db,'quotes', id), updates);
+        /* The two server timestamps are sentinels, not dates - handing them to
+           the local copy would print gibberish on the card until Firestore
+           answers, so the screen waits for the real ones. */
+        const local = Object.assign({}, updates);
+        delete local.requotedAt;
+        delete local.quoteManuallySentAt;
+        quotePricingOpenIds.add(id);
+        followQuoteToItsStage(id, local);
+        toast('Re-quote started for ' + who + ' — add the new photo and price, then send it.');
+      } catch(err){
+        console.error('Could not start the re-quote:', err);
+        toast('Could not start the re-quote — try again.');
+      }
     });
   });
   list.querySelectorAll('[data-restorequote]').forEach(function(btn){
