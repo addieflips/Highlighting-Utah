@@ -2166,6 +2166,56 @@ suite('10d. Activity log, and losing somebody else’s edit');
     'without these the conflict check has nothing to compare and never fires');
 })();
 
+suite('10e. Import safety, and the abandoned quote link');
+(function () {
+  // ---- §5.5 the customer bulk importer gets a dry run --------------------
+  /* This tool matches each pasted row against an existing customer and UPDATES
+     it — name, phone, address, price, measured feet. A column pasted one row
+     out of line therefore rewrites hundreds of live records, prices included,
+     with no confirm and no undo. */
+  check('import-safety', 'the customer bulk importer has a Check First',
+    /id="rbCheckBtn"/.test(admin) && /rbCheckReport/.test(admin),
+    'the Customer Numbers tool has had one for ages; this is the tool that can do the most damage');
+  const checkSrc = sectionFrom(admin, admin.indexOf("rbCheckBtn')?.addEventListener"));
+  check('import-safety', 'the dry run writes nothing',
+    !/updateDoc|addDoc|setDoc|deleteDoc/.test(checkSrc),
+    'a preview that writes is not a preview');
+  check('import-safety', 'it resolves matches the same way the real import does',
+    /findExistingAddressMatch\(street, phone/.test(checkSrc) && /alignBulkRows/.test(checkSrc),
+    'a preview that matches differently from the real run is worse than none — it would lie');
+  check('import-safety', 'it reads the same price box the importer reads',
+    /rbAmountsArea/.test(checkSrc),
+    'previewing a different column than the one that gets written is exactly the mistake this is meant to catch');
+  check('import-safety', 'it calls out price changes on existing customers',
+    /would have their price CHANGED/.test(checkSrc),
+    'a one-row misalignment shows up as a wall of price changes — that is the signal worth shouting');
+
+  // ---- §6 an abandoned Convert to Customer -------------------------------
+  /* addCustFromQuoteId was set by the Convert button and cleared ONLY on a
+     successful add. Back out, and the next customer typed in by hand silently
+     inherited that quote's RSVP and quietly marked the quote closed. */
+  check('convert-link', 'the form says when it is converting a quote',
+    /addCustQuoteBanner/.test(admin) && /function renderAddCustQuoteBanner/.test(admin),
+    'the dangerous state was an INVISIBLE link to a quote nobody meant to convert');
+  check('convert-link', 'the link to a quote can be cleared without losing what is typed',
+    /function clearAddCustQuoteLink/.test(admin) && /addCustQuoteBannerClear/.test(admin),
+    'there was no way out of the state at all');
+  check('convert-link', 'the banner is hidden again once the form resets',
+    (admin.match(/renderAddCustQuoteBanner\(''\)/g) || []).length >= 2,
+    'a banner left up after a save would be its own kind of lie');
+
+  // ---- §6 the Schedule tab is a snapshot, and should say so --------------
+  check('schedule-age', 'the schedule plan remembers when it was imported',
+    /importedAt:IMPORTED_AT/.test(admin) && /IMPORTED_AT=isoOf\(new Date\(\)\)/.test(admin),
+    'nothing recorded how old the underlying CSV was');
+  check('schedule-age', 'the tab says how old the snapshot is',
+    /function renderImportedAt/.test(admin) && /Snapshot imported /.test(admin),
+    'a plan built from a months-old export looked exactly like one built this morning');
+  check('schedule-age', 'a stale snapshot is flagged, not just dated',
+    /days > 14 \? 'var\(--ember\)'/.test(admin),
+    'this plan does not follow customer changes, so age is the whole risk');
+})();
+
 suite('11. Reliability pass');
 /*
  * The 2026-08-14 audit's §2 items. None of these are money bugs on their own;
