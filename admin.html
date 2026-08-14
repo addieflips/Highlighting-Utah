@@ -3539,25 +3539,28 @@
       <div class="gen-subtab-panel active" id="whtab-build">
         <div class="card" style="margin-bottom:20px;">
           <h3 style="margin:0 0 10px;" id="whExtraFormTitle">Add From Inbox</h3>
-          <p class="form-note" style="margin:0 0 10px;" id="whExtraFormNote">For a build request you saw in Inbox, a rebuild, or just buffer stock.</p>
+          <p class="form-note" style="margin:0 0 10px;" id="whExtraFormNote">For a build request you saw in Inbox, a rebuild, or just buffer stock. Pick the house first &mdash; the pattern, the wire and the number of bundles fill themselves in from their record.</p>
+          <div class="form-row"><label>Which house is this for? (optional &mdash; leave blank for generic buffer stock)</label><input type="text" id="whExtraLabel" list="whExtraCustomerList" placeholder="Start typing a name or address to pick a customer" autocomplete="off">
+            <datalist id="whExtraCustomerList"></datalist>
+            <div id="whExtraLabelMatch" style="font-size:12.5px; color:var(--slate); margin-top:4px;"></div></div>
           <div class="form-grid-2">
-            <div class="form-row"><label>Pattern</label><input type="text" id="whExtraPattern" placeholder="e.g. Warm White, Red, Red, Warm White"></div>
-            <div class="form-row"><label>How Many</label><input type="number" id="whExtraQty" min="1" step="1" value="1"></div>
+            <div class="form-row"><label for="whExtraKind">What is this for?</label>
+              <select id="whExtraKind"><option value="lights">Lights</option><option value="timer">Timer</option></select></div>
+            <div class="form-row"><label for="whExtraQty" id="whExtraQtyLabel">How many bundles</label><input type="number" id="whExtraQty" min="1" step="1" value="1">
+              <div id="whExtraQtyNote" style="font-size:12.5px; color:var(--slate); margin-top:4px;"></div></div>
           </div>
-          <!-- Wire colour was never asked for here, so anything added by hand
-               sat in its own "wire not set" bucket instead of joining the real
-               build group for those colours. Leaving it as Not Set keeps the
-               old behaviour for plain buffer stock. -->
-          <div class="form-row" style="max-width:260px;"><label>Wire Color</label>
+          <div class="form-row" id="whExtraPatternRow"><label for="whExtraPattern">Pattern</label><input type="text" id="whExtraPattern" placeholder="e.g. Warm White, Red, Red, Warm White">
+            <div id="whExtraPatternNote" style="font-size:12.5px; color:var(--slate); margin-top:4px;"></div></div>
+          <!-- The form never asked which wire this was on, so a build added by
+               hand could only ever say "wire not set". Fills itself in from the
+               house, same as the pattern. -->
+          <div class="form-row" id="whExtraWireRow" style="max-width:260px;"><label for="whExtraWire">Wire Color</label>
             <select id="whExtraWire">
               <option value="">Not set &mdash; buffer stock</option>
               <option value="White">White</option>
               <option value="Green">Green</option>
             </select>
-          </div>
-          <div class="form-row"><label>Which house is this for? (optional &mdash; leave blank for generic buffer stock)</label><input type="text" id="whExtraLabel" list="whExtraCustomerList" placeholder="Start typing a name or address to pick a customer" autocomplete="off">
-            <datalist id="whExtraCustomerList"></datalist>
-            <div id="whExtraLabelMatch" style="font-size:12.5px; color:var(--slate); margin-top:4px;"></div></div>
+            <div id="whExtraWireNote" style="font-size:12.5px; color:var(--slate); margin-top:4px;"></div></div>
           <button type="button" class="btn btn-outline" id="whAddExtraBtn">Add to Queue</button>
           <button type="button" class="btn btn-outline" id="whCancelEditExtraBtn" style="display:none;">Cancel</button>
           <span id="whAddExtraStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
@@ -4130,7 +4133,6 @@ onAuthStateChanged(auth, function(user){
     appEl.classList.add('show');
     document.getElementById('whoAmI').textContent = user.email;
     renderUserChip(user);
-    restoreLastAdminPanel();
     loadUserPrefs(user).then(function(){ setTimeout(initData, 0); });
   } else {
     loginScreen.style.display = 'flex';
@@ -4139,9 +4141,6 @@ onAuthStateChanged(auth, function(user){
 });
 
 /* ---------------- Sidebar nav ---------------- */
-/* Remembered per browser tab (sessionStorage) so a refresh reopens whatever
-   panel was on screen instead of always falling back to the panel that's
-   marked active in the static HTML (Quote Requests). */
 function switchToAdminPanel(panelName){
   document.querySelectorAll('.nav-item[data-panel]').forEach(b=>b.classList.remove('active'));
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
@@ -4151,12 +4150,6 @@ function switchToAdminPanel(panelName){
   if(panelEl) panelEl.classList.add('active');
   document.getElementById('sidebar').classList.remove('open');
   renderFavoritesSection();
-  try{ sessionStorage.setItem('huLastPanel', panelName); }catch(e){}
-}
-function restoreLastAdminPanel(){
-  let saved = null;
-  try{ saved = sessionStorage.getItem('huLastPanel'); }catch(e){}
-  if(saved && document.querySelector('.nav-item[data-panel="'+saved+'"]')) switchToAdminPanel(saved);
 }
 document.querySelectorAll('.nav-item[data-panel]').forEach(function(btn){
   btn.addEventListener('click', function(e){
@@ -5761,17 +5754,9 @@ let quoteTemplateNames = {
   newQuote:'Quote Email', requote:'ReQuotes', nudge:'Nudge',
   newQuoteText:'', requoteText:''
 };
-/* A quote counts as a re-quote either because it was raised off an existing
-   customer (feet or address changed), or because the office pressed Re-quote on
-   a quote that had already gone out - the customer wrote back wanting another
-   side of the house included. Both are "here is your updated quote", so both
-   use the ReQuotes wording rather than the new-house one. */
-function isRequote(d){
-  return !!(d && (d.existingCustomerId || Number(d.requoteCount) > 0));
-}
 function quoteTemplateFor(d, kind){
   if(kind === 'nudge') return quoteTemplateNames.nudge;
-  return isRequote(d) ? quoteTemplateNames.requote : quoteTemplateNames.newQuote;
+  return d && d.existingCustomerId ? quoteTemplateNames.requote : quoteTemplateNames.newQuote;
 }
 /* Same idea for the text versions. Kept separate from the email ones on
    purpose: an email body is HTML and would arrive on a phone as raw code, so
@@ -5805,13 +5790,7 @@ function firstName(raw){
   return first || 'there';
 }
 function quoteTextTemplateFor(d){
-  if(!isRequote(d)) return quoteTemplateNames.newQuoteText;
-  /* A re-quote raised by the button on an ordinary quote falls back to the
-     first-quote text if no ReQuote Text has been picked, rather than telling
-     her there is no template. A re-quote off an existing customer keeps
-     insisting on the re-quote wording. */
-  if(quoteTemplateNames.requoteText) return quoteTemplateNames.requoteText;
-  return (d && d.existingCustomerId) ? quoteTemplateNames.requoteText : quoteTemplateNames.newQuoteText;
+  return d && d.existingCustomerId ? quoteTemplateNames.requoteText : quoteTemplateNames.newQuoteText;
 }
 /* Texts are billed in 160-character blocks (153 once it spills past one), so
    the count is worth showing before anything is sent. */
@@ -6679,12 +6658,7 @@ function renderQuoteRows(filtered){
         '<div class="row-name-line">'+esc(d.name)+' <span class="status-pill status-'+status+'">'+status+'</span>'+
         (quoteStage(d) === 'new' ? (d.existingCustomerId
           ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA; font-weight:700;">Old house &middot; re-quote</span>'
-          : (Number(d.requoteCount) > 0
-            /* Re-quoted by hand: it is not a fresh lead any more, so calling it
-               a New house would send her looking for a first quote she has
-               already sent. */
-            ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA; font-weight:700;">Re-quote &middot; needs a new price</span>'
-            : ' <span class="status-pill" style="background:#E6F0E9; color:#2E6B3E; font-weight:700;">New house</span>')) : '')+
+          : ' <span class="status-pill" style="background:#E6F0E9; color:#2E6B3E; font-weight:700;">New house</span>') : '')+
         (d.quoteArchived ? ' <span class="status-pill" style="background:#F0EFEC; color:#6E6858;">Archived'+(d.quoteArchivedReason ? ' \u2014 '+esc(d.quoteArchivedReason) : '')+'</span>' : '')+
         (d.smsOptedOut ? ' <span class="status-pill" style="background:#FDECEA; color:#B91C1C;">No texts (STOP)</span>' : '')+
         (Number(d.quoteNudgeCount) ? ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100;">Nudged '+d.quoteNudgeCount+'&times;</span>' : '')+(d.existingCustomerAddressChange ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Existing Customer &mdash; Address Changed</span>' : '')+(d.approvalStatus === 'approved' ? ' <span class="status-pill status-paid">&#10003; Approved</span>' : '')+(d.approvalStatus === 'declined' ? ' <span class="status-pill status-due">Declined</span>' : '')+(d.approvalStatus === 'maybe_next_year' ? ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100;">Maybe Next Year</span>' : '')+(isStaleUnresponsive(d) ? ' <span class="status-pill" style="background:#FDECEA; color:#B91C1C; font-weight:700;">&#9200; 10 Day Unresponsive</span>' : '')+(d.outletTimer === 'Yes' ? ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">&#9201; Wants Timer</span>' : '')+'</div>'+
@@ -6705,27 +6679,6 @@ function renderQuoteRows(filtered){
                   ? '<div style="margin-top:4px; color:#B91C1C; font-weight:700;">Now over 200 ft \u2014 needs 2 bins and a 5000-series number. Their old number goes back to the pool.</div>' : '')+
                 '</div>'
               : '<div style="margin-top:4px;">Address changed from <strong>'+esc(d.changed.oldAddress || '')+'</strong>. Needs re-geocoding, and any saved route still holds the old one.</div>')+
-          '</div>'
-        ) : '')+
-
-        // ---- Re-quoted by hand -------------------------------------------
-        /* What the old quote said, kept on screen after the price is cleared.
-           Without it the card looks like a quote that was never priced, and
-           there is nothing to check the new number against. */
-        (d.requoteFrom ? (
-          '<div style="margin-top:10px; background:#EEF1FF; border:1px solid #C7CEF5; border-radius:9px; padding:10px 12px; font-size:12.5px; color:#33397a; line-height:1.55;">'+
-            '<strong>Re-quoted</strong>'+(Number(d.requoteCount) > 1 ? ' &middot; '+d.requoteCount+' times' : '')+
-            (d.requotedAt ? ' &middot; '+fmtDate(d.requotedAt) : '')+
-            '<div style="margin-top:4px;">Last quote was <strong>'+fmtMoney(Number(d.requoteFrom.price) || 0)+'</strong>'+
-              (d.requoteFrom.status === 'approved' ? ', which they approved' :
-               d.requoteFrom.status === 'declined' ? ', which they declined' :
-               d.requoteFrom.status === 'maybe_next_year' ? ', and they said maybe next year' :
-               ', still awaiting their answer')+'.</div>'+
-            (d.requoteReason ? '<div style="margin-top:4px;">Why: '+esc(d.requoteReason)+'</div>' : '')+
-            (quoteStage(d) === 'new' ? '<div style="margin-top:4px;">Add the new photo and price below, then send it for approval again.</div>' : '')+
-            /* Converting a second time would build a second customer for the
-               same house, complete with its own number and its own invoice. */
-            (d.convertedToCustomerAt ? '<div style="margin-top:6px; color:#B91C1C; font-weight:700;">Already a customer. When they approve, change the price on their customer record &mdash; do not Convert to Customer again.</div>' : '')+
           '</div>'
         ) : '')+
 
@@ -6798,16 +6751,13 @@ function renderQuoteRows(filtered){
           '<div class="quote-section-body" style="padding:0 12px 12px; display:'+(quotePricingOpenIds.has(item.id) ? 'block' : 'none')+';">'+
             '<div class="form-row" style="margin-top:8px; max-width:220px;"><label style="font-size:11.5px;">Estimated Feet (for pricing)</label><input type="number" class="quoteFeetInput" data-id="'+item.id+'" min="0" step="0.5" value="'+(d.estimatedFeet||'')+'" placeholder="e.g. 120" style="font-size:13px; padding:8px 10px;"></div>'+
             (d.estimatedFeet ? '<div class="rtext" style="font-weight:600; color:var(--dusk);">Estimated Price: '+(perFootRate ? fmtMoney(d.estimatedFeet*perFootRate) : 'Set a per-foot rate under Finance > Per Foot Pricing first.')+'</div>' : '')+
-            '<div class="form-row" style="margin-top:8px; max-width:220px;"><label style="font-size:11.5px;">Quoted Price ($) &mdash; what you\'ll ask them to approve</label><input type="number" class="quotePriceInput" data-id="'+item.id+'" min="0" step="1" value="'+(d.quotedPrice != null ? d.quotedPrice : (d.requoteFrom && Number(d.requoteFrom.price) ? Number(d.requoteFrom.price) : (d.estimatedFeet && perFootRate ? Math.round(d.estimatedFeet*perFootRate) : '')))+'" placeholder="e.g. 450"></div>'+
-            /* On a re-quote the box starts on the old number, so she is adding
-               to a price she can see rather than working one out from nothing. */
-            ((d.quotedPrice == null && d.requoteFrom && Number(d.requoteFrom.price)) ? '<div class="rtext" style="color:var(--slate); margin-top:-4px;">Starts on their last price ('+fmtMoney(Number(d.requoteFrom.price))+') &mdash; type over it with the new one.</div>' : '')+
+            '<div class="form-row" style="margin-top:8px; max-width:220px;"><label style="font-size:11.5px;">Quoted Price ($) &mdash; what you\'ll ask them to approve</label><input type="number" class="quotePriceInput" data-id="'+item.id+'" min="0" step="1" value="'+(d.quotedPrice != null ? d.quotedPrice : (d.estimatedFeet && perFootRate ? Math.round(d.estimatedFeet*perFootRate) : ''))+'" placeholder="e.g. 450"></div>'+
             /* Defaults on for a brand-new quote and off for a re-quote (an
                existing customer already paid this once) - but only until she
                actually sets it herself, at which point d.chargeSetupFee wins. */
             '<label style="display:flex; align-items:center; gap:6px; margin-top:8px; font-size:12.5px; cursor:pointer;"><input type="checkbox" class="quoteSetupFeeCheck" data-id="'+item.id+'"'+((d.chargeSetupFee !== undefined ? d.chargeSetupFee : !d.existingCustomerId) ? ' checked' : '')+'> Charge $30 one-time set-up fee'+(d.existingCustomerId ? ' <span style="color:var(--slate);">(unusual for a re-quote)</span>' : '')+'</label>'+
             '<button type="button" class="btn btn-gold btn-sm" data-getquotelink="'+item.id+'">'+
-              (d.quoteManuallySent ? 'Send again' : (isRequote(d) ? 'Send updated quote' : 'Send quote email'))+'</button>'+
+              (d.quoteManuallySent ? 'Send again' : (d.existingCustomerId ? 'Send updated quote' : 'Send quote email'))+'</button>'+
             '<button type="button" class="btn btn-outline btn-sm" data-copyquoteemail="'+item.id+'" style="margin-left:6px;">Preview first</button>'+
             (d.phone && !d.smsOptedOut ? '<button type="button" class="btn btn-outline btn-sm" data-textquote="'+item.id+'" style="margin-left:6px;">Send as text instead</button>' : '')+
             ((typeof d.quotedPrice !== 'number' || d.quotedPrice <= 0)
@@ -6849,52 +6799,27 @@ function renderQuoteRows(filtered){
             ) : '')+
             (typeof d.quotedPrice === 'number' ? (function(){
               const st = d.approvalStatus || 'pending';
-              /* Once a quote has been re-quoted, every approval word on the card
-                 says "again" - otherwise a second approval reads exactly like
-                 the first and there is no way to tell which price they said yes
-                 to. */
-              const again = Number(d.requoteCount) > 0;
-              if(st === 'approved') return '<div class="rtext" style="margin-top:8px; color:#2E6B3E; font-weight:600;">&#10003; Approved'+(again ? ' again' : '')+(d.quoteRespondedAt ? ' &mdash; '+fmtDate(d.quoteRespondedAt) : '')+(again ? ' at '+fmtMoney(d.quotedPrice) : '')+'</div>';
+              if(st === 'approved') return '<div class="rtext" style="margin-top:8px; color:#2E6B3E; font-weight:600;">&#10003; Approved'+(d.quoteRespondedAt ? ' &mdash; '+fmtDate(d.quoteRespondedAt) : '')+'</div>';
               if(st === 'declined') return '<div class="rtext" style="margin-top:8px; color:var(--ember); font-weight:600;">Declined'+(d.quoteRespondedAt ? ' &mdash; '+fmtDate(d.quoteRespondedAt) : '')+'</div>'+
-                '<button type="button" class="btn btn-outline btn-sm" data-markapproval="'+item.id+'" data-value="approved" style="margin-top:6px;">Actually, Mark Approved'+(again ? ' Again' : '')+'</button>';
+                '<button type="button" class="btn btn-outline btn-sm" data-markapproval="'+item.id+'" data-value="approved" style="margin-top:6px;">Actually, Mark Approved</button>';
               if(st === 'maybe_next_year') return '<div class="rtext" style="margin-top:8px; color:#8A6100; font-weight:600;">Maybe Next Year'+(d.quoteRespondedAt ? ' &mdash; '+fmtDate(d.quoteRespondedAt) : '')+'</div>'+
-                '<button type="button" class="btn btn-outline btn-sm" data-markapproval="'+item.id+'" data-value="approved" style="margin-top:6px;">Actually, Mark Approved'+(again ? ' Again' : '')+'</button>';
+                '<button type="button" class="btn btn-outline btn-sm" data-markapproval="'+item.id+'" data-value="approved" style="margin-top:6px;">Actually, Mark Approved</button>';
               const days = daysSince(d.quoteSentAt);
               const isStale = days !== null && days >= 10;
-              return '<div class="rtext" style="margin-top:8px; color:'+(isStale?'#B91C1C; font-weight:700;':'var(--slate);')+'">'+(isStale ? "10 Day Unresponsive — give them a call or send another email" : 'Awaiting'+(again ? ' their answer on the new price' : ' response')+(days !== null ? ' &mdash; sent '+days+(days===1?' day':' days')+' ago' : ''))+'</div>'+
+              return '<div class="rtext" style="margin-top:8px; color:'+(isStale?'#B91C1C; font-weight:700;':'var(--slate);')+'">'+(isStale ? "10 Day Unresponsive — give them a call or send another email" : 'Awaiting response'+(days !== null ? ' &mdash; sent '+days+(days===1?' day':' days')+' ago' : ''))+'</div>'+
                 '<div style="display:flex; gap:8px; margin-top:6px; flex-wrap:wrap;">'+
-                  '<button type="button" class="btn btn-gold btn-sm" data-markapproval="'+item.id+'" data-value="approved">Mark Approved'+(again ? ' Again' : '')+'</button>'+
+                  '<button type="button" class="btn btn-gold btn-sm" data-markapproval="'+item.id+'" data-value="approved">Mark Approved</button>'+
                   '<button type="button" class="btn btn-outline btn-sm" data-markapproval="'+item.id+'" data-value="maybe_next_year">Mark Maybe Next Year</button>'+
                   '<button type="button" class="btn btn-outline btn-sm" data-markapproval="'+item.id+'" data-value="declined">Mark Declined</button>'+
                 '</div>';
             })() : '')+
-            /* Re-quote: they wrote back wanting another side of the house doing.
-               Clears the price and the answer they already gave, and drops the
-               card back into Quotes so it is re-priced and re-approved rather
-               than a new number turning up on an invoice they never agreed to.
-               Only offered once there is a price to revise - a quote nobody has
-               priced yet has nothing to re-quote. */
-            (typeof d.quotedPrice === 'number'
-              ? '<div style="margin-top:12px; padding-top:10px; border-top:1px dashed var(--line);">'+
-                  '<button type="button" class="btn btn-outline btn-sm" data-requote="'+item.id+'">Re-quote this house</button>'+
-                  '<div class="rtext" style="color:var(--slate); margin-top:4px;">They asked for another side doing, or something changed. Sends it back for a new price and a fresh approval.</div>'+
-                '</div>'
-              : '')+
           '</div>'+
         '</div>'+
       '</div>'+
       '<div class="row-actions">'+
         (d.quoteArchived
           ? '<button type="button" class="icon-btn" data-restorequote="'+item.id+'" title="Restore this quote" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:var(--gold-dim);">Restore</button>'
-          /* Once converted, the button stays gone even if the quote is later
-             restored/unarchived — clicking it again would re-fill the Add a
-             Customer form and, on submit, create a genuine second customer
-             record for the same quote (the actual write is guarded too, see
-             addCustFromQuoteId above, but not showing the button at all is
-             the fix a person would actually notice). */
-          : (d.convertedToCustomerAt
-              ? '<span class="rtext" style="margin-right:6px; color:#2E6B3E; font-weight:600; font-size:11.5px;">&#10003; Converted'+(d.convertedToCustomerAt ? ' &mdash; '+fmtDate(d.convertedToCustomerAt) : '')+'</span>'
-              : '<button type="button" class="icon-btn" data-converttocust="'+item.id+'" title="Convert to Customer" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:var(--gold-dim);">Convert to Customer</button>')+
+          : '<button type="button" class="icon-btn" data-converttocust="'+item.id+'" title="Convert to Customer" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:var(--gold-dim);">Convert to Customer</button>'+
             '<button type="button" class="icon-btn" data-archivequote="'+item.id+'" title="Archive this quote" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:var(--slate);">Archive</button>')+
         '<select data-id="'+item.id+'" class="quoteStatusSelect" style="border-radius:8px; border:1px solid var(--line); padding:6px 8px; font-size:12.5px;">'+
           '<option value="new"'+(status==='new'?' selected':'')+'>New</option>'+
@@ -7184,7 +7109,7 @@ function renderQuoteRows(filtered){
     }
     const subject = kind === 'nudge'
       ? 'Just checking in on your quote'
-      : (isRequote(d) ? 'Your updated Highlighting Utah quote' : 'Your Highlighting Utah quote');
+      : (d.existingCustomerId ? 'Your updated Highlighting Utah quote' : 'Your Highlighting Utah quote');
     return {html: html, subject: subject};
   }
 
@@ -7217,15 +7142,7 @@ function renderQuoteRows(filtered){
     if(d.quoteManuallySent && !confirm((d.name || 'This customer') + ' has already been sent their quote.\n\nSend it again?')) return;
 
     const tmplName = quoteTemplateFor(d, 'quote');
-    let template = getEmailTemplateByName(tmplName);
-    /* A re-quote raised by the button falls back to the ordinary quote template
-       if no ReQuotes one has been picked yet - she pressed a button on a quote
-       card, and the send should not die on a setting she has never opened. A
-       re-quote off an existing customer still stops, because that wording
-       really does need to be the existing-customer one. */
-    if(!template && !d.existingCustomerId){
-      template = getEmailTemplateByName(quoteTemplateNames.newQuote);
-    }
+    const template = getEmailTemplateByName(tmplName);
     if(!template && d.existingCustomerId){
       say('Can\'t find a template called \u201C'+tmplName+'\u201D \u2014 pick one in Quote email settings.', 'var(--ember)');
       return;
@@ -7305,14 +7222,8 @@ function renderQuoteRows(filtered){
       resultEl.innerHTML = '<div class="rtext" style="color:var(--ember); font-weight:600;">Add a Quoted Price above first \u2014 the email quotes that number.</div>';
       return;
     }
-    let tmplName = quoteTemplateFor(d, kind);
-    let template = getEmailTemplateByName(tmplName);
-    /* Same fallback the send uses, so the preview shows the email that would
-       actually go out rather than the built-in default. */
-    if(!template && kind === 'quote' && !d.existingCustomerId && getEmailTemplateByName(quoteTemplateNames.newQuote)){
-      tmplName = quoteTemplateNames.newQuote;
-      template = getEmailTemplateByName(tmplName);
-    }
+    const tmplName = quoteTemplateFor(d, kind);
+    const template = getEmailTemplateByName(tmplName);
     if(!template && !(kind === 'quote' && !d.existingCustomerId)){
       resultEl.innerHTML = '<div class="rtext" style="color:var(--ember); font-weight:600;">Can\'t find a template called &ldquo;'+esc(tmplName)+'&rdquo;. '+
         'Open <strong>Quote email settings</strong> at the top of this page and pick the right one.</div>';
@@ -7731,75 +7642,6 @@ function renderQuoteRows(filtered){
       } catch(err){ toast('Something went wrong \u2014 try again.'); }
     });
   });
-  /* Re-quote: the customer wrote back wanting another side of the house doing,
-     so the number they were given no longer covers the job. Presses the same
-     quote back to the start of the pipeline - price cleared, answer cleared,
-     everything else (photos, feet, detail form, their token) left exactly as it
-     is - so it is re-priced and re-approved on one card rather than a second
-     card appearing for the same house. */
-  list.querySelectorAll('[data-requote]').forEach(function(btn){
-    btn.addEventListener('click', async function(){
-      const id = btn.dataset.requote;
-      const item = quotesCache.find(function(q){ return q.id === id; });
-      if(!item) return;
-      const d = item.data;
-      const who = d.name || 'this customer';
-      /* One box, not two: Cancel here backs out of the whole thing, and
-         whatever is typed is only ever a note for her own card. */
-      const why = prompt('Re-quote ' + who + '?\n\n' +
-        'Their price (' + fmtMoney(d.quotedPrice) + ')' +
-        (d.approvalStatus === 'approved' ? ' and their approval' : ' and their answer') +
-        ' are cleared, and the card goes back to Quotes for a new price. ' +
-        'Photos, feet and everything else stay.\n\n' +
-        (d.convertedToCustomerAt
-          ? 'Heads up: this one is already a customer. When they approve the new price, change it on their customer record — do not convert them a second time.\n\n'
-          : '') +
-        'What changed? (optional — it shows on the card)',
-        'They asked for another side of the house quoted');
-      if(why === null) return;
-      try{
-        const updates = {
-          requoteCount: (Number(d.requoteCount) || 0) + 1,
-          requoteFrom: {price: Number(d.quotedPrice) || 0, status: d.approvalStatus || 'pending'},
-          requoteReason: String(why || '').trim(),
-          requotedAt: serverTimestamp(),
-          /* The price genuinely has to go rather than just be flagged: it is
-             what quoteStage reads, so leaving it there keeps the card sitting
-             in Awaiting Response looking like it is still out with them. */
-          quotedPrice: null,
-          approvalStatus: 'pending',
-          /* Both answer stamps go: admin's Mark Approved writes one and the
-             customer's own approve link writes the other, and either left
-             behind would date the new answer to the old one. */
-          quoteRespondedAt: null,
-          approvalRespondedAt: null,
-          /* Nothing has been sent at the new price yet, so the send button
-             offers to send instead of warning that it already went. */
-          quoteManuallySent: false,
-          quoteManuallySentAt: null,
-          quoteNudgeCount: 0,
-          /* Live work again - comes back out of Closed and out of the archive,
-             whichever of the two it was sitting in. */
-          status: 'new',
-          quoteArchived: false,
-          quoteArchivedReason: ''
-        };
-        await updateDoc(doc(db,'quotes', id), updates);
-        /* The two server timestamps are sentinels, not dates - handing them to
-           the local copy would print gibberish on the card until Firestore
-           answers, so the screen waits for the real ones. */
-        const local = Object.assign({}, updates);
-        delete local.requotedAt;
-        delete local.quoteManuallySentAt;
-        quotePricingOpenIds.add(id);
-        followQuoteToItsStage(id, local);
-        toast('Re-quote started for ' + who + ' — add the new photo and price, then send it.');
-      } catch(err){
-        console.error('Could not start the re-quote:', err);
-        toast('Could not start the re-quote — try again.');
-      }
-    });
-  });
   list.querySelectorAll('[data-restorequote]').forEach(function(btn){
     btn.addEventListener('click', async function(){
       const id = btn.dataset.restorequote;
@@ -7895,10 +7737,6 @@ function renderQuoteRows(filtered){
         cb.checked = colors.includes(cb.value);
         cb.closest('.pill-check').classList.toggle('checked', cb.checked);
       });
-      // See addCustQuoteLightsPattern above — carry the real pattern across
-      // rather than letting the checkboxes flatten it on submit.
-      addCustQuoteLightsPattern = rbDetectColorsAndPattern(d.lightsDescription || colors.join(', ')).pattern;
-      addCustQuoteColorsSnapshot = colors.slice();
       document.getElementById('addCustWireColor').value = d.wireColor || 'White';
       document.getElementById('addCustInstallPref').value = d.installPreference || 'Normal Schedule';
       document.getElementById('addCustGateCode').value = d.gateCode || '';
@@ -8850,7 +8688,6 @@ function buildInvoiceDocHtml(member){
         '</tr></thead>'+
         '<tbody>'+
           lineItems+
-          (removal > 0 ? row('Removal service', fmtMoney(removal)) : '')+
           (showNewMemberLine ? row('New member installation fee', '$30') : '')+
           changeFeeNotes.map(function(f){ return row(esc(f.reason||'Light change fee'), fmtMoney(Number(f.amount)||0)); }).join('')+
           creditNotes.map(function(c){ return row(esc(c.reason||'Credit'), '\u2212'+fmtMoney(Number(c.amount)||0), 'var(--dusk)'); }).join('')+
@@ -9559,14 +9396,7 @@ document.getElementById('addFolderBtn').addEventListener('click', async function
   const name = input.value.trim();
   const parentId = document.getElementById('newFolderParent').value || null;
   if(!name){ return; }
-  /* 'system' is reserved the same way 'inbox' is (see the rename handler
-     above, which already blocked it) — a folder literally named "System"
-     is indistinguishable from real automated system notices: messages
-     moved into it vanish from Customer Messages (folder === 'System' is
-     filtered out there unconditionally), and the folder itself becomes
-     unclickable in the sidebar, which resets straight back to Inbox
-     whenever selectedFolder === 'System'. */
-  if(name.toLowerCase() === 'inbox' || name.toLowerCase() === 'system' || messageFolders.some(f => f.name.toLowerCase() === name.toLowerCase())){ toast('That folder already exists'); return; }
+  if(name.toLowerCase() === 'inbox' || messageFolders.some(f => f.name.toLowerCase() === name.toLowerCase())){ toast('That folder already exists'); return; }
   await addDoc(collection(db,'messageFolders'), {name: name, parentId: parentId, createdAt: serverTimestamp()});
   input.value = '';
   document.getElementById('newFolderParent').value = '';
@@ -9743,15 +9573,15 @@ function renderMessagesList(){
       const cust = jobAddresses.find(function(a){ return (a.data.phone||'').replace(/\D/g,'') === phoneDigits; });
       whPendingMessageId = msg.id;
       document.querySelector('.nav-item[data-panel="warehouse"]').click();
-      // If someone was part-way through editing a queue entry, this is a new
-      // one — drop out of edit mode so it doesn't overwrite the other entry.
+      // This is a NEW entry, so drop out of edit mode first — otherwise it
+      // would save over whichever queue entry was being corrected.
       whCancelEditExtra();
-      const patternEl = document.getElementById('whExtraPattern');
-      patternEl.value = cust ? (cust.data.lightsDescription || '') : '';
-      document.getElementById('whExtraQty').value = 1;
-      // Their wire is on file — carry it across so this lands in the right
-      // build group instead of a wire-not-set bucket.
-      whSetWireSelect((cust && cust.data.wireColor) || '');
+      /* The house goes in first and whExtraSync fills the rest from their record \u2014
+         pattern and bundle count both \u2014 so this hand-off cannot drift from what
+         the form works out for a house picked by hand. */
+      document.getElementById('whExtraKind').value = 'lights';
+      document.getElementById('whExtraPattern').value = '';
+      whExtraPatternFromRecord = '';
       const labelEl = document.getElementById('whExtraLabel');
       if(cust){
         const num = cust.data.customerNumber ? '#' + cust.data.customerNumber + ' \u2014 ' : '';
@@ -12349,15 +12179,6 @@ let addCustPhotoMarkup = [];
    close that quote out instead of leaving it sitting in the list. */
 let addCustFromQuoteId = null;
 let addCustContactMethodFromQuote = '';
-/* The customer's exact light-colour PATTERN (order + repeats), captured off
-   the quote's own lightsDescription so Convert to Customer can carry it
-   through instead of flattening it. The colour checkboxes only carry a SET,
-   so submitting always rebuilt lightsDescription from checkbox DOM order —
-   silently discarding a real "Red, Red, Warm White, Warm White, repeating"
-   pattern the customer specified on the detail form. Cleared alongside
-   addCustFromQuoteId. */
-let addCustQuoteLightsPattern = '';
-let addCustQuoteColorsSnapshot = [];
 let addCustHighlights = [];
 /* Photos beyond the main one. They ride along to the customer record as
    photos 2, 3, ... - the sections you outline are always on the main one. */
@@ -12684,16 +12505,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
   // The free-text "Additional Notes" input under Lights was removed from the
   // form, so the description is just the colours now. Crew-facing detail lives
   // in the One-Time / Permanent notes fields instead.
-  // If this came from a quote with a genuine pattern (order/repeats) and staff
-  // didn't change which colours are checked, keep that exact pattern instead
-  // of rebuilding a plain comma-joined list from checkbox DOM order — see
-  // addCustQuoteLightsPattern above for why that flattening was a real bug.
-  const keptQuotePattern = addCustFromQuoteId && addCustQuoteLightsPattern &&
-    selectedColors.length === addCustQuoteColorsSnapshot.length &&
-    selectedColors.every(c => addCustQuoteColorsSnapshot.includes(c));
-  const lightsDescription = keptQuotePattern
-    ? addCustQuoteLightsPattern
-    : compileLightsDescription(selectedColors.join(', '), '');
+  const lightsDescription = compileLightsDescription(selectedColors.join(', '), '');
   const wireColor = document.getElementById('addCustWireColor').value;
   const installPreference = document.getElementById('addCustInstallPref').value;
   const chargeNewMemberFee = document.getElementById('addCustNewMemberFee').checked;
@@ -12795,22 +12607,6 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
     return;
   }
 
-  /* A second click on "Convert to Customer" (the button never hid itself once
-     a quote was converted — fixed alongside this) re-fills this same form,
-     and without this check, clicking Add Customer again created a genuine
-     duplicate: a second jobAddresses record, invoice, warehouse entry and
-     customer number for the same quote. Re-checking against the server
-     rather than the cached list catches a second staff member converting it
-     in a different tab too. */
-  if(addCustFromQuoteId){
-    const dupCheckSnap = await getDoc(doc(db,'quotes', addCustFromQuoteId));
-    const dupCheckData = dupCheckSnap.exists() ? dupCheckSnap.data() : null;
-    if(dupCheckData && dupCheckData.convertedToCustomerAt){
-      statusEl.textContent = 'This quote was already converted to a customer — refresh Quote Requests instead of converting it again.';
-      return;
-    }
-  }
-
   statusEl.textContent = 'Locating address…';
   try{
     const fullAddress = buildFullAddress(street, city, zip);
@@ -12848,8 +12644,6 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
     if(addCustFromQuoteId){
       await updateDoc(doc(db,'quotes', addCustFromQuoteId), {status: 'closed', convertedToCustomerAt: serverTimestamp()}).catch(function(){});
       addCustFromQuoteId = null;
-      addCustQuoteLightsPattern = '';
-      addCustQuoteColorsSnapshot = [];
     }
     if(customerNumber) toast('Added as customer #' + customerNumber + ' \u2014 ' + numberOfBins + ' bin' + (numberOfBins===1?'':'s'));
     let invoiceMsg = '';
@@ -12913,8 +12707,6 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
     document.getElementById('addCustBins').value = '1';
     document.getElementById('addCustNumber').value = '';
     addCustFromQuoteId = null;
-    addCustQuoteLightsPattern = '';
-    addCustQuoteColorsSnapshot = [];
     document.getElementById('addCustWantsMailed').checked = false;
     document.getElementById('addCustFeet').value = '';
     document.getElementById('addCustFeetNote').textContent = 'Enter Measured Feet to bill automatically at your Per Foot Pricing rate — you can still adjust Total Price by hand afterward. Deposit and removal fee can be added later from the Invoices tab if needed.';
@@ -13415,11 +13207,6 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
     const difficultyVal = rbNormalizeDifficulty(difficultyRaw[i] || '');
     const amountTypedIn = amounts[i] || '';
     const price = amountTypedIn ? Number(amountTypedIn.replace(/[,$]/g,'')) : null;
-    // Already validated above (format, in-batch duplicates, and against every
-    // existing customer) — this just applies it. Under 5000 sets Number of
-    // Bins to 1, matching the help text under the box; 5000+ is left for a
-    // human to fill in the bin count, same as the manual Add Customer form.
-    const cn = custNumbers[i] || '';
     try{
       const fullAddress = buildFullAddress(street, city, zip);
       // Google throttles long runs with OVER_QUERY_LIMIT. A pin we can't find is
@@ -13455,14 +13242,10 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
         if(outletTimerVal) updates.outletTimer = outletTimerVal;
         if(useEavesVal) updates.useEaves = useEavesVal;
         if(difficultyVal) updates.difficulty = difficultyVal;
-        if(cn){
-          updates.customerNumber = cn;
-          if(parseInt(cn,10) < 5000) updates.numberOfBins = 1;
-        }
         await updateDoc(doc(db,'jobAddresses',existing.id), updates);
         updated++;
       } else {
-        const newDoc = {
+        await addDoc(collection(db,'jobAddresses'), {
           street: street, city: city, state: state, zip: zip,
           address: fullAddress, name: name, phone: phone, email: email, difficulty: difficultyVal || 'Unrated',
           lightColors: colors,
@@ -13473,19 +13256,8 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
           lat: coords.lat, lng: coords.lng,
           needsGeocode: coords.lat === null,
           scheduled: false, createdAt: enrolledDate || serverTimestamp()
-        };
-        if(cn){
-          newDoc.customerNumber = cn;
-          if(parseInt(cn,10) < 5000) newDoc.numberOfBins = 1;
-        }
-        await addDoc(collection(db,'jobAddresses'), newDoc);
+        });
         added++;
-      }
-      // A number typed in here might be one already sitting in the recycled
-      // pool — same cleanup the manual Add Customer form does (line ~12455),
-      // so it can't be handed out to a second customer later.
-      if(cn){
-        await deleteDoc(doc(db,'availableCustomerNumbers', cn)).catch(function(){ /* fine if it was never pooled */ });
       }
       if(!phone && price !== null){ noPhoneNoInvoice++; }
       if(phone){
@@ -13730,7 +13502,7 @@ function attachAddressRowHandlers(container){
     const invoiceId = sel.dataset.setpaystatus;
     const inv = allInvoicesCache.find(i => i.id === invoiceId);
     if(inv){
-      const status = computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit, inv.data.credits, inv.data.changeFees);
+      const status = computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit, inv.data.credits);
       sel.value = status;
     }
   });
@@ -14442,14 +14214,16 @@ function renderWarehouseRecycleQueue(){
     const houses = groups[pattern];
     const listId = 'whrecycle-' + gi;
     html += '<div class="row-item" style="display:block;">'+
-      '<div style="display:flex; justify-content:space-between; align-items:center; cursor:pointer;" data-whrecycletoggle="'+listId+'">'+
+      '<div style="display:flex; justify-content:space-between; align-items:center; gap:10px; cursor:pointer;" data-whrecycletoggle="'+listId+'">'+
         '<div><strong style="font-size:15px;">'+esc(pattern)+'</strong><div style="font-size:12.5px; color:var(--slate);">Need '+houses.length+'</div></div>'+
-        '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:20px; height:20px; color:var(--slate);"><polyline points="6 9 12 15 18 9"/></svg>'+
+        whToggleBtn('whrecycletoggle', listId, 'Show '+houses.length+' house'+(houses.length===1?'':'s'))+
       '</div>'+
       '<div id="'+listId+'" style="display:none; margin-top:12px; padding-top:12px; border-top:1px solid var(--line);">'+
         houses.map(function(h){
-          return '<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0;">'+
-            '<span style="font-size:13.5px;">'+esc(h.data.name||'(no name)')+' &mdash; '+esc(h.data.address||'')+propLabelChip(h.data)+'</span>'+
+          return '<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; gap:10px;">'+
+            /* The number is what comes off them and goes back in the pool, so it
+               is the one fact worth having on screen before pressing the button. */
+            '<span style="font-size:13.5px;">'+esc(h.data.name||'(no name)')+' &mdash; '+esc(h.data.address||'')+propLabelChip(h.data)+custNumChip(h.data)+'</span>'+
             '<button type="button" class="btn btn-outline btn-sm" data-whrecycledone="'+h.id+'">Mark Recycled</button>'+
           '</div>';
         }).join('')+
@@ -14457,10 +14231,10 @@ function renderWarehouseRecycleQueue(){
     '</div>';
   });
   list.innerHTML = html;
-  list.querySelectorAll('[data-whrecycletoggle]').forEach(function(row){
-    row.addEventListener('click', function(){
-      const target = document.getElementById(row.dataset.whrecycletoggle);
-      target.style.display = target.style.display === 'none' ? 'block' : 'none';
+  list.querySelectorAll('[data-whrecycletoggle]').forEach(function(el){
+    el.addEventListener('click', function(e){
+      e.stopPropagation();
+      whToggleGroup(el.dataset.whrecycletoggle);
     });
   });
   list.querySelectorAll('[data-whrecycledone]').forEach(function(btn){
@@ -15180,10 +14954,53 @@ function whNormalizeLights(text){
 function whGroupKey(lightsDescription, wire){
   return whNormalizeLights(lightsDescription) + ' \u2014 ' + whWireLabel(wire) + ' wire';
 }
+/* The chevron on a Warehouse group row read as decoration, not as a control, so
+   in practice nobody opened the row — which made the Build tab look like it had
+   no customer names on it at all. A labelled button is the control now, and it
+   says what it will show. The row itself stays tappable for anyone already used
+   to it, so nothing anyone has learned stops working. */
+function whToggleBtn(attr, listId, showLabel){
+  return '<button type="button" class="btn btn-outline btn-sm" data-'+attr+'="'+esc(listId)+'"'+
+    ' data-showlabel="'+esc(showLabel)+'" aria-expanded="false" aria-controls="'+esc(listId)+'"'+
+    ' style="flex:0 0 auto; display:inline-flex; align-items:center; gap:6px; white-space:nowrap;">'+
+    '<span class="wh-toggle-text">'+esc(showLabel)+'</span>'+
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px; height:15px; transition:transform .15s;"><polyline points="6 9 12 15 18 9"/></svg>'+
+  '</button>';
+}
+function whToggleGroup(listId){
+  const target = document.getElementById(listId);
+  if(!target) return;
+  const opening = target.style.display === 'none';
+  target.style.display = opening ? 'block' : 'none';
+  document.querySelectorAll('button[data-whtoggle="'+listId+'"], button[data-whrecycletoggle="'+listId+'"]').forEach(function(btn){
+    btn.setAttribute('aria-expanded', opening ? 'true' : 'false');
+    const txt = btn.querySelector('.wh-toggle-text');
+    if(txt) txt.textContent = opening ? 'Hide' : (btn.dataset.showlabel || 'Show');
+    const svg = btn.querySelector('svg');
+    if(svg) svg.style.transform = opening ? 'rotate(180deg)' : '';
+  });
+}
+/* What the warehouse has to have in its hands for one house, beyond the
+   colours: the timer, the wire, and the number that goes on the bin. A house
+   with no number cannot be binned or handed to a crew, and a brand-new customer
+   has no number yet — so that says so in ember rather than sitting blank. */
+function whHouseFactsHtml(d){
+  let html = '';
+  if(String(d.outletTimer || '').trim() === 'Yes'){
+    html += ' <span style="display:inline-block; background:var(--snow); color:var(--slate); border:1px solid var(--line); border-radius:999px; padding:1px 8px; font-size:11px; font-weight:600; vertical-align:middle;">Timer</span>';
+  }
+  html += ' <span style="display:inline-block; background:var(--snow); color:var(--slate); border:1px solid var(--line); border-radius:999px; padding:1px 8px; font-size:11px; font-weight:600; vertical-align:middle;">'+esc(whWireLabel(d.wireColor))+' wire</span>';
+  const num = (d.customerNumber ? String(d.customerNumber).trim() : '');
+  html += num
+    ? custNumChip(d)
+    : ' <span style="display:inline-block; background:#fff; color:var(--ember); border:1px solid var(--ember); border-radius:999px; padding:1px 8px; font-size:11px; font-weight:600; vertical-align:middle;">No number yet &mdash; needs assigning</span>';
+  return html;
+}
 function renderWarehouseQueue(){
   const list = document.getElementById('warehouseQueueList');
   if(!list) return;
   const groups = {};
+  const timerHouses = [];
   jobAddresses.forEach(function(item){
     const d = item.data;
     /* Sitting out the season means nothing gets built for them, even if a
@@ -15192,14 +15009,29 @@ function renderWarehouseQueue(){
     const key = whGroupKey(d.lightsDescription, d.wireColor);
     if(!groups[key]) groups[key] = {houses:[], extras:[]};
     groups[key].houses.push(item);
+    /* A timer is part of that house's build, not loose buffer stock. It used to
+       appear only as a generic "Timer — buffer stock" pile, so nothing on this
+       screen said WHO had asked for one and the count was guesswork. */
+    if(String(d.outletTimer || '').trim() === 'Yes') timerHouses.push(item);
   });
   warehouseExtras.forEach(function(item){
     if(!item.data.pattern) return;
-    /* A hand-added build with a wire colour on it is the same build as a house
-       in those colours on that wire, so it joins that group. Without one it
-       still gets its own bucket rather than being folded into a real house
-       group by mistake \u2014 that is what the Wire Color box on the form (and the
-       Edit button on the row) are for.
+    /* An extra tied to a real member is that member's REQUEST \u2014 lights and a
+       timer for the same person belong on one heading, not scattered through the
+       buffer-stock groups where nothing says they are the same job. Keyed by id
+       so two customers with the same name can never merge. */
+    const linked = item.data.customerId ? jobAddresses.find(function(a){ return a.id === item.data.customerId; }) : null;
+    if(linked){
+      const key = 'req:' + item.data.customerId;
+      if(!groups[key]) groups[key] = {houses:[], extras:[], title:(linked.data.name || 'Customer') + ' \u2014 extra request', linked:linked};
+      groups[key].extras.push(item);
+      return;
+    }
+    /* Not tied to a member. With a wire colour on it this is the same build as
+       a house in those colours on that wire, so it joins that group. Without
+       one it still gets its own bucket rather than being folded into a real
+       house group by mistake \u2014 that is what the Wire Color box on the form,
+       and the Edit button on the row, are for.
        \u26a0 employee.html groups these the same way \u2014 change both together. */
     const key = item.data.wireColor
       ? whGroupKey(item.data.pattern, item.data.wireColor)
@@ -15219,6 +15051,27 @@ function renderWarehouseQueue(){
     return totalB - totalA;
   });
   let html = '';
+  /* Timers, counted against the houses that asked for them. This is a roll-up of
+     the same houses listed in the colour groups below, so it deliberately has no
+     Mark Done of its own — marking the house done in its colour group is what
+     finishes it, and a second control writing the same flag is how two buttons
+     start disagreeing. Buffer stock keeps its own group and its own Mark Done. */
+  if(timerHouses.length){
+    html += '<div class="row-item" style="display:block;">'+
+      '<div style="display:flex; justify-content:space-between; align-items:center; gap:10px; cursor:pointer;" data-whtoggle="whtimers">'+
+        '<div><strong style="font-size:15px;">Timers</strong><div style="font-size:12.5px; color:var(--slate);">'+
+          timerHouses.length+' house'+(timerHouses.length===1?'':'s')+' in this build need'+(timerHouses.length===1?'s':'')+' a timer</div></div>'+
+        whToggleBtn('whtoggle', 'whtimers', 'Show '+timerHouses.length+' house'+(timerHouses.length===1?'':'s'))+
+      '</div>'+
+      '<div id="whtimers" style="display:none; margin-top:12px; padding-top:12px; border-top:1px solid var(--line);">'+
+        timerHouses.map(function(h){
+          return '<div style="padding:6px 0; font-size:13.5px;">'+esc(h.data.name||'(no name)')+' &mdash; '+esc(h.data.address||'')+propLabelChip(h.data)+
+            (h.data.customerNumber ? custNumChip(h.data) : '')+'</div>';
+        }).join('')+
+        '<div style="font-size:12px; color:var(--slate); margin-top:8px;">These are already listed in their colour groups below &mdash; marking a house done there covers its timer too.</div>'+
+      '</div>'+
+    '</div>';
+  }
   keys.forEach(function(pattern, gi){
     const g = groups[pattern];
     const extraTotal = g.extras.reduce(function(s,e){ return s+(Number(e.data.quantity)||0); },0);
@@ -15226,10 +15079,24 @@ function renderWarehouseQueue(){
     const anyUnknown = g.houses.some(function(h){ return houseBundleNeed(h.data).unknown; });
     const totalBundles = houseBundles + extraTotal;
     const listId = 'whlist-' + gi;
+    const showLabel = g.houses.length
+      ? 'Show ' + g.houses.length + ' house' + (g.houses.length===1?'':'s')
+      : 'Show ' + g.extras.length + ' item' + (g.extras.length===1?'':'s');
+    /* A member's own request reads as a list of what they asked for. Saying
+       "Build 7 bundles — 0 houses, 7 extra" about one person is technically true
+       and tells Dad nothing about what to pick up. */
+    const heading = g.title || pattern;
+    const subtitle = g.title
+      ? g.extras.map(function(e){
+          const q = Number(e.data.quantity) || 1;
+          const isTimer = (e.data.kind || 'lights') === 'timer';
+          return q + ' ' + (isTimer ? 'timer' : 'bundle') + (q===1?'':'s') + (isTimer ? '' : ' ' + (e.data.pattern || ''));
+        }).join(' · ') + (g.linked && g.linked.data.customerNumber ? ' · bin #' + g.linked.data.customerNumber : ' · no number yet')
+      : 'Build '+totalBundles+' bundle'+(totalBundles===1?'':'s')+' — '+g.houses.length+' house'+(g.houses.length===1?'':'s')+(extraTotal?', '+extraTotal+' extra':'')+(anyUnknown?' · some houses have no feet on file':'');
     html += '<div class="row-item" style="display:block;">'+
-      '<div style="display:flex; justify-content:space-between; align-items:center; cursor:pointer;" data-whtoggle="'+listId+'">'+
-        '<div><strong style="font-size:15px;">'+esc(pattern)+'</strong><div style="font-size:12.5px; color:var(--slate);">Build '+totalBundles+' bundle'+(totalBundles===1?'':'s')+' &mdash; '+g.houses.length+' house'+(g.houses.length===1?'':'s')+(extraTotal?', '+extraTotal+' extra':'')+(anyUnknown?' &middot; some houses have no feet on file':'')+'</div></div>'+
-        '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:20px; height:20px; color:var(--slate);"><polyline points="6 9 12 15 18 9"/></svg>'+
+      '<div style="display:flex; justify-content:space-between; align-items:center; gap:10px; cursor:pointer;" data-whtoggle="'+listId+'">'+
+        '<div><strong style="font-size:15px;">'+esc(heading)+'</strong><div style="font-size:12.5px; color:var(--slate);">'+esc(subtitle)+'</div></div>'+
+        whToggleBtn('whtoggle', listId, showLabel)+
       '</div>'+
       '<div id="'+listId+'" style="display:none; margin-top:12px; padding-top:12px; border-top:1px solid var(--line);">'+
         g.houses.map(function(h){
@@ -15237,22 +15104,37 @@ function renderWarehouseQueue(){
           const needTxt = need.unknown
             ? 'no feet on file \u2014 assuming 1 bundle'
             : need.feet + ' ft = ' + need.bundles + ' bundle' + (need.bundles===1?'':'s') + (need.estimated ? ' (estimated from price)' : '');
-          return '<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; gap:10px;">'+
-            '<span style="font-size:13.5px;">'+esc(h.data.name||'(no name)')+' &mdash; '+esc(h.data.address||'')+
-              '<span style="display:block; font-size:12px; color:'+(need.unknown?'var(--ember)':'var(--slate)')+';">'+esc(needTxt)+'</span></span>'+
-            '<button type="button" class="btn btn-outline btn-sm" data-whdonehouse="'+h.id+'">Mark Done</button>'+
+          const houseNotes = (h.data.notes ? String(h.data.notes).trim() : '');
+          return '<div style="display:flex; justify-content:space-between; align-items:flex-start; padding:8px 0; gap:10px;">'+
+            '<span style="font-size:13.5px;">'+esc(h.data.name||'(no name)')+' &mdash; '+esc(h.data.address||'')+propLabelChip(h.data)+
+              '<span style="display:block; font-size:12px; color:'+(need.unknown?'var(--ember)':'var(--slate)')+'; margin-top:2px;">'+esc(needTxt)+'</span>'+
+              '<span style="display:block; margin-top:4px; line-height:1.9;">'+whHouseFactsHtml(h.data)+'</span>'+
+              /* Notes last, because they are the long bit and the facts above
+                 are what gets read at a glance while building. */
+              (houseNotes ? '<span style="display:block; font-size:12px; color:var(--slate); margin-top:4px; white-space:pre-wrap;">'+esc(houseNotes)+'</span>' : '')+
+            '</span>'+
+            '<button type="button" class="btn btn-outline btn-sm" data-whdonehouse="'+h.id+'" style="flex:0 0 auto;">Mark Done</button>'+
           '</div>';
         }).join('')+
         g.extras.map(function(e){
-          /* Hand-added builds were add-only: the single button on the row
-             deleted them, so a typo or a missing wire colour meant deleting
-             and retyping the whole thing. Edit loads it back into the form
-             at the top of the tab. */
+          const isTimer = (e.data.kind || 'lights') === 'timer';
+          /* Inside a member's request the name is already the heading, so the row
+             says WHAT to build. In buffer stock there is no heading name, so the
+             label is the only thing identifying it. */
+          const what = g.title
+            ? (isTimer ? 'Timer' : (e.data.pattern || 'Lights'))
+            : (e.data.label || 'Extra stock');
+          /* A build added by hand used to be add-only: the one button on this
+             row is Mark Done, which deletes it, so a typo — or a wire colour,
+             which the form never asked for — could only be fixed by deleting
+             the whole thing and typing it again. */
+          const sub = isTimer ? '' :
+            esc(e.data.pattern || '') + ' &middot; ' +
+            (e.data.wireColor ? esc(e.data.wireColor) + ' wire' : 'wire colour not set');
           return '<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; gap:10px;">'+
-            '<span style="font-size:13.5px;">'+esc(e.data.label || 'Extra stock')+' &times; '+(e.data.quantity||1)+
-              '<span style="display:block; font-size:12px; color:var(--slate);">'+esc(e.data.pattern||'')+' &middot; '+
-                (e.data.wireColor ? esc(e.data.wireColor)+' wire' : 'wire colour not set')+'</span></span>'+
-            '<span style="display:flex; gap:6px; flex-shrink:0;">'+
+            '<span style="font-size:13.5px;">'+esc(what)+' &times; '+(e.data.quantity||1)+
+              (sub ? '<span style="display:block; font-size:12px; color:var(--slate);">'+sub+'</span>' : '')+'</span>'+
+            '<span style="display:flex; gap:6px; flex:0 0 auto;">'+
               '<button type="button" class="btn btn-outline btn-sm" data-wheditextra="'+e.id+'">Edit</button>'+
               '<button type="button" class="btn btn-outline btn-sm" data-whdoneextra="'+e.id+'">Mark Done</button>'+
             '</span>'+
@@ -15264,21 +15146,28 @@ function renderWarehouseQueue(){
          and typing 14 into an unlabelled "# completed" box cleared the entire
          six-house group. The box now says what it counts, and says how many
          there are to count. */
+      /* One member's request has its own Mark Done on each line, and a count box
+         saying "0 houses + 2 extra" about a single person only invites the same
+         mistake in a new place. So the bulk box is for real colour groups only. */
+      (g.title ? '' :
       '<div style="display:flex; gap:8px; align-items:center; margin-top:10px; flex-wrap:wrap;">'+
         '<label style="font-size:12.5px; color:var(--slate);" for="whdone-'+gi+'">Houses finished'+
           (extraTotal ? ' (then extras)' : '')+' &mdash; '+g.houses.length+' house'+(g.houses.length===1?'':'s')+
           (extraTotal ? ' + '+extraTotal+' extra' : '')+' here, <strong>not</strong> the '+totalBundles+' bundle'+(totalBundles===1?'':'s')+' above:</label>'+
         '<input type="number" id="whdone-'+gi+'" min="0" max="'+(g.houses.length + extraTotal)+'" placeholder="# of houses" class="whcompleteinput" style="width:110px; padding:8px 10px; border-radius:8px; border:1px solid var(--line);">'+
         '<button type="button" class="btn btn-gold btn-sm" data-whcompletebtn="'+esc(pattern)+'">Mark Completed</button>'+
-      '</div>'+
+      '</div>')+
     '</div>';
   });
   list.innerHTML = html;
 
-  list.querySelectorAll('[data-whtoggle]').forEach(function(row){
-    row.addEventListener('click', function(){
-      const target = document.getElementById(row.dataset.whtoggle);
-      target.style.display = target.style.display === 'none' ? 'block' : 'none';
+  /* Both the row and the button carry data-whtoggle, so both get this listener.
+     stopPropagation is what keeps a tap on the button from bubbling to the row
+     and toggling twice — which would look exactly like the button not working. */
+  list.querySelectorAll('[data-whtoggle]').forEach(function(el){
+    el.addEventListener('click', function(e){
+      e.stopPropagation();
+      whToggleGroup(el.dataset.whtoggle);
     });
   });
   list.querySelectorAll('[data-whdonehouse]').forEach(function(btn){
@@ -15374,37 +15263,125 @@ function whFindCustomerByLabel(label){
     return (num + (d.name||'(no name)') + (where ? ' \u2014 ' + where : '')).toLowerCase() === norm;
   }) || null;
 }
+/* The pattern box fills itself in from the customer's record. This remembers what
+   was filled in, so typing over it is allowed (a rebuild in a different pattern is
+   a real thing) but can still be noticed and asked about on the way in. */
+let whExtraPatternFromRecord = '';
+/* One request per member per kind. A second Lights add for the same house tops up
+   the request they already have instead of making Dad a second, competing one \u2014
+   which is what "two different requests for the same member" meant. */
+function whExtraFindExisting(customerId, kind){
+  if(!customerId) return null;
+  return warehouseExtras.find(function(e){
+    return e.data.customerId === customerId && (e.data.kind || 'lights') === kind;
+  }) || null;
+}
+/* Bundles come from the feet on their record, the same ceil(feet / 40) the build
+   queue uses \u2014 so the number here and the number on the queue can never disagree. */
+function whExtraBundlesFor(d){
+  const need = houseBundleNeed(d);
+  return need.unknown
+    ? {qty: 1, note: 'No feet on file \u2014 assuming 1 bundle. Fix their feet if that is wrong.'}
+    : {qty: need.bundles, note: need.bundles + ' bundle' + (need.bundles===1?'':'s') + ' \u2014 from ' + need.feet + ' ft on file' + (need.estimated ? ', estimated from their price' : '') + '.'};
+}
+function whExtraSync(){
+  const input = document.getElementById('whExtraLabel');
+  const kindEl = document.getElementById('whExtraKind');
+  if(!input || !kindEl) return;
+  const matchEl = document.getElementById('whExtraLabelMatch');
+  const qtyEl = document.getElementById('whExtraQty');
+  const qtyLabel = document.getElementById('whExtraQtyLabel');
+  const qtyNote = document.getElementById('whExtraQtyNote');
+  const patternRow = document.getElementById('whExtraPatternRow');
+  const patternEl = document.getElementById('whExtraPattern');
+  const patternNote = document.getElementById('whExtraPatternNote');
+  const wireRow = document.getElementById('whExtraWireRow');
+  const wireNote = document.getElementById('whExtraWireNote');
+  const val = input.value.trim();
+  const match = val ? whFindCustomerByLabel(val) : null;
+  const kind = kindEl.value === 'timer' ? 'timer' : 'lights';
+  /* Correcting an entry that is already in the queue: what is in the boxes was
+     loaded off that entry, so the record must not overwrite it. Labels, notes
+     and which rows are showing still keep up. */
+  const editing = !!whEditingExtraId;
+
+  if(!val){
+    matchEl.textContent = '';
+  } else if(match){
+    const bins = parseInt(match.data.numberOfBins,10) || 1;
+    matchEl.textContent = 'Linked to ' + (match.data.name||'this customer') + ' \u2014 ' + bins + ' bin' + (bins===1?'':'s') + (match.data.customerNumber ? ', number #' + match.data.customerNumber : ', no number yet') + '.';
+  } else {
+    matchEl.textContent = 'Not a customer on file \u2014 this will be saved as a plain note.';
+  }
+
+  patternRow.style.display = kind === 'timer' ? 'none' : '';
+  // A timer is not built on a wire, so the box goes with the pattern box.
+  wireRow.style.display = kind === 'timer' ? 'none' : '';
+  qtyLabel.textContent = kind === 'timer' ? 'How many timers' : 'How many bundles';
+
+  if(kind === 'timer'){
+    patternNote.textContent = '';
+    wireNote.textContent = '';
+    /* Their record decides whether the crew ever hears about this timer, so say
+       what it currently reads. The warning on the way in is what stops the two
+       quietly disagreeing. */
+    qtyNote.textContent = match
+      ? (String(match.data.outletTimer||'').trim() === 'Yes'
+          ? 'Their record already says they want a timer.'
+          : 'Careful \u2014 their record does not say they want a timer. You will get a warning when you add it.')
+      : 'Pick how many timers to build.';
+    if(!Number(qtyEl.value)) qtyEl.value = 1;
+    return;
+  }
+
+  if(match){
+    const auto = match.data.lightsDescription || '';
+    /* Only overwrite the box while it is still holding what we put there. */
+    if(!editing && (!patternEl.value.trim() || patternEl.value.trim() === whExtraPatternFromRecord)){
+      patternEl.value = auto;
+    }
+    whExtraPatternFromRecord = auto;
+    patternNote.textContent = auto
+      ? 'From their record. You can change it \u2014 you will be asked to confirm.'
+      : 'No colours on their record yet \u2014 type what to build.';
+    if(!editing){
+      const b = whExtraBundlesFor(match.data);
+      qtyEl.value = b.qty;
+      qtyNote.textContent = b.note;
+      // Same idea as the pattern: their wire is on file, so the build lands in
+      // the right group instead of a wire-not-set bucket.
+      whSetWireSelect(match.data.wireColor || '');
+    }
+    wireNote.textContent = match.data.wireColor
+      ? 'From their record.'
+      : 'No wire colour on their record \u2014 pick one, or leave it not set.';
+  } else {
+    whExtraPatternFromRecord = '';
+    patternNote.textContent = '';
+    wireNote.textContent = '';
+    qtyNote.textContent = val ? 'Not a customer on file \u2014 type the pattern and how many.' : '';
+  }
+}
 (function wireWhExtraLabel(){
   const input = document.getElementById('whExtraLabel');
   if(!input) return;
-  input.addEventListener('input', function(){
-    const el = document.getElementById('whExtraLabelMatch');
-    const val = input.value.trim();
-    if(!val){ el.textContent = ''; return; }
-    const match = whFindCustomerByLabel(val);
-    if(match){
-      const bins = parseInt(match.data.numberOfBins,10) || 1;
-      el.style.color = 'var(--slate)';
-      el.textContent = 'Linked to ' + (match.data.name||'this customer') + ' \u2014 ' + bins + ' bin' + (bins===1?'':'s') + (match.data.customerNumber ? ', number #' + match.data.customerNumber : ', no number yet') + '.';
-    } else {
-      el.style.color = 'var(--slate)';
-      el.textContent = 'Not a customer on file \u2014 this will be saved as a plain note.';
-    }
-  });
+  input.addEventListener('input', whExtraSync);
+  const kindEl = document.getElementById('whExtraKind');
+  if(kindEl) kindEl.addEventListener('change', whExtraSync);
 })();
-
-/* ---- EDITING A QUEUE ENTRY ----
-   Hand-added builds used to be add-only: get the wire colour wrong, or the
-   pattern, and the only way out was Mark Done (which deletes it) and typing
-   the whole thing again. Edit re-uses this same form rather than an inline
-   one on the row, because the queue re-renders itself whenever anything in
-   Firestore changes — an inline editor would lose what you were typing
-   mid-sentence. Houses are not editable here on purpose: they come off the
-   customer record, so they are still changed in Edit Customer. */
+/* ---- CORRECTING AN ENTRY THAT IS ALREADY IN THE QUEUE ----
+   These used to be add-only: the one button on the row was Mark Done, which
+   deletes it, so a typo — or a wire colour, which the form did not ask for —
+   could only be fixed by deleting it and typing the whole thing again.
+   Edit re-uses this same form rather than an editor on the row itself,
+   because the queue re-renders whenever anything in Firestore changes and an
+   inline editor would lose what you were typing mid-sentence.
+   Houses are deliberately NOT editable here: they come off the customer
+   record, so they are still changed in Edit Customer. */
 let whEditingExtraId = null;
-/* A wire colour typed in by a bulk import can be anything, not just the two
-   in the list, so show whatever is actually on file rather than silently
-   resetting it to blank. */
+/* A wire colour typed in by a bulk import can be anything, not just the two in
+   the list, so show whatever is actually on file rather than silently resetting
+   it to blank. */
 function whSetWireSelect(value){
   const sel = document.getElementById('whExtraWire');
   if(!sel) return;
@@ -15420,19 +15397,22 @@ function whSetWireSelect(value){
 function whCancelEditExtra(){
   whEditingExtraId = null;
   const title = document.getElementById('whExtraFormTitle');
-  const note = document.getElementById('whExtraFormNote');
   const btn = document.getElementById('whAddExtraBtn');
   const cancel = document.getElementById('whCancelEditExtraBtn');
   if(title) title.textContent = 'Add From Inbox';
-  if(note) note.textContent = 'For a build request you saw in Inbox, a rebuild, or just buffer stock.';
   if(btn) btn.textContent = 'Add to Queue';
   if(cancel) cancel.style.display = 'none';
   document.getElementById('whExtraPattern').value = '';
   document.getElementById('whExtraQty').value = 1;
+  document.getElementById('whExtraKind').value = 'lights';
   whSetWireSelect('');
   document.getElementById('whExtraLabel').value = '';
   document.getElementById('whExtraLabelMatch').textContent = '';
+  document.getElementById('whExtraQtyNote').textContent = '';
+  document.getElementById('whExtraPatternNote').textContent = '';
+  whExtraPatternFromRecord = '';
   document.getElementById('whAddExtraStatus').textContent = '';
+  whExtraSync();
 }
 function whStartEditExtra(id){
   const item = warehouseExtras.find(function(e){ return e.id === id; });
@@ -15440,83 +15420,131 @@ function whStartEditExtra(id){
   whCancelEditExtra();
   whEditingExtraId = id;
   document.getElementById('whExtraFormTitle').textContent = 'Edit This Build';
-  document.getElementById('whExtraFormNote').textContent = 'Change anything that was typed wrong, or fill in what was missed. Saving updates this same entry — it does not add a second one.';
   document.getElementById('whAddExtraBtn').textContent = 'Save Changes';
   document.getElementById('whCancelEditExtraBtn').style.display = '';
+  document.getElementById('whExtraKind').value = (item.data.kind || 'lights') === 'timer' ? 'timer' : 'lights';
   document.getElementById('whExtraPattern').value = item.data.pattern || '';
   document.getElementById('whExtraQty').value = Number(item.data.quantity) || 1;
   whSetWireSelect(item.data.wireColor || '');
-  const labelEl = document.getElementById('whExtraLabel');
-  labelEl.value = item.data.label || '';
-  labelEl.dispatchEvent(new Event('input'));
-  document.getElementById('whAddExtraStatus').textContent = 'Editing an entry already in the queue.';
+  document.getElementById('whExtraLabel').value = item.data.label || '';
+  // Sync AFTER the boxes are filled, and it leaves them alone while editing.
+  whExtraSync();
+  document.getElementById('whAddExtraStatus').textContent = 'Editing an entry already in the queue — saving changes this one, it does not add another.';
   const card = document.getElementById('whExtraFormTitle').closest('.card');
   if(card && card.scrollIntoView) card.scrollIntoView({behavior:'smooth', block:'center'});
 }
 document.getElementById('whCancelEditExtraBtn').addEventListener('click', function(){
   whCancelEditExtra();
 });
+
 document.getElementById('whAddExtraBtn').addEventListener('click', async function(){
   const statusEl = document.getElementById('whAddExtraStatus');
-  const pattern = document.getElementById('whExtraPattern').value.trim();
+  const kind = document.getElementById('whExtraKind').value === 'timer' ? 'timer' : 'lights';
+  const typedPattern = document.getElementById('whExtraPattern').value.trim();
+  const pattern = kind === 'timer' ? 'Timer' : typedPattern;
   const qty = Number(document.getElementById('whExtraQty').value) || 0;
-  const wireColor = document.getElementById('whExtraWire').value;
+  const wireColor = kind === 'timer' ? '' : document.getElementById('whExtraWire').value;
   const label = document.getElementById('whExtraLabel').value.trim();
-  if(!pattern || qty <= 0){ statusEl.textContent = 'Enter a pattern and quantity.'; return; }
+  if(!pattern || qty <= 0){
+    statusEl.textContent = kind === 'timer' ? 'Enter how many timers.' : 'Enter a pattern and how many bundles.';
+    return;
+  }
   const linked = whFindCustomerByLabel(label);
-  /* Saving an edit changes the entry that is already there, so none of the
-     duplicate-checking below applies — that is only about adding a second
-     document for a house that already has one. */
+  /* Saving a correction changes the entry that is already there, so none of
+     the warnings below apply — they are all about ADDING: topping up a request
+     that already exists, or building something their record disagrees with. */
   if(whEditingExtraId){
     const editingId = whEditingExtraId;
     statusEl.textContent = 'Saving…';
     try{
       await updateDoc(doc(db,'warehouseExtras', editingId), Object.assign(
-        {pattern: pattern, quantity: qty, wireColor: wireColor, label: label},
+        {pattern: pattern, kind: kind, quantity: qty, wireColor: wireColor, label: label},
         linked
           ? {customerId: linked.id, customerNumber: linked.data.customerNumber || ''}
-          // Cleared the house box: the link has to go too, or the duplicate
-          // check keeps counting this against a customer it no longer names.
-          // Blanked rather than deleted — nothing here treats '' as a real id.
+          /* Cleared the house box: the link has to go too, or this keeps
+             sitting under a member it no longer names. Blanked rather than
+             deleted — nothing here treats '' as a real id. */
           : {customerId: '', customerNumber: ''}
       ));
       whCancelEditExtra();
       statusEl.textContent = 'Saved!';
-      setTimeout(function(){ if(!whEditingExtraId) statusEl.textContent = ''; }, 1500);
+      setTimeout(function(){ if(!whEditingExtraId) statusEl.textContent = ''; }, 2500);
     } catch(err){
       statusEl.textContent = 'Something went wrong — try again.';
     }
     return;
   }
-  /* Unlike houses, these are separate documents — clicking twice really does
-     make Dad two sets. Check before adding a second one for the same house. */
-  if(linked){
-    const already = warehouseExtras.filter(function(e){ return e.data.customerId === linked.id; });
-    if(already.length){
-      const existing = already.reduce(function(sum,e){ return sum + (Number(e.data.quantity)||0); }, 0);
-      if(!confirm((linked.data.name || 'That customer') + ' is already in the build queue for ' + existing + ' set' + (existing===1?'':'s') + '.\n\nAdding this makes ' + (existing + qty) + ' in total. Only do that if they really need more than one.\n\nAdd anyway?')) {
-        statusEl.textContent = 'Nothing added.';
-        return;
-      }
+  /* Typing over the pattern that came off their record is allowed — a rebuild in
+     a different pattern happens — but it is worth one look, because a build that
+     silently disagrees with the customer's record is found on install day. */
+  if(kind === 'lights' && linked && whExtraPatternFromRecord && typedPattern !== whExtraPatternFromRecord){
+    if(!confirm('Their record says:\n\n  ' + whExtraPatternFromRecord + '\n\nYou have typed:\n\n  ' + typedPattern +
+                '\n\nBuild what you typed? Their customer record is not changed either way.')){
+      statusEl.textContent = 'Nothing added.';
+      return;
+    }
+  }
+  /* A timer for someone whose record says otherwise: warn, do not silently
+     rewrite their record. The crew portal Timers tab reads that record, so this
+     is the moment to notice the two disagree. */
+  if(kind === 'timer' && linked && String(linked.data.outletTimer||'').trim() !== 'Yes'){
+    if(!confirm((linked.data.name || 'That customer') + "'s record does not say they want a timer" +
+                (linked.data.outletTimer ? ' (it says "' + linked.data.outletTimer + '")' : '') + '.\n\n' +
+                'The timer will still be built, but the crew portal reads their record — so unless you change it on their ' +
+                'customer record too, the crew will not be told to fit one.\n\nAdd the timer anyway?')){
+      statusEl.textContent = 'Nothing added.';
+      return;
+    }
+  }
+  /* One request per member per kind, topped up rather than duplicated. The
+     confirm is still here because two taps of this button is the way an accidental
+     double order happens, and now it would double a quantity instead of adding a
+     visible second row. */
+  const existing = linked ? whExtraFindExisting(linked.id, kind) : null;
+  const unit = kind === 'timer' ? 'timer' : 'bundle';
+  if(existing){
+    const have = Number(existing.data.quantity) || 0;
+    if(!confirm((linked.data.name || 'That customer') + ' already has a request for ' + have + ' ' + unit + (have===1?'':'s') + '.\n\n' +
+                'Add ' + qty + ' more, making ' + (have + qty) + ' in total on the same request?')){
+      statusEl.textContent = 'Nothing added.';
+      return;
     }
   }
   statusEl.textContent = 'Adding…';
   try{
-    await addDoc(collection(db,'warehouseExtras'), Object.assign(
-      {pattern: pattern, quantity: qty, wireColor: wireColor, label: label, createdAt: serverTimestamp()},
-      linked ? {customerId: linked.id, customerNumber: linked.data.customerNumber || ''} : {}
-    ));
+    if(existing){
+      await updateDoc(doc(db,'warehouseExtras', existing.id), {
+        quantity: (Number(existing.data.quantity) || 0) + qty,
+        pattern: pattern,
+        wireColor: wireColor,
+        label: label || existing.data.label || '',
+        customerNumber: linked.data.customerNumber || ''
+      });
+    } else {
+      await addDoc(collection(db,'warehouseExtras'), Object.assign(
+        {pattern: pattern, kind: kind, quantity: qty, wireColor: wireColor, label: label, createdAt: serverTimestamp()},
+        linked ? {customerId: linked.id, customerNumber: linked.data.customerNumber || ''} : {}
+      ));
+    }
     document.getElementById('whExtraPattern').value = '';
     document.getElementById('whExtraQty').value = 1;
     whSetWireSelect('');
     document.getElementById('whExtraLabel').value = '';
     document.getElementById('whExtraLabelMatch').textContent = '';
+    document.getElementById('whExtraQtyNote').textContent = '';
+    document.getElementById('whExtraPatternNote').textContent = '';
+    document.getElementById('whExtraWireNote').textContent = '';
+    document.getElementById('whExtraKind').value = 'lights';
+    whExtraPatternFromRecord = '';
+    whExtraSync();
     if(whPendingMessageId){
       await updateDoc(doc(db,'messages', whPendingMessageId), {addedToWarehouseAt: serverTimestamp()}).catch(function(){});
       whPendingMessageId = null;
     }
-    statusEl.textContent = 'Added!';
-    setTimeout(function(){ statusEl.textContent = ''; }, 1500);
+    statusEl.textContent = existing
+      ? 'Added to their existing request — now ' + ((Number(existing.data.quantity)||0) + qty) + ' ' + unit + (((Number(existing.data.quantity)||0) + qty)===1?'':'s') + '.'
+      : 'Added!';
+    setTimeout(function(){ statusEl.textContent = ''; }, 2500);
   } catch(err){
     statusEl.textContent = 'Something went wrong — try again.';
   }
@@ -16136,11 +16164,6 @@ document.getElementById('editCustDeleteBtn').addEventListener('click', async fun
     if(num){
       await setDoc(doc(db,'availableCustomerNumbers', num), {type: parseInt(num,10) >= 5000 ? 'double' : 'regular', releasedAt: serverTimestamp()});
     }
-    /* A deleted customer whose stop was already built into a route left a
-       phantom stop behind — the crew's Mark Done had nothing to update
-       against and failed with no feedback. Same sweep the RSVP/cancel/Maybe
-       Next Year paths already do. */
-    await removeCustomerFromUpcomingRoutes(item.id);
     await deleteDoc(doc(db,'jobAddresses', item.id));
     editCustomerId = null;
     document.getElementById('editCustOverlay').style.display = 'none';
@@ -16366,15 +16389,10 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       specificOutlet: newSpecificOutlet, specificOutletNotes: newSpecificOutletNotes,
       customerNumber: addrUpdates.customerNumber, lat: addrUpdates.lat, lng: addrUpdates.lng
     });
-    /* Switching someone to Maybe Next Year, or setting their RSVP to No, has to
-       take them off the routes as well as flag them, or the crew still turns
-       up for a job the customer said no to. Only on the transition, so
-       re-saving an already-flagged customer is not a repeated sweep. This used
-       to only cover the Maybe Next Year toggle - setting RSVP straight to No
-       from the dropdown here fell through the same gap the portal's own RSVP
-       link had (fixed in functions/index.js's portalRsvp). */
-    if((newSeasonMaybe && !item.data.maybeNextYear) ||
-       (newRsvp === 'no' && item.data.rsvpStatus !== 'no')){
+    /* Switching someone to Maybe Next Year has to take them off the routes as
+       well as flag them, or the crew still turns up. Only on the transition,
+       so re-saving an already-flagged customer is not a repeated sweep. */
+    if(newSeasonMaybe && !item.data.maybeNextYear){
       await removeCustomerFromUpcomingRoutes(editCustomerId);
     }
     const inv = allCustInvoiceFor(item);
@@ -19139,12 +19157,12 @@ function renderSystemMessagesTab(){
       const cust = jobAddresses.find(function(a){ return (a.data.phone||'').replace(/\D/g,'') === phoneDigits; });
       whPendingMessageId = msg.id;
       document.querySelector('.nav-item[data-panel="warehouse"]').click();
-      // Same as the Inbox version: this is a NEW entry, so leave edit mode,
-      // and carry their wire colour across if we have it.
+      // Same hand-off as the Inbox copy above \u2014 the form fills itself from the
+      // house, and this is a NEW entry so edit mode has to be dropped first.
       whCancelEditExtra();
-      document.getElementById('whExtraPattern').value = cust ? (cust.data.lightsDescription || '') : '';
-      document.getElementById('whExtraQty').value = 1;
-      whSetWireSelect((cust && cust.data.wireColor) || '');
+      document.getElementById('whExtraKind').value = 'lights';
+      document.getElementById('whExtraPattern').value = '';
+      whExtraPatternFromRecord = '';
       const labelEl = document.getElementById('whExtraLabel');
       if(cust){
         const num = cust.data.customerNumber ? '#' + cust.data.customerNumber + ' \u2014 ' : '';
@@ -21498,16 +21516,16 @@ const TEST_SEED = [
   [5, 'Member Portal', 'Sign in (phone)', '1. Open a new tab in your web browser and go to highlightingutah.com (the public website).\n2. Near the top of the page, find and click \'Member Portal\' in the top menu (this is the private area where a customer checks their own account).\n3. In the phone number box, type a real customer\'s phone number.\n4. In the last name box, type that same customer\'s last name.\n5. Click the \'Sign In\' button.', 'A gold spinner should appear on the screen saying \'Opening your account\'. After a moment that spinner should disappear, and the customer\'s invoice should load along with a row of tabs across the screen.', 4, 'Pass', '', 'Sign-in errors now say what actually went wrong. If you trip the "too many attempts" limit you should be told to wait 15 minutes, not told your name is wrong.'],
   [6, 'Member Portal', 'Sign in (email)', '1. Go back to the Member Portal (the customer login area on highlightingutah.com that you used in the last test).\n2. If you are still signed in from before, click the button or link to sign out.\n3. This time, in the box where you\'d normally type a phone number, type that same customer\'s email address instead.\n4. In the last name box, type that customer\'s last name.\n5. Click the \'Sign In\' button.\n6. In admin, check that customer\'s record to see if there is a second email address on file for them.\n7. If there is a second email on file, sign out of the Member Portal again.\n8. Sign in one more time using that second email address along with the customer\'s last name.', 'Every time you signed in — no matter which of the customer\'s email addresses you typed — the account should open exactly the same way: loading their invoice and the row of tabs, just like when you signed in with their phone number.', 3, 'Pass', '', 'Same page change as the phone sign-in: the demo-number line is gone and failed saves no longer show a debug string.'],
   [7, 'Member Portal', 'Loading spinner', '1. Open the Member Portal (the customer login area on highlightingutah.com).\n2. Type in a customer\'s phone number (or email) and last name.\n3. Click the \'Sign In\' button.\n4. Without clicking anything else, watch the screen closely.', 'The spinner should appear right away, as soon as you click Sign In. It should disappear the moment either the account finishes loading or an error message appears — it should never keep spinning forever without anything happening.', 1, 'Pass', '', ''],
-  [8, 'Member Portal', 'Wrong credentials', 'AUTOMATED — npm run test:browser (test/portal.spec.js, "t8 — a wrong last name is refused, and says so") proves the mechanism on every run: a phone number with a non-matching last name gets refused and the sign-in form reappears, with nothing thrown. What is left for you is the real page: confirm the message still reads warmly (not a raw error code) and nothing looks broken on screen.\n\n1. Open the Member Portal (the customer login area on highlightingutah.com).\n2. In the phone number box, type a real customer\'s phone number, but in the last name box type a last name that does NOT belong to that customer, so the two don\'t match.\n3. Click the \'Sign In\' button.', 'A friendly message should appear saying something like \'we couldn\'t find an account.\' The sign-in form should reappear so you can try again. You should NOT see a technical error code, and you should NOT see a blank screen.', 3, 'Pass', '', 'Wired to the automated regression test (test/portal.spec.js). Reworded to point at what that test can\'t check — the real page — instead of re-proving the mechanism by hand.'],
-  [9, 'Member Portal', 'Personalized link', 'AUTOMATED — npm run test:browser (test/portal.spec.js, "t9 — a personalised link opens straight to the account") proves the mechanism end-to-end against a fake backend: a token in the URL loads the account and skips the sign-in form. The earlier "Fail" here traced to a bug in the TEST HARNESS, not the app — the real portalInvoice function has always returned the shape the page expects. What is left for you is confirming that against a REAL emailed link and REAL customer data, since an automated test is never allowed to touch the real backend (CLAUDE.md §9.4).\n\n1. Find an invoice email or an RSVP email that was sent to a customer (check your own email inbox from a test email that was sent to you).\n2. Inside that email, find the personalized link to the Member Portal.\n3. Copy that link.\n4. Open a new browser tab or window where you are NOT already signed in to the Member Portal.\n5. Paste the link into the address bar and go to it.', 'The link should open straight into that customer\'s account, showing the spinner while it loads. It should NOT ask you to sign in again — no phone number or last name box should appear.', 3, 'Fail', '', 'Wired to the automated regression test (test/portal.spec.js). The failure traced to a test-harness bug, not the app — reworded to ask you to confirm against a real emailed link rather than re-prove the mechanism by hand.  Also: a personalised link now opens the portal even for a customer who has NO invoice yet — that used to say "we couldn\u2019t find an account".'],
-  [10, 'Member Portal', 'Balance reflects credits', 'AUTOMATED - the credit maths is proved on every commit by run-all.js (credits reduce what is owed, a credit larger than the bill still reads Paid in Full, one exactly equal to the bill reads Paid in Full, and a balance never goes negative). What is left for you is the VISIBLE half: sign into the portal as a customer with a credit and confirm the balance on screen matches, and that the credit is explained rather than the number just being mysteriously smaller.\n\n1. Open the admin site (the private office dashboard) and look at the menu on the left side of the screen. Click the word \'Invoices\'.\n2. Click \'Invoice List\'.\n3. Find a customer and add a credit to their invoice — or, if you\'d rather not change anything, pick a customer who already has a credit on their invoice.\n4. Write down four numbers from that customer\'s invoice: the install amount, the removal amount, the credit amount, and the amount they have already paid.\n5. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as that same customer.\n6. Click the \'Payment\' tab.\n7. Look at the balance shown there.', 'The balance shown on the Payment tab should equal: the install amount plus the removal amount, minus the credit, minus whatever the customer has already paid. If you add up install and removal, subtract the credit, and subtract what\'s already been paid, that final number should match the balance shown in the portal exactly.', 4, 'N/A', '', 'The credit maths is now automated. Reworded to check only what the customer sees in the portal.  Also: the balance is now itemised — installation, removal, each light-change fee and each credit with its reason, then the total. Check the lines add up to the number shown.'],
-  [11, 'Member Portal', 'Pay with PayPal', 'AUTOMATED (the decision to show the button) — npm run test:browser (test/portal.spec.js, "t11 — a PayPal button renders when the provider allows cards") proves the portal renders a PayPal button whenever Site Settings say to (Payment Integrations set to PayPal or Both, with a Client ID saved) — against a fake PayPal SDK, since a browser test can never be allowed to move real money (CLAUDE.md §9.11). If you still only see Venmo after checking that setting, the code is proven working — the setting is the first thing to check, not a bug to chase. What is left for you is the real thing automation can never do: an actual payment.\n\n1. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as a customer who still owes money — use your own test customer record for this, not a real customer.\n2. Stay on the \'Payment\' tab.\n3. Look for a PayPal button on that tab. Which buttons appear is controlled in admin under Websites > Site Settings > Payment Integrations: \'Venmo only\' shows just the Venmo button, \'PayPal only\' shows just PayPal, and \'Both\' shows Venmo and PayPal together. PayPal also needs a Client ID saved there before it will appear at all. Check that setting first — if it is set to \'Venmo only\', seeing only Venmo is correct and is not a fail.\n4. If there is an option to add a small tip, add one.\n5. Click through and complete a real payment for a small amount using PayPal.\n6. After the payment finishes, go back to the Member Portal and reload the page.', 'PayPal should charge you the exact balance that was shown on the Payment tab, plus whatever tip you added. After the payment goes through and you reload the portal, the balance should have dropped, and the account should now say \'Paid in Full\'.', 4, 'Fail', 'There is only a link to Venmo.', 'Wired to the automated regression test (test/portal.spec.js), which now proves the button-rendering decision. Reworded to rule out the code first and point straight at the Site Settings check + the real payment, so this isn\'t re-proving what\'s already covered.  Also: the payment area now shows when we last received a payment, and the whole card is hidden for a customer who has no bill yet.'],
-  [12, 'Member Portal', 'Change light colours', '1. Pick a test customer to use for this test — do NOT use a real customer, because changing light colours through the portal charges the customer a $30 fee.\n2. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as that test customer.\n3. Click the \'Light Colors\' tab (if you\'re using a phone, this tab is in the row of tabs across the bottom of the screen).\n4. Change the light colours to something different than what\'s currently selected.\n5. Click \'Save\'.\n6. Open the admin site (the private office dashboard) and look at the menu on the left side of the screen. Click the word \'Customers\'.\n7. Click \'All Customers\'.\n8. Find that test customer in the list and click \'Edit\' on their entry.\n9. Go back to the menu on the left side of the screen and click the word \'Warehouse\'.\n10. Click the \'Build\' tab.', 'The portal should show a message confirming the colour change was saved. In admin, the Edit Customer popup for that person should show the new colours you picked. That same customer should now also appear in the Warehouse Build list.', 2, 'Pass', '', 'IMPORTANT \u2014 this one was CHARGING PEOPLE WRONGLY. Opening Light Colors and pressing Save without changing anything used to add a $30 fee and delete the pattern note. It should now say "Nothing changed \u2014 no charge". Also check a real change KEEPS any note in brackets, e.g. "(every third bulb)", and that the colour swatches are big enough not to mis-tap.'],
+  [8, 'Member Portal', 'Wrong credentials', '1. Open the Member Portal (the customer login area on highlightingutah.com).\n2. In the phone number box, type a real customer\'s phone number, but in the last name box type a last name that does NOT belong to that customer, so the two don\'t match.\n3. Click the \'Sign In\' button.', 'A friendly message should appear saying something like \'we couldn\'t find an account.\' The sign-in form should reappear so you can try again. You should NOT see a technical error code, and you should NOT see a blank screen.', 3, 'Pass', '', 'Wrong-credentials messages changed: a rate-limit message and a genuine no-match now read differently instead of both saying the same thing.'],
+  [9, 'Member Portal', 'Personalized link', '1. Find an invoice email or an RSVP email that was sent to a customer (check your own email inbox from a test email that was sent to you).\n2. Inside that email, find the personalized link to the Member Portal.\n3. Copy that link.\n4. Open a new browser tab or window where you are NOT already signed in to the Member Portal.\n5. Paste the link into the address bar and go to it.', 'The link should open straight into that customer\'s account, showing the spinner while it loads. It should NOT ask you to sign in again — no phone number or last name box should appear.', 2, 'Fail', '', 'A personalised link now opens the portal even for a customer who has no invoice yet, instead of saying "we couldn\u2019t find an account".'],
+  [10, 'Member Portal', 'Balance reflects credits', 'AUTOMATED - the credit maths is proved on every commit by run-all.js (credits reduce what is owed, a credit larger than the bill still reads Paid in Full, one exactly equal to the bill reads Paid in Full, and a balance never goes negative). What is left for you is the VISIBLE half: sign into the portal as a customer with a credit and confirm the balance on screen matches, and that the credit is explained rather than the number just being mysteriously smaller.\n\n1. Open the admin site (the private office dashboard) and look at the menu on the left side of the screen. Click the word \'Invoices\'.\n2. Click \'Invoice List\'.\n3. Find a customer and add a credit to their invoice — or, if you\'d rather not change anything, pick a customer who already has a credit on their invoice.\n4. Write down four numbers from that customer\'s invoice: the install amount, the removal amount, the credit amount, and the amount they have already paid.\n5. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as that same customer.\n6. Click the \'Payment\' tab.\n7. Look at the balance shown there.', 'The balance shown on the Payment tab should equal: the install amount plus the removal amount, minus the credit, minus whatever the customer has already paid. If you add up install and removal, subtract the credit, and subtract what\'s already been paid, that final number should match the balance shown in the portal exactly.', 5, 'N/A', '', 'The balance is now itemised: installation, removal, each light-change fee and each credit with its reason, then the total. Check the lines add up to the number shown.'],
+  [11, 'Member Portal', 'Pay with PayPal', '1. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as a customer who still owes money — use your own test customer record for this, not a real customer.\n2. Stay on the \'Payment\' tab.\n3. Look for a PayPal button on that tab. Which buttons appear is controlled in admin under Websites > Site Settings > Payment Integrations: \'Venmo only\' shows just the Venmo button, \'PayPal only\' shows just PayPal, and \'Both\' shows Venmo and PayPal together. PayPal also needs a Client ID saved there before it will appear at all. Check that setting first — if it is set to \'Venmo only\', seeing only Venmo is correct and is not a fail.\n4. If there is an option to add a small tip, add one.\n5. Click through and complete a real payment for a small amount using PayPal.\n6. After the payment finishes, go back to the Member Portal and reload the page.', 'PayPal should charge you the exact balance that was shown on the Payment tab, plus whatever tip you added. After the payment goes through and you reload the portal, the balance should have dropped, and the account should now say \'Paid in Full\'.', 3, 'Fail', 'There is only a link to Venmo.', 'The payment area now also shows when we last received a payment, and the whole card is hidden for a customer who has no bill yet.'],
+  [12, 'Member Portal', 'Change light colours', '1. Pick a test customer to use for this test — do NOT use a real customer, because changing light colours through the portal charges the customer a $30 fee.\n2. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as that test customer.\n3. Click the \'Light Colors\' tab (if you\'re using a phone, this tab is in the row of tabs across the bottom of the screen).\n4. Change the light colours to something different than what\'s currently selected.\n5. Click \'Save\'.\n6. Open the admin site (the private office dashboard) and look at the menu on the left side of the screen. Click the word \'Customers\'.\n7. Click \'All Customers\'.\n8. Find that test customer in the list and click \'Edit\' on their entry.\n9. Go back to the menu on the left side of the screen and click the word \'Warehouse\'.\n10. Click the \'Build\' tab.', 'The portal should show a message confirming the colour change was saved. In admin, the Edit Customer popup for that person should show the new colours you picked. That same customer should now also appear in the Warehouse Build list.', 2, 'Pass', '', 'IMPORTANT \u2014 this one was charging people wrongly. Opening Light Colors and pressing Save without changing anything used to add a $30 fee and delete the pattern note. It should now say "Nothing changed \u2014 no charge". Also check that a real change keeps any note in brackets, e.g. "(every third bulb)".'],
   [13, 'Member Portal', 'Change contact info', '1. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as a test customer.\n2. Click the \'Information\' tab.\n3. Change the phone number to a different test value.\n4. Change the gate code to a different test value.\n5. Change the street address to a different test value.\n6. Click \'Save\'.\n7. Open the admin site (the private office dashboard) and look at the menu on the left side of the screen. Click the word \'Customers\'.\n8. Click \'All Customers\'.\n9. Find that test customer and click \'Edit\' on their entry.\n10. Go back to the menu on the left side of the screen and click the word \'Routes\'.\n11. Find an upcoming saved route that includes that test customer as a stop.', 'The Edit Customer popup should show the new phone number, gate code, and street address you just typed in the portal. The upcoming route stop for that customer should also show the new gate code and the new address.', 1, 'Pass', '', ''],
-  [14, 'Member Portal', 'Change preferences', 'AUTOMATED (customer side only) — npm run test:browser (test/portal.spec.js, "t14 — changing a preference sends it to the server") proves a changed preference on the Information tab reaches the server as a portalSave call. That is only the sign-out-and-send half — it is NOT what this checklist test is actually about. The ADMIN SIDE, whether those fields show up anywhere on the Edit Customer popup, has no automated coverage at all and is exactly what this manual pass should focus on.\n\n1. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as a test customer.\n2. Click the \'Information\' tab and look through it, then also click the \'Changes\' tab and look through it.\n3. Change the wire colour to a different value.\n4. Save that change.\n5. Change the answer to the outlet timer question.\n6. Save that change.\n7. Change the install timing preference.\n8. Save that change.\n9. Type something new into the notes box.\n10. Save that change.\n11. Open the admin site (the private office dashboard) and look at the menu on the left side of the screen. Click the word \'Customers\'.\n12. Click \'All Customers\'.\n13. Find that test customer and click \'Edit\' on their entry.\n14. On the Edit Customer popup, look for each of the four things you just changed: the wire colour, the outlet timer answer, the install timing preference, and the notes.', 'All four things you changed — the wire colour, the outlet timer answer, the install timing preference, and the notes — should be visible somewhere on the Edit Customer popup in admin. If even one of those four is nowhere to be found on that popup, this test fails.', 2, 'Fail', 'There is nowhere to view it on the admin page.', 'Wired to the automated regression test (test/portal.spec.js), which covers only the customer-side send — the admin-visibility gap this test is actually about is still untouched. Reworded so the manual pass goes straight there instead of re-proving the Save button works.'],
-  [15, 'Member Portal', 'RSVP yes / no / back next year', 'AUTOMATED (one slice) — npm run test:browser (test/portal.spec.js, "t15 — an RSVP link records the answer without asking them to sign in") proves an RSVP=yes link records the answer without a sign-in prompt. That is only the sign-in-free part of Run one below. The recycling behaviour in admin, the \'no\' and \'back next year\' paths, and the messages shown after each answer all still need this full manual pass.\n\n1. Pick three different test customers, one for each of the three runs below. Do not use real customers, since these are RSVP tests.\n2. Run one: Sign in to the Member Portal as the first test customer and choose \'RSVP Yes\'.\n3. When asked whether they want any changes, answer \'no\'.\n4. Notice where the portal takes you after you answer \'no\'.\n5. Open the admin site (the private office dashboard), click \'Customers\' in the menu on the left side of the screen, then click \'All Customers\', then click \'Edit\' on that first test customer.\n6. Still in admin, click \'Warehouse\' in the menu on the left side of the screen, then click the \'Recycle\' tab, and check whether that first test customer is listed there.\n7. Run two: Sign in to the Member Portal as the second test customer and choose \'RSVP Back Next Year\'.\n8. Open admin, click \'Customers\', then \'All Customers\', then \'Edit\' on that second test customer.\n9. Still in admin, click \'Warehouse\', then the \'Recycle\' tab, and check whether that second test customer is listed there.\n10. Run three: Sign in to the Member Portal as the third test customer and choose \'RSVP No\'.\n11. Type a reason you\'ll recognize into the reason box.\n12. Submit it.\n13. Open admin, click \'Customers\', then \'All Customers\', then \'Edit\' on that third test customer.\n14. Still in admin, click \'Warehouse\', then the \'Recycle\' tab, and check whether that third test customer is listed there.', 'Run one (RSVP Yes) should end with a thank-you message, and that customer should NOT show up in the Warehouse Recycle list. Run two (RSVP Back Next Year) should show a message saying something like \'we look forward to seeing you next year,\' and that customer should also NOT show up in the Warehouse Recycle list. Run three (RSVP No) is the only one where the customer should show up in the Warehouse Recycle list.', 3, 'Fail', '', 'Wired to the automated regression test (test/portal.spec.js), which covers only the no-sign-in-required slice of Run one. Reworded so the manual pass doesn\'t re-prove that slice — the recycling and message checks across all three runs are still fully manual.  Also: RSVP is now available inside the portal on the Changes tab, not only from the emailed link. Check all three buttons, and that "Not this season" asks before saving.'],
+  [14, 'Member Portal', 'Change preferences', '1. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as a test customer.\n2. Click the \'Information\' tab and look through it, then also click the \'Changes\' tab and look through it.\n3. Change the wire colour to a different value.\n4. Save that change.\n5. Change the answer to the outlet timer question.\n6. Save that change.\n7. Change the install timing preference.\n8. Save that change.\n9. Type something new into the notes box.\n10. Save that change.\n11. Open the admin site (the private office dashboard) and look at the menu on the left side of the screen. Click the word \'Customers\'.\n12. Click \'All Customers\'.\n13. Find that test customer and click \'Edit\' on their entry.\n14. On the Edit Customer popup, look for each of the four things you just changed: the wire colour, the outlet timer answer, the install timing preference, and the notes.', 'All four things you changed — the wire colour, the outlet timer answer, the install timing preference, and the notes — should be visible somewhere on the Edit Customer popup in admin. If even one of those four is nowhere to be found on that popup, this test fails.', 1, 'Fail', 'There is nowhere to view it on the admin page.', ''],
+  [15, 'Member Portal', 'RSVP yes / no / back next year', '1. Pick three different test customers, one for each of the three runs below. Do not use real customers, since these are RSVP tests.\n2. Run one: Sign in to the Member Portal as the first test customer and choose \'RSVP Yes\'.\n3. When asked whether they want any changes, answer \'no\'.\n4. Notice where the portal takes you after you answer \'no\'.\n5. Open the admin site (the private office dashboard), click \'Customers\' in the menu on the left side of the screen, then click \'All Customers\', then click \'Edit\' on that first test customer.\n6. Still in admin, click \'Warehouse\' in the menu on the left side of the screen, then click the \'Recycle\' tab, and check whether that first test customer is listed there.\n7. Run two: Sign in to the Member Portal as the second test customer and choose \'RSVP Back Next Year\'.\n8. Open admin, click \'Customers\', then \'All Customers\', then \'Edit\' on that second test customer.\n9. Still in admin, click \'Warehouse\', then the \'Recycle\' tab, and check whether that second test customer is listed there.\n10. Run three: Sign in to the Member Portal as the third test customer and choose \'RSVP No\'.\n11. Type a reason you\'ll recognize into the reason box.\n12. Submit it.\n13. Open admin, click \'Customers\', then \'All Customers\', then \'Edit\' on that third test customer.\n14. Still in admin, click \'Warehouse\', then the \'Recycle\' tab, and check whether that third test customer is listed there.', 'Run one (RSVP Yes) should end with a thank-you message, and that customer should NOT show up in the Warehouse Recycle list. Run two (RSVP Back Next Year) should show a message saying something like \'we look forward to seeing you next year,\' and that customer should also NOT show up in the Warehouse Recycle list. Run three (RSVP No) is the only one where the customer should show up in the Warehouse Recycle list.', 2, 'Fail', '', 'RSVP is now also available inside the portal on the Changes tab, not only from the emailed link. Check all three buttons and that "Not this season" asks before saving.'],
   [16, 'Member Portal', 'Request cancellation', '1. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as a test customer.\n2. Click the \'Cancel\' tab.\n3. In the reason box, type a reason you\'ll recognize later.\n4. Submit the cancellation.\n5. Open the admin site (the private office dashboard) and look at the menu on the left side of the screen. Click the word \'Customers\'.\n6. Click \'All Customers\'.\n7. Find that test customer\'s card in the list.', 'That test customer\'s card in admin should show the words \'Cancellation Requested\', and the reason you typed should be readable somewhere on that card.', 1, 'Pass', '', ''],
-  [17, 'Member Portal', 'Quote review', 'AUTOMATED (the sign-in and the quote-review screen) — npm run test:browser (test/portal.spec.js, "t17 — a customer with a pending quote is offered approve or decline") proves that signing in with just a phone + last name for someone who has a priced quote but no invoice yet shows the quote details, the price, and both an Approve and a Decline button — against a fake backend. What is left for you is clicking through: does Approve/Decline actually go through and update things.\n\n1. Open the admin site (the private office dashboard) and look at the menu on the left side of the screen. Click the words \'Quote Requests\'.\n2. Find someone in that list who has already been given a price (has been quoted) but is not yet a paying customer (they have no invoice).\n3. Write down the phone number and last name listed on that quote.\n4. Open the Member Portal (the customer login area on highlightingutah.com).\n5. Type in the phone number and last name you wrote down.\n6. Click \'Sign In\'.\n7. Click \'Approve My Quote\' (or \'Not Right Now\' to decline) and confirm it goes through.', 'Instead of showing an invoice like it would for a regular customer, the portal should show that person\'s quote details and the price they were quoted, along with an \'Approve\' button and a \'Decline\' button. Clicking through should work without errors and reflect the outcome (e.g. the quote moving to Awaiting Response / Closed in admin\'s Quote Requests).', 5, 'Fail', '', 'A REAL bug was found and fixed here, not just a test-harness one: tryShowQuoteReview() in index.html was checking the typed last name against the FIRST word of the quote\'s stored name, not a real last-name match — so typing your actual last name (as step 3 says to write down and step 5 says to type) could get refused unless the name happened to be stored surname-first. Fixed to a whole-word, word-order-independent match, same rule as everywhere else in the app. Retest with a real quote and a real typed last name.  Also: a quote link now opens the quote review ONLY \u2014 it can no longer hand back a customer account. And an existing customer with a quote waiting is now offered it underneath their balance.'],
+  [17, 'Member Portal', 'Quote review', '1. Open the admin site (the private office dashboard) and look at the menu on the left side of the screen. Click the words \'Quote Requests\'.\n2. Find someone in that list who has already been given a price (has been quoted) but is not yet a paying customer (they have no invoice).\n3. Write down the phone number and last name listed on that quote.\n4. Open the Member Portal (the customer login area on highlightingutah.com).\n5. Type in the phone number and last name you wrote down.\n6. Click \'Sign In\'.', 'Instead of showing an invoice like it would for a regular customer, the portal should show that person\'s quote details and the price they were quoted, along with an \'Approve\' button and a \'Decline\' button.', 3, 'Fail', '', 'A quote link opens the quote review only. Check the price and the Approve/Decline buttons still show.'],
   [18, 'Admin', 'Quotes - view & filter', '1. Log into admin (the private office dashboard — not highlightingutah.com, which is the public site customers see).\n2. Look at the menu on the left side of the screen. Click the words "Quote Requests".\n3. Pick any one quote card in the list and read it from the top all the way to the bottom.\n4. Near the top of the page, find the filter control.\n5. Use the filter to switch it to "New only".\n6. Use the filter to switch it to show all quotes.', 'Each quote card should show the customer\'s name, its status, their address, their contact details, and controls for adding or managing a photo. When you switch the filter to \'New only\', the list should get shorter, showing fewer cards. When you switch it back to show all quotes, the list should get longer again.', 1, 'Pass', '', ''],
   [19, 'Admin', 'Quotes - price a quote', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click "Quote Requests".\n3. Find a quote card marked "New" that is one of your own test submissions (not a real customer\'s).\n4. On that card, find the box called "Estimated Feet" and type a number into it.\n5. Find the box called "Quoted Price" and type a price into it.\n6. Click anywhere outside that box (or press the Tab key). The price saves by itself the moment you click out, and a small message pops up confirming it - there is no Save button to press.\n7. Find and click the button called "Send quote email" - this shows you a link plus a filled-in email right below the button.\n8. The card now sits under the "Awaiting Response" tab. Find it there and open its "Pricing & Approval" panel again.\n9. Type a different, higher price into the "Quoted Price" box - as if the customer had just called and asked you to add another part of the house - then click outside the box.\n10. Refresh the whole page in your browser, then open that card\'s "Pricing & Approval" panel one more time and read the price.\n11. Copy the link shown in that box and open it in your browser, as if you were the customer.\n12. On that page, find and click the button the customer would press to accept the quote.', 'The feet and price you typed should save on the card on their own, without pressing any Save button. Clicking "Send quote email" should show a link and an editable email underneath it, and the card should move to "Awaiting Response". The higher price you typed in step 9 must still be there after the refresh in step 10 - it must NOT snap back to the old price - and the customer\'s page at that link should show that new higher price too. When you click the accept button on that page, it should work without any errors.', 3, 'Retest', 'The approval link works but the accept-my-quote button does not.', 'The Quoted Price box now saves on its own when you click out of it. It used to save ONLY if you went on to press the send button, so changing the price on a quote that had already gone out silently reverted. Steps 8-10 are new and test exactly that. The button name is also corrected to "Send quote email", which is what it actually says on screen.'],
   [20, 'Admin', 'Quotes - detail form', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click "Quote Requests".\n3. Approve a test quote (one of your own test submissions).\n4. Open the link shown under the "Send Email" button for that quote in your browser, as if you were the customer.\n5. On the public site, fill in the customer\'s own detail form: choose a wire colour, choose an outlet timer, and choose an install month.\n6. Submit that form.\n7. Go back to admin and open "Quote Requests" again.\n8. Near the top, find and click the tab called "Form".\n9. Find the same quote you just submitted the form for.\n10. Now find a different approved quote where the customer has NOT yet submitted their detail form.', 'For the quote where the customer submitted the form, the card should show the Wire colour and Timer choices they picked, right on the card itself. For the quote where the customer has NOT submitted the form yet, those lines should simply not appear. There is no separate \'Detail Form\' section to open or edit in admin anymore, because customers now fill that form in on their own portal after their quote is approved.', 2, 'Retest', 'Probably should not ask which outlet - the crew decides that - but do ask if they have one.', 'The admin-side Detail Form was removed from the quote card in the P1 rework - it\'s now filled in on the customer\'s own portal after they approve, not edited here. This Pass needs a fresh look against how it actually works now.'],
@@ -21531,14 +21549,14 @@ const TEST_SEED = [
   [38, 'Customer Numbers', 'Empty pool takes the next number up', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the words "Customer Numbers".\n3. Click the tab called "Available Pool".\n4. Look through the list and find a series (either the normal numbers or the 5000-series numbers) that has nothing left sitting in the pool - completely empty.\n5. Click the tab called "All Numbers".\n6. Look through that same series and write down the highest number currently in use.\n7. In the menu on the left side of the screen, click the word "Customers".\n8. Click the button that says "Add a Customer".\n9. Add a test customer whose Measured Feet puts them in that same empty series.\n10. Save the test customer.\n11. Assign that customer a customer number.', 'The new customer should be given the number exactly one higher than the highest number you wrote down in step 6 - for example, if the highest in-use number in that series was 5010, they should get 5011.', 1, '', '', ''],
   [39, 'Customer Numbers', 'Bulk assign', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the words "Customer Numbers".\n3. Click the tab called "Assign".\n4. Click the button that says "Check First" (this is a dry run - a preview that does not actually change anything yet).\n5. Read what the preview says it would do.\n6. Run the bulk assign process on several customers who do not yet have a customer number.\n7. Click the tab called "Available Pool".\n8. Look at the list of numbers left in the pool.', 'Every customer whose house needs 2 bins should have been given a 5000-series number (starting with the digit 5), and every customer whose house needs only 1 bin should have been given a normal number. Afterward, the Available Pool list should have shrunk by exactly the number of customer numbers that were just handed out - no more, no less.', 1, '', '', ''],
   [40, 'Customer Numbers', 'Duplicate number report', 'AUTOMATED - run-all.js actually RUNS the Health Check engine against made-up data and confirms it catches a duplicate customer number, leaves a unique one alone, and deliberately offers NO auto-fix (it cannot know which house keeps the number). What is left is the report on screen: that it lists the right houses and that the no-auto-fix wording is clear.\n\n1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Customers".\n3. Click "All Customers".\n4. Click Edit on a test customer\'s record and give them a customer number. Write that number down.\n5. Save that customer.\n6. Click Edit on a second test customer\'s record and give them that exact same customer number on purpose.\n7. Save that second customer.\n8. In the menu on the left side of the screen, click the words "Health Check".\n9. Click the button that says "Run Health Check".\n10. Look through the results for the section about duplicate customer numbers.', 'The duplicate customer number section should list both test customers by name as sharing the same number. There should be no automatic "fix" button next to this finding - the system can\'t know which customer should keep the number, so a person has to make that decision.', 2, '', '', 'The duplicate detection is now executed by an automated test. Reworded to check the on-screen report.'],
-  [41, 'Warehouse', 'Build queue membership', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Customers".\n3. Click "All Customers".\n4. Find a customer who already has light colours set and click Edit on their record.\n5. Change one of their light colours to a different colour.\n6. Click Save. (This is what puts them in the warehouse build queue.)\n7. Click Edit on a second customer\'s record.\n8. Clear out that second customer\'s light colours completely, so none are set.\n9. Click Save.\n10. In the menu on the left side of the screen, click the word "Warehouse".\n11. Click the tab called "Build".', 'Only the first customer, whose colour you changed, should appear in the build list. The second customer, whose colours you cleared, should not appear anywhere in the build list - even though you just edited and saved their record too.', 1, '', '', ''],
+  [41, 'Warehouse', 'Build queue membership', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Customers".\n3. Click "All Customers".\n4. Find a customer who already has light colours set and click Edit on their record.\n5. Change one of their light colours to a different colour.\n6. Click Save. (This is what puts them in the warehouse build queue.)\n7. Click Edit on a second customer\'s record.\n8. Clear out that second customer\'s light colours completely, so none are set.\n9. Click Save.\n10. In the menu on the left side of the screen, click the word "Warehouse".\n11. Click the tab called "Build".\n12. Find the colour group the first customer belongs to and press the button on the right of that row that says "Show 1 house" (the number depends on how many are in the group).', 'The group should open when you press that button, and the first customer - the one whose colour you changed - should be listed by name inside it. The button should change to say "Hide". The second customer, whose colours you cleared, should not appear anywhere in the build list, even though you just edited and saved their record too.', 2, '', '', 'The colour groups now have a real "Show houses" button instead of only a small arrow, because the names inside were impossible to find. Please check the button opens the group and the name is listed.'],
   [42, 'Warehouse', 'Bundle count', 'AUTOMATED - bundle maths is ceil(feet / 40) and run-all.js proves it on every commit, including that 40ft is one bundle, 41ft rounds up to two, and that the bundle size is still 40. What is left is the warehouse screen showing that number in the right place.\n\n1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Customers".\n3. Click "All Customers".\n4. Find a customer who is already sitting in the warehouse build queue and click Edit on their record.\n5. In the box called "Measured Feet", type the number 100 exactly.\n6. Click Save.\n7. In the menu on the left side of the screen, click the word "Warehouse".\n8. Click the tab called "Build".\n9. Find that same customer in the list.', 'That customer\'s bundle count should read 3. (This is 100 feet divided by 40 feet per bundle, which equals 2.5, rounded up to the next whole number, 3.)', 2, '', '', 'Bundle maths is automated. Reworded to check the number shown on the warehouse queue.'],
   [43, 'Warehouse', 'Colour grouping', 'AUTOMATED (and a real bug was fixed here on 2026-08-14) - the warehouse used to put the SAME pattern into two separate groups if the colours had been typed in a different order, so \'Red, Green\' and \'Green, Red\' built as two groups and the same bundle got made twice. whGroupKey now sorts the colours first, in BOTH admin and the crew portal, and run-all.js checks that on every commit - including that repeated colours still make a different pattern (\'Red, Red, Green\' is not \'Red, Green, Green\'), that wire colour still separates groups, and that admin and the crew portal have not drifted apart. What is left for a person is the screen: look at the build queue and confirm the groups are right and the counts add up. If you have two groups that should have been one, they should now be merged.\n\n1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Customers".\n3. Click "All Customers".\n4. Click Edit on a test customer\'s record.\n5. Set their light colours to a specific pattern (for example, all red).\n6. Click Save. (This puts them in the warehouse build queue.)\n7. Repeat steps 4 through 6 for two or three more test customers, giving each one that exact same colour pattern, until you have three or four test customers all sharing the identical pattern.\n8. Click Edit on one more test customer and give them a different colour pattern instead.\n9. Click Save.\n10. In the menu on the left side of the screen, click the word "Warehouse".\n11. Click the tab called "Build".', 'The three or four customers who share the identical colour pattern should be grouped together under that one pattern, with their bundle counts added together into a single total. The customer with the different pattern should sit by itself in its own separate group.', 2, '', '', 'The grouping bug is fixed and the rule is now automated. Worth re-running because the groups on screen will have MERGED - confirm the new counts are right.'],
-  [44, 'Warehouse', 'Mark built', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Warehouse".\n3. Click the tab called "Build".\n4. Pick any one house/customer sitting in the build queue.\n5. Mark that house as built.\n6. Refresh the page in your web browser.\n7. Click the tab called "Build" again to look at the list.', 'The house you marked as built should no longer appear anywhere in the build list, and it should stay gone after refreshing the page - it should not come back.', 2, '', '', 'The "Mark Completed" box on a colour group now says it counts HOUSES (the heading above it counts bundles), lists exactly who it will clear, and asks before clearing. Re-check with a group where the bundle count and the house count differ.'],
+  [44, 'Warehouse', 'Mark built', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Warehouse".\n3. Click the tab called "Build".\n4. Press the "Show houses" button on any colour group to open it.\n5. Pick any one house/customer listed inside and press "Mark Done" next to their name.\n6. Refresh the page in your web browser.\n7. Click the tab called "Build" again, and press "Show houses" on that same group.', 'The house you marked as done should no longer appear anywhere in the build list, and it should stay gone after refreshing the page - it should not come back.', 3, '', '', 'You now open a group with the "Show houses" button before you can reach Mark Done. The "Mark Completed" box still counts HOUSES, not the bundle number in the heading - worth re-checking on a group where those two numbers differ.'],
   [45, 'Warehouse', 'Bundles when feet are missing', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Customers".\n3. Click "All Customers".\n4. Find a customer who already has a price set and click Edit on their record.\n5. Clear out the box called "Measured Feet" completely, so it is empty.\n6. Click Save.\n7. In the menu on the left side of the screen, click the word "Warehouse", then click the tab called "Build", and check whether this customer is listed there.\n8. If they are not in the build queue, go back and click Edit on their record again, change one of their light colours, and click Save - that will put them in the queue.\n9. On a phone, open the Crew Portal (the app/site the installation crew uses).\n10. Sign in to the Crew Portal.\n11. Go to the section called "Warehouse".', 'The crew should still see a bundle estimate listed for that house, worked out from their price since their measured feet is missing. It should show a real estimated number, not a blank space and not a zero.', 1, '', '', ''],
-  [46, 'Warehouse', 'Warehouse extras', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Warehouse".\n3. Click the tab called "Build".\n4. Near the top of the page, find the box labeled "Add From Inbox".\n5. In that box, type in a colour pattern (for example, "red and white").\n6. In the quantity box, type the number 3.\n7. Leave the Wire Color box set to "Not set - buffer stock" for now, and leave the box that asks which house this is for completely blank.\n8. Click the button that says "Add to Queue".\n9. Scroll down to the queue below and find the group that matches the colour pattern you just typed in. Click its heading to open it.\n10. On the row for the entry you just added, click the button that says "Edit".\n11. The form at the top of the page should fill in with what you typed. Change the Wire Color to "Green" and change the quantity to 3 if it is not already 3.\n12. Click the button that says "Save Changes".\n13. Look at the queue again and find your entry. Check which group it is now sitting in and what the small grey line under it says.\n14. Open that group and, in the box labelled "Houses finished", type the number 1.\n15. Click the button that says "Mark Completed" and confirm when it asks.\n16. Look at the queue again and check what that entry now shows.\n17. Complete the remaining 2 of that same entry (repeat steps 14 and 15 until all 3 have been marked completed).', 'Editing must change the entry you clicked Edit on - it must NOT add a second one, so the queue should still hold only the one entry you created. After saving, it should say "Green wire" under it and sit in the group for that colour pattern on green wire (alongside any real houses with those same colours on green wire) instead of the "buffer stock (wire not set)" group it started in. Then, after completing 1 out of the 3, the entry should still be sitting in the queue showing 2 remaining - it should NOT disappear or get deleted just because 1 was completed. Only after all 3 have been completed should it disappear.', 2, '', '', 'Hand-added builds can now be corrected instead of only deleted: every entry has an Edit button, and the add form now asks for a Wire Color (it never did before, so anything added by hand sat in a "wire not set" bucket of its own). Please re-run - the steps now cover editing one, and two step names were also wrong before: the box is labelled "Houses finished" and the button reads "Mark Completed".'],
-  [47, 'Warehouse', 'Recycle queue membership', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Customers".\n3. Click "All Customers".\n4. Click Edit on a test customer\'s record.\n5. Find the setting called "RSVP" (this records whether the customer wants the Christmas lights service again) and set it to "No".\n6. Click Save.\n7. In the menu on the left side of the screen, click the word "Warehouse".\n8. Click the tab called "Recycle".\n9. Leave them in the list for now. Go back to Customers, click Edit on that same test customer, change nothing except their phone number, and click Save.\n10. Return to Warehouse and click the tab called "Recycle" again.', 'After step 8 that test customer should appear in the Recycle list. After the plain save in step 9 they should still be sitting there exactly once - saving their record must not add them a second time or change anything about their place in the list.', 2, '', '', 'The recycle flag is no longer worked out again on every save - it is only raised when the RSVP actually changes to No. Please run this one again, including the new save step at the end.'],
-  [48, 'Warehouse', 'Mark recycled returns the number', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Warehouse".\n3. Click the tab called "Recycle".\n4. Pick any one customer sitting in that list.\n5. Write down their customer number.\n6. Mark that customer as recycled.\n7. In the menu on the left side of the screen, click the words "Customer Numbers".\n8. Click the tab called "Available Pool".\n9. Look for the number you wrote down in step 5.\n10. In the menu on the left side of the screen, click the word "Customers".\n11. Click "All Customers" and find that same customer\'s record.\n12. Click Edit on that record, open Edit Customer again, change nothing except their phone number, and click Save.\n13. Go to Warehouse and click the tab called "Recycle".', 'The customer number you wrote down should now be sitting in the Available Pool, ready to be given to someone else. That same customer\'s own record should no longer show any customer number at all. After the plain save in step 12 they should NOT come back into the Recycle list - their lights have already been pulled, so there is nothing left to recycle.', 2, '', '', 'Marking someone recycled is unchanged, but a later save on that record used to put them straight back in the Recycle queue. Please run this again with the two new steps at the end.'],
+  [46, 'Warehouse', 'Warehouse extras', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Warehouse".\n3. Click the tab called "Build".\n4. Near the top of the page, find the box labeled "Add From Inbox".\n5. Leave the first box - the one asking which house this is for - completely blank.\n6. Leave "What is this for?" set to "Lights", and type a colour pattern into the Pattern box (for example, "red and white").\n7. In the "How many bundles" box, type the number 3.\n8. Leave the Wire Color box on "Not set - buffer stock" for now.\n9. Click the button that says "Add to Queue".\n10. Scroll down to the queue below and find the buffer stock group that matches the colour pattern you just typed in. Press its "Show items" button to open it.\n11. On the row for the entry you just added, click the button that says "Edit".\n12. The form at the top of the page should fill in with what you typed, and its heading should now say "Edit This Build". Change the Wire Color to "Green", and leave everything else alone.\n13. Click the button that says "Save Changes".\n14. Look at the queue again and find your entry - check which group it is sitting in now, and what the small grey line under it says.\n15. Open that group and, in the count box on it, type the number 1 and click "Mark Completed".\n16. Look at the queue again and check what that entry now shows.\n17. Complete the remaining 2 of that same entry.', 'Editing must change the entry you clicked Edit on - it must NOT create a second one, so there should still be only the one entry you made. After saving, the small grey line under it should read "Green wire", and it should have moved out of the "buffer stock (wire not set)" group into the group for that colour pattern on green wire - alongside any real houses with those same colours on green wire. Then, after completing 1 out of the 3, the entry should still be sitting in the queue showing 2 remaining. It should NOT disappear or get deleted just because 1 was completed. Only after all 3 have been completed should it disappear.', 3, '', '', 'Entries added by hand can now be corrected instead of only deleted - every one of them has an Edit button - and the form now asks for a Wire Color, which it never did before, so anything added by hand could only ever say "wire not set". Picking a house fills the wire in from their record, the same way the pattern and the bundle count already do.'],
+  [47, 'Warehouse', 'Recycle queue membership', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Customers".\n3. Click "All Customers".\n4. Click Edit on a test customer\'s record.\n5. Find the setting called "RSVP" (this records whether the customer wants the Christmas lights service again) and set it to "No".\n6. Click Save.\n7. In the menu on the left side of the screen, click the word "Warehouse".\n8. Click the tab called "Recycle".\n9. Leave them in the list for now. Go back to Customers, click Edit on that same test customer, change nothing except their phone number, and click Save.\n10. Return to Warehouse and click the tab called "Recycle" again, and press the "Show houses" button on the group to open it.', 'After step 8 that test customer should appear in the Recycle list once you open the group with the "Show houses" button - listed by name, with their customer number beside it. After the plain save in step 9 they should still be sitting there exactly once - saving their record must not add them a second time or change anything about their place in the list.', 3, '', '', 'Two changes: the recycle flag is only raised when the RSVP actually changes to No (not re-worked-out on every save), and the group now has a real "Show houses" button with the customer number shown next to each name.'],
+  [48, 'Warehouse', 'Mark recycled returns the number', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Warehouse".\n3. Click the tab called "Recycle".\n4. Press the "Show houses" button on a group to open it, and pick any one customer sitting in that list.\n5. Write down their customer number - it is shown on their row.\n6. Mark that customer as recycled.\n7. In the menu on the left side of the screen, click the words "Customer Numbers".\n8. Click the tab called "Available Pool".\n9. Look for the number you wrote down in step 5.\n10. In the menu on the left side of the screen, click the word "Customers".\n11. Click "All Customers" and find that same customer\'s record.\n12. Click Edit on that record, open Edit Customer again, change nothing except their phone number, and click Save.\n13. Go to Warehouse and click the tab called "Recycle".', 'The customer number you wrote down should now be sitting in the Available Pool, ready to be given to someone else. That same customer\'s own record should no longer show any customer number at all. After the plain save in step 12 they should NOT come back into the Recycle list - their lights have already been pulled, so there is nothing left to recycle.', 3, '', '', 'Marking someone recycled is unchanged, but a later save on that record used to put them straight back in the Recycle queue. The group is also opened with a "Show houses" button now, and the customer number is printed next to each name. Please run this again with the two new steps at the end.'],
   [49, 'Warehouse', 'Back next year does not recycle', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Customers".\n3. Click "All Customers".\n4. Click Edit on a test customer\'s record.\n5. Find the setting called "RSVP" (this records whether the customer wants the Christmas lights service again) and set it to "Back Next Year".\n6. Click Save.\n7. In the menu on the left side of the screen, click the word "Warehouse".\n8. Click the tab called "Recycle".\n9. Look through the list for that test customer.\n10. In the menu on the left side of the screen, click the words "Customer Numbers".\n11. Click the tab called "All Numbers".\n12. Check whether that test customer still has a customer number listed.', 'That test customer should NOT appear anywhere in the Recycle list, and they should still have the same customer number listed in All Numbers. Only setting RSVP to a flat "No" should trigger recycling - "Back Next Year" should not.', 2, '', '', 'How the recycle flag gets written changed, so this needs confirming again. The answer should be exactly the same as before - Back Next Year must still never recycle anyone.'],
   [50, 'Warehouse', 'Build-ahead goals', '1. On a phone, open the Crew Portal (the app/site the installation crew uses).\n2. Go to the section called "Warehouse".\n3. Set a build-ahead goal by entering a colour pattern and how many of that pattern you want built.\n4. Record some progress against that goal (enter a number showing how many have been built so far).\n5. Close the Crew Portal completely.\n6. Reopen the Crew Portal.', 'The build-ahead goal and the progress you recorded should both still be there after reopening the portal - nothing should have reset. Note this known gap: there is currently no way to see or set these build-ahead goals from admin at all; they only exist inside the Crew Portal.', 1, '', '', ''],
   [51, 'Routes', 'Candidate pool', '1. Log into admin (the private office dashboard for Highlighting Utah staff — not highlightingutah.com, which is the public website customers see).\n2. Set up a test customer whose RSVP (their yes/no answer about whether they want the lights service) is set to Yes, and who has a complete, valid address.\n3. Set up a second test customer whose RSVP is set to No.\n4. Set up a third test customer who is already included on a route that has already been saved.\n5. In the menu on the left side of the screen, click the word \'Routes\'.\n6. Click the tab labeled \'Generate Route\'.\n7. Click the tab labeled \'Install\'.\n8. Click the button to generate a new route.\n9. Look at the list of customers the system offers to include on the route.', 'The only customer offered should be the one whose RSVP is Yes and who is not already on a saved route. The customer whose RSVP is No, and the customer who is already scheduled on a saved route, should both be left off the list.', 1, '', '', ''],
@@ -21682,9 +21700,10 @@ const TEST_SEED = [
   [189, 'Nightly Automation', 'Two houses on one phone bill together', 'AUTOMATED - the invoice key rule that puts two houses on one phone onto a single bill is unit-tested, and money-parity.test.js proves admin and the nightly run agree on it. run-all.js additionally checks the payer resync totals the whole linked group. What is left is confirming one real shared-phone pair gets one email, not two.\n\n1. Log into admin (the private office dashboard).\n2. Set up two test houses that share the same phone number (a second home or cabin for the same customer), each with its own price.\n3. Mark the FIRST house \'Done\' only. Look at the menu on the left and click \'Invoices\', then the \'Nightly Automation\' tab, and press \'Send Invoices Now\'.\n4. Check that customer\'s email inbox and their invoice.\n5. Now mark the SECOND house \'Done\' too, and press \'Send Invoices Now\' again.\n6. Check the inbox and the invoice again.', 'After step 3 (only one house done), no invoice email should go out yet — billing waits until every house is finished. After step 5 (both houses done), exactly ONE invoice email should arrive, with the combined total of both house prices and a separate line for each address. The invoice amount in admin should equal the sum of both house prices.', 2, '', '', 'The grouping rule is automated. Reworded to check one real shared-phone pair.'],
   [190, 'Nightly Automation', 'A cancelled house does not hold up its payer\'s bill', 'AUTOMATED - run-all.js checks that the payer invoice resync EXCLUDES RSVP-no houses from the total, and separately that it does not zero an invoice when every house opted out. What is left is confirming a real payer with one cancelled house still gets billed correctly for the rest.\n\n1. Log into admin (the private office dashboard).\n2. Set up two test houses sharing one phone number.\n3. Mark ONE of the two houses as RSVP \'No\' (not coming this season).\n4. Mark the OTHER house \'Done\'.\n5. Look at the menu on the left and click \'Invoices\', then the \'Nightly Automation\' tab, and press \'Send Invoices Now\'.\n6. Check that customer\'s email and invoice.', 'An invoice email should go out for the one active house, even though the other house on the same phone said no this season. The cancelled house should not block the bill and should not be included in the invoice total.', 2, '', '', 'The exclusion rule is automated. Reworded to check one real payer with a cancelled house.'],
   [191, 'Nightly Automation', 'A house needing a fix holds up its payer\'s bill', '1. Log into admin (the private office dashboard).\n2. Set up two test houses sharing one phone number, both marked \'Done\'.\n3. Flag ONE of the two houses as needing a fix (needsFix).\n4. Look at the menu on the left and click \'Invoices\', then the \'Nightly Automation\' tab, and press \'Send Invoices Now\'.\n5. Check that customer\'s email and invoice, then clear the needs-fix flag and press \'Send Invoices Now\' again.', 'No invoice email should go out while either house on that phone needs a fix, even though both are marked Done. Once the fix flag is cleared and the button is pressed again, the invoice should send with both house prices included.', 1, '', '', ''],
+  [195, 'Warehouse', 'One request per member, topped up not duplicated', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Warehouse", then the tab called "Build".\n3. In "Add From Inbox", start typing a test customer\'s name in the first box and pick them from the list.\n4. Look at the Pattern box and the "How many bundles" box without typing anything into them.\n5. Click "Add to Queue".\n6. Now do steps 3 to 5 again for the SAME customer.\n7. Read the pop-up that appears, and press OK.\n8. Look at the queue below for that customer.\n9. Now pick that same customer again, change "What is this for?" to "Timer", set it to 1, and click "Add to Queue". If a warning about their record appears, read it and press OK.\n10. Look at the queue below for that customer again.\n11. Finally, pick that customer, leave it on Lights, but type a different colour into the Pattern box and click "Add to Queue".', 'At step 4 the pattern should already be filled in from their record and the bundles should already be worked out from their measured feet - you should not have to type either. At step 7 the pop-up should say they already have a request and offer to make it a bigger total. At step 8 there should be ONE heading with that customer\'s name, not two. At step 10 the timer should be a second line under that SAME heading, with the total shown in the heading. At step 11 you should get an "are you sure" pop-up first, because what you typed no longer matches their record.', 1, '', '', ''],
+  [194, 'Warehouse', 'What each house needs, on the build row', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Customers", then "All Customers".\n3. Click Edit on a test customer who is in the build queue. Set "Outlet Timer" to "Yes", set a wire colour, type something into their notes, and click Save.\n4. In the menu on the left side of the screen, click the word "Warehouse", then the tab called "Build".\n5. Press the "Show houses" button on that customer\'s colour group.\n6. Look at that customer\'s row.\n7. Look at the very top of the Build tab for a group called "Timers" and press its "Show houses" button.\n8. Now find a brand-new customer in the build list who has not been given a customer number yet, and look at their row.', 'That customer\'s row should show a "Timer" tag, their wire colour, their customer number, and their notes underneath. The "Timers" group at the top should list that customer by name and say how many houses in this build need a timer. The brand-new customer with no number should show an orange warning saying their number still needs assigning, instead of just showing nothing.', 1, '', '', ''],
   [193, 'Warehouse', 'Rejoining after being recycled', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Customers", then "All Customers".\n3. Click Edit on a test customer, set "RSVP" to "No", and click Save.\n4. Go to Warehouse, click the tab called "Recycle", find that customer and mark them as recycled. Write down the customer number that comes off them.\n5. Now go back to Customers, click Edit on that same customer, set "RSVP" to "Yes", and click Save.\n6. Click the tab called "Build" in Warehouse and look for that customer.\n7. In the menu on the left side of the screen, click "Inbox" and look in the "System" folder.\n8. Repeat the whole thing a second time, but at step 5 use the Member Portal as that customer and press Yes there instead of using admin - the answer should be identical either way.', 'After step 5 that customer should be in the Warehouse Build list, because their old lights were taken apart and a new bundle has to be made. There should be a note in the Inbox System folder saying they rejoined after recycling, that their lights need rebuilding and that they need a customer number assigned. Their record should still show NO customer number - the system must not hand one out by itself, because you may have already written a number on a bin by hand. Doing it through the Member Portal instead of admin should give exactly the same result.', 1, '', '', ''],
   [192, 'Invoices', 'Editing a customer does not resurrect a cancelled house\'s price', 'AUTOMATED - this is the same resync rule as test 190 and run-all.js covers it: a cancelled house is excluded from the payer total, so editing the customer cannot bring its price back. What is left is doing the edit once on a real record and confirming the total did not move.\n\n1. Log into admin (the private office dashboard).\n2. Set up two test houses sharing one phone number. Mark ONE as RSVP \'No\'.\n3. Get that payer billed for the other (active) house only — for example through \'Send Invoices Now\' or by editing their invoice directly — and note the invoice total.\n4. Open \'Edit Customer\' on the active house and change something small (like a note), then save.\n5. Check that payer\'s invoice total again.', 'Saving an edit on the active house must not add the cancelled house\'s price back onto the invoice. The invoice total after step 5 should be exactly what it was before the edit — only the active house\'s price.', 2, '', '', 'Covered by the same automated resync checks as test 190. Reworded to check one real edit.'],
-  [193, 'Admin', 'Refreshing the page keeps you on the same panel', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click on any panel that is NOT \'Quote Requests\' — for example click \'Customers\', then \'All Customers\'.\n3. Refresh the whole browser page (reload it).', 'After the page finishes reloading, you should land back on the same panel you were looking at (for example, \'All Customers\'), not automatically jump back to \'Quote Requests\'.', 1, '', '', ''],
 ];
 
 function attachDeleteHandlers(container){
