@@ -3566,11 +3566,18 @@
           <span id="whAddExtraStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
         </div>
 
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+          <p class="form-note" style="margin:0;">The printed sheet is the same list in the same order, laid out as one row per line with a tick box &mdash; so it can be worked down on paper or opened in Excel.</p>
+          <button type="button" class="btn btn-outline btn-sm" id="whPrintBuildBtn" style="flex:0 0 auto;">Print Build Sheet</button>
+        </div>
         <div id="warehouseQueueList" class="row-list"><div class="empty-note">Loading&hellip;</div></div>
       </div>
 
       <div class="gen-subtab-panel" id="whtab-recycle">
-        <p class="form-note" style="margin:0 0 10px;">Customers who RSVP'd No this year &mdash; their light pattern needs to come back into stock instead of being hung.</p>
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+          <p class="form-note" style="margin:0;">Customers who RSVP'd No this year &mdash; their light pattern needs to come back into stock instead of being hung.</p>
+          <button type="button" class="btn btn-outline btn-sm" id="whPrintRecycleBtn" style="flex:0 0 auto;">Print Recycle Sheet</button>
+        </div>
         <div id="warehouseRecycleQueueList" class="row-list"><div class="empty-note">Loading&hellip;</div></div>
       </div>
 
@@ -14430,9 +14437,9 @@ function updateFixAvailableCount(){
   if(cityChoice !== 'all') available = available.filter(a => extractCleanCity(a.data.city) === cityChoice);
   el.textContent = available.length + ' house' + (available.length===1?'':'s') + ' currently need' + (available.length===1?'s':'') + ' a fix' + (cityChoice !== 'all' ? ' in ' + cityChoice : '') + '.';
 }
-function renderWarehouseRecycleQueue(){
-  const list = document.getElementById('warehouseRecycleQueueList');
-  if(!list) return;
+/* Same reason as whBuildQueueGroups below: the screen and the printed sheet
+   both read this, so they cannot drift apart. */
+function whRecycleGroups(){
   const groups = {};
   jobAddresses.forEach(function(item){
     const d = item.data;
@@ -14446,8 +14453,16 @@ function renderWarehouseRecycleQueue(){
     groups[key].push(item);
   });
   const keys = Object.keys(groups);
-  if(!keys.length){ list.innerHTML = '<div class="empty-note">Nothing needs to be recycled right now.</div>'; return; }
   keys.sort(function(a,b){ return groups[b].length - groups[a].length; });
+  return {groups: groups, keys: keys};
+}
+function renderWarehouseRecycleQueue(){
+  const list = document.getElementById('warehouseRecycleQueueList');
+  if(!list) return;
+  const built = whRecycleGroups();
+  const groups = built.groups;
+  const keys = built.keys;
+  if(!keys.length){ list.innerHTML = '<div class="empty-note">Nothing needs to be recycled right now.</div>'; return; }
   let html = '';
   keys.forEach(function(pattern, gi){
     const houses = groups[pattern];
@@ -15246,9 +15261,13 @@ function whHouseFactsHtml(d){
     : ' <span style="display:inline-block; background:#fff; color:var(--ember); border:1px solid var(--ember); border-radius:999px; padding:1px 8px; font-size:11px; font-weight:600; vertical-align:middle;">No number yet &mdash; needs assigning</span>';
   return html;
 }
-function renderWarehouseQueue(){
-  const list = document.getElementById('warehouseQueueList');
-  if(!list) return;
+/* ---- ONE PLACE THAT DECIDES WHAT IS IN THE BUILD QUEUE ----
+   The screen and the printed sheet both read this. Working the groups out
+   twice is how a printout starts disagreeing with the tab it was printed
+   from — the crew would build off paper that says something different from
+   what the office is looking at. Returns the groups in the order they are
+   shown, so the sheet comes out organised exactly like the tab. */
+function whBuildQueueGroups(){
   const groups = {};
   const timerHouses = [];
   jobAddresses.forEach(function(item){
@@ -15294,12 +15313,19 @@ function renderWarehouseQueue(){
     const extraTotal = g.extras.reduce(function(s,e){ return s+(Number(e.data.quantity)||0); }, 0);
     return g.houses.length + extraTotal > 0;
   });
-  if(!keys.length){ list.innerHTML = '<div class="empty-note">Nothing needs to be built right now.</div>'; return; }
   keys.sort(function(a,b){
     const totalA = groups[a].houses.reduce(function(s,h){ return s+houseBundleNeed(h.data).bundles; },0) + groups[a].extras.reduce(function(s,e){ return s+(Number(e.data.quantity)||0); },0);
     const totalB = groups[b].houses.reduce(function(s,h){ return s+houseBundleNeed(h.data).bundles; },0) + groups[b].extras.reduce(function(s,e){ return s+(Number(e.data.quantity)||0); },0);
     return totalB - totalA;
   });
+  return {groups: groups, keys: keys, timerHouses: timerHouses};
+}
+function renderWarehouseQueue(){
+  const list = document.getElementById('warehouseQueueList');
+  if(!list) return;
+  const built = whBuildQueueGroups();
+  const groups = built.groups, keys = built.keys, timerHouses = built.timerHouses;
+  if(!keys.length){ list.innerHTML = '<div class="empty-note">Nothing needs to be built right now.</div>'; return; }
   let html = '';
   /* Timers, counted against the houses that asked for them. This is a roll-up of
      the same houses listed in the colour groups below, so it deliberately has no
@@ -15714,6 +15740,186 @@ function whStartEditExtra(id){
   cancelBtn.addEventListener('click', function(){ whCancelEditExtra(); });
 })();
 
+/* ---- PRINTED SHEETS ----
+   The tab stays as it is on screen: grouped, collapsible, one card per colour
+   and wire. On paper that shape is unusable — you cannot tick a card off, and
+   it will not open in a spreadsheet. So the sheet is the SAME list, in the
+   SAME order, flattened to one row per line with real column headers and a
+   tick box: workable on a clipboard, and it pastes straight into Excel or
+   Sheets if a copy is wanted there instead.
+   The group name repeats on every row on purpose — that is what makes it sort
+   and filter like a spreadsheet rather than needing the heading above it. */
+function whSheetRowsForBuild(){
+  const built = whBuildQueueGroups();
+  const rows = [];
+  built.keys.forEach(function(key){
+    const g = built.groups[key];
+    // A member's own request is headed by their name on screen; on paper the
+    // group column has to say the same thing or the row loses its owner.
+    const groupName = g.title || key;
+    g.houses.forEach(function(h){
+      const d = h.data;
+      const need = houseBundleNeed(d);
+      rows.push({
+        group: groupName,
+        wire: whWireLabel(d.wireColor),
+        type: 'House',
+        what: d.name || '(no name)',
+        address: d.address || '',
+        bin: d.customerNumber || '',
+        // Blank rather than 0 when there are no feet — a 0 in a spreadsheet
+        // column reads as a measurement, and this is the absence of one.
+        feet: need.unknown ? '' : (need.feet + (need.estimated ? ' est' : '')),
+        bundles: need.bundles,
+        timer: String(d.outletTimer || '').trim() === 'Yes' ? 'YES' : '',
+        notes: (d.notes ? String(d.notes).trim() : '')
+      });
+    });
+    g.extras.forEach(function(e){
+      const isTimer = (e.data.kind || 'lights') === 'timer';
+      rows.push({
+        group: groupName,
+        wire: isTimer ? '' : (e.data.wireColor || ''),
+        type: isTimer ? 'Timer' : 'Extra',
+        what: g.title ? (isTimer ? 'Timer' : (e.data.pattern || 'Lights')) : (e.data.label || 'Extra stock'),
+        address: g.linked ? (g.linked.data.address || '') : '',
+        bin: e.data.customerNumber || '',
+        feet: '',
+        bundles: Number(e.data.quantity) || 1,
+        timer: isTimer ? 'YES' : '',
+        notes: ''
+      });
+    });
+  });
+  // The sheet carries its own column list, so nothing outside has to know
+  // which layout goes with which sheet.
+  return {rows: rows, columns: WH_BUILD_COLUMNS, timerHouses: built.timerHouses, groupCount: built.keys.length};
+}
+function whSheetRowsForRecycle(){
+  const built = whRecycleGroups();
+  const rows = [];
+  built.keys.forEach(function(key){
+    built.groups[key].forEach(function(item){
+      const d = item.data;
+      rows.push({
+        group: key,
+        wire: whWireLabel(d.wireColor),
+        type: 'Recycle',
+        what: d.name || '(no name)',
+        address: d.address || '',
+        // The number is the whole point of recycling a house — it comes off
+        // them and goes back in the pool — so it gets its own column here too.
+        bin: d.customerNumber || '',
+        feet: '',
+        bundles: '',
+        timer: '',
+        notes: (d.notes ? String(d.notes).trim() : '')
+      });
+    });
+  });
+  return {rows: rows, columns: WH_RECYCLE_COLUMNS, groupCount: built.keys.length};
+}
+function whSheetTable(rows, columns){
+  const head = '<tr>'+'<th class="tick"></th>'+columns.map(function(c){
+    return '<th'+(c.num ? ' class="num"' : '')+'>'+esc(c.label)+'</th>';
+  }).join('')+'</tr>';
+  let lastGroup = null;
+  const body = rows.map(function(r){
+    // A hairline between groups keeps the printed sheet readable as the same
+    // grouping that is on screen, without breaking the single flat table that
+    // makes it paste into a spreadsheet.
+    const newGroup = r.group !== lastGroup;
+    lastGroup = r.group;
+    return '<tr'+(newGroup ? ' class="groupstart"' : '')+'>'+
+      '<td class="tick"></td>'+
+      columns.map(function(c){
+        return '<td'+(c.num ? ' class="num"' : '')+'>'+esc(r[c.key] === 0 ? '0' : (r[c.key] || ''))+'</td>';
+      }).join('')+
+    '</tr>';
+  }).join('');
+  return '<table><thead>'+head+'</thead><tbody>'+body+'</tbody></table>';
+}
+function whOpenPrintWindow(title, summaryLine, tableHtml, emptyNote){
+  const today = new Date().toLocaleDateString('en-US', {weekday:'long', month:'long', day:'numeric', year:'numeric'});
+  const html = '<!doctype html><html><head><meta charset="utf-8"><title>'+esc(title)+'</title><style>'+
+    'body{font-family:Arial,Helvetica,sans-serif; margin:16px; color:#111;}'+
+    'h1{font-size:17px; margin:0 0 2px;}'+
+    '.sub{font-size:12px; color:#555; margin-bottom:12px;}'+
+    'table{width:100%; border-collapse:collapse;}'+
+    'th,td{border:1px solid #999; padding:4px 6px; font-size:11px; text-align:left; vertical-align:top;}'+
+    'th{background:#eee; font-size:10.5px; text-transform:uppercase; letter-spacing:.03em;}'+
+    'td.num,th.num{text-align:right;}'+
+    'th.tick,td.tick{width:20px;}'+
+    'tr.groupstart td{border-top:2px solid #333;}'+
+    // Repeats the header on every page — a second page of a spreadsheet with
+    // no column names on it is a page nobody can read.
+    'thead{display:table-header-group;} tr{page-break-inside:avoid;}'+
+    '.empty{font-size:13px; color:#555;}'+
+    '@page{size:landscape; margin:10mm;}'+
+    '</style></head><body>'+
+    '<h1>'+esc(title)+'</h1>'+
+    '<div class="sub">'+esc(today)+(summaryLine ? ' &middot; '+esc(summaryLine) : '')+'</div>'+
+    (tableHtml || '<div class="empty">'+esc(emptyNote || 'Nothing to print.')+'</div>')+
+    '</body></html>';
+  const w = window.open('', '_blank');
+  if(!w){ toast('Allow pop-ups to print the sheet'); return; }
+  w.document.write(html);
+  w.document.close();
+  // Give the new window a moment to lay the table out before the print dialog
+  // measures it, or the first page can come out with the rows half-drawn.
+  setTimeout(function(){ w.focus(); w.print(); }, 300);
+}
+const WH_BUILD_COLUMNS = [
+  {key:'group', label:'Group'},
+  {key:'wire', label:'Wire'},
+  {key:'type', label:'Type'},
+  {key:'what', label:'Customer / Item'},
+  {key:'address', label:'Address'},
+  {key:'bin', label:'Bin #', num:true},
+  {key:'feet', label:'Feet', num:true},
+  {key:'bundles', label:'Bundles', num:true},
+  {key:'timer', label:'Timer'},
+  {key:'notes', label:'Notes'}
+];
+const WH_RECYCLE_COLUMNS = [
+  {key:'group', label:'Pattern & Wire'},
+  {key:'what', label:'Customer'},
+  {key:'address', label:'Address'},
+  {key:'bin', label:'Bin # to reclaim', num:true},
+  {key:'notes', label:'Notes'}
+];
+/* Guarded like wireWhCancelEditExtra above — the warehouse render tests eval
+   this block against a DOM holding only the queue list, and Suite 1 already
+   fails if either id goes missing from the page. */
+(function wireWhPrintButtons(){
+  const buildBtn = document.getElementById('whPrintBuildBtn');
+  const recycleBtn = document.getElementById('whPrintRecycleBtn');
+  if(buildBtn) buildBtn.addEventListener('click', whPrintBuildSheet);
+  if(recycleBtn) recycleBtn.addEventListener('click', whPrintRecycleSheet);
+})();
+function whPrintBuildSheet(){
+  const sheet = whSheetRowsForBuild();
+  const bundles = sheet.rows.reduce(function(s,r){ return s + (Number(r.bundles) || 0); }, 0);
+  const houses = sheet.rows.filter(function(r){ return r.type === 'House'; }).length;
+  const summary = sheet.rows.length
+    ? sheet.groupCount + ' group' + (sheet.groupCount===1?'':'s') + ' · ' +
+      houses + ' house' + (houses===1?'':'s') + ' · ' +
+      bundles + ' bundle' + (bundles===1?'':'s') + ' · ' +
+      sheet.timerHouses.length + ' timer' + (sheet.timerHouses.length===1?'':'s')
+    : '';
+  whOpenPrintWindow('Warehouse — Build Sheet', summary,
+    sheet.rows.length ? whSheetTable(sheet.rows, sheet.columns) : '',
+    'Nothing needs to be built right now.');
+}
+function whPrintRecycleSheet(){
+  const sheet = whSheetRowsForRecycle();
+  const summary = sheet.rows.length
+    ? sheet.rows.length + ' house' + (sheet.rows.length===1?'':'s') + ' to pull back into stock'
+    : '';
+  whOpenPrintWindow('Warehouse — Recycle Sheet', summary,
+    sheet.rows.length ? whSheetTable(sheet.rows, sheet.columns) : '',
+    'Nothing needs to be recycled right now.');
+}
 document.getElementById('whAddExtraBtn').addEventListener('click', async function(){
   const statusEl = document.getElementById('whAddExtraStatus');
   const kind = document.getElementById('whExtraKind').value === 'timer' ? 'timer' : 'lights';
@@ -21988,10 +22194,11 @@ const TEST_SEED = [
   [190, 'Nightly Automation', 'A cancelled house does not hold up its payer\'s bill', 'AUTOMATED - run-all.js checks that the payer invoice resync EXCLUDES RSVP-no houses from the total, and separately that it does not zero an invoice when every house opted out. What is left is confirming a real payer with one cancelled house still gets billed correctly for the rest.\n\n1. Log into admin (the private office dashboard).\n2. Set up two test houses sharing one phone number.\n3. Mark ONE of the two houses as RSVP \'No\' (not coming this season).\n4. Mark the OTHER house \'Done\'.\n5. Look at the menu on the left and click \'Invoices\', then the \'Nightly Automation\' tab, and press \'Send Invoices Now\'.\n6. Check that customer\'s email and invoice.', 'An invoice email should go out for the one active house, even though the other house on the same phone said no this season. The cancelled house should not block the bill and should not be included in the invoice total.', 2, '', '', 'The exclusion rule is automated. Reworded to check one real payer with a cancelled house.'],
   [191, 'Nightly Automation', 'A house needing a fix holds up its payer\'s bill', '1. Log into admin (the private office dashboard).\n2. Set up two test houses sharing one phone number, both marked \'Done\'.\n3. Flag ONE of the two houses as needing a fix (needsFix).\n4. Look at the menu on the left and click \'Invoices\', then the \'Nightly Automation\' tab, and press \'Send Invoices Now\'.\n5. Check that customer\'s email and invoice, then clear the needs-fix flag and press \'Send Invoices Now\' again.', 'No invoice email should go out while either house on that phone needs a fix, even though both are marked Done. Once the fix flag is cleared and the button is pressed again, the invoice should send with both house prices included.', 1, '', '', ''],
   [195, 'Warehouse', 'One request per member, topped up not duplicated', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Warehouse", then the tab called "Build".\n3. In "Add From Inbox", start typing a test customer\'s name in the first box and pick them from the list.\n4. Look at the Pattern box and the "How many bundles" box without typing anything into them.\n5. Click "Add to Queue".\n6. Now do steps 3 to 5 again for the SAME customer.\n7. Read the pop-up that appears, and press OK.\n8. Look at the queue below for that customer.\n9. Now pick that same customer again, change "What is this for?" to "Timer", set it to 1, and click "Add to Queue". If a warning about their record appears, read it and press OK.\n10. Look at the queue below for that customer again.\n11. Finally, pick that customer, leave it on Lights, but type a different colour into the Pattern box and click "Add to Queue".', 'At step 4 the pattern should already be filled in from their record and the bundles should already be worked out from their measured feet - you should not have to type either. At step 7 the pop-up should say they already have a request and offer to make it a bigger total. At step 8 there should be ONE heading with that customer\'s name, not two. At step 10 the timer should be a second line under that SAME heading, with the total shown in the heading. At step 11 you should get an "are you sure" pop-up first, because what you typed no longer matches their record.', 1, '', '', ''],
+  [197, 'Warehouse', 'Print the build sheet as a spreadsheet', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Warehouse".\n3. Click the tab called "Build" and read what is on screen - which colour groups there are, and roughly how many houses are in each.\n4. Press the button called "Print Build Sheet" (it is just above the list).\n5. A new tab should open with the sheet in it and the print box should come up on its own. If nothing happens at all, your browser has blocked the pop-up - allow pop-ups for this site and press the button again.\n6. Instead of printing straight away, look at the preview: check the column headings across the top, and check the groups and the houses are the same ones, in the same order, as the tab you were just looking at.\n7. Pick one house you can see on both, and check its bundle number on paper matches the bundle number on screen.\n8. Print it, or save it as a PDF.\n9. Optional, if you want it in Excel: select the whole table in that tab, copy it, and paste it into a blank Excel or Google Sheets file.\n10. Go back to admin, click the tab called "Recycle", and press "Print Recycle Sheet" there.', 'The sheet must be a plain grid - one row per house or item, with headings across the top (Group, Wire, Type, Customer / Item, Address, Bin #, Feet, Bundles, Timer, Notes) and an empty tick box at the start of every row. It must list the same groups, in the same order, as the Build tab, with the group name repeated on every row rather than only in a heading. A house with no measured feet on file should leave the Feet box empty rather than printing a 0. A house that wants a timer should say YES in the Timer column. If it runs to a second page, the column headings should repeat at the top of that page. Pasting it into Excel should land in proper columns, not all in one cell. The Recycle sheet should do the same for the recycle list, with a column for the bin number that is coming back into the pool. With nothing to build, the sheet should say so rather than printing an empty grid.', 1, '', '', 'New button, 2026-08-14. The Warehouse tab is still grouped and collapsible on screen, which does not work on paper - you cannot tick a card off, and it will not open in a spreadsheet. The printed version is the same list flattened to one row per line. It is built from the same grouping code the screen uses, so the two cannot drift apart, but that is exactly what is worth checking by eye the first time.'],
   [194, 'Warehouse', 'What each house needs, on the build row', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Customers", then "All Customers".\n3. Click Edit on a test customer who is in the build queue. Set "Outlet Timer" to "Yes", set a wire colour, type something into their notes, and click Save.\n4. In the menu on the left side of the screen, click the word "Warehouse", then the tab called "Build".\n5. Press the "Show houses" button on that customer\'s colour group.\n6. Look at that customer\'s row.\n7. Look at the very top of the Build tab for a group called "Timers" and press its "Show houses" button.\n8. Now find a brand-new customer in the build list who has not been given a customer number yet, and look at their row.', 'That customer\'s row should show a "Timer" tag, their wire colour, their customer number, and their notes underneath. The "Timers" group at the top should list that customer by name and say how many houses in this build need a timer. The brand-new customer with no number should show an orange warning saying their number still needs assigning, instead of just showing nothing.', 1, '', '', ''],
   [193, 'Warehouse', 'Rejoining after being recycled', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Customers", then "All Customers".\n3. Click Edit on a test customer, set "RSVP" to "No", and click Save.\n4. Go to Warehouse, click the tab called "Recycle", find that customer and mark them as recycled. Write down the customer number that comes off them.\n5. Now go back to Customers, click Edit on that same customer, set "RSVP" to "Yes", and click Save.\n6. Click the tab called "Build" in Warehouse and look for that customer.\n7. In the menu on the left side of the screen, click "Inbox" and look in the "System" folder.\n8. Repeat the whole thing a second time, but at step 5 use the Member Portal as that customer and press Yes there instead of using admin - the answer should be identical either way.', 'After step 5 that customer should be in the Warehouse Build list, because their old lights were taken apart and a new bundle has to be made. There should be a note in the Inbox System folder saying they rejoined after recycling, that their lights need rebuilding and that they need a customer number assigned. Their record should still show NO customer number - the system must not hand one out by itself, because you may have already written a number on a bin by hand. Doing it through the Member Portal instead of admin should give exactly the same result.', 1, '', '', ''],
   [192, 'Invoices', 'Editing a customer does not resurrect a cancelled house\'s price', 'AUTOMATED - this is the same resync rule as test 190 and run-all.js covers it: a cancelled house is excluded from the payer total, so editing the customer cannot bring its price back. What is left is doing the edit once on a real record and confirming the total did not move.\n\n1. Log into admin (the private office dashboard).\n2. Set up two test houses sharing one phone number. Mark ONE as RSVP \'No\'.\n3. Get that payer billed for the other (active) house only — for example through \'Send Invoices Now\' or by editing their invoice directly — and note the invoice total.\n4. Open \'Edit Customer\' on the active house and change something small (like a note), then save.\n5. Check that payer\'s invoice total again.', 'Saving an edit on the active house must not add the cancelled house\'s price back onto the invoice. The invoice total after step 5 should be exactly what it was before the edit — only the active house\'s price.', 2, '', '', 'Covered by the same automated resync checks as test 190. Reworded to check one real edit.'],
-  [193, 'Admin', 'Refreshing the page keeps you on the same panel', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click on any panel that is NOT \'Quote Requests\' — for example click \'Customers\', then \'All Customers\'.\n3. Refresh the whole browser page (reload it).', 'After the page finishes reloading, you should land back on the same panel you were looking at (for example, \'All Customers\'), not automatically jump back to \'Quote Requests\'.', 1, '', '', ''],
+  [198, 'Admin', 'Refreshing the page keeps you on the same panel', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click on any panel that is NOT \'Quote Requests\' — for example click \'Customers\', then \'All Customers\'.\n3. Refresh the whole browser page (reload it).', 'After the page finishes reloading, you should land back on the same panel you were looking at (for example, \'All Customers\'), not automatically jump back to \'Quote Requests\'.', 1, '', '', ''],
   [196, 'Routes', 'Schedule tab\'s New Members panel matches real customers', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click "Quote Requests". Find a quote that is NOT yet Closed and note the phone number on it.\n3. In the menu on the left side of the screen, click "Routes and Schedule", then the "Schedule" tab (separate from the plain "Routes" tab).\n4. If a route plan is not already loaded, import a CSV that includes a house with that same phone number (or use "↺ Reload saved" if one is already imported).\n5. Click the "🆕 New Members" tab at the top of the Schedule dashboard and confirm that house is NOT listed yet.\n6. Go back to Quote Requests and either convert that quote to a customer, or set its status dropdown to "Closed" by hand.\n7. Return to the Schedule tab\'s New Members tab.', 'At step 5, before the quote is closed, that house should NOT be in the New Members list. At step 7, once the quote shows Closed, that same house should appear in the New Members list with its address and where it landed in the route plan. A house whose matching phone number has no Closed quote should never appear here, no matter how long ago it was originally added or whether its "Charge $30 new member installation fee" box happens to be ticked.', 2, '', '', 'Reworded 2026-08-14: the panel was matching the wrong signal (a fee checkbox that never clears) and showed every past customer who still had it ticked instead of just this season\'s actual signups. It now matches a Closed quote instead.'],
 ];
 

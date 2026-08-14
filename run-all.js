@@ -619,6 +619,17 @@ const RETIRED_CHECKLIST_TERMS = [
       hits.length === 0,
       hits.length ? ('#' + hits.map(r => r[0]).join(', #') + ' — ' + why) : undefined);
   }
+  /* The checklist syncs into Firestore keyed by this id, so two rows sharing
+     one number means the second silently overwrites the first and a test the
+     owner has already scored disappears. It happened once, when two sessions
+     each added a test numbered 193 and both were kept in a merge. */
+  {
+    const ids = TEST_SEED.map(row => row[0]);
+    const dupes = [...new Set(ids.filter((id, i) => ids.indexOf(id) !== i))];
+    check('logic', 'every checklist test has its own id',
+      dupes.length === 0,
+      dupes.length ? ('#' + dupes.join(', #') + ' used twice — one of each pair would be lost on the next sync') : undefined);
+  }
 }
 
 /* --- warehouse colour grouping ------------------------------------------
@@ -2529,11 +2540,18 @@ if (!JSDOM) {
 } else {
   const whStart = admin.indexOf('function whWireLabel(');
   const buildStart = admin.indexOf('function renderWarehouseQueue()');
-  const recycleStart = admin.indexOf('function renderWarehouseRecycleQueue()');
+  /* Starts at the GROUPING helper, not the renderer. The screen and the
+     printed sheet both read whRecycleGroups so they cannot drift apart, which
+     means the renderer no longer works on its own — slicing from the renderer
+     alone left it calling a function this sandbox had never been given. */
+  const recycleStart = admin.indexOf('function whRecycleGroups()');
+  const recycleFnStart = admin.indexOf('function renderWarehouseRecycleQueue()');
   const buildEnd = buildStart > -1 ? admin.indexOf('\n}', buildStart) + 2 : -1;
-  const recycleEnd = recycleStart > -1 ? admin.indexOf('\n}', recycleStart) + 2 : -1;
+  /* End measured from the RENDERER, not from recycleStart — the helper above
+     it closes first, and ending there sliced the renderer off entirely. */
+  const recycleEnd = recycleFnStart > -1 ? admin.indexOf('\n}', recycleFnStart) + 2 : -1;
 
-  if (whStart === -1 || buildEnd < 1 || recycleEnd < 1) {
+  if (whStart === -1 || buildStart === -1 || recycleStart === -1 || buildEnd < 1 || recycleEnd < 1) {
     check('warehouse', 'the Warehouse render functions are findable',
       false, 'renamed or removed — update this test rather than deleting it');
   } else {
@@ -2697,6 +2715,60 @@ if (!JSDOM) {
     check('warehouse', 'a member request has no bulk count box',
       !/whdone-0/.test(l2.innerHTML.slice(0, l2.innerHTML.indexOf('buffer stock'))),
       'a "houses finished" box on a single person invites the same over-count mistake');
+
+    /* --- The printed sheet ------------------------------------------------
+       Same list, same order, flattened to one row per line. Built off
+       whBuildQueueGroups, which is also what the screen renders from — these
+       checks are what stops the paper and the tab drifting apart. */
+    global.jobAddresses = [
+      { id: 'h1', data: { name: 'Nadia Brooks', address: '18 Frost Ln', needsLightBuild: true,
+          lightsDescription: 'Warm White', wireColor: 'White', measuredFeet: 240,
+          outletTimer: 'Yes', customerNumber: '', notes: 'Steep pitch over the entry' } },
+      { id: 'h2', data: { name: 'Owen Hale', address: '92 Birch Way', needsLightBuild: true,
+          lightsDescription: 'Warm White', wireColor: 'White', customerNumber: '1421' } }
+    ];
+    global.warehouseExtras = [
+      { id: 'x3', data: { pattern: 'Multi', quantity: 3, label: 'Spare sets' } }
+    ];
+    const sheet = whSheetRowsForBuild();
+    check('warehouse', 'the print sheet has one row per line, not per group',
+      sheet.rows.length === 3,
+      'got ' + sheet.rows.length + ' — two houses and one buffer entry is three rows');
+    check('warehouse', 'every row carries its group, so the sheet sorts like a spreadsheet',
+      sheet.rows.every(r => !!r.group),
+      'a group name only in a heading row is lost the moment the sheet is sorted');
+    check('warehouse', 'the sheet is in the same order as the tab',
+      sheet.rows[0].group === sheet.rows[1].group && sheet.rows[2].group !== sheet.rows[0].group,
+      'the two houses share a colour group and must stay together, buffer stock after');
+    check('warehouse', 'a house with no feet on file leaves the Feet cell empty',
+      sheet.rows.find(r => r.what === 'Owen Hale').feet === '',
+      'a 0 in a Feet column reads as a measurement — this is the absence of one');
+    check('warehouse', 'the bundle count on paper is the same one on screen',
+      sheet.rows.find(r => r.what === 'Nadia Brooks').bundles === 6,
+      'a printout that disagrees with the tab is worse than no printout');
+    check('warehouse', 'a house that wants a timer says YES in the timer column',
+      sheet.rows.find(r => r.what === 'Nadia Brooks').timer === 'YES');
+    check('warehouse', 'buffer stock prints its label and quantity',
+      sheet.rows[2].what === 'Spare sets' && sheet.rows[2].bundles === 3);
+
+    const table = whSheetTable(sheet.rows, sheet.columns);
+    /* Numeric columns carry class="num" so they right-align on paper, which is
+       why this matches the label rather than a bare <th>. */
+    check('warehouse', 'the sheet is a real table with a header row',
+      /<thead>/.test(table) && />Bundles<\/th>/.test(table) && />Address<\/th>/.test(table),
+      'without headers it is not a spreadsheet, it is a wall of text');
+    check('warehouse', 'every printed row starts with a tick box',
+      (table.match(/<td class="tick">/g) || []).length === sheet.rows.length,
+      'the sheet is worked down on a clipboard — there has to be something to tick');
+    check('warehouse', 'hostile text is escaped on the printed sheet too',
+      !/<script>/.test(whSheetTable([{group:'g', what:'<script>alert(1)</script>', wire:'', type:'House',
+        address:'', bin:'', feet:'', bundles:1, timer:'', notes:''}], sheet.columns)),
+      'the sheet is written into a new window with document.write');
+
+    const rSheet = whSheetRowsForRecycle();
+    check('warehouse', 'the recycle sheet lists the numbers coming back to the pool',
+      rSheet.rows.length === 0,
+      'nothing is flagged for recycle in this fixture, so it must come back empty rather than inventing rows');
   }
 }
 /* ⚠ THE BUG THIS SUITE CATCHES.
