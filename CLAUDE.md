@@ -35,9 +35,10 @@ money-parity.test.js	Proves the browser and server copies of the invoice maths s
 verify-syntax.js	Verification gate A (inline JS parses, <div> tags balance). `npm run verify`. Lives at the REPO ROOT alongside run-all.js, not in a scripts/ folder.
 selector-contract.test.js	Checks every #id a browser spec uses still exists in the page it drives. `npm run test:selectors`. No browser needed — see §9.3.
 playwright.config.js	Browser test config. Serves the repo statically on :4173, chromium, no retries.
-tests/fixtures.js	The ONE set of fake customers and invoices (§9.5).
-tests/firebase-stub.js	Fakes Firebase and BLOCKS every real backend call (§9.4).
-tests/*.spec.js	Browser specs. `npm run test:browser`.
+test/fixtures.js	The ONE set of fake customers and invoices (§9.5).
+test/firebase-stub.js	Fakes Firebase and BLOCKS every real backend call (§9.4).
+test/*.spec.js	Browser specs. `npm run test:browser`. NOTE the folder is test/ (singular) in this repo; playwright.config.js and selector-contract.test.js accept either test/ or tests/, so a rename will not break them.
+.github/workflows/tests.yml	CI: fast suite + browser suite. See §9.14.
 quote-card.test.js	⚠ currently broken — its extraction marker was renamed out of admin.html. Excluded from `npm test`. See §3 gate B.
 system-map.md	Plain-English map of the whole app — regenerate per §6
 Firebase project id: highlighting-utah (billing on).
@@ -208,3 +209,13 @@ The fixture field names are PORTAL_READ_FIELDS from functions/index.js verbatim 
 Every spec ends with stub.assertNoRealCalls(). Do not remove it and do not soften the FORBIDDEN_HOSTS list to make something pass (§9.4). One spec deliberately tries to reach real Firestore and asserts it is blocked — that one proves the guard is still alive.
 The first run of tests/portal.spec.js is EXPECTED TO BE RED. Five of its specs target the five known checklist failures (t9, t11, t14, t15, t17). Red first, then fix the code (§9.6). Do not weaken a spec to turn it green.
 t11 is worth trying before writing any code: index.html reads paymentProvider and falls back to 'venmo'. The spec runs with it set to 'both'. If that alone goes green, the "no PayPal button" bug was only ever a Firestore setting, not a code defect.
+9.14 CI — what gates what (built 2026-08-14)
+Two workflows, and it matters which one is the real gate.
+.github/workflows/tests.yml runs on every push to main and on every pull request. Two jobs:
+  fast-tests — npm ci then npm test (gate A, selector contract, money parity, run-all.js). No browser, about five seconds.
+  browser-tests — Playwright, with chromium installed via `npx playwright install --with-deps chromium`. Marked continue-on-error: true because five of its specs deliberately target the five known Member Portal bugs and are RED ON PURPOSE. Failure screenshots and traces upload as an artifact, kept 7 days.
+  ⚠ DELETE the continue-on-error line the moment those five specs go green. A job that is permanently allowed to fail is a job nobody reads, and at that point it is worse than not having it.
+.github/workflows/deploy-functions.yml now has a `test` job that the `deploy` job `needs:`. Cloud Functions do not deploy unless the fast suite passes on that exact commit.
+THIS is the real gate in this repo, and it is deliberate. Netlify publishes the HTML from main whether or not CI passed — nothing in GitHub Actions can stop it, because Netlify builds independently. So gating the FUNCTIONS deploy is where a failing test actually prevents something dangerous: nightly invoicing, PayPal capture, and the portal write path all live there. The website's safety net is Netlify's instant rollback instead (§9.10).
+The deploy gate runs the fast suite only, not the browser suite. Blocking every functions deploy on a known-red suite would just train everyone to bypass the gate — which is how gates die.
+If a functions deploy is ever urgently needed while the fast suite is red: fix the test. It takes seconds to run and there is no legitimate reason to ship money code past a failing money-parity check.
