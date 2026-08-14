@@ -2168,6 +2168,24 @@ suite('9. Portal sign-in security');
 })();
 
 // =====================================================================
+/* ⚠ THE BUG THIS SUITE CATCHES.
+ *
+ * Convert to Customer treated a deliberately comped $0 quote the same as
+ * "no price set" (typeof d.quotedPrice === 'number' && d.quotedPrice > 0),
+ * silently substituting a feet-based estimate over the $0 the customer
+ * actually saw and approved. Fixed to just check it's a real number —
+ * checked both the price-filling logic and the confirmation toast, which
+ * had the identical condition duplicated and would otherwise now disagree
+ * with what actually happened.
+ */
+(function () {
+  const zeroQuoteBad = (admin.match(/d\.quotedPrice === 'number' && d\.quotedPrice > 0/g) || []).length;
+  check('zero-price-quote', 'a $0 quote is no longer treated as "no price set"',
+    zeroQuoteBad === 0,
+    'found ' + zeroQuoteBad + ' remaining "> 0" check(s) — a comped $0 quote would still get overwritten with a feet-based estimate');
+})();
+
+// =====================================================================
 // Wait for the async suites before totalling up — see pendingAsync at the top.
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
