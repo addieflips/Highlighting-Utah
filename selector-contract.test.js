@@ -27,7 +27,13 @@ const ROOT = fs.existsSync(path.join(__dirname, 'admin.html'))
   ? __dirname
   : path.join(__dirname, '..');
 
-const TESTS_DIR = path.join(ROOT, 'tests');
+/* The specs folder. Accepts either name — the repo currently uses test/, but
+ * tests/ is equally valid and both have been used. Resolving it rather than
+ * hard-coding one means a folder rename never silently empties this check
+ * (an empty run reporting "0 failed" is the exact false green to avoid). */
+const TESTS_DIR = ['tests', 'test']
+  .map(d => path.join(ROOT, d))
+  .find(d => fs.existsSync(d)) || path.join(ROOT, 'tests');
 
 /* Which HTML file a spec drives, by filename. Add a row when a new spec file
  * appears; an unmapped spec is reported rather than silently skipped. */
