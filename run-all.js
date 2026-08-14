@@ -3453,6 +3453,100 @@ suite('15. The printed schedule sheet');
       'the date is already in the heading of a single-day sheet');
   }
 }
+/* --- two crews, one city each, a sheet each -----------------------------
+ * Added 2026-08-14. The city on a house comes off the imported CSV and the
+ * plan does not cover the same two towns every day, so the crew↔city pairing
+ * defaults to "biggest area that day / second biggest" and can be pinned to a
+ * fixed city instead. Whatever falls outside both is counted, never dropped.
+ */
+{
+  /* Starts at cityOf, not at the crew block — crewCityFor leans on cityOf and
+     dayAreas, and slicing from the crews alone left them undefined. */
+  const crewStart = admin.indexOf('function cityOf(h)');
+  const crewEnd = admin.indexOf('/* ---------- build from imported rows', crewStart);
+  const sheetStart2 = admin.indexOf('function schedSheetRows(');
+  const sheetEnd2 = admin.indexOf('function schedOpenPrint(', sheetStart2);
+  const crewRowsStart = admin.indexOf('function crewSheetRows(');
+  const crewRowsEnd = admin.indexOf('function printCrewSheet(', crewRowsStart);
+  if (crewStart === -1 || crewEnd < crewStart || crewRowsStart === -1 || crewRowsEnd < crewRowsStart) {
+    check('schedule', 'the crew helpers are findable',
+      false, 'renamed or removed — update this test rather than deleting it');
+  } else {
+    global.dlabel = () => ({ wd: 'Mon', full: 'Nov 3' });
+    global.dayDate = d => d._date;
+    global.isoOf = () => '2026-11-03';
+    global.fmtPhone = p => '(801) 555-0100';
+    global.isNewMemberHouse = () => false;
+    global.esc = s => (s || '').toString();
+    // A season that is NOT the same two towns every day — which is the case
+    // the automatic pairing exists for.
+    const dayA = { id: 'a', _date: new Date(2026, 10, 3), houses: [
+      { name: 'One', city: 'Lehi', price: 1 }, { name: 'Two', city: 'Lehi', price: 1 },
+      { name: 'Three', city: 'Alpine', price: 1 }, { name: 'Four', city: 'Draper', price: 1 } ] };
+    const dayB = { id: 'b', _date: new Date(2026, 10, 4), houses: [
+      { name: 'Five', city: 'Alpine', price: 1 }, { name: 'Six', city: 'Alpine', price: 1 },
+      { name: 'Seven', city: 'Lehi', price: 1 } ] };
+    global.allHouses = () => dayA.houses.concat(dayB.houses);
+    const crew = eval(admin.slice(crewStart, crewEnd) + '\n' +
+      admin.slice(sheetStart2, sheetEnd2) + '\n' +
+      admin.slice(crewRowsStart, crewRowsEnd) + '\n' +
+      ';({norm: normalizeCrews, name: crewName, city: crewCityFor, houses: crewHousesFor,' +
+      ' left: unassignedHousesFor, rows: crewSheetRows, cities: planCities,' +
+      ' set(l){ CREWS = normalizeCrews(l); }})');
+
+    crew.set(null);
+    check('schedule', 'there are exactly two crews, named by default',
+      crew.name(0) === 'Crew 1' && crew.name(1) === 'Crew 2',
+      'a plan saved before crews existed has to come back with working defaults');
+    check('schedule', 'a crew can be renamed',
+      crew.norm([{ name: 'Dad + Ty' }, {}])[0].name === 'Dad + Ty');
+    check('schedule', 'a name blanked out falls back rather than printing an empty heading',
+      crew.norm([{ name: '   ' }, {}])[0].name === 'Crew 1',
+      'the crew name is the heading on their sheet — it can never be empty');
+
+    // Auto: crew 1 takes the day's biggest area, crew 2 the second.
+    check('schedule', 'left on Auto, each crew takes a different city',
+      crew.city(0, dayA) === 'Lehi' && crew.city(1, dayA) !== 'Lehi' && !!crew.city(1, dayA),
+      'two crews sent to the same town is two crews doing one crew\'s work');
+    check('schedule', 'Auto follows the day, so a different day can be different towns',
+      crew.city(0, dayB) === 'Alpine',
+      'the plan does not cover the same two towns every day');
+    crew.set([{ name: 'A', city: 'Alpine' }, { name: 'B', city: 'Lehi' }]);
+    check('schedule', 'a city pinned to a crew wins over Auto',
+      crew.city(0, dayA) === 'Alpine' && crew.city(1, dayA) === 'Lehi',
+      'a business that always works the same two towns should be able to say so once');
+    check('schedule', 'each crew only gets their own city\'s stops',
+      crew.houses(0, dayA).length === 1 && crew.houses(1, dayA).length === 2,
+      'a crew sheet with somebody else\'s houses on it sends two trucks to one street');
+    check('schedule', 'stops in neither crew\'s city are counted, not dropped',
+      crew.left(dayA).map(h => h.name).join() === 'Four',
+      'a stop nobody holds a sheet for is a stop nobody drives to');
+
+    const rows = crew.rows(dayA, 1);
+    check('schedule', 'a crew sheet renumbers the stops from 1 for that crew',
+      rows.length === 2 && rows[0].stop === 1 && rows[1].stop === 2,
+      'their sheet is their day, not a filtered copy of somebody else\'s numbering');
+    check('schedule', 'a crew sheet holds only that crew\'s houses',
+      rows.every(r => r.city === 'Lehi'));
+    crew.set([{ name: 'A', city: 'Nowhere' }, { name: 'B', city: 'Lehi' }]);
+    check('schedule', 'a crew pinned to a city with nothing in it prints nothing, not everything',
+      crew.rows(dayA, 0).length === 0,
+      'falling back to the whole day would hand them a sheet that is not theirs');
+    crew.set(null);
+  }
+}
+check('schedule', 'the crew name is the heading on their sheet',
+  /schedOpenPrint\(\s*\r?\n?\s*crewName\(i\)/.test(admin),
+  'the first thing anyone does with a printed sheet is work out whose it is');
+check('schedule', 'crew names and cities are saved with the plan',
+  /crews:CREWS\.map/.test(admin) && /CREWS=normalizeCrews\(o\.crews\)/.test(admin),
+  'a rename that does not survive a refresh is not a rename');
+check('schedule', 'a day panel offers a sheet per crew',
+  admin.includes('data-printcrew="') && /printCrewEl\)\{printCrewSheet/.test(admin));
+check('schedule', 'renaming happens on blur, not on every keystroke',
+  /crewname!=null/.test(admin) && !/addEventListener\('input'[\s\S]{0,80}crewname/.test(admin),
+  're-rendering under the cursor takes the focus away mid-word');
+
 /* The buttons that reach those builders — one on every day panel, and one for
    the whole plan next to Export CSV. */
 check('schedule', 'every day panel has a Print This Day button',
