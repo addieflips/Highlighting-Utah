@@ -7,7 +7,7 @@
  * that render wrong.
  *
  * Setup (once):   npm install jsdom
- * Run:            node tests/run-all.js
+ * Run:            node run-all.js   (from the repo root)
  *
  * Exits 0 if everything passes, 1 if anything fails.
  * Runs entirely offline — never touches Firebase or real customer data.
@@ -17,7 +17,13 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const ROOT = path.join(__dirname, '..');
+// Works whether this file sits at the repo root (normal case) or has been
+// copied into a tests/ subfolder alongside the repo (the old CLAUDE.md shim) —
+// resolve ROOT by finding which one actually has admin.html next to it,
+// instead of assuming a fixed layout.
+const ROOT = fs.existsSync(path.join(__dirname, 'admin.html'))
+  ? __dirname
+  : path.join(__dirname, '..');
 const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
 
 let pass = 0, fail = 0, warn = 0;
@@ -867,6 +873,19 @@ check('flow', 'payer invoice resync refuses to zero an email-keyed invoice it ca
 check('flow', 'payer invoice resync never writes an email into the phone field',
   /phone:\s*isPhoneKey\s*\?\s*key\s*:/.test(syncPayer),
   'the phone field is read back by lookups that expect digits');
+
+// A multi-house payer with one house RSVP'd 'no' would have that house's price
+// summed back into the invoice on the next resync (e.g. an Edit Customer save)
+// — undoing runInvoiceBatch's own exclusion of it. Fixed 2026-08-13 to filter
+// active houses the same way the server does, and to skip the write entirely
+// (not zero the invoice) when every linked house has opted out — a payer with
+// zero active houses is not the same as a payer with zero houses at all.
+check('flow', 'payer invoice resync excludes RSVP-no houses from the total',
+  /rsvpStatus\|\|''\)\s*!==\s*'no'/.test(syncPayer),
+  "a cancelled house's price would get resummed back onto the invoice on the next edit");
+check('flow', 'payer invoice resync does not zero an invoice when every house opted out',
+  /linked\.length\s*&&\s*!active\.length/.test(syncPayer),
+  'a payer whose houses are all RSVP-no would have their real balance wiped to $0');
 
 // Same root confusion, different blast radius: the bulk/single "let these
 // customers know" senders matched an invoice by comparing phone fields. A
