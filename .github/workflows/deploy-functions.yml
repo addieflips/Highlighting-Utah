@@ -29,10 +29,14 @@ jobs:
       - name: Get the code
         uses: actions/checkout@v4
 
+      # Keep this matching "engines.node" in functions/package.json. If they
+      # drift, CI builds against one Node and Google runs the function on
+      # another, which is exactly the kind of difference that only shows up
+      # in production.
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Install function dependencies
         working-directory: functions
