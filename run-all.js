@@ -2186,6 +2186,32 @@ suite('9. Portal sign-in security');
 })();
 
 // =====================================================================
+/* ⚠ THE BUG THIS SUITE CATCHES.
+ *
+ * The $30 light-change fee was a plain read-then-write (invRef.get(), decide,
+ * invRef.set()) with no transaction — unlike recordPaypalPayment, which
+ * already uses one for exactly this class of race. Two near-simultaneous
+ * portalSave('lights', ...) calls (a client-side retry, or a double
+ * form-submit before the Save button's disabled state takes effect) could
+ * both read the same pre-charge changeFees value and each add $30, double-
+ * charging one intended change. Now the read, the free-window decision, and
+ * the write all happen inside one db.runTransaction, so a concurrent second
+ * call is forced to see the first call's write before deciding anything.
+ */
+(function () {
+  const psStart = fnsSrc.indexOf('exports.portalSave');
+  const psSrc = psStart > -1 ? fnsSrc.slice(psStart, psStart + 7000) : '';
+  check('light-fee-race', 'portalSave found in functions/index.js', psStart > -1,
+    'renamed or removed — update this test rather than deleting it');
+  check('light-fee-race', 'the $30 light-change fee read-decide-write happens inside a transaction',
+    /db\.runTransaction\(async \(t\) => \{[\s\S]{0,50}const invSnap = await t\.get\(invRef\)/.test(psSrc),
+    'a plain get()-then-set() lets two near-simultaneous saves both read the same pre-charge changeFees and each add $30');
+  check('light-fee-race', 'the write inside the transaction uses t.set, not the outer invRef.set',
+    /t\.set\(invRef, invWrite, \{ merge: true \}\);/.test(psSrc),
+    'writing via invRef.set() instead of t.set() outside the transaction would defeat the whole point of wrapping it');
+})();
+
+// =====================================================================
 // Wait for the async suites before totalling up — see pendingAsync at the top.
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
