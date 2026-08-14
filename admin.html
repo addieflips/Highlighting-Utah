@@ -6311,6 +6311,9 @@ function loadQuotes(){
     document.getElementById('badgeQuotes').style.display = newCount ? 'inline-block' : 'none';
     document.getElementById('badgeQuotes').textContent = newCount;
     renderQuotesList();
+    // Nudges the Schedule tab's New Members panel to redraw when a quote closes
+    // (or reopens) live - see scheduleOnCustomersUpdated in the Schedule module.
+    if(typeof scheduleOnCustomersUpdated === 'function') scheduleOnCustomersUpdated();
   });
 }
 function renderQuotesList(){
@@ -21552,6 +21555,7 @@ const TEST_SEED = [
   [194, 'Warehouse', 'What each house needs, on the build row', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Customers", then "All Customers".\n3. Click Edit on a test customer who is in the build queue. Set "Outlet Timer" to "Yes", set a wire colour, type something into their notes, and click Save.\n4. In the menu on the left side of the screen, click the word "Warehouse", then the tab called "Build".\n5. Press the "Show houses" button on that customer\'s colour group.\n6. Look at that customer\'s row.\n7. Look at the very top of the Build tab for a group called "Timers" and press its "Show houses" button.\n8. Now find a brand-new customer in the build list who has not been given a customer number yet, and look at their row.', 'That customer\'s row should show a "Timer" tag, their wire colour, their customer number, and their notes underneath. The "Timers" group at the top should list that customer by name and say how many houses in this build need a timer. The brand-new customer with no number should show an orange warning saying their number still needs assigning, instead of just showing nothing.', 1, '', '', ''],
   [193, 'Warehouse', 'Rejoining after being recycled', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Customers", then "All Customers".\n3. Click Edit on a test customer, set "RSVP" to "No", and click Save.\n4. Go to Warehouse, click the tab called "Recycle", find that customer and mark them as recycled. Write down the customer number that comes off them.\n5. Now go back to Customers, click Edit on that same customer, set "RSVP" to "Yes", and click Save.\n6. Click the tab called "Build" in Warehouse and look for that customer.\n7. In the menu on the left side of the screen, click "Inbox" and look in the "System" folder.\n8. Repeat the whole thing a second time, but at step 5 use the Member Portal as that customer and press Yes there instead of using admin - the answer should be identical either way.', 'After step 5 that customer should be in the Warehouse Build list, because their old lights were taken apart and a new bundle has to be made. There should be a note in the Inbox System folder saying they rejoined after recycling, that their lights need rebuilding and that they need a customer number assigned. Their record should still show NO customer number - the system must not hand one out by itself, because you may have already written a number on a bin by hand. Doing it through the Member Portal instead of admin should give exactly the same result.', 1, '', '', ''],
   [192, 'Invoices', 'Editing a customer does not resurrect a cancelled house\'s price', 'AUTOMATED - this is the same resync rule as test 190 and run-all.js covers it: a cancelled house is excluded from the payer total, so editing the customer cannot bring its price back. What is left is doing the edit once on a real record and confirming the total did not move.\n\n1. Log into admin (the private office dashboard).\n2. Set up two test houses sharing one phone number. Mark ONE as RSVP \'No\'.\n3. Get that payer billed for the other (active) house only — for example through \'Send Invoices Now\' or by editing their invoice directly — and note the invoice total.\n4. Open \'Edit Customer\' on the active house and change something small (like a note), then save.\n5. Check that payer\'s invoice total again.', 'Saving an edit on the active house must not add the cancelled house\'s price back onto the invoice. The invoice total after step 5 should be exactly what it was before the edit — only the active house\'s price.', 2, '', '', 'Covered by the same automated resync checks as test 190. Reworded to check one real edit.'],
+  [196, 'Routes', 'Schedule tab\'s New Members panel matches real customers', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click "Quote Requests". Find a quote that is NOT yet Closed and note the phone number on it.\n3. In the menu on the left side of the screen, click "Routes and Schedule", then the "Schedule" tab (separate from the plain "Routes" tab).\n4. If a route plan is not already loaded, import a CSV that includes a house with that same phone number (or use "↺ Reload saved" if one is already imported).\n5. Click the "🆕 New Members" tab at the top of the Schedule dashboard and confirm that house is NOT listed yet.\n6. Go back to Quote Requests and either convert that quote to a customer, or set its status dropdown to "Closed" by hand.\n7. Return to the Schedule tab\'s New Members tab.', 'At step 5, before the quote is closed, that house should NOT be in the New Members list. At step 7, once the quote shows Closed, that same house should appear in the New Members list with its address and where it landed in the route plan. A house whose matching phone number has no Closed quote should never appear here, no matter how long ago it was originally added or whether its "Charge $30 new member installation fee" box happens to be ticked.', 2, '', '', 'Reworded 2026-08-14: the panel was matching the wrong signal (a fee checkbox that never clears) and showed every past customer who still had it ticked instead of just this season\'s actual signups. It now matches a Closed quote instead.'],
 ];
 
 function attachDeleteHandlers(container){
@@ -21625,7 +21629,26 @@ function takedownDays(){return ORDER.filter(d=>d.isTakedown);}
 function phaseDays(day){return day.isTakedown?takedownDays():installDays();}
 function allHouses(){return SEASON.flatMap(d=>d.houses);}
 function findHouse(id){for(const d of SEASON){const h=d.houses.find(x=>String(x.id)===String(id));if(h)return{house:h,day:d};}return null;}
-function newHouses(){return allHouses().filter(h=>h.isNew);}
+// "New member" for this imported house means a quote that has gone Closed - the status
+// the Convert-to-Customer flow itself sets the moment a quote becomes this house's
+// customer record (see the {status:'closed', convertedToCustomerAt:...} write above).
+// Matched by phone digits, the same way custByPhoneDigits already links a house to its
+// account elsewhere - quotes and jobAddresses share no other common id.
+// This used to read the "Charge $30 new member installation fee" checkbox instead, which
+// was wrong: that box stays ticked on a record forever (Start New Season never clears it,
+// only the invoice-side newMemberFeeApplied), so it was flagging every past customer who
+// happened to still have it checked, not just this season's actual conversions. A Closed
+// quote is scoped to an actual conversion, which is what this panel is supposed to show.
+function closedQuoteFor(h){
+  const digits = (''+(h.phone||'')).replace(/\D/g,'');
+  if(!digits) return null;
+  return quotesCache.find(q => q.data.status === 'closed' && (''+(q.data.phone||'')).replace(/\D/g,'') === digits) || null;
+}
+function isNewMemberHouse(h){
+  if(!h || h.isFix || h.isTakedown) return false;
+  return !!closedQuoteFor(h);
+}
+function newHouses(){return allHouses().filter(h=>isNewMemberHouse(h));}
 function routedFixes(){return allHouses().filter(h=>h.isFix);}
 
 /* ---------- area ---------- */
@@ -21724,7 +21747,7 @@ function dayOptions(currentId,kind){
 }
 function renderMembers(){
   const el=RT.getElementById('membersPane'), news=newHouses();
-  if(!news.length){el.innerHTML='<h3>🆕 New members</h3><div class="traynote">New members from your website form will show here (with where they landed in the routes) once the customer feed is wired in the next phase.</div>';return;}
+  if(!news.length){el.innerHTML='<h3>🆕 New members</h3><div class="traynote">No houses in the imported route plan match a Closed quote right now (checked against that customer’s phone number in Quote Requests).</div>';return;}
   const rows=news.map(h=>{const f=findHouse(h.id),day=f?f.day:null;const where=day?('<b>'+dlabel(day._date).wd+' '+dlabel(day._date).full+'</b> · '+esc(dayMainArea(day))):'not placed';
     return '<div class="newrow"><div><div class="who">'+esc(h.name)+'<span class="newbadge">NEW</span></div><div class="meta">'+esc(h.address)+', '+esc(h.city)+' '+prefTag(h.pref)+'</div></div>'+
       '<div><div class="auto">📍 in the routes: '+where+'</div></div><div class="acts"><span class="lbl">Move to</span><select class="moveday" data-move="'+h.id+'">'+dayOptions(day?day.id:null,'install')+'</select></div></div>';}).join('');
@@ -21752,14 +21775,14 @@ function stopHTML(h,n,dayId){
   const maps='https://maps.google.com/?q='+encodeURIComponent((h.address||'')+' '+(h.city||'')+' UT '+(h.zip||''));
   const ph=h.phone?'<a href="tel:'+h.phone+'">'+fmtPhone(h.phone)+'</a>':'';
   const line=[ph,h.city?esc(h.city):'',h.pref?prefTag(h.pref):''].filter(Boolean).join('<span style="opacity:.4">·</span> ');
-  const cls='stop'+(h.done?' done':'')+(h.isNew?' isnew':'')+(h.isFix?' isfix':'')+(h.isTakedown?' istake':'');
+  const cls='stop'+(h.done?' done':'')+(isNewMemberHouse(h)?' isnew':'')+(h.isFix?' isfix':'')+(h.isTakedown?' istake':'');
   const kind=h.isTakedown?'take':(h.isFix?'fix':'install');
   let extra='<div class="sctl"><span class="lbl">'+(h.isTakedown?'Move takedown to':'Reschedule to')+'</span><select class="moveday" data-move="'+h.id+'">'+dayOptions(dayId,kind)+'</select>';
   if(h.isFix)extra+='<button class="mini warn" data-tolist="'+h.id+'">→ Fix list</button>';
   else if(!h.isTakedown)extra+='<button class="qbtn oct" data-reassign="'+h.id+'" data-month="10">→ Oct</button><button class="qbtn nov" data-reassign="'+h.id+'" data-month="11">→ Nov</button>';
   extra+='</div>';
   return '<div class="'+cls+'"><div class="chk"><input type="checkbox" data-id="'+h.id+'"'+(h.done?' checked':'')+'></div><div class="seq">'+n+'</div>'+
-    '<div class="sbody"><div class="snm">'+esc(h.name)+(h.isNew?'<span class="newbadge">NEW</span>':'')+(h.isFix?'<span class="fixbadge">FIX</span>':'')+(h.cu?' <span style="font-weight:600;color:var(--muted);font-size:12.5px">#'+esc(h.cu)+'</span>':'')+'</div>'+
+    '<div class="sbody"><div class="snm">'+esc(h.name)+(isNewMemberHouse(h)?'<span class="newbadge">NEW</span>':'')+(h.isFix?'<span class="fixbadge">FIX</span>':'')+(h.cu?' <span style="font-weight:600;color:var(--muted);font-size:12.5px">#'+esc(h.cu)+'</span>':'')+'</div>'+
     '<div class="saddr"><a href="'+maps+'" target="_blank" rel="noopener">'+esc(h.address)+'</a></div>'+(line?'<div class="sline">'+line+'</div>':'')+(h.details?'<div class="sdetail">'+esc(h.details)+'</div>':'')+extra+'</div>'+
     '<div class="sprice">'+(typeof h.price==='number'&&h.price?'$'+h.price:'')+'</div></div>';
 }
@@ -21911,7 +21934,7 @@ function cascade(id,delta,msg){
 }
 function moveHouse(id,dayId){const f=findHouse(id);if(!f)return;const target=getDay(dayId);if(!target||target===f.day)return;
   f.day.houses=f.day.houses.filter(x=>x!==f.house);target.houses.push(f.house);
-  if(f.house.isNew||f.house.isFix){const l=dlabel(target._date);f.house.autoDay=l.wd+' '+l.full;f.house.autoReason='moved by you';}
+  if(isNewMemberHouse(f.house)||f.house.isFix){const l=dlabel(target._date);f.house.autoDay=l.wd+' '+l.full;f.house.autoReason='moved by you';}
   if(target.isFixRoute)selFix=dayId;else if(target.isTakedown)selTake=dayId;else selSchedule=dayId;
   renderAll();toast(f.house.name+' → '+dlabel(target._date).full+' ('+dayMainArea(target)+')');}
 function reassign(id,month){const f=findHouse(id);if(!f)return;f.house.pref=month===10?'OCT':'NOV';
@@ -21923,11 +21946,18 @@ function exportCSV(){
   const q=v=>{if(v===true)return'TRUE';if(v===false)return'FALSE';if(v==null||v==='')return'';let s=''+v;return/[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};
   let lines=[H.join(',')];
   orderedDays().forEach(d=>{const l=dlabel(dayDate(d)),iso=isoOf(dayDate(d)),rt=d.isFixRoute?'FIXER ROUTE':(d.isTakedown?'TAKEDOWN':'Install');
-    d.houses.forEach((h,i)=>{lines.push([iso,l.wd,rt,i+1,h.cu,h.name,h.address,h.city,h.zip,h.phone,h.price,h.isTakedown?'TAKEDOWN':(h.isFix?'FIX':(h.isNew?'NEW':'INSTALL')),h.details,h.done?'TRUE':'FALSE'].map(q).join(','));});});
+    d.houses.forEach((h,i)=>{lines.push([iso,l.wd,rt,i+1,h.cu,h.name,h.address,h.city,h.zip,h.phone,h.price,h.isTakedown?'TAKEDOWN':(h.isFix?'FIX':(isNewMemberHouse(h)?'NEW':'INSTALL')),h.details,h.done?'TRUE':'FALSE'].map(q).join(','));});});
   const blob=new Blob([lines.join('\n')],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='route_progress.csv';a.click();URL.revokeObjectURL(a.href);
 }
 
 /* ---------- boot ---------- */
+
+  // Lets loadQuotes() (outside this shadow-DOM module) nudge the New Members panel
+  // to redraw when a quote's status changes live - e.g. the office converts one to
+  // a customer, closing it, while this tab is already open.
+  window.scheduleOnCustomersUpdated=function(){
+    if(loaded && activeTab==='members') renderMembers();
+  };
 
   let __started=false;
   function __start(){ if(__started) return; __started=true; try{ loadPlan(); }catch(e){ console.error("Schedule load failed:",e);} }

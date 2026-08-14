@@ -342,6 +342,36 @@ check('logic', 'the fee decision no longer reads createdAt',
 check('logic', 'admin preview and the nightly function agree on who is new',
   /chargeNewMemberFee === true/.test(admin) && /chargeNewMemberFee === true/.test(fnsSrc),
   'if these two drift apart, the office sees one invoice total and the customer is billed another');
+
+/*
+ * A separate tool reads a related but NOT identical signal: the Schedule tab's
+ * own 🆕 New Members panel (a CSV-imported route-planning tool, isolated in a
+ * shadow DOM). It used to carry a disconnected idea of new — an h.isNew flag
+ * that nothing ever set, on any house, ever (its own empty state said as much:
+ * "...once the customer feed is wired in the next phase.", 2026-08-08 through
+ * 2026-08-14). A first fix pointed it at chargeNewMemberFee, same as the two
+ * checks above — but that box is wrong for THIS panel specifically: it stays
+ * ticked on a record forever (Start New Season never clears it, only the
+ * invoice-side newMemberFeeApplied does), so it flagged every past customer who
+ * still happened to have it checked, not just this season's actual signups —
+ * confirmed against real data on 2026-08-14 (owner: "the only person that
+ * should show is [the one real signup]"). The office's own correction: a house
+ * belongs here when its quote has gone Closed — the status Convert-to-Customer
+ * itself sets — matched by phone, since quotes and jobAddresses share no id.
+ */
+const isNewMemberHouseSrc = extractFn(admin, 'isNewMemberHouse');
+// The actual "who counts as new" logic lives in closedQuoteFor, which
+// isNewMemberHouse just calls — check that one, not the thin wrapper.
+const closedQuoteForSrc = extractFn(admin, 'closedQuoteFor');
+check('logic', 'the Schedule tab has a live isNewMemberHouse lookup',
+  typeof isNewMemberHouseSrc === 'string' && typeof closedQuoteForSrc === 'string');
+check('logic', 'the Schedule tab\'s "new member" reads a Closed quote, not the new-member-fee checkbox',
+  closedQuoteForSrc && /status === 'closed'/.test(closedQuoteForSrc) && !/chargeNewMemberFee/.test(isNewMemberHouseSrc + closedQuoteForSrc),
+  'that fee checkbox never clears once ticked, so using it here re-flags every past customer who happens to still have it checked, not just this season\'s signups');
+check('logic', 'the dead h.isNew flag is gone from the Schedule tab',
+  !/\.isNew\b/.test(stripComments(admin)),
+  'a bare .isNew read is back — that flag is never set by the CSV import, so it silently shows nobody as new again');
+
 /* ---- rules that could not be tested until they moved into js/money.js ----
    These cover the two things that have actually gone wrong before: the light-
    change fee being dropped from a balance (which once made PayPal undercharge)
@@ -1040,38 +1070,52 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
   }
   const src = fnSrc.slice(start, end + 4);
 
+  // portalRsvp's own 'no'/'back next year' path (added after this suite was
+  // first written) calls removeCustomerFromUpcomingRoutes directly, which in
+  // turn calls todayStrInDenver — both live outside the sliced portalRsvp
+  // body above, so they have to be pulled in too or the sandboxed call throws
+  // a bare ReferenceError the moment either RSVP answer runs for real.
+  // extractFn matches from the "function" keyword, dropping any "async" that
+  // preceded it — has to go back on, or an extracted async body's own await
+  // is a syntax error the moment it actually runs.
+  const removeFromRoutesSrc = extractFn(fnSrc, 'removeCustomerFromUpcomingRoutes');
+  const todayStrSrc = extractFn(fnSrc, 'todayStrInDenver');
+  check('flow', 'removeCustomerFromUpcomingRoutes and todayStrInDenver found in functions/index.js',
+    !!removeFromRoutesSrc && !!todayStrSrc,
+    'renamed or removed — update this test rather than deleting it, or portalRsvp\'s no/back-next-year path cannot run here');
+  const fullSrc = [todayStrSrc, removeFromRoutesSrc && ('async ' + removeFromRoutesSrc), src]
+    .filter(Boolean).join('\n');
+
   // Fake Firestore + callable wrapper. update() merges what would have been
-  // written; add() records Inbox notes with the collection they landed in.
-  function runRsvp(record, response) {
+  // written; add() records Inbox notes with the collection they landed in;
+  // get() backs removeCustomerFromUpcomingRoutes's own route scan — empty on
+  // purpose, since no test here needs a real route to already exist.
+  function runRsvp(record, response, routes) {
     const written = {};
     const added = [];
-    const sweptFromRoutes = [];
+    const routeWrites = [];
     const ctx = {
       exports: {},
       onCall: (opts, handler) => handler,
       HttpsError: function (code, msg) { const e = new Error(msg); e.code = code; return e; },
       admin: { firestore: { FieldValue: { serverTimestamp: () => '__ts__' } } },
       findByToken: async () => ({ id: 'h1', data: record }),
-      /* portalRsvp does TWO things: it flags the lights for recycling / raises
-         the rejoined-after-recycle note (what this suite is about), AND it
-         sweeps the customer off any route a crew already holds. Both landed
-         from different work and were merged together, so the helper has to be
-         stubbed here — without it the whole async suite dies on a
-         ReferenceError, which reads as "everything in here is broken" rather
-         than "one helper is missing". */
-      removeCustomerFromUpcomingRoutes: async (id) => { sweptFromRoutes.push(id); return 0; },
       db: {
         collection: (name) => ({
           doc: () => ({ update: async (u) => { Object.assign(written, u); } }),
-          add: async (m) => { added.push(Object.assign({ __col: name }, m)); }
+          add: async (m) => { added.push(Object.assign({ __col: name }, m)); },
+          get: async () => ({ docs: (routes || []).map(r => ({
+            data: () => r,
+            ref: { update: async (u) => { routeWrites.push({ id: r.id, stops: u.stops }); } }
+          })) })
         })
       },
       console
     };
     const names = Object.keys(ctx);
-    new Function(...names, src)(...names.map(n => ctx[n]));
+    new Function(...names, fullSrc)(...names.map(n => ctx[n]));
     return ctx.exports.portalRsvp({ data: { token: 't', response } })
-      .then(res => ({ res, written, added, sweptFromRoutes }));
+      .then(res => ({ res, written, added, routeWrites }));
   }
 
   const notes = a => a.filter(m => m.__col === 'messages' && m.topic === 'Rejoined After Recycling');
@@ -1112,13 +1156,24 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
        merged together: flagging the lights for recycling (above), and sweeping
        the customer off any route a crew already holds. A merge is exactly
        where one of a pair like that gets dropped in silence — it has already
-       been lost once — so assert BOTH fire on the same "no". */
-    check('flow', 'a "no" both recycles the lights AND clears them off built routes',
-      declining.written.needsLightRecycle === true && declining.sweptFromRoutes.length === 1,
+       been lost once — so assert BOTH really happen on the same "no".
+       Runs the REAL removeCustomerFromUpcomingRoutes against a real upcoming
+       route, not a stub, so it proves the stop is actually taken off. */
+    const upcoming = [{ id: 'r-future', date: '2999-01-01',
+                        stops: [{ id: 'h1', name: 'Decliner' }, { id: 'other', name: 'Neighbour' }] }];
+    const sweptNo = await runRsvp({ name: 'Decliner', rsvpStatus: '', needsLightRecycle: false }, 'no', upcoming);
+    check('flow', 'a "no" both recycles the lights AND clears them off a built route',
+      sweptNo.written.needsLightRecycle === true &&
+      sweptNo.routeWrites.length === 1 &&
+      !sweptNo.routeWrites[0].stops.some(st => st.id === 'h1'),
       'one half was lost — either their lights stay reserved, or a crew turns up to install ' +
       'lights they said no to');
-    check('flow', 'back next year also clears them off built routes',
-      (await runRsvp({ name: 'Sitting Out 2', rsvpStatus: '', needsLightRecycle: false }, 'backnextyear')).sweptFromRoutes.length === 1,
+    check('flow', 'the sweep leaves everyone else on that route alone',
+      sweptNo.routeWrites[0] && sweptNo.routeWrites[0].stops.some(st => st.id === 'other'),
+      'clearing one customer must not empty the whole day for the crew');
+    check('flow', 'back next year also clears them off a built route',
+      (await runRsvp({ name: 'Sitting Out 2', rsvpStatus: '', needsLightRecycle: false }, 'backnextyear',
+        [{ id: 'r2', date: '2999-01-01', stops: [{ id: 'h1' }] }])).routeWrites.length === 1,
       'sitting the season out must not leave them on a route a crew is already holding');
 
     // 4. Back next year is a distinct third answer, never a soft no.
@@ -1491,24 +1546,21 @@ suite('8. Quote decline / maybe next year');
         fns.indexOf('async function pullCustomerFromSeason') + 1800)),
       'they would still show up somewhere outside All Customers');
   });
-  /* The past-route guard lives in removeCustomerFromUpcomingRoutes now, not
-     inline in pullCustomerFromSeason — that function was refactored down to a
-     status write plus a delegation. This check used to slice
-     pullCustomerFromSeason and look for the guard inside it, so it started
-     FAILING on correct code the moment the refactor landed.
-     Renamed too: there was already a check called 'past routes are left alone
-     as history' in the health suite, and two identically-named checks in one
-     run is how a real failure gets mistaken for the other one. */
-  const pullSrc = fns.slice(fns.indexOf('async function pullCustomerFromSeason'),
-    fns.indexOf('async function pullCustomerFromSeason') + 1800);
-  const sweepSrc = fns.slice(fns.indexOf('async function removeCustomerFromUpcomingRoutes'),
-    fns.indexOf('async function removeCustomerFromUpcomingRoutes') + 1800);
-  check('quoteresp', 'sitting out the season delegates the route sweep',
-    /return await removeCustomerFromUpcomingRoutes\(customerId\)/.test(pullSrc),
+  // pullCustomerFromSeason used to inline the past-route filter itself; it now
+  // delegates to the shared removeCustomerFromUpcomingRoutes helper (also used
+  // by portalRsvp's own no/back-next-year path), so that is where to look.
+  check('quoteresp', 'past routes are left alone as history',
+    /\(rd\.date \|\| ''\) < todayStr/.test(extractFn(fns, 'removeCustomerFromUpcomingRoutes') || ''),
+    'rewriting a finished route changes what the crew actually did');
+
+  // Kept from the other resolution of this same conflict: their check proves the
+  // guard still exists inside the helper, but not that anything still CALLS the
+  // helper. Deleting the delegation would leave that check green with the sweep
+  // never running.
+  check('quoteresp', 'sitting out the season still delegates the route sweep',
+    /return await removeCustomerFromUpcomingRoutes\(customerId\)/.test(
+      extractFn(fns, 'pullCustomerFromSeason') || ''),
     'the season pull must still clear their upcoming routes, wherever that logic lives');
-  check('quoteresp', 'the route sweep leaves PAST routes alone as history',
-    /\(rd\.date \|\| ''\) < todayStr/.test(sweepSrc),
-    'rewriting a finished route changes the record of what the crew actually did that day');
 
   // --- money is not touched ---------------------------------------------
   const pull = fns.slice(fns.indexOf('async function pullCustomerFromSeason'),
