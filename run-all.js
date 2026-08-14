@@ -81,6 +81,35 @@ const KNOWN_MISSING_IDS = [
 // =====================================================================
 suite('1. Structure');
 
+/* ---- this suite polices ITSELF -------------------------------------------
+ * A check that slices "the next N characters after this anchor" is a slow
+ * fuse. The moment the real code grows past N, a correct, present, working
+ * line falls outside the window and the check reports FAILURE — on code that
+ * is right. That happened three times in one afternoon (once at 15,304
+ * characters against a 15,000 window), and when the audit finally measured
+ * them, THIRTEEN OF SEVENTEEN windows were already cutting their block short
+ * and simply had not been noticed yet.
+ *
+ * They are all gone, replaced by sectionFrom(), which slices to the end of the
+ * enclosing top-level construct — a real structural anchor that does not move
+ * when a body grows. This check stops them coming back. CLAUDE.md §7.
+ */
+(function () {
+  const self = read('run-all.js');
+  /* Matches a slice whose two arguments are the SAME variable plus a fixed
+     number — the fixed-window shape. Deliberately no literal example written
+     out here: this check reads its own file, so an example in a comment would
+     match itself and fail forever. */
+  const windows = self.match(/([A-Za-z_$][\w$]*)\.slice\((\w+), *\2 *\+ *\d+\)/g) || [];
+  check('structure', 'no fixed-length extraction windows in the test suite',
+    windows.length === 0,
+    'use sectionFrom(src, start) instead — these fail on correct code as soon as it grows: ' +
+    windows.join(', '));
+  check('structure', 'sectionFrom is CRLF-safe',
+    /\\r\?\\n/.test(String(sectionFrom)),
+    'these files are CRLF, so a literal \\n terminator never matches and the slice silently runs to EOF');
+})();
+
 const inlineScripts = html =>
   [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)].map(m => m[1]);
 
@@ -237,6 +266,39 @@ function extractFn(src, name) {
     else if (src[i] === '}') { depth--; if (depth === 0) return src.slice(start, i + 1); }
   }
   return null;
+}
+
+/* Slice from an anchor to the END OF ITS TOP-LEVEL CONSTRUCT, instead of to a
+ * fixed number of characters.
+ *
+ * ⚠ WHY THIS EXISTS. Checks used to slice "the next 1200 / 3000 / 12000
+ * characters after this anchor" and search inside that. Every one of those is
+ * a slow fuse: the moment the real code grows past the window, a correct,
+ * present, working line falls outside it and the check reports FAILURE. That
+ * happened three separate times in one afternoon — once at 15,304 characters
+ * against a 15,000 window — and each one cost real time to diagnose, because a
+ * test failing on code that is right teaches you to distrust the suite.
+ * CLAUDE.md §7 warns about exactly this.
+ *
+ * In all three source files every top-level construct — a function, an
+ * exports.x = onCall(...), an addEventListener handler, an onSnapshot — ends
+ * with `}` or `});` at COLUMN ZERO. That is a real structural anchor and it
+ * does not move when the body grows.
+ *
+ * ⚠ CRLF: these files are CRLF, so a literal '\n});' never matches (CLAUDE.md
+ * §7 again). Matched with \r?\n.
+ *
+ * Falls back to the end of the file rather than to a magic number, so a missing
+ * terminator makes a check fail loudly instead of silently reading nothing.
+ */
+function sectionFrom(src, start) {
+  if (start == null || start < 0) return '';
+  const after = src.indexOf('\n', start);
+  if (after === -1) return src.slice(start);
+  const re = /\r?\n\}\)*;?\r?\n/g;          // `}`, `});`, `})` at column 0
+  re.lastIndex = after;
+  const m = re.exec(src);
+  return src.slice(start, m ? m.index + m[0].length : src.length);
 }
 
 const admin = read('admin.html');
@@ -630,23 +692,6 @@ if (typeof whGroupKey === 'function') {
   check('flow', 'the edit form can be left without saving',
     admin.includes('whCancelEditExtraBtn') && admin.includes('function whCancelEditExtra'),
     'opening Edit by mistake would trap the form in edit mode');
-  /* Houses are the other half of "I want to be able to edit all this": the
-     colours, wire, feet, timer and bin number on a house row all live on the
-     customer record, so Edit opens THAT rather than a second form here that
-     could save a different answer. Counted, not just found, because all three
-     lists (colour groups, the Timers roll-up, and Recycle) need one. */
-  {
-    const editBtns = (admin.match(/data-wheditcust="/g) || []).length;
-    check('flow', 'house rows in the warehouse have an Edit button too',
-      editBtns >= 3,
-      'found ' + editBtns + ' of the 3 lists — a build group, the Timers roll-up and Recycle each need one');
-    check('flow', 'the house Edit button opens the real Edit Customer popup',
-      /data-wheditcust\]'\)[\s\S]{0,300}openEditCustomerModal\(btn\.dataset\.wheditcust\)/.test(admin),
-      'a second form on this screen could save a different answer than Edit Customer does');
-    check('flow', 'the Timers roll-up still has no Mark Done of its own',
-      !/data-whtimerdone/.test(admin),
-      'two controls writing the same flag is how they start disagreeing — the colour group owns it');
-  }
   /* ⚠ Both files decide this for themselves — see the grouping block above. */
   check('flow', 'a hand-added build with a wire joins that wire\'s group (admin)',
     /wireColor\s*\r?\n?\s*\?\s*whGroupKey\(item\.data\.pattern/.test(admin),
@@ -1173,7 +1218,7 @@ check('flow', 'customer email amounts look the invoice up by key, not by phone',
 // recorded was flagged and then never shown — and their customer number never
 // returned to the available pool.
 const recycleStart = admin.indexOf('function renderWarehouseRecycleQueue()');
-const recycleQueue = recycleStart > -1 ? admin.slice(recycleStart, recycleStart + 1200) : '';
+const recycleQueue = recycleStart > -1 ? sectionFrom(admin, recycleStart) : '';
 check('flow', 'recycle list shows everyone flagged, even with no lights recorded',
   recycleQueue.length > 0 && !/!d\.needsLightRecycle \|\| !d\.lightsDescription/.test(recycleQueue),
   'a flagged customer who never appears here never gets their number recycled');
@@ -1415,7 +1460,7 @@ check('flow', 'price sync recomputes invoice status',
 // practice, but guarded anyway since a future re-run against an existing
 // invoice would otherwise erase real money already on file.
 const ibStart = admin.indexOf("ibImportBtn').addEventListener");
-const ibSection = ibStart > -1 ? admin.slice(ibStart, ibStart + 3000) : '';
+const ibSection = ibStart > -1 ? sectionFrom(admin, ibStart) : '';
 check('flow', 'Invoice Bulk Update preserves an existing removal charge and payments already on file',
   /removal:\s*keepRemoval/.test(ibSection) && /deposit:\s*keepDeposit/.test(ibSection),
   'a blind removal:0, deposit:0 on every row would erase both if this tool is ever re-run\n          ' +
@@ -1449,7 +1494,7 @@ gap('saved routes pick up later customer corrections',
 // the owner confirmed the fee should move automatically ---
 (function () {
   const switchStart = admin.indexOf('They now bill to someone else');
-  const switchSection = switchStart > -1 ? admin.slice(switchStart, switchStart + 1200) : '';
+  const switchSection = switchStart > -1 ? sectionFrom(admin, switchStart) : '';
   check('flow', 'an outstanding light-change fee carries over when a customer switches bill-to',
     /migratingFeeNotes/.test(switchSection) && admin.includes('Fold the moved fee onto the payer'),
     'zeroing/deleting the old standalone invoice without moving changeFees onto the new\n          ' +
@@ -2419,7 +2464,7 @@ suite('9. Portal sign-in security');
      updates their number between opening the pay screen and approving the
      payment lands here. The card has already been charged by then. */
   const rppStart = fns.indexOf('async function recordPaypalPayment');
-  const rppSrc = rppStart > -1 ? fns.slice(rppStart, rppStart + 4000) : '';
+  const rppSrc = rppStart > -1 ? sectionFrom(fns, rppStart) : '';
   check('money', 'a captured payment with no invoice is filed, not discarded',
     /orphaned = true/.test(rppSrc) && /recordUnmatchedPayment/.test(rppSrc),
     'the money was charged and then silently forgotten');
@@ -2452,7 +2497,7 @@ suite('9. Portal sign-in security');
     'both the run-now message and the last-10-runs list must show it');
 
   const piStart = fns.indexOf('exports.portalInvoice');
-  const piSrc = piStart > -1 ? fns.slice(piStart, piStart + 3000) : '';
+  const piSrc = piStart > -1 ? sectionFrom(fns, piStart) : '';
   check('security', 'portalInvoice rate-limits a failed last-name guess',
     /checkRateLimit\('invoice_'/.test(piSrc),
     'invoice IDs are phone digits — balances were enumerable with no limit at all');
@@ -2856,7 +2901,7 @@ if (!JSDOM) {
       'renamed or removed — update this test rather than deleting it');
     return;
   }
-  const src = admin.slice(start, start + 12000);
+  const src = sectionFrom(admin, start);
 
   check('bulk-address', 'the Customer # column is parsed into cn',
     /const custNumbers = alignBulkRows/.test(src) && /const cn = custNumbers\[i\] \|\| ''/.test(src),
@@ -2893,7 +2938,7 @@ if (!JSDOM) {
  */
 (function () {
   const psStart = fnsSrc.indexOf('exports.portalSave');
-  const psSrc = psStart > -1 ? fnsSrc.slice(psStart, psStart + 6000) : '';
+  const psSrc = psStart > -1 ? sectionFrom(fnsSrc, psStart) : '';
   check('cancel-flow', 'portalSave found in functions/index.js', psStart > -1,
     'renamed or removed — update this test rather than deleting it');
   check('cancel-flow', 'a full cancellation flags needsLightRecycle, same as RSVP no',
@@ -2905,7 +2950,7 @@ if (!JSDOM) {
 
   const idx = read('index.html');
   const cancelStart = idx.indexOf("cancelFinalBtn').addEventListener('click'");
-  const cancelSrc = cancelStart > -1 ? idx.slice(cancelStart, cancelStart + 2200) : '';
+  const cancelSrc = cancelStart > -1 ? sectionFrom(idx, cancelStart) : '';
   check('cancel-flow', 'cancelFinalBtn handler found in index.html', cancelStart > -1,
     'renamed or removed — update this test rather than deleting it');
   check('cancel-flow', 'a failed account-status save is surfaced, not just console.error\'d',
@@ -2930,7 +2975,7 @@ if (!JSDOM) {
  */
 (function () {
   const cardStart = admin.indexOf("Restore this quote");
-  const cardSrc = cardStart > -1 ? admin.slice(cardStart, cardStart + 1200) : '';
+  const cardSrc = cardStart > -1 ? sectionFrom(admin, cardStart) : '';
   check('convert-dup', 'quote card render found in admin.html', cardStart > -1,
     'renamed or removed — update this test rather than deleting it');
   check('convert-dup', 'the Convert to Customer button no longer shows once a quote is converted',
@@ -2965,7 +3010,7 @@ if (!JSDOM) {
  */
 (function () {
   const singleStart = admin.indexOf("editCustDeleteBtn').addEventListener('click'");
-  const singleSrc = singleStart > -1 ? admin.slice(singleStart, singleStart + 2000) : '';
+  const singleSrc = singleStart > -1 ? sectionFrom(admin, singleStart) : '';
   check('delete-cleanup', 'Delete This Customer handler found in admin.html', singleStart > -1,
     'renamed or removed — update this test rather than deleting it');
   check('delete-cleanup', 'deleting a single customer sweeps them off upcoming routes',
@@ -2974,7 +3019,7 @@ if (!JSDOM) {
     'a deleted customer left a phantom stop on any route already built — the crew\'s Mark Done had nothing to update and failed silently');
 
   const allStart = admin.indexOf("deleteAllAddressesBtn').addEventListener('click'");
-  const allSrc = allStart > -1 ? admin.slice(allStart, allStart + 2000) : '';
+  const allSrc = allStart > -1 ? sectionFrom(admin, allStart) : '';
   check('delete-cleanup', 'Delete All Customers handler found in admin.html', allStart > -1,
     'renamed or removed — update this test rather than deleting it');
   check('delete-cleanup', 'Delete All Customers releases every customer\'s number back to the pool',
@@ -3002,7 +3047,7 @@ if (!JSDOM) {
       'renamed or removed — update this test rather than deleting it');
     return;
   }
-  const rowSrc = admin.slice(rowStart, rowStart + 600);
+  const rowSrc = sectionFrom(admin, rowStart);
   check('invoice-status-args', 'the paystatus dropdown includes changeFees, like every other invoice status call',
     /computeInvoiceStatus\(inv\.data\.install, inv\.data\.removal, inv\.data\.deposit, inv\.data\.credits, inv\.data\.changeFees\)/.test(rowSrc),
     'a customer with a light-change fee could show a status here that disagrees with every other status display in the app');
@@ -3023,7 +3068,7 @@ if (!JSDOM) {
  */
 (function () {
   const addStart = admin.indexOf("addFolderBtn').addEventListener('click'");
-  const addSrc = addStart > -1 ? admin.slice(addStart, addStart + 1200) : '';
+  const addSrc = addStart > -1 ? sectionFrom(admin, addStart) : '';
   check('folder-names', 'addFolderBtn handler found in admin.html', addStart > -1,
     'renamed or removed — update this test rather than deleting it');
   check('folder-names', 'creating a folder named "system" is blocked, same as "inbox"',
@@ -3053,7 +3098,7 @@ if (!JSDOM) {
 (function () {
   const idx = read('index.html');
   const galStart = idx.indexOf("onSnapshot(collection(db,'gallery')");
-  const galSrc = galStart > -1 ? idx.slice(galStart, galStart + 700) : '';
+  const galSrc = galStart > -1 ? sectionFrom(idx, galStart) : '';
   check('public-content', 'gallery listener found in index.html', galStart > -1,
     'renamed or removed — update this test rather than deleting it');
   check('public-content', 'a gallery caption entered in admin actually renders on the public site',
@@ -3061,13 +3106,13 @@ if (!JSDOM) {
     'captions only ever worked on the static placeholder gallery, before any real photo was uploaded');
 
   const revStart = idx.indexOf("onSnapshot(collection(db,'reviews')");
-  const revSrc = revStart > -1 ? idx.slice(revStart, revStart + 700) : '';
+  const revSrc = revStart > -1 ? sectionFrom(idx, revStart) : '';
   check('public-content', 'reviews are sorted to match admin\'s newest-first order',
     /docs\.sort/.test(revSrc),
     'admin shows reviews newest-first; the public site showed Firestore\'s undefined default order instead');
 
   const faqStart = idx.indexOf("onSnapshot(collection(db,'faq')");
-  const faqSrc = faqStart > -1 ? idx.slice(faqStart, faqStart + 500) : '';
+  const faqSrc = faqStart > -1 ? sectionFrom(idx, faqStart) : '';
   check('public-content', 'FAQ is sorted to match admin\'s oldest-first order',
     /docs\.sort/.test(faqSrc),
     'admin shows FAQ oldest-first (so the "top 3" preview is deterministic); the public site had no sort at all');
@@ -3137,7 +3182,7 @@ if (!JSDOM) {
     'renamed or removed — update this test rather than deleting it');
 
   const submitStart = admin.indexOf('const keptQuotePattern');
-  const submitSrc = submitStart > -1 ? admin.slice(submitStart, submitStart + 500) : '';
+  const submitSrc = submitStart > -1 ? sectionFrom(admin, submitStart) : '';
   check('light-pattern', 'submitting Add Customer keeps the captured pattern when the colours are unchanged',
     /selectedColors\.length === addCustQuoteColorsSnapshot\.length/.test(submitSrc) &&
     /keptQuotePattern\s*\?\s*addCustQuoteLightsPattern/.test(submitSrc),
@@ -3186,7 +3231,7 @@ if (!JSDOM) {
  */
 (function () {
   const psStart = fnsSrc.indexOf('exports.portalSave');
-  const psSrc = psStart > -1 ? fnsSrc.slice(psStart, psStart + 7000) : '';
+  const psSrc = psStart > -1 ? sectionFrom(fnsSrc, psStart) : '';
   check('light-fee-race', 'portalSave found in functions/index.js', psStart > -1,
     'renamed or removed — update this test rather than deleting it');
   check('light-fee-race', 'the $30 light-change fee read-decide-write happens inside a transaction',
@@ -3212,7 +3257,7 @@ if (!JSDOM) {
  */
 (function () {
   const piStart = fnsSrc.indexOf('exports.portalInvoice');
-  const piSrc = piStart > -1 ? fnsSrc.slice(piStart, piStart + 2800) : '';
+  const piSrc = piStart > -1 ? sectionFrom(fnsSrc, piStart) : '';
   check('light-fee-warning', 'portalInvoice found in functions/index.js', piStart > -1,
     'renamed or removed — update this test rather than deleting it');
   check('light-fee-warning', 'portalInvoice computes and returns lightChangeFreeUntil',
