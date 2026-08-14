@@ -1,11 +1,19 @@
 {
   "scripts": {
-    "verify": "node scripts/verify-syntax.js",
+    "verify": "node verify-syntax.js",
+    "test:selectors": "node selector-contract.test.js",
     "test:money": "node money-parity.test.js",
     "test:suite": "node run-all.js",
-    "test": "npm run verify && npm run test:money && npm run test:suite"
+    "test": "npm run verify && npm run test:selectors && npm run test:money && npm run test:suite",
+    "test:browser": "playwright test",
+    "test:browser:headed": "playwright test --headed",
+    "test:all": "npm test && npm run test:browser"
   },
   "dependencies": {
     "jsdom": "^30.0.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "http-server": "^14.1.1"
   }
 }
