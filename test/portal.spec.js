@@ -1,13 +1,19 @@
 /*
  * Member Portal — browser specs
  *
- * These target the five KNOWN FAILURES on the Project To-Do checklist
- * (tests 9, 11, 14, 15, 17). They are expected to go RED on the first run.
- * That is the point: red first, then fix the code until they go green
- * (CLAUDE.md §9.6). Do NOT weaken a spec to make it pass.
+ * All 8 specs are GREEN. This file originally targeted five KNOWN FAILURES
+ * on the Project To-Do checklist (tests 9, 11, 14, 15, 17) — t15 went green
+ * first, and t9/t11/t14/t17 followed once their failures were traced to bugs
+ * in THIS TEST HARNESS (a fake portalInvoice shape, a synchronous fake
+ * onSnapshot, a missing window.paypal.FUNDING, and a spec that tested the
+ * wrong scenario for t17) rather than in index.html itself.
  *
- * Each title starts with its checklist id so the automated test and the manual
- * checklist row point at each other instead of drifting apart (§9.1).
+ * Each title starts with its checklist id (t8, t9, t11, t14, t15, t17) so the
+ * automated test and the manual checklist row (TEST_SEED in admin.html) point
+ * at each other instead of drifting apart (§9.1). Every TEST_SEED row that has
+ * a matching spec here has been reworded to say what's automated and what
+ * still needs a human pass — check there before re-testing something by hand
+ * that this file already proves.
  *
  * Everything runs against a fake Firebase (tests/firebase-stub.js). Every test
  * ends by asserting the page never reached a real backend.
@@ -207,7 +213,7 @@ test.describe('Member Portal', () => {
    * Worth having: they prove the harness itself is sound. If these ever fail
    * alongside the ones above, suspect the stub before suspecting the app.
    */
-  test('a wrong last name is refused, and says so', async ({ page }) => {
+  test('t8 — a wrong last name is refused, and says so', async ({ page }) => {
     const stub = await open(page, '/index.html#/payment');
 
     await page.fill('#lookupPhone', '8015550142');
