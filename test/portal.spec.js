@@ -24,8 +24,27 @@ const { CUSTOMERS } = require('./fixtures');
  * shared state to leak between them. */
 async function open(page, path, overrides) {
   const stub = await installFirebaseStub(page, overrides);
+
+  /* Capture anything the page complains about. Without this, a JS error inside
+   * index.html shows up only as "element not visible" twenty seconds later,
+   * which points at the test rather than the real cause. */
+  const pageErrors = [];
+  page.on('pageerror', e => pageErrors.push(String(e)));
+  page.on('console', m => { if (m.type() === 'error') pageErrors.push(m.text()); });
+
   await page.goto(path);
+  stub.pageErrors = pageErrors;
   return stub;
+}
+
+/* The portal is tab-based: #portalTabsLayout holds panels switched by
+ * [data-tab="..."] buttons (payment, info, lights, changes, contact, cancel).
+ * Only the open tab's contents are visible, so a test MUST open the tab it
+ * cares about — otherwise every field reads empty and every button reports
+ * "element is not visible", which looks like a broken selector and is not. */
+async function openTab(page, name) {
+  await page.locator('#portalTabsLayout').waitFor({ state: 'visible' });
+  await page.locator(`[data-tab="${name}"]`).first().click();
 }
 
 test.describe('Member Portal', () => {
@@ -42,6 +61,7 @@ test.describe('Member Portal', () => {
      * It lives in the #infoName INPUT, so it is a value, not page text —
      * getByText() cannot see input values and this originally failed for that
      * reason alone, not because sign-in was broken. */
+    await openTab(page, 'info');
     await expect(page.locator('#infoName')).toHaveValue(cust.record.name);
 
     // And they must NOT be asked to sign in again.
@@ -71,9 +91,20 @@ test.describe('Member Portal', () => {
      * runs for real and renders through it. What is proved here is that the
      * portal decides to offer PayPal and wires up a button; whether PayPal
      * itself works is not something a test may check (CLAUDE.md §9.11). */
+    await openTab(page, 'payment');
+
     await expect.poll(() => page.evaluate(() => !!window.__HU_PAYPAL_LOADED__),
-      { message: 'the portal should have loaded the PayPal SDK when provider allows cards' })
+      { message: 'the portal should have loaded the PayPal SDK when provider allows cards. ' +
+                 'paypalAvailable() needs BOTH provider in (paypal|both) AND a non-empty ' +
+                 'paypalClientId, read from siteContent/main.' })
       .toBeTruthy();
+
+    /* If it did not load, the page almost certainly threw on the way there.
+     * Surface that rather than leaving a bare "expected true, got false". */
+    if (!(await page.evaluate(() => !!window.__HU_PAYPAL_LOADED__))) {
+      throw new Error('PayPal SDK never loaded. Page errors:\n' +
+        (stub.pageErrors.length ? stub.pageErrors.join('\n') : '(none reported)'));
+    }
 
     const container = page.locator('#paypal-button-container');
     await expect(container).toBeVisible();
@@ -97,6 +128,7 @@ test.describe('Member Portal', () => {
      * details), #lightsSaveBtn (colours) and #changesSaveBtn. Target the one
      * this test means. A getByRole('button', {name:/save/i}) match timed out
      * here because it could not settle on one. */
+    await openTab(page, 'info');
     const before = (await stub.calls()).length;
     await page.locator('#infoSaveBtn').click();
 
