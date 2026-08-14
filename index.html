@@ -562,7 +562,11 @@
   }
   .radio-pill input{ accent-color:var(--ember); width:auto; }
   .radio-pill.selected{ border-color:var(--gold); background:#FFF7E7; color:var(--ink); }
-  .form-note{ font-size:12.5px; color:var(--slate); margin-top:6px; }
+  /* 14px, not 12.5px. This class carries the explanatory text on every portal
+     form — including the sentence warning that a light change costs $30 — and
+     the customer base skews older. Anything a customer is expected to read
+     before spending money should not be the smallest text on the page. */
+  .form-note{ font-size:14px; color:var(--slate); margin-top:6px; line-height:1.5; }
   .form-success{
     display:none; text-align:center; padding:50px 30px;
   }
@@ -1187,7 +1191,7 @@
             </div>
             <div class="form-row"><label>Full Name <span class="req">*</span></label><input type="text" name="name" required></div>
             <div class="form-row">
-              <label>Phone Number or Email <span class="req">*</span></label>
+              <label for="infoPhone">Phone Number or Email <span class="req">*</span></label>
               <input type="text" name="contact" id="contactContactInput" required>
             </div>
             <div class="form-row" id="contactMethodWrap" style="display:none;">
@@ -1229,7 +1233,7 @@
           <div class="form-row"><label>Full Name <span class="req">*</span></label><input type="text" name="name" required></div>
           <div class="form-grid-2">
             <div class="form-row"><label>Phone Number <span class="req">*</span></label><input type="tel" name="phone" required></div>
-            <div class="form-row"><label>Email Address <span class="req">*</span></label><input type="email" name="email" required></div>
+            <div class="form-row"><label for="infoEmail">Email Address <span class="req">*</span></label><input type="email" name="email" required></div>
           </div>
           <div class="form-row"><label>Street Address <span class="req">*</span></label><input type="text" id="quoteAddressInput" name="street" placeholder="123 Main St" required></div>
           <div class="form-grid-2">
@@ -1367,7 +1371,7 @@
                 <textarea name="specific_outlet_notes" rows="3" placeholder="e.g. the outlet on the back patio, or under the eave near the garage"></textarea>
               </div>
             </div>
-            <div class="form-row"><label>Gate Code (optional)</label><input type="text" name="gate_code" placeholder="If your community or property is gated"></div>
+            <div class="form-row"><label for="infoGateCode">Gate Code (optional)</label><input type="text" name="gate_code" placeholder="If your community or property is gated"></div>
             <div class="form-row"><label>Additional Notes</label><textarea name="notes" rows="4" placeholder="Roof height, specific requests, etc."></textarea></div>
             <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin:-6px 0 20px;"><input type="checkbox" name="wants_mailed" style="width:auto;"> I'd also like my invoice mailed to me (postal mail)</label>
             <button type="submit" class="btn btn-gold btn-block">Submit Details</button>
@@ -1398,12 +1402,12 @@
         <div id="lookupFormWrap">
           <form id="lookupForm">
             <div class="form-row">
-              <label>Phone Number or Email on File <span class="req">*</span></label>
-              <input type="text" id="lookupPhone" placeholder="(801) 555-0123 or you@email.com">
+              <label for="lookupPhone">Phone Number or Email on File <span class="req">*</span></label>
+              <input type="text" id="lookupPhone" autocomplete="username" placeholder="(801) 555-0123 or you@email.com">
             </div>
             <div class="form-row">
-              <label>Last Name on File <span class="req">*</span></label>
-              <input type="text" id="lookupLastName" placeholder="Petersen">
+              <label for="lookupLastName">Last Name on File <span class="req">*</span></label>
+              <input type="text" id="lookupLastName" autocomplete="family-name" placeholder="Petersen">
               <p class="form-note">Use the last name we have on file for your account. If you're not sure, call or text us at (801) 901-0011.</p>
             </div>
             <button type="submit" class="btn btn-gold btn-block" id="lookupBtn">Sign In</button>
@@ -1414,7 +1418,7 @@
           <div style="font-weight:600; color:#33475b;">Opening your account…</div>
           <div style="font-size:12.5px; color:#7a869a;">This can take a few seconds the first time.</div>
         </div>
-        <div class="invoice-empty" id="lookupEmpty" style="display:none;">We couldn't find an account matching that phone number and last name. Please call or text us at <span id="lookupEmptyPhone">(801) 901-0011</span> and we'll help you out.</div>
+        <div class="invoice-empty" id="lookupEmpty" role="status" aria-live="polite" style="display:none;">We couldn't find an account matching that phone number and last name. Please call or text us at <span id="lookupEmptyPhone">(801) 901-0011</span> and we'll help you out.</div>
         <div class="invoice-empty" id="portalDeactivatedMsg" style="display:none;">Your portal access has been turned off since you let us know you're not continuing service this season. If that was a mistake, please call or text us at <span id="portalDeactivatedPhone">(801) 901-0011</span> and we'll get it sorted out.</div>
 
         <div class="invoice-empty" id="rsvpConfirmCard" style="display:none; text-align:center;">
@@ -1464,6 +1468,11 @@
           <div class="portal-card" id="portalTabPanelCard">
 
           <div id="tabPanel-payment">
+          <!-- "When are you coming?" — the most-asked question of the season,
+               answered from scheduledDate, which was on the record all along and
+               simply never sent to the browser. The date only: never the crew
+               and never the stop order. -->
+          <div id="portalScheduleStrip" style="display:none; border-radius:12px; padding:13px 16px; margin-bottom:14px; font-size:14px; font-weight:600;"></div>
           <div class="invoice-status" id="invStatus" style="display:none;">Balance Due</div>
           <div class="portal-card" id="portalPaymentCard" style="border-top:4px solid var(--gold); box-shadow:var(--shadow);">
           <div style="text-align:center; margin-bottom:6px;">
@@ -1471,8 +1480,27 @@
           </div>
           <div style="text-align:center; margin-bottom:18px;"><span id="invAmount" style="font-size:44px; font-weight:700; color:var(--ink); line-height:1;">$0</span></div>
 
+          <!-- What that number is made of. The nightly invoice email has always
+               itemised this — install, removal, each light-change fee, each
+               credit and a line per address — while the portal showed a single
+               figure with no explanation, which is what generates the "what is
+               this charge?" phone call. Every field here already arrives in
+               portalInvoice's read whitelist; nothing new is exposed. -->
+          <div id="invBreakdown" style="display:none; margin-bottom:18px;"></div>
+
+          <!-- "Did you get my payment?" — written by every payment path from
+               the start, never sent to the browser until now. -->
+          <div id="invLastPayment" role="status" aria-live="polite" style="display:none; text-align:center; font-size:13px; color:#2E6B3E; font-weight:600; margin-bottom:14px;"></div>
+
           <div id="invPaidMsg" style="display:none; text-align:center; background:#E6F2EA; border:1px solid #b8d9c2; border-radius:12px; padding:16px; margin-top:16px; font-weight:600; color:#2E6B3E;">
             &#10003; You&rsquo;re all paid up &mdash; thank you!
+          </div>
+
+          <!-- Added when the portal stopped being locked behind having an
+               invoice. A customer added before they are priced has a real
+               account; they used to be told "we couldn't find an account". -->
+          <div id="invNoBillYet" role="status" aria-live="polite" style="display:none; text-align:center; background:#EAF1FA; border:1px solid #C3D8EC; border-radius:12px; padding:16px; margin-top:16px; font-weight:600; color:#2B5C8A;">
+            You don&rsquo;t have a bill yet &mdash; we&rsquo;ll send one once your lights are up. Everything else on your account is ready to use.
           </div>
 
           <div id="invTipRow" style="display:none; margin-top:18px; padding-top:18px; border-top:1px solid var(--line);">
@@ -1531,18 +1559,18 @@
 
             <div id="tabPanel-info" style="display:none;">
               <p class="form-note" style="margin-top:0;">Update anything below and save &mdash; we'll use this for this season and remember it for next season too.</p>
-              <div class="form-row"><label>Name</label><input type="text" id="infoName"></div>
-              <div class="form-row"><label>Phone Number</label><input type="tel" id="infoPhone" placeholder="(801) 555-0123"></div>
-              <div class="form-row" id="infoPhone2Row" style="display:none;"><label>Second Phone Number</label><input type="tel" id="infoPhone2" placeholder="(801) 555-0123"></div>
+              <div class="form-row"><label for="infoName">Name</label><input type="text" id="infoName" autocomplete="name"></div>
+              <div class="form-row"><label>Phone Number</label><input type="tel" id="infoPhone" autocomplete="tel" inputmode="tel" placeholder="(801) 555-0123"></div>
+              <div class="form-row" id="infoPhone2Row" style="display:none;"><label for="infoPhone2">Second Phone Number</label><input type="tel" id="infoPhone2" autocomplete="tel" inputmode="tel" placeholder="(801) 555-0123"></div>
               <a href="#" id="addPhone2Link" style="display:block; font-size:12.5px; color:var(--gold-dim); margin:-10px 0 20px;">+ Add a second phone number</a>
-              <div class="form-row"><label>Email</label><input type="email" id="infoEmail"></div>
-              <div class="form-row" id="infoEmail2Row" style="display:none;"><label>Second Email</label><input type="email" id="infoEmail2"></div>
+              <div class="form-row"><label>Email</label><input type="email" id="infoEmail" autocomplete="email" inputmode="email"></div>
+              <div class="form-row" id="infoEmail2Row" style="display:none;"><label for="infoEmail2">Second Email</label><input type="email" id="infoEmail2" autocomplete="email" inputmode="email"></div>
               <a href="#" id="addEmail2Link" style="display:block; font-size:12.5px; color:var(--gold-dim); margin:-10px 0 20px;">+ Add a second email</a>
-              <div class="form-row"><label>Address</label><input type="text" id="infoAddress"></div>
-              <div class="form-row"><label>Gate Code (optional)</label><input type="text" id="infoGateCode" placeholder="e.g. #4521"></div>
+              <div class="form-row"><label for="infoAddress">Address</label><input type="text" id="infoAddress" autocomplete="street-address"></div>
+              <div class="form-row"><label>Gate Code (optional)</label><input type="text" id="infoGateCode" autocomplete="off" placeholder="e.g. #4521"></div>
               <p class="form-note" style="margin:-10px 0 20px;">If your community or property is gated, this lets our crew get in without calling ahead.</p>
               <button type="button" class="btn btn-gold btn-block" id="infoSaveBtn">Save Information</button>
-              <div id="infoSaveStatus" style="font-size:13px; color:var(--slate); margin-top:8px; text-align:center;"></div>
+              <div id="infoSaveStatus" role="status" aria-live="polite" style="font-size:13px; color:var(--slate); margin-top:8px; text-align:center;"></div>
             </div>
 
             <div id="tabPanel-lights" style="display:none;">
@@ -1560,7 +1588,7 @@
                 <button type="button" class="rc-simple-swatch" data-color="Pink" title="Pink" style="width:36px; height:36px; border-radius:50%; flex-shrink:0; background:#D97BA0; border:2px solid transparent; padding:0;"></button>
                 <button type="button" class="rc-simple-swatch" data-color="Multi" title="Multi" style="width:36px; height:36px; border-radius:50%; flex-shrink:0; background:linear-gradient(45deg, #C23B2E 0 25%, #3E7D46 25% 50%, #2E5FA3 50% 75%, #F4BE55 75% 100%); border:2px solid transparent; padding:0;"></button>
               </div>
-              <div id="lightsSaveStatus" style="font-size:13px; color:var(--slate); margin-bottom:4px;"></div>
+              <div id="lightsSaveStatus" role="status" aria-live="polite" style="font-size:13px; color:var(--slate); margin-bottom:4px;"></div>
 
               <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:var(--slate); cursor:pointer; margin-top:10px; padding-top:14px; border-top:1px solid var(--line);">
                 <input type="checkbox" id="rcSpecificPatternToggle" style="width:auto;">
@@ -1571,15 +1599,15 @@
                 <p class="form-note" style="margin:0 0 8px;">Tap colors in order to build your exact pattern &mdash; it repeats along your roofline.</p>
                 <div id="rcSequenceRow" style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; min-height:40px; padding:10px; border:1px solid var(--line); border-radius:10px; margin-bottom:10px;"></div>
                 <div style="display:flex; gap:10px; margin-bottom:8px;">
-                  <button type="button" class="rc-swatch" data-color="Warm White" title="Warm White" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:#F5EFDD; border:1px solid var(--line); padding:0;"></button>
-                  <button type="button" class="rc-swatch" data-color="Pure White" title="Pure White" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:#FFFFFF; border:1px solid var(--line); padding:0;"></button>
-                  <button type="button" class="rc-swatch" data-color="Red" title="Red" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:#C23B2E; border:none; padding:0;"></button>
-                  <button type="button" class="rc-swatch" data-color="Green" title="Green" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:#3E7D46; border:none; padding:0;"></button>
-                  <button type="button" class="rc-swatch" data-color="Blue" title="Blue" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:#2E5FA3; border:none; padding:0;"></button>
-                  <button type="button" class="rc-swatch" data-color="Purple" title="Purple" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:#6B4A8F; border:none; padding:0;"></button>
-                  <button type="button" class="rc-swatch" data-color="Orange" title="Orange" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:#D97D2B; border:none; padding:0;"></button>
-                  <button type="button" class="rc-swatch" data-color="Pink" title="Pink" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:#D97BA0; border:none; padding:0;"></button>
-                  <button type="button" class="rc-swatch" data-color="Multi" title="Multi" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:linear-gradient(45deg, #C23B2E 0 25%, #3E7D46 25% 50%, #2E5FA3 50% 75%, #F4BE55 75% 100%); border:none; padding:0;"></button>
+                  <button type="button" class="rc-swatch" data-color="Warm White" title="Warm White" style="width:44px; height:44px; border-radius:50%; flex-shrink:0; background:#F5EFDD; border:1px solid var(--line); padding:0;"></button>
+                  <button type="button" class="rc-swatch" data-color="Pure White" title="Pure White" style="width:44px; height:44px; border-radius:50%; flex-shrink:0; background:#FFFFFF; border:1px solid var(--line); padding:0;"></button>
+                  <button type="button" class="rc-swatch" data-color="Red" title="Red" style="width:44px; height:44px; border-radius:50%; flex-shrink:0; background:#C23B2E; border:none; padding:0;"></button>
+                  <button type="button" class="rc-swatch" data-color="Green" title="Green" style="width:44px; height:44px; border-radius:50%; flex-shrink:0; background:#3E7D46; border:none; padding:0;"></button>
+                  <button type="button" class="rc-swatch" data-color="Blue" title="Blue" style="width:44px; height:44px; border-radius:50%; flex-shrink:0; background:#2E5FA3; border:none; padding:0;"></button>
+                  <button type="button" class="rc-swatch" data-color="Purple" title="Purple" style="width:44px; height:44px; border-radius:50%; flex-shrink:0; background:#6B4A8F; border:none; padding:0;"></button>
+                  <button type="button" class="rc-swatch" data-color="Orange" title="Orange" style="width:44px; height:44px; border-radius:50%; flex-shrink:0; background:#D97D2B; border:none; padding:0;"></button>
+                  <button type="button" class="rc-swatch" data-color="Pink" title="Pink" style="width:44px; height:44px; border-radius:50%; flex-shrink:0; background:#D97BA0; border:none; padding:0;"></button>
+                  <button type="button" class="rc-swatch" data-color="Multi" title="Multi" style="width:44px; height:44px; border-radius:50%; flex-shrink:0; background:linear-gradient(45deg, #C23B2E 0 25%, #3E7D46 25% 50%, #2E5FA3 50% 75%, #F4BE55 75% 100%); border:none; padding:0;"></button>
                   <button type="button" class="btn btn-outline btn-sm" id="rcClearPattern" style="margin-left:auto;">Clear</button>
                 </div>
                 <div id="rcPatternReadout" style="font-size:12.5px; color:var(--slate);"></div>
@@ -1589,6 +1617,20 @@
             </div>
 
             <div id="tabPanel-changes" style="display:none;">
+              <!-- RSVP, reachable while signed in. portalRsvp was only ever
+                   called from the emailed link, so anyone who deleted the
+                   email, or said no and changed their mind, had to telephone
+                   to do something the app already supports. -->
+              <div id="portalRsvpBlock" style="margin-bottom:20px; padding-bottom:18px; border-bottom:1px solid var(--line);">
+                <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:4px;">Are you having lights this season?</label>
+                <p class="form-note" id="portalRsvpCurrent" style="margin:0 0 10px;"></p>
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                  <button type="button" class="btn btn-outline-dark btn-sm" data-portalrsvp="yes">Yes, I&rsquo;m in</button>
+                  <button type="button" class="btn btn-outline-dark btn-sm" data-portalrsvp="backnextyear">Back next year</button>
+                  <button type="button" class="btn btn-outline-dark btn-sm" data-portalrsvp="no">Not this season</button>
+                </div>
+                <p class="form-note" id="portalRsvpStatus" role="status" aria-live="polite" style="margin:10px 0 0;"></p>
+              </div>
               <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:8px;">Wire Color</label>
               <select id="wireColorSelect" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;">
                 <option value="White">White</option>
@@ -1622,7 +1664,7 @@
               <textarea id="changesNotes" rows="4" placeholder="Roof height, specific requests, etc." style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px; box-sizing:border-box;"></textarea>
 
               <button type="button" class="btn btn-gold btn-sm" id="changesSaveBtn" style="margin-top:18px;">Save Changes</button>
-              <div id="changesSaveStatus" style="font-size:13px; color:var(--slate); margin-top:8px;"></div>
+              <div id="changesSaveStatus" role="status" aria-live="polite" style="font-size:13px; color:var(--slate); margin-top:8px;"></div>
             </div>
 
             <div id="tabPanel-contact" style="display:none;">
@@ -2768,6 +2810,11 @@ async function hmLoadHouseMapForInvoice(phoneDigits, opts){
       document.getElementById('rcSimpleColorsRow').style.display = 'flex';
       renderRcSimpleColors();
     }
+    /* Remember what the picker looked like the moment it was filled in, so a
+       Save that changes nothing can be recognised as changing nothing — see
+       rcRememberLoadedState. This must run AFTER both branches above, because
+       it serialises whichever one was used. */
+    rcRememberLoadedState(addrDoc.lightsDescription || (currentLookupRecord && currentLookupRecord.lightsDescription) || '');
 
     var photoUrl = addrDoc.housePhotoUrl;
     var highlights = addrDoc.houseHighlights || [];
@@ -2806,7 +2853,7 @@ function performSignInLookup(contactRaw, lastNameInput){
       if(res && res.found && res.token) savePortalLogin(res.token);
       var portalKey = (res && res.invoiceKey) || (match && match.phone ? String(match.phone).replace(/\D/g,'') : '');
       if(match && portalKey){
-        renderCustomerInvoicePage(portalKey, {lastNameInput: lastNameInput, skipLastNameCheck: true});
+        renderCustomerInvoicePage(portalKey, {lastNameInput: lastNameInput, skipLastNameCheck: true, knownRecord: match});
         return;
       }
       callPortalFn('publicQuoteLookup', {email: emailLower}).then(function(qres){
@@ -2822,12 +2869,12 @@ function performSignInLookup(contactRaw, lastNameInput){
           document.getElementById('lookupEmpty').style.display = 'block';
           showLookupFormAgain();
         }
-      }).catch(function(){
-        document.getElementById('lookupEmpty').style.display = 'block';
+      }).catch(function(err){
+        showLookupError(err);
         showLookupFormAgain();
       });
-    }).catch(function(){
-      document.getElementById('lookupEmpty').style.display = 'block';
+    }).catch(function(err){
+      showLookupError(err);
       showLookupFormAgain();
     });
     return;
@@ -2923,11 +2970,51 @@ function renderCustomerInvoicePage(raw, opts){
     token: opts.portalToken || getActivePortalToken() || '',
     lastName: opts.lastNameInput || ''
   }).then(function(res){
+    /* No invoice document. That is NOT the same as "no account": a customer
+       who has been added but not yet priced has a perfectly good record, and
+       portalLookup found it a moment ago. Telling them "we couldn't find an
+       account" at this point is simply wrong, and it locks them out of the
+       tabs — their colours, their contact details, their RSVP — over a bill
+       that does not exist yet.
+
+       So: if we arrived here with a confirmed customer record, carry on with a
+       zero-amount stand-in and let the balance card say there is nothing to pay
+       yet. Only fall through to the quote review when we genuinely have no
+       customer, which is the case that path was written for. */
+    var known = opts.knownRecord || null;
+    var noInvoiceYet = false;
     if(!res || !res.found){
-      card.classList.remove('show');
-      if(tabsLayout) tabsLayout.style.display = 'none';
-      tryShowQuoteReview(raw, opts);
-      return;
+      if(!known){
+        /* Not every route in here has already done a portalLookup — the phone
+           sign-in goes straight to the invoice. Ask once before concluding
+           there is no account, so a customer who simply has not been priced
+           yet is not turned away. */
+        return callPortalFn('portalLookup',
+            String(raw).indexOf('@') !== -1
+              ? {email: raw, lastName: opts.lastNameInput || ''}
+              : {phone: raw, lastName: opts.lastNameInput || ''})
+          .then(function(look){
+            if(look && look.found && look.record){
+              if(look.token) savePortalLogin(look.token);
+              return renderCustomerInvoicePage(raw, Object.assign({}, opts, {
+                knownRecord: look.record, skipLastNameCheck: true
+              }));
+            }
+            card.classList.remove('show');
+            if(tabsLayout) tabsLayout.style.display = 'none';
+            tryShowQuoteReview(raw, opts);
+          })
+          .catch(function(){
+            card.classList.remove('show');
+            if(tabsLayout) tabsLayout.style.display = 'none';
+            tryShowQuoteReview(raw, opts);
+          });
+      }
+      noInvoiceYet = true;
+      res = { found: true, record: {
+        name: known.name || '', phone: known.phone || '', email: known.email || '',
+        install: 0, removal: 0, deposit: 0, credits: 0, changeFees: 0
+      }};
     }
     document.getElementById('quoteReviewCard').classList.remove('show');
     document.getElementById('quoteResolvedMsg').style.display = 'none';
@@ -2965,16 +3052,31 @@ function renderCustomerInvoicePage(raw, opts){
     document.getElementById('infoPhone').value = record.phone ? formatPhoneDisplay(record.phone) : '';
     document.getElementById('infoEmail').value = record.email || '';
     var statusEl = document.getElementById('invStatus');
-    statusEl.textContent = isPaid ? 'Paid in Full' : 'Balance Due';
-    statusEl.style.background = isPaid ? '#E6F2EA' : '#FDECEA';
-    statusEl.style.color = isPaid ? '#2E6B3E' : '#E0574B';
+    statusEl.textContent = noInvoiceYet ? 'No Bill Yet' : (isPaid ? 'Paid in Full' : 'Balance Due');
+    statusEl.style.background = noInvoiceYet ? '#EAF1FA' : (isPaid ? '#E6F2EA' : '#FDECEA');
+    statusEl.style.color = noInvoiceYet ? '#2B5C8A' : (isPaid ? '#2E6B3E' : '#E0574B');
     document.getElementById('invAmount').textContent = fmt(totalDue);
+    renderInvoiceBreakdown(record, {
+      install: invInstall, removal: invRemoval, changeFees: invChangeFee,
+      credits: invCredits, deposit: invDeposit, totalDue: totalDue
+    });
+    renderLastPaymentNote(record);
+    renderScheduleStrip(currentJobAddressData || currentLookupRecord);
+    renderPortalRsvp();
 
-    document.getElementById('invPaidMsg').style.display = isPaid ? 'block' : 'none';
-    document.getElementById('payButtonsWrap').style.display = isPaid ? 'none' : 'block';
+    /* Nothing to pay and nothing to be paid up FROM — hide the "all paid up"
+       tick, the pay buttons and the tip box alike. Offering a $0.00 card
+       payment to somebody who has not been priced yet is worse than showing
+       them nothing. */
+    document.getElementById('invPaidMsg').style.display = (isPaid && !noInvoiceYet) ? 'block' : 'none';
+    document.getElementById('payButtonsWrap').style.display = (isPaid || noInvoiceYet) ? 'none' : 'block';
+    var noBillEl = document.getElementById('invNoBillYet');
+    if(noBillEl) noBillEl.style.display = noInvoiceYet ? 'block' : 'none';
 
     var tipRow = document.getElementById('invTipRow');
-    if(!isPaid){
+    if(noInvoiceYet){
+      tipRow.style.display = 'none';
+    } else if(!isPaid){
       currentServiceDue = totalDue;
       currentTipAmount = 0;
       tipRow.style.display = 'block';
@@ -2995,6 +3097,225 @@ function renderCustomerInvoicePage(raw, opts){
     showLookupFormAgain();
   });
   }
+}
+
+/* Break the balance down into the lines it is made of.
+ *
+ * The nightly invoice email has itemised this all along — installation,
+ * removal, each light-change fee with its reason, each credit with its reason —
+ * while the portal showed one number and no explanation. That gap is the
+ * cheapest phone call in the business to remove: "what is this charge?" is
+ * answered on screen instead of by ringing the office.
+ *
+ * Everything here already arrives through portalInvoice's INVOICE_READ_FIELDS
+ * whitelist. No new field is exposed to the browser to build this. */
+function renderInvoiceBreakdown(record, n){
+  var box = document.getElementById('invBreakdown');
+  if(!box) return;
+  var rows = [];
+
+  if(n.install > 0) rows.push(['Installation', fmt(n.install), '']);
+  if(n.removal > 0) rows.push(['Removal / takedown', fmt(n.removal), '']);
+
+  /* Fees and credits carry their own reasons. Showing the reason is the whole
+     point — a bare "-$25" prompts exactly the call this is meant to prevent. */
+  var feeNotes = Array.isArray(record.changeFeeNotes) ? record.changeFeeNotes : [];
+  if(feeNotes.length){
+    feeNotes.forEach(function(f){
+      rows.push([f.reason || 'Light change fee', fmt(Number(f.amount) || 0), '']);
+    });
+  } else if(n.changeFees > 0){
+    rows.push(['Light change fee', fmt(n.changeFees), '']);
+  }
+
+  var creditNotes = Array.isArray(record.creditNotes) ? record.creditNotes : [];
+  if(creditNotes.length){
+    creditNotes.forEach(function(c){
+      rows.push([c.reason || 'Credit', '−' + fmt(Number(c.amount) || 0), 'credit']);
+    });
+  } else if(n.credits > 0){
+    rows.push(['Credit', '−' + fmt(n.credits), 'credit']);
+  }
+
+  if(n.deposit > 0) rows.push(['Payments received', '−' + fmt(n.deposit), 'credit']);
+
+  // A single installation line and nothing else explains itself already.
+  if(rows.length < 2){ box.style.display = 'none'; box.innerHTML = ''; return; }
+
+  var html = rows.map(function(r){
+    var colour = r[2] === 'credit' ? ' style="color:#2E6B3E;"' : '';
+    return '<div class="invoice-line"><span>' + escapeHtmlPortal(r[0]) + '</span><span' + colour + '>' + r[1] + '</span></div>';
+  }).join('');
+  html += '<div class="invoice-line total"><span>' + (n.totalDue > 0 ? 'Balance due' : 'Balance') + '</span><span>' + fmt(n.totalDue) + '</span></div>';
+
+  box.innerHTML = html;
+  box.style.display = 'block';
+}
+
+/* "When are you coming?" and "did you get my payment?" — the two questions the
+ * office answers most often, both answerable from data already on the record.
+ *
+ * The schedule strip shows the DATE only. It deliberately never shows which
+ * crew or where in the day a house falls: that is internal, it changes, and
+ * publishing it turns one question into "why am I last?".
+ */
+function renderScheduleStrip(rec){
+  var strip = document.getElementById('portalScheduleStrip');
+  if(!strip) return;
+  if(!rec){ strip.style.display = 'none'; return; }
+
+  var when = rec.scheduledDate ? portalNiceDate(rec.scheduledDate) : '';
+  var text = '', bg = '#EAF1FA', bd = '#C3D8EC', fg = '#2B5C8A';
+
+  if(rec.removalDone){
+    text = '🎄 All done for this season — your lights have been taken down. Thank you!';
+    bg = '#E6F2EA'; bd = '#b8d9c2'; fg = '#2E6B3E';
+  } else if(rec.completed){
+    text = '✅ Installed' + (when ? ' on ' + when : '') + ' — we\'ll be back in January to take them down.';
+    bg = '#E6F2EA'; bd = '#b8d9c2'; fg = '#2E6B3E';
+  } else if(when){
+    text = '📅 Scheduled for ' + when + '. You don\'t need to be home, and we\'ll text if the weather moves us.';
+  } else if(String(rec.rsvpStatus || '') === 'no'){
+    strip.style.display = 'none';
+    return;
+  } else {
+    text = '📋 You\'re on the list for this season. We\'ll be in touch with your install date.';
+    bg = '#FDF6E7'; bd = '#EBD7A6'; fg = '#7A5C16';
+  }
+
+  strip.style.background = bg;
+  strip.style.border = '1px solid ' + bd;
+  strip.style.color = fg;
+  strip.textContent = text;
+  strip.style.display = 'block';
+}
+
+/* scheduledDate is stored as a plain YYYY-MM-DD string. new Date('2026-11-18')
+   parses as UTC midnight, which in Mountain Time is the previous evening — so
+   the customer would be told the 17th. Split it and build a local date. */
+function portalNiceDate(value){
+  try{
+    var s = String(value || '');
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+    var d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(s);
+    if(isNaN(d.getTime())) return s;
+    return d.toLocaleDateString([], {weekday:'long', month:'long', day:'numeric'});
+  } catch(e){ return String(value || ''); }
+}
+
+/* "Did you get my payment?" lastPaymentAt and lastPaymentMethod were written by
+   every payment path from the start and simply never sent to the browser. */
+function renderLastPaymentNote(record){
+  var el = document.getElementById('invLastPayment');
+  if(!el) return;
+  var when = record && record.lastPaymentAt;
+  if(!when){ el.style.display = 'none'; return; }
+  var d = when && when.toDate ? when.toDate()
+        : (when && when.seconds ? new Date(when.seconds * 1000) : new Date(when));
+  if(isNaN(d.getTime())){ el.style.display = 'none'; return; }
+  var how = ({paypal:'card', venmo:'Venmo', manual:'', check:'check', cash:'cash'})[record.lastPaymentMethod] || '';
+  el.textContent = '✓ We received your' + (how ? ' ' + how : '') + ' payment on ' +
+    d.toLocaleDateString([], {month:'long', day:'numeric', year:'numeric'}) + '.';
+  el.style.display = 'block';
+}
+
+/* RSVP from inside the portal.
+ *
+ * portalRsvp has always existed and always worked — it was simply only ever
+ * reachable from the link in the RSVP email. Somebody who deleted that email,
+ * or answered "no" in October and changed their mind in November, had to ring
+ * the office so a person could do something the app already does. Three
+ * buttons on the Changes tab, using the same callable and the same token. */
+function portalRsvpLabel(status){
+  if(status === 'yes') return "You're confirmed for this season. 🎄";
+  if(status === 'no') return "You've told us you're not having lights this season.";
+  if(status === 'backnextyear') return "You've told us you'll be back next year.";
+  return "You haven't told us yet.";
+}
+function renderPortalRsvp(){
+  var block = document.getElementById('portalRsvpBlock');
+  if(!block) return;
+  var rec = currentJobAddressData || currentLookupRecord || {};
+  var cur = document.getElementById('portalRsvpCurrent');
+  if(cur) cur.textContent = portalRsvpLabel(String(rec.rsvpStatus || ''));
+  block.querySelectorAll('[data-portalrsvp]').forEach(function(btn){
+    var isCurrent = btn.dataset.portalrsvp === String(rec.rsvpStatus || '');
+    btn.disabled = isCurrent;
+    btn.style.opacity = isCurrent ? '.5' : '';
+  });
+}
+document.addEventListener('click', function(e){
+  var btn = e.target.closest && e.target.closest('[data-portalrsvp]');
+  if(!btn) return;
+  var answer = btn.dataset.portalrsvp;
+  var statusEl = document.getElementById('portalRsvpStatus');
+  /* Saying "not this season" starts the recycling of their lights, so it is
+     worth one question rather than one mis-tap. */
+  if(answer === 'no' && !window.confirm("This tells us you're not having lights this season. Are you sure?")) return;
+  var token = getActivePortalToken();
+  if(!token){
+    if(statusEl) statusEl.textContent = "Please sign in again first, or call us at (801) 901-0011.";
+    return;
+  }
+  if(statusEl) statusEl.textContent = 'Saving…';
+  callPortalFn('portalRsvp', {token: token, response: answer}).then(function(res){
+    if(!res || !res.ok){
+      if(statusEl) statusEl.textContent = "That didn't save — please call or text us at (801) 901-0011.";
+      return;
+    }
+    if(currentJobAddressData) currentJobAddressData.rsvpStatus = answer;
+    if(currentLookupRecord) currentLookupRecord.rsvpStatus = answer;
+    renderPortalRsvp();
+    renderScheduleStrip(currentJobAddressData || currentLookupRecord);
+    if(statusEl) statusEl.textContent = 'Saved — thank you!';
+    setTimeout(function(){ if(statusEl) statusEl.textContent = ''; }, 3000);
+  }).catch(function(){
+    if(statusEl) statusEl.textContent = "That didn't save — please call or text us at (801) 901-0011.";
+  });
+});
+
+/* Show the sign-in failure the SERVER actually described.
+ *
+ * Every failure used to land in a bare .catch and print one fixed sentence —
+ * "we couldn't find an account matching that phone number and last name". The
+ * Cloud Function is more helpful than that: when the rate limiter trips it
+ * sends back "Too many sign-in attempts. Please wait 15 minutes, or call or
+ * text us…", and the browser threw that away and told the customer their
+ * details were wrong instead. They then try again, which is the one thing
+ * guaranteed not to work.
+ *
+ * Falls back to the original wording, so a failure with nothing useful in it
+ * reads exactly as it did before. */
+var LOOKUP_EMPTY_DEFAULT = null;
+function showLookupError(err){
+  var el = document.getElementById('lookupEmpty');
+  if(!el) return;
+  if(LOOKUP_EMPTY_DEFAULT === null) LOOKUP_EMPTY_DEFAULT = el.innerHTML;
+
+  var code = String((err && err.code) || '');
+  var msg = (err && err.message) ? String(err.message) : '';
+
+  if(code.indexOf('resource-exhausted') !== -1 || /too many/i.test(msg)){
+    // The server's own words — it names the wait and gives the phone number.
+    el.textContent = msg || "Too many sign-in attempts. Please wait 15 minutes, or call or text us at (801) 901-0011 and we'll help you out.";
+  } else if(code.indexOf('unavailable') !== -1 || code.indexOf('deadline') !== -1){
+    el.textContent = "We couldn't reach our system just then — check your connection and try again. If it keeps happening, call or text us at (801) 901-0011.";
+  } else {
+    /* A genuine no-match. Worth distinguishing the two halves: on a married or
+       changed name the phone is right and the surname is not, and "we have no
+       record of you" sends people away when a different name would have
+       worked. */
+    el.innerHTML = LOOKUP_EMPTY_DEFAULT;
+  }
+  el.style.display = 'block';
+}
+
+/* The portal builds strings by concatenation in a dozen places; reasons come
+   from staff-entered text, so they get escaped before they go near innerHTML. */
+function escapeHtmlPortal(s){
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 /* ---- Personalized portal link (no password needed) ---- */
@@ -3122,9 +3443,11 @@ function loadPortalByToken(token, extraOpts){
     if(!portalKey){ document.getElementById('lookupEmpty').style.display = 'block'; clearPortalLogin(); showLookupFormAgain(); return; }
     savePortalLogin(res.token || token);
     if(lookupFormWrap) lookupFormWrap.style.display = 'none';
-    renderCustomerInvoicePage(portalKey, Object.assign({skipLastNameCheck: true, portalToken: res.token || token}, extraOpts));
-  }).catch(function(){
-    document.getElementById('lookupEmpty').style.display = 'block';
+    // knownRecord: portalLookup just confirmed this customer exists, so a
+    // missing INVOICE must not be reported as a missing ACCOUNT.
+    renderCustomerInvoicePage(portalKey, Object.assign({skipLastNameCheck: true, portalToken: res.token || token, knownRecord: res.record || null}, extraOpts));
+  }).catch(function(err){
+    showLookupError(err);
     clearPortalLogin();
     showLookupFormAgain();
   });
@@ -3521,6 +3844,57 @@ function parseSequenceFromLightsDescription(text){
     .map(function(p){ return p === 'Cool White' ? 'Pure White' : p; })
     .filter(function(p){ return RC_VALID_COLORS.indexOf(p) !== -1; });
 }
+
+/* ⚠ THE PICKER LOSES INFORMATION, AND THAT USED TO COST THE CUSTOMER $30.
+ *
+ * parseSequenceFromLightsDescription above is lossy on purpose — it has to be,
+ * because the picker can only show the nine colours in RC_VALID_COLORS. It
+ * cuts everything after "(", renames "Cool White" to "Pure White", and drops
+ * any word it does not recognise.
+ *
+ * The office writes patterns in exactly the format it cuts: "Red, Green (every
+ * third bulb)". So a customer who opened this tab and pressed Save WITHOUT
+ * TOUCHING ANYTHING produced "Red, Green", which does not equal the stored
+ * "Red, Green (every third bulb)" — the save counted as a real change, the
+ * crew's instruction was destroyed, and a $30 light-change fee was added for a
+ * change the customer never made. Free text like "warm white all around"
+ * parsed to nothing at all, so the same silent save wiped the pattern outright
+ * and cleared the warehouse build flag with it.
+ *
+ * Three things stop that now:
+ *   1. rcLoadedSerialised — what the picker serialises to the instant it is
+ *      populated. If a save produces the same string, the customer changed
+ *      nothing, so nothing is written and nothing is charged.
+ *   2. rcDroppedDetail — the "(every third bulb)" the parser threw away, put
+ *      back on the end of a genuine change so the instruction survives.
+ *   3. rcUnparseableOriginal — set when the stored text held something real
+ *      that the picker could not show, so a genuine change can say out loud
+ *      what it is about to replace. */
+var rcLoadedDescription = '';
+var rcLoadedSerialised = null;   // null = picker has not been populated yet
+var rcDroppedDetail = '';
+var rcUnparseableOriginal = '';
+
+/* Serialise the picker exactly the way saveLightsPattern does, so "did this
+   change?" is answered by comparing like with like. */
+function rcSerialiseCurrent(){
+  var toggle = document.getElementById('rcSpecificPatternToggle');
+  var isSpecific = !!(toggle && toggle.checked);
+  return isSpecific ? rcSequence.join(', ') : rcSimpleColors.join(', ');
+}
+
+/* Called right after the picker is filled in from the customer's record. */
+function rcRememberLoadedState(originalText){
+  rcLoadedDescription = String(originalText || '');
+  var openParen = rcLoadedDescription.indexOf('(');
+  rcDroppedDetail = openParen !== -1 ? rcLoadedDescription.slice(openParen).trim() : '';
+  var parsed = parseSequenceFromLightsDescription(rcLoadedDescription);
+  var headText = rcLoadedDescription.split('(')[0].trim();
+  // Something was written here that the picker cannot represent — free text,
+  // a colour we do not offer, anything. Worth naming before replacing it.
+  rcUnparseableOriginal = (headText && !parsed.length) ? headText : '';
+  rcLoadedSerialised = rcSerialiseCurrent();
+}
 // The initial house-map lookup that normally sets currentJobAddressId runs in the background and
 // isn't awaited, so it can still be in flight when the customer hits Save. This re-checks directly
 // by phone so a save never silently no-ops just because of that timing race.
@@ -3561,15 +3935,51 @@ async function saveLightsPattern(){
     if(saveBtn) saveBtn.disabled = false;
     return;
   }
-  var isSpecific = document.getElementById('rcSpecificPatternToggle').checked;
-  var newLightsDescription = isSpecific ? rcSequence.join(', ') : rcSimpleColors.join(', ');
+  var picked = rcSerialiseCurrent();
+
+  /* Did the customer actually touch anything? Compared against what the PICKER
+     serialised to when it loaded — not against the stored text, which the
+     picker cannot always reproduce. Comparing against the stored text is what
+     charged people $30 for opening the tab and pressing Save. */
+  if(rcLoadedSerialised !== null && picked === rcLoadedSerialised){
+    statusEl.textContent = 'Nothing changed — no charge.';
+    setTimeout(function(){ statusEl.textContent = ''; }, 2500);
+    if(saveBtn) saveBtn.disabled = false;
+    return;
+  }
+
+  /* A real change. Put back the "(every third bulb)" style instruction the
+     picker had to cut, so a colour change does not quietly delete the crew's
+     note along with it. */
+  var newLightsDescription = picked;
+  if(newLightsDescription && rcDroppedDetail){
+    newLightsDescription = newLightsDescription + ' ' + rcDroppedDetail;
+  }
+
   var previousLights = (currentJobAddressData && currentJobAddressData.lightsDescription) ||
                        (currentLookupRecord && currentLookupRecord.lightsDescription) || '';
   var lightsActuallyChanged = newLightsDescription !== previousLights;
-  // Warn + confirm before an actual change, since it can add a $30 fee. Re-saving
-  // the same pattern (no real change) never charges, so it never prompts.
-  if(lightsActuallyChanged && newLightsDescription){
-    var ok = window.confirm('Changing your lights adds a one-time $30 change fee, and then gives you 48 hours to keep adjusting them for free. Do you want to continue?');
+
+  // Warn + confirm before an actual change, since it can add a $30 fee. Say
+  // plainly what is being replaced when we cannot show it in the picker, and
+  // never let an empty selection silently wipe a real pattern.
+  if(lightsActuallyChanged){
+    var msg = '';
+    if(!picked){
+      msg = 'You have not selected any colours, so saving now would leave your lights with no colours set — and nothing would go to the warehouse to be built.\n\n' +
+        (previousLights ? 'This would replace: "' + previousLights + '"\n\n' : '') +
+        'Are you sure?';
+    } else {
+      if(rcUnparseableOriginal){
+        msg += 'Your lights are currently written as:\n\n    "' + rcUnparseableOriginal + '"\n\n' +
+          'The colour picker cannot show that, so saving replaces it with what you have picked.\n\n';
+      }
+      if(rcDroppedDetail){
+        msg += 'Your note "' + rcDroppedDetail + '" will be kept.\n\n';
+      }
+      msg += 'Changing your lights adds a one-time $30 change fee, and then gives you 48 hours to keep adjusting them for free. Do you want to continue?';
+    }
+    var ok = window.confirm(msg);
     if(!ok){
       statusEl.textContent = '';
       if(saveBtn) saveBtn.disabled = false;
@@ -3584,6 +3994,12 @@ async function saveLightsPattern(){
     });
     if(currentLookupRecord) currentLookupRecord.lightsDescription = newLightsDescription;
     if(currentJobAddressData) currentJobAddressData.lightsDescription = newLightsDescription;
+    /* Move the baseline to what was just saved. Without this the picker still
+       compares against the state it loaded with, so pressing Save a second
+       time would look like another change and charge a second $30. */
+    rcLoadedDescription = newLightsDescription;
+    rcLoadedSerialised = picked;
+    rcUnparseableOriginal = '';
     statusEl.textContent = 'Saved!';
     setTimeout(function(){ statusEl.textContent = ''; }, 2000);
     showLightsFeeNote(saveRes && saveRes.lightFee);

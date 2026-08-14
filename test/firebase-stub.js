@@ -123,11 +123,24 @@ const FAKE_FUNCTIONS_MODULE = `
     };
   }
 
+  /* Must mirror portalInvoice in functions/index.js, which answers
+   *     { found: true, record: sanitizeInvoice(data) }
+   * — a NESTED record, and it takes the invoice key as "key".
+   *
+   * This used to return the invoice fields flat and read payload.invoiceKey,
+   * neither of which production does. index.html reads res.record, so every
+   * field came back undefined and the page rendered with an empty name and no
+   * amounts — a spec failure that looked like a bug in the page. Fixed
+   * 2026-08-14 (CLAUDE.md §9.13: the fixtures assert the shape production
+   * actually returns, or they assert nothing). */
   function invoice(payload) {
     const cust = payload.token ? F.byToken(payload.token) : null;
-    const key  = (cust && cust.invoiceKey) || payload.invoiceKey;
+    const key  = (cust && cust.invoiceKey) || payload.key || payload.invoiceKey;
     const inv  = key ? F.invoices[key] : null;
-    return inv ? Object.assign({}, inv) : { found: false };
+    if (!inv) return { found: false };
+    const record = Object.assign({}, inv);
+    delete record.found;          // "found" is the envelope, not a field
+    return { found: true, record: record };
   }
 
   const HANDLERS = {

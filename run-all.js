@@ -1607,6 +1607,185 @@ suite('11. Reliability pass');
 })();
 
 // =====================================================================
+suite('12. Season prep — customer portal (§3)');
+(function () {
+  const idx = read('index.html');
+  const fns = read('functions/index.js');
+
+  /* ---- 3.4 The Light Colors picker was charging $30 for nothing ----------
+   * THE WORST OF THIS BATCH, because it took money.
+   * parseSequenceFromLightsDescription is lossy by design — it cuts everything
+   * after "(", so the office's own "Red, Green (every third bulb)" came back as
+   * "Red, Green". saveLightsPattern then compared that against the STORED text,
+   * decided the customer had changed their lights, destroyed the crew's
+   * instruction and added a $30 fee — for opening the tab and pressing Save.
+   */
+  check('season', 'the light picker remembers what it loaded with',
+    /function rcRememberLoadedState/.test(idx) && /rcLoadedSerialised/.test(idx),
+    'without a baseline there is nothing to compare a "change" against');
+  check('season', 'saving an untouched picker changes nothing and charges nothing',
+    /picked === rcLoadedSerialised/.test(idx) && /Nothing changed — no charge/.test(idx),
+    'opening the tab and pressing Save added a $30 fee and wiped the pattern');
+  /* The "did anything change?" test must run BEFORE the fee confirm, and must
+     read the picker baseline rather than the stored text. Asserted by ORDER,
+     which is the thing that actually has to hold: an early return that happens
+     after the charge prompt is not an early return. */
+  check('season', 'the no-change check runs before the $30 prompt',
+    (function () {
+      const s = idx.replace(/\r/g, '');
+      const guard = s.indexOf('picked === rcLoadedSerialised');
+      const prompt = s.indexOf('Changing your lights adds a one-time $30 change fee');
+      return guard !== -1 && prompt !== -1 && guard < prompt;
+    })(),
+    'a customer who changed nothing must never reach the fee prompt at all');
+  check('season', 'a crew instruction in brackets survives a real colour change',
+    /rcDroppedDetail/.test(idx) && /newLightsDescription \+ ' ' \+ rcDroppedDetail/.test(idx),
+    '"(every third bulb)" was silently deleted whenever a customer changed colours');
+  check('season', 'an empty selection cannot silently wipe a real pattern',
+    /You have not selected any colours/.test(idx),
+    'free text parsed to nothing, so a save wiped it with no prompt at all');
+  check('season', 'a second save does not charge a second time',
+    /rcLoadedSerialised = picked;/.test(idx),
+    'the baseline has to move to what was just saved');
+  check('season', 'the colour swatches are a safe tap target',
+    !/class="rc-swatch"[^>]*width:32px/.test(idx),
+    'a mis-tap on this picker costs the customer $30');
+
+  /* ---- 3.1 / 3.2 / 3.3 the three call-deflectors ------------------------- */
+  check('season', 'the portal itemises the balance',
+    /function renderInvoiceBreakdown/.test(idx),
+    'the emailed invoice itemised all along; the portal showed one number');
+  check('season', 'fee and credit reasons are shown, not just amounts',
+    /changeFeeNotes/.test(idx) && /creditNotes/.test(idx),
+    'a bare "-$25" prompts exactly the call this is meant to prevent');
+  check('season', 'staff-entered reasons are escaped before reaching innerHTML',
+    /function escapeHtmlPortal/.test(idx) && /escapeHtmlPortal\(r\[0\]\)/.test(idx),
+    'reasons are free text typed by staff');
+  check('season', 'payment date and method are whitelisted for the portal',
+    /'lastPaymentAt', 'lastPaymentMethod'/.test(fns),
+    'both were written from the start and never sent, so "did you get my payment?" could not be answered');
+  check('season', 'the portal shows when a payment was received',
+    /function renderLastPaymentNote/.test(idx));
+  check('season', 'the schedule date is whitelisted for the portal',
+    /'scheduledDate', 'completed', 'removalDone'/.test(fns),
+    'the most-asked question of the season, answerable from the record all along');
+  check('season', 'the portal shows a schedule status strip',
+    /function renderScheduleStrip/.test(idx));
+  check('season', 'the crew and stop order are NEVER sent to the customer',
+    !/'assignedCrew'/.test(fns) && !/'stopOrder'/.test(fns),
+    'publishing those turns "when are you coming?" into "why am I last?"');
+  check('season', 'the schedule date is not shifted a day by UTC parsing',
+    /function portalNiceDate/.test(idx) && /new Date\(Number\(m\[1\]\), Number\(m\[2\]\) - 1, Number\(m\[3\]\)\)/.test(idx),
+    "new Date('2026-11-18') is UTC midnight — the evening before, in Mountain Time");
+
+  /* ---- 3.5 / 3.6 / 3.7 --------------------------------------------------- */
+  check('season', 'no invoice yet is not reported as no account',
+    /noInvoiceYet/.test(idx) && /knownRecord/.test(idx),
+    'a customer added before being priced was told "we couldn\'t find an account"');
+  check('season', 'a customer with no bill is not offered a $0.00 payment',
+    /\(isPaid \|\| noInvoiceYet\) \? 'none' : 'block'/.test(idx),
+    'offering a card payment to somebody with no bill is worse than showing nothing');
+  check('season', 'the sign-in error shows what the server actually said',
+    /function showLookupError/.test(idx) && /resource-exhausted/.test(idx),
+    '"too many attempts, wait 15 minutes" was thrown away and reported as a wrong name');
+  check('season', 'no sign-in failure is swallowed by a bare catch any more',
+    !/\}\)\.catch\(function\(\)\{\s*document\.getElementById\('lookupEmpty'\)/.test(idx.replace(/\r/g,'')),
+    'that is what threw the useful message away');
+  check('season', 'a signed-in customer can RSVP without the email',
+    /data-portalrsvp/.test(idx) && /callPortalFn\('portalRsvp', \{token: token, response: answer\}\)/.test(idx),
+    'portalRsvp was only ever reachable from the emailed link');
+  check('season', 'saying no this season asks first',
+    /answer === 'no' && !window\.confirm/.test(idx),
+    'that answer starts recycling their lights');
+
+  /* ---- 3.8 basics for an older customer base ----------------------------- */
+  check('season', 'the portal forms have real labels',
+    (idx.match(/<label for="/g) || []).length >= 8,
+    'zero label-for pairs in the whole file');
+  check('season', 'the portal forms autofill',
+    (idx.match(/autocomplete="/g) || []).length >= 8);
+  check('season', 'the phone fields open a number keypad',
+    /inputmode="tel"/.test(idx),
+    'type="text" with no inputmode opens the letter keyboard');
+  check('season', 'save results are announced to screen readers',
+    (idx.match(/aria-live="polite"/g) || []).length >= 5,
+    '"Saved!" was written into a div nothing announced');
+  check('season', 'the explanatory text is not the smallest thing on the page',
+    /\.form-note\{ font-size:14px/.test(idx),
+    'it carries the $30 fee warning, at 12.5px, to an older customer base');
+})();
+
+// =====================================================================
+suite('13. Season prep — crew portal (§4)');
+(function () {
+  const emp = read('employee.html');
+  const sw = read('sw-crew.js');
+
+  /* ---- 4.1 January had no crew screen at all, and a money landmine ------- */
+  check('season', 'the crew portal asks for removal routes',
+    /const types = \['install','fix','removal'\]/.test(emp),
+    'every day of January a crew saw "No route scheduled for this day"');
+  check('season', 'a removal Done writes removalDone, NOT completed',
+    /routeType === 'removal'\s*\?\s*\{removalDone: true/.test(emp),
+    'completed is what the nightly biller keys off — removals would re-bill the install');
+  check('season', 'the Done button knows which kind of route it is on',
+    /data-markdone="'\+stop\.id\+'" data-routetype="'\+type\+'"/.test(emp),
+    'without the type it cannot choose the right field, which is a money decision');
+  check('season', 'a taken-down house shows its own badge',
+    /Taken Down/.test(emp));
+
+  /* ---- 4.2 offline ------------------------------------------------------- */
+  check('season', 'the badge is painted before the server is awaited',
+    /renderStopStatus\(id, Object\.assign\(\{\}, stopDataCache\[id\] \|\| \{\}, updates, \{__optimistic: true\}\)\)/.test(emp),
+    'offline the acknowledgement never comes, so the tap looked like it did nothing');
+  check('season', 'there is an offline indicator',
+    /offlineBadge/.test(emp) && /window\.addEventListener\('offline'/.test(emp));
+
+  /* ---- 4.3 the offline story has to survive a reload --------------------- */
+  check('season', 'the service worker caches the Firebase modules',
+    /VENDOR_URLS/.test(sw) && /firebasejs\/10\.12\.2\/firebase-app\.js/.test(sw),
+    'a cached page whose app is three cross-origin modules is a shell that cannot boot');
+  check('season', 'those are the only cross-origin requests it touches',
+    /if \(VENDOR_URLS\.indexOf\(url\.href\) !== -1\)/.test(sw) && /url\.origin !== self\.location\.origin/.test(sw),
+    "Firestore's own traffic must still pass straight through");
+  check('season', 'the cache version was bumped with the change',
+    /hu-crew-shell-v4/.test(sw),
+    'without a bump the old cache stays on every phone');
+  check('season', 'the pinned module version matches the page',
+    (function () {
+      const m = /firebasejs\/(\d+\.\d+\.\d+)\/firebase-app\.js/.exec(sw);
+      return !!m && emp.indexOf('firebasejs/' + m[1] + '/firebase-app.js') !== -1;
+    })(),
+    'caching a version the page does not load is caching nothing');
+
+  /* ---- 4.4 to 4.8 -------------------------------------------------------- */
+  check('season', 'a failed detail lookup is visible, not silent',
+    /Couldn\\'t load this house\\'s details/.test(emp),
+    "the card rendered looking normal with the gate code and warnings missing");
+  check('season', 'the crew can call the customer from a stop',
+    /href="tel:/.test(emp),
+    'the number was frozen into every stop and never shown');
+  check('season', 'flagging an issue records what is wrong',
+    /fixNote: note/.test(emp),
+    'a flag holds up the payer\'s whole invoice, so one with no reason stops money moving');
+  check('season', 'an empty flag reason is refused',
+    /a flag with no reason cannot be acted on/.test(emp));
+  check('season', 'an unassigned person is not shown crew 1 route',
+    /return null;/.test(emp.slice(emp.indexOf('function crewFromConfig'), emp.indexOf('function crewFromConfig') + 600)) &&
+    /You are not on a crew for/.test(emp),
+    'they would work a real route belonging to somebody else');
+  check('season', 'the crew picks their name from a list, not a text box',
+    /data-whoname/.test(emp) && !/whoNameInput/.test(emp),
+    'first-name matching made the second Jose become the first, pay rate included');
+  check('season', 'finished stops can be hidden',
+    /routeHideDone/.test(emp) && /route-hide-done/.test(emp),
+    'the route never got shorter as the day went on');
+  check('season', 'Mark Done and Flag Issue are not a thumb-width apart',
+    /\.stop-actions\{ display:flex; gap:14px/.test(emp),
+    'they do opposite things and sat 8px apart on a phone used in gloves');
+})();
+
+// =====================================================================
 /* Header printed inside the async block below, so it appears above its own
    results rather than above an empty gap. */
 /*
