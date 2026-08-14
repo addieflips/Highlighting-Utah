@@ -28,7 +28,7 @@ index.html	Public site + the customer Member Portal
 admin.html	Office dashboard (~1.4MB; two inline scripts — a plain one and a <script type="module">, which is the app itself)
 js/money.js	The invoice and bin rules, pulled out of admin.html so they can be unit-tested (computeInvoiceStatus, statusClass, enrollmentYearOf, custInvoiceKey, cnBinsForFeet, fmtMoney, CN_DOUBLE_BIN_FEET). Imported by admin.html's module script — native browser modules, still no build step. ⚠ functions/index.js keeps its own copy of the invoice maths for the nightly run: change a rule in one and change it in the other, in the same push.
 employee.html	Crew/Warehouse Portal
-functions/index.js	Cloud Functions (Firebase v2, Blaze)
+functions/index.js	Cloud Functions (Firebase v2, Blaze). Node 22 runtime, firebase-functions 7.x, firebase-admin 13.x as of 2026-08-13. ⚠ Do NOT bump firebase-admin to 14 as a routine update: 14 removes the namespaced API (admin.firestore, admin.auth are undefined there) and this file uses it in ~30 places, including admin.firestore.FieldValue.increment on deposits and tips in the PayPal capture path. That migration to the modular API is its own job with its own testing. Keep engines.node in functions/package.json matching node-version in .github/workflows/deploy-functions.yml.
 firestore.rules / firestore.indexes.json	DB security + indexes
 run-all.js, quote-card.test.js	Test suite (see §3) — needs `npm install` once at repo root (installs jsdom; package.json/package-lock.json are committed)
 system-map.md	Plain-English map of the whole app — regenerate per §6
