@@ -719,6 +719,13 @@ if (JSDOM) {
       pricingHeader(c2).textContent.includes('$490.00'));
     check('render', 'priced quote — approval link shown',
       c2.querySelector('.quotelink-box').textContent.includes('qt_abc'));
+    /* Ported from quote-card.test.js when that file was retired (see the note
+       at the top of this suite). It was the ONE check in there with no
+       equivalent here, and the line is still live in the card: measured feet
+       times the per-foot rate, shown to the office before a price is set. */
+    check('render', 'estimated price line shown when feet are known',
+      c2.textContent.includes('Estimated Price'),
+      'estimatedFeet x perFootRate is what the office prices from');
     check('render', 'no Detail Form left on the card',
       list.textContent.indexOf('Detail Form') === -1 &&
       c2.querySelector('[data-savequotedetail]') === null);
@@ -1697,6 +1704,27 @@ suite('12. Season prep — customer portal (§3)');
   check('season', 'saying no this season asks first',
     /answer === 'no' && !window\.confirm/.test(idx),
     'that answer starts recycling their lights');
+
+  /* ---- t17: a pending quote must reach a customer who already has a bill --
+   * The approve/decline card existed, but the only path that rendered it ran
+   * when portalInvoice found NOTHING — so anyone who had ever been billed
+   * could not see a new quote, and the only way to approve one was the emailed
+   * link. Delete the email and you had to telephone. */
+  check('season', 'a signed-in customer is offered a pending quote',
+    /function offerPendingQuote/.test(idx) && /offerPendingQuote\(raw\);/.test(idx),
+    'the quote card only rendered for someone who was not yet a customer');
+  check('season', 'an already-answered quote is not offered again',
+    /d\.approvalStatus === 'approved' \|\| d\.approvalStatus === 'declined'/.test(
+      idx.slice(idx.indexOf('function offerPendingQuote'), idx.indexOf('function offerPendingQuote') + 1800)),
+    'showing Approve for a settled quote is a second bite at a decision already made');
+
+  /* ---- the PayPal buttons must survive an SDK without FUNDING ------------
+   * index.html guarded FUNDING.CARD but not FUNDING.PAYPAL, so an SDK that did
+   * not expose FUNDING threw AFTER the card button rendered and killed the
+   * rest — leaving the customer an empty PayPal area and a console error. */
+  check('season', 'the PayPal button does not assume FUNDING exists',
+    /if\(window\.paypal\.FUNDING && window\.paypal\.FUNDING\.PAYPAL\)\{/.test(idx),
+    'an unguarded FUNDING.PAYPAL read leaves the customer with no way to pay');
 
   /* ---- 3.8 basics for an older customer base ----------------------------- */
   check('season', 'the portal forms have real labels',

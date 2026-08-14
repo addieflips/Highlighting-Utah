@@ -3063,6 +3063,12 @@ function renderCustomerInvoicePage(raw, opts){
     renderLastPaymentNote(record);
     renderScheduleStrip(currentJobAddressData || currentLookupRecord);
     renderPortalRsvp();
+    /* A quote waiting on this customer has to be offered even though they are
+       already a customer with an invoice. tryShowQuoteReview only ran when
+       portalInvoice found NOTHING, so anyone who had ever been billed could not
+       see, let alone approve, a new quote — the approve/decline flow existed
+       only on the emailed link. That is checklist test 17. */
+    offerPendingQuote(raw);
 
     /* Nothing to pay and nothing to be paid up FROM — hide the "all paid up"
        tick, the pay buttons and the tip box alike. Offering a $0.00 card
@@ -3316,6 +3322,54 @@ function escapeHtmlPortal(s){
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;')
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/* Offer a pending quote to a customer who is ALREADY signed in.
+ *
+ * tryShowQuoteReview below is the same screen, but it was only ever reached
+ * when portalInvoice came back empty — i.e. only for someone who was not yet a
+ * customer. Anyone who had ever been billed therefore could not see a new
+ * quote at all, and the only way to approve one was the link in the email.
+ * Delete that email and you had to telephone. This shows the same card,
+ * underneath their account, when there is genuinely something waiting.
+ *
+ * Deliberately quiet: no quote, or a quote already answered, renders nothing.
+ */
+function offerPendingQuote(raw){
+  var key = String(raw || '').trim();
+  if(!key) return;
+  callPortalFn('publicQuoteLookup', key.indexOf('@') !== -1 ? {email: key} : {phone: key})
+    .then(function(qres){
+      var pending = null;
+      ((qres && qres.quotes) || []).forEach(function(entry){
+        if(pending) return;
+        var d = entry.data || {};
+        // Priced, and not yet answered. An approved/declined/maybe quote is
+        // settled — showing an Approve button for it would be a second bite.
+        if(typeof d.quotedPrice !== 'number') return;
+        if(d.approvalStatus === 'approved' || d.approvalStatus === 'declined' ||
+           d.approvalStatus === 'maybe_next_year') return;
+        pending = {id: entry.id, data: d};
+      });
+      if(!pending) return;
+
+      currentQuoteId = pending.id;
+      currentQuoteData = pending.data;
+      var card = document.getElementById('quoteReviewCard');
+      if(!card) return;
+      document.getElementById('quoteAddressDisplay').textContent = pending.data.address || '—';
+      document.getElementById('quoteColorsDisplay').textContent = (pending.data.lightColors || []).join(', ') || '—';
+      var timingRow = document.getElementById('quoteTimingRow');
+      if(pending.data.installPreference){
+        timingRow.style.display = 'flex';
+        document.getElementById('quoteTimingDisplay').textContent = pending.data.installPreference;
+      } else {
+        timingRow.style.display = 'none';
+      }
+      document.getElementById('quotePriceAmount').textContent = fmt(pending.data.quotedPrice);
+      card.classList.add('show');
+    })
+    .catch(function(){ /* no quote to offer is the normal case, not an error */ });
 }
 
 /* ---- Personalized portal link (no password needed) ---- */
@@ -3803,10 +3857,19 @@ function renderPaypalButtons(){
     if(cardBtn.isEligible()) cardBtn.render('#paypal-card-button-container');
     else cardContainer.style.display = 'none';
   }
-  var ppBtn = window.paypal.Buttons(Object.assign({
-    fundingSource: window.paypal.FUNDING.PAYPAL,
+  /* fundingSource is set only when the SDK actually exposes FUNDING. The card
+     block above already guards it; this one did not, so `window.paypal.FUNDING`
+     coming back undefined threw here — AFTER the card button had rendered — and
+     killed the rest of this function. The customer was left with an empty
+     PayPal area and nothing but a console error to say why. Omitting
+     fundingSource is a valid call: the SDK then renders its default button. */
+  var ppOpts = Object.assign({
     style: { layout: 'vertical', color: 'gold', label: 'paypal' }
-  }, ppConfig));
+  }, ppConfig);
+  if(window.paypal.FUNDING && window.paypal.FUNDING.PAYPAL){
+    ppOpts.fundingSource = window.paypal.FUNDING.PAYPAL;
+  }
+  var ppBtn = window.paypal.Buttons(ppOpts);
   if(ppBtn.isEligible()) ppBtn.render('#paypal-button-container');
 }
 document.querySelectorAll('.tip-option-btn').forEach(function(btn){

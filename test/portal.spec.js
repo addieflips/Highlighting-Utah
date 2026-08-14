@@ -194,13 +194,23 @@ test.describe('Member Portal', () => {
       }
     });
 
-    /* ⚠ EXPECTED TO FAIL — this is checklist test 17, a KNOWN BUG: "Pending-quote
-     * approve/decline view does not show." Searching index.html finds no
-     * portal-side quote review at all; the approve/decline flow only exists on
-     * the emailed link. This spec stays red until that view is built. Do NOT
-     * weaken it to make the suite green (CLAUDE.md §9.6). */
+    /* FIXED 2026-08-14. This was checklist test 17: "Pending-quote
+     * approve/decline view does not show." The card and its buttons did exist,
+     * but the only path that rendered them ran when portalInvoice found NOTHING
+     * — so anyone who had ever been billed could not see a new quote at all,
+     * and the only way to approve one was the link in the email. index.html now
+     * calls offerPendingQuote() after the account renders.
+     *
+     * The decline matcher names the button as it is actually written: "Not
+     * Right Now". It was /decline/i, which never matched anything in the page.
+     * That is the assertion being made CORRECT, not weakened — it still
+     * requires a visible way to decline, and it still fails if that button
+     * disappears. It was deliberately NOT "fixed" by bolting
+     * aria-label="Decline" onto the button: the accessible name would then no
+     * longer contain the visible text, which breaks WCAG 2.5.3 (Label in Name)
+     * for the exact screen-reader users §3.8 was about. */
     await expect(page.getByRole('button', { name: /approve|accept/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /decline/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /not right now|decline/i })).toBeVisible();
 
     stub.assertNoRealCalls();
   });

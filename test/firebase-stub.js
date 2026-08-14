@@ -24,7 +24,7 @@
  * than no test, so this must never be softened into a warning.
  */
 
-const { CUSTOMERS, INVOICES, SETTINGS, FROZEN_NOW,
+const { CUSTOMERS, INVOICES, QUOTES, SETTINGS, FROZEN_NOW,
         customerByToken, customerByContact } = require('./fixtures');
 
 /* Hosts a test must never reach. Matched as substrings against the URL. */
@@ -143,9 +143,23 @@ const FAKE_FUNCTIONS_MODULE = `
     return { found: true, record: record };
   }
 
+  /* Mirrors publicQuoteLookup in functions/index.js: the quotes collection is
+   * not publicly readable, so the portal asks the server for the quotes
+   * matching one phone or email and gets back { quotes: [{id, data}] }.
+   * Faking it matters beyond t17 — an unfaked callable rejects, and the portal
+   * swallows that in a .catch, so a missing fake looked exactly like "this
+   * customer has no quote". */
+  function publicQuoteLookup(payload) {
+    const key = payload.phone
+      ? String(payload.phone).replace(/\\D/g, '')
+      : String(payload.email || '').toLowerCase().trim();
+    return { quotes: (key && F.quotes[key]) || [] };
+  }
+
   const HANDLERS = {
     portalLookup:  lookup,
     portalInvoice: invoice,
+    publicQuoteLookup: publicQuoteLookup,
     portalRsvp:    p => ({ ok: true, rsvpStatus: p && p.answer }),
     portalSave:    () => ({ ok: true, saved: true }),
 
@@ -188,6 +202,13 @@ const FAKE_FUNCTIONS_MODULE = `
 const FAKE_PAYPAL_SDK = `
   window.__HU_PAYPAL_LOADED__ = true;
   window.paypal = {
+    /* The real SDK exposes FUNDING, and index.html reads FUNDING.CARD and
+     * FUNDING.PAYPAL to render the two buttons separately. Leaving it out made
+     * renderPaypalButtons() throw on the PayPal one, so the container stayed
+     * EMPTY and t11 failed looking exactly like "the page never renders a
+     * button" — a page bug, when the fake was simply not the shape of the
+     * thing it replaces. */
+    FUNDING: { CARD: 'card', PAYPAL: 'paypal', VENMO: 'venmo' },
     Buttons: function (opts) {
       window.__HU_PAYPAL_OPTS__ = opts || {};
       return {
@@ -229,6 +250,7 @@ async function installFirebaseStub(page, overrides = {}) {
   const fixtures = {
     settings: Object.assign({}, SETTINGS, overrides.settings || {}),
     invoices: Object.assign({}, INVOICES, overrides.invoices || {}),
+    quotes:   Object.assign({}, QUOTES,   overrides.quotes   || {}),
     frozenNow: FROZEN_NOW.toISOString()
   };
 
