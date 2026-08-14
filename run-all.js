@@ -1186,24 +1186,30 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
   }
   const src = fnSrc.slice(start, end + 4);
 
-  /* portalRsvp's 'no'/'back next year' path calls removeCustomerFromUpcomingRoutes,
-     which lives outside the slice above. An earlier version of this suite pasted
-     the REAL helper in alongside it — but a real function declaration shadows the
-     stub below, so sweptFromRoutes stayed empty and the two "clears them off built
-     routes" checks could never pass no matter what portalRsvp did. The stub is the
-     point here: this suite proves portalRsvp CALLS the sweep. What the sweep itself
-     does (including leaving past routes alone) is proved by executing the real
-     helper in suite 11. */
-  const fullSrc = src;
+  // portalRsvp's own 'no'/'back next year' path (added after this suite was
+  // first written) calls removeCustomerFromUpcomingRoutes directly, which in
+  // turn calls todayStrInDenver — both live outside the sliced portalRsvp
+  // body above, so they have to be pulled in too or the sandboxed call throws
+  // a bare ReferenceError the moment either RSVP answer runs for real.
+  // extractFn matches from the "function" keyword, dropping any "async" that
+  // preceded it — has to go back on, or an extracted async body's own await
+  // is a syntax error the moment it actually runs.
+  const removeFromRoutesSrc = extractFn(fnSrc, 'removeCustomerFromUpcomingRoutes');
+  const todayStrSrc = extractFn(fnSrc, 'todayStrInDenver');
+  check('flow', 'removeCustomerFromUpcomingRoutes and todayStrInDenver found in functions/index.js',
+    !!removeFromRoutesSrc && !!todayStrSrc,
+    'renamed or removed — update this test rather than deleting it, or portalRsvp\'s no/back-next-year path cannot run here');
+  const fullSrc = [todayStrSrc, removeFromRoutesSrc && ('async ' + removeFromRoutesSrc), src]
+    .filter(Boolean).join('\n');
 
   // Fake Firestore + callable wrapper. update() merges what would have been
   // written; add() records Inbox notes with the collection they landed in;
   // get() backs removeCustomerFromUpcomingRoutes's own route scan — empty on
   // purpose, since no test here needs a real route to already exist.
-  function runRsvp(record, response) {
+  function runRsvp(record, response, routes) {
     const written = {};
     const added = [];
-    const sweptFromRoutes = [];
+    const routeWrites = [];
     const ctx = {
       exports: {},
       onCall: (opts, handler) => handler,
@@ -1222,7 +1228,10 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
         collection: (name) => ({
           doc: () => ({ update: async (u) => { Object.assign(written, u); } }),
           add: async (m) => { added.push(Object.assign({ __col: name }, m)); },
-          get: async () => ({ docs: [] })
+          get: async () => ({ docs: (routes || []).map(r => ({
+            data: () => r,
+            ref: { update: async (u) => { routeWrites.push({ id: r.id, stops: u.stops }); } }
+          })) })
         })
       },
       console
@@ -1230,7 +1239,7 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
     const names = Object.keys(ctx);
     new Function(...names, fullSrc)(...names.map(n => ctx[n]));
     return ctx.exports.portalRsvp({ data: { token: 't', response } })
-      .then(res => ({ res, written, added, sweptFromRoutes }));
+      .then(res => ({ res, written, added, routeWrites }));
   }
 
   const notes = a => a.filter(m => m.__col === 'messages' && m.topic === 'Rejoined After Recycling');
@@ -1267,18 +1276,28 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
       declining.written.needsLightRecycle === true && declining.written.needsLightBuild === undefined,
       'declines would stop reaching the recycle queue and customer numbers would never come back');
 
-    /* ⚠ portalRsvp carries TWO behaviours that were built by two different
-       sessions and merged on 2026-08-14: flagging the lights for recycling
-       (above) and sweeping the customer off any route a crew has already been
-       handed. A merge is exactly where one of a pair like this gets dropped
-       silently, so this asserts they BOTH still fire on the same "no". */
-    check('flow', 'a "no" both recycles the lights AND clears them off built routes',
-      declining.written.needsLightRecycle === true &&
-      declining.sweptFromRoutes.length === 1,
-      'one of the two halves was lost — a declining customer either keeps their lights ' +
-      'reserved, or has a crew turn up to install lights they said no to');
-    check('flow', 'back next year also clears them off built routes',
-      (await runRsvp({ name: 'Sitting Out 2', rsvpStatus: '', needsLightRecycle: false }, 'backnextyear')).sweptFromRoutes.length === 1,
+    /* ⚠ portalRsvp carries TWO behaviours built by two different sessions and
+       merged together: flagging the lights for recycling (above), and sweeping
+       the customer off any route a crew already holds. A merge is exactly
+       where one of a pair like that gets dropped in silence — it has already
+       been lost once — so assert BOTH really happen on the same "no".
+       Runs the REAL removeCustomerFromUpcomingRoutes against a real upcoming
+       route, not a stub, so it proves the stop is actually taken off. */
+    const upcoming = [{ id: 'r-future', date: '2999-01-01',
+                        stops: [{ id: 'h1', name: 'Decliner' }, { id: 'other', name: 'Neighbour' }] }];
+    const sweptNo = await runRsvp({ name: 'Decliner', rsvpStatus: '', needsLightRecycle: false }, 'no', upcoming);
+    check('flow', 'a "no" both recycles the lights AND clears them off a built route',
+      sweptNo.written.needsLightRecycle === true &&
+      sweptNo.routeWrites.length === 1 &&
+      !sweptNo.routeWrites[0].stops.some(st => st.id === 'h1'),
+      'one half was lost — either their lights stay reserved, or a crew turns up to install ' +
+      'lights they said no to');
+    check('flow', 'the sweep leaves everyone else on that route alone',
+      sweptNo.routeWrites[0] && sweptNo.routeWrites[0].stops.some(st => st.id === 'other'),
+      'clearing one customer must not empty the whole day for the crew');
+    check('flow', 'back next year also clears them off a built route',
+      (await runRsvp({ name: 'Sitting Out 2', rsvpStatus: '', needsLightRecycle: false }, 'backnextyear',
+        [{ id: 'r2', date: '2999-01-01', stops: [{ id: 'h1' }] }])).routeWrites.length === 1,
       'sitting the season out must not leave them on a route a crew is already holding');
 
     // 4. Back next year is a distinct third answer, never a soft no.
@@ -1662,6 +1681,15 @@ suite('8. Quote decline / maybe next year');
     'they would still show up on a route the crew has already been handed — the actual sweep logic ' +
     '(and that past routes are left alone) is proved by executing removeCustomerFromUpcomingRoutes ' +
     'directly, see suite 11');
+
+  // Kept from the other resolution of this same conflict: their check proves the
+  // guard still exists inside the helper, but not that anything still CALLS the
+  // helper. Deleting the delegation would leave that check green with the sweep
+  // never running.
+  check('quoteresp', 'sitting out the season still delegates the route sweep',
+    /return await removeCustomerFromUpcomingRoutes\(customerId\)/.test(
+      extractFn(fns, 'pullCustomerFromSeason') || ''),
+    'the season pull must still clear their upcoming routes, wherever that logic lives');
 
   // --- money is not touched ---------------------------------------------
   const pull = fns.slice(fns.indexOf('async function pullCustomerFromSeason'),
