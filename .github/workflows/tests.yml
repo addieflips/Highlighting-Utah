@@ -1,0 +1,99 @@
+# Runs the test suites on every push and pull request.
+#
+# TWO JOBS, deliberately separate:
+#
+#   fast-tests  — gate A, selector contract, money parity, run-all.js.
+#                 No browser, ~5 seconds, and it BLOCKS the functions deploy
+#                 (see deploy-functions.yml). This is the real gate.
+#
+#   browser-tests — Playwright. Slower, needs a 150MB browser download, and
+#                 is currently EXPECTED TO FAIL: five of its specs target the
+#                 five known Member Portal bugs (t9, t11, t14, t15, t17), so
+#                 they are red on purpose until those bugs are fixed.
+#                 continue-on-error keeps that honest redness visible without
+#                 blocking every unrelated change. FLIP IT OFF (delete the
+#                 continue-on-error line) the moment those specs go green —
+#                 a permanently-allowed-to-fail job is one nobody reads.
+#
+# Netlify is NOT gated by this. It publishes the HTML from main regardless of
+# whether this run passed — that was a deliberate decision (CLAUDE.md §9.10 and
+# the Phase 1 discussion). Netlify's own instant rollback is the safety net for
+# the website; this workflow is the safety net for the functions deploy.
+
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch: {}
+
+concurrency:
+  # One run per branch. A newer push makes an in-flight run irrelevant.
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fast-tests:
+    name: Fast suite (no browser)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      # Matches the Node used by the functions deploy workflow so both CI jobs
+      # agree about the language they are checking.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # npm ci, not npm install — it installs exactly what package-lock.json
+      # pins and FAILS if the lock and package.json have drifted apart. That
+      # drift is worth failing on.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run the fast suite
+        run: npm test
+
+  browser-tests:
+    name: Browser tests (Playwright)
+    runs-on: ubuntu-latest
+    # See the header: red on purpose until the five known portal bugs are fixed.
+    continue-on-error: true
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # --with-deps also installs the system libraries headless Chromium needs
+      # on a bare Ubuntu runner. Without it the browser installs but won't launch.
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run the browser specs
+        run: npm run test:browser
+
+      # Traces and failure screenshots, kept only when something failed —
+      # this is how you see what a red run actually looked like without
+      # reproducing it locally.
+      - name: Upload failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+          if-no-files-found: ignore
