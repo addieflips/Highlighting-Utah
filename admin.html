@@ -4049,6 +4049,7 @@ onAuthStateChanged(auth, function(user){
     appEl.classList.add('show');
     document.getElementById('whoAmI').textContent = user.email;
     renderUserChip(user);
+    restoreLastAdminPanel();
     loadUserPrefs(user).then(function(){ setTimeout(initData, 0); });
   } else {
     loginScreen.style.display = 'flex';
@@ -4057,6 +4058,9 @@ onAuthStateChanged(auth, function(user){
 });
 
 /* ---------------- Sidebar nav ---------------- */
+/* Remembered per browser tab (sessionStorage) so a refresh reopens whatever
+   panel was on screen instead of always falling back to the panel that's
+   marked active in the static HTML (Quote Requests). */
 function switchToAdminPanel(panelName){
   document.querySelectorAll('.nav-item[data-panel]').forEach(b=>b.classList.remove('active'));
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
@@ -4066,6 +4070,12 @@ function switchToAdminPanel(panelName){
   if(panelEl) panelEl.classList.add('active');
   document.getElementById('sidebar').classList.remove('open');
   renderFavoritesSection();
+  try{ sessionStorage.setItem('huLastPanel', panelName); }catch(e){}
+}
+function restoreLastAdminPanel(){
+  let saved = null;
+  try{ saved = sessionStorage.getItem('huLastPanel'); }catch(e){}
+  if(saved && document.querySelector('.nav-item[data-panel="'+saved+'"]')) switchToAdminPanel(saved);
 }
 document.querySelectorAll('.nav-item[data-panel]').forEach(function(btn){
   btn.addEventListener('click', function(e){
@@ -20830,6 +20840,7 @@ const TEST_SEED = [
   [190, 'Nightly Automation', 'A cancelled house does not hold up its payer\'s bill', 'AUTOMATED - run-all.js checks that the payer invoice resync EXCLUDES RSVP-no houses from the total, and separately that it does not zero an invoice when every house opted out. What is left is confirming a real payer with one cancelled house still gets billed correctly for the rest.\n\n1. Log into admin (the private office dashboard).\n2. Set up two test houses sharing one phone number.\n3. Mark ONE of the two houses as RSVP \'No\' (not coming this season).\n4. Mark the OTHER house \'Done\'.\n5. Look at the menu on the left and click \'Invoices\', then the \'Nightly Automation\' tab, and press \'Send Invoices Now\'.\n6. Check that customer\'s email and invoice.', 'An invoice email should go out for the one active house, even though the other house on the same phone said no this season. The cancelled house should not block the bill and should not be included in the invoice total.', 2, '', '', 'The exclusion rule is automated. Reworded to check one real payer with a cancelled house.'],
   [191, 'Nightly Automation', 'A house needing a fix holds up its payer\'s bill', '1. Log into admin (the private office dashboard).\n2. Set up two test houses sharing one phone number, both marked \'Done\'.\n3. Flag ONE of the two houses as needing a fix (needsFix).\n4. Look at the menu on the left and click \'Invoices\', then the \'Nightly Automation\' tab, and press \'Send Invoices Now\'.\n5. Check that customer\'s email and invoice, then clear the needs-fix flag and press \'Send Invoices Now\' again.', 'No invoice email should go out while either house on that phone needs a fix, even though both are marked Done. Once the fix flag is cleared and the button is pressed again, the invoice should send with both house prices included.', 1, '', '', ''],
   [192, 'Invoices', 'Editing a customer does not resurrect a cancelled house\'s price', 'AUTOMATED - this is the same resync rule as test 190 and run-all.js covers it: a cancelled house is excluded from the payer total, so editing the customer cannot bring its price back. What is left is doing the edit once on a real record and confirming the total did not move.\n\n1. Log into admin (the private office dashboard).\n2. Set up two test houses sharing one phone number. Mark ONE as RSVP \'No\'.\n3. Get that payer billed for the other (active) house only — for example through \'Send Invoices Now\' or by editing their invoice directly — and note the invoice total.\n4. Open \'Edit Customer\' on the active house and change something small (like a note), then save.\n5. Check that payer\'s invoice total again.', 'Saving an edit on the active house must not add the cancelled house\'s price back onto the invoice. The invoice total after step 5 should be exactly what it was before the edit — only the active house\'s price.', 2, '', '', 'Covered by the same automated resync checks as test 190. Reworded to check one real edit.'],
+  [193, 'Admin', 'Refreshing the page keeps you on the same panel', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click on any panel that is NOT \'Quote Requests\' — for example click \'Customers\', then \'All Customers\'.\n3. Refresh the whole browser page (reload it).', 'After the page finishes reloading, you should land back on the same panel you were looking at (for example, \'All Customers\'), not automatically jump back to \'Quote Requests\'.', 1, '', '', ''],
 ];
 
 function attachDeleteHandlers(container){
