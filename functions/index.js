@@ -862,35 +862,48 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
   let lightFeeInfo = null;
   if (section === 'lights' && oldKey && updates.lightsDescription !== undefined) {
     const changed = updates.lightsDescription !== (oldData.lightsDescription || '');
+    const FEE = 30;
+    const WINDOW_MS = 48 * 60 * 60 * 1000;
+    const nowMs = Date.now();
+    let withinFreeWindow = false;
     try {
       const invRef = db.collection('invoices').doc(oldKey);
-      const invSnap = await invRef.get();
-      const inv = invSnap.exists ? invSnap.data() : {};
-      const FEE = 30;
-      const WINDOW_MS = 48 * 60 * 60 * 1000;
-      const nowMs = Date.now();
-      const lastAt = inv.lastLightChangeFeeAt && inv.lastLightChangeFeeAt.toMillis
-        ? inv.lastLightChangeFeeAt.toMillis() : 0;
-      const withinFreeWindow = lastAt > 0 && (nowMs - lastAt) <= WINDOW_MS;
+      /* Read-decide-write, all inside one transaction. Two near-simultaneous
+         portalSave('lights', ...) calls (a client-side retry, or a double
+         form-submit before the Save button's disabled state takes effect)
+         could otherwise both read the same pre-charge changeFees value and
+         each add $30, double-charging one intended change — recordPaypalPayment
+         already guards against exactly this class of race for payments; this
+         had no equivalent backstop. withinFreeWindow and lightFeeInfo are
+         recomputed from scratch on every attempt, so a Firestore-triggered
+         retry on contention can't carry over a stale decision from a
+         previous attempt. */
+      await db.runTransaction(async (t) => {
+        const invSnap = await t.get(invRef);
+        const inv = invSnap.exists ? invSnap.data() : {};
+        const lastAt = inv.lastLightChangeFeeAt && inv.lastLightChangeFeeAt.toMillis
+          ? inv.lastLightChangeFeeAt.toMillis() : 0;
+        withinFreeWindow = lastAt > 0 && (nowMs - lastAt) <= WINDOW_MS;
 
-      const invWrite = { lightsDescription: updates.lightsDescription };
-      // A real change to a non-empty pattern is the only thing that can charge.
-      if (changed && updates.lightsDescription) {
-        if (!withinFreeWindow) {
-          const newFees = (Number(inv.changeFees) || 0) + FEE;
-          invWrite.changeFees = newFees;
-          invWrite.changeFeeNotes = (Array.isArray(inv.changeFeeNotes) ? inv.changeFeeNotes : [])
-            .concat([{ amount: FEE, reason: 'Light color change', date: new Date().toISOString() }]);
-          invWrite.lastLightChangeFeeAt = admin.firestore.Timestamp.fromMillis(nowMs);
-          invWrite.status = computeInvoiceStatusServer(inv.install, inv.removal, inv.deposit, inv.credits, newFees);
-          invWrite.updatedAt = admin.firestore.FieldValue.serverTimestamp();
-          lightFeeInfo = { feeCharged: true, amount: FEE, freeWindowEndsAt: nowMs + WINDOW_MS };
-        } else {
-          // Still inside the paid 48-hour window — change is free.
-          lightFeeInfo = { feeCharged: false, amount: 0, freeWindowEndsAt: lastAt + WINDOW_MS };
+        const invWrite = { lightsDescription: updates.lightsDescription };
+        // A real change to a non-empty pattern is the only thing that can charge.
+        if (changed && updates.lightsDescription) {
+          if (!withinFreeWindow) {
+            const newFees = (Number(inv.changeFees) || 0) + FEE;
+            invWrite.changeFees = newFees;
+            invWrite.changeFeeNotes = (Array.isArray(inv.changeFeeNotes) ? inv.changeFeeNotes : [])
+              .concat([{ amount: FEE, reason: 'Light color change', date: new Date().toISOString() }]);
+            invWrite.lastLightChangeFeeAt = admin.firestore.Timestamp.fromMillis(nowMs);
+            invWrite.status = computeInvoiceStatusServer(inv.install, inv.removal, inv.deposit, inv.credits, newFees);
+            invWrite.updatedAt = admin.firestore.FieldValue.serverTimestamp();
+            lightFeeInfo = { feeCharged: true, amount: FEE, freeWindowEndsAt: nowMs + WINDOW_MS };
+          } else {
+            // Still inside the paid 48-hour window — change is free.
+            lightFeeInfo = { feeCharged: false, amount: 0, freeWindowEndsAt: lastAt + WINDOW_MS };
+          }
         }
-      }
-      await invRef.set(invWrite, { merge: true });
+        t.set(invRef, invWrite, { merge: true });
+      });
 
       // Assignment lock + reassign flag. A genuine change starts (or sits inside)
       // the 48-hour window during which the pattern may still move, so the office
@@ -1514,7 +1527,20 @@ exports.portalInvoice = onCall({ cors: true }, async (request) => {
 
   if (!authorized) return { found: false };
 
-  return { found: true, record: sanitizeInvoice(data) };
+  const record = sanitizeInvoice(data);
+  /* Computed, not copied via INVOICE_READ_FIELDS — lastLightChangeFeeAt
+     itself stays server-only; only the free-window END TIME needs to reach
+     the browser, and only so the portal can decide BEFORE a save whether to
+     warn about a $30 charge that, this same 48h window, portalSave's
+     'lights' section would refuse to actually apply. Without this the
+     browser has no way to know it's still in the free window until AFTER
+     saving, so the confirm dialog warned about a fee even on a genuinely
+     free change. */
+  const lastFeeAt = data.lastLightChangeFeeAt && data.lastLightChangeFeeAt.toMillis
+    ? data.lastLightChangeFeeAt.toMillis() : 0;
+  record.lightChangeFreeUntil = lastFeeAt > 0 ? lastFeeAt + (48 * 60 * 60 * 1000) : null;
+
+  return { found: true, record };
 });
 
 /* ---------------------------------------------------------------------------
