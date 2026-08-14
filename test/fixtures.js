@@ -147,6 +147,14 @@ const CUSTOMERS = {
  * Money formula, everywhere: (install + removal + changeFees) - credits
  * - deposit, floored at 0. These fixtures are hand-checked against it.
  */
+/* name/phone/email mirror the corresponding CUSTOMERS record — the real
+ * portalInvoice reads these off the invoice document itself (INVOICE_READ_FIELDS
+ * in functions/index.js), not off jobAddresses, but the two are kept in sync in
+ * production and every fixture below matches its customer. Without them here,
+ * the portal's #infoName/#infoPhone/#infoEmail fields render blank even though
+ * the invoice was found — that blank #infoName was checklist test 9's failure,
+ * and it cascaded into test 14 too (the Save button refuses to submit without
+ * a name). */
 const INVOICES = {
   '8015550142': {                    // standard — part paid
     found: true,
@@ -162,6 +170,12 @@ const INVOICES = {
   },
   'jordan.reyes@example.com': {      // email-only — nothing paid yet
     found: true,
+    /* Mixed case ON PURPOSE, and deliberately different from the doc id this
+       invoice is filed under ('jordan.reyes@example.com'). That is what
+       production does: invoiceKeyFor lowercases for the KEY, while the email
+       FIELD is written straight from the customer record as they typed it
+       (functions/index.js — `inv.email = inv.email || email`). Keeping the two
+       different is what proves the lowercasing happens where it should. */
     name: 'Jordan Reyes', phone: '', email: 'Jordan.Reyes@Example.com',
     install: 380, removal: 0, deposit: 0, credits: 0, changeFees: 0,
     status: 'Unpaid',
@@ -187,6 +201,83 @@ const INVOICES = {
     install: 400, removal: 0, deposit: 400, credits: 0, changeFees: 0,
     status: 'Paid in Full',
     newMemberFeeApplied: false
+  }
+};
+
+/* --- Quotes ----------------------------------------------------------------
+ * publicQuoteLookup (functions/index.js) reads the 'quotes' collection
+ * directly, filtered by phone or email — completely separate from
+ * CUSTOMERS/jobAddresses and keyed by nothing a portal token can reach. This
+ * one is priced but not yet converted to a customer: checklist test 17
+ * ("Quote review" — "Instead of showing an invoice like it would for a
+ * regular customer, the portal should show that person's quote details and
+ * the price they were quoted, along with an 'Approve' button and a
+ * 'Decline' button").
+ *
+ * lastNameInput below is the customer's actual last name — tryShowQuoteReview()
+ * used to check only the FIRST word of the stored name (nameParts[0]), so
+ * typing your real last name was refused unless your name happened to be
+ * stored surname-first. Fixed to a whole-word, word-order-independent match
+ * (same rule as nameMatches() in functions/index.js). This fixture typing the
+ * real last name is what proves that fix, not a workaround for it.
+ */
+const QUOTES = {
+  pendingReview: {
+    id: 'quote-pending-review-1',
+    lastNameInput: 'ashby',
+    data: {
+      name: 'Morgan Ashby',
+      phone: '(801) 555-0166',
+      email: 'morgan.ashby@example.com',
+      address: '77 Aspen Ct, Lehi, UT 84043',
+      houseAreas: ['Roofline', 'Bushes'],
+      lightColors: ['Warm White'],
+      installPreference: 'Any',
+      quotedPrice: 495,
+      quoteToken: 'quotetoken0000000001'
+      // No approvalStatus — this is what makes it "pending" in
+      // tryShowQuoteReview's eyes (only approved/declined/maybe_next_year
+      // are treated as resolved).
+    }
+  },
+
+  /* An EXISTING customer who also has a quote waiting. Different case from
+     pendingReview above, and the one that was actually broken: the quote card
+     only ever rendered when portalInvoice found nothing, so anybody who had
+     ever been billed could not see a new quote at all. Alex Nakamura is
+     CUSTOMERS.pendingRsvp — a real customer, with a real invoice (8015550188).
+     Covered by offerPendingQuote() in index.html. */
+  pendingForExistingCustomer: {
+    id: 'quote-pending-existing-1',
+    data: {
+      name: 'Alex Nakamura',
+      phone: '(801) 555-0188',
+      email: 'alex@example.com',
+      address: '311 Mill Race Rd, Pleasant Grove, UT 84062',
+      lightColors: ['Warm White', 'Blue'],
+      installPreference: 'November',
+      estimatedFeet: 160,
+      quotedPrice: 640,
+      quoteToken: 'quotetoken0000000002',
+      approvalStatus: 'pending'
+    }
+  },
+
+  /* Already answered, so it must NOT be offered again. Belongs to
+     CUSTOMERS.standard, who most specs sign in as — which also proves the
+     ordinary customer is not shown a stray Approve button for a decision they
+     already made. */
+  alreadyApproved: {
+    id: 'quote-approved-1',
+    data: {
+      name: 'Dana Petersen',
+      phone: '(801) 555-0142',
+      email: 'dana@example.com',
+      address: '742 Evergreen Ln, Pleasant Grove, UT 84062',
+      quotedPrice: 450,
+      quoteToken: 'quotetoken0000000003',
+      approvalStatus: 'approved'
+    }
   }
 };
 
@@ -239,39 +330,6 @@ function customerByContact(contact, lastName) {
     return stored.split(/\s+/).includes(typed) || stored.includes(typed);
   }) || null;
 }
-
-/* --- Quotes, as publicQuoteLookup returns them ----------------------------
- * The portal reads quotes ONLY through that callable — the quotes collection
- * is not publicly readable. It answers { quotes: [{id, data}] } for the phone
- * or email asked about, and index.html then picks a PENDING one (a numeric
- * quotedPrice, and an approvalStatus that is not approved/declined/
- * maybe_next_year) to offer for approval.
- *
- * Keyed by the same phone digits / lowercased email the portal looks up with.
- */
-const QUOTES = {
-  // Alex Nakamura — priced, not yet answered. This is the t17 case: a real
-  // customer, with an invoice, who ALSO has a quote waiting on them.
-  '8015550188': [
-    { id: 'quote-pending-1', data: {
-        name: 'Alex Nakamura', phone: '(801) 555-0188', email: 'alex@example.com',
-        address: '311 Mill Race Rd, Pleasant Grove, UT 84062',
-        lightColors: ['Warm White', 'Blue'],
-        installPreference: 'November',
-        estimatedFeet: 160, quotedPrice: 640,
-        quoteToken: 'qt_pending_1',
-        approvalStatus: 'pending', status: 'new' } }
-  ],
-  // Dana Petersen — already approved, so nothing should be offered. Guards
-  // against showing an approve button for a quote that is already settled.
-  '8015550142': [
-    { id: 'quote-approved-1', data: {
-        name: 'Dana Petersen', phone: '(801) 555-0142', email: 'dana@example.com',
-        address: '742 Evergreen Ln, Pleasant Grove, UT 84062',
-        quotedPrice: 450, quoteToken: 'qt_approved_1',
-        approvalStatus: 'approved', status: 'closed' } }
-  ]
-};
 
 module.exports = {
   FROZEN_NOW,

@@ -4118,6 +4118,7 @@ onAuthStateChanged(auth, function(user){
     appEl.classList.add('show');
     document.getElementById('whoAmI').textContent = user.email;
     renderUserChip(user);
+    restoreLastAdminPanel();
     loadUserPrefs(user).then(function(){ setTimeout(initData, 0); });
   } else {
     loginScreen.style.display = 'flex';
@@ -4126,6 +4127,9 @@ onAuthStateChanged(auth, function(user){
 });
 
 /* ---------------- Sidebar nav ---------------- */
+/* Remembered per browser tab (sessionStorage) so a refresh reopens whatever
+   panel was on screen instead of always falling back to the panel that's
+   marked active in the static HTML (Quote Requests). */
 function switchToAdminPanel(panelName){
   document.querySelectorAll('.nav-item[data-panel]').forEach(b=>b.classList.remove('active'));
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
@@ -4135,6 +4139,12 @@ function switchToAdminPanel(panelName){
   if(panelEl) panelEl.classList.add('active');
   document.getElementById('sidebar').classList.remove('open');
   renderFavoritesSection();
+  try{ sessionStorage.setItem('huLastPanel', panelName); }catch(e){}
+}
+function restoreLastAdminPanel(){
+  let saved = null;
+  try{ saved = sessionStorage.getItem('huLastPanel'); }catch(e){}
+  if(saved && document.querySelector('.nav-item[data-panel="'+saved+'"]')) switchToAdminPanel(saved);
 }
 document.querySelectorAll('.nav-item[data-panel]').forEach(function(btn){
   btn.addEventListener('click', function(e){
@@ -6864,7 +6874,15 @@ function renderQuoteRows(filtered){
       '<div class="row-actions">'+
         (d.quoteArchived
           ? '<button type="button" class="icon-btn" data-restorequote="'+item.id+'" title="Restore this quote" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:var(--gold-dim);">Restore</button>'
-          : '<button type="button" class="icon-btn" data-converttocust="'+item.id+'" title="Convert to Customer" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:var(--gold-dim);">Convert to Customer</button>'+
+          /* Once converted, the button stays gone even if the quote is later
+             restored/unarchived — clicking it again would re-fill the Add a
+             Customer form and, on submit, create a genuine second customer
+             record for the same quote (the actual write is guarded too, see
+             addCustFromQuoteId above, but not showing the button at all is
+             the fix a person would actually notice). */
+          : (d.convertedToCustomerAt
+              ? '<span class="rtext" style="margin-right:6px; color:#2E6B3E; font-weight:600; font-size:11.5px;">&#10003; Converted'+(d.convertedToCustomerAt ? ' &mdash; '+fmtDate(d.convertedToCustomerAt) : '')+'</span>'
+              : '<button type="button" class="icon-btn" data-converttocust="'+item.id+'" title="Convert to Customer" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:var(--gold-dim);">Convert to Customer</button>')+
             '<button type="button" class="icon-btn" data-archivequote="'+item.id+'" title="Archive this quote" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:var(--slate);">Archive</button>')+
         '<select data-id="'+item.id+'" class="quoteStatusSelect" style="border-radius:8px; border:1px solid var(--line); padding:6px 8px; font-size:12.5px;">'+
           '<option value="new"'+(status==='new'?' selected':'')+'>New</option>'+
@@ -7865,6 +7883,10 @@ function renderQuoteRows(filtered){
         cb.checked = colors.includes(cb.value);
         cb.closest('.pill-check').classList.toggle('checked', cb.checked);
       });
+      // See addCustQuoteLightsPattern above — carry the real pattern across
+      // rather than letting the checkboxes flatten it on submit.
+      addCustQuoteLightsPattern = rbDetectColorsAndPattern(d.lightsDescription || colors.join(', ')).pattern;
+      addCustQuoteColorsSnapshot = colors.slice();
       document.getElementById('addCustWireColor').value = d.wireColor || 'White';
       document.getElementById('addCustInstallPref').value = d.installPreference || 'Normal Schedule';
       document.getElementById('addCustGateCode').value = d.gateCode || '';
@@ -8816,6 +8838,7 @@ function buildInvoiceDocHtml(member){
         '</tr></thead>'+
         '<tbody>'+
           lineItems+
+          (removal > 0 ? row('Removal service', fmtMoney(removal)) : '')+
           (showNewMemberLine ? row('New member installation fee', '$30') : '')+
           changeFeeNotes.map(function(f){ return row(esc(f.reason||'Light change fee'), fmtMoney(Number(f.amount)||0)); }).join('')+
           creditNotes.map(function(c){ return row(esc(c.reason||'Credit'), '\u2212'+fmtMoney(Number(c.amount)||0), 'var(--dusk)'); }).join('')+
@@ -9524,7 +9547,14 @@ document.getElementById('addFolderBtn').addEventListener('click', async function
   const name = input.value.trim();
   const parentId = document.getElementById('newFolderParent').value || null;
   if(!name){ return; }
-  if(name.toLowerCase() === 'inbox' || messageFolders.some(f => f.name.toLowerCase() === name.toLowerCase())){ toast('That folder already exists'); return; }
+  /* 'system' is reserved the same way 'inbox' is (see the rename handler
+     above, which already blocked it) — a folder literally named "System"
+     is indistinguishable from real automated system notices: messages
+     moved into it vanish from Customer Messages (folder === 'System' is
+     filtered out there unconditionally), and the folder itself becomes
+     unclickable in the sidebar, which resets straight back to Inbox
+     whenever selectedFolder === 'System'. */
+  if(name.toLowerCase() === 'inbox' || name.toLowerCase() === 'system' || messageFolders.some(f => f.name.toLowerCase() === name.toLowerCase())){ toast('That folder already exists'); return; }
   await addDoc(collection(db,'messageFolders'), {name: name, parentId: parentId, createdAt: serverTimestamp()});
   input.value = '';
   document.getElementById('newFolderParent').value = '';
@@ -12301,6 +12331,15 @@ let addCustPhotoMarkup = [];
    close that quote out instead of leaving it sitting in the list. */
 let addCustFromQuoteId = null;
 let addCustContactMethodFromQuote = '';
+/* The customer's exact light-colour PATTERN (order + repeats), captured off
+   the quote's own lightsDescription so Convert to Customer can carry it
+   through instead of flattening it. The colour checkboxes only carry a SET,
+   so submitting always rebuilt lightsDescription from checkbox DOM order —
+   silently discarding a real "Red, Red, Warm White, Warm White, repeating"
+   pattern the customer specified on the detail form. Cleared alongside
+   addCustFromQuoteId. */
+let addCustQuoteLightsPattern = '';
+let addCustQuoteColorsSnapshot = [];
 let addCustHighlights = [];
 /* Photos beyond the main one. They ride along to the customer record as
    photos 2, 3, ... - the sections you outline are always on the main one. */
@@ -12627,7 +12666,16 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
   // The free-text "Additional Notes" input under Lights was removed from the
   // form, so the description is just the colours now. Crew-facing detail lives
   // in the One-Time / Permanent notes fields instead.
-  const lightsDescription = compileLightsDescription(selectedColors.join(', '), '');
+  // If this came from a quote with a genuine pattern (order/repeats) and staff
+  // didn't change which colours are checked, keep that exact pattern instead
+  // of rebuilding a plain comma-joined list from checkbox DOM order — see
+  // addCustQuoteLightsPattern above for why that flattening was a real bug.
+  const keptQuotePattern = addCustFromQuoteId && addCustQuoteLightsPattern &&
+    selectedColors.length === addCustQuoteColorsSnapshot.length &&
+    selectedColors.every(c => addCustQuoteColorsSnapshot.includes(c));
+  const lightsDescription = keptQuotePattern
+    ? addCustQuoteLightsPattern
+    : compileLightsDescription(selectedColors.join(', '), '');
   const wireColor = document.getElementById('addCustWireColor').value;
   const installPreference = document.getElementById('addCustInstallPref').value;
   const chargeNewMemberFee = document.getElementById('addCustNewMemberFee').checked;
@@ -12729,6 +12777,22 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
     return;
   }
 
+  /* A second click on "Convert to Customer" (the button never hid itself once
+     a quote was converted — fixed alongside this) re-fills this same form,
+     and without this check, clicking Add Customer again created a genuine
+     duplicate: a second jobAddresses record, invoice, warehouse entry and
+     customer number for the same quote. Re-checking against the server
+     rather than the cached list catches a second staff member converting it
+     in a different tab too. */
+  if(addCustFromQuoteId){
+    const dupCheckSnap = await getDoc(doc(db,'quotes', addCustFromQuoteId));
+    const dupCheckData = dupCheckSnap.exists() ? dupCheckSnap.data() : null;
+    if(dupCheckData && dupCheckData.convertedToCustomerAt){
+      statusEl.textContent = 'This quote was already converted to a customer — refresh Quote Requests instead of converting it again.';
+      return;
+    }
+  }
+
   statusEl.textContent = 'Locating address…';
   try{
     const fullAddress = buildFullAddress(street, city, zip);
@@ -12766,6 +12830,8 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
     if(addCustFromQuoteId){
       await updateDoc(doc(db,'quotes', addCustFromQuoteId), {status: 'closed', convertedToCustomerAt: serverTimestamp()}).catch(function(){});
       addCustFromQuoteId = null;
+      addCustQuoteLightsPattern = '';
+      addCustQuoteColorsSnapshot = [];
     }
     if(customerNumber) toast('Added as customer #' + customerNumber + ' \u2014 ' + numberOfBins + ' bin' + (numberOfBins===1?'':'s'));
     let invoiceMsg = '';
@@ -12829,6 +12895,8 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
     document.getElementById('addCustBins').value = '1';
     document.getElementById('addCustNumber').value = '';
     addCustFromQuoteId = null;
+    addCustQuoteLightsPattern = '';
+    addCustQuoteColorsSnapshot = [];
     document.getElementById('addCustWantsMailed').checked = false;
     document.getElementById('addCustFeet').value = '';
     document.getElementById('addCustFeetNote').textContent = 'Enter Measured Feet to bill automatically at your Per Foot Pricing rate — you can still adjust Total Price by hand afterward. Deposit and removal fee can be added later from the Invoices tab if needed.';
@@ -13329,6 +13397,11 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
     const difficultyVal = rbNormalizeDifficulty(difficultyRaw[i] || '');
     const amountTypedIn = amounts[i] || '';
     const price = amountTypedIn ? Number(amountTypedIn.replace(/[,$]/g,'')) : null;
+    // Already validated above (format, in-batch duplicates, and against every
+    // existing customer) — this just applies it. Under 5000 sets Number of
+    // Bins to 1, matching the help text under the box; 5000+ is left for a
+    // human to fill in the bin count, same as the manual Add Customer form.
+    const cn = custNumbers[i] || '';
     try{
       const fullAddress = buildFullAddress(street, city, zip);
       // Google throttles long runs with OVER_QUERY_LIMIT. A pin we can't find is
@@ -13364,10 +13437,14 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
         if(outletTimerVal) updates.outletTimer = outletTimerVal;
         if(useEavesVal) updates.useEaves = useEavesVal;
         if(difficultyVal) updates.difficulty = difficultyVal;
+        if(cn){
+          updates.customerNumber = cn;
+          if(parseInt(cn,10) < 5000) updates.numberOfBins = 1;
+        }
         await updateDoc(doc(db,'jobAddresses',existing.id), updates);
         updated++;
       } else {
-        await addDoc(collection(db,'jobAddresses'), {
+        const newDoc = {
           street: street, city: city, state: state, zip: zip,
           address: fullAddress, name: name, phone: phone, email: email, difficulty: difficultyVal || 'Unrated',
           lightColors: colors,
@@ -13378,8 +13455,19 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
           lat: coords.lat, lng: coords.lng,
           needsGeocode: coords.lat === null,
           scheduled: false, createdAt: enrolledDate || serverTimestamp()
-        });
+        };
+        if(cn){
+          newDoc.customerNumber = cn;
+          if(parseInt(cn,10) < 5000) newDoc.numberOfBins = 1;
+        }
+        await addDoc(collection(db,'jobAddresses'), newDoc);
         added++;
+      }
+      // A number typed in here might be one already sitting in the recycled
+      // pool — same cleanup the manual Add Customer form does (line ~12455),
+      // so it can't be handed out to a second customer later.
+      if(cn){
+        await deleteDoc(doc(db,'availableCustomerNumbers', cn)).catch(function(){ /* fine if it was never pooled */ });
       }
       if(!phone && price !== null){ noPhoneNoInvoice++; }
       if(phone){
@@ -13624,7 +13712,7 @@ function attachAddressRowHandlers(container){
     const invoiceId = sel.dataset.setpaystatus;
     const inv = allInvoicesCache.find(i => i.id === invoiceId);
     if(inv){
-      const status = computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit, inv.data.credits);
+      const status = computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit, inv.data.credits, inv.data.changeFees);
       sel.value = status;
     }
   });
@@ -15920,6 +16008,11 @@ document.getElementById('editCustDeleteBtn').addEventListener('click', async fun
     if(num){
       await setDoc(doc(db,'availableCustomerNumbers', num), {type: parseInt(num,10) >= 5000 ? 'double' : 'regular', releasedAt: serverTimestamp()});
     }
+    /* A deleted customer whose stop was already built into a route left a
+       phantom stop behind — the crew's Mark Done had nothing to update
+       against and failed with no feedback. Same sweep the RSVP/cancel/Maybe
+       Next Year paths already do. */
+    await removeCustomerFromUpcomingRoutes(item.id);
     await deleteDoc(doc(db,'jobAddresses', item.id));
     editCustomerId = null;
     document.getElementById('editCustOverlay').style.display = 'none';
@@ -16145,10 +16238,15 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       specificOutlet: newSpecificOutlet, specificOutletNotes: newSpecificOutletNotes,
       customerNumber: addrUpdates.customerNumber, lat: addrUpdates.lat, lng: addrUpdates.lng
     });
-    /* Switching someone to Maybe Next Year has to take them off the routes as
-       well as flag them, or the crew still turns up. Only on the transition,
-       so re-saving an already-flagged customer is not a repeated sweep. */
-    if(newSeasonMaybe && !item.data.maybeNextYear){
+    /* Switching someone to Maybe Next Year, or setting their RSVP to No, has to
+       take them off the routes as well as flag them, or the crew still turns
+       up for a job the customer said no to. Only on the transition, so
+       re-saving an already-flagged customer is not a repeated sweep. This used
+       to only cover the Maybe Next Year toggle - setting RSVP straight to No
+       from the dropdown here fell through the same gap the portal's own RSVP
+       link had (fixed in functions/index.js's portalRsvp). */
+    if((newSeasonMaybe && !item.data.maybeNextYear) ||
+       (newRsvp === 'no' && item.data.rsvpStatus !== 'no')){
       await removeCustomerFromUpcomingRoutes(editCustomerId);
     }
     const inv = allCustInvoiceFor(item);
@@ -21268,16 +21366,16 @@ const TEST_SEED = [
   [5, 'Member Portal', 'Sign in (phone)', '1. Open a new tab in your web browser and go to highlightingutah.com (the public website).\n2. Near the top of the page, find and click \'Member Portal\' in the top menu (this is the private area where a customer checks their own account).\n3. In the phone number box, type a real customer\'s phone number.\n4. In the last name box, type that same customer\'s last name.\n5. Click the \'Sign In\' button.', 'A gold spinner should appear on the screen saying \'Opening your account\'. After a moment that spinner should disappear, and the customer\'s invoice should load along with a row of tabs across the screen.', 4, 'Pass', '', 'Sign-in errors now say what actually went wrong. If you trip the "too many attempts" limit you should be told to wait 15 minutes, not told your name is wrong.'],
   [6, 'Member Portal', 'Sign in (email)', '1. Go back to the Member Portal (the customer login area on highlightingutah.com that you used in the last test).\n2. If you are still signed in from before, click the button or link to sign out.\n3. This time, in the box where you\'d normally type a phone number, type that same customer\'s email address instead.\n4. In the last name box, type that customer\'s last name.\n5. Click the \'Sign In\' button.\n6. In admin, check that customer\'s record to see if there is a second email address on file for them.\n7. If there is a second email on file, sign out of the Member Portal again.\n8. Sign in one more time using that second email address along with the customer\'s last name.', 'Every time you signed in — no matter which of the customer\'s email addresses you typed — the account should open exactly the same way: loading their invoice and the row of tabs, just like when you signed in with their phone number.', 3, 'Pass', '', 'Same page change as the phone sign-in: the demo-number line is gone and failed saves no longer show a debug string.'],
   [7, 'Member Portal', 'Loading spinner', '1. Open the Member Portal (the customer login area on highlightingutah.com).\n2. Type in a customer\'s phone number (or email) and last name.\n3. Click the \'Sign In\' button.\n4. Without clicking anything else, watch the screen closely.', 'The spinner should appear right away, as soon as you click Sign In. It should disappear the moment either the account finishes loading or an error message appears — it should never keep spinning forever without anything happening.', 1, 'Pass', '', ''],
-  [8, 'Member Portal', 'Wrong credentials', '1. Open the Member Portal (the customer login area on highlightingutah.com).\n2. In the phone number box, type a real customer\'s phone number, but in the last name box type a last name that does NOT belong to that customer, so the two don\'t match.\n3. Click the \'Sign In\' button.', 'A friendly message should appear saying something like \'we couldn\'t find an account.\' The sign-in form should reappear so you can try again. You should NOT see a technical error code, and you should NOT see a blank screen.', 3, 'Pass', '', 'Wrong-credentials messages changed: a rate-limit message and a genuine no-match now read differently instead of both saying the same thing.'],
-  [9, 'Member Portal', 'Personalized link', '1. Find an invoice email or an RSVP email that was sent to a customer (check your own email inbox from a test email that was sent to you).\n2. Inside that email, find the personalized link to the Member Portal.\n3. Copy that link.\n4. Open a new browser tab or window where you are NOT already signed in to the Member Portal.\n5. Paste the link into the address bar and go to it.', 'The link should open straight into that customer\'s account, showing the spinner while it loads. It should NOT ask you to sign in again — no phone number or last name box should appear.', 2, 'Fail', '', 'A personalised link now opens the portal even for a customer who has no invoice yet, instead of saying "we couldn\u2019t find an account".'],
-  [10, 'Member Portal', 'Balance reflects credits', 'AUTOMATED - the credit maths is proved on every commit by run-all.js (credits reduce what is owed, a credit larger than the bill still reads Paid in Full, one exactly equal to the bill reads Paid in Full, and a balance never goes negative). What is left for you is the VISIBLE half: sign into the portal as a customer with a credit and confirm the balance on screen matches, and that the credit is explained rather than the number just being mysteriously smaller.\n\n1. Open the admin site (the private office dashboard) and look at the menu on the left side of the screen. Click the word \'Invoices\'.\n2. Click \'Invoice List\'.\n3. Find a customer and add a credit to their invoice — or, if you\'d rather not change anything, pick a customer who already has a credit on their invoice.\n4. Write down four numbers from that customer\'s invoice: the install amount, the removal amount, the credit amount, and the amount they have already paid.\n5. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as that same customer.\n6. Click the \'Payment\' tab.\n7. Look at the balance shown there.', 'The balance shown on the Payment tab should equal: the install amount plus the removal amount, minus the credit, minus whatever the customer has already paid. If you add up install and removal, subtract the credit, and subtract what\'s already been paid, that final number should match the balance shown in the portal exactly.', 5, 'N/A', '', 'The balance is now itemised: installation, removal, each light-change fee and each credit with its reason, then the total. Check the lines add up to the number shown.'],
-  [11, 'Member Portal', 'Pay with PayPal', '1. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as a customer who still owes money — use your own test customer record for this, not a real customer.\n2. Stay on the \'Payment\' tab.\n3. Look for a PayPal button on that tab. Which buttons appear is controlled in admin under Websites > Site Settings > Payment Integrations: \'Venmo only\' shows just the Venmo button, \'PayPal only\' shows just PayPal, and \'Both\' shows Venmo and PayPal together. PayPal also needs a Client ID saved there before it will appear at all. Check that setting first — if it is set to \'Venmo only\', seeing only Venmo is correct and is not a fail.\n4. If there is an option to add a small tip, add one.\n5. Click through and complete a real payment for a small amount using PayPal.\n6. After the payment finishes, go back to the Member Portal and reload the page.', 'PayPal should charge you the exact balance that was shown on the Payment tab, plus whatever tip you added. After the payment goes through and you reload the portal, the balance should have dropped, and the account should now say \'Paid in Full\'.', 3, 'Fail', 'There is only a link to Venmo.', 'The payment area now also shows when we last received a payment, and the whole card is hidden for a customer who has no bill yet.'],
-  [12, 'Member Portal', 'Change light colours', '1. Pick a test customer to use for this test — do NOT use a real customer, because changing light colours through the portal charges the customer a $30 fee.\n2. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as that test customer.\n3. Click the \'Light Colors\' tab (if you\'re using a phone, this tab is in the row of tabs across the bottom of the screen).\n4. Change the light colours to something different than what\'s currently selected.\n5. Click \'Save\'.\n6. Open the admin site (the private office dashboard) and look at the menu on the left side of the screen. Click the word \'Customers\'.\n7. Click \'All Customers\'.\n8. Find that test customer in the list and click \'Edit\' on their entry.\n9. Go back to the menu on the left side of the screen and click the word \'Warehouse\'.\n10. Click the \'Build\' tab.', 'The portal should show a message confirming the colour change was saved. In admin, the Edit Customer popup for that person should show the new colours you picked. That same customer should now also appear in the Warehouse Build list.', 2, 'Pass', '', 'IMPORTANT \u2014 this one was charging people wrongly. Opening Light Colors and pressing Save without changing anything used to add a $30 fee and delete the pattern note. It should now say "Nothing changed \u2014 no charge". Also check that a real change keeps any note in brackets, e.g. "(every third bulb)".'],
+  [8, 'Member Portal', 'Wrong credentials', 'AUTOMATED — npm run test:browser (test/portal.spec.js, "t8 — a wrong last name is refused, and says so") proves the mechanism on every run: a phone number with a non-matching last name gets refused and the sign-in form reappears, with nothing thrown. What is left for you is the real page: confirm the message still reads warmly (not a raw error code) and nothing looks broken on screen.\n\n1. Open the Member Portal (the customer login area on highlightingutah.com).\n2. In the phone number box, type a real customer\'s phone number, but in the last name box type a last name that does NOT belong to that customer, so the two don\'t match.\n3. Click the \'Sign In\' button.', 'A friendly message should appear saying something like \'we couldn\'t find an account.\' The sign-in form should reappear so you can try again. You should NOT see a technical error code, and you should NOT see a blank screen.', 3, 'Pass', '', 'Wired to the automated regression test (test/portal.spec.js). Reworded to point at what that test can\'t check — the real page — instead of re-proving the mechanism by hand.'],
+  [9, 'Member Portal', 'Personalized link', 'AUTOMATED — npm run test:browser (test/portal.spec.js, "t9 — a personalised link opens straight to the account") proves the mechanism end-to-end against a fake backend: a token in the URL loads the account and skips the sign-in form. The earlier "Fail" here traced to a bug in the TEST HARNESS, not the app — the real portalInvoice function has always returned the shape the page expects. What is left for you is confirming that against a REAL emailed link and REAL customer data, since an automated test is never allowed to touch the real backend (CLAUDE.md §9.4).\n\n1. Find an invoice email or an RSVP email that was sent to a customer (check your own email inbox from a test email that was sent to you).\n2. Inside that email, find the personalized link to the Member Portal.\n3. Copy that link.\n4. Open a new browser tab or window where you are NOT already signed in to the Member Portal.\n5. Paste the link into the address bar and go to it.', 'The link should open straight into that customer\'s account, showing the spinner while it loads. It should NOT ask you to sign in again — no phone number or last name box should appear.', 3, 'Fail', '', 'Wired to the automated regression test (test/portal.spec.js). The failure traced to a test-harness bug, not the app — reworded to ask you to confirm against a real emailed link rather than re-prove the mechanism by hand.  Also: a personalised link now opens the portal even for a customer who has NO invoice yet — that used to say "we couldn\u2019t find an account".'],
+  [10, 'Member Portal', 'Balance reflects credits', 'AUTOMATED - the credit maths is proved on every commit by run-all.js (credits reduce what is owed, a credit larger than the bill still reads Paid in Full, one exactly equal to the bill reads Paid in Full, and a balance never goes negative). What is left for you is the VISIBLE half: sign into the portal as a customer with a credit and confirm the balance on screen matches, and that the credit is explained rather than the number just being mysteriously smaller.\n\n1. Open the admin site (the private office dashboard) and look at the menu on the left side of the screen. Click the word \'Invoices\'.\n2. Click \'Invoice List\'.\n3. Find a customer and add a credit to their invoice — or, if you\'d rather not change anything, pick a customer who already has a credit on their invoice.\n4. Write down four numbers from that customer\'s invoice: the install amount, the removal amount, the credit amount, and the amount they have already paid.\n5. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as that same customer.\n6. Click the \'Payment\' tab.\n7. Look at the balance shown there.', 'The balance shown on the Payment tab should equal: the install amount plus the removal amount, minus the credit, minus whatever the customer has already paid. If you add up install and removal, subtract the credit, and subtract what\'s already been paid, that final number should match the balance shown in the portal exactly.', 4, 'N/A', '', 'The credit maths is now automated. Reworded to check only what the customer sees in the portal.  Also: the balance is now itemised — installation, removal, each light-change fee and each credit with its reason, then the total. Check the lines add up to the number shown.'],
+  [11, 'Member Portal', 'Pay with PayPal', 'AUTOMATED (the decision to show the button) — npm run test:browser (test/portal.spec.js, "t11 — a PayPal button renders when the provider allows cards") proves the portal renders a PayPal button whenever Site Settings say to (Payment Integrations set to PayPal or Both, with a Client ID saved) — against a fake PayPal SDK, since a browser test can never be allowed to move real money (CLAUDE.md §9.11). If you still only see Venmo after checking that setting, the code is proven working — the setting is the first thing to check, not a bug to chase. What is left for you is the real thing automation can never do: an actual payment.\n\n1. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as a customer who still owes money — use your own test customer record for this, not a real customer.\n2. Stay on the \'Payment\' tab.\n3. Look for a PayPal button on that tab. Which buttons appear is controlled in admin under Websites > Site Settings > Payment Integrations: \'Venmo only\' shows just the Venmo button, \'PayPal only\' shows just PayPal, and \'Both\' shows Venmo and PayPal together. PayPal also needs a Client ID saved there before it will appear at all. Check that setting first — if it is set to \'Venmo only\', seeing only Venmo is correct and is not a fail.\n4. If there is an option to add a small tip, add one.\n5. Click through and complete a real payment for a small amount using PayPal.\n6. After the payment finishes, go back to the Member Portal and reload the page.', 'PayPal should charge you the exact balance that was shown on the Payment tab, plus whatever tip you added. After the payment goes through and you reload the portal, the balance should have dropped, and the account should now say \'Paid in Full\'.', 4, 'Fail', 'There is only a link to Venmo.', 'Wired to the automated regression test (test/portal.spec.js), which now proves the button-rendering decision. Reworded to rule out the code first and point straight at the Site Settings check + the real payment, so this isn\'t re-proving what\'s already covered.  Also: the payment area now shows when we last received a payment, and the whole card is hidden for a customer who has no bill yet.'],
+  [12, 'Member Portal', 'Change light colours', '1. Pick a test customer to use for this test — do NOT use a real customer, because changing light colours through the portal charges the customer a $30 fee.\n2. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as that test customer.\n3. Click the \'Light Colors\' tab (if you\'re using a phone, this tab is in the row of tabs across the bottom of the screen).\n4. Change the light colours to something different than what\'s currently selected.\n5. Click \'Save\'.\n6. Open the admin site (the private office dashboard) and look at the menu on the left side of the screen. Click the word \'Customers\'.\n7. Click \'All Customers\'.\n8. Find that test customer in the list and click \'Edit\' on their entry.\n9. Go back to the menu on the left side of the screen and click the word \'Warehouse\'.\n10. Click the \'Build\' tab.', 'The portal should show a message confirming the colour change was saved. In admin, the Edit Customer popup for that person should show the new colours you picked. That same customer should now also appear in the Warehouse Build list.', 2, 'Pass', '', 'IMPORTANT \u2014 this one was CHARGING PEOPLE WRONGLY. Opening Light Colors and pressing Save without changing anything used to add a $30 fee and delete the pattern note. It should now say "Nothing changed \u2014 no charge". Also check a real change KEEPS any note in brackets, e.g. "(every third bulb)", and that the colour swatches are big enough not to mis-tap.'],
   [13, 'Member Portal', 'Change contact info', '1. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as a test customer.\n2. Click the \'Information\' tab.\n3. Change the phone number to a different test value.\n4. Change the gate code to a different test value.\n5. Change the street address to a different test value.\n6. Click \'Save\'.\n7. Open the admin site (the private office dashboard) and look at the menu on the left side of the screen. Click the word \'Customers\'.\n8. Click \'All Customers\'.\n9. Find that test customer and click \'Edit\' on their entry.\n10. Go back to the menu on the left side of the screen and click the word \'Routes\'.\n11. Find an upcoming saved route that includes that test customer as a stop.', 'The Edit Customer popup should show the new phone number, gate code, and street address you just typed in the portal. The upcoming route stop for that customer should also show the new gate code and the new address.', 1, 'Pass', '', ''],
-  [14, 'Member Portal', 'Change preferences', '1. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as a test customer.\n2. Click the \'Information\' tab and look through it, then also click the \'Changes\' tab and look through it.\n3. Change the wire colour to a different value.\n4. Save that change.\n5. Change the answer to the outlet timer question.\n6. Save that change.\n7. Change the install timing preference.\n8. Save that change.\n9. Type something new into the notes box.\n10. Save that change.\n11. Open the admin site (the private office dashboard) and look at the menu on the left side of the screen. Click the word \'Customers\'.\n12. Click \'All Customers\'.\n13. Find that test customer and click \'Edit\' on their entry.\n14. On the Edit Customer popup, look for each of the four things you just changed: the wire colour, the outlet timer answer, the install timing preference, and the notes.', 'All four things you changed — the wire colour, the outlet timer answer, the install timing preference, and the notes — should be visible somewhere on the Edit Customer popup in admin. If even one of those four is nowhere to be found on that popup, this test fails.', 1, 'Fail', 'There is nowhere to view it on the admin page.', ''],
-  [15, 'Member Portal', 'RSVP yes / no / back next year', '1. Pick three different test customers, one for each of the three runs below. Do not use real customers, since these are RSVP tests.\n2. Run one: Sign in to the Member Portal as the first test customer and choose \'RSVP Yes\'.\n3. When asked whether they want any changes, answer \'no\'.\n4. Notice where the portal takes you after you answer \'no\'.\n5. Open the admin site (the private office dashboard), click \'Customers\' in the menu on the left side of the screen, then click \'All Customers\', then click \'Edit\' on that first test customer.\n6. Still in admin, click \'Warehouse\' in the menu on the left side of the screen, then click the \'Recycle\' tab, and check whether that first test customer is listed there.\n7. Run two: Sign in to the Member Portal as the second test customer and choose \'RSVP Back Next Year\'.\n8. Open admin, click \'Customers\', then \'All Customers\', then \'Edit\' on that second test customer.\n9. Still in admin, click \'Warehouse\', then the \'Recycle\' tab, and check whether that second test customer is listed there.\n10. Run three: Sign in to the Member Portal as the third test customer and choose \'RSVP No\'.\n11. Type a reason you\'ll recognize into the reason box.\n12. Submit it.\n13. Open admin, click \'Customers\', then \'All Customers\', then \'Edit\' on that third test customer.\n14. Still in admin, click \'Warehouse\', then the \'Recycle\' tab, and check whether that third test customer is listed there.', 'Run one (RSVP Yes) should end with a thank-you message, and that customer should NOT show up in the Warehouse Recycle list. Run two (RSVP Back Next Year) should show a message saying something like \'we look forward to seeing you next year,\' and that customer should also NOT show up in the Warehouse Recycle list. Run three (RSVP No) is the only one where the customer should show up in the Warehouse Recycle list.', 2, 'Fail', '', 'RSVP is now also available inside the portal on the Changes tab, not only from the emailed link. Check all three buttons and that "Not this season" asks before saving.'],
+  [14, 'Member Portal', 'Change preferences', 'AUTOMATED (customer side only) — npm run test:browser (test/portal.spec.js, "t14 — changing a preference sends it to the server") proves a changed preference on the Information tab reaches the server as a portalSave call. That is only the sign-out-and-send half — it is NOT what this checklist test is actually about. The ADMIN SIDE, whether those fields show up anywhere on the Edit Customer popup, has no automated coverage at all and is exactly what this manual pass should focus on.\n\n1. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as a test customer.\n2. Click the \'Information\' tab and look through it, then also click the \'Changes\' tab and look through it.\n3. Change the wire colour to a different value.\n4. Save that change.\n5. Change the answer to the outlet timer question.\n6. Save that change.\n7. Change the install timing preference.\n8. Save that change.\n9. Type something new into the notes box.\n10. Save that change.\n11. Open the admin site (the private office dashboard) and look at the menu on the left side of the screen. Click the word \'Customers\'.\n12. Click \'All Customers\'.\n13. Find that test customer and click \'Edit\' on their entry.\n14. On the Edit Customer popup, look for each of the four things you just changed: the wire colour, the outlet timer answer, the install timing preference, and the notes.', 'All four things you changed — the wire colour, the outlet timer answer, the install timing preference, and the notes — should be visible somewhere on the Edit Customer popup in admin. If even one of those four is nowhere to be found on that popup, this test fails.', 2, 'Fail', 'There is nowhere to view it on the admin page.', 'Wired to the automated regression test (test/portal.spec.js), which covers only the customer-side send — the admin-visibility gap this test is actually about is still untouched. Reworded so the manual pass goes straight there instead of re-proving the Save button works.'],
+  [15, 'Member Portal', 'RSVP yes / no / back next year', 'AUTOMATED (one slice) — npm run test:browser (test/portal.spec.js, "t15 — an RSVP link records the answer without asking them to sign in") proves an RSVP=yes link records the answer without a sign-in prompt. That is only the sign-in-free part of Run one below. The recycling behaviour in admin, the \'no\' and \'back next year\' paths, and the messages shown after each answer all still need this full manual pass.\n\n1. Pick three different test customers, one for each of the three runs below. Do not use real customers, since these are RSVP tests.\n2. Run one: Sign in to the Member Portal as the first test customer and choose \'RSVP Yes\'.\n3. When asked whether they want any changes, answer \'no\'.\n4. Notice where the portal takes you after you answer \'no\'.\n5. Open the admin site (the private office dashboard), click \'Customers\' in the menu on the left side of the screen, then click \'All Customers\', then click \'Edit\' on that first test customer.\n6. Still in admin, click \'Warehouse\' in the menu on the left side of the screen, then click the \'Recycle\' tab, and check whether that first test customer is listed there.\n7. Run two: Sign in to the Member Portal as the second test customer and choose \'RSVP Back Next Year\'.\n8. Open admin, click \'Customers\', then \'All Customers\', then \'Edit\' on that second test customer.\n9. Still in admin, click \'Warehouse\', then the \'Recycle\' tab, and check whether that second test customer is listed there.\n10. Run three: Sign in to the Member Portal as the third test customer and choose \'RSVP No\'.\n11. Type a reason you\'ll recognize into the reason box.\n12. Submit it.\n13. Open admin, click \'Customers\', then \'All Customers\', then \'Edit\' on that third test customer.\n14. Still in admin, click \'Warehouse\', then the \'Recycle\' tab, and check whether that third test customer is listed there.', 'Run one (RSVP Yes) should end with a thank-you message, and that customer should NOT show up in the Warehouse Recycle list. Run two (RSVP Back Next Year) should show a message saying something like \'we look forward to seeing you next year,\' and that customer should also NOT show up in the Warehouse Recycle list. Run three (RSVP No) is the only one where the customer should show up in the Warehouse Recycle list.', 3, 'Fail', '', 'Wired to the automated regression test (test/portal.spec.js), which covers only the no-sign-in-required slice of Run one. Reworded so the manual pass doesn\'t re-prove that slice — the recycling and message checks across all three runs are still fully manual.  Also: RSVP is now available inside the portal on the Changes tab, not only from the emailed link. Check all three buttons, and that "Not this season" asks before saving.'],
   [16, 'Member Portal', 'Request cancellation', '1. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as a test customer.\n2. Click the \'Cancel\' tab.\n3. In the reason box, type a reason you\'ll recognize later.\n4. Submit the cancellation.\n5. Open the admin site (the private office dashboard) and look at the menu on the left side of the screen. Click the word \'Customers\'.\n6. Click \'All Customers\'.\n7. Find that test customer\'s card in the list.', 'That test customer\'s card in admin should show the words \'Cancellation Requested\', and the reason you typed should be readable somewhere on that card.', 1, 'Pass', '', ''],
-  [17, 'Member Portal', 'Quote review', '1. Open the admin site (the private office dashboard) and look at the menu on the left side of the screen. Click the words \'Quote Requests\'.\n2. Find someone in that list who has already been given a price (has been quoted) but is not yet a paying customer (they have no invoice).\n3. Write down the phone number and last name listed on that quote.\n4. Open the Member Portal (the customer login area on highlightingutah.com).\n5. Type in the phone number and last name you wrote down.\n6. Click \'Sign In\'.', 'Instead of showing an invoice like it would for a regular customer, the portal should show that person\'s quote details and the price they were quoted, along with an \'Approve\' button and a \'Decline\' button.', 3, 'Fail', '', 'A quote link opens the quote review only. Check the price and the Approve/Decline buttons still show.'],
+  [17, 'Member Portal', 'Quote review', 'AUTOMATED (the sign-in and the quote-review screen) — npm run test:browser (test/portal.spec.js, "t17 — a customer with a pending quote is offered approve or decline") proves that signing in with just a phone + last name for someone who has a priced quote but no invoice yet shows the quote details, the price, and both an Approve and a Decline button — against a fake backend. What is left for you is clicking through: does Approve/Decline actually go through and update things.\n\n1. Open the admin site (the private office dashboard) and look at the menu on the left side of the screen. Click the words \'Quote Requests\'.\n2. Find someone in that list who has already been given a price (has been quoted) but is not yet a paying customer (they have no invoice).\n3. Write down the phone number and last name listed on that quote.\n4. Open the Member Portal (the customer login area on highlightingutah.com).\n5. Type in the phone number and last name you wrote down.\n6. Click \'Sign In\'.\n7. Click \'Approve My Quote\' (or \'Not Right Now\' to decline) and confirm it goes through.', 'Instead of showing an invoice like it would for a regular customer, the portal should show that person\'s quote details and the price they were quoted, along with an \'Approve\' button and a \'Decline\' button. Clicking through should work without errors and reflect the outcome (e.g. the quote moving to Awaiting Response / Closed in admin\'s Quote Requests).', 5, 'Fail', '', 'A REAL bug was found and fixed here, not just a test-harness one: tryShowQuoteReview() in index.html was checking the typed last name against the FIRST word of the quote\'s stored name, not a real last-name match — so typing your actual last name (as step 3 says to write down and step 5 says to type) could get refused unless the name happened to be stored surname-first. Fixed to a whole-word, word-order-independent match, same rule as everywhere else in the app. Retest with a real quote and a real typed last name.  Also: a quote link now opens the quote review ONLY \u2014 it can no longer hand back a customer account. And an existing customer with a quote waiting is now offered it underneath their balance.'],
   [18, 'Admin', 'Quotes - view & filter', '1. Log into admin (the private office dashboard — not highlightingutah.com, which is the public site customers see).\n2. Look at the menu on the left side of the screen. Click the words "Quote Requests".\n3. Pick any one quote card in the list and read it from the top all the way to the bottom.\n4. Near the top of the page, find the filter control.\n5. Use the filter to switch it to "New only".\n6. Use the filter to switch it to show all quotes.', 'Each quote card should show the customer\'s name, its status, their address, their contact details, and controls for adding or managing a photo. When you switch the filter to \'New only\', the list should get shorter, showing fewer cards. When you switch it back to show all quotes, the list should get longer again.', 1, 'Pass', '', ''],
   [19, 'Admin', 'Quotes - price a quote', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click "Quote Requests".\n3. Find a quote card marked "New" that is one of your own test submissions (not a real customer\'s).\n4. On that card, find the box called "Estimated Feet" and type a number into it.\n5. Find the box called "Quoted Price" and type a price into it.\n6. Click anywhere outside that box (or press the Tab key). The price saves by itself the moment you click out, and a small message pops up confirming it - there is no Save button to press.\n7. Find and click the button called "Send quote email" - this shows you a link plus a filled-in email right below the button.\n8. The card now sits under the "Awaiting Response" tab. Find it there and open its "Pricing & Approval" panel again.\n9. Type a different, higher price into the "Quoted Price" box - as if the customer had just called and asked you to add another part of the house - then click outside the box.\n10. Refresh the whole page in your browser, then open that card\'s "Pricing & Approval" panel one more time and read the price.\n11. Copy the link shown in that box and open it in your browser, as if you were the customer.\n12. On that page, find and click the button the customer would press to accept the quote.', 'The feet and price you typed should save on the card on their own, without pressing any Save button. Clicking "Send quote email" should show a link and an editable email underneath it, and the card should move to "Awaiting Response". The higher price you typed in step 9 must still be there after the refresh in step 10 - it must NOT snap back to the old price - and the customer\'s page at that link should show that new higher price too. When you click the accept button on that page, it should work without any errors.', 3, 'Retest', 'The approval link works but the accept-my-quote button does not.', 'The Quoted Price box now saves on its own when you click out of it. It used to save ONLY if you went on to press the send button, so changing the price on a quote that had already gone out silently reverted. Steps 8-10 are new and test exactly that. The button name is also corrected to "Send quote email", which is what it actually says on screen.'],
   [20, 'Admin', 'Quotes - detail form', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click "Quote Requests".\n3. Approve a test quote (one of your own test submissions).\n4. Open the link shown under the "Send Email" button for that quote in your browser, as if you were the customer.\n5. On the public site, fill in the customer\'s own detail form: choose a wire colour, choose an outlet timer, and choose an install month.\n6. Submit that form.\n7. Go back to admin and open "Quote Requests" again.\n8. Near the top, find and click the tab called "Form".\n9. Find the same quote you just submitted the form for.\n10. Now find a different approved quote where the customer has NOT yet submitted their detail form.', 'For the quote where the customer submitted the form, the card should show the Wire colour and Timer choices they picked, right on the card itself. For the quote where the customer has NOT submitted the form yet, those lines should simply not appear. There is no separate \'Detail Form\' section to open or edit in admin anymore, because customers now fill that form in on their own portal after their quote is approved.', 2, 'Retest', 'Probably should not ask which outlet - the crew decides that - but do ask if they have one.', 'The admin-side Detail Form was removed from the quote card in the P1 rework - it\'s now filled in on the customer\'s own portal after they approve, not edited here. This Pass needs a fresh look against how it actually works now.'],
@@ -21454,6 +21552,7 @@ const TEST_SEED = [
   [191, 'Nightly Automation', 'A house needing a fix holds up its payer\'s bill', '1. Log into admin (the private office dashboard).\n2. Set up two test houses sharing one phone number, both marked \'Done\'.\n3. Flag ONE of the two houses as needing a fix (needsFix).\n4. Look at the menu on the left and click \'Invoices\', then the \'Nightly Automation\' tab, and press \'Send Invoices Now\'.\n5. Check that customer\'s email and invoice, then clear the needs-fix flag and press \'Send Invoices Now\' again.', 'No invoice email should go out while either house on that phone needs a fix, even though both are marked Done. Once the fix flag is cleared and the button is pressed again, the invoice should send with both house prices included.', 1, '', '', ''],
   [193, 'Warehouse', 'Rejoining after being recycled', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Customers", then "All Customers".\n3. Click Edit on a test customer, set "RSVP" to "No", and click Save.\n4. Go to Warehouse, click the tab called "Recycle", find that customer and mark them as recycled. Write down the customer number that comes off them.\n5. Now go back to Customers, click Edit on that same customer, set "RSVP" to "Yes", and click Save.\n6. Click the tab called "Build" in Warehouse and look for that customer.\n7. In the menu on the left side of the screen, click "Inbox" and look in the "System" folder.\n8. Repeat the whole thing a second time, but at step 5 use the Member Portal as that customer and press Yes there instead of using admin - the answer should be identical either way.', 'After step 5 that customer should be in the Warehouse Build list, because their old lights were taken apart and a new bundle has to be made. There should be a note in the Inbox System folder saying they rejoined after recycling, that their lights need rebuilding and that they need a customer number assigned. Their record should still show NO customer number - the system must not hand one out by itself, because you may have already written a number on a bin by hand. Doing it through the Member Portal instead of admin should give exactly the same result.', 1, '', '', ''],
   [192, 'Invoices', 'Editing a customer does not resurrect a cancelled house\'s price', 'AUTOMATED - this is the same resync rule as test 190 and run-all.js covers it: a cancelled house is excluded from the payer total, so editing the customer cannot bring its price back. What is left is doing the edit once on a real record and confirming the total did not move.\n\n1. Log into admin (the private office dashboard).\n2. Set up two test houses sharing one phone number. Mark ONE as RSVP \'No\'.\n3. Get that payer billed for the other (active) house only — for example through \'Send Invoices Now\' or by editing their invoice directly — and note the invoice total.\n4. Open \'Edit Customer\' on the active house and change something small (like a note), then save.\n5. Check that payer\'s invoice total again.', 'Saving an edit on the active house must not add the cancelled house\'s price back onto the invoice. The invoice total after step 5 should be exactly what it was before the edit — only the active house\'s price.', 2, '', '', 'Covered by the same automated resync checks as test 190. Reworded to check one real edit.'],
+  [193, 'Admin', 'Refreshing the page keeps you on the same panel', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click on any panel that is NOT \'Quote Requests\' — for example click \'Customers\', then \'All Customers\'.\n3. Refresh the whole browser page (reload it).', 'After the page finishes reloading, you should land back on the same panel you were looking at (for example, \'All Customers\'), not automatically jump back to \'Quote Requests\'.', 1, '', '', ''],
 ];
 
 function attachDeleteHandlers(container){
