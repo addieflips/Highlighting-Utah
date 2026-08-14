@@ -242,10 +242,12 @@ const computeInvoiceStatusSrc = extractFn(money, 'computeInvoiceStatus');
 const cnBinsForFeetSrc = extractFn(money, 'cnBinsForFeet');
 const custInvoiceKeySrc = extractFn(money, 'custInvoiceKey');
 const statusClassSrc = extractFn(money, 'statusClass');
-const colorComboKeySrc = extractFn(admin, 'colorComboKey');
+const whGroupKeySrc      = extractFn(admin, 'whGroupKey');
+const whNormalizeLightsSrc = extractFn(admin, 'whNormalizeLights');
+const whWireLabelSrc     = extractFn(admin, 'whWireLabel');
 const CN_DOUBLE_BIN_FEET = Number((money.match(/CN_DOUBLE_BIN_FEET\s*=\s*(\d+)/) || [])[1]);
 eval([computeInvoiceStatusSrc, cnBinsForFeetSrc, custInvoiceKeySrc, statusClassSrc,
-      colorComboKeySrc].filter(Boolean).join('\n'));
+      whWireLabelSrc, whNormalizeLightsSrc, whGroupKeySrc].filter(Boolean).join('\n'));
 
 /* The split only works if admin.html actually pulls the rules back in. Without
    these two checks, deleting the import would leave every balance on screen
@@ -493,15 +495,46 @@ const RETIRED_CHECKLIST_TERMS = [
   }
 }
 
-gap('colorComboKey exists in admin.html', typeof colorComboKey === 'function',
-  'colorComboKey was removed from admin.html at some point; run-all.js still expects it. ' +
-  'Either restore the helper or delete these colorComboKey checks if the feature is gone for good.');
-if (typeof colorComboKey === 'function') {
-  check('logic', 'colorComboKey sorts so order does not matter',
-    colorComboKey(['Red', 'Warm White']) === colorComboKey(['Warm White', 'Red']));
-  check('logic', 'colorComboKey handles empty', colorComboKey([]) === '' && colorComboKey(null) === '');
-  check('logic', 'colorComboKey does not mutate its input',
-    (() => { const a = ['Red', 'Blue']; colorComboKey(a); return a[0] === 'Red'; })());
+/* --- warehouse colour grouping ------------------------------------------
+ * REPLACED 2026-08-14. This block used to test colorComboKey, a helper that
+ * no longer exists in admin.html — it had been replaced by whGroupKey, so the
+ * suite reported a permanent GAP for a function nobody was going to restore.
+ *
+ * whGroupKey originally did NOT sort, which meant "Red, Green" and
+ * "Green, Red" built as two separate warehouse groups and the same bundle got
+ * made twice. Confirmed with the owner that order does not matter for
+ * grouping, and whGroupKey now sorts (via whNormalizeLights).
+ *
+ * ⚠ employee.html carries its OWN copy of these three functions. The last
+ * check below is the one that stops the office and the crew drifting apart.
+ */
+check('logic', 'whGroupKey exists', typeof whGroupKey === 'function');
+if (typeof whGroupKey === 'function') {
+  check('logic', 'the same pattern typed in a different order is ONE group',
+    whGroupKey('Red, Green', 'White') === whGroupKey('Green, Red', 'White'),
+    'this is the duplicate-bundle bug — the warehouse would build the same combo twice');
+  check('logic', 'repeated colours still make a different pattern',
+    whGroupKey('Red, Red, Green', 'White') !== whGroupKey('Red, Green, Green', 'White'),
+    'two Reds and one Green is not the same strand as one Red and two Greens');
+  check('logic', 'wire colour still separates two otherwise identical groups',
+    whGroupKey('Red, Green', 'White') !== whGroupKey('Red, Green', 'Green'));
+  check('logic', 'messy spacing does not create a second group',
+    whGroupKey('  Red ,  Green  ', 'White') === whGroupKey('Green,Red', 'White'));
+  check('logic', 'a trailing note is not sorted in among the colours',
+    /\(extra on garage\)$/.test(whGroupKey('Red, Green (extra on garage)', 'White')
+      .split(' \u2014 ')[0]),
+    'the note must stay at the end, not get shuffled into the colour list');
+  check('logic', 'grouping does not mutate the caller\'s text',
+    (() => { const t = 'Red, Blue'; whGroupKey(t, 'White'); return t === 'Red, Blue'; })());
+  check('logic', 'a house with no lights recorded still groups',
+    whGroupKey('No lights recorded', 'White').indexOf('No lights recorded') === 0);
+
+  /* The copies must agree, or the office and the crew see different groups. */
+  const empNorm = extractFn(read('employee.html'), 'whNormalizeLights');
+  check('logic', 'employee.html sorts colours the same way admin does',
+    !!empNorm && empNorm.replace(/\s+/g, ' ') ===
+      (whNormalizeLightsSrc || '').replace(/\s+/g, ' '),
+    'admin.html and employee.html have drifted — the crew would group houses differently');
 }
 
 // --- bundle math: ceil(feet / 40) ---
