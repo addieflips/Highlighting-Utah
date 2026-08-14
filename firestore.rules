@@ -93,6 +93,12 @@ service cloud.firestore {
     // run can tell what CHANGED. Written only by the weatherWatch Cloud
     // Function, which uses the Admin SDK and bypasses these rules.
     match /weatherWatch/{id}           { allow read: if request.auth != null; allow write: if false; }
+    // ---- Activity log ----------------------------------------------------
+    // Who changed what, one plain-English sentence per entry. Append-only by
+    // convention and NEVER read back into business logic — it is a record for
+    // people to read, which is what makes it safe to write from a dozen
+    // handlers without any of them becoming riskier.
+    match /activity/{id}               { allow read, write: if request.auth != null; }
     // ---- Payment ledger --------------------------------------------------
     // One row per payment: amount, method, when, who entered it, and a
     // reference (a PayPal capture id, or the tag of the file it was imported

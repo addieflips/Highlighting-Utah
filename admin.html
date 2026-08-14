@@ -1395,6 +1395,14 @@
             <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">The permanent bin number. Leave it blank and you can assign the next available one from Customer Numbers. Normally left blank &mdash; the number is picked for you from Measured Feet. Over 260 feet means 2 bins and the next free 5000-series number; anything up to 260 means 1 bin and the next free regular number. Without Measured Feet no number is given.</p>
             <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin-top:12px;"><input type="checkbox" id="addCustWantsMailed" style="width:auto;"> Also wants their invoice mailed (postal mail)</label>
           </div>
+          <!-- Filled in by showAddCustMissing() when Add Customer is pressed with
+               something required left blank. Sits directly above the button so the
+               answer to "why did nothing happen?" is where the click was. -->
+          <div id="addCustMissingBox" style="display:none; margin:0 0 14px; padding:12px 14px; border:2px solid var(--ember); border-radius:10px; background:#FDECEC;">
+            <strong style="display:block; font-size:13.5px; color:var(--ember); margin-bottom:6px;">Still missing</strong>
+            <ul id="addCustMissingList" style="margin:0; padding-left:20px; font-size:13.5px; line-height:1.7;"></ul>
+            <p style="font-size:12px; color:var(--slate); margin:8px 0 0;">Fill these in and press Add Customer again &mdash; or press it again and choose OK to add them without these.</p>
+          </div>
           <button type="submit" class="btn btn-gold">Add Customer</button>
           <span id="routeAddStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
         </form>
@@ -1827,6 +1835,13 @@
         <button class="btn" id="runHealthCheckBtn">Run Health Check</button>
         <label style="display:flex; align-items:center; gap:6px; font-size:13px;"><input type="checkbox" id="hcHideClean" checked> Hide checks that pass</label>
         <span id="hcStatus" class="muted" style="font-size:13px;"></span>
+      </div>
+      <!-- What changed today, and who changed it. Nothing recorded this until
+           now — four people share this dashboard and the app has always known
+           who is signed in. Read-only, and nothing decides anything from it. -->
+      <div class="card" style="margin-bottom:14px;">
+        <h3 style="font-size:14.5px; margin-top:0;">What changed today</h3>
+        <div id="activityToday" style="font-size:12.5px; color:var(--slate);">Loading…</div>
       </div>
       <div id="hcResults"></div>
     </div>
@@ -4616,6 +4631,38 @@ document.getElementById('quickEmailTestBtn')?.addEventListener('click', async fu
  * Hiding those would make the ledger lie by omission, and "why is my balance
  * different?" is exactly the question it exists to answer.
  */
+/* ---- THE ACTIVITY LOG ----------------------------------------------------
+ *
+ * Nothing recorded who changed what. Four people share this dashboard — Addie,
+ * her mother, her father, and whoever is covering — plus Claude sessions, and
+ * the app has always known who is signed in. So when a price is wrong, or a
+ * customer says nobody told them, or two people disagree about what happened,
+ * there was no way to answer it beyond memory.
+ *
+ * One append-only collection, one plain-English sentence per entry, written
+ * from the handlers that actually change something worth remembering. Shown at
+ * the top of Health Check as "what changed today".
+ *
+ * ⚠ NEVER read back into business logic. Nothing decides anything from this —
+ * it is a record for people to read, which is precisely what makes it safe to
+ * add to a dozen handlers without any of them getting riskier.
+ */
+async function logActivity(what, area, refId){
+  if(!what) return null;
+  try{
+    return await addDoc(collection(db,'activity'), {
+      what: String(what),
+      area: area || '',
+      refId: refId || '',
+      who: paymentLedgerUser(),
+      at: serverTimestamp()
+    });
+  } catch(err){
+    // A note about a change must never break the change itself.
+    console.error('[HU] activity log write failed', what, err);
+    return null;
+  }
+}
 function paymentLedgerUser(){
   try{
     const el = document.getElementById('userChipMail');
@@ -10748,6 +10795,7 @@ function renderInvoicesList(){
           }
         }
         toast('Credit added' + (applyNow>0 ? ' (' + fmtMoney(applyNow) + ' off now)' : '') + carryNote);
+        logActivity('Added a ' + fmtMoney(amount) + ' credit for ' + (d.name || id) + (reason ? ' — ' + reason : ''), 'invoices', id);
         panel.style.display = 'none';
       });
       const clearFeesBtn = panel.querySelector('.ie-clear-fees');
@@ -10765,6 +10813,7 @@ function renderInvoicesList(){
             updatedAt: serverTimestamp()
           });
           toast('Light-change fee(s) removed');
+          logActivity('Removed the light-change fee(s) from ' + (d.name || id), 'invoices', id);
           panel.style.display = 'none';
         });
       }
@@ -10827,6 +10876,7 @@ function renderInvoicesList(){
           priceReviewed: true, updatedAt: serverTimestamp()
         };
         await updateDoc(doc(db,'invoices', id), updates);
+        logActivity('Changed the invoice for ' + (d.name || id) + ' to ' + fmtMoney(newAmount) + (newDeposit !== (Number(d.deposit)||0) ? ', paid ' + fmtMoney(newDeposit) : ''), 'invoices', id);
         // Same running-total rule as the multi-property branch above: log the
         // difference, not the figure in the box.
         await logPayment({
@@ -13159,6 +13209,38 @@ document.addEventListener('click', function(e){
   const input = document.getElementById(wrap.dataset.labeltarget);
   if(input) input.value = btn.dataset.lab || '';
 });
+/* Paints (or clears) the red "Still missing" box above the Add Customer button.
+   Kept out of the submit handler so clearing it on a good save is one call
+   rather than a second copy of the same DOM code drifting away from this one. */
+function showAddCustMissing(fields){
+  const box = document.getElementById('addCustMissingBox');
+  const list = document.getElementById('addCustMissingList');
+  if(!box || !list) return;
+  list.innerHTML = '';
+  if(!fields || !fields.length){ box.style.display = 'none'; return; }
+  fields.forEach(function(f){
+    const li = document.createElement('li');
+    li.textContent = f;
+    list.appendChild(li);
+  });
+  box.style.display = 'block';
+}
+/* Everything a customer record is no use downstream without: no photo means
+   nothing to measure from and nothing for the crew to look at, no price means
+   no invoice, and no phone or email means they can never be reached or billed.
+   Only Street Address and City carry the browser's own `required`, so the rest
+   used to save quietly blank and the hole surfaced weeks later.
+   Returns the list of what is missing, in the order it appears on the form. */
+function addCustMissingFields(v){
+  const missing = [];
+  if(!v.street) missing.push('Street Address');
+  if(!v.city) missing.push('City');
+  if(!v.phone) missing.push('Phone Number');
+  if(!v.email) missing.push('Email');
+  if(!v.hasPhoto) missing.push('House Picture');
+  if(!(v.price > 0)) missing.push('Total Price');
+  return missing;
+}
 document.getElementById('routeAddressForm').addEventListener('submit', onceAtATime(async function(e){
   e.preventDefault();
   const street = document.getElementById('routeStreetInput').value.trim();
@@ -13210,6 +13292,26 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
   const discountReason = document.getElementById('addCustDiscountReason').value.trim();
   let numberOfBins = parseInt(document.getElementById('addCustBins').value, 10) || 1;
   const wantsMailedInvoice = document.getElementById('addCustWantsMailed').checked;
+  /* Say what is missing BEFORE anything else is checked or written. Every other
+     guard below reports one problem at a time; being sent back around a form
+     this long six times over is most of what "adding a customer doesn't work"
+     actually was. Name all of them at once, on the page and in the dialog, and
+     still let it through on purpose — a house genuinely can be added before the
+     photo is taken or the price is agreed. */
+  const missingFields = addCustMissingFields({
+    street: street, city: city, phone: phone, email: email, price: price,
+    hasPhoto: !!addCustPhotoUrl || addCustExtraPhotos.length > 0
+  });
+  showAddCustMissing(missingFields);
+  if(missingFields.length){
+    document.getElementById('routeAddStatus').textContent =
+      missingFields.length + (missingFields.length === 1 ? ' thing is' : ' things are') + ' missing — see the red box just above.';
+    if(!confirm(
+      (name || 'This customer') + ' is missing:\n\n' +
+      missingFields.map(function(f){ return '    • ' + f; }).join('\n') + '\n\n' +
+      'Press Cancel to go back and fill them in, or OK to add them without these.'
+    )) return;
+  }
   /* Feet decide the bins, and the bins decide which sequence the number comes from.
      Over 260 feet is a double-bin house on a 5000 number; anything else is a single
      bin on a regular number. With no feet measured yet there's nothing to decide
@@ -13305,9 +13407,25 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
   }
 
   statusEl.textContent = 'Locating address…';
+  const fullAddress = buildFullAddress(street, city, zip);
+  /* A pin we can't find is never a reason to lose the customer. The bulk
+     importer has always added them anyway and flagged the pin so it can be
+     fixed from All Customers afterwards; the hand-typed form used to throw the
+     whole record away instead, which is why a house Google could not place
+     simply could not be added at all.
+     Doing the lookup OUTSIDE the try below matters just as much: it used to sit
+     inside it, so a failed Firestore write, a photo that would not upload, or
+     any other error in the save all came back as "Could not locate that
+     address" and sent whoever was adding the customer off checking the spelling
+     of a street that was never the problem. */
+  let coords = null;
   try{
-    const fullAddress = buildFullAddress(street, city, zip);
-    const coords = await geocodeAddress(fullAddress);
+    coords = await geocodeAddress(fullAddress);
+  } catch(geoErr){
+    coords = {lat: null, lng: null};
+  }
+  const pinFailed = coords.lat === null;
+  try{
     if(addCustHighlights.length){
       statusEl.textContent = 'Saving highlighted photo…';
       addCustPhotoUrl = await getHighlightedPhotoUrl(addCustPhotoUrl, addCustHighlights, {showLetters: false});
@@ -13331,7 +13449,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
       rsvpStatus: addCustFromQuoteId ? 'yes' : '',
       contactMethod: (addCustFromQuoteId ? (addCustContactMethodFromQuote || '') : ''),
       wireColor: wireColor,
-      lat: coords.lat, lng: coords.lng, needsLightBuild: !!lightsDescription,
+      lat: coords.lat, lng: coords.lng, needsGeocode: pinFailed, needsLightBuild: !!lightsDescription,
       scheduled: false, createdAt: serverTimestamp(), housePrice: price, measuredFeet: measuredFeet, gateCode: gateCode, outletTimer: outletTimer, useEaves: useEaves, specificOutlet: specificOutlet, specificOutletNotes: specificOutletNotes, notes: custNotes, wantsMailedInvoice: wantsMailedInvoice, numberOfBins: numberOfBins, customerNumber: customerNumber
     }, billingElsewhere ? {billToPhone: billToPhone} : {}));
     // If this number was sitting in the available pool, it isn't available anymore.
@@ -13438,10 +13556,20 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
     renderAddCustExtraPhotos();
     addCustHighlights = [];
     renderAddCustHighlights();
-    statusEl.textContent = 'Added!' + invoiceMsg;
-    setTimeout(function(){ statusEl.textContent = ''; }, 3000);
+    showAddCustMissing([]);
+    /* A pin that could not be found is said out loud rather than left for
+       someone to notice when the house never appears on a route. It is not an
+       error — the customer is saved — so it does not time out with the rest. */
+    statusEl.textContent = 'Added!' + invoiceMsg +
+      (pinFailed ? ' Google could not place this address, so there is no map pin yet — fix the address from All Customers or they cannot be routed.' : '');
+    if(!pinFailed) setTimeout(function(){ statusEl.textContent = ''; }, 3000);
   } catch(err){
-    statusEl.textContent = 'Could not locate that address — check spelling and try again.';
+    /* Say what actually went wrong. This blamed the address for every failure,
+       including ones the geocode above had already ruled out, and a customer
+       who was half-saved looked identical to one that was never saved at all. */
+    statusEl.textContent = 'Could not finish adding ' + (name || 'this customer') + ' — ' +
+      ((err && err.message) || 'something went wrong') +
+      '. Check All Customers before trying again, in case part of it saved.';
   }
 }, function(){ return document.querySelector('#routeAddressForm button[type="submit"]'); }));
 
@@ -16785,8 +16913,8 @@ function renderAllCustomersTable(){
     const invStatus = inv ? computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit, inv.data.credits, inv.data.changeFees) : null;
     const hasMap = !!d.layoutMapUrl;
     /* A real pin means real coordinates. Trust the numbers over the
-       needsGeocode flag: the flag is only written by the bulk importer, so a
-       customer added by hand whose address would not geocode has no flag at
+       needsGeocode flag: nothing has ever backfilled that flag, so a customer
+       added by hand before Add a Customer started writing it has no flag at
        all — and is exactly as unroutable. */
     const hasPin = hcHasMapPin(d);
     const enrolled = memberExportDateAdded(d);
@@ -16911,6 +17039,9 @@ function renderAllCustomersTable(){
   });
 }
 let editCustomerId = null;
+/* The record's updatedAt at the moment the Edit Customer modal was opened, so
+   the save can tell whether anyone else has touched it since. */
+let editCustOpenedWithUpdatedAt = null;
 
 /* ---- EDIT CUSTOMER: expand/collapse + conditional outlet + discount preview ---- */
 function setEditCustExpanded(expanded){
@@ -16976,6 +17107,13 @@ function openEditCustomerModal(id){
   if(!item) return;
   const d = item.data;
   editCustomerId = id;
+  /* Remember how fresh the record was when this modal opened. The Save button
+     writes ~30 fields from the snapshot taken right now, so if somebody else —
+     a second office login, or the customer themselves through the portal —
+     changes anything in between, saving would silently write the stale values
+     straight back over it. Four people share this dashboard. See the check in
+     the save handler. */
+  editCustOpenedWithUpdatedAt = (jobAddresses.find(a => a.id === id) || {data:{}}).data.updatedAt || null;
   document.getElementById('editCustName').value = d.name || '';
   document.getElementById('editCustPropertyLabel').value = d.propertyLabel || '';
   document.getElementById('editCustPhone').value = d.phone || '';
@@ -17170,6 +17308,7 @@ document.getElementById('editCustDeleteBtn').addEventListener('click', async fun
        Next Year paths already do. */
     await removeCustomerFromUpcomingRoutes(item.id);
     await deleteDoc(doc(db,'jobAddresses', item.id));
+    logActivity('Deleted customer ' + (d.name || item.id) + (num ? ' and returned number #' + num + ' to the pool' : ''), 'customers', item.id);
     editCustomerId = null;
     document.getElementById('editCustOverlay').style.display = 'none';
     toast((d.name || 'Customer') + ' deleted' + (num ? ' \u2014 #' + num + ' is available again' : ''));
@@ -17224,6 +17363,37 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const newInstallPref = document.getElementById('editCustInstallPref').value;
   const newHouseNotes = document.getElementById('editCustNotes').value.trim();
   if(!newName || (!newPhone && !newEmail)){ statusEl.textContent = 'Name plus a phone number or email are required.'; return; }
+
+  /* ⚠ HAS ANYBODY ELSE TOUCHED THIS RECORD WHILE THE MODAL WAS OPEN?
+     This handler writes ~30 fields from the snapshot taken when it opened —
+     including Measured Feet, which drives bins, the customer number series and
+     the price. So a save made over somebody else's change does not merge with
+     it, it erases it, and nothing on screen ever said so. Four people share
+     this dashboard, and the customer can change their own details through the
+     portal at the same time.
+     Re-read straight from Firestore rather than from the cache: the listener
+     may not have delivered the other change yet, and the whole point is to see
+     something the cache might not know about. */
+  try{
+    const freshSnap = await getDoc(doc(db,'jobAddresses', editCustomerId));
+    const freshAt = freshSnap.exists() ? (freshSnap.data().updatedAt || null) : null;
+    const openedMs = editCustOpenedWithUpdatedAt && editCustOpenedWithUpdatedAt.toMillis ? editCustOpenedWithUpdatedAt.toMillis() : 0;
+    const freshMs = freshAt && freshAt.toMillis ? freshAt.toMillis() : 0;
+    if(freshMs && openedMs && freshMs > openedMs){
+      const who = freshSnap.data().lastEditedBy ? ' by ' + freshSnap.data().lastEditedBy : '';
+      if(!confirm('Somebody else changed this customer' + who + ' while you had this window open.\n\n' +
+        'Saving now replaces their changes with what is on your screen — it does not merge the two.\n\n' +
+        'Cancel is usually right: close this, reopen the customer to see their version, and redo your edit on top.\n\n' +
+        'Save anyway and overwrite?')){
+        statusEl.textContent = 'Nothing saved. Close and reopen this customer to see the latest version.';
+        return;
+      }
+    }
+  } catch(err){
+    // Could not check — say so rather than pretending it is safe.
+    console.error('[HU] could not check for a concurrent edit', err);
+  }
+
   const oldPhone = item.data.phone || '';
   const oldKey = custInvoiceKey(item.data);
   const newKey = newPhone || newEmail.toLowerCase();
@@ -17233,6 +17403,12 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   try{
     const newNoTexts = document.getElementById('editCustNoTexts').checked;
     const addrUpdates = {smsOptedOut: newNoTexts, name: newName, propertyLabel: newPropertyLabel, phone: newPhone, phone2: newPhone2, email: newEmail, email2: newEmail2, address: newAddress, rsvpStatus: newRsvp, housePrice: newHousePrice, measuredFeet: newMeasuredFeet, wireColor: newWireColor, billToPhone: newBillTo, gateCode: newGateCode, outletTimer: newOutletTimer, useEaves: newUseEaves, specificOutlet: newSpecificOutlet, specificOutletNotes: newSpecificOutletNotes, numberOfBins: newBins, wantsMailedInvoice: newWantsMailed, layoutMapUrl: editCustLayoutMapUrl, earliestInstallDate: newEarliestInstallStr ? new Date(newEarliestInstallStr + 'T00:00:00') : null};
+    /* Stamped on every customer save. Without these two the concurrent-edit
+       check above has nothing to compare — a customer record carried no
+       updatedAt at all, so "has anyone touched this since I opened it?" was
+       unanswerable, and "who changed this?" had never been recorded anywhere. */
+    addrUpdates.updatedAt = serverTimestamp();
+    addrUpdates.lastEditedBy = paymentLedgerUser();
     if(newEnrolledStr) addrUpdates.createdAt = new Date(newEnrolledStr + 'T12:00:00');
     // Lights, house areas, install timing and permanent notes now live on the
     // customer. A colour change means a new pattern to build, so it re-queues
@@ -17331,6 +17507,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     const feetChanged = Number(d.measuredFeet || 0) !== Number(newMeasuredFeet || 0);
     const addressChanged = String(d.address || '').trim().toLowerCase() !== String(newAddress || '').trim().toLowerCase();
     await updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates);
+    logActivity('Edited customer ' + (newName || editCustomerId), 'customers', editCustomerId);
     /* The office has to be told, because nothing else on screen would show it:
        they are back in the build queue but their customer number is gone, and
        a house with no number cannot be binned or routed. Only raised when the
@@ -21100,10 +21277,11 @@ function hcDigits(v){ return String(v || '').replace(/\D/g,''); }
 function hcName(d){ return (d && d.name) || '(no name)'; }
 function hcAddr(d){ return [(d && d.address) || '', (d && d.city) || ''].filter(Boolean).join(', '); }
 /* Does this customer have a usable map pin? Judged on the coordinates
-   themselves, not on the needsGeocode flag: that flag is only ever written by
-   the bulk importer, so a customer typed in by hand whose address would not
-   geocode carries no flag and is just as unroutable. 0,0 is the Atlantic — it
-   is what a failed lookup leaves behind, never a house in Utah. */
+   themselves, not on the needsGeocode flag. Add a Customer now writes that flag
+   too, but nothing has ever backfilled it, so every customer added before that
+   whose address would not geocode still carries no flag and is just as
+   unroutable. 0,0 is the Atlantic — it is what a failed lookup leaves behind,
+   never a house in Utah. */
 function hcHasMapPin(d){
   const lat = Number(d && d.lat), lng = Number(d && d.lng);
   if(!isFinite(lat) || !isFinite(lng)) return false;
@@ -21572,6 +21750,7 @@ function runHealthCheck(){
   try {
     hcLastChecks = hcRunChecks();
     hcRender();
+    renderActivityToday().catch(function(){});
     if(status) status.textContent = 'Checked ' + jobAddresses.length + ' customers, ' + allInvoicesCache.length + ' invoices, ' + quotesCache.length + ' quotes at ' + new Date().toLocaleTimeString() + '.';
   } catch(err){
     console.error('Health check failed', err);
@@ -21601,11 +21780,41 @@ function hcCachesReady(){
   // nothing for the checks to find in that case either.
   return Array.isArray(jobAddresses) && jobAddresses.length > 0;
 }
+/* Draw the last 24 hours of the activity log. Queried on its own rather than
+   cached: it is only looked at on this one panel, and one query when the panel
+   refreshes is cheaper than a live listener on a collection that grows all day.
+   Ordered client-side so this needs no composite index. */
+async function renderActivityToday(){
+  const el = document.getElementById('activityToday');
+  if(!el) return;
+  try{
+    const since = new Date(Date.now() - 24 * 3600000);
+    const snap = await getDocs(query(collection(db,'activity'), where('at','>=', since)));
+    const rows = [];
+    snap.forEach(function(d){ rows.push(d.data()); });
+    rows.sort(function(a,b){ return (toJsDate(b.at) || 0) - (toJsDate(a.at) || 0); });
+    if(!rows.length){
+      el.textContent = 'Nothing has been changed in the last 24 hours.';
+      return;
+    }
+    el.innerHTML = rows.slice(0, 40).map(function(r){
+      const when = toJsDate(r.at);
+      const t = when ? when.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) : '';
+      return '<div style="padding:3px 0; border-bottom:1px solid var(--line);">'+
+        '<span style="color:var(--slate);">'+esc(t)+'</span> &middot; '+esc(r.what)+
+        (r.who ? ' <span style="color:var(--slate);">— '+esc(r.who)+'</span>' : '')+'</div>';
+    }).join('') + (rows.length > 40 ? '<div style="padding-top:6px; color:var(--slate);">…and '+(rows.length-40)+' more.</div>' : '');
+  } catch(err){
+    console.error('[HU] activity log read failed', err);
+    el.textContent = 'Could not load the activity log.';
+  }
+}
 function runHealthCheckAuto(){
   if(!hcCachesReady()) return;
   try{
     hcLastChecks = hcRunChecks();
     hcRender();          // this is what writes the sidebar badge
+    renderActivityToday().catch(function(){});
   } catch(err){
     // Never let a background check break the page it is running behind.
     console.error('[HU] automatic health check failed', err);

@@ -2116,6 +2116,56 @@ suite('10c. Tips, the payment importer, and the ledger backfill');
     'a card that only told you to go elsewhere was not a tool');
 })();
 
+suite('10d. Activity log, and losing somebody else’s edit');
+(function () {
+  // ---- §5.3 the activity log --------------------------------------------
+  /* Nothing recorded who changed what. Four people share this dashboard and
+     the app has always known who is signed in, so when a price is wrong or two
+     people disagree about what happened there was nothing to consult. */
+  check('activity', 'there is an activity log',
+    /async function logActivity/.test(admin) && /collection\(db,'activity'\)/.test(admin),
+    'who changed what was recorded nowhere at all');
+  check('activity', 'it records who, as well as what',
+    /who: paymentLedgerUser\(\)/.test(admin),
+    'the point of the log is the name beside the change');
+  const actFn = extractFn(admin, 'logActivity') || '';
+  check('activity', 'a failed log write cannot break the change it describes',
+    /catch/.test(actFn) && /return null/.test(actFn),
+    'a note about a change must never be able to undo the change');
+  check('activity', 'it is written from the handlers that actually change things',
+    (admin.match(/logActivity\(/g) || []).length >= 6,
+    'a log wired to one handler tells you almost nothing');
+  check('activity', 'nothing decides anything from the log',
+    !/collection\(db,'activity'\)[\s\S]{0,600}(computeInvoiceStatus|balanceDueAmount|updateDoc)/.test(admin),
+    'it is a record for people to read — that is what makes it safe to write from a dozen places');
+  check('activity', 'today’s changes are shown at the top of Health Check',
+    /function renderActivityToday/.test(admin) && /What changed today/.test(admin),
+    'a log nobody can read answers nothing');
+  check('activity', 'the activity collection has a rules entry',
+    /match \/activity\/\{id\}/.test(read('firestore.rules')),
+    'a collection missing from the rules is denied by default and the panel renders empty');
+
+  // ---- §6 two people editing one customer --------------------------------
+  /* The Edit Customer modal writes ~30 fields from the snapshot taken when it
+     opened — including Measured Feet, which drives bins, the number series and
+     the price. A save made over somebody else's change does not merge with it,
+     it erases it, and nothing said so. The customer can be editing their own
+     details through the portal at the same moment. */
+  const saveSrc = sectionFrom(admin, admin.indexOf("editCustSaveBtn').addEventListener('click'"));
+  check('conflict', 'the customer save checks whether anyone else changed the record',
+    /editCustOpenedWithUpdatedAt/.test(saveSrc) && /freshMs > openedMs/.test(saveSrc),
+    'a save silently replaced the other person’s work with a stale snapshot');
+  check('conflict', 'it re-reads from the server, not from the cache',
+    /getDoc\(doc\(db,'jobAddresses', editCustomerId\)\)/.test(saveSrc),
+    'the listener may not have delivered the other change yet — the cache is the thing that might not know');
+  check('conflict', 'overwriting is possible but has to be chosen',
+    /Save anyway and overwrite\?/.test(saveSrc),
+    'sometimes overwriting IS right — it just should not be the silent default');
+  check('conflict', 'the customer record now records when it was changed, and by whom',
+    /addrUpdates\.updatedAt = serverTimestamp\(\)/.test(admin) && /addrUpdates\.lastEditedBy/.test(admin),
+    'without these the conflict check has nothing to compare and never fires');
+})();
+
 suite('11. Reliability pass');
 /*
  * The 2026-08-14 audit's §2 items. None of these are money bugs on their own;
@@ -2159,6 +2209,53 @@ suite('11. Reliability pass');
   check('reliability', 'the duplicate warning can be overridden for a real second property',
     /Add a second record anyway\?/.test(addForm),
     'two houses for one family is legitimate and must not be blocked outright');
+
+  // ---- 2.2b Missing required fields on the Add form ----------------------
+  /* Only Street Address and City ever carried the browser's own `required`, so
+     a customer could be saved with no phone, no email, no photo and no price
+     and nothing said a word. Every other guard in this handler also reports one
+     problem at a time, which is what made a long form feel broken. */
+  const missingFn = admin.slice(admin.indexOf('function addCustMissingFields'),
+                                admin.indexOf('function addCustMissingFields') + 700);
+  check('reliability', 'the Add form has a missing-required-fields check',
+    missingFn.length > 100 && /function showAddCustMissing/.test(admin),
+    'a customer saved with no phone, photo or price looked identical to a complete one');
+  ['Street Address', 'City', 'Phone Number', 'Email', 'House Picture', 'Total Price'].forEach(function(field){
+    check('reliability', 'the Add form names "' + field + '" when it is missing',
+      missingFn.indexOf("'" + field + "'") !== -1,
+      'being told about missing fields one at a time is what made this form feel broken');
+  });
+  check('reliability', 'every missing field is listed in one go, not one per attempt',
+    /missingFields\.map\(/.test(addForm) && /showAddCustMissing\(missingFields\)/.test(addForm),
+    'six trips around a form this long is most of what "add customer does not work" was');
+  check('reliability', 'the missing-field check runs before anything is written',
+    addForm.indexOf('addCustMissingFields(') > -1 &&
+    addForm.indexOf('addCustMissingFields(') < addForm.indexOf('addDoc('),
+    'telling someone what is missing after the record is saved is not telling them');
+  check('reliability', 'the missing-field warning can be overridden on purpose',
+    /add them without these/.test(addForm),
+    'a house genuinely can be added before the photo is taken or the price agreed');
+  check('reliability', 'the red missing box is cleared once the customer saves',
+    /showAddCustMissing\(\[\]\)/.test(addForm),
+    'a stale red box on a successful save reads as a failure');
+
+  // ---- 2.2c A house Google cannot place is still added --------------------
+  /* The bulk importer has always saved these and flagged the pin. The
+     hand-typed form threw the whole record away instead — and blamed the
+     address for every other failure in the save, too. */
+  check('reliability', 'a failed geocode no longer loses the customer',
+    /catch\(geoErr\)/.test(addForm) && /needsGeocode: pinFailed/.test(addForm),
+    'a house Google could not place simply could not be added at all');
+  check('reliability', 'the geocode happens outside the save try block',
+    addForm.indexOf('catch(geoErr)') < addForm.indexOf('addDoc('),
+    'a Firestore or photo failure came back as "could not locate that address"');
+  check('reliability', 'a missing map pin is reported on the successful save',
+    /no map pin yet/.test(addForm),
+    'a house with no pin never appears on a route and nothing said so');
+  check('reliability', 'a failed save reports the real error, not the address',
+    !/Could not locate that address — check spelling/.test(addForm) &&
+    /Could not finish adding/.test(addForm),
+    'every failure blamed the spelling of a street that was never the problem');
 
   // ---- 2.5 invoicedAt ----------------------------------------------------
   check('reliability', 'invoicedAt is written when the invoice is issued',
