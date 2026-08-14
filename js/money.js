@@ -31,9 +31,28 @@ export function cnBinsForFeet(feet) {
   return (Number(feet) || 0) > CN_DOUBLE_BIN_FEET ? 2 : 1;
 }
 
-/* Format a number as money for display, e.g. 1234.5 -> "$1,234.5". */
+/* Format a number as money for display, e.g. 1234.5 -> "$1,234.50".
+ *
+ * Always two decimal places. Without them a real balance of $1,234.50 printed
+ * as "$1,234.5", and the customer's emailed invoice — which has always used
+ * toFixed(2) on the server — disagreed with the office screen on the same
+ * invoice. */
 export function fmtMoney(n) {
-  return '$' + (Number(n) || 0).toLocaleString();
+  return '$' + (Number(n) || 0).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+}
+
+/* Round to whole cents. Money arithmetic in floating point leaves crumbs:
+ * 0.1 + 0.2 is 0.30000000000000004, so a customer who has paid every cent can
+ * come out a fraction short and get filed as "Partial Payment" against a
+ * balance that displays as $0.00 — stuck on the unpaid list forever with
+ * nothing on screen to explain why. Comparing rounded cents fixes that.
+ *
+ * ⚠ functions/index.js has its own copy of this (centsOf). Change both. */
+export function centsOf(n) {
+  return Math.round(((Number(n) || 0) + Number.EPSILON) * 100);
 }
 
 /* THE ONE INVOICE RULE.
@@ -46,9 +65,12 @@ export function fmtMoney(n) {
  * the bug that once caused PayPal to undercharge, so it is included here and
  * must stay included everywhere. */
 export function computeInvoiceStatus(install, removal, deposit, credits, changeFees) {
-  const gross = (Number(install) || 0) + (Number(removal) || 0) + (Number(changeFees) || 0);      // the real charge (incl. light-change fees)
-  const total = gross - (Number(credits) || 0);                     // what's owed after credits
-  const paid = Number(deposit) || 0;
+  // Compared in whole cents — see centsOf. A fraction of a cent left over by
+  // floating-point arithmetic must never be the difference between "Paid in
+  // Full" and "Partial Payment".
+  const gross = centsOf(install) + centsOf(removal) + centsOf(changeFees);   // the real charge (incl. light-change fees)
+  const total = gross - centsOf(credits);                           // what's owed after credits
+  const paid = centsOf(deposit);
   if (gross <= 0 && paid <= 0) return 'Unpaid';                    // a truly blank invoice
   if (total <= 0) return 'Paid in Full';                          // credits (and/or payments) cover it all
   if (paid <= 0) return 'Unpaid';
