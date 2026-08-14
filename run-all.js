@@ -1848,6 +1848,49 @@ suite('9. Portal sign-in security');
 })();
 
 // =====================================================================
+/* ⚠ THE BUG THIS SUITE CATCHES.
+ *
+ * The Bulk Updates "Address Fields" importer (rbImportBtn) parses a
+ * Customer # column, validates every number up front — bad format, an
+ * in-batch duplicate, or a number already belonging to someone else all
+ * block the whole import with a specific row-numbered error — and then
+ * never actually wrote it to any record. The office would watch real
+ * validation errors fire for typos, reasonably conclude the numbers were
+ * being taken seriously, and every customer would come out with no
+ * customerNumber at all. This is a text-based check, not an execution one:
+ * rbImportBtn is a huge click handler wired to a page full of textareas and
+ * a real geocoder, and mocking all of that for one field is not worth it
+ * here — but the check is specific enough (exact assignment expressions,
+ * not just "cn appears somewhere") that it can't pass on dead code.
+ */
+(function () {
+  const start = admin.indexOf("rbImportBtn').addEventListener('click'");
+  if (start === -1) {
+    check('bulk-address', 'rbImportBtn found in admin.html', false,
+      'renamed or removed — update this test rather than deleting it');
+    return;
+  }
+  const src = admin.slice(start, start + 12000);
+
+  check('bulk-address', 'the Customer # column is parsed into cn',
+    /const custNumbers = alignBulkRows/.test(src) && /const cn = custNumbers\[i\] \|\| ''/.test(src),
+    'without this the column is read for validation only and the value itself is thrown away');
+  check('bulk-address', 'an existing customer actually gets the number written',
+    /updates\.customerNumber = cn;/.test(src),
+    'validation ran, no error shown, but the update object never carried the number through');
+  check('bulk-address', 'a newly-created customer actually gets the number written',
+    /newDoc\.customerNumber = cn;/.test(src),
+    'validation ran, no error shown, but the new customer document never carried the number through');
+  check('bulk-address', 'under-5000 numbers set Number of Bins to 1, matching the help text under the box',
+    (src.match(/if\(parseInt\(cn,10\) < 5000\) updates\.numberOfBins = 1;/) || []).length +
+    (src.match(/if\(parseInt\(cn,10\) < 5000\) newDoc\.numberOfBins = 1;/) || []).length >= 2,
+    'the box\'s own help text promises this and a human would trust it without checking');
+  check('bulk-address', 'a number already sitting in the recycled pool is cleared once assigned',
+    /deleteDoc\(doc\(db,'availableCustomerNumbers', cn\)\)/.test(src),
+    'without this a manually-typed number could still be handed out again later by Assign in Bulk');
+})();
+
+// =====================================================================
 // Wait for the async suites before totalling up — see pendingAsync at the top.
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {

@@ -13020,6 +13020,11 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
     const difficultyVal = rbNormalizeDifficulty(difficultyRaw[i] || '');
     const amountTypedIn = amounts[i] || '';
     const price = amountTypedIn ? Number(amountTypedIn.replace(/[,$]/g,'')) : null;
+    // Already validated above (format, in-batch duplicates, and against every
+    // existing customer) — this just applies it. Under 5000 sets Number of
+    // Bins to 1, matching the help text under the box; 5000+ is left for a
+    // human to fill in the bin count, same as the manual Add Customer form.
+    const cn = custNumbers[i] || '';
     try{
       const fullAddress = buildFullAddress(street, city, zip);
       // Google throttles long runs with OVER_QUERY_LIMIT. A pin we can't find is
@@ -13055,10 +13060,14 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
         if(outletTimerVal) updates.outletTimer = outletTimerVal;
         if(useEavesVal) updates.useEaves = useEavesVal;
         if(difficultyVal) updates.difficulty = difficultyVal;
+        if(cn){
+          updates.customerNumber = cn;
+          if(parseInt(cn,10) < 5000) updates.numberOfBins = 1;
+        }
         await updateDoc(doc(db,'jobAddresses',existing.id), updates);
         updated++;
       } else {
-        await addDoc(collection(db,'jobAddresses'), {
+        const newDoc = {
           street: street, city: city, state: state, zip: zip,
           address: fullAddress, name: name, phone: phone, email: email, difficulty: difficultyVal || 'Unrated',
           lightColors: colors,
@@ -13069,8 +13078,19 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
           lat: coords.lat, lng: coords.lng,
           needsGeocode: coords.lat === null,
           scheduled: false, createdAt: enrolledDate || serverTimestamp()
-        });
+        };
+        if(cn){
+          newDoc.customerNumber = cn;
+          if(parseInt(cn,10) < 5000) newDoc.numberOfBins = 1;
+        }
+        await addDoc(collection(db,'jobAddresses'), newDoc);
         added++;
+      }
+      // A number typed in here might be one already sitting in the recycled
+      // pool — same cleanup the manual Add Customer form does (line ~12455),
+      // so it can't be handed out to a second customer later.
+      if(cn){
+        await deleteDoc(doc(db,'availableCustomerNumbers', cn)).catch(function(){ /* fine if it was never pooled */ });
       }
       if(!phone && price !== null){ noPhoneNoInvoice++; }
       if(phone){
