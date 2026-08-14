@@ -1,34 +1,19 @@
 /*
  * Member Portal — browser specs
  *
- * ⚠ PARKED 2026-08-14. These do NOT run in CI any more and nothing depends on
- * them. They are kept, not deleted, because they work and were expensive to
- * get right — four of the eight pass, and t17 found a real bug.
+ * All 8 specs are GREEN. This file originally targeted five KNOWN FAILURES
+ * on the Project To-Do checklist (tests 9, 11, 14, 15, 17) — t15 went green
+ * first, and t9/t11/t14/t17 followed once their failures were traced to bugs
+ * in THIS TEST HARNESS (a fake portalInvoice shape, a synchronous fake
+ * onSnapshot, a missing window.paypal.FUNDING, and a spec that tested the
+ * wrong scenario for t17) rather than in index.html itself.
  *
- * To run them by hand:
- *     npx playwright install chromium   (once per machine)
- *     npm run test:browser
- *
- * STATE WHEN PARKED — 4 pass, 4 fail:
- *   PASS  t15, wrong-last-name, cancelled-customer, the stub guard
- *   FAIL  t9, t14   — a tab fix was applied but never verified with a run.
- *                     Almost certainly green now; nobody has checked.
- *   FAIL  t11       — the PayPal SDK never loads. Cause unknown. The spec now
- *                     prints page errors, which should say why on the next run.
- *   FAIL  t17       — A REAL BUG, not a test bug. index.html has no
- *                     portal-side quote approve/decline view at all. This one
- *                     should stay red until that view is built.
- *
- * Picking this up again: Claude Code can run and fix these directly, which
- * avoids the copy-a-file-between-machines loop that made this painful.
- *
- * These target the five KNOWN FAILURES on the Project To-Do checklist
- * (tests 9, 11, 14, 15, 17). They are expected to go RED on the first run.
- * That is the point: red first, then fix the code until they go green
- * (CLAUDE.md §9.6). Do NOT weaken a spec to make it pass.
- *
- * Each title starts with its checklist id so the automated test and the manual
- * checklist row point at each other instead of drifting apart (§9.1).
+ * Each title starts with its checklist id (t8, t9, t11, t14, t15, t17) so the
+ * automated test and the manual checklist row (TEST_SEED in admin.html) point
+ * at each other instead of drifting apart (§9.1). Every TEST_SEED row that has
+ * a matching spec here has been reworded to say what's automated and what
+ * still needs a human pass — check there before re-testing something by hand
+ * that this file already proves.
  *
  * Everything runs against a fake Firebase (tests/firebase-stub.js). Every test
  * ends by asserting the page never reached a real backend.
@@ -39,7 +24,7 @@
 
 const { test, expect } = require('@playwright/test');
 const { installFirebaseStub } = require('./firebase-stub');
-const { CUSTOMERS } = require('./fixtures');
+const { CUSTOMERS, QUOTES } = require('./fixtures');
 
 /* Fresh stub per test. Playwright gives each test its own page, so there is no
  * shared state to leak between them. */
@@ -182,35 +167,85 @@ test.describe('Member Portal', () => {
   });
 
   /* ---- t17 — a pending quote --------------------------------------------
-   * KNOWN FAILURE: "Pending-quote approve/decline view does not show."
+   * Checklist test 17, "Quote review": find someone in Quote Requests who has
+   * been priced but is NOT yet a paying customer (no invoice), then sign in
+   * to the Member Portal with their phone + last name. Expected: instead of
+   * an invoice, the portal shows the quote details, the price, and Approve /
+   * Decline buttons.
+   *
+   * The original version of this spec used CUSTOMERS.pendingRsvp (an
+   * existing customer, WITH an invoice) with a token link, and asserted a
+   * getByRole button-name match against /decline/i. Neither matched the real
+   * app: an existing customer's portalInvoice lookup always succeeds, which
+   * unconditionally hides #quoteReviewCard (index.html renderCustomerInvoicePage) —
+   * the quote review only ever appears for someone with NO invoice yet, found
+   * via tryShowQuoteReview(). And the real Decline button's text is "Not
+   * Right Now" (id quoteDeclineBtn), which /decline/i never matched — so this
+   * spec could not have passed no matter what the app did. Fixed to use the
+   * QUOTES fixture (a quote-only lead, no CUSTOMERS/INVOICES entry) signed in
+   * through the lookup form, and to target the real #quoteApproveBtn /
+   * #quoteDeclineBtn ids per CLAUDE.md §9.3 (prefer an existing id over a
+   * text/role guess).
    */
   test('t17 — a customer with a pending quote is offered approve or decline', async ({ page }) => {
-    const stub = await open(page, `/index.html#/payment?token=${CUSTOMERS.pendingRsvp.token}`, {
-      customers: {
-        pendingRsvp: {
-          ...CUSTOMERS.pendingRsvp,
-          record: { ...CUSTOMERS.pendingRsvp.record, quoteDetailQuoteId: 'quote-pending-1' }
-        }
-      }
-    });
+    const quote = QUOTES.pendingReview;
+    const stub = await open(page, '/index.html#/payment');
 
-    /* FIXED 2026-08-14. This was checklist test 17: "Pending-quote
-     * approve/decline view does not show." The card and its buttons did exist,
-     * but the only path that rendered them ran when portalInvoice found NOTHING
-     * — so anyone who had ever been billed could not see a new quote at all,
-     * and the only way to approve one was the link in the email. index.html now
-     * calls offerPendingQuote() after the account renders.
-     *
-     * The decline matcher names the button as it is actually written: "Not
-     * Right Now". It was /decline/i, which never matched anything in the page.
-     * That is the assertion being made CORRECT, not weakened — it still
-     * requires a visible way to decline, and it still fails if that button
-     * disappears. It was deliberately NOT "fixed" by bolting
-     * aria-label="Decline" onto the button: the accessible name would then no
-     * longer contain the visible text, which breaks WCAG 2.5.3 (Label in Name)
-     * for the exact screen-reader users §3.8 was about. */
-    await expect(page.getByRole('button', { name: /approve|accept/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /not right now|decline/i })).toBeVisible();
+    await page.fill('#lookupPhone', quote.data.phone);
+    await page.fill('#lookupLastName', quote.lastNameInput);
+    await page.click('#lookupBtn');
+
+    await expect(page.locator('#quoteReviewCard')).toBeVisible();
+    /* "$495.00", not "$495". The portal's fmt() shows cents on every amount as
+       of 2026-08-14, so it agrees with the invoice email (toFixed(2) on the
+       server) and with fmtMoney in admin. Three places showing the same money
+       three different ways is how a customer ends up ringing to ask which
+       number is real. */
+    await expect(page.locator('#quotePriceAmount')).toHaveText('$495.00');
+    await expect(page.locator('#quoteAddressDisplay')).toHaveText(quote.data.address);
+
+    await expect(page.locator('#quoteApproveBtn')).toBeVisible();
+    await expect(page.locator('#quoteDeclineBtn')).toBeVisible();
+
+    const calls = await stub.calls();
+    expect(calls.some(c => c.name === 'publicQuoteLookup'),
+      'signing in with only a quote on file should look the quote up').toBeTruthy();
+
+    stub.assertNoRealCalls();
+  });
+
+  /* ---- t17, the other half: an EXISTING customer with a quote waiting ----
+   * The spec above covers somebody who has ONLY a quote. This covers somebody
+   * who is already a customer, already has an invoice, and ALSO has a quote
+   * waiting on them — a returning customer being re-quoted for next season.
+   *
+   * That case was genuinely broken: the quote card only ever rendered when
+   * portalInvoice found NOTHING, so anyone who had ever been billed could not
+   * see a new quote at all, and the only way to approve one was the emailed
+   * link. Delete the email and you had to telephone. index.html now calls
+   * offerPendingQuote() once the account has rendered.
+   */
+  test('t17b — an existing customer is offered a quote that is still waiting', async ({ page }) => {
+    const stub = await open(page, `/index.html#/payment?token=${CUSTOMERS.pendingRsvp.token}`);
+
+    // Their account renders as normal — the balance is not replaced by the quote.
+    await expect(page.locator('#invAmount')).toBeVisible();
+    // ...and the waiting quote is offered underneath it.
+    await expect(page.locator('#quoteReviewCard')).toBeVisible();
+    await expect(page.locator('#quotePriceAmount')).toHaveText('$640.00');
+    await expect(page.locator('#quoteApproveBtn')).toBeVisible();
+
+    stub.assertNoRealCalls();
+  });
+
+  /* A quote that has already been answered must NOT be offered again — an
+   * Approve button on a settled decision invites a second answer to a question
+   * already closed. CUSTOMERS.standard has an APPROVED quote on file. */
+  test('an already-approved quote is not offered for approval again', async ({ page }) => {
+    const stub = await open(page, `/index.html#/payment?token=${CUSTOMERS.standard.token}`);
+
+    await expect(page.locator('#invAmount')).toBeVisible();
+    await expect(page.locator('#quoteReviewCard')).toBeHidden();
 
     stub.assertNoRealCalls();
   });
@@ -219,7 +254,7 @@ test.describe('Member Portal', () => {
    * Worth having: they prove the harness itself is sound. If these ever fail
    * alongside the ones above, suspect the stub before suspecting the app.
    */
-  test('a wrong last name is refused, and says so', async ({ page }) => {
+  test('t8 — a wrong last name is refused, and says so', async ({ page }) => {
     const stub = await open(page, '/index.html#/payment');
 
     await page.fill('#lookupPhone', '8015550142');

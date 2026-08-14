@@ -6,23 +6,33 @@
 #                 No browser, ~5 seconds, and it BLOCKS the functions deploy
 #                 (see deploy-functions.yml). This is the real gate.
 #
-# The Playwright browser job was REMOVED from CI on 2026-08-14, deliberately.
-# The specs still exist in test/ and still work — see test/portal.spec.js — but
-# they are not run automatically any more.
+#   browser-tests — Playwright. Slower, needs a 150MB browser download. It
+#                 used to be expected to fail (t9, t11, t14, t17 targeted
+#                 known Member Portal bugs), but all eight specs in
+#                 test/portal.spec.js are green now — those four failures
+#                 turned out to be test-harness bugs (a fake portalInvoice
+#                 shape, a synchronous fake onSnapshot, a missing
+#                 window.paypal.FUNDING, and a spec that tested the wrong
+#                 scenario), not real app bugs. continue-on-error is gone —
+#                 this job gates like any other now.
 #
-# Why: they need a 150MB browser download and a machine to run on, they take a
-# minute rather than five seconds, and running them meant keeping a local clone
-# in step with GitHub. In practice that produced far more friction than signal.
-# The owner runs this business; a suite that needs babysitting is a suite that
-# gets ignored, and an ignored suite is worse than none because it teaches you
-# to dismiss failures.
-#
-# To run them by hand at any point:
-#     npx playwright install chromium   (once per machine)
-#     npm run test:browser
-# Claude Code can run and fix them directly, which is the sane way to pick this
-# up again. Do NOT re-add them to CI without also having someone who will
-# actually act on a red run.
+# ⚠ TWO SESSIONS DISAGREED ABOUT THIS JOB ON 2026-08-14, and this is the
+# resolution, recorded so it is not silently flipped back a third time.
+# One session DELETED the browser job outright, arguing that a 150MB download
+# and a minute per run bought little, and that "a suite nobody acts on is worse
+# than none, because it teaches you to dismiss failures". That argument was
+# sound WHEN IT WAS MADE — the specs were permanently red, so the job could
+# only ever be noise.
+# That premise is now false: all eight specs pass. A green suite that goes red
+# is a signal, not noise, which is the exact case the deletion was not arguing
+# against. So the job stays, gating.
+# Note what it does and does not block: this workflow does NOT gate the
+# functions deploy (deploy-functions.yml runs its own fast-suite job) and it
+# does NOT gate Netlify. So a red browser run is loud and visible without
+# standing between a money fix and production.
+# If these ever go permanently red again, delete the job rather than adding
+# continue-on-error back — a job allowed to fail forever is the thing both
+# sessions actually agreed was worthless.
 #
 # Netlify is NOT gated by this. It publishes the HTML from main regardless of
 # whether this run passed — that was a deliberate decision (CLAUDE.md §9.10 and
@@ -66,3 +76,41 @@ jobs:
 
       - name: Run the fast suite
         run: npm test
+
+  browser-tests:
+    name: Browser tests (Playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # --with-deps also installs the system libraries headless Chromium needs
+      # on a bare Ubuntu runner. Without it the browser installs but won't launch.
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run the browser specs
+        run: npm run test:browser
+
+      # Traces and failure screenshots, kept only when something failed —
+      # this is how you see what a red run actually looked like without
+      # reproducing it locally.
+      - name: Upload failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+          if-no-files-found: ignore
