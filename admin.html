@@ -15103,6 +15103,14 @@ document.getElementById('deleteAllAddressesBtn').addEventListener('click', async
           await deleteDoc(doc(db,'invoices',custKey));
         }
       }
+      /* Same cleanup the single Delete This Customer path already does (and
+         its own confirm dialog promises) — without it, every number from a
+         full wipe stayed permanently unlisted as recycled, even though
+         nobody holds it anymore. */
+      const num = String(item.data.customerNumber||'');
+      if(num){
+        await setDoc(doc(db,'availableCustomerNumbers', num), {type: parseInt(num,10) >= 5000 ? 'double' : 'regular', releasedAt: serverTimestamp()});
+      }
       await deleteDoc(doc(db,'jobAddresses',item.id));
       deleted++;
     } catch(err){
@@ -15568,6 +15576,11 @@ document.getElementById('editCustDeleteBtn').addEventListener('click', async fun
     if(num){
       await setDoc(doc(db,'availableCustomerNumbers', num), {type: parseInt(num,10) >= 5000 ? 'double' : 'regular', releasedAt: serverTimestamp()});
     }
+    /* A deleted customer whose stop was already built into a route left a
+       phantom stop behind — the crew's Mark Done had nothing to update
+       against and failed with no feedback. Same sweep the RSVP/cancel/Maybe
+       Next Year paths already do. */
+    await removeCustomerFromUpcomingRoutes(item.id);
     await deleteDoc(doc(db,'jobAddresses', item.id));
     editCustomerId = null;
     document.getElementById('editCustOverlay').style.display = 'none';

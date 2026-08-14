@@ -1962,6 +1962,41 @@ suite('9. Portal sign-in security');
 })();
 
 // =====================================================================
+/* ⚠ THE BUGS THIS SUITE CATCHES.
+ *
+ * Deleting a customer (either one at a time from Edit Customer, or all of
+ * them from Danger Zone) never cleaned up fully:
+ *   - Neither path removed the customer from an already-built route, so a
+ *     deleted customer left a phantom stop behind — the crew's Mark Done had
+ *     nothing to update against and failed with no feedback. Single delete
+ *     is fixed with the same removeCustomerFromUpcomingRoutes() sweep every
+ *     other "customer is gone for the season" path already uses.
+ *   - Delete All Customers never released customerNumber back to the
+ *     available pool, unlike the single-delete path — whose own confirm()
+ *     dialog explicitly promises "Number #X goes back into the available
+ *     pool." A full wipe left every number permanently unlisted as
+ *     recycled, even though nobody held it anymore.
+ */
+(function () {
+  const singleStart = admin.indexOf("editCustDeleteBtn').addEventListener('click'");
+  const singleSrc = singleStart > -1 ? admin.slice(singleStart, singleStart + 2000) : '';
+  check('delete-cleanup', 'Delete This Customer handler found in admin.html', singleStart > -1,
+    'renamed or removed — update this test rather than deleting it');
+  check('delete-cleanup', 'deleting a single customer sweeps them off upcoming routes',
+    /removeCustomerFromUpcomingRoutes\(item\.id\)/.test(singleSrc) &&
+    singleSrc.indexOf('removeCustomerFromUpcomingRoutes(item.id)') < singleSrc.indexOf("deleteDoc(doc(db,'jobAddresses', item.id))"),
+    'a deleted customer left a phantom stop on any route already built — the crew\'s Mark Done had nothing to update and failed silently');
+
+  const allStart = admin.indexOf("deleteAllAddressesBtn').addEventListener('click'");
+  const allSrc = allStart > -1 ? admin.slice(allStart, allStart + 2000) : '';
+  check('delete-cleanup', 'Delete All Customers handler found in admin.html', allStart > -1,
+    'renamed or removed — update this test rather than deleting it');
+  check('delete-cleanup', 'Delete All Customers releases every customer\'s number back to the pool',
+    /availableCustomerNumbers['"]?,\s*num\)/.test(allSrc) || /'availableCustomerNumbers', num\)/.test(allSrc),
+    'the single-delete confirm dialog promises this exact behavior — a full wipe silently didn\'t do it');
+})();
+
+// =====================================================================
 // Wait for the async suites before totalling up — see pendingAsync at the top.
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
