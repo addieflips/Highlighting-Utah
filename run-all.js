@@ -1539,11 +1539,17 @@ console.log('\n=== 7. Health check engine ===');
     function toDateStr(dt){return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');}
     function esc(s){return (s||'').toString();}
     var jobAddresses=[],allInvoicesCache=[],quotesCache=[],availableCustomerNumbers=[],scheduledRoutesCache={};
+    /* The nightly-billing health check reads this. Default to loaded:false so
+       the checks stay SILENT here — a fixture-driven suite has no nightly run
+       to report on, and a check that cried wolf in every unrelated test would
+       be the first one everyone learned to ignore. Its own behaviour is
+       covered separately, by setting this from the tests below. */
+    var nightlyHealthCache = { loaded:false, enabled:false, alertPhone:'', newestRunAt:null, hasRuns:false };
   `;
   let hc;
   try {
     hc = new Function(prelude + code + `
-      return {set:function(o){jobAddresses=o.j||[];allInvoicesCache=o.i||[];quotesCache=o.q||[];availableCustomerNumbers=o.a||[];scheduledRoutesCache=o.r||{};},run:hcRunChecks};
+      return {set:function(o){jobAddresses=o.j||[];allInvoicesCache=o.i||[];quotesCache=o.q||[];availableCustomerNumbers=o.a||[];scheduledRoutesCache=o.r||{};},setNightly:function(n){nightlyHealthCache=n;},run:hcRunChecks};
     `)();
   } catch (e) {
     check('health', 'health check engine evaluates', false, e.message);
@@ -1708,9 +1714,43 @@ console.log('\n=== 7. Health check engine ===');
     clean.length === 0,
     'false alarms train you to ignore the panel: ' + clean.map(c => c.id).join(', '));
 
+  /* ---- the nightly billing run --------------------------------------------
+     The most expensive silent failure in the app: billing stops firing and
+     installed houses are simply never invoiced. There was a warning for it,
+     but it lived inside the Automation tab and only appeared once that tab had
+     been opened — so from everywhere else a three-week-dead run looked exactly
+     like a healthy app. Driven here by setting the cache the check reads. */
+  hc.setNightly({ loaded:true, enabled:true, alertPhone:'8015550100',
+                  hasRuns:true, newestRunAt:new Date(Date.now() - 3 * 86400000) });
+  check('health', 'billing that has not run for days is caught',
+    get(hc.run(), 'nightlyBilling').rows.length === 1,
+    'every house finished since it stopped is waiting to be invoiced, and nothing on screen says so');
+
+  hc.setNightly({ loaded:true, enabled:true, alertPhone:'8015550100',
+                  hasRuns:true, newestRunAt:new Date(Date.now() - 3600000) });
+  check('health', 'billing that ran an hour ago is left alone',
+    get(hc.run(), 'nightlyBilling').rows.length === 0,
+    'a nightly job legitimately runs once a day — warning every morning is noise');
+
+  hc.setNightly({ loaded:true, enabled:true, alertPhone:'',
+                  hasRuns:true, newestRunAt:new Date(Date.now() - 3600000) });
+  check('health', 'a missing alert phone is caught on its own',
+    get(hc.run(), 'nightlyBilling').rows.length === 1,
+    'that text is the only thing that reports the run happened — blank, a stopped run is invisible');
+
+  hc.setNightly({ loaded:true, enabled:false, alertPhone:'', hasRuns:false, newestRunAt:null });
+  check('health', 'billing that is switched OFF is not reported as broken',
+    get(hc.run(), 'nightlyBilling').rows.length === 0,
+    'deliberately off is not the same as broken');
+
+  hc.setNightly({ loaded:false, enabled:false, alertPhone:'', hasRuns:false, newestRunAt:null });
+  check('health', 'nothing is claimed when the run could not be read',
+    get(hc.run(), 'nightlyBilling').rows.length === 0,
+    'crying wolf on a failed read is how a panel gets ignored');
+
   const all = hc.run();
-  check('health', 'all 16 checks present',
-    all.length === 16, 'got ' + all.length);
+  check('health', 'all 17 checks present',
+    all.length === 17, 'got ' + all.length);
   check('health', 'fix buttons limited to the unambiguous checks',
     all.filter(c => c.fix).length === 6,
     'auto-fixing a judgement call writes bad data at scale');

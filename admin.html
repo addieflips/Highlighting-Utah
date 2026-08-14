@@ -2825,6 +2825,12 @@
       <div style="margin-bottom:16px; display:flex; gap:10px; flex-wrap:wrap;">
         <select id="quoteFilterSelect" style="border-radius:999px; border:1px solid var(--line); padding:8px 14px; font-size:13.5px; font-weight:600; color:var(--ink); background:var(--snow);">
           <option value="all">All Quotes</option>
+          <!-- The 'flagged' branch has always existed in renderQuoteRows (it
+               filters to quotes with no photo, which are the ones that cannot
+               be priced) — there was simply no way to select it, so the
+               dropdown had exactly one option and the worklist was
+               unreachable. -->
+          <option value="flagged">Needs a photo</option>
           </select>
       </div>
       <div class="list-with-map">
@@ -5154,6 +5160,32 @@ async function loadEmailjsSettings(){
     if(s.privateKey) document.getElementById('emailjsPrivateKey').value = s.privateKey;
   } catch(err){ /* settings not saved yet, fine */ }
 }
+/* The nightly billing run's health, cached so Health Check can see it.
+ *
+ * ⚠ A dead nightly run is the most expensive silent failure in the app: it is
+ * how a house gets installed and simply never invoiced. There WAS a warning
+ * banner for it, but it lived inside the Automation tab and only appeared once
+ * that tab had been opened — so the state "billing stopped three weeks ago"
+ * looked exactly like a healthy app from everywhere else in admin.
+ * Health Check runs itself every ten minutes and lights the sidebar badge, so
+ * the warning belongs there as well. Cached here rather than re-read by the
+ * checks, which are synchronous and must stay free. */
+let nightlyHealthCache = { loaded: false, enabled: false, alertPhone: '', newestRunAt: null, hasRuns: false };
+async function loadNightlyHealth(){
+  try{
+    const snap = await getDoc(doc(db,'settings','nightlyInvoiceAutomation'));
+    nightlyHealthCache.enabled = snap.exists() ? !!snap.data().enabled : false;
+    nightlyHealthCache.alertPhone = (snap.exists() && snap.data().alertPhone) ? String(snap.data().alertPhone) : '';
+    const logSnap = await getDocs(query(collection(db,'nightlyInvoiceLog'), orderBy('runAt','desc'), limit(1)));
+    nightlyHealthCache.hasRuns = !logSnap.empty;
+    const newest = logSnap.empty ? null : logSnap.docs[0].data();
+    nightlyHealthCache.newestRunAt = (newest && newest.runAt && newest.runAt.toDate) ? newest.runAt.toDate() : null;
+    nightlyHealthCache.loaded = true;
+  } catch(err){
+    // Leave loaded=false so the checks stay silent rather than crying wolf.
+    console.error('[HU] could not read nightly billing health', err);
+  }
+}
 async function loadNightlyInvoiceSettings(){
   try{
     const snap = await getDoc(doc(db,'settings','nightlyInvoiceAutomation'));
@@ -6001,6 +6033,10 @@ function initData(){
   runProjectTestSync().catch(function(){});
   // Same idea for Health Check: run it on our own and light the sidebar badge,
   // instead of waiting for someone to suspect a problem and press a button.
+  // Read the nightly run's health once at login, then again on the same ten
+  // minute beat as the checks that report it.
+  loadNightlyHealth().catch(function(){});
+  setInterval(function(){ loadNightlyHealth().catch(function(){}); }, 10 * 60 * 1000);
   startHealthCheckAuto();
   loadSettings();
   loadJobAddresses();
@@ -21376,6 +21412,39 @@ function hcRunChecks(){
       const d = c.data || {};
       return {label: hcName(d), detail: (hcAddr(d) || 'no address on file') + ' — no map pin, cannot be routed'};
     })
+  });
+
+  /* ---------- the nightly billing run ---------- */
+  /* This is the most expensive silent failure there is: billing stops, and
+     installed houses are simply never invoiced. The old warning banner lived
+     inside the Automation tab and only appeared once that tab was opened, so
+     from everywhere else a dead run looked exactly like a healthy app. */
+  const nightlyRows = [];
+  if(nightlyHealthCache.loaded && nightlyHealthCache.enabled){
+    if(!nightlyHealthCache.hasRuns){
+      nightlyRows.push({label: 'Nightly billing has never run',
+        detail: 'It is switched on but there is no record of it ever running. Check the Cloud Functions are deployed and Firebase billing is active.'});
+    } else if(nightlyHealthCache.newestRunAt){
+      const hours = (Date.now() - nightlyHealthCache.newestRunAt.getTime()) / 3600000;
+      if(hours > 36){
+        const days = Math.floor(hours / 24);
+        nightlyRows.push({label: 'Nightly billing has not run for ' + (days >= 1 ? days + ' day' + (days===1?'':'s') : Math.round(hours) + ' hours'),
+          detail: 'Last run ' + nightlyHealthCache.newestRunAt.toLocaleDateString('en-US',{month:'short',day:'numeric'}) +
+            '. Every house finished since then is waiting to be invoiced. Check Cloud Functions and Firebase billing.'});
+      }
+    }
+    if(!nightlyHealthCache.alertPhone){
+      nightlyRows.push({label: 'No phone number set for the nightly billing text',
+        detail: 'That text is what tells you the run happened at all. With it blank, a run that stops firing is invisible until someone notices a customer was never billed.'});
+    }
+  }
+  checks.push({
+    id: 'nightlyBilling',
+    title: 'Nightly billing has stopped, or cannot tell you it has',
+    why: 'Billing runs itself at 7pm. When it stops, nothing goes wrong on screen — houses just quietly never get invoiced.',
+    fix: null,
+    fixNote: 'No button: this is a deploy or a Firebase billing problem, not a data one.',
+    rows: nightlyRows
   });
 
   const allPhones = {};
