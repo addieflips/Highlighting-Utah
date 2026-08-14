@@ -93,6 +93,14 @@ service cloud.firestore {
     // run can tell what CHANGED. Written only by the weatherWatch Cloud
     // Function, which uses the Admin SDK and bypasses these rules.
     match /weatherWatch/{id}           { allow read: if request.auth != null; allow write: if false; }
+    // ---- Payment ledger --------------------------------------------------
+    // One row per payment: amount, method, when, who entered it, and a
+    // reference (a PayPal capture id, or the tag of the file it was imported
+    // from). Written by the office AND by the Cloud Function on a card payment
+    // (the Admin SDK bypasses these rules, so no public write is needed).
+    // Append-only by convention — nothing reads it back into a balance, so a
+    // wrong row here can embarrass but can never mis-bill anybody.
+    match /payments/{id}               { allow read, write: if request.auth != null; }
     // ---- Unmatched payments ---------------------------------------------
     // A PayPal capture that succeeded but had no invoice to apply it to (the
     // invoice doc moves when a customer changes their phone or email). Written

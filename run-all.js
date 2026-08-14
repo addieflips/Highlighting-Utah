@@ -1885,6 +1885,136 @@ suite('8. Quote decline / maybe next year');
 })();
 
 // =====================================================================
+suite('10a. Start New Season keeps the books');
+/*
+ * ⚠ WHAT THIS PROTECTS.
+ * Start New Season zeroes every invoice — deposit, credits, credit notes,
+ * change fees, fee notes — and banks last year's payments as ONE number in
+ * settings/financeArchive. Before the snapshot existed, "who paid, how much,
+ * and when" was gone permanently for all ~967 customers the moment it ran: no
+ * undo, no export, nothing to answer a customer who says "I paid you in
+ * November" the following spring. It is one button in the Danger Zone.
+ */
+(function () {
+  const start = admin.indexOf("ssnRunBtn')?.addEventListener('click'");
+  if (start === -1) {
+    check('season-reset', 'the Start New Season handler was found', false,
+      'renamed or removed — update this test rather than deleting it');
+    return;
+  }
+  const src = sectionFrom(admin, start);
+
+  /* The property that matters is an ORDER: the snapshot has to be written and
+     verified BEFORE the first destructive write. A snapshot taken afterwards
+     captures the zeroes, not the record. */
+  const snapAt = src.indexOf("'yearlySnapshots'");
+  const archiveAt = src.indexOf("'financeArchive'");
+  const resetAt = src.indexOf('deposit: 0');
+  check('season-reset', 'the books are snapshotted before anything is banked or zeroed',
+    snapAt > -1 && archiveAt > -1 && resetAt > -1 && snapAt < archiveAt && snapAt < resetAt,
+    'a snapshot written after the reset would capture the zeroes, not the record');
+  check('season-reset', 'the snapshot is read back before the reset proceeds',
+    /getDoc\(doc\(db,'yearlySnapshots'/.test(src) && /savedRows\.length !== snapRows\.length/.test(src),
+    '"the write resolved" is not the same as "the data is there" — a silent failure would leave no books and no warning');
+  check('season-reset', 'a snapshot too big to store stops the whole reset',
+    /ssnSnapshotTooBig/.test(src) && /NOTHING has been changed/.test(src),
+    'a truncated snapshot is worse than none: it would look like a complete record');
+
+  /* Two guards that are ABOUT last season and must not survive it. */
+  check('season-reset', 'last season receipt guard is cleared',
+    /receiptSentForDeposit: null/.test(src),
+    'a customer paying the same amount as last year would get no receipt at all');
+  check('season-reset', 'last season payment-import history is cleared',
+    /importedPayments: \[\]/.test(src),
+    "next season's first import would silently skip rows it thinks it has already seen");
+
+  const rowsFn = extractFn(admin, 'ssnBuildSnapshotRows') || '';
+  check('season-reset', 'the snapshot captures how much was paid, and when and how',
+    /deposit:/.test(rowsFn) && /lastPaymentAt:/.test(rowsFn) &&
+    /lastPaymentMethod:/.test(rowsFn) && /paypalPayments:/.test(rowsFn),
+    'this is the half that cannot be reconstructed from anything else');
+  check('season-reset', 'the snapshot captures the credits and fees behind the balance',
+    /creditNotes:/.test(rowsFn) && /changeFeeNotes:/.test(rowsFn),
+    'a bare number cannot answer why a balance was what it was');
+
+  check('season-reset', 'a saved payment record can be downloaded as a spreadsheet',
+    /data-snapcsv/.test(admin) && /payment-records-/.test(admin),
+    'kept where nobody can look at it, the snapshot answers nothing');
+  check('season-reset', 'the snapshot list shows how many payment records it holds',
+    /Payment records/.test(admin),
+    'it is the only sign the books survived — and that the delete button beside it is the last copy');
+  check('season-reset', 'a payment date survives whatever shape it comes back in',
+    /function snapDateText/.test(admin) && /v\.seconds \? new Date\(v\.seconds \* 1000\)/.test(admin),
+    'a Timestamp read back from a stored array arrives as {seconds}, and "when did they pay?" would come out blank');
+})();
+
+suite('10b. The payment ledger');
+/*
+ * ⚠ WHAT THIS IS FOR.
+ * The entire record of a payment used to be three fields on the invoice:
+ * deposit (a running total), tipTotal, and lastPaymentAt. That answers "how
+ * much altogether" and nothing else — not when, not how, not who took it, and
+ * a correction was indistinguishable from a payment. FOUR separate places move
+ * that number and three left no trace beyond the new total.
+ *
+ * The ledger is APPEND-ONLY and never read back into a balance: `deposit` on
+ * the invoice stays the single source of truth. That is the property worth
+ * protecting — a wrong row here can embarrass, but can never mis-bill anyone.
+ */
+(function () {
+  const fns = read('functions/index.js');
+
+  const logCalls = (admin.match(/await logPayment\(\{/g) || []).length;
+  check('ledger', 'every admin path that records money writes to the ledger',
+    logCalls >= 4,
+    'found ' + logCalls + ' — the status dropdown, both invoice-panel branches and the CSV import each move the paid figure');
+  check('ledger', 'a card payment writes to the ledger too',
+    /collection\('payments'\)\.add\(/.test(fns),
+    'PayPal is the one path the office never touches by hand, so it is the easiest to forget');
+
+  /* Both the browser AND the webhook call recordPaypalPayment for the SAME
+     payment. `recorded` is only true for the call that actually applied it —
+     logging outside that guard doubles every card payment in the ledger. */
+  const rpp = sectionFrom(fns, fns.indexOf('async function recordPaypalPayment'));
+  check('ledger', 'a card payment is logged once, not once per code path',
+    /if \(recorded\) \{[\s\S]{0,900}collection\('payments'\)\.add\(/.test(rpp.replace(/\r/g, '')),
+    'the browser and the webhook both reach this function for one payment');
+
+  /* The invoice panel holds a RUNNING TOTAL, so the payment is the DIFFERENCE.
+     Logging the typed figure would record a fresh payment every time anyone
+     re-saved an unchanged invoice. */
+  check('ledger', 'the panel logs the difference, not the figure in the box',
+    (admin.match(/amount: newDeposit - \(Number\(d\.deposit\) \|\| 0\)/g) || []).length >= 2,
+    're-saving an unchanged invoice would otherwise log a brand-new payment every time');
+  check('ledger', 'a zero movement writes nothing at all',
+    /if\(!amount\) return null;/.test(admin),
+    'opening and saving an invoice is not a payment');
+  check('ledger', 'a correction is recorded, not hidden',
+    /'correction'/.test(admin),
+    'a balance going DOWN is exactly the change a customer rings up to ask about');
+
+  const ledgerFn = extractFn(admin, 'logPayment') || '';
+  check('ledger', 'a failed ledger write cannot take down the payment',
+    /catch\(err\)/.test(ledgerFn.replace(/\s/g, '').replace(/catch\(err\)/, 'catch(err)')) || /catch\s*\(\s*err\s*\)/.test(ledgerFn),
+    'the money has already moved by the time this runs — losing the audit row is bad, losing the payment is worse');
+  check('ledger', 'nothing reads the ledger back into a balance',
+    !/collection\(db,'payments'\)[\s\S]{0,400}(balanceDueAmount|computeInvoiceStatus)/.test(admin),
+    'the invoice deposit stays the single source of truth — a bad row here must never change what someone owes');
+
+  check('ledger', 'the invoice panel shows the payment history',
+    /function renderPaymentHistory/.test(admin) && /Payment history/.test(admin),
+    'a write-only ledger cannot answer "I paid you in November"');
+  check('ledger', 'the history names the method and who entered it',
+    /PAYMENT_METHOD_LABEL/.test(admin) && /enteredBy/.test(admin),
+    'the amount alone was already on the invoice — method and who are the new answers');
+  check('ledger', 'an empty history is not read as "never paid"',
+    /still counted in the total above/.test(admin),
+    'payments made before the ledger existed are real money and are still in the deposit');
+  check('ledger', 'the payments collection has a rules entry',
+    /match \/payments\/\{id\}/.test(read('firestore.rules')),
+    'a collection missing from the rules is denied by default and the panel would silently render empty');
+})();
+
 suite('11. Reliability pass');
 /*
  * The 2026-08-14 audit's §2 items. None of these are money bugs on their own;

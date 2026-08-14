@@ -258,6 +258,32 @@ async function recordPaypalPayment(phone, { captureId, tip, serviceAmount }) {
   // and a slow or failed email must never roll it back. Both paypalCaptureOrder
   // and the webhook come through here, and the receiptSentForDeposit guard
   // inside sendPaymentReceipt stops them emailing the same payment twice.
+  /* The payment ledger (payments collection). Only when this call is the one
+     that actually recorded the money — `recorded` is false for a duplicate
+     capture, and BOTH the browser and the webhook come through here for the
+     same payment, so writing unconditionally would double every card payment
+     in the ledger. Appended after the money is safely on the invoice, and
+     wrapped, because losing the audit row must never cost the payment. */
+  if (recorded) {
+    try {
+      await db.collection('payments').add({
+        invoiceKey: phone,
+        name: '',
+        amount: Number(serviceAmount) || 0,
+        method: 'paypal',
+        paidAt: admin.firestore.FieldValue.serverTimestamp(),
+        enteredBy: 'paypal',
+        ref: String(captureId || ''),
+        note: (Number(tip) || 0) > 0
+          ? 'Card payment, plus a $' + (Number(tip) || 0).toFixed(2) + ' tip'
+          : 'Card payment',
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+    } catch (e) {
+      console.error('[HU] payment ledger write failed for capture', captureId, e);
+    }
+  }
+
   if (recorded) await sendPaymentReceipt(phone, { paidNow: Number(serviceAmount) || 0 });
 
   if (orphaned) await recordUnmatchedPayment(phone, { captureId, tip, serviceAmount });
