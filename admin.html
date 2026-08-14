@@ -3538,16 +3538,28 @@
 
       <div class="gen-subtab-panel active" id="whtab-build">
         <div class="card" style="margin-bottom:20px;">
-          <h3 style="margin:0 0 10px;">Add From Inbox</h3>
-          <p class="form-note" style="margin:0 0 10px;">For a build request you saw in Inbox, a rebuild, or just buffer stock.</p>
+          <h3 style="margin:0 0 10px;" id="whExtraFormTitle">Add From Inbox</h3>
+          <p class="form-note" style="margin:0 0 10px;" id="whExtraFormNote">For a build request you saw in Inbox, a rebuild, or just buffer stock.</p>
           <div class="form-grid-2">
             <div class="form-row"><label>Pattern</label><input type="text" id="whExtraPattern" placeholder="e.g. Warm White, Red, Red, Warm White"></div>
             <div class="form-row"><label>How Many</label><input type="number" id="whExtraQty" min="1" step="1" value="1"></div>
+          </div>
+          <!-- Wire colour was never asked for here, so anything added by hand
+               sat in its own "wire not set" bucket instead of joining the real
+               build group for those colours. Leaving it as Not Set keeps the
+               old behaviour for plain buffer stock. -->
+          <div class="form-row" style="max-width:260px;"><label>Wire Color</label>
+            <select id="whExtraWire">
+              <option value="">Not set &mdash; buffer stock</option>
+              <option value="White">White</option>
+              <option value="Green">Green</option>
+            </select>
           </div>
           <div class="form-row"><label>Which house is this for? (optional &mdash; leave blank for generic buffer stock)</label><input type="text" id="whExtraLabel" list="whExtraCustomerList" placeholder="Start typing a name or address to pick a customer" autocomplete="off">
             <datalist id="whExtraCustomerList"></datalist>
             <div id="whExtraLabelMatch" style="font-size:12.5px; color:var(--slate); margin-top:4px;"></div></div>
           <button type="button" class="btn btn-outline" id="whAddExtraBtn">Add to Queue</button>
+          <button type="button" class="btn btn-outline" id="whCancelEditExtraBtn" style="display:none;">Cancel</button>
           <span id="whAddExtraStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
         </div>
 
@@ -9558,9 +9570,15 @@ function renderMessagesList(){
       const cust = jobAddresses.find(function(a){ return (a.data.phone||'').replace(/\D/g,'') === phoneDigits; });
       whPendingMessageId = msg.id;
       document.querySelector('.nav-item[data-panel="warehouse"]').click();
+      // If someone was part-way through editing a queue entry, this is a new
+      // one — drop out of edit mode so it doesn't overwrite the other entry.
+      whCancelEditExtra();
       const patternEl = document.getElementById('whExtraPattern');
       patternEl.value = cust ? (cust.data.lightsDescription || '') : '';
       document.getElementById('whExtraQty').value = 1;
+      // Their wire is on file — carry it across so this lands in the right
+      // build group instead of a wire-not-set bucket.
+      whSetWireSelect((cust && cust.data.wireColor) || '');
       const labelEl = document.getElementById('whExtraLabel');
       if(cust){
         const num = cust.data.customerNumber ? '#' + cust.data.customerNumber + ' \u2014 ' : '';
@@ -14946,9 +14964,15 @@ function renderWarehouseQueue(){
   });
   warehouseExtras.forEach(function(item){
     if(!item.data.pattern) return;
-    // Buffer builds don't carry a wire colour, so they get their own bucket
-    // rather than being folded into a real house group by mistake.
-    const key = item.data.pattern + ' \u2014 buffer stock (wire not set)';
+    /* A hand-added build with a wire colour on it is the same build as a house
+       in those colours on that wire, so it joins that group. Without one it
+       still gets its own bucket rather than being folded into a real house
+       group by mistake \u2014 that is what the Wire Color box on the form (and the
+       Edit button on the row) are for.
+       \u26a0 employee.html groups these the same way \u2014 change both together. */
+    const key = item.data.wireColor
+      ? whGroupKey(item.data.pattern, item.data.wireColor)
+      : item.data.pattern + ' \u2014 buffer stock (wire not set)';
     if(!groups[key]) groups[key] = {houses:[], extras:[]};
     groups[key].extras.push(item);
   });
@@ -14989,9 +15013,18 @@ function renderWarehouseQueue(){
           '</div>';
         }).join('')+
         g.extras.map(function(e){
-          return '<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0;">'+
-            '<span style="font-size:13.5px;">'+esc(e.data.label || 'Extra stock')+' &times; '+(e.data.quantity||1)+'</span>'+
-            '<button type="button" class="btn btn-outline btn-sm" data-whdoneextra="'+e.id+'">Mark Done</button>'+
+          /* Hand-added builds were add-only: the single button on the row
+             deleted them, so a typo or a missing wire colour meant deleting
+             and retyping the whole thing. Edit loads it back into the form
+             at the top of the tab. */
+          return '<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; gap:10px;">'+
+            '<span style="font-size:13.5px;">'+esc(e.data.label || 'Extra stock')+' &times; '+(e.data.quantity||1)+
+              '<span style="display:block; font-size:12px; color:var(--slate);">'+esc(e.data.pattern||'')+' &middot; '+
+                (e.data.wireColor ? esc(e.data.wireColor)+' wire' : 'wire colour not set')+'</span></span>'+
+            '<span style="display:flex; gap:6px; flex-shrink:0;">'+
+              '<button type="button" class="btn btn-outline btn-sm" data-wheditextra="'+e.id+'">Edit</button>'+
+              '<button type="button" class="btn btn-outline btn-sm" data-whdoneextra="'+e.id+'">Mark Done</button>'+
+            '</span>'+
           '</div>';
         }).join('')+
       '</div>'+
@@ -15021,6 +15054,12 @@ function renderWarehouseQueue(){
     btn.addEventListener('click', function(e){
       e.stopPropagation();
       updateDoc(doc(db,'jobAddresses', btn.dataset.whdonehouse), {needsLightBuild:false}).catch(function(){});
+    });
+  });
+  list.querySelectorAll('[data-wheditextra]').forEach(function(btn){
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      whStartEditExtra(btn.dataset.wheditextra);
     });
   });
   list.querySelectorAll('[data-whdoneextra]').forEach(function(btn){
@@ -15123,13 +15162,101 @@ function whFindCustomerByLabel(label){
   });
 })();
 
+/* ---- EDITING A QUEUE ENTRY ----
+   Hand-added builds used to be add-only: get the wire colour wrong, or the
+   pattern, and the only way out was Mark Done (which deletes it) and typing
+   the whole thing again. Edit re-uses this same form rather than an inline
+   one on the row, because the queue re-renders itself whenever anything in
+   Firestore changes — an inline editor would lose what you were typing
+   mid-sentence. Houses are not editable here on purpose: they come off the
+   customer record, so they are still changed in Edit Customer. */
+let whEditingExtraId = null;
+/* A wire colour typed in by a bulk import can be anything, not just the two
+   in the list, so show whatever is actually on file rather than silently
+   resetting it to blank. */
+function whSetWireSelect(value){
+  const sel = document.getElementById('whExtraWire');
+  if(!sel) return;
+  const want = String(value || '');
+  if(want && !Array.prototype.some.call(sel.options, function(o){ return o.value === want; })){
+    const opt = document.createElement('option');
+    opt.value = want;
+    opt.textContent = want;
+    sel.appendChild(opt);
+  }
+  sel.value = want;
+}
+function whCancelEditExtra(){
+  whEditingExtraId = null;
+  const title = document.getElementById('whExtraFormTitle');
+  const note = document.getElementById('whExtraFormNote');
+  const btn = document.getElementById('whAddExtraBtn');
+  const cancel = document.getElementById('whCancelEditExtraBtn');
+  if(title) title.textContent = 'Add From Inbox';
+  if(note) note.textContent = 'For a build request you saw in Inbox, a rebuild, or just buffer stock.';
+  if(btn) btn.textContent = 'Add to Queue';
+  if(cancel) cancel.style.display = 'none';
+  document.getElementById('whExtraPattern').value = '';
+  document.getElementById('whExtraQty').value = 1;
+  whSetWireSelect('');
+  document.getElementById('whExtraLabel').value = '';
+  document.getElementById('whExtraLabelMatch').textContent = '';
+  document.getElementById('whAddExtraStatus').textContent = '';
+}
+function whStartEditExtra(id){
+  const item = warehouseExtras.find(function(e){ return e.id === id; });
+  if(!item) return;
+  whCancelEditExtra();
+  whEditingExtraId = id;
+  document.getElementById('whExtraFormTitle').textContent = 'Edit This Build';
+  document.getElementById('whExtraFormNote').textContent = 'Change anything that was typed wrong, or fill in what was missed. Saving updates this same entry — it does not add a second one.';
+  document.getElementById('whAddExtraBtn').textContent = 'Save Changes';
+  document.getElementById('whCancelEditExtraBtn').style.display = '';
+  document.getElementById('whExtraPattern').value = item.data.pattern || '';
+  document.getElementById('whExtraQty').value = Number(item.data.quantity) || 1;
+  whSetWireSelect(item.data.wireColor || '');
+  const labelEl = document.getElementById('whExtraLabel');
+  labelEl.value = item.data.label || '';
+  labelEl.dispatchEvent(new Event('input'));
+  document.getElementById('whAddExtraStatus').textContent = 'Editing an entry already in the queue.';
+  const card = document.getElementById('whExtraFormTitle').closest('.card');
+  if(card && card.scrollIntoView) card.scrollIntoView({behavior:'smooth', block:'center'});
+}
+document.getElementById('whCancelEditExtraBtn').addEventListener('click', function(){
+  whCancelEditExtra();
+});
 document.getElementById('whAddExtraBtn').addEventListener('click', async function(){
   const statusEl = document.getElementById('whAddExtraStatus');
   const pattern = document.getElementById('whExtraPattern').value.trim();
   const qty = Number(document.getElementById('whExtraQty').value) || 0;
+  const wireColor = document.getElementById('whExtraWire').value;
   const label = document.getElementById('whExtraLabel').value.trim();
   if(!pattern || qty <= 0){ statusEl.textContent = 'Enter a pattern and quantity.'; return; }
   const linked = whFindCustomerByLabel(label);
+  /* Saving an edit changes the entry that is already there, so none of the
+     duplicate-checking below applies — that is only about adding a second
+     document for a house that already has one. */
+  if(whEditingExtraId){
+    const editingId = whEditingExtraId;
+    statusEl.textContent = 'Saving…';
+    try{
+      await updateDoc(doc(db,'warehouseExtras', editingId), Object.assign(
+        {pattern: pattern, quantity: qty, wireColor: wireColor, label: label},
+        linked
+          ? {customerId: linked.id, customerNumber: linked.data.customerNumber || ''}
+          // Cleared the house box: the link has to go too, or the duplicate
+          // check keeps counting this against a customer it no longer names.
+          // Blanked rather than deleted — nothing here treats '' as a real id.
+          : {customerId: '', customerNumber: ''}
+      ));
+      whCancelEditExtra();
+      statusEl.textContent = 'Saved!';
+      setTimeout(function(){ if(!whEditingExtraId) statusEl.textContent = ''; }, 1500);
+    } catch(err){
+      statusEl.textContent = 'Something went wrong — try again.';
+    }
+    return;
+  }
   /* Unlike houses, these are separate documents — clicking twice really does
      make Dad two sets. Check before adding a second one for the same house. */
   if(linked){
@@ -15145,11 +15272,12 @@ document.getElementById('whAddExtraBtn').addEventListener('click', async functio
   statusEl.textContent = 'Adding…';
   try{
     await addDoc(collection(db,'warehouseExtras'), Object.assign(
-      {pattern: pattern, quantity: qty, label: label, createdAt: serverTimestamp()},
+      {pattern: pattern, quantity: qty, wireColor: wireColor, label: label, createdAt: serverTimestamp()},
       linked ? {customerId: linked.id, customerNumber: linked.data.customerNumber || ''} : {}
     ));
     document.getElementById('whExtraPattern').value = '';
     document.getElementById('whExtraQty').value = 1;
+    whSetWireSelect('');
     document.getElementById('whExtraLabel').value = '';
     document.getElementById('whExtraLabelMatch').textContent = '';
     if(whPendingMessageId){
@@ -18770,8 +18898,12 @@ function renderSystemMessagesTab(){
       const cust = jobAddresses.find(function(a){ return (a.data.phone||'').replace(/\D/g,'') === phoneDigits; });
       whPendingMessageId = msg.id;
       document.querySelector('.nav-item[data-panel="warehouse"]').click();
+      // Same as the Inbox version: this is a NEW entry, so leave edit mode,
+      // and carry their wire colour across if we have it.
+      whCancelEditExtra();
       document.getElementById('whExtraPattern').value = cust ? (cust.data.lightsDescription || '') : '';
       document.getElementById('whExtraQty').value = 1;
+      whSetWireSelect((cust && cust.data.wireColor) || '');
       const labelEl = document.getElementById('whExtraLabel');
       if(cust){
         const num = cust.data.customerNumber ? '#' + cust.data.customerNumber + ' \u2014 ' : '';
@@ -21163,7 +21295,7 @@ const TEST_SEED = [
   [43, 'Warehouse', 'Colour grouping', 'AUTOMATED (and a real bug was fixed here on 2026-08-14) - the warehouse used to put the SAME pattern into two separate groups if the colours had been typed in a different order, so \'Red, Green\' and \'Green, Red\' built as two groups and the same bundle got made twice. whGroupKey now sorts the colours first, in BOTH admin and the crew portal, and run-all.js checks that on every commit - including that repeated colours still make a different pattern (\'Red, Red, Green\' is not \'Red, Green, Green\'), that wire colour still separates groups, and that admin and the crew portal have not drifted apart. What is left for a person is the screen: look at the build queue and confirm the groups are right and the counts add up. If you have two groups that should have been one, they should now be merged.\n\n1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Customers".\n3. Click "All Customers".\n4. Click Edit on a test customer\'s record.\n5. Set their light colours to a specific pattern (for example, all red).\n6. Click Save. (This puts them in the warehouse build queue.)\n7. Repeat steps 4 through 6 for two or three more test customers, giving each one that exact same colour pattern, until you have three or four test customers all sharing the identical pattern.\n8. Click Edit on one more test customer and give them a different colour pattern instead.\n9. Click Save.\n10. In the menu on the left side of the screen, click the word "Warehouse".\n11. Click the tab called "Build".', 'The three or four customers who share the identical colour pattern should be grouped together under that one pattern, with their bundle counts added together into a single total. The customer with the different pattern should sit by itself in its own separate group.', 2, '', '', 'The grouping bug is fixed and the rule is now automated. Worth re-running because the groups on screen will have MERGED - confirm the new counts are right.'],
   [44, 'Warehouse', 'Mark built', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Warehouse".\n3. Click the tab called "Build".\n4. Pick any one house/customer sitting in the build queue.\n5. Mark that house as built.\n6. Refresh the page in your web browser.\n7. Click the tab called "Build" again to look at the list.', 'The house you marked as built should no longer appear anywhere in the build list, and it should stay gone after refreshing the page - it should not come back.', 2, '', '', 'The "Mark Completed" box on a colour group now says it counts HOUSES (the heading above it counts bundles), lists exactly who it will clear, and asks before clearing. Re-check with a group where the bundle count and the house count differ.'],
   [45, 'Warehouse', 'Bundles when feet are missing', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Customers".\n3. Click "All Customers".\n4. Find a customer who already has a price set and click Edit on their record.\n5. Clear out the box called "Measured Feet" completely, so it is empty.\n6. Click Save.\n7. In the menu on the left side of the screen, click the word "Warehouse", then click the tab called "Build", and check whether this customer is listed there.\n8. If they are not in the build queue, go back and click Edit on their record again, change one of their light colours, and click Save - that will put them in the queue.\n9. On a phone, open the Crew Portal (the app/site the installation crew uses).\n10. Sign in to the Crew Portal.\n11. Go to the section called "Warehouse".', 'The crew should still see a bundle estimate listed for that house, worked out from their price since their measured feet is missing. It should show a real estimated number, not a blank space and not a zero.', 1, '', '', ''],
-  [46, 'Warehouse', 'Warehouse extras', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Warehouse".\n3. Click the tab called "Build".\n4. Near the top of the page, find the box labeled "Add From Inbox".\n5. In that box, type in a colour pattern (for example, "red and white").\n6. In the quantity box, type the number 3.\n7. Leave the box that asks which house this is for completely blank.\n8. Click the button that says "Add to Queue".\n9. Scroll down to the queue below and find the group that matches the colour pattern you just typed in.\n10. In that group\'s "complete" box, type the number 1.\n11. Click the button that says "Complete".\n12. Look at the queue again and check what that group\'s entry now shows.\n13. Complete the remaining 2 units of that same entry (repeat the complete steps until all 3 have been marked complete).', 'After completing 1 out of the 3, the entry should still be sitting in the queue, now showing a quantity of 2 remaining. It should NOT disappear or get deleted just because 1 unit was completed. Only after all 3 units have been completed should the entry disappear from the queue.', 1, '', '', ''],
+  [46, 'Warehouse', 'Warehouse extras', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Warehouse".\n3. Click the tab called "Build".\n4. Near the top of the page, find the box labeled "Add From Inbox".\n5. In that box, type in a colour pattern (for example, "red and white").\n6. In the quantity box, type the number 3.\n7. Leave the Wire Color box set to "Not set - buffer stock" for now, and leave the box that asks which house this is for completely blank.\n8. Click the button that says "Add to Queue".\n9. Scroll down to the queue below and find the group that matches the colour pattern you just typed in. Click its heading to open it.\n10. On the row for the entry you just added, click the button that says "Edit".\n11. The form at the top of the page should fill in with what you typed. Change the Wire Color to "Green" and change the quantity to 3 if it is not already 3.\n12. Click the button that says "Save Changes".\n13. Look at the queue again and find your entry. Check which group it is now sitting in and what the small grey line under it says.\n14. Open that group and, in the box labelled "Houses finished", type the number 1.\n15. Click the button that says "Mark Completed" and confirm when it asks.\n16. Look at the queue again and check what that entry now shows.\n17. Complete the remaining 2 of that same entry (repeat steps 14 and 15 until all 3 have been marked completed).', 'Editing must change the entry you clicked Edit on - it must NOT add a second one, so the queue should still hold only the one entry you created. After saving, it should say "Green wire" under it and sit in the group for that colour pattern on green wire (alongside any real houses with those same colours on green wire) instead of the "buffer stock (wire not set)" group it started in. Then, after completing 1 out of the 3, the entry should still be sitting in the queue showing 2 remaining - it should NOT disappear or get deleted just because 1 was completed. Only after all 3 have been completed should it disappear.', 2, '', '', 'Hand-added builds can now be corrected instead of only deleted: every entry has an Edit button, and the add form now asks for a Wire Color (it never did before, so anything added by hand sat in a "wire not set" bucket of its own). Please re-run - the steps now cover editing one, and two step names were also wrong before: the box is labelled "Houses finished" and the button reads "Mark Completed".'],
   [47, 'Warehouse', 'Recycle queue membership', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Customers".\n3. Click "All Customers".\n4. Click Edit on a test customer\'s record.\n5. Find the setting called "RSVP" (this records whether the customer wants the Christmas lights service again) and set it to "No".\n6. Click Save.\n7. In the menu on the left side of the screen, click the word "Warehouse".\n8. Click the tab called "Recycle".\n9. Leave them in the list for now. Go back to Customers, click Edit on that same test customer, change nothing except their phone number, and click Save.\n10. Return to Warehouse and click the tab called "Recycle" again.', 'After step 8 that test customer should appear in the Recycle list. After the plain save in step 9 they should still be sitting there exactly once - saving their record must not add them a second time or change anything about their place in the list.', 2, '', '', 'The recycle flag is no longer worked out again on every save - it is only raised when the RSVP actually changes to No. Please run this one again, including the new save step at the end.'],
   [48, 'Warehouse', 'Mark recycled returns the number', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Warehouse".\n3. Click the tab called "Recycle".\n4. Pick any one customer sitting in that list.\n5. Write down their customer number.\n6. Mark that customer as recycled.\n7. In the menu on the left side of the screen, click the words "Customer Numbers".\n8. Click the tab called "Available Pool".\n9. Look for the number you wrote down in step 5.\n10. In the menu on the left side of the screen, click the word "Customers".\n11. Click "All Customers" and find that same customer\'s record.\n12. Click Edit on that record, open Edit Customer again, change nothing except their phone number, and click Save.\n13. Go to Warehouse and click the tab called "Recycle".', 'The customer number you wrote down should now be sitting in the Available Pool, ready to be given to someone else. That same customer\'s own record should no longer show any customer number at all. After the plain save in step 12 they should NOT come back into the Recycle list - their lights have already been pulled, so there is nothing left to recycle.', 2, '', '', 'Marking someone recycled is unchanged, but a later save on that record used to put them straight back in the Recycle queue. Please run this again with the two new steps at the end.'],
   [49, 'Warehouse', 'Back next year does not recycle', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Customers".\n3. Click "All Customers".\n4. Click Edit on a test customer\'s record.\n5. Find the setting called "RSVP" (this records whether the customer wants the Christmas lights service again) and set it to "Back Next Year".\n6. Click Save.\n7. In the menu on the left side of the screen, click the word "Warehouse".\n8. Click the tab called "Recycle".\n9. Look through the list for that test customer.\n10. In the menu on the left side of the screen, click the words "Customer Numbers".\n11. Click the tab called "All Numbers".\n12. Check whether that test customer still has a customer number listed.', 'That test customer should NOT appear anywhere in the Recycle list, and they should still have the same customer number listed in All Numbers. Only setting RSVP to a flat "No" should trigger recycling - "Back Next Year" should not.', 2, '', '', 'How the recycle flag gets written changed, so this needs confirming again. The answer should be exactly the same as before - Back Next Year must still never recycle anyone.'],

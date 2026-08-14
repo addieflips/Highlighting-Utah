@@ -571,6 +571,47 @@ if (typeof whGroupKey === 'function') {
     'admin.html and employee.html have drifted — the crew would group houses differently');
 }
 
+/* --- warehouse queue entries can be corrected after they are added -------
+ * Added 2026-08-14. A build typed into the Warehouse tab by hand used to be
+ * add-only: the one button on the row deleted it. Getting the wire colour
+ * wrong (there was no box for it at all) meant deleting the entry and typing
+ * it again from scratch.
+ */
+{
+  const emp = read('employee.html');
+  check('flow', 'the warehouse add form asks for a wire colour',
+    admin.includes('id="whExtraWire"'),
+    'without it a hand-added build can never say which wire it is on');
+  /* Scoped to the warehouseExtras writes on purpose — a bare wireColor search
+     passes on the Add Customer save handler, which is a different feature
+     entirely and would have made this check green before the box existed. */
+  check('flow', 'a hand-added build saves its wire colour',
+    /addDoc\(collection\(db,'warehouseExtras'\)[\s\S]{0,300}wireColor:\s*wireColor/.test(admin),
+    'the box would be on screen but the answer thrown away');
+  check('flow', 'editing a build saves the wire colour too',
+    /updateDoc\(doc\(db,'warehouseExtras'[\s\S]{0,400}wireColor:\s*wireColor/.test(admin),
+    'the fix for a forgotten wire colour is exactly this write');
+  check('flow', 'queue entries have an Edit button',
+    admin.includes('data-wheditextra') && admin.includes('whStartEditExtra'),
+    'this is the whole point — a mistake could only be fixed by deleting it');
+  check('flow', 'editing updates that entry instead of adding a second one',
+    /whEditingExtraId\)\s*\{[\s\S]{0,400}updateDoc\(doc\(db,'warehouseExtras'/.test(admin),
+    'an edit that addDoc-ed would leave the wrong entry sitting in the queue AND build a duplicate');
+  check('flow', 'the edit form can be left without saving',
+    admin.includes('whCancelEditExtraBtn') && admin.includes('function whCancelEditExtra'),
+    'opening Edit by mistake would trap the form in edit mode');
+  /* ⚠ Both files decide this for themselves — see the grouping block above. */
+  check('flow', 'a hand-added build with a wire joins that wire\'s group (admin)',
+    /wireColor\s*\r?\n?\s*\?\s*whGroupKey\(item\.data\.pattern/.test(admin),
+    'it would sit in a wire-not-set bucket even after the wire was filled in');
+  check('flow', 'a hand-added build with a wire joins that wire\'s group (crew portal)',
+    /wireColor\s*\r?\n?\s*\?\s*whGroupKey\(d\.data\.pattern/.test(emp),
+    'the office and the crew would group the same build differently');
+  check('flow', 'a build with no wire still gets its own bucket',
+    admin.includes('buffer stock (wire not set)') && emp.includes('buffer stock (wire not set)'),
+    'plain buffer stock must not be folded into a real house group');
+}
+
 // --- bundle math: ceil(feet / 40) ---
 const bundles = feet => Math.ceil(feet / 40);
 check('logic', 'bundles: 40 ft is 1 bundle', bundles(40) === 1);

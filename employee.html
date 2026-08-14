@@ -1413,7 +1413,13 @@ function whLightsSummary(){
   });
   whLightsOld.forEach(function(d){
     if(!d.data.pattern) return;
-    const key = d.data.pattern + ' \u2014 buffer stock (wire not set)';
+    /* A hand-added build now carries a wire colour when the office set one, so
+       it belongs in the same group as houses in those colours on that wire.
+       Without one it stays in its own bucket, as before.
+       \u26a0 admin.html groups these the same way \u2014 change both together. */
+    const key = d.data.wireColor
+      ? whGroupKey(d.data.pattern, d.data.wireColor)
+      : d.data.pattern + ' \u2014 buffer stock (wire not set)';
     if(!groups[key]) groups[key] = {houses:0, bundles:0, unknown:false};
     const qty = Number(d.data.quantity) || 1;
     groups[key].houses += qty;
@@ -1447,7 +1453,10 @@ function whCurrentLightsItems(){
     return {n:i+1, key:d.id, name:d.data.name||'(no name)', sub:(d.data.lightsDescription||'') + extra, done:false, kind:'new', timer: d.data.outletTimer === 'Yes', bin: d.data.customerNumber || ''};
   });
   const oldItems = whLightsOld.map(function(d, i){
-    return {n:i+1, key:d.id, name:d.data.label || 'Buffer stock', sub:d.data.pattern + (d.data.quantity>1 ? ' \u00d7 '+d.data.quantity : ''), done:false, kind:'old', bin: d.data.customerNumber || ''};
+    // Wire rides along here too when the office set one \u2014 building the right
+    // colours on the wrong wire is the mistake this is here to prevent.
+    const wire = d.data.wireColor ? ' \u2014 ' + whWireLabel(d.data.wireColor) + ' wire' : '';
+    return {n:i+1, key:d.id, name:d.data.label || 'Buffer stock', sub:d.data.pattern + wire + (d.data.quantity>1 ? ' \u00d7 '+d.data.quantity : ''), done:false, kind:'old', bin: d.data.customerNumber || ''};
   });
   return newItems.concat(oldItems);
 }
@@ -1474,7 +1483,11 @@ function whPrintSheet(){
   const bufferRows = whLightsOld.map(function(d){
     return {
       main: escHtmlPrint(d.data.label || 'Buffer stock'),
-      meta: escHtmlPrint(d.data.pattern || '') + (Number(d.data.quantity) > 1 ? ' &times; ' + Number(d.data.quantity) : '')
+      // Wire goes on the printed sheet too when the office set one, same as
+      // the house rows above.
+      meta: escHtmlPrint(d.data.pattern || '') +
+        (d.data.wireColor ? ' &middot; ' + escHtmlPrint(whWireLabel(d.data.wireColor)) + ' wire' : '') +
+        (Number(d.data.quantity) > 1 ? ' &times; ' + Number(d.data.quantity) : '')
     };
   });
   const recycleRows = whRecycle.map(function(r){
