@@ -176,8 +176,23 @@ const INVOICES = {
  * exact value, so it is a fixture knob, not a constant.
  */
 const SETTINGS = {
-  payments: { paymentProvider: 'both' },      // 'venmo' | 'paypal' | 'both'
-  business: { phone: '(801) 901-0011' }
+  /* NOTE the key: index.html reads the payment provider from
+   *     onSnapshot(doc(db,'siteContent','main'), ...)
+   * NOT from settings/payments. Getting this wrong is why the t11 PayPal test
+   * first failed — the fixture was filed under a document the page never
+   * looks at, so PAYMENT_SETTINGS kept its 'venmo' default.
+   *
+   * paypalClientId must be non-empty too: setupPaypalButtonsIfNeeded() bails
+   * out without one, so provider alone is not enough to render the button. */
+  main: {
+    paymentProvider: 'both',            // 'venmo' | 'paypal' | 'both'
+    paypalClientId: 'test-client-id-not-a-real-one',
+    phoneDisplay: '(801) 901-0011'
+  },
+
+  /* Kept for anything that reads settings/emailjs. publicConfig is faked as
+   * not-configured in the stub, so notification emails never send in a test. */
+  emailjs: { serviceId: '', notifyTemplateId: '', publicKey: '' }
 };
 
 /* Helper: look a customer up the way portalLookup does, by token. */
