@@ -4573,6 +4573,116 @@ document.getElementById('quickEmailTestBtn')?.addEventListener('click', async fu
   }
 });
 
+/* ---- THE PAYMENT LEDGER --------------------------------------------------
+ *
+ * Until now the entire record of a payment was three fields on the invoice:
+ * deposit (a running total), tipTotal, and lastPaymentAt. That answers "how
+ * much have they paid altogether" and nothing else. It cannot answer:
+ *
+ *     "I paid you in November"        — when? there is one date, the latest.
+ *     "I paid by cheque"              — no method is stored for a manual entry.
+ *     "who took that payment?"        — nobody is recorded at all.
+ *     "why did my balance change?"    — a correction looks like a payment.
+ *
+ * Four separate places move that number — the PayPal capture and its webhook,
+ * the status dropdown, the invoice edit panel, and the CSV import — and three
+ * of them left no trace beyond the new total.
+ *
+ * Every one of them now also appends a row here. The ledger is APPEND-ONLY and
+ * is never read back into any balance calculation: `deposit` on the invoice
+ * stays the single source of truth for what is owed, exactly as before. That is
+ * deliberate — it means a wrong or duplicated row in here can embarrass us but
+ * can never mis-bill a customer.
+ *
+ * A correction (the figure going DOWN) is recorded too, as a negative amount.
+ * Hiding those would make the ledger lie by omission, and "why is my balance
+ * different?" is exactly the question it exists to answer.
+ */
+function paymentLedgerUser(){
+  try{
+    const el = document.getElementById('userChipMail');
+    return (el && el.textContent) || '';
+  } catch(e){ return ''; }
+}
+async function logPayment(entry){
+  const amount = Number(entry && entry.amount) || 0;
+  // Nothing moved — a re-save of the same figure is not a payment.
+  if(!amount) return null;
+  if(!entry.invoiceKey) return null;
+  try{
+    return await addDoc(collection(db,'payments'), {
+      invoiceKey: String(entry.invoiceKey),
+      name: entry.name || '',
+      amount: amount,
+      method: entry.method || 'manual',
+      // When the money actually arrived. The importer knows this from the file;
+      // everywhere else it is now.
+      paidAt: entry.paidAt || serverTimestamp(),
+      enteredBy: entry.enteredBy || paymentLedgerUser(),
+      ref: entry.ref || '',
+      note: entry.note || '',
+      createdAt: serverTimestamp()
+    });
+  } catch(err){
+    /* A ledger write must NEVER take down the payment it is describing. The
+       money has already moved by the time we get here; losing the audit row is
+       bad, losing the payment is worse. Loud in the console, silent on screen. */
+    console.error('[HU] payment ledger write failed', entry, err);
+    return null;
+  }
+}
+/* Read the ledger back for one invoice and draw it into an open panel.
+ *
+ * Queried per invoice rather than cached for all of them: the office opens one
+ * panel at a time, and pulling every payment ever made on login would be a lot
+ * of reads to answer a question nobody has asked yet.
+ *
+ * Rows written before the ledger existed simply are not there — the invoice's
+ * `deposit` total still includes that money, so the panel says so rather than
+ * letting an empty list read as "they have never paid".
+ */
+const PAYMENT_METHOD_LABEL = {
+  paypal: 'Card (PayPal)', venmo: 'Venmo', manual: 'Entered by hand',
+  import: 'Payment file', check: 'Cheque', cash: 'Cash', correction: 'Correction'
+};
+async function renderPaymentHistory(panel, invoiceKey){
+  const box = panel && panel.querySelector('.ie-payments');
+  if(!box) return;
+  try{
+    const snap = await getDocs(query(collection(db,'payments'), where('invoiceKey','==', String(invoiceKey))));
+    const rows = [];
+    snap.forEach(function(docSnap){ rows.push(docSnap.data()); });
+    // Newest first. Sorted here rather than with orderBy so this needs no
+    // composite index — the number of payments on one invoice is tiny.
+    rows.sort(function(a,b){
+      return (toJsDate(b.paidAt) || 0) - (toJsDate(a.paidAt) || 0);
+    });
+    if(!rows.length){
+      box.innerHTML = 'No payments recorded here yet. Anything paid before the payment log was added is still counted in the total above &mdash; it just has no line-by-line record.';
+      return;
+    }
+    const logged = rows.reduce(function(s,r){ return s + (Number(r.amount)||0); }, 0);
+    box.innerHTML = rows.map(function(r){
+      const amt = Number(r.amount) || 0;
+      const when = toJsDate(r.paidAt);
+      const isCorrection = amt < 0;
+      return '<div style="display:flex; justify-content:space-between; gap:8px; padding:3px 0; border-bottom:1px solid var(--line);">'+
+          '<span>'+ (when ? esc(niceDate(when)) : 'date unknown') +
+            ' &middot; ' + esc(PAYMENT_METHOD_LABEL[r.method] || r.method || 'payment') +
+            (r.enteredBy ? ' <span style="color:var(--slate);">(' + esc(r.enteredBy) + ')</span>' : '') +
+            (r.note ? '<div style="font-size:11.5px; color:var(--slate);">' + esc(r.note) + '</div>' : '') +
+          '</span>'+
+          '<strong style="white-space:nowrap; color:'+(isCorrection ? 'var(--ember)' : 'var(--dusk)')+';">'+
+            (isCorrection ? '&minus;' : '') + fmtMoney(Math.abs(amt)) + '</strong>'+
+        '</div>';
+    }).join('') +
+      '<div style="display:flex; justify-content:space-between; gap:8px; padding-top:6px; font-weight:700;">'+
+        '<span>Recorded here</span><span>'+fmtMoney(logged)+'</span></div>';
+  } catch(err){
+    console.error('[HU] payment history failed', err);
+    box.textContent = "Couldn't load the payment history — the total above is still correct.";
+  }
+}
 function balanceDueAmount(d){
   // Credits (referrals, service adjustments) come off the balance, never below $0.
   // Light-change fees ($30 each) add on, the same way they do server-side.
@@ -10316,6 +10426,13 @@ function renderInvoicesList(){
       const paidNow = deposit - wasPaid;
       updateDoc(doc(db,'invoices',invId), {deposit: deposit, updatedAt: serverTimestamp()}).then(async () => {
         toast('Payment status updated');
+        await logPayment({
+          invoiceKey: invId,
+          name: invRec ? (invRec.data.name || '') : '',
+          amount: paidNow,
+          method: paidNow < 0 ? 'correction' : 'manual',
+          note: 'Payment status set to "' + sel.value + '" from the invoice list'
+        });
         if(invRec){
           reportReceiptOutcome(await sendPaymentReceipt(invId, Object.assign({}, invRec.data, {deposit: deposit}), paidNow));
         }
@@ -10394,6 +10511,15 @@ function renderInvoicesList(){
         '</div>'+
         amountFieldsHtml+
         '<button type="button" class="btn btn-gold btn-sm ie-save" style="margin-top:12px;">Save Changes</button>'+
+        /* Every payment on this invoice, newest first — amount, when, how, and
+           who entered it. This is the answer to "I paid you in November", which
+           until now nobody could give: the invoice held one running total and
+           one date. Filled in asynchronously so opening the panel never waits
+           on it. */
+        '<div style="margin-top:16px; padding-top:12px; border-top:1px solid var(--line);">'+
+          '<div style="font-weight:700; font-size:12.5px; margin-bottom:6px;">Payment history</div>'+
+          '<div class="ie-payments" style="font-size:12.5px; color:var(--slate);">Loading…</div>'+
+        '</div>'+
         '<div style="margin-top:16px; padding-top:12px; border-top:1px solid var(--line);">'+
           '<div style="font-weight:700; font-size:12.5px; margin-bottom:6px;">Credits &amp; Discounts</div>'+
           (creditNotesForPanel.length
@@ -10487,6 +10613,7 @@ function renderInvoicesList(){
           panel.style.display = 'none';
         });
       }
+      renderPaymentHistory(panel, id);
       panel.querySelector('.ie-save').addEventListener('click', async function(){
         if(isMultiHouse){
           const priceInputs = Array.from(panel.querySelectorAll('.ie-house-price'));
@@ -10513,6 +10640,17 @@ function renderInvoicesList(){
           await updateDoc(doc(db,'invoices', id), {
             deposit: newDeposit, priceReviewed: true, updatedAt: serverTimestamp()
           });
+          /* The box holds a RUNNING TOTAL, so the payment is the difference
+             from what was there before — not the number typed. Saving an
+             unchanged figure logs nothing; typing a smaller one logs a
+             correction rather than pretending money came in. */
+          await logPayment({
+            invoiceKey: id,
+            name: d.name || '',
+            amount: newDeposit - (Number(d.deposit) || 0),
+            method: (newDeposit - (Number(d.deposit) || 0)) < 0 ? 'correction' : 'manual',
+            note: 'Entered on the multi-property invoice panel'
+          });
           await syncPayerInvoice(id);
           toast('Invoice updated — ' + groupHouses.length + ' property prices saved, total re-summed');
           panel.style.display = 'none';
@@ -10534,6 +10672,15 @@ function renderInvoicesList(){
           priceReviewed: true, updatedAt: serverTimestamp()
         };
         await updateDoc(doc(db,'invoices', id), updates);
+        // Same running-total rule as the multi-property branch above: log the
+        // difference, not the figure in the box.
+        await logPayment({
+          invoiceKey: id,
+          name: d.name || '',
+          amount: newDeposit - (Number(d.deposit) || 0),
+          method: (newDeposit - (Number(d.deposit) || 0)) < 0 ? 'correction' : 'manual',
+          note: 'Entered on the invoice panel'
+        });
         // Keep the customer's house price in step so the invoice and the customer
         // can't drift. The $30 new-member fee lives inside the invoice amount, so
         // strip it back off to recover the base house price. Skip multi-house
@@ -13367,6 +13514,17 @@ document.getElementById('paymentImportBtn').addEventListener('click', onceAtATim
       importedPayments: arrayUnion(importTag),
       lastPaymentAt: serverTimestamp(),
       updatedAt: serverTimestamp()
+    });
+    /* Here the amount IS the payment — the invoice is incremented, not set —
+       so it goes in as read. The import tag is kept as the reference, which is
+       what lets a whole file be traced back or reconciled later. */
+    await logPayment({
+      invoiceKey: inv.id,
+      name: d.name || '',
+      amount: amount,
+      method: 'import',
+      ref: importTag,
+      note: 'Imported from ' + String(window.paymentImportFileName || 'a payment file')
     });
     updated++;
     if(sendReceipts){
@@ -22272,7 +22430,7 @@ const TEST_SEED = [
   [108, 'Fees & Locks', 'Assigning clears the flag', '1. Use the same flagged customer from the previous test (\'Change after assignment flags the office\'), who currently has the \'Lights Changed After Assignment\' note and badge.\n2. Log into admin (the private office dashboard).\n3. In the menu on the left side of the screen, click \'Routes\'.\n4. Remove that customer from the saved route.\n5. Add that customer back onto a route.\n6. Save the route.\n7. Open the route card again (open that saved route).', 'Both the badge on their stop and the \'Lights Changed After Assignment\' flag/note should now be gone.', 1, '', '', ''],
   [109, 'Fees & Locks', 'Remove light-change fees', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click \'Invoices\'.\n3. Click \'Invoice List\'.\n4. Open an invoice that has a light-change fee on it.\n5. Write down the balance (the amount currently owed) shown on that invoice.\n6. Click the button labeled \'Remove light-change fee(s)\'.\n7. Look at the balance again.', 'The change-fee line(s) should be gone from the invoice, and the balance should have dropped by exactly the amount of the fee(s) that were removed — no more, no less.', 2, '', '', 'Invoices is now its own item in the left menu instead of a tab inside Dashboard - the click-by-click steps were rewritten, so this needs running against the new path.'],
   [110, 'PayPal', 'Order amount is the real balance', '1. Log into admin (the private office dashboard).\n2. Add a light-change fee to a test customer\'s invoice.\n3. Also add a credit (a discount or amount subtracted from what they owe) to that same invoice.\n4. Sign in to the Member Portal (the website customers use to manage their own account) as that test customer.\n5. Look at the balance (amount owed) shown in the portal and write it down. It should already include both the fee you added and the credit you added.\n6. Start a PayPal payment from the portal.\n7. Add a tip to the payment.\n8. Before confirming, read the total amount that PayPal is asking you to pay.', 'The amount PayPal asks for should equal the balance you wrote down from the portal, plus the tip you added — nothing more and nothing less. This confirms the change fee is actually included in the amount PayPal charges, not just something the portal displays on screen without really charging for it.', 1, '', '', ''],
-  [111, 'PayPal', 'Capture records the payment', '1. Use the same test customer from the previous test (\'Order amount is the real balance\').\n2. Log into admin (the private office dashboard).\n3. In the menu on the left side of the screen, click \'Invoices\'.\n4. Click \'Invoice List\'.\n5. Find that customer\'s invoice and write down their current \'amount paid\'.\n6. Sign in to the Member Portal (the website customers use to manage their own account) as that customer and complete a small real PayPal payment.\n7. Go back to admin and check that customer\'s invoice again.', 'The \'amount paid\' on the invoice should have gone up by exactly the amount that was paid through PayPal, and the balance (amount still owed) should have dropped to match.', 2, '', '', 'Invoices is now its own item in the left menu instead of a tab inside Dashboard - the click-by-click steps were rewritten, so this needs running against the new path.'],
+  [111, 'PayPal', 'Capture records the payment', '1. Use the same test customer from the previous test (\'Order amount is the real balance\').\n2. Log into admin (the private office dashboard).\n3. In the menu on the left side of the screen, click \'Invoices\'.\n4. Click \'Invoice List\'.\n5. Find that customer\'s invoice and write down their current \'amount paid\'.\n6. Sign in to the Member Portal (the website customers use to manage their own account) as that customer and complete a small real PayPal payment.\n7. Go back to admin and check that customer\'s invoice again.', 'The \'amount paid\' on the invoice should have gone up by exactly the amount that was paid through PayPal, and the balance (amount still owed) should have dropped to match.', 3, '', '', 'Every payment now also writes a line to a payment log. After a card payment, open that customer\u2019s invoice in Invoices \u2192 Invoice List and check the new "Payment history" section shows the amount, the date, and "Card (PayPal)".'],
   [112, 'PayPal', 'Webhook is the safety net', '1. Sign in to the Member Portal (the website customers use to manage their own account) as a test customer.\n2. Start a small PayPal payment from the portal.\n3. Complete the payment on PayPal\'s own website/screen.\n4. As soon as the payment is complete, immediately close the browser tab — do not wait for it to send you back to the portal.\n5. Wait a few minutes.\n6. Log into admin (the private office dashboard) and check that customer\'s invoice.', 'The payment should still show up as recorded on the invoice, even though you closed the browser tab and it never sent you back to the portal to confirm.', 1, '', '', ''],
   [113, 'PayPal', 'Tips tracked separately', '1. Sign in to the Member Portal (the website customers use to manage their own account) as a test customer.\n2. Make a payment that includes a tip added on top.\n3. Log into admin (the private office dashboard).\n4. In the menu on the left side of the screen, click \'Invoices\'.\n5. Click \'Invoice List\'.\n6. Open that customer\'s invoice.\n7. Also, in the menu on the left side of the screen, click \'Dashboard\' again, then click \'Financial Overview\'.', 'The tip amount should be recorded separately from the regular service payment money — it should show up on its own, not mixed in with what was paid toward the job. The tip should NOT count toward reducing the balance the customer owed for the actual Christmas-light job.', 2, '', '', 'Invoices is now its own item in the left menu instead of a tab inside Dashboard - the click-by-click steps were rewritten, so this needs running against the new path.'],
   [114, 'Nightly Automation', 'Runs at 7 PM Mountain', '1. Log into the admin dashboard (the private office website you log into — not highlightingutah.com, which is the public site customers see).\n2. Look at the menu on the left side of the screen and click the words \'Invoices\'.\n3. Click the tab labeled \'Nightly Automation\'.\n4. Find the switch labeled \'Nightly Invoice Automation\' and check that it is switched to the ON position.\n5. Make sure at least one test house (a customer record you\'re using for testing) is marked \'Done\' and has not been billed yet.\n6. Leave the app alone and wait until after 7:00 PM.\n7. After 7:00 PM, go back to the \'Nightly Automation\' tab and look at the list labeled \'Last 10 nightly runs\'.', 'That evening, an invoice email should have gone out for the test house, and the run you\'re checking for should be listed in the \'Last 10 nightly runs\' list along with the time it ran.', 3, '', '', 'Nightly billing now runs per payer, not per house.'],
@@ -22336,17 +22494,17 @@ const TEST_SEED = [
   [172, 'Invoices', 'Printed invoice: a credit is shown once', '1. Log into admin (the private office dashboard).\n2. Pick a test customer who has a credit on their invoice, or add one to a test invoice.\n3. In the menu on the left side of the screen, click \'Automation Emails\'.\n4. Click the tab labeled \'Invoices\'.\n5. Tick that customer to show their invoice.\n6. Find the credit and count how many times it appears.\n7. Add up the line items and compare the answer against the Total.', 'The credit should appear exactly once, as its own line in the table with its reason. There should be no separate \'Credits\' row down in the totals. The line items should add up to the Total, and the Total less anything already paid should equal the Amount due.', 1, '', '', ''],
   [173, 'Invoices', 'Printed invoice: multi-house shows every property', '1. Log into admin (the private office dashboard).\n2. Find a payer billed for more than one house (several houses billed to the same phone number).\n3. In the menu on the left side of the screen, click \'Automation Emails\'.\n4. Click the tab labeled \'Invoices\'.\n5. Tick that payer to show their invoice.\n6. Read the line items and the top right corner.', 'Each house should have its own row showing its street address, its own footage and rate underneath, and its own price on the right. The top right should say how many properties the invoice covers. It should NOT show one single footage line taken from the payer\'s own house, which is what made these impossible to check before.', 2, '', '', 'Per-property rows are now editable from the invoice panel.'],
   [174, 'Invoices', 'Printed invoice: paid invoices look different', '1. Log into admin (the private office dashboard).\n2. Pick a test customer whose invoice is paid in full.\n3. In the menu on the left side of the screen, click \'Automation Emails\'.\n4. Click the tab labeled \'Invoices\'.\n5. Tick that customer to show their invoice.\n6. Compare it against an unpaid customer\'s invoice.', 'On the paid one the \'How to pay\' block should be gone, the due date replaced by the date they paid, the payment status box green, and the bottom line reading \'Amount paid\' rather than \'Amount due\'. The unpaid one should still show How to pay with the portal address, the Venmo handle and cheque wording.', 1, '', '', ''],
-  [175, 'Invoices', 'Payment import adds instead of overwriting', '1. Log into admin (the private office dashboard).\n2. Pick a test customer and record a payment of $200 on their invoice by hand.\n3. Write down the amount paid showing on that invoice.\n4. Build a small test spreadsheet with two columns: their phone number, and the amount 315.\n5. In the menu on the left side of the screen click \'Invoices\', then the \'Import / Export\' tab, and import that file, mapping the phone column and the amount column.\n6. Check that customer\'s invoice again.', 'The amount paid should now be $515 - the $200 already there plus the $315 imported. It should NOT read $315. Before this fix the import replaced the figure instead of adding to it, which quietly lost the earlier payment.', 1, '', '', ''],
+  [175, 'Invoices', 'Payment import adds instead of overwriting', '1. Log into admin (the private office dashboard).\n2. Pick a test customer and record a payment of $200 on their invoice by hand.\n3. Write down the amount paid showing on that invoice.\n4. Build a small test spreadsheet with two columns: their phone number, and the amount 315.\n5. In the menu on the left side of the screen click \'Invoices\', then the \'Import / Export\' tab, and import that file, mapping the phone column and the amount column.\n6. Check that customer\'s invoice again.', 'The amount paid should now be $515 - the $200 already there plus the $315 imported. It should NOT read $315. Before this fix the import replaced the figure instead of adding to it, which quietly lost the earlier payment.', 2, '', '', 'The payment import now writes a line to the payment log for each row it applies, tagged with the file it came from. After an import, open one of those invoices and check the history shows the amount and names the file.'],
   [176, 'Invoices', 'Payment import reaches unpaid customers', '1. Log into admin (the private office dashboard).\n2. Pick a test customer whose invoice is Unpaid, with nothing paid at all.\n3. Build a test spreadsheet with their phone number and an amount equal to their full balance.\n4. Import that file under \'Invoices\' then \'Import / Export\'.\n5. Check that customer\'s invoice.', 'The payment should have been recorded and the invoice should now read Paid in Full. Before this fix the import only touched invoices already sitting at Partial Payment, so an Unpaid customer who paid in full was silently skipped while the message still said it worked.', 1, '', '', ''],
   [177, 'Invoices', 'Re-importing the same file changes nothing', '1. Log into admin (the private office dashboard).\n2. Import a small test payment file under \'Invoices\' then \'Import / Export\'.\n3. Write down the amount paid on two or three of the customers in that file.\n4. Import the exact same file a second time.\n5. Check those same customers again.', 'Nothing should have changed on the second import - the amounts should be identical to after the first one. The message should say how many rows were skipped as already imported from that file. Nobody should be credited twice.', 1, '', '', ''],
   [178, 'Invoices', 'Payment import matches messy phone numbers', '1. Log into admin (the private office dashboard).\n2. Build a test spreadsheet containing one customer\'s phone number written three ways: with dashes, with brackets and a space, and as plain digits.\n3. Add a small amount next to each.\n4. Add one more row for a customer who has an email address but no phone number, putting their email in the phone column.\n5. Import the file under \'Invoices\' then \'Import / Export\' and read the preview before importing.', 'All three formats of the same number should show as Found in the preview, not only the one that happens to match exactly. The email-only customer should also be found, because their invoice is filed under their email address rather than a phone number.', 1, '', '', ''],
   [179, 'Invoices', 'Billing emails carry a Pay button', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click \'Automation Emails\'.\n3. Click the tab labeled \'Templates\', then open the \'Billing\' folder.\n4. Open the template called \'Nightly Auto-Invoice - Unpaid\' and check it reads \'Pay your invoice here:\' followed by the pay_button token rather than a bare portal_link.\n5. Open the template called \'Nightly Auto-Invoice - Paid Receipt\' and check it uses the view_portal_button token.\n6. Send yourself a test of each and open both emails.', 'The unpaid email should show a gold button reading \'Pay Your Invoice\' with a short line of text introducing it. The receipt should show a button reading \'View Your Portal\' and no \'pay your invoice here\' line, since they owe nothing. Both buttons should open that customer\'s own portal without them having to log in.', 1, '', '', ''],
   [180, 'Invoices', 'Paying in full sends a receipt', '1. Log into admin (the private office dashboard).\n2. Pick a test customer who has your own email address on their record and still owes money.\n3. Click \'Invoices\' in the left menu, then \'Invoice List\', and find them.\n4. Change their payment status to \'Paid in Full\'.\n5. Check the inbox for that email address.', 'A receipt should arrive using the \'Nightly Auto-Invoice - Paid Receipt\' wording, showing the amount paid and a \'View Your Portal\' button. Admin should also briefly show a \'Receipt emailed\' message.', 1, '', '', ''],
   [181, 'Invoices', 'Paying part sends the balance email', '1. Log into admin (the private office dashboard).\n2. Pick a test customer with your own email on their record who owes, say, $500.\n3. Click \'Invoices\', then \'Invoice List\', and find them.\n4. Change their payment status to Partial Payment and enter $200 when asked how much they have paid.\n5. Check that inbox.', 'An email should arrive using the new \'Payment Received - Balance Remaining\' template: it should confirm the $200 received, show the invoice total, the amount paid so far, and $300 still due, with \'Pay Your Invoice\' and \'Pay with Venmo\' buttons. It should NOT say they are paid in full.', 1, '', '', ''],
-  [182, 'Invoices', 'Small payments and corrections stay quiet', '1. Log into admin (the private office dashboard).\n2. On a test customer with your own email, record a payment of $5.\n3. Check the inbox - nothing should arrive.\n4. Now record a payment of $200 and let the receipt arrive.\n5. Change the amount paid back down to $150, as if fixing a typo.\n6. Check the inbox again.\n7. Finally, set the same amount again without changing it.', 'The $5 payment should send nothing, because it is under the $10 minimum. Correcting the figure downward should send nothing. Re-saving the same figure should send nothing. Only the genuine $200 payment should have produced an email.', 1, '', '', ''],
+  [182, 'Invoices', 'Small payments and corrections stay quiet', '1. Log into admin (the private office dashboard).\n2. On a test customer with your own email, record a payment of $5.\n3. Check the inbox - nothing should arrive.\n4. Now record a payment of $200 and let the receipt arrive.\n5. Change the amount paid back down to $150, as if fixing a typo.\n6. Check the inbox again.\n7. Finally, set the same amount again without changing it.', 'The $5 payment should send nothing, because it is under the $10 minimum. Correcting the figure downward should send nothing. Re-saving the same figure should send nothing. Only the genuine $200 payment should have produced an email.', 2, '', '', 'Corrections are now RECORDED rather than hidden. If you lower a customer\u2019s paid figure, the payment history should show it as a negative "Correction" line \u2014 that is deliberate, because a balance going down is exactly what customers ring up about.'],
   [183, 'Invoices', 'A receipt is never sent twice for one payment', '1. Log into admin (the private office dashboard).\n2. On a test customer with your own email, record a payment that clears their balance.\n3. Wait for the receipt to arrive.\n4. Without changing the amount, set the payment status to Paid in Full again.\n5. Check the inbox.\n6. If you can, also pay a test invoice through PayPal in the Member Portal and watch for duplicates.', 'Only one receipt should ever arrive for the same amount paid. The invoice records what figure it last sent a receipt for, which is also what stops a PayPal payment and its background confirmation both emailing the same customer.', 1, '', '', ''],
   [184, 'Invoices', 'Importing payments asks before emailing', '1. Log into admin (the private office dashboard).\n2. Click \'Invoices\', then the \'Import / Export\' tab.\n3. Import a small test payment file with two or three rows.\n4. Read the question that appears before the import runs.\n5. Choose Cancel on that question the first time, and check nobody was emailed.\n6. Import again and choose OK this time.', 'Before importing it should ask whether to email receipts, and say how many rows the file has so you know how much mail could go out. Cancelling should still import the payments but send nothing. Choosing OK should import and then report how many receipts were emailed.', 1, '', '', ''],
-  [185, 'Invoices', 'PayPal payments receipt themselves', '1. Open the Member Portal as a test customer who owes money and has your own email on their record.\n2. Pay through PayPal.\n3. Check that inbox.\n4. Check the invoice in admin.', 'A receipt should arrive without anyone touching admin, because PayPal payments are receipted by the server rather than the browser. If the payment cleared the balance it should be the Paid Receipt wording; if it only covered part, the Balance Remaining one. The invoice should show the payment recorded.', 1, '', '', ''],
+  [185, 'Invoices', 'PayPal payments receipt themselves', '1. Open the Member Portal as a test customer who owes money and has your own email on their record.\n2. Pay through PayPal.\n3. Check that inbox.\n4. Check the invoice in admin.', 'A receipt should arrive without anyone touching admin, because PayPal payments are receipted by the server rather than the browser. If the payment cleared the balance it should be the Paid Receipt wording; if it only covered part, the Balance Remaining one. The invoice should show the payment recorded.', 2, '', '', 'PayPal payments are logged once, not twice, even though both the browser and the PayPal webhook report the same payment. Check a card payment produces exactly ONE line in the payment history.'],
   [186, 'Invoices', 'Send one invoice to yourself', '1. Log into admin (the private office dashboard).\n2. In the menu on the left, click \'Automation Emails\', then the \'Invoices\' tab.\n3. Find the card headed \'Send yourself one customer\'s invoice\'.\n4. Pick a customer who still owes money, put your own email address in the box, and press \'Send me this invoice\'.\n5. Open your inbox.\n6. Then check that customer in the Invoice List, and ask them if they got anything.', 'You should receive that customer\'s real invoice, with a note at the top saying it is a test copy. The figures should match what their invoice actually says. The customer themselves should receive nothing, their invoice should be unchanged, no $30 fee should have appeared, and they should not be marked as billed.', 1, '', '', ''],
   [187, 'Invoices', 'Test send picks the right template', '1. Log into admin (the private office dashboard).\n2. Go to \'Automation Emails\', then the \'Invoices\' tab.\n3. Send yourself the invoice of a customer who still owes money.\n4. Now send yourself the invoice of a customer who is paid in full.\n5. Compare the two emails, and read the confirmation line under the button each time.', 'The unpaid customer\'s email should use the \'Nightly Auto-Invoice - Unpaid\' wording with an amount due and a Pay button. The paid one should use the Paid Receipt wording. The line under the button should name which template it used and the amount, so you can tell at a glance which one went.', 1, '', '', ''],
   [188, 'Invoices', 'Fee Check agrees with real invoices', '1. Log into admin (the private office dashboard).\n2. Click \'Invoices\' in the left menu, then the \'Fee Check\' tab.\n3. Press \'Run all checks\' and read the result.\n4. Now pick a real customer from the Invoice List and note their price, credits, change fees and amount paid.\n5. Type those same numbers into the Fee Check boxes.\n6. Compare the balance and status it shows against what the Invoice List shows for that customer.', 'All 16 checks should come out green. The balance and status from the typed-in numbers should match that real customer\'s row exactly. If they differ, the two are calculating money differently and that needs looking at before anything else.', 1, '', '', ''],
