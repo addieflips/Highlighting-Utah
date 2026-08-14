@@ -7754,7 +7754,12 @@ function renderQuoteRows(filtered){
       }
       /* The price the customer actually clicked Approve on wins. Recalculating
          from feet could quietly bill them something they never agreed to. */
-      if(typeof d.quotedPrice === 'number' && d.quotedPrice > 0){
+      /* != null with typeof already guarding for "number", not > 0 — a
+         deliberately comped $0 quote is still a price the customer approved,
+         not "no price set". > 0 treated the two identically and silently
+         substituted a feet-based estimate over the $0 the customer actually
+         saw and approved. */
+      if(typeof d.quotedPrice === 'number'){
         document.getElementById('addCustPrice').value = d.quotedPrice;
       } else if(d.estimatedFeet && perFootRate){
         document.getElementById('addCustPrice').value = Math.round(d.estimatedFeet * perFootRate);
@@ -7796,7 +7801,7 @@ function renderQuoteRows(filtered){
       // the freshly filled form hidden behind a tab. Same two-step the Bulk
       // Updates button uses.
       setTimeout(function(){ document.querySelector('#custSectionTabs [data-custtab="add"]').click(); }, 50);
-      toast('Quote details filled in' + (quotePhotosToCarry.length ? (quotePhotosToCarry.length > 1 ? ', all ' + quotePhotosToCarry.length + ' photos included' : ', photo included') : '') + (typeof d.quotedPrice === 'number' && d.quotedPrice > 0 ? ', using the approved quote price' : (d.estimatedFeet && perFootRate ? ', price estimated from footage' : '')) + ' — review and click Add Customer');
+      toast('Quote details filled in' + (quotePhotosToCarry.length ? (quotePhotosToCarry.length > 1 ? ', all ' + quotePhotosToCarry.length + ' photos included' : ', photo included') : '') + (typeof d.quotedPrice === 'number' ? ', using the approved quote price' : (d.estimatedFeet && perFootRate ? ', price estimated from footage' : '')) + ' — review and click Add Customer');
     });
   });
   list.querySelectorAll('.quoteStatusSelect').forEach(function(sel){

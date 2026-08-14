@@ -4138,9 +4138,21 @@ async function saveLightsPattern(){
                        (currentLookupRecord && currentLookupRecord.lightsDescription) || '';
   var lightsActuallyChanged = newLightsDescription !== previousLights;
 
-  // Warn + confirm before an actual change, since it can add a $30 fee. Say
-  // plainly what is being replaced when we cannot show it in the picker, and
-  // never let an empty selection silently wipe a real pattern.
+  /* Server-computed (portalInvoice's lightChangeFreeUntil) so this knows,
+     BEFORE saving, whether portalSave's own 48h window would actually charge
+     anything. Without it the dialog warned about $30 even on a change that was
+     still free — and the note shown straight after saving then contradicted it
+     ("No new charge — you're still within your free 48-hour window"). */
+  var stillInFreeWindow = !!(currentLookupRecord && currentLookupRecord.lightChangeFreeUntil &&
+    Date.now() < currentLookupRecord.lightChangeFreeUntil);
+
+  /* Confirm before a real change. Two separate reasons to stop and ask, and
+     they are not the same reason:
+       - the save would WIPE something (no colours picked, or free text the
+         picker cannot represent) — always worth asking, fee or no fee;
+       - the save would COST $30 — only true outside the free window.
+     A change inside the free window that replaces nothing asks nothing at all,
+     which is what the other session's fix was for. */
   if(lightsActuallyChanged){
     var msg = '';
     if(!picked){
@@ -4155,9 +4167,15 @@ async function saveLightsPattern(){
       if(rcDroppedDetail){
         msg += 'Your note "' + rcDroppedDetail + '" will be kept.\n\n';
       }
-      msg += 'Changing your lights adds a one-time $30 change fee, and then gives you 48 hours to keep adjusting them for free. Do you want to continue?';
+      if(stillInFreeWindow){
+        // Still free — say so rather than threatening a charge that is not coming.
+        if(msg) msg += 'You are still inside your free 48-hour window, so this change costs nothing. Save it?';
+      } else {
+        msg += 'Changing your lights adds a one-time $30 change fee, and then gives you 48 hours to keep adjusting them for free. Do you want to continue?';
+      }
     }
-    var ok = window.confirm(msg);
+    // Nothing to warn about and nothing to charge — just save it.
+    var ok = msg ? window.confirm(msg) : true;
     if(!ok){
       statusEl.textContent = '';
       if(saveBtn) saveBtn.disabled = false;

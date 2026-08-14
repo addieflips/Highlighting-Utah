@@ -2486,6 +2486,101 @@ if (!JSDOM) {
 }
 
 // =====================================================================
+/* ⚠ THE BUG THIS SUITE CATCHES.
+ *
+ * Convert to Customer treated a deliberately comped $0 quote the same as
+ * "no price set" (typeof d.quotedPrice === 'number' && d.quotedPrice > 0),
+ * silently substituting a feet-based estimate over the $0 the customer
+ * actually saw and approved. Fixed to just check it's a real number —
+ * checked both the price-filling logic and the confirmation toast, which
+ * had the identical condition duplicated and would otherwise now disagree
+ * with what actually happened.
+ */
+(function () {
+  const zeroQuoteBad = (admin.match(/d\.quotedPrice === 'number' && d\.quotedPrice > 0/g) || []).length;
+  check('zero-price-quote', 'a $0 quote is no longer treated as "no price set"',
+    zeroQuoteBad === 0,
+    'found ' + zeroQuoteBad + ' remaining "> 0" check(s) — a comped $0 quote would still get overwritten with a feet-based estimate');
+})();
+
+// =====================================================================
+/* ⚠ THE BUG THIS SUITE CATCHES.
+ *
+ * The $30 light-change fee was a plain read-then-write (invRef.get(), decide,
+ * invRef.set()) with no transaction — unlike recordPaypalPayment, which
+ * already uses one for exactly this class of race. Two near-simultaneous
+ * portalSave('lights', ...) calls (a client-side retry, or a double
+ * form-submit before the Save button's disabled state takes effect) could
+ * both read the same pre-charge changeFees value and each add $30, double-
+ * charging one intended change. Now the read, the free-window decision, and
+ * the write all happen inside one db.runTransaction, so a concurrent second
+ * call is forced to see the first call's write before deciding anything.
+ */
+(function () {
+  const psStart = fnsSrc.indexOf('exports.portalSave');
+  const psSrc = psStart > -1 ? fnsSrc.slice(psStart, psStart + 7000) : '';
+  check('light-fee-race', 'portalSave found in functions/index.js', psStart > -1,
+    'renamed or removed — update this test rather than deleting it');
+  check('light-fee-race', 'the $30 light-change fee read-decide-write happens inside a transaction',
+    /db\.runTransaction\(async \(t\) => \{[\s\S]{0,50}const invSnap = await t\.get\(invRef\)/.test(psSrc),
+    'a plain get()-then-set() lets two near-simultaneous saves both read the same pre-charge changeFees and each add $30');
+  check('light-fee-race', 'the write inside the transaction uses t.set, not the outer invRef.set',
+    /t\.set\(invRef, invWrite, \{ merge: true \}\);/.test(psSrc),
+    'writing via invRef.set() instead of t.set() outside the transaction would defeat the whole point of wrapping it');
+})();
+
+// =====================================================================
+/* ⚠ THE BUG THIS SUITE CATCHES.
+ *
+ * The lights-change confirm() dialog always warned about a $30 fee, even
+ * for a customer genuinely inside their free 48-hour re-edit window — the
+ * browser had no way to know that window was still open until AFTER
+ * saving (portalSave's response), by which point the warning had already
+ * potentially talked them out of clicking Save. Not a money bug — the
+ * server-side charge logic was already correct either way — but exactly
+ * the kind of customer-facing surprise CLAUDE.md's owner-facing rules want
+ * avoided. Fixed by having portalInvoice compute and return
+ * lightChangeFreeUntil so the confirm can be skipped when it's genuinely free.
+ */
+(function () {
+  const piStart = fnsSrc.indexOf('exports.portalInvoice');
+  const piSrc = piStart > -1 ? fnsSrc.slice(piStart, piStart + 2800) : '';
+  check('light-fee-warning', 'portalInvoice found in functions/index.js', piStart > -1,
+    'renamed or removed — update this test rather than deleting it');
+  check('light-fee-warning', 'portalInvoice computes and returns lightChangeFreeUntil',
+    /record\.lightChangeFreeUntil = lastFeeAt > 0 \? lastFeeAt \+ \(48 \* 60 \* 60 \* 1000\) : null;/.test(piSrc),
+    'without this the browser has no way to know, before saving, whether the 48h free window is still open');
+
+  const idx = read('index.html');
+  const saveStart = idx.indexOf('async function saveLightsPattern(){');
+  /* Sliced to the function's real end, not a fixed 2,500 characters. The
+     window version broke once already elsewhere in this file the moment the
+     code it pointed at grew (CLAUDE.md §7). */
+  /* ⚠ index.html is CRLF, so a literal '\n}\n' never matches (CLAUDE.md §7) —
+     it silently fell back to a fixed window, which is the very thing this was
+     replacing. Matched with \r?\n instead. */
+  const saveEndM = saveStart > -1 ? /\r?\n\}\r?\n/.exec(idx.slice(saveStart)) : null;
+  const saveSrc = saveStart > -1
+    ? idx.slice(saveStart, saveEndM ? saveStart + saveEndM.index : idx.length)
+    : '';
+  check('light-fee-warning', 'saveLightsPattern found in index.html', saveStart > -1,
+    'renamed or removed — update this test rather than deleting it');
+  /* Asserts the GUARANTEE, not one particular way of writing it. Was
+     `/&& !stillInFreeWindow\)/`, which pinned it to a single `if` expression;
+     the dialog now warns about two separate things — that a save would WIPE a
+     pattern (worth asking regardless of any fee) and that it would COST $30
+     (only true outside the free window) — so the free-window test moved inside
+     and gates the fee sentence alone. The customer-visible promise is
+     unchanged: inside the free window, nobody is warned about a charge. */
+  check('light-fee-warning', 'the free window is worked out before saving',
+    /stillInFreeWindow/.test(saveSrc) && /lightChangeFreeUntil/.test(saveSrc),
+    'the browser has no way to know whether a change is about to cost anything');
+  check('light-fee-warning', 'the $30 warning is never shown inside the free window',
+    /if\(stillInFreeWindow\)\{[\s\S]{0,400}\} else \{[\s\S]{0,200}\$30 change fee/.test(saveSrc.replace(/\r/g, '')),
+    'a customer inside their free re-edit window would be warned about a charge that was never going to happen');
+})();
+
+// =====================================================================
 // Wait for the async suites before totalling up — see pendingAsync at the top.
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
