@@ -999,6 +999,15 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
  *
  * The recycle flag is decided here, on the server, so it can't drift:
  * ONLY a flat "no" marks lights for recycling. "backnextyear" never does.
+ *
+ * Saying no and needing lights pulled back into stock are two different
+ * things: the first is a lasting fact, the second is a job that gets finished.
+ * The warehouse clears needsLightRecycle as it takes a bundle apart and hands
+ * the customer number back to the available pool, so a record still reading
+ * "no" with the flag already false is the ONE signal that the recycle actually
+ * happened. Someone rejoining at that point has no lights and no number, and
+ * without the branch below they would look like an ordinary yes, get routed,
+ * and the crew would arrive to nothing.
  */
 exports.portalRsvp = onCall({ cors: true }, async (request) => {
   const body = request.data || {};
@@ -1013,13 +1022,42 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
   const match = await findByToken(token);
   if (!match) throw new HttpsError('not-found', 'Account not found.');
 
-  await db.collection('jobAddresses').doc(match.id).update({
+  const oldData = match.data || {};
+  const wasNo = String(oldData.rsvpStatus || '').toLowerCase() === 'no';
+  /* Flag still true = the recycle is queued but not done, nothing was pulled,
+     so clearing it is all that is needed and nothing has to be rebuilt. */
+  const rejoinedAfterRecycle = response === 'yes' && wasNo && !oldData.needsLightRecycle;
+
+  const updates = {
     rsvpStatus: response,
     rsvpRespondedAt: admin.firestore.FieldValue.serverTimestamp(),
     needsLightRecycle: response === 'no'
-  });
+  };
+  if (rejoinedAfterRecycle) updates.needsLightBuild = true;
 
-  return { ok: true, rsvpStatus: response };
+  await db.collection('jobAddresses').doc(match.id).update(updates);
+
+  /* No customer number is assigned here on purpose. Taking one from the pool
+     programmatically could collide with one the office has just written on a
+     bin by hand, so the office decides — this note is how they find out. */
+  if (rejoinedAfterRecycle) {
+    try {
+      await db.collection('messages').add({
+        topic: 'Rejoined After Recycling', folder: 'System',
+        name: oldData.name || '', phone: oldData.phone || '', email: oldData.email || '',
+        contactMethod: '',
+        message: (oldData.name || 'A customer') + ' said no earlier this season, so their lights were ' +
+                 'recycled and their customer number went back to the available pool. They have now ' +
+                 'said yes again. Their lights need building again — they are in the Warehouse ' +
+                 'build queue — and they need a customer number assigned before they go on a route.',
+        autoQueuedToWarehouse: false,
+        needsReassign: false,
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+    } catch (e) { console.error('[HU] rejoin-after-recycle message failed:', e); }
+  }
+
+  return { ok: true, rsvpStatus: response, rejoinedAfterRecycle: rejoinedAfterRecycle };
 });
 
 /* Sitting a customer out for a season. Clearing the scheduled flag alone would
