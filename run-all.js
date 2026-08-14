@@ -630,6 +630,23 @@ if (typeof whGroupKey === 'function') {
   check('flow', 'the edit form can be left without saving',
     admin.includes('whCancelEditExtraBtn') && admin.includes('function whCancelEditExtra'),
     'opening Edit by mistake would trap the form in edit mode');
+  /* Houses are the other half of "I want to be able to edit all this": the
+     colours, wire, feet, timer and bin number on a house row all live on the
+     customer record, so Edit opens THAT rather than a second form here that
+     could save a different answer. Counted, not just found, because all three
+     lists (colour groups, the Timers roll-up, and Recycle) need one. */
+  {
+    const editBtns = (admin.match(/data-wheditcust="/g) || []).length;
+    check('flow', 'house rows in the warehouse have an Edit button too',
+      editBtns >= 3,
+      'found ' + editBtns + ' of the 3 lists — a build group, the Timers roll-up and Recycle each need one');
+    check('flow', 'the house Edit button opens the real Edit Customer popup',
+      /data-wheditcust\]'\)[\s\S]{0,300}openEditCustomerModal\(btn\.dataset\.wheditcust\)/.test(admin),
+      'a second form on this screen could save a different answer than Edit Customer does');
+    check('flow', 'the Timers roll-up still has no Mark Done of its own',
+      !/data-whtimerdone/.test(admin),
+      'two controls writing the same flag is how they start disagreeing — the colour group owns it');
+  }
   /* ⚠ Both files decide this for themselves — see the grouping block above. */
   check('flow', 'a hand-added build with a wire joins that wire\'s group (admin)',
     /wireColor\s*\r?\n?\s*\?\s*whGroupKey\(item\.data\.pattern/.test(admin),
