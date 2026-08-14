@@ -915,16 +915,36 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
       phone: updates.phone !== undefined ? updates.phone : oldPhone,
       email: updates.email !== undefined ? updates.email : oldData.email
     };
+    /* Both writes below can CREATE an invoice document, and they only carry
+       name/phone/email. A document with no amounts on it is not harmless: the
+       portal read the fields straight back and printed the customer's balance
+       as the literal text "$NaN", because `undefined + undefined` is NaN. Any
+       document this function brings into existence gets numeric zeros.
+       Applied ONLY when the destination does not already exist — merging these
+       over a real invoice would zero somebody's balance, which is far worse
+       than the bug being fixed. */
+    const BLANK_AMOUNTS = { install: 0, removal: 0, deposit: 0, credits: 0, changeFees: 0 };
     try {
       const newKey = invoiceKeyFor(Object.assign({}, oldData, updates));
       if (newKey && newKey !== oldKey) {
         const oldInvSnap = await db.collection('invoices').doc(oldKey).get();
         const carried = oldInvSnap.exists ? oldInvSnap.data() : {};
-        await db.collection('invoices').doc(newKey)
-          .set(Object.assign({}, carried, invoiceUpdates), { merge: true });
+        const destRef = db.collection('invoices').doc(newKey);
+        const destExists = (await destRef.get()).exists;
+        await destRef.set(
+          destExists
+            ? Object.assign({}, carried, invoiceUpdates)
+            : Object.assign({}, BLANK_AMOUNTS, carried, invoiceUpdates),
+          { merge: true }
+        );
         await db.collection('invoices').doc(oldKey).delete();
       } else if (oldKey) {
-        await db.collection('invoices').doc(oldKey).set(invoiceUpdates, { merge: true });
+        const ref = db.collection('invoices').doc(oldKey);
+        const exists = (await ref.get()).exists;
+        await ref.set(
+          exists ? invoiceUpdates : Object.assign({}, BLANK_AMOUNTS, invoiceUpdates),
+          { merge: true }
+        );
       }
     } catch (err) {
       console.error('[HU] invoice sync failed:', err);
@@ -1706,6 +1726,16 @@ async function runInvoiceBatch(triggeredBy) {
         inv.name = inv.name || payer.data.name || '';
         inv.email = inv.email || email;
         inv.phone = inv.phone || phone;
+        /* The date this invoice was ISSUED, stamped once and never moved after.
+           It was read in four places — the {{due_date}} on the email below, the
+           printed invoice's date, the Overdue flag, and the office copy of the
+           due-date maths — and written in none of them, so all four silently
+           ran off updatedAt instead. updatedAt moves every time anybody touches
+           the record, so correcting a spelling in someone's name pushed their
+           due date another 30 days out and un-flagged a genuinely overdue bill.
+           A real Timestamp (not a server sentinel) so the {{due_date}} maths a
+           few lines below reads it back on this very first run. */
+        if (!inv.invoicedAt) inv.invoicedAt = admin.firestore.Timestamp.now();
         inv.updatedAt = admin.firestore.FieldValue.serverTimestamp();
         await invRef.set(inv, { merge: true });
 

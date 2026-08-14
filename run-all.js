@@ -1236,8 +1236,43 @@ console.log('\n=== 7. Health check engine ===');
     get(hc.run(), 'noEmail').rows.length === 0,
     'every multi-house group would land on the list and the panel becomes noise');
 
+  /* A customer with no coordinates cannot be put on a route and does not show
+     on the map — they are silently never visited rather than visited late. The
+     bulk importer has flagged these as needsGeocode since it was written and
+     told staff to "search Needs Pin in the customer list", a search that did
+     not exist anywhere in the app. Judged on the coordinates rather than the
+     flag, so a customer typed in by hand is covered too. */
   hc.set({
-    j: [{ id: 'a', data: { name: 'Smith', phone: '8011112222', email: 'smith@x.com', address: '1 St', housePrice: 400, customerNumber: '101', measuredFeet: 100 } }],
+    j: [{ id: 'a', data: { name: 'No Pin', phone: '8011112222', email: 'a@x.com', address: '1 St', housePrice: 400, customerNumber: '101', measuredFeet: 100 } },
+        { id: 'b', data: { name: 'Has Pin', phone: '8015556666', email: 'b@x.com', address: '2 St', housePrice: 400, customerNumber: '102', measuredFeet: 100, lat: 40.3, lng: -111.7 } }],
+    i: [{ id: '8011112222', data: { install: 400, removal: 0, deposit: 0, status: 'Unpaid' } },
+        { id: '8015556666', data: { install: 400, removal: 0, deposit: 0, status: 'Unpaid' } }]
+  });
+  const np = get(hc.run(), 'noPin');
+  check('health', 'a customer with no map pin is caught',
+    np.rows.length === 1 && np.rows[0].label.indexOf('No Pin') !== -1,
+    'they cannot be routed and nothing anywhere says so');
+
+  // 0,0 is the Atlantic — what a failed lookup leaves behind, never a house.
+  hc.set({
+    j: [{ id: 'a', data: { name: 'Null Island', phone: '8011112222', email: 'a@x.com', address: '1 St', housePrice: 400, customerNumber: '101', measuredFeet: 100, lat: 0, lng: 0 } }],
+    i: [{ id: '8011112222', data: { install: 400, removal: 0, deposit: 0, status: 'Unpaid' } }]
+  });
+  check('health', 'coordinates of 0,0 do not count as a real pin',
+    get(hc.run(), 'noPin').rows.length === 1,
+    'a failed geocode leaves 0,0 behind and it would look routable');
+
+  // A customer who said no this season is not being routed anyway.
+  hc.set({
+    j: [{ id: 'a', data: { name: 'Cancelled', phone: '8011112222', email: 'a@x.com', address: '1 St', housePrice: 400, customerNumber: '101', measuredFeet: 100, rsvpStatus: 'no' } }],
+    i: []
+  });
+  check('health', 'a cancelled customer is not chased for a map pin',
+    get(hc.run(), 'noPin').rows.length === 0,
+    'noise on the panel is how a real problem gets scrolled past');
+
+  hc.set({
+    j: [{ id: 'a', data: { name: 'Smith', phone: '8011112222', email: 'smith@x.com', address: '1 St', housePrice: 400, customerNumber: '101', measuredFeet: 100, lat: 40.3, lng: -111.7 } }],
     i: [{ id: '8011112222', data: { install: 400, removal: 0, deposit: 0, status: 'Unpaid' } }],
     a: [{ id: '999', data: {} }]
   });
@@ -1247,8 +1282,8 @@ console.log('\n=== 7. Health check engine ===');
     'false alarms train you to ignore the panel: ' + clean.map(c => c.id).join(', '));
 
   const all = hc.run();
-  check('health', 'all 15 checks present',
-    all.length === 15, 'got ' + all.length);
+  check('health', 'all 16 checks present',
+    all.length === 16, 'got ' + all.length);
   check('health', 'fix buttons limited to the unambiguous checks',
     all.filter(c => c.fix).length === 6,
     'auto-fixing a judgement call writes bad data at scale');
@@ -1403,6 +1438,172 @@ suite('8. Quote decline / maybe next year');
     /confirmWrap\.style\.display = 'block'/.test(quoteAnswer) ||
     /confirmWrap\) confirmWrap\.style\.display/.test(idx.slice(idx.indexOf('quote-minimal'))),
     'the message would be written into a hidden element and nobody would see it');
+})();
+
+// =====================================================================
+suite('11. Reliability pass');
+/*
+ * The 2026-08-14 audit's §2 items. None of these are money bugs on their own;
+ * each is a way the app quietly did the wrong thing and told nobody.
+ */
+(function () {
+  const idx = read('index.html');
+  const fns = read('functions/index.js');
+
+  // ---- 2.1 Health Check runs on its own ----------------------------------
+  /* Sixteen checks that cost nothing to run sat behind a button, and the
+     sidebar badge counting the problems was only written by hcRender, which
+     only ran when that button was pressed. You had to already suspect a problem
+     to be told there was one. */
+  check('reliability', 'health check runs automatically after login',
+    /startHealthCheckAuto\(\)/.test(admin) && /function startHealthCheckAuto/.test(admin),
+    'the checks only ever ran when someone pressed the button');
+  check('reliability', 'the automatic run waits for the customer list to load',
+    /function hcCachesReady/.test(admin) && /if\(!hcCachesReady\(\)\) return;/.test(admin),
+    'running against an empty cache reports a serene "everything lines up" a second after login');
+  check('reliability', 'the automatic run repeats, not just once',
+    /setInterval\(runHealthCheckAuto/.test(admin),
+    'a check that runs once at login misses everything that happens during the day');
+  check('reliability', 'a failing background check cannot break the page',
+    /function runHealthCheckAuto\(\)\{[\s\S]{0,400}try\{[\s\S]{0,300}catch/.test(admin.replace(/\r/g,'')),
+    'an unhandled throw in a timer would take out whatever render came next');
+
+  // ---- 2.2 Duplicate customer on the Add form ----------------------------
+  /* findExistingAddressMatch was written for the bulk importer and only the
+     bulk importer called it. Adding a repeat customer by hand made a second
+     record for the same house — and invoices are keyed by phone, so the two
+     immediately shared one invoice. */
+  const addForm = admin.slice(admin.indexOf("getElementById('routeAddressForm').addEventListener"),
+                              admin.indexOf('BULK UPDATES (Add Customer)'));
+  check('reliability', 'the Add form checks for an existing customer at that address',
+    /findExistingAddressMatch\(street, phone, city, zip\)/.test(addForm),
+    'a repeat quote silently created a second record that shares one invoice with the first');
+  check('reliability', 'the duplicate warning happens before anything is written',
+    addForm.indexOf('findExistingAddressMatch') < addForm.indexOf('addDoc('),
+    'warning after the write is not a warning');
+  check('reliability', 'the duplicate warning can be overridden for a real second property',
+    /Add a second record anyway\?/.test(addForm),
+    'two houses for one family is legitimate and must not be blocked outright');
+
+  // ---- 2.5 invoicedAt ----------------------------------------------------
+  check('reliability', 'invoicedAt is written when the invoice is issued',
+    /if \(!inv\.invoicedAt\) inv\.invoicedAt = admin\.firestore\.Timestamp\.now\(\);/.test(fns),
+    'read in four places, written in none — every due date ran off updatedAt instead');
+  check('reliability', 'invoicedAt is stamped once and never moved',
+    /if \(!inv\.invoicedAt\)/.test(fns),
+    're-stamping on every run would push the due date out and un-flag an overdue bill');
+  check('reliability', 'Start New Season clears last season issue date',
+    /invoicedAt: null/.test(admin),
+    "last year's date would make every new invoice read as ~10 months overdue");
+
+  // ---- 2.6 Bin numbers on Delete All -------------------------------------
+  const delAll = admin.slice(admin.indexOf("getElementById('deleteAllAddressesBtn').addEventListener"),
+                             admin.indexOf("getElementById('deleteAllAddressesBtn').addEventListener") + 2600);
+  check('reliability', 'Delete All Customers returns the numbers to the pool',
+    /availableCustomerNumbers/.test(delAll),
+    'numbering restarts above the old maximum and every labelled bin means nothing');
+  check('reliability', 'Delete All reports how many numbers came back',
+    /returned to the pool/.test(delAll),
+    'a silent recycle is indistinguishable from no recycle');
+
+  // ---- 2.7 Warehouse Mark Completed --------------------------------------
+  check('reliability', 'the warehouse completed box says it counts houses, not bundles',
+    /Houses finished/.test(admin) && /<strong>not<\/strong> the/.test(admin),
+    'the heading counts bundles and the box counted houses, with nothing saying so');
+  check('reliability', 'marking a batch completed lists who it clears first',
+    /Mark ' \+ remaining \+ ' finished for/.test(admin),
+    'it cleared houses in arbitrary order with no confirm and no record of which');
+  check('reliability', 'the completed count cannot exceed what is in the group',
+    /if\(remaining > capacity\) remaining = capacity;/.test(admin),
+    'typing 14 into a 6-house group emptied the group');
+
+  // ---- 2.8 Map pins ------------------------------------------------------
+  check('reliability', 'All Customers can filter to customers with no map pin',
+    /allCustFilterPin/.test(admin) && /Needs Pin/.test(admin),
+    'the import told staff to search "Needs Pin", a search that did not exist');
+  check('reliability', 'the pin test judges coordinates, not the import flag',
+    /function hcHasMapPin/.test(admin) && !/needsGeocode/.test(
+      admin.slice(admin.indexOf('function hcHasMapPin'), admin.indexOf('function hcHasMapPin') + 500)),
+    'needsGeocode is only ever written by the bulk importer, so hand-typed customers were missed');
+  check('reliability', 'the import message points somewhere that exists',
+    /All Customers → Filters → Map Pin/.test(admin) || /Filters/.test(admin.slice(admin.indexOf('added without a map pin'), admin.indexOf('added without a map pin') + 200)),
+    'it named a search that was never built');
+
+  // ---- 2.9 Time Logs -----------------------------------------------------
+  check('reliability', 'the timecard listener is bounded by date, not a flat count',
+    /where\('createdAt','>=', cutoff\)/.test(admin) && !/orderBy\('createdAt','desc'\), limit\(300\)/.test(admin),
+    'limit(300) made an old week look identical to an empty one');
+  check('reliability', 'payroll knows which weeks it actually loaded',
+    /function payrollWeekIsLoaded/.test(admin),
+    'an empty week must never be mistaken for nobody having worked');
+  check('reliability', 'the payroll export REFUSES a week it did not load',
+    /if\(!payrollWeekIsLoaded\(\)\)\{[\s\S]{0,400}Export stopped/.test(admin.replace(/\r/g,'')),
+    'a short export is a short paycheque, and it showed nothing on the way out');
+
+  // ---- 2.10 Double-click guards ------------------------------------------
+  check('reliability', 'the slow write tools cannot be started twice',
+    (admin.match(/onceAtATime\(async function/g) || []).length >= 4,
+    'Add Customer, both bulk imports and the payment import all ran twice on a double click');
+  check('reliability', 'the guard re-enables the button even when the handler throws',
+    /function onceAtATime[\s\S]{0,900}finally \{[\s\S]{0,200}btn\.disabled = false;/.test(admin.replace(/\r/g,'')),
+    'a dead button that needs a page refresh is worse than the double click');
+
+  // ---- 2.11 Search -------------------------------------------------------
+  check('reliability', 'the customer numbers list has a search box',
+    /cnFullSearch/.test(admin),
+    '~962 rows with no way to find one');
+  check('reliability', 'All Customers shows the customer number',
+    /function custNumChip/.test(admin),
+    'the number painted on their bins was not visible anywhere in the list');
+  check('reliability', 'All Customers can be searched by customer number',
+    /String\(r\.d\.customerNumber\|\|''\) === numTerm/.test(admin),
+    'the one identifier staff say out loud could not find anybody');
+  check('reliability', 'Customer Messages has a search box',
+    /msgSearchInput/.test(admin),
+    'every message ever loads with no limit and nothing to filter them');
+
+  // ---- 2.12 Debounce and indexes -----------------------------------------
+  check('reliability', 'the long list searches wait for a pause in typing',
+    /function debounced/.test(admin) &&
+    (admin.match(/addEventListener\('input', debounced\(/g) || []).length >= 4,
+    'every keystroke rebuilt ~967 rows and the box stopped accepting input mid-word');
+  check('reliability', 'invoices are looked up by key, not by scanning them all',
+    /invoiceById\.get\(key\)/.test(admin) && !/allInvoicesCache\.find\(i => i\.id === key\)/.test(admin),
+    'called once per row: ~967 x ~967 comparisons per repaint');
+  check('reliability', 'customers are looked up by phone through an index',
+    /custByPhoneDigits\.get\(digits\)/.test(admin) && /function rebuildCustomerIndexes/.test(admin),
+    'this ran per invoice from two renders, with a replace() on every comparison');
+  check('reliability', 'the index is rebuilt whenever the customer list changes',
+    /rebuildCustomerIndexes\(\);/.test(admin.slice(admin.indexOf('function loadJobAddresses'), admin.indexOf('function loadJobAddresses') + 900)),
+    'a stale index answers with a customer who has since been deleted');
+  check('reliability', 'the bill-to lookup only runs when there is a bill-to',
+    /billToDigits \? custByPhoneDigits\.get\(billToDigits\) : null/.test(admin),
+    "it scanned every customer per row to match whoever happened to have no phone");
+
+  // ---- 2.13 $NaN ---------------------------------------------------------
+  check('reliability', 'the portal balance coerces every amount',
+    /var invInstall\s+= Number\(record\.install\)\s+\|\| 0;/.test(admin ? idx : idx),
+    'an invoice with no amounts printed the customer the literal text "$NaN"');
+  check('reliability', 'the portal money formatter coerces and shows cents',
+    /function fmt\(n\)\{[\s\S]{0,200}Number\(n\) \|\| 0[\s\S]{0,200}minimumFractionDigits: 2/.test(idx.replace(/\r/g,'')),
+    'undefined.toLocaleString() throws, and the emailed invoice already showed cents');
+  check('reliability', 'the function never creates an invoice with no amounts on it',
+    /BLANK_AMOUNTS/.test(fns) && /destExists/.test(fns),
+    'portalSave created amount-less invoices when a customer changed their phone');
+  check('reliability', 'the blank amounts are never merged over a real invoice',
+    /destExists\s*\?\s*Object\.assign\(\{\}, carried, invoiceUpdates\)/.test(fns),
+    'zeroing an existing balance would be far worse than the bug being fixed');
+
+  // ---- 2.14 Demo number and debug strings --------------------------------
+  check('reliability', 'the demo phone number is gone from the sign-in page',
+    !/Try demo number/.test(idx),
+    'the portal told every customer to sign in as somebody else');
+  check('reliability', 'customers are not shown internal debug strings',
+    !/\[debug: id=" \+/.test(idx) && !/", invPhone=" \+/.test(idx),
+    'it leaked our record ids and the phone numbers we hold for them onto their screen');
+  check('reliability', 'the diagnostics still go to the console for phone support',
+    /function logPortalSaveFailure/.test(idx),
+    'removing the detail entirely would leave nothing to help them with');
 })();
 
 // =====================================================================
