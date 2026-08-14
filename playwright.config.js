@@ -20,7 +20,10 @@ const { defineConfig, devices } = require('@playwright/test');
 const PORT = 4173;
 
 module.exports = defineConfig({
-  testDir: './tests',
+  /* Specs folder — either name works. The repo currently uses test/. */
+  testDir: require('fs').existsSync(require('path').join(__dirname, 'tests'))
+    ? './tests'
+    : './test',
   testMatch: '**/*.spec.js',
 
   /* Under 60 seconds total is the budget (CLAUDE.md §9.8). These keep one
