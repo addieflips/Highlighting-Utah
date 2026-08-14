@@ -1325,8 +1325,37 @@ function whWireLabel(wire){
   const w = String(wire || '').trim();
   return w || 'White';
 }
+/* Put a colour list into a canonical order so the SAME pattern typed in a
+ * different order lands in ONE warehouse group. Before this, "Red, Green" and
+ * "Green, Red" built as two separate groups and the same bundle got made
+ * twice. Confirmed with the owner 2026-08-14: for grouping, order does not
+ * matter.
+ *
+ * Duplicates are KEPT, deliberately — "Red, Red, Green" is a different pattern
+ * from "Red, Green, Green" and must stay its own group. Sorting alone gives
+ * that for free ("Green, Red, Red" vs "Green, Green, Red").
+ *
+ * Trailing "(notes)" is split off first and re-attached at the end, so a note
+ * never gets sorted in among the colours.
+ *
+ * ⚠ admin.html and employee.html each carry their own copy of this. Change one
+ * and change the other in the same push, or the office and the crew will group
+ * the same houses differently. */
+function whNormalizeLights(text){
+  const raw = String(text || '');
+  if(!raw.trim()) return raw;
+  const m = raw.match(/^(.*?)\s*\(([^)]*)\)\s*$/);
+  const main  = m ? m[1].trim() : raw.trim();
+  const notes = m ? m[2].trim() : '';
+  const colors = main.split(/[,\u2014]/).map(function(s){ return s.trim(); }).filter(Boolean);
+  if(!colors.length) return raw.trim();
+  const sorted = colors.slice().sort(function(a,b){
+    return a.toLowerCase().localeCompare(b.toLowerCase());
+  });
+  return sorted.join(', ') + (notes ? ' (' + notes + ')' : '');
+}
 function whGroupKey(lightsDescription, wire){
-  return String(lightsDescription || '') + ' \u2014 ' + whWireLabel(wire) + ' wire';
+  return whNormalizeLights(lightsDescription) + ' \u2014 ' + whWireLabel(wire) + ' wire';
 }
 // The roll-up that sits at the top of the Lights tab: every colour+wire combo
 // with how many houses need it and how many bundles that adds up to.
