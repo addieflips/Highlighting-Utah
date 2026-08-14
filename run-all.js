@@ -636,6 +636,14 @@ const RETIRED_CHECKLIST_TERMS = [
   check('logic', 'the checklist seed survived the move intact',
     TEST_SEED.length >= 160,
     'only ' + TEST_SEED.length + ' tests in the seed — the move truncated the list');
+  /* Moving the list off the page created a failure it could not have had while
+     it was inline: the fetch can now fail. The only caller is
+     runProjectTestSync().catch(function(){}), so an unhandled throw reads as a
+     clean sync with nothing to do, and the owner's checklist silently stops
+     updating — the exact drift CLAUDE.md §0/§2 is written to prevent. */
+  check('logic', 'a failed seed fetch is reported, not swallowed',
+    /catch\s*\(\s*err\s*\)\s*\{[^}]*could not load js\/test-seed\.js/.test(admin),
+    'the dynamic import has no catch — if js/test-seed.js 404s the checklist stops syncing and says nothing');
   for (const [term, why] of RETIRED_CHECKLIST_TERMS) {
     const hits = TEST_SEED.filter(row => (row[3] + ' ' + row[4]).toLowerCase().includes(term));
     check('logic', 'checklist wording: no test still says "' + term + '"',

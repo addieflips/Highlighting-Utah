@@ -6226,6 +6226,7 @@ function initData(){
   loadNightlyHealth().catch(function(){});
   setInterval(function(){ loadNightlyHealth().catch(function(){}); }, 10 * 60 * 1000);
   startHealthCheckAuto();
+  startReconcileAuto();
   loadSettings();
   loadJobAddresses();
   loadWarehouseExtras();
@@ -18346,6 +18347,227 @@ function nextDayStr(dateStr){
   return toDateStr(dt);
 }
 
+/* ============ KEEPING THE UPCOMING ROUTES ACCURATE ============
+ *
+ * A saved route is a SNAPSHOT. It was true the day it was generated and then the
+ * world moved on underneath it: somebody said no, an address was corrected, a
+ * house was installed early, a timing preference changed, a customer was
+ * deleted. Nothing went back and reconciled any of that, so the crew could be
+ * handed a day containing a house that is not a customer any more, or driving to
+ * an address that was fixed a week ago.
+ *
+ * This sweep is what "keep the routes accurate" means in practice. It runs a few
+ * seconds after sign-in and every fifteen minutes after that, so any change is
+ * reflected within fifteen minutes without anybody pressing anything.
+ *
+ * ⚠ THE SAFETY RULES, all four deliberate:
+ *  1. PAST DAYS ARE HISTORY and are never edited. What the crew was sent out
+ *     with is the record of what the crew was sent out with.
+ *  2. INSTALL ROUTES ONLY. A completed house SHOULD be on a removal route and a
+ *     fix route has its own lifecycle; sweeping those would be wrong, not tidy.
+ *  3. NOTHING IS EVER DROPPED SILENTLY. A house taken off a route is either put
+ *     on another day or handed back to the pool, and either way it is named in a
+ *     System notice.
+ *  4. A HOUSE IS ONLY TREATED AS LEFT OVER AFTER A GRACE PERIOD. The office
+ *     often marks a day done the following morning; moving houses the same night
+ *     would move ones that were actually finished.
+ */
+const RECONCILE_INTERVAL_MS = 15 * 60 * 1000;
+/* How long a past install date is left alone before its unfinished houses are
+   treated as left over. Two days covers "we'll tick them off in the morning". */
+const LEFTOVER_GRACE_DAYS = 2;
+let reconcileTimer = null;
+let reconcileRunning = false;
+
+/* Why this house should not be on this day, or '' if it is fine where it is. */
+function stopProblem(cust, dateStr){
+  if(!cust) return 'is no longer a customer';
+  const d = cust.data || {};
+  if(d.maybeNextYear) return 'is sitting out this season';
+  if(d.rsvpStatus === 'no' || d.rsvpStatus === 'backnextyear') return 'said no';
+  if(d.completed) return 'is already installed';
+  if(toDateStr(earliestAllowedInstallDate(d)) > dateStr){
+    return 'cannot be installed until ' + formatDateNice(toDateStr(earliestAllowedInstallDate(d))) +
+           ' (' + (d.installPreference || 'their timing') + ')';
+  }
+  return '';
+}
+
+/* Has the customer record moved on since this stop was written down? Only the
+   fields the crew actually drives and knocks on doors with. */
+const STOP_SNAPSHOT_FIELDS = ['address','name','phone','difficulty','lat','lng',
+  'gateCode','specificOutlet','specificOutletNotes','customerNumber'];
+function stopDrifted(oldStop, freshStop){
+  return STOP_SNAPSHOT_FIELDS.some(function(k){
+    return (oldStop[k] === undefined ? '' : oldStop[k]) !== (freshStop[k] === undefined ? '' : freshStop[k]);
+  });
+}
+
+/* Every install route from today onwards, oldest first. */
+function upcomingInstallRoutes(){
+  const todayStr = toDateStr(new Date());
+  const out = [];
+  Object.keys(scheduledRoutesCache || {}).forEach(function(dateStr){
+    if(dateStr < todayStr) return;
+    (scheduledRoutesCache[dateStr] || []).forEach(function(route){
+      if((route.type || 'install') !== 'install') return;
+      out.push(route);
+    });
+  });
+  return out.sort(function(a,b){ return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0); });
+}
+
+/* Put a house that came off a route (or was stranded on a past one) back on the
+   soonest day it is allowed on, in its own city. Returns where it went, or null
+   if there is nowhere for it — in which case the caller hands it back to the
+   pool rather than leaving it pointing at a day it is not on. */
+async function replaceHouseOnRoute(cust){
+  const d = cust.data || {};
+  const city = extractCleanCity(d.city);
+  if(!city || typeof d.lat !== 'number' || typeof d.lng !== 'number') return null;
+  const from = toDateStr(earliestAllowedInstallDate(d));
+  const route = findNextRouteDayInCity(city, from, []);
+  if(!route) return null;
+  if((route.stops || []).some(function(s){ return s.id === cust.id; })) return route;
+  const stops = reorderFlatStops((route.stops || []).concat([customerToStop(cust.id, d, true)]), route.startPoint || null);
+  await updateDoc(doc(db,'scheduledRoutes', route.id), {stops: stops});
+  await updateDoc(doc(db,'jobAddresses', cust.id), scheduledFieldForType('install', route.date, route.crew || '1'));
+  return route;
+}
+
+/* The sweep. Returns a plain-English report of everything it changed; returns an
+   empty report and writes nothing at all when the routes are already right,
+   which is the normal case and must stay cheap. */
+async function reconcileUpcomingRoutes(){
+  const report = {refreshed: 0, moved: [], freed: [], dropped: []};
+  const todayStr = toDateStr(new Date());
+  const routes = upcomingInstallRoutes();
+  const seen = new Set();
+  const needHoming = [];
+
+  // ---- 1. Every upcoming install day, checked against the customers on it ----
+  for(let i = 0; i < routes.length; i++){
+    const route = routes[i];
+    const keep = [];
+    let changed = false;
+    for(let s = 0; s < (route.stops || []).length; s++){
+      const stop = route.stops[s];
+      const cust = jobAddresses.find(function(a){ return a.id === stop.id; });
+      const problem = stopProblem(cust, route.date);
+      if(problem){
+        changed = true;
+        report.dropped.push({name: stop.name || (cust && cust.data.name) || 'A house',
+                             date: route.date, why: problem});
+        /* Only a timing clash earns another day. Somebody who said no, or is
+           already installed, or is not a customer any more, belongs on no day. */
+        if(cust && problem.indexOf('cannot be installed until') === 0) needHoming.push(cust);
+        else if(cust) await updateDoc(doc(db,'jobAddresses', cust.id), freeUpFieldForType('install'));
+        continue;
+      }
+      if(seen.has(stop.id)){
+        // The same house on two upcoming days. The earlier one wins.
+        changed = true;
+        report.dropped.push({name: stop.name || 'A house', date: route.date,
+                             why: 'was on two days at once — kept the earlier one'});
+        continue;
+      }
+      seen.add(stop.id);
+      const fresh = customerToStop(cust.id, cust.data, !!stop.addedNew);
+      if(stopDrifted(stop, fresh)){ changed = true; report.refreshed++; keep.push(fresh); }
+      else keep.push(stop);
+    }
+    if(changed) await updateDoc(doc(db,'scheduledRoutes', route.id), {stops: keep});
+  }
+
+  // ---- 2. Houses stranded on a day that has already been and gone -----------
+  /* Marked scheduled for a past date and never completed. Route generation only
+     ever looks at unscheduled houses, so without this they are invisible to
+     every tool in the app and simply never get installed. */
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - LEFTOVER_GRACE_DAYS);
+  const cutoffStr = toDateStr(cutoff);
+  jobAddresses.forEach(function(a){
+    const d = a.data || {};
+    if(!d.scheduled || d.completed || d.maybeNextYear) return;
+    if(!d.scheduledDate || d.scheduledDate >= cutoffStr) return;
+    if(seen.has(a.id)) return;
+    needHoming.push(a);
+  });
+
+  // ---- 3. Somewhere to go, or back in the pool ------------------------------
+  for(let i = 0; i < needHoming.length; i++){
+    const cust = needHoming[i];
+    if(seen.has(cust.id)) continue;
+    const wasOn = (cust.data || {}).scheduledDate || '';
+    let landed = null;
+    try{ landed = await replaceHouseOnRoute(cust); } catch(err){ landed = null; }
+    if(landed){
+      seen.add(cust.id);
+      report.moved.push({name: cust.data.name || 'A house', from: wasOn, to: landed.date});
+    } else {
+      try{ await updateDoc(doc(db,'jobAddresses', cust.id), freeUpFieldForType('install')); } catch(err){}
+      report.freed.push({name: cust.data.name || 'A house', from: wasOn,
+                         city: extractCleanCity(cust.data.city) || 'no city on file'});
+    }
+  }
+
+  report.changed = report.refreshed > 0 || report.moved.length > 0 ||
+                   report.freed.length > 0 || report.dropped.length > 0;
+  if(report.changed) await noticeRoutesReconciled(report);
+  return report;
+}
+
+/* One notice per sweep, never one per house — a sweep that tidies twelve things
+   must not put twelve notices in front of somebody. */
+async function noticeRoutesReconciled(report){
+  const lines = [];
+  if(report.refreshed) lines.push(report.refreshed + ' stop' + (report.refreshed === 1 ? '' : 's') +
+    ' updated to match the customer record (address, phone, gate code and the like).');
+  report.moved.forEach(function(m){
+    lines.push(m.name + ' moved' + (m.from ? ' from ' + formatDateNice(m.from) : '') + ' to ' + formatDateNice(m.to) + '.');
+  });
+  report.dropped.forEach(function(x){
+    lines.push(x.name + ' taken off ' + formatDateNice(x.date) + ' — ' + x.why + '.');
+  });
+  report.freed.forEach(function(f){
+    lines.push(f.name + ' has no day to go on in ' + f.city +
+      ', so they are back in the pool — generate a route for ' + f.city + ' and they will be picked up.');
+  });
+  try{
+    await addDoc(collection(db,'messages'), {
+      topic: 'Routes Kept Up To Date', folder: 'System',
+      name: '', phone: '', email: '', contactMethod: '',
+      message: 'The upcoming routes were checked and these changed:\n\n' + lines.join('\n') +
+        '\n\nNobody has been told about any date that moved — if a day was already confirmed with them, they need to hear it from you.',
+      autoQueuedToWarehouse: false, needsReassign: false,
+      createdAt: serverTimestamp()
+    });
+  } catch(err){ console.error('Could not raise the reconcile note:', err); }
+}
+
+/* Same shape as the automatic health check: a few seconds after sign-in, then on
+   an interval, and it can never take the page down with it. */
+function runReconcileAuto(){
+  if(reconcileRunning) return;
+  if(!jobAddresses.length || !Object.keys(scheduledRoutesCache || {}).length) return;
+  reconcileRunning = true;
+  reconcileUpcomingRoutes().then(function(report){
+    if(report.changed){
+      logActivity('Routes kept up to date — ' + report.refreshed + ' stops refreshed, ' +
+        report.moved.length + ' moved, ' + report.dropped.length + ' removed, ' +
+        report.freed.length + ' back in the pool', 'routes', '');
+      toast('Routes updated — see System notices');
+    }
+  }).catch(function(err){
+    console.error('[HU] route reconcile failed', err);
+  }).then(function(){ reconcileRunning = false; });
+}
+function startReconcileAuto(){
+  if(reconcileTimer) return;
+  setTimeout(runReconcileAuto, 20000);
+  reconcileTimer = setInterval(runReconcileAuto, RECONCILE_INTERVAL_MS);
+}
+
 function scheduledFieldForType(type, dateVal, crew){
   if(type === 'fix') return {fixScheduled: true, fixScheduledDate: dateVal, fixCrew: crew};
   if(type === 'removal') return {removalScheduled: true, removalScheduledDate: dateVal, removalCrew: crew};
@@ -23163,7 +23385,23 @@ async function runProjectTestSync(){
        js/test-seed.js. The caller swallows a throw from this function, so a
        failed import would stop the checklist syncing silently; run-all.js
        asserts this import still exists for exactly that reason. */
-    const { TEST_SEED } = await import('./js/test-seed.js');
+    /* The static check above catches this import line being deleted, but not
+       the fetch itself failing in a browser: a 404 after a part-published
+       deploy, or someone offline. Inline, the list could never fail to arrive;
+       now it can, and failing silently here means the checklist quietly stops
+       updating, which is the precise failure its rules exist to prevent. */
+    let TEST_SEED;
+    try {
+      ({ TEST_SEED } = await import('./js/test-seed.js'));
+    } catch(err){
+      console.error('Checklist sync skipped: could not load js/test-seed.js', err);
+      const failReport = document.getElementById('testSyncReport');
+      if(failReport){
+        failReport.textContent = 'Could not load the checklist test list, so it was not synced — the list below may be out of date.';
+        failReport.style.display = '';
+      }
+      return null;
+    }
     const snap = await getDocs(collection(db,'projectTests'));
     const existing = new Map();
     snap.forEach(function(d){ existing.set(d.id, d.data()); });
