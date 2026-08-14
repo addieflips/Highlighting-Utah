@@ -2015,6 +2015,67 @@ suite('10b. The payment ledger');
     'a collection missing from the rules is denied by default and the panel would silently render empty');
 })();
 
+suite('10c. Tips, the payment importer, and the ledger backfill');
+(function () {
+  // ---- §5.4 tips are revenue --------------------------------------------
+  /* tipTotal is real money charged to a real card — the PayPal capture
+     increments it alongside deposit — and it appeared exactly ONCE in the
+     whole file, as a line of text on an invoice card. No revenue figure
+     counted it, so the Dashboard understated income, the bank never
+     reconciled, and tips were missing from anything a tax preparer saw. */
+  check('tips', 'tips are counted in total revenue',
+    /const tipsCollected = allInvoicesCache\.reduce/.test(admin) &&
+    /\+ financeArchiveRevenue \+ tipsCollected/.test(admin),
+    'tips were charged to a card and then counted nowhere');
+  check('tips', 'tips are counted in this month’s income',
+    /\(Number\(i\.data\.deposit\)\|\|0\) \+ \(Number\(i\.data\.tipTotal\)\|\|0\)/.test(admin.replace(/\s/g, ' ').replace(/\s+/g, '')) ||
+    /Number\(i\.data\.tipTotal\)\|\|0/.test(admin.replace(/\s/g, '')),
+    'money that came in this month is money that came in this month');
+  check('tips', 'the invoice export has its own Tips column',
+    /Tips:\s*d\.tipTotal\s*\|\|\s*0/.test(admin),
+    'anything handed to a tax preparer understated income without it');
+  check('tips', 'tips are kept separate, not folded into the amount paid',
+    !/deposit:\s*\(?Number\(d\.deposit\)[^\n]*tipTotal/.test(admin),
+    'tips are taxed and reported differently from service income — the two must stay separable');
+
+  // ---- §5.6 the payment importer ----------------------------------------
+  const importSec = sectionFrom(admin, admin.indexOf("paymentImportLoadBtn').addEventListener"));
+  check('importer', 'a CSV is parsed properly, not split on commas',
+    /XLSX\.read\(text, \{type: 'string'\}\)/.test(importSec),
+    '"1,234.56" is ONE quoted field — splitting on commas imported a $1,234.56 payment as $1');
+  check('importer', 'an amount survives currency punctuation',
+    /replace\(\/\[\^0-9\.\\-\]\/g, ''\)/.test(admin),
+    '"$1,234.56" must read as 1234.56, not as 1');
+  check('importer', 'the duplicate guard is per ROW, not per file',
+    /const rowTag = function\(idx, phoneDigits, amount\)/.test(admin) && /thisRowTag/.test(admin),
+    'one tag per file meant a customer with two payments in one file silently lost the second');
+  check('importer', 're-importing the same file is still skipped',
+    /seen\.indexOf\(thisRowTag\) !== -1/.test(admin),
+    'the row tag has to be stable for the same file, or a re-import double-counts');
+
+  // ---- the ledger backfill ----------------------------------------------
+  check('backfill', 'the opening-balance tool reports before it writes',
+    /ledgerBackfillCheckBtn/.test(admin) && /Nothing has been written\./.test(admin),
+    'a bulk write across ~967 records gets a dry run first, like the Customer Numbers tool');
+  check('backfill', 'running it twice is harmless',
+    /function ledgerBackfillAlreadyDone/.test(admin) && /filter\(function\(r\)\{ return !done\[r\.invoiceKey\]; \}\)/.test(admin.replace(/\s+/g, ' ').replace(/\{ /g, '{').replace(/ \}/g, '}')) ||
+    /!done\[r\.invoiceKey\]/.test(admin),
+    'a second run would otherwise double every opening balance');
+  check('backfill', 'it refuses to write when it cannot tell what is already there',
+    /if\(done === null\)/.test(admin),
+    'writing blind is how you get two opening balances for one customer');
+  check('backfill', 'an opening balance is labelled as a summary, not a payment',
+    /Opening balance — the total paid before the payment log was added/.test(admin) &&
+    /LEDGER_BACKFILL_REF/.test(admin),
+    'someone who paid in three instalments becomes ONE line — it must never read as a real payment record');
+  check('backfill', 'the backfill touches no invoice amounts',
+    !/ledgerBackfillRunBtn[\s\S]{0,2500}updateDoc\(doc\(db,'invoices'/.test(admin),
+    'it adds history only — it must never be able to change what somebody owes');
+  check('backfill', 'the dead "go ask a chatbot" card is gone',
+    !/share the file directly in a chat with Claude/.test(admin),
+    'a card that only told you to go elsewhere was not a tool');
+})();
+
 suite('11. Reliability pass');
 /*
  * The 2026-08-14 audit's §2 items. None of these are money bugs on their own;
