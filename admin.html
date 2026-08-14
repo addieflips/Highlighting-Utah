@@ -8587,6 +8587,7 @@ function buildInvoiceDocHtml(member){
         '</tr></thead>'+
         '<tbody>'+
           lineItems+
+          (removal > 0 ? row('Removal service', fmtMoney(removal)) : '')+
           (showNewMemberLine ? row('New member installation fee', '$30') : '')+
           changeFeeNotes.map(function(f){ return row(esc(f.reason||'Light change fee'), fmtMoney(Number(f.amount)||0)); }).join('')+
           creditNotes.map(function(c){ return row(esc(c.reason||'Credit'), '\u2212'+fmtMoney(Number(c.amount)||0), 'var(--dusk)'); }).join('')+

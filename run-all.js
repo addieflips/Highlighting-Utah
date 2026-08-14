@@ -1767,6 +1767,87 @@ suite('9. Portal sign-in security');
 })();
 
 // =====================================================================
+/* ⚠ THE BUG THIS SUITE CATCHES.
+ *
+ * buildInvoiceDocHtml (the printable/on-screen Invoice Preview panel in
+ * admin's Invoices tab — NOT the automation email, which is a separate,
+ * template-driven path and out of scope here) computes
+ * total = install + removal + changeFees and shows that total, but the
+ * itemized rows above it never included a removal line — the same class of
+ * bug the P0 fix eliminated for changeFees (CLAUDE.md §4), just missed for
+ * removal. A customer with a removal charge saw a total that didn't match
+ * what the line items added up to. This suite EXECUTES the real function
+ * against a fake invoice and checks the rendered HTML directly, rather than
+ * trusting a text/regex check that could pass on dead code.
+ */
+(function () {
+  const biStart = admin.indexOf('function buildInvoiceDocHtml(member){');
+  if (biStart === -1) {
+    check('invoice-doc', 'buildInvoiceDocHtml found in admin.html', false,
+      'renamed or removed — update this test rather than deleting it');
+    return;
+  }
+  const biEnd = admin.indexOf('\nlet invRecipientSearchTerm', biStart);
+  const biSrc = admin.slice(biStart, biEnd);
+
+  // fmtMoney is real (lifted from js/money.js, not stubbed) so this suite
+  // fails if the actual formatting rule ever changes underneath it.
+  const fmtMoneySrc = extractFn(money, 'fmtMoney');
+
+  function makeInvoiceHarness(invoiceOverrides) {
+    const ctx = {
+      allInvoicesCache: [{
+        id: '8015551234',
+        data: Object.assign({
+          install: 400, removal: 0, deposit: 0, credits: 0, changeFees: 0,
+          newMemberFeeApplied: false, creditNotes: [], changeFeeNotes: []
+        }, invoiceOverrides)
+      }],
+      jobAddresses: [],
+      perFootRate: 4,
+      siteContentCache: {},
+      computeInvoiceStatus: computeInvoiceStatus,
+      esc: s => String(s == null ? '' : s),
+      toJsDate: v => (v instanceof Date ? v : null),
+      addDays: (d, n) => new Date((d instanceof Date ? d.getTime() : Date.now()) + n * 86400000),
+      niceDate: () => 'Nov 20, 2026',
+      invoiceNumberFor: () => 'INV-0001',
+      PORTAL_ADDRESS: 'highlightingutah.com/#/payment',
+      VENMO_HANDLE: 'HighLightingUtah',
+      PAYMENT_TERMS_DAYS: 14
+    };
+    const names = Object.keys(ctx);
+    const fn = new Function(...names,
+      fmtMoneySrc + '\n' + biSrc + '\nreturn buildInvoiceDocHtml;'
+    )(...names.map(n => ctx[n]));
+    return fn;
+  }
+
+  const member = { data: {
+    phone: '8015551234', email: 'test@example.com', measuredFeet: 100,
+    housePrice: 400, chargeNewMemberFee: false, address: '1 Test St', name: 'Test Customer'
+  } };
+
+  suite('12. Printable invoice line items match the total shown');
+
+  let withRemovalHtml = null, threwWithRemoval = null;
+  try { withRemovalHtml = makeInvoiceHarness({ install: 400, removal: 150 })(member); }
+  catch (e) { threwWithRemoval = e; }
+  check('invoice-doc', 'buildInvoiceDocHtml runs without throwing',
+    threwWithRemoval === null,
+    'it threw ' + (threwWithRemoval && threwWithRemoval.message));
+  check('invoice-doc', 'a removal charge shows as its own line item',
+    !!withRemovalHtml && /Removal service/.test(withRemovalHtml) && withRemovalHtml.includes('$150.00'),
+    'the Total includes removal but the line items above it never showed it — a customer with a removal ' +
+    'charge sees numbers that silently don\'t add up');
+
+  const noRemovalHtml = makeInvoiceHarness({ install: 400, removal: 0 })(member);
+  check('invoice-doc', 'no removal line when there is no removal charge',
+    !/Removal service/.test(noRemovalHtml),
+    'an empty "Removal service — $0.00" row on every ordinary invoice would be clutter, not a fix');
+})();
+
+// =====================================================================
 // Wait for the async suites before totalling up — see pendingAsync at the top.
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
