@@ -156,10 +156,46 @@ const FAKE_FUNCTIONS_MODULE = `
   }
 `;
 
+/* The PayPal SDK, faked.
+ *
+ * setupPaypalButtonsIfNeeded() injects a <script> from www.paypal.com/sdk/js.
+ * paypal.com is on FORBIDDEN_HOSTS (correctly — no test may touch real
+ * payments), which meant the t11 button could never render: the test was
+ * blocking the very thing it asserted. Serving a fake SDK lets the page's own
+ * PayPal setup code run for real, while nothing leaves the machine.
+ *
+ * Only the surface index.html actually uses: Buttons(), isEligible(), render().
+ * onApprove is never invoked — capturing a payment is out of scope for a
+ * browser test and always will be (CLAUDE.md §9.11). */
+const FAKE_PAYPAL_SDK = `
+  window.__HU_PAYPAL_LOADED__ = true;
+  window.paypal = {
+    Buttons: function (opts) {
+      window.__HU_PAYPAL_OPTS__ = opts || {};
+      return {
+        isEligible: function () { return true; },
+        render: function (target) {
+          const el = typeof target === 'string'
+            ? document.querySelector(target) : target;
+          if (el) {
+            el.innerHTML =
+              '<button type="button" data-testid="paypal-fake-button">' +
+              'PayPal (test double)</button>';
+          }
+          return Promise.resolve();
+        }
+      };
+    }
+  };
+`;
+
 const MODULE_BY_URL = [
   ['firebase-app.js', FAKE_APP_MODULE],
   ['firebase-firestore.js', FAKE_FIRESTORE_MODULE],
-  ['firebase-functions.js', FAKE_FUNCTIONS_MODULE]
+  ['firebase-functions.js', FAKE_FUNCTIONS_MODULE],
+  /* Checked BEFORE the forbidden-host list, so the fake is served rather than
+   * the request being blocked. Order inside the handler matters here. */
+  ['paypal.com/sdk/js', FAKE_PAYPAL_SDK]
 ];
 
 /* ---- installation -------------------------------------------------------- */
