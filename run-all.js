@@ -3690,6 +3690,120 @@ check('schedule', 'the printed sheet uses the same columns as Export CSV',
   'the paper, the CSV and the screen have to agree about what a stop is');
 
 // =====================================================================
+// 16. WHAT DID NOT GET DONE — the misses get another day
+// =====================================================================
+/*
+ * On a normal day nearly every house gets finished, so ticking off the ones
+ * that WERE done is the slow way round: Mark all done, untick the few that
+ * were missed, then deal with just those. They either go to the next day the
+ * truck is already in that town, or get a day picked for each.
+ *
+ * These RUN the real helpers. The one that matters most is that every target
+ * is worked out BEFORE anything moves — deciding them one at a time lets a
+ * house land on a day only because the house before it was just put there,
+ * which is not "the next day we are already in that city".
+ */
+suite('16. Not-done stops get another day');
+{
+  const areaStart = admin.indexOf('function cityOf(h)');
+  const areaEnd = admin.indexOf('/* ---------- build from imported rows', areaStart);
+  const moveStart = admin.indexOf('function moveLeftover(');
+  const moveEnd = admin.indexOf('function moveAllLeftoversAuto(', moveStart);
+  if (areaStart === -1 || areaEnd < areaStart || moveStart === -1 || moveEnd < moveStart) {
+    check('leftovers', 'the not-done helpers are findable',
+      false, 'renamed or removed — update this test rather than deleting it');
+  } else {
+    const D = (id, day, houses, extra) => Object.assign(
+      { id, _date: new Date(2026, 10, day), houses }, extra || {});
+    let SEASON = [];
+    global.dayDate = d => d._date;
+    global.dlabel = () => ({ wd: 'Mon', full: 'Nov 3' });
+    global.getDay = id => SEASON.find(d => d.id === id);
+    global.findHouse = id => {
+      for (const d of SEASON) { const h = d.houses.find(x => String(x.id) === String(id));
+        if (h) return { house: h, day: d }; }
+      return null;
+    };
+    global.isNewMemberHouse = () => false;
+    global.installDays = () => SEASON.filter(d => !d.isFixRoute && !d.isTakedown);
+    global.takedownDays = () => SEASON.filter(d => d.isTakedown);
+    global.fixerRoutes = () => SEASON.filter(d => d.isFixRoute);
+    global.allHouses = () => SEASON.flatMap(d => d.houses);
+    const api = eval(admin.slice(areaStart, areaEnd) + '\n' + admin.slice(moveStart, moveEnd) +
+      '\n;({left: unfinishedOn, later: laterDaysLike, next: nextDayInCity,' +
+      ' plan: planLeftoverMoves, move: moveLeftover})');
+
+    const reset = () => {
+      SEASON = [
+        D('d1', 3, [ { id: 1, name: 'A', city: 'Lehi', done: true },
+                     { id: 2, name: 'B', city: 'Lehi', done: false },
+                     { id: 3, name: 'C', city: 'Lehi', done: false },
+                     { id: 4, name: 'D', city: 'Draper', done: false } ]),
+        D('d2', 4, [ { id: 5, name: 'E', city: 'Alpine', done: false } ]),
+        D('d3', 5, [ { id: 6, name: 'F', city: 'Lehi', done: false } ]),
+        D('td1', 6, [ { id: 7, name: 'G', city: 'Lehi', done: false } ], { isTakedown: true })
+      ];
+    };
+    reset();
+    const d1 = () => SEASON.find(d => d.id === 'd1');
+
+    check('leftovers', 'only the un-ticked stops count as not done',
+      api.left(d1()).map(h => h.name).join() === 'B,C,D',
+      'the whole point is that the ticked ones are finished and stay put');
+    check('leftovers', 'a takedown day is not offered as a home for a missed install',
+      api.later(d1()).every(d => !d.isTakedown),
+      'a missed install belongs on another install day, not on whatever falls soonest');
+    check('leftovers', 'only LATER days are offered',
+      api.later(d1()).map(d => d.id).join() === 'd2,d3',
+      'rescheduling a miss into the past is not rescheduling');
+    check('leftovers', 'the next day in that city is the first later day that already goes there',
+      (api.next(d1(), 'Lehi') || {}).id === 'd3',
+      'd2 is sooner but nobody is in Lehi that day — the truck would be making a special trip');
+    check('leftovers', 'a town no later day covers comes back as nothing, not as a guess',
+      api.next(d1(), 'Draper') === null,
+      'dumping it on some other day silently is how a house gets driven to twice or never');
+
+    const plan = api.plan(d1());
+    check('leftovers', 'every miss is planned, including the one with nowhere to go',
+      plan.length === 3 && plan.filter(p => p.target).length === 2,
+      'the one that cannot be placed has to stay visible, not be quietly dropped');
+    check('leftovers', 'two houses in one town are planned onto the SAME day',
+      plan[0].target === plan[1].target && plan[0].target.id === 'd3',
+      'targets are worked out before anything moves — chained decisions send the second ' +
+      'house to a day that only exists because the first one was just put there');
+
+    plan.filter(p => p.target).forEach(p => api.move(p.house.id, p.target.id));
+    check('leftovers', 'the misses really come off the day they were missed on',
+      d1().houses.map(h => h.name).join() === 'A,D',
+      'the finished house stays, and so does the one with nowhere to go');
+    check('leftovers', 'and land on the day they were planned for',
+      SEASON.find(d => d.id === 'd3').houses.map(h => h.name).join() === 'F,B,C');
+    check('leftovers', 'a moved stop is not silently marked done on the way',
+      SEASON.find(d => d.id === 'd3').houses.every(h => !h.done),
+      'it was not done — that is the entire reason it moved');
+    reset();
+    check('leftovers', 'moving a house onto the day it is already on does nothing',
+      api.move(2, 'd1') === null && d1().houses.length === 4);
+  }
+}
+/* The button, the panel, and the two ways out of it. */
+check('leftovers', 'Mark all done is still there',
+  admin.includes('data-allbtn='),
+  'the fast path is: mark the whole day done, then untick the few that were missed');
+check('leftovers', 'the reschedule button only appears once something is ticked off',
+  /\(dc>0&&left>0\)\?'<button class="mini warn" data-leftover=/.test(admin),
+  'on an untouched day every stop is "not done" and the button would be meaningless');
+check('leftovers', 'the panel offers both ways out',
+  admin.includes('data-lauto="') && admin.includes('data-leach="'),
+  'automatically to the next day in that city, or pick a day for each');
+check('leftovers', 'picking a day inside the panel does not jump the screen away',
+  /t\.dataset\.lmove&&t\.value/.test(admin) && /moveLeftover\(t\.dataset\.lmove/.test(admin),
+  'the ordinary move dropdown switches to the target day, which loses your place in the list');
+check('leftovers', 'the panel closes itself once nothing is left',
+  /if\(!day\|\|!list\.length\)\{[\s\S]{0,120}leftoverFor=null/.test(admin),
+  'an empty list sitting on screen reads as "something went wrong"');
+
+// =====================================================================
 // Wait for the async suites before totalling up — see pendingAsync at the top.
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
