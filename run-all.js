@@ -2088,6 +2088,46 @@ suite('9. Portal sign-in security');
 })();
 
 // =====================================================================
+/* ⚠ THE BUG THIS SUITE CATCHES.
+ *
+ * whBundlesFor (the crew portal's build-sheet bundle count, employee.html)
+ * fell back to 0 bundles for a house with NEITHER measured feet NOR a
+ * price to estimate from — contradicting its own neighboring comment
+ * ("bundles are estimated from the price... so the crew doesn't see
+ * '0 bundles' and under-build"), which only actually held when a price
+ * existed. Admin's own houseBundleNeed uses the same fallback chain and
+ * assumes 1 bundle in that exact case. The mismatch meant the printed
+ * warehouse sheet the crew builds from could under-total by 1 bundle per
+ * such house, disagreeing with what the office dashboard shows for the
+ * same customer. Executed directly against the real function, not just a
+ * text check — this is exactly the kind of "which number does the
+ * fallback branch return" bug a regex can't see.
+ */
+(function () {
+  const wbSrc = extractFn(employee, 'whBundlesFor');
+  if (!wbSrc) {
+    check('bundle-fallback', 'whBundlesFor found in employee.html', false,
+      'renamed or removed — update this test rather than deleting it');
+    return;
+  }
+  const fn = new Function('empPfRateVal', wbSrc + '\nreturn whBundlesFor;')(0);
+
+  const noFeetNoPrice = fn({ measuredFeet: 0, housePrice: 0 });
+  check('bundle-fallback', 'a house with no feet and no price still counts as at least 1 bundle',
+    noFeetNoPrice.bundles === 1,
+    'it returned ' + noFeetNoPrice.bundles + ' — a 0-bundle house is silently missing from the group/printable-sheet totals, ' +
+    'disagreeing with admin\'s own houseBundleNeed, which assumes 1 in this exact case');
+  check('bundle-fallback', 'that fallback is still flagged unknown, so the crew knows it\'s a guess',
+    noFeetNoPrice.unknown === true,
+    'losing the "unknown" flag would hide that this number was never actually measured');
+
+  const withFeet = fn({ measuredFeet: 80, housePrice: 0 });
+  check('bundle-fallback', 'a house WITH feet on file is unaffected by the fallback',
+    withFeet.bundles === 2 && withFeet.unknown === false,
+    'the fallback for missing data must never override a real measurement');
+})();
+
+// =====================================================================
 // Wait for the async suites before totalling up — see pendingAsync at the top.
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
