@@ -1249,17 +1249,17 @@
               <option value="Email">Email</option>
             </select>
           </div>
-          <!-- Phase 1 photo upload — minimal on purpose. Phase 2 replaces this
-               with the full buildings/side-labelled picker from the approved
-               mockup; this is just enough UI to prove the signed-upload pipeline
-               end to end (index.html -> cloudinarySignature -> Cloudinary ->
-               quotePhotos / frontPhotoUrl -> admin quote card). -->
-          <div class="form-row" id="quotePhotoRow">
-            <label>Photos (optional)</label>
-            <p class="form-note" style="margin:0 0 8px;">A photo or two of your home helps us quote accurately.</p>
-            <div id="quotePhotoThumbs" style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:10px;"></div>
-            <input type="file" id="quotePhotoInput" accept="image/*" multiple style="display:none;">
-            <button type="button" class="btn btn-outline-dark btn-sm" id="quotePhotoAddBtn">+ Add Photos</button>
+          <!-- Phase 2: buildings + per-side photos, built from the approved
+               multi-address mockup (claude/multi-address-combined-mockup.html).
+               Main house always exists; more buildings (shop, shed, guest
+               house...) can be added, each with the same four named sides.
+               Rendered entirely by JS below — quoteBuildingsWrap starts empty
+               and gets its first "Main house" block on page load. -->
+          <div class="form-row" id="quoteBuildingsRow">
+            <label>Photos</label>
+            <p class="form-note" style="margin:0 0 10px;">A few photos of your home &mdash; and any other buildings you'd like lit &mdash; help us quote accurately.</p>
+            <div id="quoteBuildingsWrap"></div>
+            <button type="button" class="btn btn-outline-dark btn-sm" id="quoteAddBuildingBtn" style="margin-top:4px;">+ Add another building on this property</button>
             <div id="quotePhotoStatus" class="form-note" style="margin-top:8px;"></div>
           </div>
           <button type="submit" class="btn btn-gold btn-block">Submit Quote Request</button>
@@ -2352,20 +2352,22 @@ document.getElementById('qdClearPattern').addEventListener('click', function(){
 renderQdSequence();
 
 /* =========================================================
-   QUOTE FORM PHOTOS — Phase 1 (signed Cloudinary upload)
-   Minimal on purpose: a single "+ Add Photos" button, no building/side
-   labels yet. Phase 2 rebuilds this whole block to match the approved
-   mockup (Main house + per-side buttons + additional buildings); this
-   exists only to prove the upload pipeline end to end — index.html asks
-   cloudinarySignature for a one-time signature, uploads straight to
-   Cloudinary with it (the API secret never reaches the browser), and the
-   result lands in quotePhotos / frontPhotoUrl exactly like admin.html's
-   own uploads do, so the admin quote card already knows how to show it.
+   QUOTE FORM PHOTOS — Phase 2 (buildings + per-side photos)
+   Built from the approved mockup (claude/multi-address-combined-mockup.html):
+   Main house always exists with four named side buttons (Front of house /
+   Right side / Left side / Back) plus a dashed "Add another photo" that
+   never retires; "+ Add another building" adds more of the same block with
+   a free-text name. Tapping a side opens the real camera/library picker —
+   backing out adds nothing and the button stays; a real file uploads
+   through Phase 1's signed pipeline (downscale -> cloudinarySignature ->
+   Cloudinary) and retires that side's button until the photo is removed.
 ========================================================= */
 var QUOTE_PHOTO_MAX = 12;
-var quotePendingPhotos = []; // [{id, url, original}], in upload order
 var quotePhotoUploadsInFlight = 0;
-var quotePhotoNextId = 1;
+var QUOTE_SIDE_LABELS = {front: 'Front of house', right: 'Right side', left: 'Left side', back: 'Back'};
+var QUOTE_SIDE_ORDER = ['front', 'right', 'left', 'back'];
+var quoteBuildings = []; // [{id, isMain, nameInput, shotsEl, el, photos:[{sideKey,sideLabel,url,original}]}]
+var quoteBuildingNextId = 0;
 
 // Phone photos run 3–12MB and a submission can carry a dozen of them — on a
 // driveway connection that's an abandoned form, not a slow one. Shrinking to
@@ -2423,68 +2425,139 @@ function quotePhotoStatusText(msg){
   var el = document.getElementById('quotePhotoStatus');
   if(el) el.textContent = msg || '';
 }
-function removeQuotePendingPhoto(id){
-  quotePendingPhotos = quotePendingPhotos.filter(function(p){ return p.id !== id; });
-  var thumb = document.getElementById('quotePhotoThumb-' + id);
-  if(thumb) thumb.remove();
+function totalQuotePhotoCount(){
+  return quoteBuildings.reduce(function(n, b){ return n + b.photos.length; }, 0);
 }
-var quotePhotoAddBtnEl = document.getElementById('quotePhotoAddBtn');
-var quotePhotoInputEl = document.getElementById('quotePhotoInput');
-if(quotePhotoAddBtnEl && quotePhotoInputEl){
-  quotePhotoAddBtnEl.addEventListener('click', function(){ quotePhotoInputEl.click(); });
-  quotePhotoInputEl.addEventListener('change', function(){
-    var files = Array.prototype.slice.call(this.files || []);
-    this.value = ''; // lets the same file be re-picked later if removed
-    if(!files.length) return;
 
-    var remaining = QUOTE_PHOTO_MAX - quotePendingPhotos.length - quotePhotoUploadsInFlight;
-    if(remaining <= 0){
-      quotePhotoStatusText("You've reached the maximum of " + QUOTE_PHOTO_MAX + ' photos.');
-      return;
-    }
-    if(files.length > remaining){
-      files = files.slice(0, remaining);
-      quotePhotoStatusText('Only added ' + remaining + ' — that\'s the maximum of ' + QUOTE_PHOTO_MAX + ' photos.');
-    } else {
-      quotePhotoStatusText('');
-    }
+// Opens the phone's camera/library picker for real. Nothing is added unless
+// a file actually comes back — backing out leaves triggerBtn exactly as-is.
+function pickQuotePhoto(building, sideKey, sideLabel, triggerBtn){
+  if(totalQuotePhotoCount() + quotePhotoUploadsInFlight >= QUOTE_PHOTO_MAX){
+    quotePhotoStatusText("You've reached the maximum of " + QUOTE_PHOTO_MAX + ' photos.');
+    return;
+  }
+  var fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.accept = 'image/*';
+  fileInput.style.display = 'none';
+  document.body.appendChild(fileInput);
+  fileInput.addEventListener('change', function(){
+    var file = fileInput.files && fileInput.files[0];
+    document.body.removeChild(fileInput);
+    if(!file) return; // cancelled — button stays put, nothing added
+    quotePhotoStatusText('');
+    addQuotePhotoShot(building, sideKey, sideLabel, triggerBtn, file);
+  });
+  fileInput.click();
+}
 
-    var thumbsEl = document.getElementById('quotePhotoThumbs');
-    files.forEach(function(file){
-      var id = quotePhotoNextId++;
-      quotePhotoUploadsInFlight++;
-      var thumb = document.createElement('div');
-      thumb.id = 'quotePhotoThumb-' + id;
-      thumb.style.cssText = 'position:relative; width:72px; height:72px; border-radius:10px; overflow:hidden; background:var(--paper); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; font-size:11px; color:var(--slate); text-align:center;';
-      thumb.textContent = 'Uploading…';
-      thumbsEl.appendChild(thumb);
+function addQuotePhotoShot(building, sideKey, sideLabel, triggerBtn, file){
+  var retiring = sideKey !== 'extra'; // the four named sides retire; "Add another photo" never does
+  if(retiring && triggerBtn) triggerBtn.style.display = 'none';
+  quotePhotoUploadsInFlight++;
 
-      uploadPhotoToCloudinary(file, function(pct){ thumb.textContent = pct + '%'; }).then(function(url){
-        quotePendingPhotos.push({id: id, url: url, original: url});
-        thumb.textContent = '';
-        thumb.style.color = '';
-        var img = document.createElement('img');
-        img.src = url;
-        img.style.cssText = 'width:100%; height:100%; object-fit:cover; display:block;';
-        var removeBtn = document.createElement('button');
-        removeBtn.type = 'button';
-        removeBtn.textContent = '×';
-        removeBtn.setAttribute('aria-label', 'Remove photo');
-        removeBtn.style.cssText = 'position:absolute; top:2px; right:2px; width:20px; height:20px; border-radius:50%; border:none; background:rgba(0,0,0,.6); color:#fff; font-size:14px; line-height:1; cursor:pointer;';
-        removeBtn.addEventListener('click', function(){ removeQuotePendingPhoto(id); });
-        thumb.appendChild(img);
-        thumb.appendChild(removeBtn);
-      }).catch(function(err){
-        console.error('[HU] quote photo upload failed:', err);
-        thumb.textContent = 'Failed — tap Add Photos to retry';
-        thumb.style.color = 'var(--ember)';
-        setTimeout(function(){ thumb.remove(); }, 3000);
-      }).finally(function(){
-        quotePhotoUploadsInFlight--;
-      });
-    });
+  var row = document.createElement('div');
+  row.style.cssText = 'display:flex; align-items:center; gap:11px; background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:8px; margin-top:7px;';
+  var thumb = document.createElement('div');
+  thumb.style.cssText = 'width:52px; height:52px; border-radius:8px; flex:none; overflow:hidden; background:var(--line); display:flex; align-items:center; justify-content:center; font-size:11px; color:var(--slate);';
+  thumb.textContent = '0%';
+  var nameWrap = document.createElement('div');
+  nameWrap.style.cssText = 'flex:1; font-size:14px; font-weight:600; color:var(--ink);';
+  nameWrap.textContent = sideLabel || 'Photo';
+  var removeBtn = document.createElement('button');
+  removeBtn.type = 'button';
+  removeBtn.textContent = '×';
+  removeBtn.setAttribute('aria-label', 'Remove photo');
+  removeBtn.style.cssText = 'border:none; background:none; color:var(--slate); font-size:20px; cursor:pointer; padding:4px 8px; flex-shrink:0;';
+  row.appendChild(thumb); row.appendChild(nameWrap); row.appendChild(removeBtn);
+  building.shotsEl.appendChild(row);
+
+  var entry = {sideKey: sideKey, sideLabel: sideLabel, url: null, original: null};
+
+  removeBtn.addEventListener('click', function(){
+    var idx = building.photos.indexOf(entry);
+    if(idx !== -1) building.photos.splice(idx, 1);
+    row.remove();
+    if(retiring && triggerBtn) triggerBtn.style.display = ''; // deleting brings the side button back
+    quotePhotoStatusText('');
+  });
+
+  uploadPhotoToCloudinary(file, function(pct){ thumb.textContent = pct + '%'; }).then(function(url){
+    entry.url = url; entry.original = url;
+    building.photos.push(entry);
+    thumb.textContent = '';
+    var img = document.createElement('img');
+    img.src = url;
+    img.style.cssText = 'width:100%; height:100%; object-fit:cover; display:block;';
+    thumb.appendChild(img);
+  }).catch(function(err){
+    console.error('[HU] quote photo upload failed:', err);
+    nameWrap.innerHTML = (sideLabel || 'Photo') + '<br><span style="font-weight:400; color:var(--ember); font-size:12px;">Upload failed — tap the side again to retry</span>';
+    setTimeout(function(){
+      row.remove();
+      if(retiring && triggerBtn) triggerBtn.style.display = '';
+    }, 3000);
+  }).finally(function(){
+    quotePhotoUploadsInFlight--;
   });
 }
+
+function renderQuoteBuilding(building){
+  var wrap = document.createElement('div');
+  wrap.style.cssText = 'border-left:3px solid var(--line); padding-left:12px; margin:16px 0;';
+
+  var nameRow = document.createElement('div');
+  nameRow.style.marginBottom = '8px';
+  var nameInput = document.createElement('input');
+  nameInput.type = 'text';
+  nameInput.value = building.isMain ? 'Main house' : '';
+  nameInput.placeholder = building.isMain ? '' : 'Shop, guest house, shed…';
+  nameInput.style.cssText = 'font-weight:700; font-size:14px; padding:8px 10px; border:1px solid var(--line); border-radius:8px; width:auto; max-width:240px; background:#fff;';
+  building.nameInput = nameInput;
+  nameRow.appendChild(nameInput);
+  wrap.appendChild(nameRow);
+
+  var sidesRow = document.createElement('div');
+  sidesRow.style.cssText = 'display:flex; flex-wrap:wrap; gap:7px;';
+  QUOTE_SIDE_ORDER.forEach(function(sideKey){
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-outline-dark btn-sm';
+    btn.textContent = '+ ' + QUOTE_SIDE_LABELS[sideKey];
+    btn.addEventListener('click', function(){ pickQuotePhoto(building, sideKey, QUOTE_SIDE_LABELS[sideKey], btn); });
+    sidesRow.appendChild(btn);
+  });
+  var extraBtn = document.createElement('button');
+  extraBtn.type = 'button';
+  extraBtn.className = 'btn btn-outline-dark btn-sm';
+  extraBtn.style.borderStyle = 'dashed';
+  extraBtn.textContent = '+ Add another photo';
+  extraBtn.addEventListener('click', function(){ pickQuotePhoto(building, 'extra', '', extraBtn); });
+  sidesRow.appendChild(extraBtn);
+  wrap.appendChild(sidesRow);
+
+  var shotsEl = document.createElement('div');
+  shotsEl.style.marginTop = '10px';
+  building.shotsEl = shotsEl;
+  wrap.appendChild(shotsEl);
+
+  building.el = wrap;
+  return wrap;
+}
+
+function addQuoteBuilding(isMain){
+  var building = {id: 'qb' + (quoteBuildingNextId++), isMain: !!isMain, photos: [], nameInput: null, shotsEl: null, el: null};
+  quoteBuildings.push(building);
+  document.getElementById('quoteBuildingsWrap').appendChild(renderQuoteBuilding(building));
+  if(!isMain && building.nameInput) building.nameInput.focus();
+  return building;
+}
+
+var quoteAddBuildingBtnEl = document.getElementById('quoteAddBuildingBtn');
+if(quoteAddBuildingBtnEl){
+  quoteAddBuildingBtnEl.addEventListener('click', function(){ addQuoteBuilding(false); });
+}
+addQuoteBuilding(true); // Main house is always there from the start
 
 quoteFormEl.addEventListener('submit', async function(e){
   e.preventDefault();
@@ -2500,13 +2573,26 @@ quoteFormEl.addEventListener('submit', async function(e){
   submitBtn.disabled = true;
   submitBtn.textContent = 'Submitting…';
 
-  /* quotePhotos is the array admin.html, the quote email builder, and
-     Convert-to-Customer already read (quotePhotoList in admin.html). Photo #1
-     is mirrored onto the legacy flat frontPhotoUrl/frontPhotoOriginal/
-     frontPhotoMarkup fields the same way admin.html's own uploader does, so
-     every existing reader of a single front photo keeps working untouched. */
-  var quotePhotosPayload = quotePendingPhotos.map(function(p){
-    return {url: p.url, original: p.original, markup: [], label: ''};
+  /* buildings is the new structured field; quotePhotos stays the flat array
+     everything else already reads (admin.html's quote card, copy-as-text,
+     buildQuoteEmailHtml, Convert-to-Customer) — every building's photos
+     flatten into it in order, with the building folded into the label when
+     it isn't the main house ("Shop — Front of house"), so nothing downstream
+     needs to know buildings exist at all. Photo #1 still mirrors onto the
+     legacy flat frontPhotoUrl/frontPhotoOriginal/frontPhotoMarkup fields. */
+  var buildingsPayload = quoteBuildings.map(function(b, idx){
+    return {
+      name: (b.nameInput && b.nameInput.value.trim()) || (b.isMain ? 'Main house' : ''),
+      photos: b.photos.map(function(p){ return {url: p.url, original: p.original, markup: [], label: p.sideLabel || ''}; }),
+      _isMain: idx === 0
+    };
+  });
+  var quotePhotosPayload = [];
+  buildingsPayload.forEach(function(b){
+    b.photos.forEach(function(p){
+      var label = b._isMain ? (p.label || '') : (p.label ? (b.name + ' — ' + p.label) : b.name);
+      quotePhotosPayload.push({url: p.url, original: p.original, markup: p.markup, label: label});
+    });
   });
   var mainPhoto = quotePhotosPayload[0] || null;
 
@@ -2515,6 +2601,7 @@ quoteFormEl.addEventListener('submit', async function(e){
     street: street, city: city, zip: zip,
     address: street + ', ' + city + ' ' + zip,
     contactMethod: fd.get('contact_method'),
+    buildings: buildingsPayload.map(function(b){ return {name: b.name, photos: b.photos}; }),
     quotePhotos: quotePhotosPayload,
     frontPhotoUrl: mainPhoto ? mainPhoto.url : null,
     frontPhotoOriginal: mainPhoto ? mainPhoto.original : null,

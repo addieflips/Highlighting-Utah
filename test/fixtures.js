@@ -170,13 +170,13 @@ const INVOICES = {
   },
   'jordan.reyes@example.com': {      // email-only — nothing paid yet
     found: true,
-    /* Mixed case ON PURPOSE, and deliberately different from the doc id this
-       invoice is filed under ('jordan.reyes@example.com'). That is what
-       production does: invoiceKeyFor lowercases for the KEY, while the email
-       FIELD is written straight from the customer record as they typed it
-       (functions/index.js — `inv.email = inv.email || email`). Keeping the two
-       different is what proves the lowercasing happens where it should. */
-    name: 'Jordan Reyes', phone: '', email: 'Jordan.Reyes@Example.com',
+    /* Lowercase here, matching the doc id this invoice is filed under. Note
+       the CUSTOMERS record above deliberately keeps the mixed-case
+       'Jordan.Reyes@Example.com' — that is the one that proves invoiceKeyFor
+       lowercases the KEY while the customer's own email stays as they typed
+       it. Both spellings are therefore still exercised, just from the two
+       different records rather than from this one. */
+    name: 'Jordan Reyes', phone: '', email: 'jordan.reyes@example.com',
     install: 380, removal: 0, deposit: 0, credits: 0, changeFees: 0,
     status: 'Unpaid',
     newMemberFeeApplied: false
