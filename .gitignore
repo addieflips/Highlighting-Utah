@@ -12,3 +12,11 @@ tests/
 # never useful in the repo, and currently large enough to notice.
 test-results/
 playwright-report/
+
+# Written by "npx playwright test > results.txt" when capturing output to paste
+# into a chat. Pure scratch — never belongs in the repo.
+results.txt
+
+# Playwright's record of the last run. Regenerated every time, and it showed up
+# as a change on every single test run until it was ignored.
+.last-run.json
