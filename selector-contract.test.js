@@ -50,6 +50,33 @@ const RUNTIME_IDS = {
   // (none yet — add as "id": "why it is created at runtime")
 };
 
+/* Testids rendered by the TEST HARNESS rather than by the page.
+ *
+ * Some things a spec clicks are drawn by a test double, not by index.html: the
+ * PayPal button is the standing example. paypal.com is blocked (§9.4), so
+ * test/firebase-stub.js serves a stand-in SDK, and the button that stand-in
+ * draws carries its own data-testid. Requiring that testid to exist in
+ * index.html is asking the page to contain markup that only ever exists inside
+ * a test — the file would fail forever, and the "fix" would be to put fake
+ * markup into the real product.
+ *
+ * Read out of the harness files instead of hardcoded, so this cannot drift:
+ * delete the double and the exemption disappears with it, which is exactly
+ * when the contract should start failing again. */
+function harnessTestIds() {
+  const out = new Set();
+  if (!fs.existsSync(TESTS_DIR)) return out;
+  fs.readdirSync(TESTS_DIR)
+    .filter(f => f.endsWith('.js') && !f.endsWith('.spec.js'))
+    .forEach(f => {
+      const src = fs.readFileSync(path.join(TESTS_DIR, f), 'utf8');
+      const re = /\bdata-testid\s*=\s*\\?["']([^"'\\]+)/g;
+      let m;
+      while ((m = re.exec(src)) !== null) out.add(m[1]);
+    });
+  return out;
+}
+
 let pass = 0, fail = 0;
 const failures = [];
 
@@ -110,6 +137,7 @@ if (!fs.existsSync(TESTS_DIR)) {
 }
 
 const specFiles = fs.readdirSync(TESTS_DIR).filter(f => f.endsWith('.spec.js'));
+const HARNESS_TESTIDS = harnessTestIds();
 
 if (!specFiles.length) {
   console.log('  no *.spec.js files yet — nothing to check\n');
@@ -152,10 +180,14 @@ specFiles.forEach(specFile => {
   });
 
   testIds.forEach(t => {
-    check(specFile + ' → [data-testid="' + t + '"] exists in ' + target,
-      target_.testIds.has(t),
+    const fromHarness = HARNESS_TESTIDS.has(t);
+    check(specFile + ' → [data-testid="' + t + '"] exists in ' + target +
+            (fromHarness ? ' (rendered by the test double)' : ''),
+      target_.testIds.has(t) || fromHarness,
       'no data-testid="' + t + '" in ' + target + ' — add it to the element, ' +
-      'or fix the spec. A testid is a contract (CLAUDE.md §9.3).');
+      'or fix the spec. A testid is a contract (CLAUDE.md §9.3). ' +
+      'If it is drawn by a test double rather than by the page, it is picked up ' +
+      'from the harness files automatically — check the double still renders it.');
   });
 
   if (!ids.size && !testIds.size) {

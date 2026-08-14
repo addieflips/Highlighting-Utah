@@ -1404,7 +1404,7 @@
             <div class="form-row">
               <label>Last Name on File <span class="req">*</span></label>
               <input type="text" id="lookupLastName" placeholder="Petersen">
-              <p class="form-note">Try demo number <strong>(801) 555-0123</strong> with whatever last name is on that invoice in your system to preview it.</p>
+              <p class="form-note">Use the last name we have on file for your account. If you're not sure, call or text us at (801) 901-0011.</p>
             </div>
             <button type="submit" class="btn btn-gold btn-block" id="lookupBtn">Sign In</button>
           </form>
@@ -1823,7 +1823,18 @@ var FAQS = [
   {q:'How do I pay for my installation?', a:'Once your invoice is ready, you can look it up and pay online using the Make a Payment page with just your phone number on file.'}
 ];
 
-function fmt(n){ return '$' + n.toLocaleString(); }
+/* Money, for the customer's eyes. Coerced, because a missing amount used to
+   come out as the literal text "$NaN" on the balance screen, and always to two
+   decimal places so this agrees with the invoice email (which has always used
+   toFixed(2) on the server) and with fmtMoney in js/money.js on the office
+   side. Three places showing the same balance three different ways is how a
+   customer ends up on the phone asking which number is real. */
+function fmt(n){
+  return '$' + (Number(n) || 0).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+}
 
 
 /* =========================================================
@@ -2645,6 +2656,23 @@ var lastLookupError = '';
 var currentJobAddressId = null;
 var currentJobAddressData = null;
 
+/* Why a customer's save could not find their record. This used to be appended
+   to the on-screen message as "[debug: id=… invPhone=… portalPhone=… err=…]",
+   which showed the customer our internal record id and the phone numbers we
+   hold for them, and made an ordinary hiccup look like a broken site. The
+   information is worth keeping — it is what tells you whether the record is
+   missing or the lookup failed — so it goes to the console, where anyone
+   helping on the phone can read it out and the customer never sees it. */
+function logPortalSaveFailure(where){
+  try{
+    console.error('[HU] portal save blocked (' + where + ') — no jobAddressId.',
+      '\n  currentJobAddressId:', currentJobAddressId,
+      '\n  invoice phone:', currentLookupRecord && currentLookupRecord.phone,
+      '\n  portal phone:', currentPortalPhone,
+      '\n  last lookup error:', lastLookupError || 'none');
+  } catch(e){ /* logging must never break a save path */ }
+}
+
 var emailjsSettings = null;
 // settings/emailjs is staff-only. Reading it directly from the public site was
 // being denied, which silently disabled every "you have a new message" email.
@@ -2917,8 +2945,21 @@ function renderCustomerInvoicePage(raw, opts){
     currentLookupRecord = record;
     empty.style.display='none';
     hmLoadHouseMapForInvoice(raw, {skipLastNameCheck: true});
-    var totalDue = Math.max((record.install + record.removal + (record.changeFees || 0)) - (record.credits || 0) - record.deposit, 0);
-    var isPaid = totalDue <= 0 && (record.install > 0 || record.removal > 0 || (record.changeFees || 0) > 0);
+    /* Every field is coerced. An invoice document can genuinely exist with no
+       amounts on it — portalSave creates one when it moves a customer's record
+       to a new phone or email before they have ever been priced — and
+       `undefined + undefined` is NaN, which reached the customer's screen as
+       the words "$NaN" where their balance should be. Same formula as
+       balanceDueAmount in admin.html and computeInvoiceStatusServer in the
+       Cloud Function: (install + removal + changeFees) - credits - deposit,
+       floored at zero. */
+    var invInstall   = Number(record.install)    || 0;
+    var invRemoval   = Number(record.removal)    || 0;
+    var invChangeFee = Number(record.changeFees) || 0;
+    var invCredits   = Number(record.credits)    || 0;
+    var invDeposit   = Number(record.deposit)    || 0;
+    var totalDue = Math.max((invInstall + invRemoval + invChangeFee) - invCredits - invDeposit, 0);
+    var isPaid = totalDue <= 0 && (invInstall > 0 || invRemoval > 0 || invChangeFee > 0);
     document.getElementById('invName').textContent = displayName;
     document.getElementById('infoName').value = displayName;
     document.getElementById('infoPhone').value = record.phone ? formatPhoneDisplay(record.phone) : '';
@@ -3510,10 +3551,13 @@ async function saveLightsPattern(){
   statusEl.textContent = 'Saving…';
   var jobId = await ensureJobAddressId();
   if(!jobId){
-    console.error('[HU] save blocked — no jobAddressId. currentJobAddressId:', currentJobAddressId,
-      '| invoice phone:', currentLookupRecord && currentLookupRecord.phone,
-      '| portal phone:', currentPortalPhone);
-    statusEl.textContent = "Couldn't find your account — please call/text us at (801) 901-0011." + " [debug: id=" + (currentJobAddressId||"none") + ", invPhone=" + ((currentLookupRecord&&currentLookupRecord.phone)||"none") + ", portalPhone=" + (currentPortalPhone||"none") + ", err=" + (lastLookupError||"none") + "]";
+    /* The diagnostics go to the console, not onto the customer's screen. They
+       used to be appended to this message as "[debug: id=… invPhone=… ]",
+       which read as a broken page and showed the customer internal record ids
+       and the phone numbers we hold for them. Anyone helping on the phone can
+       still get all of it from the browser console. */
+    logPortalSaveFailure('changes');
+    statusEl.textContent = "Couldn't find your account — please call or text us at (801) 901-0011 and we'll sort it out.";
     if(saveBtn) saveBtn.disabled = false;
     return;
   }
@@ -3782,7 +3826,9 @@ document.getElementById('changesSaveBtn').addEventListener('click', async functi
   statusEl.textContent = 'Saving…';
   var jobId = await ensureJobAddressId();
   if(!jobId){
-    statusEl.textContent = "Couldn't find your account — please call/text us at (801) 901-0011." + " [debug: id=" + (currentJobAddressId||"none") + ", invPhone=" + ((currentLookupRecord&&currentLookupRecord.phone)||"none") + ", portalPhone=" + (currentPortalPhone||"none") + ", err=" + (lastLookupError||"none") + "]";
+    // Console, not the customer's screen — see logPortalSaveFailure.
+    logPortalSaveFailure('preferences');
+    statusEl.textContent = "Couldn't find your account — please call or text us at (801) 901-0011 and we'll sort it out.";
     btn.disabled = false;
     return;
   }

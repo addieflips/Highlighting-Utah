@@ -1567,6 +1567,11 @@
             <div class="form-grid-3">
               <div class="form-row"><label>Route Status</label><select id="allCustFilterRoute"><option value="all">Any</option><option value="scheduled">Scheduled</option><option value="unscheduled">Unscheduled</option><option value="completed">Install Complete</option><option value="needsfix">Needs Fix</option></select></div>
               <div class="form-row"><label>House Map</label><select id="allCustFilterMap"><option value="all">Any</option><option value="has">Has a Map</option><option value="none">No Map Yet</option></select></div>
+              <!-- Without a pin a customer cannot be routed and does not appear on the
+                   map at all. The bulk import has always flagged these (needsGeocode)
+                   and told staff to "search Needs Pin in the customer list" — a search
+                   that did not exist anywhere. This is it. -->
+              <div class="form-row"><label>Map Pin</label><select id="allCustFilterPin"><option value="all">Any</option><option value="none">Needs Pin (can't be routed)</option><option value="has">Has a Pin</option></select></div>
               <div class="form-row"><label>Enrolled</label>
                 <div style="display:flex; gap:6px;">
                   <input type="date" id="allCustFilterDateStart" style="flex:1;">
@@ -2851,6 +2856,9 @@
                 <option value="important">Important</option>
                 <option value="awaiting">Awaiting Response (all folders)</option>
               </select>
+              <!-- Every message ever sent loads into this list with no limit,
+                   so by mid-season finding one meant scrolling past hundreds. -->
+              <input type="text" id="msgSearchInput" placeholder="Search name, phone, email, address or message…" style="flex:1; min-width:220px; padding:8px 14px; border-radius:999px; border:1px solid var(--line); background:var(--snow); font-size:13.5px;">
               <strong id="currentFolderLabel" style="font-size:13.5px; margin-left:auto;">Inbox</strong>
             </div>
             <div class="row-list" id="messagesList"><div class="empty-note">Loading…</div></div>
@@ -3586,6 +3594,11 @@
           <button type="button" class="btn btn-outline btn-sm" id="cnPrintByNumberBtn">Print &mdash; Sorted by Number</button>
           <button type="button" class="btn btn-outline btn-sm" id="cnPrintByNameBtn">Print &mdash; Sorted by Name</button>
         </div>
+        <!-- ~962 rows with no way to search them: finding one number meant
+             scrolling the whole list. Matches the number, the name or the
+             address. -->
+        <input type="text" id="cnFullSearch" placeholder="Search by number, name or address…" style="width:100%; padding:9px 14px; border-radius:10px; border:1px solid var(--line); background:var(--snow); font-size:13.5px; margin-bottom:10px;">
+        <div id="cnFullCount" style="font-size:12.5px; color:var(--slate); margin-bottom:8px;"></div>
         <div id="cnFullList" class="row-list"><div class="empty-note">Loading…</div></div>
       </div>
       </div>
@@ -3922,6 +3935,62 @@ import {
   onSnapshot, query, orderBy, where, serverTimestamp, getDoc, getDocs, limit, Timestamp, increment, arrayUnion
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
+
+/* Stop a slow write tool being started twice.
+ *
+ * Add Customer, both bulk pasters and the payment import each await a long
+ * string of round trips — seconds of nothing visibly happening — with the
+ * button still live the whole time. A second, impatient click ran the whole
+ * thing again: two customer records, or a second pass of invoice writes, or a
+ * second burst of payment receipts to the same people.
+ *
+ * Wrapping the handler rather than editing inside it is deliberate. These
+ * handlers return early in a dozen places for validation; a disable/re-enable
+ * pair written by hand would have to be repeated at every one of them and
+ * would eventually miss one, leaving the button dead until a refresh. `finally`
+ * covers every exit, including a throw.
+ *
+ * The pattern this generalises already existed on the Health Check repair
+ * button — it just was not anywhere near the tools that write the most. */
+/* Wait until typing pauses before repainting a long list.
+ *
+ * The big lists rebuild every row from scratch on each keystroke. At ~967
+ * customers a fast typist queued a full rebuild per letter and the box stopped
+ * accepting input mid-word — the "the list feels stuck when I type" complaint.
+ * 180ms is below the point a pause is noticeable and above a normal
+ * inter-keystroke gap, so a burst of typing costs one render instead of eight.
+ *
+ * Deliberately NOT used on the small lists (template pickers, recipient
+ * choosers): those are already instant, and a delay there would be a
+ * regression, not a fix. */
+function debounced(fn, waitMs){
+  let t = null;
+  return function(){
+    const self = this, args = arguments;
+    clearTimeout(t);
+    t = setTimeout(function(){ fn.apply(self, args); }, waitMs || 180);
+  };
+}
+
+function onceAtATime(handler, getBtn){
+  let busy = false;
+  return async function(e){
+    if(busy){
+      if(e && typeof e.preventDefault === 'function') e.preventDefault();
+      return;
+    }
+    busy = true;
+    const btn = typeof getBtn === 'function' ? getBtn() : getBtn;
+    if(btn){ btn.disabled = true; btn.style.opacity = '.55'; btn.style.cursor = 'wait'; }
+    try{
+      return await handler.call(this, e);
+    } finally {
+      busy = false;
+      // Never leave the button dead — not even if the handler threw.
+      if(btn){ btn.disabled = false; btn.style.opacity = ''; btn.style.cursor = ''; }
+    }
+  };
+}
 
 const firebaseConfig = {
   apiKey: "AIzaSyBf0u9ZvXQiYsV8l_bMQNW6tjgF74oZRaE",
@@ -4273,6 +4342,13 @@ function copyIcon(){ return '<svg viewBox="0 0 24 24" fill="none" stroke-width="
 function propLabelChip(d){
   const lab = (d && d.propertyLabel ? String(d.propertyLabel).trim() : '');
   return lab ? ' <span class="prop-chip">' + esc(lab) + '</span>' : '';
+}
+/* The customer number, shown beside the name. This is the number painted on
+   their bins, so it is what the warehouse and the crew say out loud — it just
+   was not visible anywhere in All Customers, nor matched by the search box. */
+function custNumChip(d){
+  const n = (d && d.customerNumber ? String(d.customerNumber).trim() : '');
+  return n ? ' <span style="display:inline-block; background:var(--snow); color:var(--slate); border:1px solid var(--line); border-radius:999px; padding:1px 8px; font-size:11px; font-weight:600; vertical-align:middle;">#' + esc(n) + '</span>' : '';
 }
 
 let initialized = false;
@@ -4951,6 +5027,13 @@ document.getElementById('ssnRunBtn')?.addEventListener('click', async function()
           install: x.newInstall, removal: x.removal, deposit: 0,
           credits: 0, creditNotes: [], newMemberFeeApplied: false,
           changeFees: 0, changeFeeNotes: [], lastLightChangeFeeAt: null,
+          /* Clear last season's issue date with the rest of it. invoicedAt is
+             stamped once, when the invoice is actually emailed, and drives the
+             due date and the Overdue flag — carrying last year's date into a
+             brand-new invoice would make every customer read as ~10 months
+             overdue the moment the season opened. The nightly run stamps a
+             fresh one on the night their lights go back up. */
+          invoicedAt: null,
           status: computeInvoiceStatus(x.newInstall, x.removal, 0, 0, 0),
           priceReviewed: true, updatedAt: serverTimestamp()
         });
@@ -5552,6 +5635,9 @@ function initData(){
   // Keep the checklist current without anyone having to remember to press
   // Sync — quiet unless it actually finds something to add or flag.
   runProjectTestSync().catch(function(){});
+  // Same idea for Health Check: run it on our own and light the sidebar badge,
+  // instead of waiting for someone to suspect a problem and press a button.
+  startHealthCheckAuto();
   loadSettings();
   loadJobAddresses();
   loadWarehouseExtras();
@@ -8655,7 +8741,7 @@ async function invTestSend(){
   const d = member.data;
 
   const key = custInvoiceKey(d);
-  const invEntry = allInvoicesCache.find(i => i.id === key);
+  const invEntry = invoiceById.get(key);
   if(!invEntry) return say('That customer has no invoice yet, so there is nothing to send. They get one the night their house is marked Done.', true);
   const inv = invEntry.data;
 
@@ -9373,10 +9459,31 @@ function renderMessagesList(){
   if(msgFilter === 'awaiting') filtered = filtered.filter(m => !m.data.responded);
   document.getElementById('currentFolderLabel').textContent = msgFilter === 'awaiting' ? 'Awaiting Response (all folders)' : selectedFolder;
   filtered = filtered.filter(m => (m.data.folder || 'Inbox') !== 'System');
+  /* Search across everything the card shows, so what you can read you can find:
+     the name, either contact detail, the address it was matched to, and the
+     message itself. Phone typed with or without punctuation both work. */
+  const msgTerm = ((document.getElementById('msgSearchInput') || {}).value || '').trim().toLowerCase();
+  if(msgTerm){
+    const msgDigits = msgTerm.replace(/\D/g,'');
+    filtered = filtered.filter(function(m){
+      const d = m.data || {};
+      return String(d.name||'').toLowerCase().indexOf(msgTerm) !== -1 ||
+        String(d.email||'').toLowerCase().indexOf(msgTerm) !== -1 ||
+        String(d.message||'').toLowerCase().indexOf(msgTerm) !== -1 ||
+        String(d.topic||'').toLowerCase().indexOf(msgTerm) !== -1 ||
+        String(messageAddressLookup(d)||'').toLowerCase().indexOf(msgTerm) !== -1 ||
+        (!!msgDigits && String(d.phone||'').replace(/\D/g,'').indexOf(msgDigits) !== -1);
+    });
+  }
   const unreadCount = allMessages.filter(m => !m.data.read).length;
   document.getElementById('badgeMessages').style.display = unreadCount ? 'inline-block' : 'none';
   document.getElementById('badgeMessages').textContent = unreadCount;
-  if(!filtered.length){ list.innerHTML = '<div class="empty-note">No messages in this folder.</div>'; return; }
+  if(!filtered.length){
+    list.innerHTML = '<div class="empty-note">' +
+      (msgTerm ? 'No messages match &ldquo;' + esc(msgTerm) + '&rdquo; in this folder.' : 'No messages in this folder.') +
+      '</div>';
+    return;
+  }
   let html = '';
   filtered.forEach(function(item){
     const d = item.data;
@@ -9472,6 +9579,10 @@ document.getElementById('msgFilterSelect').addEventListener('change', function()
   msgFilter = this.value;
   renderMessagesList();
 });
+(function(){
+  const el = document.getElementById('msgSearchInput');
+  if(el) el.addEventListener('input', debounced(renderMessagesList));
+})();
 function loadMessages(){
   const q = query(collection(db,'messages'), orderBy('createdAt','desc'));
   onSnapshot(q, function(snap){
@@ -9543,6 +9654,9 @@ document.getElementById('invoiceExportBtn').addEventListener('click', function()
 });
 
 let allInvoicesCache = [];
+// invoice doc id (phone digits, or lowercase email) -> the cached entry.
+// Rebuilt with allInvoicesCache in loadInvoices; read by allCustInvoiceFor.
+let invoiceById = new Map();
 let activeInvFilters = { unpaid:false, partial:false, paid:false, overdue:false };
 let invoiceSearchTerm = '';
 /* Payment terms are 30 days from the invoice date (Addie, 2026-08-11). This
@@ -9562,9 +9676,15 @@ function loadInvoices(){
   onSnapshot(q, function(snap){
     currentInvoicesForExport = [];
     allInvoicesCache = [];
+    /* Keyed lookup for allCustInvoiceFor, which is called once per row of the
+       All Customers table and used to scan the whole invoice list each time —
+       ~967 x ~967 comparisons for one repaint, repeated on every keystroke. */
+    invoiceById = new Map();
     snap.forEach(function(docSnap){
       currentInvoicesForExport.push(docSnap.data());
-      allInvoicesCache.push({id: docSnap.id, data: docSnap.data()});
+      const entry = {id: docSnap.id, data: docSnap.data()};
+      allInvoicesCache.push(entry);
+      invoiceById.set(docSnap.id, entry);
     });
     renderInvoicesList();
     if(typeof renderRouteAddressList === 'function') renderRouteAddressList();
@@ -9574,9 +9694,27 @@ function loadInvoices(){
     if(typeof renderExpensesList === 'function') renderExpensesList();
   });
 }
+/* Phone digits -> customer, built once whenever the customer list changes.
+   This lookup used to scan all ~967 customers, and it is called once PER
+   INVOICE from two different renders, so a single repaint of the invoice list
+   did the better part of a million string comparisons — with a replace() on
+   every one of them. That is most of why the screen locked up for a moment on
+   every keystroke. Rebuilt in loadJobAddresses; see rebuildCustomerIndexes. */
+let custByPhoneDigits = new Map();
+function rebuildCustomerIndexes(){
+  custByPhoneDigits = new Map();
+  jobAddresses.forEach(function(a){
+    const digits = ((a.data && a.data.phone) || '').replace(/\D/g,'');
+    // First match wins, exactly as Array.find did — two customers sharing a
+    // phone is a known, separately tracked gap, and this must not change which
+    // of them answers.
+    if(digits && !custByPhoneDigits.has(digits)) custByPhoneDigits.set(digits, a);
+  });
+}
 function custRsvpStatusForPhone(phone){
   const digits = (phone||'').replace(/\D/g,'');
-  const match = jobAddresses.find(a => (a.data.phone||'').replace(/\D/g,'') === digits);
+  if(!digits) return '';
+  const match = custByPhoneDigits.get(digits);
   return match ? (match.data.rsvpStatus || '') : '';
 }
 /* ---- Invoice status summary strip -------------------------------------
@@ -10131,10 +10269,10 @@ document.getElementById('applyInvFilterBtn').addEventListener('click', function(
   document.getElementById('invFilterDropdown').classList.remove('open');
   renderInvoicesList();
 });
-document.getElementById('invoiceSearchInput').addEventListener('input', function(){
-  invoiceSearchTerm = this.value.trim();
+document.getElementById('invoiceSearchInput').addEventListener('input', debounced(function(){
+  invoiceSearchTerm = document.getElementById('invoiceSearchInput').value.trim();
   renderInvoicesList();
-});
+}));
 
 
 /* ---------------- QUOTE PHOTO MARKUP ---------------- */
@@ -12328,7 +12466,7 @@ document.addEventListener('click', function(e){
   const input = document.getElementById(wrap.dataset.labeltarget);
   if(input) input.value = btn.dataset.lab || '';
 });
-document.getElementById('routeAddressForm').addEventListener('submit', async function(e){
+document.getElementById('routeAddressForm').addEventListener('submit', onceAtATime(async function(e){
   e.preventDefault();
   const street = document.getElementById('routeStreetInput').value.trim();
   const city = document.getElementById('routeCityInput').value.trim();
@@ -12383,6 +12521,35 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
     const taken = jobAddresses.find(function(item){ return String(item.data.customerNumber||'') === customerNumber; });
     if(taken){
       document.getElementById('routeAddStatus').textContent = 'Customer #' + customerNumber + ' already belongs to ' + (taken.data.name || 'another customer') + '.';
+      return;
+    }
+  }
+  /* Is this house already on the books? findExistingAddressMatch is a careful
+     matcher — same street AND same city/zip, falling back to the phone when
+     neither side has one, because Utah County repeats street names constantly
+     and families share a phone across two houses. It was written for the bulk
+     importer and only the bulk importer ever called it, so adding a repeat
+     customer by hand created a SECOND record for the same house. That is not a
+     tidy-up job: invoices are keyed by phone, so the two records immediately
+     share one invoice, and whichever is edited last wins. Warn before writing
+     anything, and let it through on purpose for the genuine second-property
+     case. */
+  const dupe = findExistingAddressMatch(street, phone, city, zip);
+  if(dupe){
+    const dd = dupe.data || {};
+    const sameKey = (phone && dd.phone === phone) || (!phone && email && String(dd.email||'').toLowerCase() === email.toLowerCase());
+    if(!confirm(
+      (dd.name || 'A customer') + ' is already on file at this address:\n\n' +
+      '    ' + [(dd.address || street), dd.city || city].filter(Boolean).join(', ') + '\n' +
+      (dd.customerNumber ? '    Customer #' + dd.customerNumber + '\n' : '') +
+      (dd.phone ? '    ' + fmtPhone(dd.phone) + '\n' : '') + '\n' +
+      (sameKey
+        ? 'They share a phone or email with the person you are adding, so BOTH records would be billed on ONE invoice and the last one edited would win.\n\n'
+        : 'Adding this creates a second, separate record for the same house.\n\n') +
+      'If you meant to update them, press Cancel and edit ' + (dd.name || 'the existing customer') + ' instead.\n\n' +
+      'Add a second record anyway?'
+    )){
+      document.getElementById('routeAddStatus').textContent = 'Nothing added — ' + (dd.name || 'that customer') + ' is already at this address. Find them in All Customers to edit.';
       return;
     }
   }
@@ -12554,7 +12721,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
   } catch(err){
     statusEl.textContent = 'Could not locate that address — check spelling and try again.';
   }
-});
+}, function(){ return document.querySelector('#routeAddressForm button[type="submit"]'); }));
 
 /* ---------------- BULK UPDATES (Add Customer) ---------------- */
 document.getElementById('bulkUpdatesToggle').addEventListener('click', function(){
@@ -12758,7 +12925,7 @@ function findInvoiceForImportRow(rawPhone){
   return allInvoicesCache.find(i => i.id === asEmail || String(i.data.email||'').toLowerCase() === asEmail) || null;
 }
 
-document.getElementById('paymentImportBtn').addEventListener('click', async function(){
+document.getElementById('paymentImportBtn').addEventListener('click', onceAtATime(async function(){
   const phoneIdx = parseInt(document.getElementById('paymentImportPhoneCol').value);
   const amountIdx = parseInt(document.getElementById('paymentImportAmountCol').value);
   let updated = 0, skipped = 0, alreadyDone = 0;
@@ -12837,7 +13004,7 @@ document.getElementById('paymentImportBtn').addEventListener('click', async func
   paymentImportData = [];
   renderInvoicesList();
   loadPaymentImportHistory();
-});
+}, function(){ return document.getElementById('paymentImportBtn'); }));
 
 // Initialize
 loadPaymentImportFolders();
@@ -12925,7 +13092,7 @@ function rbDetectColorsAndPattern(raw){
   return hasRepeat ? {colors: Array.from(new Set(list)), pattern: list.join(', ')} : {colors: list, pattern: ''};
 }
 wireBulkCounts(rbAreaIds, 'rbStreetsArea', rbCountIds);
-document.getElementById('rbImportBtn').addEventListener('click', async function(){
+document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(async function(){
   const statusEl = document.getElementById('rbImportStatus');
   const streets = document.getElementById('rbStreetsArea').value.split('\n').map(s => s.trim()).filter(Boolean);
   if(!streets.length){ statusEl.textContent = 'Paste at least the Street Address column.'; return; }
@@ -13099,16 +13266,16 @@ document.getElementById('rbImportBtn').addEventListener('click', async function(
       failed++;
     }
   }
-  statusEl.textContent = streets.length + ' row(s) read \u2014 ' + added + ' added, ' + updated + ' updated' + (billed ? ', ' + billed + ' invoice(s) billed' : '') + (noPhoneNoInvoice ? ', ' + noPhoneNoInvoice + ' amount(s) skipped (no phone on file)' : '') + (noPin ? ', ' + noPin + ' added without a map pin (search "Needs Pin" in the customer list to fix)' : '') + (failed ? ', ' + failed + ' failed' : '') + '.';
+  statusEl.textContent = streets.length + ' row(s) read \u2014 ' + added + ' added, ' + updated + ' updated' + (billed ? ', ' + billed + ' invoice(s) billed' : '') + (noPhoneNoInvoice ? ', ' + noPhoneNoInvoice + ' amount(s) skipped (no phone on file)' : '') + (noPin ? ', ' + noPin + ' added without a map pin (All Customers → Filters → Map Pin → "Needs Pin", or see Health Check)' : '') + (failed ? ', ' + failed + ' failed' : '') + '.';
   rbAreaIds.forEach(function(id){ document.getElementById(id).value = ''; });
   wireBulkCounts(rbAreaIds, 'rbStreetsArea', rbCountIds)();
-});
+}, function(){ return document.getElementById('rbImportBtn'); }));
 
 // --- Invoice Bulk Update ---
 const ibAreaIds = ['ibNamesArea','ibPhonesArea','ibEmailsArea','ibAmountsArea'];
 const ibCountIds = { ibNamesArea:'ibCountNames', ibPhonesArea:'ibCountPhones', ibEmailsArea:'ibCountEmails', ibAmountsArea:'ibCountAmounts' };
 wireBulkCounts(ibAreaIds, 'ibPhonesArea', ibCountIds);
-document.getElementById('ibImportBtn').addEventListener('click', async function(){
+document.getElementById('ibImportBtn').addEventListener('click', onceAtATime(async function(){
   const statusEl = document.getElementById('ibImportStatus');
   const phones = document.getElementById('ibPhonesArea').value.split('\n').map(s => s.trim()).filter(Boolean);
   if(!phones.length){ statusEl.textContent = 'Paste at least the Phone Number column.'; return; }
@@ -13179,7 +13346,7 @@ document.getElementById('ibImportBtn').addEventListener('click', async function(
   statusEl.textContent = added + ' invoice(s) added, ' + updated + ' updated' + (customersCreated ? ', ' + customersCreated + ' new customer record(s) created' : '') + (skipped ? ', ' + skipped + ' skipped' : '') + '.';
   ibAreaIds.forEach(function(id){ document.getElementById(id).value = ''; });
   wireBulkCounts(ibAreaIds, 'ibPhonesArea', ibCountIds)();
-});
+}, function(){ return document.getElementById('ibImportBtn'); }));
 
 let activeDiffFilters = [];
 let activeNeedsFixFilter = false;
@@ -13860,15 +14027,15 @@ function renderTakedownsList(){
   list.innerHTML = html;
   attachAddressRowHandlers(list);
 }
-document.getElementById('takedownSearchInput').addEventListener('input', function(){
-  takedownSearchTerm = this.value.trim();
+document.getElementById('takedownSearchInput').addEventListener('input', debounced(function(){
+  takedownSearchTerm = document.getElementById('takedownSearchInput').value.trim();
   renderTakedownsList();
-});
+}));
 
-document.getElementById('routeSearchInput').addEventListener('input', function(){
-  searchTerm = this.value.trim();
+document.getElementById('routeSearchInput').addEventListener('input', debounced(function(){
+  searchTerm = document.getElementById('routeSearchInput').value.trim();
   renderRouteAddressList();
-});
+}));
 document.getElementById('routeCityFilter').addEventListener('change', function(){
   activeCityFilter = this.value;
   renderRouteAddressList();
@@ -14070,6 +14237,8 @@ function loadJobAddresses(){
   onSnapshot(collection(db,'jobAddresses'), function(snap){
     jobAddresses = [];
     snap.forEach(function(docSnap){ jobAddresses.push({ id: docSnap.id, data: docSnap.data() }); });
+    // Indexes first — every render below looks customers up through them.
+    rebuildCustomerIndexes();
     /* Every panel redraws off this one listener. Without isolation a single
        failing render — a map that didn't load, one bad record — silently kills
        every render after it, which is why panels sat on "Loading…". */
@@ -14170,13 +14339,34 @@ function renderCustomerNumbersPanel(){
   const fullList = document.getElementById('cnFullList');
   if(fullList){
     const numbered = jobAddresses.filter(item => item.data.customerNumber).sort((a,b) => parseInt(a.data.customerNumber,10) - parseInt(b.data.customerNumber,10));
-    fullList.innerHTML = numbered.length ? numbered.map(item => {
+    /* Number, name or address. A leading # is ignored so "#1044" works, and the
+       number matches from the start rather than anywhere inside — typing 104
+       should narrow towards 1044, not also pull back 5104. */
+    const cnTerm = ((document.getElementById('cnFullSearch') || {}).value || '').trim().toLowerCase();
+    const cnNum = cnTerm.replace(/^#/,'');
+    const shown = cnTerm ? numbered.filter(function(item){
+      const d = item.data;
+      return String(d.customerNumber||'').indexOf(cnNum) === 0 ||
+        String(d.name||'').toLowerCase().indexOf(cnTerm) !== -1 ||
+        String(d.address||'').toLowerCase().indexOf(cnTerm) !== -1;
+    }) : numbered;
+    const countEl = document.getElementById('cnFullCount');
+    if(countEl){
+      countEl.textContent = cnTerm
+        ? shown.length + ' of ' + numbered.length + ' shown'
+        : numbered.length + ' number' + (numbered.length===1?'':'s') + ' assigned';
+    }
+    fullList.innerHTML = shown.length ? shown.map(item => {
       const d = item.data;
       return '<div class="row-item"><div class="rmain"><h4 style="margin:0;">#'+esc(d.customerNumber)+' &mdash; '+esc(d.name||'(no name)')+'</h4>'+
         '<div class="rmeta">'+esc(d.address||'')+'</div></div></div>';
-    }).join('') : '<div class="empty-note">No customer numbers assigned yet.</div>';
+    }).join('') : '<div class="empty-note">'+(cnTerm ? 'No numbers match &ldquo;'+esc(cnTerm)+'&rdquo;.' : 'No customer numbers assigned yet.')+'</div>';
   }
 }
+(function(){
+  const el = document.getElementById('cnFullSearch');
+  if(el) el.addEventListener('input', debounced(renderCustomerNumbersPanel));
+})();
 document.getElementById('cnAssignBtn').addEventListener('click', async function(){
   const statusEl = document.getElementById('cnAssignStatus');
   const custId = document.getElementById('cnAssignCustomerSelect').value;
@@ -14805,8 +14995,16 @@ function renderWarehouseQueue(){
           '</div>';
         }).join('')+
       '</div>'+
-      '<div style="display:flex; gap:8px; align-items:center; margin-top:10px;">'+
-        '<input type="number" min="0" max="'+(g.houses.length + extraTotal)+'" placeholder="# completed" class="whcompleteinput" style="width:110px; padding:8px 10px; border-radius:8px; border:1px solid var(--line);">'+
+      /* ⚠ The heading above this box counts BUNDLES; this box counts HOUSES,
+         and a big house is several bundles. Someone reading "Build 14 bundles"
+         and typing 14 into an unlabelled "# completed" box cleared the entire
+         six-house group. The box now says what it counts, and says how many
+         there are to count. */
+      '<div style="display:flex; gap:8px; align-items:center; margin-top:10px; flex-wrap:wrap;">'+
+        '<label style="font-size:12.5px; color:var(--slate);" for="whdone-'+gi+'">Houses finished'+
+          (extraTotal ? ' (then extras)' : '')+' &mdash; '+g.houses.length+' house'+(g.houses.length===1?'':'s')+
+          (extraTotal ? ' + '+extraTotal+' extra' : '')+' here, <strong>not</strong> the '+totalBundles+' bundle'+(totalBundles===1?'':'s')+' above:</label>'+
+        '<input type="number" id="whdone-'+gi+'" min="0" max="'+(g.houses.length + extraTotal)+'" placeholder="# of houses" class="whcompleteinput" style="width:110px; padding:8px 10px; border-radius:8px; border:1px solid var(--line);">'+
         '<button type="button" class="btn btn-gold btn-sm" data-whcompletebtn="'+esc(pattern)+'">Mark Completed</button>'+
       '</div>'+
     '</div>';
@@ -14841,6 +15039,24 @@ function renderWarehouseQueue(){
       if(!remaining || remaining <= 0) return;
       const g = groups[pattern];
       if(!g) return;
+      /* Clamp, then say exactly who this clears, in the order it will clear
+         them. It used to take any number and work down the list silently — no
+         confirm, no names — so an over-count quietly emptied the group and
+         there was no record of which houses had supposedly been built. */
+      const capacity = g.houses.length + g.extras.reduce(function(s,e){ return s + (Number(e.data.quantity)||0); }, 0);
+      if(remaining > capacity) remaining = capacity;
+      const willClear = g.houses.slice(0, remaining);
+      const extrasToo = Math.max(0, remaining - g.houses.length);
+      if(!confirm(
+        'Mark ' + remaining + ' finished for "' + pattern + '":\n\n' +
+        (willClear.length
+          ? willClear.map(function(h){ return '  • ' + (h.data.name || '(no name)') + ' — ' + (h.data.address || 'no address'); }).join('\n')
+          : '  (no houses — extras only)') +
+        (extrasToo ? '\n\n  ...and ' + extrasToo + ' from extra stock.' : '') +
+        '\n\nThey come off the build list. Continue?'
+      )){
+        return;
+      }
       for(const h of g.houses){
         if(remaining <= 0) break;
         await updateDoc(doc(db,'jobAddresses', h.id), {needsLightBuild:false});
@@ -15043,7 +15259,7 @@ document.getElementById('deleteAllAddressesBtn').addEventListener('click', async
   const statusEl = document.getElementById('deleteAllStatus');
   if(!jobAddresses.length){ statusEl.textContent = 'There are no customers to delete.'; return; }
   if(!confirm('This will permanently delete all ' + jobAddresses.length + ' customers — their Route entry, House Map, and Invoice, all together. Money already collected stays on the Dashboard. This cannot be undone. Continue?')) return;
-  let deleted = 0, failed = 0;
+  let deleted = 0, failed = 0, recycled = 0;
   for(const item of jobAddresses.slice()){
     statusEl.textContent = 'Deleting ' + (deleted+failed+1) + ' of ' + jobAddresses.length + '…';
     try{
@@ -15058,13 +15274,28 @@ document.getElementById('deleteAllAddressesBtn').addEventListener('click', async
           await deleteDoc(doc(db,'invoices',custKey));
         }
       }
+      /* Return the customer number to the pool, exactly as deleting ONE
+         customer already does. Without this, deleting everyone retired all ~962
+         numbers permanently: the next customer is issued a number above the old
+         maximum, and every number painted on a bin in the warehouse now belongs
+         to nobody. The bins are physical — the app cannot undo that, so it must
+         not cause it. */
+      const num = String(item.data.customerNumber || '').trim();
+      if(num){
+        await setDoc(doc(db,'availableCustomerNumbers', num),
+          {type: parseInt(num,10) >= 5000 ? 'double' : 'regular', releasedAt: serverTimestamp(), releasedFrom: (item.data.name || '')}
+        ).then(function(){ recycled++; })
+         .catch(function(){ /* a number that will not pool must not stop the delete */ });
+      }
       await deleteDoc(doc(db,'jobAddresses',item.id));
       deleted++;
     } catch(err){
       failed++;
     }
   }
-  statusEl.textContent = 'Deleted ' + deleted + (failed ? ', ' + failed + ' failed' : '') + '. Any money already collected is still counted on the Dashboard.';
+  statusEl.textContent = 'Deleted ' + deleted + (failed ? ', ' + failed + ' failed' : '') +
+    (recycled ? ' — ' + recycled + ' customer number(s) returned to the pool for reuse' : '') +
+    '. Any money already collected is still counted on the Dashboard.';
   document.getElementById('deleteAllConfirmInput').value = '';
   document.getElementById('deleteAllAddressesBtn').disabled = true;
   document.getElementById('deleteAllAddressesBtn').style.opacity = '.4';
@@ -15137,7 +15368,8 @@ function populateAllCustFilterCities(){
 function allCustInvoiceFor(addrItem){
   const key = custInvoiceKey(addrItem.data);
   if(!key) return null;
-  return allInvoicesCache.find(i => i.id === key) || null;
+  // Keyed lookup, not a scan of the whole invoice list — see invoiceById.
+  return invoiceById.get(key) || null;
 }
 function allCustRouteStatus(d){
   if(d.removalDone) return 'Removed';
@@ -15156,6 +15388,7 @@ function renderAllCustomersTable(){
   const invFilter = document.getElementById('allCustFilterInvStatus').value;
   const routeFilter = document.getElementById('allCustFilterRoute').value;
   const mapFilter = document.getElementById('allCustFilterMap').value;
+  const pinFilter = document.getElementById('allCustFilterPin').value;
   const dateStart = document.getElementById('allCustFilterDateStart').value;
   const dateEnd = document.getElementById('allCustFilterDateEnd').value;
 
@@ -15164,15 +15397,24 @@ function renderAllCustomersTable(){
     const inv = allCustInvoiceFor(item);
     const invStatus = inv ? computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit, inv.data.credits, inv.data.changeFees) : null;
     const hasMap = !!d.layoutMapUrl;
+    /* A real pin means real coordinates. Trust the numbers over the
+       needsGeocode flag: the flag is only written by the bulk importer, so a
+       customer added by hand whose address would not geocode has no flag at
+       all — and is exactly as unroutable. */
+    const hasPin = hcHasMapPin(d);
     const enrolled = memberExportDateAdded(d);
-    return {item, d, inv, invStatus, hasMap, enrolled, routeStatus: allCustRouteStatus(d)};
+    return {item, d, inv, invStatus, hasMap, hasPin, enrolled, routeStatus: allCustRouteStatus(d)};
   });
 
   if(term){
     const phoneDigits = term.replace(/\D/g,'');
+    // "#1044" and "1044" both find customer number 1044. Matched exactly, not
+    // as a substring, so searching 104 does not also drag in 1044 and 5104.
+    const numTerm = term.replace(/^#/,'').trim();
     rows = rows.filter(function(r){
       return (r.d.name||'').toLowerCase().indexOf(term)!==-1 ||
         (!!phoneDigits && (r.d.phone||'').indexOf(phoneDigits)!==-1) ||
+        (!!numTerm && String(r.d.customerNumber||'') === numTerm) ||
         (r.d.email||'').toLowerCase().indexOf(term)!==-1 || (r.d.address||'').toLowerCase().indexOf(term)!==-1;
     });
   }
@@ -15187,6 +15429,7 @@ function renderAllCustomersTable(){
     rows = rows.filter(r => r.routeStatus === map[routeFilter]);
   }
   if(mapFilter !== 'all') rows = rows.filter(r => mapFilter === 'has' ? r.hasMap : !r.hasMap);
+  if(pinFilter !== 'all') rows = rows.filter(r => pinFilter === 'has' ? r.hasPin : !r.hasPin);
   if(dateStart) rows = rows.filter(r => r.enrolled && r.enrolled >= dateStart);
   if(dateEnd) rows = rows.filter(r => r.enrolled && r.enrolled <= dateEnd);
 
@@ -15203,7 +15446,13 @@ function renderAllCustomersTable(){
   if(!rows.length){ body.innerHTML = '<tr><td colspan="8" style="padding:16px; color:var(--slate);">No customers match this view.</td></tr>'; return; }
 
   body.innerHTML = rows.map(function(r){
-    const billedElsewhere = jobAddresses.find(a => (a.data.phone||'').replace(/\D/g,'') === (r.d.billToPhone||''));
+    /* Only look this up when there IS a bill-to. This used to run for every
+       row whether or not the field was set — and when it was empty it compared
+       against '', so it scanned the whole customer list only to match whoever
+       happened to have no phone number. ~967 rows x ~967 customers, every
+       repaint, for a field that is blank on nearly all of them. */
+    const billToDigits = (r.d.billToPhone||'').replace(/\D/g,'');
+    const billedElsewhere = billToDigits ? custByPhoneDigits.get(billToDigits) : null;
     const invCell = r.inv
       ? '<span class="status-pill '+statusClass(r.invStatus)+'">'+r.invStatus+'</span><br><span style="font-size:11.5px; color:var(--slate);">'+(r.invStatus==='Partial Payment' ? 'Paid '+fmtMoney(r.inv.data.deposit||0)+' &middot; Bal '+fmtMoney(balanceDueAmount(r.inv.data)) : fmtMoney((r.inv.data.install||0)+(r.inv.data.removal||0)))+'</span>'
       : (r.d.billToPhone ? '<span style="color:var(--slate); font-size:12px;">Billed to '+esc((billedElsewhere && billedElsewhere.data.name) || r.d.billToPhone)+'</span>' : '<span style="color:var(--slate); font-size:12px;">No invoice</span>');
@@ -15225,7 +15474,12 @@ function renderAllCustomersTable(){
       : '<span class="status-pill" style="background:#E6F2EA; color:#2E6B3E; font-weight:700;">Confirmed</span>'+
         '<br><button type="button" class="btn btn-outline btn-sm" data-seasontoggle="'+r.item.id+'" data-to="maybe" style="margin-top:4px; font-size:11px;">Maybe next year</button>';
     return '<tr style="border-bottom:1px solid var(--line);">'+
-      '<td style="padding:8px 10px;"><strong>'+esc(r.d.name||'(no name)')+'</strong>'+binBadge+'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.address||'')+'</span>'+propLabelChip(r.d)+(r.d.phone?'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.phone)+'</span>':'')+'</td>'+
+      /* The customer number is the number painted on their bins in the
+         warehouse, so it is how the crew and the warehouse refer to people —
+         but it was neither shown here nor searchable, which meant the one
+         identifier staff actually say out loud could not be used to find
+         anybody. */
+      '<td style="padding:8px 10px;"><strong>'+esc(r.d.name||'(no name)')+'</strong>'+custNumChip(r.d)+binBadge+'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.address||'')+'</span>'+propLabelChip(r.d)+(r.d.phone?'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.phone)+'</span>':'')+'</td>'+
       '<td style="padding:8px 10px; font-size:12.5px;">'+esc(r.enrolled||'—')+'</td>'+
       '<td style="padding:8px 10px;">'+routeCell+'</td>'+
       '<td style="padding:8px 10px; font-size:12.5px;">'+esc(timingLabel)+'</td>'+
@@ -15860,10 +16114,16 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     statusEl.textContent = 'Something went wrong — try again.';
   }
 });
-['allCustSearchInput','allCustFilterCity','allCustFilterDifficulty','allCustFilterInvStatus','allCustFilterRoute','allCustFilterMap','allCustFilterDateStart','allCustFilterDateEnd'].forEach(function(id){
+/* The dropdowns repaint immediately — one click, one render. Only the typed
+   search waits for a pause, because that is the one that fires per letter. */
+['allCustFilterCity','allCustFilterDifficulty','allCustFilterInvStatus','allCustFilterRoute','allCustFilterMap','allCustFilterPin','allCustFilterDateStart','allCustFilterDateEnd'].forEach(function(id){
   const el = document.getElementById(id);
   if(el) el.addEventListener('input', renderAllCustomersTable);
 });
+(function(){
+  const el = document.getElementById('allCustSearchInput');
+  if(el) el.addEventListener('input', debounced(renderAllCustomersTable));
+})();
 document.getElementById('allCustFilterToggle').addEventListener('click', function(){
   const panel = document.getElementById('allCustFilterPanel');
   panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
@@ -16858,8 +17118,27 @@ document.getElementById('calNextWeek').addEventListener('click', function(){ cal
 
 /* ---------------- TIME LOGS ---------------- */
 let allTimeLogsCache = [];
+/* The oldest date this cache is guaranteed to be COMPLETE for. Anything before
+   it was never loaded, so an empty week older than this means "not loaded",
+   not "nobody worked" — see payrollWeekIsLoaded. */
+let timeLogsWindowStart = null;
+/* How far back the timecard listener reaches. Two seasons, so last year's
+   payroll can still be looked up and reprinted.
+
+   ⚠ This used to be `limit(300)` — a flat count with no date meaning. Paging
+   back past the 300th most recent shift showed "No completed shifts in this
+   week yet", which is IDENTICAL to a genuinely empty week, and the Gusto
+   payroll export read the same capped list, so an older week exported short.
+   That is an underpayment with no warning on screen. A date window can still
+   run out, but it runs out at a knowable date, which is what lets the screen
+   say so out loud instead of quietly showing zero. */
+const TIMELOG_WINDOW_MONTHS = 24;
 function loadTimeLogs(){
-  const q = query(collection(db,'timeLogs'), orderBy('createdAt','desc'), limit(300));
+  const cutoff = new Date();
+  cutoff.setMonth(cutoff.getMonth() - TIMELOG_WINDOW_MONTHS);
+  cutoff.setHours(0,0,0,0);
+  timeLogsWindowStart = cutoff;
+  const q = query(collection(db,'timeLogs'), where('createdAt','>=', cutoff), orderBy('createdAt','desc'));
   onSnapshot(q, function(snap){
     allTimeLogsCache = [];
     snap.forEach(function(docSnap){ allTimeLogsCache.push({id:docSnap.id, data:docSnap.data()}); });
@@ -16923,6 +17202,15 @@ let payrollWeekOffset = 0;
 function toDateStrPayroll(dt){
   return dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0') + '-' + String(dt.getDate()).padStart(2,'0');
 }
+/* Is the week currently on screen inside the range the timecard listener
+   actually loaded? If it is not, an empty table means nothing was loaded — not
+   that nobody worked. Every payroll surface checks this before showing or
+   exporting a zero. */
+function payrollWeekIsLoaded(){
+  if(!timeLogsWindowStart) return true;        // window not established yet
+  const {start} = getPayrollWeekBounds();
+  return start >= timeLogsWindowStart;
+}
 function getPayrollWeekBounds(){
   // Work week: Saturday through Friday
   const today = new Date();
@@ -16973,7 +17261,13 @@ function buildPayrollWeekHtml(testOnly){
 
   const names = Object.keys(hoursByEmployee);
   let html;
-  if(!names.length){
+  if(!names.length && !payrollWeekIsLoaded()){
+    /* Never let "we didn't load it" look like "nobody worked". Paying someone
+       zero because the screen showed an empty week is the failure this guards. */
+    html = '<div class="empty-note" style="color:var(--ember);"><strong>This week is older than the timecards loaded in the browser.</strong><br>'+
+      'Shifts are loaded back to ' + (timeLogsWindowStart ? timeLogsWindowStart.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : 'a limited window') +
+      '. This is <strong>not</strong> the same as an empty week — do not run payroll from this screen for these dates.</div>';
+  } else if(!names.length){
     html = '<div class="empty-note">No completed shifts in this week yet.</div>';
   } else {
     let totalPay = 0;
@@ -17115,6 +17409,17 @@ function runGustoExport(statusEl, testOnly){
   const dupes = testOnly ? [] : Object.keys(firstNames).filter(function(f){ return firstNames[f] > 1; });
   if(dupes.length){
     say('Export stopped &mdash; more than one person shares the first name <strong>'+dupes.map(function(f){ return esc(f.charAt(0).toUpperCase()+f.slice(1)); }).join(', ')+'</strong>. Give them distinct names in Employee Names first so nobody gets paid the wrong hours.', 'var(--ember)');
+    return;
+  }
+  /* Refuse to export a week whose timecards were never loaded. This is the
+     point where a short export becomes a short PAYCHEQUE, so it stops rather
+     than warns — an export that quietly contains fewer hours than the week
+     really held is the one mistake on this screen that costs somebody money
+     and shows nothing on the way out. */
+  if(!payrollWeekIsLoaded()){
+    say('Export stopped &mdash; this week is older than the timecards loaded in the browser (shifts are loaded back to <strong>'+
+      (timeLogsWindowStart ? esc(timeLogsWindowStart.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})) : 'a limited window')+
+      '</strong>). Exporting now would send Gusto fewer hours than were really worked. Pull these dates from Firestore directly, or ask for the window to be widened.', 'var(--ember)');
     return;
   }
   const {rows, openShifts, start, end} = buildGustoRows(testOnly);
@@ -19348,6 +19653,17 @@ document.getElementById('ccTxnImportBtn').addEventListener('click', async functi
 function hcDigits(v){ return String(v || '').replace(/\D/g,''); }
 function hcName(d){ return (d && d.name) || '(no name)'; }
 function hcAddr(d){ return [(d && d.address) || '', (d && d.city) || ''].filter(Boolean).join(', '); }
+/* Does this customer have a usable map pin? Judged on the coordinates
+   themselves, not on the needsGeocode flag: that flag is only ever written by
+   the bulk importer, so a customer typed in by hand whose address would not
+   geocode carries no flag and is just as unroutable. 0,0 is the Atlantic — it
+   is what a failed lookup leaves behind, never a house in Utah. */
+function hcHasMapPin(d){
+  const lat = Number(d && d.lat), lng = Number(d && d.lng);
+  if(!isFinite(lat) || !isFinite(lng)) return false;
+  if(lat === 0 && lng === 0) return false;
+  return true;
+}
 
 /* One invoice can cover several houses linked by billToPhone, so the
    expected install total is the SUM of the group — comparing against a
@@ -19630,6 +19946,28 @@ function hcRunChecks(){
     })
   });
 
+  /* No pin, no route. These customers do not appear on the map and cannot be
+     put on a run at all, which means they get missed rather than billed late.
+     The bulk import has flagged them since it was written (needsGeocode) and
+     told staff to "search Needs Pin in the customer list" — a search that did
+     not exist. Now there is a filter by that name in All Customers, and this
+     row, which finds hand-typed ones the flag never covered. */
+  checks.push({
+    id: 'noPin',
+    title: 'Customer with no map pin',
+    why: 'Without coordinates they are invisible on the map and cannot be added to a route. Nothing warns you at routing time — they are simply never on it.',
+    fix: null,
+    fixNote: 'No button: fixing this means correcting the address so it can be found, which is a judgement call. Open the customer, correct the address and save — saving re-runs the lookup.',
+    rows: jobAddresses.filter(function(c){
+      const d = c.data || {};
+      if(String(d.rsvpStatus||'') === 'no') return false;   // not being routed this season anyway
+      return !hcHasMapPin(d);
+    }).map(function(c){
+      const d = c.data || {};
+      return {label: hcName(d), detail: (hcAddr(d) || 'no address on file') + ' — no map pin, cannot be routed'};
+    })
+  });
+
   const allPhones = {};
   jobAddresses.forEach(function(c){ const p = hcDigits((c.data || {}).phone); if(p) allPhones[p] = true; });
   checks.push({
@@ -19760,6 +20098,47 @@ function runHealthCheck(){
     console.error('Health check failed', err);
     if(status) status.textContent = 'Health check hit an error — see the red badge in the corner.';
   }
+}
+
+/* Run the checks on our own, without anyone pressing anything.
+ *
+ * Every one of these checks reads caches that are already in memory — they cost
+ * no reads and no money — but they sat behind a button, and the sidebar badge
+ * that counts the problems was only ever written by hcRender, which only ran
+ * when that button was pressed. So the badge existed and was, in practice,
+ * never shown: you had to already suspect something was wrong to find out that
+ * something was wrong.
+ *
+ * Guarded on the caches actually having arrived. Running against an empty
+ * jobAddresses would report a serene "Everything lines up" a second after
+ * login, which is worse than not running at all — it is a green light nobody
+ * checked. */
+const HC_AUTO_INTERVAL_MS = 10 * 60 * 1000;
+let hcAutoTimer = null;
+function hcCachesReady(){
+  // loadJobAddresses is the last of the big listeners to land; if it has rows,
+  // the rest are in flight or done. An office with genuinely zero customers is
+  // indistinguishable from "not loaded yet", so it simply waits — there is
+  // nothing for the checks to find in that case either.
+  return Array.isArray(jobAddresses) && jobAddresses.length > 0;
+}
+function runHealthCheckAuto(){
+  if(!hcCachesReady()) return;
+  try{
+    hcLastChecks = hcRunChecks();
+    hcRender();          // this is what writes the sidebar badge
+  } catch(err){
+    // Never let a background check break the page it is running behind.
+    console.error('[HU] automatic health check failed', err);
+  }
+}
+function startHealthCheckAuto(){
+  if(hcAutoTimer) return;
+  /* A few seconds after login, then every ten minutes. The first attempt waits
+     for the listeners; if the data is not in yet it simply tries again on the
+     interval rather than reporting on nothing. */
+  setTimeout(runHealthCheckAuto, 6000);
+  hcAutoTimer = setInterval(runHealthCheckAuto, HC_AUTO_INTERVAL_MS);
 }
 
 (function(){
@@ -20698,12 +21077,12 @@ const TEST_SEED = [
   [2, 'Public Site', 'Quick quote widget', '1. Open a new tab in your web browser and go to highlightingutah.com (the public website that customers see — don\'t log into anything).\n2. Scroll down the entire homepage from the very top to the very bottom, looking at everything on the page as you go.\n3. Look for a short quote box somewhere on the page that only asks for a name and one way to contact you (like a phone number or email) — this is different from the full quote form with lots of boxes that you may have already tested separately.\n4. If you find a short quote box like that, fill in the name box and the contact box.\n5. Click the button to submit it.\n6. Open the admin site (the private office dashboard) and look at the menu on the left side of the screen.\n7. Click the words \'Quote Requests\'.', 'If you found a short quote box on the homepage, it should let you fill in just a name and a way to contact you, and after you submit it, a new entry with what you typed should appear in admin\'s Quote Requests list. If there is no short quote box anywhere on the homepage, write down \'N/A\' for this test instead of a pass or fail.', 1, 'N/A', 'Could not find a quick quote widget on the site.', ''],
   [3, 'Public Site', 'Reviews / gallery / FAQ', '1. Open a new tab in your web browser and go to highlightingutah.com (the public website).\n2. Scroll down the page until you find the reviews section.\n3. Keep scrolling until you find the photo gallery section.\n4. Keep scrolling until you find the FAQ (Frequently Asked Questions) section.\n5. Open the admin site (the private office dashboard) and look at the menu on the left side of the screen, under the heading \'Websites\'.\n6. Click the word \'Reviews\' and write down every review listed there.\n7. Click the word \'Gallery\' and write down every photo listed there.\n8. Click the words \'Hero Images\' and write down every image listed there.\n9. Click the word \'FAQ\' and write down every question and answer listed there.', 'Every review, photo, hero image, and FAQ question/answer that is listed in admin\'s Reviews, Gallery, Hero Images, and FAQ pages should also be showing on the public website\'s reviews section, photo gallery, and FAQ section. Nothing that is in admin should be missing from the public site, and nothing should be showing on the public site that isn\'t in admin.', 1, 'Pass', '', ''],
   [4, 'Public Site', 'Contact message', '1. Open a new tab in your web browser and go to highlightingutah.com (the public website).\n2. Find the contact form somewhere on the site.\n3. In the name box, type a name you will recognize later, like \'TEST MESSAGE\'.\n4. Fill in the rest of the contact form and type a message.\n5. Send the message.\n6. Open the admin site (the private office dashboard) and look at the menu on the left side of the screen.\n7. Click the words \'Customer Messages\'.', 'Your test message should be sitting in the Inbox inside Customer Messages, showing the same name (like \'TEST MESSAGE\') and the same message text you typed and sent.', 1, 'Pass', '', ''],
-  [5, 'Member Portal', 'Sign in (phone)', '1. Open a new tab in your web browser and go to highlightingutah.com (the public website).\n2. Near the top of the page, find and click \'Member Portal\' in the top menu (this is the private area where a customer checks their own account).\n3. In the phone number box, type a real customer\'s phone number.\n4. In the last name box, type that same customer\'s last name.\n5. Click the \'Sign In\' button.', 'A gold spinner should appear on the screen saying \'Opening your account\'. After a moment that spinner should disappear, and the customer\'s invoice should load along with a row of tabs across the screen.', 2, 'Pass', '', 'The last-name check is stricter now: what you type must match a whole word of the name on file, instead of just appearing somewhere inside it. Sign in as a real customer and confirm their surname still gets them in.'],
-  [6, 'Member Portal', 'Sign in (email)', '1. Go back to the Member Portal (the customer login area on highlightingutah.com that you used in the last test).\n2. If you are still signed in from before, click the button or link to sign out.\n3. This time, in the box where you\'d normally type a phone number, type that same customer\'s email address instead.\n4. In the last name box, type that customer\'s last name.\n5. Click the \'Sign In\' button.\n6. In admin, check that customer\'s record to see if there is a second email address on file for them.\n7. If there is a second email on file, sign out of the Member Portal again.\n8. Sign in one more time using that second email address along with the customer\'s last name.', 'Every time you signed in — no matter which of the customer\'s email addresses you typed — the account should open exactly the same way: loading their invoice and the row of tabs, just like when you signed in with their phone number.', 2, 'Pass', '', 'The last-name check is stricter now: what you type must match a whole word of the name on file. Sign in by email as a real customer and confirm their surname still gets them in.'],
+  [5, 'Member Portal', 'Sign in (phone)', '1. Open a new tab in your web browser and go to highlightingutah.com (the public website).\n2. Near the top of the page, find and click \'Member Portal\' in the top menu (this is the private area where a customer checks their own account).\n3. In the phone number box, type a real customer\'s phone number.\n4. In the last name box, type that same customer\'s last name.\n5. Click the \'Sign In\' button.', 'A gold spinner should appear on the screen saying \'Opening your account\'. After a moment that spinner should disappear, and the customer\'s invoice should load along with a row of tabs across the screen.', 3, 'Pass', '', 'The sign-in page no longer suggests a demo phone number, and a failed save no longer prints internal debug text at the customer. Check the page reads cleanly.'],
+  [6, 'Member Portal', 'Sign in (email)', '1. Go back to the Member Portal (the customer login area on highlightingutah.com that you used in the last test).\n2. If you are still signed in from before, click the button or link to sign out.\n3. This time, in the box where you\'d normally type a phone number, type that same customer\'s email address instead.\n4. In the last name box, type that customer\'s last name.\n5. Click the \'Sign In\' button.\n6. In admin, check that customer\'s record to see if there is a second email address on file for them.\n7. If there is a second email on file, sign out of the Member Portal again.\n8. Sign in one more time using that second email address along with the customer\'s last name.', 'Every time you signed in — no matter which of the customer\'s email addresses you typed — the account should open exactly the same way: loading their invoice and the row of tabs, just like when you signed in with their phone number.', 3, 'Pass', '', 'Same page change as the phone sign-in: the demo-number line is gone and failed saves no longer show a debug string.'],
   [7, 'Member Portal', 'Loading spinner', '1. Open the Member Portal (the customer login area on highlightingutah.com).\n2. Type in a customer\'s phone number (or email) and last name.\n3. Click the \'Sign In\' button.\n4. Without clicking anything else, watch the screen closely.', 'The spinner should appear right away, as soon as you click Sign In. It should disappear the moment either the account finishes loading or an error message appears — it should never keep spinning forever without anything happening.', 1, 'Pass', '', ''],
   [8, 'Member Portal', 'Wrong credentials', '1. Open the Member Portal (the customer login area on highlightingutah.com).\n2. In the phone number box, type a real customer\'s phone number, but in the last name box type a last name that does NOT belong to that customer, so the two don\'t match.\n3. Click the \'Sign In\' button.', 'A friendly message should appear saying something like \'we couldn\'t find an account.\' The sign-in form should reappear so you can try again. You should NOT see a technical error code, and you should NOT see a blank screen.', 2, 'Pass', '', 'A single letter used to be accepted as a last name, which let anyone with a phone number into that customer\'s account. Try typing just "a" as the last name — it must now be refused.'],
   [9, 'Member Portal', 'Personalized link', '1. Find an invoice email or an RSVP email that was sent to a customer (check your own email inbox from a test email that was sent to you).\n2. Inside that email, find the personalized link to the Member Portal.\n3. Copy that link.\n4. Open a new browser tab or window where you are NOT already signed in to the Member Portal.\n5. Paste the link into the address bar and go to it.', 'The link should open straight into that customer\'s account, showing the spinner while it loads. It should NOT ask you to sign in again — no phone number or last name box should appear.', 1, 'Fail', '', ''],
-  [10, 'Member Portal', 'Balance reflects credits', 'AUTOMATED - the credit maths is proved on every commit by run-all.js (credits reduce what is owed, a credit larger than the bill still reads Paid in Full, one exactly equal to the bill reads Paid in Full, and a balance never goes negative). What is left for you is the VISIBLE half: sign into the portal as a customer with a credit and confirm the balance on screen matches, and that the credit is explained rather than the number just being mysteriously smaller.\n\n1. Open the admin site (the private office dashboard) and look at the menu on the left side of the screen. Click the word \'Invoices\'.\n2. Click \'Invoice List\'.\n3. Find a customer and add a credit to their invoice — or, if you\'d rather not change anything, pick a customer who already has a credit on their invoice.\n4. Write down four numbers from that customer\'s invoice: the install amount, the removal amount, the credit amount, and the amount they have already paid.\n5. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as that same customer.\n6. Click the \'Payment\' tab.\n7. Look at the balance shown there.', 'The balance shown on the Payment tab should equal: the install amount plus the removal amount, minus the credit, minus whatever the customer has already paid. If you add up install and removal, subtract the credit, and subtract what\'s already been paid, that final number should match the balance shown in the portal exactly.', 3, 'N/A', '', 'The credit maths is now automated. Reworded to check only what the customer sees in the portal.'],
+  [10, 'Member Portal', 'Balance reflects credits', 'AUTOMATED - the credit maths is proved on every commit by run-all.js (credits reduce what is owed, a credit larger than the bill still reads Paid in Full, one exactly equal to the bill reads Paid in Full, and a balance never goes negative). What is left for you is the VISIBLE half: sign into the portal as a customer with a credit and confirm the balance on screen matches, and that the credit is explained rather than the number just being mysteriously smaller.\n\n1. Open the admin site (the private office dashboard) and look at the menu on the left side of the screen. Click the word \'Invoices\'.\n2. Click \'Invoice List\'.\n3. Find a customer and add a credit to their invoice — or, if you\'d rather not change anything, pick a customer who already has a credit on their invoice.\n4. Write down four numbers from that customer\'s invoice: the install amount, the removal amount, the credit amount, and the amount they have already paid.\n5. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as that same customer.\n6. Click the \'Payment\' tab.\n7. Look at the balance shown there.', 'The balance shown on the Payment tab should equal: the install amount plus the removal amount, minus the credit, minus whatever the customer has already paid. If you add up install and removal, subtract the credit, and subtract what\'s already been paid, that final number should match the balance shown in the portal exactly.', 4, 'N/A', '', 'The balance now shows cents and copes with an invoice that has no amounts on it yet — it used to print the literal text "$NaN". Check a balance reads like $1,234.50.'],
   [11, 'Member Portal', 'Pay with PayPal', '1. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as a customer who still owes money — use your own test customer record for this, not a real customer.\n2. Stay on the \'Payment\' tab.\n3. Look for a PayPal button on that tab. Which buttons appear is controlled in admin under Websites > Site Settings > Payment Integrations: \'Venmo only\' shows just the Venmo button, \'PayPal only\' shows just PayPal, and \'Both\' shows Venmo and PayPal together. PayPal also needs a Client ID saved there before it will appear at all. Check that setting first — if it is set to \'Venmo only\', seeing only Venmo is correct and is not a fail.\n4. If there is an option to add a small tip, add one.\n5. Click through and complete a real payment for a small amount using PayPal.\n6. After the payment finishes, go back to the Member Portal and reload the page.', 'PayPal should charge you the exact balance that was shown on the Payment tab, plus whatever tip you added. After the payment goes through and you reload the portal, the balance should have dropped, and the account should now say \'Paid in Full\'.', 2, 'Fail', 'There is only a link to Venmo.', ''],
   [12, 'Member Portal', 'Change light colours', '1. Pick a test customer to use for this test — do NOT use a real customer, because changing light colours through the portal charges the customer a $30 fee.\n2. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as that test customer.\n3. Click the \'Light Colors\' tab (if you\'re using a phone, this tab is in the row of tabs across the bottom of the screen).\n4. Change the light colours to something different than what\'s currently selected.\n5. Click \'Save\'.\n6. Open the admin site (the private office dashboard) and look at the menu on the left side of the screen. Click the word \'Customers\'.\n7. Click \'All Customers\'.\n8. Find that test customer in the list and click \'Edit\' on their entry.\n9. Go back to the menu on the left side of the screen and click the word \'Warehouse\'.\n10. Click the \'Build\' tab.', 'The portal should show a message confirming the colour change was saved. In admin, the Edit Customer popup for that person should show the new colours you picked. That same customer should now also appear in the Warehouse Build list.', 1, 'Pass', '', ''],
   [13, 'Member Portal', 'Change contact info', '1. Open the Member Portal (the customer login area on highlightingutah.com) and sign in as a test customer.\n2. Click the \'Information\' tab.\n3. Change the phone number to a different test value.\n4. Change the gate code to a different test value.\n5. Change the street address to a different test value.\n6. Click \'Save\'.\n7. Open the admin site (the private office dashboard) and look at the menu on the left side of the screen. Click the word \'Customers\'.\n8. Click \'All Customers\'.\n9. Find that test customer and click \'Edit\' on their entry.\n10. Go back to the menu on the left side of the screen and click the word \'Routes\'.\n11. Find an upcoming saved route that includes that test customer as a stop.', 'The Edit Customer popup should show the new phone number, gate code, and street address you just typed in the portal. The upcoming route stop for that customer should also show the new gate code and the new address.', 1, 'Pass', '', ''],
@@ -20715,7 +21094,7 @@ const TEST_SEED = [
   [19, 'Admin', 'Quotes - price a quote', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click "Quote Requests".\n3. Find a quote card marked "New" that is one of your own test submissions (not a real customer\'s).\n4. On that card, find the box called "Estimated Feet" and type a number into it.\n5. Find the box called "Quoted Price" and type a price into it.\n6. Click anywhere outside that box (or press the Tab key). The price saves by itself the moment you click out, and a small message pops up confirming it - there is no Save button to press.\n7. Find and click the button called "Send quote email" - this shows you a link plus a filled-in email right below the button.\n8. The card now sits under the "Awaiting Response" tab. Find it there and open its "Pricing & Approval" panel again.\n9. Type a different, higher price into the "Quoted Price" box - as if the customer had just called and asked you to add another part of the house - then click outside the box.\n10. Refresh the whole page in your browser, then open that card\'s "Pricing & Approval" panel one more time and read the price.\n11. Copy the link shown in that box and open it in your browser, as if you were the customer.\n12. On that page, find and click the button the customer would press to accept the quote.', 'The feet and price you typed should save on the card on their own, without pressing any Save button. Clicking "Send quote email" should show a link and an editable email underneath it, and the card should move to "Awaiting Response". The higher price you typed in step 9 must still be there after the refresh in step 10 - it must NOT snap back to the old price - and the customer\'s page at that link should show that new higher price too. When you click the accept button on that page, it should work without any errors.', 3, 'Retest', 'The approval link works but the accept-my-quote button does not.', 'The Quoted Price box now saves on its own when you click out of it. It used to save ONLY if you went on to press the send button, so changing the price on a quote that had already gone out silently reverted. Steps 8-10 are new and test exactly that. The button name is also corrected to "Send quote email", which is what it actually says on screen.'],
   [20, 'Admin', 'Quotes - detail form', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click "Quote Requests".\n3. Approve a test quote (one of your own test submissions).\n4. Open the link shown under the "Send Email" button for that quote in your browser, as if you were the customer.\n5. On the public site, fill in the customer\'s own detail form: choose a wire colour, choose an outlet timer, and choose an install month.\n6. Submit that form.\n7. Go back to admin and open "Quote Requests" again.\n8. Near the top, find and click the tab called "Form".\n9. Find the same quote you just submitted the form for.\n10. Now find a different approved quote where the customer has NOT yet submitted their detail form.', 'For the quote where the customer submitted the form, the card should show the Wire colour and Timer choices they picked, right on the card itself. For the quote where the customer has NOT submitted the form yet, those lines should simply not appear. There is no separate \'Detail Form\' section to open or edit in admin anymore, because customers now fill that form in on their own portal after their quote is approved.', 2, 'Retest', 'Probably should not ask which outlet - the crew decides that - but do ask if they have one.', 'The admin-side Detail Form was removed from the quote card in the P1 rework - it\'s now filled in on the customer\'s own portal after they approve, not edited here. This Pass needs a fresh look against how it actually works now.'],
   [21, 'Admin', 'Quotes - convert to customer', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click "Quote Requests".\n3. Find an approved quote where the customer has already submitted their detail form back to you.\n4. Click the button called "Convert to Customer". This automatically fills in the "Add a Customer" form for you.\n5. Check that all of the following carried across correctly into the form: the light colours, the house areas, the outlet timer, the specific outlet, the install timing, any notes, the photo (with its markup/drawing on it), the approved price, and the contact preference.\n6. Type a number into the "Measured Feet" box.\n7. Click the button called "Add Customer".\n8. Go back to "Quote Requests" in the left menu.', 'A new customer record should now exist with every one of those details filled in correctly. The price on the new customer record should match the price the customer approved. Back in Quote Requests, that quote should now be marked as closed.', 1, 'Pass', '', ''],
-  [22, 'Admin', 'Add Customer - full detail', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click "Customers".\n3. Click the tab called "Add a Customer".\n4. Fill in every single box on the form: name, phone, email, address, light colours, house parts, install timing, house notes, outlet timer, specific outlet, gate code, measured feet, and price.\n5. Upload a house photo.\n6. Highlight (mark up and draw on) that photo.\n7. Click the button called "Add Customer".\n8. Click the tab called "All Customers".\n9. Find the test customer you just added.\n10. Click "Edit" on their record.', 'A popup window should open showing the customer\'s information, and every single thing you typed or uploaded in steps 4 through 6 should be there. Nothing should be missing or quietly dropped.', 1, 'Pass', '', ''],
+  [22, 'Admin', 'Add Customer - full detail', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click "Customers".\n3. Click the tab called "Add a Customer".\n4. Fill in every single box on the form: name, phone, email, address, light colours, house parts, install timing, house notes, outlet timer, specific outlet, gate code, measured feet, and price.\n5. Upload a house photo.\n6. Highlight (mark up and draw on) that photo.\n7. Click the button called "Add Customer".\n8. Click the tab called "All Customers".\n9. Find the test customer you just added.\n10. Click "Edit" on their record.', 'A popup window should open showing the customer\'s information, and every single thing you typed or uploaded in steps 4 through 6 should be there. Nothing should be missing or quietly dropped.', 2, 'Pass', '', 'Adding a customer at an address that is already on file now warns first and can be cancelled, and the Add button disables itself while it saves so a second click cannot create two records.'],
   [23, 'Admin', 'Add Customer - feet drives number preview', 'AUTOMATED - the feet-to-bins rule is checked on every commit against the real cnBinsForFeet from js/money.js, at the true 260ft cutoff. You no longer need to prove the rule. What is left is the screen: that the Add a Customer form PREVIEWS the right bin count and number series as you type the feet in.\n\n1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click "Customers".\n3. Click the tab called "Add a Customer".\n4. Find the box called "Measured Feet" and type the number 150 into it.\n5. Look at the preview near that box for the bin count and the customer number it\'s about to assign. Write down what it says.\n6. Without saving anything, clear that box and type the number 261 into it instead.\n7. Look at the same preview again and write down what it says now.', 'At 150 feet, the preview should show 1 bin and a normal (regular) customer number. At 261 feet, the preview should show 2 bins and a customer number starting with 5, like 5001 (a \'5000-series\' number). This preview should update immediately as you type, without you having to save or click anything else.', 3, 'Retest', '', 'The bin rule is automated. Reworded to check the live preview on the form only.'],
   [24, 'Admin', 'Add Customer - photo markup', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click "Customers".\n3. Click the tab called "Add a Customer".\n4. Upload a house photo.\n5. Click the button called "Mark Up" (the tool for drawing on the photo).\n6. Using the red drawing tool, draw a red line on the photo.\n7. Using the yellow pen tool, draw something else on the photo.\n8. Click the button to save the markup.\n9. Finish filling in the form and click "Add Customer".\n10. Click the tab called "All Customers".\n11. Find the test customer you just added and click "Edit" on their record.', 'The photo should still be there, and it should still show both your red line and your yellow pen mark on it. The markup should have saved along with the record.', 1, 'Pass', '', ''],
   [25, 'Admin', 'Edit Customer - edit every field', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click "Customers".\n3. Click the tab called "All Customers".\n4. Find a test customer and click "Edit" on their record.\n5. Change a little bit of every one of these fields: name, phone, email, address, light colours, house areas, install timing, gate code, outlet, notes, measured feet, price, bins, wire colour, and RSVP (whether they said yes or no to having lights this year).\n6. Click the button called "Save".\n7. Reopen the same "Edit" popup for that same customer.\n8. In the menu on the left side of the screen, click "Warehouse".\n9. Click the tab called "Build".', 'Every single change you made in step 5 should still be there when you reopen the Edit popup, and nothing else on the record should have been erased or reset. Also, because you changed the light colours, that same customer should now appear in the Warehouse Build list.', 1, 'Pass', '', ''],
@@ -20737,7 +21116,7 @@ const TEST_SEED = [
   [41, 'Warehouse', 'Build queue membership', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Customers".\n3. Click "All Customers".\n4. Find a customer who already has light colours set and click Edit on their record.\n5. Change one of their light colours to a different colour.\n6. Click Save. (This is what puts them in the warehouse build queue.)\n7. Click Edit on a second customer\'s record.\n8. Clear out that second customer\'s light colours completely, so none are set.\n9. Click Save.\n10. In the menu on the left side of the screen, click the word "Warehouse".\n11. Click the tab called "Build".', 'Only the first customer, whose colour you changed, should appear in the build list. The second customer, whose colours you cleared, should not appear anywhere in the build list - even though you just edited and saved their record too.', 1, '', '', ''],
   [42, 'Warehouse', 'Bundle count', 'AUTOMATED - bundle maths is ceil(feet / 40) and run-all.js proves it on every commit, including that 40ft is one bundle, 41ft rounds up to two, and that the bundle size is still 40. What is left is the warehouse screen showing that number in the right place.\n\n1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Customers".\n3. Click "All Customers".\n4. Find a customer who is already sitting in the warehouse build queue and click Edit on their record.\n5. In the box called "Measured Feet", type the number 100 exactly.\n6. Click Save.\n7. In the menu on the left side of the screen, click the word "Warehouse".\n8. Click the tab called "Build".\n9. Find that same customer in the list.', 'That customer\'s bundle count should read 3. (This is 100 feet divided by 40 feet per bundle, which equals 2.5, rounded up to the next whole number, 3.)', 2, '', '', 'Bundle maths is automated. Reworded to check the number shown on the warehouse queue.'],
   [43, 'Warehouse', 'Colour grouping', 'AUTOMATED (and a real bug was fixed here on 2026-08-14) - the warehouse used to put the SAME pattern into two separate groups if the colours had been typed in a different order, so \'Red, Green\' and \'Green, Red\' built as two groups and the same bundle got made twice. whGroupKey now sorts the colours first, in BOTH admin and the crew portal, and run-all.js checks that on every commit - including that repeated colours still make a different pattern (\'Red, Red, Green\' is not \'Red, Green, Green\'), that wire colour still separates groups, and that admin and the crew portal have not drifted apart. What is left for a person is the screen: look at the build queue and confirm the groups are right and the counts add up. If you have two groups that should have been one, they should now be merged.\n\n1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Customers".\n3. Click "All Customers".\n4. Click Edit on a test customer\'s record.\n5. Set their light colours to a specific pattern (for example, all red).\n6. Click Save. (This puts them in the warehouse build queue.)\n7. Repeat steps 4 through 6 for two or three more test customers, giving each one that exact same colour pattern, until you have three or four test customers all sharing the identical pattern.\n8. Click Edit on one more test customer and give them a different colour pattern instead.\n9. Click Save.\n10. In the menu on the left side of the screen, click the word "Warehouse".\n11. Click the tab called "Build".', 'The three or four customers who share the identical colour pattern should be grouped together under that one pattern, with their bundle counts added together into a single total. The customer with the different pattern should sit by itself in its own separate group.', 2, '', '', 'The grouping bug is fixed and the rule is now automated. Worth re-running because the groups on screen will have MERGED - confirm the new counts are right.'],
-  [44, 'Warehouse', 'Mark built', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Warehouse".\n3. Click the tab called "Build".\n4. Pick any one house/customer sitting in the build queue.\n5. Mark that house as built.\n6. Refresh the page in your web browser.\n7. Click the tab called "Build" again to look at the list.', 'The house you marked as built should no longer appear anywhere in the build list, and it should stay gone after refreshing the page - it should not come back.', 1, '', '', ''],
+  [44, 'Warehouse', 'Mark built', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Warehouse".\n3. Click the tab called "Build".\n4. Pick any one house/customer sitting in the build queue.\n5. Mark that house as built.\n6. Refresh the page in your web browser.\n7. Click the tab called "Build" again to look at the list.', 'The house you marked as built should no longer appear anywhere in the build list, and it should stay gone after refreshing the page - it should not come back.', 2, '', '', 'The "Mark Completed" box on a colour group now says it counts HOUSES (the heading above it counts bundles), lists exactly who it will clear, and asks before clearing. Re-check with a group where the bundle count and the house count differ.'],
   [45, 'Warehouse', 'Bundles when feet are missing', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Customers".\n3. Click "All Customers".\n4. Find a customer who already has a price set and click Edit on their record.\n5. Clear out the box called "Measured Feet" completely, so it is empty.\n6. Click Save.\n7. In the menu on the left side of the screen, click the word "Warehouse", then click the tab called "Build", and check whether this customer is listed there.\n8. If they are not in the build queue, go back and click Edit on their record again, change one of their light colours, and click Save - that will put them in the queue.\n9. On a phone, open the Crew Portal (the app/site the installation crew uses).\n10. Sign in to the Crew Portal.\n11. Go to the section called "Warehouse".', 'The crew should still see a bundle estimate listed for that house, worked out from their price since their measured feet is missing. It should show a real estimated number, not a blank space and not a zero.', 1, '', '', ''],
   [46, 'Warehouse', 'Warehouse extras', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Warehouse".\n3. Click the tab called "Build".\n4. Near the top of the page, find the box labeled "Add From Inbox".\n5. In that box, type in a colour pattern (for example, "red and white").\n6. In the quantity box, type the number 3.\n7. Leave the box that asks which house this is for completely blank.\n8. Click the button that says "Add to Queue".\n9. Scroll down to the queue below and find the group that matches the colour pattern you just typed in.\n10. In that group\'s "complete" box, type the number 1.\n11. Click the button that says "Complete".\n12. Look at the queue again and check what that group\'s entry now shows.\n13. Complete the remaining 2 units of that same entry (repeat the complete steps until all 3 have been marked complete).', 'After completing 1 out of the 3, the entry should still be sitting in the queue, now showing a quantity of 2 remaining. It should NOT disappear or get deleted just because 1 unit was completed. Only after all 3 units have been completed should the entry disappear from the queue.', 1, '', '', ''],
   [47, 'Warehouse', 'Recycle queue membership', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word "Customers".\n3. Click "All Customers".\n4. Click Edit on a test customer\'s record.\n5. Find the setting called "RSVP" (this records whether the customer wants the Christmas lights service again) and set it to "No".\n6. Click Save.\n7. In the menu on the left side of the screen, click the word "Warehouse".\n8. Click the tab called "Recycle".', 'That test customer should now appear in the Recycle list.', 1, '', '', ''],
@@ -20788,7 +21167,7 @@ const TEST_SEED = [
   [92, 'Invoices', 'Carryover auto-applies once', '1. Log into admin (the private office dashboard).\n2. Pick a test customer who currently has carryover credit banked on their account.\n3. Mark that customer\'s house as \'Done\'.\n4. Look at the menu on the left side of the screen and click \'Invoices\'.\n5. Click the \'Nightly Automation\' tab.\n6. Click the button that says \'Send Invoices Now\'.\n7. Check that customer\'s invoice balance.\n8. Also check how much carryover credit they have remaining.\n9. Click \'Send Invoices Now\' a second time.\n10. Check the invoice balance and the remaining carryover amount again.', 'The carryover credit should come off the customer\'s balance one time only, on the first run. Any leftover carryover credit (if the whole amount wasn\'t used) should still be banked for next time. Pressing \'Send Invoices Now\' a second time should not apply the carryover credit all over again - both numbers should stay the same as after the first run.', 2, '', '', 'Nightly Automation and Start New Season moved out of the Automation Emails panel into their own tabs under Invoices - the steps were rewritten for the new path.'],
   [93, 'Invoices', 'Status agrees in both places', 'RETIRED - fully automated, nothing left for a person to do. money-parity.test.js lifts computeInvoiceStatus out of js/money.js and computeInvoiceStatusServer out of functions/index.js, runs BOTH over roughly 13,000 money combinations plus blank, text and broken values, and fails the moment they disagree. It also checks custInvoiceKey and invoiceKeyFor file a customer under the same invoice. It runs on every commit and blocks the Cloud Functions deploy if it fails, so the office screen and the nightly billing run can no longer drift apart unnoticed. Mark this N/A. The row is kept rather than deleted so the history of why it went away stays readable - the same way test 96 was handled.\n\n1. Log into admin (the private office dashboard).\n2. Set up three test invoices: one where nothing has been paid, one where part of it has been paid, and one that has been paid in full.\n3. On at least one of these three invoices, add both a credit and a change fee (the $30 fee for a late light-color change).\n4. Look at the menu on the left side of the screen and click \'Invoices\'.\n5. Click the \'Invoice List\' tab.\n6. Write down the status word shown on each of the three invoice cards (for example: Unpaid, Partial, or Paid in Full).\n7. Send each of the three customers an invoice email (use \'Send Invoices Now\').\n8. Open the email that arrives for each of the three and read the status word written in it.', 'For all three test invoices - including the one with the credit and change fee on it - the status word (Unpaid, Partial, or Paid in Full) shown on the invoice card in admin should say exactly the same thing as the status word shown in the email that gets sent out.', 4, '', '', 'Both copies of the balance formula — the office screen and the nightly billing run — now compare whole cents.'],
   [94, 'Invoices', 'Invoice list and filters', '1. Log into admin (the private office dashboard).\n2. Look at the menu on the left side of the screen and click \'Invoices\'.\n3. Click the \'Invoice List\' tab.\n4. Wait for the full list to finish loading.\n5. Pick two or three invoices from the list and check their totals against the actual customer prices for those same customers.\n6. Use the filter options near the top of the screen to narrow down the list.', 'Every invoice in the list should load with the correct total matching the customer\'s price. Each filter option should actually shorten the list down to only the invoices matching what that filter says it does.', 2, '', '', 'Invoices is now its own item in the left menu instead of a tab inside Dashboard - the click-by-click steps were rewritten, so this needs running against the new path.'],
-  [95, 'Invoices', 'Import / Export', '1. Log into admin (the private office dashboard).\n2. Look at the menu on the left side of the screen and click \'Invoices\'.\n3. Click the \'Import / Export\' tab.\n4. Click the option to export to Excel.\n5. Open the downloaded Excel file.\n6. Pick five rows from the file.\n7. Click the \'Invoice List\' tab and find those same five customers\' invoice cards.\n8. Compare each of the five rows in the file against its matching invoice card.', 'Every number in the exported Excel file should match what is shown on the invoice cards - no rows should be missing, and no totals should be different between the file and the cards.', 2, '', '', 'Invoices is now its own item in the left menu instead of a tab inside Dashboard - the click-by-click steps were rewritten, so this needs running against the new path.'],
+  [95, 'Invoices', 'Import / Export', '1. Log into admin (the private office dashboard).\n2. Look at the menu on the left side of the screen and click \'Invoices\'.\n3. Click the \'Import / Export\' tab.\n4. Click the option to export to Excel.\n5. Open the downloaded Excel file.\n6. Pick five rows from the file.\n7. Click the \'Invoice List\' tab and find those same five customers\' invoice cards.\n8. Compare each of the five rows in the file against its matching invoice card.', 'Every number in the exported Excel file should match what is shown on the invoice cards - no rows should be missing, and no totals should be different between the file and the cards.', 3, '', '', 'The bulk import now points at a real place when it reports customers added without a map pin — All Customers → Filters → Map Pin → "Needs Pin". It used to name a search that did not exist.'],
   [96, 'Invoices', 'Season billing emails (retired)', 'RETIRED - there is nothing left to test here. The Season Billing Emails tab was removed when Invoices became its own item in the left menu. The same job is done in Automation Emails > Templates: write the wording as a template in the Billing folder and use Send to Selected. Score this one N/A.', 'Nothing to check. Mark it N/A - the screen it covered no longer exists. The row is kept rather than deleted so the history of why it went away stays readable.', 1, '', '', ''],
   [97, 'Invoices', 'Health Check resync totals', 'AUTOMATED - the Health Check engine is executed by run-all.js against real drift cases, including the two that used to cause false alarms: a multi-house invoice is NOT flagged as drift, and the $30 new member fee is not mistaken for it, while genuine price drift IS caught. What is left is pressing the button and confirming the totals it writes are right.\n\n1. Log into admin (the private office dashboard).\n2. Find a test invoice that already has the $30 new-member fee added to it.\n3. Write down the total shown on that invoice.\n4. Look at the menu on the left side of the screen and click \'Health Check\'.\n5. Click the button that says \'Run Health Check\'.\n6. Find the section about totals on the Health Check results.\n7. Click the resync/fix button in that totals section.\n8. Look at the menu on the left side of the screen and click \'Invoices\'.\n9. Click the \'Invoice List\' tab.\n10. Find that same test invoice and check it again.', 'The invoice total should have been corrected by the resync, and the $30 new-member fee should still be included in it - the resync/fix tool must never quietly remove the fee while correcting the total.', 4, '', '', 'The "Resync totals" button was throwing an error and writing nothing every time it was pressed. Confirm it now repairs the total.'],
   [98, 'Fees & Locks', 'Colour change charges $30', '1. Log into admin (the private office dashboard for Highlighting Utah — not the public website).\n2. Pick a test customer who has not changed their light colours in the last two days.\n3. In the menu on the left side of the screen, click the word \'Invoices\'.\n4. Click \'Invoice List\'.\n5. Find that test customer\'s invoice and write down their invoice total.\n6. Sign in to the Member Portal (the website customers use to manage their own account) as that test customer.\n7. Click the tab called \'Light Colors\'.\n8. Change the colours to something different.\n9. Click \'Save\'.\n10. Go back to admin and open that same customer\'s invoice card (their invoice in the Invoice List).', 'You should see a new $30 change fee has been added to the invoice. It should show up as its own separate line item labeled as a fee — it should NOT be mixed in with (added on top of) the install price so that you can\'t see it separately.', 2, '', '', 'Invoices is now its own item in the left menu instead of a tab inside Dashboard - the click-by-click steps were rewritten, so this needs running against the new path.'],
@@ -20829,15 +21208,15 @@ const TEST_SEED = [
   [133, 'Inbox & Templates', 'Drag between folders', '1. Open admin (the private office dashboard).\n2. In the menu on the left side of the screen, click \'Customer Messages\'.\n3. Pick any one message sitting in one folder, and drag it with your mouse into a different folder.\n4. Refresh the whole browser page (reload it completely).\n5. Open the folder the message used to be in, and check whether it\'s still there.\n6. Open the folder you dragged the message into, and check whether it\'s there.', 'The message should now be sitting in the new folder you dragged it into, and it should no longer be in the old folder. After refreshing the page, it should still be in the new folder - the move actually saved, it didn\'t just change on screen temporarily.', 1, '', '', ''],
   [134, 'Inbox & Templates', 'Email templates and folders', '1. Open admin (the private office dashboard).\n2. In the menu on the left side of the screen, click \'Automation Emails\'.\n3. Click the tab labeled \'Templates\'.\n4. Create a new folder to hold email templates.\n5. Inside that new folder, create a new email template.\n6. Edit the wording of that template.\n7. Save the template.\n8. Go to a place in admin where templates get used - for example, in the left menu click \'Automation Emails\', stay on the \'Templates\' tab, and open the \'Send to Selected\' flow, where a template gets picked.\n9. Check whether your new test template shows up there and can be selected.\n10. Go back to Automation Emails, then Templates, and delete the test template you created.\n11. Delete the test folder you created.', 'Creating the folder, creating the template inside it, editing its wording, and saving should all work without errors. The new template should actually appear as a selectable choice wherever templates get used, like the Send to Selected flow. Deleting the test template and the test folder afterward should also work cleanly, with nothing left behind.', 3, '', '', 'Template folders changed: folders can now be deleted and renamed, and can be nested inside another folder. Re-run it, and this time also make a subfolder inside your test folder and check the parent folder shows its templates too.'],
   [135, 'Inbox & Templates', 'Saved templates and custom codes', '1. Open admin (the private office dashboard).\n2. In the menu on the left side of the screen, click \'Automation Emails\'.\n3. Click the tab labeled \'Templates\'.\n4. Create a template (or use an existing one) and save it.\n5. Create a custom discount code.\n6. Refresh the whole browser page (reload it completely).\n7. Go to a place in admin where a discount can be applied to a customer or invoice.\n8. Try applying the custom discount code you just created.', 'Both the saved template and the custom discount code should still exist after refreshing the page - neither one should have disappeared. The discount code should actually work when you try to apply it - it should be accepted and applied, not rejected or missing.', 1, '', '', ''],
-  [136, 'Health & Data', 'Health Check runs', 'AUTOMATED - run-all.js runs the Health Check engine itself, confirms all 14 checks are present, and confirms that clean data reports nothing at all (a checker that always finds something is a checker nobody reads). What is left is the screen: that the report renders and the fix buttons appear only on the unambiguous checks.\n\n1. Open admin (the private office dashboard).\n2. In the menu on the left side of the screen, click \'Health Check\'.\n3. Find the checkbox labeled \'Hide checks that pass\' and untick it (uncheck it) so every check shows, not just the failing ones.\n4. Click the button labeled \'Run Health Check\'.\n5. Read down through the entire list of checks that appears, top to bottom.', 'Health Check should finish running without throwing any errors, and it should show what it found for every single check in the list. Running it should not change any of your actual data on its own - only the buttons you press yourself, not Health Check itself, are allowed to change data.', 2, '', '', 'The engine is now executed by an automated test. Reworded to check the report on screen.'],
+  [136, 'Health & Data', 'Health Check runs', 'AUTOMATED - run-all.js runs the Health Check engine itself, confirms all 14 checks are present, and confirms that clean data reports nothing at all (a checker that always finds something is a checker nobody reads). What is left is the screen: that the report renders and the fix buttons appear only on the unambiguous checks.\n\n1. Open admin (the private office dashboard).\n2. In the menu on the left side of the screen, click \'Health Check\'.\n3. Find the checkbox labeled \'Hide checks that pass\' and untick it (uncheck it) so every check shows, not just the failing ones.\n4. Click the button labeled \'Run Health Check\'.\n5. Read down through the entire list of checks that appears, top to bottom.', 'Health Check should finish running without throwing any errors, and it should show what it found for every single check in the list. Running it should not change any of your actual data on its own - only the buttons you press yourself, not Health Check itself, are allowed to change data.', 3, '', '', 'Health Check now runs on its own a few seconds after login and every ten minutes, so the count badge beside it in the menu appears without anyone pressing anything. There is also a new check for customers with no map pin, and one for customers with no email address.'],
   [137, 'Health & Data', 'Import Center', '1. Open admin (the private office dashboard).\n2. In the menu on the left side of the screen, click \'Import Center\'.\n3. Prepare a small Excel file with just a couple of rows of payments in it, so you can check the numbers by hand afterward.\n4. Import that Excel file\'s payments through Import Center.\n5. Open the folder that the imported payments went into.\n6. Compare each imported amount against the matching amount in your original Excel file.', 'The imported batch of payments should be sitting in the correct folder, and every single amount should match exactly what was in the Excel file, down to the penny.', 1, '', '', ''],
   [138, 'Health & Data', 'Member Export', '1. Open admin (the private office dashboard).\n2. In the menu on the left side of the screen, click \'Member Export\'.\n3. Run the export.\n4. Open the file that downloads.\n5. Count how many rows of customers are in that file.\n6. In the menu on the left side of the screen, click \'Customers\'.\n7. Click \'All Customers\' and find the total customer count shown there.\n8. Compare the row count from the exported file against that total customer count.', 'The exported file should have the columns you\'d expect for customer information, and the number of rows in the file should match the total number of customers shown under Customers, then All Customers.', 1, '', '', ''],
   [139, 'Health & Data', 'Full Backup', '1. Open admin (the private office dashboard).\n2. In the menu on the left side of the screen, click \'Site Settings\'.\n3. Find the card labeled \'Full Backup\'.\n4. Click the button that says \'Download Full Backup\'.\n5. Open the file that downloads.\n6. Skim through what\'s inside the file.', 'The file should download successfully, and when you open it, it should contain your customers, invoices, quotes, routes, employees, and settings - not just one or two of those categories, but all of them.', 1, '', '', ''],
   [140, 'Health & Data', 'No silent permission errors', 'RETIRED - fully automated, nothing left for a person. This test asked you to hunt the browser console for permission errors. run-all.js now does it properly and on every commit: it checks that EVERY Firestore collection the code touches has a matching rule in firestore.rules, and that every where+orderBy query has a composite index in firestore.indexes.json. A missing rule is the exact cause of a section silently rendering empty, so this is caught before it ships rather than found by accident. Mark this N/A.\n\n1. Open admin (the private office dashboard).\n2. Open your browser\'s console: press the F12 key (on a Mac, press Cmd+Option+I instead).\n3. In the panel that opens, click the tab labeled \'Console\'.\n4. Clear out anything already shown in the console (look for a clear or trash-can button, or right-click inside the console and choose \'Clear console\').\n5. Starting at the top of the left-side menu in admin, click every single item in the menu one at a time, working your way down to the bottom.\n6. For any item that has sub-tabs, click into every one of those sub-tabs too.\n7. Keep watching the console the entire time you are clicking through everything.', 'No red permission-denied errors should appear in the console at any point while clicking through the menu. This matters because if part of the database is missing from the security rules, that section of admin just looks empty on screen instead of showing an obvious error - the console is the only place you\'d actually catch it.', 2, '', '', 'Rules-and-indexes coverage is now checked automatically on every commit. Mark it N/A.'],
   [141, 'Employees & Payroll', 'Add an employee', '1. Open admin (the private office dashboard).\n2. In the menu on the left side of the screen, click \'Responsibilities\'.\n3. Click the tab labeled \'Employee Names\'.\n4. Add a test person: give them a role, a pay type, and set the admin flag (the setting controlling whether they\'re an admin) however you want it for this test.\n5. Save the new test person.\n6. Open the Crew Portal (the website crew members log into).\n7. Look at the picker where you choose which employee\'s name you are.', 'The test person should appear in the employee roster in admin, and their name should also show up as a choice in the Crew Portal\'s name picker.', 1, '', '', ''],
   [142, 'Employees & Payroll', 'Role templates', '1. Open admin (the private office dashboard).\n2. In the menu on the left side of the screen, click \'Responsibilities\'.\n3. Click the tab labeled \'Role Templates\'.\n4. Create a new template and choose a specific set of tabs for it (pick whichever tabs you want to test with).\n5. Click the tab labeled \'Employee Names\'.\n6. Apply the template you just created to one test employee.\n7. Apply that same template to a second, different test employee.\n8. Open the Crew Portal (the website crew members log into) and sign in as the first test employee.\n9. Write down which tabs you see for them.\n10. Sign out of the Crew Portal.\n11. Sign back in as the second test employee.', 'Both test employees should see exactly the same set of tabs in the Crew Portal, and that set of tabs should match what you chose in the Role Template.', 1, '', '', ''],
-  [143, 'Employees & Payroll', 'Weekly payroll', '1. Make sure a few work shifts have already been clocked in through the Crew Portal (the website crew members log into) - clock some in yourself as a test if needed.\n2. Open admin (the private office dashboard).\n3. In the menu on the left side of the screen, click \'Time Logs\'.\n4. Click the tab labeled \'Weekly Payroll\'.\n5. Pick a specific week to look at.\n6. Pick one person and add up the hours shown for them that week.\n7. Click the tab labeled \'Time Log History\' and check that same person\'s actual clocked shifts for that week against the hours you just added up.\n8. Find someone in the payroll list who worked both warehouse shifts and crew shifts that week, and check their total pay.', 'The hours in Weekly Payroll should add up correctly to match the actual clocked shifts in Time Log History. For the person who worked both warehouse and crew shifts, their hours should be split out by the correct pay rate for each kind of work, not just lumped together into one total.', 1, '', '', ''],
-  [144, 'Employees & Payroll', 'Time Log History', '1. Open admin (the private office dashboard).\n2. In the menu on the left side of the screen, click \'Time Logs\'.\n3. Click the tab labeled \'Time Log History\'.\n4. Use the filters to narrow the list down to just one specific person and one specific week.\n5. Pick a few of the shifts shown and check the date, start time, end time, and length against what that person actually worked.', 'The dates, times, and shift lengths shown should all be correct, and after applying the filters, the list should genuinely only show that one person\'s shifts from that one week - not shifts from other people or other weeks mixed in.', 1, '', '', ''],
+  [143, 'Employees & Payroll', 'Weekly payroll', '1. Make sure a few work shifts have already been clocked in through the Crew Portal (the website crew members log into) - clock some in yourself as a test if needed.\n2. Open admin (the private office dashboard).\n3. In the menu on the left side of the screen, click \'Time Logs\'.\n4. Click the tab labeled \'Weekly Payroll\'.\n5. Pick a specific week to look at.\n6. Pick one person and add up the hours shown for them that week.\n7. Click the tab labeled \'Time Log History\' and check that same person\'s actual clocked shifts for that week against the hours you just added up.\n8. Find someone in the payroll list who worked both warehouse shifts and crew shifts that week, and check their total pay.', 'The hours in Weekly Payroll should add up correctly to match the actual clocked shifts in Time Log History. For the person who worked both warehouse and crew shifts, their hours should be split out by the correct pay rate for each kind of work, not just lumped together into one total.', 2, '', '', 'Payroll now refuses to export a week whose timecards were not loaded, instead of quietly exporting fewer hours than were worked. Page back several weeks and confirm you get a clear red message rather than an empty table.'],
+  [144, 'Employees & Payroll', 'Time Log History', '1. Open admin (the private office dashboard).\n2. In the menu on the left side of the screen, click \'Time Logs\'.\n3. Click the tab labeled \'Time Log History\'.\n4. Use the filters to narrow the list down to just one specific person and one specific week.\n5. Pick a few of the shifts shown and check the date, start time, end time, and length against what that person actually worked.', 'The dates, times, and shift lengths shown should all be correct, and after applying the filters, the list should genuinely only show that one person\'s shifts from that one week - not shifts from other people or other weeks mixed in.', 2, '', '', 'Time Logs now loads by date (two seasons back) instead of stopping at the most recent 300 shifts. An older week used to look identical to a week nobody worked.'],
   [145, 'Employees & Payroll', 'Timecard change request', '1. Open the Crew Portal (the website crew members log into) and sign in as a test employee.\n2. Submit a correction request for one of that employee\'s shifts.\n3. Open admin (the private office dashboard).\n4. In the menu on the left side of the screen, click \'Time Logs\'.\n5. Find the change request you just submitted.\n6. Before approving anything, click the tab labeled \'Time Log History\' and check what that shift currently shows.\n7. Go back and approve the change request.\n8. Check the same shift in Time Log History again.', 'The shift should show its original, unchanged values right up until you approve the request. Only after you approve it should the shift\'s values actually change to match the correction.', 1, '', '', ''],
   [146, 'Employees & Payroll', 'Crews config', '1. Open admin (the private office dashboard).\n2. In the menu on the left side of the screen, click \'Responsibilities\'.\n3. Click the tab labeled \'Crews\'.\n4. Set how many crews there should be.\n5. Assign people to each crew.\n6. Save your changes.\n7. In the menu on the left side of the screen, click \'Routes\'.\n8. Click \'Generate Route\'.\n9. Click \'Install\'.\n10. Open the dropdown menu used for picking a crew.', 'The crews and the people you just set up in Responsibilities should be exactly the ones listed when you open the crew dropdown while generating an install route.', 1, '', '', ''],
   [147, 'Employees & Payroll', 'Crew overrides', '1. Open admin (the private office dashboard).\n2. In the menu on the left side of the screen, click \'Responsibilities\'.\n3. Click the tab labeled \'One-Day Reassignment\'.\n4. Move one person to a different crew, but only for a single specific day.\n5. Check the crew list for that specific day to confirm the move took effect.\n6. Check the crew list for the day before that day.\n7. Check the crew list for the day after that day.', 'Only the one specific day you changed should show the person on their new crew. The day before and the day after should both still show that person on their normal, regular crew - unaffected by the one-day move.', 1, '', '', ''],
