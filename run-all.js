@@ -1045,12 +1045,21 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
   function runRsvp(record, response) {
     const written = {};
     const added = [];
+    const sweptFromRoutes = [];
     const ctx = {
       exports: {},
       onCall: (opts, handler) => handler,
       HttpsError: function (code, msg) { const e = new Error(msg); e.code = code; return e; },
       admin: { firestore: { FieldValue: { serverTimestamp: () => '__ts__' } } },
       findByToken: async () => ({ id: 'h1', data: record }),
+      /* portalRsvp does TWO things: it flags the lights for recycling / raises
+         the rejoined-after-recycle note (what this suite is about), AND it
+         sweeps the customer off any route a crew already holds. Both landed
+         from different work and were merged together, so the helper has to be
+         stubbed here — without it the whole async suite dies on a
+         ReferenceError, which reads as "everything in here is broken" rather
+         than "one helper is missing". */
+      removeCustomerFromUpcomingRoutes: async (id) => { sweptFromRoutes.push(id); return 0; },
       db: {
         collection: (name) => ({
           doc: () => ({ update: async (u) => { Object.assign(written, u); } }),
@@ -1062,7 +1071,7 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
     const names = Object.keys(ctx);
     new Function(...names, src)(...names.map(n => ctx[n]));
     return ctx.exports.portalRsvp({ data: { token: 't', response } })
-      .then(res => ({ res, written, added }));
+      .then(res => ({ res, written, added, sweptFromRoutes }));
   }
 
   const notes = a => a.filter(m => m.__col === 'messages' && m.topic === 'Rejoined After Recycling');
@@ -1098,6 +1107,19 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
     check('flow', 'a flat "no" still flags the lights for recycling',
       declining.written.needsLightRecycle === true && declining.written.needsLightBuild === undefined,
       'declines would stop reaching the recycle queue and customer numbers would never come back');
+
+    /* ⚠ portalRsvp carries TWO behaviours built by two different sessions and
+       merged together: flagging the lights for recycling (above), and sweeping
+       the customer off any route a crew already holds. A merge is exactly
+       where one of a pair like that gets dropped in silence — it has already
+       been lost once — so assert BOTH fire on the same "no". */
+    check('flow', 'a "no" both recycles the lights AND clears them off built routes',
+      declining.written.needsLightRecycle === true && declining.sweptFromRoutes.length === 1,
+      'one half was lost — either their lights stay reserved, or a crew turns up to install ' +
+      'lights they said no to');
+    check('flow', 'back next year also clears them off built routes',
+      (await runRsvp({ name: 'Sitting Out 2', rsvpStatus: '', needsLightRecycle: false }, 'backnextyear')).sweptFromRoutes.length === 1,
+      'sitting the season out must not leave them on a route a crew is already holding');
 
     // 4. Back next year is a distinct third answer, never a soft no.
     const back = await runRsvp({ name: 'Sitting Out', rsvpStatus: 'no', needsLightRecycle: false }, 'backnextyear');
@@ -1469,9 +1491,24 @@ suite('8. Quote decline / maybe next year');
         fns.indexOf('async function pullCustomerFromSeason') + 1800)),
       'they would still show up somewhere outside All Customers');
   });
-  check('quoteresp', 'past routes are left alone as history',
-    /\(rd\.date \|\| ''\) < todayStr/.test(fns.slice(fns.indexOf('async function pullCustomerFromSeason'))),
-    'rewriting a finished route changes what the crew actually did');
+  /* The past-route guard lives in removeCustomerFromUpcomingRoutes now, not
+     inline in pullCustomerFromSeason — that function was refactored down to a
+     status write plus a delegation. This check used to slice
+     pullCustomerFromSeason and look for the guard inside it, so it started
+     FAILING on correct code the moment the refactor landed.
+     Renamed too: there was already a check called 'past routes are left alone
+     as history' in the health suite, and two identically-named checks in one
+     run is how a real failure gets mistaken for the other one. */
+  const pullSrc = fns.slice(fns.indexOf('async function pullCustomerFromSeason'),
+    fns.indexOf('async function pullCustomerFromSeason') + 1800);
+  const sweepSrc = fns.slice(fns.indexOf('async function removeCustomerFromUpcomingRoutes'),
+    fns.indexOf('async function removeCustomerFromUpcomingRoutes') + 1800);
+  check('quoteresp', 'sitting out the season delegates the route sweep',
+    /return await removeCustomerFromUpcomingRoutes\(customerId\)/.test(pullSrc),
+    'the season pull must still clear their upcoming routes, wherever that logic lives');
+  check('quoteresp', 'the route sweep leaves PAST routes alone as history',
+    /\(rd\.date \|\| ''\) < todayStr/.test(sweepSrc),
+    'rewriting a finished route changes the record of what the crew actually did that day');
 
   // --- money is not touched ---------------------------------------------
   const pull = fns.slice(fns.indexOf('async function pullCustomerFromSeason'),
