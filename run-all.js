@@ -1928,6 +1928,40 @@ suite('9. Portal sign-in security');
 })();
 
 // =====================================================================
+/* ⚠ THE BUG THIS SUITE CATCHES.
+ *
+ * "Convert to Customer" on a quote card never checked whether that quote had
+ * already been converted — only whether it was archived. Converting sets
+ * status:'closed' and convertedToCustomerAt, but the button stayed live and
+ * clickable on an already-closed quote, and the Add Customer submit handler
+ * did an unconditional addDoc with no dedup check. A second click created a
+ * genuine duplicate: a second jobAddresses record, invoice, warehouse entry
+ * and customer number for the same person. Fixed on both ends — the button
+ * itself no longer renders once convertedToCustomerAt is set, and the submit
+ * handler independently re-checks the quote against the server right before
+ * writing, so a second staff member converting the same quote in a different
+ * tab is caught too, not just a double-click in one tab.
+ */
+(function () {
+  const cardStart = admin.indexOf("Restore this quote");
+  const cardSrc = cardStart > -1 ? admin.slice(cardStart, cardStart + 1200) : '';
+  check('convert-dup', 'quote card render found in admin.html', cardStart > -1,
+    'renamed or removed — update this test rather than deleting it');
+  check('convert-dup', 'the Convert to Customer button no longer shows once a quote is converted',
+    /d\.convertedToCustomerAt[\s\S]{0,300}data-converttocust/.test(cardSrc),
+    'a converted quote still offered a live "Convert to Customer" button, inviting a second, duplicate conversion');
+
+  const guardStart = admin.indexOf('dupCheckSnap');
+  const guardSrc = guardStart > -1 ? admin.slice(Math.max(0, guardStart - 400), guardStart + 500) : '';
+  check('convert-dup', 'Add Customer guard found in admin.html', guardStart > -1,
+    'renamed or removed — update this test rather than deleting it');
+  check('convert-dup', 'submitting Add Customer re-checks the quote for a prior conversion before writing',
+    /if\(addCustFromQuoteId\)\{[\s\S]{0,150}dupCheckSnap[\s\S]{0,150}convertedToCustomerAt[\s\S]{0,150}return;/.test(guardSrc),
+    'clicking Add Customer twice on the same pre-filled form (or two staff converting the same quote at once) ' +
+    'created a second jobAddresses record, invoice, warehouse entry and customer number for one person');
+})();
+
+// =====================================================================
 // Wait for the async suites before totalling up — see pendingAsync at the top.
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {

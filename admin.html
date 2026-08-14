@@ -6718,7 +6718,15 @@ function renderQuoteRows(filtered){
       '<div class="row-actions">'+
         (d.quoteArchived
           ? '<button type="button" class="icon-btn" data-restorequote="'+item.id+'" title="Restore this quote" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:var(--gold-dim);">Restore</button>'
-          : '<button type="button" class="icon-btn" data-converttocust="'+item.id+'" title="Convert to Customer" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:var(--gold-dim);">Convert to Customer</button>'+
+          /* Once converted, the button stays gone even if the quote is later
+             restored/unarchived — clicking it again would re-fill the Add a
+             Customer form and, on submit, create a genuine second customer
+             record for the same quote (the actual write is guarded too, see
+             addCustFromQuoteId above, but not showing the button at all is
+             the fix a person would actually notice). */
+          : (d.convertedToCustomerAt
+              ? '<span class="rtext" style="margin-right:6px; color:#2E6B3E; font-weight:600; font-size:11.5px;">&#10003; Converted'+(d.convertedToCustomerAt ? ' &mdash; '+fmtDate(d.convertedToCustomerAt) : '')+'</span>'
+              : '<button type="button" class="icon-btn" data-converttocust="'+item.id+'" title="Convert to Customer" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:var(--gold-dim);">Convert to Customer</button>')+
             '<button type="button" class="icon-btn" data-archivequote="'+item.id+'" title="Archive this quote" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:var(--slate);">Archive</button>')+
         '<select data-id="'+item.id+'" class="quoteStatusSelect" style="border-radius:8px; border:1px solid var(--line); padding:6px 8px; font-size:12.5px;">'+
           '<option value="new"'+(status==='new'?' selected':'')+'>New</option>'+
@@ -12418,6 +12426,22 @@ document.getElementById('routeAddressForm').addEventListener('submit', async fun
   if(wantsBilling && !custKey && !billToPhone){
     statusEl.textContent = 'Add a phone number or an email (or a Bill To phone) to also create the invoice.';
     return;
+  }
+
+  /* A second click on "Convert to Customer" (the button never hid itself once
+     a quote was converted — fixed alongside this) re-fills this same form,
+     and without this check, clicking Add Customer again created a genuine
+     duplicate: a second jobAddresses record, invoice, warehouse entry and
+     customer number for the same quote. Re-checking against the server
+     rather than the cached list catches a second staff member converting it
+     in a different tab too. */
+  if(addCustFromQuoteId){
+    const dupCheckSnap = await getDoc(doc(db,'quotes', addCustFromQuoteId));
+    const dupCheckData = dupCheckSnap.exists() ? dupCheckSnap.data() : null;
+    if(dupCheckData && dupCheckData.convertedToCustomerAt){
+      statusEl.textContent = 'This quote was already converted to a customer — refresh Quote Requests instead of converting it again.';
+      return;
+    }
   }
 
   statusEl.textContent = 'Locating address…';
