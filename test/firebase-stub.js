@@ -76,7 +76,12 @@ const FAKE_FIRESTORE_MODULE = `
     try {
       cb({ exists: () => bucket !== null, data: () => bucket || {},
            empty: true, docs: [], forEach: () => {} });
-    } catch (e) { /* the page's own handler threw — its problem, not ours */ }
+    } catch (e) {
+      /* The page's own snapshot handler threw. Swallowing this silently hid a
+       * real cause once already — record it so a test can report it. */
+      (window.__HU_SNAPSHOT_ERRORS__ = window.__HU_SNAPSHOT_ERRORS__ || []).push(String(e));
+      console.error('snapshot handler threw:', e);
+    }
     return () => {};
   }
 
