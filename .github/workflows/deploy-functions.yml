@@ -23,7 +23,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # GATE. The functions deploy touches money — nightly invoicing, PayPal
+  # capture, the portal write path. It does not run until the fast test suite
+  # passes on this exact commit. Added 2026-08-14.
+  #
+  # This is the real CI gate in this repo. Netlify publishes the HTML whether
+  # or not tests pass (see CLAUDE.md §9.10), so gating the functions deploy is
+  # where a failing test actually stops something dangerous from shipping.
+  #
+  # Deliberately NOT gated on the browser tests: those are expected-red until
+  # the five known portal bugs are fixed, and blocking every functions deploy
+  # on a known-red suite would just teach everyone to bypass the gate.
+  test:
+    name: Fast suite must pass first
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
   deploy:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - name: Get the code
