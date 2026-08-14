@@ -5019,6 +5019,69 @@ function ssnBuildPlan(){
   });
   return { houses: houses, invoices: invoices, totalArchive: totalArchive, totalOwed: totalOwed };
 }
+/* ---- the season snapshot: the books, before they are wiped ----------------
+ *
+ * Start New Season zeroes every invoice — deposit, credits, credit notes,
+ * change fees, fee notes, the lot — and banks last year's payments as ONE
+ * number in settings/financeArchive. After it runs, "who paid, how much, and
+ * when" is gone, permanently, for all ~967 customers. There is no undo, no
+ * export beforehand, and nothing to answer a customer who says "I paid you in
+ * November" the following spring.
+ *
+ * This captures the per-customer record FIRST. yearlySnapshots/{year} already
+ * exists and already holds the finance totals for the year (see
+ * saveYearlySnapshot), so the detail is merged onto that same document rather
+ * than inventing a second home for it — one place to look, one year, one row
+ * in the Snapshots list.
+ *
+ * What is deliberately kept: everything needed to reconstruct a customer's
+ * position at the moment of the reset. What is deliberately NOT kept: internal
+ * costing or crew notes, which are not part of the money record.
+ */
+function ssnBuildSnapshotRows(plan){
+  return plan.invoices.map(function(x){
+    const inv = allInvoicesCache.find(i => i.id === x.id);
+    const d = (inv && inv.data) || {};
+    return {
+      id: x.id,
+      name: d.name || '',
+      phone: d.phone || '',
+      email: d.email || '',
+      // what they were charged
+      install: Number(d.install) || 0,
+      removal: Number(d.removal) || 0,
+      changeFees: Number(d.changeFees) || 0,
+      changeFeeNotes: Array.isArray(d.changeFeeNotes) ? d.changeFeeNotes : [],
+      credits: Number(d.credits) || 0,
+      creditNotes: Array.isArray(d.creditNotes) ? d.creditNotes : [],
+      newMemberFeeApplied: !!d.newMemberFeeApplied,
+      // what they actually paid, and how — this is the part that cannot be rebuilt
+      deposit: Number(d.deposit) || 0,
+      tipTotal: Number(d.tipTotal) || 0,
+      lastPaymentAt: d.lastPaymentAt || null,
+      lastPaymentMethod: d.lastPaymentMethod || '',
+      paypalPayments: Array.isArray(d.paypalPayments) ? d.paypalPayments : [],
+      status: d.status || '',
+      invoicedAt: d.invoicedAt || null
+    };
+  });
+}
+
+/* Firestore's hard limit is 1 MiB per document. At ~967 customers this comes to
+   roughly 200 KB, so there is plenty of room — but the number of customers only
+   goes up, and a snapshot that silently dropped half the rows would be worse
+   than none at all: it would LOOK like a complete record. Measured, and the
+   whole reset refuses rather than writing a partial one. */
+const SSN_SNAPSHOT_MAX_BYTES = 900 * 1024;
+function ssnSnapshotTooBig(rows){
+  try{
+    return new Blob([JSON.stringify(rows)]).size > SSN_SNAPSHOT_MAX_BYTES;
+  } catch(e){
+    // No Blob for some reason — fall back to the string length, which
+    // over-counts multi-byte characters and so errs on the safe side.
+    return JSON.stringify(rows).length > SSN_SNAPSHOT_MAX_BYTES;
+  }
+}
 document.getElementById('ssnCheckBtn')?.addEventListener('click', function(){
   const plan = ssnBuildPlan();
   const report = document.getElementById('ssnReport');
@@ -5037,10 +5100,43 @@ document.getElementById('ssnRunBtn')?.addEventListener('click', async function()
   const plan = ssnBuildPlan();
   const status = document.getElementById('ssnStatus');
   if(!plan.houses.length){ status.textContent = 'No customers in scope.'; return; }
-  if(!confirm('Start a new season for ' + plan.houses.length + ' customers?\n\nThis banks ' + fmtMoney(plan.totalArchive) + ' of last year’s payments to the Dashboard, resets everyone’s paid amount to $0 so they owe this year’s charge, drops the one-time $30 join fee, clears old invoice discounts, and marks them not-yet-installed.\n\nCredit already on file for a customer is kept. This cannot be undone.')) return;
+  if(!confirm('Start a new season for ' + plan.houses.length + ' customers?\n\nThis banks ' + fmtMoney(plan.totalArchive) + ' of last year’s payments to the Dashboard, resets everyone’s paid amount to $0 so they owe this year’s charge, drops the one-time $30 join fee, clears old invoice discounts, and marks them not-yet-installed.\n\nCredit already on file for a customer is kept.\n\nBefore anything is changed, a full snapshot of this season’s books — who paid, how much, when, and how — is saved under Snapshots for ' + new Date().getFullYear() + '. If that snapshot cannot be saved, nothing is reset.\n\nThe invoices themselves still cannot be un-reset.')) return;
   const btn = this; btn.disabled = true;
   status.textContent = 'Working…';
   try{
+    /* ---- SNAPSHOT FIRST, and prove it landed --------------------------
+       Everything below this point destroys the payment record. The snapshot
+       is written, then READ BACK, before a single invoice is touched — a
+       write that silently failed would otherwise leave no books and no
+       warning. If anything here is not right, the whole reset stops and
+       nothing has been changed yet. */
+    const seasonYear = String(new Date().getFullYear());
+    status.textContent = 'Saving a snapshot of this season’s books…';
+    const snapRows = ssnBuildSnapshotRows(plan);
+    if(ssnSnapshotTooBig(snapRows)){
+      status.textContent = '✗ Stopped — too many customers to snapshot into one record safely, and a partial snapshot ' +
+        'would look like a complete one. NOTHING has been changed. Please ask for the snapshot to be split before running this.';
+      btn.disabled = false;
+      return;
+    }
+    await setDoc(doc(db,'yearlySnapshots', seasonYear), {
+      year: Number(seasonYear),
+      seasonResetAt: serverTimestamp(),
+      seasonResetCount: snapRows.length,
+      seasonArchivedTotal: plan.totalArchive,
+      invoices: snapRows
+    }, {merge:true});
+
+    // Read it back. "The write resolved" is not the same as "the data is there".
+    const snapCheck = await getDoc(doc(db,'yearlySnapshots', seasonYear));
+    const savedRows = snapCheck.exists() ? (snapCheck.data().invoices || []) : [];
+    if(savedRows.length !== snapRows.length){
+      status.textContent = '✗ Stopped — the snapshot did not save correctly (' + savedRows.length + ' of ' +
+        snapRows.length + ' records). NOTHING has been changed. Try again, and if it keeps happening do not run this.';
+      btn.disabled = false;
+      return;
+    }
+
     // Bank last year's payments first so revenue history isn't lost.
     if(plan.totalArchive > 0){
       await setDoc(doc(db,'settings','financeArchive'), {archivedRevenue: increment(plan.totalArchive)}, {merge:true});
@@ -5059,6 +5155,16 @@ document.getElementById('ssnRunBtn')?.addEventListener('click', async function()
              overdue the moment the season opened. The nightly run stamps a
              fresh one on the night their lights go back up. */
           invoicedAt: null,
+          /* Two guards that are ABOUT last season and must not survive it.
+             receiptSentForDeposit stops the same receipt going out twice for
+             the same figure — carry last year's amount over and a customer who
+             happens to pay the same total this year gets no receipt at all.
+             importedPayments is the payment importer's own de-duplication
+             list; leave it and next season's first import silently skips rows
+             it thinks it has already seen. Both are cheap to clear here and
+             very hard to notice once they have gone wrong. */
+          receiptSentForDeposit: null,
+          importedPayments: [],
           status: computeInvoiceStatus(x.newInstall, x.removal, 0, 0, 0),
           priceReviewed: true, updatedAt: serverTimestamp()
         });
@@ -5076,7 +5182,9 @@ document.getElementById('ssnRunBtn')?.addEventListener('click', async function()
       hdone += chunk.length;
       status.textContent = 'Reopening customers… ' + hdone + '/' + plan.houses.length;
     }
-    status.textContent = '✓ New season started — ' + plan.houses.length + ' customers now owe this year’s charge; ' + fmtMoney(plan.totalArchive) + ' banked to the Dashboard. Each bills again the night their lights go back up.';
+    status.textContent = '✓ New season started — ' + plan.houses.length + ' customers now owe this year’s charge; ' +
+      fmtMoney(plan.totalArchive) + ' banked to the Dashboard. Last season’s payment record for ' + snapRows.length +
+      ' invoice(s) is saved under Snapshots ' + seasonYear + '. Each bills again the night their lights go back up.';
     document.getElementById('ssnReport').innerHTML = '';
     document.getElementById('ssnRunBtn').style.display = 'none';
   }catch(err){
@@ -11312,19 +11420,71 @@ document.getElementById('addBudgetCatBtn').addEventListener('click', async funct
   const el = document.getElementById('yearlySnapshotYearInput');
   if(el) el.value = new Date().getFullYear();
 })();
+/* A snapshot's lastPaymentAt can come back as a Firestore Timestamp, a plain
+   object with .seconds after a JSON round trip, or a string. All three have to
+   read as a date in the spreadsheet, or the one column that answers "when did
+   they pay?" comes out blank. */
+function snapDateText(v){
+  if(!v) return '';
+  try{
+    const d = v.toDate ? v.toDate() : (v.seconds ? new Date(v.seconds * 1000) : new Date(v));
+    return isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-US', {year:'numeric', month:'short', day:'numeric'});
+  } catch(e){ return ''; }
+}
 function renderYearlySnapshots(){
   const wrap = document.getElementById('yearlySnapshotsList');
   if(!wrap) return;
   if(!yearlySnapshotsCache.length){ wrap.innerHTML = '<p style="font-size:12.5px; color:var(--slate);">No snapshots saved yet.</p>'; return; }
-  wrap.innerHTML = '<table style="width:100%; border-collapse:collapse; font-size:12.5px;"><tr style="text-align:left; border-bottom:1px solid var(--line);"><th style="padding:4px 6px;">Year</th><th style="padding:4px 6px;">Revenue</th><th style="padding:4px 6px;">Expenses</th><th style="padding:4px 6px;">CC Spend</th><th style="padding:4px 6px;">Net Worth</th><th></th></tr>'+
+  wrap.innerHTML = '<table style="width:100%; border-collapse:collapse; font-size:12.5px;"><tr style="text-align:left; border-bottom:1px solid var(--line);"><th style="padding:4px 6px;">Year</th><th style="padding:4px 6px;">Revenue</th><th style="padding:4px 6px;">Expenses</th><th style="padding:4px 6px;">CC Spend</th><th style="padding:4px 6px;">Net Worth</th><th style="padding:4px 6px;">Payment records</th><th></th></tr>'+
     yearlySnapshotsCache.map(function(item){
       const d = item.data;
+      /* A snapshot taken by Start New Season also carries the per-customer
+         payment record for that season — who paid, how much, when and how.
+         Showing the count matters twice over: it is the only way to see the
+         books survived, and it makes plain that the delete button beside it is
+         throwing away the ONLY remaining copy. */
+      const rows = Array.isArray(d.invoices) ? d.invoices.length : 0;
+      const payCell = rows
+        ? rows + ' customer'+(rows===1?'':'s')+' <button type="button" class="btn btn-outline btn-sm" data-snapcsv="'+esc(item.id)+'" style="margin-left:6px;">Download</button>'
+        : '<span style="color:var(--slate);">—</span>';
       return '<tr style="border-bottom:1px solid var(--line);"><td style="padding:4px 6px; font-weight:700;">'+esc(item.id)+'</td>'+
         '<td style="padding:4px 6px;">'+fmtMoney(d.revenue)+'</td><td style="padding:4px 6px;">'+fmtMoney(d.expenses)+'</td>'+
         '<td style="padding:4px 6px;">'+fmtMoney(d.ccSpending)+'</td><td style="padding:4px 6px;">'+fmtMoney(d.netWorth)+'</td>'+
+        '<td style="padding:4px 6px;">'+payCell+'</td>'+
         '<td style="padding:4px 6px;"><button class="icon-btn danger" data-del="yearlySnapshots" data-id="'+item.id+'">'+trashIcon()+'</button></td></tr>';
     }).join('') + '</table>';
   attachDeleteHandlers(wrap);
+  /* Hand the payment record back as a spreadsheet. This is the whole point of
+     keeping it: "I paid you in November" is answered by opening one file and
+     searching a name, rather than by taking the customer's word for it. */
+  wrap.querySelectorAll('[data-snapcsv]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      const year = btn.dataset.snapcsv;
+      const snap = yearlySnapshotsCache.find(s => s.id === year);
+      const rows = (snap && Array.isArray(snap.data.invoices)) ? snap.data.invoices : [];
+      if(!rows.length){ toast('That snapshot has no payment records on it.'); return; }
+      const head = ['Customer','Phone','Email','Installation','Removal','Change fees','Credits','Charged','Paid','Tip','Balance at reset','Last payment','Method','Status'];
+      const lines = [head.join(',')];
+      rows.forEach(function(r){
+        const charged = (Number(r.install)||0) + (Number(r.removal)||0) + (Number(r.changeFees)||0);
+        const balance = Math.max(0, charged - (Number(r.credits)||0) - (Number(r.deposit)||0));
+        lines.push([
+          r.name || '', r.phone || '', r.email || '',
+          (Number(r.install)||0).toFixed(2), (Number(r.removal)||0).toFixed(2),
+          (Number(r.changeFees)||0).toFixed(2), (Number(r.credits)||0).toFixed(2),
+          charged.toFixed(2), (Number(r.deposit)||0).toFixed(2), (Number(r.tipTotal)||0).toFixed(2),
+          balance.toFixed(2), snapDateText(r.lastPaymentAt), r.lastPaymentMethod || '', r.status || ''
+        ].map(function(v){ return '"' + String(v).replace(/"/g,'""') + '"'; }).join(','));
+      });
+      const blob = new Blob([lines.join('\r\n')], {type:'text/csv;charset=utf-8;'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'payment-records-' + year + '.csv';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+      toast('Downloaded ' + rows.length + ' payment record(s) for ' + year);
+    });
+  });
 }
 function computeYearTotals(year){
   const revenue = allInvoicesCache.reduce((s,i) => {
@@ -21921,10 +22081,10 @@ const TEST_SEED = [
   [123, 'Nightly Automation', 'Toggle off stops the run', '1. Log into the admin dashboard.\n2. Look at the menu on the left side of the screen and click \'Invoices\'.\n3. Click the tab labeled \'Nightly Automation\'.\n4. Find the switch labeled \'Nightly Invoice Automation\' and switch it to the OFF position.\n5. Make sure a test house is marked \'Done\' and has not been billed.\n6. Wait until after 7:00 PM.\n7. After 7:00 PM, check that test house\'s invoice to see if it was emailed.\n8. Also check the \'Last 10 nightly runs\' list.', 'No invoice email should have gone out for the test house, and no new run should appear in the \'Last 10 nightly runs\' list. Turning the toggle off should mean the nightly billing does not run at all.', 3, '', '', 'Nightly billing now runs per payer, not per house.'],
   [124, 'Nightly Automation', 'Missing EmailJS keys fail loudly', '1. Log into the admin dashboard.\n2. Look at the menu on the left side of the screen and click \'Automation Emails\'.\n3. Click the tab labeled \'EmailJS Setup\' (the keys still live here - only the nightly run itself moved).\n4. Before changing anything, copy the EmailJS keys (the boxes holding the connection codes for the email-sending service) somewhere safe, like a text file, so you can put them back afterward.\n5. Clear out (delete) the EmailJS keys from their boxes.\n6. Look at the menu on the left side of the screen and click \'Invoices\'.\n7. Click the tab labeled \'Nightly Automation\'.\n8. Click the button labeled \'Send Invoices Now\'.\n9. Read whatever message appears on the screen after clicking that button.\n10. Go back to Automation Emails, then EmailJS Setup, and immediately put the keys back exactly as you copied them.', 'You should get a clear error message on the screen saying the invoices could not be sent. The app must not act like everything worked fine when the email keys are missing.', 3, '', '', 'Nightly billing now runs per payer, not per house.'],
   [125, 'Start New Season', 'Check First writes nothing', '1. Log into the admin dashboard.\n2. Look at the menu on the left side of the screen and click \'Invoices\'.\n3. Click the tab labeled \'Start New Season\'.\n4. Use the dropdown menu to pick which customers to reset.\n5. Click the button labeled \'Check First\' (this only shows you a preview — it does not actually change or save anything).\n6. Read the list of results that appears.\n7. Look at the menu on the left side of the screen and click \'Invoices\'.\n8. Click \'Invoice List\'.\n9. Find two of the customers from the list in step 7 and check their invoices.', 'The list should show exactly which customers would be reset and for how much money. The two invoices you check afterward should be completely unchanged — nothing should actually have been written or saved yet.', 2, '', '', 'Nightly Automation and Start New Season moved out of the Automation Emails panel into their own tabs under Invoices - the steps were rewritten for the new path.'],
-  [126, 'Start New Season', 'Last year payments are banked', '1. Log into the admin dashboard.\n2. Look at the menu on the left side of the screen and click \'Dashboard\'.\n3. Click \'Financial Overview\'.\n4. Write down the season total shown there.\n5. Look at the menu on the left side of the screen and click \'Invoices\'.\n6. Click the tab labeled \'Start New Season\'.\n7. Run it (actually run it, not just \'Check First\').\n8. Look at the menu on the left side of the screen and click \'Dashboard\' again.\n9. Click \'Financial Overview\' again.', 'Before Start New Season resets everyone\'s invoices, last year\'s payments should already be added into the Dashboard\'s total. When you check Financial Overview again afterward, nothing should be missing — the total should show that last year\'s payments were banked, not lost.', 2, '', '', 'Nightly Automation and Start New Season moved out of the Automation Emails panel into their own tabs under Invoices - the steps were rewritten for the new path.'],
+  [126, 'Start New Season', 'Last year payments are banked', '1. Log into the admin dashboard.\n2. Look at the menu on the left side of the screen and click \'Dashboard\'.\n3. Click \'Financial Overview\'.\n4. Write down the season total shown there.\n5. Look at the menu on the left side of the screen and click \'Invoices\'.\n6. Click the tab labeled \'Start New Season\'.\n7. Run it (actually run it, not just \'Check First\').\n8. Look at the menu on the left side of the screen and click \'Dashboard\' again.\n9. Click \'Financial Overview\' again.', 'Before Start New Season resets everyone\'s invoices, last year\'s payments should already be added into the Dashboard\'s total. When you check Financial Overview again afterward, nothing should be missing — the total should show that last year\'s payments were banked, not lost.', 3, '', '', 'Start New Season now SAVES A FULL SNAPSHOT of the season\u2019s payment records before it changes anything \u2014 who paid, how much, when and how, per customer. Check the confirm box mentions it, and that after running, Finance \u2192 Snapshots shows this year with a customer count and a Download button.'],
   [127, 'Start New Season', 'Price minus the join fee', '1. Before running anything, log into the admin dashboard.\n2. Pick a returning customer (someone who was a customer last year and is expected to continue).\n3. Find and write down last year\'s invoice amount for that customer.\n4. Note whether that invoice amount included the one-time $30 join fee (the fee charged once when a customer first joins).\n5. Look at the menu on the left side of the screen and click \'Invoices\'.\n6. Click the tab labeled \'Start New Season\'.\n7. Run it.\n8. Look at the menu on the left side of the screen and click \'Invoices\'.\n9. Click \'Invoice List\'.\n10. Find that same customer in the list.', 'The customer\'s new invoice should charge the same amount as last year, minus the one-time $30 join fee, since they already joined once and shouldn\'t be charged to join a second time.', 2, '', '', 'Nightly Automation and Start New Season moved out of the Automation Emails panel into their own tabs under Invoices - the steps were rewritten for the new path.'],
   [128, 'Start New Season', 'Discounts cleared, carryover kept', '1. Before running anything, log into the admin dashboard.\n2. Find a customer who has both: a discount on their invoice, and a carryover credit (leftover credit saved on their customer record from a previous season) on their customer record.\n3. Write down the discount amount.\n4. Write down the carryover credit amount.\n5. Look at the menu on the left side of the screen and click \'Invoices\'.\n6. Click the tab labeled \'Start New Season\'.\n7. Run it.\n8. Check that customer\'s invoice.\n9. Open \'Edit Customer\' for that same customer.', 'Last year\'s discount should be gone from the new invoice. The carryover credit amount should be completely unchanged and still sitting on the customer\'s record, ready to be used.', 2, '', '', 'Nightly Automation and Start New Season moved out of the Automation Emails panel into their own tabs under Invoices - the steps were rewritten for the new path.'],
-  [129, 'Start New Season', 'Safe to run twice', '1. Log into the admin dashboard.\n2. Look at the menu on the left side of the screen and click \'Invoices\'.\n3. Click the tab labeled \'Start New Season\'.\n4. Run it.\n5. Write down the new invoice amounts for two or three customers.\n6. Look at the menu on the left side of the screen, click \'Dashboard\', and write down the total shown there.\n7. Go back to \'Invoices\', then the \'Start New Season\' tab, and run it again immediately, a second time.\n8. Check those same two or three customers\' amounts again.\n9. Check the Dashboard total again.', 'Nothing should have changed on the second run. The customer amounts and the Dashboard total should be exactly the same as after the first run — no one should be charged twice, and no money should be banked twice.', 2, '', '', 'Nightly Automation and Start New Season moved out of the Automation Emails panel into their own tabs under Invoices - the steps were rewritten for the new path.'],
+  [129, 'Start New Season', 'Safe to run twice', '1. Log into the admin dashboard.\n2. Look at the menu on the left side of the screen and click \'Invoices\'.\n3. Click the tab labeled \'Start New Season\'.\n4. Run it.\n5. Write down the new invoice amounts for two or three customers.\n6. Look at the menu on the left side of the screen, click \'Dashboard\', and write down the total shown there.\n7. Go back to \'Invoices\', then the \'Start New Season\' tab, and run it again immediately, a second time.\n8. Check those same two or three customers\' amounts again.\n9. Check the Dashboard total again.', 'Nothing should have changed on the second run. The customer amounts and the Dashboard total should be exactly the same as after the first run — no one should be charged twice, and no money should be banked twice.', 3, '', '', 'The reset now also clears two leftovers from last season on every invoice: the duplicate-receipt guard and the payment-import history. Without that, a customer paying the same total as last year got no receipt, and the first import of the new season silently skipped rows.'],
   [130, 'Start New Season', 'Customers re-bill on reinstall', '1. After running \'Start New Season\', log into the admin dashboard.\n2. Pick a customer whose invoice was just reset by Start New Season.\n3. Mark that customer\'s house as \'Done\'. You can do this either from the Crew Portal (the app crew members use in the field) or from a route card (the stop for that house on a route list).\n4. Look at the menu on the left side of the screen and click \'Invoices\'.\n5. Click the tab labeled \'Nightly Automation\'.\n6. Click the button labeled \'Send Invoices Now\'.\n7. Check that customer\'s email.\n8. Check that customer\'s invoice.', 'The customer should have been billed again for the new season the moment their house was marked \'Done\' — an invoice email should have gone out and their invoice should reflect the new season\'s charge.', 2, '', '', 'Nightly Automation and Start New Season moved out of the Automation Emails panel into their own tabs under Invoices - the steps were rewritten for the new path.'],
   [131, 'Inbox & Templates', 'System folder collects automatic notices', '1. Open the Member Portal (the private website customers log into to manage their own account) and sign in as a test customer.\n2. Find the setting for light colours, change it to a different colour, and save the change.\n3. Find the setting for wire colour, change it to a different colour, and save the change.\n4. Find the question about the outlet timer, change the answer, and save the change.\n5. Open admin (the private office dashboard).\n6. In the menu on the left side of the screen, click \'Customer Messages\'.\n7. Find the folder labeled \'System\' (it should be pinned near the top of the list) and click it to open it.', 'All three notices - one for changing light colours, one for changing wire colour, and one for changing the outlet timer answer - should have filed themselves automatically into the System folder in Customer Messages, not into the main Inbox where they\'d clutter things up.', 1, '', '', ''],
   [132, 'Inbox & Templates', 'Decisions stay in the main Inbox', '1. Open a new tab in your web browser and go to highlightingutah.com (this is the public website that customers see).\n2. Find the public contact form on the site and send a test message through it.\n3. Open the Member Portal (the private website customers log into to manage their own account) and sign in as a test customer.\n4. Find the option to submit a cancellation request, and submit one.\n5. Open admin (the private office dashboard).\n6. In the menu on the left side of the screen, click \'Customer Messages\'.\n7. Look at the main Inbox and note what messages are sitting there.\n8. Click into the folder labeled \'System\' and look at what\'s in there too.', 'Both the contact-form message and the cancellation request should show up in the main Inbox, not in the System folder. Anything that needs a decision from you must never get buried in System - it should always land in the main Inbox where you\'ll actually see it.', 1, '', '', ''],
@@ -21950,7 +22110,7 @@ const TEST_SEED = [
   [152, 'Finance', 'Debt accounts', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word \'Dashboard\'.\n3. Click \'Financial Overview\'.\n4. Click the tab labeled \'Debt & Bills\'.\n5. Add a debt account: give it a name, type in a balance amount, and save it.\n6. Refresh the page (press F5, or click your browser\'s refresh button).', 'After refreshing, the debt account is still listed, and the balance shown next to it matches the exact amount you typed in.', 1, '', '', ''],
   [153, 'Finance', 'Credit cards and transactions', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word \'Dashboard\'.\n3. Click the tab labeled \'Business Credit Cards\'.\n4. Add a card: give it a name and fill in whatever other details it asks for, then save it.\n5. On that card, log a transaction: type in an amount and save it.\n6. Write down the exact amount you typed for that transaction.\n7. Look at the balance shown for that card.', 'The transaction you logged appears in the list for that card. The card\'s balance changed by exactly the amount of the transaction you logged - not more, not less.', 1, '', '', ''],
   [154, 'Finance', 'Card payments and recurring overrides', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word \'Dashboard\'.\n3. Click the tab labeled \'Business Credit Cards\'.\n4. Pick any card that already has a balance greater than zero.\n5. Record a payment against that card: type in a payment amount and save it.\n6. Set a recurring override for one specific month - this changes the normal recurring amount just for that one month.\n7. Look at the card\'s balance.\n8. Look at the month you set the override for.\n9. Look at the month right before it, and the month right after it.', 'The card\'s balance went down by the exact amount of the payment you recorded. The override you set only shows up on the one specific month you chose - the month before it and the month after it are unaffected and show the normal, non-override amount.', 1, '', '', ''],
-  [155, 'Finance', 'Yearly snapshot', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word \'Dashboard\'.\n3. Click \'Financial Overview\'.\n4. Find and click the option to take a year-end snapshot - this saves a copy of the current numbers.\n5. Refresh the page (press F5, or click your browser\'s refresh button).\n6. Open that same snapshot again.', 'The snapshot you took is still there after refreshing, and when you open it again, the figures inside it are exactly the same as when you first took it - nothing has changed or drifted.', 1, '', '', ''],
+  [155, 'Finance', 'Yearly snapshot', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word \'Dashboard\'.\n3. Click \'Financial Overview\'.\n4. Find and click the option to take a year-end snapshot - this saves a copy of the current numbers.\n5. Refresh the page (press F5, or click your browser\'s refresh button).\n6. Open that same snapshot again.', 'The snapshot you took is still there after refreshing, and when you open it again, the figures inside it are exactly the same as when you first took it - nothing has changed or drifted.', 2, '', '', 'The Snapshots list has a new "Payment records" column. A snapshot taken by Start New Season carries the per-customer payment record for that season and can be downloaded as a spreadsheet \u2014 that file is what answers "I paid you in November". Note the delete button beside it now throws away the only remaining copy.'],
   [156, 'Site Content', 'Reviews', '1. Log into admin (the private office dashboard - the private website you use to run the business, not highlightingutah.com, which is the public site customers see).\n2. In the menu on the left side of the screen, click the word \'Reviews\'.\n3. Add a new review - fill in whatever it asks for (such as a name and review text) - and save it.\n4. Open a new browser tab and go to highlightingutah.com.\n5. Find the reviews section on that page and check whether your new review is there.\n6. Go back to the admin browser tab.\n7. Edit the review you just added - change something in it - and save it.\n8. Go back to the highlightingutah.com browser tab, refresh the page, and check the reviews section again.\n9. Go back to the admin browser tab and delete the review you added.\n10. Go back to the highlightingutah.com browser tab, refresh the page, and check the reviews section one more time.', 'Every time - after adding, after editing, and after deleting - the reviews section on highlightingutah.com matched exactly what was in admin. When you added the review it appeared on the public site, when you edited it the edit showed up on the public site, and when you deleted it, it disappeared from the public site.', 1, '', '', ''],
   [157, 'Site Content', 'Gallery', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word \'Gallery\'.\n3. Add a photo - upload one and save it.\n4. Open a new browser tab and go to highlightingutah.com (the public site customers see).\n5. Find the gallery section and check whether your new photo is there.\n6. Go back to the admin browser tab and remove the photo you just added.\n7. Go back to the highlightingutah.com browser tab, refresh the page, and check the gallery again.', 'Both times you checked, the public gallery on highlightingutah.com matched what admin had. After you added the photo, it showed up on highlightingutah.com. After you removed it, the photo disappeared from highlightingutah.com.', 1, '', '', ''],
   [158, 'Site Content', 'Hero images', '1. Log into admin (the private office dashboard).\n2. In the menu on the left side of the screen, click the word \'Hero Images\' (these are the large photos shown at the very top of the public homepage).\n3. Either change which images are being used, or change the order they appear in, and save your changes.\n4. Open a new browser tab and go to highlightingutah.com (the public site customers see).\n5. Look at the very top of the homepage.', 'The images at the top of the highlightingutah.com homepage are exactly the ones you set in admin, and they appear in the same order you put them in.', 1, '', '', ''],
