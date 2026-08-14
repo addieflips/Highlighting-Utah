@@ -3366,6 +3366,106 @@ if (!JSDOM) {
 })();
 
 // =====================================================================
+// 15. THE PRINTED SCHEDULE — the crew's daily sheet
+// =====================================================================
+/*
+ * The Schedule dashboard lives in a shadow DOM with its own model. On screen
+ * it is a day list plus a panel of cards; on paper that is unusable, so each
+ * day panel prints a flat table instead — one row per stop, real headings, a
+ * tick box, in the order the panel shows them.
+ *
+ * These checks RUN the real row builder rather than reading it, because the
+ * failure that matters is a row silently coming out with a blank name or the
+ * stops in the wrong order, and no regex catches that.
+ */
+suite('15. The printed schedule sheet');
+{
+  const sheetStart = admin.indexOf('function schedSheetRows(');
+  const sheetEnd = admin.indexOf('function schedOpenPrint(', sheetStart);
+  if (sheetStart === -1 || sheetEnd < sheetStart) {
+    check('schedule', 'the printed-schedule builders are findable',
+      false, 'renamed or removed — update this test rather than deleting it');
+  } else {
+    // The builders are pure; everything they lean on is stubbed to something
+    // predictable so a wrong ORDER or a missing FIELD shows up as a failure.
+    global.dlabel = dt => ({ wd: 'Mon', full: 'Nov 3' });
+    global.dayDate = d => d._date;
+    global.isoOf = () => '2026-11-03';
+    global.fmtPhone = p => '(801) 555-0100';
+    global.isNewMemberHouse = h => !!h.isNew;
+    global.esc = s => (s || '').toString().replace(/[&<>"']/g, c =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const api = eval(admin.slice(sheetStart, sheetEnd) +
+      '\n;({rows: schedSheetRows, table: schedSheetTable, dayCols: SCHED_DAY_COLUMNS, planCols: SCHED_PLAN_COLUMNS})');
+
+    const day = {
+      id: 'd1', _date: new Date(2026, 10, 3), houses: [
+        { id: 1, cu: '144', name: 'Alma Reyes', address: '18 Frost Ln', city: 'Lehi',
+          phone: '8015550100', price: 450, details: 'Gate code 1234', done: true },
+        { id: 2, cu: '', name: 'Jo Park', address: '92 Birch Way', city: 'Lehi',
+          phone: '', price: 0, details: '', done: false, isNew: true },
+        { id: 3, cu: '5012', name: 'Sam Ito', address: '3 Elm Ct', city: 'Alpine',
+          phone: '8015550100', price: 300, details: 'FIX: two strands out', done: false, isFix: true }
+      ]
+    };
+    const rows = api.rows([day]);
+    check('schedule', 'one printed row per stop',
+      rows.length === 3, 'got ' + rows.length);
+    check('schedule', 'the stops keep the order the panel shows them in',
+      rows.map(r => r.name).join('|') === 'Alma Reyes|Jo Park|Sam Ito',
+      'a crew works down the sheet in order — reordering it sends them back and forth');
+    check('schedule', 'stops are numbered from 1, not 0',
+      rows[0].stop === 1 && rows[2].stop === 3);
+    check('schedule', 'a house with no price prints blank, not $0',
+      rows[1].price === '' && rows[0].price === '$450',
+      'a house that has not been priced is not a house that is free');
+    check('schedule', 'a fix is marked as one on the sheet',
+      rows[2].type === 'FIX' && rows[1].type === 'NEW' && rows[0].type === 'INSTALL',
+      'the crew treats a fix, a new member and an ordinary install differently');
+    check('schedule', 'a stop already ticked off in the app says so',
+      rows[0].done === 'done' && rows[1].done === '',
+      'without it the crew redoes a house that was finished yesterday');
+    check('schedule', 'a house with no phone leaves the cell empty',
+      rows[1].phone === '', 'a blank is honest; a formatted empty number is not');
+
+    const table = api.table(rows, api.dayCols, null);
+    check('schedule', 'the day sheet is a real table with headings',
+      /<thead>/.test(table) && />Address<\/th>/.test(table) && />Stop<\/th>/.test(table),
+      'without headings it is not a spreadsheet, it is a wall of text');
+    check('schedule', 'every stop gets a tick box',
+      (table.match(/<td class="tick">/g) || []).length === 3,
+      'the sheet is worked down on a clipboard — there has to be something to tick');
+    check('schedule', 'hostile text is escaped on the printed sheet',
+      !/<script>/.test(api.table(
+        [{ stop: 1, cu: '', name: '<script>alert(1)</script>', address: '', city: '',
+           phone: '', type: 'INSTALL', price: '', details: '', done: '' }], api.dayCols, null)),
+      'the sheet is written into a new window with document.write');
+
+    /* The whole-plan sheet repeats the date on every row, which is what lets
+       it be sorted in a spreadsheet instead of relying on a heading. */
+    const planKeys = api.planCols.map(c => c.key);
+    check('schedule', 'the whole-plan sheet carries the date and route on every row',
+      planKeys[0] === 'date' && planKeys.indexOf('route') > -1 &&
+      rows.every(r => r.date && r.route),
+      'a date only in a heading row is lost the moment the sheet is sorted');
+    check('schedule', 'the day sheet leaves the date columns off',
+      api.dayCols.every(c => c.key !== 'date'),
+      'the date is already in the heading of a single-day sheet');
+  }
+}
+/* The buttons that reach those builders — one on every day panel, and one for
+   the whole plan next to Export CSV. */
+check('schedule', 'every day panel has a Print This Day button',
+  admin.includes('data-printday="') && /printDayEl\)\{printDaySheet/.test(admin),
+  'install days, fixer routes and takedowns all render through the same panel');
+check('schedule', 'the toolbar can print the whole plan',
+  admin.includes('printPlanBtn') && /printPlanBtn'\)\{printWholePlan/.test(admin));
+check('schedule', 'the printed sheet uses the same columns as Export CSV',
+  ['CU #', 'Name', 'Address', 'City', 'Phone', 'Price', 'Type', 'Details']
+    .every(h => admin.includes("label:'" + h + "'")),
+  'the paper, the CSV and the screen have to agree about what a stop is');
+
+// =====================================================================
 // Wait for the async suites before totalling up — see pendingAsync at the top.
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
