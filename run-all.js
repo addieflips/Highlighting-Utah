@@ -508,12 +508,81 @@ check('logic', 'a customer with no phone and no email has no invoice key',
   custInvoiceKey({}) === '' && custInvoiceKey(null) === '',
   'callers must treat an empty key as "cannot bill this customer" rather than writing to a blank document id');
 
-/* Not a bug in this file — a property of the design, recorded so nobody is
-   surprised by it later. Two customers sharing a household phone resolve to the
-   same invoice. See the duplicate-phone test in the QA workbook. */
+/* VERIFIED 2026-08-14, which is what this gap asked for ("verify what this does
+   in practice before the season"). Traced through runInvoiceBatch: the nightly
+   run groups by `billToPhone || invoiceKeyFor(data)`, so two records that both
+   claim the same number as their OWN phone collapse into one payer group, and
+   three things follow, none of them announced:
+     - the combined total goes to ONE of them — `payer` is whichever record the
+       collection scan reaches first — so one is billed for both houses;
+     - the other is never billed at all, because the houses are on the first
+       one's invoice;
+     - the whole bill is HELD until every house in the group is complete
+       (`skippedNotDone`), so one house that never gets installed silently stops
+       the other from ever being billed this season.
+   It cannot be auto-resolved: two people at one number might be a couple who
+   want one bill, or two households that got typed the same by mistake, and only
+   the office knows which. So it is surfaced in Health Check rather than guessed
+   at — the gap closes on that being present. */
 gap('two customers sharing a phone share one invoice key',
-  false,
-  'custInvoiceKey({phone:X}) is identical for two different people with the same number, so they map to one invoice document. Verify what this does in practice before the season.');
+  /id:\s*'sharedPhone'/.test(admin),
+  'custInvoiceKey({phone:X}) is identical for two different people with the same number, so they map to one invoice document. Health Check now flags these instead of merging them silently.');
+
+/* The detection itself, EXECUTED rather than grepped — the lesson from the
+   forTotal crash (suite 10) is that a regex cannot tell whether a predicate is
+   actually right. The hard part is not finding shared numbers, it is not crying
+   wolf over the two cases that are supposed to share one bill. */
+{
+  const sharedSrc = extractFn(admin, 'hcSharedPhoneGroups');
+  check('logic', 'hcSharedPhoneGroups is defined in admin.html', !!sharedSrc,
+    'Health Check cannot flag shared phone numbers without it');
+  if (sharedSrc) {
+    eval(sharedSrc);
+    const run = list => hcSharedPhoneGroups(list).map(g => g.key);
+
+    check('logic', 'two different people on one number are flagged',
+      run([
+        { data: { name: 'Liz Frome',  phone: '801-555-0100', address: '1 Oak' } },
+        { data: { name: 'Staci Cosby', phone: '(801) 555-0100', address: '2 Elm' } },
+      ]).length === 1,
+      'two households sharing a number would be merged into one bill with nothing said');
+
+    check('logic', 'one person with two houses on one number is NOT flagged',
+      run([
+        { data: { name: 'Liz Frome', phone: '8015550100', address: '1 Oak' } },
+        { data: { name: 'liz  frome', phone: '8015550100', address: '2 Elm' } },
+      ]).length === 0,
+      'the same person billed once for both houses is correct — flagging it would train the office to ignore this row');
+
+    check('logic', 'a house deliberately billed to someone else is NOT flagged',
+      run([
+        { data: { name: 'Liz Frome',   phone: '8015550100', address: '1 Oak' } },
+        { data: { name: 'Adult Child', phone: '8015550100', billToPhone: '8015550100', address: '2 Elm' } },
+      ]).length === 0,
+      'billToPhone is the office saying "one bill" on purpose — that is the multi-house feature, not a collision');
+
+    check('logic', 'a customer who said no is NOT flagged',
+      run([
+        { data: { name: 'Liz Frome',   phone: '8015550100', address: '1 Oak' } },
+        { data: { name: 'Staci Cosby', phone: '8015550100', address: '2 Elm', rsvpStatus: 'no' } },
+      ]).length === 0,
+      'a cancelled house is not billed this season, so it cannot collide with anybody');
+
+    check('logic', 'customers with no phone and no email are NOT flagged',
+      run([
+        { data: { name: 'A Person' } },
+        { data: { name: 'B Person' } },
+      ]).length === 0,
+      'an empty invoice key is the noContact row\'s job — flagging it here would double-report every one of them');
+
+    check('logic', 'two different people sharing an EMAIL are flagged too',
+      run([
+        { data: { name: 'Liz Frome',   email: 'House@Example.com' } },
+        { data: { name: 'Staci Cosby', email: 'house@example.com  ' } },
+      ]).length === 1,
+      'custInvoiceKey falls back to email when there is no phone, so email collides in exactly the same way');
+  }
+}
 
 const projTestSyncDecisionSrc = extractFn(admin, 'projTestSyncDecision');
 eval(projTestSyncDecisionSrc);
@@ -1791,8 +1860,8 @@ console.log('\n=== 7. Health check engine ===');
     'crying wolf on a failed read is how a panel gets ignored');
 
   const all = hc.run();
-  check('health', 'all 17 checks present',
-    all.length === 17, 'got ' + all.length);
+  check('health', 'all 18 checks present',
+    all.length === 18, 'got ' + all.length);
   check('health', 'fix buttons limited to the unambiguous checks',
     all.filter(c => c.fix).length === 6,
     'auto-fixing a judgement call writes bad data at scale');

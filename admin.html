@@ -21969,6 +21969,50 @@ document.getElementById('ccTxnImportBtn').addEventListener('click', async functi
    {label, detail, ...payload}. fix is null when there is no single
    safe answer. */
 function hcDigits(v){ return String(v || '').replace(/\D/g,''); }
+
+/* Two customer records that both claim the SAME number as their own phone.
+   The invoice is filed under that number (custInvoiceKey here, invoiceKeyFor in
+   functions/index.js), so the nightly run puts both houses in one payer group
+   and three things follow, none of them announced anywhere:
+     - the combined total is emailed to whichever record the scan reaches first,
+       so one customer is billed for the other's house;
+     - the other is never billed at all, because their house is on that invoice;
+     - the bill is HELD until every house in the group is finished, so one house
+       that never gets installed quietly stops the other being billed all season.
+
+   Deliberately NOT auto-resolved. Two people at one number might be a couple who
+   want a single bill, or two households somebody typed the same number for by
+   mistake, and only the office knows which. Guessing wrong either splits a bill
+   that should be joint or bills a stranger for someone else's house.
+
+   The two cases that are SUPPOSED to share one bill are excluded, because a
+   check that cries wolf is one the office learns to scroll past:
+     - billToPhone set — that is the multi-house feature, the office saying
+       "one bill" on purpose;
+     - the same name at two addresses — one person with two houses, which is
+       exactly what a single invoice is for.
+   Kept as its own top-level function so run-all.js can EXECUTE it against these
+   cases rather than regex the page (the forTotal lesson). */
+function hcSharedPhoneGroups(list){
+  const owners = {};
+  (list || []).forEach(function(c){
+    const d = (c && c.data) || {};
+    if(String(d.rsvpStatus||'') === 'no') return;              // not billed this season
+    if(String(d.billToPhone||'').replace(/\D/g,'')) return;    // joined to a payer on purpose
+    const key = custInvoiceKey(d);
+    if(!key) return;                                           // noContact's row, not this one
+    if(!owners[key]) owners[key] = [];
+    owners[key].push(d);
+  });
+  return Object.keys(owners).filter(function(k){
+    const g = owners[k];
+    if(g.length < 2) return false;
+    const names = g.map(function(d){
+      return String((d && d.name) || '').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+    }).filter(Boolean);
+    return new Set(names).size > 1;
+  }).map(function(k){ return {key: k, members: owners[k]}; });
+}
 function hcName(d){ return (d && d.name) || '(no name)'; }
 function hcAddr(d){ return [(d && d.address) || '', (d && d.city) || ''].filter(Boolean).join(', '); }
 /* Does this customer have a usable map pin? Judged on the coordinates
@@ -22261,6 +22305,25 @@ function hcRunChecks(){
         detail: (hcAddr(first) || 'no address') +
           (g.members.length > 1 ? ' — and ' + (g.members.length - 1) + ' more on this bill' : '') +
           ' — no email anywhere on the bill'
+      };
+    })
+  });
+
+  /* Two households filed under one number. See hcSharedPhoneGroups above for
+     what the nightly run actually does with them, and why this is surfaced
+     rather than resolved automatically. */
+  checks.push({
+    id: 'sharedPhone',
+    title: 'Two different customers share one phone number',
+    why: 'The invoice is filed under the phone number, so these records become a single bill. One of them is billed for both houses and the other is never billed at all — and neither is billed until every house in the group is installed, so one unfinished house holds the other up all season.',
+    fix: null,
+    fixNote: 'No button: only you can tell whether these are two households that need separate numbers, or one payer whose second house should have Bill To set to that number. Both fixes are on the customer record.',
+    rows: hcSharedPhoneGroups(jobAddresses).map(function(g){
+      return {
+        label: g.members.map(function(d){ return hcName(d); }).join('  +  '),
+        detail: 'both filed under ' + fmtPhone(g.key) + ' — ' +
+          g.members.map(function(d){ return hcAddr(d) || 'no address'; }).join(' / ') +
+          ' — one bill covers both'
       };
     })
   });
