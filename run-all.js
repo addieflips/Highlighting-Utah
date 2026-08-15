@@ -4783,9 +4783,17 @@ suite('17. A new customer lands on the next day in their city');
   check('autosched', 'a house that was moved raises a System notice',
     /noticeCustomerPushedBack/.test(autoSrc) && /folder: 'System'/.test(admin),
     'their day changed and nobody told them — that has to reach the office');
+  /* Same guarantee, new shape. The bump moved from a hand-rolled backwards scan
+     to bumpCandidateIndex over a pre-filtered list on 2026-08-15, when the rule
+     became "only over forty" — so this now asserts the filter that keeps the
+     newcomer and anyone else added late out of the running. */
   check('autosched', 'a house added new is never itself the one bumped',
-    /withNew\[i\]\.addedNew\) continue/.test(autoSrc),
+    /s\.id !== custId && !s\.addedNew/.test(autoSrc),
     'two customers added in a row would just push each other around');
+  check('autosched', 'and the one that goes is chosen by the same rule the sweep uses',
+    /bumpCandidateIndex\(pickable/.test(autoSrc),
+    'two copies of "who gets bumped" that can disagree is how the office sees the ' +
+    'cap move one house at Add Customer time and a different one fifteen minutes later');
   check('autosched', 'the November rule is driven by the same dates that hide them from route generation',
     /Mirrors isInstallPrefLocked/.test(admin),
     'two copies of the November cutoff that can disagree is how a house goes out in the wrong month');
@@ -5012,6 +5020,144 @@ check('reconcile', 'two sweeps can never overlap',
 check('reconcile', 'houses left over are given a grace period before being moved',
   /LEFTOVER_GRACE_DAYS/.test(admin),
   'the office marks a day done the next morning — same-night moves would move finished houses');
+
+// =====================================================================
+// 18. FORTY HOUSES A DAY, AND THE CASCADE WHEN ONE RUNS OVER
+// =====================================================================
+/*
+ * Owner's rules, 2026-08-15:
+ *   - never more than 40 houses on one day; the 41st is pushed back to the next
+ *     time the crew is in that city;
+ *   - the house that moves is one of last year's, not the new hang, because the
+ *     newcomer is the reason the day is full and has never been hung;
+ *   - a new hang that is on no day at all gets put on one automatically;
+ *   - a day with no later day in its city is allowed to go over, loudly.
+ *
+ * evenOutDays is deliberately PURE so all of that can be RUN here rather than
+ * regexed. A rescheduler that is only read as text is a rescheduler nobody has
+ * proved moves the right house.
+ */
+suite('18. Forty houses a day');
+{
+  const capStart = admin.indexOf('const MAX_STOPS_PER_DAY');
+  const capEnd = admin.indexOf('/* The sweep. Returns a plain-English report', capStart);
+  if (capStart === -1 || capEnd < capStart) {
+    check('cap', 'the day-cap helpers are findable',
+      false, 'renamed or removed — update this test rather than deleting it');
+  } else {
+    const api = eval(admin.slice(capStart, capEnd) +
+      '\n;({even: evenOutDays, pick: bumpCandidateIndex, max: MAX_STOPS_PER_DAY,' +
+      ' isNew: isNewHangHouse})');
+
+    check('cap', 'the cap is forty', api.max === 40);
+
+    /* Everybody returning except #3, which is a new hang. */
+    const people = {};
+    const stops = (n, city, newIdx) => Array.from({ length: n }, (_, i) => {
+      const id = city + i;
+      people[id] = { chargeNewMemberFee: (newIdx || []).indexOf(i) !== -1 };
+      return { id: id, name: city + ' ' + i };
+    });
+    const look = id => people[id];
+
+    check('cap', 'the house that moves is one of last year\'s, not the new hang',
+      (() => { const s = stops(3, 'L', [2]); return api.pick(s, look) === 1; })(),
+      'last in driving order among returning customers — the newcomer keeps the day ' +
+      'they were promised, which is the whole reason the day is full');
+    check('cap', 'a day of nothing but new hangs still gives somebody up',
+      (() => { const s = stops(3, 'L', [0, 1, 2]); return api.pick(s, look) === 2; })(),
+      'the cap still has to be met; refusing to pick would leave the day over');
+    check('cap', 'an empty day offers nobody', api.pick([], look) === -1);
+
+    // ---- a day of 41 sheds exactly one, onto the next day in that city ----
+    let days = [
+      { id: 'r1', date: '2026-11-02', city: 'Lehi', stops: stops(41, 'a') },
+      { id: 'r2', date: '2026-11-05', city: 'Lehi', stops: [] }
+    ];
+    let out = api.even(days, look);
+    check('cap', '41 becomes 40 and the extra one lands on the next Lehi day',
+      days[0].stops.length === 40 && days[1].stops.length === 1 && out.moves.length === 1,
+      'this is the rule in one line: whenever there is 41, one gets pushed back');
+    check('cap', 'and it is the LAST house in driving order that goes',
+      days[1].stops[0].id === 'a40');
+    check('cap', 'a day under the cap is left completely alone',
+      (() => {
+        const d = [{ id: 'r1', date: '2026-11-02', city: 'Lehi', stops: stops(12, 'b') },
+                   { id: 'r2', date: '2026-11-05', city: 'Lehi', stops: [] }];
+        const r = api.even(d, look);
+        return d[0].stops.length === 12 && d[1].stops.length === 0 && r.moves.length === 0;
+      })(),
+      'the cap is a ceiling, not a quota — nothing drags houses forward to fill a light day');
+
+    // ---- the cascade: an overfull day tips the day after it over too -------
+    days = [
+      { id: 'r1', date: '2026-11-02', city: 'Lehi', stops: stops(45, 'c') },
+      { id: 'r2', date: '2026-11-05', city: 'Lehi', stops: stops(38, 'd') },
+      { id: 'r3', date: '2026-11-09', city: 'Lehi', stops: [] }
+    ];
+    out = api.even(days, look);
+    check('cap', 'a day that tips over because of what the day before it shed is evened out too',
+      days[0].stops.length === 40 && days[1].stops.length === 40 && days[2].stops.length === 3,
+      'this is the cascade — 45 sheds 5 onto a day of 38, which is then 43 and sheds 3');
+    check('cap', 'nobody is lost or duplicated in the shuffle',
+      (() => {
+        const all = days.flatMap(d => d.stops.map(s => s.id));
+        return all.length === 83 && new Set(all).size === 83;
+      })(),
+      'a rescheduler that drops a house is worse than one that never ran');
+
+    // ---- another city's day is not "the next time we are in that city" -----
+    days = [
+      { id: 'r1', date: '2026-11-02', city: 'Lehi', stops: stops(41, 'e') },
+      { id: 'r2', date: '2026-11-03', city: 'Orem', stops: [] }
+    ];
+    out = api.even(days, look);
+    check('cap', 'an Orem day is never offered as room for a Lehi house',
+      days[0].stops.length === 41 && days[1].stops.length === 0 && out.over.length === 1,
+      'the whole point of "the next time we are in that city" is that the truck is going anyway');
+    check('cap', 'a day with nowhere to send anyone goes over, and says so',
+      out.over[0].date === '2026-11-02' && out.over[0].count === 41 && out.over[0].cap === 40,
+      "owner's decision, 2026-08-15: never leave a new hang unscheduled — let the day " +
+      'go over and shout about it instead');
+
+    // ---- an EARLIER day is not somewhere to push a house back to ----------
+    days = [
+      { id: 'r1', date: '2026-11-02', city: 'Lehi', stops: [] },
+      { id: 'r2', date: '2026-11-05', city: 'Lehi', stops: stops(41, 'f') }
+    ];
+    out = api.even(days, look);
+    check('cap', 'pushed back means LATER — an earlier day is never the answer',
+      days[0].stops.length === 0 && days[1].stops.length === 41,
+      'moving a house backwards is not pushing it back, and could break a November preference');
+  }
+}
+/* The wiring: the sweep has to actually call it, and has to go and find the new
+   hangs that are on no day at all. */
+/* The CALL site, not the declaration — `evenOutDays(days,` matches the function
+   signature too, and that sits above step 3, so the naive version of this check
+   passed by reading the wrong line. */
+check('cap', 'the sweep evens the days out after everything else has landed',
+  admin.indexOf('evenOutDays(days, function(id)') > admin.indexOf('// ---- 3. Somewhere to go'),
+  'evening out a half-built picture would move houses that were about to be dropped anyway');
+check('cap', 'a new hang on no day at all is gone and got',
+  /if\(!isNewHangHouse\(d\)\) return;[\s\S]{0,400}needHoming\.push\(a\);/.test(admin),
+  "the owner's rule: as soon as a customer is listed as a new hang they go on the schedule");
+check('cap', 'a new hang who said no, or is sitting out, is left alone',
+  /isNewHangHouse[\s\S]{0,300}rsvpStatus === 'no'[\s\S]{0,200}needHoming/.test(admin),
+  'auto-scheduling somebody who cancelled would put them back in front of the crew');
+check('cap', 'adding a customer only bumps somebody once the day is over forty',
+  /if\(withNew\.length > MAX_STOPS_PER_DAY\)\{/.test(admin),
+  'it used to bump on EVERY add to hold the planned size — that moved a confirmed ' +
+  'date on a day of twelve for no reason');
+check('cap', 'a house moved by the cap is re-ordered into driving order on its new day',
+  /reorderFlatStops\(working\[rid\]/.test(admin),
+  'appended to the end, it sits wherever the array put it rather than where the crew drives');
+check('cap', 'a day left over the cap is named in the notice, not just counted',
+  /report\.over \|\| \[\]\)\.forEach/.test(admin) && admin.includes('to move anyone to. Build another day for '),
+  'the office can only fix it by building another day — the notice has to say which city');
+check('cap', 'the sweep still reports as changed when all it did was even days out',
+  /report\.capped\.length > 0 \|\| report\.over\.length > 0/.test(admin),
+  'a silent reshuffle is how a confirmed date changes without anybody knowing');
 
 // =====================================================================
 // Wait for the async suites before totalling up — see pendingAsync at the top.
