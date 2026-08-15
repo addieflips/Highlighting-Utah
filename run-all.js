@@ -5104,11 +5104,20 @@ suite('18. Forty houses a day');
     check('cap', 'the day-cap helpers are findable',
       false, 'renamed or removed — update this test rather than deleting it');
   } else {
+    /* latestPreferredInstallDate reaches for thanksgivingDate, which lives
+       elsewhere in the page. Stubbed rather than lifted: this suite is about
+       who moves and where, not about what date Thanksgiving falls on — that is
+       suite 17's job, and testing it twice means fixing it twice. */
+    global.thanksgivingDate = y => new Date(y, 10, 26);
+    global.toDateStr = dt => dt.getFullYear() + '-' +
+      String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
     const api = eval(admin.slice(capStart, capEnd) +
-      '\n;({even: evenOutDays, pick: bumpCandidateIndex, max: MAX_STOPS_PER_DAY,' +
-      ' isNew: isNewHangHouse})');
+      '\n;({even: evenOutDays, fill: fillDays, pick: bumpCandidateIndex,' +
+      ' max: MAX_STOPS_PER_DAY, budget: MAX_FILL_MOVES_PER_SWEEP,' +
+      ' inWindow: stillInWindow, latest: latestPreferredInstallDate, isNew: isNewHangHouse})');
 
     check('cap', 'the cap is forty', api.max === 40);
+    const yes = () => true;   // "everybody is allowed on every day", for the cap tests
 
     /* Everybody returning except #3, which is a new hang. */
     const people = {};
@@ -5188,6 +5197,131 @@ suite('18. Forty houses a day');
     check('cap', 'pushed back means LATER — an earlier day is never the answer',
       days[0].stops.length === 0 && days[1].stops.length === 41,
       'moving a house backwards is not pushing it back, and could break a November preference');
+
+    // ---- who gets bumped once windows are in play ------------------------
+    /* A returning customer who would still get what they asked for beats one
+       who would not — the cap is met either way, so meet it at the lower cost. */
+    check('cap', 'the returning customer who keeps their window is bumped first',
+      (() => {
+        const s = [{ id: 'keeps' }, { id: 'loses' }];
+        const p = { keeps: {}, loses: {} };
+        return api.pick(s, id => p[id], id => id === 'keeps') === 0;
+      })(),
+      'both are last year\'s, so pick the one the move costs nothing');
+    check('cap', 'but the cap is still met when nobody can be moved for free',
+      (() => {
+        const s = [{ id: 'a' }, { id: 'b' }];
+        const p = { a: {}, b: {} };
+        return api.pick(s, id => p[id], () => false) === 1;
+      })(),
+      'refusing to pick would leave the day over forty, the one thing the rule prevents');
+    check('cap', 'a returning customer going out late still beats moving a new hang',
+      (() => {
+        const s = [{ id: 'ret' }, { id: 'new' }];
+        const p = { ret: {}, new: { chargeNewMemberFee: true } };
+        return api.pick(s, id => p[id], id => id === 'new') === 0;
+      })(),
+      'a new hang has never been hung at all — that outranks a returning customer\'s month');
+    check('cap', 'an October house is past its window once November comes round',
+      api.inWindow({ installPreference: 'October' }, '2026-11-04') === false &&
+      api.inWindow({ installPreference: 'October' }, '2026-10-30') === true,
+      'they asked for lights up in October — a November date is not that');
+    check('cap', 'somebody who asked for nothing in particular is never "late"',
+      api.latest({ installPreference: 'Normal Schedule' }) === null &&
+      api.inWindow({}, '2026-12-31') === true);
+
+    // ================= filling a light day up to forty ====================
+    /* The other half of the owner's rule, 2026-08-15: "a day of 12 should fill
+       up to 40, we want as many people in every day as possible." */
+    const poolOf = (n, city, tag) => Array.from({ length: n }, (_, i) => ({
+      id: (tag || 'p') + city + i, city: city,
+      stop: { id: (tag || 'p') + city + i, name: city + ' pool ' + i }
+    }));
+
+    let d2 = [{ id: 'r1', date: '2026-11-02', city: 'Lehi', stops: stops(12, 'g') }];
+    let f = api.fill(d2, look, poolOf(50, 'Lehi'), yes);
+    check('fill', 'a day of twelve fills up to forty',
+      d2[0].stops.length === 40 && f.placed.length === 28,
+      'the owner\'s words: we want as many people in every day as possible');
+    check('fill', 'and stops dead on forty, never past it',
+      d2[0].stops.length === api.max);
+
+    d2 = [{ id: 'r1', date: '2026-11-02', city: 'Lehi', stops: stops(12, 'h') }];
+    f = api.fill(d2, look, poolOf(50, 'Orem'), yes);
+    check('fill', 'a Lehi day is never filled with Orem houses',
+      d2[0].stops.length === 12 && f.placed.length === 0,
+      'the crew is not in Orem that day — that is the whole meaning of a route day');
+
+    // ---- pulling houses FORWARD off a later day --------------------------
+    d2 = [
+      { id: 'r1', date: '2026-11-02', city: 'Lehi', stops: stops(30, 'i') },
+      { id: 'r2', date: '2026-11-09', city: 'Lehi', stops: stops(25, 'j') }
+    ];
+    f = api.fill(d2, look, [], yes);
+    check('fill', 'with nobody spare, houses are pulled forward off a later day',
+      d2[0].stops.length === 40 && d2[1].stops.length === 15 && f.pulled.length === 10,
+      'this is what compacts the season instead of just draining the pool');
+    check('fill', 'and nobody is lost or duplicated doing it',
+      (() => {
+        const all = d2.flatMap(d => d.stops.map(s => s.id));
+        return all.length === 55 && new Set(all).size === 55;
+      })());
+
+    check('fill', 'somebody with no day at all is taken before somebody who has one',
+      (() => {
+        const dd = [
+          { id: 'r1', date: '2026-11-02', city: 'Lehi', stops: stops(39, 'k') },
+          { id: 'r2', date: '2026-11-09', city: 'Lehi', stops: stops(5, 'm') }
+        ];
+        const r = api.fill(dd, look, poolOf(1, 'Lehi'), yes);
+        return r.placed.length === 1 && r.pulled.length === 0 && dd[1].stops.length === 5;
+      })(),
+      'getting somebody scheduled beats moving somebody who already has a date');
+
+    // ---- THE timing rule: pulling forward can break a preference ---------
+    d2 = [
+      { id: 'r1', date: '2026-10-20', city: 'Lehi', stops: stops(38, 'n') },
+      { id: 'r2', date: '2026-11-09', city: 'Lehi', stops: stops(10, 'o') }
+    ];
+    f = api.fill(d2, look, poolOf(5, 'Lehi', 'nov'), id => !/^nov/.test(id) && !/^o/.test(id));
+    check('fill', 'a November house is NEVER dragged onto an October day',
+      d2[0].stops.length === 38 && f.placed.length === 0 && f.pulled.length === 0,
+      'this is the one place the rescheduler can break a promise, and the whole ' +
+      'reason fillDays takes an allowedOn test while evenOutDays does not');
+
+    check('fill', 'one that IS allowed still comes forward from the same day',
+      (() => {
+        const dd = [
+          { id: 'r1', date: '2026-10-20', city: 'Lehi', stops: stops(39, 'q') },
+          { id: 'r2', date: '2026-11-09', city: 'Lehi', stops: [{ id: 'okr' }, { id: 'novr' }] }
+        ];
+        const r = api.fill(dd, look, [], id => id !== 'novr');
+        return r.pulled.length === 1 && r.pulled[0].id === 'okr' && dd[1].stops.length === 1;
+      })(),
+      'a blanket "no pulling forward" would be safe and useless — it has to be per house');
+
+    // ---- the budget, so one sweep cannot make 900 writes ----------------
+    d2 = [{ id: 'r1', date: '2026-11-02', city: 'Lehi', stops: [] }];
+    f = api.fill(d2, look, poolOf(50, 'Lehi'), yes, 40, 7);
+    check('fill', 'a sweep stops at its budget and says there is more to do',
+      f.placed.length === 7 && f.budgetHit === true,
+      'the first sweep after this shipped could otherwise be several hundred ' +
+      'sequential writes with the office watching a frozen tab');
+    check('fill', 'and the budget is big enough to be worth having', api.budget >= 50);
+
+    check('fill', 'a day that is already full is left completely alone',
+      (() => {
+        const dd = [{ id: 'r1', date: '2026-11-02', city: 'Lehi', stops: stops(40, 'r') }];
+        const r = api.fill(dd, look, poolOf(10, 'Lehi'), yes);
+        return dd[0].stops.length === 40 && r.placed.length === 0;
+      })());
+    check('fill', 'a day with no city is skipped rather than filled with anybody',
+      (() => {
+        const dd = [{ id: 'r1', date: '2026-11-02', city: '', stops: [] }];
+        const r = api.fill(dd, look, poolOf(10, 'Lehi'), yes);
+        return dd[0].stops.length === 0 && r.placed.length === 0;
+      })(),
+      'a route whose city could not be judged would otherwise hoover up the pool');
   }
 }
 /* The wiring: the sweep has to actually call it, and has to go and find the new
@@ -5196,8 +5330,32 @@ suite('18. Forty houses a day');
    signature too, and that sits above step 3, so the naive version of this check
    passed by reading the wrong line. */
 check('cap', 'the sweep evens the days out after everything else has landed',
-  admin.indexOf('evenOutDays(days, function(id)') > admin.indexOf('// ---- 3. Somewhere to go'),
+  admin.indexOf('evenOutDays(days, custData)') > admin.indexOf('// ---- 3. Somewhere to go'),
   'evening out a half-built picture would move houses that were about to be dropped anyway');
+/* Anchored on the ASSIGNMENT, not the arguments. Argument names do not
+   distinguish a call from its declaration — the declaration uses exactly the
+   same ones, which is what made the first two attempts at this check pass and
+   fail for the wrong reasons. */
+check('cap', 'and tops the days up only once the overfull ones have been shed',
+  admin.indexOf('const topped = fillDays(') > admin.indexOf('const evened = evenOutDays('),
+  'filling first would pack a day to forty that is about to shed houses anyway, ' +
+  'and the two passes would fight each other every fifteen minutes');
+check('fill', 'the fill is bounded so one sweep cannot make hundreds of writes',
+  /fillDays\(days, custData, pool, allowedOn, MAX_STOPS_PER_DAY,\s*[\r\n ]*MAX_FILL_MOVES_PER_SWEEP\)/.test(admin),
+  'the first sweep after this shipped has the whole unscheduled pool to place');
+check('fill', 'every unscheduled customer is a candidate now, not just new hangs',
+  /pool\.push\(\{id: a\.id/.test(admin) && /pool\.sort\(/.test(admin),
+  "owner's correction, 2026-08-15: a day of 12 should fill up to 40");
+check('fill', 'and new hangs get the seats first when there are not enough',
+  /\(b\.newHang \? 1 : 0\) - \(a\.newHang \? 1 : 0\)/.test(admin),
+  'a returning customer waiting one more week is not the same as a new hang never going out');
+check('fill', 'pulling a house forward is gated on their timing preference',
+  /const allowedOn = function\(id, dateStr\)\{[\s\S]{0,220}earliestAllowedInstallDate\(d\)\) <= dateStr/
+    .test(admin.replace(/\r/g, '')),
+  'this is the one place the rescheduler can put a November house on an October day');
+check('fill', 'a customer the lookup cannot find is never assumed to be allowed',
+  /return !!d && toDateStr\(earliestAllowedInstallDate/.test(admin),
+  'silence read as a yes is how a promise gets broken by a missing record');
 check('cap', 'a new hang on no day at all is gone and got',
   /if\(!isNewHangHouse\(d\)\) return;[\s\S]{0,400}needHoming\.push\(a\);/.test(admin),
   "the owner's rule: as soon as a customer is listed as a new hang they go on the schedule");

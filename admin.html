@@ -18663,17 +18663,40 @@ function upcomingInstallRoutes(){
   return out.sort(function(a,b){ return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0); });
 }
 
-/* ============ FORTY HOUSES A DAY, AND WHO MOVES WHEN IT IS FULL ============
+/* ================= FORTY HOUSES A DAY, BOTH WAYS =================
  *
- * Owner's rule, 2026-08-15: "there should never be more than 40 in one day, so
- * whenever there is 41 people then it automatically pushes them back to the
- * next time we are in that city."
+ * Owner's rules, 2026-08-15:
+ *   "there should never be more than 40 in one day, so whenever there is 41
+ *    people then it automatically pushes them back to the next time we are in
+ *    that city"
+ *   "a day of 12 should fill up to 40, we want as many people in every day as
+ *    possible"
  *
- * Note this is a CAP, not a quota. A day of twelve is left at twelve — nothing
- * drags houses forward to fill it. The only thing that moves a house is a day
- * running over.
+ * So 40 is a TARGET, not just a ceiling, and there are two halves to it:
+ *   evenOutDays  sheds the surplus off a day that is over 40, onto the next day
+ *                the crew is in that city (and cascades when that one tips too);
+ *   fillDays     tops every day up to 40 — first from houses on no day at all,
+ *                then by pulling houses FORWARD off later days in the same city.
+ *
+ * ⚠ THE ASYMMETRY THAT MATTERS: pushing a house LATER can never break a timing
+ * preference, because those only ever forbid earlier dates. Pulling a house
+ * FORWARD absolutely can, which is why fillDays takes an `allowedOn` test and
+ * evenOutDays does not. Do not "tidy" that into one shared check.
+ *
+ * Filling forward compacts the season towards the front: a day emptied by being
+ * pulled from is itself topped up from the days after it, so the whole thing
+ * settles with the work as early as it is allowed to be. It converges — once
+ * every day is at 40 or has nothing left to pull, a sweep changes nothing.
  */
 const MAX_STOPS_PER_DAY = 40;
+
+/* How much re-arranging one sweep is allowed to do. Not a rule about routes —
+   a guard about writes. The first sweep after this shipped could otherwise
+   schedule several hundred houses in one go, which is several hundred
+   sequential Firestore writes with the office sat watching a frozen tab.
+   Whatever is left over is simply done by the next sweep fifteen minutes
+   later, and the notice says so. */
+const MAX_FILL_MOVES_PER_SWEEP = 150;
 
 /* New to us this season, read off the same box the New Hang badge and the
    nightly invoice both trust (chargeNewMemberFee). Used ONLY to decide who
@@ -18682,16 +18705,58 @@ const MAX_STOPS_PER_DAY = 40;
    returning customer has had their lights hung before and a new hang has not. */
 function isNewHangHouse(d){ return !!(d && d.chargeNewMemberFee === true); }
 
-/* Which house comes off a full day. Last in driving order, so the one the crew
-   would have reached last anyway, preferring one of last year's customers.
-   Falls back to the last stop of any kind when a day is nothing but new hangs —
-   the cap still has to be met, and refusing to pick would leave the day over.
-   Returns -1 for an empty list. */
-function bumpCandidateIndex(stops, custData){
-  for(let i = stops.length - 1; i >= 0; i--){
-    if(!isNewHangHouse(custData(stops[i].id))) return i;
+/* The last date this house still gets the thing they actually asked for. An
+   October house wants lights up in October; a Before Thanksgiving house wants
+   them up before Thanksgiving. Null means no deadline of their own.
+   ⚠ This is the LATE end of the window. earliestAllowedInstallDate is the early
+   end. Neither is derivable from the other, and the dates come from the same
+   two constants the badges already use — change one, change both. */
+function latestPreferredInstallDate(d){
+  const pref = d && d.installPreference;
+  const now = new Date();
+  if(pref === 'October') return new Date(now.getFullYear(), 9, 31);
+  if(pref === 'November - Before Thanksgiving'){
+    const tg = thanksgivingDate(now.getFullYear());
+    return new Date(tg.getFullYear(), tg.getMonth(), tg.getDate() - 1);
   }
-  return stops.length - 1;
+  return null;
+}
+/* Would this house still get what they asked for on this date? True when they
+   never asked for anything in particular. */
+function stillInWindow(d, dateStr){
+  const last = latestPreferredInstallDate(d);
+  return !last || toDateStr(last) >= dateStr;
+}
+
+/* Which house comes off a full day, and it is a ranking rather than a scan:
+     1. one of last year's, who is still inside their window on the day they
+        would move to — the ideal, nobody loses anything;
+     2. one of last year's, even though it costs them their window — a returning
+        customer going out late beats a new hang never going out at all;
+     3. a new hang who at least keeps their window;
+     4. whoever is last in driving order.
+   Within a rank the LAST house in driving order wins, because that is the one
+   the crew would have reached last anyway.
+
+   Ranks 2-4 exist because the cap has to be met. A version of this that refused
+   to pick when every candidate was imperfect would simply leave the day over
+   forty, which is the one outcome the rule is there to prevent.
+
+   `okOn` is optional — without it, rank 1 and 2 collapse into "one of last
+   year's", which is the behaviour before windows were considered. Returns -1
+   for an empty list. */
+function bumpCandidateIndex(stops, custData, okOn){
+  const test = okOn || function(){ return true; };
+  let best = -1, bestRank = 99;
+  for(let i = stops.length - 1; i >= 0; i--){
+    const d = custData(stops[i].id);
+    const returning = !isNewHangHouse(d);
+    const keeps = test(stops[i].id);
+    const rank = returning ? (keeps ? 1 : 2) : (keeps ? 3 : 4);
+    if(rank < bestRank){ bestRank = rank; best = i; }
+    if(bestRank === 1) break;   // nothing can beat rank 1; stop looking
+  }
+  return best;
 }
 
 /* Push the surplus off every day that is over the cap, onto the next day the
@@ -18707,9 +18772,13 @@ function bumpCandidateIndex(stops, custData){
  * the walk reaches it. That cascade is the thing the owner described: houses
  * that do not get done get pushed back, and everything after them reshuffles.
  *
- * Pushing later can never break a timing preference — those only ever forbid
- * EARLIER days (November cannot go in October) — so no timing check is needed
- * here, and adding one would be dead code that looked load-bearing.
+ * Pushing later can never make a house ILLEGAL on its day — earliestAllowed-
+ * InstallDate only ever forbids earlier dates — but it can push somebody past
+ * the point their preference was about, and that got worse once days started
+ * being filled to 40 and the cap began biting far more often. So the choice of
+ * who moves prefers a house that is still inside its window on the target date;
+ * see bumpCandidateIndex. It is a preference, not a veto: the cap still has to
+ * be met, and a day that can only shed somebody late still sheds them.
  *
  * Returns {moves, over}. `over` is a day that is still above the cap because
  * there is no later day in its city to move anyone to; the owner's decision is
@@ -18734,15 +18803,89 @@ function evenOutDays(days, custData, maxPerDay){
         over.push({date: day.date, city: day.city, count: day.stops.length, cap: cap});
         break;
       }
-      const idx = bumpCandidateIndex(day.stops, custData);
+      const idx = bumpCandidateIndex(day.stops, custData, function(id){
+        return stillInWindow(custData(id), target.date);
+      });
       if(idx < 0) break;
       const stop = day.stops.splice(idx, 1)[0];
       target.stops.push(stop);
       moves.push({id: stop.id, name: stop.name || '', from: day.date, to: target.date,
-                  city: day.city, dayId: day.id, targetId: target.id});
+                  city: day.city, dayId: day.id, targetId: target.id,
+                  lateNow: !stillInWindow(custData(stop.id), target.date)});
     }
   }
   return {moves: moves, over: over};
+}
+
+/* Top every day up to the cap. The other half of the owner's rule: "a day of 12
+ * should fill up to 40, we want as many people in every day as possible."
+ *
+ * Two sources, in this order, and the order is the point:
+ *   1. houses on NO day at all — getting somebody scheduled beats moving
+ *      somebody who already has a date;
+ *   2. houses on a LATER day in the same city, pulled forward — which is what
+ *      compacts the season instead of just draining the pool.
+ * The pool is expected to arrive with new hangs first, so when there are more
+ * candidates than seats the ones who have never been hung get them.
+ *
+ * ⚠ EVERY pull forward is checked with `allowedOn`. This is the half of the
+ * system where a timing preference can actually be broken — a November house
+ * dragged onto an October day is exactly the bug earliestAllowedInstallDate
+ * exists to prevent, and here it would be introduced by the code meant to help.
+ *
+ * A day pulled FROM is topped up in turn when the walk reaches it, so the work
+ * ratchets forward rather than sloshing about. `budget` bounds one sweep's
+ * worth of moves; whatever is left is picked up by the next one.
+ *
+ * PURE, like evenOutDays: day objects in, a list of what moved out.
+ * Pool items are {id, city, stop}. Returns {placed, pulled, budgetHit}. */
+function fillDays(days, custData, pool, allowedOn, maxPerDay, budget){
+  const cap = maxPerDay || MAX_STOPS_PER_DAY;
+  let left = (budget === undefined || budget === null) ? Infinity : budget;
+  const placed = [], pulled = [];
+  const waiting = (pool || []).slice();
+  const inOrder = days.slice().sort(function(a,b){
+    return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0);
+  });
+  let budgetHit = false;
+  for(let i = 0; i < inOrder.length; i++){
+    const day = inOrder[i];
+    if(!day.city) continue;
+    let guard = 0;
+    while(day.stops.length < cap && guard++ < 1000){
+      if(left <= 0){ budgetHit = true; break; }
+      // 1. somebody with no day at all
+      const pi = waiting.findIndex(function(c){
+        return c.city === day.city && allowedOn(c.id, day.date);
+      });
+      if(pi !== -1){
+        const c = waiting.splice(pi, 1)[0];
+        day.stops.push(c.stop);
+        placed.push({id: c.id, name: (c.stop && c.stop.name) || '', to: day.date,
+                     city: day.city, dayId: day.id});
+        left--;
+        continue;
+      }
+      // 2. pull one forward off the soonest later day in this city
+      let took = null;
+      for(let j = i + 1; j < inOrder.length && !took; j++){
+        const donor = inOrder[j];
+        if(donor.city !== day.city) continue;
+        for(let k = donor.stops.length - 1; k >= 0; k--){
+          if(!allowedOn(donor.stops[k].id, day.date)) continue;
+          took = {donor: donor, stop: donor.stops.splice(k, 1)[0]};
+          break;
+        }
+      }
+      if(!took) break;
+      day.stops.push(took.stop);
+      pulled.push({id: took.stop.id, name: took.stop.name || '', from: took.donor.date,
+                   to: day.date, city: day.city, dayId: day.id, fromId: took.donor.id});
+      left--;
+    }
+    if(budgetHit) break;
+  }
+  return {placed: placed, pulled: pulled, budgetHit: budgetHit};
 }
 
 /* The sweep. Returns a plain-English report of everything it changed; returns an
@@ -18759,7 +18902,8 @@ function evenOutDays(days, custData, maxPerDay){
    taken off. The working set below is the fix, and it means one write per route
    instead of two. */
 async function reconcileUpcomingRoutes(){
-  const report = {refreshed: 0, moved: [], freed: [], dropped: [], capped: [], over: []};
+  const report = {refreshed: 0, moved: [], freed: [], dropped: [], capped: [], over: [],
+                  filled: [], pulled: [], moreToDo: false};
   const routes = upcomingInstallRoutes();
   const seen = new Set();
   const needHoming = [];
@@ -18850,10 +18994,12 @@ async function reconcileUpcomingRoutes(){
      in its city, simply sat there — which is exactly why new hangs were not in
      the schedule. This is the pass that goes and gets them.
 
-     Deliberately NOT every unscheduled customer (owner's choice, 2026-08-15):
-     the cap is a ceiling, not a quota, and hoovering all ~945 houses onto days
-     would rewrite the whole season on the first run. Only houses flagged new to
-     us are pulled in; returning customers still get their day from you. */
+     This pass is specifically about new hangs getting the SOONEST day in their
+     city, cap or no cap — placeOn ignores the forty, and step 3b then sheds one
+     of last year's houses to make the numbers work. That ordering is the rule:
+     the newcomer keeps the day, somebody who has been hung before moves.
+     Everybody else who is unscheduled is picked up by the fill in 3c, which
+     does respect the cap. */
   jobAddresses.forEach(function(a){
     const d = a.data || {};
     if(!isNewHangHouse(d)) return;
@@ -18886,23 +19032,33 @@ async function reconcileUpcomingRoutes(){
     }
   }
 
-  // ---- 3b. Nobody gets a day of more than forty ----------------------------
-  /* Run AFTER everything above, so it evens out the finished picture rather
-     than a half-built one: houses dropped, houses re-homed and new hangs picked
-     up have all landed by now. A house pushed off a full day goes to the next
-     day the crew is already in that city, and if THAT day tips over, the same
-     rule moves someone off it in turn — the cascade the owner described. */
+  // ---- 3b/3c. Forty on every day: shed the overfull, top up the rest -------
+  /* Run AFTER everything above, so it balances the finished picture rather than
+     a half-built one: houses dropped, houses re-homed and new hangs picked up
+     have all landed by now. */
   {
     const days = routes.map(function(r){
       return {id: r.id, date: r.date, city: cityByRoute[r.id], stops: working[r.id]};
     });
     const custById = {};
     jobAddresses.forEach(function(a){ custById[a.id] = a.data || {}; });
-    const evened = evenOutDays(days, function(id){ return custById[id]; });
-    days.forEach(function(day){ working[day.id] = day.stops; });
+    const custData = function(id){ return custById[id]; };
+    /* The one gate on pulling a house forward. Missing record = not allowed:
+       silence must not be read as a yes when the answer decides whether a
+       November house goes out in October. */
+    const allowedOn = function(id, dateStr){
+      const d = custById[id];
+      return !!d && toDateStr(earliestAllowedInstallDate(d)) <= dateStr;
+    };
+    const touched = {};
+    const mark = function(rid){ if(rid){ dirty[rid] = true; touched[rid] = true; } };
+
+    // 3b — nobody gets a day of more than forty. Cascades: a day that tips over
+    // because of what the day before it shed is evened out in its turn.
+    const evened = evenOutDays(days, custData);
     for(let i = 0; i < evened.moves.length; i++){
       const m = evened.moves[i];
-      dirty[m.dayId] = true; dirty[m.targetId] = true;
+      mark(m.dayId); mark(m.targetId);
       const target = routes.find(function(r){ return r.id === m.targetId; });
       try{
         await updateDoc(doc(db,'jobAddresses', m.id),
@@ -18910,15 +19066,52 @@ async function reconcileUpcomingRoutes(){
       } catch(err){}
       report.capped.push(m);
     }
-    /* Re-order each day the cap touched: a bumped house was appended to the end
-       of its new day, which is not where the crew would drive to it. */
-    const touched = {};
-    evened.moves.forEach(function(m){ touched[m.dayId] = true; touched[m.targetId] = true; });
+    report.over = evened.over;
+
+    // 3c — and every day that is under forty is topped up. Owner, 2026-08-15:
+    // "a day of 12 should fill up to 40, we want as many people in every day as
+    // possible." New hangs first, so when seats are short they get them.
+    const pool = [];
+    jobAddresses.forEach(function(a){
+      const d = a.data || {};
+      if(d.scheduled || d.completed || d.maybeNextYear) return;
+      if(d.rsvpStatus === 'no' || d.rsvpStatus === 'backnextyear') return;
+      if(seen.has(a.id)) return;
+      if(typeof d.lat !== 'number' || typeof d.lng !== 'number') return;
+      const city = extractCleanCity(d.city);
+      if(!city) return;
+      /* newHang, NOT isNew — `.isNew` is a dead flag the Schedule tab used to
+         read and run-all.js forbids it by name across the whole page, so that
+         it can never quietly come back. */
+      pool.push({id: a.id, city: city, stop: customerToStop(a.id, d, true),
+                 newHang: isNewHangHouse(d)});
+    });
+    pool.sort(function(a,b){ return (b.newHang ? 1 : 0) - (a.newHang ? 1 : 0); });
+    const topped = fillDays(days, custData, pool, allowedOn, MAX_STOPS_PER_DAY,
+                            MAX_FILL_MOVES_PER_SWEEP);
+    const landed = topped.placed.concat(topped.pulled);
+    for(let i = 0; i < landed.length; i++){
+      const m = landed[i];
+      mark(m.dayId); mark(m.fromId);
+      const target = routes.find(function(r){ return r.id === m.dayId; });
+      try{
+        await updateDoc(doc(db,'jobAddresses', m.id),
+          scheduledFieldForType('install', m.to, (target && target.crew) || '1'));
+      } catch(err){}
+    }
+    report.filled = topped.placed;
+    report.pulled = topped.pulled;
+    report.moreToDo = topped.budgetHit;
+
+    /* One re-order per day that changed, once, at the end — a house that moved
+       was appended to the end of its new day, which is not where the crew would
+       drive to it. Doing this after BOTH passes means a day touched by each is
+       still only re-ordered once. */
+    days.forEach(function(day){ working[day.id] = day.stops; });
     Object.keys(touched).forEach(function(rid){
       const r = routes.find(function(x){ return x.id === rid; });
       if(r) working[rid] = reorderFlatStops(working[rid], r.startPoint || null);
     });
-    report.over = evened.over;
   }
 
   // ---- 4. One write per day that actually changed --------------------------
@@ -18929,7 +19122,8 @@ async function reconcileUpcomingRoutes(){
 
   report.changed = report.refreshed > 0 || report.moved.length > 0 ||
                    report.freed.length > 0 || report.dropped.length > 0 ||
-                   report.capped.length > 0 || report.over.length > 0;
+                   report.capped.length > 0 || report.over.length > 0 ||
+                   report.filled.length > 0 || report.pulled.length > 0;
   if(report.changed) await noticeRoutesReconciled(report);
   return report;
 }
@@ -18965,6 +19159,33 @@ async function noticeRoutesReconciled(report){
       ' to move anyone to. Build another day for ' + (o.city || 'that city') +
       ' and it will even itself out.');
   });
+  /* Filling days is the one thing here that moves people in BULK — the first
+     sweep after it shipped can schedule hundreds. Listing every one of those by
+     name produces a notice nobody reads, which is the same as no notice at all,
+     so these two are counted and only the first few are named. */
+  const nameFew = function(list){
+    const few = list.slice(0, 6).map(function(x){ return x.name || 'a house'; });
+    return few.join(', ') + (list.length > few.length ? ' and ' + (list.length - few.length) + ' more' : '');
+  };
+  if((report.filled || []).length){
+    const byDay = {};
+    report.filled.forEach(function(f){ byDay[f.to] = (byDay[f.to] || 0) + 1; });
+    lines.push(report.filled.length + ' house' + (report.filled.length === 1 ? '' : 's') +
+      ' that had no day were put on one to fill days up to ' + MAX_STOPS_PER_DAY + ' — ' +
+      nameFew(report.filled) + ' (' + Object.keys(byDay).sort().map(function(dt){
+        return formatDateNice(dt) + ': ' + byDay[dt];
+      }).join(', ') + ').');
+  }
+  if((report.pulled || []).length){
+    lines.push(report.pulled.length + ' house' + (report.pulled.length === 1 ? '' : 's') +
+      ' were brought FORWARD to an earlier day in their city to fill it up — ' +
+      nameFew(report.pulled) + '. Their timing preference was checked first; nobody ' +
+      'was moved earlier than they are allowed to be.');
+  }
+  if(report.moreToDo){
+    lines.push('There is more to do than one pass will take on at once — the rest is ' +
+      'picked up automatically about fifteen minutes from now.');
+  }
   try{
     await addDoc(collection(db,'messages'), {
       topic: 'Routes Kept Up To Date', folder: 'System',
