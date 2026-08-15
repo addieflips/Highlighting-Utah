@@ -17379,6 +17379,61 @@ function allCustInvoiceFor(addrItem){
   // Keyed lookup, not a scan of the whole invoice list — see invoiceById.
   return invoiceById.get(key) || null;
 }
+/* ---- "when is anybody next going to this house?" ----
+   The Route column said "Scheduled" without ever saying WHEN, so the one
+   question the office asks of that column — what day are they down for? — was
+   the one thing it could not answer.
+
+   Install and removal are both candidates and the SOONEST one wins, which is
+   the owner's "whichever is coming up next". A visit that is already done stops
+   counting: once the lights are up, the next time anybody drives there is the
+   takedown, so a completed install must not keep answering for it.
+
+   A date that has been and gone with nothing ticked off is still reported, in
+   amber. That is a house the crew missed, and it is precisely the row somebody
+   needs to see — hiding it until it is tidied up is how it stays missed.
+
+   Returns null when there is nothing booked, so the caller can render nothing
+   at all rather than a "Not scheduled" pill on nine hundred rows saying what
+   the line above it already says.
+
+   Pure and top-level so run-all.js can run the picking rules for real. */
+function nextVisitFor(d, todayStr){
+  const today = todayStr || toDateStr(new Date());
+  const out = [];
+  if(d && d.scheduled && d.scheduledDate && !d.completed){
+    out.push({kind:'Hang', date:String(d.scheduledDate)});
+  }
+  if(d && d.removalScheduled && d.removalScheduledDate && !d.removalDone){
+    out.push({kind:'Takedown', date:String(d.removalScheduledDate)});
+  }
+  if(!out.length) return null;
+  const soon = out.filter(function(v){ return v.date >= today; })
+                  .sort(function(a,b){ return a.date < b.date ? -1 : 1; });
+  if(soon.length) return {kind:soon[0].kind, date:soon[0].date, overdue:false};
+  const past = out.slice().sort(function(a,b){ return a.date < b.date ? 1 : -1; });
+  return {kind:past[0].kind, date:past[0].date, overdue:true};
+}
+/* A label, not a control — deliberately a <span> and not a disabled <button>.
+   A disabled button still reads to a screen reader as an action that is
+   unavailable, and in some browsers is still a tab stop, neither of which is
+   true of a date. cursor:default stops it inviting a click it will not answer. */
+function nextVisitChip(d){
+  const v = nextVisitFor(d);
+  if(!v) return '';
+  const p = v.date.split('-').map(Number);
+  const when = new Date(p[0], p[1]-1, p[2])
+    .toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric'});
+  const style = v.overdue
+    ? 'background:#FDEBD3; color:#B45309; border-color:#F0D5B6;'
+    : (v.kind === 'Takedown'
+        ? 'background:#EEF1F5; color:#48566A; border-color:#D6DDE6;'
+        : 'background:#E6F2EA; color:#2E6B3E; border-color:#C3DCCB;');
+  return '<span title="'+(v.overdue ? 'This day has passed and it is still not ticked off' : 'The next visit booked for this house')+
+    '" style="display:inline-block; border:1px solid; border-radius:999px; padding:2px 9px; '+
+    'font-size:11px; font-weight:600; cursor:default; white-space:nowrap; '+style+'">'+
+    (v.overdue ? '&#9888; ' : '') + esc(v.kind) + ' ' + esc(when) + '</span>';
+}
 function allCustRouteStatus(d){
   if(d.removalDone) return 'Removed';
   if(d.completed) return 'Install Complete';
@@ -17466,7 +17521,13 @@ function renderAllCustomersTable(){
       : (r.d.billToPhone ? '<span style="color:var(--slate); font-size:12px;">Billed to '+esc((billedElsewhere && billedElsewhere.data.name) || r.d.billToPhone)+'</span>' : '<span style="color:var(--slate); font-size:12px;">No invoice</span>');
     const rsvpLabel = r.d.rsvpStatus === 'yes' ? 'RSVP: Yes' : (r.d.rsvpStatus === 'no' ? 'RSVP: No' : (r.d.rsvpStatus === 'backnextyear' ? 'RSVP: Back Next Year' : 'RSVP: Pending'));
     const rsvpColor = r.d.rsvpStatus === 'yes' ? '#2E6B3E' : (r.d.rsvpStatus === 'no' ? '#E0574B' : (r.d.rsvpStatus === 'backnextyear' ? '#D89F3D' : 'var(--slate)'));
-    const routeCell = '<span class="status-pill diff-'+(r.d.difficulty||'Unrated')+'">'+(r.d.difficulty||'Unrated')+'</span><br><span style="font-size:11.5px; color:var(--slate);">'+r.routeStatus+'</span><br><span style="font-size:11px; color:'+rsvpColor+'; font-weight:600;">'+rsvpLabel+'</span>';
+    /* The date sits directly under the route status it explains — "Scheduled"
+       on its own never said what day. Put in the EXISTING Route cell rather
+       than a new column on purpose: the responsive rules for this table are
+       written as td:nth-child(2) and td:nth-child(4), so an extra column would
+       silently relabel two others on a phone. */
+    const visitChip = nextVisitChip(r.d);
+    const routeCell = '<span class="status-pill diff-'+(r.d.difficulty||'Unrated')+'">'+(r.d.difficulty||'Unrated')+'</span><br><span style="font-size:11.5px; color:var(--slate);">'+r.routeStatus+'</span>'+(visitChip ? '<br>'+visitChip : '')+'<br><span style="font-size:11px; color:'+rsvpColor+'; font-weight:600;">'+rsvpLabel+'</span>';
     const timingLabel = r.d.installPreference === 'November - Before Thanksgiving' ? 'November — Before Thanksgiving' : (r.d.installPreference === 'Normal Schedule' || !r.d.installPreference ? 'Any' : r.d.installPreference);
     const mapCell = r.hasMap ? '<a class="btn btn-outline btn-sm" href="'+esc(r.d.layoutMapUrl)+'" target="_blank" rel="noopener">View Map</a>' : '<span style="color:var(--slate); font-size:12px;">No map yet</span>';
     const binBadge = (r.d.numberOfBins && r.d.numberOfBins > 1) ? ' <span style="display:inline-block; background:#EAF1FA; color:#2B5C8A; border:1px solid #C3D8EC; border-radius:999px; padding:1px 8px; font-size:11px; font-weight:600; vertical-align:middle;">'+r.d.numberOfBins+' bins</span>' : '';
