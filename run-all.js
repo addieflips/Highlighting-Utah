@@ -319,9 +319,16 @@ const centsOfSrc = extractFn(money, 'centsOf');
 const whGroupKeySrc      = extractFn(admin, 'whGroupKey');
 const whNormalizeLightsSrc = extractFn(admin, 'whNormalizeLights');
 const whWireLabelSrc     = extractFn(admin, 'whWireLabel');
+/* whNormalizeLights reads the colour vocabulary through whColorsFromWords, so
+   both have to come across or it throws the moment it is called. Lifted from
+   the real file rather than restated here — a hand-written copy of the colour
+   list would happily stay green while the app's own list moved on. */
+const whColorsFromWordsSrc = extractFn(admin, 'whColorsFromWords');
+const whLightColorsSrc = (admin.match(/const WH_LIGHT_COLORS\s*=\s*\[[^\]]*\];/) || [])[0];
 const CN_DOUBLE_BIN_FEET = Number((money.match(/CN_DOUBLE_BIN_FEET\s*=\s*(\d+)/) || [])[1]);
 eval([centsOfSrc, computeInvoiceStatusSrc, cnBinsForFeetSrc, custInvoiceKeySrc, statusClassSrc,
-      whWireLabelSrc, whNormalizeLightsSrc, whGroupKeySrc].filter(Boolean).join('\n'));
+      whWireLabelSrc, whLightColorsSrc, whColorsFromWordsSrc, whNormalizeLightsSrc,
+      whGroupKeySrc].filter(Boolean).join('\n'));
 
 /* The split only works if admin.html actually pulls the rules back in. Without
    these two checks, deleting the import would leave every balance on screen
@@ -784,12 +791,64 @@ if (typeof whGroupKey === 'function') {
   check('logic', 'a house with no lights recorded still groups',
     whGroupKey('No lights recorded', 'White').indexOf('No lights recorded') === 0);
 
+  /* --- the same build, however somebody typed it ------------------------
+   * Added 2026-08-15. The colour boxes produce "Red, Green", but a
+   * description can also arrive as free text — typed by staff, or carried off
+   * a quote whose colours were written in words rather than ticked. Every one
+   * of these was its own heading in the build queue, so Dad saw the same build
+   * listed several times over and the bundle counts were split across them.
+   *
+   * These are all ONE group now. If one of these fails, the warehouse has
+   * started double-listing a build again. */
+  const redGreen = whGroupKey('Red, Green', 'White');
+  [['lower case', 'red, green'],
+   ['the word and', 'Red and Green'],
+   ['an ampersand', 'Red & Green'],
+   ['a slash', 'Red/Green'],
+   ['no punctuation at all', 'red green'],
+   ['shouting', 'RED GREEN'],
+   ['and in lower case with odd spacing', '  red   and   green ']
+  ].forEach(([label, typed]) => {
+    check('logic', 'same build written with ' + label + ' is not a second group',
+      whGroupKey(typed, 'White') === redGreen,
+      '"' + typed + '" groups as "' + whGroupKey(typed, 'White') + '" instead of "' + redGreen + '"');
+  });
+  check('logic', 'a two-word colour is read as one colour, not two',
+    whGroupKey('warm white, red', 'White') === whGroupKey('Red, Warm White', 'White'),
+    'Warm White must not be split into a "Warm" and a "White"');
+
+  /* The other half, and the more important one: it must NOT merge things that
+     are genuinely different builds just because they share a colour word. */
+  check('logic', 'text it cannot read is left alone, not guessed at',
+    whGroupKey('Red with tinsel', 'White') !== whGroupKey('Red', 'White') &&
+    whGroupKey('Red with tinsel', 'White').indexOf('Red with tinsel') === 0,
+    'a half-understood description must never be folded into a plain colour group');
+  check('logic', 'an alternating pattern is still its own build',
+    whGroupKey('Red, Green, Red', 'White') !== redGreen,
+    'red-green-red is a different strand from plain red and green');
+  check('logic', 'a colour on its own does not swallow a longer description',
+    whGroupKey('Green', 'White') !== whGroupKey('Green garland', 'White'));
+
   /* The copies must agree, or the office and the crew see different groups. */
-  const empNorm = extractFn(read('employee.html'), 'whNormalizeLights');
+  const empSrc = read('employee.html');
+  const empNorm = extractFn(empSrc, 'whNormalizeLights');
   check('logic', 'employee.html sorts colours the same way admin does',
     !!empNorm && empNorm.replace(/\s+/g, ' ') ===
       (whNormalizeLightsSrc || '').replace(/\s+/g, ' '),
     'admin.html and employee.html have drifted — the crew would group houses differently');
+  /* whNormalizeLights matching is not enough on its own any more: it now leans
+     on a helper and a colour list, and employee.html could match line for line
+     while calling a helper it does not have — which is a crash on the crew's
+     screen, not a difference in grouping. */
+  const empWords = extractFn(empSrc, 'whColorsFromWords');
+  check('logic', 'employee.html has the colour reader admin relies on',
+    !!empWords && empWords.replace(/\s+/g, ' ') ===
+      (whColorsFromWordsSrc || '').replace(/\s+/g, ' '),
+    'the crew portal would throw the moment it grouped a build');
+  const empColors = (empSrc.match(/const WH_LIGHT_COLORS\s*=\s*\[[^\]]*\];/) || [])[0];
+  check('logic', 'employee.html knows the same colours admin does',
+    !!empColors && empColors.replace(/\s+/g, ' ') === (whLightColorsSrc || '').replace(/\s+/g, ' '),
+    'a colour added to one list and not the other groups differently on the two screens');
 }
 
 /* --- warehouse queue entries can be corrected after they are added -------

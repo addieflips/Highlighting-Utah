@@ -16287,13 +16287,58 @@ function whWireLabel(wire){
  * ⚠ admin.html and employee.html each carry their own copy of this. Change one
  * and change the other in the same push, or the office and the crew will group
  * the same houses differently. */
+/* Every colour the light picker offers, longest name first so "Warm White" is
+   read as one colour and never as a stray "White". rbNormalizeColors in the
+   bulk importer holds the same list \u2014 a colour added to the picker goes in
+   both.
+   \u26a0 admin.html and employee.html each carry their own copy of this. */
+const WH_LIGHT_COLORS = ['Warm White','Pure White','Purple','Orange','Green','Multi','Blue','Pink','Red'];
+
+/* Reads a run of free text as a list of colours \u2014 "red green" becomes
+   Red, Green \u2014 so a description typed in words groups with the identical
+   one that was ticked in the colour boxes.
+   It consumes from the front and gives up the moment it meets a word it does
+   not know, returning null. That is the important half: only a description
+   made ENTIRELY of colour names is rewritten. "Red with tinsel" is left
+   exactly as typed rather than being guessed at and quietly merged into the
+   plain Red group, because those are not the same build.
+   \u26a0 admin.html and employee.html each carry their own copy of this. */
+function whColorsFromWords(token){
+  let rest = String(token || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const found = [];
+  while(rest){
+    const hit = WH_LIGHT_COLORS.find(function(opt){
+      const lc = opt.toLowerCase();
+      return rest === lc || rest.indexOf(lc + ' ') === 0;
+    });
+    if(!hit) return null;
+    found.push(hit);
+    rest = rest.slice(hit.length).trim();
+  }
+  return found.length ? found : null;
+}
 function whNormalizeLights(text){
   const raw = String(text || '');
   if(!raw.trim()) return raw;
   const m = raw.match(/^(.*?)\s*\(([^)]*)\)\s*$/);
   const main  = m ? m[1].trim() : raw.trim();
   const notes = m ? m[2].trim() : '';
-  const colors = main.split(/[,\u2014]/).map(function(s){ return s.trim(); }).filter(Boolean);
+  /* Split on every separator people actually type, not just the comma the
+     colour boxes produce. "Red and Green", "Red & Green", "Red/Green" and
+     "Red, Green" are one build and used to be four separate headings in the
+     build queue \u2014 plus a fifth for "red, green" in lower case, because the
+     sort ignored case but the group key did not. */
+  const colors = [];
+  main.split(/[,\u2014\/&+]|\band\b/i).forEach(function(piece){
+    const t = piece.trim().replace(/\s+/g, ' ').replace(/[.;]+$/, '');
+    if(!t) return;
+    /* A known colour is rewritten in the app's own spelling and capitalisation
+       so it groups. Anything else goes through untouched \u2014 see
+       whColorsFromWords for why guessing is worse than leaving it alone. */
+    const asColors = whColorsFromWords(t);
+    if(asColors) colors.push.apply(colors, asColors);
+    else colors.push(t);
+  });
   if(!colors.length) return raw.trim();
   const sorted = colors.slice().sort(function(a,b){
     return a.toLowerCase().localeCompare(b.toLowerCase());
