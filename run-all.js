@@ -4242,9 +4242,31 @@ suite('16. Not-done stops get another day');
 check('leftovers', 'Mark all done is still there',
   admin.includes('data-allbtn='),
   'the fast path is: mark the whole day done, then untick the few that were missed');
-check('leftovers', 'the reschedule button only appears once something is ticked off',
-  /\(dc>0&&left>0\)\?'<button class="mini warn" data-leftover=/.test(admin),
-  'on an untouched day every stop is "not done" and the button would be meaningless');
+/* CHANGED 2026-08-15. This used to assert the opposite — that the button was
+   HIDDEN until at least one house had been ticked off, on the reasoning that
+   every stop on an untouched day is "not done" so the button meant nothing.
+   That reasoning was wrong in practice: it made the entire feature invisible
+   unless the office happened to press Mark all done first, which is a thing
+   nobody does on a day where most houses got finished. The button now sits
+   next to Mark all done on any day with something outstanding, and the panel
+   asks which ones were missed when nobody has said. */
+check('leftovers', 'the reschedule button is there on any day with something left',
+  /\(n&&left>0\)\?'<button class="mini warn" data-leftover=/.test(admin),
+  'hidden until a box was ticked, the whole feature was invisible on an untouched day');
+check('leftovers', 'and says so in plain words before anything is ticked',
+  admin.includes("'Not all of them got '+(td?'removed':'done')"),
+  '"3 not done" means nothing on a day where nobody has recorded anything yet');
+check('leftovers', 'a finished day offers no reschedule button at all',
+  /\(n&&left>0\)\?/.test(admin),
+  'left>0 is the guard — nothing outstanding, nothing to reschedule');
+check('leftovers', 'ticking on the pick step is read BEFORE the ordinary done tick',
+  admin.indexOf('t.dataset.lpick!=null') > -1 &&
+  admin.indexOf('t.dataset.lpick!=null') < admin.indexOf("t.type==='checkbox'&&t.dataset.id"),
+  'both are checkboxes; the other handler would mark the house DONE, the exact ' +
+  'opposite of what a tick means on the "which ones were missed" step');
+check('leftovers', 'there is a way back to the tick list without starting over',
+  admin.includes('data-lrepick="'),
+  'the list of misses is only as right as the ticks behind it');
 check('leftovers', 'the panel offers both ways out',
   admin.includes('data-lauto="') && admin.includes('data-leach="'),
   'automatically to the next day in that city, or pick a day for each');
@@ -4254,6 +4276,92 @@ check('leftovers', 'picking a day inside the panel does not jump the screen away
 check('leftovers', 'the panel closes itself once nothing is left',
   /if\(!day\|\|!list\.length\)\{[\s\S]{0,120}leftoverFor=null/.test(admin),
   'an empty list sitting on screen reads as "something went wrong"');
+
+/* The "which ones were missed?" step, RUN rather than read. What matters is
+   which step the panel opens on and what Continue writes back — both are
+   decisions, and a regex cannot tell a right one from a wrong one. */
+{
+  const areaStart = admin.indexOf('function cityOf(h)');
+  const areaEnd = admin.indexOf('/* ---------- build from imported rows', areaStart);
+  const stateStart = admin.indexOf('let leftoverFor=null;');
+  const stateEnd = admin.indexOf('function renderLeftovers(', stateStart);
+  if (areaStart === -1 || stateStart === -1 || stateEnd < stateStart) {
+    check('leftovers', 'the pick-step helpers are findable',
+      false, 'renamed or removed — update this test rather than deleting it');
+  } else {
+    let SEASON = [];
+    global.dayDate = d => d._date;
+    global.dlabel = () => ({ wd: 'Mon', full: 'Nov 3' });
+    global.getDay = id => SEASON.find(d => d.id === id);
+    global.installDays = () => SEASON.filter(d => !d.isFixRoute && !d.isTakedown);
+    global.takedownDays = () => SEASON.filter(d => d.isTakedown);
+    global.fixerRoutes = () => SEASON.filter(d => d.isFixRoute);
+    global.allHouses = () => SEASON.flatMap(d => d.houses);
+    global.renderLeftovers = () => {};
+    global.renderAll = () => {};
+    global.toast = m => { global._toast = m; };
+    const api = eval(admin.slice(areaStart, areaEnd) + '\n' +
+      admin.slice(stateStart, stateEnd) +
+      '\n;({open: openLeftovers, apply: applyLeftoverPicks,' +
+      ' mode: () => leftoverMode, picked: () => leftoverPicked,' +
+      ' pick: id => leftoverPicked.add(String(id))})');
+
+    const day = (houses, extra) => Object.assign(
+      { id: 'd1', _date: new Date(2026, 10, 3), houses }, extra || {});
+    const fresh = () => [ { id: 1, name: 'A', city: 'Lehi', done: false },
+                          { id: 2, name: 'B', city: 'Lehi', done: false },
+                          { id: 3, name: 'C', city: 'Draper', done: false } ];
+
+    SEASON = [ day(fresh()) ];
+    api.open('d1');
+    check('leftovers', 'a day nobody has ticked opens on "which ones were missed?"',
+      api.mode() === 'pick',
+      'nobody has said which houses got done, so there is nothing to reschedule yet');
+    check('leftovers', 'and starts with NOTHING ticked as a miss',
+      api.picked().size === 0,
+      'on a normal day far more houses get finished than missed — pre-ticking them ' +
+      'all as misses is the wrong way round and means unticking almost every one');
+
+    const part = fresh(); part[0].done = true;
+    SEASON = [ day(part) ];
+    api.open('d1');
+    check('leftovers', 'a part-ticked day skips the question and goes to the two choices',
+      api.mode() === 'ask',
+      'the office already answered it by ticking — asking again slows down the path that worked');
+    check('leftovers', 'carrying over exactly the houses still un-ticked',
+      [...api.picked()].sort().join() === '2,3');
+
+    SEASON = [ day(fresh()) ];
+    api.open('d1');
+    api.pick(2);
+    api.apply('d1');
+    check('leftovers', 'Continue marks the ticked house not done and every other one done',
+      SEASON[0].houses.map(h => h.name + (h.done ? ':done' : ':miss')).join() === 'A:done,B:miss,C:done',
+      'a tick on this step means NOT finished — the opposite of the tick boxes on the day itself');
+    check('leftovers', 'and hands over to the two ways out',
+      api.mode() === 'ask');
+
+    global._toast = '';
+    SEASON = [ day(fresh()) ];
+    api.open('d1');
+    api.apply('d1');
+    check('leftovers', 'ticking nothing means the whole day was finished',
+      SEASON[0].houses.every(h => h.done) && /marked done/.test(global._toast || ''),
+      'Continue has to write BOTH sides — an unticked house becomes done even if it ' +
+      'was never touched, or the panel says "nobody was missed" and changes nothing');
+
+    /* The reverse write: a house wrongly marked done earlier, ticked here as a
+       miss, has to come back OFF done. Only writing the misses would leave it
+       counted as finished and it would never be rescheduled. */
+    const wrong = fresh(); wrong.forEach(h => h.done = true);
+    SEASON = [ day(wrong) ];
+    api.open('d1');
+    api.pick(3);
+    api.apply('d1');
+    check('leftovers', 'a house wrongly marked done comes back off done when ticked as a miss',
+      SEASON[0].houses.map(h => h.done).join() === 'true,true,false');
+  }
+}
 
 // =====================================================================
 suite('17. A new customer lands on the next day in their city');
