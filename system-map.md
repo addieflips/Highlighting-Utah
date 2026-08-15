@@ -9,7 +9,13 @@ Written for Addie (non-coder) by Claude Code after a full read-through of `main`
 1. **Public quote** — a visitor fills out the quote form on the public site. It's saved to `quotes` with `status: 'new'`. No photo is attached automatically anymore (see §9).
 2. **Office prices it** — a staff member opens the quote card in Admin, fills in estimated feet and a quoted price, and clicks "Get Approval Link." This saves `quotedPrice` and a `quoteToken`, and generates a link like `https://highlightingutah.com/#/payment?token=...`.
 3. **Customer approves** — the customer opens that link (no login needed) and approves or declines. This calls the `quoteRespond` Cloud Function, which is how an unauthenticated visitor is allowed to touch the `quotes` collection at all.
-4. **Convert to customer** — a staff member clicks "Convert to Customer" on the approved quote. This copies the quote's details into the Add Customer form (name, phone, colors, wire color, install timing, gate code, outlet timer, specific outlet, notes, wants-mailed-invoice, photo, contact method, and the *approved* price — never a recalculated one) and creates a `jobAddresses` document. The quote is marked `status: 'closed'`.
+4. **Convert to customer** — a staff member clicks "Convert to Customer" on the approved quote and is asked which way:
+   - **Convert automatically** — saves them there and then, using everything the quote already holds, without leaving the Quotes tab. The popup lists anything the quote is missing *before* it runs, and the result is reported in a toast (customer number, bin count, whether they reached the Warehouse, whether the $30 fee was charged, and anything still missing).
+   - **Fill in manually** — opens the Add a Customer form already filled in, so the gaps can be typed in first. This is what the button used to do on its own.
+
+   Both copy the same details (name, phone, colors, wire color, install timing, gate code, outlet timer, specific outlet, notes, wants-mailed-invoice, photo, contact method, the $30 set-up fee decision, and the *approved* price — never a recalculated one) and both create the `jobAddresses` document through the **same** Add Customer submit handler: automatic fills the form and submits it rather than writing its own record, so the customer number, invoice, warehouse build flag and auto-scheduling cannot drift apart from the manual path. The quote is marked `status: 'closed'` with `convertedToCustomerAt` set.
+
+   *The light colours are what put them in the Warehouse* (`needsLightBuild` is set from `lightsDescription`), so conversion falls back to the quote's own wording when no colour boxes were ticked — otherwise a quote whose colours were typed as free text would convert with no description and never reach the build queue.
 5. **Measured Feet drives everything** — see §2, it's the single highest-leverage field in the app.
 6. **Warehouse builds it** — if the light pattern is set, `needsLightBuild: true` queues the house into the warehouse build list (grouped by color pattern, bundle count from feet).
 7. **Route** — an install route is generated from unscheduled, geocoded, RSVP-yes customers, clustered geographically, and saved as a **frozen snapshot** (see §5). This flips `scheduled: true` on the customer.
@@ -24,7 +30,7 @@ Written for Addie (non-coder) by Claude Code after a full read-through of `main`
 ## 2. Fields that drive more than one thing
 
 **Measured Feet** (`measuredFeet` on `jobAddresses`) is the single highest-leverage field in the app. One number drives:
-- **Bin count**: over **260 ft** → 2 bins / a 5000-series customer number. 260 or under → 1 bin / a regular number. *(Note: some older docs and the Health Check UI call this "the 200 ft rule" — the actual cutoff in code is 260 ft, `CN_DOUBLE_BIN_FEET` in admin.html. Worth a quick gut-check that 260 is still the number you actually want.)*
+- **Bin count**: a house needs another bin for every **260 ft**. Up to 260 → 1 bin; 261–520 → 2; 521–780 → 3; and so on. More than one bin means a **5000-series** customer number instead of a regular one — there are only two series, so a 3-bin and a 4-bin house both get a 5000 number, while the bin count saved on the customer is the real 3 or 4 so the warehouse builds the right amount. *(Note: some older docs and the Health Check UI call this "the 200 ft rule" — the cutoff in code is 260 ft, `cnBinsForFeet` / `CN_DOUBLE_BIN_FEET` in js/money.js. The 260 boundary has not moved; before 2026-08-15 the count simply stopped at 2, so a 900 ft house was built two bins short.)*
 - **Warehouse bundle count**: `ceil(feet / 40)`.
 - **Auto-priced estimate**: `price ≈ feet × perFootRate`, padded ~5% upward, never down.
 
@@ -104,7 +110,7 @@ This lives as `computeInvoiceStatus(install, removal, deposit, credits, changeFe
 
 ## 6. Customer Numbers
 
-- **260 ft cutoff** (see §2) decides regular-series (1 bin) vs 5000-series (2 bins).
+- **260 ft cutoff** (see §2) decides regular-series (1 bin) vs 5000-series (2 or more bins). Only two series exist, so the test is "more than one bin", not "exactly two".
 - **Pool**: `availableCustomerNumbers`, one doc per free number, `{type, releasedAt, releasedFrom}`.
 - **Assign**: lowest free pooled number of the right type wins; if the pool is empty, the next number above the current highest is used.
 - **Release**: freeing a number (edit, removal, recycle) drops it back into the pool.
@@ -161,5 +167,6 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
 - **An invoice's balance/status looks wrong** → check whether `changeFees` is actually being included in that particular screen's math. This was the P0 bug for this pass; the formula is documented in §3 so any *new* code touching balances can be checked against it.
 - **A route change (address, gate code, name) isn't reaching the crew** → check whether the route is *upcoming* — both resync paths deliberately skip past/history routes. Also remember only `id, address, name, phone, difficulty, lat, lng, gateCode, specificOutlet, specificOutletNotes, customerNumber` are ever frozen into a stop; other fields are supposed to be looked up live, so if one of *those* isn't updating, the live-lookup code itself is the place to check, not the resync.
 - **Firestore is throwing `failed-precondition`** → almost always a missing composite index. The index (or rules) file being correct in the repo means nothing until `firebase deploy --only firestore:indexes` (or `:rules`) actually runs — Netlify never touches Firebase, and a correct file sitting undeployed looks identical to a wrong one from the app's point of view.
-- **A customer's bin/number logic looks off at exactly 200 ft** → the actual cutoff in code is 260 ft, not 200 (see §2). Check `CN_DOUBLE_BIN_FEET` in admin.html before assuming a bug.
+- **A customer's bin/number logic looks off at exactly 200 ft** → the actual cutoff in code is 260 ft, not 200 (see §2). Check `cnBinsForFeet` / `CN_DOUBLE_BIN_FEET` in js/money.js (they moved out of admin.html) before assuming a bug.
+- **A big house shows fewer bins than it needs** → check whether the code doing the deciding tests `numberOfBins === 2`. Bins go up in 260s now, so a 900 ft house is 4 bins; `=== 2` reads that as "not a double" and hands it a regular customer number.
 - **Firestore's "Fetch failed" / long-poll `Listen`/`channel` message in the console** → normal reconnection noise, not a bug.

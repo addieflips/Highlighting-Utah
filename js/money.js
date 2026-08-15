@@ -20,15 +20,24 @@
  * about what someone owes.
  */
 
-/* The bin cutoff. Over this many measured feet, a house needs 2 bins and a
- * 5000-series customer number. At or under it, 1 bin and a regular number.
+/* How many feet fit in one bin. A house needs another bin for every 260 feet:
+ * up to 260 is 1 bin, 261-520 is 2, 521-780 is 3, and so on. More than one bin
+ * also means a 5000-series customer number instead of a regular one.
  * Note: some older training notes and UI text say "the 200 ft rule" — 260 is
- * the number the app actually uses. */
+ * the number the app actually uses.
+ * The name is historic — it used to be a single over/under cutoff between one
+ * bin and two, because two was as high as it went. The cutoff itself has not
+ * moved, so a house on the books keeps the bin count and the number it already
+ * has; only houses over 520 feet, which used to be capped at 2 bins, come out
+ * differently now. */
 export const CN_DOUBLE_BIN_FEET = 260;
 
-/* How many bins a house needs, from its measured feet. */
+/* How many bins a house needs, from its measured feet. Never fewer than 1 —
+ * a house with no feet measured yet still gets somewhere to put its lights. */
 export function cnBinsForFeet(feet) {
-  return (Number(feet) || 0) > CN_DOUBLE_BIN_FEET ? 2 : 1;
+  const f = Number(feet) || 0;
+  if (f <= CN_DOUBLE_BIN_FEET) return 1;
+  return Math.ceil(f / CN_DOUBLE_BIN_FEET);
 }
 
 /* Format a number as money for display, e.g. 1234.5 -> "$1,234.50".

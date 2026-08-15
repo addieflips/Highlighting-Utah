@@ -7237,6 +7237,230 @@ function currentQuotePhotoIndex(id, count){
   if(i > count - 1) i = count > 0 ? count - 1 : 0;
   return i;
 }
+/* ================= CONVERT A QUOTE TO A CUSTOMER =================
+ *
+ * Two ways through, both landing in exactly the same place. "Convert to
+ * Customer" asks which:
+ *
+ *   Automatic — fill the Add a Customer form from the quote and submit it,
+ *               without anybody looking at it. Fastest, and correct whenever
+ *               the quote already holds everything (it usually does, because
+ *               the customer filled it in on their own portal before
+ *               approving).
+ *   Manual    — fill the same form and open it, so the missing bits can be
+ *               typed in before saving. This is what the button always did.
+ *
+ * They share fillAddCustFromQuote below on purpose. The automatic path is NOT
+ * a second copy of the save logic — it fills the same form and submits it, so
+ * the customer number, the invoice, the warehouse build flag, the $30 set-up
+ * fee and the auto-scheduling all happen through the one code path that has
+ * always done them. A separate "quick convert" writer would be a second set of
+ * money rules to keep in step, which is exactly what §9.2 of CLAUDE.md warns
+ * about.
+ */
+
+/* Set while an automatic conversion is submitting. The Add Customer handler
+   reads it to skip the two prompts that only make sense when a person is
+   sitting in front of the form — "these fields are blank" and "no colours
+   picked". Automatic means "use what the quote has", so those are answered
+   already. The duplicate-address warning deliberately still asks: that one is
+   about billing two records onto one invoice, and it is a real decision. */
+let addCustAutoConvert = false;
+
+/* Fills the Add a Customer form from a quote. Does NOT navigate and does NOT
+   save — the caller decides which of those happens. Returns what it carried
+   over so the caller can say so. */
+function fillAddCustFromQuote(quoteId, d){
+  document.getElementById('routeNameInput').value = d.name || '';
+  document.getElementById('routePhoneInput').value = (d.phone || '').replace(/\D/g,'');
+  document.getElementById('routeStreetInput').value = d.street || '';
+  document.getElementById('routeCityInput').value = d.city || '';
+  document.getElementById('routeZipInput').value = d.zip || '';
+  document.getElementById('addCustEmail').value = d.email || '';
+  const colors = d.lightColors || [];
+  document.querySelectorAll('.addcust-color-check').forEach(function(cb){
+    cb.checked = colors.includes(cb.value);
+    cb.closest('.pill-check').classList.toggle('checked', cb.checked);
+  });
+  // See addCustQuoteLightsPattern above — carry the real pattern across
+  // rather than letting the checkboxes flatten it on submit.
+  /* Falling back to the quote's own words matters for the warehouse: a quote
+     whose colours were typed as free text rather than ticked has no
+     lightColors to check any boxes with, and without a description the
+     customer is saved with needsLightBuild false and never reaches the build
+     queue at all. rbDetectColorsAndPattern returns '' when it recognises
+     nothing, so keep the raw text in that case. */
+  const rawLights = d.lightsDescription || colors.join(', ');
+  addCustQuoteLightsPattern = rbDetectColorsAndPattern(rawLights).pattern || rawLights.trim();
+  addCustQuoteColorsSnapshot = colors.slice();
+  document.getElementById('addCustWireColor').value = d.wireColor || 'White';
+  document.getElementById('addCustInstallPref').value = d.installPreference || 'Normal Schedule';
+  document.getElementById('addCustGateCode').value = d.gateCode || '';
+  // These were being collected on the quote and then dropped. The crew's
+  // Timers list and route cards read them off the customer, so they have
+  // to make the jump here or they never reach anybody.
+  document.getElementById('addCustOutletTimer').value = d.outletTimer || '';
+  document.getElementById('addCustSpecificOutlet').value = d.specificOutlet || '';
+  document.getElementById('addCustSpecificOutletNotes').value = d.specificOutletNotes || '';
+  // The "Which outlet?" input is hidden unless Specific Outlet is Yes, so
+  // re-run the toggle after filling from the quote or it stays hidden with
+  // a value inside it.
+  syncSpecificOutletNotes();
+  document.getElementById('addCustNotes').value = d.notes || '';
+  document.getElementById('addCustWantsMailed').checked = !!d.wantsMailedInvoice;
+  /* Feet drive the bin count, the customer number series and the warehouse
+     bundle count, so they go across first. Dispatching input makes the bin
+     and number previews recalculate the way they would if it were typed. */
+  if(d.estimatedFeet){
+    const feetEl = document.getElementById('addCustFeet');
+    feetEl.value = d.estimatedFeet;
+    feetEl.dispatchEvent(new Event('input'));
+  }
+  /* The price the customer actually clicked Approve on wins. Recalculating
+     from feet could quietly bill them something they never agreed to. */
+  /* != null with typeof already guarding for "number", not > 0 — a
+     deliberately comped $0 quote is still a price the customer approved,
+     not "no price set". > 0 treated the two identically and silently
+     substituted a feet-based estimate over the $0 the customer actually
+     saw and approved. */
+  let pricedFrom = '';
+  if(typeof d.quotedPrice === 'number'){
+    document.getElementById('addCustPrice').value = d.quotedPrice;
+    pricedFrom = 'quote';
+  } else if(d.estimatedFeet && perFootRate){
+    document.getElementById('addCustPrice').value = Math.round(d.estimatedFeet * perFootRate);
+    pricedFrom = 'feet';
+  }
+  // Same fee decision made on the quote's Pricing & Approval panel -
+  // otherwise a "yes" checked there and a default here could disagree,
+  // and the customer gets charged something different than what the
+  // quote email actually told them. This is the $30 set-up fee, and it
+  // carries on the automatic path for the same reason it carries here.
+  const chargesSetupFee = d.chargeSetupFee !== undefined ? d.chargeSetupFee : !d.existingCustomerId;
+  document.getElementById('addCustNewMemberFee').checked = chargesSetupFee;
+  addCustFromQuoteId = quoteId;
+  // Make the link visible the moment it is created — see the banner.
+  renderAddCustQuoteBanner(d.name || d.address || '');
+  // Preferred contact method was collected on the quote and used to be
+  // dropped here — carry it onto the customer so it isn't lost.
+  addCustContactMethodFromQuote = d.contactMethod || '';
+  // Carry the quote's photo across too — including any markup, since that
+  // replaces the photo. Without this the route card has nothing to show.
+  const quotePhotosToCarry = quotePhotoList(d);
+  if(quotePhotosToCarry.length){
+    addCustPhotoUrl = quotePhotosToCarry[0].url;
+    addCustPhotoOriginal = quotePhotosToCarry[0].original || '';
+    addCustPhotoMarkup = quotePhotosToCarry[0].markup || [];
+    /* Every other photo on the quote comes across too, in the same order,
+       so the crew sees the same pictures the customer was quoted from. */
+    addCustExtraPhotos = quotePhotosToCarry.slice(1);
+    renderAddCustExtraPhotos();
+    const img = document.getElementById('addCustPhotoImg');
+    img.src = addCustPhotoUrl;
+    img.classList.remove('hm-blueprint');
+    document.getElementById('addCustPhotoWrap').style.display = 'block';
+    document.getElementById('addCustViewToggle').style.display = 'flex';
+    document.getElementById('addCustViewOriginal').style.background = 'var(--ink)';
+    document.getElementById('addCustViewOriginal').style.color = '#fff';
+    document.getElementById('addCustPhotoStatus').textContent = quotePhotosToCarry.length > 1
+      ? ('All ' + quotePhotosToCarry.length + ' photos carried over from the quote.')
+      : 'Photo carried over from the quote.';
+  }
+  return {
+    photoCount: quotePhotosToCarry.length,
+    pricedFrom: pricedFrom,
+    chargesSetupFee: chargesSetupFee,
+    lights: rawLights.trim()
+  };
+}
+
+/* Opens Customers → Add a Customer with the filled form showing. Opening the
+   panel isn't enough — it has inner tabs and stays on whichever was last used,
+   so a freshly filled form used to land hidden behind "All Customers". Same
+   two-step the Bulk Updates button uses. */
+function goToAddCustomerForm(){
+  document.querySelector('.nav-item[data-panel="addcustomer"]').click();
+  setTimeout(function(){ document.querySelector('#custSectionTabs [data-custtab="add"]').click(); }, 50);
+}
+
+/* The automatic path. Fills the form and submits it where it stands, without
+   moving the office off the Quotes tab.
+   Submitting by dispatching the event rather than form.requestSubmit() is
+   deliberate: requestSubmit() runs the browser's own required-field check
+   first, and a required box that is empty AND on a hidden panel cannot be
+   focused to complain about — the browser refuses to submit and says nothing
+   anybody can see. The handler's own missing-field check is what reports this
+   instead, and on this path it reports rather than blocks. */
+function autoConvertQuoteToCustomer(quoteId, d){
+  const carried = fillAddCustFromQuote(quoteId, d);
+  addCustAutoConvert = true;
+  try{
+    document.getElementById('routeAddressForm').dispatchEvent(
+      new Event('submit', {bubbles: true, cancelable: true})
+    );
+  } finally {
+    /* Cleared straight away, not in the handler: the handler is async, so it
+       is still running here, and leaving the flag up would silence the
+       warnings on the NEXT customer somebody adds by hand. The handler reads
+       it in its first few lines, well before it awaits anything. */
+    addCustAutoConvert = false;
+  }
+  toast('Converting ' + (d.name || 'this quote') + ' to a customer' +
+    (carried.chargesSetupFee ? ', with the $30 set-up fee' : '') +
+    (carried.photoCount ? ', photo' + (carried.photoCount > 1 ? 's' : '') + ' included' : '') + '…');
+}
+
+/* The popup that asks which way. */
+function showConvertQuoteChoice(quoteId, d){
+  const who = d.name || d.address || 'this quote';
+  const chargesSetupFee = d.chargeSetupFee !== undefined ? d.chargeSetupFee : !d.existingCustomerId;
+  /* What the automatic path would be missing, said out loud BEFORE it runs
+     rather than as a warning after the customer is already saved. Same list
+     the Add Customer form checks, asked of the quote instead of the form. */
+  const gaps = [];
+  if(!d.street) gaps.push('Street Address');
+  if(!d.city) gaps.push('City');
+  if(!(d.phone || '').replace(/\D/g,'')) gaps.push('Phone Number');
+  if(!d.email) gaps.push('Email');
+  if(!quotePhotoList(d).length) gaps.push('House Picture');
+  if(typeof d.quotedPrice !== 'number' && !(d.estimatedFeet && perFootRate)) gaps.push('Total Price');
+  const overlay = document.createElement('div');
+  overlay.className = 'needsfix-popup-overlay';
+  overlay.innerHTML = '<div class="needsfix-popup" style="max-width:480px;">'+
+    '<h3 style="color:var(--dusk);">Convert '+esc(who)+' to a customer</h3>'+
+    '<p>Both ways create the customer, their invoice, their customer number and their warehouse build. The only difference is whether you check the details first.</p>'+
+    (gaps.length
+      ? '<p style="font-size:12.5px; color:var(--ember); background:#FDECEA; border:1px solid #F3C8C2; border-radius:9px; padding:8px 11px;">'+
+          'The quote has no '+gaps.map(function(g){ return esc(g); }).join(', ')+'. Converting automatically saves them without '+(gaps.length===1?'it':'those')+'.</p>'
+      : '')+
+    (chargesSetupFee ? '<p style="font-size:12.5px; color:var(--slate);">The $30 set-up fee is ticked on this quote, so it carries across either way.</p>' : '')+
+    '<div style="display:flex; flex-direction:column; gap:9px; margin-top:14px;">'+
+      '<button type="button" class="btn btn-gold" id="convertQuoteAutoBtn" style="text-align:left;">Convert automatically'+
+        '<span style="display:block; font-weight:500; font-size:12px; opacity:.85; margin-top:2px;">Save them now using everything the quote already knows.</span></button>'+
+      '<button type="button" class="btn btn-outline" id="convertQuoteManualBtn" style="text-align:left;">Fill in manually'+
+        '<span style="display:block; font-weight:500; font-size:12px; color:var(--slate); margin-top:2px;">Open the Add a Customer form, already filled in, so you can finish it.</span></button>'+
+      '<button type="button" class="btn btn-outline" id="convertQuoteCancelBtn" style="text-align:center; color:var(--slate);">Cancel</button>'+
+    '</div>'+
+  '</div>';
+  document.body.appendChild(overlay);
+  function close(){ overlay.remove(); }
+  overlay.addEventListener('click', function(e){ if(e.target === overlay) close(); });
+  document.getElementById('convertQuoteCancelBtn').addEventListener('click', close);
+  document.getElementById('convertQuoteManualBtn').addEventListener('click', function(){
+    close();
+    const carried = fillAddCustFromQuote(quoteId, d);
+    goToAddCustomerForm();
+    toast('Quote details filled in' +
+      (carried.photoCount ? (carried.photoCount > 1 ? ', all ' + carried.photoCount + ' photos included' : ', photo included') : '') +
+      (carried.pricedFrom === 'quote' ? ', using the approved quote price' : (carried.pricedFrom === 'feet' ? ', price estimated from footage' : '')) +
+      ' — review and click Add Customer');
+  });
+  document.getElementById('convertQuoteAutoBtn').addEventListener('click', function(){
+    close();
+    autoConvertQuoteToCustomer(quoteId, d);
+  });
+}
+
 function renderQuoteRows(filtered){
   const list = document.getElementById('quotesList');
   let html = '';
@@ -8452,98 +8676,18 @@ function renderQuoteRows(filtered){
   });
   list.querySelectorAll('[data-converttocust]').forEach(function(btn){
     btn.addEventListener('click', async function(){
-      const snap2 = await getDoc(doc(db,'quotes',btn.dataset.converttocust));
+      const quoteId = btn.dataset.converttocust;
+      const snap2 = await getDoc(doc(db,'quotes', quoteId));
+      if(!snap2.exists()){ toast('That quote is no longer there — refresh Quote Requests.'); return; }
       const d = snap2.data();
-      document.getElementById('routeNameInput').value = d.name || '';
-      document.getElementById('routePhoneInput').value = (d.phone || '').replace(/\D/g,'');
-      document.getElementById('routeStreetInput').value = d.street || '';
-      document.getElementById('routeCityInput').value = d.city || '';
-      document.getElementById('routeZipInput').value = d.zip || '';
-      document.getElementById('addCustEmail').value = d.email || '';
-      const colors = d.lightColors || [];
-      document.querySelectorAll('.addcust-color-check').forEach(function(cb){
-        cb.checked = colors.includes(cb.value);
-        cb.closest('.pill-check').classList.toggle('checked', cb.checked);
-      });
-      // See addCustQuoteLightsPattern above — carry the real pattern across
-      // rather than letting the checkboxes flatten it on submit.
-      addCustQuoteLightsPattern = rbDetectColorsAndPattern(d.lightsDescription || colors.join(', ')).pattern;
-      addCustQuoteColorsSnapshot = colors.slice();
-      document.getElementById('addCustWireColor').value = d.wireColor || 'White';
-      document.getElementById('addCustInstallPref').value = d.installPreference || 'Normal Schedule';
-      document.getElementById('addCustGateCode').value = d.gateCode || '';
-      // These were being collected on the quote and then dropped. The crew's
-      // Timers list and route cards read them off the customer, so they have
-      // to make the jump here or they never reach anybody.
-      document.getElementById('addCustOutletTimer').value = d.outletTimer || '';
-      document.getElementById('addCustSpecificOutlet').value = d.specificOutlet || '';
-      document.getElementById('addCustSpecificOutletNotes').value = d.specificOutletNotes || '';
-      // The "Which outlet?" input is hidden unless Specific Outlet is Yes, so
-      // re-run the toggle after filling from the quote or it stays hidden with
-      // a value inside it.
-      syncSpecificOutletNotes();
-      document.getElementById('addCustNotes').value = d.notes || '';
-      document.getElementById('addCustWantsMailed').checked = !!d.wantsMailedInvoice;
-      /* Feet drive the bin count, the customer number series and the warehouse
-         bundle count, so they go across first. Dispatching input makes the bin
-         and number previews recalculate the way they would if it were typed. */
-      if(d.estimatedFeet){
-        const feetEl = document.getElementById('addCustFeet');
-        feetEl.value = d.estimatedFeet;
-        feetEl.dispatchEvent(new Event('input'));
+      /* Already converted, from another tab or an earlier click. The button
+         hides itself once the card re-renders, but the check is against the
+         server so a stale screen cannot start a second conversion. */
+      if(d.convertedToCustomerAt){
+        toast('This quote was already converted to a customer — refresh Quote Requests.');
+        return;
       }
-      /* The price the customer actually clicked Approve on wins. Recalculating
-         from feet could quietly bill them something they never agreed to. */
-      /* != null with typeof already guarding for "number", not > 0 — a
-         deliberately comped $0 quote is still a price the customer approved,
-         not "no price set". > 0 treated the two identically and silently
-         substituted a feet-based estimate over the $0 the customer actually
-         saw and approved. */
-      if(typeof d.quotedPrice === 'number'){
-        document.getElementById('addCustPrice').value = d.quotedPrice;
-      } else if(d.estimatedFeet && perFootRate){
-        document.getElementById('addCustPrice').value = Math.round(d.estimatedFeet * perFootRate);
-      }
-      // Same fee decision made on the quote's Pricing & Approval panel -
-      // otherwise a "yes" checked there and a default here could disagree,
-      // and the customer gets charged something different than what the
-      // quote email actually told them.
-      document.getElementById('addCustNewMemberFee').checked = d.chargeSetupFee !== undefined ? d.chargeSetupFee : !d.existingCustomerId;
-      addCustFromQuoteId = btn.dataset.converttocust;
-      // Make the link visible the moment it is created — see the banner.
-      renderAddCustQuoteBanner(d.name || d.address || '');
-      // Preferred contact method was collected on the quote and used to be
-      // dropped here — carry it onto the customer so it isn't lost.
-      addCustContactMethodFromQuote = d.contactMethod || '';
-      // Carry the quote's photo across too — including any markup, since that
-      // replaces the photo. Without this the route card has nothing to show.
-      const quotePhotosToCarry = quotePhotoList(d);
-      if(quotePhotosToCarry.length){
-        addCustPhotoUrl = quotePhotosToCarry[0].url;
-        addCustPhotoOriginal = quotePhotosToCarry[0].original || '';
-        addCustPhotoMarkup = quotePhotosToCarry[0].markup || [];
-        /* Every other photo on the quote comes across too, in the same order,
-           so the crew sees the same pictures the customer was quoted from. */
-        addCustExtraPhotos = quotePhotosToCarry.slice(1);
-        renderAddCustExtraPhotos();
-        const img = document.getElementById('addCustPhotoImg');
-        img.src = addCustPhotoUrl;
-        img.classList.remove('hm-blueprint');
-        document.getElementById('addCustPhotoWrap').style.display = 'block';
-        document.getElementById('addCustViewToggle').style.display = 'flex';
-        document.getElementById('addCustViewOriginal').style.background = 'var(--ink)';
-        document.getElementById('addCustViewOriginal').style.color = '#fff';
-        document.getElementById('addCustPhotoStatus').textContent = quotePhotosToCarry.length > 1
-          ? ('All ' + quotePhotosToCarry.length + ' photos carried over from the quote.')
-          : 'Photo carried over from the quote.';
-      }
-      document.querySelector('.nav-item[data-panel="addcustomer"]').click();
-      // Opening the Customers panel isn't enough — it has inner tabs, and it
-      // stays on whichever one was last used. Landing on "All Customers" left
-      // the freshly filled form hidden behind a tab. Same two-step the Bulk
-      // Updates button uses.
-      setTimeout(function(){ document.querySelector('#custSectionTabs [data-custtab="add"]').click(); }, 50);
-      toast('Quote details filled in' + (quotePhotosToCarry.length ? (quotePhotosToCarry.length > 1 ? ', all ' + quotePhotosToCarry.length + ' photos included' : ', photo included') : '') + (typeof d.quotedPrice === 'number' ? ', using the approved quote price' : (d.estimatedFeet && perFootRate ? ', price estimated from footage' : '')) + ' — review and click Add Customer');
+      showConvertQuoteChoice(quoteId, d);
     });
   });
   list.querySelectorAll('.quoteStatusSelect').forEach(function(sel){
@@ -13461,6 +13605,11 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
   const discountReason = document.getElementById('addCustDiscountReason').value.trim();
   let numberOfBins = parseInt(document.getElementById('addCustBins').value, 10) || 1;
   const wantsMailedInvoice = document.getElementById('addCustWantsMailed').checked;
+  /* Read ONCE, into a local, at the top. Everything below this line can await,
+     and the flag is cleared by autoConvertQuoteToCustomer as soon as it has
+     dispatched — so reading the global further down would see false and start
+     asking a person who is not there. */
+  const isAutoConvert = addCustAutoConvert;
   /* Say what is missing BEFORE anything else is checked or written. Every other
      guard below reports one problem at a time; being sent back around a form
      this long six times over is most of what "adding a customer doesn't work"
@@ -13475,16 +13624,21 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
   if(missingFields.length){
     document.getElementById('routeAddStatus').textContent =
       missingFields.length + (missingFields.length === 1 ? ' thing is' : ' things are') + ' missing — see the red box just above.';
-    if(!confirm(
+    /* "Convert automatically" already answered this question — it means "save
+       them with what the quote has". The popup lists these same gaps before it
+       runs, so nothing is hidden; a confirm() here would just be a dialog with
+       nobody looking at the form it refers to. */
+    if(!isAutoConvert && !confirm(
       (name || 'This customer') + ' is missing:\n\n' +
       missingFields.map(function(f){ return '    • ' + f; }).join('\n') + '\n\n' +
       'Press Cancel to go back and fill them in, or OK to add them without these.'
     )) return;
   }
   /* Feet decide the bins, and the bins decide which sequence the number comes from.
-     Over 260 feet is a double-bin house on a 5000 number; anything else is a single
-     bin on a regular number. With no feet measured yet there's nothing to decide
-     from, so the customer is saved without a number. */
+     A house needs another bin every 260 feet — up to 260 is 1 bin on a regular
+     number, over that is 2 or more bins on a 5000 number. With no feet measured
+     yet there's nothing to decide from, so the customer is saved without a
+     number. */
   let customerNumber = document.getElementById('addCustNumber').value.trim();
   if(customerNumber){
     if(!/^\d+$/.test(customerNumber)){
@@ -13528,8 +13682,12 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
   }
   /* The warehouse build queue keys off the light description, so a customer saved
      without any colours picked silently never reaches Dad. Say so rather than
-     letting it slip through. */
-  if(!lightsDescription){
+     letting it slip through.
+     An automatic conversion carries whatever colours the quote holds — ticked
+     boxes or the customer's own words — so it only lands here when the quote
+     genuinely has none, and there is nothing a dialog could ask for. It is said
+     in the toast at the end instead, so the gap is still visible. */
+  if(!lightsDescription && !isAutoConvert){
     if(!confirm('No light colours are selected for ' + (name || 'this customer') + '.\n\nThey will be added, but nothing will go to the Warehouse to be built until colours are set.\n\nAdd them anyway?')) {
       document.getElementById('routeAddStatus').textContent = 'Pick their light colours above, then add them.';
       return;
@@ -13537,7 +13695,11 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
   }
   if(measuredFeet > 0){
     numberOfBins = cnBinsForFeet(measuredFeet);
-    const wantType = numberOfBins === 2 ? 'double' : 'regular';
+    /* There are only two number series — regular and 5000 — but a house can now
+       need 3 or 4 bins. Anything past one bin takes a 5000-series number; the
+       real bin count is still what gets saved, so the warehouse builds the right
+       amount. `=== 2` here quietly handed a 3-bin house a regular number. */
+    const wantType = numberOfBins >= 2 ? 'double' : 'regular';
     if(customerNumber){
       const isDoubleNum = parseInt(customerNumber, 10) >= 5000;
       if((wantType === 'double') !== isDoubleNum){
@@ -13750,6 +13912,18 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
        everything-worked case clears itself. */
     if(!pinFailed && autoSched.done) setTimeout(function(){ statusEl.textContent = ''; }, 6000);
     if(autoSched.done) toast(autoSched.message);
+    /* An automatic conversion leaves whoever pressed it on the Quotes tab, so
+       everything above lands on a status line nobody is looking at. Say the
+       whole result in a toast instead — including the two things the automatic
+       path deliberately did not stop to ask about, so a quote that was thin on
+       detail is still visible as thin on detail. */
+    if(isAutoConvert){
+      toast((name || 'They') + ' is now a customer' +
+        (customerNumber ? ' — #' + customerNumber + ', ' + numberOfBins + ' bin' + (numberOfBins===1?'':'s') : '') +
+        (lightsDescription ? ' — in the Warehouse to be built' : ' — NOT in the Warehouse, no light colours on the quote') +
+        (chargeNewMemberFee ? ' — $30 set-up fee applied' : '') +
+        (missingFields.length ? ' — still missing ' + missingFields.join(', ') : '') + '.');
+    }
   } catch(err){
     /* Say what actually went wrong. This blamed the address for every failure,
        including ones the geocode above had already ruled out, and a customer
@@ -13757,6 +13931,10 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
     statusEl.textContent = 'Could not finish adding ' + (name || 'this customer') + ' — ' +
       ((err && err.message) || 'something went wrong') +
       '. Check All Customers before trying again, in case part of it saved.';
+    /* Same reason as the success toast above — on the automatic path the
+       status line is on another tab, and a conversion that failed silently
+       looks exactly like one that worked. */
+    if(isAutoConvert) toast('Could not convert ' + (name || 'this quote') + ' — ' + ((err && err.message) || 'something went wrong') + '. Check All Customers before trying again.');
   }
 }, function(){ return document.querySelector('#routeAddressForm button[type="submit"]'); }));
 
@@ -17083,15 +17261,24 @@ function cnUpdateAddCustPreview(){
   if(!el) return;
   const feet = Number(document.getElementById('addCustFeet').value) || 0;
   const typed = document.getElementById('addCustNumber').value.trim();
+  /* Keep the Number of Bins box in step with the feet. Submitting already
+     recalculates it from the feet and ignores whatever is showing here, so the
+     box used to sit on 1 while the preview underneath said 3 \u2014 same form, two
+     different answers. With no feet entered the box is left alone: that is the
+     one case where the typed value is what actually gets saved. */
+  const binsBox = document.getElementById('addCustBins');
+  if(binsBox && feet) binsBox.value = cnBinsForFeet(feet);
   if(!feet){
     el.style.color = 'var(--slate)';
     el.textContent = 'No number yet \u2014 enter Measured Feet first.';
     return;
   }
   const bins = cnBinsForFeet(feet);
-  const type = bins === 2 ? 'double' : 'regular';
+  /* Any house past one bin is on the 5000 series — see the Add Customer
+     handler. Three bins is still a "double" as far as the number goes. */
+  const type = bins >= 2 ? 'double' : 'regular';
   if(typed){
-    const mismatch = (parseInt(typed,10) >= 5000) !== (bins === 2);
+    const mismatch = (parseInt(typed,10) >= 5000) !== (bins >= 2);
     el.style.color = mismatch ? 'var(--ember)' : 'var(--slate)';
     el.textContent = feet + ' ft = ' + bins + ' bin' + (bins===1?'':'s') + '. Using your #' + typed +
       (mismatch ? ' \u2014 that\'s not the usual series for ' + bins + ' bin' + (bins===1?'':'s') + '.' : '.');
@@ -17745,17 +17932,22 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        change is flagged rather than made silently. */
     const existingNum = String(item.data.customerNumber || '');
     if(existingNum && newMeasuredFeet > 0){
-      const shouldBeDouble = cnBinsForFeet(newMeasuredFeet) === 2;
+      /* A house can need 3 or 4 bins now, but there are still only two number
+         series, so anything past one bin is a 5000. `=== 2` here read a 3-bin
+         house as "not a double" and offered to move a correct 5000-series
+         customer back onto a regular number. */
+      const binsForFeet = cnBinsForFeet(newMeasuredFeet);
+      const shouldBeDouble = binsForFeet >= 2;
       const isDoubleNum = parseInt(existingNum, 10) >= 5000;
       if(shouldBeDouble !== isDoubleNum){
         const suggested = cnNextAvailable(shouldBeDouble ? 'double' : 'regular').number;
-        const msg = newName + ' now measures ' + newMeasuredFeet + ' feet, which is ' + (shouldBeDouble ? '2 bins' : '1 bin') +
+        const msg = newName + ' now measures ' + newMeasuredFeet + ' feet, which is ' + binsForFeet + ' bin' + (binsForFeet===1?'':'s') +
           ' \u2014 but they hold #' + existingNum + ', ' + (isDoubleNum ? 'a 5000-series (2 bin)' : 'a regular (1 bin)') + ' number.\n\n' +
           'Their bin in the warehouse is labelled #' + existingNum + '. Moving them to #' + suggested + ' means relabelling it.\n\n' +
           'OK = move them to #' + suggested + '\nCancel = keep #' + existingNum;
         if(confirm(msg)){
           addrUpdates.customerNumber = suggested;
-          addrUpdates.numberOfBins = shouldBeDouble ? 2 : 1;
+          addrUpdates.numberOfBins = binsForFeet;
           await setDoc(doc(db,'availableCustomerNumbers', existingNum), {type: isDoubleNum ? 'double' : 'regular', releasedAt: serverTimestamp()});
           await deleteDoc(doc(db,'availableCustomerNumbers', suggested)).catch(function(){});
         }

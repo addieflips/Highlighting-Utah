@@ -495,6 +495,24 @@ check('logic', '261 feet needs two bins', cnBinsForFeet(261) === 2);
 check('logic', 'blank or junk feet does not become a two-bin house',
   cnBinsForFeet(0) === 1 && cnBinsForFeet('') === 1 &&
   cnBinsForFeet(null) === 1 && cnBinsForFeet('abc') === 1);
+/* Bins go up in 260s now instead of stopping at two — a house needs another bin
+   for every 260 feet. The boundary has NOT moved (260 is still one bin, 261 is
+   still two), so nobody already on the books changes bin count or customer
+   number; the only houses that come out differently are the ones over 520 feet,
+   which used to be capped at 2 bins no matter how big they were. Those get the
+   bins they actually need. */
+check('logic', '520 feet is still two bins',
+  cnBinsForFeet(520) === 2, 'the second bin covers up to 520 — two lots of 260');
+check('logic', '521 feet needs three bins',
+  cnBinsForFeet(521) === 3,
+  'a house past 520 ft used to be capped at 2 bins, so the warehouse built short');
+check('logic', '780 feet is three bins and 781 is four',
+  cnBinsForFeet(780) === 3 && cnBinsForFeet(781) === 4);
+check('logic', 'bins never exceed one per 260 feet',
+  [1, 259, 260, 261, 400, 520, 521, 900, 1500].every(f => cnBinsForFeet(f) === Math.max(1, Math.ceil(f / 260))),
+  'the bin count and the warehouse bundle count would disagree about the same house');
+check('logic', 'a huge measurement does not produce a silly bin count',
+  cnBinsForFeet(-50) === 1, 'negative feet is a typo, not a zero-bin house');
 
 check('logic', 'invoice key uses phone digits when a phone exists',
   custInvoiceKey({ phone: '(801) 555-1234', email: 'A@B.com' }) === '8015551234');
@@ -1143,6 +1161,98 @@ if (JSDOM) {
     check('render', 're-quote — approved reads "Approved again" at the new price',
       reOkCard.textContent.includes('Approved again') && reOkCard.textContent.includes('$615.00'));
     global.quoteStageFilter = 'new';
+
+    /* ---- Convert to Customer: the automatic-or-manual popup ----
+       showConvertQuoteChoice sits inside the slice eval'd above, so it is a
+       real function here and this renders the actual popup rather than
+       matching its source text. What matters is that the popup tells the truth
+       about what automatic would save BEFORE it runs — once it runs, the
+       customer, the invoice, the number and the warehouse entry all exist. */
+    if (typeof showConvertQuoteChoice === 'function') {
+      const popup = () => document.querySelector('.needsfix-popup');
+      const closePopup = () => {
+        const o = document.querySelector('.needsfix-popup-overlay');
+        if (o) o.remove();
+      };
+
+      const full = {
+        name: 'Dana Whitmore', street: '412 Oak Ridge Dr', city: 'Provo', zip: '84604',
+        phone: '(801) 555-0148', email: 'dana@example.com', quotedPrice: 615,
+        /* quotePhotos, not photoUrl — this is the shape quotePhotoList actually
+           reads, and a fixture that does not match production is exactly what
+           §9.14 of CLAUDE.md says to check before believing a red test. */
+        quotePhotos: [{ url: 'https://example.com/house.jpg' }],
+        chargeSetupFee: true
+      };
+      closePopup();
+      showConvertQuoteChoice('q-full', full);
+      check('render', 'convert popup — offers both ways through',
+        !!popup() && !!document.getElementById('convertQuoteAutoBtn') &&
+        !!document.getElementById('convertQuoteManualBtn'),
+        'the automatic option is unreachable');
+      check('render', 'convert popup — names the quote it is about',
+        popup().textContent.includes('Dana Whitmore'),
+        'two quotes open at once and no telling which one this converts');
+      check('render', 'convert popup — a complete quote raises no warning',
+        !popup().textContent.includes('The quote has no'),
+        'crying wolf on a quote that has everything trains the warning to be ignored');
+      check('render', 'convert popup — says the $30 fee carries',
+        popup().textContent.includes('$30 set-up fee'),
+        'the fee is money the customer sees on their bill — say it before converting');
+
+      const thin = { name: 'Sam Reyes', street: '', city: '', phone: '', email: '' };
+      closePopup();
+      showConvertQuoteChoice('q-thin', thin);
+      const thinTxt = popup().textContent;
+      check('render', 'convert popup — lists what a thin quote is missing',
+        thinTxt.includes('The quote has no') && thinTxt.includes('Street Address') &&
+        thinTxt.includes('City') && thinTxt.includes('Phone Number') &&
+        thinTxt.includes('Email') && thinTxt.includes('House Picture') &&
+        thinTxt.includes('Total Price'),
+        'automatic would save a customer with none of this and nothing would have said so');
+      /* A brand new quote with the box never touched still charges the fee —
+         that is the default for anyone who is not an existing customer, and it
+         is what the quote card itself shows ticked. */
+      check('render', 'convert popup — a new quote with no fee box set still charges it',
+        thinTxt.includes('$30 set-up fee'),
+        'the quote card shows the fee ticked by default, so the popup must agree with it');
+
+      /* A re-quote is an existing customer, so the set-up fee defaults OFF —
+         they already paid it the year they joined. Charging it again is the
+         kind of money bug that only shows up on somebody's bill. */
+      closePopup();
+      showConvertQuoteChoice('q-re', Object.assign({}, full, {
+        existingCustomerId: 'cust1', chargeSetupFee: undefined
+      }));
+      check('render', 'convert popup — a re-quote does not promise a $30 fee',
+        !popup().textContent.includes('$30 set-up fee'),
+        'an existing customer would be charged the join fee a second time');
+
+      /* Priced from footage rather than an approved price still counts as
+         having a price — the form fills one in, so it must not be listed as
+         missing. */
+      closePopup();
+      showConvertQuoteChoice('q-feet', Object.assign({}, full, {
+        quotedPrice: undefined, estimatedFeet: 240
+      }));
+      check('render', 'convert popup — footage counts as a price',
+        !popup().textContent.includes('Total Price'),
+        'it would warn about a price the form is about to fill in anyway');
+
+      check('render', 'convert popup — can be closed without converting',
+        !!document.getElementById('convertQuoteCancelBtn'));
+      document.getElementById('convertQuoteCancelBtn').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true })
+      );
+      check('render', 'convert popup — Cancel actually removes it',
+        !document.querySelector('.needsfix-popup-overlay'),
+        'a popup that will not close sits over the whole tab');
+      closePopup();
+    } else {
+      check('render', 'convert popup is reachable from the quotes code', false,
+        'showConvertQuoteChoice was not defined by the slice this suite evals — ' +
+        'it may have moved outside it, in which case widen the slice');
+    }
   }
 }
 
@@ -1153,11 +1263,18 @@ suite('6. Data flow between parts');
 
 const employee = read('employee.html');
 
-// the block of admin.html that runs on Convert to Customer
-const convStart = admin.indexOf("[data-converttocust]");
-const convEnd = admin.indexOf('Quote details filled in', convStart);
-const conversion = convStart > -1 && convEnd > convStart ? admin.slice(convStart, convEnd) : '';
-check('flow', 'found the quote to customer conversion block', conversion.length > 0);
+/* The code that carries a quote's details onto the Add a Customer form.
+   It used to be written inline inside the [data-converttocust] click handler,
+   and this was sliced out between that marker and the "Quote details filled
+   in" toast at the end of it. Convert to Customer now asks automatic-or-manual
+   first, so the fill is its own function that BOTH answers call — and the two
+   old anchors ended up in the opposite order in the file, which made the slice
+   come back empty and every check below it fail on code that was fine.
+   Anchored on the function itself now, which is a real structural anchor and
+   cannot get out of order (CLAUDE.md §7, and sectionFrom's own note above). */
+const conversion = extractFn(admin, 'fillAddCustFromQuote') || '';
+check('flow', 'found the quote to customer conversion block', conversion.length > 0,
+  'fillAddCustFromQuote is gone or renamed — every "conversion carries…" check below reads nothing');
 
 // fields the conversion is known to carry
 [['name', 'routeNameInput'], ['phone', 'routePhoneInput'], ['street', 'routeStreetInput'],
@@ -1170,6 +1287,81 @@ check('flow', 'found the quote to customer conversion block', conversion.length 
   check('flow', 'conversion carries ' + label, conversion.includes(marker),
     'quote data would be lost when converting to a customer');
 });
+check('flow', 'conversion carries the $30 set-up fee decision',
+  conversion.includes('addCustNewMemberFee') && /chargeSetupFee/.test(conversion),
+  'the fee ticked on the quote must be the fee charged on the customer, or the ' +
+  'bill disagrees with the quote email they are holding');
+check('flow', 'conversion falls back to the quote wording when no colours are ticked',
+  /rbDetectColorsAndPattern\([\s\S]{0,80}\)\.pattern\s*\|\|/.test(conversion),
+  'a quote whose colours were typed as words rather than ticked would convert with ' +
+  'no lightsDescription at all, and needsLightBuild is set from that — the customer ' +
+  'would never appear in the Warehouse build queue');
+
+/* --- Convert to Customer: automatic or manual --- */
+const convChoice = extractFn(admin, 'showConvertQuoteChoice') || '';
+check('flow', 'Convert to Customer asks automatic or manual',
+  convChoice.length > 0 && /convertQuoteAutoBtn/.test(convChoice) && /convertQuoteManualBtn/.test(convChoice),
+  'the popup that offers the two ways through is gone');
+check('flow', 'the convert popup can be dismissed without converting',
+  /convertQuoteCancelBtn/.test(convChoice),
+  'a popup with no way out traps whoever opened it by mistake');
+check('flow', 'the convert button opens the popup rather than filling the form itself',
+  /\[data-converttocust\][\s\S]{0,900}showConvertQuoteChoice/.test(admin),
+  'the button went back to filling the form directly, so the automatic option is unreachable');
+check('flow', 'the convert button will not convert the same quote twice',
+  /\[data-converttocust\][\s\S]{0,900}convertedToCustomerAt/.test(admin),
+  'a stale card could start a second conversion — a duplicate customer, number, ' +
+  'invoice and warehouse entry for one quote');
+
+const autoConv = extractFn(admin, 'autoConvertQuoteToCustomer') || '';
+check('flow', 'automatic convert reuses the Add Customer form instead of writing its own record',
+  autoConv.includes('fillAddCustFromQuote') && autoConv.includes('routeAddressForm') &&
+  /dispatchEvent/.test(autoConv),
+  'a second way of creating a customer is a second set of money and numbering ' +
+  'rules to keep in step — see CLAUDE.md §9.2');
+check('flow', 'automatic convert clears its own flag',
+  /finally\s*\{[\s\S]{0,400}addCustAutoConvert\s*=\s*false/.test(autoConv),
+  'the flag would stay up and silence the missing-field warnings on the NEXT ' +
+  'customer somebody adds by hand');
+
+const addCustHandler = sectionFrom(admin, admin.indexOf("getElementById('routeAddressForm').addEventListener"));
+check('flow', 'the automatic path is read once, before anything awaits',
+  /const\s+isAutoConvert\s*=\s*addCustAutoConvert/.test(addCustHandler),
+  'reading the global further down would see it already cleared and start ' +
+  'prompting a person who is not sitting there');
+check('flow', 'automatic convert skips the missing-fields prompt',
+  /!isAutoConvert\s*&&\s*!confirm\(/.test(addCustHandler),
+  'a blocking dialog on a panel nobody is looking at');
+check('flow', 'automatic convert still reports what was missing',
+  /isAutoConvert[\s\S]{0,600}missingFields\.join/.test(addCustHandler),
+  'skipping the prompt must not mean hiding the gap — it moves to the toast');
+check('flow', 'automatic convert says whether the customer reached the Warehouse',
+  /isAutoConvert[\s\S]{0,600}Warehouse/.test(addCustHandler),
+  'the whole point of converting is that the build gets queued — say when it did not');
+check('flow', 'a failed automatic convert is not silent',
+  /catch[\s\S]{0,900}isAutoConvert[\s\S]{0,200}toast\(/.test(addCustHandler),
+  'the error lands on the Add Customer status line, which is on another tab');
+check('flow', 'the duplicate-address warning still asks, even automatically',
+  /findExistingAddressMatch[\s\S]{0,900}confirm\(/.test(addCustHandler) &&
+  !/isAutoConvert[\s\S]{0,120}findExistingAddressMatch/.test(addCustHandler),
+  'billing two records onto one invoice is a real decision — it must not be ' +
+  'skipped just because the conversion was automatic');
+
+/* Bins and the customer number series are one decision, and there are only two
+   series for what is now an unbounded bin count. */
+check('flow', 'a three-bin house still gets a 5000-series number',
+  /numberOfBins\s*>=\s*2\s*\?\s*'double'/.test(admin),
+  '`=== 2` here hands a 3-bin house a regular number, and the bin it is labelled ' +
+  'for does not exist');
+check('flow', 'the number preview agrees with the saved bin count',
+  /const type = bins >= 2 \? 'double' : 'regular'/.test(admin),
+  'the preview on the form would offer a different series than the save actually uses');
+check('flow', 'the Number of Bins box follows the feet',
+  /binsBox\s*&&\s*feet\)\s*binsBox\.value = cnBinsForFeet\(feet\)/.test(admin),
+  'the box sat on 1 while the preview under it said 3 — same form, two answers');
+check('flow', 'changing the feet keeps the real bin count, not just 1 or 2',
+  /addrUpdates\.numberOfBins = binsForFeet/.test(admin),
+  'a re-measured house would be saved as 2 bins when it needs 4');
 
 // --- known disconnects ---
 gap('outlet timer reaches the customer record',
