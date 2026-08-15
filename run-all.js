@@ -5477,6 +5477,97 @@ check('cap', 'the sweep still reports as changed when all it did was even days o
   'a silent reshuffle is how a confirmed date changes without anybody knowing');
 
 // =====================================================================
+// 19. ALL CUSTOMERS SAYS WHAT DAY THEY ARE DOWN FOR
+// =====================================================================
+/*
+ * The Route column said "Scheduled" and never said when. Owner, 2026-08-15:
+ * a small read-only button saying "what day the customer is currently scheduled
+ * to be hung, or takendown, whichever is coming up next".
+ *
+ * nextVisitFor is where all the deciding happens, so it is RUN here. Which of
+ * two dates wins, and whether a done visit still counts, cannot be read off a
+ * regex — and getting it wrong shows the office the wrong date for a house,
+ * which is worse than showing none.
+ */
+suite('19. All Customers: the next visit');
+{
+  const src = admin.slice(admin.indexOf('function nextVisitFor(d, todayStr)'),
+                          admin.indexOf('function allCustRouteStatus'));
+  if (!src) {
+    check('nextvisit', 'the next-visit helpers are findable', false,
+      'renamed or removed — update this test rather than deleting it');
+  } else {
+    global.toDateStr = dt => dt.getFullYear() + '-' +
+      String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+    global.esc = s => String(s);
+    const api = eval(src + '\n;({next: nextVisitFor, chip: nextVisitChip})');
+    const T = '2026-11-10';
+
+    check('nextvisit', 'a house with nothing booked reports nothing at all',
+      api.next({}, T) === null,
+      'the caller renders no pill — a "Not scheduled" badge on nine hundred rows ' +
+      'only repeats the line above it');
+    check('nextvisit', 'a booked hang comes back with its day',
+      (() => { const v = api.next({ scheduled: true, scheduledDate: '2026-11-12' }, T);
+               return v && v.kind === 'Hang' && v.date === '2026-11-12' && !v.overdue; })());
+    check('nextvisit', 'the SOONER of a hang and a takedown wins',
+      (() => { const v = api.next({ scheduled: true, scheduledDate: '2026-11-12',
+                 removalScheduled: true, removalScheduledDate: '2027-01-06' }, T);
+               return v.kind === 'Hang' && v.date === '2026-11-12'; })(),
+      "the owner's words: whichever is coming up next");
+    check('nextvisit', 'once the lights are up, the takedown answers instead',
+      (() => { const v = api.next({ completed: true, scheduled: true, scheduledDate: '2026-11-12',
+                 removalScheduled: true, removalScheduledDate: '2027-01-06' }, T);
+               return v.kind === 'Takedown' && v.date === '2027-01-06'; })(),
+      'a finished install is not "coming up" — it must stop answering, or every ' +
+      'installed house shows a date that has already happened');
+    check('nextvisit', 'a done takedown stops answering too',
+      api.next({ removalScheduled: true, removalScheduledDate: '2027-01-06',
+                 removalDone: true }, T) === null);
+    check('nextvisit', 'a day that has been and gone is still reported, flagged',
+      (() => { const v = api.next({ scheduled: true, scheduledDate: '2026-11-02' }, T);
+               return v && v.overdue === true && v.date === '2026-11-02'; })(),
+      'that is a house the crew missed — hiding it until somebody tidies it up is ' +
+      'exactly how it stays missed');
+    check('nextvisit', 'today itself counts as coming up, not as missed',
+      api.next({ scheduled: true, scheduledDate: T }, T).overdue === false,
+      'off-by-one here tells the office they missed a house they are driving to this morning');
+    check('nextvisit', 'an upcoming visit always beats a missed one',
+      (() => { const v = api.next({ scheduled: true, scheduledDate: '2026-11-02',
+                 removalScheduled: true, removalScheduledDate: '2026-11-20' }, T);
+               return v.kind === 'Takedown' && !v.overdue; })(),
+      'the question is what happens NEXT, and something in the past is not next');
+    check('nextvisit', 'a scheduled flag with no date on it is ignored',
+      api.next({ scheduled: true }, T) === null,
+      'rendering "Hang undefined" is worse than rendering nothing');
+
+    // ---- the chip itself ------------------------------------------------
+    check('nextvisit', 'the chip is a span, not a button',
+      /^<span /.test(api.chip({ scheduled: true, scheduledDate: '2026-12-12' })),
+      'a disabled button is still announced as an unavailable action and can still ' +
+      'be a tab stop — a date is neither');
+    check('nextvisit', 'it cannot be clicked and says which visit it is',
+      (() => { const h = api.chip({ scheduled: true, scheduledDate: '2026-12-12' });
+               return /cursor:default/.test(h) && /Hang/.test(h) && /Dec 12/.test(h); })());
+    check('nextvisit', 'a missed day is coloured differently from an upcoming one',
+      api.chip({ scheduled: true, scheduledDate: '2020-01-02' }) !==
+      api.chip({ scheduled: true, scheduledDate: '2099-01-02' }),
+      'if both look the same the amber is decoration rather than a warning');
+    check('nextvisit', 'nothing booked renders nothing', api.chip({}) === '');
+  }
+}
+check('nextvisit', 'the Route column actually shows it',
+  /const visitChip = nextVisitChip\(r\.d\);/.test(admin) &&
+  /\(visitChip \? '<br>'\+visitChip : ''\)/.test(admin),
+  'the helper existing is not the same as the office seeing it');
+check('nextvisit', 'and it went in the existing Route cell, not a new column',
+  (admin.match(/<th style="padding:8px 10px;"[^>]*>[^<]*<\/th>/g) || []).length +
+    (admin.match(/data-sortcol="(name|enrolled)"/g) || []).length > 0 &&
+  !/>Next Visit<\/th>/.test(admin),
+  'the responsive rules address this table by td:nth-child(2) and (4), so an extra ' +
+  'column would silently relabel two others on a phone');
+
+// =====================================================================
 // Wait for the async suites before totalling up — see pendingAsync at the top.
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
