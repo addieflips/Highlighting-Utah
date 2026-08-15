@@ -325,10 +325,13 @@ const whWireLabelSrc     = extractFn(admin, 'whWireLabel');
    list would happily stay green while the app's own list moved on. */
 const whColorsFromWordsSrc = extractFn(admin, 'whColorsFromWords');
 const whLightColorsSrc = (admin.match(/const WH_LIGHT_COLORS\s*=\s*\[[^\]]*\];/) || [])[0];
+/* Health Check's "light colours written as words" row reads this. Admin-only —
+   employee.html has no copy and is not expected to. */
+const whUnreadableSrc = extractFn(admin, 'whUnreadableLightParts');
 const CN_DOUBLE_BIN_FEET = Number((money.match(/CN_DOUBLE_BIN_FEET\s*=\s*(\d+)/) || [])[1]);
 eval([centsOfSrc, computeInvoiceStatusSrc, cnBinsForFeetSrc, custInvoiceKeySrc, statusClassSrc,
       whWireLabelSrc, whLightColorsSrc, whColorsFromWordsSrc, whNormalizeLightsSrc,
-      whGroupKeySrc].filter(Boolean).join('\n'));
+      whGroupKeySrc, whUnreadableSrc].filter(Boolean).join('\n'));
 
 /* The split only works if admin.html actually pulls the rules back in. Without
    these two checks, deleting the import would leave every balance on screen
@@ -849,6 +852,66 @@ if (typeof whGroupKey === 'function') {
   check('logic', 'employee.html knows the same colours admin does',
     !!empColors && empColors.replace(/\s+/g, ' ') === (whLightColorsSrc || '').replace(/\s+/g, ' '),
     'a colour added to one list and not the other groups differently on the two screens');
+}
+
+/* --- no typed light descriptions, and the leftovers are findable -----------
+ * Owner, 2026-08-15: "it should never have to guess because it should never be
+ * in typed format." Two halves to that, and both are checked here: nothing in
+ * the app may WRITE free text into a light description, and the records that
+ * already contain some have to be findable so they can be corrected rather
+ * than interpreted forever.
+ */
+/* Matched on the WIRING, not on the class name: the comment that records why
+   this handler was removed names the class, and a bare /quoteLightsInput/
+   test failed against its own explanation. */
+check('flow', 'nothing writes a typed light description onto a quote',
+  !/querySelectorAll\('\.quoteLightsInput'\)/.test(admin) &&
+  !/lightsDescription:\s*input\.value/.test(admin),
+  'the free-text lights box on the quote card is back — anything typed there ' +
+  'lands in lightsDescription as words and the warehouse cannot group it');
+check('flow', 'every light description comes from a picker',
+  /readLightsPicker\(panel, 'hd-lights'\)/.test(admin) &&
+  /addcust-color-check/.test(admin),
+  'Edit Customer and Add Customer must both read their colours from the ' +
+  'colour boxes, not from a text field');
+check('flow', 'Health Check lists customers whose colours are still words',
+  /id: 'lightsNotPicked'/.test(admin) && /whUnreadableLightParts/.test(admin),
+  'old typed records would stay unreadable forever with nothing pointing at them');
+check('flow', 'that Health Check row offers no Fix button',
+  (() => {
+    const i = admin.indexOf("id: 'lightsNotPicked'");
+    if (i === -1) return false;
+    /* sectionFrom, not a character window — the suite fails its own
+       fixed-length-window check otherwise, and rightly so. */
+    return /fix:\s*null/.test(sectionFrom(admin, i));
+  })(),
+  'a bulk rewrite of light colours would be the app guessing at what the ' +
+  'words meant, which is the thing it must never do');
+
+if (typeof whUnreadableLightParts === 'function') {
+  check('logic', 'a properly picked colour list has nothing to correct',
+    whUnreadableLightParts('Red, Green').length === 0 &&
+    whUnreadableLightParts('Warm White').length === 0 &&
+    whUnreadableLightParts('red and green').length === 0,
+    'Health Check would nag about records that are perfectly readable');
+  check('logic', 'a blank description is not reported as a problem',
+    whUnreadableLightParts('').length === 0 && whUnreadableLightParts(null).length === 0,
+    'a house with no colours yet is a different check — do not double-report it');
+  check('logic', 'a trailing note is not mistaken for a bad colour',
+    whUnreadableLightParts('Red, Green (every third bulb)').length === 0,
+    'the note is a real instruction, not a typo — it must not be flagged');
+  check('logic', 'words the app does not know are reported, and named',
+    (() => {
+      const bad = whUnreadableLightParts('Red with tinsel');
+      return bad.length === 1 && bad[0] === 'Red with tinsel';
+    })(),
+    'the row has to say WHICH part it could not read, or nobody knows what to fix');
+  check('logic', 'only the unreadable part is reported, not the whole list',
+    (() => {
+      const bad = whUnreadableLightParts('Red, sparkly thing, Green');
+      return bad.length === 1 && bad[0] === 'sparkly thing';
+    })(),
+    'reporting the readable colours too would bury the one that needs fixing');
 }
 
 /* --- warehouse queue entries can be corrected after they are added -------
@@ -1907,6 +1970,13 @@ console.log('\n=== 7. Health check engine ===');
        be the first one everyone learned to ignore. Its own behaviour is
        covered separately, by setting this from the tests below. */
     var nightlyHealthCache = { loaded:false, enabled:false, alertPhone:'', newestRunAt:null, hasRuns:false };
+    /* The "light colours written as words" check calls these. Lifted from the
+       real admin.html rather than stubbed, for the same reason centsOf is:
+       a stub would keep this suite green through a change to what the app
+       actually counts as a readable colour. */
+    ${whLightColorsSrc || ''}
+    ${whColorsFromWordsSrc || ''}
+    ${whUnreadableSrc || ''}
   `;
   let hc;
   try {
@@ -2110,12 +2180,42 @@ console.log('\n=== 7. Health check engine ===');
     get(hc.run(), 'nightlyBilling').rows.length === 0,
     'crying wolf on a failed read is how a panel gets ignored');
 
+  /* --- light colours written as words, not picked ------------------------
+     Run against the REAL check, not just its source text: the point is which
+     customers come out of it. */
+  hc.set({
+    j: [{ id: 'picked',  data: { name: 'Picked',  phone: '8011110001', lightsDescription: 'Red, Green' } },
+        { id: 'words',   data: { name: 'Words',   phone: '8011110002', address: '9 Elm', lightsDescription: 'Red with tinsel' } },
+        { id: 'spelled', data: { name: 'Spelled', phone: '8011110003', lightsDescription: 'red and green' } },
+        { id: 'noted',   data: { name: 'Noted',   phone: '8011110004', lightsDescription: 'Red, Green (every third bulb)' } },
+        { id: 'blank',   data: { name: 'Blank',   phone: '8011110005', lightsDescription: '' } }]
+  });
+  const notPicked = get(hc.run(), 'lightsNotPicked').rows;
+  check('health', 'a customer whose colours are words is listed for correcting',
+    notPicked.length === 1 && /Words/.test(notPicked[0].label),
+    'got ' + notPicked.length + ' rows: ' + notPicked.map(r => r.label).join(', '));
+  check('health', 'properly picked colours are not listed',
+    !notPicked.some(r => /Picked|Spelled|Noted|Blank/.test(r.label)),
+    'this would nag about records that are perfectly readable, and the panel would be ignored');
+  check('health', 'the row says which words it could not read',
+    notPicked.length === 1 && notPicked[0].detail.indexOf('Red with tinsel') !== -1,
+    'without naming the text there is nothing for anyone to go and fix');
+
   const all = hc.run();
-  check('health', 'all 18 checks present',
-    all.length === 18, 'got ' + all.length);
+  /* 19 since 2026-08-15 — "light colours written as words" was added. The count
+     is deliberately hard-coded: a check silently disappearing is exactly the
+     kind of thing nobody notices, so adding or removing one has to be a
+     conscious edit here too. */
+  check('health', 'all 19 checks present',
+    all.length === 19, 'got ' + all.length);
   check('health', 'fix buttons limited to the unambiguous checks',
     all.filter(c => c.fix).length === 6,
     'auto-fixing a judgement call writes bad data at scale');
+  /* The new one must stay in the no-button group: rewriting somebody's light
+     colours in bulk would be the app guessing at what the words meant. */
+  check('health', 'the words-not-colours check never offers to fix itself',
+    !get(all, 'lightsNotPicked').fix,
+    'a Fix button here would guess at what the words meant and change what the crew builds');
 })();
 
 // =====================================================================

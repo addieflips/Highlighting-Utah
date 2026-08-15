@@ -8695,14 +8695,20 @@ function renderQuoteRows(filtered){
       updateDoc(doc(db,'quotes',sel.dataset.id), {status: sel.value});
     });
   });
+  /* REMOVED 2026-08-15: the .quoteLightsInput handler that used to live here.
+     It wrote whatever was typed straight into lightsDescription as free text,
+     and free text is the thing that makes the warehouse have to interpret a
+     colour list instead of just reading it. Colours come from the picker now \u2014
+     the customer's own detail form, or the colour boxes on Add/Edit Customer \u2014
+     so there is one shape and nothing has to guess.
+     It was already dead: the P1 work took the Detail Form off the quote card,
+     so nothing has rendered an element with this class since. A live handler
+     with no markup is worse than nothing, because re-adding an input with that
+     class would silently start writing free text again and no test would say
+     so. Suite 6 of run-all.js now asserts this stays gone. */
   // Save on blur (change), not on every keystroke \u2014 an input-debounced save
   // triggers a re-render mid-typing, which used to collapse the Pricing panel
   // out from under the person typing into it.
-  list.querySelectorAll('.quoteLightsInput').forEach(function(input){
-    input.addEventListener('change', function(){
-      updateDoc(doc(db,'quotes',input.dataset.id), {lightsDescription: input.value.trim()});
-    });
-  });
   list.querySelectorAll('.quoteFeetInput').forEach(function(input){
     input.addEventListener('change', function(){
       updateDoc(doc(db,'quotes',input.dataset.id), {estimatedFeet: Number(input.value) || 0});
@@ -16348,6 +16354,37 @@ function whNormalizeLights(text){
 function whGroupKey(lightsDescription, wire){
   return whNormalizeLights(lightsDescription) + ' \u2014 ' + whWireLabel(wire) + ' wire';
 }
+/* Which parts of a light description are NOT a colour this app knows.
+ *
+ * Nothing in the app writes free text into lightsDescription any more \u2014 every
+ * way in is a picker: the customer's own detail form, the colour boxes on Add
+ * and Edit Customer, and the portal's colour change. So a record that still
+ * has words in it here is OLD data \u2014 typed or bulk-imported before that was
+ * true \u2014 and it is the only reason the warehouse ever has to interpret
+ * anything instead of just reading it.
+ *
+ * Rather than guess at those records forever, Health Check lists them so they
+ * can be re-picked once and be right from then on. Returns [] for a
+ * description that is entirely colours, so an empty result means "nothing to
+ * do". A trailing "(note)" is ignored on purpose \u2014 that is a real feature, not
+ * a typo, and whNormalizeLights already keeps it out of the colour list.
+ *
+ * \u26a0 Deliberately admin-only. employee.html shows the crew what to build; it is
+ * not where data gets cleaned up, so it does not carry a copy of this. */
+function whUnreadableLightParts(text){
+  const raw = String(text || '');
+  if(!raw.trim()) return [];
+  const m = raw.match(/^(.*?)\s*\(([^)]*)\)\s*$/);
+  const main = m ? m[1].trim() : raw.trim();
+  if(!main) return [];
+  const bad = [];
+  main.split(/[,\u2014\/&+]|\band\b/i).forEach(function(piece){
+    const t = piece.trim().replace(/\s+/g, ' ').replace(/[.;]+$/, '');
+    if(!t) return;
+    if(!whColorsFromWords(t)) bad.push(t);
+  });
+  return bad;
+}
 /* The chevron on a Warehouse group row read as decoration, not as a control, so
    in practice nobody opened the row — which made the Build tab look like it had
    no customer names on it at all. A labelled button is the control now, and it
@@ -22752,6 +22789,32 @@ function hcRunChecks(){
       const d = c.data || {};
       return !(Number(d.measuredFeet) || 0) && !(Number(d.housePrice) || 0);
     }).map(function(c){ return {label: hcName(c.data), detail: hcAddr(c.data) || 'no address on file'}; })
+  });
+
+  /* The only remaining reason the warehouse has to interpret anything. Nothing
+     in the app writes free text into a light description any more, so every
+     row listed here is old data — typed or bulk-imported before that was
+     true. Each one sits in its own build group forever, because the app will
+     not guess what the words mean.
+     No Fix button on purpose: guessing is exactly what it must not do, and a
+     bulk rewrite of light colours is a change to what the crew physically
+     builds. Re-picking the colours on Edit Customer fixes one for good. */
+  checks.push({
+    id: 'lightsNotPicked',
+    title: 'Customer whose light colours are written as words',
+    why: 'The warehouse groups builds by colour. Words it does not recognise cannot be grouped, so this house sits in a build group of its own and its bundles are never counted with anybody else\'s.',
+    fix: null,
+    fixNote: 'No button: open the customer, tick their colours in the light picker, and save. Nothing can safely guess what the words meant — that is the whole point.',
+    rows: jobAddresses.map(function(c){
+      const d = c.data || {};
+      const bad = whUnreadableLightParts(d.lightsDescription);
+      if(!bad.length) return null;
+      return {
+        label: hcName(d),
+        detail: (hcAddr(d) || 'no address on file') + ' — reads "' + (d.lightsDescription || '') +
+          '", not recognised: ' + bad.map(function(b){ return '"' + b + '"'; }).join(', ')
+      };
+    }).filter(Boolean)
   });
 
   /* ---------- money ---------- */
