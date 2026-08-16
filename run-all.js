@@ -5217,6 +5217,15 @@ suite('17. A new customer lands on the next day in their city');
         serverTimestamp: () => '__ts__',
         updateDoc: async (ref, payload) => { writes.push({ path: ref.__path, payload }); },
         addDoc: async (col, payload) => { added.push({ col: col.__col, payload }); },
+        /* ⚠ setDoc and deleteDoc were MISSING, and their absence was invisible:
+           the sweep wraps day-building and day-retiring in try/catch so a
+           missing function threw, was swallowed, and every test simply saw
+           "no days were built". The single biggest thing this sweep does was
+           not exercised at all. A fake that is missing a method does not fail
+           loudly — it fails as a plausible-looking empty result, which is the
+           worst way for a test harness to be wrong. */
+        setDoc: async (ref, payload) => { writes.push({ path: ref.__path, payload, set: true }); },
+        deleteDoc: async (ref) => { writes.push({ path: ref.__path, deleted: true }); },
         jobAddresses: houses,
         scheduledRoutesCache: cache,
         console: { error(){}, warn(){}, log(){} }
@@ -5398,6 +5407,82 @@ suite('17. A new customer lands on the next day in their city');
         {id:'ok', name:'Fine House', address:'1 Fine St', lat:40.4, lng:-111.8, difficulty:'Unrated',
          phone:'', gateCode:'', specificOutlet:'', specificOutletNotes:'', customerNumber:''}
       ]}];
+      // ---- 18.5 THE SCHEDULE FOLLOWS THE CUSTOMER RECORD ------------------
+      /* Owner, 2026-08-15: "the schedule will be needing to be changed
+         constantly — can we verify these weird customers will change with it."
+         The answer has to be a test, not a promise. Each case below is a real
+         edit somebody will make to a record, run through the REAL sweep against
+         a fake database, checking the schedule moves with it.
+         These are written against the awkward customers specifically: the ones
+         whose town is about to be filled in from a map pin, the ones whose
+         timing preference is shorthand, the ones being corrected by hand. */
+      const stopFor = (id, name) => ({id, name, address:'1 St', lat:40.4, lng:-111.8,
+        difficulty:'Unrated', phone:'', gateCode:'', specificOutlet:'',
+        specificOutletNotes:'', customerNumber:''});
+      const oneDay = (houses, extra) => {
+        const cache = {};
+        cache[dstr(3)] = [Object.assign({id:'d1', date:dstr(3), type:'install', crew:'1',
+          autoBuilt:true, stops: houses.map(h => stopFor(h.id, h.data.name))}, extra || {})];
+        return cache;
+      };
+      const stillOn = async (houses, extra) => {
+        const h = makeRec(houses, oneDay(houses, extra));
+        const rep = await h.api.reconcile();
+        /* The write to the ORIGINAL day, by its id — not merely the first write
+           to scheduledRoutes, which since the fake learned setDoc may well be a
+           brand-new day the sweep built for whoever it just moved off. */
+        const day = (h.writes.find(w => w.path === 'scheduledRoutes/d1') || {}).payload;
+        return { rep, stops: day ? day.stops.map(s => s.id) : houses.map(x => x.id),
+                 dropped: rep.dropped.map(d => d.why) };
+      };
+
+      // a town corrected by hand — the case the 374 will produce
+      let r = await stillOn([{id:'moved', data:{name:'Moved Town', city:'Orem',
+        address:'1 St', lat:40.4, lng:-111.8, scheduled:true, scheduledDate:dstr(3)}},
+        {id:'stay', data:{name:'Stays', city:'Lehi', address:'2 St', lat:40.4, lng:-111.8,
+          scheduled:true, scheduledDate:dstr(3)}},
+        {id:'stay2', data:{name:'Stays Too', city:'Lehi', address:'3 St', lat:40.4, lng:-111.8,
+          scheduled:true, scheduledDate:dstr(3)}}]);
+      check('reconcile', 'a customer whose town is corrected comes off the wrong town\'s day',
+        r.stops.indexOf('moved') === -1 && r.stops.indexOf('stay') !== -1,
+        'nothing re-checked this, so a town fixed by hand left them on the old ' +
+        "town's day for ever — and 374 records are about to have a town filled in");
+      check('reconcile', 'and the notice says which town they are actually in',
+        r.dropped.some(w => /is in Orem, and this is a Lehi day/.test(w)),
+        '"taken off Tuesday" without saying why is not something anybody can act on');
+      /* "Re-homed" does not mean "moved to an existing day" — in this fixture
+         there IS no Orem day, so the honest outcome is that one gets BUILT for
+         them. What must never happen is being taken off a day and then simply
+         forgotten, which is what the first version of this check accidentally
+         asserted by demanding freed be empty. */
+      check('reconcile', 'they get another day rather than being forgotten',
+        r.rep.built.some(b => b.city === 'Orem') || r.rep.moved.length > 0,
+        'being on the wrong day is not a reason to end up on no day');
+
+      // ...but a day somebody built BY HAND is left alone
+      r = await stillOn([{id:'moved', data:{name:'Moved Town', city:'Orem',
+        address:'1 St', lat:40.4, lng:-111.8, scheduled:true, scheduledDate:dstr(3)}},
+        {id:'stay', data:{name:'Stays', city:'Lehi', address:'2 St', lat:40.4, lng:-111.8,
+          scheduled:true, scheduledDate:dstr(3)}}], {autoBuilt:false});
+      check('reconcile', 'a hand-built day may carry a house from the next town over',
+        r.stops.indexOf('moved') !== -1,
+        'a favour, or a detour that makes sense on the ground — evicting it ' +
+        'would be overruling the person who built the day');
+
+      // a timing preference corrected from shorthand to something real
+      r = await stillOn([{id:'thx', data:{name:'Was THX', city:'Lehi', address:'1 St',
+        lat:40.4, lng:-111.8, installPreference:'November', scheduled:true, scheduledDate:dstr(3)}}]);
+      check('reconcile', 'a preference corrected to November comes off an October day',
+        r.dropped.some(w => /cannot be installed until/.test(w)),
+        'the 1 customer reading THX and the 190 reading NOV will be tidied up by ' +
+        'hand — the schedule has to follow when they are');
+
+      // and the everyday one: sitting somebody out
+      r = await stillOn([{id:'out', data:{name:'Sitting Out', city:'Lehi', address:'1 St',
+        lat:40.4, lng:-111.8, maybeNextYear:true, scheduled:true, scheduledDate:dstr(3)}}]);
+      check('reconcile', 'Maybe Next Year comes off the day it was on',
+        r.stops.indexOf('out') === -1 && r.dropped.some(w => /sitting out/.test(w)));
+
       const h2 = makeRec(clean.houses, clean.cache);
       const clean2 = await h2.api.reconcile();
       check('reconcile', 'a set of routes that is already right writes NOTHING',
@@ -6410,6 +6495,19 @@ check('city', 'being rate-limited is retried, not treated as "no town"',
   })(),
   'Google answers OVER_QUERY_LIMIT when pushed — reading that as "this house ' +
   'has no town" would silently skip whoever happened to be in that batch');
+check('city', 'it works fifty at a time so the page cannot lock up',
+  /const TOWN_FILL_CHUNK = 50;/.test(admin) &&
+  /const list = all\.slice\(0, TOWN_FILL_CHUNK\);/.test(admin),
+  "owner: 'make it so it only does 50 at a time with dry run and filling them " +
+  "in so it doesnt crash' — 374 geocodes and 374 writes in one press wedged the tab");
+check('city', 'and says how many are left so you know to press it again',
+  /still to do — press Check First again/.test(admin) &&
+  /const stillToDo = townFillCandidates\(\)\.length;/.test(admin),
+  'counted AFTER the writes off the live list, so it is what is actually left');
+check('city', 'picking up where it stopped needs no bookmark',
+  /if\(String\(d\.city == null \? '' : d\.city\)\.trim\(\)\) return false;/.test(admin),
+  'the candidate list is "still blank", so an interrupted run simply resumes ' +
+  'and a batch can never be done twice');
 check('city', 'lookups run in small batches, not one at a time',
   (() => {
     const fn = extractFn(admin, 'runTownFill').replace(/\r/g, '');

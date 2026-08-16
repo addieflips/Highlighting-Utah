@@ -1460,6 +1460,7 @@
 <div class="card">
         <h3 style="margin:0 0 6px;">Fill in missing towns</h3>
         <p style="font-size:13px; margin:0 0 12px;">Some customers came in with no town on their record &mdash; usually an address that ends &ldquo;, UT&rdquo; with the town missing. They can never be put on a route, because every route day is one town. This reads the town back off the map pin that is already on their record. It only ever fills a blank in; nothing that already has a town is touched.</p>
+        <p style="font-size:12.5px; margin:0 0 10px; color:var(--slate);">Works in batches of 50 so it never locks the page up. Press Check First, look at it, fill them in &mdash; then press Check First again for the next 50. It always picks up where it left off.</p>
         <button type="button" class="btn btn-outline btn-sm" id="townFillCheckBtn">Check First (dry run)</button>
         <button type="button" class="btn btn-gold btn-sm" id="townFillApplyBtn" style="display:none;">Fill in these towns</button>
         <div id="townFillStatus" style="font-size:13px; color:var(--slate); margin-top:10px;"></div>
@@ -15024,13 +15025,26 @@ function townFromGeocode(results){
   }
   return '';
 }
+/* ---- fifty at a time ----
+   Owner, 2026-08-15: "make it so it only does 50 at a time with dry run and
+   filling them in so it doesnt crash." Doing all 374 in one press wedged the
+   tab: hundreds of geocodes and hundreds of writes with no breathing space, and
+   Chrome throttles a tab that is not in front, so it got slower the moment the
+   office looked at anything else.
+   Fifty is a run you can watch finish. Press it again for the next fifty; the
+   status says how many are left, and because the tool only ever fills a BLANK
+   the next press simply picks up where the last one stopped — no bookmark to
+   keep, and nothing goes wrong if a run is interrupted half way. */
+const TOWN_FILL_CHUNK = 50;
 let townFillPlan = null;
 async function runTownFill(apply){
   const statusEl = document.getElementById('townFillStatus');
   const resultEl = document.getElementById('townFillResult');
   const applyBtn = document.getElementById('townFillApplyBtn');
-  const list = townFillCandidates();
-  if(!list.length){
+  const all = townFillCandidates();
+  const list = all.slice(0, TOWN_FILL_CHUNK);
+  const waiting = all.length - list.length;
+  if(!all.length){
     statusEl.textContent = 'Every customer already has a town — nothing to fill in.';
     applyBtn.style.display = 'none';
     resultEl.innerHTML = '';
@@ -15083,7 +15097,9 @@ async function runTownFill(apply){
   const byTown = {};
   plan.forEach(function(p){ byTown[p.town] = (byTown[p.town] || 0) + 1; });
   const rows = Object.keys(byTown).sort(function(a,b){ return byTown[b] - byTown[a] || (a < b ? -1 : 1); });
-  statusEl.textContent = plan.length + ' of ' + list.length + ' can be filled in. Nothing has been changed yet.';
+  statusEl.textContent = plan.length + ' of these ' + list.length + ' can be filled in. ' +
+    'Nothing has been changed yet.' +
+    (waiting ? ' (' + waiting + ' more after this batch.)' : '');
   resultEl.innerHTML = '<div style="margin-bottom:6px; font-weight:600;">What would be filled in:</div>' +
     rows.map(function(t){ return '<div>' + esc(t) + ' &mdash; ' + byTown[t] + '</div>'; }).join('') +
     (plan.length < list.length
@@ -15107,9 +15123,16 @@ async function applyTownFill(){
     try{ await updateDoc(doc(db,'jobAddresses', p.id), {city: p.town}); done++; }
     catch(err){ failed++; }
   }
+  /* Counted AFTER the writes, off the live customer list, so "still to do" is
+     what is actually left rather than what was left when the batch started. */
+  const stillToDo = townFillCandidates().length;
   statusEl.textContent = done + ' town' + (done === 1 ? '' : 's') + ' filled in' +
-    (failed ? (', ' + failed + ' could not be saved') : '') +
-    '. Those customers can be scheduled now — the routes will pick them up within a few minutes.';
+    (failed ? (', ' + failed + ' could not be saved') : '') + '. ' +
+    (stillToDo
+      ? (stillToDo + ' still to do — press Check First again for the next ' +
+         Math.min(stillToDo, TOWN_FILL_CHUNK) + '.')
+      : 'That is everybody.') +
+    ' The routes pick these up within a few minutes.';
   applyBtn.style.display = 'none';
   applyBtn.disabled = false;
   townFillPlan = null;
@@ -19252,9 +19275,33 @@ let scheduledRoutesLoaded = false;   // has the routes listener reported even on
 let reconcileRunning = false;
 
 /* Why this house should not be on this day, or '' if it is fine where it is. */
-function stopProblem(cust, dateStr){
+/* Problems that earn the customer ANOTHER day rather than being dropped back
+   into the pool. Kept as one list so the sweep and this function cannot drift
+   about which is which — somebody who is simply on the wrong day must never be
+   left unscheduled as a result of being taken off it. */
+const PROBLEMS_WORTH_REHOMING = ['cannot be installed until', 'is in '];
+function problemDeservesAnotherDay(problem){
+  return PROBLEMS_WORTH_REHOMING.some(function(p){ return String(problem||'').indexOf(p) === 0; });
+}
+function stopProblem(cust, dateStr, routeCity, routeIsAuto){
   if(!cust) return 'is no longer a customer';
   const d = cust.data || {};
+  /* ⚠ THE TOWN ON THE RECORD MUST STILL MATCH THE TOWN OF THE DAY.
+     Nothing re-checked this, so a customer whose town was corrected stayed on
+     the old town's day for ever — and that is not a rare case here: 374
+     records are about to have their town filled in from a map pin, and a house
+     on the edge of a town will sometimes come back as the neighbouring one and
+     get put right by hand afterwards.
+     ONLY ON DAYS THE SCHEDULER BUILT. A route somebody assembled themselves may
+     deliberately carry a house from the next town over — a favour, a detour
+     that makes sense on the ground — and evicting it would be overruling them.
+     Same rule as surplusCrewDays: only take apart what was built to a rule. */
+  if(routeIsAuto && routeCity){
+    const theirs = extractCleanCity(d.city);
+    if(theirs && theirs !== routeCity){
+      return 'is in ' + theirs + ', and this is a ' + routeCity + ' day';
+    }
+  }
   /* Routed through isOutForSeason on 2026-08-15 so this and the generator
      cannot disagree. They used to: this dropped anybody whose RSVP was 'no'
      while the generator was being told to route everybody except Maybe Next
@@ -19760,6 +19807,7 @@ async function reconcileUpcomingRoutes(){
   const seen = new Set();
   const needHoming = [];
   const newHangIds = new Set();   // picked up by 2b, so the notice can say which are new
+  const freedThisPass = new Set(); // freed in step 3, so 3c can still see them as free
   const working = {};      // routeId -> the stop list being built
   const cityByRoute = {};  // routeId -> its city, judged once, before anything moves
   const dirty = {};
@@ -19813,14 +19861,15 @@ async function reconcileUpcomingRoutes(){
     for(let s = 0; s < working[route.id].length; s++){
       const stop = working[route.id][s];
       const cust = jobAddresses.find(function(a){ return a.id === stop.id; });
-      const problem = stopProblem(cust, route.date);
+      const problem = stopProblem(cust, route.date, cityByRoute[route.id], !!route.autoBuilt);
       if(problem){
         dirty[route.id] = true;
         report.dropped.push({name: stop.name || (cust && cust.data.name) || 'A house',
                              date: route.date, why: problem});
-        /* Only a timing clash earns another day. Somebody who said no, or is
-           already installed, or is not a customer any more, belongs on no day. */
-        if(cust && problem.indexOf('cannot be installed until') === 0) needHoming.push(cust);
+        /* A timing clash or a moved town earns another day. Somebody who said
+           no, or is already installed, or is not a customer any more, belongs
+           on no day at all. */
+        if(cust && problemDeservesAnotherDay(problem)) needHoming.push(cust);
         else if(cust) await updateDoc(doc(db,'jobAddresses', cust.id), freeUpFieldForType('install'));
         continue;
       }
@@ -19913,6 +19962,14 @@ async function reconcileUpcomingRoutes(){
       if((cust.data || {}).scheduled){
         try{ await updateDoc(doc(db,'jobAddresses', cust.id), freeUpFieldForType('install')); } catch(err){}
       }
+      /* ⚠ REMEMBERED FOR THE POOL BELOW. jobAddresses is only refreshed by the
+         Firestore listener, so the record we just freed still reads
+         scheduled:true in memory for the rest of this pass — which meant the
+         day-builder skipped them and they waited a whole sweep for a day that
+         could have been built in this one. Somebody whose town was corrected
+         should not sit unscheduled for fifteen minutes because of a caching
+         detail they cannot see. */
+      freedThisPass.add(cust.id);
       report.freed.push({name: cust.data.name || 'A house', from: wasOn,
                          newHang: newHangIds.has(cust.id),
                          city: extractCleanCity(cust.data.city) || 'no city on file'});
@@ -19966,7 +20023,7 @@ async function reconcileUpcomingRoutes(){
     const stranded = {noCity: [], noPin: [], byCity: {}};
     jobAddresses.forEach(function(a){
       const d = a.data || {};
-      if(d.scheduled || d.completed) return;
+      if((d.scheduled && !freedThisPass.has(a.id)) || d.completed) return;
       if(seen.has(a.id)) return;
       // The SAME rule the route generator uses — see isOutForSeason.
       if(isOutForSeason(d)) return;
