@@ -7440,6 +7440,11 @@ function showConvertQuoteChoice(quoteId, d){
   if(!d.email) gaps.push('Email');
   if(!quotePhotoList(d).length) gaps.push('House Picture');
   if(typeof d.quotedPrice !== 'number' && !(d.estimatedFeet && perFootRate)) gaps.push('Total Price');
+  /* Light colours are the one gap the automatic path cannot save around, since
+     they became required on the Add Customer form. Rather than let somebody
+     click Convert automatically and get an error back, the button is disabled
+     and says why — the manual path is right there, with the picker on it. */
+  const hasLights = !!String(d.lightsDescription || (d.lightColors || []).join(', ')).trim();
   const overlay = document.createElement('div');
   overlay.className = 'needsfix-popup-overlay';
   overlay.innerHTML = '<div class="needsfix-popup" style="max-width:480px;">'+
@@ -7450,9 +7455,17 @@ function showConvertQuoteChoice(quoteId, d){
           'The quote has no '+gaps.map(function(g){ return esc(g); }).join(', ')+'. Converting automatically saves them without '+(gaps.length===1?'it':'those')+'.</p>'
       : '')+
     (chargesSetupFee ? '<p style="font-size:12.5px; color:var(--slate);">The $30 set-up fee is ticked on this quote, so it carries across either way.</p>' : '')+
+    (hasLights ? '' :
+      '<p style="font-size:12.5px; color:var(--ember); background:#FDECEA; border:1px solid #F3C8C2; border-radius:9px; padding:8px 11px;">'+
+        '<strong>No light colours on this quote.</strong> Colours are required for a customer, because without them nothing goes to the Warehouse to be built. Fill this one in manually and pick their colours.</p>')+
     '<div style="display:flex; flex-direction:column; gap:9px; margin-top:14px;">'+
-      '<button type="button" class="btn btn-gold" id="convertQuoteAutoBtn" style="text-align:left;">Convert automatically'+
-        '<span style="display:block; font-weight:500; font-size:12px; opacity:.85; margin-top:2px;">Save them now using everything the quote already knows.</span></button>'+
+      /* ONE style attribute — writing a second one when disabled meant the
+         browser kept the first and quietly dropped text-align. */
+      '<button type="button" class="btn btn-gold" id="convertQuoteAutoBtn"'+(hasLights ? '' : ' disabled')+
+        ' style="text-align:left;'+(hasLights ? '' : ' opacity:.45; cursor:not-allowed;')+'">Convert automatically'+
+        '<span style="display:block; font-weight:500; font-size:12px; opacity:.85; margin-top:2px;">'+
+          (hasLights ? 'Save them now using everything the quote already knows.' : 'Not available — this quote has no light colours.')+
+        '</span></button>'+
       '<button type="button" class="btn btn-outline" id="convertQuoteManualBtn" style="text-align:left;">Fill in manually'+
         '<span style="display:block; font-weight:500; font-size:12px; color:var(--slate); margin-top:2px;">Open the Add a Customer form, already filled in, so you can finish it.</span></button>'+
       '<button type="button" class="btn btn-outline" id="convertQuoteCancelBtn" style="text-align:center; color:var(--slate);">Cancel</button>'+
@@ -13653,6 +13666,12 @@ function addCustMissingFields(v){
   if(!v.city) missing.push('City');
   if(!v.phone) missing.push('Phone Number');
   if(!v.email) missing.push('Email');
+  /* Light Colors is the one entry in this list that is REQUIRED rather than
+     warned about — see the hard stop in the submit handler. It is listed here
+     so the red box names it alongside everything else, but the handler returns
+     before the "add them without these" prompt can ever offer to wave it
+     through. */
+  if(!v.lights) missing.push('Light Colors');
   if(!v.hasPhoto) missing.push('House Picture');
   if(!(v.price > 0)) missing.push('Total Price');
   return missing;
@@ -13721,9 +13740,32 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
      photo is taken or the price is agreed. */
   const missingFields = addCustMissingFields({
     street: street, city: city, phone: phone, email: email, price: price,
+    lights: lightsDescription,
     hasPhoto: !!addCustPhotoUrl || addCustExtraPhotos.length > 0
   });
   showAddCustMissing(missingFields);
+  /* LIGHT COLOURS ARE REQUIRED (owner, 2026-08-15). Required, not warned about.
+     Everything else on this form can genuinely be filled in later — the photo
+     gets taken next week, the price is still being agreed — but a customer with
+     no colours is invisible to the Warehouse. The build queue is keyed off the
+     light description, so they never reach Dad at all and nothing on any screen
+     says so until somebody happens to notice.
+     The public detail form has always refused to submit without a colour; this
+     makes the office form agree with it rather than being the one door that
+     lets a colourless customer through.
+     Deliberately BEFORE the missing-fields prompt below, and unlike that one it
+     cannot be waved through — which is also why the prompt below can never be
+     asked about colours. */
+  if(!lightsDescription){
+    document.getElementById('routeAddStatus').textContent =
+      'Pick their light colours before adding them — a customer with no colours never reaches the Warehouse to be built.';
+    /* On the automatic path there is no form on screen to send anyone back to,
+       so the reason has to travel to the tab they are actually looking at. */
+    if(isAutoConvert){
+      toast('Could not convert ' + (name || 'this quote') + ' — no light colours on it. Use "Fill in manually" and pick their colours.');
+    }
+    return;
+  }
   if(missingFields.length){
     document.getElementById('routeAddStatus').textContent =
       missingFields.length + (missingFields.length === 1 ? ' thing is' : ' things are') + ' missing — see the red box just above.';
@@ -13783,19 +13825,11 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
       return;
     }
   }
-  /* The warehouse build queue keys off the light description, so a customer saved
-     without any colours picked silently never reaches Dad. Say so rather than
-     letting it slip through.
-     An automatic conversion carries whatever colours the quote holds — ticked
-     boxes or the customer's own words — so it only lands here when the quote
-     genuinely has none, and there is nothing a dialog could ask for. It is said
-     in the toast at the end instead, so the gap is still visible. */
-  if(!lightsDescription && !isAutoConvert){
-    if(!confirm('No light colours are selected for ' + (name || 'this customer') + '.\n\nThey will be added, but nothing will go to the Warehouse to be built until colours are set.\n\nAdd them anyway?')) {
-      document.getElementById('routeAddStatus').textContent = 'Pick their light colours above, then add them.';
-      return;
-    }
-  }
+  /* The "no colours picked — add them anyway?" prompt that used to sit here is
+     gone. It was a warning you could click straight through, and clicking
+     through it is exactly what put customers on the books that the Warehouse
+     never saw. Colours are now a hard requirement, checked much earlier in this
+     handler alongside the other missing fields. */
   if(measuredFeet > 0){
     numberOfBins = cnBinsForFeet(measuredFeet);
     /* There are only two number series — regular and 5000 — but a house can now
@@ -14023,7 +14057,9 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
     if(isAutoConvert){
       toast((name || 'They') + ' is now a customer' +
         (customerNumber ? ' — #' + customerNumber + ', ' + numberOfBins + ' bin' + (numberOfBins===1?'':'s') : '') +
-        (lightsDescription ? ' — in the Warehouse to be built' : ' — NOT in the Warehouse, no light colours on the quote') +
+        /* Always true now — a save without colours returns long before this,
+           so there is no colourless-customer case left to report. */
+        ' — in the Warehouse to be built' +
         (chargeNewMemberFee ? ' — $30 set-up fee applied' : '') +
         (missingFields.length ? ' — still missing ' + missingFields.join(', ') : '') + '.');
     }
