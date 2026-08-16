@@ -5135,7 +5135,13 @@ suite('17. A new customer lands on the next day in their city');
     check('reconcile', 'the route reconciler is findable',
       false, 'renamed or removed — update this test rather than deleting it');
   } else {
-    const helpers = NEEDED.map(n => extractFn(admin, n)).join('\n');
+    /* isOutForSeason reads a module-level setting that extractFn does not pick
+       up. Lifted from the page verbatim rather than hardcoded here, so if the
+       owner flips it to 'confirmed-only' this harness follows rather than
+       quietly testing a rule production no longer uses. */
+    const eligLine = (admin.match(/const SEASON_ELIGIBILITY = '[^']*';/) || [])[0];
+    if (!eligLine) throw new Error('SEASON_ELIGIBILITY not found — isOutForSeason cannot run');
+    const helpers = eligLine + '\n' + NEEDED.map(n => extractFn(admin, n)).join('\n');
     const src = helpers + '\n' + admin.slice(recStart, recEnd);
 
     const dstr = n => { const d = new Date(); d.setDate(d.getDate() + n); return toDateStr(d); };
@@ -5172,9 +5178,20 @@ suite('17. A new customer lands on the next day in their city');
         /no longer a customer/.test(h.problem(null, soon)));
       check('reconcile', 'a customer sitting out the season is a problem',
         /sitting out/.test(h.problem({data:{maybeNextYear:true}}, soon)));
-      check('reconcile', 'a customer who said no is a problem',
-        /said no/.test(h.problem({data:{rsvpStatus:'no'}}, soon)) &&
-        /said no/.test(h.problem({data:{rsvpStatus:'backnextyear'}}, soon)));
+      /* CHANGED 2026-08-15: an RSVP of 'no' ON ITS OWN no longer strips anybody.
+         The owner's rule is that for now only Maybe Next Year keeps somebody off
+         the list. What still strips them is the physical consequence — answering
+         no queues the warehouse to take their bundle apart — and portalRsvp
+         always writes rsvpStatus and needsLightRecycle in the same update, so
+         the realistic case is the pair, not the status alone. */
+      check('reconcile', 'a customer whose lights are being taken apart is a problem',
+        /taken apart/.test(h.problem({data:{rsvpStatus:'no', needsLightRecycle:true}}, soon)));
+      check('reconcile', 'but an RSVP of no on its own leaves them on the day',
+        h.problem({data:{rsvpStatus:'no'}}, soon) === '',
+        'owner, 2026-08-15: for now everyone but Maybe Next Year is on the list');
+      check('reconcile', 'back next year is still a problem, via the badge it always carries',
+        /sitting out/.test(h.problem({data:{maybeNextYear:true, rsvpStatus:'backnextyear'}}, soon)),
+        'pullCustomerFromSeason writes both fields in one update');
       check('reconcile', 'a house already installed is a problem on an install day',
         /already installed/.test(h.problem({data:{completed:true}}, soon)));
       check('reconcile', 'a house cannot sit on a day earlier than its timing allows',
@@ -5192,7 +5209,10 @@ suite('17. A new customer lands on the next day in their city');
     const buildCase = () => {
       const houses = [
         {id:'ok',    data:{name:'Fine House',  city:'Lehi', address:'1 Fine St', lat:40.4, lng:-111.8, rsvpStatus:'yes'}},
-        {id:'said',  data:{name:'Said No',     city:'Lehi', address:'2 No St',   lat:40.4, lng:-111.8, rsvpStatus:'no'}},
+        /* needsLightRecycle alongside the status, because portalRsvp always
+           writes both — a fixture carrying only the status would be testing a
+           state production never produces. */
+        {id:'said',  data:{name:'Said No',     city:'Lehi', address:'2 No St',   lat:40.4, lng:-111.8, rsvpStatus:'no', needsLightRecycle:true}},
         {id:'drift', data:{name:'Moved House', city:'Lehi', address:'9 NEW Rd',  lat:40.4, lng:-111.8, rsvpStatus:'yes'}},
         {id:'dupe',  data:{name:'Twice Booked',city:'Lehi', address:'4 Two Way', lat:40.4, lng:-111.8, rsvpStatus:'yes'}},
         {id:'late',  data:{name:'Later Please',city:'Lehi', address:'5 Wait Ln', lat:40.4, lng:-111.8, rsvpStatus:'yes',
@@ -5253,8 +5273,9 @@ suite('17. A new customer lands on the next day in their city');
         !routeWrite('remday'), 'a house that IS installed is exactly who belongs on a takedown');
 
       check('reconcile', 'the upcoming day was rewritten', !!soon);
-      check('reconcile', 'a customer who said no comes off the day',
-        soonIds.indexOf('said') === -1);
+      check('reconcile', 'a customer whose lights are being recycled comes off the day',
+        soonIds.indexOf('said') === -1,
+        'their bundle is being taken apart — a crew would arrive with nothing to hang');
       check('reconcile', 'a stop whose customer was deleted comes off the day',
         soonIds.indexOf('gone') === -1,
         'the crew was being sent to a house that is not in the book any more');
@@ -5857,30 +5878,77 @@ check('names', 'nothing stored is rewritten',
  */
 suite('21. Everyone is in unless they said otherwise');
 {
-  const api = eval(admin.slice(admin.indexOf('function isOutForSeason(d)'),
-                               admin.indexOf('\n}', admin.indexOf('function isOutForSeason(d)')) + 2) +
+  const fnSrc = admin.slice(admin.indexOf('function isOutForSeason(d)'),
+                            admin.indexOf('\n}', admin.indexOf('function isOutForSeason(d)')) + 2);
+  /* Built once per MODE, so both the rule running today and the one the owner
+     plans to switch to are proved. Testing only the live setting would let the
+     'confirmed-only' branch rot until the day it is turned on. */
+  const withMode = m => eval("const SEASON_ELIGIBILITY = '" + m + "';\n" + fnSrc +
     '\n;({out: isOutForSeason})');
+  const api = withMode('all-but-maybe-next-year');
+  const strict = withMode('confirmed-only');
 
+  const liveMode = (admin.match(/const SEASON_ELIGIBILITY = '([^']*)';/) || [])[1];
+  check('season', 'the setting is one line, and says which mode is live',
+    liveMode === 'all-but-maybe-next-year' || liveMode === 'confirmed-only',
+    'found: ' + liveMode);
+  check('season', 'and it is on "everyone but Maybe Next Year" for now',
+    liveMode === 'all-but-maybe-next-year',
+    "owner, 2026-08-15: switch to 'confirmed-only' once the RSVP email is live " +
+    'and everybody has actually been asked — until then this must not change');
+
+  // ---- the mode that is live today -------------------------------------
   check('season', 'a blank RSVP is IN — that is the normal state of the imported list',
     api.out({}) === false && api.out({ rsvpStatus: '' }) === false,
     'THE bug: ~945 houses have a blank RSVP because nobody has ever been asked');
-  check('season', 'a pending RSVP is IN',
-    api.out({ rsvpStatus: 'pending' }) === false);
+  check('season', 'a pending RSVP is IN', api.out({ rsvpStatus: 'pending' }) === false);
   check('season', 'a yes is IN', api.out({ rsvpStatus: 'yes' }) === false);
+  check('season', 'an RSVP of no is IN too, so long as their lights are intact',
+    api.out({ rsvpStatus: 'no' }) === false,
+    'owner overruled the first version of this: for now only Maybe Next Year keeps ' +
+    'somebody off the list');
   check('season', 'Maybe Next Year is OUT — the one label the owner named',
     api.out({ maybeNextYear: true }) === true);
   check('season', 'Maybe Next Year is OUT even with an RSVP of yes beside it',
     api.out({ maybeNextYear: true, rsvpStatus: 'yes' }) === true,
     'the badge is what the office sets and sees, so it has to win');
-  check('season', 'an explicit no is OUT',
-    api.out({ rsvpStatus: 'no' }) === true && api.out({ rsvpStatus: 'backnextyear' }) === true,
-    'they told us not to come, and the nightly sweep strips them off routes ' +
-    'anyway — putting them back would just make the two fight every fifteen minutes');
+  check('season', 'back next year is OUT, because it never travels alone',
+    api.out({ maybeNextYear: true, rsvpStatus: 'backnextyear' }) === true,
+    'pullCustomerFromSeason writes both in one update — that is why the RSVP ' +
+    'value itself does not need testing for');
+
+  // ---- the physical rule, which survives whichever mode is on -----------
+  check('season', 'lights queued to be taken apart means OUT, in either mode',
+    api.out({ needsLightRecycle: true }) === true &&
+    strict.out({ needsLightRecycle: true, rsvpStatus: 'yes' }) === true,
+    'the warehouse is pulling that bundle apart — a crew would arrive with ' +
+    'nothing to hang. It is also what stops the portal and the fill fighting: ' +
+    'the portal pulls them off routes the moment they answer no, and without ' +
+    'this the fill would put them straight back fifteen minutes later');
+
+  // ---- the mode the owner plans to switch to ---------------------------
+  check('season', 'confirmed-only lets ONLY a yes through',
+    strict.out({ rsvpStatus: 'yes' }) === false &&
+    strict.out({ rsvpStatus: '' }) === true &&
+    strict.out({ rsvpStatus: 'pending' }) === true &&
+    strict.out({}) === true,
+    'the branch the owner will turn on — tested now so it cannot rot until then');
+  check('season', 'confirmed-only still lets Maybe Next Year win',
+    strict.out({ maybeNextYear: true, rsvpStatus: 'yes' }) === true);
   check('season', 'case does not decide whether somebody gets their lights',
-    api.out({ rsvpStatus: 'NO' }) === true && api.out({ rsvpStatus: 'Yes' }) === false);
+    strict.out({ rsvpStatus: 'YES' }) === false && strict.out({ rsvpStatus: 'Yes' }) === false);
   check('season', 'no record at all is OUT rather than quietly IN',
-    api.out(null) === true && api.out(undefined) === true);
+    api.out(null) === true && api.out(undefined) === true && strict.out(null) === true);
 }
+check('season', 'the sweep decides who to strip with the SAME rule',
+  /if\(isOutForSeason\(d\)\)\{/.test(admin) &&
+  admin.indexOf('if(isOutForSeason(d)){') > admin.indexOf('function stopProblem'),
+  'this and the generator disagreeing does not look like a wrong list — it ' +
+  'looks like a customer added and removed from a route every fifteen minutes');
+check('season', 'and still says WHY somebody was taken off',
+  admin.includes('their lights are queued to be taken apart') &&
+  admin.includes('has not confirmed for this season'),
+  '"taken off Tuesday" with no reason is not a notice');
 check('season', 'the install route generator no longer demands an RSVP of yes',
   !/isTest \|\| a\.data\.rsvpStatus === 'yes'/.test(admin),
   'that one clause is why the routes came back empty');

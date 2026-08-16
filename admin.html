@@ -12862,11 +12862,31 @@ function thanksgivingDate(year){
    them here would only make the two fight each other every fifteen minutes.
    Maybe Next Year is checked on its own rather than through the RSVP, because
    the badge is what the office sets and sees. */
+/* ⚠ CHANGED 2026-08-15, and the SETTING BELOW is the thing to change again.
+   Owner: "for now we want anyone who isnt maybe next year to be on the list but
+   we will change it to only confirmed on the scheduled list eventually." When
+   the RSVP email is live and everyone has actually been asked, flip this to
+   'confirmed-only'. Nothing else needs touching.
+   It shipped for a few minutes also excluding an explicit RSVP of no; that was
+   overruled, and only the physical rule below survives it. */
+const SEASON_ELIGIBILITY = 'all-but-maybe-next-year';   // or 'confirmed-only'
 function isOutForSeason(d){
   if(!d) return true;
+  /* Covers 'backnextyear' as well: the only thing that writes that status
+     (pullCustomerFromSeason) sets maybeNextYear in the same update, so the two
+     always travel together. */
   if(d.maybeNextYear) return true;
-  const r = String(d.rsvpStatus || '').toLowerCase();
-  return r === 'no' || r === 'backnextyear';
+  /* NOT an RSVP rule — a physical one, which is why it survives the setting
+     above. Answering "no" queues the warehouse to take that customer's bundle
+     apart (needsLightRecycle), so by the time a crew arrived there would be
+     nothing to hang. It is also what stops a ping-pong: the portal pulls them
+     off upcoming routes the moment they answer, and without this the fill
+     would put them straight back fifteen minutes later, for ever. */
+  if(d.needsLightRecycle) return true;
+  if(SEASON_ELIGIBILITY === 'confirmed-only'){
+    return String(d.rsvpStatus || '').toLowerCase() !== 'yes';
+  }
+  return false;
 }
 function isInstallPrefLocked(installPreference){
   const now = new Date();
@@ -18930,8 +18950,18 @@ let reconcileRunning = false;
 function stopProblem(cust, dateStr){
   if(!cust) return 'is no longer a customer';
   const d = cust.data || {};
+  /* Routed through isOutForSeason on 2026-08-15 so this and the generator
+     cannot disagree. They used to: this dropped anybody whose RSVP was 'no'
+     while the generator was being told to route everybody except Maybe Next
+     Year, which is not a wrong list — it is a customer added and removed from
+     a route every fifteen minutes for ever. The reason is still spelled out
+     per case, because "taken off Tuesday" with no reason is not a notice. */
   if(d.maybeNextYear) return 'is sitting out this season';
-  if(d.rsvpStatus === 'no' || d.rsvpStatus === 'backnextyear') return 'said no';
+  if(isOutForSeason(d)){
+    return d.needsLightRecycle
+      ? 'said no — their lights are queued to be taken apart'
+      : 'has not confirmed for this season';
+  }
   if(d.completed) return 'is already installed';
   if(toDateStr(earliestAllowedInstallDate(d)) > dateStr){
     return 'cannot be installed until ' + formatDateNice(toDateStr(earliestAllowedInstallDate(d))) +
