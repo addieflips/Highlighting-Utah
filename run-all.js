@@ -5390,8 +5390,16 @@ suite('17. A new customer lands on the next day in their city');
 check('reconcile', 'the sweep starts itself, like the health check does',
   /startReconcileAuto\(\);/.test(admin) && /setInterval\(runReconcileAuto, RECONCILE_INTERVAL_MS\)/.test(admin),
   'a reconciler nobody runs is a reconciler that does nothing');
+/* Read out of the FUNCTION, not out of a 600-character window after the call.
+   The window version broke the moment runReconcileAuto grew a few lines, which
+   is exactly the staleness the meta-check in this suite exists to catch. */
 check('reconcile', 'the sweep can never take the page down with it',
-  /reconcileUpcomingRoutes\(\)[\s\S]{0,600}\.catch\(function\(err\)\{/.test(admin.replace(/\r/g,'')),
+  (() => {
+    const fn = extractFn(admin, 'runReconcileAuto').replace(/\r/g, '');
+    const call = fn.indexOf('reconcileUpcomingRoutes()');
+    const grab = fn.indexOf('.catch(function(err){');
+    return call !== -1 && grab > call;
+  })(),
   'a background job that throws must not break the dashboard it runs behind');
 check('reconcile', 'two sweeps can never overlap',
   /if\(reconcileRunning\) return;/.test(admin),
@@ -6246,6 +6254,29 @@ check('build', 'the test-only checkbox no longer claims to be about RSVPs',
   !/Include un-RSVP'd houses/.test(admin),
   'an RSVP stopped keeping anybody off a route — a label naming a rule that no ' +
   'longer exists sends you hunting a problem that is not there');
+/* THE BUG THAT MADE ALL OF THIS INVISIBLE, 2026-08-15. The sweep bailed out
+   when scheduledRoutesCache was empty. With no saved routes the sweep never
+   ran, so the pass that builds the missing days never ran, so there were never
+   any saved routes — and every customer read "no day booked yet" for ever. */
+check('build', 'an empty calendar does NOT stop the sweep',
+  !/if\(!jobAddresses\.length \|\| !Object\.keys\(scheduledRoutesCache \|\| \{\}\)\.length\) return;/.test(admin),
+  'no routes yet is exactly the case the day-builder exists for');
+check('build', 'it waits for the routes listener to report, not for routes to exist',
+  /if\(!jobAddresses\.length \|\| !scheduledRoutesLoaded\) return;/.test(admin) &&
+  /scheduledRoutesLoaded = true;/.test(admin),
+  'running before scheduledRoutes has reported would read an empty calendar as ' +
+  '"no days exist" and build a second set on top of the real ones');
+check('build', 'the flag is set inside the snapshot, so an empty result still counts',
+  (() => {
+    const i = admin.indexOf("onSnapshot(collection(db,'scheduledRoutes')");
+    const blk = admin.slice(i, admin.indexOf('renderCalendar();', i));
+    return i !== -1 && blk.indexOf('scheduledRoutesLoaded = true;') !== -1;
+  })(),
+  'setting it anywhere else means either never running, or running too early');
+check('build', 'a bounded pass comes straight back rather than waiting the full interval',
+  /if\(report\.moreToDo\) setTimeout\(runReconcileAuto, \d+\);/.test(admin),
+  'the first run of a season is deliberately bounded — leaving the rest for ' +
+  'fifteen minutes makes a season take an hour to appear, which looks broken');
 check('build', 'the sweep actually builds the days it plans',
   /const newDays = planNewCrewDays\(waiting, taken/.test(admin) &&
   /setDoc\(doc\(db,'scheduledRoutes', docId\)/.test(admin),

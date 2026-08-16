@@ -19048,6 +19048,7 @@ const RECONCILE_INTERVAL_MS = 15 * 60 * 1000;
    treated as left over. Two days covers "we'll tick them off in the morning". */
 const LEFTOVER_GRACE_DAYS = 2;
 let reconcileTimer = null;
+let scheduledRoutesLoaded = false;   // has the routes listener reported even once?
 let reconcileRunning = false;
 
 /* Why this house should not be on this day, or '' if it is fine where it is. */
@@ -19202,7 +19203,7 @@ const MAX_FILL_MOVES_PER_SWEEP = 150;
    season has the whole book to place; creating fifty route documents in one
    pass is fifty sequential writes with the office watching a frozen tab. The
    rest follow on the next sweep, and the notice says so. */
-const MAX_NEW_DAYS_PER_SWEEP = 10;
+const MAX_NEW_DAYS_PER_SWEEP = 25;
 
 /* New to us this season, read off the same box the New Hang badge and the
    nightly invoice both trust (chargeNewMemberFee). Used ONLY to decide who
@@ -20006,15 +20007,35 @@ async function noticeRoutesReconciled(report){
    an interval, and it can never take the page down with it. */
 function runReconcileAuto(){
   if(reconcileRunning) return;
-  if(!jobAddresses.length || !Object.keys(scheduledRoutesCache || {}).length) return;
+  /* � THE GUARD IS "HAVE THE ROUTES LOADED", NOT "ARE THERE ANY ROUTES".
+     It used to be the latter, and that single condition is why nothing was ever
+     scheduled: with no saved routes the sweep returned immediately, so the pass
+     that BUILDS the missing days never ran, so there were never any saved
+     routes. It made sense when this only reconciled days that already existed;
+     the moment it started creating them, an empty calendar became the case it
+     most needed to run on.
+     Waiting on the listener still matters, though, and for the opposite reason:
+     running before scheduledRoutes has reported would read an empty calendar as
+     "no days exist" and build a second set on top of the real ones. */
+  if(!jobAddresses.length || !scheduledRoutesLoaded) return;
   reconcileRunning = true;
   reconcileUpcomingRoutes().then(function(report){
     if(report.changed){
       logActivity('Routes kept up to date — ' + report.refreshed + ' stops refreshed, ' +
-        report.moved.length + ' moved, ' + report.dropped.length + ' removed, ' +
+        report.moved.length + ' moved, ' + (report.built || []).length + ' days built, ' +
+        report.dropped.length + ' removed, ' +
         report.freed.length + ' back in the pool', 'routes', '');
-      toast('Routes updated — see System notices');
+      toast((report.built || []).length
+        ? (report.built.length + ' more days built — see System notices')
+        : 'Routes updated — see System notices');
     }
+    /* One pass is bounded on purpose, so the first run of a season does not
+       write the whole book at once. Rather than leaving the rest for fifteen
+       minutes, come straight back while there is still work — the office is
+       watching this happen and a season that takes an hour to appear looks
+       broken. It settles back to the ordinary beat as soon as a pass has
+       nothing left to do. */
+    if(report.moreToDo) setTimeout(runReconcileAuto, 20000);
   }).catch(function(err){
     console.error('[HU] route reconcile failed', err);
   }).then(function(){ reconcileRunning = false; });
@@ -20682,6 +20703,8 @@ function toDateStr(dt){
 function loadScheduledRoutes(){
   onSnapshot(collection(db,'scheduledRoutes'), function(snap){
     scheduledRoutesCache = {};
+    /* Set AFTER the first snapshot, empty or not  see runReconcileAuto. */
+    scheduledRoutesLoaded = true;
     snap.forEach(function(docSnap){
       const d = docSnap.data();
       if(!scheduledRoutesCache[d.date]) scheduledRoutesCache[d.date] = [];
