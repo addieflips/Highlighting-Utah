@@ -3245,12 +3245,32 @@
               </select>
             </div>
           </div>
+          <!-- How many crews go out on a normal day. This is not a setting for
+               THIS route — it is the shape of every day the scheduler builds by
+               itself, which is why it sits above the Generate button rather than
+               among the filters. -->
+          <div style="margin:14px 0 12px; padding:11px 13px; border:1px solid var(--line); border-radius:10px; background:#FAFBFC;">
+            <div style="font-size:12.5px; font-weight:700; color:var(--slate); margin-bottom:6px;">Crews out on a normal day</div>
+            <label style="display:inline-flex; align-items:center; gap:6px; font-size:13px; margin-right:16px;">
+              <input type="radio" name="crewsPerDay" value="2" id="crewsPerDay2" style="width:auto;">
+              Two crews — two towns a day, 20 houses each
+            </label>
+            <label style="display:inline-flex; align-items:center; gap:6px; font-size:13px;">
+              <input type="radio" name="crewsPerDay" value="1" id="crewsPerDay1" style="width:auto;">
+              One crew — one town a day, 20 houses
+            </label>
+            <div id="crewsPerDayStatus" style="font-size:12px; color:var(--slate); margin-top:7px;"></div>
+          </div>
           <button type="button" class="btn btn-gold" id="generateRouteBtn">Generate Install Route</button>
           <button type="button" class="btn btn-outline" id="regenerateRouteBtn" style="display:none;">Regenerate</button>
           <span id="generateRouteStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
+          <!-- The label used to say "un-RSVP'd houses". It no longer means that:
+               an RSVP stopped keeping anybody off a route on 2026-08-15 (see
+               isOutForSeason). All this box still relaxes is the 48-hour
+               light-change hold, so that is what it now says. -->
           <label style="display:flex; align-items:center; gap:6px; margin-top:12px; font-size:12.5px; color:var(--slate); font-weight:600;">
             <input type="checkbox" id="testGenerateCheck" style="width:auto;">
-            Include un-RSVP'd houses (test only — won't be saveable)
+            Include houses still inside their 48-hour light-change window (test only — won't be saveable)
           </label>
         </div>
         </div>
@@ -5390,6 +5410,50 @@ async function loadNightlyHealth(){
     console.error('[HU] could not read nightly billing health', err);
   }
 }
+/* ---- crews out on a normal day ----
+   Saved rather than hard-coded, because it changes the shape of every day the
+   scheduler builds and the office has to be able to change it without anybody
+   editing the page. Two is the default and stays the default if the setting has
+   never been written or cannot be read — a missing setting must not silently
+   halve the season's capacity. */
+async function loadSchedulingSettings(){
+  try{
+    const snap = await getDoc(doc(db,'settings','scheduling'));
+    const n = snap.exists() ? Number(snap.data().crewsPerDay) : 2;
+    CREWS_PER_DAY = (n === 1) ? 1 : 2;
+  } catch(err){ CREWS_PER_DAY = 2; }
+  const r1 = document.getElementById('crewsPerDay1'), r2 = document.getElementById('crewsPerDay2');
+  if(r1) r1.checked = CREWS_PER_DAY === 1;
+  if(r2) r2.checked = CREWS_PER_DAY === 2;
+  const st = document.getElementById('crewsPerDayStatus');
+  if(st) st.textContent = CREWS_PER_DAY === 1
+    ? 'One town a day, up to 20 houses. The season runs about twice as long.'
+    : 'Two towns a day, up to 20 houses each — 40 a day in total.';
+}
+document.querySelectorAll('input[name="crewsPerDay"]').forEach(function(radio){
+  radio.addEventListener('change', async function(){
+    if(!radio.checked) return;
+    const want = Number(radio.value) === 1 ? 1 : 2;
+    const st = document.getElementById('crewsPerDayStatus');
+    if(st){ st.textContent = 'Saving…'; st.style.color = 'var(--slate)'; }
+    try{
+      await setDoc(doc(db,'settings','scheduling'), {crewsPerDay: want}, {merge:true});
+      CREWS_PER_DAY = want;
+      if(st){
+        st.textContent = want === 1
+          ? '✓ One crew. Days that had a second town are being taken apart and those houses re-spread — watch System notices.'
+          : '✓ Two crews. Days will be filled two towns at a time from here on.';
+        st.style.color = 'var(--emerald)';
+      }
+      logActivity('Crews per day set to ' + want, 'routes', '');
+      /* Re-spread straight away rather than waiting up to fifteen minutes — the
+         office has just changed the shape of the season and expects to see it. */
+      runReconcileAuto();
+    } catch(err){
+      if(st){ st.textContent = 'Could not save that — try again.'; st.style.color = 'var(--rose)'; }
+    }
+  });
+});
 async function loadNightlyInvoiceSettings(){
   try{
     const snap = await getDoc(doc(db,'settings','nightlyInvoiceAutomation'));
@@ -6242,6 +6306,10 @@ function initData(){
   loadNightlyHealth().catch(function(){});
   setInterval(function(){ loadNightlyHealth().catch(function(){}); }, 10 * 60 * 1000);
   startHealthCheckAuto();
+  /* Before the sweep, not after: the sweep builds and re-spreads crew-days, and
+     doing that on the default two while the office has saved one would build a
+     season it then has to take apart again. */
+  loadSchedulingSettings().catch(function(){});
   startReconcileAuto();
   loadSettings();
   loadJobAddresses();
@@ -19255,6 +19323,39 @@ function evenOutDays(days, custData, maxPerDay){
   return {moves: moves, over: over};
 }
 
+/* ---- more crews out on a day than there are crews ----
+ * What "the schedule needs to be reorganized" means when the office drops from
+ * two crews to one: days already holding two towns now hold one too many.
+ *
+ * ⚠ ONLY DAYS THE SCHEDULER BUILT ITSELF ARE TAKEN APART. A route somebody sat
+ * down and built by hand carries intent this code cannot see — a promise made
+ * on the phone, a town done in a particular order — so a hand-built surplus is
+ * REPORTED and left exactly where it is. That asymmetry is the whole reason
+ * planNewCrewDays stamps autoBuilt on what it creates.
+ *
+ * Retires from the highest crew number down, so crew 1 keeps its day.
+ * PURE: routes in, two lists out, nothing written. */
+function surplusCrewDays(routes, crews){
+  const perDay = {};
+  (routes || []).forEach(function(r){
+    (perDay[r.date] = perDay[r.date] || []).push(r);
+  });
+  const retire = [], overByHand = [];
+  Object.keys(perDay).sort().forEach(function(dt){
+    const onDay = perDay[dt].slice().sort(function(a,b){
+      return String(b.crew || '1') < String(a.crew || '1') ? -1 : 1;
+    });
+    let over = onDay.length - (crews || CREWS_PER_DAY);
+    if(over <= 0) return;
+    onDay.forEach(function(r){
+      if(over <= 0) return;
+      if(r.autoBuilt){ retire.push(r); over--; }
+    });
+    if(over > 0) overByHand.push({date: dt, over: over, count: onDay.length});
+  });
+  return {retire: retire, overByHand: overByHand};
+}
+
 /* ---- building the crew-days that do not exist yet ----
  * Owner, 2026-08-15: "no one should have it say no day booked yet unless they
  * already said maybe next year."
@@ -19443,9 +19544,17 @@ function fillDays(days, custData, pool, allowedOn, maxPerDay, budget){
    instead of two. */
 async function reconcileUpcomingRoutes(){
   const report = {refreshed: 0, moved: [], freed: [], dropped: [], capped: [], over: [],
-                  filled: [], pulled: [], moreToDo: false, built: [],
+                  filled: [], pulled: [], moreToDo: false, built: [], retired: [], overByHand: [],
                   stranded: {noCity: [], noPin: [], byCity: {}}};
-  const routes = upcomingInstallRoutes();
+  /* Retired FIRST, and excluded from this pass, so nothing below builds on a
+     day that is about to be taken apart. Their houses come free and get
+     re-spread by the fill and the builder in this same sweep. */
+  const allRoutes = upcomingInstallRoutes();
+  const surplus = surplusCrewDays(allRoutes, CREWS_PER_DAY);
+  const retiring = {};
+  surplus.retire.forEach(function(r){ retiring[r.id] = true; });
+  const routes = allRoutes.filter(function(r){ return !retiring[r.id]; });
+  report.overByHand = surplus.overByHand;
   const seen = new Set();
   const needHoming = [];
   const newHangIds = new Set();   // picked up by 2b, so the notice can say which are new
@@ -19456,6 +19565,24 @@ async function reconcileUpcomingRoutes(){
     working[r.id] = (r.stops || []).slice();
     cityByRoute[r.id] = routeCityOf(r);
   });
+
+  // ---- 0. Days with more crews out than there are crews --------------------
+  /* Freed BEFORE anything else reads the customer list, so those houses are
+     already unscheduled by the time the pool is gathered and get re-spread in
+     this same sweep rather than sitting nowhere until the next one. */
+  for(let i = 0; i < surplus.retire.length; i++){
+    const r = surplus.retire[i];
+    try{
+      for(let k = 0; k < (r.stops || []).length; k++){
+        await updateDoc(doc(db,'jobAddresses', r.stops[k].id), freeUpFieldForType('install'));
+      }
+      await deleteDoc(doc(db,'scheduledRoutes', r.id));
+      report.retired.push({date: r.date, crew: r.crew, city: routeCityOf(r),
+                           count: (r.stops || []).length});
+    } catch(err){
+      console.error('Could not retire the ' + r.date + ' crew ' + r.crew + ' route', err);
+    }
+  }
 
   /* Put a house on the soonest upcoming day it is ALLOWED on, in its own city.
      `routes` is already in date order, so the first match is the earliest.
@@ -19687,7 +19814,10 @@ async function reconcileUpcomingRoutes(){
         try{
           await setDoc(doc(db,'scheduledRoutes', docId), {
             date: nd.date, type: 'install', crew: nd.crew, stops: stops,
-            startPoint: null, createdAt: serverTimestamp()
+            startPoint: null, createdAt: serverTimestamp(),
+            /* Stamped so surplusCrewDays can tell a day this built from one
+               somebody sat down and built. Only these are ever taken apart. */
+            autoBuilt: true
           });
           for(let k = 0; k < nd.ids.length; k++){
             await updateDoc(doc(db,'jobAddresses', nd.ids[k]),
@@ -19733,6 +19863,7 @@ async function reconcileUpcomingRoutes(){
   report.changed = report.refreshed > 0 || report.moved.length > 0 ||
                    report.freed.length > 0 || report.dropped.length > 0 ||
                    report.capped.length > 0 || report.over.length > 0 || report.built.length > 0 ||
+                   report.retired.length > 0 ||
                    report.filled.length > 0 || report.pulled.length > 0;
   if(report.changed) await noticeRoutesReconciled(report);
   return report;
@@ -19792,6 +19923,22 @@ async function noticeRoutesReconciled(report){
       nameFew(report.pulled) + '. Their timing preference was checked first; nobody ' +
       'was moved earlier than they are allowed to be.');
   }
+  /* Days taken apart because there are fewer crews than were out. Said before
+     the new days, because it is the cause of them. */
+  if((report.retired || []).length){
+    const houses = report.retired.reduce(function(a,r){ return a + r.count; }, 0);
+    lines.push(report.retired.length + ' day' + (report.retired.length === 1 ? '' : 's') +
+      ' had more crews out than you now have, so ' + (report.retired.length === 1 ? 'it was' : 'they were') +
+      ' taken apart and their ' + houses + ' house' + (houses === 1 ? '' : 's') +
+      ' re-spread — ' + report.retired.map(function(r){
+        return formatDateNice(r.date) + ' crew ' + r.crew + ' (' + (r.city || 'no town') + ')';
+      }).join('; ') + '. Only days the scheduler built itself are ever taken apart.');
+  }
+  (report.overByHand || []).forEach(function(o){
+    lines.push('⚠ ' + formatDateNice(o.date) + ' has ' + o.count + ' crews out and you have ' +
+      CREWS_PER_DAY + '. ' + o.over + ' of them ' + (o.over === 1 ? 'was' : 'were') +
+      ' built by hand, so nothing was touched — take one off yourself if it is wrong.');
+  });
   /* New crew-days, summarised by town. This is the biggest thing the sweep can
      do — it creates route days that did not exist — so it is said first and
      plainly, with the dates, and never as a list of hundreds of names. */

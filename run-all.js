@@ -6177,6 +6177,75 @@ suite('22. Building the crew-days the season needs');
       'there is no day to build for a town nobody named');
   }
 }
+/* Dropping to one crew: the days that now have one town too many. */
+{
+  const s2 = admin.indexOf('function surplusCrewDays(routes, crews)');
+  const e2 = admin.indexOf('\n}', s2) + 2;
+  const api2 = eval(admin.slice(s2, e2) + '\n;({surplus: surplusCrewDays})');
+  const R = (date, crew, auto) => ({id: date + '_' + crew, date: date, crew: crew, autoBuilt: auto, stops: []});
+
+  check('build', 'two crews out on a two-crew day is not a surplus',
+    api2.surplus([R('2026-10-01','1',true), R('2026-10-01','2',true)], 2).retire.length === 0);
+  check('build', 'dropping to one crew retires the second town off that day',
+    (() => {
+      const r = api2.surplus([R('2026-10-01','1',true), R('2026-10-01','2',true)], 1);
+      return r.retire.length === 1 && r.retire[0].crew === '2';
+    })(),
+    "this IS the owner's 'the schedule needs to be reorganized... it needs to " +
+    "take out one of the cities'");
+  check('build', 'crew 1 keeps its day — it retires from the top crew down',
+    api2.surplus([R('2026-10-02','1',true), R('2026-10-02','2',true), R('2026-10-02','3',true)], 1)
+      .retire.map(x => x.crew).sort().join() === '2,3');
+  check('build', 'a day built entirely BY HAND is reported, never taken apart',
+    (() => {
+      const r = api2.surplus([R('2026-10-01','1',false), R('2026-10-01','2',false)], 1);
+      return r.retire.length === 0 && r.overByHand.length === 1 && r.overByHand[0].over === 1;
+    })(),
+    'a hand-built route carries intent this code cannot see — a promise made on ' +
+    'the phone, a town done in a particular order');
+  check('build', 'a mixed day gives up the automatic one and keeps the hand-built one',
+    (() => {
+      const a = api2.surplus([R('2026-10-01','1',false), R('2026-10-01','2',true)], 1);
+      const b = api2.surplus([R('2026-10-02','1',true), R('2026-10-02','2',false)], 1);
+      return a.retire.length === 1 && a.retire[0].crew === '2' && a.overByHand.length === 0 &&
+             b.retire.length === 1 && b.retire[0].crew === '1' && b.overByHand.length === 0;
+    })(),
+    'whichever crew number it happens to sit on, the automatic one is the one ' +
+    'that goes — that is the whole point of the stamp');
+}
+check('build', 'the setting is saved, not hard-coded',
+  /setDoc\(doc\(db,'settings','scheduling'\), \{crewsPerDay: want\}/.test(admin) &&
+  /getDoc\(doc\(db,'settings','scheduling'\)\)/.test(admin),
+  'the office has to be able to change it without anybody editing the page');
+check('build', 'two crews is the default when the setting has never been saved',
+  /CREWS_PER_DAY = \(n === 1\) \? 1 : 2;/.test(admin) &&
+  /catch\(err\)\{ CREWS_PER_DAY = 2; \}/.test(admin),
+  'a missing or unreadable setting must not silently halve the season');
+check('build', 'the setting is loaded BEFORE the sweep starts',
+  admin.indexOf('loadSchedulingSettings()') < admin.indexOf('startReconcileAuto();'),
+  'building a season on the default two while one is saved means building it ' +
+  'and then taking it apart again');
+check('build', 'changing it re-spreads straight away rather than in fifteen minutes',
+  /crewsPerDay[\s\S]{0,900}runReconcileAuto\(\);/.test(admin.replace(/\r/g, '')),
+  'the office has just changed the shape of the season and expects to see it');
+check('build', 'days the scheduler builds are stamped so they can be told apart',
+  /autoBuilt: true/.test(admin) && /if\(r\.autoBuilt\)\{ retire\.push\(r\); over--; \}/.test(admin),
+  'without the stamp, reorganising would delete routes the office built by hand');
+check('build', 'retired days free their houses before the route is deleted',
+  (() => {
+    /* Sliced to the next real structural anchor, not a character count — a
+       fixed window silently goes stale as the code around it grows, which is
+       the trap the meta-check in this suite exists to catch. */
+    const i = admin.indexOf('surplus.retire.length; i++');
+    const blk = admin.slice(i, admin.indexOf('// ---- 1.', i));
+    return i !== -1 && blk.indexOf('freeUpFieldForType') !== -1 &&
+           blk.indexOf('freeUpFieldForType') < blk.indexOf('deleteDoc');
+  })(),
+  'delete the route first and the houses are left pointing at a day that is gone');
+check('build', 'the test-only checkbox no longer claims to be about RSVPs',
+  !/Include un-RSVP'd houses/.test(admin),
+  'an RSVP stopped keeping anybody off a route — a label naming a rule that no ' +
+  'longer exists sends you hunting a problem that is not there');
 check('build', 'the sweep actually builds the days it plans',
   /const newDays = planNewCrewDays\(waiting, taken/.test(admin) &&
   /setDoc\(doc\(db,'scheduledRoutes', docId\)/.test(admin),
