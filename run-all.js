@@ -2851,12 +2851,17 @@ suite('11. Reliability pass');
      a customer could be saved with no phone, no email, no photo and no price
      and nothing said a word. Every other guard in this handler also reports one
      problem at a time, which is what made a long form feel broken. */
-  const missingFn = admin.slice(admin.indexOf('function addCustMissingFields'),
-                                admin.indexOf('function addCustMissingFields') + 700);
+  /* extractFn, NOT a character window. This read `+ 700` until 2026-08-15, when
+     a comment added inside the function pushed 'Total Price' past the 700th
+     character and the check failed on code that was perfectly correct — the
+     exact slow fuse sectionFrom's own header warns about, and CLAUDE.md §7.
+     extractFn ends at the function's real closing brace, so it cannot go
+     stale as the body grows. */
+  const missingFn = extractFn(admin, 'addCustMissingFields') || '';
   check('reliability', 'the Add form has a missing-required-fields check',
     missingFn.length > 100 && /function showAddCustMissing/.test(admin),
     'a customer saved with no phone, photo or price looked identical to a complete one');
-  ['Street Address', 'City', 'Phone Number', 'Email', 'House Picture', 'Total Price'].forEach(function(field){
+  ['Street Address', 'City', 'Phone Number', 'Email', 'Light Colors', 'House Picture', 'Total Price'].forEach(function(field){
     check('reliability', 'the Add form names "' + field + '" when it is missing',
       missingFn.indexOf("'" + field + "'") !== -1,
       'being told about missing fields one at a time is what made this form feel broken');
@@ -2864,6 +2869,47 @@ suite('11. Reliability pass');
   check('reliability', 'every missing field is listed in one go, not one per attempt',
     /missingFields\.map\(/.test(addForm) && /showAddCustMissing\(missingFields\)/.test(addForm),
     'six trips around a form this long is most of what "add customer does not work" was');
+
+  /* ---- Light colours are REQUIRED, not warned about (owner, 2026-08-15) ----
+     Every other field on this form can be waved through with "OK to add them
+     without these", and that is deliberate — a photo genuinely does get taken
+     next week. Colours are the exception, because a customer with none is
+     invisible to the Warehouse: the build queue is keyed off the light
+     description, so they never reach Dad and no screen says so. */
+  check('reliability', 'light colours cannot be waved through on Add Customer',
+    /if\(!lightsDescription\)\{[\s\S]{0,700}return;/.test(addForm) &&
+    !/No light colours are selected/.test(addForm),
+    'the old "add them anyway?" prompt is back — clicking through it is what put ' +
+    'colourless customers on the books in the first place');
+  check('reliability', 'the colour stop happens before the overridable prompt',
+    addForm.indexOf('if(!lightsDescription)') !== -1 &&
+    addForm.indexOf('if(!lightsDescription)') < addForm.indexOf('add them without these'),
+    'reached after the prompt, it would offer to skip a field that cannot be skipped');
+  check('reliability', 'the colour stop happens before anything is written',
+    addForm.indexOf('if(!lightsDescription)') < addForm.indexOf('addDoc('),
+    'a customer saved and then complained about is not a required field');
+  check('reliability', 'an automatic convert with no colours says why, on the tab in use',
+    /if\(!lightsDescription\)\{[\s\S]{0,700}isAutoConvert[\s\S]{0,300}toast\(/.test(addForm),
+    'the status line it writes to is on the Customers tab, and an automatic ' +
+    'convert leaves you on Quotes — it would fail in silence');
+  check('render', 'the convert popup will not offer automatic without colours',
+    /hasLights\s*=\s*!!String\(d\.lightsDescription/.test(admin) &&
+    /convertQuoteAutoBtn"'\+\(hasLights \? '' : ' disabled'\)/.test(admin),
+    'clicking Convert automatically would just bounce back an error');
+
+  /* The other door into a light description is the customer's own detail form
+     on the public site. It has always refused to submit without a colour —
+     that was never guarded by a test, so it could have been softened to a
+     warning without anyone noticing and the two forms would have disagreed
+     about whether colours are required. */
+  const idxSrc = read('index.html');
+  check('reliability', 'the public detail form refuses to submit with no colour',
+    /if\(!qdFinalSequence\.length\)\{[\s\S]{0,200}return;/.test(idxSrc),
+    'a quote could come back with no colours, and then nothing could be ' +
+    'converted from it without picking them by hand');
+  check('reliability', 'that refusal is a stop, not a confirm',
+    !/confirm\([^)]{0,80}least one light color/i.test(idxSrc),
+    'a confirm can be clicked through — required means required on both forms');
   check('reliability', 'the missing-field check runs before anything is written',
     addForm.indexOf('addCustMissingFields(') > -1 &&
     addForm.indexOf('addCustMissingFields(') < addForm.indexOf('addDoc('),
