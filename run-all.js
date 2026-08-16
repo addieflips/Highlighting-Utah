@@ -5418,7 +5418,7 @@ check('reconcile', 'houses left over are given a grace period before being moved
  */
 suite('18. Forty houses a day');
 {
-  const capStart = admin.indexOf('const MAX_STOPS_PER_DAY');
+  const capStart = admin.indexOf('const MAX_STOPS_PER_ROUTE');
   const capEnd = admin.indexOf('/* The sweep. Returns a plain-English report', capStart);
   if (capStart === -1 || capEnd < capStart) {
     check('cap', 'the day-cap helpers are findable',
@@ -5433,10 +5433,11 @@ suite('18. Forty houses a day');
       String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
     const api = eval(admin.slice(capStart, capEnd) +
       '\n;({even: evenOutDays, fill: fillDays, pick: bumpCandidateIndex,' +
-      ' max: MAX_STOPS_PER_DAY, budget: MAX_FILL_MOVES_PER_SWEEP,' +
+      ' max: MAX_STOPS_PER_ROUTE, budget: MAX_FILL_MOVES_PER_SWEEP,' +
       ' inWindow: stillInWindow, latest: latestPreferredInstallDate, isNew: isNewHangHouse})');
 
-    check('cap', 'the cap is forty', api.max === 40);
+    check('cap', 'the cap is twenty houses per town per day', api.max === 20,
+      "owner: 'only 20 houses per city'  40 was the whole DAY, two crews of twenty");
     const yes = () => true;   // "everybody is allowed on every day", for the cap tests
 
     /* Everybody returning except #3, which is a new hang. */
@@ -5459,15 +5460,15 @@ suite('18. Forty houses a day');
 
     // ---- a day of 41 sheds exactly one, onto the next day in that city ----
     let days = [
-      { id: 'r1', date: '2026-11-02', city: 'Lehi', stops: stops(41, 'a') },
+      { id: 'r1', date: '2026-11-02', city: 'Lehi', stops: stops(21, 'a') },
       { id: 'r2', date: '2026-11-05', city: 'Lehi', stops: [] }
     ];
     let out = api.even(days, look);
-    check('cap', '41 becomes 40 and the extra one lands on the next Lehi day',
-      days[0].stops.length === 40 && days[1].stops.length === 1 && out.moves.length === 1,
-      'this is the rule in one line: whenever there is 41, one gets pushed back');
+    check('cap', '21 becomes 20 and the extra one lands on the next Lehi day',
+      days[0].stops.length === 20 && days[1].stops.length === 1 && out.moves.length === 1,
+      'whenever a town goes one over twenty for a day, one gets pushed back');
     check('cap', 'and it is the LAST house in driving order that goes',
-      days[1].stops[0].id === 'a40');
+      days[1].stops[0].id === 'a20');
     check('cap', 'a day under the cap is left completely alone',
       (() => {
         const d = [{ id: 'r1', date: '2026-11-02', city: 'Lehi', stops: stops(12, 'b') },
@@ -5479,43 +5480,43 @@ suite('18. Forty houses a day');
 
     // ---- the cascade: an overfull day tips the day after it over too -------
     days = [
-      { id: 'r1', date: '2026-11-02', city: 'Lehi', stops: stops(45, 'c') },
-      { id: 'r2', date: '2026-11-05', city: 'Lehi', stops: stops(38, 'd') },
+      { id: 'r1', date: '2026-11-02', city: 'Lehi', stops: stops(25, 'c') },
+      { id: 'r2', date: '2026-11-05', city: 'Lehi', stops: stops(18, 'd') },
       { id: 'r3', date: '2026-11-09', city: 'Lehi', stops: [] }
     ];
     out = api.even(days, look);
     check('cap', 'a day that tips over because of what the day before it shed is evened out too',
-      days[0].stops.length === 40 && days[1].stops.length === 40 && days[2].stops.length === 3,
-      'this is the cascade — 45 sheds 5 onto a day of 38, which is then 43 and sheds 3');
+      days[0].stops.length === 20 && days[1].stops.length === 20 && days[2].stops.length === 3,
+      'this is the cascade — 25 sheds 5 onto a day of 18, which is then 23 and sheds 3');
     check('cap', 'nobody is lost or duplicated in the shuffle',
       (() => {
         const all = days.flatMap(d => d.stops.map(s => s.id));
-        return all.length === 83 && new Set(all).size === 83;
+        return all.length === 43 && new Set(all).size === 43;
       })(),
       'a rescheduler that drops a house is worse than one that never ran');
 
     // ---- another city's day is not "the next time we are in that city" -----
     days = [
-      { id: 'r1', date: '2026-11-02', city: 'Lehi', stops: stops(41, 'e') },
+      { id: 'r1', date: '2026-11-02', city: 'Lehi', stops: stops(21, 'e') },
       { id: 'r2', date: '2026-11-03', city: 'Orem', stops: [] }
     ];
     out = api.even(days, look);
     check('cap', 'an Orem day is never offered as room for a Lehi house',
-      days[0].stops.length === 41 && days[1].stops.length === 0 && out.over.length === 1,
+      days[0].stops.length === 21 && days[1].stops.length === 0 && out.over.length === 1,
       'the whole point of "the next time we are in that city" is that the truck is going anyway');
     check('cap', 'a day with nowhere to send anyone goes over, and says so',
-      out.over[0].date === '2026-11-02' && out.over[0].count === 41 && out.over[0].cap === 40,
+      out.over[0].date === '2026-11-02' && out.over[0].count === 21 && out.over[0].cap === 20,
       "owner's decision, 2026-08-15: never leave a new hang unscheduled — let the day " +
       'go over and shout about it instead');
 
     // ---- an EARLIER day is not somewhere to push a house back to ----------
     days = [
       { id: 'r1', date: '2026-11-02', city: 'Lehi', stops: [] },
-      { id: 'r2', date: '2026-11-05', city: 'Lehi', stops: stops(41, 'f') }
+      { id: 'r2', date: '2026-11-05', city: 'Lehi', stops: stops(21, 'f') }
     ];
     out = api.even(days, look);
     check('cap', 'pushed back means LATER — an earlier day is never the answer',
-      days[0].stops.length === 0 && days[1].stops.length === 41,
+      days[0].stops.length === 0 && days[1].stops.length === 21,
       'moving a house backwards is not pushing it back, and could break a November preference');
 
     // ---- who gets bumped once windows are in play ------------------------
@@ -5560,10 +5561,10 @@ suite('18. Forty houses a day');
 
     let d2 = [{ id: 'r1', date: '2026-11-02', city: 'Lehi', stops: stops(12, 'g') }];
     let f = api.fill(d2, look, poolOf(50, 'Lehi'), yes);
-    check('fill', 'a day of twelve fills up to forty',
-      d2[0].stops.length === 40 && f.placed.length === 28,
+    check('fill', 'a town with twelve booked fills up to twenty',
+      d2[0].stops.length === 20 && f.placed.length === 8,
       'the owner\'s words: we want as many people in every day as possible');
-    check('fill', 'and stops dead on forty, never past it',
+    check('fill', 'and stops dead on twenty, never past it',
       d2[0].stops.length === api.max);
 
     d2 = [{ id: 'r1', date: '2026-11-02', city: 'Lehi', stops: stops(12, 'h') }];
@@ -5574,23 +5575,23 @@ suite('18. Forty houses a day');
 
     // ---- pulling houses FORWARD off a later day --------------------------
     d2 = [
-      { id: 'r1', date: '2026-11-02', city: 'Lehi', stops: stops(30, 'i') },
-      { id: 'r2', date: '2026-11-09', city: 'Lehi', stops: stops(25, 'j') }
+      { id: 'r1', date: '2026-11-02', city: 'Lehi', stops: stops(15, 'i') },
+      { id: 'r2', date: '2026-11-09', city: 'Lehi', stops: stops(12, 'j') }
     ];
     f = api.fill(d2, look, [], yes);
     check('fill', 'with nobody spare, houses are pulled forward off a later day',
-      d2[0].stops.length === 40 && d2[1].stops.length === 15 && f.pulled.length === 10,
+      d2[0].stops.length === 20 && d2[1].stops.length === 7 && f.pulled.length === 5,
       'this is what compacts the season instead of just draining the pool');
     check('fill', 'and nobody is lost or duplicated doing it',
       (() => {
         const all = d2.flatMap(d => d.stops.map(s => s.id));
-        return all.length === 55 && new Set(all).size === 55;
+        return all.length === 27 && new Set(all).size === 27;
       })());
 
     check('fill', 'somebody with no day at all is taken before somebody who has one',
       (() => {
         const dd = [
-          { id: 'r1', date: '2026-11-02', city: 'Lehi', stops: stops(39, 'k') },
+          { id: 'r1', date: '2026-11-02', city: 'Lehi', stops: stops(19, 'k') },
           { id: 'r2', date: '2026-11-09', city: 'Lehi', stops: stops(5, 'm') }
         ];
         const r = api.fill(dd, look, poolOf(1, 'Lehi'), yes);
@@ -5600,19 +5601,19 @@ suite('18. Forty houses a day');
 
     // ---- THE timing rule: pulling forward can break a preference ---------
     d2 = [
-      { id: 'r1', date: '2026-10-20', city: 'Lehi', stops: stops(38, 'n') },
+      { id: 'r1', date: '2026-10-20', city: 'Lehi', stops: stops(18, 'n') },
       { id: 'r2', date: '2026-11-09', city: 'Lehi', stops: stops(10, 'o') }
     ];
     f = api.fill(d2, look, poolOf(5, 'Lehi', 'nov'), id => !/^nov/.test(id) && !/^o/.test(id));
     check('fill', 'a November house is NEVER dragged onto an October day',
-      d2[0].stops.length === 38 && f.placed.length === 0 && f.pulled.length === 0,
+      d2[0].stops.length === 18 && f.placed.length === 0 && f.pulled.length === 0,
       'this is the one place the rescheduler can break a promise, and the whole ' +
       'reason fillDays takes an allowedOn test while evenOutDays does not');
 
     check('fill', 'one that IS allowed still comes forward from the same day',
       (() => {
         const dd = [
-          { id: 'r1', date: '2026-10-20', city: 'Lehi', stops: stops(39, 'q') },
+          { id: 'r1', date: '2026-10-20', city: 'Lehi', stops: stops(19, 'q') },
           { id: 'r2', date: '2026-11-09', city: 'Lehi', stops: [{ id: 'okr' }, { id: 'novr' }] }
         ];
         const r = api.fill(dd, look, [], id => id !== 'novr');
@@ -5631,9 +5632,9 @@ suite('18. Forty houses a day');
 
     check('fill', 'a day that is already full is left completely alone',
       (() => {
-        const dd = [{ id: 'r1', date: '2026-11-02', city: 'Lehi', stops: stops(40, 'r') }];
+        const dd = [{ id: 'r1', date: '2026-11-02', city: 'Lehi', stops: stops(20, 'r') }];
         const r = api.fill(dd, look, poolOf(10, 'Lehi'), yes);
-        return dd[0].stops.length === 40 && r.placed.length === 0;
+        return dd[0].stops.length === 20 && r.placed.length === 0;
       })());
     check('fill', 'a day with no city is skipped rather than filled with anybody',
       (() => {
@@ -5661,7 +5662,7 @@ check('cap', 'and tops the days up only once the overfull ones have been shed',
   'filling first would pack a day to forty that is about to shed houses anyway, ' +
   'and the two passes would fight each other every fifteen minutes');
 check('fill', 'the fill is bounded so one sweep cannot make hundreds of writes',
-  /fillDays\(days, custData, pool, allowedOn, MAX_STOPS_PER_DAY,\s*[\r\n ]*MAX_FILL_MOVES_PER_SWEEP\)/.test(admin),
+  /fillDays\(days, custData, pool, allowedOn, MAX_STOPS_PER_ROUTE,\s*[\r\n ]*MAX_FILL_MOVES_PER_SWEEP\)/.test(admin),
   'the first sweep after this shipped has the whole unscheduled pool to place');
 check('fill', 'every unscheduled customer is a candidate now, not just new hangs',
   /pool\.push\(\{id: a\.id/.test(admin) && /pool\.sort\(/.test(admin),
@@ -5682,8 +5683,8 @@ check('cap', 'a new hang on no day at all is gone and got',
 check('cap', 'a new hang who said no, or is sitting out, is left alone',
   /isNewHangHouse[\s\S]{0,300}rsvpStatus === 'no'[\s\S]{0,200}needHoming/.test(admin),
   'auto-scheduling somebody who cancelled would put them back in front of the crew');
-check('cap', 'adding a customer only bumps somebody once the day is over forty',
-  /if\(withNew\.length > MAX_STOPS_PER_DAY\)\{/.test(admin),
+check('cap', 'adding a customer only bumps somebody once that town is over twenty',
+  /if\(withNew\.length > MAX_STOPS_PER_ROUTE\)\{/.test(admin),
   'it used to bump on EVERY add to hold the planned size — that moved a confirmed ' +
   'date on a day of twelve for no reason');
 check('cap', 'a house moved by the cap is re-ordered into driving order on its new day',
@@ -6011,7 +6012,7 @@ check('season', 'the empty-result message no longer names a filter that is gone'
   'a message naming a rule that no longer exists sends you hunting a problem ' +
   'that is not there');
 check('season', 'anyone left without a day is counted per town, with days needed',
-  /Math\.ceil\(n \/ MAX_STOPS_PER_DAY\)/.test(admin) &&
+  /Math\.ceil\(n \/ MAX_STOPS_PER_ROUTE\)/.test(admin) &&
   admin.includes('Build those days in Routes and they fill themselves'),
   '"not everyone is scheduled" is unactionable without knowing whether the ' +
   'answer is more days, a broken address, or nothing at all');
@@ -6022,6 +6023,170 @@ check('season', 'a house with no map pin is named as its own problem',
 check('season', 'the waiting summary counts rather than lists',
   !/stranded\.byCity\[c\]\.join/.test(admin),
   'early in the season this is hundreds of people — a notice nobody reads is no notice');
+
+// =====================================================================
+// 22. BUILDING THE CREW-DAYS THE SEASON NEEDS
+// =====================================================================
+/*
+ * Owner, 2026-08-15: "no one should have it say no day booked yet unless they
+ * already said maybe next year", "only 20 houses per city and the default
+ * amount of crews for every day is always 2 unless they click one", and the
+ * ordering rule: "we do all the octobers first and then we go to anys and if
+ * november 1st comes before we do them all then they will be done at the end of
+ * the november days instead... the end for that city."
+ *
+ * planNewCrewDays is pure, so a whole season is built here and its SHAPE
+ * checked — that is the only way to know an ordering rule expressed as a
+ * priority number actually produces the calendar that was asked for.
+ */
+suite('22. Building the crew-days the season needs');
+{
+  const start = admin.indexOf('function planNewCrewDays(waiting, taken, opts)');
+  const end = admin.indexOf('/* Top every day up to the cap.', start);
+  if (start === -1 || end < start) {
+    check('build', 'the day builder is findable', false,
+      'renamed or removed — update this test rather than deleting it');
+  } else {
+    global.toDateStr = dt => dt.getFullYear() + '-' +
+      String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+    const consts = admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'),
+                               admin.indexOf('function installPriority'));
+    const api = eval(consts + '\n' +
+      extractFn(admin, 'installPriority') + '\n' + admin.slice(start, end) +
+      '\n;({plan: planNewCrewDays, pri: installPriority, cap: MAX_STOPS_PER_ROUTE,' +
+      ' crews: CREWS_PER_DAY, firstDate: seasonFirstDate, working: isWorkingDay})');
+
+    check('build', 'twenty houses per town per day, two crews by default',
+      api.cap === 20 && api.crews === 2,
+      "owner: 'only 20 houses per city and the default amount of crews for every " +
+      "day is always 2 unless they click one'");
+    check('build', 'the season does not start in August',
+      toDateStr(api.firstDate(new Date(2026, 7, 15))) === '2026-10-01',
+      'earliestAllowedInstallDate says TODAY for an "Any" house, so with no season ' +
+      'floor a build in August books Christmas installs for August');
+    check('build', 'and once the season is open the floor is today, not last October',
+      toDateStr(api.firstDate(new Date(2026, 10, 4))) === '2026-11-04');
+    check('build', 'weekends are not working days',
+      api.working(new Date(2026, 9, 3)) === false && api.working(new Date(2026, 9, 5)) === true);
+
+    // ---- the ordering rule, which is the whole timing spec ---------------
+    check('build', 'October outranks Any, and November sits between them',
+      api.pri({ installPreference: 'October' }) < api.pri({ installPreference: 'November' }) &&
+      api.pri({ installPreference: 'November' }) < api.pri({}) &&
+      api.pri({ installPreference: 'Normal Schedule' }) === api.pri({}),
+      'this single ordering IS the rule: Octobers first, Any last so it fills in ' +
+      'behind them, and the moment November opens its houses outrank the leftover Anys');
+
+    const who = (n, city, pref, from) => Array.from({ length: n }, (_, i) => ({
+      id: city + '-' + (pref || 'any') + '-' + i, city: city,
+      priority: api.pri({ installPreference: pref }), from: from || '2026-10-01'
+    }));
+
+    // ---- one town, more people than one day holds -----------------------
+    let out = api.plan(who(50, 'Lehi'), {}, { floorDate: '2026-10-01' });
+    check('build', 'a town of 50 becomes three crew-days of 20, 20 and 10',
+      out.length === 3 && out.map(d => d.ids.length).join() === '20,20,10',
+      'twenty a town a day, and nobody left over');
+    check('build', 'all on working days, none before the season opens',
+      out.every(d => d.date >= '2026-10-01') &&
+      out.every(d => api.working(new Date(+d.date.slice(0,4), +d.date.slice(5,7)-1, +d.date.slice(8,10)))));
+    check('build', 'and each of those days is that one town',
+      out.every(d => d.city === 'Lehi'));
+
+    // ---- two towns, two crews, same day, different towns ----------------
+    out = api.plan(who(20, 'Lehi').concat(who(20, 'Orem')), {}, { floorDate: '2026-10-01' });
+    check('build', 'two towns can share one date, one crew each',
+      out.length === 2 && out[0].date === out[1].date && out[0].crew !== out[1].crew,
+      'two crews out, a town each — that is what a working day is');
+    check('build', 'but the SAME town never gets both crews on one day',
+      (() => {
+        const r = api.plan(who(40, 'Lehi'), {}, { floorDate: '2026-10-01' });
+        const byDate = {};
+        r.forEach(d => { byDate[d.date] = (byDate[d.date] || 0) + 1; });
+        return Object.keys(byDate).every(k => byDate[k] === 1) && r.length === 2;
+      })(),
+      "owner: 'every day should have two different cities' — doubling a crew into " +
+      'one town is the arrangement that was ruled out');
+
+    check('build', 'one crew means one town a day, and a longer season',
+      (() => {
+        const r = api.plan(who(40, 'Lehi').concat(who(40, 'Orem')), {}, { floorDate: '2026-10-01', crews: 1 });
+        const byDate = {};
+        r.forEach(d => { byDate[d.date] = (byDate[d.date] || 0) + 1; });
+        return r.length === 4 && Object.keys(byDate).length === 4;
+      })(),
+      'this is the reorganising the owner described when you click one crew');
+
+    // ---- a day that is already taken is not double-booked ---------------
+    out = api.plan(who(20, 'Lehi'), { '2026-10-01': { '1': 'Orem', '2': 'Provo' } },
+                   { floorDate: '2026-10-01' });
+    check('build', 'a date with both crews already out is skipped',
+      out.length === 1 && out[0].date > '2026-10-01',
+      'the office builds days by hand too — overwriting one would lose it');
+    check('build', 'a date with one crew free is used, on the free crew',
+      (() => {
+        const r = api.plan(who(20, 'Lehi'), { '2026-10-01': { '1': 'Orem' } },
+                           { floorDate: '2026-10-01' });
+        return r.length === 1 && r[0].date === '2026-10-01' && r[0].crew === '2';
+      })());
+
+    // ---- THE TIMING RULE, end to end ------------------------------------
+    /* Twenty-five October houses and twenty-five Any houses in one town. The
+       Octobers must take the first days; the Anys follow. */
+    out = api.plan(who(25, 'Lehi', 'October').concat(who(25, 'Lehi')), {},
+                   { floorDate: '2026-10-01' });
+    check('build', 'the Octobers go out before the Anys, in that town',
+      (() => {
+        const firstAny = out.find(d => d.ids.some(i => i.includes('-any-')));
+        const lastOct = out.filter(d => d.ids.some(i => i.includes('-October-'))).pop();
+        return lastOct && firstAny && lastOct.date <= firstAny.date;
+      })(),
+      "owner: 'we do all the octobers first and then we go to anys'");
+
+    /* And the other half: a town whose November houses cannot start until Nov 1
+       still gets its Anys placed FIRST, in October, because Any is only last
+       among houses that are actually allowed on the day being built. */
+    out = api.plan(who(20, 'Lehi', 'November', '2026-11-01').concat(who(20, 'Lehi')), {},
+                   { floorDate: '2026-10-01' });
+    check('build', 'a November house never opens an October day',
+      out.every(d => d.date < '2026-11-01'
+        ? d.ids.every(i => !i.includes('-November-'))
+        : true),
+      'the timing preference forbids the earlier date — that is what makes the ' +
+      'leftover Anys land behind the November run rather than in front of it');
+    check('build', 'and the November houses do get a day once November opens',
+      out.some(d => d.date >= '2026-11-01' && d.ids.some(i => i.includes('-November-'))));
+
+    // ---- the bounds ------------------------------------------------------
+    check('build', 'one sweep only builds so many days',
+      api.plan(who(500, 'Lehi'), {}, { floorDate: '2026-10-01', maxDays: 4 }).length === 4,
+      'the first sweep of a season has the whole book to place — fifty route ' +
+      'documents in one pass is fifty sequential writes with the office watching');
+    check('build', 'nobody is scheduled twice across the days it builds',
+      (() => {
+        const r = api.plan(who(50, 'Lehi').concat(who(30, 'Orem')), {}, { floorDate: '2026-10-01' });
+        const all = r.flatMap(d => d.ids);
+        return all.length === 80 && new Set(all).size === 80;
+      })(),
+      'a builder that double-books somebody is worse than one that never ran');
+    check('build', 'nothing to place builds nothing',
+      api.plan([], {}, { floorDate: '2026-10-01' }).length === 0);
+    check('build', 'a house with no town is left out rather than guessed at',
+      api.plan([{ id: 'x', city: '', priority: 4, from: '2026-10-01' }], {},
+               { floorDate: '2026-10-01' }).length === 0,
+      'there is no day to build for a town nobody named');
+  }
+}
+check('build', 'the sweep actually builds the days it plans',
+  /const newDays = planNewCrewDays\(waiting, taken/.test(admin) &&
+  /setDoc\(doc\(db,'scheduledRoutes', docId\)/.test(admin),
+  'planning them and not writing them leaves everybody exactly as unscheduled');
+check('build', 'a day it cannot write does not take the whole sweep down',
+  /catch\(err\)\{[\s\S]{0,200}Could not build the/.test(admin.replace(/\r/g, '')),
+  'the rest still gets scheduled and the next pass retries');
+check('build', 'and the new days are named in the notice, by town and date',
+  admin.includes('new crew-day') && admin.includes('Look them over before the crew does'),
+  'creating route days is the biggest thing the sweep can do — it must never be silent');
 
 // =====================================================================
 // Wait for the async suites before totalling up — see pendingAsync at the top.

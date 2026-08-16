@@ -18905,7 +18905,7 @@ async function autoScheduleNewCustomer(custId, d){
        was added, to hold each day at the size it happened to be planned at —
        which moved a confirmed date on a day of twelve for no reason at all.
        The cap is the rule now; below it, the day simply grows. */
-    if(withNew.length > MAX_STOPS_PER_DAY){
+    if(withNew.length > MAX_STOPS_PER_ROUTE){
       const custById = {};
       jobAddresses.forEach(function(a){ custById[a.id] = a.data || {}; });
       /* Last in driving order, preferring one of last year's houses — the
@@ -18930,9 +18930,9 @@ async function autoScheduleNewCustomer(custId, d){
       await updateDoc(doc(db,'jobAddresses', bumped.id), scheduledFieldForType('install', bumpTo.date, bumpTo.crew || '1'));
       await noticeCustomerPushedBack(bumped, route.date, bumpTo.date, d.name || 'A new customer');
       msg += ' ' + (bumped.name || 'Another house') + ' moved to ' + formatDateNice(bumpTo.date) +
-        ' to keep that day under ' + MAX_STOPS_PER_DAY + ' — there is a note in System notices.';
-    } else if(finalStops.length > MAX_STOPS_PER_DAY){
-      msg += ' That day is now ' + finalStops.length + ' stops, over the ' + MAX_STOPS_PER_DAY +
+        ' to keep that town under ' + MAX_STOPS_PER_ROUTE + ' for the day' + ' — there is a note in System notices.';
+    } else if(finalStops.length > MAX_STOPS_PER_ROUTE){
+      msg += ' That day is now ' + finalStops.length + ' stops, over the ' + MAX_STOPS_PER_ROUTE +
         ' cap — there is no later day in ' + city + ' to move anyone to. Build one and it will even itself out.';
     }
     return {done:true, message:msg};
@@ -19030,32 +19030,98 @@ function upcomingInstallRoutes(){
   return out.sort(function(a,b){ return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0); });
 }
 
-/* ================= FORTY HOUSES A DAY, BOTH WAYS =================
+/* ================= THE SHAPE OF A WORKING DAY =================
  *
- * Owner's rules, 2026-08-15:
- *   "there should never be more than 40 in one day, so whenever there is 41
- *    people then it automatically pushes them back to the next time we are in
- *    that city"
- *   "a day of 12 should fill up to 40, we want as many people in every day as
- *    possible"
+ * Owner, 2026-08-15: "only 20 houses per city and the default amount of crews
+ * for every day is always 2 unless they click one", and "every day should have
+ * two different cities with 20 houses for each city but if its one crew then
+ * the schedule needs to be reorganized because it needs to take out one of the
+ * cities".
  *
- * So 40 is a TARGET, not just a ceiling, and there are two halves to it:
- *   evenOutDays  sheds the surplus off a day that is over 40, onto the next day
- *                the crew is in that city (and cascades when that one tips too);
- *   fillDays     tops every day up to 40 — first from houses on no day at all,
- *                then by pulling houses FORWARD off later days in the same city.
+ * So the unit is a CREW-DAY, not a day:
+ *   one crew, one city, one date, at most 20 houses  ->  one scheduledRoutes doc
+ * and a working day is CREWS_PER_DAY of those, in DIFFERENT cities.
+ *
+ * ⚠ CORRECTED 2026-08-15. This shipped a few hours earlier as a flat 40 per
+ * scheduledRoutes doc, from "there should never be more than 40 in one day".
+ * That was the right number for a DAY and the wrong number for a ROUTE: 40 is
+ * two crews of twenty, in two towns, not one crew doing forty houses in one.
+ * Everything below caps a ROUTE, so everything below uses 20.
+ *
+ * 20 is a TARGET as well as a ceiling — "a day of 12 should fill up to 40" —
+ * and there are two halves to it:
+ *   evenOutDays  sheds the surplus off a route over 20, onto the next day the
+ *                crew is in that city (and cascades when that one tips too);
+ *   fillDays     tops every route up to 20 — first from houses on no day at
+ *                all, then by pulling houses FORWARD off later days in the
+ *                same city.
  *
  * ⚠ THE ASYMMETRY THAT MATTERS: pushing a house LATER can never break a timing
  * preference, because those only ever forbid earlier dates. Pulling a house
  * FORWARD absolutely can, which is why fillDays takes an `allowedOn` test and
  * evenOutDays does not. Do not "tidy" that into one shared check.
  *
- * Filling forward compacts the season towards the front: a day emptied by being
- * pulled from is itself topped up from the days after it, so the whole thing
- * settles with the work as early as it is allowed to be. It converges — once
- * every day is at 40 or has nothing left to pull, a sweep changes nothing.
+ * Filling forward compacts the season towards the front: a route emptied by
+ * being pulled from is itself topped up from the days after it, so the whole
+ * thing settles with the work as early as it is allowed to be. It converges —
+ * once every route is at 20 or has nothing left to pull, a sweep changes
+ * nothing.
  */
-const MAX_STOPS_PER_DAY = 40;
+const MAX_STOPS_PER_ROUTE = 20;   // one crew, one city, one day
+/* Two crews out on a normal day, each in their own town. The owner can drop to
+   one; when they do, a day holds one city instead of two and the season gets
+   longer, which is what "the schedule needs to be reorganized" means — the
+   sweep re-spreads everybody over the crew-days that remain. */
+let CREWS_PER_DAY = 2;
+/* Only ever used for talking to the office about a whole working day. Every
+   CAP in the code is per route — see the correction above. */
+function maxStopsPerWorkingDay(){ return MAX_STOPS_PER_ROUTE * CREWS_PER_DAY; }
+
+/* ---- when the season is allowed to start ----
+   earliestAllowedInstallDate returns TODAY for anybody whose timing is "Any",
+   which is correct for "are they allowed yet" and useless as a season floor:
+   with no floor, building the season in August books Christmas installs for
+   August. October 1st, or the next weekday after it.
+   Change the month/day here to move the season. */
+const SEASON_FIRST_MONTH = 9;   // 0-based — 9 is October
+const SEASON_FIRST_DOM = 1;
+function seasonFirstDate(today){
+  const now = today || new Date();
+  const first = new Date(now.getFullYear(), SEASON_FIRST_MONTH, SEASON_FIRST_DOM);
+  /* Past the start already — the floor is today, not last October. */
+  return first > now ? first : new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
+/* Saturdays and Sundays are not working days. Mirrors the Schedule tab, which
+   skips weekends and offers "Force exact date" to override. */
+function isWorkingDay(dt){ const w = dt.getDay(); return w !== 0 && w !== 6; }
+function nextWorkingDay(dt){
+  const d = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+  let guard = 0;
+  while(!isWorkingDay(d) && guard++ < 14) d.setDate(d.getDate() + 1);
+  return d;
+}
+
+/* ---- who gets the earliest days, within their own town ----
+   Owner, 2026-08-15: "if a customers time is any then we want to put them at
+   the end of the octobers if possible so we do all the octobers first and then
+   we go to anys and if november 1st comes before we do them all then they will
+   be done at the end of the november days instead... I mean the end for that
+   city because every city is organized together in scheduling."
+
+   That whole rule falls out of ONE ordering, because a timing preference also
+   forbids earlier dates: October goes first; Any is LAST, so it fills in behind
+   the Octobers; and the moment November 1st arrives the November houses become
+   allowed and, being ahead of Any, take those days — which lands the leftover
+   Anys at the end of that city's November run exactly as described. No special
+   case for the date, and nothing to keep in step with the calendar. */
+function installPriority(d){
+  const p = (d && d.installPreference) || '';
+  if(p === 'October') return 0;
+  if(p === 'November - Before Thanksgiving') return 1;
+  if(p === 'November') return 2;
+  if(p === 'After Thanksgiving') return 3;
+  return 4;   // "Any" / Normal Schedule — deliberately last
+}
 
 /* How much re-arranging one sweep is allowed to do. Not a rule about routes —
    a guard about writes. The first sweep after this shipped could otherwise
@@ -19064,6 +19130,11 @@ const MAX_STOPS_PER_DAY = 40;
    Whatever is left over is simply done by the next sweep fifteen minutes
    later, and the notice says so. */
 const MAX_FILL_MOVES_PER_SWEEP = 150;
+/* And how many brand-new crew-days one sweep may build. The first sweep of a
+   season has the whole book to place; creating fifty route documents in one
+   pass is fifty sequential writes with the office watching a frozen tab. The
+   rest follow on the next sweep, and the notice says so. */
+const MAX_NEW_DAYS_PER_SWEEP = 10;
 
 /* New to us this season, read off the same box the New Hang badge and the
    nightly invoice both trust (chargeNewMemberFee). Used ONLY to decide who
@@ -19152,7 +19223,7 @@ function bumpCandidateIndex(stops, custData, okOn){
  * that this is allowed and must be said out loud rather than leaving somebody
  * unscheduled. */
 function evenOutDays(days, custData, maxPerDay){
-  const cap = maxPerDay || MAX_STOPS_PER_DAY;
+  const cap = maxPerDay || MAX_STOPS_PER_ROUTE;
   const moves = [], over = [];
   const inOrder = days.slice().sort(function(a,b){
     return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0);
@@ -19184,6 +19255,108 @@ function evenOutDays(days, custData, maxPerDay){
   return {moves: moves, over: over};
 }
 
+/* ---- building the crew-days that do not exist yet ----
+ * Owner, 2026-08-15: "no one should have it say no day booked yet unless they
+ * already said maybe next year."
+ *
+ * Filling only ever put people on days somebody had already built, so anyone in
+ * a town with no day — which in August is everybody — stayed unscheduled for
+ * ever. This works out the crew-days the season actually needs and hands them
+ * back; the caller creates them and fills them.
+ *
+ * ONE CREW, ONE CITY, ONE DATE, at most MAX_STOPS_PER_ROUTE houses. A working
+ * day is CREWS_PER_DAY of those in DIFFERENT towns, which is why `taken` is
+ * keyed date -> crew and also checked for the city: two crews in the same town
+ * on the same day is the one arrangement the owner ruled out.
+ *
+ * Whoever is waiting is ordered by installPriority and then by the first date
+ * they are allowed on, so October goes out first and "Any" fills in behind —
+ * see installPriority for why that one ordering is the whole timing rule.
+ *
+ * PURE: dates and counts in, a list of {date, crew, city, ids} out. It writes
+ * nothing, which is what lets run-all.js run a whole season and check the
+ * shape of it.
+ */
+function planNewCrewDays(waiting, taken, opts){
+  const o = opts || {};
+  const cap = o.cap || MAX_STOPS_PER_ROUTE;
+  const crews = o.crews || CREWS_PER_DAY;
+  const maxDays = o.maxDays == null ? 40 : o.maxDays;
+  const floor = o.floorDate || toDateStr(nextWorkingDay(seasonFirstDate()));
+  const horizon = o.horizonDays == null ? 400 : o.horizonDays;
+  const busy = {};
+  Object.keys(taken || {}).forEach(function(dt){ busy[dt] = Object.assign({}, taken[dt]); });
+
+  /* Grouped by town, because a crew-day is one town — and within a town, by who
+     has waited longest for a slot they are allowed on. */
+  const byCity = {};
+  waiting.forEach(function(w){
+    if(!w || !w.city) return;
+    (byCity[w.city] = byCity[w.city] || []).push(w);
+  });
+  Object.keys(byCity).forEach(function(c){
+    byCity[c].sort(function(a,b){
+      return (a.priority - b.priority) || (a.from < b.from ? -1 : (a.from > b.from ? 1 : 0));
+    });
+  });
+
+  /* Biggest backlog first, so the town that needs the most days starts getting
+     them soonest rather than queueing behind a town with four houses. */
+  const cities = Object.keys(byCity).sort(function(a,b){
+    return (byCity[b].length - byCity[a].length) || (a < b ? -1 : 1);
+  });
+
+  const out = [];
+  let made = 0;
+  cities.forEach(function(city){
+    const queue = byCity[city];
+    let cursor = floor;
+    while(queue.length && made < maxDays){
+      /* The next date this town can have a crew on: a working day, on or after
+         the floor, where a crew is free and the OTHER crew is not already in
+         this same town. */
+      let slot = null;
+      let dt = nextWorkingDay(new Date(cursor.slice(0,4), Number(cursor.slice(5,7)) - 1, cursor.slice(8,10)));
+      for(let step = 0; step < horizon && !slot; step++){
+        const ds = toDateStr(dt);
+        const onDay = busy[ds] || {};
+        const alreadyHere = Object.keys(onDay).some(function(cr){ return onDay[cr] === city; });
+        if(!alreadyHere){
+          for(let cr = 1; cr <= crews; cr++){
+            if(!onDay[String(cr)]){ slot = {date: ds, crew: String(cr)}; break; }
+          }
+        }
+        if(!slot) dt = nextWorkingDay(new Date(dt.getFullYear(), dt.getMonth(), dt.getDate() + 1));
+      }
+      if(!slot) break;
+      /* Only houses ALLOWED on that date can ride it. A November house cannot
+         open an October day, so it is skipped over and waits for a later one —
+         which is exactly how the leftover "Any" houses end up behind the
+         November run in the same town. */
+      const take = [];
+      for(let i = 0; i < queue.length && take.length < cap; i++){
+        if(queue[i].from <= slot.date) take.push(i);
+      }
+      if(!take.length){
+        /* Nobody is allowed yet on the earliest free slot — jump the cursor to
+           the soonest date anybody in this town IS allowed and try again. */
+        const soonest = queue.reduce(function(m, w){ return (!m || w.from < m) ? w.from : m; }, null);
+        if(!soonest || soonest <= slot.date) break;
+        cursor = soonest;
+        continue;
+      }
+      const ids = take.map(function(i){ return queue[i].id; });
+      for(let i = take.length - 1; i >= 0; i--) queue.splice(take[i], 1);
+      busy[slot.date] = busy[slot.date] || {};
+      busy[slot.date][slot.crew] = city;
+      out.push({date: slot.date, crew: slot.crew, city: city, ids: ids});
+      made++;
+      cursor = slot.date;   // the next day for this town starts from here
+    }
+  });
+  return out;
+}
+
 /* Top every day up to the cap. The other half of the owner's rule: "a day of 12
  * should fill up to 40, we want as many people in every day as possible."
  *
@@ -19207,7 +19380,7 @@ function evenOutDays(days, custData, maxPerDay){
  * PURE, like evenOutDays: day objects in, a list of what moved out.
  * Pool items are {id, city, stop}. Returns {placed, pulled, budgetHit}. */
 function fillDays(days, custData, pool, allowedOn, maxPerDay, budget){
-  const cap = maxPerDay || MAX_STOPS_PER_DAY;
+  const cap = maxPerDay || MAX_STOPS_PER_ROUTE;
   let left = (budget === undefined || budget === null) ? Infinity : budget;
   const placed = [], pulled = [];
   const waiting = (pool || []).slice();
@@ -19270,7 +19443,7 @@ function fillDays(days, custData, pool, allowedOn, maxPerDay, budget){
    instead of two. */
 async function reconcileUpcomingRoutes(){
   const report = {refreshed: 0, moved: [], freed: [], dropped: [], capped: [], over: [],
-                  filled: [], pulled: [], moreToDo: false,
+                  filled: [], pulled: [], moreToDo: false, built: [],
                   stranded: {noCity: [], noPin: [], byCity: {}}};
   const routes = upcomingInstallRoutes();
   const seen = new Set();
@@ -19463,7 +19636,7 @@ async function reconcileUpcomingRoutes(){
                  newHang: isNewHangHouse(d)});
     });
     pool.sort(function(a,b){ return (b.newHang ? 1 : 0) - (a.newHang ? 1 : 0); });
-    const topped = fillDays(days, custData, pool, allowedOn, MAX_STOPS_PER_DAY,
+    const topped = fillDays(days, custData, pool, allowedOn, MAX_STOPS_PER_ROUTE,
                             MAX_FILL_MOVES_PER_SWEEP);
     const landed = topped.placed.concat(topped.pulled);
     for(let i = 0; i < landed.length; i++){
@@ -19483,6 +19656,57 @@ async function reconcileUpcomingRoutes(){
        next action and the office should not have to work it out. */
     const placedIds = {};
     topped.placed.forEach(function(x){ placedIds[x.id] = true; });
+    const leftOver = pool.filter(function(c){ return !placedIds[c.id]; });
+
+    // ---- 3d. Build the crew-days that do not exist yet ---------------------
+    /* Owner, 2026-08-15: "no one should have it say no day booked yet unless
+       they already said maybe next year." Filling could only ever use days
+       somebody had already built, so a town with no day left everybody in it
+       waiting for ever — which in August is everybody. */
+    if(leftOver.length && !topped.budgetHit){
+      const taken = {};
+      Object.keys(scheduledRoutesCache || {}).forEach(function(dateStr){
+        (scheduledRoutesCache[dateStr] || []).forEach(function(r){
+          if((r.type || 'install') !== 'install') return;
+          taken[dateStr] = taken[dateStr] || {};
+          taken[dateStr][String(r.crew || '1')] = routeCityOf(r);
+        });
+      });
+      const waiting = leftOver.map(function(c){
+        const d = custById[c.id] || {};
+        return {id: c.id, city: c.city, priority: installPriority(d),
+                from: toDateStr(earliestAllowedInstallDate(d)), stop: c.stop};
+      });
+      const stopById = {};
+      leftOver.forEach(function(c){ stopById[c.id] = c.stop; });
+      const newDays = planNewCrewDays(waiting, taken, {maxDays: MAX_NEW_DAYS_PER_SWEEP});
+      for(let i = 0; i < newDays.length; i++){
+        const nd = newDays[i];
+        const docId = nd.date + '_install_' + nd.crew;
+        const stops = reorderFlatStops(nd.ids.map(function(id){ return stopById[id]; }), null);
+        try{
+          await setDoc(doc(db,'scheduledRoutes', docId), {
+            date: nd.date, type: 'install', crew: nd.crew, stops: stops,
+            startPoint: null, createdAt: serverTimestamp()
+          });
+          for(let k = 0; k < nd.ids.length; k++){
+            await updateDoc(doc(db,'jobAddresses', nd.ids[k]),
+              scheduledFieldForType('install', nd.date, nd.crew));
+            placedIds[nd.ids[k]] = true;
+          }
+          report.built.push({date: nd.date, crew: nd.crew, city: nd.city, count: nd.ids.length});
+        } catch(err){
+          /* A day that could not be written must not take the sweep down with
+             it — the rest still gets scheduled and the next pass retries. */
+          console.error('Could not build the ' + nd.date + ' route for ' + nd.city, err);
+        }
+      }
+      if(newDays.length >= MAX_NEW_DAYS_PER_SWEEP) report.moreToDo = true;
+    }
+
+    /* Whoever is STILL left had no day and could not be given one. Counted per
+       town and turned into "about N more days", because that is the actual next
+       action and the office should not have to work it out. */
     pool.forEach(function(c){
       if(placedIds[c.id]) return;
       stranded.byCity[c.city] = (stranded.byCity[c.city] || 0) + 1;
@@ -19508,7 +19732,7 @@ async function reconcileUpcomingRoutes(){
 
   report.changed = report.refreshed > 0 || report.moved.length > 0 ||
                    report.freed.length > 0 || report.dropped.length > 0 ||
-                   report.capped.length > 0 || report.over.length > 0 ||
+                   report.capped.length > 0 || report.over.length > 0 || report.built.length > 0 ||
                    report.filled.length > 0 || report.pulled.length > 0;
   if(report.changed) await noticeRoutesReconciled(report);
   return report;
@@ -19536,7 +19760,7 @@ async function noticeRoutesReconciled(report){
      to do something about. */
   (report.capped || []).forEach(function(c){
     lines.push((c.name || 'A house') + ' moved from ' + formatDateNice(c.from) + ' to ' +
-      formatDateNice(c.to) + ' — ' + formatDateNice(c.from) + ' was over ' + MAX_STOPS_PER_DAY +
+      formatDateNice(c.to) + ' — ' + formatDateNice(c.from) + ' was over ' + MAX_STOPS_PER_ROUTE +
       ' houses.');
   });
   (report.over || []).forEach(function(o){
@@ -19557,7 +19781,7 @@ async function noticeRoutesReconciled(report){
     const byDay = {};
     report.filled.forEach(function(f){ byDay[f.to] = (byDay[f.to] || 0) + 1; });
     lines.push(report.filled.length + ' house' + (report.filled.length === 1 ? '' : 's') +
-      ' that had no day were put on one to fill days up to ' + MAX_STOPS_PER_DAY + ' — ' +
+      ' that had no day were put on one to fill each town up to ' + MAX_STOPS_PER_ROUTE + ' a day' + ' — ' +
       nameFew(report.filled) + ' (' + Object.keys(byDay).sort().map(function(dt){
         return formatDateNice(dt) + ': ' + byDay[dt];
       }).join(', ') + ').');
@@ -19567,6 +19791,28 @@ async function noticeRoutesReconciled(report){
       ' were brought FORWARD to an earlier day in their city to fill it up — ' +
       nameFew(report.pulled) + '. Their timing preference was checked first; nobody ' +
       'was moved earlier than they are allowed to be.');
+  }
+  /* New crew-days, summarised by town. This is the biggest thing the sweep can
+     do — it creates route days that did not exist — so it is said first and
+     plainly, with the dates, and never as a list of hundreds of names. */
+  if((report.built || []).length){
+    const byCity = {};
+    report.built.forEach(function(b){
+      const e = byCity[b.city] = byCity[b.city] || {days: 0, houses: 0, first: b.date, last: b.date};
+      e.days++; e.houses += b.count;
+      if(b.date < e.first) e.first = b.date;
+      if(b.date > e.last) e.last = b.date;
+    });
+    lines.push(report.built.length + ' new crew-day' + (report.built.length === 1 ? '' : 's') +
+      ' were built so nobody is left without a date, ' + MAX_STOPS_PER_ROUTE +
+      ' houses per town per day, ' + CREWS_PER_DAY + ' crew' + (CREWS_PER_DAY === 1 ? '' : 's') +
+      ' a day — ' + Object.keys(byCity).sort().map(function(c){
+        const e = byCity[c];
+        return c + ': ' + e.days + ' day' + (e.days === 1 ? '' : 's') + ', ' + e.houses +
+          ' house' + (e.houses === 1 ? '' : 's') + ' (' + formatDateNice(e.first) +
+          (e.first === e.last ? '' : ' to ' + formatDateNice(e.last)) + ')';
+      }).join('; ') + '. Look them over before the crew does — they were built to a rule, ' +
+      'not by somebody who knows the towns.');
   }
   if(report.moreToDo){
     lines.push('There is more to do than one pass will take on at once — the rest is ' +
@@ -19583,7 +19829,7 @@ async function noticeRoutesReconciled(report){
     lines.push('Still waiting for a day, because every day in their town is full or ' +
       'there is no day there yet — ' + waitingCities.map(function(c){
         const n = str.byCity[c];
-        const days = Math.ceil(n / MAX_STOPS_PER_DAY);
+        const days = Math.ceil(n / MAX_STOPS_PER_ROUTE);
         return c + ': ' + n + ' house' + (n === 1 ? '' : 's') + ' (about ' + days +
           ' more day' + (days === 1 ? '' : 's') + ')';
       }).join('; ') + '. Build those days in Routes and they fill themselves.');
