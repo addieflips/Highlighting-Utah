@@ -12982,7 +12982,46 @@ function isOutForSeason(d){
   }
   return false;
 }
-function isInstallPrefLocked(installPreference){
+/* ---- the same timing preference, written five different ways ----
+   Read out of the live book on 2026-08-15, across 970 customers:
+       Normal Schedule 479 · October 222 · NOV 190 · November 72 · OCT 4
+       THX 1 · 11/9+ 1 · / 1
+   Every timing rule in this app compares against the long spellings, so the
+   190 people who asked for NOVEMBER were being read as "no preference" and
+   could be sent out in October. The abbreviations are the route-plan CSV's
+   own shorthand (see prefTag in the Schedule tab) and they reached the
+   customer records through the bulk import.
+
+   Normalised at every READ rather than rewritten in the database: the office
+   still sees what they typed, the CSV still round-trips, and one customer
+   corrected by hand is not fighting an import that will put it back.
+
+   Only the unambiguous ones are mapped. "THX", "11/9+" and "/" are one
+   customer each and are deliberately NOT guessed at — a wrong month is the
+   thing this exists to prevent. They read as no preference and are reported
+   by the Health Check instead. */
+const INSTALL_PREF_ALIASES = {
+  'oct': 'October', 'october': 'October',
+  'nov': 'November', 'november': 'November',
+  'normal schedule': 'Normal Schedule', 'any': 'Normal Schedule',
+  'november - before thanksgiving': 'November - Before Thanksgiving',
+  'before thanksgiving': 'November - Before Thanksgiving',
+  'after thanksgiving': 'After Thanksgiving'
+};
+function normInstallPref(p){
+  const key = String(p == null ? '' : p).trim().toLowerCase();
+  if(!key) return '';
+  return INSTALL_PREF_ALIASES[key] || String(p).trim();
+}
+/* Recognised at all? Anything else is somebody's freehand note and is treated
+   as no preference — visible, rather than silently obeyed as if it were one. */
+function isKnownInstallPref(p){
+  const n = normInstallPref(p);
+  return n === 'October' || n === 'November' || n === 'Normal Schedule' ||
+         n === 'November - Before Thanksgiving' || n === 'After Thanksgiving';
+}
+function isInstallPrefLocked(installPreferenceRaw){
+  const installPreference = normInstallPref(installPreferenceRaw);
   const now = new Date();
   const year = now.getFullYear();
   if(installPreference === 'November' || installPreference === 'November - Before Thanksgiving'){
@@ -13019,7 +13058,7 @@ function isNewHangUrgent(d){
 // October houses need to be done before Oct 31 — flag starting 2 weeks out (Oct 17).
 function isOctoberUrgent(d){
   if(!d || d.completed || d.scheduled) return false;
-  if(d.installPreference !== 'October') return false;
+  if(normInstallPref(d.installPreference) !== 'October') return false;
   const now = new Date();
   const oct31 = new Date(now.getFullYear(), 9, 31);
   const daysLeft = Math.ceil((oct31 - now) / 86400000);
@@ -13028,7 +13067,7 @@ function isOctoberUrgent(d){
 // "November - Before Thanksgiving" houses need to be done before Thanksgiving — flag starting 2 weeks out, once unlocked (Nov 1+).
 function isBeforeThanksgivingUrgent(d){
   if(!d || d.completed || d.scheduled) return false;
-  if(d.installPreference !== 'November - Before Thanksgiving') return false;
+  if(normInstallPref(d.installPreference) !== 'November - Before Thanksgiving') return false;
   if(isInstallPrefLocked(d.installPreference)) return false;
   const now = new Date();
   const tg = thanksgivingDate(now.getFullYear());
@@ -13037,7 +13076,7 @@ function isBeforeThanksgivingUrgent(d){
 }
 // Base color-coded badge for a house's Install Timing, reflecting locked/urgent state. See color legend in the Routes tab.
 function installTimingBadge(d){
-  const pref = (d && d.installPreference) || 'Normal Schedule';
+  const pref = normInstallPref(d && d.installPreference) || 'Normal Schedule';
   if(pref === 'October'){
     return isOctoberUrgent(d)
       ? {label:'⚠ October — Due by Oct 31', bg:'#FDEBD3', color:'#B45309'}
@@ -18022,7 +18061,16 @@ function renderAllCustomersTable(){
        silently relabel two others on a phone. */
     const visitChip = nextVisitChip(r.d);
     const routeCell = '<span class="status-pill diff-'+(r.d.difficulty||'Unrated')+'">'+(r.d.difficulty||'Unrated')+'</span><br><span style="font-size:11.5px; color:var(--slate);">'+r.routeStatus+'</span>'+(visitChip ? '<br>'+visitChip : '')+'<br><span style="font-size:11px; color:'+rsvpColor+'; font-weight:600;">'+rsvpLabel+'</span>';
-    const timingLabel = r.d.installPreference === 'November - Before Thanksgiving' ? 'November — Before Thanksgiving' : (r.d.installPreference === 'Normal Schedule' || !r.d.installPreference ? 'Any' : r.d.installPreference);
+    /* Shows the normalised MEANING, not the raw shorthand. A row reading "NOV"
+       while the scheduler treats it as November is how nobody notices that 190
+       customers were being read as having no preference at all. Anything the
+       app does not recognise is called out rather than shown as if it were
+       understood. */
+    const timingPref = normInstallPref(r.d.installPreference);
+    const timingUnknown = String(r.d.installPreference || '').trim() && !isKnownInstallPref(r.d.installPreference);
+    const timingLabel = (timingPref === 'November - Before Thanksgiving' ? 'November — Before Thanksgiving'
+      : (timingPref === 'Normal Schedule' || !timingPref ? 'Any' : timingPref)) +
+      (timingUnknown ? ' ⚠ not recognised' : '');
     const mapCell = r.hasMap ? '<a class="btn btn-outline btn-sm" href="'+esc(r.d.layoutMapUrl)+'" target="_blank" rel="noopener">View Map</a>' : '<span style="color:var(--slate); font-size:12px;">No map yet</span>';
     const binBadge = (r.d.numberOfBins && r.d.numberOfBins > 1) ? ' <span style="display:inline-block; background:#EAF1FA; color:#2B5C8A; border:1px solid #C3D8EC; border-radius:999px; padding:1px 8px; font-size:11px; font-weight:600; vertical-align:middle;">'+r.d.numberOfBins+' bins</span>' : '';
     /* Everyone carries one of these two, so the column answers "is this person
@@ -18977,7 +19025,7 @@ function earliestAllowedInstallDate(d){
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   let earliest = today;
-  const pref = d && d.installPreference;
+  const pref = normInstallPref(d && d.installPreference);
   if(pref === 'November' || pref === 'November - Before Thanksgiving'){
     const nov1 = new Date(now.getFullYear(), 10, 1);
     if(nov1 > earliest) earliest = nov1;
@@ -19314,7 +19362,7 @@ function nextWorkingDay(dt){
    Anys at the end of that city's November run exactly as described. No special
    case for the date, and nothing to keep in step with the calendar. */
 function installPriority(d){
-  const p = (d && d.installPreference) || '';
+  const p = normInstallPref(d && d.installPreference);
   if(p === 'October') return 0;
   if(p === 'November - Before Thanksgiving') return 1;
   if(p === 'November') return 2;
@@ -19349,7 +19397,7 @@ function isNewHangHouse(d){ return !!(d && d.chargeNewMemberFee === true); }
    end. Neither is derivable from the other, and the dates come from the same
    two constants the badges already use — change one, change both. */
 function latestPreferredInstallDate(d){
-  const pref = d && d.installPreference;
+  const pref = normInstallPref(d && d.installPreference);
   const now = new Date();
   if(pref === 'October') return new Date(now.getFullYear(), 9, 31);
   if(pref === 'November - Before Thanksgiving'){
@@ -19676,6 +19724,7 @@ function fillDays(days, custData, pool, allowedOn, maxPerDay, budget){
 async function reconcileUpcomingRoutes(){
   const report = {refreshed: 0, moved: [], freed: [], dropped: [], capped: [], over: [],
                   filled: [], pulled: [], moreToDo: false, built: [], retired: [], overByHand: [],
+                  resynced: [],
                   stranded: {noCity: [], noPin: [], byCity: {}}};
   /* Retired FIRST, and excluded from this pass, so nothing below builds on a
      day that is about to be taken apart. Their houses come free and get
@@ -19761,6 +19810,23 @@ async function reconcileUpcomingRoutes(){
         continue;
       }
       seen.add(stop.id);
+      /* ⚠ THE ROUTE AND THE CUSTOMER RECORD MUST AGREE ABOUT THE DATE.
+         Found in the live book on 2026-08-15: nine customers sat on the 6 Oct
+         route while their own records still read scheduled:false — so All
+         Customers showed them as having no day, and every tool that works off
+         the record rather than the route treated them as unscheduled. One
+         failed write during a build had left the rest of that day's customers
+         un-flagged, and nothing anywhere ever went back and checked.
+         Being on a route IS being scheduled, so the record is brought into line
+         here. Cheap: it only writes when they actually disagree. */
+      const cd = cust.data || {};
+      if(!cd.scheduled || cd.scheduledDate !== route.date){
+        try{
+          await updateDoc(doc(db,'jobAddresses', cust.id),
+            scheduledFieldForType('install', route.date, route.crew || '1'));
+          report.resynced.push({name: cd.name || 'A house', date: route.date});
+        } catch(err){ /* next sweep tries again */ }
+      }
       const fresh = customerToStop(cust.id, cust.data, !!stop.addedNew);
       if(stopDrifted(stop, fresh)){ dirty[route.id] = true; report.refreshed++; keep.push(fresh); }
       else keep.push(stop);
@@ -19950,10 +20016,20 @@ async function reconcileUpcomingRoutes(){
                somebody sat down and built. Only these are ever taken apart. */
             autoBuilt: true
           });
+          /* ⚠ EACH CUSTOMER GUARDED SEPARATELY. One shared try/catch round the
+             whole loop is what put nine people on the 6 Oct route with their
+             own records still reading unscheduled: the first failed write threw
+             out of the loop and every customer after it was skipped in silence.
+             One bad write must cost one record, not the rest of the day. */
           for(let k = 0; k < nd.ids.length; k++){
-            await updateDoc(doc(db,'jobAddresses', nd.ids[k]),
-              scheduledFieldForType('install', nd.date, nd.crew));
-            placedIds[nd.ids[k]] = true;
+            try{
+              await updateDoc(doc(db,'jobAddresses', nd.ids[k]),
+                scheduledFieldForType('install', nd.date, nd.crew));
+              placedIds[nd.ids[k]] = true;
+            } catch(err){
+              console.error('Built the day but could not flag ' + nd.ids[k] +
+                ' — the next sweep will pick it up', err);
+            }
           }
           report.built.push({date: nd.date, crew: nd.crew, city: nd.city, count: nd.ids.length});
         } catch(err){
@@ -19994,7 +20070,7 @@ async function reconcileUpcomingRoutes(){
   report.changed = report.refreshed > 0 || report.moved.length > 0 ||
                    report.freed.length > 0 || report.dropped.length > 0 ||
                    report.capped.length > 0 || report.over.length > 0 || report.built.length > 0 ||
-                   report.retired.length > 0 ||
+                   report.retired.length > 0 || report.resynced.length > 0 ||
                    report.filled.length > 0 || report.pulled.length > 0;
   if(report.changed) await noticeRoutesReconciled(report);
   return report;
@@ -20053,6 +20129,13 @@ async function noticeRoutesReconciled(report){
       ' were brought FORWARD to an earlier day in their city to fill it up — ' +
       nameFew(report.pulled) + '. Their timing preference was checked first; nobody ' +
       'was moved earlier than they are allowed to be.');
+  }
+  if((report.resynced || []).length){
+    lines.push(report.resynced.length + ' customer' + (report.resynced.length === 1 ? '' : 's') +
+      ' were already on a route but their own record did not say so, which is why ' +
+      'they showed as having no day booked. Put straight: ' +
+      report.resynced.slice(0, 6).map(function(r){ return r.name; }).join(', ') +
+      (report.resynced.length > 6 ? ' and ' + (report.resynced.length - 6) + ' more' : '') + '.');
   }
   /* Days taken apart because there are fewer crews than were out. Said before
      the new days, because it is the cause of them. */
@@ -20428,7 +20511,7 @@ async function runGenerateInstallRoute(){
      earliest date, the 48-hour light-change window. They come back on their own
      as soon as the hold lifts. */
   let available = jobAddresses.filter(a => !a.data.scheduled && !a.data.completed && typeof a.data.lat === 'number' && !isInstallPrefLocked(a.data.installPreference) && !isEarliestInstallDateLocked(a.data) && (isTest || !isLightsLocked(a.data)) && !isOutForSeason(a.data));
-  if(cityChoice !== 'all') available = available.filter(a => extractCleanCity(a.data.city) === cityChoice || a.data.installPreference === 'November - Before Thanksgiving');
+  if(cityChoice !== 'all') available = available.filter(a => extractCleanCity(a.data.city) === cityChoice || normInstallPref(a.data.installPreference) === 'November - Before Thanksgiving');
 
   const startText = document.getElementById('routeStartInput').value.trim();
   let startPoint = null;

@@ -4994,6 +4994,19 @@ suite('17. A new customer lands on the next day in their city');
   const nov1  = new Date(now.getFullYear(), 10, 1);
 
   eval(extractFn(admin, 'thanksgivingDate'));
+  /* The alias table and the normaliser, because every timing rule reads through
+     them now  "NOV" has to mean November here exactly as it does in the page. */
+  /* Rewritten to a global assignment: a `const` declared inside eval() is
+     scoped to that eval and invisible to everything after it, unlike a function
+     declaration. */
+  {
+    const aliasSrc = admin.slice(admin.indexOf('const INSTALL_PREF_ALIASES'),
+                                 admin.indexOf('function normInstallPref'));
+    if (!aliasSrc) throw new Error('INSTALL_PREF_ALIASES not found — normInstallPref cannot run');
+    eval(aliasSrc.replace('const INSTALL_PREF_ALIASES', 'global.INSTALL_PREF_ALIASES'));
+  }
+  eval(extractFn(admin, 'normInstallPref'));
+  eval(extractFn(admin, 'isKnownInstallPref'));
   eval(extractFn(admin, 'earliestAllowedInstallDate'));
   eval(extractFn(admin, 'extractCleanCity'));
   eval(extractFn(admin, 'toDateStr'));
@@ -5175,7 +5188,7 @@ suite('17. A new customer lands on the next day in their city');
                      one, not a stub — who the fill is allowed to schedule is the
                      rule most likely to be got wrong, and suite 21 only proves
                      the function itself, not that the sweep obeys it. */
-                  'isOutForSeason',
+                  'isOutForSeason','normInstallPref',
                   'scheduledFieldForType','freeUpFieldForType'];
 
   if (recStart === -1 || recEnd < recStart) {
@@ -5369,9 +5382,16 @@ suite('17. A new customer lands on the next day in their city');
         'a notice nobody can act on is noise');
 
       // ---- 18.3 Nothing to do must cost nothing ---------------------------
+      /* "Already right" now includes the customer RECORD agreeing with the
+         route it sits on. It did not before, and that gap was real: nine
+         customers were found on the 6 Oct route in the live book with their own
+         records still reading unscheduled, so All Customers showed them as
+         having no day. A fixture whose customer is on a route but not flagged
+         is not a clean sweep — it is the bug. */
       const clean = {
         houses: [{id:'ok', data:{name:'Fine House', city:'Lehi', address:'1 Fine St',
-                                 lat:40.4, lng:-111.8, rsvpStatus:'yes'}}],
+                                 lat:40.4, lng:-111.8, rsvpStatus:'yes',
+                                 scheduled:true, scheduledDate:dstr(3), assignedCrew:'1'}}],
         cache: {}
       };
       clean.cache[dstr(3)] = [{id:'cleanDay', date:dstr(3), type:'install', crew:'1', stops:[
@@ -6382,6 +6402,103 @@ check('city', 'one address that will not resolve does not stop the rest',
     const fn = extractFn(admin, 'runTownFill').replace(/\r/g, '');
     return /catch\(err\)\{ \/\* one address that will not resolve/.test(fn);
   })());
+
+// =====================================================================
+// 24. THE SAME PREFERENCE, WRITTEN FIVE DIFFERENT WAYS
+// =====================================================================
+/*
+ * Read out of the LIVE book on 2026-08-15, across 970 customers:
+ *   Normal Schedule 479 · October 222 · NOV 190 · November 72 · OCT 4
+ *   THX 1 · 11/9+ 1 · / 1
+ *
+ * Every timing rule compares against the long spellings, so the 190 people who
+ * asked for NOVEMBER were read as having no preference at all — and could be
+ * sent out in October. The abbreviations are the route CSV's own shorthand and
+ * reached the customer records through the bulk import.
+ */
+suite('24. The same preference, written five different ways');
+{
+  const aliasSrc = admin.slice(admin.indexOf('const INSTALL_PREF_ALIASES'),
+                               admin.indexOf('function normInstallPref'));
+  const api = eval(aliasSrc + '\n' + extractFn(admin, 'normInstallPref') + '\n' +
+    extractFn(admin, 'isKnownInstallPref') + '\n;({norm: normInstallPref, known: isKnownInstallPref})');
+
+  check('pref', 'NOV means November — 190 customers in the live book',
+    api.norm('NOV') === 'November' && api.norm('nov') === 'November',
+    'THE bug: read as no preference, so they could be installed in October');
+  check('pref', 'OCT means October', api.norm('OCT') === 'October');
+  check('pref', 'the long spellings still mean themselves',
+    api.norm('November') === 'November' && api.norm('October') === 'October' &&
+    api.norm('Normal Schedule') === 'Normal Schedule' &&
+    api.norm('November - Before Thanksgiving') === 'November - Before Thanksgiving' &&
+    api.norm('After Thanksgiving') === 'After Thanksgiving',
+    'the fix must not cost anything that already worked');
+  check('pref', 'nothing at all stays nothing',
+    api.norm('') === '' && api.norm(null) === '' && api.norm(undefined) === '');
+  check('pref', 'normalising is idempotent',
+    api.norm(api.norm('NOV')) === 'November');
+
+  check('pref', 'somebody\'s freehand note is NOT guessed at',
+    api.norm('THX') === 'THX' && api.norm('11/9+') === '11/9+' && api.norm('/') === '/',
+    'one customer each — a wrong month is exactly what this exists to prevent, ' +
+    'so they are left alone and shown as unrecognised instead');
+  check('pref', 'and those are reported as unrecognised rather than obeyed',
+    api.known('THX') === false && api.known('11/9+') === false &&
+    api.known('NOV') === true && api.known('November') === true &&
+    api.known('') === false,
+    'an unrecognised value falls through to "no preference", which is safe — ' +
+    'but it has to be visible or nobody ever fixes it');
+
+  // ---- and that the timing rules actually read through it ---------------
+  eval(extractFn(admin, 'thanksgivingDate'));
+  global.INSTALL_PREF_ALIASES = api.norm('NOV') && (function(){
+    const o = {}; eval(aliasSrc.replace('const INSTALL_PREF_ALIASES', 'var x')); return x; })();
+  global.normInstallPref = api.norm;
+  eval(extractFn(admin, 'toDateStr'));
+  eval(extractFn(admin, 'earliestAllowedInstallDate'));
+  const nov = earliestAllowedInstallDate({installPreference:'NOV'});
+  const novLong = earliestAllowedInstallDate({installPreference:'November'});
+  check('pref', 'a NOV house is held back exactly like a November one',
+    nov.getTime() === novLong.getTime(),
+    'this is the whole point — 190 people who asked for November were not being ' +
+    'held back at all');
+
+  eval(extractFn(admin, 'installPriority'));
+  check('pref', 'and gets a November house\'s place in the queue, not an Any\'s',
+    installPriority({installPreference:'NOV'}) === installPriority({installPreference:'November'}) &&
+    installPriority({installPreference:'NOV'}) < installPriority({}),
+    'read as Any, they would have taken the October days off the people who ' +
+    'actually asked for October');
+  check('pref', 'OCT gets October\'s place too',
+    installPriority({installPreference:'OCT'}) === installPriority({installPreference:'October'}));
+}
+check('pref', 'All Customers shows the meaning, and flags what it cannot read',
+  /const timingPref = normInstallPref\(r\.d\.installPreference\);/.test(admin) &&
+  admin.includes('not recognised'),
+  'a row reading NOV while the scheduler treats it as November is how nobody notices');
+check('pref', 'the route generator holds NOV back like November',
+  /isInstallPrefLocked\(installPreferenceRaw\)\{[\s\S]{0,140}normInstallPref\(installPreferenceRaw\)/
+    .test(admin.replace(/\r/g, '')),
+  'this is the gate route generation uses to hide a November house in October');
+
+/* The route and the record must agree — found nine adrift in the live book. */
+check('reconcile', 'a house on a route gets its record put straight',
+  /if\(!cd\.scheduled \|\| cd\.scheduledDate !== route\.date\)\{/.test(admin) &&
+  /report\.resynced\.push/.test(admin),
+  'nine customers sat on the 6 Oct route reading scheduled:false, so All ' +
+  'Customers showed them as having no day at all');
+check('reconcile', 'and it only writes when they actually disagree',
+  /if\(!cd\.scheduled \|\| cd\.scheduledDate !== route\.date\)/.test(admin),
+  'a sweep that rewrites every record every fifteen minutes is a sweep that ' +
+  'costs money for nothing');
+check('build', 'one failed flag does not skip everyone after it',
+  (() => {
+    const i = admin.indexOf('for(let k = 0; k < nd.ids.length; k++)');
+    const blk = admin.slice(i, admin.indexOf('report.built.push', i));
+    return i !== -1 && /try\{/.test(blk) && /catch\(err\)\{/.test(blk);
+  })(),
+  'one shared try/catch round the whole loop is exactly what left nine people ' +
+  'on a route with unscheduled records');
 
 // =====================================================================
 // Wait for the async suites before totalling up — see pendingAsync at the top.
