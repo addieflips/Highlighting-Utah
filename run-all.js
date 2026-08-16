@@ -4401,9 +4401,19 @@ suite('15. The printed schedule sheet');
        printed sheet is where a name-format bug reaches the crew on paper, so
        this suite should be testing what actually ships, not a fake that agrees
        with it. Suite 20 covers the flip's own rules. */
+    /* The REAL personName, lifted out of the page rather than stubbed — the
+       printed sheet is where a name-format bug reaches the crew on paper, so
+       this suite tests what actually ships. It resolves through the customer
+       index, which is empty here, so it falls back to the imported name: that
+       IS the behaviour for a plan row with no customer record behind it. */
+    global.custByNumber = new Map();
+    global.custByPhoneDigits = new Map();
+    global.custByAddrKey = new Map();
+    global.custAddrKey = () => '';
+    global.customerForScheduleRow = () => null;
     global.personName = eval(
-      admin.slice(admin.indexOf('const COMPANY_TAIL='),
-                  admin.indexOf('\n}', admin.indexOf('function personName')) + 2) +
+      admin.slice(admin.indexOf('function personName(n, h)'),
+                  admin.indexOf('\n}', admin.indexOf('function personName(n, h)')) + 2) +
       '\n;personName');
     const api = eval(admin.slice(sheetStart, sheetEnd) +
       '\n;({rows: schedSheetRows, table: schedSheetTable, dayCols: SCHED_DAY_COLUMNS, planCols: SCHED_PLAN_COLUMNS})');
@@ -5590,67 +5600,112 @@ check('nextvisit', 'and it went in the existing Route cell, not a new column',
 // 20. ONE NAME FORMAT ON SCREEN
 // =====================================================================
 /*
- * The imported route CSV carries a lot of people as "Smith, John"; the customer
- * records behind All Customers are "John Smith". Same household, two readings
- * depending which screen you were on.
+ * Aaron Gardner is "Aaron Gardner" in All Customers and came through the route
+ * CSV as "Gardner Aaron". Owner, 2026-08-15: "I dont want the names to be
+ * flipped to how they should be I want them synced with how theyre titled as a
+ * customer."
  *
- * Flipped for DISPLAY only — see the note on personName. The interesting part
- * is not the flip, it is everything it must REFUSE to flip, so those are run
- * rather than eyeballed.
+ * ⚠ THE FIRST ATTEMPT AT THIS WAS WRONG and the shape of the mistake is worth
+ * keeping: it flipped anything matching "Last, First". That did NOTHING for
+ * "Gardner Aaron" — no comma — and everywhere it did fire it was guessing at
+ * an answer the customer record already held. Do not reintroduce a name parser
+ * here. The rule is a LOOKUP: find the customer, show their name verbatim.
+ *
+ * So what is tested is the matching, and the refusal to invent anything when
+ * there is no match.
  */
-suite('20. One name format on screen');
+suite('20. Schedule names come from the customer record');
 {
-  const src = admin.slice(admin.indexOf('const COMPANY_TAIL='),
-                          admin.indexOf('/* ---------- state ----------') > -1
-                            ? admin.indexOf('/* ---------- state ----------')
-                            : admin.indexOf('const COMPANY_TAIL=') + 900);
-  const api = eval(src.slice(0, src.indexOf('\n}', src.indexOf('function personName')) + 2) +
-    '\n;({name: personName})');
+  const idxSrc = admin.slice(admin.indexOf('function custAddrKey(address, city)'),
+                             admin.indexOf('\n}', admin.indexOf('function customerForScheduleRow')) + 2);
+  const nameSrc = admin.slice(admin.indexOf('function personName(n, h)'),
+                              admin.indexOf('\n}', admin.indexOf('function personName(n, h)')) + 2);
+  if (!idxSrc || !nameSrc) {
+    check('names', 'the name-sync helpers are findable', false,
+      'renamed or removed — update this test rather than deleting it');
+  } else {
+    const api = eval(idxSrc + '\n' + nameSrc +
+      '\n;({name: personName, find: customerForScheduleRow, key: custAddrKey})');
+    const cust = (name, extra) => ({ id: name, data: Object.assign({ name: name }, extra || {}) });
 
-  check('names', 'Last, First becomes First Last',
-    api.name('Smith, John') === 'John Smith');
-  check('names', 'a name that is already First Last is untouched',
-    api.name('John Smith') === 'John Smith',
-    'running it twice must not keep shuffling the words around');
-  check('names', 'flipping is idempotent',
-    api.name(api.name('Smith, John')) === 'John Smith',
-    'it is applied at render, and a render can happen any number of times');
-  check('names', 'a couple stays together',
-    api.name('Smith, John & Jane') === 'John & Jane Smith');
-  check('names', 'spacing is tidied either side of the comma',
-    api.name('  Smith ,   John  ') === 'John Smith');
+    const reset = () => {
+      global.custByNumber = new Map();
+      global.custByPhoneDigits = new Map();
+      global.custByAddrKey = new Map();
+    };
 
-  // ---- the refusals, which is where the damage would be -----------------
-  check('names', 'a company is NOT flipped',
-    api.name('Acme, Inc.') === 'Acme, Inc.' && api.name('Bright Lights, LLC') === 'Bright Lights, LLC',
-    '"Inc. Acme" would be a worse bug than the one being fixed');
-  check('names', 'two commas is left well alone',
-    api.name('Smith, John, Jr') === 'Smith, John, Jr',
-    'that is an address or a list, and guessing at it loses information');
-  check('names', 'a trailing or leading comma is not a name to flip',
-    api.name('Smith,') === 'Smith,' && api.name(', John') === ', John');
-  check('names', 'no name at all does not become "undefined"',
-    api.name('') === '' && api.name(null) === '' && api.name(undefined) === '');
+    // ---- the whole point ------------------------------------------------
+    reset();
+    global.custByPhoneDigits.set('8015550100', cust('Aaron Gardner'));
+    check('names', 'a row imported as "Gardner Aaron" shows as "Aaron Gardner"',
+      api.name('Gardner Aaron', { phone: '(801) 555-0100' }) === 'Aaron Gardner',
+      'the exact case the owner reported, and the one a comma-flip could never fix');
+    check('names', 'the customer name is used character for character',
+      api.name('GARDNER, AARON', { phone: '8015550100' }) === 'Aaron Gardner',
+      'not re-cased, not re-ordered — whatever All Customers says is the answer');
 
-  // ---- and that it is DISPLAY only --------------------------------------
-  check('names', 'the stored plan is never rewritten',
-    !/h\.name\s*=\s*personName/.test(admin) && !/name:\s*personName\(h\.name\)\s*}/.test(admin),
-    'a bulk rename of ~945 records is not undoable, and Last, First is the form ' +
-    'the master spreadsheet uses — matching converts, it does not rewrite');
-  check('names', 'the CSV export still round-trips unchanged',
-    /cu:h\.cu\|\|'', name:h\.name\|\|''/.test(admin) === false ||
-    admin.indexOf('function schedCsvRows') === -1 ||
-    !/personName/.test(admin.slice(admin.indexOf('function schedCsvRows'),
-                                   admin.indexOf('function schedCsvRows') + 600)),
-    'the export goes back through the importer — normalising it there would ' +
-    'quietly change what a re-import produces');
-  check('names', 'search still finds them under either form',
-    /\[h\.name,personName\(h\.name\),h\.address/.test(admin),
-    'flipping only the display would break searching for the name as typed');
-  check('names', 'the printed sheet reads the same as the screen',
-    /name:personName\(h\.name\)/.test(admin),
-    'the crew works off paper — two formats on two surfaces is the original bug again');
+    // ---- which key wins -------------------------------------------------
+    reset();
+    global.custByNumber.set('5012', cust('By Number'));
+    global.custByPhoneDigits.set('8015550100', cust('By Phone'));
+    global.custByAddrKey.set('123 main st|lehi', cust('By Address'));
+    check('names', 'the customer number is trusted first',
+      api.name('x', { cu: '5012', phone: '8015550100', address: '123 Main St', city: 'Lehi' }) === 'By Number',
+      'it is the number painted on their bins — unique by design, unlike a shared phone');
+    check('names', 'then the phone',
+      api.name('x', { phone: '8015550100', address: '123 Main St', city: 'Lehi' }) === 'By Phone');
+    check('names', 'then the address',
+      api.name('x', { address: '123 Main St', city: 'Lehi' }) === 'By Address');
+    check('names', 'a phone written any which way still matches',
+      api.name('x', { phone: '(801) 555-0100' }) === 'By Phone',
+      'the CSV and the customer record do not agree about brackets and dashes');
+    check('names', 'punctuation and case in an address do not stop a match',
+      api.key('123 N. Main St.', 'Lehi') === api.key('123 n main st', 'lehi'));
+
+    // ---- and what it must NOT do ---------------------------------------
+    reset();
+    check('names', 'no matching customer means the imported name is left alone',
+      api.name('Gardner Aaron', { phone: '8015559999' }) === 'Gardner Aaron',
+      'a plan can hold somebody who is not a customer record yet, and inventing ' +
+      'a name for them is worse than showing the one that was imported');
+    check('names', 'and it is NOT flipped on the way through',
+      api.name('Smith, John', {}) === 'Smith, John',
+      'guessing at name order is exactly the wrong answer this replaced — a ' +
+      'comma is not evidence of anything');
+    check('names', 'no name and no match does not become "undefined"',
+      api.name('', {}) === '' && api.name(null, null) === '' && api.name(undefined, {}) === '');
+    reset();
+    global.custByPhoneDigits.set('8015550100', cust('  ', {}));
+    check('names', 'a customer record with a blank name does not blank the row',
+      api.name('Gardner Aaron', { phone: '8015550100' }) === 'Gardner Aaron',
+      'syncing to nothing is not syncing');
+
+    // ---- an address key must never match on city alone ------------------
+    check('names', 'a blank address never becomes a key everybody shares',
+      api.key('', 'Lehi') === '' && api.key(null, null) === '',
+      'otherwise every house in one town matches the first customer in it');
+  }
 }
+/* Wiring, and the bits that must stay untouched. */
+check('names', 'the customer index is rebuilt whenever the customer list changes',
+  /custByNumber = new Map\(\);[\s\S]{0,120}custByAddrKey = new Map\(\)/.test(admin) &&
+  admin.indexOf('custByNumber.set') > admin.indexOf('function rebuildCustomerIndexes'),
+  'a stale index shows last week\'s name, which is the bug wearing a different hat');
+check('names', 'every display site passes the row, not just the name',
+  (admin.match(/personName\([^)]*\)/g) || [])
+    .every(function (m) { return m === 'personName(n, h)' || /,/.test(m); }),
+  'personName(name) alone cannot find the customer, and would silently fall ' +
+  'back to the imported name everywhere');
+check('names', 'the printed sheet reads the same as the screen',
+  /name:personName\(h\.name,h\)/.test(admin),
+  'the crew works off paper — two names on two surfaces is the original bug again');
+check('names', 'search finds them under the imported name AND the customer name',
+  /\[h\.name,personName\(h\.name,h\),h\.address/.test(admin),
+  'the office types what they see; both are things they might see');
+check('names', 'nothing stored is rewritten',
+  !/h\.name\s*=\s*personName/.test(admin),
+  'this is a display sync — the saved plan and the CSV export must round-trip ' +
+  'through the importer unchanged');
 
 // =====================================================================
 // Wait for the async suites before totalling up — see pendingAsync at the top.

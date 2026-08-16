@@ -10624,15 +10624,51 @@ function loadInvoices(){
    every one of them. That is most of why the screen locked up for a moment on
    every keystroke. Rebuilt in loadJobAddresses; see rebuildCustomerIndexes. */
 let custByPhoneDigits = new Map();
+let custByNumber = new Map();
+let custByAddrKey = new Map();
 function rebuildCustomerIndexes(){
   custByPhoneDigits = new Map();
+  custByNumber = new Map();
+  custByAddrKey = new Map();
   jobAddresses.forEach(function(a){
-    const digits = ((a.data && a.data.phone) || '').replace(/\D/g,'');
+    const d = (a && a.data) || {};
+    const digits = ((d.phone) || '').replace(/\D/g,'');
     // First match wins, exactly as Array.find did — two customers sharing a
     // phone is a known, separately tracked gap, and this must not change which
     // of them answers.
     if(digits && !custByPhoneDigits.has(digits)) custByPhoneDigits.set(digits, a);
+    const num = String(d.customerNumber == null ? '' : d.customerNumber).trim();
+    if(num && !custByNumber.has(num)) custByNumber.set(num, a);
+    const ak = custAddrKey(d.address, d.city);
+    if(ak && !custByAddrKey.has(ak)) custByAddrKey.set(ak, a);
   });
+}
+/* House number + street + town, punctuation and casing thrown away, so
+   "123 N Main St." and "123 n main st" are the same house. Only ever used to
+   MATCH; nothing is written back off it. */
+function custAddrKey(address, city){
+  const a = String(address == null ? '' : address).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+  const c = String(city == null ? '' : city).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+  return a ? (a + '|' + c) : '';
+}
+/* ---- the customer record behind a row on the imported schedule ----
+   The Schedule tab is a snapshot of a CSV. Its rows are not customer records
+   and carry no customer id, so they have to be matched back by something the
+   two share. In order of how much it can be trusted:
+     1. customer number — the number painted on their bins, unique by design;
+     2. phone digits — what the rest of this page already matches customers on;
+     3. house number + street + town.
+   Returns null when nothing matches, and the caller must cope with that: a row
+   for somebody who is not a customer yet is a normal thing to have on a plan. */
+function customerForScheduleRow(h){
+  if(!h) return null;
+  const num = String(h.cu == null ? '' : h.cu).trim();
+  if(num && custByNumber.has(num)) return custByNumber.get(num);
+  const digits = String(h.phone == null ? '' : h.phone).replace(/\D/g,'');
+  if(digits && custByPhoneDigits.has(digits)) return custByPhoneDigits.get(digits);
+  const ak = custAddrKey(h.address, h.city);
+  if(ak && custByAddrKey.has(ak)) return custByAddrKey.get(ak);
+  return null;
 }
 function custRsvpStatusForPhone(phone){
   const digits = (phone||'').replace(/\D/g,'');
@@ -24350,31 +24386,29 @@ function dlabel(dt){return{wd:WD[dt.getDay()],full:MO[dt.getMonth()+1]+' '+dt.ge
 function isoOf(dt){return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');}
 function esc(s){return(''+s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 function fmtPhone(p){let s=(''+p).replace(/\D/g,'');return s.length===10?'('+s.slice(0,3)+') '+s.slice(3,6)+'-'+s.slice(6):(''+p)}
-/* ---- one name format on screen ----
-   The imported route CSV carries a lot of people as "Smith, John" while the
-   customer records behind All Customers are "John Smith", so the same
-   household read two different ways depending which screen you were on.
+/* ---- the name on the schedule is the name on the customer record ----
+   Aaron Gardner is "Aaron Gardner" in All Customers and came through the route
+   CSV as "Gardner Aaron", so the same man read two ways depending which screen
+   you were on.
 
-   This flips them for DISPLAY ONLY. Nothing stored is touched: not the
-   customer record, not the saved plan, not the CSV export. That is deliberate,
-   not laziness — "Last, First" is the form the master spreadsheet uses, so
-   matching against it is done by converting rather than rewriting (there are
-   ~945 records and a bulk rename is not undoable), and the export has to keep
-   round-tripping back through the importer unchanged.
+   This does NOT try to work out which way round a name should go. An earlier
+   attempt flipped anything shaped like "Last, First", which was wrong twice
+   over: it did nothing at all for "Gardner Aaron" (no comma), and where it did
+   fire it was guessing. The customer record already knows the answer. So the
+   row is matched back to its customer and that customer's name is shown,
+   character for character.
 
-   Only a plain "one comma, something either side" name is flipped. Two commas
-   is an address or a list and is left alone; a company suffix after the comma
-   is left alone too, because turning "Acme, Inc." into "Inc. Acme" would be a
-   worse bug than the one being fixed. */
-const COMPANY_TAIL=/^(inc|llc|l\.l\.c|ltd|co|corp|company|pllc|pc|llp)\b/i;
-function personName(n){
-  const s=(''+(n==null?'':n)).trim();
-  const parts=s.split(',');
-  if(parts.length!==2) return s;
-  const last=parts[0].trim(), first=parts[1].trim();
-  if(!last||!first) return s;
-  if(COMPANY_TAIL.test(first)) return s;
-  return first+' '+last;
+   No match, no change: the row keeps whatever the CSV called it. A plan can
+   legitimately hold somebody who is not a customer record yet, and inventing a
+   name for them would be worse than showing the one that was imported.
+
+   DISPLAY ONLY — the saved plan and the CSV export are untouched, so the
+   export still round-trips through the importer unchanged. */
+function personName(n, h){
+  const cust = customerForScheduleRow(h);
+  const synced = cust && cust.data && String(cust.data.name || '').trim();
+  if(synced) return synced;
+  return String(n == null ? '' : n).trim();
 }
 function prefClass(v){let l=(''+v).trim().toLowerCase();if(l.startsWith('oct')||/^10\//.test(l))return'oct';if(l.includes('nov')||/^11\//.test(l))return'nov';if(l.startsWith('any'))return'any';if(l.includes('thx')||l.includes('thanks'))return'thx';if(l.startsWith('dec')||/^12\//.test(l))return'dec';return''}
 function prefTag(v){if(!v)return'';return'<span class="tag '+prefClass(v)+'">'+esc((''+v).trim())+'</span>'}
@@ -24597,7 +24631,7 @@ function renderMembers(){
   const el=RT.getElementById('membersPane'), news=newHouses();
   if(!news.length){el.innerHTML='<h3>🆕 New members</h3><div class="traynote">No houses in the imported route plan match a Closed quote right now (checked against that customer’s phone number in Quote Requests).</div>';return;}
   const rows=news.map(h=>{const f=findHouse(h.id),day=f?f.day:null;const where=day?('<b>'+dlabel(day._date).wd+' '+dlabel(day._date).full+'</b> · '+esc(dayMainArea(day))):'not placed';
-    return '<div class="newrow"><div><div class="who">'+esc(personName(h.name))+'<span class="newbadge">NEW</span></div><div class="meta">'+esc(h.address)+', '+esc(h.city)+' '+prefTag(h.pref)+'</div></div>'+
+    return '<div class="newrow"><div><div class="who">'+esc(personName(h.name,h))+'<span class="newbadge">NEW</span></div><div class="meta">'+esc(h.address)+', '+esc(h.city)+' '+prefTag(h.pref)+'</div></div>'+
       '<div><div class="auto">📍 in the routes: '+where+'</div></div><div class="acts"><span class="lbl">Move to</span><select class="moveday" data-move="'+h.id+'">'+dayOptions(day?day.id:null,'install')+'</select></div></div>';}).join('');
   el.innerHTML='<h3>🆕 New members — where they landed <span class="cnt">'+news.length+'</span></h3>'+rows;
 }
@@ -24605,7 +24639,7 @@ function renderFixTray(){
   const el=RT.getElementById('fixtray'), routed=routedFixes(), total=routed.length+FIXLIST.length;
   if(!total){el.innerHTML='<h3 class="fix">🔧 Fixes</h3><div class="traynote">Fix requests will show here. When the crew will be near a fix within '+FIX_LOOKAHEAD+' days it rides along; otherwise it waits on the fix list to become the fixer’s own route.</div>';return;}
   let body='';
-  const rowFor=h=>{const f=findHouse(h.id);return '<div class="newrow"><div><div class="who">'+esc(personName(h.name))+'<span class="fixbadge">FIX</span></div><div class="meta">'+esc(h.address)+', '+esc(h.city)+'</div></div>'+
+  const rowFor=h=>{const f=findHouse(h.id);return '<div class="newrow"><div><div class="who">'+esc(personName(h.name,h))+'<span class="fixbadge">FIX</span></div><div class="meta">'+esc(h.address)+', '+esc(h.city)+'</div></div>'+
     '<div><div class="auto">🔧 on '+esc(h.autoDay||'')+' — '+esc(h.autoReason||'')+'</div><div class="meta">'+esc(h.issue||'')+'</div></div>'+
     '<div class="acts"><select class="moveday" data-move="'+h.id+'">'+dayOptions(f?f.day.id:null,'fix')+'</select><button class="mini warn" data-tolist="'+h.id+'">→ Fix list</button></div></div>';};
   const rideAlong=routed.filter(h=>{const f=findHouse(h.id);return f&&!f.day.isFixRoute;});
@@ -24613,7 +24647,7 @@ function renderFixTray(){
   if(rideAlong.length)body+='<div class="grouph">Same day as a nearby route — the fixer catches these</div>'+rideAlong.map(rowFor).join('');
   if(onFixer.length)body+='<div class="grouph">On the fixer’s dedicated routes</div>'+onFixer.map(rowFor).join('');
   if(FIXLIST.length){body+='<div class="grouph">Fix list — no route near soon</div><button class="btn buildfix" data-buildfix>🚚 Build the fixer’s route(s) ('+FIXLIST.length+')</button>';
-    body+=FIXLIST.map(fx=>'<div class="newrow"><div><div class="who">'+esc(personName(fx.name))+'</div><div class="meta">'+esc(fx.address)+', '+esc(fx.city)+'</div></div><div><div class="auto" style="color:#9a5b16">no route near '+esc(fx.city)+' soon</div><div class="meta">'+esc(fx.issue)+'</div></div><div class="acts"><span class="lbl">Add to a route</span><select class="moveday" data-fixadd="'+fx.id+'"><option value="">Choose a day…</option>'+dayOptions(null,'fix')+'</select></div></div>').join('');}
+    body+=FIXLIST.map(fx=>'<div class="newrow"><div><div class="who">'+esc(personName(fx.name,fx))+'</div><div class="meta">'+esc(fx.address)+', '+esc(fx.city)+'</div></div><div><div class="auto" style="color:#9a5b16">no route near '+esc(fx.city)+' soon</div><div class="meta">'+esc(fx.issue)+'</div></div><div class="acts"><span class="lbl">Add to a route</span><select class="moveday" data-fixadd="'+fx.id+'"><option value="">Choose a day…</option>'+dayOptions(null,'fix')+'</select></div></div>').join('');}
   el.innerHTML='<h3 class="fix" id="fixH">🔧 Fixes <span class="cnt">'+total+'</span><span class="chev">'+(fixOpen?'▾':'▸')+'</span></h3>'+(fixOpen?body:'');
 }
 function weekGuideHTML(fromDay){const od=phaseDays(fromDay);const start=od.indexOf(fromDay);const week=od.slice(start,start+7);
@@ -24630,7 +24664,7 @@ function stopHTML(h,n,dayId){
   else if(!h.isTakedown)extra+='<button class="qbtn oct" data-reassign="'+h.id+'" data-month="10">→ Oct</button><button class="qbtn nov" data-reassign="'+h.id+'" data-month="11">→ Nov</button>';
   extra+='</div>';
   return '<div class="'+cls+'"><div class="chk"><input type="checkbox" data-id="'+h.id+'"'+(h.done?' checked':'')+'></div><div class="seq">'+n+'</div>'+
-    '<div class="sbody"><div class="snm">'+esc(personName(h.name))+(isNewMemberHouse(h)?'<span class="newbadge">NEW</span>':'')+(h.isFix?'<span class="fixbadge">FIX</span>':'')+(h.cu?' <span style="font-weight:600;color:var(--muted);font-size:12.5px">#'+esc(h.cu)+'</span>':'')+'</div>'+
+    '<div class="sbody"><div class="snm">'+esc(personName(h.name,h))+(isNewMemberHouse(h)?'<span class="newbadge">NEW</span>':'')+(h.isFix?'<span class="fixbadge">FIX</span>':'')+(h.cu?' <span style="font-weight:600;color:var(--muted);font-size:12.5px">#'+esc(h.cu)+'</span>':'')+'</div>'+
     '<div class="saddr"><a href="'+maps+'" target="_blank" rel="noopener">'+esc(h.address)+'</a></div>'+(line?'<div class="sline">'+line+'</div>':'')+(h.details?'<div class="sdetail">'+esc(h.details)+'</div>':'')+extra+'</div>'+
     '<div class="sprice">'+(typeof h.price==='number'&&h.price?'$'+h.price:'')+'</div></div>';
 }
@@ -24677,7 +24711,7 @@ function renderPanelInto(elId,day){
   el.innerHTML=h;
 }
 function renderSearch(q){
-  const hits=installDays().flatMap(d=>d.houses).filter(h=>[h.name,personName(h.name),h.address,h.city,h.phone,h.email,h.details].join(' ').toLowerCase().includes(q));
+  const hits=installDays().flatMap(d=>d.houses).filter(h=>[h.name,personName(h.name,h),h.address,h.city,h.phone,h.email,h.details].join(' ').toLowerCase().includes(q));
   const byDay=new Map();installDays().forEach(d=>{const hs=d.houses.filter(h=>hits.includes(h));if(hs.length)byDay.set(d,hs);});
   let h='<div class="phead"><div class="t">Search results</div><div class="meta">'+hits.length+' match “'+esc(q)+'”</div></div>';
   if(!hits.length){h+='<div class="emptyday">No matches.</div>';RT.getElementById('panel').innerHTML=h;return;}
@@ -24767,7 +24801,7 @@ function renderLeftovers(){
     ph+=day.houses.map(function(hs){
       return '<label class="lrow pickrow"><input type="checkbox" data-lpick="'+hs.id+'"'+
           (leftoverPicked.has(String(hs.id))?' checked':'')+'>'+
-        '<span class="who">'+esc(personName(hs.name)||'(no name)')+'</span>'+
+        '<span class="who">'+esc(personName(hs.name,hs)||'(no name)')+'</span>'+
         '<span class="meta">'+esc(cityOf(hs)||'no city on file')+'</span></label>';
     }).join('');
     ph+='<div class="choices"><button class="choice" data-lpickdone="'+day.id+'">'+
@@ -24785,7 +24819,7 @@ function renderLeftovers(){
     '<p class="lead">Everything still ticked stays finished. These '+list.length+' need another day.</p>';
   if(leftoverMode==='ask'){
     h+=plan.map(function(p){
-      return '<div class="lrow"><span class="who">'+esc(personName(p.house.name)||'(no name)')+'</span>'+
+      return '<div class="lrow"><span class="who">'+esc(personName(p.house.name,p.house)||'(no name)')+'</span>'+
         '<span class="meta">'+esc(p.city||'no city on file')+'</span>'+
         '<span class="acts meta">'+(p.target
           ? '&rarr; '+dlabel(dayDate(p.target)).wd+' '+dlabel(dayDate(p.target)).full
@@ -24806,7 +24840,7 @@ function renderLeftovers(){
   }else{
     h+='<p class="lead">Pick a day for each. They come off this day as you go.</p>';
     h+=plan.map(function(p){
-      return '<div class="lrow"><span class="who">'+esc(personName(p.house.name)||'(no name)')+'</span>'+
+      return '<div class="lrow"><span class="who">'+esc(personName(p.house.name,p.house)||'(no name)')+'</span>'+
         '<span class="meta">'+esc(p.city||'no city on file')+'</span>'+
         '<span class="acts"><select class="moveday" data-lmove="'+p.house.id+'">'+
           '<option value="">Move to&hellip;</option>'+dayOptions(null,kind)+
@@ -25092,7 +25126,7 @@ function schedSheetRows(days){
     d.houses.forEach((h,i)=>{
       rows.push({
         date:iso, weekday:l.wd+' '+l.full, route:route, stop:i+1,
-        cu:h.cu||'', name:personName(h.name)||'', address:h.address||'', city:h.city||'',
+        cu:h.cu||'', name:personName(h.name,h)||'', address:h.address||'', city:h.city||'',
         phone:h.phone?fmtPhone(h.phone):'',
         // Blank rather than $0 — a house with no price on the plan has not
         // been priced, which is not the same as being free.
