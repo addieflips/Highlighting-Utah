@@ -3773,6 +3773,129 @@ if (!JSDOM) {
       'nothing is flagged for recycle in this fixture, so it must come back empty rather than inventing rows');
   }
 }
+
+/* ============ THE WAREHOUSE PATTERN IS PICKED, NEVER TYPED ============
+ *
+ * Owner's rule, 2026-08-15. The Pattern field on "Add to Queue" used to be a
+ * free-text box, and whatever was typed there became the group key the whole
+ * build queue is organised by — so one stray spelling was an extra heading
+ * with its own bundle count.
+ *
+ * These CLICK the real buttons and read back the hidden input that actually
+ * gets saved, rather than reading the source as text: the thing worth proving
+ * is that a person clicking colours produces the right stored value.
+ */
+suite('14b. Warehouse pattern picker');
+
+check('warehouse', 'the Pattern field is not a text box any more',
+  !/<input type="text" id="whExtraPattern"/.test(admin),
+  'a typed pattern becomes a build-queue heading of its own');
+check('warehouse', 'the Pattern field is a hidden input the picker writes',
+  /<input type="hidden" id="whExtraPattern">/.test(admin),
+  'the rest of the form reads this id — dropping it breaks fill-from-record, edit and reset');
+check('warehouse', 'nothing assigns to the pattern box behind the picker\'s back',
+  !/getElementById\('whExtraPattern'\)\.value\s*=/.test(admin),
+  'a direct assignment leaves the chips showing something different from what will be saved');
+check('warehouse', 'the colour buttons come from the app\'s own colour list',
+  /LIGHTS_COLOR_OPTIONS\.map[\s\S]{0,200}data-whcolor/.test(admin),
+  'a hand-written list here could offer a colour the rest of the app does not know');
+
+if (!JSDOM) {
+  note('jsdom not installed — skipping the pattern picker tests');
+} else {
+  const dom = new JSDOM('<div id="whExtraPatternRow">' +
+    '<input type="hidden" id="whExtraPattern">' +
+    '<div id="whExtraPatternPicker"></div>' +
+    '<div id="whExtraPatternChips"></div>' +
+    '<div id="whExtraPatternNote"></div></div>');
+  global.document = dom.window.document;
+  global.esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+  /* eval'd `const` never escapes the eval call, so the colour list is promoted
+     to a global — lifted from admin.html, never restated here, or this suite
+     would keep passing after the real list changed. */
+  const vocabSrc = (admin.match(/const LIGHTS_COLOR_OPTIONS = \[[^\]]*\];/) || [''])[0]
+    .replace('const LIGHTS_COLOR_OPTIONS', 'global.LIGHTS_COLOR_OPTIONS');
+  let whExtraPatternParts = [];
+  const pickerSrc = [vocabSrc,
+    extractFn(admin, 'whPatternPartsFromText'),
+    extractFn(admin, 'whSyncExtraPatternValue'),
+    extractFn(admin, 'whRenderExtraPattern'),
+    extractFn(admin, 'whSetExtraPattern')].filter(Boolean).join('\n');
+
+  if (!/function whSetExtraPattern/.test(pickerSrc) || !/function whRenderExtraPattern/.test(pickerSrc)) {
+    check('warehouse', 'the pattern picker functions were found', false,
+      'whSetExtraPattern / whRenderExtraPattern are gone or renamed');
+  } else {
+    eval(pickerSrc);
+    const val = () => document.getElementById('whExtraPattern').value;
+    const click = label => {
+      const b = [...document.querySelectorAll('[data-whcolor]')]
+        .find(x => x.dataset.whcolor === label);
+      if (b) b.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+    };
+    const removeAt = i => {
+      const x = document.querySelector('[data-whremove="' + i + '"]');
+      if (x) x.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+    };
+
+    whRenderExtraPattern();
+    check('warehouse', 'a button is offered for every colour the app sells',
+      document.querySelectorAll('[data-whcolor]').length === LIGHTS_COLOR_OPTIONS.length,
+      'got ' + document.querySelectorAll('[data-whcolor]').length + ' buttons for ' +
+      LIGHTS_COLOR_OPTIONS.length + ' colours');
+    check('warehouse', 'the empty picker says what to do rather than sitting blank',
+      /click a colour/i.test(document.getElementById('whExtraPatternChips').textContent));
+
+    click('Red'); click('Green');
+    check('warehouse', 'clicking colours builds the value that gets saved',
+      val() === 'Red, Green', 'got ' + JSON.stringify(val()));
+
+    whSetExtraPattern('');
+    click('Warm White'); click('Red'); click('Red'); click('Warm White');
+    check('warehouse', 'clicking one colour twice makes a repeating pattern',
+      val() === 'Warm White, Red, Red, Warm White',
+      'order and repeats are the whole reason this is a list and not tick boxes — got ' + JSON.stringify(val()));
+    removeAt(1);
+    check('warehouse', 'removing one position leaves the others in order',
+      val() === 'Warm White, Red, Warm White', 'got ' + JSON.stringify(val()));
+
+    whSetExtraPattern('Red, Green');
+    check('warehouse', 'an entry loaded for editing fills the chips',
+      val() === 'Red, Green' && document.querySelectorAll('[data-whremove]').length === 2,
+      'editing an existing queue entry would come up empty and silently wipe its pattern');
+    whSetExtraPattern('red and green');
+    check('warehouse', 'an older free-text pattern loads as real colours',
+      val() === 'Red, Green', 'got ' + JSON.stringify(val()));
+
+    whSetExtraPattern('Red with tinsel');
+    check('warehouse', 'wording it cannot read is kept, not dropped or guessed',
+      val() === 'Red with tinsel',
+      'silently rewriting somebody\'s build is worse than showing it — got ' + JSON.stringify(val()));
+    check('warehouse', 'and the part it cannot read is marked on screen',
+      /FDECEA/.test(document.getElementById('whExtraPatternChips').innerHTML),
+      'nothing would tell whoever is looking which bit is not a real colour');
+    whSetExtraPattern('Red, sparkly thing');
+    removeAt(1);
+    check('warehouse', 'the unreadable part can be taken off and replaced',
+      val() === 'Red', 'got ' + JSON.stringify(val()));
+
+    whSetExtraPattern('');
+    check('warehouse', 'resetting clears the chips as well as the value',
+      val() === '' && document.querySelectorAll('[data-whremove]').length === 0,
+      'the next thing added would inherit the last one\'s colours');
+
+    /* Nothing a person can click may produce a part the warehouse cannot read
+       — that is the whole point of removing the text box. */
+    whSetExtraPattern('');
+    LIGHTS_COLOR_OPTIONS.forEach(c => click(c));
+    check('warehouse', 'every colour a button can add is one the warehouse groups by',
+      whUnreadableLightParts(val()).length === 0,
+      'a button offers something whNormalizeLights cannot read: ' +
+      JSON.stringify(whUnreadableLightParts(val())));
+  }
+}
 /* ⚠ THE BUG THIS SUITE CATCHES.
  *
  * A customer who answers "no" or "back next year" on the RSVP link was
