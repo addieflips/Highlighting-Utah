@@ -6400,8 +6400,23 @@ check('city', 'a town typed by hand always beats one read off a pin',
 check('city', 'one address that will not resolve does not stop the rest',
   (() => {
     const fn = extractFn(admin, 'runTownFill').replace(/\r/g, '');
-    return /catch\(err\)\{ \/\* one address that will not resolve/.test(fn);
-  })());
+    return /if\(!over\) return null;\s*\/\/ a pin that simply will not resolve/.test(fn);
+  })(),
+  'it returns null for that one customer and the batch carries on');
+check('city', 'being rate-limited is retried, not treated as "no town"',
+  (() => {
+    const fn = extractFn(admin, 'runTownFill').replace(/\r/g, '');
+    return /OVER_QUERY_LIMIT/.test(fn) && /attempt < 2/.test(fn);
+  })(),
+  'Google answers OVER_QUERY_LIMIT when pushed — reading that as "this house ' +
+  'has no town" would silently skip whoever happened to be in that batch');
+check('city', 'lookups run in small batches, not one at a time',
+  (() => {
+    const fn = extractFn(admin, 'runTownFill').replace(/\r/g, '');
+    return /TOWN_FILL_BATCH/.test(fn) && /Promise\.all\(batch\.map\(lookOne\)\)/.test(fn);
+  })(),
+  '374 lookups one after another took ten minutes, and Chrome throttles timers ' +
+  'in a background tab so every pause stretched to a second');
 
 // =====================================================================
 // 24. THE SAME PREFERENCE, WRITTEN FIVE DIFFERENT WAYS

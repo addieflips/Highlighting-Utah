@@ -15045,17 +15045,39 @@ async function runTownFill(apply){
      set that might differ. */
   if(apply && townFillPlan) return applyTownFill();
 
+  /* A few at a time rather than one at a time. Three hundred and seventy-odd
+     lookups run strictly one after another took the better part of ten minutes,
+     and worse: Chrome throttles timers in a tab that is not in front, so every
+     pause between lookups stretched to about a second and the whole thing
+     crawled if the office switched tabs. Small batches, with a gap between
+     batches rather than between every single lookup.
+     TOWN_FILL_BATCH is deliberately modest — Google answers OVER_QUERY_LIMIT if
+     pushed, which is retried once below rather than losing that customer. */
+  const TOWN_FILL_BATCH = 5;
   const gc = new google.maps.Geocoder();
   const plan = [];
-  for(let i = 0; i < list.length; i++){
-    const d = list[i].data;
-    statusEl.textContent = 'Looking up town ' + (i + 1) + ' of ' + list.length + '…';
-    try{
-      const res = await gc.geocode({location: {lat: d.lat, lng: d.lng}});
-      const town = townFromGeocode(res.results || []);
-      if(town) plan.push({id: list[i].id, name: d.name || '(no name)', address: d.address || '', town: town});
-    } catch(err){ /* one address that will not resolve must not stop the rest */ }
-    await new Promise(function(r){ setTimeout(r, 90); });   // stay under the rate limit
+  const lookOne = async function(entry){
+    const d = entry.data;
+    for(let attempt = 0; attempt < 2; attempt++){
+      try{
+        const res = await gc.geocode({location: {lat: d.lat, lng: d.lng}});
+        const town = townFromGeocode(res.results || []);
+        return town ? {id: entry.id, name: d.name || '(no name)', address: d.address || '', town: town} : null;
+      } catch(err){
+        const over = err && (err.code === 'OVER_QUERY_LIMIT' || /OVER_QUERY_LIMIT/.test(String(err)));
+        if(!over) return null;   // a pin that simply will not resolve — leave them alone
+        await new Promise(function(r){ setTimeout(r, 1200); });
+      }
+    }
+    return null;
+  };
+  for(let i = 0; i < list.length; i += TOWN_FILL_BATCH){
+    const batch = list.slice(i, i + TOWN_FILL_BATCH);
+    statusEl.textContent = 'Looking up town ' + Math.min(i + batch.length, list.length) +
+      ' of ' + list.length + '…';
+    const got = await Promise.all(batch.map(lookOne));
+    got.forEach(function(g){ if(g) plan.push(g); });
+    await new Promise(function(r){ setTimeout(r, 120); });
   }
   townFillPlan = plan;
   const byTown = {};
