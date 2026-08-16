@@ -4397,6 +4397,14 @@ suite('15. The printed schedule sheet');
     global.isNewMemberHouse = h => !!h.isNew;
     global.esc = s => (s || '').toString().replace(/[&<>"']/g, c =>
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    /* The REAL personName, lifted out of the page rather than stubbed — the
+       printed sheet is where a name-format bug reaches the crew on paper, so
+       this suite should be testing what actually ships, not a fake that agrees
+       with it. Suite 20 covers the flip's own rules. */
+    global.personName = eval(
+      admin.slice(admin.indexOf('const COMPANY_TAIL='),
+                  admin.indexOf('\n}', admin.indexOf('function personName')) + 2) +
+      '\n;personName');
     const api = eval(admin.slice(sheetStart, sheetEnd) +
       '\n;({rows: schedSheetRows, table: schedSheetTable, dayCols: SCHED_DAY_COLUMNS, planCols: SCHED_PLAN_COLUMNS})');
 
@@ -5577,6 +5585,72 @@ check('nextvisit', 'and it went in the existing Route cell, not a new column',
   !/>Next Visit<\/th>/.test(admin),
   'the responsive rules address this table by td:nth-child(2) and (4), so an extra ' +
   'column would silently relabel two others on a phone');
+
+// =====================================================================
+// 20. ONE NAME FORMAT ON SCREEN
+// =====================================================================
+/*
+ * The imported route CSV carries a lot of people as "Smith, John"; the customer
+ * records behind All Customers are "John Smith". Same household, two readings
+ * depending which screen you were on.
+ *
+ * Flipped for DISPLAY only — see the note on personName. The interesting part
+ * is not the flip, it is everything it must REFUSE to flip, so those are run
+ * rather than eyeballed.
+ */
+suite('20. One name format on screen');
+{
+  const src = admin.slice(admin.indexOf('const COMPANY_TAIL='),
+                          admin.indexOf('/* ---------- state ----------') > -1
+                            ? admin.indexOf('/* ---------- state ----------')
+                            : admin.indexOf('const COMPANY_TAIL=') + 900);
+  const api = eval(src.slice(0, src.indexOf('\n}', src.indexOf('function personName')) + 2) +
+    '\n;({name: personName})');
+
+  check('names', 'Last, First becomes First Last',
+    api.name('Smith, John') === 'John Smith');
+  check('names', 'a name that is already First Last is untouched',
+    api.name('John Smith') === 'John Smith',
+    'running it twice must not keep shuffling the words around');
+  check('names', 'flipping is idempotent',
+    api.name(api.name('Smith, John')) === 'John Smith',
+    'it is applied at render, and a render can happen any number of times');
+  check('names', 'a couple stays together',
+    api.name('Smith, John & Jane') === 'John & Jane Smith');
+  check('names', 'spacing is tidied either side of the comma',
+    api.name('  Smith ,   John  ') === 'John Smith');
+
+  // ---- the refusals, which is where the damage would be -----------------
+  check('names', 'a company is NOT flipped',
+    api.name('Acme, Inc.') === 'Acme, Inc.' && api.name('Bright Lights, LLC') === 'Bright Lights, LLC',
+    '"Inc. Acme" would be a worse bug than the one being fixed');
+  check('names', 'two commas is left well alone',
+    api.name('Smith, John, Jr') === 'Smith, John, Jr',
+    'that is an address or a list, and guessing at it loses information');
+  check('names', 'a trailing or leading comma is not a name to flip',
+    api.name('Smith,') === 'Smith,' && api.name(', John') === ', John');
+  check('names', 'no name at all does not become "undefined"',
+    api.name('') === '' && api.name(null) === '' && api.name(undefined) === '');
+
+  // ---- and that it is DISPLAY only --------------------------------------
+  check('names', 'the stored plan is never rewritten',
+    !/h\.name\s*=\s*personName/.test(admin) && !/name:\s*personName\(h\.name\)\s*}/.test(admin),
+    'a bulk rename of ~945 records is not undoable, and Last, First is the form ' +
+    'the master spreadsheet uses — matching converts, it does not rewrite');
+  check('names', 'the CSV export still round-trips unchanged',
+    /cu:h\.cu\|\|'', name:h\.name\|\|''/.test(admin) === false ||
+    admin.indexOf('function schedCsvRows') === -1 ||
+    !/personName/.test(admin.slice(admin.indexOf('function schedCsvRows'),
+                                   admin.indexOf('function schedCsvRows') + 600)),
+    'the export goes back through the importer — normalising it there would ' +
+    'quietly change what a re-import produces');
+  check('names', 'search still finds them under either form',
+    /\[h\.name,personName\(h\.name\),h\.address/.test(admin),
+    'flipping only the display would break searching for the name as typed');
+  check('names', 'the printed sheet reads the same as the screen',
+    /name:personName\(h\.name\)/.test(admin),
+    'the crew works off paper — two formats on two surfaces is the original bug again');
+}
 
 // =====================================================================
 // Wait for the async suites before totalling up — see pendingAsync at the top.
