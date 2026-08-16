@@ -14915,16 +14915,28 @@ let activeNeedsRemovalFilter = false;
 let activeCityFilter = 'all';
 let searchTerm = '';
 
+/* ⚠ FIXED 2026-08-15, and it was keeping people off routes entirely.
+   This used to take the LAST comma segment and then clean it. That is right for
+   "123 Main St, Lehi" — the form it was written for — and wrong for every way a
+   person actually types a city:
+       "Lehi, UT"              -> last segment "UT"        -> cleaned to ""
+       "Lehi, UT 84043"        -> last segment "UT 84043"  -> cleaned to ""
+       "American Fork, UT 84003"                           -> ""
+   A blank city is not cosmetic: a house with no town cannot be matched to a
+   route day, so it was left out of the schedule, out of the city dropdowns and
+   out of every city filter — silently, and for what is probably most of the
+   book.
+
+   Now every comma segment is cleaned first, and the last one that still has
+   letters and no digits wins. That keeps "123 Main St, Lehi" answering "Lehi"
+   while also getting "Lehi, UT 84043" right. It can only ever turn a blank into
+   a real town — no input that worked before answers differently now. */
 function extractCleanCity(cityRaw){
   if(!cityRaw) return '';
-  var s = String(cityRaw);
-  if(s.indexOf(',') !== -1){
-    var parts = s.split(',').map(function(p){ return p.trim(); }).filter(Boolean);
-    s = parts[parts.length-1] || '';
-  }
-  s = s.replace(/\b\d{5}\b/g,'').replace(/\bUT\b|\bUtah\b/gi,'').trim();
-  if(/\d/.test(s)) return '';
-  return s;
+  var parts = String(cityRaw).split(',').map(function(p){
+    return String(p).replace(/\b\d{5}(-\d{4})?\b/g,'').replace(/\bUT\b|\bUtah\b/gi,'').trim();
+  }).filter(function(p){ return p && !/\d/.test(p); });
+  return parts.length ? parts[parts.length-1] : '';
 }
 function getCityList(){
   const cities = new Set();

@@ -5048,12 +5048,13 @@ suite('17. A new customer lands on the next day in their city');
   global.jobAddresses = [
     {id:'a1', data:{city:'Lehi'}},   {id:'a2', data:{city:'Lehi'}},
     {id:'b1', data:{city:'Orem'}},   {id:'b2', data:{city:'Orem'}},
-    /* "Lehi 84043" is the messy-but-real form extractCleanCity cleans up. Note
-       "Lehi, UT 84043" is NOT — that one comes back blank, because the function
-       takes the LAST comma segment (it was written for "123 Main St, Lehi").
-       A customer stored that way has no clean city and is reported as such
-       rather than being dropped onto some other town's day. */
-    {id:'c1', data:{city:'Lehi 84043'}}
+    /* Both messy-but-real forms now read as Lehi. "Lehi, UT 84043" used to come
+       back BLANK — the function took the last comma segment, which was right
+       for "123 Main St, Lehi" and wrong for every way a person types a city.
+       A blank town cannot be matched to a route day, so those houses were
+       silently left out of the schedule entirely. Fixed 2026-08-15; suite 23
+       runs the whole set of forms. */
+    {id:'c1', data:{city:'Lehi 84043'}}, {id:'c2', data:{city:'Lehi, UT 84043'}}
   ];
   global.scheduledRoutesCache = {
     '2026-10-05': [{id:'r-oct-lehi',  date:'2026-10-05', type:'install', crew:'1', stops:[{id:'a1'},{id:'a2'}]}],
@@ -6287,6 +6288,54 @@ check('build', 'a day it cannot write does not take the whole sweep down',
 check('build', 'and the new days are named in the notice, by town and date',
   admin.includes('new crew-day') && admin.includes('Look them over before the crew does'),
   'creating route days is the biggest thing the sweep can do — it must never be silent');
+
+// =====================================================================
+// 23. THE TOWN ON A CUSTOMER RECORD
+// =====================================================================
+/*
+ * Every scheduling decision in this app is made per town: which day a house can
+ * ride, which crew-day gets built, which route a customer is even eligible for.
+ * A house whose town reads blank is not "missing a label" — it is unroutable,
+ * invisible to the city filters, and quietly left out of the season.
+ *
+ * extractCleanCity took the LAST comma segment. That is right for the form it
+ * was written for, "123 Main St, Lehi", and wrong for every way a person
+ * actually types a city — "Lehi, UT", "Lehi, UT 84043", "American Fork, UT
+ * 84003" all cleaned down to nothing. Run, not read, because the whole point is
+ * which strings come out the far side.
+ */
+suite('23. The town on a customer record');
+{
+  eval(extractFn(admin, 'extractCleanCity'));
+  const c = extractCleanCity;
+
+  check('city', 'the form it was always written for still works',
+    c('123 Main St, Lehi') === 'Lehi' && c('Lehi') === 'Lehi' && c('Lehi 84043') === 'Lehi',
+    'the fix must not cost anything that already worked');
+
+  check('city', 'city with a state reads as the city',
+    c('Lehi, UT') === 'Lehi' && c('Lehi, Utah') === 'Lehi',
+    'THE bug — this came back blank, and a blank town cannot be put on a route');
+  check('city', 'city with a state and a zip reads as the city',
+    c('Lehi, UT 84043') === 'Lehi' && c('Lehi, Utah 84043') === 'Lehi' &&
+    c('Lehi, UT 84043-1234') === 'Lehi');
+  check('city', 'a two-word town survives it',
+    c('American Fork, UT 84003') === 'American Fork' &&
+    c('Salt Lake City, UT') === 'Salt Lake City',
+    'a naive "first word" fix would have quietly renamed half the county');
+  check('city', 'a full address with everything on it still finds the town',
+    c('123 Main St, Lehi, UT 84043') === 'Lehi');
+
+  check('city', 'nothing usable comes back blank rather than as a guess',
+    c('') === '' && c(null) === '' && c(undefined) === '' &&
+    c('84043') === '' && c('123 Main St') === '' && c('UT') === '',
+    'a wrong town is worse than a missing one — it sends a crew to another county');
+  check('city', 'whitespace is not a town',
+    c('   ') === '' && c('  Lehi  ') === 'Lehi');
+  check('city', 'it is stable when run twice',
+    c(c('Lehi, UT 84043')) === 'Lehi',
+    'the value gets stored and re-read, so it has to survive a round trip');
+}
 
 // =====================================================================
 // Wait for the async suites before totalling up — see pendingAsync at the top.
