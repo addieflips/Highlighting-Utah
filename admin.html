@@ -3640,7 +3640,23 @@
             <div class="form-row"><label for="whExtraQty" id="whExtraQtyLabel">How many bundles</label><input type="number" id="whExtraQty" min="1" step="1" value="1">
               <div id="whExtraQtyNote" style="font-size:12.5px; color:var(--slate); margin-top:4px;"></div></div>
           </div>
-          <div class="form-row" id="whExtraPatternRow"><label for="whExtraPattern">Pattern</label><input type="text" id="whExtraPattern" placeholder="e.g. Warm White, Red, Red, Warm White">
+          <!-- Pattern is PICKED, never typed. It used to be a free-text box, and
+               whatever was typed became the group key the whole build queue is
+               organised by - so "Red, Green", "red green" and a typo all became
+               their own heading and the bundle counts split across them.
+               Click a colour to add it to the end; click a chip to take it off.
+               Clicking the same colour twice is how a repeating pattern like
+               Warm White, Red, Red, Warm White gets built, which is why this is
+               an ordered list and not a row of tick boxes.
+               #whExtraPattern stays as a hidden input on purpose: it is what
+               every other part of this form already reads and writes (fill from
+               the customer's record, load an entry for editing, reset after
+               saving). Those keep working unchanged - they just go through
+               whSetExtraPattern() so the chips repaint with the value. -->
+          <div class="form-row" id="whExtraPatternRow"><label>Pattern</label>
+            <input type="hidden" id="whExtraPattern">
+            <div id="whExtraPatternPicker" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px;"></div>
+            <div id="whExtraPatternChips" style="display:flex; flex-wrap:wrap; gap:6px; align-items:center; min-height:30px;"></div>
             <div id="whExtraPatternNote" style="font-size:12.5px; color:var(--slate); margin-top:4px;"></div></div>
           <!-- The form never asked which wire this was on, so a build added by
                hand could only ever say "wire not set". Fills itself in from the
@@ -10477,7 +10493,7 @@ function renderMessagesList(){
          pattern and bundle count both \u2014 so this hand-off cannot drift from what
          the form works out for a house picked by hand. */
       document.getElementById('whExtraKind').value = 'lights';
-      document.getElementById('whExtraPattern').value = '';
+      whSetExtraPattern('');
       whExtraPatternFromRecord = '';
       const labelEl = document.getElementById('whExtraLabel');
       if(cust){
@@ -16764,9 +16780,105 @@ function whFindCustomerByLabel(label){
   }) || null;
 }
 /* The pattern box fills itself in from the customer's record. This remembers what
-   was filled in, so typing over it is allowed (a rebuild in a different pattern is
+   was filled in, so changing it is allowed (a rebuild in a different pattern is
    a real thing) but can still be noticed and asked about on the way in. */
 let whExtraPatternFromRecord = '';
+
+/* ===== THE PATTERN PICKER =====================================================
+ *
+ * Owner's rule, 2026-08-15: the warehouse pattern is chosen from the colours we
+ * actually sell, never typed. What is typed becomes the group key the entire
+ * build queue is organised by, so one stray spelling is a whole extra heading
+ * with its own bundle count.
+ *
+ * The chosen colours live here as an ordered list, because order and repeats
+ * are both real: "Warm White, Red, Red, Warm White" is a specific alternating
+ * strand, not a set. Clicking a colour appends it; clicking a chip removes that
+ * one position. Everything is rebuilt from this array, so nothing can end up in
+ * the hidden input that did not come from a button.
+ */
+let whExtraPatternParts = [];
+
+/* Splits stored text back into parts so an entry that already exists can be
+   loaded for editing. Anything that is NOT one of our colours is kept as its
+   own part and flagged, rather than dropped or guessed at — it is old free-text
+   data, and silently rewriting somebody's build is worse than showing it. */
+function whPatternPartsFromText(text){
+  const raw = String(text || '').trim();
+  if(!raw) return [];
+  return raw.split(/[,—\/&+]|\band\b/i).map(function(piece){
+    const t = piece.trim().replace(/\s+/g, ' ').replace(/[.;]+$/, '');
+    if(!t) return null;
+    const known = LIGHTS_COLOR_OPTIONS.find(function(o){ return o.toLowerCase() === t.toLowerCase(); });
+    return known ? {text: known, known: true} : {text: t, known: false};
+  }).filter(Boolean);
+}
+
+/* The ONE place the hidden input is written. Everything downstream — the add
+   handler, the "does this match their record" confirm, the reset — reads that
+   input, so keeping this as the single writer is what stops the chips and the
+   saved value drifting apart. */
+function whSyncExtraPatternValue(){
+  const el = document.getElementById('whExtraPattern');
+  if(el) el.value = whExtraPatternParts.map(function(p){ return p.text; }).join(', ');
+}
+
+function whRenderExtraPattern(){
+  const picker = document.getElementById('whExtraPatternPicker');
+  const chips = document.getElementById('whExtraPatternChips');
+  if(!picker || !chips) return;
+  /* The buttons are built from LIGHTS_COLOR_OPTIONS rather than written into
+     the HTML, so the warehouse can never offer a colour the rest of the app
+     does not know about. Built once. */
+  if(!picker.dataset.built){
+    picker.innerHTML = LIGHTS_COLOR_OPTIONS.map(function(o){
+      return '<button type="button" class="btn btn-outline btn-sm wh-pattern-add" data-whcolor="'+esc(o)+'" style="flex:0 0 auto;">+ '+esc(o)+'</button>';
+    }).join('');
+    picker.dataset.built = '1';
+    picker.addEventListener('click', function(e){
+      const btn = e.target.closest('[data-whcolor]');
+      if(!btn) return;
+      whExtraPatternParts.push({text: btn.dataset.whcolor, known: true});
+      whSyncExtraPatternValue();
+      whRenderExtraPattern();
+    });
+    chips.addEventListener('click', function(e){
+      const x = e.target.closest('[data-whremove]');
+      if(!x) return;
+      whExtraPatternParts.splice(Number(x.dataset.whremove), 1);
+      whSyncExtraPatternValue();
+      whRenderExtraPattern();
+    });
+  }
+  if(!whExtraPatternParts.length){
+    chips.innerHTML = '<span style="font-size:12.5px; color:var(--slate);">Nothing picked yet — click a colour above. Click it twice to repeat it.</span>';
+    return;
+  }
+  chips.innerHTML = whExtraPatternParts.map(function(p, i){
+    /* An unrecognised part came off an older record. Marked so it is obvious
+       which bit is not a real colour, and removable like any other. */
+    const style = p.known
+      ? 'background:var(--snow); color:var(--ink); border:1px solid var(--line);'
+      : 'background:#FDECEA; color:var(--ember); border:1px solid var(--ember);';
+    return '<span style="'+style+' border-radius:999px; padding:3px 6px 3px 10px; font-size:12.5px; font-weight:600; display:inline-flex; align-items:center; gap:6px;">'+
+      (i + 1) + '. ' + esc(p.text) +
+      '<button type="button" data-whremove="'+i+'" title="Remove" aria-label="Remove '+esc(p.text)+'" style="border:none; background:none; cursor:pointer; font-size:14px; line-height:1; color:inherit; padding:0 2px;">&times;</button>'+
+    '</span>';
+  }).join('') +
+    '<button type="button" class="btn btn-outline btn-sm" id="whExtraPatternClear" style="flex:0 0 auto; margin-left:4px;">Clear</button>';
+  const clear = document.getElementById('whExtraPatternClear');
+  if(clear) clear.addEventListener('click', function(){ whSetExtraPattern(''); });
+}
+
+/* Set the pattern from stored text — a customer's record, an entry being
+   edited, or '' to reset. Replaces the ~six places that used to assign to
+   whExtraPattern.value directly; going through here is what keeps the chips
+   and the hidden value in step. */
+function whSetExtraPattern(text){
+  whExtraPatternParts = whPatternPartsFromText(text);
+  whSyncExtraPatternValue();
+  whRenderExtraPattern();
+}
 /* One request per member per kind. A second Lights add for the same house tops up
    the request they already have instead of making Dad a second, competing one \u2014
    which is what "two different requests for the same member" meant. */
@@ -16836,14 +16948,16 @@ function whExtraSync(){
 
   if(match){
     const auto = match.data.lightsDescription || '';
-    /* Only overwrite the box while it is still holding what we put there. */
+    /* Only overwrite the picker while it is still holding what we put there \u2014
+       through whSetExtraPattern, so the chips repaint with it rather than the
+       hidden value quietly moving underneath them. */
     if(!editing && (!patternEl.value.trim() || patternEl.value.trim() === whExtraPatternFromRecord)){
-      patternEl.value = auto;
+      whSetExtraPattern(auto);
     }
     whExtraPatternFromRecord = auto;
     patternNote.textContent = auto
       ? 'From their record. You can change it \u2014 you will be asked to confirm.'
-      : 'No colours on their record yet \u2014 type what to build.';
+      : 'No colours on their record yet \u2014 pick what to build.';
     if(!editing){
       const b = whExtraBundlesFor(match.data);
       qtyEl.value = b.qty;
@@ -16859,7 +16973,7 @@ function whExtraSync(){
     whExtraPatternFromRecord = '';
     patternNote.textContent = '';
     wireNote.textContent = '';
-    qtyNote.textContent = val ? 'Not a customer on file \u2014 type the pattern and how many.' : '';
+    qtyNote.textContent = val ? 'Not a customer on file \u2014 pick the pattern and how many.' : '';
   }
 }
 (function wireWhExtraLabel(){
@@ -16868,6 +16982,10 @@ function whExtraSync(){
   input.addEventListener('input', whExtraSync);
   const kindEl = document.getElementById('whExtraKind');
   if(kindEl) kindEl.addEventListener('change', whExtraSync);
+  /* Paint the colour buttons and the empty-state line straight away. Without
+     this the Pattern row is blank until something else happens to call the
+     renderer, which reads as a broken form rather than an empty one. */
+  whRenderExtraPattern();
 })();
 /* ---- CORRECTING AN ENTRY THAT IS ALREADY IN THE QUEUE ----
    These used to be add-only: the one button on the row was Mark Done, which
@@ -16902,7 +17020,7 @@ function whCancelEditExtra(){
   if(title) title.textContent = 'Add From Inbox';
   if(btn) btn.textContent = 'Add to Queue';
   if(cancel) cancel.style.display = 'none';
-  document.getElementById('whExtraPattern').value = '';
+  whSetExtraPattern('');
   document.getElementById('whExtraQty').value = 1;
   document.getElementById('whExtraKind').value = 'lights';
   whSetWireSelect('');
@@ -16923,7 +17041,7 @@ function whStartEditExtra(id){
   document.getElementById('whAddExtraBtn').textContent = 'Save Changes';
   document.getElementById('whCancelEditExtraBtn').style.display = '';
   document.getElementById('whExtraKind').value = (item.data.kind || 'lights') === 'timer' ? 'timer' : 'lights';
-  document.getElementById('whExtraPattern').value = item.data.pattern || '';
+  whSetExtraPattern(item.data.pattern || '');
   document.getElementById('whExtraQty').value = Number(item.data.quantity) || 1;
   whSetWireSelect(item.data.wireColor || '');
   document.getElementById('whExtraLabel').value = item.data.label || '';
@@ -17125,13 +17243,16 @@ function whPrintRecycleSheet(){
 document.getElementById('whAddExtraBtn').addEventListener('click', async function(){
   const statusEl = document.getElementById('whAddExtraStatus');
   const kind = document.getElementById('whExtraKind').value === 'timer' ? 'timer' : 'lights';
-  const typedPattern = document.getElementById('whExtraPattern').value.trim();
-  const pattern = kind === 'timer' ? 'Timer' : typedPattern;
+  /* Chosen, not typed — this reads the hidden input the colour picker writes,
+     so it can only ever hold colours that came off a button (or, when an older
+     entry is being edited, exactly what was already stored). */
+  const chosenPattern = document.getElementById('whExtraPattern').value.trim();
+  const pattern = kind === 'timer' ? 'Timer' : chosenPattern;
   const qty = Number(document.getElementById('whExtraQty').value) || 0;
   const wireColor = kind === 'timer' ? '' : document.getElementById('whExtraWire').value;
   const label = document.getElementById('whExtraLabel').value.trim();
   if(!pattern || qty <= 0){
-    statusEl.textContent = kind === 'timer' ? 'Enter how many timers.' : 'Enter a pattern and how many bundles.';
+    statusEl.textContent = kind === 'timer' ? 'Enter how many timers.' : 'Pick at least one colour, and how many bundles.';
     return;
   }
   const linked = whFindCustomerByLabel(label);
@@ -17159,12 +17280,12 @@ document.getElementById('whAddExtraBtn').addEventListener('click', async functio
     }
     return;
   }
-  /* Typing over the pattern that came off their record is allowed — a rebuild in
+  /* Changing the pattern that came off their record is allowed — a rebuild in
      a different pattern happens — but it is worth one look, because a build that
      silently disagrees with the customer's record is found on install day. */
-  if(kind === 'lights' && linked && whExtraPatternFromRecord && typedPattern !== whExtraPatternFromRecord){
-    if(!confirm('Their record says:\n\n  ' + whExtraPatternFromRecord + '\n\nYou have typed:\n\n  ' + typedPattern +
-                '\n\nBuild what you typed? Their customer record is not changed either way.')){
+  if(kind === 'lights' && linked && whExtraPatternFromRecord && chosenPattern !== whExtraPatternFromRecord){
+    if(!confirm('Their record says:\n\n  ' + whExtraPatternFromRecord + '\n\nYou have picked:\n\n  ' + chosenPattern +
+                '\n\nBuild what you picked? Their customer record is not changed either way.')){
       statusEl.textContent = 'Nothing added.';
       return;
     }
@@ -17211,7 +17332,7 @@ document.getElementById('whAddExtraBtn').addEventListener('click', async functio
         linked ? {customerId: linked.id, customerNumber: linked.data.customerNumber || ''} : {}
       ));
     }
-    document.getElementById('whExtraPattern').value = '';
+    whSetExtraPattern('');
     document.getElementById('whExtraQty').value = 1;
     whSetWireSelect('');
     document.getElementById('whExtraLabel').value = '';
@@ -21828,7 +21949,7 @@ function renderSystemMessagesTab(){
       // house, and this is a NEW entry so edit mode has to be dropped first.
       whCancelEditExtra();
       document.getElementById('whExtraKind').value = 'lights';
-      document.getElementById('whExtraPattern').value = '';
+      whSetExtraPattern('');
       whExtraPatternFromRecord = '';
       const labelEl = document.getElementById('whExtraLabel');
       if(cust){
