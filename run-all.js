@@ -2344,10 +2344,16 @@ suite('8. Quote decline / maybe next year');
 
   // every route-building list honours the tag
   const routeLists = (admin.match(/let available = jobAddresses\.filter\([^;]*;/g) || []);
+  /* Either spelling counts as honouring it: the literal check, or the shared
+     isOutForSeason (which excludes Maybe Next Year first — suite 21 runs that
+     for real). The install generator moved to the helper on 2026-08-15 when
+     the RSVP gate came off, and this check exists to protect the GUARANTEE,
+     not one way of writing it. */
+  const honoursMaybe = l => l.includes('!a.data.maybeNextYear') || l.includes('!isOutForSeason(a.data)');
   check('quoteresp', 'every route list excludes Maybe Next Year',
-    routeLists.length >= 4 && routeLists.every(l => l.includes('!a.data.maybeNextYear')),
+    routeLists.length >= 4 && routeLists.every(honoursMaybe),
     'found ' + routeLists.length + ' route lists, ' +
-    routeLists.filter(l => !l.includes('!a.data.maybeNextYear')).length + ' not honouring the tag');
+    routeLists.filter(l => !honoursMaybe(l)).length + ' not honouring the tag');
 
   /* --- what the customer is told ----------------------------------------
      These used to test a design where "maybe next year" and "declined" each got
@@ -5163,6 +5169,12 @@ suite('17. A new customer lands on the next day in their city');
   const NEEDED = ['thanksgivingDate','earliestAllowedInstallDate','extractCleanCity','toDateStr',
                   'formatDateNice','routeCityOf','findNextRouteDayInCity','customerToStop',
                   'haversine','twoOptImprove','reorderFlatStops','nextDayStr',
+                  /* isOutForSeason lives up with the install-timing helpers, far
+                     above the sweep, so it has to be lifted in by name. The REAL
+                     one, not a stub — who the fill is allowed to schedule is the
+                     rule most likely to be got wrong, and suite 21 only proves
+                     the function itself, not that the sweep obeys it. */
+                  'isOutForSeason',
                   'scheduledFieldForType','freeUpFieldForType'];
 
   if (recStart === -1 || recEnd < recStart) {
@@ -5875,6 +5887,73 @@ check('names', 'nothing stored is rewritten',
   !/h\.name\s*=\s*personName/.test(admin),
   'this is a display sync — the saved plan and the CSV export must round-trip ' +
   'through the importer unchanged');
+
+// =====================================================================
+// 21. EVERYONE IS IN UNLESS THEY SAID OTHERWISE
+// =====================================================================
+/*
+ * Owner, 2026-08-15: "not everyone is scheduled, everyone should be scheduled
+ * who isnt labeled maybe next year."
+ *
+ * The cause was a single clause in the install route generator: rsvpStatus had
+ * to equal 'yes'. Exactly one line in the whole app ever writes that value —
+ * converting a quote to a customer — so all ~945 bulk-imported houses carry a
+ * blank, the generator matched almost nobody, and the routes came back empty.
+ * Gating on a confirmation nobody has been asked for is gating on nothing.
+ */
+suite('21. Everyone is in unless they said otherwise');
+{
+  const api = eval(admin.slice(admin.indexOf('function isOutForSeason(d)'),
+                               admin.indexOf('\n}', admin.indexOf('function isOutForSeason(d)')) + 2) +
+    '\n;({out: isOutForSeason})');
+
+  check('season', 'a blank RSVP is IN — that is the normal state of the imported list',
+    api.out({}) === false && api.out({ rsvpStatus: '' }) === false,
+    'THE bug: ~945 houses have a blank RSVP because nobody has ever been asked');
+  check('season', 'a pending RSVP is IN',
+    api.out({ rsvpStatus: 'pending' }) === false);
+  check('season', 'a yes is IN', api.out({ rsvpStatus: 'yes' }) === false);
+  check('season', 'Maybe Next Year is OUT — the one label the owner named',
+    api.out({ maybeNextYear: true }) === true);
+  check('season', 'Maybe Next Year is OUT even with an RSVP of yes beside it',
+    api.out({ maybeNextYear: true, rsvpStatus: 'yes' }) === true,
+    'the badge is what the office sets and sees, so it has to win');
+  check('season', 'an explicit no is OUT',
+    api.out({ rsvpStatus: 'no' }) === true && api.out({ rsvpStatus: 'backnextyear' }) === true,
+    'they told us not to come, and the nightly sweep strips them off routes ' +
+    'anyway — putting them back would just make the two fight every fifteen minutes');
+  check('season', 'case does not decide whether somebody gets their lights',
+    api.out({ rsvpStatus: 'NO' }) === true && api.out({ rsvpStatus: 'Yes' }) === false);
+  check('season', 'no record at all is OUT rather than quietly IN',
+    api.out(null) === true && api.out(undefined) === true);
+}
+check('season', 'the install route generator no longer demands an RSVP of yes',
+  !/isTest \|\| a\.data\.rsvpStatus === 'yes'/.test(admin),
+  'that one clause is why the routes came back empty');
+check('season', 'and uses the shared rule instead of its own copy',
+  /!isOutForSeason\(a\.data\)\)/.test(admin) &&
+  admin.indexOf('!isOutForSeason(a.data))') > admin.indexOf('async function runGenerateInstallRoute'),
+  'two definitions of "who is in this season" that can disagree is how the ' +
+  'generator and the nightly fill end up routing different people');
+check('season', 'the nightly fill uses the same rule',
+  /\/\/ The SAME rule the route generator uses[\s\S]{0,80}isOutForSeason\(d\)\) return;/
+    .test(admin.replace(/\r/g, '')));
+check('season', 'the empty-result message no longer names a filter that is gone',
+  !/RSVP-confirmed addresses found/.test(admin),
+  'a message naming a rule that no longer exists sends you hunting a problem ' +
+  'that is not there');
+check('season', 'anyone left without a day is counted per town, with days needed',
+  /Math\.ceil\(n \/ MAX_STOPS_PER_DAY\)/.test(admin) &&
+  admin.includes('Build those days in Routes and they fill themselves'),
+  '"not everyone is scheduled" is unactionable without knowing whether the ' +
+  'answer is more days, a broken address, or nothing at all');
+check('season', 'a house with no map pin is named as its own problem',
+  /stranded\.noPin\.push/.test(admin) && admin.includes('no map pin on the address'),
+  'it can never go on any route however many days are built, so it must not be ' +
+  'counted in with the ones that are only waiting for room');
+check('season', 'the waiting summary counts rather than lists',
+  !/stranded\.byCity\[c\]\.join/.test(admin),
+  'early in the season this is hundreds of people — a notice nobody reads is no notice');
 
 // =====================================================================
 // Wait for the async suites before totalling up — see pendingAsync at the top.

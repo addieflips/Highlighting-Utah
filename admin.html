@@ -12856,6 +12856,31 @@ function thanksgivingDate(year){
 }
 // Houses set to November (or November - Before Thanksgiving) stay hidden until Nov 1; "After Thanksgiving" houses stay hidden until the day after Thanksgiving.
 // Normal Schedule and October houses are never locked.
+/* ---- who is in for this season ----
+   ONE definition, used by the route generator and by the nightly fill, so the
+   two can never disagree about who belongs on a route.
+
+   Owner's rule, 2026-08-15: "everyone should be scheduled who isnt labeled
+   maybe next year." So a blank or Pending RSVP is IN.
+
+   ⚠ THAT IS A CHANGE, and it is the fix for "not everyone is scheduled". The
+   generator used to require rsvpStatus === 'yes'. Nothing sets that except
+   converting a quote to a customer (one line in Add Customer), so all ~945
+   bulk-imported houses carry a blank, the generator matched almost nobody, and
+   the routes came back empty. Gating on a confirmation nobody has been asked
+   for is the same as gating on nothing.
+
+   An explicit no still keeps them off. They told us not to come; the nightly
+   sweep strips rsvpStatus 'no' and 'backnextyear' off routes anyway, so adding
+   them here would only make the two fight each other every fifteen minutes.
+   Maybe Next Year is checked on its own rather than through the RSVP, because
+   the badge is what the office sets and sees. */
+function isOutForSeason(d){
+  if(!d) return true;
+  if(d.maybeNextYear) return true;
+  const r = String(d.rsvpStatus || '').toLowerCase();
+  return r === 'no' || r === 'backnextyear';
+}
 function isInstallPrefLocked(installPreference){
   const now = new Date();
   const year = now.getFullYear();
@@ -19215,7 +19240,8 @@ function fillDays(days, custData, pool, allowedOn, maxPerDay, budget){
    instead of two. */
 async function reconcileUpcomingRoutes(){
   const report = {refreshed: 0, moved: [], freed: [], dropped: [], capped: [], over: [],
-                  filled: [], pulled: [], moreToDo: false};
+                  filled: [], pulled: [], moreToDo: false,
+                  stranded: {noCity: [], noPin: [], byCity: {}}};
   const routes = upcomingInstallRoutes();
   const seen = new Set();
   const needHoming = [];
@@ -19384,14 +19410,22 @@ async function reconcileUpcomingRoutes(){
     // "a day of 12 should fill up to 40, we want as many people in every day as
     // possible." New hangs first, so when seats are short they get them.
     const pool = [];
+    /* Everyone eligible who ends up with nowhere to go, grouped by the reason,
+       so the notice can say what to DO about it. "Not everyone is scheduled"
+       was impossible to act on without knowing whether the answer was build
+       more days, fix an address, or nothing at all. */
+    const stranded = {noCity: [], noPin: [], byCity: {}};
     jobAddresses.forEach(function(a){
       const d = a.data || {};
-      if(d.scheduled || d.completed || d.maybeNextYear) return;
-      if(d.rsvpStatus === 'no' || d.rsvpStatus === 'backnextyear') return;
+      if(d.scheduled || d.completed) return;
       if(seen.has(a.id)) return;
-      if(typeof d.lat !== 'number' || typeof d.lng !== 'number') return;
+      // The SAME rule the route generator uses — see isOutForSeason.
+      if(isOutForSeason(d)) return;
+      if(typeof d.lat !== 'number' || typeof d.lng !== 'number'){
+        stranded.noPin.push(d.name || 'a house'); return;
+      }
       const city = extractCleanCity(d.city);
-      if(!city) return;
+      if(!city){ stranded.noCity.push(d.name || 'a house'); return; }
       /* newHang, NOT isNew — `.isNew` is a dead flag the Schedule tab used to
          read and run-all.js forbids it by name across the whole page, so that
          it can never quietly come back. */
@@ -19414,6 +19448,16 @@ async function reconcileUpcomingRoutes(){
     report.filled = topped.placed;
     report.pulled = topped.pulled;
     report.moreToDo = topped.budgetHit;
+    /* Whoever is left in the pool had no day in their city with room. Counted
+       per city and turned into "about N more days", because that is the actual
+       next action and the office should not have to work it out. */
+    const placedIds = {};
+    topped.placed.forEach(function(x){ placedIds[x.id] = true; });
+    pool.forEach(function(c){
+      if(placedIds[c.id]) return;
+      stranded.byCity[c.city] = (stranded.byCity[c.city] || 0) + 1;
+    });
+    report.stranded = stranded;
 
     /* One re-order per day that changed, once, at the end — a house that moved
        was appended to the end of its new day, which is not where the crew would
@@ -19497,6 +19541,31 @@ async function noticeRoutesReconciled(report){
   if(report.moreToDo){
     lines.push('There is more to do than one pass will take on at once — the rest is ' +
       'picked up automatically about fifteen minutes from now.');
+  }
+  /* The answer to "why isn't everyone scheduled?", in the form of what to do
+     next. Counts and one worked-out number per city, never a list of names —
+     this can be hundreds of people early in the season. */
+  const str = report.stranded || {};
+  const waitingCities = Object.keys(str.byCity || {}).sort(function(a,b){
+    return (str.byCity[b] - str.byCity[a]) || (a < b ? -1 : 1);
+  });
+  if(waitingCities.length){
+    lines.push('Still waiting for a day, because every day in their town is full or ' +
+      'there is no day there yet — ' + waitingCities.map(function(c){
+        const n = str.byCity[c];
+        const days = Math.ceil(n / MAX_STOPS_PER_DAY);
+        return c + ': ' + n + ' house' + (n === 1 ? '' : 's') + ' (about ' + days +
+          ' more day' + (days === 1 ? '' : 's') + ')';
+      }).join('; ') + '. Build those days in Routes and they fill themselves.');
+  }
+  if((str.noPin || []).length){
+    lines.push(str.noPin.length + ' house' + (str.noPin.length === 1 ? '' : 's') +
+      ' cannot go on any route at all because there is no map pin on the address — ' +
+      'fix the address on their record and they get picked up on the next pass.');
+  }
+  if((str.noCity || []).length){
+    lines.push(str.noCity.length + ' house' + (str.noCity.length === 1 ? '' : 's') +
+      ' have no town on file, so there is no day to match them to.');
   }
   try{
     await addDoc(collection(db,'messages'), {
@@ -19779,7 +19848,12 @@ async function runGenerateInstallRoute(){
      test beside it: the badge is what the office sets and sees, so it has to
      be the thing that keeps someone off a route even if an RSVP gets edited
      back to yes by hand. Same reason it repeats on the fix and removal lists. */
-  let available = jobAddresses.filter(a => !a.data.scheduled && !a.data.completed && typeof a.data.lat === 'number' && !isInstallPrefLocked(a.data.installPreference) && !isEarliestInstallDateLocked(a.data) && (isTest || !isLightsLocked(a.data)) && (isTest || a.data.rsvpStatus === 'yes') && !a.data.maybeNextYear);
+  /* isOutForSeason replaced "rsvpStatus must be 'yes'" on 2026-08-15 — see the
+     note on that function. The remaining exclusions are all TEMPORARY holds,
+     not "not this season": a November house before November, a staff-set
+     earliest date, the 48-hour light-change window. They come back on their own
+     as soon as the hold lifts. */
+  let available = jobAddresses.filter(a => !a.data.scheduled && !a.data.completed && typeof a.data.lat === 'number' && !isInstallPrefLocked(a.data.installPreference) && !isEarliestInstallDateLocked(a.data) && (isTest || !isLightsLocked(a.data)) && !isOutForSeason(a.data));
   if(cityChoice !== 'all') available = available.filter(a => extractCleanCity(a.data.city) === cityChoice || a.data.installPreference === 'November - Before Thanksgiving');
 
   const startText = document.getElementById('routeStartInput').value.trim();
@@ -19789,7 +19863,10 @@ async function runGenerateInstallRoute(){
     try{ startPoint = await geocodeAddress(startText); } catch(err){ /* continue without start */ }
   }
   const ordered = pickClustered(available, {Easy:wantEasy, Medium:wantMedium, Hard:wantHard, Unrated:wantUnrated}, startPoint, seedPref);
-  if(!ordered.length){ statusEl.textContent = isTest ? 'No matching unscheduled addresses found.' : 'No matching unscheduled, RSVP-confirmed addresses found.'; return; }
+  /* No longer says "RSVP-confirmed" — that is not the rule any more, and a
+     message naming a filter that no longer exists sends you looking for a
+     problem that is not there. */
+  if(!ordered.length){ statusEl.textContent = 'No unscheduled houses match — everyone in ' + (cityChoice === 'all' ? 'the list' : cityChoice) + ' is either already on a route, finished, marked Maybe Next Year, or waiting on their install timing.'; return; }
   const dateVal = document.getElementById('routeDateInput').value;
   statusEl.textContent = ordered.length + ' stop(s) planned, closest-neighbor route.' + (isTest ? ' (Test — not saveable)' : '');
   document.getElementById('regenerateRouteBtn').style.display = 'inline-flex';
