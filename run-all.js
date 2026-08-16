@@ -6335,7 +6335,53 @@ suite('23. The town on a customer record');
   check('city', 'it is stable when run twice',
     c(c('Lehi, UT 84043')) === 'Lehi',
     'the value gets stored and re-read, so it has to survive a round trip');
+
+  /* ---- and the ones where the town was never imported at all ----
+     Found in the live book on 2026-08-15: 374 of 970 customers with city:""
+     and an address ending ", UT". Not a parsing problem — the town is simply
+     not there. They all had map pins, so it can be read back off those. */
+  eval(extractFn(admin, 'townFillCandidates'));
+  eval(extractFn(admin, 'townFromGeocode'));
+  global.jobAddresses = [
+    {id:'blank', data:{name:'No Town', city:'', lat:40.4, lng:-111.8}},
+    {id:'spaces', data:{name:'Spaces', city:'   ', lat:40.4, lng:-111.8}},
+    {id:'hastown', data:{name:'Has Town', city:'Lehi', lat:40.4, lng:-111.8}},
+    {id:'nopin', data:{name:'No Pin', city:'', lat:null, lng:null}},
+    {id:'sittingout', data:{name:'Maybe', city:'', lat:40.4, lng:-111.8, maybeNextYear:true}}
+  ];
+  const cand = townFillCandidates().map(a => a.id).sort();
+  check('city', 'only blank towns with a pin are candidates',
+    cand.join() === 'blank,spaces',
+    'a record that already has a town must never be overwritten, and one with ' +
+    'no pin cannot be worked out at all');
+  check('city', 'a customer sitting out the season is left alone',
+    cand.indexOf('sittingout') === -1);
+
+  const gres = t => [{address_components:[{types:['route'],long_name:'X'},{types:[t],long_name:'Lehi'}]}];
+  check('city', 'the town is read off the locality, not off whatever comes first',
+    townFromGeocode(gres('locality')) === 'Lehi');
+  check('city', 'and falls back to the next best thing rather than guessing',
+    townFromGeocode(gres('administrative_area_level_3')) === 'Lehi' &&
+    townFromGeocode([{address_components:[{types:['country'],long_name:'United States'}]}]) === '',
+    'no town is a fine answer — a wrong one sends a crew to another county');
 }
+check('city', 'the town fill is dry-run first, like Assign in Bulk',
+  /id="townFillCheckBtn"/.test(admin) && /id="townFillApplyBtn"/.test(admin) &&
+  /style="display:none;"/.test(admin.slice(admin.indexOf('id="townFillApplyBtn"') - 60,
+                                           admin.indexOf('id="townFillApplyBtn"') + 60)),
+  'the owner already knows this shape from customer numbers — check, look, then apply');
+check('city', 'applying uses the plan that was shown, not a fresh lookup',
+  /if\(apply && townFillPlan\) return applyTownFill\(\);/.test(admin),
+  'geocoding again could quietly apply a different answer from the one on screen');
+check('city', 'a town typed by hand always beats one read off a pin',
+  /if\(cur && String\(\(cur\.data \|\| \{\}\)\.city \|\| ''\)\.trim\(\)\) continue;/.test(admin),
+  're-checked at the moment of writing, because somebody may have typed one in ' +
+  'while the dry run was being read');
+check('city', 'one address that will not resolve does not stop the rest',
+  (() => {
+    const fn = extractFn(admin, 'runTownFill').replace(/\r/g, '');
+    return /catch\(err\)\{ \/\* one address that will not resolve/.test(fn);
+  })());
 
 // =====================================================================
 // Wait for the async suites before totalling up — see pendingAsync at the top.

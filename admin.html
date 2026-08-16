@@ -1452,6 +1452,19 @@
 
 
       <div class="route-tab-panel" id="custtab-bulk">
+<!-- Fill in a missing town from the map pin. Not a nice-to-have: every
+     scheduling decision in this app is made per town, so a customer whose town
+     is blank cannot go on a route at all, and the bulk import left ~374 of them
+     with an address ending ", UT" and no town. Dry run first, exactly like
+     Assign in Bulk. -->
+<div class="card">
+        <h3 style="margin:0 0 6px;">Fill in missing towns</h3>
+        <p style="font-size:13px; margin:0 0 12px;">Some customers came in with no town on their record &mdash; usually an address that ends &ldquo;, UT&rdquo; with the town missing. They can never be put on a route, because every route day is one town. This reads the town back off the map pin that is already on their record. It only ever fills a blank in; nothing that already has a town is touched.</p>
+        <button type="button" class="btn btn-outline btn-sm" id="townFillCheckBtn">Check First (dry run)</button>
+        <button type="button" class="btn btn-gold btn-sm" id="townFillApplyBtn" style="display:none;">Fill in these towns</button>
+        <div id="townFillStatus" style="font-size:13px; color:var(--slate); margin-top:10px;"></div>
+        <div id="townFillResult" style="font-size:12.5px; margin-top:10px;"></div>
+      </div>
 <div class="card" style="background:#FFF8E9; border-color:var(--gold-dim);">
         <button type="button" id="bulkUpdatesToggle" style="display:flex; justify-content:space-between; align-items:center; width:100%; background:none; border:none; cursor:pointer; padding:0;">
           <h3 style="margin:0;">Customers &amp; Routes</h3>
@@ -14938,6 +14951,111 @@ function extractCleanCity(cityRaw){
   }).filter(function(p){ return p && !/\d/.test(p); });
   return parts.length ? parts[parts.length-1] : '';
 }
+/* ---- filling in a town that was never imported ----
+   A customer with no town cannot be scheduled at all: every route day is one
+   town, so a blank one matches nothing and the house sits out the season in
+   silence. The bulk import left a lot of records with an address ending ", UT"
+   and the town missing entirely — but with a real map pin, which is enough to
+   read the town back off.
+
+   Google's reverse geocode is the source, not a guess from the nearest
+   neighbour: a house on the edge of Lehi is nearer to some Highland houses than
+   to most Lehi ones, and sending a crew to the wrong town is worse than leaving
+   the record blank.
+
+   ONLY EVER FILLS A BLANK. A record that already has a town is never touched,
+   so this can be run twice, and a town the office typed by hand always wins
+   over one read off a pin. */
+function townFillCandidates(){
+  return jobAddresses.filter(function(a){
+    const d = a.data || {};
+    if(d.maybeNextYear) return false;
+    if(String(d.city == null ? '' : d.city).trim()) return false;
+    return typeof d.lat === 'number' && typeof d.lng === 'number';
+  });
+}
+function townFromGeocode(results){
+  for(let i = 0; i < results.length; i++){
+    const c = (results[i].address_components || []).find(function(x){ return x.types.indexOf('locality') !== -1; });
+    if(c) return c.long_name;
+  }
+  for(let i = 0; i < results.length; i++){
+    const c = (results[i].address_components || []).find(function(x){ return x.types.indexOf('administrative_area_level_3') !== -1; });
+    if(c) return c.long_name;
+  }
+  return '';
+}
+let townFillPlan = null;
+async function runTownFill(apply){
+  const statusEl = document.getElementById('townFillStatus');
+  const resultEl = document.getElementById('townFillResult');
+  const applyBtn = document.getElementById('townFillApplyBtn');
+  const list = townFillCandidates();
+  if(!list.length){
+    statusEl.textContent = 'Every customer already has a town — nothing to fill in.';
+    applyBtn.style.display = 'none';
+    resultEl.innerHTML = '';
+    return;
+  }
+  if(!window.google || !google.maps || !google.maps.Geocoder){
+    statusEl.textContent = 'The map service has not loaded — reload the page and try again.';
+    return;
+  }
+  /* Applying uses the plan the dry run already worked out, so the office
+     applies exactly what it was shown rather than a second, freshly geocoded
+     set that might differ. */
+  if(apply && townFillPlan) return applyTownFill();
+
+  const gc = new google.maps.Geocoder();
+  const plan = [];
+  for(let i = 0; i < list.length; i++){
+    const d = list[i].data;
+    statusEl.textContent = 'Looking up town ' + (i + 1) + ' of ' + list.length + '…';
+    try{
+      const res = await gc.geocode({location: {lat: d.lat, lng: d.lng}});
+      const town = townFromGeocode(res.results || []);
+      if(town) plan.push({id: list[i].id, name: d.name || '(no name)', address: d.address || '', town: town});
+    } catch(err){ /* one address that will not resolve must not stop the rest */ }
+    await new Promise(function(r){ setTimeout(r, 90); });   // stay under the rate limit
+  }
+  townFillPlan = plan;
+  const byTown = {};
+  plan.forEach(function(p){ byTown[p.town] = (byTown[p.town] || 0) + 1; });
+  const rows = Object.keys(byTown).sort(function(a,b){ return byTown[b] - byTown[a] || (a < b ? -1 : 1); });
+  statusEl.textContent = plan.length + ' of ' + list.length + ' can be filled in. Nothing has been changed yet.';
+  resultEl.innerHTML = '<div style="margin-bottom:6px; font-weight:600;">What would be filled in:</div>' +
+    rows.map(function(t){ return '<div>' + esc(t) + ' &mdash; ' + byTown[t] + '</div>'; }).join('') +
+    (plan.length < list.length
+      ? '<div style="margin-top:8px; color:var(--amber-dim);">' + (list.length - plan.length) +
+        ' could not be worked out from their pin and are left alone.</div>' : '');
+  applyBtn.style.display = 'inline-flex';
+}
+async function applyTownFill(){
+  const statusEl = document.getElementById('townFillStatus');
+  const applyBtn = document.getElementById('townFillApplyBtn');
+  applyBtn.disabled = true;
+  let done = 0, failed = 0;
+  for(let i = 0; i < townFillPlan.length; i++){
+    const p = townFillPlan[i];
+    statusEl.textContent = 'Filling in ' + (i + 1) + ' of ' + townFillPlan.length + '…';
+    /* Re-checked at the moment of writing, not just when the plan was made —
+       somebody may have typed a town in by hand while the dry run was being
+       read, and a hand-typed town always wins. */
+    const cur = jobAddresses.find(function(a){ return a.id === p.id; });
+    if(cur && String((cur.data || {}).city || '').trim()) continue;
+    try{ await updateDoc(doc(db,'jobAddresses', p.id), {city: p.town}); done++; }
+    catch(err){ failed++; }
+  }
+  statusEl.textContent = done + ' town' + (done === 1 ? '' : 's') + ' filled in' +
+    (failed ? (', ' + failed + ' could not be saved') : '') +
+    '. Those customers can be scheduled now — the routes will pick them up within a few minutes.';
+  applyBtn.style.display = 'none';
+  applyBtn.disabled = false;
+  townFillPlan = null;
+  logActivity('Filled in ' + done + ' missing towns from map pins', 'customers', '');
+}
+document.getElementById('townFillCheckBtn')?.addEventListener('click', function(){ runTownFill(false); });
+document.getElementById('townFillApplyBtn')?.addEventListener('click', function(){ runTownFill(true); });
 function getCityList(){
   const cities = new Set();
   jobAddresses.forEach(function(a){
