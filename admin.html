@@ -17430,9 +17430,9 @@ function allCustInvoiceFor(addrItem){
    amber. That is a house the crew missed, and it is precisely the row somebody
    needs to see — hiding it until it is tidied up is how it stays missed.
 
-   Returns null when there is nothing booked, so the caller can render nothing
-   at all rather than a "Not scheduled" pill on nine hundred rows saying what
-   the line above it already says.
+   Returns null when there is nothing booked. nextVisitChip still draws a label
+   in that case — see the note there, which is the whole reason this is worth
+   reading before "tidying" it.
 
    Pure and top-level so run-all.js can run the picking rules for real. */
 function nextVisitFor(d, todayStr){
@@ -17457,7 +17457,28 @@ function nextVisitFor(d, todayStr){
    true of a date. cursor:default stops it inviting a click it will not answer. */
 function nextVisitChip(d){
   const v = nextVisitFor(d);
-  if(!v) return '';
+  /* ⚠ ALWAYS DRAWS SOMETHING, and that is deliberate — do not "optimise" the
+     empty case back out.
+
+     It shipped on 2026-08-15 rendering nothing when no day was booked, on the
+     reasoning that a pill on nine hundred rows repeating the Unscheduled line
+     above it was noise. That reasoning had a hole: it is AUGUST. Out of season
+     nobody is scheduled at all (the same fact isNewHangUrgent is built on), so
+     every single row drew nothing and the owner's first question was "where do
+     I see it, I don't see that" — a feature you cannot find is a feature that
+     is not there. This is the second time in one day the same mistake was made:
+     the Schedule tab's reschedule button was hidden until a box was ticked, for
+     equally sensible-sounding reasons, and was equally invisible.
+
+     A label that says "no day booked yet" is honest, tells the office the
+     column is working and just has nothing to report, and starts answering the
+     moment routes exist. */
+  if(!v){
+    return '<span title="Nobody is booked to visit this house yet" style="display:inline-block; ' +
+      'border:1px dashed #D6DDE6; border-radius:999px; padding:2px 9px; font-size:11px; ' +
+      'font-weight:600; cursor:default; white-space:nowrap; background:#F7F9FB; color:#7A8794;">' +
+      'No day booked yet</span>';
+  }
   const p = v.date.split('-').map(Number);
   const when = new Date(p[0], p[1]-1, p[2])
     .toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric'});

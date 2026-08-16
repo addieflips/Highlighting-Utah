@@ -5553,7 +5553,18 @@ suite('19. All Customers: the next visit');
       api.chip({ scheduled: true, scheduledDate: '2020-01-02' }) !==
       api.chip({ scheduled: true, scheduledDate: '2099-01-02' }),
       'if both look the same the amber is decoration rather than a warning');
-    check('nextvisit', 'nothing booked renders nothing', api.chip({}) === '');
+    /* CHANGED 2026-08-15, hours after it shipped. This used to assert the chip
+       rendered NOTHING when no day was booked. That is true out of season for
+       EVERY customer, so the whole column drew blank and the owner could not
+       find the feature at all. The empty state now says so out loud. */
+    check('nextvisit', 'nothing booked still draws a label, so the column is never blank',
+      /^<span /.test(api.chip({})) && /No day booked yet/.test(api.chip({})),
+      'it is August — nobody is scheduled, so rendering nothing made the whole ' +
+      'feature invisible on every single row');
+    check('nextvisit', 'and the empty one is plainly not a date',
+      api.chip({}) !== api.chip({ scheduled: true, scheduledDate: '2099-01-02' }) &&
+      /dashed/.test(api.chip({})),
+      'a dashed outline reads as "nothing here yet" rather than as a booking');
   }
 }
 check('nextvisit', 'the Route column actually shows it',
