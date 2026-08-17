@@ -7046,6 +7046,91 @@ suite('Suite 25. A day is only SET if it is within two business days');
     'a fixer route IS its pin — putting it through the horizon would blank its date');
 }
 
+/*
+ * Suite 26. The Schedule tab picks up a town corrected in All Customers.
+ *
+ * Owner, 2026-08-16: "in all customers I messed up and put some people as the
+ * wrong cities, I fixed my mistake but that fix still hasnt updated in schedule
+ * and routes for some customers."
+ *
+ * The Schedule plan is built from an imported CSV and keeps its own copy of
+ * each house's town. Nothing in it had ever read a customer record, so a
+ * corrected town could not reach it. A crew-day is one town, so a wrong town
+ * puts the house on the wrong day and lengthens the season.
+ *
+ * ⚠ The match must NOT use custByAddrKey: that index is keyed on address AND
+ * town, and the town is the field known to be wrong, so it would miss exactly
+ * the houses this exists to find. Customer number first, then phone.
+ */
+suite('Suite 26. Schedule picks up a corrected town');
+{
+  const lift = (name) => {
+    const i = admin.indexOf('function ' + name + '(');
+    if (i === -1) return null;
+    let d = 0;
+    for (let j = admin.indexOf('{', i); j < admin.length; j++) {
+      if (admin[j] === '{') d++;
+      else if (admin[j] === '}') { d--; if (!d) return admin.slice(i, j + 1); }
+    }
+    return null;
+  };
+  const matchSrc = lift('customerForHouse');
+  const syncSrc = lift('syncTownsFromCustomers');
+  check('S26', 'the town sync exists', !!matchSrc && !!syncSrc);
+
+  if (matchSrc && syncSrc) {
+    const season = [{ houses: [
+      { name: 'Wrong by number', cu: '5012', phone: '', city: 'Draper' },
+      { name: 'Wrong by phone', cu: '', phone: '(801) 555-0123', city: 'Sandy' },
+      { name: 'Already right', cu: '5012', phone: '', city: 'Lehi' },
+      { name: 'Not a customer here', cu: '', phone: '8019999999', city: 'Orem' },
+      { name: 'Takedown copy', cu: '5012', phone: '', city: 'Draper', isTakedown: true }
+    ] }];
+    const sb = {};
+    new Function('jobAddresses', 'custByNumber', 'custByPhoneDigits', 'SEASON', 'extractCleanCity',
+      matchSrc + '\n' + syncSrc + '\nthis.sync=syncTownsFromCustomers;this.match=customerForHouse;'
+    ).call(sb, [1],
+      new Map([['5012', { data: { city: 'Lehi' } }]]),
+      new Map([['8015550123', { data: { city: 'Herriman' } }]]),
+      season, c => String(c == null ? '' : c).trim());
+
+    const moved = sb.sync();
+    check('S26', 'a house whose town was corrected is moved', moved.length === 2,
+      'moved ' + moved.length + ': ' + moved.map(m => m.name).join(', '));
+    check('S26', 'matched by customer number', season[0].houses[0].city === 'Lehi');
+    check('S26', 'matched by phone when there is no customer number', season[0].houses[1].city === 'Herriman');
+    check('S26', 'a house already in the right town is left alone',
+      season[0].houses[2].city === 'Lehi' && !moved.some(m => m.name === 'Already right'));
+    check('S26', 'a house that matches no customer is left alone', season[0].houses[3].city === 'Orem',
+      'the plan can hold rows that are not customers here — they must not be blanked or guessed at');
+    check('S26', 'takedown copies are not rewritten', season[0].houses[4].city === 'Draper',
+      'the install row is the real record; correcting the copy as well would double-report the same house');
+    check('S26', 'the move is reported with where it came from and went to',
+      moved.every(m => m.from && m.to && m.name));
+    check('S26', 'customer number beats phone when both are present',
+      sb.match({ cu: '5012', phone: '8015550123' }).data.city === 'Lehi');
+    check('S26', 'an unknown house matches nothing rather than the first record',
+      sb.match({ cu: '', phone: '8019999999' }) === null);
+    check('S26', 'nothing happens when the customer list has not loaded',
+      (() => {
+        const s2 = [{ houses: [{ name: 'x', cu: '5012', city: 'Draper' }] }];
+        const sb2 = {};
+        new Function('jobAddresses', 'custByNumber', 'custByPhoneDigits', 'SEASON', 'extractCleanCity',
+          matchSrc + '\n' + syncSrc + '\nthis.sync=syncTownsFromCustomers;'
+        ).call(sb2, [], new Map(), new Map(), s2, c => String(c == null ? '' : c).trim());
+        return sb2.sync().length === 0 && s2[0].houses[0].city === 'Draper';
+      })(),
+      'syncing against an empty list would report "nothing to fix" and look like the correction had landed');
+  }
+
+  check('S26', 'the town match never uses the address index',
+    !/custByAddrKey/.test(matchSrc || ''),
+    'custByAddrKey is keyed on address AND town, so it cannot find a house whose town is wrong');
+  check('S26', 'the plan syncs towns after it loads', /syncTownsWhenCustomersReady\(\)/.test(admin));
+  check('S26', 'and there is a button to re-pull them by hand', /t\.id==='syncTownsBtn'/.test(admin) &&
+    /id=\\"syncTownsBtn\\"/.test(admin));
+}
+
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
