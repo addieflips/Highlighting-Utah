@@ -14584,8 +14584,57 @@ if(typeof onSnapshot !== 'undefined'){
   onSnapshot(collection(db,'paymentImports'), () => loadPaymentImportHistory());
 }
 
-function countRows(text){
-  return text.trim() === '' ? 0 : text.split('\n').length;
+/* Counts the way the importer does, which the raw line count did not.
+   Trailing empty rows are ignored for every column — pasting two columns out of
+   the same spreadsheet usually brings the same run of empty rows with them, so
+   counting those made two columns that differ read as identical (1059 and 1059
+   for a Name column of 963 and a Street column of 962).
+   dropBlanks is for the anchor column only, because the importer DROPS a blank
+   address rather than keeping the row. Counting it the same way here is what
+   makes the mismatch visible while pasting instead of after pressing Import. */
+function countRows(text, dropBlanks){
+  const lines = text.split('\n').map(function(s){ return s.trim(); });
+  if(dropBlanks) return lines.filter(Boolean).length;
+  let last = -1;
+  for(let i = 0; i < lines.length; i++){ if(lines[i]) last = i; }
+  return last + 1;
+}
+/* A blank line in the MIDDLE of the Street column is the usual reason a row
+   count refuses to line up, and it is genuinely hard to find by eye:
+     - the counters above each box count raw lines, so two columns that both end
+       in the same run of empty rows read as equal when they are not;
+     - Excel's "filter by blanks" does not match a cell holding only a space,
+       and a space trims to empty here;
+     - the importer DROPS blank addresses, so one empty-looking cell shifts
+       every row below it against its name, colours and price.
+   So name the rows rather than leaving someone to hunt for them. This matters
+   more than it looks: the natural fix for a count that is one out is to delete
+   a row from the other column, and that silently imports every customer below
+   the gap against the wrong address. */
+function interiorBlankRows(lines){
+  /* Trimmed here rather than trusting the caller to have done it. Both callers
+     currently do, but a cell holding only a space is the exact case this
+     function exists to catch, and one that forgot would report no blanks at all
+     — silently, and for the one input that matters most. */
+  const v = lines.map(function(s){ return (s == null ? '' : String(s)).trim(); });
+  let last = -1;
+  for(let i = 0; i < v.length; i++){ if(v[i]) last = i; }
+  const rows = [];
+  for(let i = 0; i < last; i++){ if(!v[i]) rows.push(i + 1); }
+  return rows;
+}
+/* Says which rows are blank, in words that point at the fix rather than just
+   restating the two numbers. */
+function bulkMismatchHint(anchorLabel, anchorLines, otherLabel){
+  const blanks = interiorBlankRows(anchorLines);
+  if(blanks.length){
+    const shown = blanks.slice(0, 10).join(', ');
+    const more = blanks.length > 10 ? ', and ' + (blanks.length - 10) + ' more' : '';
+    return ' ' + anchorLabel + ' is empty on row ' + shown + more + '. An empty '
+      + anchorLabel + ' is dropped, which shifts every row below it. Fill those in — a cell holding only a space counts as empty here, which is why Excel\'s blank filter will not find it. Do NOT delete a row from ' + otherLabel + ' to make the numbers match: that would import everyone below the gap against the wrong address.';
+  }
+  return ' Nothing is blank in the middle of ' + anchorLabel + ', so ' + otherLabel
+    + ' has a genuine extra line — most often one cell with a line break inside it (Alt+Enter in Excel), which pastes as two rows.';
 }
 function alignBulkRows(arr, targetLen){
   const out = arr.slice();
@@ -14595,9 +14644,9 @@ function alignBulkRows(arr, targetLen){
 }
 function wireBulkCounts(areaIds, anchorId, countIdMap){
   function update(){
-    const anchorCount = countRows(document.getElementById(anchorId).value);
+    const anchorCount = countRows(document.getElementById(anchorId).value, true);
     areaIds.forEach(function(areaId){
-      const n = countRows(document.getElementById(areaId).value);
+      const n = countRows(document.getElementById(areaId).value, areaId === anchorId);
       const el = document.getElementById(countIdMap[areaId]);
       el.textContent = n + ' row' + (n===1?'':'s');
       el.classList.toggle('mismatch', n > 0 && n !== anchorCount);
@@ -14742,7 +14791,10 @@ document.getElementById('rbCheckBtn')?.addEventListener('click', function(){
    end rather than once per row. See renderJobAddressPanels(). */
 document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(async function(){ return withBulkWrites(async function(){
   const statusEl = document.getElementById('rbImportStatus');
-  const streets = document.getElementById('rbStreetsArea').value.split('\n').map(s => s.trim()).filter(Boolean);
+  /* Kept before the blanks are filtered out, so a mismatch can say WHICH row is
+     empty instead of only that the totals differ. */
+  const streetsRaw = document.getElementById('rbStreetsArea').value.split('\n').map(s => s.trim());
+  const streets = streetsRaw.filter(Boolean);
   if(!streets.length){ statusEl.textContent = 'Paste at least the Street Address column.'; return; }
 
   const names = alignBulkRows(document.getElementById('rbNamesArea').value.split('\n').map(s => s.trim()), streets.length);
@@ -14786,7 +14838,8 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
   for(const [label, arr] of checks){
     const nonEmptyCount = arr.filter(Boolean).length;
     if(nonEmptyCount && arr.length !== streets.length){
-      statusEl.textContent = label + ' has ' + arr.length + ' row(s) but Street Address has ' + streets.length + '. Fix the row count and try again.';
+      statusEl.textContent = label + ' has ' + arr.length + ' row(s) but Street Address has ' + streets.length + '.'
+        + bulkMismatchHint('Street Address', streetsRaw, label);
       return;
     }
   }
@@ -14947,7 +15000,10 @@ wireBulkCounts(ibAreaIds, 'ibPhonesArea', ibCountIds);
 /* Same reasoning as the Routes import above — one redraw at the end. */
 document.getElementById('ibImportBtn').addEventListener('click', onceAtATime(async function(){ return withBulkWrites(async function(){
   const statusEl = document.getElementById('ibImportStatus');
-  const phones = document.getElementById('ibPhonesArea').value.split('\n').map(s => s.trim()).filter(Boolean);
+  // Same as the Routes import: keep the unfiltered rows so a mismatch can name
+  // the empty row instead of only reporting two totals.
+  const phonesRaw = document.getElementById('ibPhonesArea').value.split('\n').map(s => s.trim());
+  const phones = phonesRaw.filter(Boolean);
   if(!phones.length){ statusEl.textContent = 'Paste at least the Phone Number column.'; return; }
 
   const names = alignBulkRows(document.getElementById('ibNamesArea').value.split('\n').map(s => s.trim()), phones.length);
@@ -14961,7 +15017,8 @@ document.getElementById('ibImportBtn').addEventListener('click', onceAtATime(asy
   for(const [label, arr] of checks){
     const nonEmptyCount = arr.filter(Boolean).length;
     if(nonEmptyCount && arr.length !== phones.length){
-      statusEl.textContent = label + ' has ' + arr.length + ' row(s) but Phone Number has ' + phones.length + '. Fix the row count and try again.';
+      statusEl.textContent = label + ' has ' + arr.length + ' row(s) but Phone Number has ' + phones.length + '.'
+        + bulkMismatchHint('Phone Number', phonesRaw, label);
       return;
     }
   }

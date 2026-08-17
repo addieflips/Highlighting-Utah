@@ -6771,6 +6771,95 @@ suite('Suite 22. Bulk runs redraw once, not once per row');
     (admin.match(/await bulkBreathe\(i\)/g) || []).length >= 2);
 }
 
+/*
+ * Suite 23. A bulk paste that will not line up says WHICH row is wrong.
+ *
+ * From a real import of 963 customers. The Street column is parsed with
+ * .filter(Boolean), so a blank address is DROPPED, while every other column
+ * keeps its blanks — one empty cell therefore shifts every row below it. The
+ * counters above each box counted raw lines, so both columns read "1059 rows"
+ * while the importer saw 963 and 962, and the error named neither the row nor
+ * the reason. Excel's "filter by blanks" does not match a cell holding only a
+ * space, so there was no way to find it from either end.
+ *
+ * The dangerous part is the obvious fix: deleting a row from the Name column to
+ * make the totals match imports every customer below the gap against the wrong
+ * address, with their colours and price. So the message has to say don't.
+ *
+ * These run the real functions rather than reading them as text, because the
+ * whole bug was an off-by-one nobody could see.
+ */
+suite('Suite 23. Bulk row mismatches name the offending row');
+{
+  const lift = (name) => {
+    const i = admin.indexOf('function ' + name + '(');
+    if (i === -1) return null;
+    let d = 0;
+    for (let j = admin.indexOf('{', i); j < admin.length; j++) {
+      if (admin[j] === '{') d++;
+      else if (admin[j] === '}') { d--; if (!d) return admin.slice(i, j + 1); }
+    }
+    return null;
+  };
+  const srcs = ['countRows', 'interiorBlankRows', 'bulkMismatchHint'].map(lift);
+  check('S23', 'countRows, interiorBlankRows and bulkMismatchHint all still exist', srcs.every(Boolean));
+
+  if (srcs.every(Boolean)) {
+    const sandbox = {};
+    new Function(srcs.join('\n') + '\nthis.countRows=countRows;this.interiorBlankRows=interiorBlankRows;this.bulkMismatchHint=bulkMismatchHint;').call(sandbox);
+    const { countRows, interiorBlankRows, bulkMismatchHint } = sandbox;
+
+    // The real shape: same trailing empty rows on both columns, one blank mid-column.
+    const TRAIL = '\n'.repeat(96);
+    const names = Array.from({ length: 963 }, (_, i) => 'Name ' + (i + 1)).join('\n') + TRAIL;
+    const street = Array.from({ length: 963 }, (_, i) => (i === 499 ? '   ' : 'Addr ' + (i + 1))).join('\n') + TRAIL;
+    const streetLines = street.split('\n').map(s => s.trim());
+
+    check('S23', 'trailing empty rows no longer inflate the count', countRows(names, false) === 963,
+      'got ' + countRows(names, false) + ' — this is what made two different columns both read 1059');
+    check('S23', 'the anchor column is counted the way the importer parses it', countRows(street, true) === 962,
+      'got ' + countRows(street, true) + '; the importer drops the blank address and sees 962');
+    check('S23', 'so the mismatch is visible while pasting, not only after pressing Import',
+      countRows(names, false) !== countRows(street, true));
+
+    check('S23', 'a blank in the middle is found', interiorBlankRows(streetLines).join() === '500');
+    check('S23', 'a cell holding only a space counts as blank, as the importer treats it',
+      interiorBlankRows(['a', '   ', 'c']).join() === '2');
+    check('S23', 'trailing empty rows are NOT reported as missing addresses',
+      interiorBlankRows(['a', 'b', '', '', '']).length === 0,
+      'reporting the trailing rows would send someone hunting for a problem that is not there');
+
+    const hint = bulkMismatchHint('Street Address', streetLines, 'Name');
+    check('S23', 'the message names the row', /row 500/.test(hint));
+    check('S23', 'it explains why Excel\'s blank filter missed it', /only a space/.test(hint) && /blank filter/.test(hint));
+    check('S23', 'it warns against the fix that silently corrupts the import',
+      /Do NOT delete a row/.test(hint) && /wrong address/i.test(hint),
+      'deleting a row to balance the totals imports everyone below the gap against the wrong address');
+
+    const noBlanks = bulkMismatchHint('Street Address', ['a', 'b', 'c'], 'Name');
+    check('S23', 'with no blank it points at a line break inside a cell instead',
+      /Alt\+Enter/.test(noBlanks) && !/row \d/.test(noBlanks));
+  }
+
+  /* The counters are only honest if wireBulkCounts actually passes the
+     anchor flag through — counting the anchor the old way is what let two
+     different columns both display "1059 rows". */
+  const wired = admin.slice(admin.indexOf('function wireBulkCounts('), admin.indexOf('// --- Routes Bulk Update ---'));
+  check('S23', 'the live counters count the anchor column the importer\'s way',
+    /countRows\(document\.getElementById\(anchorId\)\.value, true\)/.test(wired) &&
+    /countRows\(document\.getElementById\(areaId\)\.value, areaId === anchorId\)/.test(wired),
+    'without the flag the anchor is counted by raw lines again and the mismatch stays invisible until Import');
+
+  // Both importers must keep the unfiltered rows, or the hint has nothing to read.
+  [['rbStreetsArea', 'streetsRaw', 'Street Address'], ['ibPhonesArea', 'phonesRaw', 'Phone Number']].forEach(([area, raw, label]) => {
+    check('S23', label + ' keeps its unfiltered rows for the diagnostic',
+      new RegExp('const ' + raw + ' = document\\.getElementById\\(\'' + area + '\'\\)').test(admin) &&
+      new RegExp('const \\w+ = ' + raw + '\\.filter\\(Boolean\\)').test(admin));
+    check('S23', label + ' mismatch calls bulkMismatchHint',
+      new RegExp("bulkMismatchHint\\('" + label + "', " + raw).test(admin));
+  });
+}
+
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
