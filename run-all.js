@@ -7901,6 +7901,18 @@ suite('Suite 32. Customer number as identifier, and flipped names');
     check('S32', 'the blocking message names the columns actually required',
       /\(BULK_BY_PHONE \? 'Phone' : 'Town'\) \+ ' and address are both needed/.test(admin),
       'it said "Phone and address" while the town was the half being asked for');
+    /* And describes the problems that are IN the list. It used to explain the
+       identifier columns whatever was wrong, so two repeated customer numbers
+       were announced as "Town and address are both needed", sending somebody to
+       look at two columns that were fine. */
+    check('S32', 'the heading matches the kind of problem found',
+      /const anyMissingHalf = numProblems\.some/.test(admin) &&
+      /const anyNumberTrouble = numProblems\.some/.test(admin) &&
+      /The same Customer # is on two rows, so one of them is wrong\./.test(admin));
+    check('S32', 'a repeated number names both customers, not just both row numbers',
+      /const who = names\[i\] \? ' \(' \+ names\[i\] \+ '\)' : '';/.test(admin) &&
+      /const other = names\[seenNums\[cn\] - 1\]/.test(admin),
+      'two rows deep in a 962 row paste are found by name, not by counting');
     note('BULK_IDENTIFIER is temporarily "' + bulkMode + '" — set it back to "number" once the customer numbers on file are right.');
   }
 

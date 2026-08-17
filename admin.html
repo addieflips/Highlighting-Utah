@@ -15055,7 +15055,14 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
     const cn = custNumbers[i];
     if(!cn) continue;
     if(!/^\d+$/.test(cn)){ numProblems.push('Row ' + (i+1) + ': "' + cn + '" isn\'t a number.'); continue; }
-    if(seenNums[cn] !== undefined){ numProblems.push('Row ' + (i+1) + ': #' + cn + ' is also on row ' + seenNums[cn] + '.'); continue; }
+    if(seenNums[cn] !== undefined){
+      /* Named, not just numbered. Two rows deep in a 962 row paste are hard
+         to find by counting; the names are what somebody recognises. */
+      const who = names[i] ? ' (' + names[i] + ')' : '';
+      const other = names[seenNums[cn] - 1] ? ' (' + names[seenNums[cn] - 1] + ')' : '';
+      numProblems.push('Row ' + (i+1) + who + ': #' + cn + ' is also on row ' + seenNums[cn] + other + '.');
+      continue;
+    }
     seenNums[cn] = i+1;
     const heldBy = jobAddresses.find(function(it){ return String(it.data.customerNumber||'') === cn; });
     /* "Already belongs to somebody" is the right complaint when a number is
@@ -15082,9 +15089,16 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
     }
   }
   if(numProblems.length){
-    statusEl.textContent = (BULK_BY_NUMBER
-      ? 'Fix these Customer # problems first — nothing was imported: '
-      : 'Fix these rows first — nothing was imported. ' + (BULK_BY_PHONE ? 'Phone' : 'Town') + ' and address are both needed to tell customers apart: ') + numProblems.slice(0,8).join('  ') + (numProblems.length > 8 ? '  …and ' + (numProblems.length-8) + ' more.' : '');
+    /* The heading has to describe the problems that are actually in the list.
+       It used to explain the identifier columns whatever was wrong, so a pair of
+       repeated CUSTOMER NUMBERS was announced as "Town and address are both
+       needed to tell customers apart" — which sent somebody to look at two
+       columns that were perfectly fine. */
+    const anyMissingHalf = numProblems.some(function(t){ return t.indexOf('no address') !== -1 || t.indexOf('no town') !== -1 || t.indexOf('no phone') !== -1; });
+    const anyNumberTrouble = numProblems.some(function(t){ return t.indexOf('#') !== -1 || t.indexOf('isn\'t a number') !== -1; });
+    statusEl.textContent = 'Fix these rows first — nothing was imported. '
+      + (anyNumberTrouble ? 'The same Customer # is on two rows, so one of them is wrong. ' : '')
+      + (anyMissingHalf ? (BULK_BY_PHONE ? 'Phone' : 'Town') + ' and address are both needed to tell customers apart. ' : '') + numProblems.slice(0,8).join('  ') + (numProblems.length > 8 ? '  …and ' + (numProblems.length-8) + ' more.' : '');
     return;
   }
   const phones = anchorIsPhones ? anchor : alignBulkRows(phonesRaw, anchor.length);
