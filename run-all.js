@@ -7131,6 +7131,131 @@ suite('Suite 26. Schedule picks up a corrected town');
     /id=\\"syncTownsBtn\\"/.test(admin));
 }
 
+/*
+ * Suite 27. A short crew-day reaches into a nearby town rather than doing five.
+ *
+ * Owner, 2026-08-16: "the max one crew can have still is 40 [20 a crew, 40 a
+ * day] but they dont need to have the same number of houses, instead we should
+ * prioritize doing the most houses in a day as possible", and then: "it should
+ * always favor having all 20 in the same town and only stretch to nearby towns
+ * if the day isnt full for a crew."
+ *
+ * The equal split was never a rule in the code — 14 in Lehi and 19 in Herriman
+ * already came out as 14 and 19. What actually stretched the season was ONE
+ * CREW, ONE TOWN: eight towns with five houses left each is forty houses, which
+ * is exactly one full working day, and it was taking four.
+ *
+ * Two invariants this must never break, both previously stated by the owner and
+ * both cheap to lose in a packing change:
+ *   - never more than 20 on a crew;
+ *   - never two crews in the same town on the same day.
+ */
+suite('Suite 27. Short crew-days reach into nearby towns');
+{
+  const extract = (name) => {
+    const i = admin.indexOf('function ' + name + '(');
+    if (i === -1) return null;
+    let d = 0;
+    for (let j = admin.indexOf('{', i); j < admin.length; j++) {
+      if (admin[j] === '{') d++;
+      else if (admin[j] === '}') { d--; if (!d) return admin.slice(i, j + 1); }
+    }
+    return null;
+  };
+  const start = admin.indexOf('function planNewCrewDays(waiting, taken, opts)');
+  const end = admin.indexOf('/* Top every day up to the cap.', start);
+  const nearbyConst = admin.indexOf('const NEARBY_TOWN_MILES');
+  check('S27', 'the builder and the nearby helpers are findable',
+    start !== -1 && end > start && nearbyConst !== -1 && !!extract('townCentres') && !!extract('nearbyTowns'));
+
+  if (start !== -1 && end > start && nearbyConst !== -1) {
+    global.toDateStr = dt => dt.getFullYear() + '-' +
+      String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+    const api = eval(
+      'function haversine(a,b,c,d){const R=3958.8,t=x=>x*Math.PI/180;const dl=t(c-a),dg=t(d-b);' +
+      'const q=Math.sin(dl/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dg/2)**2;' +
+      'return 2*R*Math.asin(Math.sqrt(q));}\n' +
+      admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) + '\n' +
+      admin.slice(nearbyConst, admin.indexOf('function townCentres')) + '\n' +
+      extract('townCentres') + '\n' + extract('nearbyTowns') + '\n' +
+      extract('installPriority') + '\n' + admin.slice(start, end) +
+      '\n;({plan: planNewCrewDays, cap: MAX_STOPS_PER_ROUTE, crews: CREWS_PER_DAY})');
+
+    const at = {
+      Lehi: [40.391, -111.851], Highland: [40.425, -111.795], 'American Fork': [40.377, -111.796],
+      Alpine: [40.453, -111.777], Draper: [40.524, -111.863], Sandy: [40.572, -111.859],
+      Orem: [40.297, -111.695], Herriman: [40.514, -112.033]
+    };
+    const run = (counts) => {
+      const waiting = [];
+      Object.keys(counts).forEach(city => {
+        for (let i = 0; i < counts[city]; i++) {
+          waiting.push({ id: city + i, city, priority: 2, from: '2026-10-01',
+                         stop: { lat: at[city][0], lng: at[city][1] } });
+        }
+      });
+      const days = api.plan(waiting, {}, { floorDate: '2026-10-01', maxDays: 40 });
+      const byDate = {};
+      days.forEach(d => { (byDate[d.date] = byDate[d.date] || []).push(d); });
+      return { days, byDate, dates: Object.keys(byDate).sort(),
+               placed: days.reduce((s, d) => s + d.ids.length, 0), total: waiting.length };
+    };
+
+    // The reported symptom: 40 houses = one full day, previously spread over four.
+    const tail = run({ Lehi: 5, Herriman: 5, Alpine: 5, Draper: 5, Sandy: 5, Orem: 5, 'American Fork': 5, Highland: 5 });
+    check('S27', 'a tail of small towns is packed into fewer days', tail.dates.length <= 2,
+      'took ' + tail.dates.length + ' working days for 40 houses; one crew one town took four');
+    check('S27', 'and nobody is left behind while packing', tail.placed === tail.total,
+      tail.placed + ' of ' + tail.total);
+    check('S27', 'a topped-up day records every town it holds',
+      tail.days.some(d => d.towns && d.towns.length > 1) &&
+      tail.days.every(d => Array.isArray(d.towns) && d.towns[0] === d.city),
+      'the sweep reads this list; without it the borrowed houses are evicted next pass');
+
+    // The owner's own example must be unchanged.
+    const ex = run({ Lehi: 14, Herriman: 19 });
+    check('S27', '14 in Lehi and 19 in Herriman still go out on one day', ex.dates.length === 1);
+    check('S27', 'and they are NOT levelled to the same number',
+      ex.byDate[ex.dates[0]].map(d => d.ids.length).sort((a, b) => a - b).join() === '14,19');
+
+    // "Always favour all 20 in the same town."
+    const full = run({ Lehi: 20, Highland: 20 });
+    check('S27', 'a crew-day its own town can fill never borrows',
+      full.days.every(d => d.towns.length === 1) && full.dates.length === 1,
+      'borrowing when the town already gives twenty would split towns for no gain');
+    const big = run({ Lehi: 60, Highland: 3 });
+    check('S27', 'a big town keeps whole days to itself',
+      big.days.filter(d => d.city === 'Lehi').every(d => d.towns.length === 1 && d.ids.length === 20));
+
+    // Invariants that must survive any packing change.
+    const all = [tail, ex, full, big];
+    check('S27', 'never more than twenty on one crew',
+      all.every(r => r.days.every(d => d.ids.length <= api.cap)));
+    check('S27', 'never two crews in the same town on the same day',
+      all.every(r => r.dates.every(dt => {
+        const seen = {};
+        return r.byDate[dt].every(d => d.towns.every(t => { if (seen[t]) return false; seen[t] = 1; return true; }));
+      })),
+      'the one arrangement the owner ruled out — and a borrowed town counts');
+    check('S27', 'never more crews out than there are crews',
+      all.every(r => r.dates.every(dt => r.byDate[dt].length <= api.crews)));
+    check('S27', 'a town far away is never borrowed from',
+      tail.days.every(d => !(d.towns.indexOf('Sandy') !== -1 && d.towns.indexOf('Orem') !== -1)),
+      'Sandy and Orem are opposite ends of the valley — pairing them would be a wasted day of driving');
+  }
+
+  /* The sweep must agree that a topped-up day is legitimate, or it evicts the
+     borrowed houses and the builder puts them back, for ever. */
+  const problem = extract('stopProblem') || '';
+  check('S27', 'stopProblem judges against every town the day holds',
+    /Array\.isArray\(routeTowns\)/.test(problem) && /towns\.indexOf\(theirs\) === -1/.test(problem),
+    'comparing against a single town would evict every borrowed house on the next sweep');
+  check('S27', 'the sweep reads the stored town list', /townsByRoute\[/.test(admin) &&
+    /const listed = \(r\.towns \|\| \[\]\)/.test(admin));
+  check('S27', 'and new days write it down', /towns: nd\.towns \|\| \[nd\.city\]/.test(admin),
+    'a day built without its town list is one the next sweep takes apart');
+}
+
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));

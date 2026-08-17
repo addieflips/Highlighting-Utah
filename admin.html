@@ -19485,7 +19485,12 @@ const PROBLEMS_WORTH_REHOMING = ['cannot be installed until', 'is in '];
 function problemDeservesAnotherDay(problem){
   return PROBLEMS_WORTH_REHOMING.some(function(p){ return String(problem||'').indexOf(p) === 0; });
 }
-function stopProblem(cust, dateStr, routeCity, routeIsAuto){
+/* routeTowns is every town this day is allowed to hold — normally one, but a
+   day topped up from a neighbouring town to reach twenty carries both. A plain
+   string is still accepted so a caller that only knows the one town keeps
+   working. */
+function stopProblem(cust, dateStr, routeTowns, routeIsAuto){
+  const towns = (Array.isArray(routeTowns) ? routeTowns : [routeTowns]).filter(Boolean);
   if(!cust) return 'is no longer a customer';
   const d = cust.data || {};
   /* ⚠ THE TOWN ON THE RECORD MUST STILL MATCH THE TOWN OF THE DAY.
@@ -19498,10 +19503,10 @@ function stopProblem(cust, dateStr, routeCity, routeIsAuto){
      deliberately carry a house from the next town over — a favour, a detour
      that makes sense on the ground — and evicting it would be overruling them.
      Same rule as surplusCrewDays: only take apart what was built to a rule. */
-  if(routeIsAuto && routeCity){
+  if(routeIsAuto && towns.length){
     const theirs = extractCleanCity(d.city);
-    if(theirs && theirs !== routeCity){
-      return 'is in ' + theirs + ', and this is a ' + routeCity + ' day';
+    if(theirs && towns.indexOf(theirs) === -1){
+      return 'is in ' + theirs + ', and this is a ' + towns.join(' and ') + ' day';
     }
   }
   /* Routed through isOutForSeason on 2026-08-15 so this and the generator
@@ -19828,6 +19833,39 @@ function surplusCrewDays(routes, crews){
  * nothing, which is what lets run-all.js run a whole season and check the
  * shape of it.
  */
+/* How far apart two towns' centres can be before one crew doing both in a day
+   stops making sense. Owner, 2026-08-16: "it should always favor having all 20
+   in the same town and only stretch to nearby towns if the day isnt full for a
+   crew." So this is only ever a TOP-UP: a full twenty in one town always wins,
+   and a town is only borrowed from once its own town has nothing left to give. */
+const NEARBY_TOWN_MILES = 8;
+/* The middle of a town, from the houses actually waiting in it. Good enough to
+   tell a neighbouring town from one across the valley, which is all it is for.
+   A town whose houses have no map pin yet gets no centre and is simply never
+   borrowed from — it still gets its own days as before. */
+function townCentres(byCity){
+  const out = {};
+  Object.keys(byCity).forEach(function(city){
+    let n = 0, la = 0, ln = 0;
+    byCity[city].forEach(function(w){
+      const s = w && w.stop;
+      if(s && typeof s.lat === 'number' && typeof s.lng === 'number'){ la += s.lat; ln += s.lng; n++; }
+    });
+    if(n) out[city] = {lat: la / n, lng: ln / n};
+  });
+  return out;
+}
+/* Towns near `city`, nearest first. */
+function nearbyTowns(city, centres){
+  const here = centres[city];
+  if(!here) return [];
+  return Object.keys(centres)
+    .filter(function(c){ return c !== city; })
+    .map(function(c){ return {city: c, miles: haversine(here.lat, here.lng, centres[c].lat, centres[c].lng)}; })
+    .filter(function(x){ return x.miles <= NEARBY_TOWN_MILES; })
+    .sort(function(a, b){ return a.miles - b.miles; })
+    .map(function(x){ return x.city; });
+}
 function planNewCrewDays(waiting, taken, opts){
   const o = opts || {};
   const cap = o.cap || MAX_STOPS_PER_ROUTE;
@@ -19837,6 +19875,21 @@ function planNewCrewDays(waiting, taken, opts){
   const horizon = o.horizonDays == null ? 400 : o.horizonDays;
   const busy = {};
   Object.keys(taken || {}).forEach(function(dt){ busy[dt] = Object.assign({}, taken[dt]); });
+  /* Every town worked on a date, not just each crew's MAIN town. Once a
+     crew-day can be topped up from a neighbour, the crew->town map alone stops
+     answering "is anybody in this town today" — a day whose main town is
+     Highland but which borrowed from Alpine would still look Alpine-free, and a
+     second crew could be sent there. Seeded from the days that already exist. */
+  const usedTowns = {};
+  function townsUsedOn(dateStr){ return usedTowns[dateStr] || []; }
+  function markTownUsed(dateStr, town){
+    if(!town) return;
+    const list = usedTowns[dateStr] = usedTowns[dateStr] || [];
+    if(list.indexOf(town) === -1) list.push(town);
+  }
+  Object.keys(busy).forEach(function(dt){
+    Object.keys(busy[dt]).forEach(function(cr){ markTownUsed(dt, busy[dt][cr]); });
+  });
 
   /* Grouped by town, because a crew-day is one town — and within a town, by who
      has waited longest for a slot they are allowed on. */
@@ -19850,6 +19903,10 @@ function planNewCrewDays(waiting, taken, opts){
       return (a.priority - b.priority) || (a.from < b.from ? -1 : (a.from > b.from ? 1 : 0));
     });
   });
+
+  /* Town centres for the nearby top-up, worked out once from the houses
+     waiting, before any of them are taken off the queues. */
+  const centres = townCentres(byCity);
 
   /* Biggest backlog first, so the town that needs the most days starts getting
      them soonest rather than queueing behind a town with four houses. */
@@ -19871,7 +19928,8 @@ function planNewCrewDays(waiting, taken, opts){
       for(let step = 0; step < horizon && !slot; step++){
         const ds = toDateStr(dt);
         const onDay = busy[ds] || {};
-        const alreadyHere = Object.keys(onDay).some(function(cr){ return onDay[cr] === city; });
+        const alreadyHere = Object.keys(onDay).some(function(cr){ return onDay[cr] === city; })
+                            || townsUsedOn(ds).indexOf(city) !== -1;
         if(!alreadyHere){
           for(let cr = 1; cr <= crews; cr++){
             if(!onDay[String(cr)]){ slot = {date: ds, crew: String(cr)}; break; }
@@ -19898,9 +19956,36 @@ function planNewCrewDays(waiting, taken, opts){
       }
       const ids = take.map(function(i){ return queue[i].id; });
       for(let i = take.length - 1; i >= 0; i--) queue.splice(take[i], 1);
+      /* This town first, always, and only then the neighbours. A crew-day that
+         its own town filled to twenty never borrows — that is the whole point of
+         "favour all 20 in the same town". A short one reaches out rather than
+         sending a crew to do five houses and calling it a day, which is what
+         stretched the season into December. */
+      const towns = [city];
+      if(ids.length < cap){
+        const near = nearbyTowns(city, centres);
+        for(let n = 0; n < near.length && ids.length < cap; n++){
+          const other = near[n];
+          /* Never a town another crew is already in that day — two crews in one
+             town on one day is the arrangement the owner ruled out, and it stays
+             ruled out however the houses got there. */
+          if(townsUsedOn(slot.date).indexOf(other) !== -1) continue;
+          const oq = byCity[other];
+          if(!oq || !oq.length) continue;
+          const borrowed = [];
+          for(let i = 0; i < oq.length && ids.length + borrowed.length < cap; i++){
+            if(oq[i].from <= slot.date) borrowed.push(i);
+          }
+          if(!borrowed.length) continue;
+          borrowed.forEach(function(i){ ids.push(oq[i].id); });
+          for(let i = borrowed.length - 1; i >= 0; i--) oq.splice(borrowed[i], 1);
+          towns.push(other);
+        }
+      }
       busy[slot.date] = busy[slot.date] || {};
       busy[slot.date][slot.crew] = city;
-      out.push({date: slot.date, crew: slot.crew, city: city, ids: ids});
+      towns.forEach(function(t){ markTownUsed(slot.date, t); });
+      out.push({date: slot.date, crew: slot.crew, city: city, towns: towns, ids: ids});
       made++;
       cursor = slot.date;   // the next day for this town starts from here
     }
@@ -20011,11 +20096,20 @@ async function reconcileUpcomingRoutes(){
   const newHangIds = new Set();   // picked up by 2b, so the notice can say which are new
   const freedThisPass = new Set(); // freed in step 3, so 3c can still see them as free
   const working = {};      // routeId -> the stop list being built
-  const cityByRoute = {};  // routeId -> its city, judged once, before anything moves
+  const cityByRoute = {};  // routeId -> its main city, judged once, before anything moves
+  /* routeId -> every town that day is ALLOWED to hold. Normally just the one.
+     A day the builder had to top up from a neighbouring town to reach twenty
+     records both towns here, because routeCityOf only ever reports the majority
+     town — without this, step 1 below would read the borrowed houses as being
+     on the wrong day and evict every one of them on the very next sweep, and
+     the builder would put them straight back. Build, evict, rebuild, for ever. */
+  const townsByRoute = {};
   const dirty = {};
   routes.forEach(function(r){
     working[r.id] = (r.stops || []).slice();
     cityByRoute[r.id] = routeCityOf(r);
+    const listed = (r.towns || []).map(extractCleanCity).filter(Boolean);
+    townsByRoute[r.id] = listed.length ? listed : (cityByRoute[r.id] ? [cityByRoute[r.id]] : []);
   });
 
   // ---- 0. Days with more crews out than there are crews --------------------
@@ -20046,7 +20140,7 @@ async function reconcileUpcomingRoutes(){
     const from = toDateStr(earliestAllowedInstallDate(d));
     for(let i = 0; i < routes.length; i++){
       const r = routes[i];
-      if(r.date < from || cityByRoute[r.id] !== city) continue;
+      if(r.date < from || townsByRoute[r.id].indexOf(city) === -1) continue;
       if(!working[r.id].some(function(s){ return s.id === cust.id; })){
         working[r.id] = reorderFlatStops(working[r.id].concat([customerToStop(cust.id, d, true)]), r.startPoint || null);
         dirty[r.id] = true;
@@ -20063,7 +20157,7 @@ async function reconcileUpcomingRoutes(){
     for(let s = 0; s < working[route.id].length; s++){
       const stop = working[route.id][s];
       const cust = jobAddresses.find(function(a){ return a.id === stop.id; });
-      const problem = stopProblem(cust, route.date, cityByRoute[route.id], !!route.autoBuilt);
+      const problem = stopProblem(cust, route.date, townsByRoute[route.id], !!route.autoBuilt);
       if(problem){
         dirty[route.id] = true;
         report.dropped.push({name: stop.name || (cust && cust.data.name) || 'A house',
@@ -20293,6 +20387,12 @@ async function reconcileUpcomingRoutes(){
           await setDoc(doc(db,'scheduledRoutes', docId), {
             date: nd.date, type: 'install', crew: nd.crew, stops: stops,
             startPoint: null, createdAt: serverTimestamp(),
+            /* Every town this day may hold. Normally one; two when its own town
+               could not fill it and a neighbour topped it up. Step 1 of the
+               sweep reads this — without it, routeCityOf reports only the
+               majority town and the borrowed houses are evicted on the next
+               pass and rebuilt on the one after, for ever. */
+            towns: nd.towns || [nd.city],
             /* Stamped so surplusCrewDays can tell a day this built from one
                somebody sat down and built. Only these are ever taken apart. */
             autoBuilt: true
