@@ -1187,6 +1187,16 @@
     </div>
     </div>
 
+    <div class="nav-section" data-section="archive">
+    <div class="nav-section-heading collapsible">Archive<svg class="nav-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></div>
+    <div class="nav-section-body">
+    <button class="nav-item" data-panel="archive" title="">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>
+      <span class="nav-label">Archive</span>
+    <span class="nav-pin-icon" data-pinpanel="archive" data-pinlabel="Archive" title="Pin to Favorites"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l1 6 3 2v2H5v-2l3-2z"/></svg></span></button>
+    </div>
+    </div>
+
     <div class="nav-section" data-section="project">
     <div class="nav-section-heading collapsible">Project<svg class="nav-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></div>
     <div class="nav-section-body">
@@ -3973,6 +3983,49 @@
       </div>
     </div>
 
+    <!-- ARCHIVE -->
+    <div class="panel" id="panel-archive">
+      <div class="panel-head"><div><h2>Archive</h2><p>Everything that's finished or moved on, in one place &mdash; completed warehouse work, past routes and who ran them, customers who've left, and closed-out quotes. Nothing here is deleted; it's just out of the way.</p></div></div>
+
+      <div class="route-tabs" id="archiveSectionTabs" style="margin-bottom:20px;">
+        <button class="route-tab-btn active" data-archtab="warehouse" draggable="true">Warehouse</button>
+        <button class="route-tab-btn" data-archtab="routes" draggable="true">Routes</button>
+        <button class="route-tab-btn" data-archtab="customers" draggable="true">Customers</button>
+        <button class="route-tab-btn" data-archtab="quotes" draggable="true">Quotes</button>
+      </div>
+
+      <div class="gen-subtab-panel active" id="archtab-warehouse">
+        <p class="form-note" style="margin:0 0 14px;">Only fills in going forward &mdash; builds and recycles marked done before this existed weren't recorded.</p>
+        <div class="card" style="margin-bottom:20px;">
+          <h3 style="margin:0 0 10px;">Completed Builds</h3>
+          <div class="row-list" id="archWarehouseBuilds"><div class="empty-note">Loading&hellip;</div></div>
+        </div>
+        <div class="card" style="margin-bottom:20px;">
+          <h3 style="margin:0 0 10px;">Completed Recycles</h3>
+          <div class="row-list" id="archWarehouseRecycles"><div class="empty-note">Loading&hellip;</div></div>
+        </div>
+        <div class="card">
+          <h3 style="margin:0 0 10px;">Used Buffer Stock</h3>
+          <div class="row-list" id="archWarehouseExtras"><div class="empty-note">Loading&hellip;</div></div>
+        </div>
+      </div>
+
+      <div class="gen-subtab-panel" id="archtab-routes">
+        <p class="form-note" style="margin:0 0 14px;">Past route days, with the crew that actually ran each one.</p>
+        <div class="row-list" id="archRoutesList"><div class="empty-note">Loading&hellip;</div></div>
+      </div>
+
+      <div class="gen-subtab-panel" id="archtab-customers">
+        <p class="form-note" style="margin:0 0 14px;">Customers who said no this season. "Pending pull" still owes a lights pull and number reclaim; "Recycled" already had its number returned to the pool.</p>
+        <div class="row-list" id="archCustomersList"><div class="empty-note">Loading&hellip;</div></div>
+      </div>
+
+      <div class="gen-subtab-panel" id="archtab-quotes">
+        <p class="form-note" style="margin:0 0 14px;">Archived quote requests. Open a card to jump to the Quote Requests panel and restore or act on it.</p>
+        <div class="row-list" id="archQuotesList"><div class="empty-note">Loading&hellip;</div></div>
+      </div>
+    </div>
+
     <!-- SETTINGS -->
     <div class="panel" id="panel-settings">
       <div class="panel-head"><div><h2>Site Settings</h2><p>Hero text, contact info, and service area city lists.</p></div></div>
@@ -4334,6 +4387,7 @@ function switchToAdminPanel(panelName){
   document.getElementById('sidebar').classList.remove('open');
   renderFavoritesSection();
   ensurePanelData(panelName);
+  if(panelName === 'archive') renderArchivePanel();
   try{ sessionStorage.setItem('huLastPanel', panelName); }catch(e){}
 }
 
@@ -4363,7 +4417,8 @@ const PANEL_DATA = {
   gallery:          ['gallery'],
   hero:             ['hero'],
   faq:              ['faq'],
-  projecttodo:      ['projectpeople']
+  projecttodo:      ['projectpeople'],
+  archive:          ['people']
 };
 /* Resolved inside a function, not a top-level array, so the loaders below are
    all defined by the time anything reads this. */
@@ -7115,6 +7170,7 @@ function loadQuotes(){
     // Nudges the Schedule tab's New Members panel to redraw when a quote closes
     // (or reopens) live - see scheduleOnCustomersUpdated in the Schedule module.
     if(typeof scheduleOnCustomersUpdated === 'function') scheduleOnCustomersUpdated();
+    if(typeof renderArchivePanel === 'function') renderArchivePanel();
   });
 }
 function renderQuotesList(){
@@ -13461,6 +13517,142 @@ function switchRespTab(tabName){
 }
 setupDraggableTabBar('respSectionTabs', 'resptab', 'huRespTabOrder', switchRespTab);
 
+function switchArchTab(tabName){
+  document.querySelectorAll('#archiveSectionTabs .route-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.archtab === tabName));
+  document.querySelectorAll('#panel-archive .gen-subtab-panel').forEach(p => p.classList.toggle('active', p.id === 'archtab-'+tabName));
+  renderArchivePanel();
+}
+setupDraggableTabBar('archiveSectionTabs', 'archtab', 'huArchTabOrder', switchArchTab);
+
+/* ===== ARCHIVE PANEL =====================================================
+ * A read-only rollup over data that already lives in memory for other
+ * panels — no new Firestore reads. Renders all four sub-tabs every time it
+ * runs (cheap: it's just filtering arrays already loaded), so it stays
+ * correct however the panel got opened (nav click, sessionStorage restore,
+ * or a background listener refreshing crew/route/quote/customer data while
+ * the tab is sitting open). See CLAUDE.md "Panel data loads on open". */
+function renderArchivePanel(){
+  renderArchiveWarehouse();
+  renderArchiveRoutes();
+  renderArchiveCustomers();
+  renderArchiveQuotes();
+}
+function tsSeconds(ts){ return (ts && typeof ts.seconds === 'number') ? ts.seconds : 0; }
+function renderArchiveWarehouse(){
+  const buildsEl = document.getElementById('archWarehouseBuilds');
+  const recyclesEl = document.getElementById('archWarehouseRecycles');
+  const extrasEl = document.getElementById('archWarehouseExtras');
+  if(!buildsEl || !recyclesEl || !extrasEl) return;
+
+  const builds = jobAddresses.filter(item => item.data.buildCompletedAt)
+    .sort((a,b) => tsSeconds(b.data.buildCompletedAt) - tsSeconds(a.data.buildCompletedAt));
+  buildsEl.innerHTML = builds.length ? builds.map(function(item){
+    const d = item.data;
+    return '<div class="row-item"><div class="rmain">'+
+      '<div class="row-name-line">'+esc(d.name||'(no name)')+'</div>'+
+      '<div style="font-size:12.5px; color:var(--slate);">'+esc(d.address||'')+'</div>'+
+      '<div style="font-size:12px; color:var(--slate); margin-top:2px;">Built '+fmtDate(d.buildCompletedAt)+'</div>'+
+    '</div></div>';
+  }).join('') : '<div class="empty-note">No completed builds yet.</div>';
+
+  const recycles = jobAddresses.filter(item => item.data.recycleCompletedAt)
+    .sort((a,b) => tsSeconds(b.data.recycleCompletedAt) - tsSeconds(a.data.recycleCompletedAt));
+  recyclesEl.innerHTML = recycles.length ? recycles.map(function(item){
+    const d = item.data;
+    return '<div class="row-item"><div class="rmain">'+
+      '<div class="row-name-line">'+esc(d.name||'(no name)')+'</div>'+
+      '<div style="font-size:12.5px; color:var(--slate);">'+esc(d.address||'')+'</div>'+
+      '<div style="font-size:12px; color:var(--slate); margin-top:2px;">Recycled '+fmtDate(d.recycleCompletedAt)+'</div>'+
+    '</div></div>';
+  }).join('') : '<div class="empty-note">No completed recycles yet.</div>';
+
+  const extras = warehouseExtras.filter(item => item.data.archived)
+    .sort((a,b) => tsSeconds(b.data.archivedAt) - tsSeconds(a.data.archivedAt));
+  extrasEl.innerHTML = extras.length ? extras.map(function(item){
+    const d = item.data;
+    const isTimer = (d.kind||'lights') === 'timer';
+    const what = d.label || (isTimer ? 'Timer' : (d.pattern || 'Lights'));
+    return '<div class="row-item"><div class="rmain">'+
+      '<div class="row-name-line">'+esc(what)+' &times; '+(d.quantity||1)+'</div>'+
+      '<div style="font-size:12px; color:var(--slate); margin-top:2px;">Used '+fmtDate(d.archivedAt)+'</div>'+
+    '</div></div>';
+  }).join('') : '<div class="empty-note">Nothing used up yet.</div>';
+}
+function renderArchiveRoutes(){
+  const el = document.getElementById('archRoutesList');
+  if(!el) return;
+  const todayStr = toDateStr(new Date());
+  const pastDates = Object.keys(scheduledRoutesCache).filter(d => d < todayStr).sort().reverse();
+  if(!pastDates.length){ el.innerHTML = '<div class="empty-note">No past route days on file yet.</div>'; return; }
+  el.innerHTML = pastDates.map(function(dateStr){
+    const routes = (scheduledRoutesCache[dateStr] || []).slice().sort((a,b) => String(a.crew).localeCompare(String(b.crew)));
+    if(!routes.length) return '';
+    return '<div class="row-item" style="display:block;">'+
+      '<div style="font-size:14.5px; font-weight:700; margin-bottom:6px;">'+esc(formatDateNice(dateStr))+'</div>'+
+      routes.map(function(route){
+        const names = getEffectiveCrewNames(route.crew, dateStr);
+        const who = names.length ? names.join(', ') : 'Crew '+esc(String(route.crew||'?'))+' (no members on file)';
+        const stops = route.stops || [];
+        const typeLabel = route.type ? route.type.charAt(0).toUpperCase()+route.type.slice(1) : 'Route';
+        return '<div style="padding:8px 0; border-top:1px solid var(--line);">'+
+          '<div style="font-size:13.5px;"><strong>'+esc(who)+'</strong> &mdash; '+esc(typeLabel)+' &middot; '+stops.length+' stop'+(stops.length===1?'':'s')+'</div>'+
+          (stops.length ? '<div style="font-size:12px; color:var(--slate); margin-top:4px; line-height:1.7;">'+
+            stops.map(s => esc((s.name ? s.name+' — ' : '')+(s.address||''))).join('<br>')+
+          '</div>' : '')+
+        '</div>';
+      }).join('')+
+    '</div>';
+  }).join('');
+}
+function renderArchiveCustomers(){
+  const el = document.getElementById('archCustomersList');
+  if(!el) return;
+  const left = jobAddresses.filter(item => item.data.rsvpStatus === 'no')
+    .sort((a,b) => (a.data.name||'').localeCompare(b.data.name||''));
+  if(!left.length){ el.innerHTML = '<div class="empty-note">No one has left this season.</div>'; return; }
+  el.innerHTML = left.map(function(item){
+    const d = item.data;
+    const pending = !!d.needsLightRecycle;
+    return '<div class="row-item"><div class="rmain">'+
+      '<div class="row-name-line">'+esc(d.name||'(no name)')+
+        ' <span class="status-pill" style="'+(pending ? 'background:#FDECEA; color:#B91C1C;' : 'background:#E6F0E9; color:#2E6B3E;')+'">'+(pending ? 'Pending pull' : 'Recycled')+'</span>'+
+      '</div>'+
+      '<div style="font-size:12.5px; color:var(--slate);">'+esc(d.address||'')+'</div>'+
+      '</div>'+
+      '<span style="display:flex; gap:6px; flex:0 0 auto;"><button type="button" class="btn btn-outline btn-sm" data-archeditcust="'+item.id+'">Edit</button></span>'+
+    '</div>';
+  }).join('');
+  el.querySelectorAll('[data-archeditcust]').forEach(function(btn){
+    btn.addEventListener('click', function(){ openEditCustomerModal(btn.dataset.archeditcust); });
+  });
+}
+function renderArchiveQuotes(){
+  const el = document.getElementById('archQuotesList');
+  if(!el) return;
+  const archived = quotesCache.filter(item => item.data.quoteArchived)
+    .sort((a,b) => tsSeconds(b.data.quoteArchivedAt) - tsSeconds(a.data.quoteArchivedAt));
+  if(!archived.length){ el.innerHTML = '<div class="empty-note">Nothing archived yet.</div>'; return; }
+  el.innerHTML = archived.map(function(item){
+    const d = item.data;
+    return '<div class="row-item"><div class="rmain">'+
+      '<div class="row-name-line">'+esc(d.name||'(no name)')+
+        (d.quoteArchivedReason ? ' <span class="status-pill" style="background:#F0EFEC; color:#6E6858;">'+esc(d.quoteArchivedReason)+'</span>' : '')+
+      '</div>'+
+      '<div style="font-size:12.5px; color:var(--slate);">'+esc(d.address||'')+'</div>'+
+      '<div style="font-size:12px; color:var(--slate); margin-top:2px;">Archived '+fmtDate(d.quoteArchivedAt)+'</div>'+
+      '</div>'+
+      '<span style="display:flex; gap:6px; flex:0 0 auto;"><button type="button" class="btn btn-outline btn-sm" data-archviewquote="'+item.id+'">View in Quotes</button></span>'+
+    '</div>';
+  }).join('');
+  el.querySelectorAll('[data-archviewquote]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      showArchivedQuotes = true;
+      switchToAdminPanel('quotes');
+      renderQuotesList();
+    });
+  });
+}
+
 async function fetchRoofDetails(lat, lng){
   const url = 'https://solar.googleapis.com/v1/buildingInsights:findClosest?location.latitude='+lat+'&location.longitude='+lng+'&key=AIzaSyByI2wHguK1JLNdUFJQKiA_gunoVtTkyqM';
   const res = await fetch(url);
@@ -16493,7 +16685,7 @@ function renderWarehouseRecycleQueue(){
         // The number has to come OFF the customer as it goes into the pool,
         // otherwise it gets handed to someone new while this record still
         // claims it and two bins end up wearing the same label.
-        await updateDoc(doc(db,'jobAddresses', custId), num ? {needsLightRecycle:false, customerNumber:''} : {needsLightRecycle:false});
+        await updateDoc(doc(db,'jobAddresses', custId), Object.assign({needsLightRecycle:false, recycleCompletedAt: serverTimestamp()}, num ? {customerNumber:''} : {}));
         if(num){
           const type = parseInt(num,10) >= 5000 ? 'double' : 'regular';
           await setDoc(doc(db,'availableCustomerNumbers', String(num)), {type: type, releasedAt: serverTimestamp(), releasedFrom: (item.data.name || '')});
@@ -16546,6 +16738,7 @@ function renderJobAddressPanels(){
        from - a saved edit only appeared after retyping the search or switching
        tabs. It renders from jobAddresses, which has just been rebuilt above. */
     safeRender('allCustomersTable', typeof renderAllCustomersTable === 'function' ? renderAllCustomersTable : null);
+    safeRender('archivePanel', typeof renderArchivePanel === 'function' ? renderArchivePanel : null);
 }
 
 /* Draw 250ms after the last change, but never let more than 2.5s of continuous
@@ -16620,6 +16813,7 @@ function loadWarehouseExtras(){
     warehouseExtras = [];
     snap.forEach(function(docSnap){ warehouseExtras.push({ id: docSnap.id, data: docSnap.data() }); });
     if(typeof renderWarehouseQueue === 'function') renderWarehouseQueue();
+    if(typeof renderArchivePanel === 'function') renderArchivePanel();
   });
 }
 
@@ -17146,13 +17340,14 @@ function computeColorDemand(){
     if(item.data.needsLightBuild && item.data.lightsDescription && !item.data.maybeNextYear) addPattern(item.data.lightsDescription, 1);
   });
   warehouseExtras.forEach(function(item){
+    if(item.data.archived) return;
     addPattern(item.data.pattern, Number(item.data.quantity)||0);
   });
   return colorCounts;
 }
 function computePendingHouseCount(){
   let total = jobAddresses.filter(function(item){ return item.data.needsLightBuild && item.data.lightsDescription && !item.data.maybeNextYear; }).length;
-  warehouseExtras.forEach(function(item){ total += Number(item.data.quantity)||0; });
+  warehouseExtras.forEach(function(item){ if(!item.data.archived) total += Number(item.data.quantity)||0; });
   return total;
 }
 let dashRsvpFilter = 'all';
@@ -17411,6 +17606,7 @@ function whBuildQueueGroups(){
     if(String(d.outletTimer || '').trim() === 'Yes') timerHouses.push(item);
   });
   warehouseExtras.forEach(function(item){
+    if(item.data.archived) return;
     if(!item.data.pattern) return;
     /* An extra tied to a real member is that member's REQUEST \u2014 lights and a
        timer for the same person belong on one heading, not scattered through the
@@ -17589,7 +17785,7 @@ function renderWarehouseQueue(){
   list.querySelectorAll('[data-whdonehouse]').forEach(function(btn){
     btn.addEventListener('click', function(e){
       e.stopPropagation();
-      updateDoc(doc(db,'jobAddresses', btn.dataset.whdonehouse), {needsLightBuild:false}).catch(function(){});
+      updateDoc(doc(db,'jobAddresses', btn.dataset.whdonehouse), {needsLightBuild:false, buildCompletedAt: serverTimestamp()}).catch(function(){});
     });
   });
   /* Opens the ordinary Edit Customer popup, which is the one place these
@@ -17610,7 +17806,7 @@ function renderWarehouseQueue(){
   list.querySelectorAll('[data-whdoneextra]').forEach(function(btn){
     btn.addEventListener('click', function(e){
       e.stopPropagation();
-      deleteDoc(doc(db,'warehouseExtras', btn.dataset.whdoneextra)).catch(function(){});
+      updateDoc(doc(db,'warehouseExtras', btn.dataset.whdoneextra), {archived:true, archivedAt: serverTimestamp()}).catch(function(){});
     });
   });
   list.querySelectorAll('[data-whcompletebtn]').forEach(function(btn){
@@ -17643,14 +17839,14 @@ function renderWarehouseQueue(){
       }
       for(const h of g.houses){
         if(remaining <= 0) break;
-        await updateDoc(doc(db,'jobAddresses', h.id), {needsLightBuild:false});
+        await updateDoc(doc(db,'jobAddresses', h.id), {needsLightBuild:false, buildCompletedAt: serverTimestamp()});
         remaining--;
       }
       for(const ex of g.extras){
         if(remaining <= 0) break;
         const q = Number(ex.data.quantity)||0;
         if(q <= remaining){
-          await deleteDoc(doc(db,'warehouseExtras', ex.id));
+          await updateDoc(doc(db,'warehouseExtras', ex.id), {archived:true, archivedAt: serverTimestamp()});
           remaining -= q;
         } else {
           await updateDoc(doc(db,'warehouseExtras', ex.id), {quantity: q - remaining});
@@ -17794,7 +17990,7 @@ function whSetExtraPattern(text){
 function whExtraFindExisting(customerId, kind){
   if(!customerId) return null;
   return warehouseExtras.find(function(e){
-    return e.data.customerId === customerId && (e.data.kind || 'lights') === kind;
+    return !e.data.archived && e.data.customerId === customerId && (e.data.kind || 'lights') === kind;
   }) || null;
 }
 /* Bundles come from the feet on their record, the same ceil(feet / 40) the build
@@ -21809,6 +22005,7 @@ function loadScheduledRoutes(){
       scheduledRoutesCache[d.date].push(Object.assign({id: docSnap.id}, d));
     });
     renderCalendar();
+    if(typeof renderArchivePanel === 'function') renderArchivePanel();
   });
 }
 /* Pushes corrected customer details into any upcoming saved route that already
@@ -23274,6 +23471,7 @@ function loadCrewConfig(){
     renderGenCrewSelects();
     renderOverrideCrewSelect();
     if(typeof renderConversationList === 'function') renderConversationList();
+    if(typeof renderArchivePanel === 'function') renderArchivePanel();
   });
 }
 function crewOfEmployee(name){
@@ -23712,6 +23910,7 @@ function loadCrewOverrides(){
     crewOverrides = [];
     snap.forEach(function(docSnap){ crewOverrides.push({id:docSnap.id, data:docSnap.data()}); });
     renderOverrideList();
+    if(typeof renderArchivePanel === 'function') renderArchivePanel();
   });
 }
 function renderOverrideList(){
@@ -24649,7 +24848,7 @@ function hcRunChecks(){
     why: 'The build/label points at a customer who no longer exists — and its saved number may since have been reused by a different house.',
     fix: null,
     fixNote: 'No button: decide whether the extra is still needed, then remove it in Warehouse if not.',
-    rows: (typeof warehouseExtras !== 'undefined' && Array.isArray(warehouseExtras) ? warehouseExtras : []).filter(function(e){ return e.data.customerId && !hcCustIdSet[e.data.customerId]; }).map(function(e){
+    rows: (typeof warehouseExtras !== 'undefined' && Array.isArray(warehouseExtras) ? warehouseExtras : []).filter(function(e){ return !e.data.archived && e.data.customerId && !hcCustIdSet[e.data.customerId]; }).map(function(e){
       return {label: (e.data.label || e.data.pattern || 'Extra'), detail: 'linked customer is gone' + (e.data.customerNumber ? ' (was #' + e.data.customerNumber + ')' : '')};
     })
   });
