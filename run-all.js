@@ -4153,7 +4153,7 @@ if (!JSDOM) {
   const src = sectionFrom(admin, start);
 
   check('bulk-address', 'the Customer # column is parsed into cn',
-    /const custNumbers = alignBulkRows/.test(src) && /const cn = custNumbers\[i\] \|\| ''/.test(src),
+    /const custNumbers = .*alignBulkRows/.test(src) && /const cn = custNumbers\[i\] \|\| ''/.test(src),
     'without this the column is read for validation only and the value itself is thrown away');
   check('bulk-address', 'an existing customer actually gets the number written',
     /updates\.customerNumber = cn;/.test(src),
@@ -6857,9 +6857,12 @@ suite('Suite 23. Bulk row mismatches name the offending row');
 
   // Both importers must keep the unfiltered rows, or the hint has nothing to read.
   [['rbStreetsArea', 'streetsRaw', 'Street Address'], ['ibPhonesArea', 'phonesRaw', 'Phone Number']].forEach(([area, raw, label]) => {
+    /* The unfiltered rows must still be kept and still be what gets filtered —
+       not pinned to one exact line, since the Customer # column can now stand in
+       as the anchor and that put a conditional in between. */
     check('S23', label + ' keeps its unfiltered rows for the diagnostic',
       new RegExp('const ' + raw + ' = document\\.getElementById\\(\'' + area + '\'\\)').test(admin) &&
-      new RegExp('const \\w+ = ' + raw + '\\.filter\\(Boolean\\)').test(admin));
+      new RegExp(raw + '\\.filter\\(Boolean\\)').test(admin));
     check('S23', label + ' mismatch calls bulkMismatchHint',
       new RegExp("bulkMismatchHint\\('" + label + "', " + raw).test(admin));
   });
@@ -7735,6 +7738,101 @@ suite('Suite 31. A corrected town still finds its customer');
   check('S31', 'Check First shows a town that is about to change',
     /townChanges/.test(admin) && /oldTown/.test(admin) && /newTown/.test(admin),
     'the town moving a house to another crew is worth seeing before it is written, not after');
+}
+
+/*
+ * Suite 32. Customer number as the identifier, and Last First names.
+ *
+ * Owner, 2026-08-17: "can we just use their customer number as their identifer
+ * instead of address", and "in bulk updates can you make it so if you put names
+ * in there it doesnt put the names in how they are but it puts them in
+ * backwords, because I have them formatted as last, first but I need it in the
+ * website first last and I need to paste."
+ *
+ * Both come with a way to get it badly wrong, and both are guarded here:
+ *   - numbers with no addresses can only UPDATE. Adding would write a customer
+ *     with no address, no town and no pin — a record that can never go on a
+ *     route and has to be found and deleted by hand.
+ *   - the flip cannot tell a business from a person. "Lehi Vision Care" becomes
+ *     "Vision Care Lehi" and always will, so it is opt-in and every change is
+ *     shown in Check First rather than being decided quietly.
+ */
+suite('Suite 32. Customer number as identifier, and flipped names');
+{
+  const fn = (name) => {
+    const i = admin.indexOf('function ' + name + '(');
+    if (i === -1) return null;
+    let d = 0;
+    for (let j = admin.indexOf('{', i); j < admin.length; j++) {
+      if (admin[j] === '{') d++;
+      else if (admin[j] === '}') { d--; if (!d) return admin.slice(i, j + 1); }
+    }
+    return null;
+  };
+
+  // ---- the name flip ----
+  const flipSrc = fn('flipLastFirstName');
+  check('S32', 'the name flip exists', !!flipSrc);
+  if (flipSrc) {
+    const sb = {};
+    new Function(flipSrc + 'this.f=flipLastFirstName;').call(sb);
+    const f = sb.f;
+    check('S32', 'a plain Last First is turned round', f('Cattani Julie') === 'Julie Cattani');
+    check('S32', 'a comma is trusted when there is one', f('Cattani, Julie') === 'Julie Cattani');
+    check('S32', 'only the FIRST word moves, so a two-part first name survives',
+      f('Beckstead Paul /Jill') === 'Paul /Jill Beckstead' && f('Anderson Brit / Dani') === 'Brit / Dani Anderson',
+      'reordering word by word would scramble the couples in this list');
+    check('S32', 'a hyphenated surname stays whole',
+      f('Roberson-Lamoreaux Nate') === 'Nate Roberson-Lamoreaux');
+    check('S32', 'a property label rides along with the first name rather than being lost',
+      f('Larsen Shelby House #2') === 'Shelby House #2 Larsen');
+    check('S32', 'one word is left alone', f('Madonna') === 'Madonna');
+    check('S32', 'blank stays blank', f('') === '' && f('   ') === '' && f(null) === '');
+    check('S32', 'stray spaces are tidied', f('Smith,  Jane') === 'Jane Smith' && f('Smith Shelby ') === 'Shelby Smith');
+    /* Not a bug — a limitation with a name. Written down so nobody "fixes" the
+       flip to be clever about businesses and breaks the couples above. */
+    check('S32', 'a business name is turned round too, which is why this is opt-in',
+      f('Lehi Vision Care') === 'Vision Care Lehi',
+      'no rule can tell this from a person, so Check First shows every change instead');
+  }
+
+  check('S32', 'the flip is a tick box, off unless asked for',
+    /id="rbFlipNames"/.test(admin) && /flip && flip\.checked/.test(admin),
+    'flipping by default would silently reverse every name already the right way round');
+  check('S32', 'Check First and the import read the name through the same helper',
+    (admin.match(/\.map\(rbName\)/g) || []).length === 2,
+    'a preview that flips differently from the import is a preview of another run');
+  check('S32', 'Check First shows the name changing',
+    /nameChanges/.test(admin) && /oldName/.test(admin));
+
+  // ---- customer number as the identifier ----
+  const matchSrc = ['normalizeStreetForMatch', 'extractCleanCity', 'findAddressMatchByTown', 'findExistingAddressMatch'];
+  if (matchSrc.every(n => !!fn(n))) {
+    const book = [
+      { id: 'A', data: { name: 'Cattani Julie', street: '6037 W 11860 N', city: 'Draper', phone: '8015550001', customerNumber: '555' } },
+      { id: 'B', data: { name: 'Olsen Don', street: '120 N 200 W', city: '', phone: '8012287274', customerNumber: '556' } }
+    ];
+    const sb2 = {};
+    new Function('jobAddresses', matchSrc.map(fn).join('\n') + 'this.m=findExistingAddressMatch;').call(sb2, book);
+    const m = (st, ph, ci, zp, cn) => { const r = sb2.m(st, ph, ci, zp, cn); return r ? r.id : null; };
+    check('S32', 'a customer number finds its customer with NO address at all',
+      m('', '', '', '', '555') === 'A',
+      'this is the whole point — the number is the identifier, so nothing else has to be pasted');
+    check('S32', 'and with a wrong address as well',
+      m('999 Somewhere Else', '', 'Nowhere', '', '556') === 'B');
+    check('S32', 'a number nobody holds matches nothing rather than the nearest thing',
+      m('', '', '', '', '999') === null);
+    check('S32', 'no number and no street is still no match', m('', '8015550001', 'Lehi', '', '') === null);
+  }
+
+  check('S32', 'the Customer # column can stand in for the address column',
+    /const byNumberOnly = !streetsRaw\.filter\(Boolean\)\.length && !!cnRawAll\.filter\(Boolean\)\.length/.test(admin));
+  check('S32', 'numbers with no addresses can only UPDATE, never add',
+    /if\(byNumberOnly && !existing\)\{ failed\+\+; continue; \}/.test(admin),
+    'adding here would write a customer with no address, no town and no pin, which can never go on a route');
+  check('S32', 'and a number nobody holds is reported up front',
+    /if\(!heldBy\) numProblems\.push\('Row ' \+ \(i\+1\) \+ ': nobody has #'/.test(admin),
+    '"already belongs to somebody" is the wrong complaint when the number IS the identifier — every row should belong to somebody');
 }
 
 // A check that scores after this summary is a check that cannot fail the build.

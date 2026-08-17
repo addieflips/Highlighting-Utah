@@ -1481,6 +1481,10 @@
               <div class="form-row">
                 <label>Name (optional) <span class="bulk-count" id="rbCountNames">0 rows</span></label>
                 <textarea id="rbNamesArea" rows="6" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="Kaitlyn Roberts&#10;Trevor Miles&#10;(blank line if unknown)"></textarea>
+                <label style="display:flex; align-items:center; gap:7px; margin-top:7px; font-weight:600; font-size:13px;">
+                  <input type="checkbox" id="rbFlipNames"> These are Last First &mdash; turn them round
+                </label>
+                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0; line-height:1.5;">Tick this if your sheet reads <strong>Cattani Julie</strong> or <strong>Cattani, Julie</strong> and the site should show <strong>Julie Cattani</strong>. Only the first word moves to the end, so &ldquo;Beckstead Paul /Jill&rdquo; stays together. Press Check First afterwards and read the Name column &mdash; a business like &ldquo;Lehi Vision Care&rdquo; would be turned round too, and that is the one thing to look out for.</p>
               </div>
               <div class="form-row">
                 <label>Phone Number (optional) <span class="bulk-count" id="rbCountPhones">0 rows</span></label>
@@ -14701,6 +14705,14 @@ function wireBulkCounts(areaIds, anchorId, countIdMap){
 }
 
 // --- Routes Bulk Update ---
+/* Both the dry run and the import read the Name column through this, so what
+   Check First shows is exactly what gets written. Reading the checkbox each
+   time rather than once means ticking it and pressing Check First again works
+   without re-pasting anything. */
+function rbName(raw){
+  const flip = document.getElementById('rbFlipNames');
+  return (flip && flip.checked) ? flipLastFirstName(raw) : raw;
+}
 const rbAreaIds = ['rbNamesArea','rbPhonesArea','rbEmailsArea','rbStreetsArea','rbCitiesArea','rbStatesArea','rbZipsArea','rbDatesArea','rbColorsArea','rbAmountsArea','rbInstallPrefArea','rbCustNumbersArea','rbWireArea','rbTimerArea','rbEavesArea','rbDifficultyArea'];
 const rbCountIds = {
   rbNamesArea:'rbCountNames', rbPhonesArea:'rbCountPhones', rbEmailsArea:'rbCountEmails',
@@ -14774,10 +14786,16 @@ document.getElementById('rbCheckBtn')?.addEventListener('click', function(){
   const statusEl = document.getElementById('rbImportStatus');
   const report = document.getElementById('rbCheckReport');
   report.innerHTML = '';
-  const streets = document.getElementById('rbStreetsArea').value.split('\n').map(s => s.trim()).filter(Boolean);
-  if(!streets.length){ statusEl.textContent = 'Paste at least the Street Address column first.'; return; }
+  // Same anchor rule as the import, or the preview is of a different run.
+  const cnAll = document.getElementById('rbCustNumbersArea').value.split('\n').map(s => s.trim());
+  const byNumberOnly = !document.getElementById('rbStreetsArea').value.split('\n').map(s => s.trim()).filter(Boolean).length
+                       && !!cnAll.filter(Boolean).length;
+  const streets = byNumberOnly
+    ? cnAll.filter(Boolean).map(function(){ return ''; })
+    : document.getElementById('rbStreetsArea').value.split('\n').map(s => s.trim()).filter(Boolean);
+  if(!streets.length){ statusEl.textContent = 'Paste at least the Street Address column first, or the Customer # column on its own.'; return; }
 
-  const names   = alignBulkRows(document.getElementById('rbNamesArea').value.split('\n').map(s => s.trim()), streets.length);
+  const names   = alignBulkRows(document.getElementById('rbNamesArea').value.split('\n').map(s => s.trim()).map(rbName), streets.length);
   const phones  = alignBulkRows(document.getElementById('rbPhonesArea').value.split('\n').map(s => s.trim()), streets.length);
   const cities  = alignBulkRows(document.getElementById('rbCitiesArea').value.split('\n').map(s => s.trim()), streets.length);
   const zips    = alignBulkRows(document.getElementById('rbZipsArea').value.split('\n').map(s => s.trim()), streets.length);
@@ -14787,7 +14805,7 @@ document.getElementById('rbCheckBtn')?.addEventListener('click', function(){
      one key a wrong town cannot break, so Check First has to match on exactly
      what Import matches on, or it is reporting a different run to the one that
      will happen. */
-  const custNumbers = alignBulkRows(document.getElementById('rbCustNumbersArea').value.split('\n').map(s => s.trim()), streets.length);
+  const custNumbers = byNumberOnly ? cnAll.filter(Boolean) : alignBulkRows(cnAll, streets.length);
 
   let willUpdate = 0, willAdd = 0;
   const rows = streets.map(function(street, i){
@@ -14809,6 +14827,12 @@ document.getElementById('rbCheckBtn')?.addEventListener('click', function(){
       /* The town is now allowed to change, so it has to be SHOWN changing. A
          house moving town moves it onto another crew's day, and that is worth
          seeing before it is written rather than after. */
+      /* Shown so a flipped name can be read back before it is written — the
+         rule cannot tell a business from a person, and "Lehi Vision Care"
+         turned round is the failure worth catching by eye. */
+      oldName: existing ? (existing.data.name || '') : '',
+      nameChanges: !!(existing && names[i] && names[i] !== (existing.data.name || '')),
+      cn: custNumbers[i] || '',
       oldTown: existing ? (extractCleanCity(existing.data.city) || '') : '',
       newTown: extractCleanCity(cities[i] || '') || '',
       townChanges: !!(existing && extractCleanCity(cities[i] || '') &&
@@ -14854,7 +14878,7 @@ document.getElementById('rbCheckBtn')?.addEventListener('click', function(){
     '<div style="max-height:280px; overflow:auto; border:1px solid var(--line); border-radius:8px;">' +
       '<table style="width:100%; border-collapse:collapse; font-size:12.5px;"><thead><tr style="background:var(--paper);">' +
       '<th style="text-align:left; padding:6px 8px;">#</th><th style="text-align:left; padding:6px 8px;">Address</th>' +
-      '<th style="text-align:left; padding:6px 8px;">Matches</th><th style="text-align:left; padding:6px 8px;">Town</th><th style="text-align:left; padding:6px 8px;">Price</th></tr></thead><tbody>' +
+      '<th style="text-align:left; padding:6px 8px;">Matches</th><th style="text-align:left; padding:6px 8px;">Name</th><th style="text-align:left; padding:6px 8px;">Town</th><th style="text-align:left; padding:6px 8px;">Price</th></tr></thead><tbody>' +
       rows.map(function(r){
         const priceCell = r.action === 'add'
           ? (r.newPrice === null ? '<span style="color:var(--slate);">—</span>' : fmtMoney(r.newPrice))
@@ -14866,6 +14890,9 @@ document.getElementById('rbCheckBtn')?.addEventListener('click', function(){
           '<td style="padding:4px 8px;">' + (r.action === 'update'
             ? esc(r.existingName || 'an existing customer')
             : '<span style="color:var(--dusk);">new customer' + (r.name ? ' — ' + esc(r.name) : '') + '</span>') + '</td>' +
+          '<td style="padding:4px 8px;">' + (r.nameChanges
+            ? '<span style="color:var(--dusk); font-weight:600;">' + esc(r.oldName || 'no name') + ' → ' + esc(r.name) + '</span>'
+            : '<span style="color:var(--slate);">' + esc(r.name || r.oldName || '—') + '</span>') + '</td>' +
           '<td style="padding:4px 8px;">' + (r.townChanges
             ? '<span style="color:var(--dusk); font-weight:600;">' + esc(r.oldTown || 'no town') + ' → ' + esc(r.newTown) + '</span>'
             : '<span style="color:var(--slate);">' + esc(r.newTown || r.oldTown || '—') + '</span>') + '</td>' +
@@ -14879,11 +14906,19 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
   /* Kept before the blanks are filtered out, so a mismatch can say WHICH row is
      empty instead of only that the totals differ. */
   const streetsRaw = document.getElementById('rbStreetsArea').value.split('\n').map(s => s.trim());
-  const streets = streetsRaw.filter(Boolean);
-  if(!streets.length){ statusEl.textContent = 'Paste at least the Street Address column.'; return; }
+  const cnRawAll = document.getElementById('rbCustNumbersArea').value.split('\n').map(s => s.trim());
+  /* The Customer # column can stand in for the address column entirely.
+     Owner, 2026-08-17: "can we just use their customer number as their
+     identifer instead of address". With numbers and no addresses this can only
+     UPDATE people who already exist — there is nothing to build a new customer
+     from and nowhere to put a pin — so a number nobody holds is reported rather
+     than quietly turned into a blank customer. */
+  const byNumberOnly = !streetsRaw.filter(Boolean).length && !!cnRawAll.filter(Boolean).length;
+  const streets = byNumberOnly ? cnRawAll.filter(Boolean).map(function(){ return ''; }) : streetsRaw.filter(Boolean);
+  if(!streets.length){ statusEl.textContent = 'Paste at least the Street Address column, or the Customer # column on its own.'; return; }
 
-  const names = alignBulkRows(document.getElementById('rbNamesArea').value.split('\n').map(s => s.trim()), streets.length);
-  const custNumbers = alignBulkRows(document.getElementById('rbCustNumbersArea').value.split('\n').map(s => s.trim()), streets.length);
+  const names = alignBulkRows(document.getElementById('rbNamesArea').value.split('\n').map(s => s.trim()).map(rbName), streets.length);
+  const custNumbers = byNumberOnly ? cnRawAll.filter(Boolean) : alignBulkRows(cnRawAll, streets.length);
   // Validate every number up front — a half-finished numbering run is worse than none.
   const numProblems = [];
   const seenNums = {};
@@ -14894,7 +14929,15 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
     if(seenNums[cn] !== undefined){ numProblems.push('Row ' + (i+1) + ': #' + cn + ' is also on row ' + seenNums[cn] + '.'); continue; }
     seenNums[cn] = i+1;
     const heldBy = jobAddresses.find(function(it){ return String(it.data.customerNumber||'') === cn; });
-    if(heldBy) numProblems.push('Row ' + (i+1) + ': #' + cn + ' already belongs to ' + (heldBy.data.name || 'another customer') + '.');
+    /* "Already belongs to somebody" is the right complaint when a number is
+       being HANDED OUT alongside an address, and exactly the wrong one when the
+       number IS the identifier — there, every row is supposed to belong to
+       somebody, and a number nobody holds is the problem instead. */
+    if(byNumberOnly){
+      if(!heldBy) numProblems.push('Row ' + (i+1) + ': nobody has #' + cn + '.');
+    } else if(heldBy){
+      numProblems.push('Row ' + (i+1) + ': #' + cn + ' already belongs to ' + (heldBy.data.name || 'another customer') + '.');
+    }
   }
   if(numProblems.length){
     statusEl.textContent = 'Fix these Customer # problems first — nothing was imported: ' + numProblems.slice(0,8).join('  ') + (numProblems.length > 8 ? '  …and ' + (numProblems.length-8) + ' more.' : '');
@@ -14997,6 +15040,12 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
       }
       if(!coords){ coords = {lat: null, lng: null}; noPin++; }
       const existing = findExistingAddressMatch(street, phone, city, zip, cn);
+      /* Numbers with no addresses can only update. Falling through to the "add"
+         branch would write a customer with no address, no town and no pin —
+         a record that can never be put on a route and would have to be found
+         and deleted by hand. The up-front check already refuses a number nobody
+         holds, so this is the belt to that pair of braces. */
+      if(byNumberOnly && !existing){ failed++; continue; }
       if(existing){
         /* extractCleanCity so a pasted town lands in exactly the shape Edit
            Customer writes and the routes read — "Lehi, UT" and " Lehi " must not
@@ -18051,6 +18100,34 @@ document.getElementById('wantFixAll').addEventListener('change', function(){
   document.getElementById('wantFix').disabled = this.checked;
 });
 
+/* "Cattani Julie" -> "Julie Cattani".
+   Owner, 2026-08-17: "I have them formatted as last, first but I need it in the
+   website first last and I need to paste."
+
+   Opt-in, because it cannot be told apart from a name that is already the right
+   way round — "Taylor Mark" is a valid reading either way — and because the
+   list holds businesses ("Lehi Vision Care", "River Meadows Senior Ctr") that
+   must not be turned inside out. Check First shows every flip so a business
+   that got caught is visible before anything is written.
+
+   A comma is trusted when there is one: "Cattani, Julie" splits there exactly.
+   Without one, only the FIRST word moves to the end, which keeps the two-word
+   surnames and the trailing notes in this list intact — "Beckstead Paul /Jill"
+   becomes "Paul /Jill Beckstead", not something reordered word by word. */
+function flipLastFirstName(raw){
+  const s = String(raw == null ? '' : raw).trim().replace(/\s+/g,' ');
+  if(!s) return '';
+  const comma = s.indexOf(',');
+  if(comma !== -1){
+    const last = s.slice(0, comma).trim();
+    const rest = s.slice(comma + 1).trim();
+    if(!last || !rest) return s;
+    return rest + ' ' + last;
+  }
+  const gap = s.indexOf(' ');
+  if(gap === -1) return s;            // one word — nothing to swap
+  return s.slice(gap + 1).trim() + ' ' + s.slice(0, gap);
+}
 function normalizeStreetForMatch(s){
   return (s||'').toLowerCase().trim().replace(/[.,#]/g,'').replace(/\s+/g,' ');
 }
@@ -18066,15 +18143,19 @@ function findExistingAddressMatch(street, phone, city, zip, custNumber){
      So the stable, town-independent keys are tried FIRST. Only when neither is
      given do we fall back to the old street+town+zip test, and then to a street
      that belongs to exactly one house in the whole book. */
-  const normStreetEarly = normalizeStreetForMatch(street);
-  if(!normStreetEarly) return undefined;
+  /* The customer number is checked BEFORE the street, and works without one.
+     Owner, 2026-08-17: "can we just use their customer number as their
+     identifer instead of address". It is the only key on a customer that is
+     both unique and permanent — an address gets retyped, a town gets corrected,
+     a phone changes hands — so when it is given it is the whole answer and
+     nothing else needs to agree with it. */
   const cn = String(custNumber == null ? '' : custNumber).trim();
   if(cn){
-    /* A customer number is permanent and unique — if it is on the row it is the
-       whole answer, whatever the town says. */
-    const byNum = jobAddresses.find(function(it){ return String(it.data.customerNumber || '') === cn; });
-    if(byNum) return byNum;
+    const byNumOnly = jobAddresses.find(function(it){ return String(it.data.customerNumber || '') === cn; });
+    if(byNumOnly) return byNumOnly;
   }
+  const normStreetEarly = normalizeStreetForMatch(street);
+  if(!normStreetEarly) return undefined;
   const digitsEarly = (phone || '').replace(/\D/g,'');
   if(digitsEarly){
     const byPhone = jobAddresses.find(function(it){
