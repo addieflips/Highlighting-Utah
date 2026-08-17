@@ -6615,6 +6615,88 @@ check('build', 'one failed flag does not skip everyone after it',
 
 // =====================================================================
 // Wait for the async suites before totalling up — see pendingAsync at the top.
+/*
+ * Suite 21. Panels load their own data when opened, not all at login.
+ *
+ * The admin page used to open ~39 permanent Firestore listeners the moment
+ * anyone logged in, so the browser held every collection — two years of
+ * clock-ins, every card transaction, every employee record — whether or not
+ * that tab was ever clicked. That is what made the page eat memory.
+ *
+ * The risk now runs the other way: a loader named in panelDataGroup that does
+ * not exist, or a panel key that matches no real panel, fails ONLY when someone
+ * opens that tab, and shows up as a silently empty panel rather than an error.
+ * These checks catch both at build time, and stop a future session quietly
+ * moving a loader back into initData().
+ */
+suite('Suite 21. Panel data loads on open, not all at login');
+{
+  const bodyOf = (src, header) => {
+    const s = src.indexOf(header);
+    if (s === -1) return '';
+    let depth = 0, i = src.indexOf('{', s);
+    for (let j = i; j < src.length; j++) {
+      if (src[j] === '{') depth++;
+      else if (src[j] === '}') { depth--; if (depth === 0) return src.slice(s, j + 1); }
+    }
+    return '';
+  };
+
+  const initBody = bodyOf(admin, 'function initData(){');
+  const groupBody = bodyOf(admin, 'function panelDataGroup(');
+  const switchBody = bodyOf(admin, 'function switchToAdminPanel(');
+
+  check('S21', 'initData() still exists to read', initBody.length > 0);
+  check('S21', 'panelDataGroup() still exists to read', groupBody.length > 0);
+
+  // Every loader the lazy map promises to call must actually be a function.
+  const named = [...new Set([...groupBody.matchAll(/\bload[A-Za-z0-9_]+/g)].map(m => m[0]))];
+  check('S21', 'panelDataGroup names at least the known loader groups', named.length >= 18,
+    'found ' + named.length);
+  const missing = named.filter(fn => !new RegExp('\\r?\\n\\s*(?:async )?function ' + fn + '\\s*\\(').test(admin));
+  check('S21', 'every loader in panelDataGroup is a real function', missing.length === 0,
+    'no such function: ' + missing.join(', '));
+
+  // Deferred loaders must NOT be called eagerly at login again.
+  const deferredCalledAtLogin = named.filter(fn => new RegExp('(?:^|[^A-Za-z0-9_.])' + fn + '\\s*\\(\\s*\\)').test(initBody));
+  check('S21', 'no deferred loader is called eagerly in initData()', deferredCalledAtLogin.length === 0,
+    'back in initData(): ' + deferredCalledAtLogin.join(', ') + ' — it belongs in PANEL_DATA, or the page loads everything at login again');
+
+  // Every panel key in PANEL_DATA has to be a real nav panel, or its data never loads.
+  const pdMatch = admin.match(/const PANEL_DATA = \{[\s\S]*?\n\};/);
+  check('S21', 'PANEL_DATA is present', !!pdMatch);
+  if (pdMatch) {
+    const keys = [...pdMatch[0].matchAll(/^\s{2}([a-z-]+):/gm)].map(m => m[1]);
+    const badPanels = keys.filter(k => !admin.includes('data-panel="' + k + '"'));
+    check('S21', 'every PANEL_DATA key is a real nav panel', badPanels.length === 0,
+      'no nav item for: ' + badPanels.join(', '));
+
+    // Every group a panel asks for must have a case in panelDataGroup, or the
+    // panel opens and quietly loads nothing at all.
+    const wanted = [...new Set([...pdMatch[0].matchAll(/'([a-z]+)'/g)].map(m => m[1]))];
+    const unhandled = wanted.filter(g => !groupBody.includes("case '" + g + "'"));
+    check('S21', 'every group PANEL_DATA asks for is handled', unhandled.length === 0,
+      'no case for: ' + unhandled.join(', '));
+  }
+
+  // The two wiring points. Without either, panels open empty forever.
+  check('S21', 'switchToAdminPanel() loads the opened panel\'s data', /ensurePanelData\(panelName\)/.test(switchBody));
+  check('S21', 'initData() loads the panel already on screen', /ensurePanelData\(currentAdminPanel\(\)\)/.test(initBody));
+
+  // The badge loaders have to stay eager — a badge must be right before you click.
+  ['loadQuotes', 'loadMessages', 'loadEmployeeNotes', 'loadProjectTests'].forEach(fn => {
+    check('S21', fn + '() stays eager so its sidebar badge is right at login',
+      new RegExp('(?:^|[^A-Za-z0-9_.])' + fn + '\\s*\\(\\s*\\)').test(initBody));
+  });
+
+  // The leak this started with: the payroll split-view toggle re-calls
+  // loadTimeLogs(), which used to open a second listener each time.
+  const tlBody = bodyOf(admin, 'function loadTimeLogs(){');
+  check('S21', 'loadTimeLogs() drops its previous listener before opening another',
+    /timeLogsUnsub\s*\(\s*\)/.test(tlBody) && /timeLogsUnsub = onSnapshot/.test(tlBody),
+    'without this, every tick of the payroll split-view toggle leaves another live listener on two years of clock-ins');
+}
+
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));

@@ -4313,7 +4313,73 @@ function switchToAdminPanel(panelName){
   if(panelEl) panelEl.classList.add('active');
   document.getElementById('sidebar').classList.remove('open');
   renderFavoritesSection();
+  ensurePanelData(panelName);
   try{ sessionStorage.setItem('huLastPanel', panelName); }catch(e){}
+}
+
+/* ---------------- Panel data loads when the panel is opened ----------------
+   Every panel used to open its Firestore listeners at login — about forty of
+   them — so the browser held every collection in memory whether or not anyone
+   ever clicked that tab. Two years of clock-ins, every card transaction and
+   every employee record were loaded to look at a quote.
+
+   NOTHING is removed here. Each panel still loads exactly what it always did;
+   it just waits until the panel is actually opened, and then keeps it for the
+   rest of the session exactly as before.
+
+   The panels that feed a sidebar badge — Quotes, Messages, Employee Notes,
+   Project To-Do, Health — deliberately stay eager in initData(), because their
+   badge has to be right before anyone clicks anything.
+
+   Grouped, not per-panel, because the data is shared: the Dashboard's finance
+   figures read the time logs and the card transactions, so opening it must pull
+   the people and money loaders too, or it would draw a confident zero where a
+   real number belongs. */
+const PANEL_DATA = {
+  dashboard:        ['money','people','timelogs'],
+  timelogs:         ['timelogs','people'],
+  responsibilities: ['people','timelogs'],
+  reviews:          ['reviews'],
+  gallery:          ['gallery'],
+  hero:             ['hero'],
+  faq:              ['faq'],
+  projecttodo:      ['projectpeople']
+};
+/* Resolved inside a function, not a top-level array, so the loaders below are
+   all defined by the time anything reads this. */
+function panelDataGroup(groupName){
+  switch(groupName){
+    case 'money':         return [loadExpenses, loadFinancialTrackers, loadCreditCards, loadCcTransactions, loadCcRecurringOverrides];
+    case 'people':        return [loadEmployeeNames, loadEmployeeCategories, loadRoleTemplates, loadTimeOffRequests, loadCrewConfig, loadCrewOverrides, loadTimecardApprovalsAdmin, loadEmployeeRequestsAdmin];
+    case 'timelogs':      return [loadTimeLogs];
+    case 'reviews':       return [loadReviews];
+    case 'gallery':       return [loadGallery];
+    case 'hero':          return [loadHeroImages];
+    case 'faq':           return [loadFAQ];
+    case 'projectpeople': return [loadProjectPeople];
+    default:              return [];
+  }
+}
+const loadedPanelGroups = new Set();
+function ensurePanelData(panelName){
+  /* Before login there is no db to listen to; initData() calls this itself for
+     whichever panel is on screen once it has finished. */
+  if(!initialized) return;
+  (PANEL_DATA[panelName] || []).forEach(function(groupName){
+    if(loadedPanelGroups.has(groupName)) return;
+    /* Marked before running, and left marked even if a loader throws: a retry
+       would re-run the loaders that already succeeded and open a second copy of
+       their listeners, which is the problem this whole section exists to fix. */
+    loadedPanelGroups.add(groupName);
+    panelDataGroup(groupName).forEach(function(fn){
+      try{ fn(); }
+      catch(e){ console.error('Panel data failed to load: ' + panelName + ' / ' + groupName, e); }
+    });
+  });
+}
+function currentAdminPanel(){
+  const btn = document.querySelector('.nav-item.active[data-panel]');
+  return btn ? btn.dataset.panel : null;
 }
 function restoreLastAdminPanel(){
   let saved = null;
@@ -6304,12 +6370,11 @@ function initData(){
   loadCustomCodes();
   loadMessages();
   loadInvoices();
-  loadReviews();
-  loadGallery();
-  loadHeroImages();
-  loadFAQ();
   loadProjectTests();
-  loadProjectPeople();
+  /* loadProjectPeople, the Reviews/Gallery/Hero/FAQ loaders, the people loaders
+     and the money loaders now run when their panel is first opened — see
+     PANEL_DATA above. loadProjectTests stays here because the sidebar badge
+     counts open items before anyone opens the checklist. */
   // Keep the checklist current without anyone having to remember to press
   // Sync — quiet unless it actually finds something to add or flag.
   runProjectTestSync().catch(function(){});
@@ -6335,27 +6400,17 @@ function initData(){
   setupEmailTemplateExtras('pibPaidTemplateExtras', 'pibPaidTemplate');
   setupEmailTemplateExtras('rsvpEmailTemplateExtras', 'rsvpEmailTemplate', {supportsAmount: false});
   loadScheduledRoutes();
-  loadTimeLogs();
-  loadEmployeeNames();
-  loadEmployeeCategories();
-  loadRoleTemplates();
-  loadTimeOffRequests();
-  loadCrewConfig();
-  loadCrewOverrides();
   loadEmployeeNotes();
-  loadExpenses();
-  loadFinancialTrackers();
-  loadCreditCards();
-  loadCcTransactions();
-  loadCcRecurringOverrides();
   loadEmailjsSettings();
   loadQuoteTemplateSettings();
   loadQuoteNudgeSettings();
   loadNightlyInvoiceSettings();
   loadNightlyInvoiceLog();
-  loadTimecardApprovalsAdmin();
-  loadEmployeeRequestsAdmin();
   loadPerFootRate();
+  /* Whatever panel is on screen at login — the remembered one, or Quote
+     Requests by default — pulls its own data now. Every other panel waits until
+     it is opened. */
+  ensurePanelData(currentAdminPanel());
 }
 let perFootRate = 0;
 /* What one referral is worth as a credit. Kept here rather than typed into the
@@ -21204,13 +21259,19 @@ let timeLogsWindowStart = null;
    run out, but it runs out at a knowable date, which is what lets the screen
    say so out loud instead of quietly showing zero. */
 const TIMELOG_WINDOW_MONTHS = 24;
+/* The payroll split-view toggle calls loadTimeLogs() again every time it is
+   ticked. Without this, each tick opened ANOTHER permanent listener on two
+   years of clock-ins while the old one kept running — ten ticks, ten copies of
+   the same data held for the life of the page. Drop the previous one first. */
+let timeLogsUnsub = null;
 function loadTimeLogs(){
   const cutoff = new Date();
   cutoff.setMonth(cutoff.getMonth() - TIMELOG_WINDOW_MONTHS);
   cutoff.setHours(0,0,0,0);
   timeLogsWindowStart = cutoff;
   const q = query(collection(db,'timeLogs'), where('createdAt','>=', cutoff), orderBy('createdAt','desc'));
-  onSnapshot(q, function(snap){
+  if(timeLogsUnsub){ try{ timeLogsUnsub(); }catch(e){} timeLogsUnsub = null; }
+  timeLogsUnsub = onSnapshot(q, function(snap){
     allTimeLogsCache = [];
     snap.forEach(function(docSnap){ allTimeLogsCache.push({id:docSnap.id, data:docSnap.data()}); });
     renderPayrollWeek();
