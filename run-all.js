@@ -2649,7 +2649,7 @@ suite('10e. Import safety, and the abandoned quote link');
     !/updateDoc|addDoc|setDoc|deleteDoc/.test(checkSrc),
     'a preview that writes is not a preview');
   check('import-safety', 'it resolves matches the same way the real import does',
-    /findExistingAddressMatch\(street, phone/.test(checkSrc) && /alignBulkRows/.test(checkSrc),
+    /bulkFindCustomer\(street, phone/.test(checkSrc) && /alignBulkRows/.test(checkSrc),
     'a preview that matches differently from the real run is worse than none — it would lie');
   check('import-safety', 'it reads the same price box the importer reads',
     /rbAmountsArea/.test(checkSrc),
@@ -7732,11 +7732,25 @@ suite('Suite 31. A corrected town still finds its customer');
      number must not be the key: the numbers on file are known to be wrong, so
      matching on one would send the row to the wrong customer. */
   check('S31', 'the import matches on whichever identifier is in force',
-    /findExistingAddressMatch\(street, phone, city, zip, BULK_BY_NUMBER \? cn : ''\)/.test(admin),
+    /const existing = bulkFindCustomer\(street, phone, city, zip, cn\);/.test(admin),
     'hard-coding the key either way is what makes the switch a redesign instead of a switch');
   check('S31', 'and Check First matches on exactly the same keys',
-    /findExistingAddressMatch\(street, phone, cities\[i\] \|\| '', zips\[i\] \|\| '', BULK_BY_NUMBER \? \(custNumbers\[i\] \|\| ''\) : ''\)/.test(admin),
+    /const existing = bulkFindCustomer\(street, phone, cities\[i\] \|\| '', zips\[i\] \|\| '', custNumbers\[i\] \|\| ''\);/.test(admin),
     'a dry run that matches differently from the import is reporting a run that will not happen');
+  /* Owner, 2026-08-17: "only the number is a identifier." On 'number' that is
+     literal — no falling back to phone, street, town, or "this street belongs
+     to exactly one house". A guess was worth having while the numbers could not
+     be trusted; now that they can, it is a liability. */
+  check('S31', 'on number mode the number is the ONLY thing consulted',
+    /if\(BULK_BY_NUMBER\)\{[\s\S]{0,400}?String\(it\.data\.customerNumber \|\| ''\) === num/.test(admin) &&
+    /if\(!num\) return undefined;/.test(admin),
+    'any fallback here is the tool guessing which customer somebody meant');
+  check('S31', 'Add Customer still matches on the address, which is its question',
+    /const dupe = findExistingAddressMatch\(street, phone, city, zip\);/.test(admin),
+    '"is this new address already in the book" is answered by the address, not by a number nobody has typed yet');
+  check('S31', 'a paste with no Customer # is refused rather than added wholesale',
+    (admin.match(/if\(BULK_BY_NUMBER && !anchorIsNumbers\)\{/g) || []).length === 2,
+    'with no other key, every row would fall through to "add" and duplicate the whole book');
   check('S31', 'a pasted town is cleaned the way Edit Customer cleans it',
     /city: extractCleanCity\(city\) \|\| city/.test(admin),
     '"Lehi, UT" and " Lehi " must not become towns of their own, each earning a crew-day for one house');
