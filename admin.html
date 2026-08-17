@@ -25603,11 +25603,38 @@ let fixOpen=true, FIXLIST=[], fixRouteSeq=0, loaded=false, saveTimer=null;
 function startFor(day){return day.isTakedown?TAKE_BASE_START:BASE_START;}
 function deltaFor(day){return day.isTakedown?takeDelta:globalDelta;}
 function desired(day){return addDays(startFor(day), day.base+deltaFor(day)+day.cascade);}
+/* "SET" means the crew is committed to that exact date, so it only means
+   anything for a day that is nearly here. Owner, 2026-08-16: "a day should only
+   be set if the day falls within the next two business days."
+   Further out, a pin does not record a commitment — it just freezes one day in
+   place while everything around it re-flows, which is what left Oct 1 and Oct 2
+   stuck while the rest of the season moved.
+   The pin is IGNORED, never deleted. Pressing "Force exact date" is a
+   deliberate act and quietly throwing it away would lose somebody's decision;
+   it simply stops holding the day still until the date is close enough to mean
+   something, and starts holding it again on its own when it is.
+   Fix routes are NOT affected — they carry their real date in .pin and are laid
+   out separately in computeDates, not through here. */
+const PIN_HONOURED_BUSINESS_DAYS=2;
+function pinHorizon(){
+  let d=new Date(); d.setHours(0,0,0,0);
+  for(let i=0;i<PIN_HONOURED_BUSINESS_DAYS;i++){
+    d=addDays(d,1);
+    while(isWeekend(d))d=addDays(d,1);
+  }
+  return d;
+}
+function effectivePin(day){
+  if(!day||!day.pin)return null;
+  const p=new Date(day.pin);
+  return p<=pinHorizon()?p:null;
+}
 function layoutSequence(days){
-  const arr=days.sort((a,b)=>{const ka=a.pin?a.pin:desired(a),kb=b.pin?b.pin:desired(b);return ka-kb||a.base-b.base;});
+  const arr=days.sort((a,b)=>{const pa=effectivePin(a),pb=effectivePin(b);const ka=pa||desired(a),kb=pb||desired(b);return ka-kb||a.base-b.base;});
   let cursor=null;
   for(const day of arr){
-    if(day.pin){day._date=new Date(day.pin);if(!cursor||day._date>cursor)cursor=new Date(day._date);continue;}
+    const pin=effectivePin(day);
+    if(pin){day._date=new Date(pin);if(!cursor||day._date>cursor)cursor=new Date(day._date);continue;}
     let d=desired(day);
     if(cursor&&d<=cursor)d=addDays(cursor,1);
     while(isWeekend(d))d=addDays(d,1);
@@ -25797,7 +25824,7 @@ function renderDayList(elId,days,selId,listName){
   el.innerHTML=days.map(day=>{const dt=dayDate(day),lab=dlabel(dt),fr=day.isFixRoute;
     const dc=day.houses.filter(h=>h.done).length,n=day.houses.length,left=n-dc,pct=n?Math.round(dc/n*100):0,full=n&&dc===n;
     return '<div class="day'+(day.id===selId?' sel':'')+(fr?' fixroute':'')+'" data-day="'+day.id+'" data-list="'+listName+'">'+
-      '<div class="drow"><span class="dname">'+lab.wd+' '+lab.full+(fr?'<span class="frb">FIX RT</span>':(day.pin?'<span class="pinbadge">SET</span>':''))+(full?'<span class="check-badge">✓</span>':'')+'</span><span class="dcount">'+(full?'done':left+' left')+'</span></div>'+
+      '<div class="drow"><span class="dname">'+lab.wd+' '+lab.full+(fr?'<span class="frb">FIX RT</span>':(effectivePin(day)?'<span class="pinbadge">SET</span>':''))+(full?'<span class="check-badge">✓</span>':'')+'</span><span class="dcount">'+(full?'done':left+' left')+'</span></div>'+
       '<div class="darea">'+esc(dayMainArea(day))+'</div><div class="dmeta"><span>'+dc+' / '+n+'</span><span>'+pct+'%</span></div><div class="dbar"><i style="width:'+pct+'%"></i></div></div>';}).join('');
 }
 function dayOptions(currentId,kind){
@@ -25853,7 +25880,7 @@ function renderPanelInto(elId,day){
   if(!day){el.innerHTML='<div class="emptyday">'+(elId==='fixPanel'?'Pick a fixer route on the left, or build one from the fix list.':'No day selected.')+'</div>';return;}
   const dt=dayDate(day),lab=dlabel(dt),dc=day.houses.filter(h=>h.done).length,n=day.houses.length,left=n-dc,pct=n?Math.round(dc/n*100):0;
   const shift=deltaFor(day)+day.cascade,fr=day.isFixRoute,td=day.isTakedown;
-  const title=fr?('🚚 Fixer Route — '+esc(dayMainArea(day))):((td?'📦 ':'')+lab.wd+', '+lab.full+(day.pin&&!fr?' <span class="pinbadge">SET DATE</span>':''));
+  const title=fr?('🚚 Fixer Route — '+esc(dayMainArea(day))):((td?'📦 ':'')+lab.wd+', '+lab.full+(effectivePin(day)&&!fr?' <span class="pinbadge">SET DATE</span>':''));
   let h='<div class="phead"><div><div class="t">'+title+'</div><div class="meta">'+(fr?'on '+lab.wd+' '+lab.full+' · ':'')+left+' left · '+n+' total'+(fr?'':' · '+esc(dayMainArea(day)))+'</div></div>'+
     '<div class="prog"><div class="meta">'+pct+'% '+(td?'removed':'complete')+'</div><div class="obar"><i style="width:'+pct+'%"></i></div></div>'+
     '<button class="btn ghost" data-allbtn="'+day.id+'">'+(dc===n&&n?'Uncheck all':(td?'Mark all removed':'Mark all done'))+'</button>'+

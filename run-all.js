@@ -6956,6 +6956,96 @@ suite('Suite 24. A day with nothing left in it does not abort the sweep');
     'filtering on lat/lng would silently drop un-geocoded houses off their routes');
 }
 
+/*
+ * Suite 25. A day is only "SET" if it is nearly here.
+ *
+ * Owner, 2026-08-16: "Oct 1 and Oct 2 are already set and isn't updating in
+ * schedule, a day should only be set if the day falls within the next two
+ * business days."
+ *
+ * In the Schedule planner a pinned day is shown as SET and holds its exact
+ * date while every other day re-flows around it. That is right for a day the
+ * crew is committed to and wrong for one six weeks out, where it just freezes
+ * a hole in the middle of the season.
+ *
+ * The pin is IGNORED rather than deleted — "Force exact date" is a deliberate
+ * act, and throwing it away would lose somebody's decision. It stops holding
+ * the day and starts again on its own once the date is close.
+ */
+suite('Suite 25. A day is only SET if it is within two business days');
+{
+  const lift = (name) => {
+    const i = admin.indexOf('function ' + name + '(');
+    if (i === -1) return null;
+    let d = 0;
+    for (let j = admin.indexOf('{', i); j < admin.length; j++) {
+      if (admin[j] === '{') d++;
+      else if (admin[j] === '}') { d--; if (!d) return admin.slice(i, j + 1); }
+    }
+    return null;
+  };
+  const constStart = admin.indexOf('const PIN_HONOURED_BUSINESS_DAYS');
+  const horizonSrc = lift('pinHorizon');
+  const effSrc = lift('effectivePin');
+  check('S25', 'the pin horizon helpers exist', constStart !== -1 && !!horizonSrc && !!effSrc);
+
+  if (constStart !== -1 && horizonSrc && effSrc) {
+    const api = eval(
+      'function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x;}\n' +
+      'function isWeekend(d){const k=d.getDay();return k===0||k===6;}\n' +
+      admin.slice(constStart, admin.indexOf('function pinHorizon')) +
+      horizonSrc + '\n' + effSrc +
+      '\n;({horizon: pinHorizon, eff: effectivePin, days: PIN_HONOURED_BUSINESS_DAYS})');
+
+    check('S25', 'two business days, as asked for', api.days === 2);
+
+    /* Relative to a fixed Monday so the test does not drift with the calendar:
+       business days from Mon are Tue and Wed; Thu is already too far. */
+    const mon = new Date(2026, 9, 5);           // Mon 5 Oct 2026
+    const at = (d) => new Date(2026, 9, d);
+    const horizon = api.horizon();
+    check('S25', 'the horizon skips weekends rather than counting them',
+      (() => {
+        // Fri + 2 business days must land on Tue, not Sun.
+        let d = new Date(2026, 9, 2), n = 0;    // Fri 2 Oct
+        for (let i = 0; i < 2; i++) { d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1); while (d.getDay() === 0 || d.getDay() === 6) d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1); n++; }
+        return d.getDay() === 2 && n === 2;
+      })(),
+      'counting plain days would freeze a day over the weekend and honour the wrong dates');
+
+    // The reported case: a pin weeks out must stop holding its day.
+    const farOut = api.eff({ pin: new Date(2027, 0, 15) });
+    check('S25', 'a pin weeks away no longer holds its day still', farOut === null,
+      'this is the Oct 1 / Oct 2 case — the day stayed put while the season moved around it');
+
+    const soon = api.eff({ pin: new Date(Date.now() + 24 * 60 * 60 * 1000) });
+    check('S25', 'a pin for tomorrow is still honoured', soon !== null,
+      'a day the crew is committed to must not be re-flowed out from under them');
+
+    const past = api.eff({ pin: new Date(2020, 0, 1) });
+    check('S25', 'a date already gone stays where it is', past !== null,
+      'a past day is history — re-flowing it would rewrite what the crew was sent out with');
+
+    check('S25', 'no pin means no SET', api.eff({ pin: null }) === null && api.eff(null) === null);
+    check('S25', 'the horizon is a real date', horizon instanceof Date && !isNaN(horizon.getTime()));
+  }
+
+  // The wiring: both the layout and the badge must go through effectivePin.
+  const layout = lift('layoutSequence') || '';
+  check('S25', 'the date engine honours the horizon, not the raw pin',
+    /effectivePin\(day\)/.test(layout) && !/if\(day\.pin\)\{day\._date/.test(layout),
+    'reading day.pin directly here is what pinned Oct 1 and Oct 2 in place');
+  check('S25', 'the SET badge only shows when the pin is actually in force',
+    /effectivePin\(day\)\?'<span class="pinbadge">SET</.test(admin) &&
+    /effectivePin\(day\)&&!fr\?' <span class="pinbadge">SET DATE</.test(admin),
+    'showing SET on a day that is not actually held is a lie the office would plan around');
+  /* Fix routes carry their REAL date in .pin and are laid out separately. If
+     they ever went through effectivePin they would lose their date entirely. */
+  check('S25', 'fix routes still take their date straight from the pin',
+    /SEASON\.filter\(d=>d\.isFixRoute\)\.forEach\(d=>\{d\._date=new Date\(d\.pin\);\}\)/.test(admin),
+    'a fixer route IS its pin — putting it through the horizon would blank its date');
+}
+
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
