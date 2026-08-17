@@ -7846,13 +7846,13 @@ suite('Suite 32. Customer number as identifier, and flipped names');
      were given at all, which is how somebody brand new still gets added. */
   check('S32', 'the identifier column anchors, in both handlers',
     (admin.match(/const anchorIsNumbers = BULK_BY_NUMBER && !!cn\w*\.filter\(Boolean\)\.length/g) || []).length === 2 &&
-    (admin.match(/const anchorIsPhones = !BULK_BY_NUMBER && !!phones\w*\.filter\(Boolean\)\.length/g) || []).length === 2,
+    (admin.match(/const anchorIsPhones = BULK_BY_PHONE && !!phones\w*\.filter\(Boolean\)\.length/g) || []).length === 2,
     'Check First and the import must anchor the same way, or the preview is of a different run');
   /* The counters on screen are anchored on the same column. This is what the
      owner actually saw: "customer number says 963 lines in red, but it
      shouldnt be in red because it is the indicator". */
   check('S32', 'the live counters are anchored on the identifier column',
-    (admin.match(/wireBulkCounts\(rbAreaIds, BULK_BY_NUMBER \? 'rbCustNumbersArea' : 'rbPhonesArea', rbCountIds\)/g) || []).length === 2,
+    (admin.match(/wireBulkCounts\(rbAreaIds, BULK_BY_NUMBER \? 'rbCustNumbersArea' : BULK_BY_PHONE \? 'rbPhonesArea' : 'rbStreetsArea', rbCountIds\)/g) || []).length === 2,
     'anchored on anything but the identifier, the identifier itself gets flagged as the wrong length');
   check('S32', 'the anchor is never the column reported as being wrong',
     /const anchorLabel = anchorIsNumbers \? 'Customer #' : anchorIsPhones \? 'Phone Number' : 'Street Address'/.test(admin) &&
@@ -7865,16 +7865,20 @@ suite('Suite 32. Customer number as identifier, and flipped names');
      you just did." */
   const bulkMode = (admin.match(/const BULK_IDENTIFIER = '([^']+)'/) || [])[1];
   check('S32', 'the identifier is one switch, set to a value the code knows',
-    bulkMode === 'number' || bulkMode === 'phone+address',
+    ['number', 'phone+address', 'address+city'].indexOf(bulkMode) !== -1,
     'BULK_IDENTIFIER is ' + JSON.stringify(bulkMode));
   check('S32', 'BULK_BY_NUMBER is derived from it rather than set separately',
     /const BULK_BY_NUMBER = BULK_IDENTIFIER === 'number';/.test(admin),
     'two flags that can disagree is how a half-flipped switch happens');
-  if (bulkMode === 'phone+address') {
-    check('S32', 'while on phone+address, both halves are required per row',
-      /no phone and no address\./.test(admin) && /no address \(/.test(admin) && /no phone \(/.test(admin),
+  if (bulkMode !== 'number') {
+    check('S32', 'while on a two-column identifier, BOTH halves are required per row',
+      /no address and no ' \+ otherLabel \+ '\./.test(admin) &&
+      /no ' \+ otherLabel \+ ' \(/.test(admin) && /no address \(/.test(admin),
       'a row with only one half cannot be identified, and matching on the half it has puts it on the wrong customer');
-    note('BULK_IDENTIFIER is temporarily "phone+address" — set it back to "number" once the customer numbers on file are right.');
+    check('S32', 'and the other half is named after whichever it is',
+      /const otherLabel = BULK_BY_PHONE \? 'phone' : 'town';/.test(admin),
+      'telling somebody a row has "no phone" while the town is what is missing sends them to the wrong column');
+    note('BULK_IDENTIFIER is temporarily "' + bulkMode + '" — set it back to "number" once the customer numbers on file are right.');
   }
 
   check('S32', 'a row with no match and no address is never added',
