@@ -6860,6 +6860,102 @@ suite('Suite 23. Bulk row mismatches name the offending row');
   });
 }
 
+/*
+ * Suite 24. Re-ordering a day that has nothing left in it.
+ *
+ * Reported from the live error log: "route reconcile failed Cannot read
+ * properties of undefined (reading 'lat')".
+ *
+ * reorderFlatStops() did `remaining.shift()` and then read `.lat` off it. Two
+ * ways that is undefined, both reached from the reconcile sweep:
+ *   - a day whose last stop has just come off is re-ordered with nothing left;
+ *   - a new day naming a stop id missing from the map it is looked up through,
+ *     which puts an undefined hole in the middle of an otherwise fine list.
+ *
+ * The blast radius is what makes it worth a suite. The throw is caught up in
+ * runReconcileAuto, so ONE empty day abandoned the whole pass — every other day
+ * that pass would have fixed was left alone, and every later pass hit the same
+ * day and gave up in the same place. Routes stop self-correcting, silently.
+ *
+ * The trap in fixing it: a stop with no lat/lng is a REAL house that has not
+ * been geocoded yet (the bulk importer creates those on purpose, `noPin`).
+ * Filtering on "has coordinates" instead of "is a stop at all" would quietly
+ * drop those houses off their route, which is worse than the crash.
+ */
+suite('Suite 24. A day with nothing left in it does not abort the sweep');
+{
+  const i = admin.indexOf('function reorderFlatStops(');
+  let body = '';
+  if (i !== -1) {
+    let d = 0;
+    for (let j = admin.indexOf('{', i); j < admin.length; j++) {
+      if (admin[j] === '{') d++;
+      else if (admin[j] === '}') { d--; if (!d) { body = admin.slice(i, j + 1); break; } }
+    }
+  }
+  check('S24', 'reorderFlatStops still exists to read', body.length > 0);
+
+  if (body) {
+    // Real function, real helpers it leans on, stubbed only where geometry is irrelevant.
+    const sandbox = {};
+    new Function(
+      'function haversine(a,b,c,d){ return Math.abs((a||0)-(c||0)) + Math.abs((b||0)-(d||0)); }\n' +
+      'function twoOptImprove(o){ return o; }\n' + body +
+      '\nthis.reorderFlatStops = reorderFlatStops;'
+    ).call(sandbox);
+    const reorder = sandbox.reorderFlatStops;
+
+    const stop = (id, lat, lng) => ({ id, lat, lng });
+    /* The regression THROWS, and an uncaught throw here kills the runner and
+       prints a stack trace instead of a failure — which reads as a broken test
+       harness rather than the bug being caught. Catch it so the FAIL line
+       carries the real message. */
+    const attempt = (fn) => {
+      try { return { ok: true, value: fn() }; }
+      catch (e) { return { ok: false, err: (e && e.message) || String(e) }; }
+    };
+    const expectStops = (label, got, predicate, detail) =>
+      check('S24', label, got.ok && predicate(got.value),
+        got.ok ? (detail || ('got ' + JSON.stringify(got.value))) : 'threw: ' + got.err);
+
+    expectStops('an emptied day returns an empty route instead of throwing',
+      attempt(() => reorder([], null)), v => JSON.stringify(v) === '[]');
+    expectStops('an emptied day with a start point does not throw either',
+      attempt(() => reorder([], { lat: 40, lng: -111 })), v => JSON.stringify(v) === '[]');
+    expectStops('a missing/undefined list does not throw',
+      attempt(() => reorder(undefined, null)), v => JSON.stringify(v) === '[]');
+
+    // The hole case — a day naming a stop id that is not in the lookup.
+    const withHole = attempt(() => reorder([stop('a', 40, -111), undefined, stop('c', 41, -111)], null));
+    expectStops('an undefined hole is dropped rather than crashing the pass', withHole, v => v.length === 2);
+    expectStops('the real stops either side of the hole are kept', withHole,
+      v => v.map(s => s.id).sort().join() === 'a,c');
+
+    /* The important one: an un-geocoded house is a real customer and must stay
+       on the route. Dropping it would lose work silently. */
+    const noPin = attempt(() => reorder([stop('a', 40, -111), stop('nopin', null, null), stop('c', 41, -111)], null));
+    expectStops('a house with no map pin STAYS on the route', noPin, v => v.length === 3,
+      'the bulk importer creates customers with lat/lng null on purpose — filtering on coordinates would drop real houses off their day');
+    expectStops('and it is the un-geocoded house that was kept, not a placeholder', noPin,
+      v => v.some(s => s && s.id === 'nopin'));
+
+    // Ordinary behaviour must be untouched.
+    const normal = attempt(() => reorder(
+      [stop('far', 50, -111), stop('near', 40.1, -111), stop('start', 40, -111)], { lat: 40, lng: -111 }));
+    expectStops('ordinary ordering still works', normal, v => v.length === 3);
+    expectStops('and still visits the nearest stop first', normal, v => v[0] && v[0].id === 'start');
+  }
+
+  /* The guard has to be the shared one. There are eight call sites and only two
+     of them are the ones seen failing, so fixing it at the call site would
+     leave the other six able to throw the same way. */
+  check('S24', 'the guard lives in reorderFlatStops, where every caller gets it',
+    /filter\(Boolean\)/.test(body) && /if\(!remaining\.length\) return \[\]/.test(body));
+  check('S24', 'the guard does NOT filter on having coordinates',
+    !/filter\([^)]*typeof[^)]*lat/.test(body),
+    'filtering on lat/lng would silently drop un-geocoded houses off their routes');
+}
+
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));

@@ -19147,9 +19147,24 @@ function twoOptImprove(ordered, startPoint){
   return ordered;
 }
 function reorderFlatStops(flatStops, startPoint){
-  let remaining = flatStops.slice();
+  /* Two ways an unorderable list gets here, both from the reconcile sweep:
+       - a day whose LAST stop has just come off (recycled, deleted, or a town
+         corrected) is re-ordered with nothing left in it;
+       - a new day naming a stop id that is not in the map it is looked up
+         through, which puts an undefined hole in the middle of the list.
+     Either way `remaining.shift()` handed back undefined and `first.lat` threw
+     "Cannot read properties of undefined (reading 'lat')". That matters more
+     than one bad day: the throw is caught up in runReconcileAuto, so it
+     abandoned the WHOLE pass — every other day that pass would have fixed was
+     silently left alone, and the next pass hit the same day and gave up again.
+     Routes simply stopped keeping themselves up to date.
+     Holes only. A stop with no lat/lng is a REAL house that has not been
+     geocoded yet — the bulk import creates those deliberately — so it stays on
+     the route and merely orders arbitrarily, exactly as it did before. */
+  let remaining = (flatStops || []).filter(Boolean);
   let ordered = [];
   let current;
+  if(!remaining.length) return [];
   if(startPoint){
     current = startPoint;
   } else {
