@@ -7878,6 +7878,29 @@ suite('Suite 32. Customer number as identifier, and flipped names');
     check('S32', 'and the other half is named after whichever it is',
       /const otherLabel = BULK_BY_PHONE \? 'phone' : 'town';/.test(admin),
       'telling somebody a row has "no phone" while the town is what is missing sends them to the wrong column');
+    /* ⏸ A number already sitting on somebody else is EXPECTED while the sheet
+       is correcting numbers: #112 lives on two records only until the row that
+       gives its old holder a different number is written. Blocking there
+       refused the whole import for a state that resolves itself.
+       Owner, 2026-08-17: "we will need to temporarily allow the same number to
+       be used twice because it should fix itself, but we will run it in health
+       check when its done to see if any still have overlaping #CU." */
+    check('S32', 'a number held by somebody else does not block the import',
+      /\} else if\(heldBy && BULK_BY_NUMBER\)\{/.test(admin) && /numMoves\.push\(/.test(admin),
+      'the sheet is moving numbers between customers — refusing that refuses the fix');
+    check('S32', 'but the moves are counted and reported, not ignored',
+      /const movedNote = numMoves\.length/.test(admin) &&
+      /run Health Check to confirm none are still shared/.test(admin),
+      '"it should fix itself" is not "it did" — silently allowing duplicates is how two bins end up wearing one label');
+    check('S32', 'and Health Check really does look for shared numbers',
+      /id: 'dupNumbers'/.test(admin) && /Two customers sharing one customer number/.test(admin),
+      'the import points at that check by name, so it has to exist');
+    check('S32', 'the same number twice in ONE paste is still refused',
+      /is also on row ' \+ seenNums\[cn\]/.test(admin),
+      'that is a mistake in the sheet, not a state that resolves itself');
+    check('S32', 'the blocking message names the columns actually required',
+      /\(BULK_BY_PHONE \? 'Phone' : 'Town'\) \+ ' and address are both needed/.test(admin),
+      'it said "Phone and address" while the town was the half being asked for');
     note('BULK_IDENTIFIER is temporarily "' + bulkMode + '" — set it back to "number" once the customer numbers on file are right.');
   }
 

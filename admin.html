@@ -15047,6 +15047,10 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
     }
   }
   const seenNums = {};
+  /* Numbers this run will take off whoever is holding them now. Expected while
+     the number is being corrected rather than used as the key — reported at the
+     end so nobody has to guess whether it happened. */
+  const numMoves = [];
   for(let i = 0; i < custNumbers.length; i++){
     const cn = custNumbers[i];
     if(!cn) continue;
@@ -15060,12 +15064,27 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
        somebody, and a number nobody holds is the problem instead. */
     if(anchorIsNumbers){
       if(!heldBy) numProblems.push('Row ' + (i+1) + ': nobody has #' + cn + '.');
-    } else if(heldBy){
+    } else if(heldBy && BULK_BY_NUMBER){
       numProblems.push('Row ' + (i+1) + ': #' + cn + ' already belongs to ' + (heldBy.data.name || 'another customer') + '.');
+    } else if(heldBy){
+      /* ⏸ NOT a problem while the number is DATA being corrected rather than
+         the key. Owner, 2026-08-17: "we will need to use numbers that are
+         already in the system… so we will need to temporarily allow the same
+         number to be used twice because it should fix itself."
+         Which it does: the sheet is moving numbers between customers, so #112
+         sits on two records only until the row that gives its old holder a
+         different number is written. Blocking here refused the whole import for
+         a state that is expected and resolves itself.
+         Counted, not ignored — the count is reported at the end, and anything
+         that has NOT resolved is what Health Check's "Two customers sharing one
+         customer number" is for. */
+      numMoves.push({row: i+1, num: cn, from: heldBy.data.name || 'another customer'});
     }
   }
   if(numProblems.length){
-    statusEl.textContent = (BULK_BY_NUMBER ? 'Fix these Customer # problems first — nothing was imported: ' : 'Fix these rows first — nothing was imported. Phone and address are both needed to tell customers apart: ') + numProblems.slice(0,8).join('  ') + (numProblems.length > 8 ? '  …and ' + (numProblems.length-8) + ' more.' : '');
+    statusEl.textContent = (BULK_BY_NUMBER
+      ? 'Fix these Customer # problems first — nothing was imported: '
+      : 'Fix these rows first — nothing was imported. ' + (BULK_BY_PHONE ? 'Phone' : 'Town') + ' and address are both needed to tell customers apart: ') + numProblems.slice(0,8).join('  ') + (numProblems.length > 8 ? '  …and ' + (numProblems.length-8) + ' more.' : '');
     return;
   }
   const phones = anchorIsPhones ? anchor : alignBulkRows(phonesRaw, anchor.length);
@@ -15262,7 +15281,12 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
       failed++;
     }
   }
-  statusEl.textContent = (hoff ? 'First line ignored as headings. ' : '') + streets.length + ' row(s) read \u2014 ' + added + ' added, ' + updated + ' updated' + (billed ? ', ' + billed + ' invoice(s) billed' : '') + (noPhoneNoInvoice ? ', ' + noPhoneNoInvoice + ' amount(s) skipped (no phone on file)' : '') + (noPin ? ', ' + noPin + ' added without a map pin (All Customers → Filters → Map Pin → "Needs Pin", or see Health Check)' : '') + (failed ? ', ' + failed + ' failed' : '') + '.';
+  /* Said out loud, because the whole point of allowing it was that it resolves itself — and "should" is not "did". */
+  const movedNote = numMoves.length
+    ? ' ' + numMoves.length + ' number(s) were taken off whoever held them before'
+      + ' — run Health Check to confirm none are still shared.'
+    : '';
+  statusEl.textContent = (hoff ? 'First line ignored as headings. ' : '') + streets.length + ' row(s) read \u2014 ' + added + ' added, ' + updated + ' updated' + (billed ? ', ' + billed + ' invoice(s) billed' : '') + (noPhoneNoInvoice ? ', ' + noPhoneNoInvoice + ' amount(s) skipped (no phone on file)' : '') + (noPin ? ', ' + noPin + ' added without a map pin (All Customers → Filters → Map Pin → "Needs Pin", or see Health Check)' : '') + (failed ? ', ' + failed + ' failed' : '') + '.' + movedNote;
   rbAreaIds.forEach(function(id){ document.getElementById(id).value = ''; });
   wireBulkCounts(rbAreaIds, BULK_BY_NUMBER ? 'rbCustNumbersArea' : BULK_BY_PHONE ? 'rbPhonesArea' : 'rbStreetsArea', rbCountIds)();
 }); }, function(){ return document.getElementById('rbImportBtn'); }));
