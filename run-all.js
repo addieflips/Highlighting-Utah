@@ -7913,6 +7913,20 @@ suite('Suite 32. Customer number as identifier, and flipped names');
       /const who = names\[i\] \? ' \(' \+ names\[i\] \+ '\)' : '';/.test(admin) &&
       /const other = names\[seenNums\[cn\] - 1\]/.test(admin),
       'two rows deep in a 962 row paste are found by name, not by counting');
+    /* The rows that cannot be identified ARE somebody's worklist — owner,
+       2026-08-17: "I will manually fix everyone without a phone number" — so
+       they have to be listed somewhere with room to read them, and named, not
+       just numbered. Eight of them in a status line is enough to explain the
+       problem and useless to work from. */
+    check('S32', 'Check First runs the same completeness test as the import',
+      /const cantIdentify = \[\];/.test(admin) && /cannot be identified and will stop the import/.test(admin),
+      'a dry run that looks clean and is then refused on Import is worse than no dry run');
+    check('S32', 'the rows to fix are named, not just numbered',
+      /esc\(c\.name \|\| 'no name'\)/.test(admin) && /const who = names\[i\] \? names\[i\] \+ ', ' : '';/.test(admin),
+      'a row number alone does not tell you who to go and look up');
+    check('S32', 'and the whole list is shown, not the first eight',
+      /numProblems\.map\(function\(t\)\{ return esc\(t\); \}\)\.join\('<br>'\)/.test(admin) &&
+      /press Check First to see all of them/.test(admin));
     note('BULK_IDENTIFIER is temporarily "' + bulkMode + '" — set it back to "number" once the customer numbers on file are right.');
   }
 

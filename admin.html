@@ -14730,7 +14730,7 @@ function wireBulkCounts(areaIds, anchorId, countIdMap){
    In every mode but 'number' the customer number is treated as data to be
    WRITTEN rather than as the key, so a wrong number gets CORRECTED by the
    import instead of sending the row to the wrong customer. */
-const BULK_IDENTIFIER = 'address+city';
+const BULK_IDENTIFIER = 'phone+address';
 const BULK_BY_NUMBER = BULK_IDENTIFIER === 'number';
 const BULK_BY_PHONE = BULK_IDENTIFIER === 'phone+address';
 /* The asterisks follow the switch as well, so flipping the constant cannot
@@ -14894,6 +14894,24 @@ document.getElementById('rbCheckBtn')?.addEventListener('click', function(){
      will happen. */
   const custNumbers = anchorIsNumbers ? anchor : alignBulkRows(cnAll, anchor.length);
 
+  /* The same completeness test the import applies, so Check First cannot look
+     clean and then be refused on Import — and so the rows somebody has to fix
+     by hand are listed HERE, where there is room to scroll them, rather than
+     eight at a time in a status line. */
+  const cantIdentify = [];
+  if(!BULK_BY_NUMBER){
+    const otherLabel = BULK_BY_PHONE ? 'phone' : 'town';
+    const others = BULK_BY_PHONE
+      ? phones.map(function(v){ return String(v || '').replace(/\D/g,''); })
+      : cities.map(function(v){ return extractCleanCity(v); });
+    for(let i = 0; i < anchor.length; i++){
+      const st = (streets[i] || '').trim();
+      if(others[i] && st) continue;
+      cantIdentify.push({row: i+1, name: names[i] || '', street: st,
+                         missing: !st && !others[i] ? ('address and ' + otherLabel) : (!st ? 'address' : otherLabel)});
+    }
+  }
+
   let willUpdate = 0, willAdd = 0;
   const rows = streets.map(function(street, i){
     const phone = (phones[i] || '').replace(/\D/g,'');
@@ -14953,6 +14971,15 @@ document.getElementById('rbCheckBtn')?.addEventListener('click', function(){
       ? '<div style="font-size:13px; color:var(--ember); font-weight:600; margin-bottom:8px;">⚠ ' + priceChangeCount +
         ' existing customer(s) would have their price CHANGED. If that is not what you meant, your columns are probably out of line by a row.</div>'
       : '<div style="font-size:13px; color:var(--slate); margin-bottom:8px;">No existing prices would change.</div>') +
+    (cantIdentify.length
+      ? '<div style="font-size:13px; color:var(--ember); font-weight:600; margin-bottom:8px;">⚠ ' + cantIdentify.length +
+        ' row(s) cannot be identified and will stop the import. These are the ones to fix by hand:' +
+        '<div style="max-height:200px; overflow:auto; border:1px solid var(--line); border-radius:8px; padding:8px 10px; margin-top:6px; font-weight:500; line-height:1.7;">' +
+        cantIdentify.map(function(c){
+          return 'Row ' + c.row + ' &mdash; ' + esc(c.name || 'no name') + (c.street ? ' &middot; ' + esc(c.street) : '') +
+                 ' &mdash; no ' + esc(c.missing);
+        }).join('<br>') + '</div></div>'
+      : '') +
     (dupeRows.length
       ? '<div style="font-size:13px; color:var(--ember); font-weight:600; margin-bottom:8px;">⚠ ' + dupeRows.length +
         ' row(s) repeat an address already higher up the list: ' +
@@ -15041,9 +15068,14 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
     for(let i = 0; i < anchor.length; i++){
       const other = others[i] || '';
       const st = (streets[i] || '').trim();
-      if(!other && !st) numProblems.push('Row ' + (i+1) + ': no address and no ' + otherLabel + '.');
-      else if(!other) numProblems.push('Row ' + (i+1) + ': no ' + otherLabel + ' (' + st + ').');
-      else if(!st) numProblems.push('Row ' + (i+1) + ': no address (' + other + ').');
+      /* Named as well as numbered. These lines ARE the list somebody then works
+         through by hand — owner, 2026-08-17: "I will manually fix everyone
+         without a phone number" — and a row number on its own does not tell you
+         who to go and look up. */
+      const who = names[i] ? names[i] + ', ' : '';
+      if(!other && !st) numProblems.push('Row ' + (i+1) + ': ' + (who || 'no name, ') + 'no address and no ' + otherLabel + '.');
+      else if(!other) numProblems.push('Row ' + (i+1) + ': ' + who + 'no ' + otherLabel + ' (' + st + ').');
+      else if(!st) numProblems.push('Row ' + (i+1) + ': ' + who + 'no address (' + other + ').');
     }
   }
   const seenNums = {};
@@ -15098,7 +15130,16 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
     const anyNumberTrouble = numProblems.some(function(t){ return t.indexOf('#') !== -1 || t.indexOf('isn\'t a number') !== -1; });
     statusEl.textContent = 'Fix these rows first — nothing was imported. '
       + (anyNumberTrouble ? 'The same Customer # is on two rows, so one of them is wrong. ' : '')
-      + (anyMissingHalf ? (BULK_BY_PHONE ? 'Phone' : 'Town') + ' and address are both needed to tell customers apart. ' : '') + numProblems.slice(0,8).join('  ') + (numProblems.length > 8 ? '  …and ' + (numProblems.length-8) + ' more.' : '');
+      + (anyMissingHalf ? (BULK_BY_PHONE ? 'Phone' : 'Town') + ' and address are both needed to tell customers apart. ' : '') + numProblems.slice(0,8).join('  ') + (numProblems.length > 8 ? '  …and ' + (numProblems.length-8) + ' more — press Check First to see all of them.' : '');
+    /* Eight is enough to explain the problem and useless as a worklist, and
+       this list IS the worklist when somebody is going to fix these by hand.
+       The full set goes into the report box, which scrolls. */
+    const box = document.getElementById('rbCheckReport');
+    if(box){
+      box.innerHTML = '<div style="font-weight:700; margin-bottom:6px;">' + numProblems.length + ' row(s) to fix — nothing was imported</div>' +
+        '<div style="max-height:280px; overflow:auto; border:1px solid var(--line); border-radius:8px; padding:8px 10px; font-size:12.5px; line-height:1.7;">' +
+        numProblems.map(function(t){ return esc(t); }).join('<br>') + '</div>';
+    }
     return;
   }
   const phones = anchorIsPhones ? anchor : alignBulkRows(phonesRaw, anchor.length);
