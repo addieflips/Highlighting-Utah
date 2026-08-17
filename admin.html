@@ -14758,6 +14758,27 @@ const BULK_BY_PHONE = BULK_IDENTIFIER === 'phone+address';
    Check First shows is exactly what gets written. Reading the checkbox each
    time rather than once means ticking it and pressing Check First again works
    without re-pasting anything. */
+/* Who a bulk row is. Owner, 2026-08-17: "only the number is a identifier."
+
+   On 'number' that is meant literally — the customer number is the ONLY thing
+   consulted. No falling back to the phone, the street, the town, or to "this
+   street belongs to exactly one house so it is probably that one". Those
+   fallbacks were what let a corrected town still find its customer while the
+   number could not be trusted; now that it can, a guess is a liability rather
+   than a help. A row whose number matches nobody matches NOBODY, and is
+   reported instead of being quietly attached to whichever house looked closest.
+
+   Only bulk goes through here. Add Customer still uses the full
+   findExistingAddressMatch, because it is asking a different question — "is
+   this new address already in the book?" — where the address IS the evidence. */
+function bulkFindCustomer(street, phone, city, zip, cn){
+  if(BULK_BY_NUMBER){
+    const num = String(cn == null ? '' : cn).trim();
+    if(!num) return undefined;
+    return jobAddresses.find(function(it){ return String(it.data.customerNumber || '') === num; });
+  }
+  return findExistingAddressMatch(street, phone, city, zip, '');
+}
 function rbName(raw){
   const flip = document.getElementById('rbFlipNames');
   return (flip && flip.checked) ? flipLastFirstName(raw) : raw;
@@ -14882,8 +14903,12 @@ document.getElementById('rbCheckBtn')?.addEventListener('click', function(){
                : streetsAll.filter(Boolean);
   if(!anchor.length){
     statusEl.textContent = BULK_BY_NUMBER
-      ? 'Paste the Customer # column first — that is the one every other box is matched against. (An address column on its own still works for adding somebody brand new.)'
+      ? 'Paste the Customer # column first — that is the only thing that says who each row is.'
       : 'Paste the Phone Number column first — phone and address together are what identify a customer at the moment.';
+    return;
+  }
+  if(BULK_BY_NUMBER && !anchorIsNumbers){
+    statusEl.textContent = 'Paste the Customer # column. It is the only thing that identifies a row, so without it every row here would be counted as a new customer.';
     return;
   }
   const streets = (anchorIsNumbers || anchorIsPhones) ? alignBulkRows(streetsAll, anchor.length) : streetsAll.filter(Boolean);
@@ -14922,7 +14947,7 @@ document.getElementById('rbCheckBtn')?.addEventListener('click', function(){
   const rows = streets.map(function(street, i){
     const phone = (phones[i] || '').replace(/\D/g,'');
     // Same key as the import — see BULK_IDENTIFIER.
-    const existing = findExistingAddressMatch(street, phone, cities[i] || '', zips[i] || '', BULK_BY_NUMBER ? (custNumbers[i] || '') : '');
+    const existing = bulkFindCustomer(street, phone, cities[i] || '', zips[i] || '', custNumbers[i] || '');
     if(existing) willUpdate++; else willAdd++;
     const newPrice = prices[i] === '' ? null : (Number(String(prices[i]).replace(/[^0-9.]/g,'')) || 0);
     const oldPrice = existing ? (Number(existing.data.housePrice) || 0) : null;
@@ -15048,8 +15073,16 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
                : streetsRaw.filter(Boolean);
   if(!anchor.length){
     statusEl.textContent = BULK_BY_NUMBER
-      ? 'Paste the Customer # column — that is the one every other box is matched against. (An address column on its own still works for adding somebody brand new.)'
+      ? 'Paste the Customer # column — that is the only thing that says who each row is.'
       : 'Paste the Phone Number column — phone and address together are what identify a customer at the moment.';
+    return;
+  }
+  /* ⚠ The number is the ONLY identifier, so without that column nothing can be
+     recognised — and every row would fall through to "add" and duplicate the
+     whole book. Refused rather than matched some other way, because matching
+     some other way is what "only the number is a identifier" rules out. */
+  if(BULK_BY_NUMBER && !anchorIsNumbers){
+    statusEl.textContent = 'Paste the Customer # column. It is the only thing that identifies a row, so without it every row here would be added as a new customer rather than updating anybody.';
     return;
   }
   /* Aligned, not filtered, once something other than the address anchors: a row
@@ -15253,7 +15286,7 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
          file are known to be wrong, so matching on one would send the row to
          the wrong customer. Phone with the street identifies the house instead,
          and the number on the row is then WRITTEN — the import corrects it. */
-      const existing = findExistingAddressMatch(street, phone, city, zip, BULK_BY_NUMBER ? cn : '');
+      const existing = bulkFindCustomer(street, phone, city, zip, cn);
       /* Numbers with no addresses can only update. Falling through to the "add"
          branch would write a customer with no address, no town and no pin —
          a record that can never be put on a route and would have to be found
