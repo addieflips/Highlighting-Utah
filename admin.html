@@ -14783,11 +14783,16 @@ document.getElementById('rbCheckBtn')?.addEventListener('click', function(){
   const zips    = alignBulkRows(document.getElementById('rbZipsArea').value.split('\n').map(s => s.trim()), streets.length);
   // The price column is rbAmountsArea — the same box the real import reads.
   const prices  = alignBulkRows(document.getElementById('rbAmountsArea').value.split('\n').map(s => s.trim()), streets.length);
+  /* Read here for the same reason the import reads it: a customer number is the
+     one key a wrong town cannot break, so Check First has to match on exactly
+     what Import matches on, or it is reporting a different run to the one that
+     will happen. */
+  const custNumbers = alignBulkRows(document.getElementById('rbCustNumbersArea').value.split('\n').map(s => s.trim()), streets.length);
 
   let willUpdate = 0, willAdd = 0;
   const rows = streets.map(function(street, i){
     const phone = (phones[i] || '').replace(/\D/g,'');
-    const existing = findExistingAddressMatch(street, phone, cities[i] || '', zips[i] || '');
+    const existing = findExistingAddressMatch(street, phone, cities[i] || '', zips[i] || '', custNumbers[i] || '');
     if(existing) willUpdate++; else willAdd++;
     const newPrice = prices[i] === '' ? null : (Number(String(prices[i]).replace(/[^0-9.]/g,'')) || 0);
     const oldPrice = existing ? (Number(existing.data.housePrice) || 0) : null;
@@ -14800,10 +14805,18 @@ document.getElementById('rbCheckBtn')?.addEventListener('click', function(){
       name: names[i] || '',
       existingName: existing ? (existing.data.name || '') : '',
       action: existing ? 'update' : 'add',
-      oldPrice: oldPrice, newPrice: newPrice, priceChanges: priceChanges
+      oldPrice: oldPrice, newPrice: newPrice, priceChanges: priceChanges,
+      /* The town is now allowed to change, so it has to be SHOWN changing. A
+         house moving town moves it onto another crew's day, and that is worth
+         seeing before it is written rather than after. */
+      oldTown: existing ? (extractCleanCity(existing.data.city) || '') : '',
+      newTown: extractCleanCity(cities[i] || '') || '',
+      townChanges: !!(existing && extractCleanCity(cities[i] || '') &&
+                      extractCleanCity(cities[i] || '') !== extractCleanCity(existing.data.city || ''))
     };
   });
   const priceChangeCount = rows.filter(r => r.priceChanges).length;
+  const townChangeCount = rows.filter(r => r.townChanges).length;
 
   statusEl.textContent = 'Nothing has been written.';
   report.innerHTML =
@@ -14813,10 +14826,14 @@ document.getElementById('rbCheckBtn')?.addEventListener('click', function(){
       ? '<div style="font-size:13px; color:var(--ember); font-weight:600; margin-bottom:8px;">⚠ ' + priceChangeCount +
         ' existing customer(s) would have their price CHANGED. If that is not what you meant, your columns are probably out of line by a row.</div>'
       : '<div style="font-size:13px; color:var(--slate); margin-bottom:8px;">No existing prices would change.</div>') +
+    (townChangeCount
+      ? '<div style="font-size:13px; color:var(--dusk); font-weight:600; margin-bottom:8px;">' + townChangeCount +
+        ' customer(s) would move town. That is what fixes the routes and the schedule &mdash; check the Town column below reads the way you expect before importing.</div>'
+      : '') +
     '<div style="max-height:280px; overflow:auto; border:1px solid var(--line); border-radius:8px;">' +
       '<table style="width:100%; border-collapse:collapse; font-size:12.5px;"><thead><tr style="background:var(--paper);">' +
       '<th style="text-align:left; padding:6px 8px;">#</th><th style="text-align:left; padding:6px 8px;">Address</th>' +
-      '<th style="text-align:left; padding:6px 8px;">Matches</th><th style="text-align:left; padding:6px 8px;">Price</th></tr></thead><tbody>' +
+      '<th style="text-align:left; padding:6px 8px;">Matches</th><th style="text-align:left; padding:6px 8px;">Town</th><th style="text-align:left; padding:6px 8px;">Price</th></tr></thead><tbody>' +
       rows.map(function(r){
         const priceCell = r.action === 'add'
           ? (r.newPrice === null ? '<span style="color:var(--slate);">—</span>' : fmtMoney(r.newPrice))
@@ -14828,6 +14845,9 @@ document.getElementById('rbCheckBtn')?.addEventListener('click', function(){
           '<td style="padding:4px 8px;">' + (r.action === 'update'
             ? esc(r.existingName || 'an existing customer')
             : '<span style="color:var(--dusk);">new customer' + (r.name ? ' — ' + esc(r.name) : '') + '</span>') + '</td>' +
+          '<td style="padding:4px 8px;">' + (r.townChanges
+            ? '<span style="color:var(--dusk); font-weight:600;">' + esc(r.oldTown || 'no town') + ' → ' + esc(r.newTown) + '</span>'
+            : '<span style="color:var(--slate);">' + esc(r.newTown || r.oldTown || '—') + '</span>') + '</td>' +
           '<td style="padding:4px 8px;">' + priceCell + '</td></tr>';
       }).join('') + '</tbody></table></div>';
 });
@@ -14955,9 +14975,12 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
         }
       }
       if(!coords){ coords = {lat: null, lng: null}; noPin++; }
-      const existing = findExistingAddressMatch(street, phone, city, zip);
+      const existing = findExistingAddressMatch(street, phone, city, zip, cn);
       if(existing){
-        const updates = { street: street, city: city, state: state, zip: zip, address: fullAddress };
+        /* extractCleanCity so a pasted town lands in exactly the shape Edit
+           Customer writes and the routes read — "Lehi, UT" and " Lehi " must not
+           become towns of their own, each earning a crew-day for one house. */
+        const updates = { street: street, city: extractCleanCity(city) || city, state: state, zip: zip, address: fullAddress };
         if(coords.lat !== null){ updates.lat = coords.lat; updates.lng = coords.lng; updates.needsGeocode = false; }
         if(name) updates.name = name;
         if(phone) updates.phone = phone;
@@ -18010,7 +18033,54 @@ document.getElementById('wantFixAll').addEventListener('change', function(){
 function normalizeStreetForMatch(s){
   return (s||'').toLowerCase().trim().replace(/[.,#]/g,'').replace(/\s+/g,' ');
 }
-function findExistingAddressMatch(street, phone, city, zip){
+function findExistingAddressMatch(street, phone, city, zip, custNumber){
+  /* ⚠ THE TOWN IS OFTEN THE THING BEING CORRECTED, so it cannot be the thing
+     that decides whether this is the same house.
+     Owner, 2026-08-17: "in bulk updates i need to make city work so when I
+     paste everyones citiies in it works." It could not: the check below refuses
+     a match when the pasted town differs from the one on file, which is exactly
+     the case when somebody is fixing a wrong town. The row then failed to match,
+     was treated as a new customer, and the import offered to add a duplicate
+     instead of correcting the record — 302 of them on one paste.
+     So the stable, town-independent keys are tried FIRST. Only when neither is
+     given do we fall back to the old street+town+zip test, and then to a street
+     that belongs to exactly one house in the whole book. */
+  const normStreetEarly = normalizeStreetForMatch(street);
+  if(!normStreetEarly) return undefined;
+  const cn = String(custNumber == null ? '' : custNumber).trim();
+  if(cn){
+    /* A customer number is permanent and unique — if it is on the row it is the
+       whole answer, whatever the town says. */
+    const byNum = jobAddresses.find(function(it){ return String(it.data.customerNumber || '') === cn; });
+    if(byNum) return byNum;
+  }
+  const digitsEarly = (phone || '').replace(/\D/g,'');
+  if(digitsEarly){
+    const byPhone = jobAddresses.find(function(it){
+      if(String(it.data.phone || '').replace(/\D/g,'') !== digitsEarly) return false;
+      const s = normalizeStreetForMatch(it.data.street || (it.data.address || '').split(',')[0]);
+      return s && s === normStreetEarly;
+    });
+    if(byPhone) return byPhone;
+  }
+  const found = findAddressMatchByTown(street, phone, city, zip);
+  if(found) return found;
+  /* Nothing to go on but the street, and the town disagrees. If exactly ONE
+     house in the book is on that street it is that house and the town is what
+     is being fixed. Two or more and we genuinely cannot tell Main St in Lehi
+     from Main St in Orem, so we say nothing and let it be reported rather than
+     guessing and merging two different customers. */
+  const sameStreet = jobAddresses.filter(function(it){
+    const s = normalizeStreetForMatch(it.data.street || (it.data.address || '').split(',')[0]);
+    return s && s === normStreetEarly;
+  });
+  return sameStreet.length === 1 ? sameStreet[0] : undefined;
+}
+/* The original test, unchanged: same street, and the town or zip agrees. Kept
+   whole rather than folded into the above so the rule it encodes — Utah County
+   repeats street names across towns, and families share a phone across two
+   houses — is still readable on its own. */
+function findAddressMatchByTown(street, phone, city, zip){
   // A duplicate is the SAME HOUSE, not just the same street text. Utah County
   // repeats street names constantly (Main St, Center St, 100 N) across cities,
   // and families share one phone across two different houses. Matching on either

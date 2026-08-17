@@ -7642,6 +7642,91 @@ suite('Suite 30. Edit Customer saves the town');
     'extractCleanCity already drops the segments with digits and strips UT and the zip');
 }
 
+/*
+ * Suite 31. Pasting a corrected town in Bulk Updates actually corrects it.
+ *
+ * Owner, 2026-08-17: "in bulk updates i need to make city work so when I paste
+ * everyones citiies in it works so the city in bulk updates needs to be in sync
+ * with the town in edit customer."
+ *
+ * It could not work, because the town was part of the key that decided whether
+ * a row WAS an existing customer: findExistingAddressMatch refused a match when
+ * the pasted town differed from the one on file. That is precisely the case
+ * when somebody is fixing a wrong town — so the row matched nothing, was read
+ * as a new customer, and the import offered to add a duplicate instead of
+ * correcting the record. 302 of them on one paste.
+ *
+ * The stable keys — customer number, then phone with the street — are tried
+ * first, because neither can be broken by a wrong town. The old street+town+zip
+ * test still runs after them, and only then does a street belonging to exactly
+ * one house in the book count.
+ *
+ * ⚠ The thing that must NOT be lost: Utah County repeats street names across
+ * towns. If two houses share a street and the town is the only thing telling
+ * them apart, this has to refuse to answer rather than merge two customers.
+ */
+suite('Suite 31. A corrected town still finds its customer');
+{
+  const fn = (name) => {
+    const i = admin.indexOf('function ' + name + '(');
+    if (i === -1) return null;
+    let d = 0;
+    for (let j = admin.indexOf('{', i); j < admin.length; j++) {
+      if (admin[j] === '{') d++;
+      else if (admin[j] === '}') { d--; if (!d) return admin.slice(i, j + 1); }
+    }
+    return null;
+  };
+  const need = ['normalizeStreetForMatch', 'extractCleanCity', 'findAddressMatchByTown', 'findExistingAddressMatch'];
+  check('S31', 'the matcher and its parts are findable', need.every(n => !!fn(n)));
+
+  if (need.every(n => !!fn(n))) {
+    const book = [
+      { id: 'A', data: { name: 'Cattani Julie', street: '6037 W 11860 N', city: 'Draper', zip: '84020', phone: '8015550001', customerNumber: '555' } },
+      { id: 'B', data: { name: 'Olsen Don', street: '120 N 200 W', city: '', zip: '', phone: '8012287274', customerNumber: '556' } },
+      { id: 'C', data: { name: 'Main Lehi', street: '100 Main St', city: 'Lehi', zip: '84043', phone: '8015550003', customerNumber: '557' } },
+      { id: 'D', data: { name: 'Main Orem', street: '100 Main St', city: 'Orem', zip: '84057', phone: '8015550004', customerNumber: '558' } }
+    ];
+    const sb = {};
+    new Function('jobAddresses', need.map(fn).join('\n') + 'this.m=findExistingAddressMatch;').call(sb, book);
+    const m = (st, ph, ci, zp, cn) => { const r = sb.m(st, ph, ci, zp, cn); return r ? r.id : null; };
+
+    check('S31', 'a corrected town finds the customer it belongs to',
+      m('6037 W 11860 N', '', 'Highland', '', '') === 'A',
+      'the record says Draper — before this, the row matched nothing and offered to add a duplicate');
+    check('S31', 'a customer number beats a disagreeing town',
+      m('6037 W 11860 N', '', 'Nowhere', '', '555') === 'A',
+      'the number is permanent and unique, so it is the whole answer');
+    check('S31', 'a phone with the street beats a disagreeing town',
+      m('120 N 200 W', '8012287274', 'Lehi', '', '') === 'B');
+    check('S31', 'a town that agrees still matches, as it always did',
+      m('100 Main St', '', 'Orem', '', '') === 'D');
+
+    check('S31', 'two houses on one street name are NOT merged on a town change',
+      m('100 Main St', '', 'Highland', '', '') === null,
+      'Lehi and Orem both have a 100 Main St — guessing here would overwrite one customer with another');
+    check('S31', 'but the customer number still resolves that same ambiguity',
+      m('100 Main St', '', 'Highland', '', '558') === 'D');
+    check('S31', 'a street nobody has is a new customer, not a wrong match',
+      m('999 Nowhere Rd', '', 'Lehi', '', '') === null);
+    check('S31', 'a blank street matches nothing at all',
+      m('', '8015550001', 'Lehi', '', '') === null,
+      'without a street there is nothing to confirm the house by');
+  }
+
+  check('S31', 'the import passes the customer number to the matcher',
+    /findExistingAddressMatch\(street, phone, city, zip, cn\)/.test(admin));
+  check('S31', 'and Check First matches on exactly the same keys',
+    /findExistingAddressMatch\(street, phone, cities\[i\] \|\| '', zips\[i\] \|\| '', custNumbers\[i\] \|\| ''\)/.test(admin),
+    'a dry run that matches differently from the import is reporting a run that will not happen');
+  check('S31', 'a pasted town is cleaned the way Edit Customer cleans it',
+    /city: extractCleanCity\(city\) \|\| city/.test(admin),
+    '"Lehi, UT" and " Lehi " must not become towns of their own, each earning a crew-day for one house');
+  check('S31', 'Check First shows a town that is about to change',
+    /townChanges/.test(admin) && /oldTown/.test(admin) && /newTown/.test(admin),
+    'the town moving a house to another crew is worth seeing before it is written, not after');
+}
+
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
