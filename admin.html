@@ -6432,10 +6432,11 @@ async function nudgeEveryoneShown(){
     statusEl.textContent = 'Sending ' + (sent + failures.length + 1) + ' of ' + targets.length + '\u2026 (' + (d.name || '') + ')';
     try{
       let html = await resolveLinkTokens(template.data.body, d.phone, 0, {name: properName(d.name) || 'there', price: fmtMoney(d.quotedPrice)});
-      /* Same photo grid the quote email uses, so a nudge shows them everything
-         they were sent the first time. */
-      const nudgePhotos = quotePhotoEmailHtml(quotePhotoList(d));
-      if(nudgePhotos) html += '<div style="margin-top:20px;">' + nudgePhotos + '</div>';
+      /* Same photo grid AND the same repeated buttons the quote card sends.
+         This used to bolt the photos onto the very bottom and leave the
+         template's own {{photo}} token sitting in the email as text, so a bulk
+         nudge and a one-off nudge of the same template did not match. */
+      html = applyQuotePhotoBlock(html, quotePhotoList(d), true);
       await emailjs.send(cfg.serviceId, cfg.templateId, {
         to_email: d.email, to_name: d.name || '', subject: 'Just checking in on your quote', message: html,
         button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || ''),
@@ -7201,6 +7202,77 @@ function quotePhotoEmailHtml(photos){
     '<tr><td style="font-family:Arial,sans-serif;"><p style="margin:8px 0 0; font-size:12px; color:#6E6858;">Not showing? '+links+'.</p></td></tr>'+
     '</table>';
 }
+/* Puts the photo block where the template asks for it, and - when there is
+   more than one photo - repeats the approve/maybe/decline buttons on the far
+   side of it, so "Approve" is never three screens down a phone.
+
+   Pulled out of the quote card's own builder on 2026-08-17. THREE different
+   places send the same Nudge template and only the quote card ran this: the
+   "Nudge everyone shown" bulk button and Automation Emails -> Preview & Send
+   both went straight through resolveLinkTokens, which has never known about
+   {{photo}}. So those two mailed a literal "{{photo}}" and showed ONE set of
+   buttons, while the quote card showed two - the same template looking
+   different depending on which button sent it.
+
+   The automatic nightly nudge does the same thing server-side
+   (repeatQuoteButtonsServer in functions/index.js). Change one, change the
+   other, in the same push.
+
+   autoPlace: a quote email with no {{photo}} token still gets its photos,
+   slotted in ahead of the buttons. A general Automation Emails template does
+   not - it never asked for a photo, so it is not given one. */
+function applyQuotePhotoBlock(html, photos, autoPlace){
+  photos = photos || [];
+  const photoHtml = quotePhotoEmailHtml(photos);
+  const asked = html.indexOf('{{photo}}') !== -1;
+  /* Nothing to place: strip the token so the customer never sees it. Blank
+     lines either side of it have already become <br> tags and would otherwise
+     pile up on their own. */
+  if(!photoHtml || (autoPlace === false && !asked)){
+    return html.replace(/(?:\s|<br\s*\/?>)*\{\{photo\}\}(?:\s|<br\s*\/?>)*/gi, '<br>');
+  }
+  /* The photos go in as a marker first, so the code below can see where they
+     landed relative to the approve/decline buttons. */
+  const MARK = '<!--HU_PHOTOS-->';
+  if(asked){
+    html = html.replace(/(?:\s|<br\s*\/?>)*\{\{photo\}\}(?:\s|<br\s*\/?>)*/gi, MARK);
+  } else {
+    const firstBtn = html.search(/<a [^>]*class="?ebtn|<a [^>]*style="[^"]*background:#2E6B3E/i);
+    const anchorAt = html.indexOf('<a ');
+    const cut = firstBtn !== -1 ? firstBtn : anchorAt;
+    html = cut !== -1 ? (html.slice(0, cut) + MARK + html.slice(cut)) : (html + MARK);
+  }
+  if(photos.length > 1){
+    /* Any styled button in the body, whatever colour the template gives it -
+       matching only the green and gold ones left "Decline" behind on the
+       copied set, so the two sets did not match. */
+    const btnRe = /<a\b[^>]*(?:class="?ebtn|style="[^"]*background:\s*#)[^>]*>[\s\S]*?<\/a>/gi;
+    let first = null, last = null, m;
+    while((m = btnRe.exec(html)) !== null){
+      if(first === null) first = m.index;
+      last = m.index + m[0].length;
+    }
+    if(first !== null && last !== null){
+      const buttons = html.slice(first, last);
+      const markAt = html.indexOf(MARK);
+      /* Buttons above the photos -> put the copy below them, and the other way
+         round. Either way you get one set on each side. */
+      html = markAt > first
+        ? html.replace(MARK, MARK + '<div style="margin-top:14px;">' + buttons + '</div>')
+        : html.replace(MARK, '<div style="margin-bottom:14px;">' + buttons + '</div>' + MARK);
+    }
+  }
+  return html.replace(MARK, photoHtml);
+}
+/* The photos on the quote a member came from, for the templates that show them
+   outside the quote card. Matched on phone, the same way the quote token and
+   the price already are here. */
+function quotePhotosForPhone(phone){
+  const digits = (phone || '').replace(/\D/g, '');
+  if(!digits) return [];
+  const quote = quotesCache.find(function(q){ return (q.data.phone || '').replace(/\D/g, '') === digits; });
+  return quote ? quotePhotoList(quote.data) : [];
+}
 /* Which photo each card is showing. Kept out here, keyed by quote id, so it
    survives the re-render that saving anything on the card triggers - the same
    trick quotePricingOpenIds uses for the pricing panel. */
@@ -7906,53 +7978,10 @@ function renderQuoteRows(filtered){
        buttons, falling back to the end if there are none. */
     /* Every photo on the quote goes in, not just the first - stacked one
        under another, each the full width of the email. */
-    const photos = quotePhotoList(d);
-    const photoHtml = quotePhotoEmailHtml(photos);
-    if(photoHtml){
-      /* The photos are dropped in as a marker first, so the code below can see
-         where they landed relative to the approve/decline buttons. */
-      const MARK = '<!--HU_PHOTOS-->';
-      if(html.indexOf('{{photo}}') !== -1){
-        /* Blank lines either side of the token turn into <br> tags and pile up
-           around the picture. The block brings its own spacing, so any stray
-           line breaks touching it are absorbed. */
-        html = html.replace(/(?:\s|<br\s*\/?>)*\{\{photo\}\}(?:\s|<br\s*\/?>)*/gi, MARK);
-      } else {
-        const firstBtn = html.search(/<a [^>]*class="?ebtn|<a [^>]*style="[^"]*background:#2E6B3E/i);
-        const anchorAt = html.indexOf('<a ');
-        const cut = firstBtn !== -1 ? firstBtn : anchorAt;
-        html = cut !== -1 ? (html.slice(0, cut) + MARK + html.slice(cut)) : (html + MARK);
-      }
-      /* With several photos stacked, whichever side of them the buttons are on
-         they end up a long way from the other side - on a phone that meant
-         scrolling past three pictures to reach "Yes". So the buttons are
-         repeated on the far side of the photos. The template still only holds
-         them once; this copy is made here, and only when it is actually
-         needed (two or more photos). */
-      if(photos.length > 1){
-        /* Any styled button in the body, whatever colour the template gives
-           it - matching only the green and gold ones left "Decline" behind on
-           the copied set, so the two sets did not match. */
-        const btnRe = /<a\b[^>]*(?:class="?ebtn|style="[^"]*background:\s*#)[^>]*>[\s\S]*?<\/a>/gi;
-        let first = null, last = null, m;
-        while((m = btnRe.exec(html)) !== null){
-          if(first === null) first = m.index;
-          last = m.index + m[0].length;
-        }
-        if(first !== null && last !== null){
-          const buttons = html.slice(first, last);
-          const markAt = html.indexOf(MARK);
-          /* Buttons above the photos -> put the copy below them, and the other
-             way round. Either way you get one set on each side. */
-          html = markAt > first
-            ? html.replace(MARK, MARK + '<div style="margin-top:14px;">' + buttons + '</div>')
-            : html.replace(MARK, '<div style="margin-bottom:14px;">' + buttons + '</div>' + MARK);
-        }
-      }
-      html = html.replace(MARK, photoHtml);
-    } else {
-      html = html.replace(/(?:\s|<br\s*\/?>)*\{\{photo\}\}(?:\s|<br\s*\/?>)*/gi, '<br>');
-    }
+    /* Placement and the repeated buttons both live in applyQuotePhotoBlock, so
+       the bulk nudge and Automation Emails send exactly the same thing this
+       card previews. */
+    html = applyQuotePhotoBlock(html, quotePhotoList(d), true);
     const subject = kind === 'nudge'
       ? 'Just checking in on your quote'
       : (isRequote(d) ? 'Your updated Highlighting Utah quote' : 'Your Highlighting Utah quote');
@@ -9346,7 +9375,12 @@ async function etUpdatePreview(){
     }
   }
   const vars = etResolveVars(member);
-  box.innerHTML = await resolveLinkTokens(template.data.body, vars.phone, 0, vars);
+  /* autoPlace false: only a template that actually asks for {{photo}} gets the
+     photos. A billing or RSVP template never mentioned one and must not
+     suddenly grow a picture of the house. */
+  box.innerHTML = applyQuotePhotoBlock(
+    await resolveLinkTokens(template.data.body, vars.phone, 0, vars),
+    quotePhotosForPhone(vars.phone), false);
 }
 /* ---- Audience filters: shared helpers for the Preview & Send picker --------
    Each answers one real-life question about a member from data already on their
@@ -9822,7 +9856,11 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
       }
     }
     const vars = etResolveVars(member);
-    const message = await resolveLinkTokens(template.data.body, vars.phone, 0, vars);
+    /* Same treatment as the preview above, so what was on screen is what goes
+       out. */
+    const message = applyQuotePhotoBlock(
+      await resolveLinkTokens(template.data.body, vars.phone, 0, vars),
+      quotePhotosForPhone(vars.phone), false);
     statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + selectedIds.length + '…';
     try{
       await emailjs.send(serviceId, templateJsId, { to_email: member.data.email, to_name: member.data.name || '', message: message });

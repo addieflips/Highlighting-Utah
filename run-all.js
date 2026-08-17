@@ -8036,6 +8036,151 @@ suite('Suite 32. Customer number as identifier, and flipped names');
     '"already belongs to somebody" is the wrong complaint when the number IS the identifier — every row should belong to somebody');
 }
 
+suite('Suite 33. One nudge template, one email, whoever sends it');
+/*
+ * The Nudge template is sent from FOUR places: the quote card's Send/Preview,
+ * the "Nudge everyone shown" bulk button, Automation Emails -> Preview & Send,
+ * and the nightly Cloud Function. On 2026-08-17 the middle two rendered it
+ * differently — they went straight through resolveLinkTokens, which has never
+ * known about {{photo}}, so the customer got the literal text "{{photo}}" and
+ * ONE set of approve/maybe/decline buttons while the quote card and the
+ * automatic nudge showed two. That is the bug this suite exists to stop coming
+ * back, and it is checked by RUNNING both renderers rather than reading them,
+ * because the difference is in what comes out, not in what the code says.
+ */
+{
+  const fns = read('functions/index.js');
+
+  // ---- lift the browser renderer out of admin.html ----
+  const grabBrowser = (name, src) => {
+    const i = src.indexOf('function ' + name + '(');
+    if (i === -1) return null;
+    let d = 0;
+    for (let j = src.indexOf('{', i); j < src.length; j++) {
+      if (src[j] === '{') d++;
+      else if (src[j] === '}') { d--; if (!d) return src.slice(i, j + 1); }
+    }
+    return null;
+  };
+  const browserParts = ['applyQuotePhotoBlock', 'quotePhotoEmailHtml', 'cloudEmailPhoto', 'esc']
+    .map(n => grabBrowser(n, admin));
+  const widthDecl = admin.match(/const EMAIL_PHOTO_W\s*=\s*\d+;/);
+  const cloudDecl = admin.match(/const CLOUDINARY_CLOUD = "[^"]+";/);
+
+  check('S33', 'the browser photo/button placer is findable',
+    browserParts.every(Boolean) && !!widthDecl && !!cloudDecl,
+    'a rename here must fail loudly, never silently skip — a parity test that cannot find its target must not report green');
+
+  // ---- lift the server renderer out of functions/index.js ----
+  const serverParts = ['quotePhotosServer', 'cloudEmailPhotoServer', 'escServer',
+    'quotePhotoEmailHtmlServer', 'repeatQuoteButtonsServer', 'properNameServer']
+    .map(n => grabBrowser(n, fns));
+  const bStart = fns.indexOf("      const quoteToken = q.quoteToken || '';");
+  const bEnd = fns.indexOf('      const res = await fetch(', bStart);
+
+  check('S33', 'the server nudge renderer is findable',
+    serverParts.every(Boolean) && bStart !== -1 && bEnd > bStart,
+    'same reasoning — if the anchors move, this fails rather than quietly testing nothing');
+
+  // ---- the shipped default Nudge body, read from the file, not retyped ----
+  const bodyDecl = admin.match(/const DEFAULT_QUOTE_NUDGE_BODY = ([\s\S]*?);\r?\n/);
+  check('S33', 'the default Nudge body is findable', !!bodyDecl);
+
+  if (browserParts.every(Boolean) && widthDecl && cloudDecl && serverParts.every(Boolean) &&
+      bStart !== -1 && bEnd > bStart && bodyDecl) {
+    const NUDGE = new Function('return ' + bodyDecl[1].replace(/\r/g, ''))();
+
+    const renderBrowser = new Function('body', 'photos',
+      widthDecl[0] + '\n' + cloudDecl[0] + '\n' + browserParts.join('\n') +
+      "\nreturn applyQuotePhotoBlock(body.replace(/\\n/g,'<br>')" +
+      ".split('{{price_block}}').join('<b>$450</b>')" +
+      ".split('{{quote_yes_button}}').join('<a href=\"#a\" style=\"background:#2E6B3E; color:#fff;\">Approve Quote</a>')" +
+      ".split('{{quote_maybe_button}}').join('<a href=\"#m\" style=\"background:#D89F3D; color:#1E3B2C;\">Maybe Next Year</a>')" +
+      ".split('{{quote_decline_button}}').join('<a href=\"#d\" style=\"background:#8A8F9C; color:#fff;\">Decline Quote</a>')" +
+      ', photos, true);');
+
+    const renderServer = new Function('q', 'templateBody',
+      serverParts.join('\n') + '\n' + fns.slice(bStart, bEnd) + '\nreturn body;');
+
+    const shape = html => ({
+      approve: (html.match(/>Approve Quote</g) || []).length,
+      maybe: (html.match(/>Maybe Next Year</g) || []).length,
+      decline: (html.match(/>Decline Quote</g) || []).length,
+      leftToken: html.indexOf('{{photo}}') !== -1
+    });
+    const photo = (n, label) => ({ url: 'https://res.cloudinary.com/x/image/upload/' + n + '.jpg', label: label });
+    const quoteWith = photos => ({ name: 'Sam', quotedPrice: 450, quoteToken: 'tok', quotePhotos: photos });
+
+    const one = [photo('a', 'Front of house')];
+    const two = [photo('a', 'Front of house'), photo('b', 'Right side')];
+
+    const b1 = shape(renderBrowser(NUDGE, one));
+    const s1 = shape(renderServer(quoteWith(one), NUDGE));
+    const b2 = shape(renderBrowser(NUDGE, two));
+    const s2 = shape(renderServer(quoteWith(two), NUDGE));
+
+    check('S33', 'one photo — office and automatic nudge agree, one set of buttons',
+      JSON.stringify(b1) === JSON.stringify(s1) && b1.approve === 1 && b1.maybe === 1 && b1.decline === 1,
+      'browser ' + JSON.stringify(b1) + ' vs server ' + JSON.stringify(s1));
+
+    check('S33', 'two photos — both repeat the buttons on the far side of the stack',
+      JSON.stringify(b2) === JSON.stringify(s2) && b2.approve === 2 && b2.maybe === 2 && b2.decline === 2,
+      'browser ' + JSON.stringify(b2) + ' vs server ' + JSON.stringify(s2));
+
+    check('S33', 'all three of the buttons are repeated, not just the green one',
+      b2.approve === b2.maybe && b2.maybe === b2.decline,
+      'matching only the green and gold ones is what once left "Decline" off the copied set');
+
+    check('S33', 'no customer is ever mailed a literal {{photo}}',
+      !b1.leftToken && !b2.leftToken && !s1.leftToken && !s2.leftToken &&
+      !shape(renderBrowser(NUDGE, [])).leftToken,
+      'this is exactly what the bulk nudge and Automation Emails used to send');
+  }
+
+  // ---- and the wiring: every place that mails a template runs it ----
+  /* Brace-counting cannot be used here: these bodies contain '{{quote_' and
+     '{{photo}}' inside strings, which is an unbalanced brace as far as a naive
+     counter is concerned. Slicing to the closing brace at the function's own
+     indentation is exact and does not care what is in the strings. */
+  const fnBody = (fnName, src) => {
+    const i = src.indexOf('function ' + fnName + '(');
+    if (i === -1) return null;
+    const lineStart = src.lastIndexOf('\n', i) + 1;
+    const indent = (src.slice(lineStart, i).match(/^\s*/) || [''])[0];
+    const end = src.indexOf('\n' + indent + '}', i);
+    return end === -1 ? null : src.slice(i, end);
+  };
+  const usesHelper = (fnName, src) => {
+    const body = fnBody(fnName, src);
+    return !!body && body.indexOf('applyQuotePhotoBlock(') !== -1;
+  };
+  check('S33', 'the bulk "Nudge everyone shown" button runs the placer',
+    usesHelper('nudgeEveryoneShown', admin),
+    'without it the bulk nudge bolts the photos onto the bottom and mails the raw token');
+  check('S33', 'the quote card runs the placer',
+    usesHelper('buildQuoteEmailHtml', admin),
+    'this is the one that was always right — it must keep going through the shared helper, not its own copy');
+  check('S33', 'Automation Emails preview runs the placer',
+    usesHelper('etUpdatePreview', admin),
+    'the preview has to show what the send will produce');
+  check('S33', 'nobody kept a private copy of the button-repeating logic',
+    (admin.match(/HU_PHOTOS/g) || []).length === 1,
+    'the marker should appear only inside applyQuotePhotoBlock — more than that means a second copy has grown back');
+
+  // Preview and send must stay the same call, or the office approves one email
+  // and the customer gets another.
+  const sendBlock = admin.slice(admin.indexOf("const message = applyQuotePhotoBlock("),
+                                admin.indexOf("const message = applyQuotePhotoBlock(") + 400);
+  check('S33', 'Automation Emails send matches its own preview',
+    /quotePhotosForPhone\(vars\.phone\), false\)/.test(sendBlock),
+    'preview and send must pass the same photos and the same autoPlace flag');
+
+  check('S33', 'a plain template is not given a photo it never asked for',
+    /autoPlace === false && !asked/.test(admin),
+    'a billing or RSVP template has no {{photo}} and must not suddenly grow a picture of the house');
+}
+
+
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
