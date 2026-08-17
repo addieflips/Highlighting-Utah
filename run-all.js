@@ -7568,6 +7568,80 @@ suite('Suite 29. Towns the office says are near each other');
     'refreshing a textarea under the cursor takes the line away mid-word');
 }
 
+/*
+ * Suite 30. Editing a customer saves their town.
+ *
+ * Owner, 2026-08-17, having worked it out from the form itself: "i think i
+ * figured out why the city in all customers doesnt save to schedule, its
+ * because city is labeled in the edit customer part".
+ *
+ * Exactly right. Edit Customer had ONE combined Address box and no town box at
+ * all, and the save handler wrote `address` while never touching `city`. Every
+ * part of the system that decides where a house goes — the routes, the
+ * reconcile sweep, routeCityOf, the Schedule plan — reads `city`. So correcting
+ * a town in the address line changed the words on the screen and nothing else,
+ * and the house stayed on its old town's day for the rest of the season.
+ *
+ * The dangerous direction is the other one: this handler writes about thirty
+ * fields at once, so an empty town slipping through would quietly unschedule a
+ * house rather than fail where anyone could see it.
+ */
+suite('Suite 30. Edit Customer saves the town');
+{
+  const i = admin.indexOf('function extractCleanCity(');
+  let src = '';
+  if (i !== -1) {
+    let d = 0;
+    for (let j = admin.indexOf('{', i); j < admin.length; j++) {
+      if (admin[j] === '{') d++;
+      else if (admin[j] === '}') { d--; if (!d) { src = admin.slice(i, j + 1); break; } }
+    }
+  }
+  check('S30', 'extractCleanCity is still there to read', !!src);
+
+  if (src) {
+    const sb = {};
+    new Function(src + 'this.x=extractCleanCity;').call(sb);
+    // The rule the save handler applies, kept in step with it by the check below.
+    const decide = (typed, address, onRecord) => sb.x(typed) || sb.x(address) || sb.x(onRecord) || '';
+
+    check('S30', 'a town typed in the box wins', decide('Lehi', '120 N 200 W, UT', 'Draper') === 'Lehi');
+    check('S30', 'a blank box takes the town out of the address',
+      decide('', '120 N 200 W, Lehi, UT 84043', 'Draper') === 'Lehi',
+      'so typing the town into the address line, which is what people did before there was a box, still works');
+    check('S30', 'an address with no town NEVER wipes the town on the record',
+      decide('', '120 N 200 W, UT', 'Draper') === 'Draper',
+      'this is the shape most of these addresses are in, and a blank town takes the house off every route there is');
+    check('S30', 'no town anywhere stays blank rather than inventing one',
+      decide('', '120 N 200 W, UT', '') === '',
+      'a guessed town silently moves a house onto the wrong crew-day');
+    check('S30', 'a zip on the end is not mistaken for a town',
+      decide('', '120 N 200 W, UT 84043', 'Highland') === 'Highland');
+    check('S30', 'spaces round a typed town are trimmed', decide('  Lehi  ', '', '') === 'Lehi');
+    check('S30', 'a two-word town survives', decide('Eagle Mountain', '', '') === 'Eagle Mountain');
+  }
+
+  check('S30', 'the form has a town box of its own',
+    /id="editCustCity"/.test(admin) && /id="editCustCityList"/.test(admin),
+    'with only a combined address line there was no way to set the field the routes actually read');
+  check('S30', 'it is filled in when the customer is opened',
+    /getElementById\('editCustCity'\)\.value = d\.city \|\| ''/.test(admin),
+    'an empty box on a customer who has a town would look like they have none');
+  check('S30', 'and the town is written on save',
+    /address: newAddress, city: newCity,/.test(admin),
+    'this is the whole bug — the handler wrote the address and left the town alone');
+  check('S30', 'the save falls back through box, then address, then what is on file',
+    /const newCity = typedCity \|\| extractCleanCity\(newAddress\) \|\| extractCleanCity\(d\.city\) \|\| '';/.test(admin),
+    'dropping the last fallback is what would let a routine save blank a town');
+  check('S30', 'the town box offers the towns already in use',
+    /editCustCityList/.test(admin) && /jobAddresses\.forEach/.test(admin),
+    'a typo makes a town of one, which gets its own crew-day for a single house');
+  /* One parser, not two. §9.1: do not duplicate a check or a rule across the
+     code — extractCleanCity already reads a whole address line. */
+  check('S30', 'there is no second address parser', !/function cityFromAddressLine/.test(admin),
+    'extractCleanCity already drops the segments with digits and strips UT and the zip');
+}
+
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));

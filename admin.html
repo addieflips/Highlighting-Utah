@@ -1711,6 +1711,10 @@
             <div class="form-row"><label>Enrolled Date</label><input type="date" id="editCustEnrolled"></div>
           </div>
           <div class="form-row"><label>Address</label><input type="text" id="editCustAddress"></div>
+          <div class="form-row"><label>Town</label><input type="text" id="editCustCity" list="editCustCityList">
+            <datalist id="editCustCityList"></datalist>
+            <p style="font-size:11.5px; color:var(--slate); margin:6px 0 0; line-height:1.5;">The town on its own. This is the one the routes and the schedule are built from &mdash; a crew-day is one town &mdash; and editing the address line above does not change it. Leave it blank and the town is taken out of the address, if there is one in there.</p>
+          </div>
           <div class="ec-grid">
             <div class="form-row"><label>RSVP Status</label>
               <select id="editCustRsvp">
@@ -18490,6 +18494,20 @@ function openEditCustomerModal(id){
   document.getElementById('editCustEmail').value = d.email || '';
   document.getElementById('editCustEmail2').value = d.email2 || '';
   document.getElementById('editCustAddress').value = d.address || '';
+  document.getElementById('editCustCity').value = d.city || '';
+  /* Offer the towns already in use, so a corrected town matches the others
+     rather than becoming a town of one through a typo or "Amercian Fork". */
+  const cityList = document.getElementById('editCustCityList');
+  if(cityList){
+    const seen = {};
+    jobAddresses.forEach(function(a){
+      const c = extractCleanCity(a.data && a.data.city);
+      if(c) seen[c] = true;
+    });
+    cityList.innerHTML = Object.keys(seen).sort().map(function(c){
+      return '<option value="' + esc(c) + '"></option>';
+    }).join('');
+  }
   document.getElementById('editCustEnrolled').value = (d.createdAt && d.createdAt.toDate) ? toDateStr(d.createdAt.toDate()) : '';
   document.getElementById('editCustRsvp').value = d.rsvpStatus || '';
   /* Confirmed is the default for anyone not explicitly sitting out, which is
@@ -18701,6 +18719,24 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const newEmail = document.getElementById('editCustEmail').value.trim();
   const newEmail2 = document.getElementById('editCustEmail2').value.trim();
   const newAddress = document.getElementById('editCustAddress').value.trim();
+  /* THE TOWN IS ITS OWN FIELD AND ALWAYS WAS ON THE RECORD — there just was no
+     box for it, so this handler wrote `address` and left `city` untouched.
+     Correcting a town in the address line therefore changed the words on screen
+     and nothing else: routes, the reconcile sweep and the Schedule plan all read
+     `city`, so the house stayed on its old town's day and the season stayed the
+     wrong length. Owner, 2026-08-17, having worked it out from the form itself:
+     "i think i figured out why the city in all customers doesnt save to
+     schedule, its because city is labeled in the edit customer part". */
+  /* extractCleanCity already reads a whole address line — it drops any comma
+     segment holding digits and strips UT and the zip — so "120 N 200 W, UT"
+     answers '' and "120 N 200 W, Lehi, UT" answers Lehi. No second parser.
+     And an empty answer NEVER clears a town that is already on the record: this
+     handler writes about thirty fields in one go, so a blank slipping through
+     would quietly unschedule the house rather than fail loudly. Clearing a town
+     on purpose is not a thing anybody needs to do — a house without one cannot
+     be put on a route at all. */
+  const typedCity = extractCleanCity(document.getElementById('editCustCity').value);
+  const newCity = typedCity || extractCleanCity(newAddress) || extractCleanCity(d.city) || '';
   const newEnrolledStr = document.getElementById('editCustEnrolled').value;
   const newRsvp = document.getElementById('editCustRsvp').value;
   const newSeasonMaybe = document.getElementById('editCustSeasonMaybe').checked;
@@ -18770,7 +18806,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   statusEl.textContent = 'Saving…';
   try{
     const newNoTexts = document.getElementById('editCustNoTexts').checked;
-    const addrUpdates = {smsOptedOut: newNoTexts, name: newName, propertyLabel: newPropertyLabel, phone: newPhone, phone2: newPhone2, email: newEmail, email2: newEmail2, address: newAddress, rsvpStatus: newRsvp, housePrice: newHousePrice, measuredFeet: newMeasuredFeet, wireColor: newWireColor, billToPhone: newBillTo, gateCode: newGateCode, outletTimer: newOutletTimer, useEaves: newUseEaves, specificOutlet: newSpecificOutlet, specificOutletNotes: newSpecificOutletNotes, numberOfBins: newBins, wantsMailedInvoice: newWantsMailed, layoutMapUrl: editCustLayoutMapUrl, earliestInstallDate: newEarliestInstallStr ? new Date(newEarliestInstallStr + 'T00:00:00') : null};
+    const addrUpdates = {smsOptedOut: newNoTexts, name: newName, propertyLabel: newPropertyLabel, phone: newPhone, phone2: newPhone2, email: newEmail, email2: newEmail2, address: newAddress, city: newCity, rsvpStatus: newRsvp, housePrice: newHousePrice, measuredFeet: newMeasuredFeet, wireColor: newWireColor, billToPhone: newBillTo, gateCode: newGateCode, outletTimer: newOutletTimer, useEaves: newUseEaves, specificOutlet: newSpecificOutlet, specificOutletNotes: newSpecificOutletNotes, numberOfBins: newBins, wantsMailedInvoice: newWantsMailed, layoutMapUrl: editCustLayoutMapUrl, earliestInstallDate: newEarliestInstallStr ? new Date(newEarliestInstallStr + 'T00:00:00') : null};
     /* Stamped on every customer save. Without these two the concurrent-edit
        check above has nothing to compare — a customer record carried no
        updatedAt at all, so "has anyone touched this since I opened it?" was
