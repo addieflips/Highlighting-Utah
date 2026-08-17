@@ -14713,6 +14713,40 @@ function rbName(raw){
   const flip = document.getElementById('rbFlipNames');
   return (flip && flip.checked) ? flipLastFirstName(raw) : raw;
 }
+/* Copying a column out of Excel brings its heading with it, and deleting the
+   heading out of sixteen boxes by hand is a chore that only has to be forgotten
+   once to shift every row by one. Owner, 2026-08-17: "I copy the headers on
+   everything and then have to delete it, make it so if the customer number (or
+   whatever the identifier is) I put in doesnt exist it just ignores everything
+   on the first line."
+
+   Judged on the IDENTIFIER column only, and on shape rather than a list of
+   words, so it holds for any heading anybody types:
+     - a customer number is digits, so "Customer #" cannot be one;
+     - a street address always contains a number, so "Address" cannot be one.
+   Then the first line comes off EVERY column together, which is the only way
+   that keeps them lined up — one column losing a row and the others not is the
+   misalignment this exists to prevent.
+   A heading is never MISTAKEN for data here either way round: a real first row
+   has digits in it, and a heading does not. */
+function rbHeaderOffset(){
+  const streetsBox = document.getElementById('rbStreetsArea');
+  const cnBox = document.getElementById('rbCustNumbersArea');
+  const firstOf = function(el){ return el ? (el.value.split('\n')[0] || '').trim() : ''; };
+  const street = firstOf(streetsBox);
+  /* An EMPTY first line is not a heading, and must not be quietly eaten: it is
+     a blank row, and the row-count check reports exactly which one and why.
+     Swallowing it here would hide the misalignment instead. */
+  if(streetsBox && streetsBox.value.trim()) return street ? (/\d/.test(street) ? 0 : 1) : 0;
+  const cn = firstOf(cnBox);
+  if(cn) return /^\d+$/.test(cn) ? 0 : 1;
+  return 0;
+}
+function rbCol(id, off){
+  const el = document.getElementById(id);
+  if(!el) return [];
+  return el.value.split('\n').slice(off || 0).map(function(s){ return s.trim(); });
+}
 const rbAreaIds = ['rbNamesArea','rbPhonesArea','rbEmailsArea','rbStreetsArea','rbCitiesArea','rbStatesArea','rbZipsArea','rbDatesArea','rbColorsArea','rbAmountsArea','rbInstallPrefArea','rbCustNumbersArea','rbWireArea','rbTimerArea','rbEavesArea','rbDifficultyArea'];
 const rbCountIds = {
   rbNamesArea:'rbCountNames', rbPhonesArea:'rbCountPhones', rbEmailsArea:'rbCountEmails',
@@ -14786,21 +14820,23 @@ document.getElementById('rbCheckBtn')?.addEventListener('click', function(){
   const statusEl = document.getElementById('rbImportStatus');
   const report = document.getElementById('rbCheckReport');
   report.innerHTML = '';
+  /* One heading row, taken off every column together — see rbHeaderOffset. */
+  const hoff = rbHeaderOffset();
   // Same anchor rule as the import, or the preview is of a different run.
-  const cnAll = document.getElementById('rbCustNumbersArea').value.split('\n').map(s => s.trim());
-  const byNumberOnly = !document.getElementById('rbStreetsArea').value.split('\n').map(s => s.trim()).filter(Boolean).length
+  const cnAll = rbCol('rbCustNumbersArea', hoff);
+  const byNumberOnly = !rbCol('rbStreetsArea', hoff).filter(Boolean).length
                        && !!cnAll.filter(Boolean).length;
   const streets = byNumberOnly
     ? cnAll.filter(Boolean).map(function(){ return ''; })
-    : document.getElementById('rbStreetsArea').value.split('\n').map(s => s.trim()).filter(Boolean);
+    : rbCol('rbStreetsArea', hoff).filter(Boolean);
   if(!streets.length){ statusEl.textContent = 'Paste at least the Street Address column first, or the Customer # column on its own.'; return; }
 
-  const names   = alignBulkRows(document.getElementById('rbNamesArea').value.split('\n').map(s => s.trim()).map(rbName), streets.length);
-  const phones  = alignBulkRows(document.getElementById('rbPhonesArea').value.split('\n').map(s => s.trim()), streets.length);
-  const cities  = alignBulkRows(document.getElementById('rbCitiesArea').value.split('\n').map(s => s.trim()), streets.length);
-  const zips    = alignBulkRows(document.getElementById('rbZipsArea').value.split('\n').map(s => s.trim()), streets.length);
+  const names   = alignBulkRows(rbCol('rbNamesArea', hoff).map(rbName), streets.length);
+  const phones  = alignBulkRows(rbCol('rbPhonesArea', hoff), streets.length);
+  const cities  = alignBulkRows(rbCol('rbCitiesArea', hoff), streets.length);
+  const zips    = alignBulkRows(rbCol('rbZipsArea', hoff), streets.length);
   // The price column is rbAmountsArea — the same box the real import reads.
-  const prices  = alignBulkRows(document.getElementById('rbAmountsArea').value.split('\n').map(s => s.trim()), streets.length);
+  const prices  = alignBulkRows(rbCol('rbAmountsArea', hoff), streets.length);
   /* Read here for the same reason the import reads it: a customer number is the
      one key a wrong town cannot break, so Check First has to match on exactly
      what Import matches on, or it is reporting a different run to the one that
@@ -14858,6 +14894,7 @@ document.getElementById('rbCheckBtn')?.addEventListener('click', function(){
 
   statusEl.textContent = 'Nothing has been written.';
   report.innerHTML =
+    (hoff ? '<div style="font-size:13px; color:var(--slate); margin-bottom:6px;">First line ignored &mdash; it looks like your column headings, not a customer.</div>' : '') +
     '<div style="font-weight:700; margin-bottom:4px;">' + streets.length + ' row(s): ' +
       willUpdate + ' would update an existing customer, ' + willAdd + ' would be added as new.</div>' +
     (priceChangeCount
@@ -14903,10 +14940,12 @@ document.getElementById('rbCheckBtn')?.addEventListener('click', function(){
    end rather than once per row. See renderJobAddressPanels(). */
 document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(async function(){ return withBulkWrites(async function(){
   const statusEl = document.getElementById('rbImportStatus');
+  /* One heading row, taken off every column together — see rbHeaderOffset. */
+  const hoff = rbHeaderOffset();
   /* Kept before the blanks are filtered out, so a mismatch can say WHICH row is
      empty instead of only that the totals differ. */
-  const streetsRaw = document.getElementById('rbStreetsArea').value.split('\n').map(s => s.trim());
-  const cnRawAll = document.getElementById('rbCustNumbersArea').value.split('\n').map(s => s.trim());
+  const streetsRaw = rbCol('rbStreetsArea', hoff);
+  const cnRawAll = rbCol('rbCustNumbersArea', hoff);
   /* The Customer # column can stand in for the address column entirely.
      Owner, 2026-08-17: "can we just use their customer number as their
      identifer instead of address". With numbers and no addresses this can only
@@ -14917,7 +14956,7 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
   const streets = byNumberOnly ? cnRawAll.filter(Boolean).map(function(){ return ''; }) : streetsRaw.filter(Boolean);
   if(!streets.length){ statusEl.textContent = 'Paste at least the Street Address column, or the Customer # column on its own.'; return; }
 
-  const names = alignBulkRows(document.getElementById('rbNamesArea').value.split('\n').map(s => s.trim()).map(rbName), streets.length);
+  const names = alignBulkRows(rbCol('rbNamesArea', hoff).map(rbName), streets.length);
   const custNumbers = byNumberOnly ? cnRawAll.filter(Boolean) : alignBulkRows(cnRawAll, streets.length);
   // Validate every number up front — a half-finished numbering run is worse than none.
   const numProblems = [];
@@ -14943,19 +14982,19 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
     statusEl.textContent = 'Fix these Customer # problems first — nothing was imported: ' + numProblems.slice(0,8).join('  ') + (numProblems.length > 8 ? '  …and ' + (numProblems.length-8) + ' more.' : '');
     return;
   }
-  const phones = alignBulkRows(document.getElementById('rbPhonesArea').value.split('\n').map(s => s.trim()), streets.length);
-  const emails = alignBulkRows(document.getElementById('rbEmailsArea').value.split('\n').map(s => s.trim()), streets.length);
-  const cities = alignBulkRows(document.getElementById('rbCitiesArea').value.split('\n').map(s => s.trim()), streets.length);
-  const states = alignBulkRows(document.getElementById('rbStatesArea').value.split('\n').map(s => s.trim()), streets.length);
-  const zips = alignBulkRows(document.getElementById('rbZipsArea').value.split('\n').map(s => s.trim()), streets.length);
-  const dates = alignBulkRows(document.getElementById('rbDatesArea').value.split('\n').map(s => s.trim()), streets.length);
-  const colorsRaw = alignBulkRows(document.getElementById('rbColorsArea').value.split('\n').map(s => s.trim()), streets.length);
-  const amounts = alignBulkRows(document.getElementById('rbAmountsArea').value.split('\n').map(s => s.trim()), streets.length);
-  const installPrefRaw = alignBulkRows(document.getElementById('rbInstallPrefArea').value.split('\n').map(s => s.trim()), streets.length);
-  const wireRaw = alignBulkRows(document.getElementById('rbWireArea').value.split('\n').map(s => s.trim()), streets.length);
-  const timerRaw = alignBulkRows(document.getElementById('rbTimerArea').value.split('\n').map(s => s.trim()), streets.length);
-  const eavesRaw = alignBulkRows(document.getElementById('rbEavesArea').value.split('\n').map(s => s.trim()), streets.length);
-  const difficultyRaw = alignBulkRows(document.getElementById('rbDifficultyArea').value.split('\n').map(s => s.trim()), streets.length);
+  const phones = alignBulkRows(rbCol('rbPhonesArea', hoff), streets.length);
+  const emails = alignBulkRows(rbCol('rbEmailsArea', hoff), streets.length);
+  const cities = alignBulkRows(rbCol('rbCitiesArea', hoff), streets.length);
+  const states = alignBulkRows(rbCol('rbStatesArea', hoff), streets.length);
+  const zips = alignBulkRows(rbCol('rbZipsArea', hoff), streets.length);
+  const dates = alignBulkRows(rbCol('rbDatesArea', hoff), streets.length);
+  const colorsRaw = alignBulkRows(rbCol('rbColorsArea', hoff), streets.length);
+  const amounts = alignBulkRows(rbCol('rbAmountsArea', hoff), streets.length);
+  const installPrefRaw = alignBulkRows(rbCol('rbInstallPrefArea', hoff), streets.length);
+  const wireRaw = alignBulkRows(rbCol('rbWireArea', hoff), streets.length);
+  const timerRaw = alignBulkRows(rbCol('rbTimerArea', hoff), streets.length);
+  const eavesRaw = alignBulkRows(rbCol('rbEavesArea', hoff), streets.length);
+  const difficultyRaw = alignBulkRows(rbCol('rbDifficultyArea', hoff), streets.length);
 
   const checks = [
     ['Name', names],
@@ -15125,7 +15164,7 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
       failed++;
     }
   }
-  statusEl.textContent = streets.length + ' row(s) read \u2014 ' + added + ' added, ' + updated + ' updated' + (billed ? ', ' + billed + ' invoice(s) billed' : '') + (noPhoneNoInvoice ? ', ' + noPhoneNoInvoice + ' amount(s) skipped (no phone on file)' : '') + (noPin ? ', ' + noPin + ' added without a map pin (All Customers → Filters → Map Pin → "Needs Pin", or see Health Check)' : '') + (failed ? ', ' + failed + ' failed' : '') + '.';
+  statusEl.textContent = (hoff ? 'First line ignored as headings. ' : '') + streets.length + ' row(s) read \u2014 ' + added + ' added, ' + updated + ' updated' + (billed ? ', ' + billed + ' invoice(s) billed' : '') + (noPhoneNoInvoice ? ', ' + noPhoneNoInvoice + ' amount(s) skipped (no phone on file)' : '') + (noPin ? ', ' + noPin + ' added without a map pin (All Customers → Filters → Map Pin → "Needs Pin", or see Health Check)' : '') + (failed ? ', ' + failed + ' failed' : '') + '.';
   rbAreaIds.forEach(function(id){ document.getElementById(id).value = ''; });
   wireBulkCounts(rbAreaIds, 'rbStreetsArea', rbCountIds)();
 }); }, function(){ return document.getElementById('rbImportBtn'); }));

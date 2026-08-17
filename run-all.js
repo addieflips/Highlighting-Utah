@@ -6860,8 +6860,12 @@ suite('Suite 23. Bulk row mismatches name the offending row');
     /* The unfiltered rows must still be kept and still be what gets filtered —
        not pinned to one exact line, since the Customer # column can now stand in
        as the anchor and that put a conditional in between. */
+    /* Read either straight off the box or through rbCol (which also drops a
+       heading row) — what matters is that the UNFILTERED rows are kept under
+       this name and are what gets filtered, so the diagnostic can name the
+       empty row. */
     check('S23', label + ' keeps its unfiltered rows for the diagnostic',
-      new RegExp('const ' + raw + ' = document\\.getElementById\\(\'' + area + '\'\\)').test(admin) &&
+      new RegExp('const ' + raw + ' = (document\\.getElementById\\(\'' + area + '\'\\)|rbCol\\(\'' + area + '\')').test(admin) &&
       new RegExp(raw + '\\.filter\\(Boolean\\)').test(admin));
     check('S23', label + ' mismatch calls bulkMismatchHint',
       new RegExp("bulkMismatchHint\\('" + label + "', " + raw).test(admin));
@@ -7830,6 +7834,47 @@ suite('Suite 32. Customer number as identifier, and flipped names');
   check('S32', 'numbers with no addresses can only UPDATE, never add',
     /if\(byNumberOnly && !existing\)\{ failed\+\+; continue; \}/.test(admin),
     'adding here would write a customer with no address, no town and no pin, which can never go on a route');
+  /* ---- the heading row ----
+     Owner, 2026-08-17: "I copy the headers on everything and then have to
+     delete it". Deleting it out of sixteen boxes by hand only has to be
+     forgotten once to shift every row by one. */
+  const hdrSrc = fn('rbHeaderOffset');
+  check('S32', 'the heading detector exists', !!hdrSrc);
+  if (hdrSrc && fn('rbCol')) {
+    const boxes = {};
+    const doc = { getElementById: id => boxes[id] === undefined ? null : { value: boxes[id] } };
+    const sb3 = {};
+    new Function('document', hdrSrc + fn('rbCol') + 'this.off=rbHeaderOffset;this.col=rbCol;').call(sb3, doc);
+    const off = (streets, cn) => { boxes.rbStreetsArea = streets; boxes.rbCustNumbersArea = cn; return sb3.off(); };
+
+    check('S32', 'a heading on the address column is skipped',
+      off('Address\n120 N 200 W\n6037 W 11860 N', 'Customer #\n555\n556') === 1);
+    check('S32', 'any wording works, because it goes on shape not a list of words',
+      off('Street Address\n120 N 200 W', '') === 1 && off('house\n120 N 200 W', '') === 1,
+      'a real address always has a number in it and a heading does not');
+    check('S32', 'a heading on the Customer # column is skipped when that is the identifier',
+      off('', 'Customer #\n555\n556') === 1 && off('', 'cu\n555') === 1);
+    check('S32', 'a real first row is NEVER eaten',
+      off('120 N 200 W\n6037 W 11860 N', '555\n556') === 0 && off('', '555\n556') === 0 &&
+      off('1440 W Main St', '') === 0,
+      'losing the first customer of a 962 row paste would be invisible');
+    check('S32', 'an empty first line is left for the row-count check to report',
+      off('\n120 N 200 W', '') === 0,
+      'a blank row is not a heading — swallowing it here would hide the misalignment instead of naming it');
+    check('S32', 'nothing pasted, nothing skipped', off('', '') === 0);
+
+    boxes.rbStreetsArea = 'Address\nA\nB';
+    check('S32', 'the heading comes off every column together',
+      sb3.col('rbStreetsArea', 1).join() === 'A,B',
+      'one column losing a row while the others keep it is the exact misalignment this prevents');
+  }
+  check('S32', 'every bulk column is read through the same reader',
+    !/getElementById\('rb[A-Za-z]+Area'\)\.value\.split/.test(admin),
+    'a column read the old way would keep its heading while the rest dropped theirs');
+  check('S32', 'and the office is told the line was ignored',
+    /First line ignored/.test(admin) && (admin.match(/First line ignored/g) || []).length >= 2,
+    'silently dropping a row is how a paste that was wrong looks like it worked');
+
   check('S32', 'and a number nobody holds is reported up front',
     /if\(!heldBy\) numProblems\.push\('Row ' \+ \(i\+1\) \+ ': nobody has #'/.test(admin),
     '"already belongs to somebody" is the wrong complaint when the number IS the identifier — every row should belong to somebody');
