@@ -6697,6 +6697,80 @@ suite('Suite 21. Panel data loads on open, not all at login');
     'without this, every tick of the payroll split-view toggle leaves another live listener on two years of clock-ins');
 }
 
+/*
+ * Suite 22. Bulk runs redraw once, not once per row.
+ *
+ * The jobAddresses listener redraws EIGHTEEN panels across every customer on
+ * file, one of them a Google map that builds a marker per house. That is fine
+ * for a single edit. For a bulk import it used to fire once per row, so nine
+ * hundred rows built and threw away the best part of a million marker objects
+ * and the tab ran out of memory part-way through the import — which is the
+ * crash this suite exists to keep fixed.
+ *
+ * The dangerous failure here is the opposite one: renders left suspended, or a
+ * bulk tool that never resumes them. That looks exactly like a frozen page and
+ * would be blamed on anything but the bulk tool, so it is checked explicitly.
+ */
+suite('Suite 22. Bulk runs redraw once, not once per row');
+{
+  const bodyOf = (src, header) => {
+    const s = src.indexOf(header);
+    if (s === -1) return '';
+    let depth = 0;
+    for (let j = src.indexOf('{', s); j < src.length; j++) {
+      if (src[j] === '{') depth++;
+      else if (src[j] === '}') { depth--; if (depth === 0) return src.slice(s, j + 1); }
+    }
+    return '';
+  };
+
+  const panels = bodyOf(admin, 'function renderJobAddressPanels(){');
+  const sched = bodyOf(admin, 'function scheduleJobAddressRender(){');
+  const wrap = bodyOf(admin, 'async function withBulkWrites(');
+  const listener = bodyOf(admin, 'function loadJobAddresses(){');
+
+  check('S22', 'renderJobAddressPanels() exists', panels.length > 0);
+  // A render dropped during the move would silently stop a panel updating.
+  const renderCount = (panels.match(/safeRender\(/g) || []).length;
+  check('S22', 'every panel render survived the move out of the listener', renderCount >= 21,
+    'only ' + renderCount + ' safeRender calls — one was lost, and that panel now never refreshes');
+  check('S22', 'All Customers is still in the redraw', /allCustomersTable/.test(panels));
+  check('S22', 'the map is still in the redraw', /overviewMap/.test(panels));
+
+  // The listener must update data every time but NOT draw every time.
+  check('S22', 'the listener still rebuilds the customer list on every write', /jobAddresses\.push/.test(listener));
+  check('S22', 'the listener still rebuilds the lookup indexes on every write', /rebuildCustomerIndexes\(\)/.test(listener));
+  check('S22', 'the listener schedules a redraw instead of drawing inline',
+    /scheduleJobAddressRender\(\)/.test(listener) && !/safeRender\(/.test(listener),
+    'drawing straight from the listener is what made a bulk import fire the whole cascade once per row');
+
+  check('S22', 'a bulk run suspends the redraw', /bulkWriteDepth > 0/.test(sched));
+  // If this ever stops resuming, the panels freeze until the page is reloaded.
+  check('S22', 'withBulkWrites() resumes in a finally, so a failed run cannot leave the panels frozen',
+    /finally\s*\{/.test(wrap) && /bulkWriteDepth--/.test(wrap) && /renderJobAddressPanels\(\)/.test(wrap));
+  check('S22', 'withBulkWrites() counts rather than toggles, so nested bulk tools resume once',
+    /bulkWriteDepth\+\+/.test(wrap) && /bulkWriteDepth === 0/.test(wrap));
+
+  // Both bulk importers must actually use it, or the fix does nothing.
+  [['rbImportBtn', 'Routes/customer bulk import'], ['ibImportBtn', 'Invoice bulk import']].forEach(([id, label]) => {
+    /* Anchored to the handler's own line, not a fixed character window — a
+       window goes stale the moment the code grows past it (§7 of CLAUDE.md,
+       and this suite's own meta-check enforces that). */
+    const line = admin.split(/\r?\n/).find(L => L.includes("getElementById('" + id + "').addEventListener")) || '';
+    check('S22', label + ' redraws once at the end, not once per row',
+      /withBulkWrites\(/.test(line),
+      'without withBulkWrites this importer fires the whole render cascade for every row it writes');
+  });
+
+  // The yield is what keeps the tab responsive and gives the collector a chance.
+  const breathe = bodyOf(admin, 'async function bulkBreathe(');
+  check('S22', 'bulkBreathe() yields to the browser', /setTimeout\(r, 0\)/.test(breathe));
+  check('S22', 'bulkBreathe() pauses longer when the heap is climbing',
+    /bulkHeapUsedMb\(\) > BULK_HEAP_PAUSE_MB/.test(breathe));
+  check('S22', 'both bulk importers breathe between rows',
+    (admin.match(/await bulkBreathe\(i\)/g) || []).length >= 2);
+}
+
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));

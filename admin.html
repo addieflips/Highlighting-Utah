@@ -14738,7 +14738,9 @@ document.getElementById('rbCheckBtn')?.addEventListener('click', function(){
           '<td style="padding:4px 8px;">' + priceCell + '</td></tr>';
       }).join('') + '</tbody></table></div>';
 });
-document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(async function(){
+/* withBulkWrites: hundreds of rows, so the customer panels redraw once at the
+   end rather than once per row. See renderJobAddressPanels(). */
+document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(async function(){ return withBulkWrites(async function(){
   const statusEl = document.getElementById('rbImportStatus');
   const streets = document.getElementById('rbStreetsArea').value.split('\n').map(s => s.trim()).filter(Boolean);
   if(!streets.length){ statusEl.textContent = 'Paste at least the Street Address column.'; return; }
@@ -14812,6 +14814,7 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
   let added = 0, updated = 0, failed = 0, billed = 0, noPhoneNoInvoice = 0, noPin = 0;
   for(let i = 0; i < streets.length; i++){
     statusEl.textContent = 'Locating ' + (i+1) + ' of ' + streets.length + '…';
+    await bulkBreathe(i);
     const street = streets[i];
     const name = names[i] || '';
     const phone = (phones[i] || '').replace(/\D/g,'');
@@ -14935,13 +14938,14 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
   statusEl.textContent = streets.length + ' row(s) read \u2014 ' + added + ' added, ' + updated + ' updated' + (billed ? ', ' + billed + ' invoice(s) billed' : '') + (noPhoneNoInvoice ? ', ' + noPhoneNoInvoice + ' amount(s) skipped (no phone on file)' : '') + (noPin ? ', ' + noPin + ' added without a map pin (All Customers → Filters → Map Pin → "Needs Pin", or see Health Check)' : '') + (failed ? ', ' + failed + ' failed' : '') + '.';
   rbAreaIds.forEach(function(id){ document.getElementById(id).value = ''; });
   wireBulkCounts(rbAreaIds, 'rbStreetsArea', rbCountIds)();
-}, function(){ return document.getElementById('rbImportBtn'); }));
+}); }, function(){ return document.getElementById('rbImportBtn'); }));
 
 // --- Invoice Bulk Update ---
 const ibAreaIds = ['ibNamesArea','ibPhonesArea','ibEmailsArea','ibAmountsArea'];
 const ibCountIds = { ibNamesArea:'ibCountNames', ibPhonesArea:'ibCountPhones', ibEmailsArea:'ibCountEmails', ibAmountsArea:'ibCountAmounts' };
 wireBulkCounts(ibAreaIds, 'ibPhonesArea', ibCountIds);
-document.getElementById('ibImportBtn').addEventListener('click', onceAtATime(async function(){
+/* Same reasoning as the Routes import above — one redraw at the end. */
+document.getElementById('ibImportBtn').addEventListener('click', onceAtATime(async function(){ return withBulkWrites(async function(){
   const statusEl = document.getElementById('ibImportStatus');
   const phones = document.getElementById('ibPhonesArea').value.split('\n').map(s => s.trim()).filter(Boolean);
   if(!phones.length){ statusEl.textContent = 'Paste at least the Phone Number column.'; return; }
@@ -14964,6 +14968,7 @@ document.getElementById('ibImportBtn').addEventListener('click', onceAtATime(asy
 
   let added = 0, updated = 0, customersCreated = 0, skipped = 0;
   for(let i = 0; i < phones.length; i++){
+    await bulkBreathe(i);
     const phone = phones[i].replace(/\D/g,'');
     const name = names[i] || '';
     const email = emails[i] || '';
@@ -15012,7 +15017,7 @@ document.getElementById('ibImportBtn').addEventListener('click', onceAtATime(asy
   statusEl.textContent = added + ' invoice(s) added, ' + updated + ' updated' + (customersCreated ? ', ' + customersCreated + ' new customer record(s) created' : '') + (skipped ? ', ' + skipped + ' skipped' : '') + '.';
   ibAreaIds.forEach(function(id){ document.getElementById(id).value = ''; });
   wireBulkCounts(ibAreaIds, 'ibPhonesArea', ibCountIds)();
-}, function(){ return document.getElementById('ibImportBtn'); }));
+}); }, function(){ return document.getElementById('ibImportBtn'); }));
 
 let activeDiffFilters = [];
 let activeNeedsFixFilter = false;
@@ -16081,19 +16086,23 @@ function renderWarehouseRecycleQueue(){
     });
   });
 }
-function loadJobAddresses(){
-  onSnapshot(collection(db,'jobAddresses'), function(snap){
-    jobAddresses = [];
-    snap.forEach(function(docSnap){ jobAddresses.push({ id: docSnap.id, data: docSnap.data() }); });
-    // Indexes first — every render below looks customers up through them.
-    rebuildCustomerIndexes();
-    /* Every panel redraws off this one listener. Without isolation a single
-       failing render — a map that didn't load, one bad record — silently kills
-       every render after it, which is why panels sat on "Loading…". */
-    function safeRender(label, fn){
-      try{ if(typeof fn === 'function') fn(); }
-      catch(err){ console.error('Render failed: ' + label, err); }
-    }
+/* Every panel redraws off this one listener. Without isolation a single
+   failing render — a map that didn't load, one bad record — silently kills
+   every render after it, which is why panels sat on "Loading…". */
+function safeRender(label, fn){
+  try{ if(typeof fn === 'function') fn(); }
+  catch(err){ console.error('Render failed: ' + label, err); }
+}
+/* Drawing all of this is EXPENSIVE: eighteen renders across every customer on
+   file, one of them a Google map that builds a marker per house. Fine for a
+   single edit, ruinous for a bulk run — importing nine hundred rows used to
+   fire the whole cascade nine hundred times, so the map alone built and threw
+   away the best part of a million marker objects and the tab ran out of memory
+   and died mid-import.
+   The DATA still updates on every single write, so anything reading
+   jobAddresses stays correct. Only the DRAWING is coalesced, and the last
+   write always draws — nothing is skipped, just not repeated. */
+function renderJobAddressPanels(){
     safeRender('cityDropdowns', populateCityDropdowns);
     safeRender('routeAddressList', renderRouteAddressList);
     safeRender('takedowns', renderTakedownsList);
@@ -16121,6 +16130,72 @@ function loadJobAddresses(){
        from - a saved edit only appeared after retyping the search or switching
        tabs. It renders from jobAddresses, which has just been rebuilt above. */
     safeRender('allCustomersTable', typeof renderAllCustomersTable === 'function' ? renderAllCustomersTable : null);
+}
+
+/* Draw 250ms after the last change, but never let more than 2.5s of continuous
+   writing pass without drawing, so a long import still shows progress rather
+   than looking frozen. */
+const JOB_ADDRESS_RENDER_DEBOUNCE_MS = 250;
+const JOB_ADDRESS_RENDER_MAX_WAIT_MS = 2500;
+let jobAddressRenderTimer = null;
+let jobAddressRenderDeadline = 0;
+let bulkWriteDepth = 0;
+function scheduleJobAddressRender(){
+  /* Inside a bulk run the panels are left alone completely — withBulkWrites()
+     draws once when it finishes. */
+  if(bulkWriteDepth > 0) return;
+  const now = Date.now();
+  if(!jobAddressRenderDeadline) jobAddressRenderDeadline = now + JOB_ADDRESS_RENDER_MAX_WAIT_MS;
+  if(jobAddressRenderTimer) clearTimeout(jobAddressRenderTimer);
+  const wait = Math.max(0, Math.min(JOB_ADDRESS_RENDER_DEBOUNCE_MS, jobAddressRenderDeadline - now));
+  jobAddressRenderTimer = setTimeout(function(){
+    jobAddressRenderTimer = null;
+    jobAddressRenderDeadline = 0;
+    renderJobAddressPanels();
+  }, wait);
+}
+/* Wrap a run of many writes so the panels redraw ONCE at the end instead of
+   once per row. The finally clause is the part that matters: leaving renders
+   suspended after a failure would look exactly like the page having frozen,
+   which is a worse bug than the one this fixes. Counted rather than a boolean
+   so a bulk tool that calls another one still resumes exactly once. */
+async function withBulkWrites(fn){
+  bulkWriteDepth++;
+  try{ return await fn(); }
+  finally{
+    bulkWriteDepth--;
+    if(bulkWriteDepth === 0){
+      if(jobAddressRenderTimer){ clearTimeout(jobAddressRenderTimer); jobAddressRenderTimer = null; }
+      jobAddressRenderDeadline = 0;
+      renderJobAddressPanels();
+    }
+  }
+}
+/* Chrome-only and advisory: performance.memory reports the heap, but nothing in
+   a page can force a collection. Yielding is what gives the collector its
+   chance, so a run that is climbing gets a real pause and time to recover
+   instead of a dead tab. Browsers that report nothing just get the plain yield,
+   which is worth having on its own — it keeps the tab responsive. */
+const BULK_HEAP_PAUSE_MB = 700;
+const BULK_BREATHE_EVERY = 25;
+function bulkHeapUsedMb(){
+  const m = (typeof performance !== 'undefined') && performance.memory;
+  return (m && m.usedJSHeapSize) ? Math.round(m.usedJSHeapSize / 1048576) : 0;
+}
+async function bulkBreathe(rowIndex){
+  if(rowIndex % BULK_BREATHE_EVERY !== 0) return;
+  await new Promise(function(r){ setTimeout(r, 0); });
+  if(bulkHeapUsedMb() > BULK_HEAP_PAUSE_MB){
+    await new Promise(function(r){ setTimeout(r, 400); });
+  }
+}
+function loadJobAddresses(){
+  onSnapshot(collection(db,'jobAddresses'), function(snap){
+    jobAddresses = [];
+    snap.forEach(function(docSnap){ jobAddresses.push({ id: docSnap.id, data: docSnap.data() }); });
+    // Indexes first — every render below looks customers up through them.
+    rebuildCustomerIndexes();
+    scheduleJobAddressRender();
   });
 }
 let warehouseExtras = [];
