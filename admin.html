@@ -1479,6 +1479,11 @@
             <p style="font-size:13px;">In Excel, copy each column separately and paste into its matching box below. <strong>Row 1 in every box must be the same customer.</strong> Street Address is required; the rest are optional. We always geocode within Utah, and update an existing customer instead of duplicating them when the phone or street already matches.</p>
             <div class="form-grid-2">
               <div class="form-row">
+                <label>Customer # <span class="req">*</span> <span class="bulk-count" id="rbCountCustNumbers">0 rows</span></label>
+                <textarea id="rbCustNumbersArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="144&#10;5029&#10;(blank if unknown)"></textarea>
+                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">THE ONE THAT MATTERS. This is who each row is &mdash; every other box is matched to this one, so its row count is the count everything else has to agree with. A number here finds that customer whatever their address or town says. The permanent bin number. Under 5000 sets Number of Bins to 1. Anything 5000 or higher is a double-bin house &mdash; the bin count is left for you to fill in. A number already in use will stop the import before anything is written.</p>
+              </div>
+              <div class="form-row">
                 <label>Name (optional) <span class="bulk-count" id="rbCountNames">0 rows</span></label>
                 <textarea id="rbNamesArea" rows="6" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="Kaitlyn Roberts&#10;Trevor Miles&#10;(blank line if unknown)"></textarea>
                 <label style="display:flex; align-items:center; gap:7px; margin-top:7px; font-weight:600; font-size:13px;">
@@ -1497,7 +1502,7 @@
                 <textarea id="rbEmailsArea" rows="6" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="kaitlyn@email.com&#10;(blank line if unknown)"></textarea>
               </div>
               <div class="form-row">
-                <label>Street Address <span class="req">*</span> <span class="bulk-count" id="rbCountStreets">0 rows</span></label>
+                <label>Street Address (optional) <span class="bulk-count" id="rbCountStreets">0 rows</span></label>
                 <textarea id="rbStreetsArea" rows="6" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="123 Main St&#10;456 Oak Ave&#10;789 Elm Dr"></textarea>
               </div>
             </div>
@@ -1534,11 +1539,6 @@
                 <label>Payment Amount ($, optional) <span class="bulk-count" id="rbCountAmounts">0 rows</span></label>
                 <textarea id="rbAmountsArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="650&#10;780&#10;(blank if unknown)"></textarea>
                 <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">Fill this in and an invoice is created/updated automatically under that row's phone number &mdash; no need for the Invoice Fields box below unless you're billing someone to a different phone.</p>
-              </div>
-              <div class="form-row">
-                <label>Customer # (optional) <span class="bulk-count" id="rbCountCustNumbers">0 rows</span></label>
-                <textarea id="rbCustNumbersArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="144&#10;5029&#10;(blank if unknown)"></textarea>
-                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">The permanent bin number. Under 5000 sets Number of Bins to 1. Anything 5000 or higher is a double-bin house &mdash; the bin count is left for you to fill in. A number already in use will stop the import before anything is written.</p>
               </div>
               <div class="form-row">
                 <label>Install Month (optional) <span class="bulk-count" id="rbCountInstallPref">0 rows</span></label>
@@ -14802,7 +14802,7 @@ function rbDetectColorsAndPattern(raw){
   const hasRepeat = new Set(list).size !== list.length;
   return hasRepeat ? {colors: Array.from(new Set(list)), pattern: list.join(', ')} : {colors: list, pattern: ''};
 }
-wireBulkCounts(rbAreaIds, 'rbStreetsArea', rbCountIds);
+wireBulkCounts(rbAreaIds, 'rbCustNumbersArea', rbCountIds);
 /* ---- Check First for the customer bulk importer -------------------------
  *
  * This tool matches each pasted row against an existing customer and UPDATES
@@ -14824,12 +14824,11 @@ document.getElementById('rbCheckBtn')?.addEventListener('click', function(){
   const hoff = rbHeaderOffset();
   // Same anchor rule as the import, or the preview is of a different run.
   const cnAll = rbCol('rbCustNumbersArea', hoff);
-  const byNumberOnly = !rbCol('rbStreetsArea', hoff).filter(Boolean).length
-                       && !!cnAll.filter(Boolean).length;
-  const streets = byNumberOnly
-    ? cnAll.filter(Boolean).map(function(){ return ''; })
-    : rbCol('rbStreetsArea', hoff).filter(Boolean);
-  if(!streets.length){ statusEl.textContent = 'Paste at least the Street Address column first, or the Customer # column on its own.'; return; }
+  const streetsAll = rbCol('rbStreetsArea', hoff);
+  const anchorIsNumbers = !!cnAll.filter(Boolean).length;
+  const anchor = anchorIsNumbers ? cnAll.filter(Boolean) : streetsAll.filter(Boolean);
+  if(!anchor.length){ statusEl.textContent = 'Paste the Customer # column first — that is the one every other box is matched against. (An address column on its own still works for adding somebody brand new.)'; return; }
+  const streets = anchorIsNumbers ? alignBulkRows(streetsAll, anchor.length) : streetsAll.filter(Boolean);
 
   const names   = alignBulkRows(rbCol('rbNamesArea', hoff).map(rbName), streets.length);
   const phones  = alignBulkRows(rbCol('rbPhonesArea', hoff), streets.length);
@@ -14841,7 +14840,7 @@ document.getElementById('rbCheckBtn')?.addEventListener('click', function(){
      one key a wrong town cannot break, so Check First has to match on exactly
      what Import matches on, or it is reporting a different run to the one that
      will happen. */
-  const custNumbers = byNumberOnly ? cnAll.filter(Boolean) : alignBulkRows(cnAll, streets.length);
+  const custNumbers = anchorIsNumbers ? anchor : alignBulkRows(cnAll, anchor.length);
 
   let willUpdate = 0, willAdd = 0;
   const rows = streets.map(function(street, i){
@@ -14946,18 +14945,25 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
      empty instead of only that the totals differ. */
   const streetsRaw = rbCol('rbStreetsArea', hoff);
   const cnRawAll = rbCol('rbCustNumbersArea', hoff);
-  /* The Customer # column can stand in for the address column entirely.
-     Owner, 2026-08-17: "can we just use their customer number as their
-     identifer instead of address". With numbers and no addresses this can only
-     UPDATE people who already exist — there is nothing to build a new customer
-     from and nowhere to put a pin — so a number nobody holds is reported rather
-     than quietly turned into a blank customer. */
-  const byNumberOnly = !streetsRaw.filter(Boolean).length && !!cnRawAll.filter(Boolean).length;
-  const streets = byNumberOnly ? cnRawAll.filter(Boolean).map(function(){ return ''; }) : streetsRaw.filter(Boolean);
-  if(!streets.length){ statusEl.textContent = 'Paste at least the Street Address column, or the Customer # column on its own.'; return; }
+  /* ⭐ THE CUSTOMER NUMBER IS THE IDENTIFIER, so it is also the ANCHOR: its row
+     count is the count every other column has to agree with, and it can never
+     itself be "the wrong number of rows".
+     Owner, 2026-08-17: "the incdicator sets how many lines there should be, the
+     address isnt the indicator the customer numbers is so it can never have the
+     wrong amount of lines, rather everything else that doesnt have the same
+     amount of lines as customer numbers has the wrong amount."
+     The address only anchors when no numbers were pasted at all — which is how
+     a genuinely new customer, who does not have a number yet, still gets added. */
+  const anchorIsNumbers = !!cnRawAll.filter(Boolean).length;
+  const anchor = anchorIsNumbers ? cnRawAll.filter(Boolean) : streetsRaw.filter(Boolean);
+  if(!anchor.length){ statusEl.textContent = 'Paste the Customer # column — that is the one every other box is matched against. (An address column on its own still works for adding somebody brand new.)'; return; }
+  /* Aligned, not filtered, once the numbers are the anchor: a row can carry a
+     number and no address, and it still has to stay on its own line. */
+  const anchorLabel = anchorIsNumbers ? 'Customer #' : 'Street Address';
+  const streets = anchorIsNumbers ? alignBulkRows(streetsRaw, anchor.length) : streetsRaw.filter(Boolean);
+  const custNumbers = anchorIsNumbers ? anchor : alignBulkRows(cnRawAll, anchor.length);
 
-  const names = alignBulkRows(rbCol('rbNamesArea', hoff).map(rbName), streets.length);
-  const custNumbers = byNumberOnly ? cnRawAll.filter(Boolean) : alignBulkRows(cnRawAll, streets.length);
+  const names = alignBulkRows(rbCol('rbNamesArea', hoff).map(rbName), anchor.length);
   // Validate every number up front — a half-finished numbering run is worse than none.
   const numProblems = [];
   const seenNums = {};
@@ -14972,7 +14978,7 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
        being HANDED OUT alongside an address, and exactly the wrong one when the
        number IS the identifier — there, every row is supposed to belong to
        somebody, and a number nobody holds is the problem instead. */
-    if(byNumberOnly){
+    if(anchorIsNumbers){
       if(!heldBy) numProblems.push('Row ' + (i+1) + ': nobody has #' + cn + '.');
     } else if(heldBy){
       numProblems.push('Row ' + (i+1) + ': #' + cn + ' already belongs to ' + (heldBy.data.name || 'another customer') + '.');
@@ -15004,9 +15010,13 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
   ];
   for(const [label, arr] of checks){
     const nonEmptyCount = arr.filter(Boolean).length;
-    if(nonEmptyCount && arr.length !== streets.length){
-      statusEl.textContent = label + ' has ' + arr.length + ' row(s) but Street Address has ' + streets.length + '.'
-        + bulkMismatchHint('Street Address', streetsRaw, label);
+    if(nonEmptyCount && arr.length !== anchor.length){
+      /* Named after whichever column is actually the anchor, because that is
+         the one everything else is being measured against — telling somebody
+         their Name column disagrees with Street Address, when the numbers are
+         what set the count, sends them to fix the wrong box. */
+      statusEl.textContent = label + ' has ' + arr.length + ' row(s) but ' + anchorLabel + ' has ' + anchor.length + '.'
+        + bulkMismatchHint(anchorLabel, anchorIsNumbers ? cnRawAll : streetsRaw, label);
       return;
     }
   }
@@ -15084,7 +15094,10 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
          a record that can never be put on a route and would have to be found
          and deleted by hand. The up-front check already refuses a number nobody
          holds, so this is the belt to that pair of braces. */
-      if(byNumberOnly && !existing){ failed++; continue; }
+      /* No match and no address to build from. Adding here would write a
+         customer with no address, no town and no pin — a record that can never
+         go on a route and has to be found and deleted by hand. */
+      if(!existing && !street){ failed++; continue; }
       if(existing){
         /* extractCleanCity so a pasted town lands in exactly the shape Edit
            Customer writes and the routes read — "Lehi, UT" and " Lehi " must not
@@ -15166,7 +15179,7 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
   }
   statusEl.textContent = (hoff ? 'First line ignored as headings. ' : '') + streets.length + ' row(s) read \u2014 ' + added + ' added, ' + updated + ' updated' + (billed ? ', ' + billed + ' invoice(s) billed' : '') + (noPhoneNoInvoice ? ', ' + noPhoneNoInvoice + ' amount(s) skipped (no phone on file)' : '') + (noPin ? ', ' + noPin + ' added without a map pin (All Customers → Filters → Map Pin → "Needs Pin", or see Health Check)' : '') + (failed ? ', ' + failed + ' failed' : '') + '.';
   rbAreaIds.forEach(function(id){ document.getElementById(id).value = ''; });
-  wireBulkCounts(rbAreaIds, 'rbStreetsArea', rbCountIds)();
+  wireBulkCounts(rbAreaIds, 'rbCustNumbersArea', rbCountIds)();
 }); }, function(){ return document.getElementById('rbImportBtn'); }));
 
 // --- Invoice Bulk Update ---

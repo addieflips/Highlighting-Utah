@@ -6867,8 +6867,13 @@ suite('Suite 23. Bulk row mismatches name the offending row');
     check('S23', label + ' keeps its unfiltered rows for the diagnostic',
       new RegExp('const ' + raw + ' = (document\\.getElementById\\(\'' + area + '\'\\)|rbCol\\(\'' + area + '\')').test(admin) &&
       new RegExp(raw + '\\.filter\\(Boolean\\)').test(admin));
+    /* The Routes import now names whichever column is the ANCHOR — the
+       Customer # column when numbers were pasted — so it calls this with a
+       variable rather than a literal. The Invoice import still has one fixed
+       anchor. Either way, a mismatch must name the offending row. */
     check('S23', label + ' mismatch calls bulkMismatchHint',
-      new RegExp("bulkMismatchHint\\('" + label + "', " + raw).test(admin));
+      new RegExp("bulkMismatchHint\\('" + label + "', " + raw).test(admin) ||
+      /bulkMismatchHint\(anchorLabel, anchorIsNumbers \? cnRawAll : streetsRaw, label\)/.test(admin));
   });
 }
 
@@ -7829,11 +7834,26 @@ suite('Suite 32. Customer number as identifier, and flipped names');
     check('S32', 'no number and no street is still no match', m('', '8015550001', 'Lehi', '', '') === null);
   }
 
-  check('S32', 'the Customer # column can stand in for the address column',
-    /const byNumberOnly = !streetsRaw\.filter\(Boolean\)\.length && !!cnRawAll\.filter\(Boolean\)\.length/.test(admin));
-  check('S32', 'numbers with no addresses can only UPDATE, never add',
-    /if\(byNumberOnly && !existing\)\{ failed\+\+; continue; \}/.test(admin),
-    'adding here would write a customer with no address, no town and no pin, which can never go on a route');
+  /* Stronger than "it can stand in": the number IS the identifier, so it
+     anchors WHENEVER it is pasted, and its own row count is the count every
+     other column is measured against. The address only anchors when no numbers
+     were given at all, which is how somebody brand new still gets added. */
+  check('S32', 'the Customer # column is the anchor whenever it is pasted',
+    (admin.match(/const anchorIsNumbers = !!cn\w*\.filter\(Boolean\)\.length/g) || []).length === 2,
+    'Check First and the import must anchor the same way, or the preview is of a different run');
+  /* The counters on screen are anchored on the same column. This is what the
+     owner actually saw: "customer number says 963 lines in red, but it
+     shouldnt be in red because it is the indicator". */
+  check('S32', 'the live counters are anchored on the Customer # column',
+    (admin.match(/wireBulkCounts\(rbAreaIds, 'rbCustNumbersArea', rbCountIds\)/g) || []).length === 2,
+    'anchored on the address, the identifier itself gets flagged as the wrong length');
+  check('S32', 'the anchor is never the column reported as being wrong',
+    /const anchorLabel = anchorIsNumbers \? 'Customer #' : 'Street Address'/.test(admin) &&
+    /arr\.length !== anchor\.length/.test(admin),
+    'the indicator sets the count — reporting that it disagrees with itself sends somebody to fix the wrong box');
+  check('S32', 'a row with no match and no address is never added',
+    /if\(!existing && !street\)\{ failed\+\+; continue; \}/.test(admin),
+    'adding here would write a customer with no address, no town and no pin, which can never go on a route — and this covers a mixed paste too, not only a numbers-only one');
   /* ---- the heading row ----
      Owner, 2026-08-17: "I copy the headers on everything and then have to
      delete it". Deleting it out of sixteen boxes by hand only has to be
