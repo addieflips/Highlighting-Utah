@@ -1796,9 +1796,9 @@
             <div class="form-row"><label>Number of Bins</label><input type="number" id="editCustBins" min="1" step="1"></div>
           </div>
           <div class="form-row"><label>Customer #</label>
-            <div id="editCustNumberDisplay" style="font-size:14px; font-weight:700; padding:10px 12px; border-radius:10px; border:1px solid var(--line); background:var(--snow); color:var(--ink);">&mdash;</div>
+            <input type="text" id="editCustNumber" inputmode="numeric" placeholder="e.g. 479 &mdash; blank for none">
           </div>
-          <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Shown here for reference. Numbers are assigned and reassigned from the Customer Numbers panel so the available pool stays in sync.</p>
+          <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">The permanent bin number. Changing it here puts the old number back in the available pool and takes the new one out, so the pool stays right. A number somebody else already holds is refused &mdash; that would leave two bins wearing one label. 5000 and above is the double-bin series; the bin count itself is the box above and is not set for you.</p>
           <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin-top:12px; margin-bottom:16px;"><input type="checkbox" id="editCustWantsMailed" style="width:auto;"> Also wants their invoice mailed (postal mail)</label>
           <div id="editCustCarryoverWrap" style="display:none; border-top:1px solid var(--line); margin:16px 0; padding-top:16px;"></div>
           <div style="display:flex; gap:10px; margin-top:16px;">
@@ -18538,7 +18538,7 @@ function openEditCustomerModal(id){
   document.getElementById('editCustSpecificOutletNotes').value = d.specificOutletNotes || '';
   syncEditSpecificOutletNotes();
   document.getElementById('editCustBins').value = d.numberOfBins || 1;
-  document.getElementById('editCustNumberDisplay').textContent = d.customerNumber || '\u2014';
+  document.getElementById('editCustNumber').value = d.customerNumber || '';
   document.getElementById('editCustOneTimeNotes').value = d.oneTimeNote || '';
   document.getElementById('editCustNewMemberFee').checked = d.chargeNewMemberFee === true;
   document.getElementById('editCustReferralCount').value = d.referralCount || '';
@@ -18765,6 +18765,30 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     ? document.getElementById('editCustSpecificOutletNotes').value.trim()
     : '';
   const newBins = parseInt(document.getElementById('editCustBins').value, 10) || 1;
+  /* The customer number is editable here now. It carries pool bookkeeping that
+     nothing else does, which is why it used to be read-only:
+       - the number being left goes back into availableCustomerNumbers, or that
+         bin can never be handed out again;
+       - the number being taken comes out of the pool, or it gets handed to
+         somebody else later and two bins end up wearing one label;
+       - a number another customer already holds is refused outright, for the
+         same reason. Health Check has a whole rule about that state existing.
+     Blank is allowed and means "no number" — the old one still goes back. */
+  const oldCustNumber = String(d.customerNumber == null ? '' : d.customerNumber).trim();
+  const newCustNumber = document.getElementById('editCustNumber').value.trim();
+  if(newCustNumber && !/^\d+$/.test(newCustNumber)){
+    statusEl.textContent = 'Customer # has to be a number, or blank for none.';
+    return;
+  }
+  if(newCustNumber && newCustNumber !== oldCustNumber){
+    const heldBy = jobAddresses.find(function(a){
+      return a.id !== item.id && String((a.data || {}).customerNumber || '').trim() === newCustNumber;
+    });
+    if(heldBy){
+      statusEl.textContent = '#' + newCustNumber + ' already belongs to ' + (heldBy.data.name || 'another customer') + '. Give them a different number first, or pick another.';
+      return;
+    }
+  }
   const newOneTimeNote = document.getElementById('editCustOneTimeNotes').value.trim();
   const newChargeNewMemberFee = document.getElementById('editCustNewMemberFee').checked;
   const newReferralCount = Math.max(0, parseInt(document.getElementById('editCustReferralCount').value, 10) || 0);
@@ -18816,7 +18840,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   statusEl.textContent = 'Saving…';
   try{
     const newNoTexts = document.getElementById('editCustNoTexts').checked;
-    const addrUpdates = {smsOptedOut: newNoTexts, name: newName, propertyLabel: newPropertyLabel, phone: newPhone, phone2: newPhone2, email: newEmail, email2: newEmail2, address: newAddress, city: newCity, rsvpStatus: newRsvp, housePrice: newHousePrice, measuredFeet: newMeasuredFeet, wireColor: newWireColor, billToPhone: newBillTo, gateCode: newGateCode, outletTimer: newOutletTimer, useEaves: newUseEaves, specificOutlet: newSpecificOutlet, specificOutletNotes: newSpecificOutletNotes, numberOfBins: newBins, wantsMailedInvoice: newWantsMailed, layoutMapUrl: editCustLayoutMapUrl, earliestInstallDate: newEarliestInstallStr ? new Date(newEarliestInstallStr + 'T00:00:00') : null};
+    const addrUpdates = {smsOptedOut: newNoTexts, name: newName, propertyLabel: newPropertyLabel, phone: newPhone, phone2: newPhone2, email: newEmail, email2: newEmail2, address: newAddress, city: newCity, customerNumber: newCustNumber, rsvpStatus: newRsvp, housePrice: newHousePrice, measuredFeet: newMeasuredFeet, wireColor: newWireColor, billToPhone: newBillTo, gateCode: newGateCode, outletTimer: newOutletTimer, useEaves: newUseEaves, specificOutlet: newSpecificOutlet, specificOutletNotes: newSpecificOutletNotes, numberOfBins: newBins, wantsMailedInvoice: newWantsMailed, layoutMapUrl: editCustLayoutMapUrl, earliestInstallDate: newEarliestInstallStr ? new Date(newEarliestInstallStr + 'T00:00:00') : null};
     /* Stamped on every customer save. Without these two the concurrent-edit
        check above has nothing to compare — a customer record carried no
        updatedAt at all, so "has anyone touched this since I opened it?" was
@@ -18927,6 +18951,29 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     const feetChanged = Number(d.measuredFeet || 0) !== Number(newMeasuredFeet || 0);
     const addressChanged = String(d.address || '').trim().toLowerCase() !== String(newAddress || '').trim().toLowerCase();
     await updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates);
+    /* Pool bookkeeping, after the record is safely written. Each half is
+       guarded on its own: a pool write that fails must not undo a save that
+       already worked, and the pool is recoverable by hand where a lost edit is
+       not. The number going back is the one nobody holds any more; the number
+       being taken leaves the pool so it cannot be handed out twice. */
+    if(newCustNumber !== oldCustNumber){
+      if(oldCustNumber){
+        /* Same shape the rest of the pool uses. `type` is not decoration —
+           cnNextAvailable and the Customer Numbers panel both filter on it, so
+           a number written back without it is in the pool and invisible to
+           every tool that hands numbers out. */
+        try{ await setDoc(doc(db,'availableCustomerNumbers', oldCustNumber), {
+          type: parseInt(oldCustNumber, 10) >= 5000 ? 'double' : 'regular',
+          releasedAt: serverTimestamp(),
+          releasedFrom: newName || (d.name || '')
+        }); }
+        catch(e){ console.error('Could not return #' + oldCustNumber + ' to the pool', e); }
+      }
+      if(newCustNumber){
+        try{ await deleteDoc(doc(db,'availableCustomerNumbers', newCustNumber)); }
+        catch(e){ /* fine — it was never in the pool */ }
+      }
+    }
     logActivity('Edited customer ' + (newName || editCustomerId), 'customers', editCustomerId);
     /* The office has to be told, because nothing else on screen would show it:
        they are back in the build queue but their customer number is gone, and
