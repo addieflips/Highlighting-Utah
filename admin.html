@@ -1477,9 +1477,10 @@
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
             <h4 style="margin:0 0 6px;">Routes Fields</h4>
             <p style="font-size:13px;">In Excel, copy each column separately and paste into its matching box below. <strong>Row 1 in every box must be the same customer.</strong> Street Address is required; the rest are optional. We always geocode within Utah, and update an existing customer instead of duplicating them when the phone or street already matches.</p>
+            <p id="rbIdentifierHint" style="font-size:12.5px; color:var(--dusk); font-weight:600; margin:0 0 8px;"></p>
             <div class="form-grid-2">
               <div class="form-row">
-                <label>Customer # <span class="req">*</span> <span class="bulk-count" id="rbCountCustNumbers">0 rows</span></label>
+                <label>Customer # <span class="req" id="rbReqCust" style="display:none;">*</span><span id="rbOptCust"> (optional)</span> <span class="bulk-count" id="rbCountCustNumbers">0 rows</span></label>
                 <textarea id="rbCustNumbersArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="144&#10;5029&#10;(blank if unknown)"></textarea>
                 <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">THE ONE THAT MATTERS. This is who each row is &mdash; every other box is matched to this one, so its row count is the count everything else has to agree with. A number here finds that customer whatever their address or town says. The permanent bin number. Under 5000 sets Number of Bins to 1. Anything 5000 or higher is a double-bin house &mdash; the bin count is left for you to fill in. A number already in use will stop the import before anything is written.</p>
               </div>
@@ -1492,7 +1493,7 @@
                 <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0; line-height:1.5;">Tick this if your sheet reads <strong>Cattani Julie</strong> or <strong>Cattani, Julie</strong> and the site should show <strong>Julie Cattani</strong>. Only the first word moves to the end, so &ldquo;Beckstead Paul /Jill&rdquo; stays together. Press Check First afterwards and read the Name column &mdash; a business like &ldquo;Lehi Vision Care&rdquo; would be turned round too, and that is the one thing to look out for.</p>
               </div>
               <div class="form-row">
-                <label>Phone Number (optional) <span class="bulk-count" id="rbCountPhones">0 rows</span></label>
+                <label>Phone Number <span class="req" id="rbReqPhone" style="display:none;">*</span><span id="rbOptPhone"> (optional)</span> <span class="bulk-count" id="rbCountPhones">0 rows</span></label>
                 <textarea id="rbPhonesArea" rows="6" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="8015550123&#10;8015550456&#10;(blank line if unknown)"></textarea>
               </div>
             </div>
@@ -1502,7 +1503,7 @@
                 <textarea id="rbEmailsArea" rows="6" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="kaitlyn@email.com&#10;(blank line if unknown)"></textarea>
               </div>
               <div class="form-row">
-                <label>Street Address (optional) <span class="bulk-count" id="rbCountStreets">0 rows</span></label>
+                <label>Street Address <span class="req" id="rbReqStreet" style="display:none;">*</span><span id="rbOptStreet"> (optional)</span> <span class="bulk-count" id="rbCountStreets">0 rows</span></label>
                 <textarea id="rbStreetsArea" rows="6" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="123 Main St&#10;456 Oak Ave&#10;789 Elm Dr"></textarea>
               </div>
             </div>
@@ -14705,6 +14706,37 @@ function wireBulkCounts(areaIds, anchorId, countIdMap){
 }
 
 // --- Routes Bulk Update ---
+/* ⏸ TEMPORARY — SET THIS BACK TO 'number' WHEN THE CUSTOMER NUMBERS ARE RIGHT.
+   Owner, 2026-08-17: "the numbers in the website are currently not match right
+   for some reason so quickly set it so it uses phone number and address as the
+   indicator, both are required so there should be no duplicates with both, but
+   then i will ask you to change it back."
+
+   This ONE line is the whole switch. Everything the customer number does as the
+   identifier — anchoring the row count, being the key the match is made on,
+   being the required column — moves to phone + address together and moves back
+   by editing this string. Nothing else was redesigned to make it work, so
+   changing it back cannot leave anything behind.
+
+   'number'        Customer # identifies the row, address optional.
+   'phone+address' Phone AND address together identify it, both required, and
+                   the customer number is treated as data to be written rather
+                   than as the key — so a wrong number gets CORRECTED by the
+                   import instead of sending the row to the wrong customer. */
+const BULK_IDENTIFIER = 'phone+address';
+const BULK_BY_NUMBER = BULK_IDENTIFIER === 'number';
+/* The asterisks follow the switch as well, so flipping the constant cannot
+   leave the form insisting on a column that is no longer the identifier. */
+(function(){
+  const set = function(id, on){ const el = document.getElementById(id); if(el) el.style.display = on ? '' : 'none'; };
+  set('rbReqCust',   BULK_BY_NUMBER);   set('rbOptCust',   !BULK_BY_NUMBER);
+  set('rbReqPhone',  !BULK_BY_NUMBER);  set('rbOptPhone',  BULK_BY_NUMBER);
+  set('rbReqStreet', !BULK_BY_NUMBER);  set('rbOptStreet', BULK_BY_NUMBER);
+  const hint = document.getElementById('rbIdentifierHint');
+  if(hint) hint.textContent = BULK_BY_NUMBER
+    ? 'Customer # is what identifies each row — every other box is matched to it.'
+    : 'Phone Number and Street Address together identify each row at the moment, so both are needed. The Customer # column is written to the customer rather than used to find them, so a wrong number gets corrected.';
+})();
 /* Both the dry run and the import read the Name column through this, so what
    Check First shows is exactly what gets written. Reading the checkbox each
    time rather than once means ticking it and pressing Check First again works
@@ -14802,7 +14834,7 @@ function rbDetectColorsAndPattern(raw){
   const hasRepeat = new Set(list).size !== list.length;
   return hasRepeat ? {colors: Array.from(new Set(list)), pattern: list.join(', ')} : {colors: list, pattern: ''};
 }
-wireBulkCounts(rbAreaIds, 'rbCustNumbersArea', rbCountIds);
+wireBulkCounts(rbAreaIds, BULK_BY_NUMBER ? 'rbCustNumbersArea' : 'rbPhonesArea', rbCountIds);
 /* ---- Check First for the customer bulk importer -------------------------
  *
  * This tool matches each pasted row against an existing customer and UPDATES
@@ -14825,13 +14857,22 @@ document.getElementById('rbCheckBtn')?.addEventListener('click', function(){
   // Same anchor rule as the import, or the preview is of a different run.
   const cnAll = rbCol('rbCustNumbersArea', hoff);
   const streetsAll = rbCol('rbStreetsArea', hoff);
-  const anchorIsNumbers = !!cnAll.filter(Boolean).length;
-  const anchor = anchorIsNumbers ? cnAll.filter(Boolean) : streetsAll.filter(Boolean);
-  if(!anchor.length){ statusEl.textContent = 'Paste the Customer # column first — that is the one every other box is matched against. (An address column on its own still works for adding somebody brand new.)'; return; }
-  const streets = anchorIsNumbers ? alignBulkRows(streetsAll, anchor.length) : streetsAll.filter(Boolean);
+  const phonesAll = rbCol('rbPhonesArea', hoff);
+  const anchorIsNumbers = BULK_BY_NUMBER && !!cnAll.filter(Boolean).length;
+  const anchorIsPhones = !BULK_BY_NUMBER && !!phonesAll.filter(Boolean).length;
+  const anchor = anchorIsNumbers ? cnAll.filter(Boolean)
+               : anchorIsPhones ? phonesAll.filter(Boolean)
+               : streetsAll.filter(Boolean);
+  if(!anchor.length){
+    statusEl.textContent = BULK_BY_NUMBER
+      ? 'Paste the Customer # column first — that is the one every other box is matched against. (An address column on its own still works for adding somebody brand new.)'
+      : 'Paste the Phone Number column first — phone and address together are what identify a customer at the moment.';
+    return;
+  }
+  const streets = (anchorIsNumbers || anchorIsPhones) ? alignBulkRows(streetsAll, anchor.length) : streetsAll.filter(Boolean);
 
   const names   = alignBulkRows(rbCol('rbNamesArea', hoff).map(rbName), streets.length);
-  const phones  = alignBulkRows(rbCol('rbPhonesArea', hoff), streets.length);
+  const phones  = anchorIsPhones ? anchor : alignBulkRows(phonesAll, anchor.length);
   const cities  = alignBulkRows(rbCol('rbCitiesArea', hoff), streets.length);
   const zips    = alignBulkRows(rbCol('rbZipsArea', hoff), streets.length);
   // The price column is rbAmountsArea — the same box the real import reads.
@@ -14845,7 +14886,8 @@ document.getElementById('rbCheckBtn')?.addEventListener('click', function(){
   let willUpdate = 0, willAdd = 0;
   const rows = streets.map(function(street, i){
     const phone = (phones[i] || '').replace(/\D/g,'');
-    const existing = findExistingAddressMatch(street, phone, cities[i] || '', zips[i] || '', custNumbers[i] || '');
+    // Same key as the import — see BULK_IDENTIFIER.
+    const existing = findExistingAddressMatch(street, phone, cities[i] || '', zips[i] || '', BULK_BY_NUMBER ? (custNumbers[i] || '') : '');
     if(existing) willUpdate++; else willAdd++;
     const newPrice = prices[i] === '' ? null : (Number(String(prices[i]).replace(/[^0-9.]/g,'')) || 0);
     const oldPrice = existing ? (Number(existing.data.housePrice) || 0) : null;
@@ -14954,18 +14996,42 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
      amount of lines as customer numbers has the wrong amount."
      The address only anchors when no numbers were pasted at all — which is how
      a genuinely new customer, who does not have a number yet, still gets added. */
-  const anchorIsNumbers = !!cnRawAll.filter(Boolean).length;
-  const anchor = anchorIsNumbers ? cnRawAll.filter(Boolean) : streetsRaw.filter(Boolean);
-  if(!anchor.length){ statusEl.textContent = 'Paste the Customer # column — that is the one every other box is matched against. (An address column on its own still works for adding somebody brand new.)'; return; }
-  /* Aligned, not filtered, once the numbers are the anchor: a row can carry a
-     number and no address, and it still has to stay on its own line. */
-  const anchorLabel = anchorIsNumbers ? 'Customer #' : 'Street Address';
-  const streets = anchorIsNumbers ? alignBulkRows(streetsRaw, anchor.length) : streetsRaw.filter(Boolean);
+  const phonesRaw = rbCol('rbPhonesArea', hoff);
+  const anchorIsNumbers = BULK_BY_NUMBER && !!cnRawAll.filter(Boolean).length;
+  const anchorIsPhones = !BULK_BY_NUMBER && !!phonesRaw.filter(Boolean).length;
+  const anchor = anchorIsNumbers ? cnRawAll.filter(Boolean)
+               : anchorIsPhones ? phonesRaw.filter(Boolean)
+               : streetsRaw.filter(Boolean);
+  if(!anchor.length){
+    statusEl.textContent = BULK_BY_NUMBER
+      ? 'Paste the Customer # column — that is the one every other box is matched against. (An address column on its own still works for adding somebody brand new.)'
+      : 'Paste the Phone Number column — phone and address together are what identify a customer at the moment.';
+    return;
+  }
+  /* Aligned, not filtered, once something other than the address anchors: a row
+     can carry an identifier and no address and still keep its own line. */
+  const anchorLabel = anchorIsNumbers ? 'Customer #' : anchorIsPhones ? 'Phone Number' : 'Street Address';
+  const streets = (anchorIsNumbers || anchorIsPhones) ? alignBulkRows(streetsRaw, anchor.length) : streetsRaw.filter(Boolean);
   const custNumbers = anchorIsNumbers ? anchor : alignBulkRows(cnRawAll, anchor.length);
 
   const names = alignBulkRows(rbCol('rbNamesArea', hoff).map(rbName), anchor.length);
   // Validate every number up front — a half-finished numbering run is worse than none.
   const numProblems = [];
+  /* Both halves of the identifier are required while it IS the identifier —
+     owner: "both are required so there should be no duplicates with both".
+     A row with only one of them cannot be identified, and matching it on the
+     half it does have is how a row lands on the wrong customer. Reported before
+     anything is written rather than skipped quietly part-way through. */
+  if(!BULK_BY_NUMBER){
+    const phonesForCheck = anchorIsPhones ? anchor : alignBulkRows(phonesRaw, anchor.length);
+    for(let i = 0; i < anchor.length; i++){
+      const p = (phonesForCheck[i] || '').replace(/\D/g,'');
+      const st = (streets[i] || '').trim();
+      if(!p && !st) numProblems.push('Row ' + (i+1) + ': no phone and no address.');
+      else if(!p) numProblems.push('Row ' + (i+1) + ': no phone (' + st + ').');
+      else if(!st) numProblems.push('Row ' + (i+1) + ': no address (' + p + ').');
+    }
+  }
   const seenNums = {};
   for(let i = 0; i < custNumbers.length; i++){
     const cn = custNumbers[i];
@@ -14985,10 +15051,10 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
     }
   }
   if(numProblems.length){
-    statusEl.textContent = 'Fix these Customer # problems first — nothing was imported: ' + numProblems.slice(0,8).join('  ') + (numProblems.length > 8 ? '  …and ' + (numProblems.length-8) + ' more.' : '');
+    statusEl.textContent = (BULK_BY_NUMBER ? 'Fix these Customer # problems first — nothing was imported: ' : 'Fix these rows first — nothing was imported. Phone and address are both needed to tell customers apart: ') + numProblems.slice(0,8).join('  ') + (numProblems.length > 8 ? '  …and ' + (numProblems.length-8) + ' more.' : '');
     return;
   }
-  const phones = alignBulkRows(rbCol('rbPhonesArea', hoff), streets.length);
+  const phones = anchorIsPhones ? anchor : alignBulkRows(phonesRaw, anchor.length);
   const emails = alignBulkRows(rbCol('rbEmailsArea', hoff), streets.length);
   const cities = alignBulkRows(rbCol('rbCitiesArea', hoff), streets.length);
   const states = alignBulkRows(rbCol('rbStatesArea', hoff), streets.length);
@@ -15088,7 +15154,12 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
         }
       }
       if(!coords){ coords = {lat: null, lng: null}; noPin++; }
-      const existing = findExistingAddressMatch(street, phone, city, zip, cn);
+      /* The number is deliberately NOT passed as a key while BULK_IDENTIFIER is
+         'phone+address'. That is the whole point of the switch: the numbers on
+         file are known to be wrong, so matching on one would send the row to
+         the wrong customer. Phone with the street identifies the house instead,
+         and the number on the row is then WRITTEN — the import corrects it. */
+      const existing = findExistingAddressMatch(street, phone, city, zip, BULK_BY_NUMBER ? cn : '');
       /* Numbers with no addresses can only update. Falling through to the "add"
          branch would write a customer with no address, no town and no pin —
          a record that can never be put on a route and would have to be found
@@ -15179,7 +15250,7 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
   }
   statusEl.textContent = (hoff ? 'First line ignored as headings. ' : '') + streets.length + ' row(s) read \u2014 ' + added + ' added, ' + updated + ' updated' + (billed ? ', ' + billed + ' invoice(s) billed' : '') + (noPhoneNoInvoice ? ', ' + noPhoneNoInvoice + ' amount(s) skipped (no phone on file)' : '') + (noPin ? ', ' + noPin + ' added without a map pin (All Customers → Filters → Map Pin → "Needs Pin", or see Health Check)' : '') + (failed ? ', ' + failed + ' failed' : '') + '.';
   rbAreaIds.forEach(function(id){ document.getElementById(id).value = ''; });
-  wireBulkCounts(rbAreaIds, 'rbCustNumbersArea', rbCountIds)();
+  wireBulkCounts(rbAreaIds, BULK_BY_NUMBER ? 'rbCustNumbersArea' : 'rbPhonesArea', rbCountIds)();
 }); }, function(){ return document.getElementById('rbImportBtn'); }));
 
 // --- Invoice Bulk Update ---

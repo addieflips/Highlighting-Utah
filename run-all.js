@@ -7726,10 +7726,16 @@ suite('Suite 31. A corrected town still finds its customer');
       'without a street there is nothing to confirm the house by');
   }
 
-  check('S31', 'the import passes the customer number to the matcher',
-    /findExistingAddressMatch\(street, phone, city, zip, cn\)/.test(admin));
+  /* ⏸ These assert that the KEY IS CHOSEN BY THE SWITCH, not what the switch
+     currently says, so they hold in both modes and flipping BULK_IDENTIFIER
+     back to 'number' needs no test edited. While it is 'phone+address' the
+     number must not be the key: the numbers on file are known to be wrong, so
+     matching on one would send the row to the wrong customer. */
+  check('S31', 'the import matches on whichever identifier is in force',
+    /findExistingAddressMatch\(street, phone, city, zip, BULK_BY_NUMBER \? cn : ''\)/.test(admin),
+    'hard-coding the key either way is what makes the switch a redesign instead of a switch');
   check('S31', 'and Check First matches on exactly the same keys',
-    /findExistingAddressMatch\(street, phone, cities\[i\] \|\| '', zips\[i\] \|\| '', custNumbers\[i\] \|\| ''\)/.test(admin),
+    /findExistingAddressMatch\(street, phone, cities\[i\] \|\| '', zips\[i\] \|\| '', BULK_BY_NUMBER \? \(custNumbers\[i\] \|\| ''\) : ''\)/.test(admin),
     'a dry run that matches differently from the import is reporting a run that will not happen');
   check('S31', 'a pasted town is cleaned the way Edit Customer cleans it',
     /city: extractCleanCity\(city\) \|\| city/.test(admin),
@@ -7838,19 +7844,39 @@ suite('Suite 32. Customer number as identifier, and flipped names');
      anchors WHENEVER it is pasted, and its own row count is the count every
      other column is measured against. The address only anchors when no numbers
      were given at all, which is how somebody brand new still gets added. */
-  check('S32', 'the Customer # column is the anchor whenever it is pasted',
-    (admin.match(/const anchorIsNumbers = !!cn\w*\.filter\(Boolean\)\.length/g) || []).length === 2,
+  check('S32', 'the identifier column anchors, in both handlers',
+    (admin.match(/const anchorIsNumbers = BULK_BY_NUMBER && !!cn\w*\.filter\(Boolean\)\.length/g) || []).length === 2 &&
+    (admin.match(/const anchorIsPhones = !BULK_BY_NUMBER && !!phones\w*\.filter\(Boolean\)\.length/g) || []).length === 2,
     'Check First and the import must anchor the same way, or the preview is of a different run');
   /* The counters on screen are anchored on the same column. This is what the
      owner actually saw: "customer number says 963 lines in red, but it
      shouldnt be in red because it is the indicator". */
-  check('S32', 'the live counters are anchored on the Customer # column',
-    (admin.match(/wireBulkCounts\(rbAreaIds, 'rbCustNumbersArea', rbCountIds\)/g) || []).length === 2,
-    'anchored on the address, the identifier itself gets flagged as the wrong length');
+  check('S32', 'the live counters are anchored on the identifier column',
+    (admin.match(/wireBulkCounts\(rbAreaIds, BULK_BY_NUMBER \? 'rbCustNumbersArea' : 'rbPhonesArea', rbCountIds\)/g) || []).length === 2,
+    'anchored on anything but the identifier, the identifier itself gets flagged as the wrong length');
   check('S32', 'the anchor is never the column reported as being wrong',
-    /const anchorLabel = anchorIsNumbers \? 'Customer #' : 'Street Address'/.test(admin) &&
+    /const anchorLabel = anchorIsNumbers \? 'Customer #' : anchorIsPhones \? 'Phone Number' : 'Street Address'/.test(admin) &&
     /arr\.length !== anchor\.length/.test(admin),
     'the indicator sets the count — reporting that it disagrees with itself sends somebody to fix the wrong box');
+  /* ⏸ The temporary switch itself. Written down so the next session can see
+     that 'phone+address' is a deliberate, reversible state and not the design —
+     owner, 2026-08-17: "the numbers in the website are currently not match
+     right… but then i will ask you to change it back so dont redesign anything
+     you just did." */
+  const bulkMode = (admin.match(/const BULK_IDENTIFIER = '([^']+)'/) || [])[1];
+  check('S32', 'the identifier is one switch, set to a value the code knows',
+    bulkMode === 'number' || bulkMode === 'phone+address',
+    'BULK_IDENTIFIER is ' + JSON.stringify(bulkMode));
+  check('S32', 'BULK_BY_NUMBER is derived from it rather than set separately',
+    /const BULK_BY_NUMBER = BULK_IDENTIFIER === 'number';/.test(admin),
+    'two flags that can disagree is how a half-flipped switch happens');
+  if (bulkMode === 'phone+address') {
+    check('S32', 'while on phone+address, both halves are required per row',
+      /no phone and no address\./.test(admin) && /no address \(/.test(admin) && /no phone \(/.test(admin),
+      'a row with only one half cannot be identified, and matching on the half it has puts it on the wrong customer');
+    note('BULK_IDENTIFIER is temporarily "phone+address" — set it back to "number" once the customer numbers on file are right.');
+  }
+
   check('S32', 'a row with no match and no address is never added',
     /if\(!existing && !street\)\{ failed\+\+; continue; \}/.test(admin),
     'adding here would write a customer with no address, no town and no pin, which can never go on a route — and this covers a mixed paste too, not only a numbers-only one');
