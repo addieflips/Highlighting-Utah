@@ -6333,8 +6333,13 @@ check('build', 'the setting is saved, not hard-coded',
   'the office has to be able to change it without anybody editing the page');
 check('build', 'two crews is the default when the setting has never been saved',
   /CREWS_PER_DAY = \(n === 1\) \? 1 : 2;/.test(admin) &&
-  /catch\(err\)\{ CREWS_PER_DAY = 2; \}/.test(admin),
+  /catch\(err\)\{ CREWS_PER_DAY = 2;/.test(admin),
   'a missing or unreadable setting must not silently halve the season');
+/* The catch resets the nearby-town list too — it is read from the same
+   document, and leaving a previous read standing after a failed one would pair
+   towns off a list nobody can see. */
+check('build', 'a failed settings read also clears the nearby-town list',
+  /catch\(err\)\{ CREWS_PER_DAY = 2; NEARBY_TOWN_LIST = \{\}; \}/.test(admin));
 check('build', 'the setting is loaded BEFORE the sweep starts',
   admin.indexOf('loadSchedulingSettings()') < admin.indexOf('startReconcileAuto();'),
   'building a season on the default two while one is saved means building it ' +
@@ -7177,6 +7182,7 @@ suite('Suite 27. Short crew-days reach into nearby towns');
       'return 2*R*Math.asin(Math.sqrt(q));}\n' +
       admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) + '\n' +
       admin.slice(nearbyConst, admin.indexOf('function townCentres')) + '\n' +
+      'let NEARBY_TOWN_LIST={};' + extract('sameTownName') +
       extract('townCentres') + '\n' + extract('nearbyTowns') + '\n' +
       extract('installPriority') + '\n' + admin.slice(start, end) +
       '\n;({plan: planNewCrewDays, cap: MAX_STOPS_PER_ROUTE, crews: CREWS_PER_DAY})');
@@ -7254,6 +7260,312 @@ suite('Suite 27. Short crew-days reach into nearby towns');
     /const listed = \(r\.towns \|\| \[\]\)/.test(admin));
   check('S27', 'and new days write it down', /towns: nd\.towns \|\| \[nd\.city\]/.test(admin),
     'a day built without its town list is one the next sweep takes apart');
+}
+
+/*
+ * Suite 28. Rebuilding the Schedule season's days from the houses.
+ *
+ * Owner, 2026-08-17, on the imported plan:
+ *   "the citiees should not be assigned to a day that should be calculated, for
+ *    example right now there is a day Lehi and Highland but the people in it
+ *    arent Lehi Highland, theres some Eagle mountain and others west jordan"
+ *   "if we dont have a day for west jordan that should be calculated and added
+ *    or included with a nearby city if there are few west jordan houses"
+ *   "oct 1st only has two people and theres no days between oct 1 and 6 but we
+ *    should be working every single october buissness day… we always start on
+ *    oct 1st and work ever buissness day following for as long as there is a
+ *    house elgible to be hung in october/didnt request to be hung in november"
+ *
+ * The imported plan groups houses by the spreadsheet's date column, so no rule
+ * ever decided who shares a day. rebuildSeasonDays throws that grouping away
+ * and works the days out from the houses using planNewCrewDays — the same
+ * builder the crew's routes use, so the two cannot drift apart.
+ */
+suite('Suite 28. The Schedule season rebuilt from its houses');
+{
+  const fn = (name) => {
+    const i = admin.indexOf('function ' + name + '(');
+    if (i === -1) return null;
+    let d = 0;
+    for (let j = admin.indexOf('{', i); j < admin.length; j++) {
+      if (admin[j] === '{') d++;
+      else if (admin[j] === '}') { d--; if (!d) return admin.slice(i, j + 1); }
+    }
+    return null;
+  };
+  const planStart = admin.indexOf('function planNewCrewDays(waiting, taken, opts)');
+  const planEnd = admin.indexOf('/* Top every day up to the cap.', planStart);
+  const need = ['seasonStartDate', 'houseAllowedFrom', 'houseInstallPriority', 'rebuildSeasonDays', 'crewTownsFor'];
+  check('S28', 'the rebuild and its helpers are findable', need.every(n => !!fn(n)) && planStart !== -1);
+
+  if (need.every(n => !!fn(n)) && planStart !== -1) {
+    const at = {
+      Lehi: [40.391, -111.851], Highland: [40.425, -111.795], Alpine: [40.453, -111.777],
+      'Eagle Mountain': [40.316, -112.006], 'West Jordan': [40.609, -111.939],
+      Draper: [40.524, -111.863], Orem: [40.297, -111.695]
+    };
+    const ctx = {};
+    const src =
+      'function toDateStr(dt){return dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+"-"+String(dt.getDate()).padStart(2,"0");}' +
+      'function haversine(a,b,c,d){const R=3958.8,t=x=>x*Math.PI/180;const dl=t(c-a),dg=t(d-b);' +
+      'const q=Math.sin(dl/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dg/2)**2;return 2*R*Math.asin(Math.sqrt(q));}' +
+      'function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x;}' +
+      'function isWeekend(d){const k=d.getDay();return k===0||k===6;}' +
+      'function isoOf(d){return toDateStr(d);}' +
+      'function daysBetween(a,b){return Math.round((a-b)/86400000);}' +
+      'function mdToDate(md){const p=(""+md).split("-").map(Number);return new Date(2026,p[0]-1,p[1]);}' +
+      'function extractCleanCity(c){return (""+(c==null?"":c)).trim();}' +
+      'function customerForHouse(h){return h.__cust||null;}' +
+      'function nextWorkingDay(d){let x=new Date(d);while(isWeekend(x))x=addDays(x,1);return x;}' +
+      'function isWorkingDay(d){return !isWeekend(d);}' +
+      'function dayDate(d){return d._date;}' +
+      'function installDays(){return SEASON.filter(d=>!d.isFixRoute&&!d.isTakedown);}' +
+      'function computeDates(){SEASON.forEach(d=>{if(d.base!=null)d._date=addDays(BASE_START,d.base);});}' +
+      'function planCities(){return [];}' +
+      'var CREWS=[{name:"Crew 1",city:""},{name:"Crew 2",city:""}];' +
+      'var BASE_START=new Date(2026,9,1),globalDelta=0,SEASON=[],selSchedule=null;\n' +
+      admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) + '\n' +
+      admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) + '\n' +
+      'let NEARBY_TOWN_LIST={};' + fn('sameTownName') +
+      fn('townCentres') + fn('nearbyTowns') + fn('installPriority') + admin.slice(planStart, planEnd) +
+      fn('seasonStartDate') + fn('houseAllowedFrom') + fn('houseInstallPriority') +
+      'function cityOf(h){return (h.city||"").trim();}' +
+      'function sameCity(a,b){return (""+a).trim().toLowerCase()===(""+b).trim().toLowerCase();}' +
+      fn('rebuildSeasonDays') + fn('dayAreas') + fn('dayCrewTowns') + fn('crewTownsFor') +
+      '\nthis.run=function(seed){SEASON=seed;SEASON.forEach(function(d){d._date=new Date(2026,9,1+d.base);});' +
+      'var r=rebuildSeasonDays();return {r:r,days:SEASON.filter(function(d){return !d.isFixRoute&&!d.isTakedown;})' +
+      '.sort(function(a,b){return a.base-b.base;}),towns:crewTownsFor};};';
+    new Function(src).call(ctx);
+
+    let n = 0;
+    const house = (city, pref) => ({ id: 'h' + (++n), name: 'H' + n, city, pref: pref || '',
+      __cust: { data: { city, lat: at[city][0], lng: at[city][1] } } });
+    const mixed = [];
+    // A day of two people, a gap, then one jumbled day carrying four towns.
+    ['Lehi', 'Lehi', 'Highland', 'Highland', 'Eagle Mountain', 'Eagle Mountain', 'West Jordan'].forEach(c => mixed.push(house(c)));
+    for (let i = 0; i < 30; i++) mixed.push(house('Lehi'));
+    for (let i = 0; i < 24; i++) mixed.push(house('Highland'));
+    for (let i = 0; i < 18; i++) mixed.push(house('Eagle Mountain'));
+    for (let i = 0; i < 4; i++) mixed.push(house('West Jordan'));
+    for (let i = 0; i < 9; i++) mixed.push(house('Alpine'));
+    for (let i = 0; i < 12; i++) mixed.push(house('Orem', 'NOV'));
+    for (let i = 0; i < 6; i++) mixed.push(house('Draper'));
+
+    const out = ctx.run([
+      { id: 'd0', base: 0, cascade: 0, pin: null, houses: mixed.slice(0, 2) },
+      { id: 'd1', base: 5, cascade: 0, pin: null, houses: mixed.slice(2) }
+    ]);
+    const days = out.days, towns = out.towns;
+    const dateOf = (d) => new Date(2026, 9, 1 + d.base);
+    const crewOf = (i, d) => towns(i, d);
+
+    check('S28', 'the rebuild reports what it did', !out.r.error && out.r.days > 0 && out.r.houses === mixed.length,
+      JSON.stringify(out.r));
+    check('S28', 'the season starts on 1 October', out.r.first === '2026-10-01',
+      'started ' + out.r.first + " — owner: 'we always start on oct 1st'");
+
+    // The complaint: a day whose label did not match the people on it.
+    check('S28', 'every house is on a day whose crew actually covers its town',
+      days.every(d => { const t = crewOf(0, d).concat(crewOf(1, d)); return d.houses.every(h => t.indexOf(h.city) !== -1); }),
+      'this is the "day says Lehi and Highland but they are Eagle Mountain and West Jordan" case');
+    check('S28', 'the towns are derived, never stored on the day',
+      days.every(d => d.crewTowns === undefined),
+      'a stored split describes the day it was born with, not the day it becomes after an iced-off morning pushes houses into it');
+
+    // West Jordan had no day of its own before.
+    const wj = days.filter(d => crewOf(0, d).indexOf('West Jordan') !== -1 || crewOf(1, d).indexOf('West Jordan') !== -1);
+    check('S28', 'a town with no day gets one calculated for it', wj.length > 0,
+      'West Jordan had nowhere to go and its houses sat on somebody else\'s day');
+
+    // Working every October business day from the 1st.
+    const oct = days.filter(d => dateOf(d).getMonth() === 9).map(dateOf).sort((a, b) => a - b);
+    check('S28', 'October days are consecutive business days with no gaps',
+      (() => {
+        for (let i = 1; i < oct.length; i++) {
+          let expect = new Date(oct[i - 1]); expect.setDate(expect.getDate() + 1);
+          while (expect.getDay() === 0 || expect.getDay() === 6) expect.setDate(expect.getDate() + 1);
+          if (expect.getTime() !== oct[i].getTime()) return false;
+        }
+        return oct.length > 0;
+      })(),
+      'the plan had nothing between 1 and 6 October while houses were waiting');
+    check('S28', 'the first day is full rather than holding two people',
+      days[0] && days[0].houses.length > 30, days[0] ? days[0].houses.length + ' houses' : 'no days');
+
+    // Timing preference must survive the repack.
+    check('S28', 'a November-only house is never put in October',
+      days.every(d => dateOf(d).getMonth() !== 9 ||
+        d.houses.every(h => (h.pref || '').toUpperCase().indexOf('NOV') !== 0)),
+      'asking for November and being hung in October is the one thing a customer notices');
+    check('S28', 'and they do still get a day', days.some(d => d.houses.some(h => (h.pref || '').toUpperCase().indexOf('NOV') === 0)));
+
+    // The standing caps.
+    check('S28', 'no crew is given more than twenty',
+      days.every(d => [0, 1].every(i => d.houses.filter(h => crewOf(i, d).indexOf(h.city) !== -1).length <= 20)));
+    check('S28', 'nobody is lost in the rebuild',
+      days.reduce((s, d) => s + d.houses.length, 0) === mixed.length,
+      'every house that went in must come out on some day');
+
+    /* The day that only partly got done. Owner, 2026-08-17: "if a crew only got
+       2 houses done in a city then we still will need another day for that day
+       if it still has more houses than the city with the second most houses",
+       and "everyone that doesnt get hung on the list needs to be pushed back to
+       another day and if we never go back to that city and we cant fill it in in
+       the other days we will also need to automaticlaly add a new day".
+       So what is LEFT drives the plan, not what was once planned. */
+    let m = 0;
+    const mk = (city, done) => ({ id: 'p' + (++m), name: 'P' + m, city, done: !!done, pref: '',
+      __cust: { data: { city, lat: at[city][0], lng: at[city][1] } } });
+    const worked = [];
+    for (let i = 0; i < 2; i++) worked.push(mk('Lehi', true));    // the two that got done
+    for (let i = 0; i < 18; i++) worked.push(mk('Lehi', false));  // the eighteen that did not
+    for (let i = 0; i < 6; i++) worked.push(mk('Highland', false));
+    const rest = [];
+    for (let i = 0; i < 5; i++) rest.push(mk('Orem'));
+    for (let i = 0; i < 3; i++) rest.push(mk('West Jordan'));
+    const p = ctx.run([
+      { id: 'w0', base: 0, cascade: 0, pin: null, houses: worked },
+      { id: 'w1', base: 1, cascade: 0, pin: null, houses: rest }
+    ]);
+    const pd = p.days, all = pd.reduce((a, d) => a.concat(d.houses), []);
+    check('S28', 'the houses that got done stay put as the record',
+      pd.some(d => d.houses.length === 2 && d.houses.every(h => h.done && h.city === 'Lehi')),
+      'a worked day is what the crew was actually sent out with');
+    check('S28', 'every house that did NOT get done is scheduled again',
+      all.filter(h => h.city === 'Lehi' && !h.done).length === 18,
+      'they were pushed back onto another day rather than left on a day that has been and gone');
+    check('S28', 'a town still carrying the most houses gets the next day',
+      (() => {
+        const first = pd.filter(d => d.houses.some(h => !h.done)).sort((a, b) => a.base - b.base)[0];
+        return !!first && first.houses.some(h => h.city === 'Lehi' && !h.done);
+      })(),
+      'eighteen left in Lehi has to outrank five in Orem');
+    check('S28', 'a new day is added when the leftovers will not fit anywhere',
+      pd.filter(d => d.houses.some(h => !h.done)).length >= 2 &&
+      all.filter(h => h.city === 'West Jordan').length === 3,
+      'West Jordan is near nothing else here, so it has to get a day of its own');
+    check('S28', 'and nothing is lost doing it', all.length === worked.length + rest.length);
+
+    const oneTown = { houses: Array.from({ length: 12 }, () => ({ city: 'Alpine' })) };
+    check('S28', 'a day holding one town gives the second crew nothing to do',
+      crewOf(1, oneTown).length === 0 && crewOf(0, oneTown).join() === 'Alpine',
+      'got crew2 ' + JSON.stringify(crewOf(1, oneTown)) +
+      ' — inventing a second town files houses under a crew that is not out');
+
+    /* The iced-off day. Owner: "there might be days so icy they cant come in
+       then we have to say none of them got done… it wont have a way to
+       recalculate cities for everyday when it notices there are still way to
+       many highland houses." A stored split would still be describing the day
+       as it was built; a derived one absorbs whatever arrives. */
+    const iced = { houses: Array.from({ length: 14 }, () => ({ city: 'Lehi' })) };
+    const before = crewOf(0, iced).concat(crewOf(1, iced)).join();
+    for (let i = 0; i < 18; i++) iced.houses.push({ city: 'Highland' });
+    const after = crewOf(0, iced).concat(crewOf(1, iced));
+    check('S28', "houses pushed onto a later day recalculate that day's towns",
+      before === 'Lehi' && after.indexOf('Highland') !== -1 && after.indexOf('Lehi') !== -1,
+      'was [' + before + '], became [' + after.join() + ']');
+    check('S28', 'and the pushed-in houses belong to a crew rather than to nobody',
+      iced.houses.every(h => after.indexOf(h.city) !== -1),
+      'this is exactly what a stored crew split gets wrong');
+  }
+
+  // It must be deliberate, and reversible.
+  check('S28', 'the rebuild is a button, not something that happens on load',
+    /t\.id==='rebuildBtn'/.test(admin) && !/rebuildSeasonDays\(\);\s*renderAll/.test(admin));
+  check('S28', 'one press can be undone', /t\.id==='undoRebuildBtn'/.test(admin) && /preRebuild=before/.test(admin),
+    'it replaces the day structure and somebody may have moved houses by hand');
+  check('S28', 'nothing stores a crew split that could go stale',
+    !/crewTowns:/.test(admin) && /function dayCrewTowns\(day\)/.test(admin),
+    'the towns must be worked out from the houses on the day, every time they are asked');
+  check('S28', 'a crew city typed in the crew bar only applies while that town is on the day',
+    /sameCity\(t,pinned\)/.test(admin),
+    'unconditional is what let a day claim Lehi and Highland over Eagle Mountain and West Jordan houses');
+  check('S28', 'a worked day is judged by date OR by anything ticked off on it',
+    /const worked=\(dt&&dt<today\)\|\|houses\.some/.test(admin),
+    'a day the crew has been sent out on is the record of what they were sent out with');
+}
+
+/*
+ * Suite 29. Typing in which towns are near each other.
+ *
+ * Owner, 2026-08-17: "you will need to input nearby towns as well because if
+ * there are under 20 houses in a city we need to fill it up with houses from a
+ * nearby city."
+ *
+ * Distance between map pins is a good guess and not always right — two towns
+ * can be four miles apart with a canyon or a freeway between them, and a town
+ * whose houses have no pins has no centre to measure from at all. A typed list
+ * beats the measurement; a town left out of it still falls back to distance, so
+ * the box starts empty and useful rather than having to be filled in before
+ * anything works.
+ */
+suite('Suite 29. Towns the office says are near each other');
+{
+  const fn = (name) => {
+    const i = admin.indexOf('function ' + name + '(');
+    if (i === -1) return null;
+    let d = 0;
+    for (let j = admin.indexOf('{', i); j < admin.length; j++) {
+      if (admin[j] === '{') d++;
+      else if (admin[j] === '}') { d--; if (!d) return admin.slice(i, j + 1); }
+    }
+    return null;
+  };
+  const need = ['parseNearbyTowns', 'nearbyTownsToText', 'sameTownName', 'nearbyTowns'];
+  check('S29', 'the nearby-town helpers exist', need.every(n => !!fn(n)));
+
+  if (need.every(n => !!fn(n))) {
+    const sb = {};
+    new Function(
+      'function extractCleanCity(c){return (""+(c==null?"":c)).trim();}' +
+      'function haversine(a,b,c,d){const R=3958.8,t=x=>x*Math.PI/180;const dl=t(c-a),dg=t(d-b);' +
+      'const q=Math.sin(dl/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dg/2)**2;return 2*R*Math.asin(Math.sqrt(q));}' +
+      'const NEARBY_TOWN_MILES=8; let NEARBY_TOWN_LIST={};' +
+      need.map(fn).join('\n') +
+      'this.parse=parseNearbyTowns;this.text=nearbyTownsToText;this.near=nearbyTowns;' +
+      'this.set=function(m){NEARBY_TOWN_LIST=m;};'
+    ).call(sb);
+
+    const typed = sb.parse('Lehi: Highland, American Fork , Alpine\nWest Jordan: South Jordan, Riverton\n\nnot a rule\nOrem: Orem, Provo\n');
+    check('S29', 'a typed line becomes a town and its neighbours',
+      JSON.stringify(typed.Lehi) === JSON.stringify(['Highland', 'American Fork', 'Alpine']),
+      JSON.stringify(typed));
+    check('S29', 'spaces around a town name do not make a different town',
+      typed.Lehi.indexOf('American Fork') !== -1);
+    check('S29', 'a line with no colon is ignored rather than saved as a town',
+      Object.keys(typed).indexOf('not a rule') === -1);
+    check('S29', 'a town is never its own neighbour',
+      JSON.stringify(typed.Orem) === JSON.stringify(['Provo']),
+      'listing itself would let a crew "top up" from the town it is already in and count it twice');
+    check('S29', 'two towns in the list both survive', !!typed['West Jordan']);
+    check('S29', 'what is typed comes back as it was typed',
+      sb.text(typed).indexOf('Lehi: Highland, American Fork, Alpine') !== -1);
+
+    const centres = { Lehi: { lat: 40.391, lng: -111.851 }, Draper: { lat: 40.524, lng: -111.863 },
+                      Highland: { lat: 40.425, lng: -111.795 } };
+    check('S29', 'with nothing typed, nearness is measured from the map pins',
+      JSON.stringify(sb.near('Lehi', centres)) === JSON.stringify(['Highland']));
+    sb.set(typed);
+    check('S29', 'a typed list beats the measurement',
+      JSON.stringify(sb.near('Lehi', centres)) === JSON.stringify(['Highland', 'American Fork', 'Alpine']),
+      'the measurement cannot know about a canyon, and a town with no pins cannot be measured at all');
+    check('S29', 'the town name is matched however it was capitalised',
+      JSON.stringify(sb.near('lehi', centres)) === JSON.stringify(sb.near('Lehi', centres)),
+      'it arrives from a textarea, so the casing is whatever somebody typed');
+    check('S29', 'a town left out still falls back to distance',
+      JSON.stringify(sb.near('Draper', centres)) === JSON.stringify(['Highland']),
+      'the box has to be useful empty, or it would have to be filled in before anything worked');
+    check('S29', 'the caller cannot corrupt the saved list',
+      (() => { const got = sb.near('Lehi', centres); got.push('Nowhere');
+               return sb.near('Lehi', centres).indexOf('Nowhere') === -1; })(),
+      'the builder sorts and trims what it gets back');
+  }
+
+  check('S29', 'the list is stored with the other scheduling settings',
+    /nearbyTowns: parsed/.test(admin) && /settings','scheduling'\), \{nearbyTowns/.test(admin));
+  check('S29', 'and is not reloaded over somebody mid-sentence',
+    /document\.activeElement !== nt/.test(admin),
+    'refreshing a textarea under the cursor takes the line away mid-word');
 }
 
 // A check that scores after this summary is a check that cannot fail the build.

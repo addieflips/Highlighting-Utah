@@ -3274,6 +3274,17 @@
               One crew — one town a day, 20 houses
             </label>
             <div id="crewsPerDayStatus" style="font-size:12px; color:var(--slate); margin-top:7px;"></div>
+            <div style="margin-top:14px;">
+              <label for="nearbyTownsInput" style="font-weight:600; font-size:13px;">Towns close enough to share a crew</label>
+              <div style="font-size:12px; color:var(--slate); margin:3px 0 6px;">
+                One town per line, then the towns near it: <strong>Lehi: Highland, American Fork, Alpine</strong>.
+                A crew always fills up from its own town first — this is only used when there are fewer than 20 left
+                there and the day would otherwise go out short. Leave a town out and it is only ever paired by
+                distance from its houses on the map.
+              </div>
+              <textarea id="nearbyTownsInput" rows="6" style="width:100%; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12.5px;" placeholder="Lehi: Highland, American Fork, Saratoga Springs&#10;Highland: Alpine, American Fork, Cedar Hills, Lehi"></textarea>
+              <div id="nearbyTownsStatus" style="font-size:12px; color:var(--slate); margin-top:5px;"></div>
+            </div>
           </div>
           <button type="button" class="btn btn-gold" id="generateRouteBtn">Generate Install Route</button>
           <button type="button" class="btn btn-outline" id="regenerateRouteBtn" style="display:none;">Regenerate</button>
@@ -5501,7 +5512,12 @@ async function loadSchedulingSettings(){
     const snap = await getDoc(doc(db,'settings','scheduling'));
     const n = snap.exists() ? Number(snap.data().crewsPerDay) : 2;
     CREWS_PER_DAY = (n === 1) ? 1 : 2;
-  } catch(err){ CREWS_PER_DAY = 2; }
+    NEARBY_TOWN_LIST = (snap.exists() && snap.data().nearbyTowns) || {};
+  } catch(err){ CREWS_PER_DAY = 2; NEARBY_TOWN_LIST = {}; }
+  const nt = document.getElementById('nearbyTownsInput');
+  /* Only when it is not being typed in — reloading under the cursor would take
+     somebody's half-finished line away mid-word. */
+  if(nt && document.activeElement !== nt) nt.value = nearbyTownsToText(NEARBY_TOWN_LIST);
   const r1 = document.getElementById('crewsPerDay1'), r2 = document.getElementById('crewsPerDay2');
   if(r1) r1.checked = CREWS_PER_DAY === 1;
   if(r2) r2.checked = CREWS_PER_DAY === 2;
@@ -5510,6 +5526,30 @@ async function loadSchedulingSettings(){
     ? 'One town a day, up to 20 houses. The season runs about twice as long.'
     : 'Two towns a day, up to 20 houses each — 40 a day in total.';
 }
+/* Saved on blur rather than per keystroke: this is a list somebody types out,
+   and a write per character would both cost writes and fight the cursor. */
+(function(){
+  const nt = document.getElementById('nearbyTownsInput');
+  if(!nt) return;
+  nt.addEventListener('blur', async function(){
+    const st = document.getElementById('nearbyTownsStatus');
+    const parsed = parseNearbyTowns(nt.value);
+    if(st){ st.textContent = 'Saving…'; st.style.color = 'var(--slate)'; }
+    try{
+      await setDoc(doc(db,'settings','scheduling'), {nearbyTowns: parsed}, {merge:true});
+      NEARBY_TOWN_LIST = parsed;
+      const n = Object.keys(parsed).length;
+      if(st){
+        st.style.color = 'var(--slate)';
+        st.textContent = n
+          ? 'Saved — ' + n + ' town' + (n === 1 ? '' : 's') + ' with neighbours listed. Press Rebuild days in Schedule to use it.'
+          : 'Saved — no towns listed, so nearness is worked out from the map pins.';
+      }
+    }catch(e){
+      if(st){ st.style.color = 'var(--red)'; st.textContent = 'Could not save — ' + e.message; }
+    }
+  });
+})();
 document.querySelectorAll('input[name="crewsPerDay"]').forEach(function(radio){
   radio.addEventListener('change', async function(){
     if(!radio.checked) return;
@@ -19855,8 +19895,42 @@ function townCentres(byCity){
   });
   return out;
 }
+/* Towns the office has said are close enough to share a crew, town -> [towns].
+   Owner, 2026-08-17: "you will need to input nearby towns as well because if
+   there are under 20 houses in a city we need to fill it up with houses from a
+   nearby city."
+   Distance off the map pins is a good guess and not always the right answer —
+   two towns can be four miles apart with a canyon or a freeway between them,
+   and a town whose houses have no pins yet has no centre to measure from at
+   all. A typed list wins over the measurement for exactly those cases; towns
+   left out of it still fall back to distance, so this starts empty and useful
+   rather than having to be filled in before anything works. */
+let NEARBY_TOWN_LIST = {};
+function parseNearbyTowns(text){
+  const out = {};
+  String(text == null ? '' : text).split(/\r?\n/).forEach(function(line){
+    const bits = line.split(':');
+    if(bits.length < 2) return;
+    const town = extractCleanCity(bits[0]);
+    if(!town) return;
+    const near = bits.slice(1).join(':').split(',')
+      .map(extractCleanCity).filter(function(t){ return t && !sameTownName(t, town); });
+    if(near.length) out[town] = near;
+  });
+  return out;
+}
+function nearbyTownsToText(map){
+  return Object.keys(map || {}).sort().map(function(t){ return t + ': ' + map[t].join(', '); }).join('\n');
+}
+function sameTownName(a, b){
+  return String(a == null ? '' : a).trim().toLowerCase() === String(b == null ? '' : b).trim().toLowerCase();
+}
 /* Towns near `city`, nearest first. */
 function nearbyTowns(city, centres){
+  /* Typed in beats measured. Matched case-insensitively so "west jordan" and
+     "West Jordan" are the same town, which is how they arrive from a textarea. */
+  const key = Object.keys(NEARBY_TOWN_LIST).filter(function(t){ return sameTownName(t, city); })[0];
+  if(key) return NEARBY_TOWN_LIST[key].slice();
   const here = centres[city];
   if(!here) return [];
   return Object.keys(centres)
@@ -25647,7 +25721,7 @@ function attachDeleteHandlers(container){
   const host=document.getElementById("scheduleHost"); if(!host||host.shadowRoot) return;
   const RT=host.attachShadow({mode:"open"});
   const STYLE="\n:host{--green:#0f5132;--green-l:#1a7a4c;--red:#b02a37;--gold:#c99a2e;--bg:#eef1ef;--card:#fff;\n--ink:#1c2621;--muted:#6b776f;--line:#e2e8e4;--done:#dff3e6;--sel:#0f5132;\n--shadow:0 1px 3px rgba(20,40,30,.06),0 6px 20px rgba(20,40,30,.07);}\n*{box-sizing:border-box}\n.rdwrap{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Inter,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink);line-height:1.4;-webkit-font-smoothing:antialiased}\n.wrap{max-width:1400px;margin:0 auto;padding:0 18px 60px}\nheader.top{background:linear-gradient(120deg,#0f5132,#1a7a4c 60%,#14663f);color:#fff;padding:26px 0 24px;border-bottom:4px solid var(--gold)}\n.top .wrap{padding-bottom:0}\n.lights{display:flex;gap:6px;margin-bottom:8px}\n.lights i{width:10px;height:10px;border-radius:50%;box-shadow:0 0 8px currentColor}\n.lights i:nth-child(1){background:#ff5a5a;color:#ff5a5a}.lights i:nth-child(2){background:#ffd35a;color:#ffd35a}.lights i:nth-child(3){background:#5affa0;color:#5affa0}.lights i:nth-child(4){background:#5ab8ff;color:#5ab8ff}.lights i:nth-child(5){background:#e07bff;color:#e07bff}\nh1{font-size:24px;margin:0;font-weight:750;letter-spacing:-.01em}\n.sub{color:#d5e8dd;font-size:13.5px;margin-top:3px}\n.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin:-42px 0 16px;position:relative}\n.stat{background:var(--card);border-radius:13px;padding:14px 16px;box-shadow:var(--shadow);border:1px solid var(--line)}\n.stat .n{font-size:23px;font-weight:780;color:var(--green);letter-spacing:-.02em}\n.stat .l{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:2px;font-weight:650}\n.obar{height:9px;border-radius:6px;background:#e0e6e2;overflow:hidden;margin-top:9px}\n.obar>i{display:block;height:100%;background:linear-gradient(90deg,var(--green-l),var(--gold));transition:width .4s}\n.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:4px 0 16px}\n.search{flex:1;min-width:200px;position:relative}\n.search input{width:100%;padding:11px 13px 11px 38px;border:1px solid var(--line);border-radius:11px;font-size:15px;background:var(--card);box-shadow:var(--shadow);outline:none}\n.search input:focus{border-color:var(--green-l)}\n.search svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);opacity:.45}\n.btn{padding:11px 15px;border-radius:11px;font-size:14px;font-weight:650;border:1px solid var(--green-l);background:var(--green-l);color:#fff;cursor:pointer;box-shadow:var(--shadow)}\n.btn:hover{background:var(--green)}.btn.ghost{background:var(--card);color:var(--green-l)}\n.layout{display:grid;grid-template-columns:270px 1fr;gap:18px;align-items:start}\n.daylist{background:var(--card);border-radius:14px;box-shadow:var(--shadow);border:1px solid var(--line);overflow:hidden;max-height:78vh;overflow-y:auto;position:sticky;top:14px}\n.daylist h3{margin:0;padding:13px 15px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--card);z-index:1}\n.day{padding:11px 15px;border-bottom:1px solid var(--line);cursor:pointer;display:flex;flex-direction:column;gap:5px;transition:background .12s}\n.day:hover{background:#f4f8f5}\n.day.sel{background:var(--green);color:#fff}\n.day.sel .dmeta,.day.sel .dbar{color:#d5e8dd}\n.day.sel .dbar{background:rgba(255,255,255,.25)}\n.drow{display:flex;justify-content:space-between;align-items:baseline;gap:8px}\n.dname{font-weight:700;font-size:14.5px}\n.dcount{font-size:12px;font-weight:650;opacity:.85}\n.dmeta{font-size:12px;color:var(--muted);display:flex;justify-content:space-between}\n.dbar{height:5px;border-radius:4px;background:#e0e6e2;overflow:hidden}\n.dbar>i{display:block;height:100%;background:linear-gradient(90deg,var(--green-l),var(--gold))}\n.day.sel .dbar>i{background:#ffd98a}\n.check-badge{display:inline-block;width:15px;height:15px;border-radius:50%;background:var(--gold);color:#fff;font-size:10px;text-align:center;line-height:15px;margin-left:5px}\n.panel{background:var(--card);border-radius:14px;box-shadow:var(--shadow);border:1px solid var(--line);overflow:hidden}\n.phead{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;align-items:center;gap:12px}\n.phead .t{font-size:19px;font-weight:750}\n.phead .meta{font-size:13px;color:var(--muted);font-weight:600}\n.phead .prog{flex:1;min-width:120px}\n.phead .obar{margin-top:5px}\n.crewtag{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;background:#eef2f0;color:#48564e;padding:3px 9px;border-radius:999px}\n.stop{display:flex;gap:12px;padding:13px 16px;border-top:1px solid var(--line);align-items:flex-start}\n.stop:hover{background:#f7faf8}\n.stop.done{background:var(--done)}\n.stop.done .snm{text-decoration:line-through;color:var(--muted)}\n.seq{flex:none;width:30px;height:30px;border-radius:9px;background:var(--green);color:#fff;font-weight:750;font-size:13px;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}\n.stop.done .seq{background:var(--gold)}\n.chk{flex:none;margin-top:4px}\ninput[type=checkbox]{width:20px;height:20px;accent-color:var(--green-l);cursor:pointer;margin:0}\n.sbody{flex:1;min-width:0}\n.snm{font-weight:700;font-size:15px}\n.saddr{font-size:13.5px;margin-top:2px}\n.saddr a{color:var(--green-l);text-decoration:none}.saddr a:hover{text-decoration:underline}\n.sline{font-size:12.5px;color:var(--muted);margin-top:3px;display:flex;flex-wrap:wrap;gap:4px 12px}\n.sline a{color:var(--green-l);text-decoration:none}\n.sdetail{font-size:12.5px;color:#5a6b60;margin-top:4px;background:#f2f6f3;border-radius:7px;padding:5px 9px;display:inline-block}\n.stop.done .sdetail{background:rgba(255,255,255,.5)}\n.sprice{flex:none;text-align:right;font-weight:750;color:var(--green);font-variant-numeric:tabular-nums;white-space:nowrap;font-size:15px}\n.tag{display:inline-block;padding:1px 7px;border-radius:999px;font-size:11px;font-weight:650;background:#eef2f0;color:#48564e}\n.tag.oct{background:#fdeede;color:#9a5b16}.tag.nov{background:#e4eefc;color:#25548f}.tag.any{background:#e8f4ec;color:#2b6b45}.tag.thx{background:#f6e6f2;color:#8a3070}.tag.dec{background:#e7f0ff;color:#2a4d8f}\n.searchres .daygrp{border-top:1px solid var(--line)}\n.daygrp-h{padding:8px 16px;background:#f4f8f5;font-size:12px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.04em}\nfooter{margin-top:16px;font-size:12px;color:var(--muted);text-align:center;line-height:1.6}\n@media(max-width:820px){.layout{grid-template-columns:1fr}.daylist{position:static;max-height:none;display:flex;overflow-x:auto;flex-wrap:nowrap}.daylist h3{display:none}.day{min-width:150px;border-bottom:none;border-right:1px solid var(--line)}}\n\n\n/* ---- app additions ---- */\n.mockbadge{display:inline-block;background:var(--gold);color:#fff;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;margin-left:8px;vertical-align:middle;letter-spacing:.03em}\n.stat.remain .n{color:var(--gold)}\n.tabs{display:flex;gap:7px;margin:0 0 16px;flex-wrap:wrap}\n.tab{padding:11px 18px;border-radius:11px;font-size:14.5px;font-weight:700;border:1px solid var(--line);background:var(--card);color:var(--muted);cursor:pointer;box-shadow:var(--shadow)}\n.tab.active{background:var(--green);color:#fff;border-color:var(--green)}\n.tabpane[hidden]{display:none}\n.seasonbar{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);padding:12px 15px;margin:0 0 14px;display:flex;flex-wrap:wrap;align-items:center;gap:14px}\n.seasonbar .fld{display:flex;flex-direction:column;gap:3px}\n.seasonbar label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700}\n.seasonbar input[type=date]{padding:8px 10px;border:1px solid var(--line);border-radius:9px;font-size:14px;background:#fff}\n.seasonbar .read{font-size:13px;color:var(--muted);font-weight:600}\n.seasonbar .read b{color:var(--green)}\n.wknote{width:100%;font-size:12px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:7px 11px}\n.mini{padding:7px 11px;border-radius:9px;font-size:12.5px;font-weight:650;border:1px solid var(--line);background:#fff;color:var(--green);cursor:pointer}\n.mini:hover{background:#f4f8f5}\n.mini.warn{border-color:#e7c9cd;color:var(--red)}.mini.warn:hover{background:#fbeef0}\n.daycontrols{display:flex;gap:8px;flex-wrap:wrap;width:100%;align-items:center}\n.moveday{font-size:11.5px;border:1px solid var(--line);border-radius:7px;padding:4px 7px;background:#fff;color:#48564e;max-width:250px}\ninput.pin{padding:5px 7px;border:1px solid var(--line);border-radius:7px;font-size:12px;background:#fff}\n.qbtn{font-size:11px;font-weight:700;border-radius:7px;padding:3px 8px;cursor:pointer;border:1px solid}\n.qbtn.oct{border-color:#f0d5b6;background:#fdeede;color:#9a5b16}\n.qbtn.nov{border-color:#c5d8f4;background:#e4eefc;color:#25548f}\n.qbtn:hover{filter:brightness(.96)}\n.sctl{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px}\n.sctl .lbl{font-size:11px;color:var(--muted);font-weight:650}\n.darea{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.day.sel .darea{color:#cfe6d8}\n.pinbadge{display:inline-block;background:#e4eefc;color:#25548f;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px}\n.weekguide{border-top:1px solid var(--line);background:#fbfdfc}\n.wgh{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;padding:9px 16px 2px}\n.wgrow{display:flex;gap:8px;overflow-x:auto;padding:4px 16px 12px}\n.wchip{flex:none;min-width:118px;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:#fff}\n.wchip.here{border-color:var(--green-l);background:#eaf4ee}\n.wchip .wd{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase}\n.wchip .wc{font-size:13.5px;font-weight:750;color:var(--green);margin-top:1px}\n.wchip .wa{font-size:11.5px;color:#48564e;margin-top:3px;line-height:1.3}\n.wchip .wn{font-size:11px;color:var(--muted);margin-top:4px}\n.tray{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);margin:0 0 14px;overflow:hidden}\n.tray h3{margin:0;padding:12px 15px;font-size:13px;font-weight:750;color:var(--green);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;cursor:pointer}\n.tray h3.fix{color:var(--red)}\n.tray h3 .cnt{background:var(--green-l);color:#fff;font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px}\n.tray h3.fix .cnt{background:var(--red)}\n.tray h3 .chev{margin-left:auto;color:var(--muted);font-size:12px}\n.traynote{font-size:12px;color:var(--muted);padding:8px 15px 2px}\n.grouph{font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding:10px 15px 2px}\n.newrow{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:11px 15px;border-top:1px solid var(--line)}\n.newrow .who{font-weight:700;font-size:14px;min-width:140px}\n.newrow .meta{font-size:12.5px;color:var(--muted)}\n.newrow .auto{font-size:12px;color:#2b6b45;font-weight:650}\n.newrow .acts{margin-left:auto;display:flex;gap:7px;align-items:center;flex-wrap:wrap}\n.newbadge{display:inline-block;background:#fbeecd;color:#8a5a12;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.fixbadge{display:inline-block;background:#f7dfe1;color:#a12a35;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.stop.isnew{box-shadow:inset 3px 0 0 var(--gold)}\n.stop.isfix{box-shadow:inset 3px 0 0 var(--red)}\n.stop.istake{box-shadow:inset 3px 0 0 #6b776f}\n.day.fixroute{background:#fdf3f4}\n.day.fixroute.sel{background:#8f2530;color:#fff}\n.day.fixroute.sel .darea,.day.fixroute.sel .dmeta{color:#f3d6d9}\n.day.fixroute.sel .dbar{background:rgba(255,255,255,.25)}\n.frb{display:inline-block;background:#f7dfe1;color:#a12a35;font-size:9.5px;font-weight:800;padding:1px 5px;border-radius:5px;margin-left:6px;vertical-align:middle}\n.day.fixroute.sel .frb{background:#fff;color:#8f2530}\n.buildfix{margin:8px 15px}\n.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;padding:11px 18px;border-radius:11px;font-size:13.5px;font-weight:600;box-shadow:0 8px 30px rgba(0,0,0,.25);opacity:0;pointer-events:none;transition:.25s;z-index:50;max-width:90vw;text-align:center}\n.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}\n.emptyday{padding:20px 16px;color:var(--muted);font-size:13.5px;text-align:center}\n#gate{position:fixed;inset:0;background:linear-gradient(120deg,#0f5132,#14663f);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px}\n#gate .card{background:#fff;border-radius:16px;padding:26px;max-width:360px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3)}\n#gate h2{margin:0 0 4px;color:var(--green);font-size:20px}\n#gate p{margin:0 0 16px;color:var(--muted);font-size:13.5px}\n#gate input{width:100%;padding:11px;border:1px solid var(--line);border-radius:10px;font-size:15px;margin-bottom:10px}\n#gate .err{color:var(--red);font-size:13px;min-height:18px}\n#importBox{max-width:560px;margin:34px auto;background:#fff;border:1px solid var(--line);border-radius:14px;padding:26px;box-shadow:var(--shadow);text-align:center}\n#importBox h2{color:var(--green);margin:0 0 6px}\n#importBox p{color:var(--muted);font-size:13.5px;margin:0 0 16px}\n#importBox .err{color:var(--red);font-size:13px;margin-top:10px;min-height:18px}\n.topbar{display:flex;align-items:center;gap:12px;margin-top:6px}\n.savenote{font-size:12.5px;color:#d5e8dd;font-weight:600}\n.linkbtn{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;padding:6px 12px;border-radius:9px;font-size:12.5px;font-weight:650;cursor:pointer}\n.hide{display:none!important}\n.lmodal{position:fixed;inset:0;background:rgba(18,30,24,.55);display:flex;align-items:center;justify-content:center;padding:18px;z-index:60}\n.lmodal .card{background:#fff;border-radius:16px;max-width:620px;width:100%;max-height:86vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);padding:22px}\n.lmodal h2{margin:0 0 4px;color:var(--green);font-size:19px}\n.lmodal .lead{margin:0 0 14px;color:var(--muted);font-size:13.5px}\n.lmodal .lrow{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;padding:9px 0;border-top:1px solid var(--line);font-size:13.5px}\n.lmodal .lrow .who{font-weight:700;min-width:130px}\n.lmodal .lrow .meta{color:var(--muted);font-size:12.5px}\n.lmodal .lrow .acts{margin-left:auto}\n.lmodal .pickrow{cursor:pointer;gap:8px 10px}\n.lmodal .pickrow:hover{background:#f7faf8}\n.lmodal .pickrow input[type=checkbox]{flex:none}\n.lmodal .choices{display:flex;flex-direction:column;gap:10px;margin:16px 0 6px}\n.lmodal .choice{text-align:left;padding:13px 15px;border:1px solid var(--line);border-radius:12px;background:#fff;cursor:pointer;font-size:14px;font-weight:650;color:var(--ink)}\n.lmodal .choice:hover{background:#f4f8f5;border-color:var(--green-l)}\n.lmodal .choice small{display:block;font-weight:500;color:var(--muted);font-size:12.5px;margin-top:3px}\n.lmodal .warn{font-size:12.5px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:8px 11px;margin-top:12px}\n.lmodal .foot{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}\n.crewbar{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);padding:11px 15px;margin:0 0 14px}\n.crewbar .ch{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;margin-bottom:7px}\n.crewrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:6px}\n.crewrow input.cn{padding:7px 10px;border:1px solid var(--line);border-radius:9px;font-size:13.5px;background:#fff;min-width:150px;font-weight:700;color:var(--ink)}\n.crewrow select.cc{padding:7px 10px;border:1px solid var(--line);border-radius:9px;font-size:13px;background:#fff;max-width:230px}\n.crewrow .note{font-size:12px;color:var(--muted)}\n.crewbar .warn{font-size:12px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:6px 10px;margin-top:9px}\n";
-  const MARKUP="<div class=\"rdwrap\"><div class=\"wrap\"><div style=\"text-align:right;font-size:12px;color:var(--muted);margin:0 2px 6px;font-weight:600\" id=\"saveNote\"></div><div id=\"importBox\" class=\"hide\">\n    <h2>Import your route plan</h2>\n    <p>Choose your route CSV (export from your Excel, or the “Export progress CSV” from the old dashboard). Your data is saved to your private Firebase — it is never stored in this page.</p>\n    <input type=\"file\" id=\"importFile\" accept=\".csv,text/csv\">\n    <div class=\"err\" id=\"importErr\"></div>\n    <button class=\"mini\" id=\"importCancel\" style=\"margin-top:12px;display:none\">Cancel — keep the plan I have</button>\n  </div>\n\n  <div id=\"dashboard\" class=\"hide\">\n    <div class=\"stats\" id=\"stats\"></div>\n    <div class=\"tabs\">\n      <button class=\"tab active\" data-tab=\"schedule\">📅 Scheduling</button>\n      <button class=\"tab\" data-tab=\"fixes\">🔧 Fixes</button>\n      <button class=\"tab\" data-tab=\"members\">🆕 New Members</button>\n      <button class=\"tab\" data-tab=\"takedowns\">📦 Takedowns</button>\n    </div>\n\n    <div class=\"crewbar\" id=\"crewBar\"></div>\n\n    <div class=\"tabpane\" id=\"pane-schedule\">\n      <div class=\"seasonbar\">\n        <div class=\"fld\"><label for=\"startDate\">Season start</label><input type=\"date\" id=\"startDate\"></div>\n        <div class=\"read\" id=\"shiftRead\"></div>\n        <button class=\"mini\" id=\"syncTownsBtn\" style=\"margin-left:auto\">⟳ Refresh towns</button><button class=\"mini\" id=\"resetBtn\">↺ Reload saved</button>\n        <button class=\"mini warn\" id=\"replaceBtn\">⇪ Replace imported file</button>\n        <div class=\"read\" id=\"importedAtRead\" style=\"font-weight:600\"></div>\n        <div class=\"wknote\" id=\"wkNote\"></div>\n      </div>\n      <div class=\"toolbar\">\n        <div class=\"search\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"11\" cy=\"11\" r=\"7\"></circle><path d=\"M21 21l-4.3-4.3\"></path></svg>\n          <input id=\"q\" placeholder=\"Search name, address, city, phone…\" autocomplete=\"off\">\n        </div>\n        <button class=\"btn ghost\" id=\"clearBtn\" style=\"display:none\">Clear</button>\n        <button class=\"btn\" id=\"csvBtn\">Export CSV</button><button class=\"btn ghost\" id=\"printPlanBtn\">Print Whole Plan</button>\n      </div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Days · left · area</h3><div id=\"days\"></div></div><div class=\"panel\" id=\"panel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-fixes\" hidden>\n      <div class=\"tray\" id=\"fixtray\"></div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Fixer routes</h3><div id=\"fixDays\"></div></div><div class=\"panel\" id=\"fixPanel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-members\" hidden><div class=\"tray\" id=\"membersPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-takedowns\" hidden>\n      <div class=\"seasonbar\"><div class=\"fld\"><label for=\"takeStart\">Takedown start</label><input type=\"date\" id=\"takeStart\"></div><div class=\"read\" id=\"takeRead\"></div></div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Takedown days · left · area</h3><div id=\"takeDays\"></div></div><div class=\"panel\" id=\"takePanel\"></div></div>\n    </div>\n\n    <footer>\n      Live — saves to your private Firebase (routeSchedule), synced across your devices. This page only writes its own schedule; it does not touch customers, the crew’s routes, or billing.<br>\n      Weekends are skipped automatically; use “Force exact date” to place a route on a weekend.\n    </footer>\n  </div></div><div class=\"lmodal hide\" id=\"leftoverModal\"></div><div class=\"toast\" id=\"toast\"></div></div>";
+  const MARKUP="<div class=\"rdwrap\"><div class=\"wrap\"><div style=\"text-align:right;font-size:12px;color:var(--muted);margin:0 2px 6px;font-weight:600\" id=\"saveNote\"></div><div id=\"importBox\" class=\"hide\">\n    <h2>Import your route plan</h2>\n    <p>Choose your route CSV (export from your Excel, or the “Export progress CSV” from the old dashboard). Your data is saved to your private Firebase — it is never stored in this page.</p>\n    <input type=\"file\" id=\"importFile\" accept=\".csv,text/csv\">\n    <div class=\"err\" id=\"importErr\"></div>\n    <button class=\"mini\" id=\"importCancel\" style=\"margin-top:12px;display:none\">Cancel — keep the plan I have</button>\n  </div>\n\n  <div id=\"dashboard\" class=\"hide\">\n    <div class=\"stats\" id=\"stats\"></div>\n    <div class=\"tabs\">\n      <button class=\"tab active\" data-tab=\"schedule\">📅 Scheduling</button>\n      <button class=\"tab\" data-tab=\"fixes\">🔧 Fixes</button>\n      <button class=\"tab\" data-tab=\"members\">🆕 New Members</button>\n      <button class=\"tab\" data-tab=\"takedowns\">📦 Takedowns</button>\n    </div>\n\n    <div class=\"crewbar\" id=\"crewBar\"></div>\n\n    <div class=\"tabpane\" id=\"pane-schedule\">\n      <div class=\"seasonbar\">\n        <div class=\"fld\"><label for=\"startDate\">Season start</label><input type=\"date\" id=\"startDate\"></div>\n        <div class=\"read\" id=\"shiftRead\"></div>\n        <button class=\"mini\" id=\"rebuildBtn\" style=\"margin-left:auto\">⚙ Rebuild days</button><button class=\"mini\" id=\"undoRebuildBtn\" style=\"display:none\">↶ Undo rebuild</button><button class=\"mini\" id=\"syncTownsBtn\">⟳ Refresh towns</button><button class=\"mini\" id=\"resetBtn\">↺ Reload saved</button>\n        <button class=\"mini warn\" id=\"replaceBtn\">⇪ Replace imported file</button>\n        <div class=\"read\" id=\"importedAtRead\" style=\"font-weight:600\"></div>\n        <div class=\"wknote\" id=\"wkNote\"></div>\n      </div>\n      <div class=\"toolbar\">\n        <div class=\"search\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"11\" cy=\"11\" r=\"7\"></circle><path d=\"M21 21l-4.3-4.3\"></path></svg>\n          <input id=\"q\" placeholder=\"Search name, address, city, phone…\" autocomplete=\"off\">\n        </div>\n        <button class=\"btn ghost\" id=\"clearBtn\" style=\"display:none\">Clear</button>\n        <button class=\"btn\" id=\"csvBtn\">Export CSV</button><button class=\"btn ghost\" id=\"printPlanBtn\">Print Whole Plan</button>\n      </div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Days · left · area</h3><div id=\"days\"></div></div><div class=\"panel\" id=\"panel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-fixes\" hidden>\n      <div class=\"tray\" id=\"fixtray\"></div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Fixer routes</h3><div id=\"fixDays\"></div></div><div class=\"panel\" id=\"fixPanel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-members\" hidden><div class=\"tray\" id=\"membersPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-takedowns\" hidden>\n      <div class=\"seasonbar\"><div class=\"fld\"><label for=\"takeStart\">Takedown start</label><input type=\"date\" id=\"takeStart\"></div><div class=\"read\" id=\"takeRead\"></div></div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Takedown days · left · area</h3><div id=\"takeDays\"></div></div><div class=\"panel\" id=\"takePanel\"></div></div>\n    </div>\n\n    <footer>\n      Live — saves to your private Firebase (routeSchedule), synced across your devices. This page only writes its own schedule; it does not touch customers, the crew’s routes, or billing.<br>\n      Weekends are skipped automatically; use “Force exact date” to place a route on a weekend.\n    </footer>\n  </div></div><div class=\"lmodal hide\" id=\"leftoverModal\"></div><div class=\"toast\" id=\"toast\"></div></div>";
   RT.innerHTML="<style>"+STYLE+"</style>"+MARKUP;
 
 const PLAN_REF=()=>doc(db,'routeSchedule','plan');
@@ -25698,6 +25772,7 @@ function toast(msg){const t=RT.getElementById('toast');t.textContent=msg;t.class
 let SEASON=[], ORDER=[], BASE_START, globalDelta=0, takeDelta=0;
 let selSchedule=null, selFix=null, selTake=null, activeTab='schedule';
 let fixOpen=true, FIXLIST=[], fixRouteSeq=0, loaded=false, saveTimer=null;
+let preRebuild=null;   // the plan before the last Rebuild days, for one-press undo
 
 /* ---------- date engine ---------- */
 function startFor(day){return day.isTakedown?TAKE_BASE_START:BASE_START;}
@@ -25806,16 +25881,74 @@ function planCities(){
   const c={};allHouses().forEach(h=>{const k=cityOf(h);if(k)c[k]=(c[k]||0)+1;});
   return Object.entries(c).sort((a,b)=>b[1]-a[1]).map(x=>x[0]);
 }
+/* Which towns each crew is working on a day — WORKED OUT FROM THE HOUSES THAT
+   ARE ON THAT DAY, every single time it is asked. Nothing is stored.
+
+   Owner, 2026-08-17: "the citiees should not be assigned to a day that should
+   be calculated… right now there is a day Lehi and Highland but the people in
+   it arent Lehi Highland, theres some Eagle mountain and others west jordan",
+   and then: "I dont want it to be preset to the point it cant be recalculated
+   because in the winter there might be days so icy they cant come in then we
+   have to say none of them got done but it wont have a way to recalculate
+   cities for everyday when it notices there are still way to many highland
+   houses."
+
+   Both halves of that are why this derives rather than remembers. A city typed
+   into the crew bar used to claim every day of the season whatever was actually
+   on it, and Auto only ever reported the day's two BIGGEST areas, so a day
+   carrying four towns announced two and quietly disowned the rest. Storing the
+   answer at build time would have fixed the label and broken the other half: a
+   day iced off and pushed later, or a house moved by hand, and the stored towns
+   would be describing a day that no longer exists.
+
+   Derived, all of that heals itself on the next render with no rebuild.
+
+   Towns go to the crew carrying fewer houses, biggest town first. That
+   reproduces the split the builder makes on a day it built, and still gives a
+   sensible answer for a day that has been added to since. */
+function dayCrewTowns(day){
+  const counts={};
+  ((day&&day.houses)||[]).forEach(function(h){ const c=cityOf(h); if(c) counts[c]=(counts[c]||0)+1; });
+  const towns=Object.keys(counts).sort(function(a,b){ return counts[b]-counts[a]||(a<b?-1:1); });
+  const out=[[],[]], load=[0,0], taken={}, auto=[];
+  /* A crew city typed into the crew bar means EXACTLY that town — a business
+     that always works the same two towns said so once and should be believed.
+     It is honoured only while that town is actually on the day, though;
+     unconditional is what let a day claim towns it was not holding. */
+  [0,1].forEach(function(i){
+    const pinned=CREWS[i]&&CREWS[i].city;
+    if(!pinned){ auto.push(i); return; }
+    const hit=towns.filter(function(t){ return !taken[t]&&sameCity(t,pinned); })[0];
+    if(hit){ out[i].push(hit); load[i]+=counts[hit]; taken[hit]=true; }
+  });
+  /* Everything else is shared out between the crews that are on Auto, biggest
+     town first, to whichever is carrying less. With both crews pinned there is
+     nobody to give the rest to and it stays unassigned ON PURPOSE — a house in
+     a town neither crew is working is a house nobody is holding a sheet for,
+     and that has to stay visible rather than being quietly absorbed. */
+  if(auto.length){
+    towns.forEach(function(t){
+      if(taken[t]) return;
+      let i=auto[0];
+      auto.forEach(function(k){ if(load[k]<load[i]) i=k; });
+      out[i].push(t); load[i]+=counts[t]; taken[t]=true;
+    });
+  }
+  return out;
+}
+function crewTownsFor(i,day){
+  if(!day) return (CREWS[i]&&CREWS[i].city)?[CREWS[i].city]:(planCities()[i]?[planCities()[i]]:[]);
+  return dayCrewTowns(day)[i]||[];
+}
 function crewCityFor(i,day){
-  if(CREWS[i]&&CREWS[i].city) return CREWS[i].city;
-  const areas=day?dayAreas(day):planCities();
-  return areas[i]||'';
+  const t=crewTownsFor(i,day);
+  return t.length?t.join(' · '):'';
 }
 function sameCity(a,b){return (''+a).trim().toLowerCase()===(''+b).trim().toLowerCase();}
 function crewHousesFor(i,day){
-  const city=crewCityFor(i,day);
-  if(!day||!city) return [];
-  return day.houses.filter(h=>sameCity(cityOf(h),city));
+  const towns=crewTownsFor(i,day);
+  if(!day||!towns.length) return [];
+  return day.houses.filter(h=>towns.some(function(t){return sameCity(cityOf(h),t);}));
 }
 /* ---------- what did not get done ----------
    On a normal day nearly everything gets finished, so ticking off the ones
@@ -25842,8 +25975,8 @@ function nextDayInCity(day,city){
    stop nobody is holding a sheet for is a stop nobody drives to. */
 function unassignedHousesFor(day){
   if(!day) return [];
-  const c0=crewCityFor(0,day),c1=crewCityFor(1,day);
-  return day.houses.filter(h=>{const c=cityOf(h);return !(c0&&sameCity(c,c0))&&!(c1&&sameCity(c,c1));});
+  const mine=crewTownsFor(0,day).concat(crewTownsFor(1,day));
+  return day.houses.filter(h=>{const c=cityOf(h);return !mine.some(function(t){return t&&sameCity(c,t);});});
 }
 
 /* ---------- build from imported rows ---------- */
@@ -26223,6 +26356,150 @@ function serialize(){
     days:SEASON.map(d=>({id:d.id,base:d.base,cascade:d.cascade,pin:d.pin?isoOf(d.pin):null,isFixRoute:!!d.isFixRoute,isTakedown:!!d.isTakedown,
       houses:d.houses.map(h=>{const o=Object.assign({},h);delete o._date;if(o.addedDate instanceof Date)o.addedDate=isoOf(o.addedDate);return o;})}))};
 }
+/* ---------- rebuilding the season's days ----------
+   Owner, 2026-08-17, on the imported plan: "oct 1st only has two people and
+   theres no days between oct 1 and 6 but we should be working every single
+   october buissness day unless we run out of houses… we always start on oct 1st
+   and work ever buissness day following for as long as there is a house elgible
+   to be hung in october/didnt request to be hung in november", and "if we dont
+   have a day for west jordan that should be calculated and added or included
+   with a nearby city if there are few west jordan houses".
+
+   The imported plan groups houses by whatever date the spreadsheet gave them,
+   so no rule ever decided who shares a day. This throws that grouping away and
+   works the days out from the houses, using the SAME builder the crew's routes
+   use — planNewCrewDays — so the two cannot drift apart: one crew one town, up
+   to 20, two crews a day, topping up from a town within NEARBY_TOWN_MILES only
+   when a crew is short.
+
+   NOT run on its own. It replaces the day structure, and somebody may have
+   moved houses about by hand; that is a decision to take deliberately, which is
+   why it is a button with an undo rather than something that happens on load. */
+function seasonStartDate(){
+  /* Always 1 October. The plan used to start at whatever the earliest imported
+     row said, which is how a season could begin with a day holding two people. */
+  return new Date(BASE_START.getFullYear(), 9, 1);
+}
+/* When a house is first allowed to be hung. November-only waits for November;
+   everything else can go from the first day of the season. */
+function houseAllowedFrom(h, startStr){
+  const p=(''+((h&&h.pref)||'')).trim().toUpperCase();
+  if(p.indexOf('NOV')===0) return (BASE_START.getFullYear())+'-11-01';
+  return startStr;
+}
+function houseInstallPriority(h){
+  const p=(''+((h&&h.pref)||'')).trim().toUpperCase();
+  if(p.indexOf('OCT')===0) return 0;   // asked for October — goes out first
+  if(p.indexOf('NOV')===0) return 2;   // asked for November — waits
+  return 1;                            // no preference — fills in behind October
+}
+function rebuildSeasonDays(){
+  if(typeof planNewCrewDays!=='function') return {error:'The day builder is not available on this page.'};
+  const start=seasonStartDate();
+  const startStr=isoOf(start);
+  /* Days that have already been worked are history and are not rebuilt — same
+     rule the crew's sweep follows. Anything with a house ticked off counts as
+     started even if its date has not arrived. */
+  const today=new Date(); today.setHours(0,0,0,0);
+  /* Fixes ride along on a day rather than being scheduled by town, so they stay
+     where somebody put them. */
+  const keep=[], movable=[], riders=[];
+  /* WHAT IS LEFT TO DO drives everything, not what was planned.
+     Owner, 2026-08-17: "if a crew only got 2 houses done in a city then we still
+     will need another day for that day if it still has more houses than the city
+     with the second most houses."
+     So a day that has been worked keeps only the houses that were actually
+     DONE — it stays as the record of what happened — and everything still
+     waiting on it goes back in the pool to be scheduled again. A city where two
+     of twenty got finished therefore comes back with eighteen waiting, which is
+     what earns it the next day ahead of a city with fewer left. Same for a day
+     part-way through: the ones ticked off stay put, the rest are rescheduled. */
+  SEASON.forEach(function(d){
+    if(d.isFixRoute||d.isTakedown){ keep.push(d); return; }
+    const houses=d.houses||[];
+    const dt=dayDate(d);
+    const worked=(dt&&dt<today)||houses.some(function(h){return h.done;});
+    if(!worked){
+      houses.forEach(function(h){ (h.isFix?riders:movable).push(h); });
+      return;
+    }
+    const done=houses.filter(function(h){return h.done;});
+    houses.forEach(function(h){ if(!h.done) (h.isFix?riders:movable).push(h); });
+    /* A day that came and went with nothing done is not a record of anything —
+       drop it rather than leaving an empty day in the calendar. */
+    if(done.length){ d.houses=done; keep.push(d); }
+  });
+  if(!movable.length) return {error:'Every house is done or already on a day that has been worked.'};
+
+  const byId={};
+  const waiting=movable.map(function(h,i){
+    const key='rb'+i;
+    byId[key]=h;
+    const cust=customerForHouse(h);
+    const town=extractCleanCity((cust&&cust.data&&cust.data.city)||h.city);
+    const d=(cust&&cust.data)||{};
+    return {id:key, city:town, priority:houseInstallPriority(h),
+            from:houseAllowedFrom(h,startStr),
+            /* Coordinates come off the customer record — the imported rows have
+               none — and only decide whether two towns are near enough to share
+               a crew. A house without them still gets a day in its own town. */
+            stop:{lat:(typeof d.lat==='number'?d.lat:null), lng:(typeof d.lng==='number'?d.lng:null)}};
+  });
+  const homeless=waiting.filter(function(w){return !w.city;});
+  const placeable=waiting.filter(function(w){return w.city;});
+  /* New days start after the last day that was actually worked, and never
+     before today. Building from 1 October again would put a fresh crew-day on
+     top of a day the crew has already been out on. */
+  let floor=start;
+  const nextFree=nextWorkingDay(new Date(today.getFullYear(), today.getMonth(), today.getDate()));
+  if(nextFree>floor) floor=nextFree;
+  keep.forEach(function(d){
+    if(d.isFixRoute||d.isTakedown) return;
+    const dt=dayDate(d);
+    if(!dt) return;
+    const after=nextWorkingDay(new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()+1));
+    if(after>floor) floor=after;
+  });
+  const floorStr=isoOf(floor);
+  const built=planNewCrewDays(placeable, {}, {floorDate:floorStr, maxDays:400, horizonDays:400});
+
+  const byDate={};
+  built.forEach(function(cd){ (byDate[cd.date]=byDate[cd.date]||[]).push(cd); });
+  const dates=Object.keys(byDate).sort();
+  const placedIds={};
+  const newDays=dates.map(function(dt,i){
+    const crews=byDate[dt].slice().sort(function(a,b){return String(a.crew)<String(b.crew)?-1:1;});
+    const houses=[];
+    /* The crew split is deliberately NOT recorded. dayCrewTowns works it out
+       from whatever is on the day at the time it is asked, so a day pushed
+       later after an iced-off morning, or one added to by hand, still describes
+       itself correctly instead of insisting on the towns it was born with. */
+    crews.forEach(function(cd){
+      cd.ids.forEach(function(id){ placedIds[id]=true; if(byId[id]) houses.push(byId[id]); });
+    });
+    return {id:'rb'+i, base:daysBetween(mdToDate((dt.slice(5,7)*1)+'-'+(dt.slice(8,10)*1)), BASE_START),
+            cascade:0, pin:null, houses:houses};
+  });
+  /* Anything the builder could not place keeps a home rather than vanishing:
+     a house with no town on its record has nothing to group it by, and one the
+     builder ran out of days for still has to be somewhere. Both go on the last
+     day, where they are visible, instead of being dropped on the floor. */
+  const unplaced=placeable.filter(function(w){return !placedIds[w.id];}).map(function(w){return byId[w.id];})
+    .concat(homeless.map(function(w){return byId[w.id];}));
+  if(newDays.length&&unplaced.length) newDays[newDays.length-1].houses=newDays[newDays.length-1].houses.concat(unplaced);
+  if(newDays.length&&riders.length) newDays[0].houses=newDays[0].houses.concat(riders);
+  if(!newDays.length) return {error:'Nothing could be scheduled — check the towns on these customers.'};
+
+  BASE_START=start;
+  globalDelta=0;
+  SEASON=newDays.concat(keep);
+  computeDates();
+  selSchedule=installDays()[0]?installDays()[0].id:null;
+  return {days:newDays.length, houses:movable.length, unplaced:unplaced.length,
+          kept:keep.filter(function(d){return !d.isFixRoute&&!d.isTakedown;}).length,
+          first:dates[0], last:dates[dates.length-1]};
+}
+
 /* ---------- towns, kept in step with the customer records ----------
    Owner, 2026-08-16: "in all customers I messed up and put some people as the
    wrong cities, I fixed my mistake but that fix still hasnt updated in schedule
@@ -26402,6 +26679,30 @@ RT.addEventListener('click',e=>{const t=e.target;
   /* Says so even when nothing moved. "Nothing to change" and "the button did
      not work" look identical otherwise, and this is the button somebody presses
      precisely because they are not sure the correction landed. */
+  /* The plan before the last rebuild, so one press is reversible. Kept in
+     memory only: it is an undo for the button you just pressed, not a second
+     saved copy of the season to get out of step with the real one. */
+  if(t.id==='rebuildBtn'){
+    const before=JSON.stringify(serialize());
+    const r=rebuildSeasonDays();
+    if(r.error){toast(r.error);return;}
+    preRebuild=before;
+    RT.getElementById('undoRebuildBtn').style.display='';
+    renderAll();scheduleSave();
+    toast('Rebuilt: '+r.days+' days from '+dlabel(mdToDate((r.first.slice(5,7)*1)+'-'+(r.first.slice(8,10)*1))).full+
+          ', '+r.houses+' houses'+(r.kept?', '+r.kept+' day'+(r.kept===1?'':'s')+' already worked left alone':'')+
+          (r.unplaced?' — '+r.unplaced+' with no town are on the last day':''));
+    return;
+  }
+  if(t.id==='undoRebuildBtn'){
+    if(!preRebuild){toast('Nothing to undo');return;}
+    hydrate(JSON.parse(preRebuild));
+    preRebuild=null;
+    RT.getElementById('undoRebuildBtn').style.display='none';
+    renderAll();scheduleSave();
+    toast('Put the plan back the way it was');
+    return;
+  }
   if(t.id==='syncTownsBtn'){
     if(typeof jobAddresses==='undefined'||!jobAddresses.length){toast('Customer list still loading — try again in a moment');return;}
     const moved=syncTownsFromCustomers();
