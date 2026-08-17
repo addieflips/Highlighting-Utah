@@ -674,16 +674,21 @@ check('logic', 'projShouldPruneTest exists', typeof projShouldPruneTest === 'fun
   const seededIds = new Set(['t1', 't2', 't3']);
   check('logic', 'prune: a test still in TEST_SEED is never pruned, even if scored',
     !projShouldPruneTest('t1', { num: 1, result: 'Pass' }, seededIds));
+  /* CHANGED 2026-08-17: a row removed from the seed is now pruned whatever its
+     score. The seed is the single source of truth for the seeded range, so
+     removing a row means the test is retired (or the automated suite covers it
+     now) and it should leave the checklist - it used to linger on Needs Test/
+     Retest/N/A with no way for the seed to clear it. */
   check('logic', 'prune: a retired test scored Pass is pruned',
     projShouldPruneTest('t9', { num: 9, result: 'Pass' }, seededIds));
   check('logic', 'prune: a retired test scored Fail is pruned',
     projShouldPruneTest('t9', { num: 9, result: 'Fail' }, seededIds));
-  check('logic', 'prune: a retired test still Needs Test is left alone - not an automatic delete',
-    !projShouldPruneTest('t9', { num: 9, result: '' }, seededIds));
-  check('logic', 'prune: a retired test on Retest is left alone',
-    !projShouldPruneTest('t9', { num: 9, result: 'Retest' }, seededIds));
-  check('logic', 'prune: a retired test marked N/A is left alone',
-    !projShouldPruneTest('t9', { num: 9, result: 'N/A' }, seededIds));
+  check('logic', 'prune: a retired test still Needs Test is pruned (seed is the source of truth)',
+    projShouldPruneTest('t9', { num: 9, result: '' }, seededIds));
+  check('logic', 'prune: a retired test on Retest is pruned',
+    projShouldPruneTest('t9', { num: 9, result: 'Retest' }, seededIds));
+  check('logic', 'prune: a retired test marked N/A is pruned',
+    projShouldPruneTest('t9', { num: 9, result: 'N/A' }, seededIds));
   check('logic', 'prune: a one-off test is never pruned, even if its own made-up id is missing from seededIds',
     !projShouldPruneTest('abc123', { num: 1000, result: 'Pass' }, seededIds));
 }
@@ -730,8 +735,13 @@ const RETIRED_CHECKLIST_TERMS = [
   check('logic', 'js/test-seed.js exports TEST_SEED',
     /export const TEST_SEED = \[/.test(seedSrc),
     'the seed file does not export TEST_SEED — the dynamic import comes back undefined');
+  /* Floor lowered 2026-08-17: the seed was deliberately trimmed from 210 to
+     ~108 manual tests, dropping every row the automated suite already proves so
+     the owner's checklist only holds what a human or a live environment has to
+     verify. The floor is a truncation tripwire, not a target - a seed suddenly
+     back under ~90 means something ate the list, not that it was pruned. */
   check('logic', 'the checklist seed survived the move intact',
-    TEST_SEED.length >= 160,
+    TEST_SEED.length >= 90,
     'only ' + TEST_SEED.length + ' tests in the seed — the move truncated the list');
   /* Moving the list off the page created a failure it could not have had while
      it was inline: the fetch can now fail. The only caller is
