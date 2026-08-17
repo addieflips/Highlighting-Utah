@@ -7650,6 +7650,39 @@ suite('Suite 30. Edit Customer saves the town');
     'a typo makes a town of one, which gets its own crew-day for a single house');
   /* One parser, not two. §9.1: do not duplicate a check or a rule across the
      code — extractCleanCity already reads a whole address line. */
+  /* ---- the customer number, editable here since 2026-08-17 ----
+     It was read-only because it carries pool bookkeeping nothing else does.
+     Editable is fine; editable WITHOUT the bookkeeping is how a bin number gets
+     stranded or handed out twice. */
+  check('S30', 'the customer number is an input, not a read-only display',
+    /id="editCustNumber"/.test(admin) && !/id="editCustNumberDisplay"/.test(admin));
+  check('S30', 'it is filled in when the customer is opened',
+    /getElementById\('editCustNumber'\)\.value = d\.customerNumber \|\| ''/.test(admin));
+  check('S30', 'and written on save', /customerNumber: newCustNumber,/.test(admin));
+  check('S30', 'a number another customer holds is refused',
+    /already belongs to ' \+ \(heldBy\.data\.name \|\| 'another customer'\)/.test(admin) &&
+    /a\.id !== item\.id/.test(admin),
+    'two customers on one number is two bins that cannot be told apart — Health Check has a rule for that state existing');
+  check('S30', 'letters are refused, blank is allowed',
+    /if\(newCustNumber && !\/\^\\d\+\$\/\.test\(newCustNumber\)\)\{/.test(admin),
+    'blank means "no number", which is a real state — a customer can be waiting for one');
+  check('S30', 'the number being left goes back into the pool',
+    /setDoc\(doc\(db,'availableCustomerNumbers', oldCustNumber\)/.test(admin),
+    'otherwise that bin can never be handed out again');
+  check('S30', 'and it goes back in the shape the pool is read in',
+    /type: parseInt\(oldCustNumber, 10\) >= 5000 \? 'double' : 'regular'/.test(admin),
+    'cnNextAvailable and the Customer Numbers panel both filter on type — without it the number is in the pool and invisible to everything that hands numbers out');
+  check('S30', 'the number being taken comes out of the pool',
+    /deleteDoc\(doc\(db,'availableCustomerNumbers', newCustNumber\)\)/.test(admin),
+    'left in the pool it gets handed to somebody else later');
+  check('S30', 'the pool is only touched when the number actually changed',
+    /if\(newCustNumber !== oldCustNumber\)\{/.test(admin),
+    'an ordinary save of an unrelated field must not churn the pool');
+  check('S30', 'the pool writes happen AFTER the record is saved, each guarded',
+    admin.indexOf("setDoc(doc(db,'availableCustomerNumbers', oldCustNumber)") >
+    admin.indexOf("await updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates);"),
+    'a failed pool write must not throw away an edit that already succeeded — the pool is fixable by hand, a lost edit is not');
+
   check('S30', 'there is no second address parser', !/function cityFromAddressLine/.test(admin),
     'extractCleanCity already drops the segments with digits and strips UT and the zip');
 }
