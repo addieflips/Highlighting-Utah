@@ -14817,6 +14817,20 @@ document.getElementById('rbCheckBtn')?.addEventListener('click', function(){
   });
   const priceChangeCount = rows.filter(r => r.priceChanges).length;
   const townChangeCount = rows.filter(r => r.townChanges).length;
+  /* Two rows for the same house. Harmless while nothing matched — they became
+     two new customers, which is at least visible — but now that a street on its
+     own can find its customer, BOTH rows write to that one record and the
+     second quietly overwrites the first. Whichever row sits lower down wins,
+     including its price and its town, and nothing afterwards says so. Cheap to
+     spot here, invisible once it has happened. */
+  const seenStreet = {};
+  const dupeRows = [];
+  rows.forEach(function(r){
+    const k = normalizeStreetForMatch(r.street);
+    if(!k) return;
+    if(seenStreet[k]) dupeRows.push({row: r.row, first: seenStreet[k], street: r.street});
+    else seenStreet[k] = r.row;
+  });
 
   statusEl.textContent = 'Nothing has been written.';
   report.innerHTML =
@@ -14826,6 +14840,13 @@ document.getElementById('rbCheckBtn')?.addEventListener('click', function(){
       ? '<div style="font-size:13px; color:var(--ember); font-weight:600; margin-bottom:8px;">⚠ ' + priceChangeCount +
         ' existing customer(s) would have their price CHANGED. If that is not what you meant, your columns are probably out of line by a row.</div>'
       : '<div style="font-size:13px; color:var(--slate); margin-bottom:8px;">No existing prices would change.</div>') +
+    (dupeRows.length
+      ? '<div style="font-size:13px; color:var(--ember); font-weight:600; margin-bottom:8px;">⚠ ' + dupeRows.length +
+        ' row(s) repeat an address already higher up the list: ' +
+        dupeRows.slice(0,5).map(function(x){ return 'row ' + x.row + ' repeats row ' + x.first + ' (' + esc(x.street) + ')'; }).join(', ') +
+        (dupeRows.length > 5 ? ', and ' + (dupeRows.length - 5) + ' more' : '') +
+        '. Both rows write to the SAME customer and the lower one wins &mdash; its price and its town are what get kept. Delete the repeats before importing.</div>'
+      : '') +
     (townChangeCount
       ? '<div style="font-size:13px; color:var(--dusk); font-weight:600; margin-bottom:8px;">' + townChangeCount +
         ' customer(s) would move town. That is what fixes the routes and the schedule &mdash; check the Town column below reads the way you expect before importing.</div>'

@@ -7722,6 +7722,16 @@ suite('Suite 31. A corrected town still finds its customer');
   check('S31', 'a pasted town is cleaned the way Edit Customer cleans it',
     /city: extractCleanCity\(city\) \|\| city/.test(admin),
     '"Lehi, UT" and " Lehi " must not become towns of their own, each earning a crew-day for one house');
+  /* Two rows for one house used to become two new customers — ugly but visible.
+     Now that a street on its own can find its customer, both rows write to the
+     same record and the lower one silently wins. Addie's own paste has one:
+     rows 332 and 901 are both "14026 S Deer Haven Cove". */
+  check('S31', 'Check First warns when two rows are the same house',
+    /const dupeRows = \[\]/.test(admin) && /repeat an address already higher up the list/.test(admin),
+    'the second row overwrites the first, price and town included, and nothing afterwards says so');
+  check('S31', 'the duplicate check normalises the street the same way the matcher does',
+    /const k = normalizeStreetForMatch\(r\.street\)/.test(admin),
+    'comparing raw text would miss "9494 S 1860 W " against "9494 S 1860 W"');
   check('S31', 'Check First shows a town that is about to change',
     /townChanges/.test(admin) && /oldTown/.test(admin) && /newTown/.test(admin),
     'the town moving a house to another crew is worth seeing before it is written, not after');
