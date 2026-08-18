@@ -9950,6 +9950,165 @@ suite('Suite 43. Install order and the one-other-town rule');
   }
 }
 
+
+/* ============================================================
+ * Suite 44. The plan keeps up with the customer list.
+ *
+ * Owner, 2026-08-17: "the schedule should check for changes in all customers
+ * periodically to update for changes".
+ *
+ * The Schedule tab is built from an imported CSV and keeps its OWN copy of
+ * every house, so an edit made in All Customers never reached it. Only the town
+ * was ever pulled across — a customer moved from October to November kept the
+ * old month here and stayed on an October day.
+ *
+ * Found while doing it, and fixed here too: "After Thanksgiving" matched
+ * neither OCT nor NOV, so those houses read as HAVING NO PREFERENCE and were
+ * offered the first day of October — the one month they had ruled out. The
+ * master sheet writes that value as THX, so it is not hypothetical.
+ * ============================================================ */
+suite('Suite 44. The plan keeps up with the customer list');
+{
+  const fn = (name) => {
+    const at = admin.indexOf('function ' + name + '(');
+    if (at < 0) return '';
+    let d = 0;
+    for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+    }
+    return '';
+  };
+
+  /* ---- After Thanksgiving is a real preference, not a blank ---- */
+  {
+    const src = fn('houseAllowedFrom');
+    const pri = fn('houseInstallPriority');
+    check('S44', 'houseAllowedFrom and houseInstallPriority found', !!src && !!pri);
+    if (src && pri) {
+      const sb = {};
+      new Function('BASE_START', 'thanksgivingDate', 'isoOf',
+        src + pri + 'this.from = houseAllowedFrom; this.pri = houseInstallPriority;'
+      ).call(sb, new Date(2026, 9, 1),
+        () => new Date(2026, 10, 26),                       // Thanksgiving 2026
+        (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'));
+
+      check('S44', 'an After Thanksgiving house cannot be hung in October',
+        sb.from({ pref: 'After Thanksgiving' }, '2026-10-01') > '2026-11-26',
+        'got ' + sb.from({ pref: 'After Thanksgiving' }, '2026-10-01') +
+        ' — this is the bug: it used to come back as 1 October');
+      check('S44', 'the sheet\'s own THX spelling is understood too',
+        sb.from({ pref: 'THX' }, '2026-10-01') > '2026-11-26');
+      check('S44', 'and it sorts behind November',
+        sb.pri({ pref: 'After Thanksgiving' }, {}) > sb.pri({ pref: 'November' }, {}));
+      check('S44', '"November - Before Thanksgiving" is still a November house',
+        sb.from({ pref: 'November - Before Thanksgiving' }, '2026-10-01') === '2026-11-01',
+        'the words contain "thanksgiving" but it starts with NOV and must stay November');
+      check('S44', 'October and no-preference are untouched',
+        sb.from({ pref: 'October' }, '2026-10-01') === '2026-10-01' &&
+        sb.from({ pref: '' }, '2026-10-01') === '2026-10-01');
+    }
+  }
+
+  /* ---- the sync itself ---- */
+  {
+    const src = fn('syncHousesFromCustomers');
+    const keySrc = fn('prefKey');
+    const fieldsM = admin.match(/const SCHEDULE_SYNC_FIELDS = (\[[\s\S]*?\n\];)/);
+    check('S44', 'syncHousesFromCustomers exists', !!src);
+    check('S44', 'the field list exists', !!fieldsM);
+
+    if (src && keySrc && fieldsM) {
+      const SEASON = [{ houses: [
+        { id: 1, name: 'Julie Cattani', cu: '144', city: 'Lehi',     pref: 'OCT', phone: '8019795123', address: '1 A St', details: '' },
+        { id: 2, name: 'Old Name',      cu: '85',  city: 'Lehi',     pref: 'OCT', phone: '3855353797', address: '2 B St', details: 'x' },
+        { id: 3, name: 'Takedown',      cu: '144', city: 'Lehi',     pref: 'OCT', isTakedown: true },
+        { id: 4, name: 'No Record',     cu: '999', city: 'Lehi',     pref: 'OCT' }
+      ] }];
+      const jobAddresses = [
+        { id: 'a', data: { customerNumber: '144', city: 'Highland', installPreference: 'November',
+                           name: 'Julie Cattani', street: '1 A St', phone: '8019795123', notes: 'gate code 1234' } },
+        { id: 'b', data: { customerNumber: '85', city: '', installPreference: '',
+                           name: 'Paul Beckstead', street: '', phone: '', notes: '' } }
+      ];
+      const custByNumber = new Map(jobAddresses.map(c => [c.data.customerNumber, c]));
+
+      const sb = {};
+      new Function('SEASON', 'jobAddresses', 'custByNumber', 'extractCleanCity', 'customerForHouse',
+        keySrc + 'const SCHEDULE_SYNC_FIELDS = ' + fieldsM[1] + src +
+        'this.sync = syncHousesFromCustomers; this.prefKey = prefKey;'
+      ).call(sb, SEASON, jobAddresses, custByNumber,
+        (c) => ('' + (c || '')).split(',')[0].trim(),
+        (h) => custByNumber.get(String(h.cu || '')) || null);
+
+      const moved = sb.sync();
+
+      check('S44', 'a changed town is pulled across',
+        SEASON[0].houses[0].city === 'Highland',
+        'got ' + SEASON[0].houses[0].city);
+
+      /* ⭐ THE ONE THAT WAS MISSING. */
+      check('S44', 'a changed install month is pulled across too',
+        SEASON[0].houses[0].pref === 'November',
+        'got ' + SEASON[0].houses[0].pref + ' — this is what left people on an October day after they asked for November');
+
+      check('S44', 'notes and other details come across',
+        SEASON[0].houses[0].details === 'gate code 1234');
+
+      /* ⚠ A blank on the customer must never wipe what the plan has. */
+      check('S44', 'a blank on the customer does NOT wipe the plan',
+        SEASON[0].houses[1].city === 'Lehi' && SEASON[0].houses[1].pref === 'OCT' &&
+        SEASON[0].houses[1].address === '2 B St' && SEASON[0].houses[1].details === 'x',
+        'a half-filled record must not empty a card the crew relies on');
+      check('S44', 'but a real value on that same customer still lands',
+        SEASON[0].houses[1].name === 'Paul Beckstead');
+
+      check('S44', 'takedowns and fixes are left alone',
+        SEASON[0].houses[2].city === 'Lehi',
+        'those are copies of a house, not the house');
+      check('S44', 'a house with no customer record is left alone',
+        SEASON[0].houses[3].city === 'Lehi');
+
+      check('S44', 'it reports what it changed', moved.length >= 3 &&
+        moved.every(m => m.name && m.field && m.to !== undefined),
+        JSON.stringify(moved));
+
+      /* Running it again must be a no-op, or the timer would toast for ever. */
+      const again = sb.sync();
+      check('S44', 'running it again changes nothing', again.length === 0,
+        'a sync that never settles would toast at the office every five minutes: ' + JSON.stringify(again));
+
+      /* OCT vs October must not read as a change. */
+      check('S44', '"OCT" and "October" are the same timing',
+        sb.prefKey('OCT') === sb.prefKey('October') &&
+        sb.prefKey('NOV') === sb.prefKey('November - Before Thanksgiving') &&
+        sb.prefKey('THX') === sb.prefKey('After Thanksgiving') &&
+        sb.prefKey('') === sb.prefKey('Normal Schedule'),
+        'the sheet and the record spell these differently; treating that as a change would rewrite every house on every tick');
+    }
+  }
+
+  /* ---- the wiring ---- */
+  check('S44', 'a customer change drives the sync',
+    /safeRender\('scheduleSync'/.test(admin) && /scheduleSync: 'schedule'/.test(admin),
+    'and through safeRender, so it waits for the tab to be open like everything else');
+
+  check('S44', 'opening the Schedule tab re-checks',
+    /__navSync[\s\S]{0,200}?scheduleSyncFromCustomers/.test(admin));
+
+  check('S44', 'and there is a periodic backstop',
+    admin.indexOf('__syncTimer=setInterval(') > 0 && /5\*60\*1000/.test(admin),
+    'the owner asked for periodically; a tab left open all day needs it');
+
+  check('S44', 'the timer only runs once the plan is loaded',
+    /if\(__syncTimer\) return;/.test(admin) && /if\(!loaded\) return 0;/.test(admin),
+    'syncing into a plan that is not there would throw on a timer, for ever');
+
+  check('S44', 'a sync that changes nothing says nothing',
+    /if\(!moved\.length\) return 0;/.test(admin),
+    'a toast every five minutes is how somebody learns to ignore toasts');
+}
+
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));

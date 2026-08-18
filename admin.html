@@ -17060,7 +17060,8 @@ const RENDER_PANEL = {
   etRecipients: 'automation',
   invRecipients: 'automation',
   invPreview: 'automation',
-  allCustomersTable: 'addcustomer'
+  allCustomersTable: 'addcustomer',
+  scheduleSync: 'schedule'
 };
 const pendingRenders = new Map();   // label -> the function to run when its panel opens
 function adminPanelIsOpen(panelName){
@@ -17128,6 +17129,13 @@ function renderJobAddressPanels(){
        from - a saved edit only appeared after retyping the search or switching
        tabs. It renders from jobAddresses, which has just been rebuilt above. */
     safeRender('allCustomersTable', typeof renderAllCustomersTable === 'function' ? renderAllCustomersTable : null);
+    /* The Schedule tab keeps its own copy of every house, so a customer edit
+       has to be pulled across or the plan quietly works from stale towns and
+       stale timings. Goes through safeRender so it follows the same rule as
+       everything else: run it while the tab is open, otherwise remember it
+       and do it the moment the tab is opened. */
+    safeRender('scheduleSync', typeof window.scheduleSyncFromCustomers === 'function'
+      ? function(){ window.scheduleSyncFromCustomers({quiet:true}); } : null);
 }
 /* Draw 250ms after the last change, but never let more than 2.5s of continuous
    writing pass without drawing, so a long import still shows progress rather
@@ -27320,8 +27328,18 @@ function seasonStartDate(){
 }
 /* When a house is first allowed to be hung. November-only waits for November;
    everything else can go from the first day of the season. */
+/* ⚠ "After Thanksgiving" is NOT "no preference", and used to be read as one.
+   The master sheet writes it THX, which normalises to "After Thanksgiving",
+   and neither OCT nor NOV matches it — so those houses were treated as having
+   no preference at all and offered the FIRST day of October, which is the one
+   month they explicitly did not want. Checked before the others because the
+   words "after thanksgiving" contain neither "oct" nor "nov". */
 function houseAllowedFrom(h, startStr){
   const p=(''+((h&&h.pref)||'')).trim().toUpperCase();
+  if(p.indexOf('AFTER THANKS') !== -1 || p === 'THX'){
+    const tg = thanksgivingDate(BASE_START.getFullYear());
+    return isoOf(new Date(tg.getFullYear(), tg.getMonth(), tg.getDate() + 1));
+  }
   if(p.indexOf('NOV')===0) return (BASE_START.getFullYear())+'-11-01';
   return startStr;
 }
@@ -27339,6 +27357,7 @@ function houseInstallPriority(h, custData){
   const p=(''+((h&&h.pref)||'')).trim().toUpperCase();
   if(custData && custData.chargeNewMemberFee === true) return 0;   // never been hung
   if(p.indexOf('OCT')===0) return 1;   // asked for October
+  if(p.indexOf('AFTER THANKS') !== -1 || p === 'THX') return 4;   // last of all
   if(p.indexOf('NOV')===0) return 3;   // asked for November — waits
   return 2;                            // no preference — fills in behind October
 }
@@ -27470,6 +27489,67 @@ function customerForHouse(h){
   if(digits && typeof custByPhoneDigits !== 'undefined' && custByPhoneDigits.has(digits)) return custByPhoneDigits.get(digits);
   return null;
 }
+/* ---------------- KEEPING THE PLAN IN STEP WITH THE CUSTOMERS -------------
+   Owner, 2026-08-17: "the schedule should check for changes in all customers
+   periodically to update for changes".
+
+   The plan is built from an imported CSV and keeps its own copy of every
+   house, so an edit made in All Customers never reached it. Only the TOWN was
+   ever pulled across; a customer who changed from October to November kept the
+   old month here and stayed on an October day.
+
+   ⚠ A BLANK ON THE CUSTOMER NEVER WIPES WHAT THE PLAN HAS. Same rule the bulk
+   importer follows: only a real value overwrites, so a half-filled record
+   cannot quietly empty a card the crew relies on. */
+function prefKey(p){
+  const u = ('' + (p || '')).trim().toUpperCase();
+  if(!u) return 'any';
+  if(u.indexOf('AFTER THANKS') !== -1 || u === 'THX') return 'thx';
+  if(u.indexOf('OCT') === 0) return 'oct';
+  if(u.indexOf('NOV') === 0) return 'nov';
+  return 'any';
+}
+/* Which fields ride along, and how to read each one off the customer. Kept as
+   a list so adding one is a single line rather than another hand-written
+   comparison that can forget the blank-guard. */
+const SCHEDULE_SYNC_FIELDS = [
+  {key:'city',    label:'town',    read:function(d){ return extractCleanCity(d.city); },
+                                   same:function(a,b){ return extractCleanCity(a) === extractCleanCity(b); }},
+  {key:'pref',    label:'timing',  read:function(d){ return d.installPreference; },
+                                   same:function(a,b){ return prefKey(a) === prefKey(b); }},
+  {key:'name',    label:'name',    read:function(d){ return d.name; }},
+  {key:'address', label:'address', read:function(d){ return d.street || (('' + (d.address||'')).split(',')[0]); }},
+  {key:'phone',   label:'phone',   read:function(d){ return d.phone; },
+                                   same:function(a,b){ return ('' + (a||'')).replace(/\D/g,'') === ('' + (b||'')).replace(/\D/g,''); }},
+  {key:'details', label:'notes',   read:function(d){ return d.notes; }}
+];
+function syncHousesFromCustomers(){
+  const changed = [];
+  if(typeof jobAddresses === 'undefined' || !jobAddresses.length) return changed;
+  SEASON.forEach(function(day){
+    (day.houses || []).forEach(function(h){
+      /* Takedowns and fixes are copies made from a house, not the house — the
+         real record is the install row, and that is the one worth correcting. */
+      if(h.isTakedown || h.isFix) return;
+      const cust = customerForHouse(h);
+      if(!cust) return;
+      const d = cust.data || {};
+      SCHEDULE_SYNC_FIELDS.forEach(function(f){
+        const theirs = f.read(d);
+        if(theirs === undefined || theirs === null || ('' + theirs).trim() === '') return;   // blank never wipes
+        const mine = h[f.key];
+        const same = f.same ? f.same(mine, theirs) : (('' + (mine == null ? '' : mine)).trim() === ('' + theirs).trim());
+        if(same) return;
+        changed.push({name: h.name || '(no name)', field: f.label,
+                      from: (mine == null || ('' + mine).trim() === '') ? '(blank)' : ('' + mine), to: '' + theirs});
+        h[f.key] = theirs;
+      });
+    });
+  });
+  return changed;
+}
+/* Kept under its old name because the Refresh towns button and the load path
+   both call it, and it still answers the same question — what moved. */
 function syncTownsFromCustomers(){
   const moved = [];
   if(typeof jobAddresses === 'undefined' || !jobAddresses.length) return moved;
@@ -27877,11 +27957,54 @@ function exportCSV(){
   // Lets loadQuotes() (outside this shadow-DOM module) nudge the New Members panel
   // to redraw when a quote's status changes live - e.g. the office converts one to
   // a customer, closing it, while this tab is already open.
+  /* ⭐ RE-READ THE CUSTOMERS AND PULL ACROSS ANYTHING THAT CHANGED.
+     Owner, 2026-08-17: "the schedule should check for changes in all
+     customers periodically to update for changes."
+     Called three ways, because no single one covers it:
+       - whenever the customer list changes (see RENDER_PANEL scheduleSync),
+       - when the Schedule tab is opened,
+       - and on a timer, as the backstop for a tab left open all day.
+     Silent when nothing moved. It only speaks up when it actually changed
+     something, or a plan open for hours would toast at the office all day. */
+  let __syncTimer=null;
+  window.scheduleSyncFromCustomers=function(opts){
+    if(!loaded) return 0;   // nothing to sync into yet
+    let moved=[];
+    try{ moved=syncHousesFromCustomers(); }catch(err){ console.error("Schedule sync failed:",err); return 0; }
+    if(!moved.length) return 0;
+    computeDates(); renderAll(); scheduleSave();
+    if(!(opts&&opts.quiet)){
+      const what=moved.length===1
+        ? (moved[0].name+"\u2019s "+moved[0].field+" changed")
+        : (moved.length+" changes picked up from the customer list");
+      toast(what);
+    }
+    return moved.length;
+  };
+  /* The backstop. Five minutes is often enough that a plan left open keeps up,
+     and rare enough that it is not doing work nobody asked for. It runs only
+     while the plan is loaded, which means only after somebody opened the tab. */
+  function __startSyncTimer(){
+    if(__syncTimer) return;
+    __syncTimer=setInterval(function(){
+      try{ window.scheduleSyncFromCustomers({quiet:false}); }catch(e){}
+    }, 5*60*1000);
+  }
   window.scheduleOnCustomersUpdated=function(){
     if(loaded && activeTab==='members') renderMembers();
   };
   let __started=false;
-  function __start(){ if(__started) return; __started=true; try{ loadPlan(); }catch(e){ console.error("Schedule load failed:",e);} }
+  function __start(){
+    if(__started) return; __started=true;
+    try{ loadPlan(); }catch(e){ console.error("Schedule load failed:",e);}
+    __startSyncTimer();
+  }
+  /* Opening the tab is itself a reason to re-check: the plan may have been
+     sitting loaded while somebody edited customers on another tab. */
+  const __navSync=document.querySelector('.nav-item[data-panel="schedule"]');
+  if(__navSync) __navSync.addEventListener("click", function(){
+    setTimeout(function(){ try{ window.scheduleSyncFromCustomers(); }catch(e){} }, 600);
+  });
   const __nav=document.querySelector('.nav-item[data-panel="schedule"]');
   if(__nav) __nav.addEventListener("click", __start);
   const __p=document.getElementById("panel-schedule");
