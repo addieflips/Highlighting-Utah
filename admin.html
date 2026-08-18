@@ -1582,6 +1582,14 @@
       </div>
       </div>
       <div class="route-tab-panel" id="custtab-danger">
+        <div class="card" style="border:2px solid var(--gold-dim);">
+          <h3 style="margin:0 0 6px;">Duplicate customers</h3>
+          <p style="font-size:13px; margin:0 0 10px;">Finds houses that exist twice &mdash; the same customer number, or the same name at the same address &mdash; works out which copy to keep, and shows you the whole list. <strong>It deletes nothing until you press the second button.</strong></p>
+          <p style="font-size:13px; margin:0 0 10px; color:var(--slate);">The copy it keeps is the one carrying the most: an invoice, a place on a route, an address, a pin, a phone. Where both copies carry something the other does not, it refuses to choose and leaves the pair for you.</p>
+          <button type="button" class="btn btn-outline" id="dupFindBtn">Find duplicates (changes nothing)</button>
+          <span id="dupStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
+          <div id="dupReport" style="margin-top:12px;"></div>
+        </div>
         <div class="card" style="background:#2a1210; border-color:#5c2820;">
           <h3 style="color:#fff;">Danger Zone</h3>
           <p style="font-size:13px; color:rgba(255,255,255,.7);">Permanently deletes every customer &mdash; their Route entry, their House Map, and their Invoice, all together. This cannot be undone.</p>
@@ -15104,6 +15112,183 @@ function rbCollectNameFixes(){
   }
   return {changes: changes, missing: missing};
 }
+/* ---------------- DUPLICATE CUSTOMERS ---------------------------------------
+   Owner, 2026-08-17, reading Health Check: "actually yes we Have duplicate
+   customers which is bad we need to delete duplicates". 1,923 customers on
+   file against 962 on the master sheet, and 944 numbers each held by two
+   records with the SAME NAME — the book had been imported over itself.
+
+   ⚠ THIS IS THE MOST DESTRUCTIVE THING IN THE APP. Everything here is built
+   so that the dangerous half cannot happen by accident:
+     - finding and deleting are two separate buttons;
+     - the whole list is shown, keeper and copy side by side, before anything;
+     - a pair where BOTH copies carry something unique is refused outright,
+       because picking one would throw away real work either way;
+     - the customer number is NOT returned to the pool: the keeper still holds
+       it, and pooling it would hand a live number to somebody new.
+   Re-running is the resume: a run that dies half way simply finds fewer the
+   next time. */
+function dupNormName(v){ return String(v == null ? '' : v).toLowerCase().replace(/[^a-z0-9]/g, ''); }
+function dupStreetOf(d){ return normalizeStreetForMatch(d.street || String(d.address || '').split(',')[0]); }
+/* What this record carries that would be lost with it. Anything in here makes
+   a record a candidate for keeping, and a record holding something the other
+   does NOT hold is what makes a pair unsafe to decide automatically. */
+function dupAssets(c, invoiceKeys, routedIds){
+  const d = c.data || {};
+  const a = {};
+  const key = (typeof custInvoiceKey === 'function') ? custInvoiceKey(d) : '';
+  if(key && invoiceKeys[key]) a.invoice = true;
+  if(routedIds[c.id]) a.route = true;
+  if(dupStreetOf(d)) a.address = true;
+  if(d.lat != null && d.lng != null) a.pin = true;
+  if(String(d.phone || '').replace(/\D/g,'')) a.phone = true;
+  if(String(d.email || '').trim()) a.email = true;
+  if(Number(d.measuredFeet) > 0) a.feet = true;
+  if(Number(d.housePrice) > 0) a.price = true;
+  if(String(d.notes || '').trim()) a.notes = true;
+  return a;
+}
+const DUP_ASSET_WEIGHT = {invoice: 1000, route: 800, address: 100, pin: 50, phone: 40, email: 20, feet: 15, price: 15, notes: 5};
+function dupScore(a){
+  let n = 0;
+  Object.keys(a).forEach(function(k){ n += (DUP_ASSET_WEIGHT[k] || 1); });
+  return n;
+}
+function findDuplicateCustomers(invoiceKeys, routedIds){
+  const groups = {};
+  jobAddresses.forEach(function(c){
+    const d = c.data || {};
+    const num = String(d.customerNumber || '').trim();
+    /* The number is the strongest tie. Without one, the same name at the same
+       address is the only thing safe enough to call the same house — name
+       alone is not, because families share them. */
+    const key = num ? ('n:' + num)
+                    : (dupNormName(d.name) && dupStreetOf(d) ? 'a:' + dupNormName(d.name) + '|' + dupStreetOf(d) : null);
+    if(!key) return;
+    (groups[key] = groups[key] || []).push(c);
+  });
+  const ready = [], review = [];
+  Object.keys(groups).forEach(function(k){
+    const list = groups[k];
+    if(list.length < 2) return;
+    const scored = list.map(function(c){
+      const a = dupAssets(c, invoiceKeys, routedIds);
+      return {cust: c, assets: a, score: dupScore(a)};
+    }).sort(function(x, y){
+      if(y.score !== x.score) return y.score - x.score;
+      /* Same score: the older record is the original. */
+      const xs = (x.cust.data.createdAt && x.cust.data.createdAt.seconds) || 0;
+      const ys = (y.cust.data.createdAt && y.cust.data.createdAt.seconds) || 0;
+      return xs - ys;
+    });
+    const keeper = scored[0];
+    const losers = scored.slice(1);
+    /* ⚠ REFUSE THE PAIR if any copy holds something the keeper does not. One of
+       them has the invoice and the other has the route means real work dies
+       whichever way it goes, and that is the owner\u2019s call, not the code\u2019s. */
+    const unique = [];
+    losers.forEach(function(l){
+      Object.keys(l.assets).forEach(function(k2){
+        if(!keeper.assets[k2] && unique.indexOf(k2) === -1) unique.push(k2);
+      });
+    });
+    const entry = {key: k, keeper: keeper, losers: losers, unique: unique};
+    if(unique.length) review.push(entry); else ready.push(entry);
+  });
+  return {ready: ready, review: review};
+}
+let dupPending = null;
+document.getElementById('dupFindBtn')?.addEventListener('click', onceAtATime(async function(){
+  const statusEl = document.getElementById('dupStatus');
+  const report = document.getElementById('dupReport');
+  report.innerHTML = '';
+  dupPending = null;
+  if(!jobAddresses.length){
+    statusEl.textContent = 'The customer list has not finished loading yet.';
+    return;
+  }
+  statusEl.textContent = 'Reading invoices and routes\u2026';
+  /* Read fresh rather than trusting a cache that may not have been opened —
+     a missing invoice would make a record look empty and deletable. */
+  const invoiceKeys = {};
+  try{
+    const snap = await getDocs(collection(db,'invoices'));
+    snap.forEach(function(d){ invoiceKeys[d.id] = true; });
+  } catch(err){
+    statusEl.textContent = 'Could not read the invoices, so it is not safe to decide. Nothing was changed.';
+    return;
+  }
+  const routedIds = {};
+  Object.keys(scheduledRoutesCache || {}).forEach(function(dt){
+    (scheduledRoutesCache[dt] || []).forEach(function(r){
+      ((r.data && r.data.stops) || []).forEach(function(st){ if(st && st.id) routedIds[st.id] = true; });
+    });
+  });
+  const found = findDuplicateCustomers(invoiceKeys, routedIds);
+  const toDelete = found.ready.reduce(function(n, g){ return n + g.losers.length; }, 0);
+  dupPending = found.ready;
+  const nameOf = function(c){ return (c.data && c.data.name) || '(no name)'; };
+  const whereOf = function(c){ const d = c.data || {}; return [d.street || '', extractCleanCity(d.city) || ''].filter(Boolean).join(', ') || 'no address'; };
+  const assetsOf = function(a){ const k = Object.keys(a); return k.length ? k.join(', ') : 'nothing on it'; };
+  statusEl.textContent = found.ready.length + ' duplicate group(s), ' + toDelete + ' record(s) would go. ' +
+    (found.review.length ? found.review.length + ' need you to decide.' : '');
+  report.innerHTML =
+    '<div style="border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--paper);">' +
+      (toDelete
+        ? '<div style="font-weight:700; margin-bottom:8px;">' + toDelete + ' duplicate record(s) can go. Nothing has been deleted yet.</div>' +
+          '<div style="max-height:300px; overflow:auto; font-size:13px; line-height:1.6;">' +
+          found.ready.slice(0, 200).map(function(g){
+            return '<div style="padding:4px 0; border-bottom:1px solid var(--line);">' +
+              '<strong>' + esc(nameOf(g.keeper.cust)) + '</strong> \u2014 keeping ' + esc(whereOf(g.keeper.cust)) +
+              ' <span style="color:var(--slate);">(' + esc(assetsOf(g.keeper.assets)) + ')</span><br>' +
+              g.losers.map(function(l){ return '<span style="color:var(--ember);">deleting ' + esc(whereOf(l.cust)) +
+                ' (' + esc(assetsOf(l.assets)) + ')</span>'; }).join('<br>') +
+            '</div>';
+          }).join('') + '</div>' +
+          (found.ready.length > 200 ? '<div style="font-size:12.5px; color:var(--slate); margin-top:6px;">\u2026 and ' + (found.ready.length - 200) + ' more groups.</div>' : '') +
+          '<div style="margin-top:12px;"><input type="text" id="dupConfirmInput" placeholder="Type DELETE to unlock" style="padding:9px 11px; border-radius:8px; border:1px solid var(--line); font-size:13px;"> ' +
+          '<button type="button" class="btn btn-gold" id="dupDeleteBtn" disabled>Delete ' + toDelete + ' duplicate(s)</button></div>'
+        : '<div style="font-weight:700;">No duplicates that can be decided automatically.</div>') +
+      (found.review.length
+        ? '<div style="margin-top:12px; font-size:13px;"><strong>' + found.review.length + ' pair(s) I will not decide</strong> \u2014 both copies carry something the other does not, so deleting either loses real work. Open them in All Customers:' +
+          '<div style="max-height:180px; overflow:auto; margin-top:6px; line-height:1.6;">' +
+          found.review.slice(0, 60).map(function(g){
+            return esc(nameOf(g.keeper.cust)) + ' \u2014 one copy alone has: ' + esc(g.unique.join(', '));
+          }).join('<br>') + '</div></div>'
+        : '') +
+    '</div>';
+  const input = document.getElementById('dupConfirmInput');
+  const go = document.getElementById('dupDeleteBtn');
+  if(input && go){
+    input.addEventListener('input', function(){ go.disabled = input.value.trim().toUpperCase() !== 'DELETE'; });
+    go.addEventListener('click', onceAtATime(async function(){ return withBulkWrites(async function(){
+      const groups = dupPending || [];
+      let gone = 0, failed = 0, i = 0;
+      for(const g of groups){
+        for(const l of g.losers){
+          statusEl.textContent = 'Deleting ' + (i+1) + ' of ' + toDelete + '\u2026';
+          await bulkBreathe(i++);
+          try{
+            /* Off any route it was on first, or the crew is left with a stop
+               pointing at a customer who is not there. */
+            if(typeof removeCustomerFromUpcomingRoutes === 'function'){
+              await removeCustomerFromUpcomingRoutes(l.cust.id);
+            }
+            await deleteDoc(doc(db,'jobAddresses', l.cust.id));
+            gone++;
+          } catch(err){ failed++; }
+        }
+      }
+      dupPending = null;
+      logActivity('Deleted ' + gone + ' duplicate customer record(s)', 'customers', '');
+      report.innerHTML = '<div style="border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--paper); font-size:13px;">' +
+        gone + ' duplicate(s) deleted' + (failed ? ', ' + failed + ' failed' : '') +
+        '. The copy that was kept still holds its customer number \u2014 no number went back in the pool. Run Find duplicates again to check.</div>';
+      statusEl.textContent = '';
+    }); }, function(){ return document.getElementById('dupDeleteBtn'); }));
+  }
+}, function(){ return document.getElementById('dupFindBtn'); }));
+
 document.getElementById('rbFixNamesBtn')?.addEventListener('click', function(){
   const report = document.getElementById('rbFixNamesReport');
   const statusEl = document.getElementById('rbImportStatus');

@@ -10109,6 +10109,175 @@ suite('Suite 44. The plan keeps up with the customer list');
     'a toast every five minutes is how somebody learns to ignore toasts');
 }
 
+
+/* ============================================================
+ * Suite 45. Deleting duplicate customers.
+ *
+ * Owner, 2026-08-17, reading Health Check: "actually yes we Have duplicate
+ * customers which is bad we need to delete duplicates". 1,923 customers on file
+ * against 962 on the master sheet, and 944 numbers each held by two records
+ * with the SAME name — the book had been imported over itself.
+ *
+ * This is the most destructive thing in the app, so the tests are about the
+ * refusals, not the deleting. Every check here is a reason NOT to delete
+ * something.
+ * ============================================================ */
+suite('Suite 45. Deleting duplicate customers');
+{
+  const fn = (name) => {
+    const at = admin.indexOf('function ' + name + '(');
+    if (at < 0) return '';
+    let d = 0;
+    for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+    }
+    return '';
+  };
+
+  const findSrc = fn('findDuplicateCustomers');
+  check('S45', 'findDuplicateCustomers exists', !!findSrc);
+
+  const weightM = admin.match(/const DUP_ASSET_WEIGHT = (\{[^}]*\});/);
+  check('S45', 'the asset weights exist', !!weightM);
+
+  if (findSrc && weightM) {
+    const mk = (id, d) => ({ id, data: d });
+    const build = (jobAddresses) => {
+      const sb = {};
+      new Function('jobAddresses', 'custInvoiceKey', 'normalizeStreetForMatch',
+        fn('dupNormName') + fn('dupStreetOf') + fn('dupAssets') +
+        'const DUP_ASSET_WEIGHT = ' + weightM[1] + ';' + fn('dupScore') + findSrc +
+        'this.find = findDuplicateCustomers;'
+      ).call(sb, jobAddresses,
+        (d) => String(d.phone || '').replace(/\D/g, '') || String(d.email || '').toLowerCase(),
+        (v) => String(v || '').toLowerCase().trim().replace(/[.,#]/g, '').replace(/\s+/g, ' '));
+      return sb.find;
+    };
+
+    /* The reported shape: same number, same name, one copy carrying everything. */
+    {
+      const rich = mk('a', { customerNumber: '144', name: 'Julie Cattani', street: '6037 W 11860 N',
+                             city: 'Highland', phone: '8019795123', lat: 40.4, lng: -111.8, measuredFeet: 230 });
+      const bare = mk('b', { customerNumber: '144', name: 'Julie Cattani', city: 'Highland' });
+      const out = build([rich, bare])({ '8019795123': true }, {});
+      check('S45', 'a same-number pair is found', out.ready.length === 1,
+        'ready ' + out.ready.length + ', review ' + out.review.length);
+      check('S45', 'the copy carrying everything is the one kept',
+        out.ready.length === 1 && out.ready[0].keeper.cust.id === 'a',
+        'kept ' + (out.ready[0] && out.ready[0].keeper.cust.id));
+      check('S45', 'and the empty copy is the one that goes',
+        out.ready.length === 1 && out.ready[0].losers.length === 1 && out.ready[0].losers[0].cust.id === 'b');
+    }
+
+    /* ⚠ THE REFUSAL. One copy has the invoice, the other has the route. */
+    {
+      const withInvoice = mk('a', { customerNumber: '5', name: 'Chris Ashcraft', phone: '8013603138' });
+      const withRoute   = mk('b', { customerNumber: '5', name: 'Chris Ashcraft', street: '106 N 1230 E' });
+      const out = build([withInvoice, withRoute])({ '8013603138': true }, { b: true });
+      check('S45', 'a pair where each copy holds something unique is REFUSED',
+        out.ready.length === 0 && out.review.length === 1,
+        'ready ' + out.ready.length + ', review ' + out.review.length +
+        ' — deleting either loses real work, and that is the owner\'s call');
+      check('S45', 'and the refusal says what would be lost',
+        out.review.length === 1 && out.review[0].unique.length > 0,
+        JSON.stringify(out.review[0] && out.review[0].unique));
+    }
+
+    /* A customer on their own is never a duplicate. */
+    {
+      const out = build([mk('a', { customerNumber: '7', name: 'Bryan Grover', street: '448 N 910 E' })])({}, {});
+      check('S45', 'a customer with no twin is left alone', out.ready.length === 0 && out.review.length === 0);
+    }
+
+    /* Two DIFFERENT people must never be merged on name alone. */
+    {
+      const a = mk('a', { name: 'Erin Wade', street: '7659 N Pasture View Rd', city: 'Eagle Mountain' });
+      const b = mk('b', { name: 'Erin Wade', street: '7545 N Evans Ranch Rd', city: 'Eagle Mountain' });
+      const out = build([a, b])({}, {});
+      check('S45', 'the same name at DIFFERENT addresses is not a duplicate',
+        out.ready.length === 0 && out.review.length === 0,
+        'these are two real houses on the master sheet, both called Erin Wade');
+    }
+
+    /* No number and no address: nothing safe to group on. */
+    {
+      const out = build([mk('a', { name: 'Ghost' }), mk('b', { name: 'Ghost' })])({}, {});
+      check('S45', 'records with neither a number nor an address are not grouped',
+        out.ready.length === 0 && out.review.length === 0,
+        'a name on its own is not enough to call two records the same house');
+    }
+
+    /* ⭐ THE GUARANTEE THAT MAKES DELETING SAFE, asserted directly.
+       A pair is refused the moment a loser holds anything the keeper does
+       not, so every group that reaches "ready" has a keeper holding a
+       SUPERSET of its losers' assets. Nothing is ever thrown away.
+       Written this way after a red-check showed the asset WEIGHTS could be
+       gutted with no test noticing — and that is correct, because once the
+       superset rule holds the weights cannot pick the wrong keeper. The
+       superset is the property worth guarding; the weights are just how
+       ties are ordered. */
+    {
+      const invoiced = mk('a', { customerNumber: '9', name: 'X', phone: '8012438155' });
+      const fat = mk('b', { customerNumber: '9', name: 'X', street: '1 A St', lat: 1, lng: 2,
+                            email: 'x@y.com', measuredFeet: 300, housePrice: 400, notes: 'n' });
+      const out = build([invoiced, fat])({ '8012438155': true }, {});
+      check('S45', 'a copy with an invoice is never the one deleted',
+        out.ready.length === 0 && out.review.length === 1,
+        'the fat copy holds things the invoiced one does not, so this is a refusal, not a silent delete');
+
+      /* Across a spread of shapes, every deletable group must satisfy it. */
+      const many = [
+        mk('k1', { customerNumber: '1', name: 'A', street: '1 St', phone: '111', email: 'a@b.c', lat: 1, lng: 1 }),
+        mk('l1', { customerNumber: '1', name: 'A' }),
+        mk('l2', { customerNumber: '1', name: 'A', street: '1 St' }),
+        mk('k2', { customerNumber: '2', name: 'B', street: '2 St', notes: 'x' }),
+        mk('l3', { customerNumber: '2', name: 'B', street: '2 St' })
+      ];
+      const spread = build(many)({}, {});
+      const supersetHolds = spread.ready.every(g =>
+        g.losers.every(l => Object.keys(l.assets).every(a => !!g.keeper.assets[a])));
+      check('S45', 'every deletable group keeps a copy holding ALL the others hold',
+        spread.ready.length > 0 && supersetHolds,
+        'this is the whole safety argument: if it does not hold, deleting loses something');
+    }
+  }
+
+  /* ---- the guards around the button ---- */
+  check('S45', 'finding and deleting are two separate buttons',
+    admin.indexOf('id="dupFindBtn"') > 0 && /id=.dupDeleteBtn./.test(admin));
+
+  check('S45', 'the delete button starts disabled and needs DELETE typed',
+    /id="dupDeleteBtn" disabled/.test(admin) &&
+    /go\.disabled = input\.value\.trim\(\)\.toUpperCase\(\) !== 'DELETE'/.test(admin),
+    'the same lock the Delete All Customers tool uses');
+
+  check('S45', 'the whole list is shown before anything is deleted',
+    /Nothing has been deleted yet/.test(admin));
+
+  /* ⚠ The number must NOT go back in the pool — the keeper still holds it. */
+  {
+    const at = admin.indexOf("go.addEventListener('click', onceAtATime");
+    const end = admin.indexOf('dupPending = null;', at);
+    const body = at > 0 && end > at ? admin.slice(at, end) : '';
+    check('S45', 'the delete does NOT return the number to the pool', !!body &&
+      body.indexOf('availableCustomerNumbers') === -1,
+      'the copy being kept still holds that number; pooling it would hand a live number to somebody new');
+    check('S45', 'it takes the deleted copy off any route first', !!body &&
+      body.indexOf("typeof removeCustomerFromUpcomingRoutes === 'function'") > 0 &&
+      body.indexOf('await removeCustomerFromUpcomingRoutes(') > 0 &&
+      body.indexOf('removeCustomerFromUpcomingRoutes') < body.indexOf("deleteDoc(doc(db,'jobAddresses'"),
+      'otherwise the crew is left with a stop pointing at a customer who is not there');
+  }
+
+  check('S45', 'a failed invoice read stops the whole thing',
+    /Could not read the invoices, so it is not safe to decide/.test(admin),
+    'a missing invoice makes a record look empty and deletable, which is exactly backwards');
+
+  check('S45', 'it refuses to run against an empty customer list',
+    /if\(!jobAddresses\.length\)\{[\s\S]{0,200}?has not finished loading/.test(admin));
+}
+
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
