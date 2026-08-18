@@ -8826,6 +8826,171 @@ suite('Suite 36. Pasting the whole sheet');
 }
 
 
+
+/* ============================================================
+ * Suite 37. Making the bulk import fast, without changing what it writes.
+ *
+ * Owner, 2026-08-17: "is there anything you can do to make it more data
+ * optimal so it runs faster as a bulk update".
+ *
+ * Every saving here has to be INVISIBLE in the result: the same records, the
+ * same values, just without work that was never going to change anything. So
+ * each check is about the saving being CORRECT, not about it being fast.
+ * ============================================================ */
+suite('Suite 37. The bulk import does less work for the same result');
+{
+  const lift = (name) => {
+    const at = admin.indexOf('function ' + name + '(');
+    if (at < 0) return null;
+    let d = 0;
+    for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+    }
+    return null;
+  };
+
+  /* ---- the memoised street normaliser ----
+     This caught a real one. The memoisation was written with the backslash
+     eaten, so the whitespace class became the LETTER s and every street came
+     out mangled — and the whole suite still passed, because nothing tested
+     this function at all. */
+  {
+    const src = lift('normalizeStreetForMatch');
+    check('S37', 'normalizeStreetForMatch exists', !!src);
+    if (src) {
+      const sb = {};
+      new Function(src + 'this.f = normalizeStreetForMatch;').call(sb);
+      const f = sb.f;
+      check('S37', 'runs of whitespace collapse to one space',
+        f('  1440   W Main St ') === '1440 w main st',
+        'got ' + JSON.stringify(f('  1440   W Main St ')));
+      check('S37', 'the letter s is NOT treated as whitespace',
+        f('Sunset Cir') === 'sunset cir' && f('Mississippi') === 'mississippi',
+        'a slipped backslash turns the whitespace class into the letter s and mangles every street; got ' + JSON.stringify(f('Mississippi')));
+      check('S37', 'dots, commas and hashes come out',
+        f('1440 W. Main St.') === '1440 w main st' && f('#5 Sunset Cir') === '5 sunset cir');
+      check('S37', 'a blank stays blank', f('') === '' && f(null) === '');
+      check('S37', 'the cached answer equals the real one',
+        f('1440 W Main St') === '1440 w main st' && f('1440 W Main St') === '1440 w main st',
+        'a cache that returns something other than the real answer is worse than no cache');
+      /* Two DIFFERENT streets after the cache is warm. Without this a cache
+         that hands back the same entry for every input reads as correct,
+         because asking twice for the SAME street cannot tell them apart. */
+      check('S37', 'a warm cache still tells two streets apart',
+        (function(){
+          f('100 Aspen Way'); f('200 Birch Rd');
+          return f('100 Aspen Way') === '100 aspen way' && f('200 Birch Rd') === '200 birch rd';
+        })(),
+        'got ' + JSON.stringify(f('100 Aspen Way')) + ' and ' + JSON.stringify(f('200 Birch Rd')));
+      check('S37', 'the cache lives on the function, not beside it',
+        /normalizeStreetForMatch\._cache/.test(admin) && !/const _normStreetCache/.test(admin),
+        'the suite lifts this function out on its own, and a free-standing const next to it is not carried along');
+    }
+  }
+
+  /* ---- would this write change anything? ---- */
+  {
+    const src = lift('bulkFieldsMatch');
+    check('S37', 'bulkFieldsMatch exists', !!src);
+    if (src) {
+      const sb = {};
+      new Function(src + 'this.f = bulkFieldsMatch;').call(sb);
+      const f = sb.f;
+      check('S37', 'identical values count as no change',
+        f({name: 'Julie Cattani', zip: '84003'}, {name: 'Julie Cattani', zip: '84003', other: 'x'}) === true);
+      check('S37', 'one different value still writes',
+        f({name: 'Julie Cattani'}, {name: 'Julie C'}) === false);
+      check('S37', 'a field the record does not have still writes',
+        f({notes: '4 sides'}, {}) === false);
+      check('S37', '"84003" and 84003 are the same zip',
+        f({zip: '84003'}, {zip: 84003}) === true && f({measuredFeet: 230}, {measuredFeet: '230'}) === true,
+        'the sheet gives text and the record holds a number; calling those different would rewrite every row for ever');
+      check('S37', 'blank on the record equals blank in the update',
+        f({city: ''}, {}) === true && f({city: ''}, {city: null}) === true);
+      check('S37', 'colour lists compare by content and order',
+        f({lightColors: ['Red','Green']}, {lightColors: ['Red','Green']}) === true &&
+        f({lightColors: ['Red','Green']}, {lightColors: ['Green','Red']}) === false &&
+        f({lightColors: ['Red']}, {lightColors: ['Red','Green']}) === false);
+      check('S37', 'a Timestamp is never assumed equal',
+        f({createdAt: {seconds: 1}}, {createdAt: {seconds: 1}}) === false,
+        'guessing at a Timestamp or a server sentinel is how a real edit gets silently dropped');
+      check('S37', 'null in the update always writes',
+        f({lat: null}, {lat: null}) === false);
+    }
+  }
+
+  /* ---- the geocode is skipped only when the pin cannot have moved ---- */
+  /* Scoped to the import block: the Add Customer form geocodes too, and it
+     sits earlier in the file, so a bare indexOf finds the wrong one. */
+  {
+    const blk = admin.slice(admin.indexOf('let pinsKept = 0'), admin.indexOf('// --- Invoice Bulk Update ---'));
+    check('S37', 'the customer is looked up BEFORE the geocode',
+      blk.indexOf('const existing = bulkFindCustomer(street, phone, city, zip, cn);') > -1 &&
+      blk.indexOf('const existing = bulkFindCustomer(street, phone, city, zip, cn);')
+        < blk.indexOf('coords = await geocodeAddress(fullAddress);'),
+      'it cannot know whether a pin is needed until it knows who the row is');
+  }
+
+  check('S37', 'a pin is reused only when street, town AND zip all still match',
+    /const pinIsGood = !!\(hasPin && sameStreet && sameTown && sameZip\);/.test(admin),
+    'reusing a pin after the address changed leaves the house on the map at the old place');
+
+  check('S37', 'skipping the lookup leaves the stored pin alone',
+    /coords = \{lat: null, lng: null\};[\s\S]{0,40}?pinsKept\+\+;/.test(admin) &&
+    /if\(coords\.lat !== null\)\{ updates\.lat = coords\.lat/.test(admin),
+    'the write only touches lat/lng when a lookup actually returned one');
+
+  check('S37', 'a skipped lookup is not counted as a failed one',
+    admin.indexOf('pinsKept++') > 0,
+    '"could not find this address" and "did not need to look" are different things');
+
+  /* ---- invoices: one query, not one read per row ---- */
+  check('S37', 'every invoice is fetched in a single query',
+    /const allInv = await getDocs\(collection\(db,'invoices'\)\);/.test(admin));
+
+  check('S37', 'a failed prefetch falls back to reading each one',
+    /invoicePrefetched \? null : await getDoc\(doc\(db,'invoices',phone\)\)/.test(admin),
+    'treating a failed prefetch as "no invoice exists" would create a second invoice for everyone');
+
+  check('S37', 'the map is kept up to date after each invoice write',
+    /invoiceCache\.set\(phone, Object\.assign\(\{\}, existingInv, invUpdates\)\)/.test(admin) &&
+    /invoiceCache\.set\(phone, fresh\)/.test(admin),
+    'two houses billed to one phone: the second row has to see what the first row just wrote');
+
+  check('S37', 'a row with nothing to bill does not read an invoice at all',
+    /if\(!name && !email && price === null\)\{[\s\S]{0,60}?invoiceReadsSaved\+\+;/.test(admin));
+
+  /* ---- and none of it may change what gets written ---- */
+  check('S37', 'the invoice status is still computed from the same five figures',
+    /computeInvoiceStatus\(price, existingInv\.removal\|\|0, existingInv\.deposit\|\|0, existingInv\.credits\|\|0, existingInv\.changeFees\|\|0\)/.test(admin),
+    'this is the money formula; a speed change must not touch it');
+
+  /* Written as indexOf rather than regex on purpose: these anchors are full
+     of parentheses and braces, and an escaped regex is one lost backslash
+     away from matching something else entirely. */
+  check('S37', 'the number pool is read once instead of a delete per row',
+    admin.indexOf("const poolSnap = await getDocs(collection(db,'availableCustomerNumbers'));") > 0 &&
+    admin.indexOf('if(pooledNumbers && !pooledNumbers.has(cn)){') > 0,
+    'a number in use is never in the pool, so almost every one of those deletes had nothing to delete');
+
+  check('S37', 'a failed pool read still fires the delete blind',
+    admin.indexOf('catch(err){ pooledNumbers = null; }') > 0 &&
+    admin.indexOf("await deleteDoc(doc(db,'availableCustomerNumbers', cn))") > 0,
+    'skipping the cleanup would leave a number in the pool to be handed to a second customer later');
+
+  check('S37', 'a number just taken out of the pool is not offered again',
+    admin.indexOf('if(pooledNumbers) pooledNumbers.delete(cn);') > 0);
+
+  check('S37', 'rows that were already correct are reported',
+    /alreadyRightNote/.test(admin) && /already matched and were left alone/.test(admin),
+    'a run that legitimately changed nothing reads as "0 updated", which looks exactly like one that failed');
+
+  check('S37', 'the savings are reported, not silent',
+    /pinsKept/.test(admin) && /unchangedRows/.test(admin) && /invoiceReadsSaved/.test(admin),
+    '"nothing changed" and "it did not run" look identical afterwards');
+}
+
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));

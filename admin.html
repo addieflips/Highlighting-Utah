@@ -15363,6 +15363,43 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
     }
   }
   let added = 0, updated = 0, failed = 0, billed = 0, noPhoneNoInvoice = 0, noPin = 0, skipped = 0;
+  // How much work this run did NOT have to do — see pinIsGood and unchanged.
+  let pinsKept = 0, unchangedRows = 0, invoiceReadsSaved = 0;
+  /* ⚡ EVERY INVOICE IN ONE QUERY, instead of one read per row.
+     The loop used to getDoc the invoice for each row that had a phone —
+     ~945 sequential round trips on the master sheet, each one waiting for the
+     last. This reads them all once and keeps the map up to date as the import
+     writes, so two rows billed to the same phone still see the newer figures.
+     Nothing else writes invoices while an import is running, and the fields
+     the status is computed from (removal, deposit, credits, changeFees) are
+     not touched by this tool at all. */
+  const invoiceCache = new Map();
+  try{
+    const allInv = await getDocs(collection(db,'invoices'));
+    allInv.forEach(function(d){ invoiceCache.set(d.id, d.data()); });
+  } catch(err){
+    /* A failed prefetch must not silently mean "no invoice exists" — that
+       would create a second invoice for everyone. Fall back to reading each
+       one, which is what this used to do. */
+    invoiceCache.set('__unavailable__', true);
+  }
+  const invoicePrefetched = !invoiceCache.has('__unavailable__');
+  /* ⚡ THE NUMBER POOL, ONCE. Every row with a customer number used to fire a
+     deleteDoc at availableCustomerNumbers on the chance the number was
+     sitting in there — ~945 round trips on the master sheet, of which
+     essentially none had anything to delete, because a number in use is not
+     in the pool. The pool is a handful of documents; read it and only write
+     when there is genuinely something to remove.
+     If the read fails, fall back to firing the delete blind, which is what
+     this did before — never skip the cleanup, or a number stays in the pool
+     and gets handed to a second customer later. */
+  let pooledNumbers = null;
+  try{
+    const poolSnap = await getDocs(collection(db,'availableCustomerNumbers'));
+    pooledNumbers = new Set();
+    poolSnap.forEach(function(d){ pooledNumbers.add(d.id); });
+  } catch(err){ pooledNumbers = null; }
+  let poolDeletesSaved = 0;
   for(let i = 0; i < streets.length; i++){
     statusEl.textContent = 'Locating ' + (i+1) + ' of ' + streets.length + '…';
     await bulkBreathe(i);
@@ -15396,29 +15433,55 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
     // human to fill in the bin count, same as the manual Add Customer form.
     const cn = custNumbers[i] || '';
     try{
-      const fullAddress = buildFullAddress(street, city, zip);
-      // Google throttles long runs with OVER_QUERY_LIMIT. A pin we can't find is
-      // never a reason to lose the customer — add them anyway and flag the pin
-      // so it can be fixed from the customer list afterward.
-      let coords = null;
-      for(let attempt = 0; attempt < 3 && !coords; attempt++){
-        try{
-          coords = await geocodeAddress(fullAddress);
-        } catch(geoErr){
-          if(String(geoErr && geoErr.message).indexOf('OVER_QUERY_LIMIT') !== -1){
-            await new Promise(function(r){ setTimeout(r, 600 * (attempt + 1)); });
-          } else {
-            break;
-          }
-        }
-      }
-      if(!coords){ coords = {lat: null, lng: null}; noPin++; }
+      /* ⚡ THE MATCH COMES FIRST, so we know whether a pin is needed at all.
+         It used to geocode every row before looking the customer up. Geocoding
+         is a network call to Google per row, awaited one at a time, and Google
+         throttles a long run with OVER_QUERY_LIMIT — which the retry below
+         answers by sleeping up to 1.8 seconds. On the full master sheet that
+         was ~962 of them back to back and it dominated the whole import, for a
+         pin that in almost every case was already on file and unchanged. */
       /* The number is deliberately NOT passed as a key while BULK_IDENTIFIER is
          'phone+address'. That is the whole point of the switch: the numbers on
          file are known to be wrong, so matching on one would send the row to
          the wrong customer. Phone with the street identifies the house instead,
          and the number on the row is then WRITTEN — the import corrects it. */
       const existing = bulkFindCustomer(street, phone, city, zip, cn);
+      const fullAddress = buildFullAddress(street, city, zip);
+      /* Geocode ONLY when the answer could differ from what is already stored:
+         a customer we have never seen, one with no pin yet, or one whose
+         address on this row is not the address on file. Same address plus an
+         existing pin means the call would hand back the pin we already have. */
+      const onFileStreet = existing ? (existing.data.street || String(existing.data.address || '').split(',')[0]) : '';
+      const sameStreet = existing && normalizeStreetForMatch(onFileStreet) === normalizeStreetForMatch(street);
+      const sameTown = existing && extractCleanCity(String(existing.data.city || '')) === (extractCleanCity(city) || city);
+      const sameZip = existing && String(existing.data.zip || '') === String(zip || '');
+      const hasPin = existing && existing.data.lat != null && existing.data.lng != null;
+      const pinIsGood = !!(hasPin && sameStreet && sameTown && sameZip);
+      let coords = null;
+      if(pinIsGood){
+        /* Left as nulls on purpose: the write below only touches lat/lng when
+           coords.lat is not null, so the pin already on the record is kept
+           exactly as it is. This is NOT a failed lookup and must not be
+           counted as one. */
+        coords = {lat: null, lng: null};
+        pinsKept++;
+      } else {
+        // Google throttles long runs with OVER_QUERY_LIMIT. A pin we can't find is
+        // never a reason to lose the customer — add them anyway and flag the pin
+        // so it can be fixed from the customer list afterward.
+        for(let attempt = 0; attempt < 3 && !coords; attempt++){
+          try{
+            coords = await geocodeAddress(fullAddress);
+          } catch(geoErr){
+            if(String(geoErr && geoErr.message).indexOf('OVER_QUERY_LIMIT') !== -1){
+              await new Promise(function(r){ setTimeout(r, 600 * (attempt + 1)); });
+            } else {
+              break;
+            }
+          }
+        }
+        if(!coords){ coords = {lat: null, lng: null}; noPin++; }
+      }
       /* Numbers with no addresses can only update. Falling through to the "add"
          branch would write a customer with no address, no town and no pin —
          a record that can never be put on a route and would have to be found
@@ -15474,8 +15537,14 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
           updates.numberOfBins = cnBinsForFeet(Number(feetVal));
         }
         if(notesVal) updates.notes = notesVal;
-        await updateDoc(doc(db,'jobAddresses',existing.id), updates);
-        updated++;
+        if(bulkFieldsMatch(updates, existing.data)){
+          /* Counted, not silent. "Nothing changed" and "it did not run" look
+             identical afterwards, and the difference matters. */
+          unchangedRows++;
+        } else {
+          await updateDoc(doc(db,'jobAddresses',existing.id), updates);
+          updated++;
+        }
       } else {
         const newDoc = {
           street: street, city: city, state: state, zip: zip,
@@ -15510,31 +15579,53 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
          means it should not have been in the pool anyway. It still runs for a
          customer being ADDED, where the number genuinely is being handed out. */
       if(cn && (!BULK_BY_NUMBER || !existing)){
-        await deleteDoc(doc(db,'availableCustomerNumbers', cn)).catch(function(){ /* fine if it was never pooled */ });
+        if(pooledNumbers && !pooledNumbers.has(cn)){
+          // Not in the pool, so there is nothing to take out of it.
+          poolDeletesSaved++;
+        } else {
+          await deleteDoc(doc(db,'availableCustomerNumbers', cn)).catch(function(){ /* fine if it was never pooled */ });
+          if(pooledNumbers) pooledNumbers.delete(cn);
+        }
       }
       if(!phone && price !== null){ noPhoneNoInvoice++; }
       if(phone){
-        const invSnap = await getDoc(doc(db,'invoices',phone));
-        if(invSnap.exists()){
+        /* Nothing to write means nothing to read. A Customer # only paste, or
+           any row whose name, email and price are all blank, used to spend a
+           round trip fetching an invoice it was never going to change. */
+        if(!name && !email && price === null){
+          invoiceReadsSaved++;
+        } else {
+        const invData = invoicePrefetched
+          ? invoiceCache.get(phone)
+          : (function(){ return undefined; })();
+        const invSnap = invoicePrefetched ? null : await getDoc(doc(db,'invoices',phone));
+        const existingInv = invoicePrefetched ? invData : (invSnap.exists() ? invSnap.data() : undefined);
+        if(existingInv){
           const invUpdates = {};
           if(name) invUpdates.name = name;
           if(email) invUpdates.email = email;
           if(price !== null){
-            const existingInv = invSnap.data();
             invUpdates.install = price;
             invUpdates.status = computeInvoiceStatus(price, existingInv.removal||0, existingInv.deposit||0, existingInv.credits||0, existingInv.changeFees||0);
             billed++;
           }
-          if(Object.keys(invUpdates).length) await updateDoc(doc(db,'invoices',phone), invUpdates);
+          if(Object.keys(invUpdates).length){
+            await updateDoc(doc(db,'invoices',phone), invUpdates);
+            // Keep the map honest for a second row billed to the same phone.
+            invoiceCache.set(phone, Object.assign({}, existingInv, invUpdates));
+          }
         } else if(price !== null){
-          await setDoc(doc(db,'invoices',phone), {
+          const fresh = {
             name: name, phone: phone, email: email,
             install: price, removal: 0, deposit: 0,
             status: computeInvoiceStatus(price, 0, 0), priceReviewed: true, updatedAt: serverTimestamp()
-          }, {merge:true});
+          };
+          await setDoc(doc(db,'invoices',phone), fresh, {merge:true});
+          invoiceCache.set(phone, fresh);
           billed++;
         }
         await syncCustomerToOpenQuote(phone, {name: name, email: email});
+        }
       }
     } catch(err){
       failed++;
@@ -15557,7 +15648,14 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
     ? ' ' + numMoves.length + ' number(s) were taken off whoever held them before'
       + ' — run Health Check to confirm none are still shared.'
     : '';
-  statusEl.textContent = (hoff ? 'First line ignored as headings. ' : '') + streets.length + ' row(s) read \u2014 ' + added + ' added, ' + updated + ' updated' + (billed ? ', ' + billed + ' invoice(s) billed' : '') + (noPhoneNoInvoice ? ', ' + noPhoneNoInvoice + ' amount(s) skipped (no phone on file)' : '') + (noPin ? ', ' + noPin + ' added without a map pin (All Customers → Filters → Map Pin → "Needs Pin", or see Health Check)' : '') + (failed ? ', ' + failed + ' failed' : '') + '.' + movedNote + skippedNote;
+  /* ⚡ "Already up to date" has to be said out loud. Most rows of a re-pasted
+     master sheet match what is on file, so they are not written at all — and
+     without this line the result reads as "0 updated", which looks exactly
+     like a run that failed. */
+  const alreadyRightNote = unchangedRows
+    ? ' ' + unchangedRows + ' row(s) already matched and were left alone.'
+    : '';
+  statusEl.textContent = (hoff ? 'First line ignored as headings. ' : '') + streets.length + ' row(s) read \u2014 ' + added + ' added, ' + updated + ' updated' + (billed ? ', ' + billed + ' invoice(s) billed' : '') + (noPhoneNoInvoice ? ', ' + noPhoneNoInvoice + ' amount(s) skipped (no phone on file)' : '') + (noPin ? ', ' + noPin + ' added without a map pin (All Customers → Filters → Map Pin → "Needs Pin", or see Health Check)' : '') + (failed ? ', ' + failed + ' failed' : '') + '.' + alreadyRightNote + movedNote + skippedNote;
   rbAreaIds.forEach(function(id){ document.getElementById(id).value = ''; });
   wireBulkCounts(rbAreaIds, BULK_BY_NUMBER ? 'rbCustNumbersArea' : BULK_BY_PHONE ? 'rbPhonesArea' : 'rbStreetsArea', rbCountIds)();
 }); }, function(){ return document.getElementById('rbImportBtn'); }));
@@ -16780,6 +16878,31 @@ const BULK_BREATHE_EVERY = 25;
 function bulkHeapUsedMb(){
   const m = (typeof performance !== 'undefined') && performance.memory;
   return (m && m.usedJSHeapSize) ? Math.round(m.usedJSHeapSize / 1048576) : 0;
+}
+/* ⚡ WOULD THIS WRITE CHANGE ANYTHING?
+   Re-pasting the master sheet is the normal way this tool gets used, and most
+   rows are identical to what is already on file. Writing them anyway costs a
+   network round trip each — ~960 of them, one after another — to store values
+   that are already there.
+   Deliberately CONSERVATIVE: anything this cannot confidently call equal is
+   reported as different, so the write still happens. Being wrong in that
+   direction costs a round trip; being wrong the other way silently drops a
+   real edit. */
+function bulkFieldsMatch(updates, current){
+  const d = current || {};
+  return Object.keys(updates).every(function(k){
+    const next = updates[k], now = d[k];
+    if(next === null || next === undefined) return false;
+    if(Array.isArray(next)){
+      if(!Array.isArray(now) || now.length !== next.length) return false;
+      return next.every(function(v, i){ return String(v) === String(now[i]); });
+    }
+    if(typeof next === 'object') return false;   // Timestamps and sentinels: never assume
+    if(typeof next === 'number' || typeof now === 'number'){
+      return Number(now) === Number(next);
+    }
+    return String(now === undefined || now === null ? '' : now) === String(next);
+  });
 }
 async function bulkBreathe(rowIndex){
   if(rowIndex % BULK_BREATHE_EVERY !== 0) return;
@@ -18501,8 +18624,24 @@ function flipLastFirstName(raw){
   if(gap === -1) return s;            // one word — nothing to swap
   return s.slice(gap + 1).trim() + ' ' + s.slice(0, gap);
 }
+/* ⚡ MEMOISED. The matcher calls this for every customer on file, on every row
+   of the paste — three passes over ~1000 records × ~960 rows is roughly three
+   million lowercase-plus-two-regex operations on a full master sheet, almost
+   all of them on strings it has already seen. The answer depends only on the
+   input, so it is cached. Bounded by the number of distinct streets in the
+   book, which is the number of houses. */
+/* The cache hangs off the function rather than sitting beside it, so the whole
+   thing stays self-contained: the test suite lifts this function out of the
+   page and runs it on its own, and a free-standing const next to it is not
+   carried along. */
 function normalizeStreetForMatch(s){
-  return (s||'').toLowerCase().trim().replace(/[.,#]/g,'').replace(/\s+/g,' ');
+  const key = s || '';
+  const cache = normalizeStreetForMatch._cache || (normalizeStreetForMatch._cache = new Map());
+  const hit = cache.get(key);
+  if(hit !== undefined) return hit;
+  const out = (key).toLowerCase().trim().replace(/[.,#]/g,'').replace(/\s+/g,' ');
+  cache.set(key, out);
+  return out;
 }
 function findExistingAddressMatch(street, phone, city, zip, custNumber){
   /* ⚠ THE TOWN IS OFTEN THE THING BEING CORRECTED, so it cannot be the thing
