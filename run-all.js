@@ -7376,7 +7376,7 @@ suite('Suite 28. The Schedule season rebuilt from its houses');
          SET, so the sandbox needs it and its constant. */
       'const PIN_HONOURED_BUSINESS_DAYS=' + (admin.match(/const PIN_HONOURED_BUSINESS_DAYS=(d+);/)||[])[1] + ';' +
       fn('pinHorizon') +
-      fn('seasonStartDate') + fn('houseAllowedFrom') + fn('houseInstallPriority') +
+      fn('seasonStartDate') + fn('prefSpecificDate') + fn('houseAllowedFrom') + fn('houseInstallPriority') +
       'function cityOf(h){return (h.city||"").trim();}' +
       'function sameCity(a,b){return (""+a).trim().toLowerCase()===(""+b).trim().toLowerCase();}' +
       fn('rebuildSeasonDays') + fn('dayAreas') + fn('dayCrewTowns') + fn('crewTownsFor') +
@@ -9829,7 +9829,10 @@ suite('Suite 43. Install order and the one-other-town rule');
     check('S43', 'houseInstallPriority exists', !!src);
     if (src) {
       const sb = {};
-      new Function(src + 'this.p = houseInstallPriority;').call(sb);
+      /* houseInstallPriority now asks prefSpecificDate whether the pref names
+         an actual day, so both have to be lifted together. */
+      new Function('BASE_START', fn('prefSpecificDate') + src + 'this.p = houseInstallPriority;')
+        .call(sb, new Date(2026, 9, 1));
       const p = sb.p;
       const NEW = { chargeNewMemberFee: true };
       const OLD = { chargeNewMemberFee: false };
@@ -9989,7 +9992,7 @@ suite('Suite 44. The plan keeps up with the customer list');
 
   /* ---- After Thanksgiving is a real preference, not a blank ---- */
   {
-    const src = fn('houseAllowedFrom');
+    const src = fn('prefSpecificDate') + fn('houseAllowedFrom');
     const pri = fn('houseInstallPriority');
     check('S44', 'houseAllowedFrom and houseInstallPriority found', !!src && !!pri);
     if (src && pri) {
@@ -10041,12 +10044,14 @@ suite('Suite 44. The plan keeps up with the customer list');
       const custByNumber = new Map(jobAddresses.map(c => [c.data.customerNumber, c]));
 
       const sb = {};
-      new Function('SEASON', 'jobAddresses', 'custByNumber', 'extractCleanCity', 'customerForHouse',
-        keySrc + 'const SCHEDULE_SYNC_FIELDS = ' + fieldsM[1] + src +
+      new Function('SEASON', 'jobAddresses', 'custByNumber', 'extractCleanCity', 'customerForHouse', 'BASE_START',
+        /* the timing field now asks prefSpecificDate whether a named day is at
+           stake, so it travels with the field list */
+        fn('prefSpecificDate') + keySrc + 'const SCHEDULE_SYNC_FIELDS = ' + fieldsM[1] + src +
         'this.sync = syncHousesFromCustomers; this.prefKey = prefKey;'
       ).call(sb, SEASON, jobAddresses, custByNumber,
         (c) => ('' + (c || '')).split(',')[0].trim(),
-        (h) => custByNumber.get(String(h.cu || '')) || null);
+        (h) => custByNumber.get(String(h.cu || '')) || null, new Date(2026, 9, 1));
 
       const moved = sb.sync();
 
@@ -10722,7 +10727,7 @@ suite('Suite 48. Days within two working days are set');
       /* pinHorizon and "today" both pinned to the fixed date */
       'function pinHorizon(){let d=new Date(__TODAY);d.setHours(0,0,0,0);' +
       'for(let i=0;i<PIN_HONOURED_BUSINESS_DAYS;i++){d=addDays(d,1);while(isWeekend(d))d=addDays(d,1);}return d;}' +
-      fn('seasonStartDate') + fn('houseAllowedFrom') + fn('houseInstallPriority') +
+      fn('seasonStartDate') + fn('prefSpecificDate') + fn('houseAllowedFrom') + fn('houseInstallPriority') +
       fn('rebuildSeasonDays').replace('const today=new Date();', 'const today=new Date(__TODAY);') +
       '\nthis.run=function(seed){SEASON=seed;return {r:rebuildSeasonDays(), season:SEASON};};'
     ).call(ctx, TODAY);
@@ -10862,6 +10867,128 @@ suite('Suite 49. The Season start box decides the start');
     /globalDelta=daysBetween\(new Date\(t\.value\+.T00:00:00.\),BASE_START\)/.test(admin) &&
     /const chosen = addDays\(BASE_START, globalDelta \|\| 0\);/.test(admin),
     'these two have to agree, or the number on screen is not the number that builds');
+}
+
+
+/* ============================================================
+ * Suite 50. A Pref Date that names an actual day.
+ *
+ * Owner, 2026-08-17: "if someone left Pref start date as blank that counts as
+ * any, but if someone Put Thx or even a specific date or after then adjust to
+ * that as well."
+ *
+ * What is actually in that column on the master sheet, counted:
+ *   NOV 255 · OCT 220 · ANY 202 · 45962 x14 · THX 14 · 11/9+ x4 · 10/28+ · prepaid
+ *
+ * 45962 is not a number, it is how Excel stores 1 November. Fourteen customers
+ * were carrying one, and every one of them read as "no preference" and was
+ * offered the first day of October. So were 11/9+ and 10/28+.
+ * ============================================================ */
+suite('Suite 50. A Pref Date that names an actual day');
+{
+  const fn = (name) => {
+    const at = admin.indexOf('function ' + name + '(');
+    if (at < 0) return '';
+    let d = 0;
+    for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+    }
+    return '';
+  };
+
+  const src = fn('prefSpecificDate');
+  check('S50', 'prefSpecificDate exists', !!src);
+
+  if (src) {
+    const sb = {};
+    new Function(src + 'this.f = prefSpecificDate;').call(sb);
+    const f = (v) => sb.f(v, 2026);
+
+    /* ⭐ THE FOURTEEN. */
+    check('S50', 'an Excel date serial is read as the day it means',
+      f('45962') === '2026-11-01',
+      'got ' + f('45962') + ' — 45962 is how Excel stores 1 November');
+    check('S50', 'and always in the SEASON year, not the year in the cell',
+      (f('45962') || '').slice(0, 4) === '2026',
+      'the serial says 2025 because that is when the sheet was typed; they mean the 1st of November coming');
+
+    check('S50', '"11/9+" is the 9th of November', f('11/9+') === '2026-11-09');
+    check('S50', '"10/28+" is the 28th of October', f('10/28+') === '2026-10-28');
+    check('S50', '"1-Nov" is the 1st of November', f('1-Nov') === '2026-11-01');
+    check('S50', '"Nov 1" is too', f('Nov 1') === '2026-11-01');
+    check('S50', '"1 November" is too', f('1 November') === '2026-11-01');
+
+    /* ⚠ The month words on their own must NOT become a date, or every November
+       house would be pinned to one day. */
+    check('S50', 'a bare month word is not a date',
+      f('NOV') === null && f('OCT') === null && f('November') === null &&
+      f('November - Before Thanksgiving') === null,
+      'NOV gave ' + f('NOV') + ' — pinning every November house to one day would be far worse than ignoring it');
+    check('S50', 'ANY, THX and blank are not dates',
+      f('ANY') === null && f('THX') === null && f('') === null && f(null) === null);
+    check('S50', 'and a stray note is simply not a date',
+      f('prepaid') === null,
+      'one junk cell must not stop a house being scheduled at all');
+
+    /* Nothing that is not a date may be mistaken for one. */
+    check('S50', 'a customer number is not read as a date',
+      f('144') === null && f('5029') === null && f('1043') === null);
+    check('S50', 'a price is not read as a date',
+      f('890') === null && f('1300') === null);
+    check('S50', 'an out-of-range serial is refused',
+      f('99999') === null && f('12345') === null,
+      'the window is deliberately narrow so only a real Excel date gets through');
+    check('S50', 'an impossible month or day is refused',
+      f('13/5') === null && f('11/40') === null);
+  }
+
+  /* ---- it actually changes when the house may be hung ---- */
+  {
+    const afSrc = fn('houseAllowedFrom');
+    const priSrc = fn('houseInstallPriority');
+    check('S50', 'houseAllowedFrom and houseInstallPriority found', !!afSrc && !!priSrc);
+    if (afSrc && priSrc && src) {
+      const sb2 = {};
+      new Function('BASE_START', 'thanksgivingDate', 'isoOf',
+        src + afSrc + priSrc + 'this.from = houseAllowedFrom; this.pri = houseInstallPriority;'
+      ).call(sb2, new Date(2026, 9, 1), () => new Date(2026, 10, 26),
+        (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'));
+
+      check('S50', 'a house holding an Excel serial waits until that day',
+        sb2.from({ pref: '45962' }, '2026-10-01') === '2026-11-01',
+        'got ' + sb2.from({ pref: '45962' }, '2026-10-01') + ' — fourteen houses were being offered 1 October instead');
+      check('S50', '"10/28+" waits until the 28th',
+        sb2.from({ pref: '10/28+' }, '2026-10-01') === '2026-10-28');
+      check('S50', 'a named day beats the month it falls in',
+        sb2.from({ pref: '11/9+' }, '2026-10-01') === '2026-11-09',
+        'somebody who wrote 11/9 asked for the 9th, not for November');
+
+      /* ⚠ Never earlier than the season start. */
+      check('S50', 'a date before the season start is pulled up to it',
+        sb2.from({ pref: '9/15' }, '2026-10-01') === '2026-10-01',
+        'a date left over from last year must not open the season');
+
+      check('S50', 'blank is still "any" and starts at the season start',
+        sb2.from({ pref: '' }, '2026-10-01') === '2026-10-01' &&
+        sb2.from({ pref: 'ANY' }, '2026-10-01') === '2026-10-01' &&
+        sb2.from({ pref: 'prepaid' }, '2026-10-01') === '2026-10-01');
+
+      check('S50', 'THX still waits for after Thanksgiving',
+        sb2.from({ pref: 'THX' }, '2026-10-01') === '2026-11-27');
+      check('S50', 'a bare NOV still means the 1st of November',
+        sb2.from({ pref: 'NOV' }, '2026-10-01') === '2026-11-01');
+
+      check('S50', 'naming a day counts as a stated preference, not "any"',
+        sb2.pri({ pref: '11/9+' }, {}) < sb2.pri({ pref: '' }, {}),
+        'they asked for something specific and should not queue behind people who did not mind');
+    }
+  }
+
+  /* ---- and the sync must never flatten it ---- */
+  check('S50', 'a named day is never overwritten with a plain month',
+    /if\(prefSpecificDate\(a, yr\) && !prefSpecificDate\(b, yr\)\) return true;/.test(admin),
+    'the customer record only holds the five standard wordings, so "11/9+" lives only on the plan — a sync that flattened it would throw the day away every time it ran');
 }
 
 // A check that scores after this summary is a check that cannot fail the build.

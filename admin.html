@@ -27551,6 +27551,57 @@ function seasonStartDate(){
 }
 /* When a house is first allowed to be hung. November-only waits for November;
    everything else can go from the first day of the season. */
+/* ⭐ A PREF DATE CAN NAME AN ACTUAL DAY, and then that day is the answer.
+   Owner, 2026-08-17: "if someone left Pref start date as blank that counts as
+   any, but if someone Put Thx or even a specific date or after then adjust to
+   that as well."
+
+   What is really in that column on the master sheet, counted:
+     NOV 255 · OCT 220 · ANY 202 · 45962 x14 · THX 14 · 11/9+ x4 · 10/28+ · prepaid
+
+   45962 is not a number, it is how Excel stores 1 November — a date cell read
+   raw comes out as a serial. Fourteen customers were carrying one and every
+   one of them was being read as "no preference" and offered the first day of
+   October. "11/9+" and "10/28+" were too.
+
+   ⚠ ALWAYS THE SEASON'S YEAR, never the year in the cell. Those serials say
+   2025 because that is when the sheet was typed; the customer means the 1st of
+   November coming, not one that has been and gone.
+   Anything unparseable — "prepaid" — is no preference, which is the same as
+   blank, and is deliberately NOT an error: a stray note must not stop a house
+   being scheduled at all. */
+function prefSpecificDate(pref, year){
+  const raw = ('' + (pref == null ? '' : pref)).trim();
+  if(!raw) return null;
+  const MONTHS = {JAN:1,FEB:2,MAR:3,APR:4,MAY:5,JUN:6,JUL:7,AUG:8,SEP:9,OCT:10,NOV:11,DEC:12};
+  const iso = function(m, d){
+    if(!(m >= 1 && m <= 12) || !(d >= 1 && d <= 31)) return null;
+    return year + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+  };
+  const up = raw.toUpperCase();
+  /* An Excel date serial: days since 30 Dec 1899. Bounded so a customer number
+     or a price can never be mistaken for one. */
+  if(/^\d{5}(\.\d+)?$/.test(up)){
+    const n = Number(up);
+    if(n > 40000 && n < 60000){
+      const dt = new Date(Date.UTC(1899, 11, 30) + Math.floor(n) * 86400000);
+      return iso(dt.getUTCMonth() + 1, dt.getUTCDate());
+    }
+    return null;
+  }
+  /* 1-Nov, 1 Nov, 1-NOVEMBER — day first, then the month name. Checked before
+     the numeric form so the "1-" is not read as a month. */
+  let m = up.match(/^(\d{1,2})\s*[-\/ ]\s*([A-Z]{3,})/);
+  if(m && MONTHS[m[2].slice(0,3)]) return iso(MONTHS[m[2].slice(0,3)], Number(m[1]));
+  /* Nov 1, NOVEMBER 1 — month name then day. A bare NOV has no day and must
+     NOT match here, or every November house would be pinned to a single date. */
+  m = up.match(/^([A-Z]{3,})[A-Z]*\s+(\d{1,2})\b/);
+  if(m && MONTHS[m[1].slice(0,3)]) return iso(MONTHS[m[1].slice(0,3)], Number(m[2]));
+  /* 11/9+, 10/28+, 11-1 — month then day, the way the sheet writes it. */
+  m = up.match(/^(\d{1,2})\s*[\/-]\s*(\d{1,2})/);
+  if(m) return iso(Number(m[1]), Number(m[2]));
+  return null;
+}
 /* ⚠ "After Thanksgiving" is NOT "no preference", and used to be read as one.
    The master sheet writes it THX, which normalises to "After Thanksgiving",
    and neither OCT nor NOV matches it — so those houses were treated as having
@@ -27563,6 +27614,11 @@ function houseAllowedFrom(h, startStr){
     const tg = thanksgivingDate(BASE_START.getFullYear());
     return isoOf(new Date(tg.getFullYear(), tg.getMonth(), tg.getDate() + 1));
   }
+  /* A named day wins over the month it happens to fall in — somebody who
+     wrote 11/9 asked for the 9th, not for November. Never earlier than the
+     season start, so a date left over from last year cannot open the season. */
+  const named = prefSpecificDate(p, BASE_START.getFullYear());
+  if(named) return named > startStr ? named : startStr;
   if(p.indexOf('NOV')===0) return (BASE_START.getFullYear())+'-11-01';
   return startStr;
 }
@@ -27579,6 +27635,9 @@ function houseAllowedFrom(h, startStr){
 function houseInstallPriority(h, custData){
   const p=(''+((h&&h.pref)||'')).trim().toUpperCase();
   if(custData && custData.chargeNewMemberFee === true) return 0;   // never been hung
+  /* Naming a day is as definite as naming a month — houseAllowedFrom already
+     holds them to it, so this only decides their order once they are allowed. */
+  if(prefSpecificDate(p, BASE_START.getFullYear())) return 1;
   if(p.indexOf('OCT')===0) return 1;   // asked for October
   if(p.indexOf('AFTER THANKS') !== -1 || p === 'THX') return 4;   // last of all
   if(p.indexOf('NOV')===0) return 3;   // asked for November — waits
@@ -27754,7 +27813,16 @@ const SCHEDULE_SYNC_FIELDS = [
   {key:'city',    label:'town',    read:function(d){ return extractCleanCity(d.city); },
                                    same:function(a,b){ return extractCleanCity(a) === extractCleanCity(b); }},
   {key:'pref',    label:'timing',  read:function(d){ return d.installPreference; },
-                                   same:function(a,b){ return prefKey(a) === prefKey(b); }},
+                                   /* ⚠ A NAMED DAY IS NEVER FLATTENED BACK TO A MONTH.
+                                      The customer record can only hold the five standard
+                                      wordings, so "11/9+" lives only on the plan. Letting
+                                      the sync overwrite it with "November" would throw the
+                                      day away every time it ran. */
+                                   same:function(a,b){
+                                     const yr = BASE_START.getFullYear();
+                                     if(prefSpecificDate(a, yr) && !prefSpecificDate(b, yr)) return true;
+                                     return prefKey(a) === prefKey(b);
+                                   }},
   {key:'name',    label:'name',    read:function(d){ return d.name; }},
   {key:'address', label:'address', read:function(d){ return d.street || (('' + (d.address||'')).split(',')[0]); }},
   {key:'phone',   label:'phone',   read:function(d){ return d.phone; },
