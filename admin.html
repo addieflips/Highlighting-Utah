@@ -20949,6 +20949,10 @@ function upcomingInstallRoutes(){
  * nothing.
  */
 const MAX_STOPS_PER_ROUTE = 20;   // one crew, one city, one day
+/* How long before Thanksgiving the "Before Thanksgiving" list opens. See the
+   note in houseAllowedFrom: seven days is five working days, deliberately
+   roomy, because the cost of it being too tight is a missed holiday. */
+const PRE_THANKSGIVING_DAYS = 7;
 /* Two crews out on a normal day, each in their own town. The owner can drop to
    one; when they do, a day holds one city instead of two and the season gets
    longer, which is what "the schedule needs to be reorganized" means — the
@@ -20973,7 +20977,20 @@ function seasonFirstDate(today){
 }
 /* Saturdays and Sundays are not working days. Mirrors the Schedule tab, which
    skips weekends and offers "Force exact date" to override. */
-function isWorkingDay(dt){ const w = dt.getDay(); return w !== 0 && w !== 6; }
+/* ⭐ NOBODY WORKS THANKSGIVING DAY.
+   Owner, 2026-08-18: "we will not be working thanksgiving day."
+   This is the one place the calendar is walked, so excluding the day here
+   keeps it out of the plan, out of the rebuild and out of every date the
+   builder steps to — rather than the day being built and then removed. */
+function isThanksgivingDay(dt){
+  const tg = thanksgivingDate(dt.getFullYear());
+  return dt.getMonth() === tg.getMonth() && dt.getDate() === tg.getDate();
+}
+function isWorkingDay(dt){
+  const w = dt.getDay();
+  if(w === 0 || w === 6) return false;
+  return !isThanksgivingDay(dt);
+}
 function nextWorkingDay(dt){
   const d = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
   let guard = 0;
@@ -27845,6 +27862,23 @@ function houseAllowedFrom(h, startStr){
     const tg = thanksgivingDate(BASE_START.getFullYear());
     return isoOf(new Date(tg.getFullYear(), tg.getMonth(), tg.getDate() + 1));
   }
+  /* ⭐ BEFORE THANKSGIVING IS A DEADLINE, NOT A STARTING GUN.
+     Owner, 2026-08-18: "everyone labeled Thanksgiving and before thanksgiving
+     we need to do as close to thanksgiving as possible."
+     These were reading as plain November — the word starts with NOV — so they
+     opened on 1 November and got hung three weeks before the holiday they were
+     asking about, using up early-November days that people with no deadline
+     could have had. They wait for the run-up instead.
+     ⚠ PRE_THANKSGIVING_DAYS IS A SAFETY MARGIN, NOT A GUESS AT THE BEST DAY.
+     Seven days is five working days, which is two hundred slots — far more
+     than this list has ever held. Tightening it to two or three days would put
+     them closer still and would push anybody who did not fit PAST the holiday,
+     which is the one outcome the label exists to prevent. */
+  if(p.indexOf('BEFORE THANKS') !== -1 || p === 'THANKSGIVING'){
+    const tg = thanksgivingDate(BASE_START.getFullYear());
+    const open = isoOf(new Date(tg.getFullYear(), tg.getMonth(), tg.getDate() - PRE_THANKSGIVING_DAYS));
+    return open > startStr ? open : startStr;
+  }
   /* A named day wins over the month it happens to fall in — somebody who
      wrote 11/9 asked for the 9th, not for November. Never earlier than the
      season start, so a date left over from last year cannot open the season. */
@@ -27871,6 +27905,11 @@ function houseInstallPriority(h, custData){
   if(prefSpecificDate(p, BASE_START.getFullYear())) return 1;
   if(p.indexOf('OCT')===0) return 1;   // asked for October
   if(p.indexOf('AFTER THANKS') !== -1 || p === 'THX') return 4;   // last of all
+  /* ⚠ FIRST ONCE THE RUN-UP OPENS. houseAllowedFrom holds these back until the
+     week of the holiday, so this decides only what happens inside that week —
+     and there they must outrank everybody, because for them a day late is a
+     missed Thanksgiving rather than a slightly later hang. */
+  if(p.indexOf('BEFORE THANKS') !== -1 || p === 'THANKSGIVING') return 1;
   if(p.indexOf('NOV')===0) return 3;   // asked for November — waits
   return 2;                            // no preference — fills in behind October
 }

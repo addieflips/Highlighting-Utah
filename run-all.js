@@ -302,6 +302,13 @@ function sectionFrom(src, start) {
 }
 
 const admin = read('admin.html');
+/* houseAllowedFrom closes over this. Sandboxes that lift the whole
+   MAX_STOPS_PER_ROUTE block already have it; the ones that lift the function
+   on its own need it handed to them. Taken from admin.html rather than
+   restated, or a test could go on passing against a number the real schedule
+   no longer uses. */
+const THX_CONST = (admin.match(/const PRE_THANKSGIVING_DAYS = \d+;/) || [''])[0];
+if (!THX_CONST) throw new Error('PRE_THANKSGIVING_DAYS has gone from admin.html');
 
 /* The money and sizing rules moved out of admin.html into js/money.js so they
    can be tested on their own. extractFn matches "function name(" which is still
@@ -10010,7 +10017,7 @@ suite('Suite 44. The plan keeps up with the customer list');
 
   /* ---- After Thanksgiving is a real preference, not a blank ---- */
   {
-    const src = fn('prefSpecificDate') + fn('houseAllowedFrom');
+    const src = THX_CONST + fn('prefSpecificDate') + fn('houseAllowedFrom');
     const pri = fn('houseInstallPriority');
     check('S44', 'houseAllowedFrom and houseInstallPriority found', !!src && !!pri);
     if (src && pri) {
@@ -10029,9 +10036,30 @@ suite('Suite 44. The plan keeps up with the customer list');
         sb.from({ pref: 'THX' }, '2026-10-01') > '2026-11-26');
       check('S44', 'and it sorts behind November',
         sb.pri({ pref: 'After Thanksgiving' }, {}) > sb.pri({ pref: 'November' }, {}));
-      check('S44', '"November - Before Thanksgiving" is still a November house',
-        sb.from({ pref: 'November - Before Thanksgiving' }, '2026-10-01') === '2026-11-01',
-        'the words contain "thanksgiving" but it starts with NOV and must stay November');
+      /* ⭐ Owner, 2026-08-18: "everyone labeled Thanksgiving and before
+         thanksgiving we need to do as close to thanksgiving as possible."
+         It used to come back as 1 November — the word starts with NOV — so
+         these were hung three weeks before the holiday they were asking about,
+         on the early-November days people with no deadline could have had. */
+      check('S44', '"November - Before Thanksgiving" waits for the run-up to the holiday',
+        sb.from({ pref: 'November - Before Thanksgiving' }, '2026-10-01') === '2026-11-19',
+        'got ' + sb.from({ pref: 'November - Before Thanksgiving' }, '2026-10-01') +
+        ' — Thanksgiving 2026 is the 26th, so the list opens on the 19th');
+      /* ⚠ And the older trap it was written for: the words contain
+         "thanksgiving", and reading them as AFTER Thanksgiving would move the
+         customer to the wrong side of the holiday entirely. */
+      check('S44', 'and it is never read as AFTER Thanksgiving',
+        sb.from({ pref: 'November - Before Thanksgiving' }, '2026-10-01') < '2026-11-26',
+        'before and after are opposite answers to the same question');
+      check('S44', 'once the run-up opens they go ahead of everybody',
+        sb.pri({ pref: 'November - Before Thanksgiving' }, {}) <
+          sb.pri({ pref: 'November' }, {}) &&
+        sb.pri({ pref: 'November - Before Thanksgiving' }, {}) <
+          sb.pri({ pref: '' }, {}),
+        'inside that week a day late is a missed Thanksgiving, not a slightly later hang');
+      check('S44', 'a bare "Thanksgiving" is treated the same way',
+        sb.from({ pref: 'Thanksgiving' }, '2026-10-01') === '2026-11-19',
+        'got ' + sb.from({ pref: 'Thanksgiving' }, '2026-10-01'));
       check('S44', 'October and no-preference are untouched',
         sb.from({ pref: 'October' }, '2026-10-01') === '2026-10-01' &&
         sb.from({ pref: '' }, '2026-10-01') === '2026-10-01');
@@ -10963,7 +10991,7 @@ suite('Suite 50. A Pref Date that names an actual day');
 
   /* ---- it actually changes when the house may be hung ---- */
   {
-    const afSrc = fn('houseAllowedFrom');
+    const afSrc = THX_CONST + fn('houseAllowedFrom');
     const priSrc = fn('houseInstallPriority');
     check('S50', 'houseAllowedFrom and houseInstallPriority found', !!afSrc && !!priSrc);
     if (afSrc && priSrc && src) {
@@ -11443,6 +11471,160 @@ suite('Suite 51. The dribble at the end of the season');
       }),
       'a day labelled "crew 2" with no crew 1 reads as a crew missing: ' +
       JSON.stringify(packed.map(d => d.date + ' c' + d.crew)));
+  }
+}
+
+
+/* ============================================================
+ * Suite 52. Thanksgiving.
+ *
+ * Owner, 2026-08-18: "Also everyone labeled Thanksgiving and before
+ * thanksgiving we need to do as close to thanksgiving as possible, also we
+ * will not be working thanksgiving day."
+ *
+ * Two separate things. The crew does not go out on the holiday at all, and the
+ * people whose label is ABOUT the holiday are hung in the run-up to it rather
+ * than three weeks early.
+ *
+ * Thanksgiving is the fourth Thursday of November: 26 November 2026.
+ * ============================================================ */
+suite('Suite 52. Thanksgiving');
+{
+  const fn = (name) => {
+    const at = admin.indexOf('function ' + name + '(');
+    if (at < 0) return '';
+    let d = 0;
+    for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+    }
+    return '';
+  };
+  const iso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') +
+                     '-' + String(d.getDate()).padStart(2, '0');
+
+  /* ---- ⭐ the crew does not go out on the holiday ---- */
+  {
+    const tgSrc = fn('thanksgivingDate');
+    const isTg = fn('isThanksgivingDay');
+    const wdSrc = fn('isWorkingDay');
+    const nextSrc = fn('nextWorkingDay');
+    check('S52', 'isThanksgivingDay exists', !!isTg);
+    check('S52', 'isWorkingDay and nextWorkingDay found', !!wdSrc && !!nextSrc);
+
+    if (tgSrc && isTg && wdSrc && nextSrc) {
+      const sb = {};
+      new Function(tgSrc + isTg + wdSrc + nextSrc +
+        'this.tg = thanksgivingDate; this.work = isWorkingDay; this.next = nextWorkingDay;').call(sb);
+
+      check('S52', 'Thanksgiving 2026 is the 26th of November',
+        iso(sb.tg(2026)) === '2026-11-26', iso(sb.tg(2026)));
+
+      /* ⭐ THE ASK. */
+      check('S52', 'the crew does not work Thanksgiving Day',
+        sb.work(new Date(2026, 10, 26)) === false,
+        'a Thursday like any other as far as the calendar was concerned');
+
+      check('S52', 'the day before and the day after are still working days',
+        sb.work(new Date(2026, 10, 25)) === true &&
+        sb.work(new Date(2026, 10, 27)) === true,
+        'only the holiday itself comes out — the Friday is a working day here');
+
+      check('S52', 'weekends are still weekends',
+        sb.work(new Date(2026, 10, 28)) === false &&
+        sb.work(new Date(2026, 10, 29)) === false);
+
+      /* ⚠ The walk must step OVER it, not stop on it. */
+      check('S52', 'a day landing on Thanksgiving moves to the Friday',
+        iso(sb.next(new Date(2026, 10, 26))) === '2026-11-27',
+        'got ' + iso(sb.next(new Date(2026, 10, 26))) +
+        ' — this is the one place the calendar is walked, so a day built here is a day the crew is sent out');
+
+      check('S52', 'and other years move with the holiday',
+        sb.work(new Date(2025, 10, 27)) === false &&      // 27 Nov 2025
+        sb.work(new Date(2027, 10, 25)) === false &&      // 25 Nov 2027
+        sb.work(new Date(2026, 10, 27)) === true,
+        'the date is not fixed, so it cannot be written down anywhere as one');
+
+      check('S52', 'an ordinary November Thursday is untouched',
+        sb.work(new Date(2026, 10, 19)) === true &&
+        sb.work(new Date(2026, 10, 5)) === true);
+    }
+  }
+
+  /* ---- ⭐ as close to Thanksgiving as possible ---- */
+  {
+    const src = THX_CONST + fn('prefSpecificDate') + fn('houseAllowedFrom') + fn('houseInstallPriority');
+    check('S52', 'the timing functions were found', !!fn('houseAllowedFrom'));
+    if (fn('houseAllowedFrom')) {
+      const sb = {};
+      new Function('BASE_START', 'thanksgivingDate', 'isoOf',
+        src + 'this.from = houseAllowedFrom; this.pri = houseInstallPriority;'
+      ).call(sb, new Date(2026, 9, 1), (y) => new Date(y, 10, 26), iso);
+
+      /* ⭐ THE ASK. Thanksgiving is the 26th; the run-up opens on the 19th. */
+      check('S52', 'a Before Thanksgiving house waits for the week of the holiday',
+        sb.from({ pref: 'November - Before Thanksgiving' }, '2026-10-01') === '2026-11-19',
+        'got ' + sb.from({ pref: 'November - Before Thanksgiving' }, '2026-10-01') +
+        ' — it used to be 1 November, three weeks before the holiday they asked about');
+
+      check('S52', 'a bare "Thanksgiving" is the same list',
+        sb.from({ pref: 'Thanksgiving' }, '2026-10-01') === '2026-11-19');
+
+      /* ⚠ AND STILL ON THE RIGHT SIDE OF IT. */
+      check('S52', 'but it is never pushed past the holiday',
+        sb.from({ pref: 'November - Before Thanksgiving' }, '2026-10-01') < '2026-11-26',
+        'the whole point of the label is the deadline');
+
+      check('S52', 'and once the run-up opens they outrank everybody else',
+        sb.pri({ pref: 'November - Before Thanksgiving' }, {}) < sb.pri({ pref: 'November' }, {}) &&
+        sb.pri({ pref: 'November - Before Thanksgiving' }, {}) < sb.pri({ pref: '' }, {}) &&
+        sb.pri({ pref: 'November - Before Thanksgiving' }, {}) < sb.pri({ pref: 'After Thanksgiving' }, {}),
+        'inside that week a day late is a missed Thanksgiving, not a slightly later hang');
+
+      /* ⚠ Except a new hang, which the owner put above everything. */
+      check('S52', 'a new hang is still ahead of them',
+        sb.pri({ pref: 'November - Before Thanksgiving' }, { chargeNewMemberFee: true }) <
+        sb.pri({ pref: 'November - Before Thanksgiving' }, {}),
+        '"the very top priority is new hangs" was not qualified');
+
+      /* ⚠ Before and after are opposite answers. */
+      check('S52', 'After Thanksgiving still waits until after it',
+        sb.from({ pref: 'After Thanksgiving' }, '2026-10-01') === '2026-11-27',
+        'got ' + sb.from({ pref: 'After Thanksgiving' }, '2026-10-01'));
+      check('S52', 'and the two never collapse into each other',
+        sb.from({ pref: 'November - Before Thanksgiving' }, '2026-10-01') <
+        sb.from({ pref: 'After Thanksgiving' }, '2026-10-01'),
+        'the words are nearly the same and the meaning is opposite');
+
+      /* ⚠ Nothing else moved. */
+      check('S52', 'a plain November house still opens on the 1st',
+        sb.from({ pref: 'November' }, '2026-10-01') === '2026-11-01',
+        'got ' + sb.from({ pref: 'November' }, '2026-10-01') +
+        ' — only the labels that name the holiday were meant to change');
+      check('S52', 'October and no-preference are untouched',
+        sb.from({ pref: 'October' }, '2026-10-01') === '2026-10-01' &&
+        sb.from({ pref: '' }, '2026-10-01') === '2026-10-01' &&
+        sb.from({ pref: 'ANY' }, '2026-10-01') === '2026-10-01');
+      check('S52', 'and a named day still wins',
+        sb.from({ pref: '11/9+' }, '2026-10-01') === '2026-11-09',
+        'somebody who wrote a date asked for that date');
+
+      /* ⚠ A season that starts late must not open the window before it. */
+      check('S52', 'the run-up never opens before the season does',
+        sb.from({ pref: 'November - Before Thanksgiving' }, '2026-11-23') === '2026-11-23',
+        'got ' + sb.from({ pref: 'November - Before Thanksgiving' }, '2026-11-23'));
+    }
+  }
+
+  /* ---- the window is roomy on purpose ---- */
+  {
+    const m = admin.match(/const PRE_THANKSGIVING_DAYS = (\d+);/);
+    check('S52', 'the run-up is long enough to hold the list',
+      !!m && Number(m[1]) >= 5,
+      '⚠ ' + (m ? m[1] : '?') + ' days. Tightening this puts them closer to the holiday and pushes ' +
+      'anybody who does not fit PAST it, which is the one outcome the label exists to prevent. ' +
+      'Seven days is five working days — two hundred slots.');
   }
 }
 
