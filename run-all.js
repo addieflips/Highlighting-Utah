@@ -8609,6 +8609,14 @@ suite('Suite 36. Pasting the whole sheet');
         'const RB_SHEET_IDENTITY = ' + identityMatch[1] + ';' +
         'const rbAreaIds = ' + JSON.stringify(AREAS) + ';' +
         'const RB_HEADER_SEARCH_ROWS = ' + (admin.match(/const RB_HEADER_SEARCH_ROWS = (\d+);/) || [])[1] + ';' +
+        'const RB_BUSINESS_WORDS = ' + (function(){
+          const at = admin.indexOf('const RB_BUSINESS_WORDS = [');
+          if (at < 0) return '[]';
+          const open = admin.indexOf('[', at);
+          const close = admin.indexOf('];', open);
+          return admin.slice(open, close + 1);
+        })() + ';' +
+        grab('rbLooksLikeBusiness') +
         matchSrc + scanSrc + clearSrc + escSrc + flipSrc +
         'function rbName(r){ const f = document.getElementById("rbFlipNames"); return (f && f.checked) ? flipLastFirstName(r) : r; }' +
         'function rbRefreshCounts(){}' +
@@ -9335,6 +9343,158 @@ suite('Suite 39. Importing in batches, and remembering the place');
       check('S39', 'a save that fails reports false rather than throwing',
         sb3.save(job) === false,
         'the caller uses this to decide whether it is safe to reload');
+    }
+  }
+}
+
+
+/* ============================================================
+ * Suite 40. A pasted sheet turns the names round by itself.
+ *
+ * Owner, 2026-08-17: "in the paste excel master sheet it should make sure the
+ * name column gets put in first last instead of the last first", and then
+ * plainly: "excel is last first but the website is first last".
+ *
+ * So the flip is no longer a checkbox to go and find — a fresh paste ticks it.
+ * The risk this replaces is real (nine hundred names the wrong way round), and
+ * so is the risk it creates (a sheet that really IS First Last, reversed), so
+ * both directions are pinned down here.
+ * ============================================================ */
+suite('Suite 40. Pasting a sheet turns the names round');
+{
+  const lift = (name) => {
+    const at = admin.indexOf('function ' + name + '(');
+    if (at < 0) return null;
+    let d = 0;
+    for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+    }
+    return null;
+  };
+
+  check('S40', 'a fresh paste ticks the flip box itself',
+    /flip\.checked = true;/.test(admin) &&
+    /rbSplitSheetIntoBoxes\._flipAutoSetFor = sheetText;/.test(admin),
+    'the sheet is Last First and the site is First Last, every time');
+
+  /* ⚠ The other direction. Without this there is no way to import a sheet that
+     is already First Last: unticking would be undone on the next press. */
+  check('S40', 'it only ticks ONCE per paste, so unticking sticks',
+    /rbSplitSheetIntoBoxes\._flipAutoSetFor !== sheetText/.test(admin),
+    'otherwise unticking and pressing the button again just ticks it straight back');
+
+  check('S40', 'the note of which sheet was flipped lives on the function',
+    /rbSplitSheetIntoBoxes\._flipAutoSetFor/.test(admin) && !/let rbFlipAutoSetFor/.test(admin),
+    'the suite lifts the splitter out and runs it alone; a free-standing let beside it is not carried along');
+
+  check('S40', 'the report says it turned them round',
+    /turned the names round/.test(admin),
+    'silently renaming nine hundred customers is not acceptable even when it is right');
+
+  /* ---- the business sniffer ---- */
+  {
+    const src = lift('rbLooksLikeBusiness');
+    check('S40', 'rbLooksLikeBusiness exists', !!src);
+    const at = admin.indexOf('const RB_BUSINESS_WORDS = [');
+    const open = admin.indexOf('[', at), close = admin.indexOf('];', open);
+    const words = at >= 0 ? admin.slice(open, close + 1) : null;
+    check('S40', 'the word list exists', !!words);
+    if (src && words) {
+      const sb = {};
+      new Function('RB_BUSINESS_WORDS', src + 'this.f = rbLooksLikeBusiness;')
+        .call(sb, JSON.parse(words.replace(/'/g, '"')));
+      const f = sb.f;
+
+      /* Both of these are real rows on the master sheet, and both come out
+         mangled by the flip. */
+      check('S40', 'a real business on the sheet is spotted',
+        f('Lehi Vision Care') && f('River Meadows Senior Ctr'),
+        'these turn into "Vision Care Lehi" and "Meadows Senior Ctr River"');
+
+      /* ⚠ The first word is the SURNAME slot on a Last First sheet, so a
+         business word there means nothing. Church Mirien is a person. */
+      check('S40', 'a surname that happens to be a business word is not flagged',
+        !f('Church Mirien') && !f('Bank Susan'),
+        'flagging every Mrs Church trains people to ignore the warning');
+
+      check('S40', 'ordinary names are not flagged',
+        !f('Cattani Julie') && !f('Beckstead Paul /Jill') && !f('Anderson Brit / Dani') &&
+        !f('Roberson-Lamoreaux Nate'),
+        'a warning that fires on normal rows is worse than none');
+
+      check('S40', 'a single word is not flagged', !f('Cattani') && !f(''));
+    }
+  }
+
+  /* ---- the whole thing, run against a sheet ---- */
+  if (!JSDOM) {
+    note('jsdom not installed — skipping the auto-flip run');
+  } else {
+    const splitSrc = lift('rbSplitSheetIntoBoxes');
+    const AREAS = JSON.parse((admin.match(/const rbAreaIds = (\[[^\]]*\]);/) || [])[1].replace(/'/g, '"'));
+    const con = (re) => (admin.match(re) || [])[1];
+    const at = admin.indexOf('const RB_BUSINESS_WORDS = [');
+    const words = admin.slice(admin.indexOf('[', at), admin.indexOf('];', at) + 1);
+
+    if (splitSrc) {
+      const dom = new JSDOM(
+        '<textarea id="rbSheetArea"></textarea><span id="rbSheetStatus"></span>' +
+        '<div id="rbSheetReport"></div><input type="checkbox" id="rbFlipNames">' +
+        AREAS.map(a => '<textarea id="' + a + '"></textarea>').join('')
+      );
+      const doc = dom.window.document;
+      const sb = {};
+      new Function('document',
+        lift('rbParseSheetGrid') + lift('rbHeadingKeys') +
+        'const RB_SHEET_COLUMNS = ' + con(/const RB_SHEET_COLUMNS = (\[[\s\S]*?\n\]);/) + ';' +
+        'const RB_SHEET_IDENTITY = ' + con(/const RB_SHEET_IDENTITY = (\[[^\]]*\]);/) + ';' +
+        'const rbAreaIds = ' + JSON.stringify(AREAS) + ';' +
+        'const RB_HEADER_SEARCH_ROWS = ' + con(/const RB_HEADER_SEARCH_ROWS = (\d+);/) + ';' +
+        'const RB_BUSINESS_WORDS = ' + words + ';' +
+        lift('rbLooksLikeBusiness') + lift('rbMatchSheetHeadings') + lift('rbFindHeadingRow') +
+        lift('rbClearBulkBoxes') + lift('esc') + lift('flipLastFirstName') +
+        'function rbName(r){ const f = document.getElementById("rbFlipNames"); return (f && f.checked) ? flipLastFirstName(r) : r; }' +
+        'function rbRefreshCounts(){}' +
+        splitSrc + 'this.split = rbSplitSheetIntoBoxes; this.rbName = rbName;'
+      ).call(sb, doc);
+
+      const SHEET = [
+        'CU #\tName\tAddress\tCity\tPhone',
+        '144\tCattani Julie\t6037 W 11860 N\tHighland\t8019795123',
+        '493\tLehi Vision Care\t86 W Main St\tLehi\t8015550000'
+      ].join('\n');
+
+      const flipBox = doc.getElementById('rbFlipNames');
+      flipBox.checked = false;
+      doc.getElementById('rbSheetArea').value = SHEET;
+      sb.split();
+
+      check('S40', 'pasting an unticked sheet ticks the box', flipBox.checked === true);
+      check('S40', 'and the name will be saved First Last',
+        sb.rbName(doc.getElementById('rbNamesArea').value.split('\n')[0]) === 'Julie Cattani',
+        'got ' + sb.rbName(doc.getElementById('rbNamesArea').value.split('\n')[0]));
+      check('S40', 'the report says so',
+        /turned the names round/.test(doc.getElementById('rbSheetReport').textContent));
+      check('S40', 'and warns about the business on the sheet',
+        /look like a business/.test(doc.getElementById('rbSheetReport').textContent) &&
+        /Vision Care Lehi/.test(doc.getElementById('rbSheetReport').textContent),
+        'report said: ' + doc.getElementById('rbSheetReport').textContent.slice(0, 200));
+
+      /* Untick, press again on the SAME sheet — it must stay unticked. */
+      flipBox.checked = false;
+      sb.split();
+      check('S40', 'unticking and re-splitting the same sheet keeps it unticked',
+        flipBox.checked === false,
+        'otherwise a sheet that is already First Last could never be imported');
+      check('S40', 'and the name is then left alone',
+        sb.rbName(doc.getElementById('rbNamesArea').value.split('\n')[0]) === 'Cattani Julie');
+
+      /* A genuinely NEW sheet ticks again. */
+      doc.getElementById('rbSheetArea').value = SHEET.replace('Cattani Julie', 'Brown Lindsey');
+      sb.split();
+      check('S40', 'a different sheet ticks it again', flipBox.checked === true,
+        'the decision is per paste, not once for the session');
     }
   }
 }

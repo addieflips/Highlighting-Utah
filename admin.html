@@ -14773,6 +14773,24 @@ function rbClearBulkBoxes(){
   if(typeof rbRefreshCounts === 'function') rbRefreshCounts();
 }
 
+/* Turning "Cattani Julie" round gives "Julie Cattani", which is the whole
+   point. Turning "Lehi Vision Care" round gives "Vision Care Lehi", which is
+   nonsense — and on a sheet of a thousand houses nobody is going to spot it.
+   These are NOT excluded from the flip (the office may well want the business
+   listed the same way as everyone else, and guessing wrong either way is worse
+   than saying so); they are listed in the report to be looked at. */
+const RB_BUSINESS_WORDS = ['care','center','centre','ctr','inc','llc','ltd','co','company',
+  'senior','vision','dental','salon','church','school','clinic','realty','insurance',
+  'bank','store','shop','services','service','group','apartments','apts','lodge','meadows'];
+function rbLooksLikeBusiness(name){
+  const words = String(name || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean);
+  if(words.length < 2) return false;
+  /* The FIRST word is the surname slot on a Last First sheet, so a business
+     word there means nothing — "Church Mirien" is a person called Mirien
+     Church and turning her round is exactly right. Only a business word
+     further along suggests the whole thing is a business name. */
+  return words.slice(1).some(function(w){ return RB_BUSINESS_WORDS.indexOf(w) >= 0; });
+}
 function rbSplitSheetIntoBoxes(){
   const box = document.getElementById('rbSheetArea');
   const statusEl = document.getElementById('rbSheetStatus');
@@ -14829,16 +14847,51 @@ function rbSplitSheetIntoBoxes(){
      guessed at: the master sheet is Last First and the site wants First Last,
      but nothing can tell "Cattani Julie" from a genuine "Bill Moore" by looking
      at it, and a wrong guess renames nine hundred customers. */
+  /* ⭐ THE SHEET IS LAST FIRST, SO TURN IT ROUND WITHOUT BEING ASKED.
+     Owner, 2026-08-17: "in the paste excel master sheet it should make sure
+     the name column gets put in first last instead of the last first."
+     The master sheet is written "Cattani Julie" and the site shows
+     "Julie Cattani", every time — so a fresh paste ticks the box itself rather
+     than leaving somebody to find a checkbox they did not know about.
+     Set only ONCE per paste: re-splitting the same sheet respects whatever the
+     office has since set, or a sheet that really is First Last could never be
+     imported. What actually gets saved is shown below either way. */
   const nameCol = match.mapped.find(function(m){ return m.area === 'rbNamesArea'; });
   let namePreview = '';
+  let flippedNote = '';
   if(nameCol){
     const flip = document.getElementById('rbFlipNames');
+    const sheetText = box.value;
+    /* The sheet this was last turned round for, kept ON the function so the
+       function stays self-contained — the test suite lifts it out and runs it
+       alone, and a free-standing `let` beside it is not carried along.
+       Re-splitting the SAME paste leaves the tick box exactly as the office
+       set it; otherwise unticking it and pressing the button again would tick
+       it straight back, and a sheet that really is First Last could never be
+       imported at all. */
+    if(flip && rbSplitSheetIntoBoxes._flipAutoSetFor !== sheetText){
+      flip.checked = true;
+      rbSplitSheetIntoBoxes._flipAutoSetFor = sheetText;
+      flippedNote = '<p style="margin:10px 0 0; font-size:13px;">Your sheet lists people surname first, so I have turned the names round \u2014 <em>These are Last First</em> is ticked under the Name box. Untick it and press this button again if that is wrong.</p>';
+    }
     const sample = rows.slice(0, 3).map(function(r){ return rbName((r[nameCol.index] || '').trim()); }).filter(Boolean);
     if(sample.length){
       namePreview = '<p style="margin:10px 0 0; font-size:13px;"><strong>Names will be saved as:</strong> '
         + sample.map(esc).join(' &middot; ')
-        + (flip && flip.checked ? '' : ' &mdash; if those are back to front, tick <em>These are Last First</em> under the Name box and press this button again.')
         + '</p>';
+    }
+    /* Businesses come out mangled by the flip and nobody spots one row in a
+       thousand, so they are named here. */
+    if(flip && flip.checked){
+      const odd = rows.map(function(r){ return (r[nameCol.index] || '').trim(); })
+                      .filter(rbLooksLikeBusiness);
+      if(odd.length){
+        namePreview += '<p style="margin:8px 0 0; font-size:13px; color:var(--ember);">'
+          + '\u26A0 ' + odd.length + ' of these look like a business rather than a person, and turning a business name round makes a mess of it. '
+          + 'Check ' + odd.slice(0, 4).map(function(n){ return '<strong>' + esc(n) + '</strong> \u2192 ' + esc(flipLastFirstName(n)); }).join(', ')
+          + (odd.length > 4 ? ', and ' + (odd.length - 4) + ' more' : '')
+          + '. Fix those by hand in All Customers afterwards.</p>';
+      }
     }
   }
 
@@ -14867,6 +14920,7 @@ function rbSplitSheetIntoBoxes(){
           + (found.index + 1) + ', so the ' + found.index + ' row' + (found.index === 1 ? '' : 's') 
           + ' above ' + (found.index === 1 ? 'it was' : 'them were') + ' skipped.</p>'
         : '')
+    + flippedNote
     + namePreview
     + '<p style="margin:10px 0 0; font-size:13px;">Now press <strong>Check First</strong> below. Nothing has been saved yet.</p>'
     + '</div>';
