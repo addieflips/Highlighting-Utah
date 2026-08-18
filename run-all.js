@@ -6860,10 +6860,17 @@ suite('Suite 23. Bulk row mismatches name the offending row');
      anchor flag through — counting the anchor the old way is what let two
      different columns both display "1059 rows". */
   const wired = admin.slice(admin.indexOf('function wireBulkCounts('), admin.indexOf('// --- Routes Bulk Update ---'));
+  /* CHANGED 2026-08-17, and the direction matters. This used to require the
+     anchor be counted with blanks DROPPED, back when the importer dropped them
+     too. The importer no longer does (see trimTrailingBlankRows), so counting
+     them differently here would display a smaller number for the identifier
+     column than for the columns beside it and paint them all red for a paste
+     that lines up perfectly. The invariant is unchanged in spirit: the counter
+     must count the anchor the way the importer does. */
   check('S23', 'the live counters count the anchor column the importer\'s way',
-    /countRows\(document\.getElementById\(anchorId\)\.value, true\)/.test(wired) &&
-    /countRows\(document\.getElementById\(areaId\)\.value, areaId === anchorId\)/.test(wired),
-    'without the flag the anchor is counted by raw lines again and the mismatch stays invisible until Import');
+    /countRows\(document\.getElementById\(anchorId\)\.value, false\)/.test(wired) &&
+    /countRows\(document\.getElementById\(areaId\)\.value, false\)/.test(wired),
+    'the counter and the importer must agree about how long a column is, or the count on screen is not the count that runs');
 
   // Both importers must keep the unfiltered rows, or the hint has nothing to read.
   [['rbStreetsArea', 'streetsRaw', 'Street Address'], ['ibPhonesArea', 'phonesRaw', 'Phone Number']].forEach(([area, raw, label]) => {
@@ -8244,6 +8251,170 @@ suite('Suite 33. One nudge template, one email, whoever sends it');
   check('S33', 'a plain template is not given a photo it never asked for',
     /autoPlace === false && !asked/.test(admin),
     'a billing or RSVP template has no {{photo}} and must not suddenly grow a picture of the house');
+}
+
+/* ============================================================
+ * Suite 34. A blank cell in the identifier column must not slide
+ *           every row below it onto the wrong customer.
+ *
+ * The one way this tool could quietly destroy customer data. The identifier
+ * column anchors the paste and every other column is aligned to its length, so
+ * if the anchor DROPS a blank line while the others keep theirs, then from that
+ * row down the phone, the address and the customer number each belong to a
+ * different person — and it all imports without complaint.
+ *
+ * Found 2026-08-17 while preparing the numbering repair: 14 customers on the
+ * master sheet have no phone, phone was the identifier, and 900 rows sat below
+ * the first of them.
+ *
+ * These run the REAL functions lifted out of admin.html rather than reading
+ * them as text, because the failure is arithmetic and a regex cannot see it.
+ * ============================================================ */
+suite('Suite 34. A blank identifier cell does not shift the rows below it');
+{
+  const grab = name => {
+    const at = admin.indexOf('function ' + name + '(');
+    if (at < 0) return null;
+    let depth = 0;
+    for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+      if (admin[i] === '{') depth++;
+      else if (admin[i] === '}') { depth--; if (!depth) return admin.slice(at, i + 1); }
+    }
+    return null;
+  };
+
+  const trimSrc = grab('trimTrailingBlankRows');
+  const alignSrc = grab('alignBulkRows');
+  check('S34', 'trimTrailingBlankRows exists in admin.html', !!trimSrc,
+    'the anchor has gone back to filtering out blanks, which is the bug this suite exists for');
+
+  if (trimSrc && alignSrc) {
+    const sandbox = {};
+    new Function(trimSrc + alignSrc + 'this.trim = trimTrailingBlankRows; this.align = alignBulkRows;').call(sandbox);
+    const { trim, align } = sandbox;
+
+    check('S34', 'trailing blanks still come off',
+      trim(['a', 'b', '', '', '']).length === 2,
+      'empty rows after the last real one are just where the paste stopped');
+
+    check('S34', 'a blank in the MIDDLE keeps its line',
+      trim(['a', '', 'c']).length === 3,
+      'dropping it is what shortens the anchor and shifts everything below');
+
+    check('S34', 'a column of nothing but blanks comes back empty',
+      trim(['', '  ', '']).length === 0);
+
+    check('S34', 'a cell holding only a space counts as blank at the end',
+      trim(['a', ' ']).length === 1,
+      'Excel blank-filtering does not find a lone space, so this has to');
+
+    /* The real shape of the 2026-08-17 repair, in miniature: row 2 has no
+       phone. Phone anchors. Rows 3 and 4 must still line up. */
+    const phones = ['8015550001', '', '8015550003', '8015550004'];
+    const streets = ['1 A St', '2 B St', '3 C St', '4 D St'];
+    const numbers = ['101', '102', '103', '104'];
+    const anchor = trim(phones);
+    const alignedStreets = align(streets, anchor.length);
+    const alignedNumbers = align(numbers, anchor.length);
+
+    check('S34', 'the anchor keeps all four rows when one phone is missing',
+      anchor.length === 4, 'got ' + anchor.length);
+
+    check('S34', 'every column is still the same length',
+      alignedStreets.length === 4 && alignedNumbers.length === 4);
+
+    const alignedRows = [0, 1, 2, 3].every(i =>
+      alignedStreets[i] === streets[i] && alignedNumbers[i] === numbers[i]);
+    check('S34', 'no row is written to the wrong house', alignedRows,
+      'row 3 got ' + alignedStreets[2] + ' / #' + alignedNumbers[2] + ', expected 3 C St / #103');
+
+    /* The old behaviour, run side by side, so the difference is on the record
+       and nobody "simplifies" the fix back out again. Filtering shortened the
+       anchor to 3 while the address column stayed at 4, and phone row 2 —
+       8015550003, which belongs to 3 C St — landed against 2 B St. */
+    const oldAnchor = phones.filter(Boolean);
+    check('S34', 'the old anchor lost the blank row',
+      oldAnchor.length === 3, 'expected 3, got ' + oldAnchor.length);
+    check('S34', 'and so paired a phone with the wrong address',
+      oldAnchor[1] === '8015550003' && streets[1] === '2 B St',
+      'this is the damage the fix prevents; if it no longer reproduces, the demonstration is stale');
+  }
+
+  /* Neither importer may go back to filtering its identifier column. The street
+     fallback still filters on purpose — it only anchors when nothing else was
+     pasted, and a blank address there is a genuinely empty row. */
+  check('S34', 'neither Check First nor Import filters the identifier column',
+    (admin.match(/const anchor = anchorIsNumbers \? trimTrailingBlankRows\(/g) || []).length === 2,
+    'both paths must trim the same way or the preview describes a different run to the one that happens');
+
+  /* A row with no identifier has to be SKIPPED. Before this, in number mode it
+     fell through to "not found" and was ADDED — a paste of 900 corrections
+     would have duplicated the entire customer book. */
+  check('S34', 'a row with no customer number is skipped, not added',
+    /if\(BULK_BY_NUMBER\)\{[\s\S]{0,400}?no customer number/.test(admin),
+    'without this the row is treated as a brand new customer');
+
+  check('S34', 'Check First reports that row too',
+    /missing: 'customer number'/.test(admin),
+    'the preview has to list it or it is a surprise at Import time');
+}
+
+/* ============================================================
+ * Suite 35. The master sheet writes "when to hang" in shorthand.
+ *
+ * The Pref Date column on the sheet says OCT, NOV, THX, ANY, 1-Nov, 11/9+.
+ * None of those is one of the five wordings the rest of the app uses, so
+ * before this they were written through verbatim and the house then matched
+ * no preference at all — it simply never came up for October.
+ * ============================================================ */
+suite('Suite 35. The sheet\'s shorthand for when to hang');
+{
+  const at = admin.indexOf('function rbNormalizeInstallPref(');
+  let src = null;
+  if (at >= 0) {
+    let depth = 0;
+    for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+      if (admin[i] === '{') depth++;
+      else if (admin[i] === '}') { depth--; if (!depth) { src = admin.slice(at, i + 1); break; } }
+    }
+  }
+  check('S35', 'rbNormalizeInstallPref exists', !!src);
+
+  if (src) {
+    /* The real option list, read off admin.html rather than retyped, so a
+       renamed option fails here instead of silently writing a dead value. */
+    const optsMatch = admin.match(/const RB_INSTALL_PREF_OPTIONS = (\[[^\]]*\])/);
+    check('S35', 'the option list is read from the page, not guessed', !!optsMatch);
+    if (optsMatch) {
+      const OPTIONS = JSON.parse(optsMatch[1].replace(/'/g, '"'));
+      const sandbox = {};
+      new Function('RB_INSTALL_PREF_OPTIONS', src + 'this.f = rbNormalizeInstallPref;')
+        .call(sandbox, OPTIONS);
+      const f = sandbox.f;
+
+      [['OCT', 'October'], ['oct', 'October'], ['10/28+', 'October'],
+       ['NOV', 'November'], ['1-Nov', 'November'], ['11/9+', 'November'], ['11/1', 'November'],
+       ['THX', 'After Thanksgiving'], ['ANY', 'Normal Schedule'], ['Any', 'Normal Schedule'],
+      ].forEach(([input, want]) => {
+        check('S35', '"' + input + '" becomes "' + want + '"', f(input) === want,
+          'got "' + f(input) + '"');
+      });
+
+      check('S35', 'an empty cell stays empty', f('') === '' && f('   ') === '',
+        'a blank must mean "leave their preference alone", not "set it to October"');
+
+      check('S35', 'every answer is a real option',
+        ['OCT', 'NOV', 'THX', 'ANY', '1-Nov', '11/9+'].every(v => {
+          const out = f(v);
+          return !out || OPTIONS.includes(out);
+        }),
+        'writing a value that is not on the list is how a house ends up matching no preference at all');
+
+      check('S35', 'a preference already spelled out is left as it is',
+        OPTIONS.every(o => f(o) === o),
+        'the same column gets pasted twice; running it again must not change anything');
+    }
+  }
 }
 
 

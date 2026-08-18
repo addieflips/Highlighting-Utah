@@ -14422,11 +14422,32 @@ function alignBulkRows(arr, targetLen){
   while(out.length > targetLen && !out[out.length-1]) out.pop();
   return out;
 }
+/* ⚠ THE ANCHOR MUST KEEP ITS BLANK LINES. Trailing empties are just where the
+   paste stopped, so they come off; an empty line in the MIDDLE is a row whose
+   identifier is missing, and it has to keep its own line.
+   Dropping it instead — which .filter(Boolean) does — shortens the anchor while
+   every other column keeps its length, so from that row down the phone, the
+   address and the customer number all belong to different people. On the
+   2026-08-17 numbering repair that was 14 customers with no phone on the master
+   sheet and 900 rows below them, every one of which would have been written to
+   the wrong house. The row is meant to be SKIPPED, which is what skipRow does,
+   and skipping only works if the row is still there to be skipped. */
+function trimTrailingBlankRows(arr){
+  const out = arr.slice();
+  while(out.length && !String(out[out.length-1] == null ? '' : out[out.length-1]).trim()) out.pop();
+  return out;
+}
 function wireBulkCounts(areaIds, anchorId, countIdMap){
   function update(){
-    const anchorCount = countRows(document.getElementById(anchorId).value, true);
+    /* Counted the way the import counts it — to the last row that has something
+       in it, blanks in the middle included. It used to drop them, which meant
+       the identifier column showed a SMALLER number than the columns beside it
+       and turned every one of them red, for a paste that was in fact perfectly
+       lined up. A row with a blank identifier is not a length problem; it is one
+       row that cannot be identified, and Check First names it. */
+    const anchorCount = countRows(document.getElementById(anchorId).value, false);
     areaIds.forEach(function(areaId){
-      const n = countRows(document.getElementById(areaId).value, areaId === anchorId);
+      const n = countRows(document.getElementById(areaId).value, false);
       const el = document.getElementById(countIdMap[areaId]);
       el.textContent = n + ' row' + (n===1?'':'s');
       el.classList.toggle('mismatch', n > 0 && n !== anchorCount);
@@ -14581,9 +14602,24 @@ function rbNormalizeYesNo(raw){
 const RB_INSTALL_PREF_OPTIONS = ['Normal Schedule','October','November','November - Before Thanksgiving','After Thanksgiving'];
 function rbNormalizeInstallPref(raw){
   if(!raw) return '';
-  if(raw.trim().toLowerCase() === 'any') return 'Normal Schedule';
-  const match = RB_INSTALL_PREF_OPTIONS.find(function(opt){ return opt.toLowerCase() === raw.trim().toLowerCase(); });
-  return match || raw.trim();
+  /* The master sheet writes these short — OCT, NOV, THX, ANY, and dates like
+     "1-Nov" or "11/9+" meaning "not before then". Without this they were stored
+     verbatim, and "OCT" is not one of the five options the rest of the system
+     understands, so the timing quietly meant nothing at all. */
+  const short = raw.trim().toLowerCase();
+  /* ⚠ A preference already spelled out properly is passed straight through,
+     BEFORE any shorthand rule gets a look at it. Doing it the other way round
+     bit immediately: "November - Before Thanksgiving" contains "thanks", so the
+     Thanksgiving rule rewrote it to "After Thanksgiving" — moving a house from
+     before the holiday to after it, silently, just for pasting the column
+     twice. The same column does get pasted twice; this has to be a no-op. */
+  const already = RB_INSTALL_PREF_OPTIONS.find(function(opt){ return opt.toLowerCase() === short; });
+  if(already) return already;
+  if(short === 'any') return 'Normal Schedule';
+  if(short.indexOf('oct') === 0 || /^10[/-]/.test(short)) return 'October';
+  if(short === 'thx' || short.indexOf('thanks') !== -1) return 'After Thanksgiving';
+  if(short.indexOf('nov') !== -1 || /^11[/-]/.test(short)) return 'November';
+  return raw.trim();
 }
 function rbNormalizeColors(raw){
   if(!raw) return [];
@@ -14627,8 +14663,8 @@ document.getElementById('rbCheckBtn')?.addEventListener('click', function(){
   const phonesAll = rbCol('rbPhonesArea', hoff);
   const anchorIsNumbers = BULK_BY_NUMBER && !!cnAll.filter(Boolean).length;
   const anchorIsPhones = BULK_BY_PHONE && !!phonesAll.filter(Boolean).length;
-  const anchor = anchorIsNumbers ? cnAll.filter(Boolean)
-               : anchorIsPhones ? phonesAll.filter(Boolean)
+  const anchor = anchorIsNumbers ? trimTrailingBlankRows(cnAll)
+               : anchorIsPhones ? trimTrailingBlankRows(phonesAll)
                : streetsAll.filter(Boolean);
   if(!anchor.length){
     statusEl.textContent = BULK_BY_NUMBER
@@ -14657,6 +14693,14 @@ document.getElementById('rbCheckBtn')?.addEventListener('click', function(){
      by hand are listed HERE, where there is room to scroll them, rather than
      eight at a time in a status line. */
   const cantIdentify = [];
+  // Same test the import applies — see skipRow there.
+  if(BULK_BY_NUMBER){
+    for(let i = 0; i < anchor.length; i++){
+      if(String(custNumbers[i] || '').trim()) continue;
+      cantIdentify.push({row: i+1, name: names[i] || '', street: (streets[i] || '').trim(),
+                         missing: 'customer number'});
+    }
+  }
   if(!BULK_BY_NUMBER){
     const otherLabel = BULK_BY_PHONE ? 'phone' : 'town';
     const others = BULK_BY_PHONE
@@ -14793,8 +14837,8 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
   const phonesRaw = rbCol('rbPhonesArea', hoff);
   const anchorIsNumbers = BULK_BY_NUMBER && !!cnRawAll.filter(Boolean).length;
   const anchorIsPhones = BULK_BY_PHONE && !!phonesRaw.filter(Boolean).length;
-  const anchor = anchorIsNumbers ? cnRawAll.filter(Boolean)
-               : anchorIsPhones ? phonesRaw.filter(Boolean)
+  const anchor = anchorIsNumbers ? trimTrailingBlankRows(cnRawAll)
+               : anchorIsPhones ? trimTrailingBlankRows(phonesRaw)
                : streetsRaw.filter(Boolean);
   if(!anchor.length){
     statusEl.textContent = BULK_BY_NUMBER
@@ -14827,6 +14871,18 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
      looks exactly like a successful one afterwards, which is how somebody ends
      up believing a customer was updated when nothing touched them. */
   const skipRow = {};
+  /* Now that the anchor keeps its blank lines (see trimTrailingBlankRows), a
+     row with no number in this mode reaches here instead of having been quietly
+     dropped. It has no identifier, so it is skipped — the alternative is that
+     it falls through to "not found" and gets ADDED as a brand new customer,
+     which on a 900-row paste is how the whole book gets duplicated. */
+  if(BULK_BY_NUMBER){
+    for(let i = 0; i < anchor.length; i++){
+      if(String(custNumbers[i] || '').trim()) continue;
+      const who = names[i] ? names[i] + ', ' : '';
+      skipRow[i] = 'Row ' + (i+1) + ': ' + (who || 'no name, ') + 'no customer number';
+    }
+  }
   if(!BULK_BY_NUMBER){
     const otherLabel = BULK_BY_PHONE ? 'phone' : 'town';
     const others = BULK_BY_PHONE
