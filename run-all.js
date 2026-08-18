@@ -6869,8 +6869,17 @@ suite('Suite 23. Bulk row mismatches name the offending row');
      must count the anchor the way the importer does. */
   check('S23', 'the live counters count the anchor column the importer\'s way',
     /countRows\(document\.getElementById\(anchorId\)\.value, false\)/.test(wired) &&
-    /countRows\(document\.getElementById\(areaId\)\.value, false\)/.test(wired),
+    /countRows\(raw, false\)/.test(wired),
     'the counter and the importer must agree about how long a column is, or the count on screen is not the count that runs');
+
+  /* The red flag compares real line counts, so an optional column that simply
+     ends in blanks — Measured Feet and Notes both do on the master sheet — is
+     not accused of being misaligned. A column short in the MIDDLE still reads
+     its full length, so that genuinely dangerous case still goes red. */
+  check('S23', 'trailing blanks in an optional column are not called a mismatch',
+    /const compareLen = function\(text\)/.test(wired) &&
+    /classList\.toggle\('mismatch', compareLen\(raw\) > 0 && compareLen\(raw\) !== anchorLines\)/.test(wired),
+    'crying wolf on every optional column is how a real mismatch gets ignored');
 
   // Both importers must keep the unfiltered rows, or the hint has nothing to read.
   [['rbStreetsArea', 'streetsRaw', 'Street Address'], ['ibPhonesArea', 'phonesRaw', 'Phone Number']].forEach(([area, raw, label]) => {
@@ -8413,6 +8422,352 @@ suite('Suite 35. The sheet\'s shorthand for when to hang');
       check('S35', 'a preference already spelled out is left as it is',
         OPTIONS.every(o => f(o) === o),
         'the same column gets pasted twice; running it again must not change anything');
+    }
+  }
+}
+
+
+/* ============================================================
+ * Suite 36. Paste the whole master sheet into one box.
+ *
+ * Owner, 2026-08-17: "I want to make it so I just paste the master sheet
+ * somewhere and it just does it, i dont want it to pull it from files because
+ * that gets outdated."
+ *
+ * The grid is cut up by rbParseSheetGrid and routed by rbMatchSheetHeadings.
+ * Both are run for real here against the actual shape of the 2026 master sheet,
+ * because every failure in this thing is an off-by-one that reads perfectly
+ * well as text and puts nine hundred people's data on the wrong customer.
+ * ============================================================ */
+suite('Suite 36. Pasting the whole sheet');
+{
+  const grab = name => {
+    const at = admin.indexOf('function ' + name + '(');
+    if (at < 0) return null;
+    let depth = 0;
+    for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+      if (admin[i] === '{') depth++;
+      else if (admin[i] === '}') { depth--; if (!depth) return admin.slice(at, i + 1); }
+    }
+    return null;
+  };
+
+  const parseSrc = grab('rbParseSheetGrid');
+  const keysSrc = grab('rbHeadingKeys');
+  const matchSrc = grab('rbMatchSheetHeadings');
+  const colsMatch = admin.match(/const RB_SHEET_COLUMNS = (\[[\s\S]*?\n\];)/);
+  const identityMatch = admin.match(/const RB_SHEET_IDENTITY = (\[[^\]]*\]);/);
+
+  check('S36', 'the grid parser exists', !!parseSrc);
+  check('S36', 'the heading matcher exists', !!matchSrc);
+  check('S36', 'the column map exists', !!colsMatch);
+
+  if (parseSrc && keysSrc && matchSrc && colsMatch && identityMatch) {
+    const sandbox = {};
+    new Function(
+      parseSrc + keysSrc +
+      'const RB_SHEET_COLUMNS = ' + colsMatch[1].replace(/;$/, '') + ';' +
+      'const RB_SHEET_IDENTITY = ' + identityMatch[1] + ';' +
+      matchSrc +
+      'this.parse = rbParseSheetGrid; this.match = rbMatchSheetHeadings;' +
+      'this.COLUMNS = RB_SHEET_COLUMNS; this.IDENTITY = RB_SHEET_IDENTITY;'
+    ).call(sandbox);
+    const { parse, match, COLUMNS, IDENTITY } = sandbox;
+
+    /* ---- the parser ---- */
+    check('S36', 'a plain tab-separated grid comes back as rows and cells', (() => {
+      const g = parse('a\tb\tc\n1\t2\t3');
+      return g.length === 2 && g[0].length === 3 && g[1][2] === '3';
+    })());
+
+    check('S36', 'an empty cell keeps its place in the row', (() => {
+      const g = parse('a\tb\tc\n1\t\t3');
+      return g[1].length === 3 && g[1][1] === '' && g[1][2] === '3';
+    })(), 'a collapsed empty cell shifts every column after it onto the wrong field');
+
+    /* The one that matters most: a Notes cell with a line break in it. Excel
+       quotes it, and splitting on \n without honouring the quote turns one
+       customer into two rows and misaligns everybody below. */
+    check('S36', 'a cell with a line break inside it stays one row', (() => {
+      const g = parse('Name\tNotes\nCattani Julie\t"3 sides\nuse side outlet"\nBrown Kelly\tplain');
+      return g.length === 3 && g[1][1] === '3 sides\nuse side outlet' && g[2][0] === 'Brown Kelly';
+    })(), 'this is how one quoted Notes cell becomes two customers');
+
+    check('S36', 'a doubled quote inside a cell reads as one quote', (() => {
+      const g = parse('a\tb\n1\t"say ""hi"" now"');
+      return g[1][1] === 'say "hi" now';
+    })());
+
+    check('S36', 'a comma file still works when there are no tabs', (() => {
+      const g = parse('Name,City\nJulie,Highland');
+      return g.length === 2 && g[1][1] === 'Highland';
+    })());
+
+    check('S36', 'a comma inside a quoted cell does not split it', (() => {
+      const g = parse('Name,Address\nJulie,"6037 W 11860 N, Apt 2"');
+      return g[1][1] === '6037 W 11860 N, Apt 2';
+    })());
+
+    /* Excel writes tabs; an address with a comma in it must NOT be re-cut. */
+    check('S36', 'commas are left alone once tabs decide the delimiter', (() => {
+      const g = parse('Name\tAddress\nJulie\t6037 W 11860 N, Highland');
+      return g[1][1] === '6037 W 11860 N, Highland';
+    })());
+
+    /* ---- the heading map, against the real master sheet header ---- */
+    const REAL_HEADER = ['CU #','Name','Address','City','Zip','Phone','Email','Notes','Wire',
+                         'Lights','Timer','Up Plug','Misc','$$','Set Up Fee','Pref Date','# Feet',
+                         '','Yes','Recycle','2027','Color Changes','Name'];
+    const m = match(REAL_HEADER);
+    const wentTo = h => { const hit = m.mapped.find(x => x.heading === h); return hit ? hit.area : null; };
+
+    [['CU #','rbCustNumbersArea'], ['Name','rbNamesArea'], ['Address','rbStreetsArea'],
+     ['City','rbCitiesArea'], ['Zip','rbZipsArea'], ['Phone','rbPhonesArea'],
+     ['Email','rbEmailsArea'], ['Notes','rbNotesArea'], ['Wire','rbWireArea'],
+     ['Lights','rbColorsArea'], ['Timer','rbTimerArea'], ['$$','rbAmountsArea'],
+     ['Pref Date','rbInstallPrefArea'], ['# Feet','rbFeetArea'],
+    ].forEach(([heading, area]) => {
+      check('S36', '"' + heading + '" lands in ' + area, wentTo(heading) === area,
+        'went to ' + wentTo(heading));
+    });
+
+    check('S36', 'the second Name column does not steal the first one',
+      m.mapped.filter(x => x.area === 'rbNamesArea').length === 1 &&
+      m.mapped.find(x => x.area === 'rbNamesArea').index === 1,
+      'the master sheet repeats Name at the far right; claiming it twice would overwrite the real one');
+
+    check('S36', 'the unnamed spacer column is not treated as a heading',
+      !m.mapped.some(x => !x.heading) && m.ignored.every(h => !!String(h).trim()));
+
+    check('S36', 'columns with nowhere to go are reported, not silently dropped',
+      ['Misc','Set Up Fee','Yes','Recycle','2027','Color Changes'].every(h => m.ignored.includes(h)),
+      'ignored: ' + m.ignored.join(', '));
+
+    check('S36', 'every mapped area is a real box on the page',
+      m.mapped.every(x => admin.includes('id="' + x.area + '"')),
+      'a typo in the column map fails only when somebody pastes that sheet');
+
+    check('S36', 'no two headings claim the same box',
+      new Set(m.mapped.map(x => x.area)).size === m.mapped.length);
+
+    /* Spelling variants, so a differently-worded sheet still works. */
+    [['Customer Number','rbCustNumbersArea'], ['CU#','rbCustNumbersArea'],
+     ['Street Address','rbStreetsArea'], ['Town','rbCitiesArea'],
+     ['Zip Code','rbZipsArea'], ['Phone Number','rbPhonesArea'],
+     ['Measured Feet','rbFeetArea'], ['Feet','rbFeetArea'],
+     ['Price','rbAmountsArea'], ['Install Month','rbInstallPrefArea'],
+    ].forEach(([heading, area]) => {
+      const one = match([heading]);
+      check('S36', '"' + heading + '" is understood too',
+        one.mapped.length === 1 && one.mapped[0].area === area,
+        'got ' + (one.mapped[0] ? one.mapped[0].area : 'nothing'));
+    });
+
+    check('S36', 'a sheet of headings nobody recognises maps nothing',
+      match(['Widget','Sprocket']).mapped.length === 0,
+      'guessing here would write junk into a real field');
+
+    /* ---- the identity rule ---- */
+    check('S36', 'the identity columns are the ones that say who a row is',
+      IDENTITY.length === 4 &&
+      ['rbCustNumbersArea','rbNamesArea','rbStreetsArea','rbPhonesArea'].every(a => IDENTITY.includes(a)));
+
+    check('S36', 'every identity column is in the column map',
+      IDENTITY.every(a => COLUMNS.some(c => c.area === a)));
+  }
+
+  /* ---- the whole function, run for real in a DOM ----
+     Everything above tests a piece. This drives rbSplitSheetIntoBoxes itself
+     over a grid shaped exactly like the master sheet — trailing junk rows, a
+     quoted Notes cell with a line break, a repeated Name column and all — and
+     then checks the boxes it filled line up row for row. Added after a
+     red-check showed the piece-tests did not notice the blank-row filter being
+     removed. */
+  if (!JSDOM) {
+    note('jsdom not installed — skipping the whole-sheet split run');
+  } else if (colsMatch && identityMatch && parseSrc && keysSrc && matchSrc) {
+    const splitSrc = grab('rbSplitSheetIntoBoxes');
+    const escSrc = grab('esc');
+    const flipSrc = grab('flipLastFirstName');
+    check('S36', 'rbSplitSheetIntoBoxes exists', !!splitSrc);
+    if (splitSrc && escSrc && flipSrc) {
+      const AREAS = JSON.parse((admin.match(/const rbAreaIds = (\[[^\]]*\]);/) || [])[1].replace(/'/g, '"'));
+      const dom = new JSDOM(
+        '<textarea id="rbSheetArea"></textarea><span id="rbSheetStatus"></span>' +
+        '<div id="rbSheetReport"></div><input type="checkbox" id="rbFlipNames">' +
+        AREAS.map(a => '<textarea id="' + a + '"></textarea>').join('')
+      );
+      const doc = dom.window.document;
+      const sb2 = {};
+      new Function('document',
+        parseSrc + keysSrc +
+        'const RB_SHEET_COLUMNS = ' + colsMatch[1].replace(/;$/, '') + ';' +
+        'const RB_SHEET_IDENTITY = ' + identityMatch[1] + ';' +
+        'const rbAreaIds = ' + JSON.stringify(AREAS) + ';' +
+        matchSrc + escSrc + flipSrc +
+        'function rbName(r){ const f = document.getElementById("rbFlipNames"); return (f && f.checked) ? flipLastFirstName(r) : r; }' +
+        'function rbRefreshCounts(){}' +
+        splitSrc + 'this.split = rbSplitSheetIntoBoxes;'
+      ).call(sb2, doc);
+
+      const SHEET = [
+        'CU #\tName\tAddress\tCity\tZip\tPhone\tEmail\tNotes\tWire\tLights\tTimer\tUp Plug\t$$\tPref Date\t# Feet\t\tYes\tName',
+        '144\tCattani Julie\t6037 W 11860 N\tHighland\t84003\t8019795123\tj@x.com\t"3 sides\nside outlet"\tG\tPure\tYes\t?\t230\tOCT\t140\t\tFALSE\tCattani Julie',
+        '85\tBeckstead Paul\t1440 W Main St\tLehi\t84043\t3855353797\tl@x.com\t\tW\tred/pure\tYes\t?\t490\tOCT\t\t\tFALSE\tBeckstead Paul',
+        '112\tBrown Kathy\t9494 S 1860 W\tSouth Jordan\t84095\t\t\t\t\t\t\t\t200\tOCT\t\t\tFALSE\tBrown Kathy',
+        '\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tFALSE\t',
+        '\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tFALSE\t',
+      ].join('\n');
+
+      doc.getElementById('rbSheetArea').value = SHEET;
+      sb2.split();
+
+      const lines = id => { const v = doc.getElementById(id).value; return v === '' ? [] : v.split('\n'); };
+
+      check('S36', 'the two trailing FALSE-only rows are not treated as customers',
+        lines('rbCustNumbersArea').length === 3,
+        'got ' + lines('rbCustNumbersArea').length + ' rows — a sheet ends in a long run of these and they are not people');
+
+      check('S36', 'the report says how many empty rows it ignored',
+        /2 empty rows at the end of the sheet ignored/.test(doc.getElementById('rbSheetReport').textContent));
+
+      check('S36', 'every filled box has the same number of rows', (() => {
+        const filled = AREAS.filter(a => lines(a).length);
+        return filled.length > 5 && new Set(filled.map(a => lines(a).length)).size === 1;
+      })(), 'boxes of different lengths is the misalignment this whole tool has to avoid');
+
+      check('S36', 'row 3 is still Kathy Brown in every box',
+        lines('rbCustNumbersArea')[2] === '112' &&
+        lines('rbStreetsArea')[2] === '9494 S 1860 W' &&
+        lines('rbCitiesArea')[2] === 'South Jordan' &&
+        lines('rbPhonesArea')[2] === '',
+        'her blank phone must keep its line, not delete it');
+
+      check('S36', 'the quoted Notes cell stayed on row 1 and lost its line break',
+        lines('rbNotesArea')[0] === '3 sides side outlet' && lines('rbNotesArea').length === 3,
+        'got ' + JSON.stringify(lines('rbNotesArea')));
+
+      check('S36', 'the columns nobody claimed were left empty',
+        lines('rbStatesArea').length === 0 && lines('rbDatesArea').length === 0 &&
+        lines('rbDifficultyArea').length === 0);
+
+      check('S36', '"Up Plug" did not land in Use Eaves',
+        lines('rbEavesArea').length === 0,
+        'got ' + JSON.stringify(lines('rbEavesArea')));
+
+      /* Filling the boxes a second time from a SHORTER sheet must not leave the
+         first sheet's rows behind — that is the stale-column danger. */
+      doc.getElementById('rbSheetArea').value =
+        'CU #\tName\tAddress\tPhone\n144\tCattani Julie\t6037 W 11860 N\t8019795123';
+      sb2.split();
+      check('S36', 'a second, shorter paste does not leave the first one behind',
+        lines('rbCustNumbersArea').length === 1 && lines('rbCitiesArea').length === 0 &&
+        lines('rbNotesArea').length === 0,
+        'the old City and Notes columns would still be lined up against the new rows');
+
+      check('S36', 'the split never reports more customers than it wrote',
+        /^1 customer split into 4 boxes\.$/.test(doc.getElementById('rbSheetStatus').textContent),
+        'status said: ' + doc.getElementById('rbSheetStatus').textContent);
+    }
+  }
+
+  /* ---- the wiring, read off the page ---- */
+  check('S36', 'every box is emptied before the new sheet is written in',
+    /rbAreaIds\.forEach\(function\(id\)\{[\s\S]{0,160}?el\.value = '';[\s\S]{0,80}?\}\);[\s\S]{0,400}?match\.mapped\.forEach/.test(admin),
+    'a column left over from the last paste is still lined up against the new rows and would be written to everyone');
+
+  check('S36', 'the counters are refreshed after filling from script',
+    /rbRefreshCounts\(\)/.test(admin) && /const rbRefreshCounts = wireBulkCounts\(/.test(admin),
+    'a textarea set from code never fires input, so the counts would read 0 over 900 filled lines');
+
+  check('S36', 'pasting into the sheet box splits it on its own',
+    /getElementById\('rbSheetArea'\)\?\.addEventListener\('paste'/.test(admin),
+    'the owner asked to paste it and have it just happen');
+
+  check('S36', 'the split fills the boxes and does NOT import', (() => {
+    const at = admin.indexOf('function rbSplitSheetIntoBoxes(');
+    if (at < 0) return false;
+    let depth = 0, body = '';
+    for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+      if (admin[i] === '{') depth++;
+      else if (admin[i] === '}') { depth--; if (!depth) { body = admin.slice(at, i + 1); break; } }
+    }
+    return body && !/updateDoc|addDoc|setDoc|deleteDoc/.test(body);
+  })(), 'splitting must stay a text operation — Check First and Import are the only things that write');
+
+  /* Feet is the highest-leverage field on a customer (CLAUDE.md §2), and the
+     master sheet carries it, so it now has a box. */
+  ['rbFeetArea', 'rbNotesArea'].forEach(id => {
+    check('S36', id + ' exists on the page', admin.includes('id="' + id + '"'));
+    check('S36', id + ' is in rbAreaIds so it is cleared and counted',
+      new RegExp("rbAreaIds = \\[[^\\]]*'" + id + "'").test(admin));
+  });
+
+  check('S36', 'Measured Feet sets the bin count with it',
+    /updates\.measuredFeet = Number\(feetVal\);\s*\r?\n\s*updates\.numberOfBins = cnBinsForFeet\(Number\(feetVal\)\)/.test(admin),
+    'feet and bins disagreeing is what sends a 600ft house out with one bin');
+
+  check('S36', 'and does so AFTER the customer-number rule, so feet wins',
+    admin.indexOf('if(parseInt(cn,10) < 5000) updates.numberOfBins = 1;')
+      < admin.indexOf('updates.numberOfBins = cnBinsForFeet(Number(feetVal))'),
+    'written the other way round the number series would overwrite the measured answer');
+
+  /* The sheet's Wire and Timer columns are not clean. Anything that is not one
+     of the real answers has to leave the field alone, not overwrite it. */
+  {
+    const pull = n => {
+      const at = admin.indexOf('function ' + n + '(');
+      let d = 0;
+      for (let i = admin.indexOf('{', at); at >= 0 && i < admin.length; i++) {
+        if (admin[i] === '{') d++;
+        else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+      }
+      return null;
+    };
+    const wireSrc = pull('rbNormalizeWire'), yesNoSrc = pull('rbNormalizeYesNo');
+    check('S36', 'the wire and yes/no normalisers exist', !!wireSrc && !!yesNoSrc);
+    if (wireSrc && yesNoSrc) {
+      const sb = {};
+      new Function(wireSrc + yesNoSrc + 'this.w = rbNormalizeWire; this.y = rbNormalizeYesNo;').call(sb);
+      check('S36', 'W and G still become White and Green',
+        sb.w('W') === 'White' && sb.w('g') === 'Green' && sb.w('Green') === 'Green');
+      check('S36', 'Y/N/yes/no still work', ['Yes','y','YES','true'].every(v => sb.y(v) === 'Yes') &&
+        ['No','n','NO','false'].every(v => sb.y(v) === 'No'));
+      /* These four are real cells out of the real Wire column, and "Warm" is a
+         real cell out of the real Timer column. */
+      check('S36', 'a stray note in the Wire column leaves the wire colour alone',
+        ['4 sides', 'raise price 2026', '45231', 'add 50 lights to bin'].every(v => sb.w(v) === ''),
+        'these would otherwise be saved as that customer\'s wire colour');
+      check('S36', '"?" and other non-answers leave a Yes/No field alone',
+        ['?', 'Warm', 'maybe'].every(v => sb.y(v) === ''),
+        'the sheet\'s Up Plug column is 99 question marks');
+    }
+  }
+
+  check('S36', '"Up Plug" is not guessed into a real field',
+    !/'up plug'/.test(admin),
+    'it reads like Yes/No but 99 of its cells are "?"; mapping it would write that to 99 customers');
+
+  {
+    const at = admin.indexOf('function rbNormalizeFeet(');
+    let src = null, depth = 0;
+    for (let i = admin.indexOf('{', at); at >= 0 && i < admin.length; i++) {
+      if (admin[i] === '{') depth++;
+      else if (admin[i] === '}') { depth--; if (!depth) { src = admin.slice(at, i + 1); break; } }
+    }
+    check('S36', 'rbNormalizeFeet exists', !!src);
+    if (src) {
+      const sb = {};
+      new Function(src + 'this.f = rbNormalizeFeet;').call(sb);
+      const f = sb.f;
+      check('S36', 'a plain number comes through', f('230') === '230');
+      check('S36', 'a descriptive cell keeps its leading number',
+        f('160 red/warm & 40 solid green') === '160',
+        'got "' + f('160 red/warm & 40 solid green') + '"');
+      check('S36', 'a stray $ or comma is ignored', f('$1,300') === '1300');
+      check('S36', 'a blank stays blank, never 0',
+        f('') === '' && f('   ') === '' && f('n/a') === '',
+        'writing 0 would drop a measured house back to one bin and re-price it at nothing');
     }
   }
 }

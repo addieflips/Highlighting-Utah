@@ -1416,8 +1416,26 @@
         <div id="bulkUpdatesPanel" style="display:none; margin-top:16px;">
           <p style="font-size:13px;">Creates or updates customer records here first, so Routes, Invoices, Quotes, and the Customers list all stay in sync automatically from this one import.</p>
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
+            <!-- ⭐ THE WHOLE SHEET, IN ONE GO.
+                 Owner, 2026-08-17: "I want to make it so I just paste the master
+                 sheet somewhere and it just does it, i dont want it to pull it
+                 from files because that gets outdated."
+                 So this is the front door, and the sixteen boxes below became
+                 the thing you look at afterwards rather than the thing you fill
+                 in. It deliberately does NOT import — it fills the boxes and
+                 then Check First and Import run exactly as they always have,
+                 which is why every guard already written still applies. -->
+            <div style="border:2px solid var(--gold-dim); border-radius:12px; padding:16px; margin:0 0 20px; background:var(--snow);">
+              <h4 style="margin:0 0 6px;">Paste the whole master sheet</h4>
+              <p style="font-size:13px; margin:0 0 10px;">Select the sheet in Excel &mdash; <strong>heading row and all</strong> &mdash; copy, and paste it in here. It reads the headings, works out which column is which, and fills in the boxes below for you. Nothing is saved until you press Check First and then Import, same as always.</p>
+              <textarea id="rbSheetArea" rows="6" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--paper); color:var(--ink); font-family:monospace; font-size:12px;" placeholder="CU #&#9;Name&#9;Address&#9;City&#9;Zip&#9;Phone&#9;Email&#9;Notes&#9;Wire&#9;Lights&#9;Timer&#9;$$&#9;Pref Date&#9;# Feet&#10;144&#9;Cattani Julie&#9;6037 W 11860 N&#9;Highland&#9;84003&#9;8019795123&#9;…"></textarea>
+              <button type="button" class="btn btn-gold" id="rbSheetSplitBtn" style="margin-top:8px;">Split it into the boxes below</button>
+              <button type="button" class="btn btn-outline btn-sm" id="rbSheetClearBtn" style="margin-top:8px;">Clear every box</button>
+              <span id="rbSheetStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
+              <div id="rbSheetReport" style="margin-top:12px;"></div>
+            </div>
             <h4 style="margin:0 0 6px;">Routes Fields</h4>
-            <p style="font-size:13px;">In Excel, copy each column separately and paste into its matching box below. <strong>Row 1 in every box must be the same customer.</strong> Street Address is required; the rest are optional. We always geocode within Utah, and update an existing customer instead of duplicating them when the phone or street already matches.</p>
+            <p style="font-size:13px;">These fill themselves in from the box above. You only need to touch them if you are pasting one column on its own, or to check what landed where before importing. <strong>Row 1 in every box must be the same customer.</strong> We always geocode within Utah, and update an existing customer instead of duplicating them when the phone or street already matches.</p>
             <p id="rbIdentifierHint" style="font-size:12.5px; color:var(--dusk); font-weight:600; margin:0 0 8px;"></p>
             <div class="form-grid-2">
               <div class="form-row">
@@ -1503,6 +1521,16 @@
                 <label>Use Eaves (optional) <span class="bulk-count" id="rbCountEaves">0 rows</span></label>
                 <textarea id="rbEavesArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="Yes&#10;No&#10;(blank = leave as is)"></textarea>
                 <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">Type Yes or No (y/n also works). Blank leaves it unchanged.</p>
+              </div>
+              <div class="form-row">
+                <label>Measured Feet (optional) <span class="bulk-count" id="rbCountFeet">0 rows</span></label>
+                <textarea id="rbFeetArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="230&#10;490&#10;(blank = leave as is)"></textarea>
+                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">The <strong>#&nbsp;Feet</strong> column off the master sheet. This is the one that drives everything else &mdash; how many bins the house needs, how many bundles the warehouse builds, and the per-foot price. Filling it in also sets <strong>Number of Bins</strong> to match: one bin up to 260&nbsp;ft, another for every 260&nbsp;ft after that. Blank leaves both alone.</p>
+              </div>
+              <div class="form-row">
+                <label>Crew Notes (optional) <span class="bulk-count" id="rbCountNotes">0 rows</span></label>
+                <textarea id="rbNotesArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="4 sides&#10;use outlet from image&#10;(blank = leave as is)"></textarea>
+                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">The <strong>Notes</strong> column off the master sheet &mdash; the permanent note the crew sees on this house every year, same box as the one in Edit Customer. Blank leaves whatever is already there.</p>
               </div>
               <div class="form-row">
                 <label>Difficulty (optional) <span class="bulk-count" id="rbCountDifficulty">0 rows</span></label>
@@ -14446,11 +14474,29 @@ function wireBulkCounts(areaIds, anchorId, countIdMap){
        lined up. A row with a blank identifier is not a length problem; it is one
        row that cannot be identified, and Check First names it. */
     const anchorCount = countRows(document.getElementById(anchorId).value, false);
+    /* What is COMPARED is the real number of lines in the box, not the number
+       up to the last one with something in it. The two differ whenever an
+       optional column ends in blanks, which is normal and harmless — the last
+       few customers on the master sheet have no Measured Feet and no Notes, and
+       those columns were being painted red for it. Trailing blanks pad back out
+       and change nothing.
+       A single empty line at the very end is dropped first: Excel puts one
+       there, and it is not a row. */
+    const compareLen = function(text){
+      const lines = String(text || '').split('\n');
+      if(lines.length && !lines[lines.length-1].trim()) lines.pop();
+      return lines.length;
+    };
+    const anchorLines = compareLen(document.getElementById(anchorId).value);
     areaIds.forEach(function(areaId){
-      const n = countRows(document.getElementById(areaId).value, false);
+      const raw = document.getElementById(areaId).value;
+      const n = countRows(raw, false);
       const el = document.getElementById(countIdMap[areaId]);
       el.textContent = n + ' row' + (n===1?'':'s');
-      el.classList.toggle('mismatch', n > 0 && n !== anchorCount);
+      /* Still red when the lengths genuinely disagree — a column short in the
+         MIDDLE reads its full length here, so that case is untouched, and a
+         column with MORE lines than the identifier is the dangerous one. */
+      el.classList.toggle('mismatch', compareLen(raw) > 0 && compareLen(raw) !== anchorLines);
     });
   }
   areaIds.forEach(function(id){ document.getElementById(id).addEventListener('input', update); });
@@ -14567,14 +14613,204 @@ function rbCol(id, off){
   if(!el) return [];
   return el.value.split('\n').slice(off || 0).map(function(s){ return s.trim(); });
 }
-const rbAreaIds = ['rbNamesArea','rbPhonesArea','rbEmailsArea','rbStreetsArea','rbCitiesArea','rbStatesArea','rbZipsArea','rbDatesArea','rbColorsArea','rbAmountsArea','rbInstallPrefArea','rbCustNumbersArea','rbWireArea','rbTimerArea','rbEavesArea','rbDifficultyArea'];
+const rbAreaIds = ['rbNamesArea','rbPhonesArea','rbEmailsArea','rbStreetsArea','rbCitiesArea','rbStatesArea','rbZipsArea','rbDatesArea','rbColorsArea','rbAmountsArea','rbInstallPrefArea','rbCustNumbersArea','rbWireArea','rbTimerArea','rbEavesArea','rbDifficultyArea','rbFeetArea','rbNotesArea'];
 const rbCountIds = {
   rbNamesArea:'rbCountNames', rbPhonesArea:'rbCountPhones', rbEmailsArea:'rbCountEmails',
   rbStreetsArea:'rbCountStreets', rbCitiesArea:'rbCountCities', rbStatesArea:'rbCountStates', rbZipsArea:'rbCountZips', rbDatesArea:'rbCountDates',
   rbColorsArea:'rbCountColors', rbAmountsArea:'rbCountAmounts', rbInstallPrefArea:'rbCountInstallPref', rbCustNumbersArea:'rbCountCustNumbers',
   rbWireArea:'rbCountWire', rbTimerArea:'rbCountTimer', rbEavesArea:'rbCountEaves',
-  rbDifficultyArea:'rbCountDifficulty'
+  rbDifficultyArea:'rbCountDifficulty', rbFeetArea:'rbCountFeet', rbNotesArea:'rbCountNotes'
 };
+
+/* ============================================================================
+   PASTE THE WHOLE SHEET
+   Owner, 2026-08-17: "I want to make it so I just paste the master sheet
+   somewhere and it just does it, i dont want it to pull it from files because
+   that gets outdated."
+
+   This splits one pasted grid into the sixteen boxes and stops. It does not
+   import, and it does not talk to Firestore. That is deliberate: every guard
+   the importer has — the row-count anchor, Check First, the duplicate-number
+   check, the skip list — is written against those boxes, so filling them keeps
+   all of it and adds nothing new to get wrong.
+   ============================================================================ */
+
+/* Excel copies as tab-separated text, and wraps any cell containing a tab, a
+   newline or a quote in double quotes with "" for a literal quote. A Notes cell
+   with a line break in it is the common case here, and splitting on \n without
+   honouring the quotes turns one customer into two rows and shunts every row
+   below them onto the wrong person. */
+function rbParseSheetGrid(text){
+  const src = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  /* Tab if there is one on the first line — that is Excel. Otherwise comma, so
+     a .csv opened in a text editor still works. Never guessed per row: a
+     delimiter that changes halfway through would silently re-cut the grid. */
+  const firstLine = src.split('\n')[0] || '';
+  const delim = firstLine.indexOf('\t') >= 0 ? '\t' : ',';
+  const rows = [];
+  let row = [], cell = '', inQuotes = false;
+  for(let i = 0; i < src.length; i++){
+    const ch = src[i];
+    if(inQuotes){
+      if(ch === '"'){
+        if(src[i+1] === '"'){ cell += '"'; i++; }
+        else inQuotes = false;
+      } else cell += ch;
+      continue;
+    }
+    if(ch === '"' && !cell){ inQuotes = true; continue; }
+    if(ch === delim){ row.push(cell); cell = ''; continue; }
+    if(ch === '\n'){ row.push(cell); rows.push(row); row = []; cell = ''; continue; }
+    cell += ch;
+  }
+  if(cell || row.length){ row.push(cell); rows.push(row); }
+  return rows.map(function(r){ return r.map(function(c){ return String(c == null ? '' : c).trim(); }); });
+}
+
+/* Two forms of every heading are compared: what it reads as, and the same with
+   spaces and punctuation taken out. That is what lets "CU #", "CU#" and
+   "Customer Number" all land in the same box without listing every spelling. */
+function rbHeadingKeys(raw){
+  const low = String(raw == null ? '' : raw).trim().toLowerCase().replace(/\s+/g, ' ');
+  return [low, low.replace(/[^a-z0-9$]/g, '')].filter(Boolean);
+}
+
+/* Which heading goes in which box. First match down this list wins, and a
+   heading already claimed is not claimed twice — the master sheet carries a
+   second "Name" column at the far right, and it must not overwrite the first. */
+const RB_SHEET_COLUMNS = [
+  {area:'rbCustNumbersArea', label:'Customer #',    aliases:['cu #','cu#','cu','customer #','customer number','cust #','cust#','number','no']},
+  {area:'rbNamesArea',       label:'Name',          aliases:['name','customer name','names']},
+  {area:'rbStreetsArea',     label:'Street Address',aliases:['address','street','street address','addresses']},
+  {area:'rbCitiesArea',      label:'City',          aliases:['city','town','cities']},
+  {area:'rbStatesArea',      label:'State',         aliases:['state','st']},
+  {area:'rbZipsArea',        label:'Zip Code',      aliases:['zip','zip code','zipcode','postal code']},
+  {area:'rbPhonesArea',      label:'Phone Number',  aliases:['phone','phone number','phone #','cell','mobile','phones']},
+  {area:'rbEmailsArea',      label:'Email',         aliases:['email','e-mail','email address','emails']},
+  {area:'rbNotesArea',       label:'Crew Notes',    aliases:['notes','note','crew notes','crew note']},
+  {area:'rbWireArea',        label:'Wire Color',    aliases:['wire','wire color','wire colour']},
+  {area:'rbColorsArea',      label:'Light Colors',  aliases:['lights','light colors','light colours','colors','colours','color','colour','light color(s)']},
+  {area:'rbTimerArea',       label:'Outlet Timer',  aliases:['timer','outlet timer','timers']},
+  /* "Up Plug" off the master sheet is deliberately NOT mapped here. It looks
+     like a Yes/No field and it is tempting, but 99 of its 275 filled cells say
+     "?" — it is a "have we checked yet" column, not a decision, and nothing on
+     a customer record means that. Guessed once during this work and caught by
+     reading the real values. If it does mean Use Eaves, add it here; until
+     somebody says so it is reported as left alone. */
+  {area:'rbEavesArea',       label:'Use Eaves',     aliases:['eaves','use eaves']},
+  {area:'rbAmountsArea',     label:'Payment Amount',aliases:['$$','$','price','amount','payment amount','total','cost']},
+  {area:'rbInstallPrefArea', label:'Install Month', aliases:['pref date','preferred date','install month','install preference','preference','pref']},
+  {area:'rbFeetArea',        label:'Measured Feet', aliases:['# feet','feet','measured feet','ft','footage']},
+  {area:'rbDifficultyArea',  label:'Difficulty',    aliases:['difficulty','difficulty rating']},
+  {area:'rbDatesArea',       label:'Date Added',    aliases:['date added','enrolled','date joined','customer since']},
+];
+
+/* A row is only real if it says WHO it is. The master sheet ends in a long run
+   of empty rows that still carry FALSE in four checkbox columns, and those are
+   not customers — importing them would try to add a hundred blank records. */
+const RB_SHEET_IDENTITY = ['rbCustNumbersArea','rbNamesArea','rbStreetsArea','rbPhonesArea'];
+
+function rbMatchSheetHeadings(headerRow){
+  const taken = {};
+  const mapped = [];      // {area, label, index, heading}
+  const ignored = [];     // headings nothing was done with
+  (headerRow || []).forEach(function(heading, index){
+    if(!String(heading || '').trim()) return;   // an unnamed spacer column
+    const keys = rbHeadingKeys(heading);
+    const col = RB_SHEET_COLUMNS.find(function(c){
+      if(taken[c.area]) return false;
+      return c.aliases.some(function(a){ return rbHeadingKeys(a).some(function(k){ return keys.indexOf(k) >= 0; }); });
+    });
+    if(col){ taken[col.area] = true; mapped.push({area: col.area, label: col.label, index: index, heading: heading}); }
+    else ignored.push(heading);
+  });
+  return {mapped: mapped, ignored: ignored};
+}
+
+function rbSplitSheetIntoBoxes(){
+  const box = document.getElementById('rbSheetArea');
+  const statusEl = document.getElementById('rbSheetStatus');
+  const report = document.getElementById('rbSheetReport');
+  if(!box || !statusEl || !report) return;
+  report.innerHTML = '';
+  const grid = rbParseSheetGrid(box.value);
+  if(grid.length < 2){
+    statusEl.textContent = 'Paste the sheet including its heading row — that top row is what tells me which column is which.';
+    return;
+  }
+  const match = rbMatchSheetHeadings(grid[0]);
+  if(!match.mapped.length){
+    statusEl.textContent = 'I could not recognise any of those headings. The top row needs to be the real heading row (CU #, Name, Address, City, Zip, Phone …).';
+    return;
+  }
+  const identityCols = match.mapped.filter(function(m){ return RB_SHEET_IDENTITY.indexOf(m.area) >= 0; });
+  if(!identityCols.length){
+    statusEl.textContent = 'None of those columns says who each row is. I need at least one of Customer #, Name, Address or Phone.';
+    return;
+  }
+
+  const body = grid.slice(1);
+  const isReal = function(r){ return identityCols.some(function(m){ return !!(r[m.index] || '').trim(); }); };
+  const rows = body.filter(isReal);
+  const dropped = body.length - rows.length;
+
+  /* ⚠ EVERY box is emptied first, not just the ones being filled. Whatever was
+     left in a box from a previous paste is still lined up row-for-row against
+     the new rows, so a stale Light Colors column would be written to nine
+     hundred customers who were never meant to have their colours touched. */
+  rbAreaIds.forEach(function(id){
+    const el = document.getElementById(id);
+    if(el) el.value = '';
+  });
+  match.mapped.forEach(function(m){
+    const el = document.getElementById(m.area);
+    if(el) el.value = rows.map(function(r){ return (r[m.index] || '').replace(/\s*\n\s*/g, ' ').trim(); }).join('\n');
+  });
+  rbRefreshCounts();
+
+  /* What the Name box will actually SAVE, flip included. Shown rather than
+     guessed at: the master sheet is Last First and the site wants First Last,
+     but nothing can tell "Cattani Julie" from a genuine "Bill Moore" by looking
+     at it, and a wrong guess renames nine hundred customers. */
+  const nameCol = match.mapped.find(function(m){ return m.area === 'rbNamesArea'; });
+  let namePreview = '';
+  if(nameCol){
+    const flip = document.getElementById('rbFlipNames');
+    const sample = rows.slice(0, 3).map(function(r){ return rbName((r[nameCol.index] || '').trim()); }).filter(Boolean);
+    if(sample.length){
+      namePreview = '<p style="margin:10px 0 0; font-size:13px;"><strong>Names will be saved as:</strong> '
+        + sample.map(esc).join(' &middot; ')
+        + (flip && flip.checked ? '' : ' &mdash; if those are back to front, tick <em>These are Last First</em> under the Name box and press this button again.')
+        + '</p>';
+    }
+  }
+
+  const row = function(label, value){
+    return '<tr><td style="padding:3px 12px 3px 0; color:var(--slate);">' + esc(label)
+      + '</td><td style="padding:3px 0;">' + value + '</td></tr>';
+  };
+  report.innerHTML =
+    '<div style="border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--paper);">'
+    + '<table style="border-collapse:collapse; font-size:13px;">'
+    + match.mapped.map(function(m){
+        return row(m.heading, '&rarr; <strong>' + esc(m.label) + '</strong>');
+      }).join('')
+    + '</table>'
+    + (match.ignored.length
+        ? '<p style="margin:10px 0 0; font-size:13px; color:var(--slate);"><strong>Left alone:</strong> '
+          + match.ignored.map(esc).join(', ')
+          + ' &mdash; there is nowhere on a customer record for these, so nothing was done with them.</p>'
+        : '')
+    + (dropped
+        ? '<p style="margin:10px 0 0; font-size:13px; color:var(--slate);">' + dropped
+          + ' empty row' + (dropped === 1 ? '' : 's') + ' at the end of the sheet ignored.</p>'
+        : '')
+    + namePreview
+    + '<p style="margin:10px 0 0; font-size:13px;">Now press <strong>Check First</strong> below. Nothing has been saved yet.</p>'
+    + '</div>';
+  statusEl.textContent = rows.length + ' customer' + (rows.length === 1 ? '' : 's') + ' split into '
+    + match.mapped.length + ' box' + (match.mapped.length === 1 ? '' : 'es') + '.';
+}
 // Bulk Difficulty mirrors the Routes difficulty pill: Unrated/Easy/Medium/Hard.
 // Anything else is rejected up front so a typo can't quietly write a junk value.
 const RB_DIFFICULTY_OPTIONS = ['Unrated','Easy','Medium','Hard'];
@@ -14584,20 +14820,43 @@ function rbNormalizeDifficulty(raw){
   const match = RB_DIFFICULTY_OPTIONS.find(function(opt){ return opt.toLowerCase() === v; });
   return match || '';
 }
-// Bulk Wire = White/Green; Bulk Timer + Use Eaves = Yes/No. Blank leaves the field as-is.
+/* Bulk Wire = White/Green; Bulk Timer + Use Eaves = Yes/No. Blank leaves the
+   field as-is.
+   ⚠ ANYTHING NOT RECOGNISED IS TREATED AS BLANK — it used to be written through
+   verbatim. That was survivable while these boxes were filled one careful
+   column at a time, and stopped being survivable when the whole master sheet
+   could be pasted in one go: its Wire column holds "4 sides", "raise price
+   2026" and "45231" among the W's and G's, its Timer column holds "Warm", and
+   every one of those would have been saved as that customer's wire colour or
+   timer setting. There is no reading of a stray note that makes it a better
+   answer than "leave what is already there". */
 function rbNormalizeWire(raw){
   if(!raw) return '';
   const v = raw.trim().toLowerCase();
   if(v === 'white' || v === 'w') return 'White';
   if(v === 'green' || v === 'g') return 'Green';
-  return raw.trim();
+  return '';
 }
 function rbNormalizeYesNo(raw){
   if(!raw) return '';
   const v = raw.trim().toLowerCase();
   if(v === 'yes' || v === 'y' || v === 'true') return 'Yes';
   if(v === 'no' || v === 'n' || v === 'false') return 'No';
-  return raw.trim();
+  return '';
+}
+/* Measured Feet off the master sheet. It is written as a plain number there,
+   but the column also carries the odd "160 red/warm & 40 solid green" and the
+   occasional stray "$" or comma, so take the leading number and ignore the rest
+   rather than refusing the whole paste over one descriptive cell.
+   Returns '' for anything with no number in it at all, and '' means LEAVE THE
+   FEET ALONE — never 0. Writing 0 would drop a measured house back to one bin
+   and re-price it at nothing. */
+function rbNormalizeFeet(raw){
+  if(!raw) return '';
+  const m = String(raw).replace(/[,$]/g,'').match(/\d+(?:\.\d+)?/);
+  if(!m) return '';
+  const n = Number(m[0]);
+  return (isFinite(n) && n > 0) ? String(Math.round(n)) : '';
 }
 const RB_INSTALL_PREF_OPTIONS = ['Normal Schedule','October','November','November - Before Thanksgiving','After Thanksgiving'];
 function rbNormalizeInstallPref(raw){
@@ -14637,7 +14896,10 @@ function rbDetectColorsAndPattern(raw){
   const hasRepeat = new Set(list).size !== list.length;
   return hasRepeat ? {colors: Array.from(new Set(list)), pattern: list.join(', ')} : {colors: list, pattern: ''};
 }
-wireBulkCounts(rbAreaIds, BULK_BY_NUMBER ? 'rbCustNumbersArea' : BULK_BY_PHONE ? 'rbPhonesArea' : 'rbStreetsArea', rbCountIds);
+/* Kept rather than thrown away: the boxes can now be filled by script (see
+   rbSplitSheetIntoBoxes), and a textarea set from code never fires 'input', so
+   the counters would sit on "0 rows" over nine hundred filled-in lines. */
+const rbRefreshCounts = wireBulkCounts(rbAreaIds, BULK_BY_NUMBER ? 'rbCustNumbersArea' : BULK_BY_PHONE ? 'rbPhonesArea' : 'rbStreetsArea', rbCountIds);
 /* ---- Check First for the customer bulk importer -------------------------
  *
  * This tool matches each pasted row against an existing customer and UPDATES
@@ -14651,6 +14913,32 @@ wireBulkCounts(rbAreaIds, BULK_BY_NUMBER ? 'rbCustNumbersArea' : BULK_BY_PHONE ?
  * (same alignBulkRows, same findExistingAddressMatch), so the preview cannot
  * disagree with what would actually happen. It writes nothing.
  */
+document.getElementById('rbSheetSplitBtn')?.addEventListener('click', rbSplitSheetIntoBoxes);
+/* "Paste the master sheet somewhere and it just does it" — so it splits itself
+   the moment it lands, and the button is there for a second go after ticking
+   the name-flip box. Deferred a tick because on the paste event the textarea
+   still holds its OLD value. */
+document.getElementById('rbSheetArea')?.addEventListener('paste', function(){
+  setTimeout(rbSplitSheetIntoBoxes, 0);
+});
+/* Clearing is offered explicitly because the boxes keep their contents for the
+   whole session. Coming back later and importing what is still sitting there
+   from this morning is a real way to overwrite live records by accident. */
+document.getElementById('rbSheetClearBtn')?.addEventListener('click', function(){
+  const box = document.getElementById('rbSheetArea');
+  if(box) box.value = '';
+  rbAreaIds.forEach(function(id){
+    const el = document.getElementById(id);
+    if(el) el.value = '';
+  });
+  rbRefreshCounts();
+  const report = document.getElementById('rbSheetReport');
+  if(report) report.innerHTML = '';
+  const checkReport = document.getElementById('rbCheckReport');
+  if(checkReport) checkReport.innerHTML = '';
+  const status = document.getElementById('rbSheetStatus');
+  if(status) status.textContent = 'Everything cleared. Nothing was saved.';
+});
 document.getElementById('rbCheckBtn')?.addEventListener('click', function(){
   const statusEl = document.getElementById('rbImportStatus');
   const report = document.getElementById('rbCheckReport');
@@ -14974,6 +15262,8 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
   const timerRaw = alignBulkRows(rbCol('rbTimerArea', hoff), streets.length);
   const eavesRaw = alignBulkRows(rbCol('rbEavesArea', hoff), streets.length);
   const difficultyRaw = alignBulkRows(rbCol('rbDifficultyArea', hoff), streets.length);
+  const feetRaw = alignBulkRows(rbCol('rbFeetArea', hoff), streets.length);
+  const notesRaw = alignBulkRows(rbCol('rbNotesArea', hoff), streets.length);
   const checks = [
     ['Name', names],
     ['Phone Number', phones], ['Email', emails], ['City', cities], ['State', states], ['Zip Code', zips], ['Date Added', dates],
@@ -15037,6 +15327,8 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
     const outletTimerVal = rbNormalizeYesNo(timerRaw[i] || '');
     const useEavesVal = rbNormalizeYesNo(eavesRaw[i] || '');
     const difficultyVal = rbNormalizeDifficulty(difficultyRaw[i] || '');
+    const feetVal = rbNormalizeFeet(feetRaw[i] || '');
+    const notesVal = (notesRaw[i] || '').trim();
     const amountTypedIn = amounts[i] || '';
     const price = amountTypedIn ? Number(amountTypedIn.replace(/[,$]/g,'')) : null;
     // Already validated above (format, in-batch duplicates, and against every
@@ -15111,6 +15403,18 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
           updates.customerNumber = cn;
           if(parseInt(cn,10) < 5000) updates.numberOfBins = 1;
         }
+        /* ⭐ FEET WINS OVER THE NUMBER SERIES, and must be applied after it.
+           The line above sets one bin for any number under 5000, which is a
+           stand-in for when nobody has measured the house. Once the feet are
+           known they are the real answer — a 600 ft house needs three bins
+           whatever its number is (cnBinsForFeet, one per 260 ft). Written the
+           other way round, pasting the sheet's # Feet column would set the feet
+           and then immediately contradict them. */
+        if(feetVal){
+          updates.measuredFeet = Number(feetVal);
+          updates.numberOfBins = cnBinsForFeet(Number(feetVal));
+        }
+        if(notesVal) updates.notes = notesVal;
         await updateDoc(doc(db,'jobAddresses',existing.id), updates);
         updated++;
       } else {
@@ -15130,6 +15434,12 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
           newDoc.customerNumber = cn;
           if(parseInt(cn,10) < 5000) newDoc.numberOfBins = 1;
         }
+        // Same order, and for the same reason, as the update branch above.
+        if(feetVal){
+          newDoc.measuredFeet = Number(feetVal);
+          newDoc.numberOfBins = cnBinsForFeet(Number(feetVal));
+        }
+        if(notesVal) newDoc.notes = notesVal;
         await addDoc(collection(db,'jobAddresses'), newDoc);
         added++;
       }
