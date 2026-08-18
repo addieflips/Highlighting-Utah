@@ -7788,6 +7788,23 @@ suite('Suite 31. A corrected town still finds its customer');
     /if\(BULK_BY_NUMBER\)\{[\s\S]{0,400}?String\(it\.data\.customerNumber \|\| ''\) === num/.test(admin) &&
     /if\(!num\) return undefined;/.test(admin),
     'any fallback here is the tool guessing which customer somebody meant');
+  /* Owner, 2026-08-17: "the identifier should be number but CU# should still be
+     editable in edit customers, not in bulk updates." A key is read, not
+     written — and the line that mattered was not the no-op write of the number
+     itself but the one under it, which forced numberOfBins to 1 on every
+     matched house under 5000. A bulk update of colours would have quietly reset
+     bin counts nobody asked it to touch. */
+  check('S31', 'on number mode bulk never writes the number back',
+    /if\(cn && !BULK_BY_NUMBER\)\{\s*[\r\n]+\s*updates\.customerNumber = cn;/.test(admin),
+    'the number is how the customer was found — rewriting it is at best a no-op and at worst carries the bin rule with it');
+  check('S31', 'and does not reset the bin count from it either',
+    /if\(cn && !BULK_BY_NUMBER\)\{[\s\S]{0,200}?numberOfBins = 1;/.test(admin),
+    'that line is inside the same guard, which is the point — it is the one with teeth');
+  check('S31', 'the pool is untouched for a customer that already existed',
+    /if\(cn && \(!BULK_BY_NUMBER \|\| !existing\)\)\{/.test(admin),
+    'nothing was handed out — the number was only read — but a customer being ADDED still takes theirs out of the pool');
+  check('S31', 'and the column says so, so nobody expects it to renumber anybody',
+    /It is only used to find them, never changed\./.test(admin));
   check('S31', 'Add Customer still matches on the address, which is its question',
     /const dupe = findExistingAddressMatch\(street, phone, city, zip\);/.test(admin),
     '"is this new address already in the book" is answered by the address, not by a number nobody has typed yet');

@@ -1423,7 +1423,7 @@
               <div class="form-row">
                 <label>Customer # <span class="req" id="rbReqCust" style="display:none;">*</span><span id="rbOptCust"> (optional)</span> <span class="bulk-count" id="rbCountCustNumbers">0 rows</span></label>
                 <textarea id="rbCustNumbersArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="144&#10;5029&#10;(blank if unknown)"></textarea>
-                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">THE ONE THAT MATTERS. This is who each row is &mdash; every other box is matched to this one, so its row count is the count everything else has to agree with. A number here finds that customer whatever their address or town says. The permanent bin number. Under 5000 sets Number of Bins to 1. Anything 5000 or higher is a double-bin house &mdash; the bin count is left for you to fill in. A number already in use will stop the import before anything is written.</p>
+                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">THE ONE THAT MATTERS. This is who each row is &mdash; every other box is matched to this one, so its row count is the count everything else has to agree with. A number here finds that customer whatever their address or town says. <strong>It is only used to find them, never changed.</strong> To give somebody a different number, open them in All Customers and edit it there, where the old number goes back in the pool and the new one comes out of it.</p>
               </div>
               <div class="form-row">
                 <label>Name (optional) <span class="bulk-count" id="rbCountNames">0 rows</span></label>
@@ -15038,7 +15038,18 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
         if(outletTimerVal) updates.outletTimer = outletTimerVal;
         if(useEavesVal) updates.useEaves = useEavesVal;
         if(difficultyVal) updates.difficulty = difficultyVal;
-        if(cn){
+        /* ⭐ ON 'number' THE CUSTOMER NUMBER IS THE KEY, NOT A FIELD.
+           Owner, 2026-08-17: "the identifier should be number but CU# should
+           still be editable in edit customers, not in bulk updates."
+           Writing it back would be a no-op — it is the value we just looked the
+           customer up by — but the line under it is not: it forces
+           numberOfBins to 1 on every matched house under 5000, so a bulk update
+           of colours or prices would quietly reset bin counts it was never
+           asked to touch. A number is changed one customer at a time in Edit
+           Customer, where the pool bookkeeping happens with it.
+           In the other modes the number IS data being corrected, and is still
+           written — that is what the 2026-08-17 repair ran on. */
+        if(cn && !BULK_BY_NUMBER){
           updates.customerNumber = cn;
           if(parseInt(cn,10) < 5000) updates.numberOfBins = 1;
         }
@@ -15064,10 +15075,14 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
         await addDoc(collection(db,'jobAddresses'), newDoc);
         added++;
       }
-      // A number typed in here might be one already sitting in the recycled
-      // pool — same cleanup the manual Add Customer form does (line ~12455),
-      // so it can't be handed out to a second customer later.
-      if(cn){
+      /* A number typed in here might be one already sitting in the recycled
+         pool — same cleanup the manual Add Customer form does (line ~12455),
+         so it can't be handed out to a second customer later.
+         Skipped on 'number' for an existing customer: nothing was assigned, the
+         number was only read to find them, and a customer already holding it
+         means it should not have been in the pool anyway. It still runs for a
+         customer being ADDED, where the number genuinely is being handed out. */
+      if(cn && (!BULK_BY_NUMBER || !existing)){
         await deleteDoc(doc(db,'availableCustomerNumbers', cn)).catch(function(){ /* fine if it was never pooled */ });
       }
       if(!phone && price !== null){ noPhoneNoInvoice++; }
