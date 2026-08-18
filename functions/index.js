@@ -613,6 +613,48 @@ function sanitizeRecord(data) {
  *
  * Split on hyphens and apostrophes as well as spaces, so "Adams" still signs
  * in "Sarah Adams-Brown" and "Brien" still signs in "Sarah O'Brien". */
+/* ⭐ ANY SURNAME IN THE HOUSEHOLD, NOT ONLY THE PAYER'S.
+ * Owner, 2026-08-18: "the child can log in they just need to put their parents
+ * phone number or email in, but their name should still work for it, so they
+ * can sign in with their last name or their parents".
+ *
+ * A student whose parents pay signs in with the PARENT'S phone or email,
+ * because that is the account. findByPhone then returns the parent's record and
+ * nameMatches tested the parent's surname alone — so a child with a different
+ * surname could not reach the account that is paying for their house.
+ *
+ * The set this widens to is not arbitrary: it is exactly the houses billed to
+ * this payer, which is the same group portalLookup already returns as `houses`
+ * and the same group the invoice already bills as one. If a house is on the
+ * parent's bill, the person living in it can sign in.
+ *
+ * ⚠ IT DOES WIDEN THE DOOR. The sign-in is phone-or-email plus a surname, and
+ * this makes several surnames valid for one account instead of one. For a
+ * family they are usually the same surname anyway, so the real widening is
+ * small — but it is real, and the rate limiter on this path is what keeps it
+ * from being guessable. Do not remove that limiter thinking this is harmless.
+ *
+ * Falls back to the payer alone if the query fails: nobody is locked out of
+ * their own account by a lookup that did not answer. */
+async function nameMatchesHousehold(payerData, payerId, typedName) {
+  if (nameMatches(payerData && payerData.name, typedName)) return true;
+  if (!typedName) return false;
+  try {
+    const billKey = digitsOnly(payerData.billToPhone) || invoiceKeyFor(payerData);
+    if (!billKey) return false;
+    const snap = await db.collection('jobAddresses')
+      .where('billToPhone', '==', billKey).get();
+    let ok = false;
+    snap.forEach(function (d) {
+      if (d.id === payerId) return;
+      if (nameMatches(d.data().name, typedName)) ok = true;
+    });
+    return ok;
+  } catch (err) {
+    console.error('[HU] household name check failed', err);
+    return false;
+  }
+}
 function nameMatches(storedName, typedName) {
   const stored = String(storedName || '').toLowerCase().trim();
   const typed = String(typedName || '').toLowerCase().trim();
@@ -836,11 +878,13 @@ exports.portalLookup = onCall({ cors: true }, async (request) => {
   } else if (phone) {
     await checkRateLimit('phone_' + phone);
     match = await findByPhone(phone);
-    if (match && !nameMatches(match.data.name, lastName)) match = null;
+    /* The payer's surname, or any surname in the household they are billing —
+       see nameMatchesHousehold. */
+    if (match && !(await nameMatchesHousehold(match.data, match.id, lastName))) match = null;
   } else if (email) {
     await checkRateLimit('email_' + email);
     match = await findByEmail(email);
-    if (match && !nameMatches(match.data.name, lastName)) match = null;
+    if (match && !(await nameMatchesHousehold(match.data, match.id, lastName))) match = null;
   } else {
     throw new HttpsError('invalid-argument', 'No lookup information provided.');
   }
@@ -1653,7 +1697,12 @@ exports.portalInvoice = onCall({ cors: true }, async (request) => {
      * this was a freely enumerable balance lookup — and it is the second door
      * the weak nameMatches opened. Counting only misses closes it without
      * touching anyone signing in correctly. */
-    if (nameMatches(data.name, lastName)) {
+    /* Mirrors portalLookup exactly, household and all — if the two disagree a
+       customer signs in and then cannot see the invoice they just reached.
+       ⚠ `data` here is the INVOICE, not a customer record, so it carries no
+       billToPhone of its own. The invoice's id IS the billing key, which is
+       precisely what the household query needs. */
+    if (await nameMatchesHousehold({ name: data.name, billToPhone: key }, '', lastName)) {
       authorized = true;
     } else {
       await checkRateLimit('invoice_' + key);

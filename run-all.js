@@ -3606,9 +3606,16 @@ suite('9. Portal sign-in security');
   check('security', 'portalInvoice rate-limits a failed last-name guess',
     /checkRateLimit\('invoice_'/.test(piSrc),
     'invoice IDs are phone digits — balances were enumerable with no limit at all');
+  /* The shape is what matters, not which name check is used: a match must
+     authorize and spend nothing, and only a MISS may reach the limiter.
+     Widened 2026-08-18 from nameMatches to nameMatchesHousehold so a student
+     whose parents pay can sign in with their own surname. */
   check('security', 'portalInvoice does not rate-limit a successful sign-in',
-    /if \(nameMatches\(data\.name, lastName\)\) \{\s*authorized = true;\s*\} else \{/.test(piSrc),
+    /if \(await nameMatchesHousehold\([\s\S]{0,160}?\)\) \{\s*authorized = true;\s*\} else \{/.test(piSrc),
     'this function re-runs on every portal render — charging successes locks customers out');
+  check('security', 'portalInvoice and portalLookup agree on who may sign in',
+    /nameMatchesHousehold/.test(piSrc) && /nameMatchesHousehold/.test(lookupSrc),
+    'if they disagree a customer signs in and then cannot see the invoice they just reached');
   check('security', 'portalInvoice never rate-limits the token path',
     !/token[\s\S]{0,200}checkRateLimit/.test(piSrc.slice(0, piSrc.indexOf('lastName)'))),
     'a customer following their own emailed link must never be throttled');
@@ -13069,6 +13076,157 @@ suite('Suite 58. The sheet against the book, both ways round');
     check('S58', 'and the stray ones are pointed at the tool that fixes them',
       /Merge duplicates/.test(body),
       'a list with no next step is where this stalls');
+  }
+}
+
+
+/* ============================================================
+ * Suite 59. Signing in on your parents' account.
+ *
+ * Owner, 2026-08-18: "the child can log in they just need to put their parents
+ * phone number or email in, but their name should still work for it, so they
+ * can sign in with their last name or their parents".
+ *
+ * The portal signs in on phone-or-email plus a surname. A student whose
+ * parents pay uses the PARENT'S phone, because that is the account — and
+ * findByPhone then returns the parent's record, so nameMatches tested the
+ * parent's surname alone. A child with a different surname could not reach the
+ * account paying for their own house.
+ *
+ * ⚠ THIS WIDENS THE DOOR, and the set it widens to is the argument for it: not
+ * anybody, but exactly the houses billed to this payer — the same group the
+ * portal already returns as "houses" and the invoice already bills as one.
+ * ============================================================ */
+suite('Suite 59. Signing in on your parents\u2019 account');
+{
+  const fns = read('functions/index.js');
+  const grab = (name) => {
+    /* ⚠ Take the `async` with it. Searching for "function name(" starts the
+       slice one word late inside "async function name(", which lifts an async
+       body into a plain function — and every await in it is then a syntax
+       error, reported from new Function() rather than from here. */
+    let at = fns.indexOf('async function ' + name + '(');
+    if (at < 0) at = fns.indexOf('function ' + name + '(');
+    if (at < 0) return '';
+    let d = 0;
+    for (let i = fns.indexOf('{', at); i < fns.length; i++) {
+      if (fns[i] === '{') d++;
+      else if (fns[i] === '}') { d--; if (!d) return fns.slice(at, i + 1); }
+    }
+    return '';
+  };
+  const nm = grab('nameMatches');
+  const hh = grab('nameMatchesHousehold');
+  check('S59', 'nameMatches and nameMatchesHousehold both exist', !!nm && !!hh);
+
+  if (nm && hh) pendingAsync.push((async () => {
+    /* A tiny stand-in for Firestore: one collection, one where() on
+       billToPhone. Nothing here reaches a real backend — §9.4. */
+    const build = (book) => {
+      const ctx = {};
+      const db = {
+        collection: function(){
+          return { where: function(field, op, val){
+            return { get: async function(){
+              const docs = book
+                .filter(function(b){ return String(b.billToPhone || '') === String(val); })
+                .map(function(b){ return {id: b.id, data: function(){ return b; }}; });
+              return {forEach: function(f){ docs.forEach(f); }};
+            } };
+          } };
+        }
+      };
+      new Function('db', 'digitsOnly', 'invoiceKeyFor', 'console',
+        nm + hh + 'this.f = nameMatchesHousehold;'
+      ).call(ctx, db,
+        (v) => String(v == null ? '' : v).replace(/\D/g, ''),
+        (d) => String((d && d.phone) || '').replace(/\D/g, ''),
+        { error: function(){} });
+      return ctx.f;
+    };
+
+    /* The parent pays for their own house and their child's. */
+    const PARENT = { id: 'p', name: 'Diane Whitaker', phone: '8015550001' };
+    const CHILD  = { id: 'c', name: 'Josh Brenner', phone: '8015559999', billToPhone: '8015550001' };
+    const book = [PARENT, CHILD];
+
+    check('S59', 'the parent still signs in with their own surname',
+      await build(book)(PARENT, 'p', 'Whitaker') === true);
+
+    /* ⭐ THE ASK. */
+    check('S59', 'and the child signs in on the parent\u2019s phone with THEIR surname',
+      await build(book)(PARENT, 'p', 'Brenner') === true,
+      'the account is the parent\u2019s, but the house being paid for is the child\u2019s');
+
+    check('S59', 'a first name works too, exactly as it always did',
+      await build(book)(PARENT, 'p', 'Josh') === true,
+      'nameMatches has always accepted any word of the name; this does not change that');
+
+    /* ⚠ AND NOBODY ELSE. */
+    check('S59', 'a surname belonging to nobody in the household is refused',
+      await build(book)(PARENT, 'p', 'Robinson') === false,
+      'this widens the door to the household and no further');
+    check('S59', 'an empty surname is always refused',
+      await build(book)(PARENT, 'p', '') === false,
+      'a blank must never authorise — it is the password');
+
+    /* ⚠ Only houses billed to THIS payer. */
+    {
+      const other = { id: 'x', name: 'Marcus Delgado', phone: '8015552222', billToPhone: '8015557777' };
+      check('S59', 'a customer billed to somebody ELSE cannot sign in here',
+        await build(book.concat([other]))(PARENT, 'p', 'Delgado') === false,
+        'the group is the bill, not the whole book');
+    }
+    {
+      /* A customer with no billing relationship at all. */
+      const lone = { id: 'l', name: 'Priya Raman', phone: '8015553333' };
+      check('S59', 'and neither can an unrelated customer',
+        await build(book.concat([lone]))(PARENT, 'p', 'Raman') === false);
+    }
+
+    /* ⚠ A payer nobody is billed to behaves exactly as before. */
+    {
+      const solo = { id: 's', name: 'Alan Pike', phone: '8015554444' };
+      const f = build([solo]);
+      check('S59', 'a customer with no household is unaffected',
+        await f(solo, 's', 'Pike') === true && await f(solo, 's', 'Whitaker') === false);
+    }
+
+    /* ⚠ NOBODY IS LOCKED OUT BY A FAILED QUERY. */
+    {
+      const ctx = {};
+      const brokenDb = { collection: function(){ return { where: function(){
+        return { get: async function(){ throw new Error('offline'); } }; } }; } };
+      new Function('db', 'digitsOnly', 'invoiceKeyFor', 'console',
+        nm + hh + 'this.f = nameMatchesHousehold;'
+      ).call(ctx, brokenDb,
+        (v) => String(v == null ? '' : v).replace(/\D/g, ''),
+        (d) => String((d && d.phone) || '').replace(/\D/g, ''),
+        { error: function(){} });
+      check('S59', 'the payer can still sign in when the household query fails',
+        await ctx.f(PARENT, 'p', 'Whitaker') === true,
+        'the payer is checked BEFORE the query, so a Firestore hiccup cannot lock somebody out of their own account');
+      check('S59', 'and a failed query refuses rather than admitting',
+        await ctx.f(PARENT, 'p', 'Brenner') === false,
+        'failing open on an authorisation check is the one direction that is never acceptable');
+    }
+  })());
+
+  /* ---- both doors, and the limiter that guards them ---- */
+  {
+    const lookupStart = fns.indexOf('exports.portalLookup');
+    const lookupSrc = lookupStart > -1 ? fns.slice(lookupStart, fns.indexOf('exports.portalSave')) : '';
+    check('S59', 'the phone sign-in uses the household check',
+      /match = await findByPhone\(phone\);[\s\S]{0,300}?nameMatchesHousehold\(match\.data, match\.id, lastName\)/.test(lookupSrc));
+    check('S59', 'and so does the email sign-in',
+      /match = await findByEmail\(email\);[\s\S]{0,200}?nameMatchesHousehold\(match\.data, match\.id, lastName\)/.test(lookupSrc),
+      'a parent who gave an email rather than a phone must not be a second class of account');
+    /* ⚠ The limiter is what keeps a guessable surname from being brute forced,
+       and this change makes several surnames valid instead of one. */
+    check('S59', 'the rate limiter on the guessable path is still there',
+      /checkRateLimit\('phone_' \+ phone\)/.test(lookupSrc) &&
+      /checkRateLimit\('email_' \+ email\)/.test(lookupSrc),
+      'widening which surnames work makes this limiter MORE load-bearing, not less');
   }
 }
 
