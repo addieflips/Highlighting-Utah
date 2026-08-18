@@ -15303,6 +15303,81 @@ function rbCollectNumberFixes(){
   return {changes: changes, missing: missing, collided: collided, taken: taken, wrongMode: false};
 }
 let rbPendingNumberFixes = null;
+/* ⭐ FOUR WAYS TO RECOGNISE THE SAME PERSON, STRONGEST FIRST.
+   Owner, 2026-08-18, reading a list of customers the comparison said were not
+   on her sheet — "Anderson Brit / Dani — Pleasant Grove", "Richards Jeff —
+   Levan", "Sara May #479 — 594 N 150 E, Herriman":
+   "the system should use multiple identifiers to see if these people are in
+   both its just the identifier info you're currently using is wrong and so
+   thats why you dont exist"
+
+   Exactly right. The import matches on street-with-phone, and those records
+   have neither a street nor a matching phone — a name, a town, and sometimes a
+   customer number is all they carry. No paste could ever reach them, so every
+   comparison called them missing.
+
+   ⚠ USED BY THE COMPARISON ONLY, never by the import. Everything found here is
+   put in front of the office to tick before anything is written; the import
+   writes the moment it matches, and loosening its key is how a row lands on a
+   stranger.
+
+   ⚠ EVERY STEP DEMANDS ONE ANSWER. Two candidates is not a weaker match, it is
+   no match — reported instead, because picking between them is a guess about
+   which record is really theirs.
+
+   ⚠ AND A NUMBER NEVER OUTRANKS A NAME THAT DISAGREES. Health Check has
+   number 479 held by BOTH May Sara and Rachel Oslund. Matching on the number
+   alone would bind May Sara's row to Rachel Oslund's record and then offer to
+   overwrite her with it. */
+function rbCompareFindCustomer(row){
+  const nm = dupNormName(row.name);
+  const namesAgree = function(c){
+    const theirs = dupNormName((c.data || {}).name);
+    /* Silence on either side is not disagreement. */
+    return !nm || !theirs || nm === theirs;
+  };
+  const only = function(list){ return list.length === 1 ? list[0] : null; };
+
+  /* 1. The customer number — the one key that is meant to be unique. */
+  const cu = String(row.cu == null ? '' : row.cu).trim();
+  if(cu){
+    const sameNum = jobAddresses.filter(function(c){
+      return String((c.data || {}).customerNumber || '').trim() === cu;
+    });
+    const named = sameNum.filter(namesAgree);
+    const hit = only(named.length ? named : sameNum);
+    if(hit && namesAgree(hit)) return {cust: hit, via: 'customer number'};
+  }
+  /* 2. The phone, when exactly one customer has it. */
+  const digits = String(row.phone == null ? '' : row.phone).replace(/\D/g,'');
+  if(digits){
+    const samePhone = jobAddresses.filter(function(c){
+      return String((c.data || {}).phone || '').replace(/\D/g,'') === digits;
+    });
+    const hit = only(samePhone);
+    if(hit && namesAgree(hit)) return {cust: hit, via: 'phone'};
+  }
+  /* 3. Street and phone together — what the import itself uses. */
+  const byAddress = bulkFindCustomer(row.street, String(row.phone || ''),
+                                     String(row.city || ''), String(row.zip || ''), cu);
+  if(byAddress) return {cust: byAddress, via: 'address'};
+  /* 4. The name, with the town to separate two people who share one.
+        Last, and only when there is exactly one of them. */
+  if(nm){
+    const sameName = jobAddresses.filter(function(c){ return dupNormName((c.data || {}).name) === nm; });
+    const town = extractCleanCity(row.city || '');
+    if(town){
+      const inTown = sameName.filter(function(c){
+        return extractCleanCity((c.data || {}).city || '') === town;
+      });
+      const hit = only(inTown);
+      if(hit) return {cust: hit, via: 'name and town'};
+    }
+    const hit = only(sameName);
+    if(hit) return {cust: hit, via: 'name'};
+  }
+  return null;
+}
 /* ⭐ WHO IS ON THE SHEET BUT NOT ON THE WEBSITE.
    Owner, 2026-08-18: "kathy brown exists on the excel but not on the website
    make it so I can check for people who dont exist on the website and I can
@@ -15409,9 +15484,21 @@ function rbCollectMissingCustomers(){
     /* Nothing to identify a person by is nothing to add. */
     if(!who && !street && !phone) continue;
     read++;
-    const hit = bulkFindCustomer(street, String(phones[i] || ''), String(cities[i] || ''), String(zips[i] || ''), cu);
+    /* Four keys, not one — see rbCompareFindCustomer. */
+    const found = rbCompareFindCustomer({
+      name: who, cu: cu, street: street, phone: String(phones[i] || ''),
+      city: String(cities[i] || ''), zip: String(zips[i] || '')
+    });
+    const hit = found && found.cust;
+    /* ⚠ ONE RECORD, ONE ROW — the same guard the import has, and it matters
+       more here: the looser keys mean two rows CAN reach one customer, and the
+       second would silently overwrite whatever the first just offered. */
+    if(hit && matched[hit.id]){
+      skipped.push({row: i + 1, name: who || street, first: matched[hit.id]});
+      continue;
+    }
     if(hit){
-      matched[hit.id] = true;
+      matched[hit.id] = i + 1;
       /* ⭐ AND EVERY FIELD THAT DISAGREES. Owner: "so it tells me all the
          imperfections between the two and if all the imperfections are right
          and nothing is wrong then they just sync."
@@ -15426,6 +15513,10 @@ function rbCollectMissingCustomers(){
         const mine = d[f.key];
         if(f.same(mine, theirs)) return;
         diffs.push({id: hit.id, row: i + 1, who: (d.name || who || street),
+                    /* How this row found its customer, so a match made on a
+                       weaker key than the address is visible before it is
+                       ticked rather than after it is written. */
+                    via: found.via,
                     key: f.key, label: f.label,
                     from: (mine === null || mine === undefined || String(mine).trim() === '') ? '' : String(mine),
                     to: theirs, write: f.write ? f.write(theirs) : theirs});
@@ -16217,7 +16308,10 @@ document.getElementById('rbFindMissingBtn')?.addEventListener('click', function(
         found.diffs.slice(0, 400).map(function(x, n){
           return '<tr style="border-bottom:1px solid var(--line);">' +
             '<td style="padding:3px 8px 3px 0;"><input type="checkbox" class="rb-diff-pick" data-n="' + n + '" checked></td>' +
-            '<td style="padding:3px 8px 3px 0;">' + esc(x.who) + '</td>' +
+            '<td style="padding:3px 8px 3px 0;">' + esc(x.who) +
+              (x.via && x.via !== 'address'
+                ? '<span style="color:var(--slate); font-size:11.5px;"> (matched on ' + esc(x.via) + ')</span>'
+                : '') + '</td>' +
             '<td style="padding:3px 8px 3px 0; color:var(--slate);">' + esc(x.label) + '</td>' +
             '<td style="padding:3px 8px 3px 0; color:var(--slate);">' + esc(x.from || '(blank)') + '</td>' +
             '<td style="padding:3px 0;">→ <strong>' + esc(String(x.to)) + '</strong></td></tr>';
@@ -16720,34 +16814,67 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
     return;
   }
   const phones = anchorIsPhones ? anchor : alignBulkRows(phonesRaw, anchor.length);
-  const emails = alignBulkRows(rbCol('rbEmailsArea', hoff), streets.length);
-  const cities = alignBulkRows(rbCol('rbCitiesArea', hoff), streets.length);
-  const states = alignBulkRows(rbCol('rbStatesArea', hoff), streets.length);
-  const zips = alignBulkRows(rbCol('rbZipsArea', hoff), streets.length);
-  const dates = alignBulkRows(rbCol('rbDatesArea', hoff), streets.length);
-  const colorsRaw = alignBulkRows(rbCol('rbColorsArea', hoff), streets.length);
-  const amounts = alignBulkRows(rbCol('rbAmountsArea', hoff), streets.length);
-  const installPrefRaw = alignBulkRows(rbCol('rbInstallPrefArea', hoff), streets.length);
-  const wireRaw = alignBulkRows(rbCol('rbWireArea', hoff), streets.length);
-  const timerRaw = alignBulkRows(rbCol('rbTimerArea', hoff), streets.length);
-  const eavesRaw = alignBulkRows(rbCol('rbEavesArea', hoff), streets.length);
-  const difficultyRaw = alignBulkRows(rbCol('rbDifficultyArea', hoff), streets.length);
-  const feetRaw = alignBulkRows(rbCol('rbFeetArea', hoff), streets.length);
-  const notesRaw = alignBulkRows(rbCol('rbNotesArea', hoff), streets.length);
+  const emails = alignBulkRows(rbCol('rbEmailsArea', hoff), anchor.length);
+  const cities = alignBulkRows(rbCol('rbCitiesArea', hoff), anchor.length);
+  const states = alignBulkRows(rbCol('rbStatesArea', hoff), anchor.length);
+  const zips = alignBulkRows(rbCol('rbZipsArea', hoff), anchor.length);
+  const dates = alignBulkRows(rbCol('rbDatesArea', hoff), anchor.length);
+  const colorsRaw = alignBulkRows(rbCol('rbColorsArea', hoff), anchor.length);
+  const amounts = alignBulkRows(rbCol('rbAmountsArea', hoff), anchor.length);
+  const installPrefRaw = alignBulkRows(rbCol('rbInstallPrefArea', hoff), anchor.length);
+  const wireRaw = alignBulkRows(rbCol('rbWireArea', hoff), anchor.length);
+  const timerRaw = alignBulkRows(rbCol('rbTimerArea', hoff), anchor.length);
+  const eavesRaw = alignBulkRows(rbCol('rbEavesArea', hoff), anchor.length);
+  const difficultyRaw = alignBulkRows(rbCol('rbDifficultyArea', hoff), anchor.length);
+  const feetRaw = alignBulkRows(rbCol('rbFeetArea', hoff), anchor.length);
+  const notesRaw = alignBulkRows(rbCol('rbNotesArea', hoff), anchor.length);
   const checks = [
     ['Name', names],
     ['Phone Number', phones], ['Email', emails], ['City', cities], ['State', states], ['Zip Code', zips], ['Date Added', dates],
     ['Light Color(s)', colorsRaw], ['Payment Amount', amounts], ['Install Month', installPrefRaw],
     ['Wire Color', wireRaw], ['Outlet Timer', timerRaw], ['Use Eaves', eavesRaw], ['Difficulty', difficultyRaw]
   ];
+  /* The box each label came out of, so the check below can look at the column
+     as PASTED rather than after it has been padded to the anchor. */
+  const RB_LABEL_BOX = {
+    'Name':'rbNamesArea', 'Phone Number':'rbPhonesArea', 'Email':'rbEmailsArea',
+    'City':'rbCitiesArea', 'State':'rbStatesArea', 'Zip Code':'rbZipsArea',
+    'Date Added':'rbDatesArea', 'Light Color(s)':'rbColorsArea',
+    'Payment Amount':'rbAmountsArea', 'Install Month':'rbInstallPrefArea',
+    'Wire Color':'rbWireArea', 'Outlet Timer':'rbTimerArea',
+    'Use Eaves':'rbEavesArea', 'Difficulty':'rbDifficultyArea'
+  };
+  const rbColRawFor = function(label){
+    const box = RB_LABEL_BOX[label];
+    return box ? rbCol(box, hoff) : null;
+  };
+  /* ⭐ A SHORT COLUMN IS NORMAL. Owner, 2026-08-18, listing her own row counts —
+     Payment Amount 960, Install Month 958, Wire Colour 959, Measured Feet 947 —
+     "all the ones that dont say 960 rows here gets flagged making it so I cant
+     bul it even though I copied it from an excel".
+
+     She is right, and it was two faults compounding. Excel DROPS trailing empty
+     cells when you copy a column, so a column whose last rows are blank arrives
+     short every time — 947 feet against 960 amounts is exactly that and means
+     nothing is wrong. And every column was being padded to the STREET column's
+     length while being measured against the ANCHOR's, so whenever those two
+     differed by even one row, every filled column failed at once.
+
+     What is still worth refusing is a column with real content PAST the end of
+     the anchor: that is a paste genuinely out of line, and importing it writes
+     values onto the wrong people. So the test is on where the content ends, not
+     on how long the array is. */
   for(const [label, arr] of checks){
     const nonEmptyCount = arr.filter(Boolean).length;
-    if(nonEmptyCount && arr.length !== anchor.length){
+    const rawLen = trimTrailingBlankRows(rbColRawFor(label) || []).length;
+    if(nonEmptyCount && rawLen > anchor.length){
       /* Named after whichever column is actually the anchor, because that is
          the one everything else is being measured against — telling somebody
          their Name column disagrees with Street Address, when the numbers are
          what set the count, sends them to fix the wrong box. */
-      statusEl.textContent = label + ' has ' + arr.length + ' row(s) but ' + anchorLabel + ' has ' + anchor.length + '.'
+      statusEl.textContent = label + ' still has something on row ' + rawLen + ', but ' + anchorLabel +
+        ' stops at row ' + anchor.length + ' — so that column is out of line with the rest and every row ' +
+        'below the join would be written to the wrong customer.'
         + bulkMismatchHint(anchorLabel, anchorIsNumbers ? cnRawAll : streetsRaw, label);
       return;
     }

@@ -8058,9 +8058,32 @@ suite('Suite 32. Customer number as identifier, and flipped names');
     /rbRefreshCounts\(\);/.test(admin),
     'anchored on anything but the identifier, the identifier itself gets flagged as the wrong length. CHANGED 2026-08-17: wired ONCE now and reused through rbRefreshCounts, rather than the same call written out twice — one wiring site cannot disagree with itself');
   check('S32', 'the anchor is never the column reported as being wrong',
-    /const anchorLabel = anchorIsNumbers \? 'Customer #' : anchorIsPhones \? 'Phone Number' : 'Street Address'/.test(admin) &&
-    /arr\.length !== anchor\.length/.test(admin),
+    /const anchorLabel = anchorIsNumbers \? 'Customer #' : anchorIsPhones \? 'Phone Number' : 'Street Address'/.test(admin),
     'the indicator sets the count — reporting that it disagrees with itself sends somebody to fix the wrong box');
+  /* ⭐ CHANGED 2026-08-18. Owner, listing her own counts — Payment Amount 960,
+     Install Month 958, Wire Colour 959, Measured Feet 947: "all the ones that
+     dont say 960 rows here gets flagged making it so I cant bul it even though
+     I copied it from an excel".
+     Excel DROPS trailing empty cells when a column is copied, so a column whose
+     last rows are blank arrives short EVERY time — 947 against 960 is that, and
+     means nothing is wrong. Comparing lengths refused the ordinary case. What
+     is still worth refusing is content past the END of the anchor, which is a
+     paste genuinely out of line. */
+  check('S32', 'a column that merely ends early is not refused',
+    /const rawLen = trimTrailingBlankRows\(rbColRawFor\(label\) \|\| \[\]\)\.length;/.test(admin) &&
+    /if\(nonEmptyCount && rawLen > anchor\.length\)\{/.test(admin) &&
+    !/arr\.length !== anchor\.length/.test(admin),
+    'trailing blanks are dropped by Excel, so equal lengths were never something a real paste could offer');
+  check('S32', 'but content PAST the anchor still is',
+    /still has something on row ' \+ rawLen \+ '/.test(admin),
+    'that is a column out of line, and importing it writes values onto the wrong customers');
+  /* ⚠ Every column has to be padded to the ANCHOR, not to the street column.
+     Padding to one length and measuring against another is what made every
+     filled column fail at once the moment the two differed by a single row. */
+  check('S32', 'every column is aligned to the anchor it is measured against',
+    (admin.match(/alignBulkRows\(rbCol\('rb[A-Za-z]+Area', hoff\), streets\.length\)/g) || []).length <= 3,
+    'found ' + (admin.match(/alignBulkRows\(rbCol\('rb[A-Za-z]+Area', hoff\), streets\.length\)/g) || []).length +
+    ' still padded to the street column (up to 3 remain in Check First, which builds its own preview rows)');
   /* ⏸ The temporary switch itself. Written down so the next session can see
      that 'phone+address' is a deliberate, reversible state and not the design —
      owner, 2026-08-17: "the numbers in the website are currently not match
@@ -12893,6 +12916,7 @@ suite('Suite 58. The sheet against the book, both ways round');
            through it, so a stub would let a colour list through as a note. */
         "const RB_LIGHT_COLOR_OPTIONS = " + JSON.stringify(RB_COLOR_OPTS) + ';' +
         "const RB_COLOR_ALIASES = " + JSON.stringify(RB_COLOR_ALIAS) + ';' +
+        fn('rbCompareFindCustomer') +
         fn('rbNotesLooksLikeColors') +
         fn('extractCleanCity') +
         fn('dupNormName') + fn('rbNormalizeInstallPref') + fn('rbNormalizeFeet') +
@@ -12909,64 +12933,121 @@ suite('Suite 58. The sheet against the book, both ways round');
       return ctx.f();
     };
     const c = (id, o) => ({ id: id, data: o });
-    /* ---- ⭐ ONE PERSON, NOT TWO PROBLEMS ---- */
+    /* ---- ⭐ FOUR WAYS TO RECOGNISE THE SAME PERSON ---- */
     {
       /* Straight out of the owner's own report:
            sheet:   "Brit / Dani Anderson #20 — 1499 W 800 N, Pleasant Grove"
            website: "Anderson Brit / Dani", no number, no address
-         "why did she pop up if shes already there" — because she was in BOTH
-         lists at once: her record matched no row, and her row matched no
-         record. Two entries, two different-sounding faults, one customer. */
+         "the system should use multiple identifiers to see if these people are
+         in both its just the identifier info you're currently using is wrong
+         and so thats why you dont exist."
+
+         The import matches on street-with-phone. That record has neither, so
+         no paste could ever reach it and every comparison called her missing —
+         then offered to add a second copy of somebody already there. */
       const book = [c('anderson', { name: 'Anderson Brit / Dani', street: '', address: ', UT' }),
                     c('other', { name: 'Someone Else', street: '1 A St', city: 'Lehi' })];
       const r = run([{ name: 'Anderson Brit / Dani', cu: '20',
                        street: '1499 W 800 N', city: 'Pleasant Grove' },
                      { name: 'Else Someone', street: '1 A St', city: 'Lehi' }], book);
 
-      check('S58', 'her sheet row is joined to the record she is already on',
-        r.rows.length === 1 && !!r.rows[0].pairedSite && r.rows[0].pairedSite.id === 'anderson',
-        'got ' + JSON.stringify(r.rows.map(function(x){ return x.name + '->' + (x.pairedSite && x.pairedSite.id); })));
-      /* ⚠ THE FIX FOR THE CONFUSION: she must not ALSO be listed as a
-         customer missing from the sheet. */
-      check('S58', 'and she is no longer reported a second time on the other list',
-        !r.onlyOnSite.some(function(x){ return x.id === 'anderson'; }) && r.pairedCount === 1,
-        'listing one person as two separate problems is what made the report unreadable: ' +
-        JSON.stringify(r.onlyOnSite.map(function(x){ return x.id; })));
-      check('S58', 'the record she is on is carried across so the report can name it',
-        !!r.rows[0] && !!r.rows[0].pairedSite &&
-        r.rows[0].pairedSite.where === 'no address at all' && r.rows[0].pairedSite.cu === '',
-        'naming the address is what answers "why did she pop up" — the website has her at none');
-      /* ⭐ CHANGED 2026-08-18. Owner: "I want it to update the customer not add
-         a new one." A paired row is not a doubtful add — it is the row that
-         belongs to that record, so it is ticked, and pressing the button writes
-         it ONTO the record. The record gains the address that makes it findable
-         again and the second copy never exists. */
-      check('S58', 'and she is TICKED, because ticking her updates that record',
-        !!r.rows[0] && r.rows[0].suspect === false,
-        'she was left unticked and sent to Merge duplicates, which is a second trip for ' +
-        'something this row already knows how to fix');
+      check('S58', 'a record with no street is found by name instead of being called missing',
+        r.rows.length === 0 && r.matchedCount === 2,
+        'offered as new: ' + JSON.stringify(r.rows.map(function(x){ return x.name; })) +
+        ' — she is on the website, so nothing about her belongs in a "missing" list');
+      check('S58', 'and she is not reported as missing from the sheet either',
+        !r.onlyOnSite.some(function(x){ return x.id === 'anderson'; }),
+        'one person listed as two separate problems is what made the report unreadable');
+      /* ⭐ AND HER DIFFERENCES ARE OFFERED, which is the actual fix: the
+         record gains the address and number that make it findable again. */
+      check('S58', 'her missing address and number come through as differences to tick',
+        (function(){
+          const by = {};
+          r.diffs.forEach(function(d){ by[d.key] = d; });
+          return by.street && by.street.to === '1499 W 800 N' &&
+                 by.customerNumber && by.customerNumber.to === '20';
+        })(),
+        JSON.stringify(r.diffs.map(function(d){ return d.key + '->' + d.to; })));
+      check('S58', 'and the report says which key found her, since it was not the address',
+        r.diffs.length > 0 && r.diffs[0].via === 'name',
+        'got ' + JSON.stringify(r.diffs.length ? r.diffs[0].via : null) +
+        ' — a match made on a weaker key than the address has to be visible BEFORE it is ticked');
+    }
+
+    /* ⚠ THE NUMBER NEVER OUTRANKS A NAME THAT DISAGREES. Health Check has
+       number 479 held by BOTH May Sara and Rachel Oslund. */
+    {
+      const book = [c('rachel', { name: 'Rachel Oslund', customerNumber: '479', street: '594 N 150 E', city: 'American Fork' })];
+      const r = run([{ name: 'May Sara', cu: '479', street: '14224 S Summit Crest Ln', city: 'Herriman' }], book);
+      check('S58', 'a shared customer number does not bind one person to another',
+        r.rows.length === 1 && r.matchedCount === 0,
+        'matching on 479 alone would offer to overwrite Rachel Oslund with May Sara\u2019s details');
     }
     {
-      /* ⚠ Two records of that name and there is nothing to join it to with
-         any confidence — it stays a plain warning, both stay listed. */
-      const book = [c('a1', { name: 'Anderson Brit / Dani', street: '' }),
-                    c('a2', { name: 'Anderson Brit / Dani', street: '' })];
-      const r = run([{ name: 'Anderson Brit / Dani', cu: '20', street: '1499 W 800 N', city: 'Pleasant Grove' }], book);
-      /* ⚠ And one record must not be claimed by two rows — the second would be
+      /* But the number DOES win when the names agree. */
+      const book = [c('may', { name: 'May Sara', customerNumber: '479', street: '', address: ', UT' })];
+      const r = run([{ name: 'Sara May', cu: '479', street: '14224 S Summit Crest Ln', city: 'Herriman' }], book);
+      check('S58', 'the customer number finds her when the name agrees, whichever way round it is written',
+        r.rows.length === 0 && r.matchedCount === 1 &&
+        r.diffs.some(function(d){ return d.key === 'street' && d.to === '14224 S Summit Crest Ln'; }),
+        'the sheet writes Last First; dupNormName is what lets that still count as agreeing');
+    }
+    {
+      /* ⚠ Two of a name is NOT a weaker match, it is no match. */
+      const book = [c('a', { name: 'Chad Henry', street: '1 A St', city: 'Herriman' }),
+                    c('b', { name: 'Chad Henry', street: '9 B Rd', city: 'Lehi' })];
+      const r = run([{ name: 'Henry Chad', street: '77 New Pl', city: 'Provo' }], book);
+      check('S58', 'two customers of one name are not picked between',
+        r.rows.length === 1 && r.matchedCount === 0,
+        'choosing one would be a guess about which record is really theirs');
+    }
+    {
+      /* The town separates two people who share a name. */
+      const book = [c('a', { name: 'Chad Henry', street: '1 A St', city: 'Herriman' }),
+                    c('b', { name: 'Chad Henry', street: '9 B Rd', city: 'Lehi' })];
+      const r = run([{ name: 'Henry Chad', street: '77 New Pl', city: 'Lehi' }], book);
+      check('S58', 'but the town separates them',
+        r.rows.length === 0 && r.matchedCount === 1,
+        'name and town together is one person where the name alone is two');
+    }
+    {
+      /* A phone nobody else has is enough on its own. */
+      const book = [c('a', { name: 'Tom Fry', street: '', phone: '8015550001' })];
+      const r = run([{ name: 'Fry Tom', street: '55 Elm', city: 'Highland', phone: '8015550001' }], book);
+      check('S58', 'a phone only one customer has finds them',
+        r.rows.length === 0 && r.matchedCount === 1,
+        'a record with no street has nothing else left to be found by');
+    }
+    {
+      /* ⚠ BUT NOT WHEN THE NAME DISAGREES. A phone changes hands, and a number
+         reissued to somebody new would otherwise drag a stranger's row onto an
+         existing customer and offer to overwrite them with it. */
+      const book = [c('a', { name: 'Someone Different', street: '', phone: '8015550001' })];
+      const r = run([{ name: 'Fry Tom', street: '55 Elm', city: 'Highland', phone: '8015550001' }], book);
+      check('S58', 'a matching phone is refused when the names disagree',
+        r.rows.length === 1 && r.matchedCount === 0,
+        'the phone is the only thing they share, and it is the one identifier that moves between people');
+    }
+    {
+      /* Silence on either side is not disagreement. */
+      const book = [c('a', { name: '', street: '', phone: '8015550001' })];
+      const r = run([{ name: 'Fry Tom', street: '55 Elm', city: 'Highland', phone: '8015550001' }], book);
+      check('S58', 'a record with no name at all is still reachable by its phone',
+        r.rows.length === 0 && r.matchedCount === 1,
+        'treating a blank as a disagreement would strand every unnamed record for ever');
+    }
+
+    /* ⚠ And one record must not be claimed by two rows — the second would be
          told it is already here, on a record the first has taken. */
       {
         const b2 = [c('one', { name: 'Anderson Brit / Dani', street: '' })];
         const r2 = run([{ name: 'Anderson Brit / Dani', cu: '20', street: '1499 W 800 N', city: 'Pleasant Grove' },
                         { name: 'Anderson Brit / Dani', cu: '21', street: '55 Other Rd', city: 'Lehi' }], b2);
         check('S58', 'one record is claimed by at most one row',
-          r2.pairedCount === 1 && r2.rows.filter(function(x){ return !!x.pairedSite; }).length === 1,
-          'rows paired: ' + r2.rows.filter(function(x){ return !!x.pairedSite; }).length +
-          ', pairedCount ' + r2.pairedCount);
+          r2.matchedCount === 1 && r2.skipped.length === 1,
+          'the looser keys mean two rows CAN reach one customer, and the second would ' +
+          'silently overwrite what the first offered: matched ' + r2.matchedCount + ', skipped ' + r2.skipped.length);
       }
-      check('S58', 'two records of one name are not joined by guesswork',
-        !r.rows[0].pairedSite && r.onlyOnSite.length === 2 && r.pairedCount === 0,
-        'picking one of two would be a guess about which record is really hers');
-    }
     {
       /* ⚠ A genuinely new customer is not paired with anybody. */
       const book = [c('x', { name: 'Someone Else', street: '1 A St', city: 'Lehi' })];
@@ -13057,13 +13138,24 @@ suite('Suite 58. The sheet against the book, both ways round');
     {
       const book = [c('stray', { name: 'May Sara', street: '', address: ', UT', customerNumber: '479' })];
       const r = run([{ name: 'May Sara', street: '14224 S Summit Crest Ln', city: 'Herriman', cu: '541' }], book);
-      /* This row IS the record's row — same name, and that record is reachable
-         by nothing — so it pairs, and pairing means update rather than add. */
-      check('S58', 'a row that pairs with an unreachable record is ticked, to update it',
-        r.rows.length === 1 && r.rows[0].suspect === false && !!r.rows[0].pairedSite,
-        'ticking it adds nothing — it writes this row onto the record that is already here');
-      check('S58', 'and it says who is already here and on what number',
-        r.rows.length === 1 && /May Sara/.test(r.rows[0].namesake) && /#479/.test(r.rows[0].namesake),
+      /* ⭐ RESTATED 2026-08-18. This used to be offered as a doubtful ADD with
+         a warning beside it. It is not an add at all: the name finds her, so
+         she is a matched customer whose record is missing the address and the
+         number, and those come through as differences to tick. The whole
+         "should I add her?" question stops being asked. */
+      check('S58', 'a record reachable by nothing is matched by name, not offered as new',
+        r.rows.length === 0 && r.matchedCount === 1,
+        'offered as new: ' + JSON.stringify(r.rows.map(function(x){ return x.name; })));
+      check('S58', 'and what her record is missing comes through as differences',
+        (function(){
+          const by = {};
+          r.diffs.forEach(function(d){ by[d.key] = d; });
+          return by.street && by.street.to === '14224 S Summit Crest Ln' &&
+                 by.customerNumber && by.customerNumber.to === '541';
+        })(),
+        JSON.stringify(r.diffs.map(function(d){ return d.key + '->' + d.to; })));
+      check('S58', 'including the number, which is what she came here to fix',
+        r.diffs.some(function(d){ return d.key === 'customerNumber' && d.from === '479' && d.to === '541'; }),
         'got "' + (r.rows[0] && r.rows[0].namesake) + '"');
     }
     {
