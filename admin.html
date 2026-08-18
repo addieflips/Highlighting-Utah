@@ -1549,7 +1549,12 @@
             <button type="button" class="btn btn-gold" id="rbImportBtn" style="margin-top:6px;">Import / Update Customers</button>
             <button type="button" class="btn btn-outline" id="rbFixNamesBtn" style="margin-top:6px;">Fix names only</button>
             <button type="button" class="btn btn-outline" id="rbFixNumbersBtn" style="margin-top:6px;">Fix CU# only</button>
-            <button type="button" class="btn btn-outline" id="rbFindMissingBtn" style="margin-top:6px;">Compare with my Excel sheet</button>
+            <!-- ⚠ NAMED FOR THE SIDE IT COMPARES AGAINST, not the side it reads.
+                 It was "Compare with my Excel sheet", which the owner rightly
+                 read as circular: the sheet is what you just pasted in, so the
+                 thing being compared WITH is the website. -->
+            <button type="button" class="btn btn-outline" id="rbFindMissingBtn" style="margin-top:6px;">Compare this sheet with the website</button>
+            <div style="font-size:12.5px; color:var(--slate); margin-top:6px;">Changes nothing on its own. Lists who is on the sheet but not on the website, who is on the website but not on the sheet, and every field the two disagree about &mdash; then you tick what is right and sync it.</div>
             <span id="rbImportStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
             <div id="rbFixNamesReport" style="margin-top:10px;"></div>
             <div id="rbFixNumbersReport" style="margin-top:10px;"></div>
