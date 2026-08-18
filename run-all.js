@@ -11940,23 +11940,26 @@ suite('Suite 53. October is a deadline');
 }
 
 
+
 /* ============================================================
- * Suite 54. Deleting the copies that are identical.
+ * Suite 54. Merging a customer who is in the book twice.
  *
- * Owner, 2026-08-18: "we need to delete duplicate customers, create a button
- * that delete duplicates, meaning everything is the same."
+ * Owner, 2026-08-18: "the bad duplicates have their address titled: , UT and
+ * the good duplicated dont have a price"; "use name and CU#"; "if you can make
+ * it so they rather merge more than just delete".
  *
- * The scored tool (Suite 45) WEIGHS two copies and keeps the richer one, which
- * is a judgement, which is why it refuses so many pairs. This asks a smaller
- * question with a much safer answer: are these records identical? If they are,
- * one can go and nothing is lost — there is no field on the loser the keeper
- * does not already have, by definition.
+ * HOW THE DUPLICATES HAPPENED, because the fix has to hold against it:
+ * buildFullAddress('', '', '') returns exactly ", UT". A bulk import ran with
+ * the Street and City columns blank; BULK_IDENTIFIER is 'phone+address', so
+ * with no street the match could not succeed and every row fell past "update
+ * this customer" into "add a new one" — a second copy of the whole book, each
+ * carrying ", UT" for an address and a price on its invoice.
  *
- * So the whole safety of the button rests on "everything is the same" really
- * meaning EVERYTHING. Most of this suite is about the ways that could quietly
- * stop being true.
+ * So the two copies each hold something the other does not, which is exactly
+ * the case the scored tool (Suite 45) REFUSES. Merging is what actually fixes
+ * this book: fill the keeper's blanks from the spare, then remove the spare.
  * ============================================================ */
-suite('Suite 54. Deleting the copies that are identical');
+suite('Suite 54. Merging a customer who is in the book twice');
 {
   const fn = (name) => {
     const at = admin.indexOf('function ' + name + '(');
@@ -11969,159 +11972,240 @@ suite('Suite 54. Deleting the copies that are identical');
     return '';
   };
 
-  const fpSrc = fn('dupFingerprint');
-  const findSrc = fn('findIdenticalCustomers');
-  check('S54', 'dupFingerprint and findIdenticalCustomers exist', !!fpSrc && !!findSrc);
-
-  if (fpSrc) {
-    const sb = {};
-    new Function(fpSrc + 'this.fp = dupFingerprint;').call(sb);
-    const fp = sb.fp;
-
-    check('S54', 'two identical records match',
-      fp({ name: 'Julie Cattani', city: 'Lehi', phone: '801-555-0100' }) ===
-      fp({ name: 'Julie Cattani', city: 'Lehi', phone: '801-555-0100' }));
-
-    /* ⚠ THE WHOLE POINT. Any difference at all has to block it. */
-    check('S54', 'a different phone stops them matching',
-      fp({ name: 'Julie', phone: '801-555-0100' }) !== fp({ name: 'Julie', phone: '801-555-0101' }));
-    check('S54', 'a different town stops them matching',
-      fp({ name: 'Julie', city: 'Lehi' }) !== fp({ name: 'Julie', city: 'Highland' }));
-    check('S54', 'a field one has and the other does not stops them matching',
-      fp({ name: 'Julie', notes: 'gate code 1234' }) !== fp({ name: 'Julie' }),
-      'the note would be deleted with the record and never seen again');
-    check('S54', 'a different price or footage stops them matching',
-      fp({ name: 'J', housePrice: 355 }) !== fp({ name: 'J', housePrice: 415 }) &&
-      fp({ name: 'J', measuredFeet: 120 }) !== fp({ name: 'J', measuredFeet: 121 }));
-    check('S54', 'a different list of colours stops them matching',
-      fp({ name: 'J', lightColors: ['Red', 'Green'] }) !== fp({ name: 'J', lightColors: ['Red', 'Blue'] }),
-      'and order matters, because the crew hangs them in it');
-    check('S54', 'a false does not read as a missing field',
-      fp({ name: 'J', chargeNewMemberFee: false }) !== fp({ name: 'J' }),
-      'a flag deliberately turned off is not the same as one nobody set');
-
-    /* ⚠ Sorting the keys — two documents can hold the same fields in a
-       different order and must still be recognised as the same record. */
-    check('S54', 'the order the fields happen to be in makes no difference',
-      fp({ name: 'Julie', city: 'Lehi' }) === fp({ city: 'Lehi', name: 'Julie' }),
-      'without sorting this finds nothing at all, which looks like "no duplicates"');
-
-    /* Blank and missing are the same thing to the office — the importer writes
-       one where a hand-edit leaves the other. */
-    check('S54', 'a blank field and a missing one count as the same',
-      fp({ name: 'Julie', email: '' }) === fp({ name: 'Julie' }) &&
-      fp({ name: 'Julie', email: '   ' }) === fp({ name: 'Julie' }),
-      'a blank carries no information, so treating them alike cannot lose any');
-    check('S54', 'and surrounding spaces do not make two records different',
-      fp({ name: ' Julie ', city: 'Lehi' }) === fp({ name: 'Julie', city: 'Lehi' }));
-
-    check('S54', 'two timestamps at the same instant match, two at different ones do not',
-      fp({ name: 'J', createdAt: { seconds: 100, nanoseconds: 0 } }) ===
-      fp({ name: 'J', createdAt: { seconds: 100, nanoseconds: 5 } }) &&
-      fp({ name: 'J', createdAt: { seconds: 100, nanoseconds: 0 } }) !==
-      fp({ name: 'J', createdAt: { seconds: 200, nanoseconds: 0 } }),
-      'every customer shares one import date, so this field almost never separates two copies anyway');
+  /* ---- ⭐ ", UT" is an address with nothing in it ---- */
+  {
+    const src = fn('dupAddressIsEmpty');
+    check('S54', 'dupAddressIsEmpty exists', !!src);
+    if (src) {
+      const sb = {};
+      new Function('dupStreetOf', 'extractCleanCity', src + 'this.f = dupAddressIsEmpty;')
+        .call(sb, (d) => (d && d.street) || '', (c) => (c || '').trim());
+      check('S54', '", UT" counts as no address at all',
+        sb.f({ street: '', city: '', address: ', UT' }) === true,
+        'the string is not empty, so without this it wins a merge against the real house');
+      check('S54', 'a real address does not',
+        sb.f({ street: '123 Main St', city: 'Lehi' }) === false);
+      check('S54', 'a town on its own is still something',
+        sb.f({ street: '', city: 'Lehi' }) === false);
+    }
   }
 
-  if (fpSrc && findSrc) {
-    const sb2 = {};
-    new Function('jobAddresses', fpSrc + findSrc + 'this.find = findIdenticalCustomers;');
-    const run = (custs, routed) => {
-      const ctx = {};
-      new Function('jobAddresses', fpSrc + findSrc + 'this.find = findIdenticalCustomers;').call(ctx, custs);
-      return ctx.find(routed || {});
-    };
-    const c = (id, data) => ({ id: id, data: data });
-    const SAME = { name: 'Julie Cattani', street: '123 Main St', city: 'Lehi', phone: '8015550100' };
+  /* ---- ⭐ merging only ever FILLS A GAP ---- */
+  {
+    const src = fn('mergeFieldsFrom');
+    const blank = fn('mergeBlank');
+    const empty = fn('dupAddressIsEmpty');
+    check('S54', 'mergeFieldsFrom exists', !!src);
+    if (src && blank && empty) {
+      const sb = {};
+      new Function('dupStreetOf', 'extractCleanCity', 'MERGE_ADDRESS_FIELDS', 'MERGE_SKIP_FIELDS',
+        blank + empty + src + 'this.f = mergeFieldsFrom;'
+      ).call(sb, (d) => (d && d.street) || '', (c) => (c || '').trim(),
+        { street: 1, city: 1, state: 1, zip: 1, address: 1, lat: 1, lng: 1, needsGeocode: 1 },
+        { portalToken: 1 });
+      const f = sb.f;
 
-    {
-      const r = run([c('a', SAME), c('b', SAME), c('c', { name: 'Someone Else', city: 'Lehi' })]);
-      check('S54', 'a plain identical pair is ready to go',
-        r.ready.length === 1 && r.ready[0].losers.length === 1,
-        JSON.stringify(r.ready.length) + ' groups');
-      check('S54', 'and a record with no twin is left completely alone',
-        r.ready.every(g => g.keeper.id !== 'c' && g.losers.every(l => l.id !== 'c')));
+      /* ⭐ THE OWNER'S OWN CASE, both halves. */
+      check('S54', 'the copy with the real house takes the price from the copy without one',
+        JSON.stringify(f({ name: 'J', street: '123 Main St', city: 'Lehi' },
+                         { name: 'J', street: '', city: '', address: ', UT', housePrice: 355 })) ===
+        JSON.stringify({ housePrice: 355 }),
+        'one copy has the address and the other has the price — that is the whole book');
+
+      /* ⚠ NOTHING ALREADY THERE IS EVER OVERWRITTEN. */
+      check('S54', 'a field the keeper already has is never overwritten',
+        JSON.stringify(f({ name: 'J', housePrice: 355 }, { name: 'J', housePrice: 999 })) === '{}',
+        'merging must be able to ADD information and unable to destroy any');
+      check('S54', 'a blank on the spare copy never wipes the keeper',
+        JSON.stringify(f({ name: 'J', phone: '8015550100' }, { name: 'J', phone: '' })) === '{}');
+      check('S54', 'and an empty list is a blank, not a value',
+        JSON.stringify(f({ name: 'J', lightColors: ['Red'] }, { name: 'J', lightColors: [] })) === '{}');
+      /* ⚠ A merge must never WRITE a blank. Both copies missing a field is the
+         commonest case in this book, and copying one empty string onto another
+         is a pointless write on ~900 records — and the same hole would let a
+         null or an empty list across. */
+      check('S54', 'a field blank on BOTH copies is not written at all',
+        JSON.stringify(f({ name: 'J' }, { name: 'J', email: '', notes: '   ', lightColors: [] })) === '{}',
+        'got ' + JSON.stringify(f({ name: 'J' }, { name: 'J', email: '', notes: '   ', lightColors: [] })));
+
+      /* ⚠ THE ADDRESS MOVES AS ONE THING. */
+      check('S54', 'the address is taken whole, never half from each',
+        JSON.stringify(f({ name: 'J', street: '', city: '', address: ', UT' },
+                         { name: 'J', street: '9 Elm', city: 'Lehi', zip: '84043', lat: 40.3, lng: -111.8 })) ===
+        JSON.stringify({ street: '9 Elm', city: 'Lehi', zip: '84043', lat: 40.3, lng: -111.8 }),
+        'a street from one copy and a pin from the other would put a pin on the wrong house');
+      check('S54', 'a real address is never replaced by a ", UT" one',
+        JSON.stringify(f({ name: 'J', street: '123 Main St', city: 'Lehi' },
+                         { name: 'J', street: '', city: '', address: ', UT' })) === '{}',
+        'the spare copy has an address FIELD, it just has nothing in it');
+
+      check('S54', 'the portal token is never merged',
+        JSON.stringify(f({ name: 'J' }, { name: 'J', portalToken: 'abc123' })) === '{}',
+        'it identifies the record, not the customer, and is what a member logs in with');
+      check('S54', 'a false is a real value and can fill a gap',
+        JSON.stringify(f({ name: 'J' }, { name: 'J', scheduled: false })) ===
+        JSON.stringify({ scheduled: false }));
     }
+  }
 
-    {
-      const r = run([c('a', SAME), c('b', SAME), c('d', SAME)]);
-      check('S54', 'three copies keep one and delete two',
-        r.ready.length === 1 && r.ready[0].losers.length === 2);
-    }
+  /* ---- ⭐ grouping by name, split by customer number ---- */
+  {
+    const src = fn('findMergeableCustomers');
+    check('S54', 'findMergeableCustomers exists', !!src);
+    if (src) {
+      const run = (custs, routed) => {
+        const ctx = {};
+        new Function('jobAddresses', 'dupNormName', 'dupStreetOf', 'extractCleanCity',
+          'MERGE_ADDRESS_FIELDS', 'MERGE_SKIP_FIELDS',
+          fn('mergeBlank') + fn('dupAddressIsEmpty') + fn('mergeFieldsFrom') + src +
+          'this.find = findMergeableCustomers;'
+        ).call(ctx, custs,
+          (n) => String(n || '').trim().toLowerCase().replace(/\s+/g, ' '),
+          (d) => (d && d.street) || '', (c) => (c || '').trim(),
+          { street: 1, city: 1, state: 1, zip: 1, address: 1, lat: 1, lng: 1, needsGeocode: 1 },
+          { portalToken: 1 });
+        return ctx.find(routed || {});
+      };
+      const c = (id, data) => ({ id: id, data: data });
+      const GOOD = { name: 'Julie Cattani', street: '123 Main St', city: 'Lehi', customerNumber: '883' };
+      const BAD  = { name: 'Julie Cattani', street: '', city: '', address: ', UT', housePrice: 355 };
 
-    /* ⚠ THE ONE THAT WOULD CANCEL A STOP. Deleting a record takes it off any
-       upcoming route, so the copy on the route is the copy that must survive. */
-    {
-      const r = run([c('a', SAME), c('b', SAME)], { b: true });
-      check('S54', 'the copy the crew is going to is the one kept',
-        r.ready.length === 1 && r.ready[0].keeper.id === 'b' && r.ready[0].losers[0].id === 'a',
-        'kept ' + (r.ready[0] && r.ready[0].keeper.id) +
-        ' — keeping the unrouted copy would quietly cancel a stop the crew has been told about');
-    }
+      {
+        const r = run([c('good', GOOD), c('bad', BAD)]);
+        check('S54', 'the two copies are found by name even though the addresses differ',
+          r.ready.length === 1,
+          'the broken copy has NO address, so an address could never have grouped them — ' +
+          'which is why the name does it');
+        check('S54', 'the copy with the real house is the one kept',
+          r.ready.length === 1 && r.ready[0].keeper.id === 'good',
+          'kept ' + (r.ready[0] && r.ready[0].keeper.id));
+        check('S54', 'and it gains the price off the one being removed',
+          r.ready.length === 1 && r.ready[0].gains.housePrice === 355,
+          JSON.stringify(r.ready[0] && r.ready[0].gains));
+        check('S54', 'the customer number survives the merge',
+          r.ready.length === 1 && !('customerNumber' in r.ready[0].gains) &&
+          r.ready[0].keeper.data.customerNumber === '883');
+      }
 
-    /* ⚠ And when BOTH are on routes the same house is scheduled twice; which
-       stop to lose is the office's call. */
-    {
-      const r = run([c('a', SAME), c('b', SAME)], { a: true, b: true });
-      check('S54', 'two copies both on routes are refused, not guessed',
-        r.ready.length === 0 && r.review.length === 1,
-        'ready ' + r.ready.length + ', review ' + r.review.length);
-    }
+      /* Order of the book must not change the answer. */
+      {
+        const one = run([c('good', GOOD), c('bad', BAD)]);
+        const two = run([c('bad', BAD), c('good', GOOD)]);
+        check('S54', 'the same book always gives the same answer',
+          one.ready[0].keeper.id === two.ready[0].keeper.id,
+          'a merge list that changed between two presses would be unreviewable');
+      }
+      /* ⚠ And when NOTHING else separates two copies — same empty address,
+         neither on a route, no dates — the id still has to break the tie, or
+         the answer is whatever order Firestore happened to hand them over in.
+         The fixture above cannot show this: its two copies differ by address,
+         so that test passes with the last tiebreak deleted. */
+      {
+        const one = run([c('z', BAD), c('a', BAD)]);
+        const two = run([c('a', BAD), c('z', BAD)]);
+        check('S54', 'two copies alike in every way still resolve the same way round',
+          one.ready[0].keeper.id === 'a' && two.ready[0].keeper.id === 'a',
+          'got ' + one.ready[0].keeper.id + ' and ' + two.ready[0].keeper.id);
+      }
 
-    {
-      const r = run([c('a', SAME), c('b', { name: 'Julie Cattani', street: '123 Main St', city: 'Lehi', phone: '8015550101' })]);
-      check('S54', 'a pair differing by one digit is NOT touched',
-        r.ready.length === 0 && r.review.length === 0,
-        'they go to the tool that weighs them, not to this one');
-    }
+      /* ⚠ THE THREE REFUSALS. */
+      {
+        const r = run([c('a', { name: 'Julie Cattani', street: '1 A St', customerNumber: '883' }),
+                       c('b', { name: 'Julie Cattani', street: '1 A St', customerNumber: '901' })]);
+        check('S54', 'two customer numbers under one name are refused',
+          r.ready.length === 0 && r.review.length === 1 && /two customer numbers/.test(r.review[0].why.join(';')),
+          'two people, or a numbering mistake — either way not this button\u2019s call');
+      }
+      {
+        const r = run([c('a', { name: 'Julie Cattani', street: '1 A St' }),
+                       c('b', { name: 'Julie Cattani', street: '99 B Rd' })]);
+        check('S54', 'the same name at two real addresses is refused',
+          r.ready.length === 0 && r.review.length === 1,
+          'a landlord or a family, not a duplicate — and merging would destroy one of the houses');
+      }
+      {
+        const r = run([c('good', GOOD), c('bad', BAD)], { good: true, bad: true });
+        check('S54', 'two copies both on routes are refused',
+          r.ready.length === 0 && r.review.length === 1,
+          'the same house is scheduled twice and which stop to lose is the office\u2019s decision');
+      }
 
-    {
-      const r = run([c('a', {}), c('b', {}), c('e', { name: '', city: '   ' })]);
-      check('S54', 'empty records are never deleted as copies of each other',
-        r.ready.length === 0,
-        'deleting blanks is not what this button is for, and three empties are not "the same customer"');
-    }
+      /* ⚠ Deleting takes a record off its route, so the routed copy must survive
+         wherever the address does not decide it. */
+      {
+        const A = { name: 'Julie Cattani', street: '', city: '', address: ', UT' };
+        const r = run([c('plain', A), c('routed', A)], { routed: true });
+        check('S54', 'otherwise the copy the crew is going to is the one kept',
+          r.ready.length === 1 && r.ready[0].keeper.id === 'routed',
+          'kept ' + (r.ready[0] && r.ready[0].keeper.id) +
+          ' — keeping the other would quietly cancel a stop the customer has been messaged about');
+      }
 
-    /* Same input, same answer, whatever order the book arrives in. */
-    {
-      const one = run([c('a', SAME), c('b', SAME)]);
-      const two = run([c('b', SAME), c('a', SAME)]);
-      check('S54', 'the same book always gives the same answer',
-        one.ready[0].keeper.id === two.ready[0].keeper.id,
-        'a delete list that changed between two presses of the same button would be unreviewable');
+      {
+        const r = run([c('a', GOOD), c('b', { name: 'Someone Else', street: '5 C Way' })]);
+        check('S54', 'a customer who appears once is left completely alone',
+          r.ready.length === 0 && r.review.length === 0);
+      }
+      {
+        const r = run([c('a', { street: '1 A St' }), c('b', { street: '1 A St' })]);
+        check('S54', 'records with no name at all are never merged',
+          r.ready.length === 0 && r.review.length === 0,
+          'there is nothing to group them on, and guessing from an address is what the tool above does');
+      }
+      {
+        const r = run([c('a', GOOD), c('b', BAD), c('d', BAD)]);
+        check('S54', 'three copies collapse into one',
+          r.ready.length === 1 && r.ready[0].losers.length === 2 && r.ready[0].keeper.id === 'a',
+          'kept ' + (r.ready[0] && r.ready[0].keeper.id) + ', removing ' +
+          (r.ready[0] ? r.ready[0].losers.length : 0));
+      }
     }
   }
 
   /* ---- the button, and the guards around it ---- */
   check('S54', 'the button is there', admin.indexOf('id="dupExactBtn"') > 0);
-
   {
     const at = admin.indexOf("document.getElementById('dupExactBtn')");
-    const end = admin.indexOf("document.getElementById('rbFixNamesBtn')", at);
-    const body = at > 0 && end > at ? admin.slice(at, end) : '';
+    const end2 = admin.indexOf("document.getElementById('rbFixNamesBtn')", at);
+    const body = at > 0 && end2 > at ? admin.slice(at, end2) : '';
     check('S54', 'the handler was found', !!body);
-    /* ⚠ SCOPED TO THIS HANDLER. The scored tool above has a DELETE lock spelled
-       identically, so a file-wide search passed with this one's lock removed. */
-    check('S54', 'it deletes nothing until DELETE is typed',
-      /input\.value\.trim\(\)\.toUpperCase\(\) !== 'DELETE'/.test(body) &&
-      admin.indexOf('id="dupExactDeleteBtn"') > 0,
-      'same lock as every other bulk delete in Danger Zone');
+    /* ⚠ SCOPED. The scored tool above spells its lock identically, so a
+       file-wide search passed with this one's removed. */
+    check('S54', 'it changes nothing until MERGE is typed',
+      /input\.value\.trim\(\)\.toUpperCase\(\) !== 'MERGE'/.test(body),
+      'same shape of lock as every other bulk change in Danger Zone');
+
+    /* ⭐ THE ORDER THAT CANNOT LOSE ANYTHING. */
+    check('S54', 'the keeper is filled in BEFORE the spare is deleted',
+      body.indexOf("updateDoc(doc(db,'jobAddresses', g.keeper.id), g.gains)") > 0 &&
+      body.indexOf("updateDoc(doc(db,'jobAddresses', g.keeper.id), g.gains)") <
+      body.indexOf("deleteDoc(doc(db,'jobAddresses', l.id))"),
+      'the other order can lose the very field this exists to rescue — delete the copy holding the ' +
+      'price, fail to write it onto the keeper, and it is gone for good');
     check('S54', 'it takes the copy off any route before deleting it',
       /removeCustomerFromUpcomingRoutes\(l\.id\)/.test(body),
       'or the crew is left with a stop pointing at a customer who is not there');
-    check('S54', 'it deletes only the losers, never the keeper',
-      /deleteDoc\(doc\(db,'jobAddresses', l\.id\)\)/.test(body) &&
+    check('S54', 'it deletes only the spare copies, never the keeper',
       !/deleteDoc\(doc\(db,'jobAddresses', g\.keeper/.test(body));
-    check('S54', 'it only ever deletes what the scan put in front of you',
+    check('S54', 'it only ever acts on the list the scan put in front of you',
       /const groups = dupExactPending \|\| \[\];/.test(body),
-      'deleting from a fresh scan would delete a list nobody had seen');
-    check('S54', 'and it writes the deletion to the activity log',
-      /logActivity\('Deleted ' \+ gone \+ ' exact duplicate customer record/.test(body));
-    /* ⚠ The customer number stays with the copy that was kept. */
+      'acting on a fresh scan would change records nobody had seen');
+    check('S54', 'and it writes the merge to the activity log',
+      /logActivity\('Merged ' \+ merged \+ ' duplicate customer/.test(body));
     check('S54', 'no customer number is handed back to the pool',
       !/availableCustomerNumbers/.test(body),
-      'the copy being kept still holds it, so pooling it would hand a live number to somebody new');
+      'the record kept still holds it, so pooling it would hand a live number to somebody new');
   }
+
+  /* ---- ⭐ and the thing that made the duplicates cannot make more ---- */
+  check('S54', 'the Invoice Bulk Update matches a phone by its digits',
+    /custByPhoneDigits\.get\(phone\)/.test(admin) &&
+    !/jobAddresses\.find\(a => \(a\.data\.phone\|\|''\) === phone\)/.test(admin),
+    'it compared a digits-only phone against the formatted one on the record — false for every ' +
+    'customer who had one — so it decided nobody existed and added a second address-less copy EVERY RUN');
+  check('S54', 'and the bulk import still refuses to add a customer with no street',
+    /if\(!existing && !street\)\{ failed\+\+; continue; \}/.test(admin),
+    'this is the guard that would have stopped the whole book duplicating; it was added after it happened');
 }
 
 // A check that scores after this summary is a check that cannot fail the build.

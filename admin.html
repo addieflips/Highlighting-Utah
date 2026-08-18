@@ -1591,10 +1591,11 @@
           <div id="dupReport" style="margin-top:12px;"></div>
         </div>
         <div class="card" style="border:2px solid var(--gold-dim); margin-top:14px;">
-          <h3 style="margin:0 0 6px;">Exact duplicates</h3>
-          <p style="font-size:13px; margin:0 0 10px;">The simple one. Finds records where <strong>every single field is the same</strong> &mdash; name, address, town, phone, email, price, feet, colours, notes, all of it &mdash; and keeps one of them. Because the copies are identical there is nothing to weigh up and nothing that can be lost.</p>
-          <p style="font-size:13px; margin:0 0 10px; color:var(--slate);">If two copies differ by so much as a phone number they are left alone for the tool above. A blank field and a missing one count as the same thing. Deletes nothing until you press the second button.</p>
-          <button type="button" class="btn btn-outline" id="dupExactBtn">Find exact duplicates (changes nothing)</button>
+          <h3 style="margin:0 0 6px;">Merge duplicates (by name)</h3>
+          <p style="font-size:13px; margin:0 0 10px;">Finds the same customer listed twice under <strong>the same name</strong>, and <strong>combines them into one record</strong> instead of just throwing one away. Where one copy has the real address and the other has the price, you end up with a single customer carrying both.</p>
+          <p style="font-size:13px; margin:0 0 10px; color:var(--slate);">A field is only ever <em>filled in</em> &mdash; anything the kept record already has is never overwritten, so this can add information and cannot lose any. An address of &ldquo;, UT&rdquo; counts as no address, so the copy with the real house always wins.</p>
+          <p style="font-size:13px; margin:0 0 10px; color:var(--slate);">It stops and asks you when a name has <strong>two different customer numbers</strong>, <strong>two different addresses</strong>, or more than one copy already on a route. Changes nothing until you press the second button.</p>
+          <button type="button" class="btn btn-outline" id="dupExactBtn">Find records to merge (changes nothing)</button>
           <span id="dupExactStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
           <div id="dupExactReport" style="margin-top:12px;"></div>
         </div>
@@ -15205,87 +15206,117 @@ function findDuplicateCustomers(invoiceKeys, routedIds){
   });
   return {ready: ready, review: review};
 }
-/* ⭐ EVERY FIELD, IN A FORM TWO RECORDS CAN BE COMPARED BY.
-   Owner, 2026-08-18: "create a button that delete duplicates, meaning
-   everything is the same."
-
-   The tool above WEIGHS two copies and picks the richer one, which needs a
-   judgement and is why it refuses so many pairs. This asks a much smaller
-   question with a much safer answer: are these two records identical? If they
-   are, one of them can go and nothing at all is lost — there is no field on
-   the loser that the keeper does not already have, by definition.
-
-   ⚠ EVERY key is compared, not a chosen list. A list would quietly stop
-   protecting whatever field somebody adds next, and the whole safety of this
-   button rests on "everything is the same" really meaning everything.
-
-   Two normalisations, both of which only ever make it REFUSE more or judge
-   fairly, never delete more:
-     - keys are sorted, because two documents can hold the same fields in a
-       different order and a raw stringify would call them different;
-     - a blank field and a missing one are the same thing. The importer writes
-       email:'' where a hand-edit leaves the key off entirely, and to the
-       office those are both "no email". A blank carries no information, so
-       treating them alike cannot lose any. */
-function dupFingerprint(d){
-  const norm = function(v){
-    if(v === null || v === undefined) return null;
-    if(Array.isArray(v)) return v.map(norm);
-    if(typeof v === 'object'){
-      /* A Firestore Timestamp is an object with methods; compare the instant. */
-      if(typeof v.seconds === 'number') return 'ts:' + v.seconds;
-      const o = {};
-      Object.keys(v).sort().forEach(function(k){ o[k] = norm(v[k]); });
-      return o;
-    }
-    if(typeof v === 'string') return v.trim();
-    return v;
-  };
-  const out = {};
-  Object.keys(d || {}).sort().forEach(function(k){
-    const v = norm(d[k]);
-    if(v === null || v === '') return;
-    out[k] = v;
-  });
-  return JSON.stringify(out);
+/* ⭐ ", UT" IS AN ADDRESS WITH NOTHING IN IT.
+   buildFullAddress('', '', '') returns exactly that — a blank street, a blank
+   town, and the "UT" it always appends. It is not a real address and must not
+   be allowed to win a merge just because the string is not empty. */
+function dupAddressIsEmpty(d){
+  return !dupStreetOf(d || {}) && !extractCleanCity((d && d.city) || '');
 }
-/* Groups of records that are identical in every field. Returns one entry per
-   group: the copy to keep, and the copies that can go.
+/* The address is one thing spread over several fields, so it moves together —
+   taking a street from one copy and a pin from the other could put a pin on a
+   house it does not belong to. */
+const MERGE_ADDRESS_FIELDS = {street:1, city:1, state:1, zip:1, address:1, lat:1, lng:1, needsGeocode:1};
+/* Never merged: it identifies the record, not the customer. */
+const MERGE_SKIP_FIELDS = {portalToken:1};
+function mergeBlank(v){
+  if(v === null || v === undefined) return true;
+  if(typeof v === 'string') return v.trim() === '';
+  if(Array.isArray(v)) return v.length === 0;
+  return false;
+}
+/* What the keeper is MISSING that a loser can supply. Only ever fills a gap —
+   a value the keeper already has is never overwritten, so merging can add
+   information and cannot destroy any. */
+function mergeFieldsFrom(keep, lose){
+  const k = keep || {}, l = lose || {};
+  const out = {};
+  const keeperAddressEmpty = dupAddressIsEmpty(k);
+  const loserAddressEmpty = dupAddressIsEmpty(l);
+  Object.keys(l).forEach(function(f){
+    if(MERGE_SKIP_FIELDS[f]) return;
+    if(mergeBlank(l[f])) return;
+    if(MERGE_ADDRESS_FIELDS[f]){
+      /* Only when the keeper has no real address and this copy does. That is
+         the whole point on this book: one copy carries ", UT" and the other
+         carries the house. */
+      if(!keeperAddressEmpty || loserAddressEmpty) return;
+      out[f] = l[f];
+      return;
+    }
+    if(!mergeBlank(k[f])) return;
+    out[f] = l[f];
+  });
+  return out;
+}
+/* ⭐ THE SAME CUSTOMER, BY NAME AND CUSTOMER NUMBER.
+   Owner, 2026-08-18: "use name and CU#", and "if you can make it so they
+   rather merge more than just delete".
 
-   ⚠ THE ONE IT KEEPS IS THE ONE THE CREW IS GOING TO. Deleting a record takes
-   it off any upcoming route, so keeping a copy that is NOT on a route would
-   quietly cancel a stop the crew has been told about. Otherwise the oldest,
-   which is the original, and then the id so the same book always gives the
-   same answer.
+   Address cannot be the key here, because the broken copies are exactly the
+   ones with no address — that is what made them duplicates in the first place.
+   So the name groups them, and the customer number SPLITS a group rather than
+   forming it: a copy that never got a number still belongs with its twin.
 
-   ⚠ A GROUP WITH TWO COPIES ON ROUTES IS REFUSED. That is the same house
-   scheduled twice, possibly on different days, and which stop the crew should
-   lose is the office's call rather than this button's. */
-function findIdenticalCustomers(routedIds){
+   Returns, per group, the copy to keep and what each loser can contribute.
+
+   ⚠ THE KEEPER IS THE ONE WITH A REAL ADDRESS FIRST, then the one the crew is
+   going to (deleting a record takes it off its upcoming route, so keeping an
+   unrouted copy would quietly cancel a stop), then the oldest, then the id so
+   the same book always gives the same answer.
+
+   ⚠ REFUSED, for a human to look at:
+     - two different customer numbers under one name — two people, or a
+       numbering mistake, and either way not this button's call;
+     - two different real street addresses — the same name at two houses is a
+       landlord or a family, not a duplicate;
+     - more than one copy on an upcoming route — the same house is scheduled
+       twice and which stop to lose is the office's decision. */
+function findMergeableCustomers(routedIds){
   const routed = routedIds || {};
   const groups = {};
   jobAddresses.forEach(function(c){
-    const fp = dupFingerprint((c && c.data) || {});
-    /* A record with nothing in it is not "the same as" another empty one in
-       any useful sense, and deleting blanks is not what this button is for. */
-    if(!fp || fp === '{}') return;
-    (groups[fp] = groups[fp] || []).push(c);
+    const nm = dupNormName(((c && c.data) || {}).name);
+    if(!nm) return;                       // no name is nothing to group on
+    (groups[nm] = groups[nm] || []).push(c);
   });
   const ready = [], review = [];
-  Object.keys(groups).forEach(function(fp){
-    const list = groups[fp];
+  Object.keys(groups).forEach(function(nm){
+    const list = groups[nm];
     if(list.length < 2) return;
+    const uniq = function(vals){
+      const out = [];
+      vals.forEach(function(v){ if(v && out.indexOf(v) === -1) out.push(v); });
+      return out;
+    };
+    const numbers = uniq(list.map(function(c){ return String((c.data||{}).customerNumber || '').trim(); }));
+    const streets = uniq(list.map(function(c){ return dupStreetOf(c.data || {}); }));
     const onRoute = list.filter(function(c){ return routed[c.id]; });
+    const why = [];
+    if(numbers.length > 1) why.push('two customer numbers (' + numbers.join(', ') + ')');
+    if(streets.length > 1) why.push('two different addresses');
+    if(onRoute.length > 1) why.push('more than one copy is on a route');
     const sorted = list.slice().sort(function(a, b){
+      const ae = dupAddressIsEmpty(a.data || {}) ? 1 : 0, be = dupAddressIsEmpty(b.data || {}) ? 1 : 0;
+      if(ae !== be) return ae - be;
       const ar = routed[a.id] ? 1 : 0, br = routed[b.id] ? 1 : 0;
       if(ar !== br) return br - ar;
-      const as = (a.data && a.data.createdAt && a.data.createdAt.seconds) || 0;
-      const bs = (b.data && b.data.createdAt && b.data.createdAt.seconds) || 0;
+      const as = ((a.data || {}).createdAt && a.data.createdAt.seconds) || 0;
+      const bs = ((b.data || {}).createdAt && b.data.createdAt.seconds) || 0;
       if(as !== bs) return as - bs;
       return String(a.id) < String(b.id) ? -1 : 1;
     });
-    const entry = {keeper: sorted[0], losers: sorted.slice(1), routed: onRoute.length};
-    if(onRoute.length > 1) review.push(entry); else ready.push(entry);
+    const keeper = sorted[0], losers = sorted.slice(1);
+    /* Everything the keeper gains, from all of the losers together. Earlier
+       losers win a field over later ones, matching the keep order. */
+    const gains = {};
+    losers.forEach(function(l){
+      const add = mergeFieldsFrom(Object.assign({}, keeper.data || {}, gains), l.data || {});
+      Object.keys(add).forEach(function(f){ if(!(f in gains)) gains[f] = add[f]; });
+    });
+    const entry = {name: (keeper.data || {}).name || '(no name)', keeper: keeper, losers: losers,
+                   gains: gains, why: why};
+    if(why.length) review.push(entry); else ready.push(entry);
   });
   return {ready: ready, review: review};
 }
@@ -15401,52 +15432,67 @@ document.getElementById('dupExactBtn')?.addEventListener('click', onceAtATime(as
       ((r.data && r.data.stops) || []).forEach(function(st){ if(st && st.id) routedIds[st.id] = true; });
     });
   });
-  const found = findIdenticalCustomers(routedIds);
+  const found = findMergeableCustomers(routedIds);
   const toDelete = found.ready.reduce(function(n, g){ return n + g.losers.length; }, 0);
+  const toFill = found.ready.reduce(function(n, g){ return n + Object.keys(g.gains).length; }, 0);
   dupExactPending = found.ready;
   const nameOf = function(c){ return (c.data && c.data.name) || '(no name)'; };
   const whereOf = function(c){
     const d = c.data || {};
     return [d.street || '', extractCleanCity(d.city) || ''].filter(Boolean).join(', ') || 'no address';
   };
-  statusEl.textContent = found.ready.length + ' identical group(s), ' + toDelete + ' record(s) would go.' +
+  statusEl.textContent = found.ready.length + ' name(s) listed twice, ' + toDelete + ' record(s) would be merged away.' +
     (found.review.length ? ' ' + found.review.length + ' need you to decide.' : '');
   report.innerHTML =
     '<div style="border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--paper);">' +
       (toDelete
-        ? '<div style="font-weight:700; margin-bottom:8px;">' + toDelete + ' record(s) are an exact copy of one being kept. Nothing has been deleted yet.</div>' +
-          '<div style="font-size:12.5px; color:var(--slate); margin-bottom:8px;">Every field matches, so there is nothing on the copies being deleted that the one being kept does not already have.</div>' +
+        ? '<div style="font-weight:700; margin-bottom:8px;">' + found.ready.length + ' customer(s) listed more than once. ' +
+            toFill + ' missing field(s) would be filled in, then ' + toDelete + ' spare record(s) removed. Nothing has changed yet.</div>' +
+          '<div style="font-size:12.5px; color:var(--slate); margin-bottom:8px;">Only blanks are filled — nothing the kept record already has is overwritten.</div>' +
           '<div style="max-height:300px; overflow:auto; font-size:13px; line-height:1.6;">' +
           found.ready.slice(0, 200).map(function(g){
+            const fields = Object.keys(g.gains);
             return '<div style="padding:4px 0; border-bottom:1px solid var(--line);">' +
-              '<strong>' + esc(nameOf(g.keeper)) + '</strong> — ' + esc(whereOf(g.keeper)) +
-              ' <span style="color:var(--slate);">keeping 1' + (g.routed ? ' (the copy the crew is going to)' : '') +
-              ', deleting ' + g.losers.length + '</span></div>';
+              '<strong>' + esc(g.name) + '</strong> — keeping ' + esc(whereOf(g.keeper)) +
+              (fields.length
+                ? ' <span style="color:var(--slate);">gains ' + esc(fields.join(', ')) + '</span>'
+                : ' <span style="color:var(--slate);">nothing to gain — the spare copy was empty</span>') +
+              '</div>';
           }).join('') + '</div>' +
-          (found.ready.length > 200 ? '<div style="font-size:12.5px; color:var(--slate); margin-top:6px;">… and ' + (found.ready.length - 200) + ' more groups.</div>' : '') +
-          '<div style="margin-top:12px;"><input type="text" id="dupExactConfirmInput" placeholder="Type DELETE to unlock" style="padding:9px 11px; border-radius:8px; border:1px solid var(--line); font-size:13px;"> ' +
-          '<button type="button" class="btn btn-gold" id="dupExactDeleteBtn" disabled>Delete ' + toDelete + ' exact copy(s)</button></div>'
-        : '<div style="font-weight:700;">No records are an exact copy of another.</div>' +
-          '<div style="font-size:12.5px; color:var(--slate); margin-top:6px;">If you expected some, the copies differ somewhere — use <strong>Find duplicates</strong> above, which weighs them instead.</div>') +
+          (found.ready.length > 200 ? '<div style="font-size:12.5px; color:var(--slate); margin-top:6px;">… and ' + (found.ready.length - 200) + ' more.</div>' : '') +
+          '<div style="margin-top:12px;"><input type="text" id="dupExactConfirmInput" placeholder="Type MERGE to unlock" style="padding:9px 11px; border-radius:8px; border:1px solid var(--line); font-size:13px;"> ' +
+          '<button type="button" class="btn btn-gold" id="dupExactDeleteBtn" disabled>Merge ' + found.ready.length + ' customer(s)</button></div>'
+        : '<div style="font-weight:700;">No name appears on two records that can be merged automatically.</div>') +
       (found.review.length
-        ? '<div style="margin-top:12px; font-size:13px;"><strong>' + found.review.length + ' group(s) I will not decide</strong> — more than one copy is on an upcoming route, so the same house is scheduled twice and which stop to lose is your call:' +
+        ? '<div style="margin-top:12px; font-size:13px;"><strong>' + found.review.length + ' name(s) I will not decide</strong> — open these in All Customers:' +
           '<div style="max-height:180px; overflow:auto; margin-top:6px; line-height:1.6;">' +
-          found.review.slice(0, 60).map(function(g){ return esc(nameOf(g.keeper)) + ' — ' + esc(whereOf(g.keeper)); }).join('<br>') +
+          found.review.slice(0, 60).map(function(g){
+            return esc(g.name) + ' — ' + esc(g.why.join('; '));
+          }).join('<br>') +
           '</div></div>'
         : '') +
     '</div>';
   const input = document.getElementById('dupExactConfirmInput');
   const go = document.getElementById('dupExactDeleteBtn');
   if(input && go){
-    input.addEventListener('input', function(){ go.disabled = input.value.trim().toUpperCase() !== 'DELETE'; });
+    input.addEventListener('input', function(){ go.disabled = input.value.trim().toUpperCase() !== 'MERGE'; });
     go.addEventListener('click', onceAtATime(async function(){ return withBulkWrites(async function(){
       const groups = dupExactPending || [];
-      let gone = 0, failed = 0, i = 0;
+      let merged = 0, filled = 0, gone = 0, failed = 0, i = 0;
       for(const g of groups){
-        for(const l of g.losers){
-          statusEl.textContent = 'Deleting ' + (i+1) + ' of ' + toDelete + '…';
-          await bulkBreathe(i++);
-          try{
+        statusEl.textContent = 'Merging ' + (i+1) + ' of ' + groups.length + '…';
+        await bulkBreathe(i++);
+        try{
+          /* ⚠ THE KEEPER IS FILLED IN FIRST, and only if that write succeeds is
+             anything deleted. The other order can lose the very fields this
+             tool exists to rescue: delete the copy carrying the price, fail to
+             write it onto the keeper, and it is gone for good. */
+          const fields = Object.keys(g.gains);
+          if(fields.length){
+            await updateDoc(doc(db,'jobAddresses', g.keeper.id), g.gains);
+            filled += fields.length;
+          }
+          for(const l of g.losers){
             /* Off any route it was on first, or the crew is left with a stop
                pointing at a customer who is not there. The keeper is the routed
                copy wherever there was one, so this only ever strips a second,
@@ -15456,14 +15502,16 @@ document.getElementById('dupExactBtn')?.addEventListener('click', onceAtATime(as
             }
             await deleteDoc(doc(db,'jobAddresses', l.id));
             gone++;
-          } catch(err){ failed++; }
-        }
+          }
+          merged++;
+        } catch(err){ failed++; }
       }
       dupExactPending = null;
-      logActivity('Deleted ' + gone + ' exact duplicate customer record(s)', 'customers', '');
+      logActivity('Merged ' + merged + ' duplicate customer(s), filling ' + filled + ' blank field(s)', 'customers', '');
       report.innerHTML = '<div style="border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--paper); font-size:13px;">' +
-        gone + ' exact copy(s) deleted' + (failed ? ', ' + failed + ' failed' : '') +
-        '. Every one was identical to the record kept, so nothing was lost. The copy kept still holds its customer number — no number went back in the pool. ' +
+        merged + ' customer(s) merged' + (failed ? ', ' + failed + ' failed' : '') + ' — ' +
+        filled + ' blank field(s) filled in and ' + gone + ' spare record(s) removed. ' +
+        'Nothing that was already filled in was overwritten. The record kept still holds its customer number — no number went back in the pool. ' +
         'Run it again to check.</div>';
       statusEl.textContent = '';
     }); }, function(){ return document.getElementById('dupExactDeleteBtn'); }));
@@ -16334,8 +16382,20 @@ document.getElementById('ibImportBtn').addEventListener('click', onceAtATime(asy
         priceReviewed: true, updatedAt: serverTimestamp()
       }, {merge:true});
       existingInv.exists() ? updated++ : added++;
-      // Add Customer / jobAddresses is the source of truth — make sure this customer has a record
-      const existingCust = jobAddresses.find(a => (a.data.phone||'') === phone);
+      /* Add Customer / jobAddresses is the source of truth — make sure this
+         customer has a record.
+
+         ⚠ THIS COMPARISON USED TO BE A DUPLICATE FACTORY. `phone` here is
+         digits only (see the replace above), while a customer record stores
+         what the office typed — "(801) 706-7225". `'(801) 706-7225' === '8017067225'`
+         is false for every customer who has one, so the tool decided nobody
+         existed and added a SECOND record, carrying a name, a phone and an
+         email and no address at all. Every other matcher in the app strips the
+         punctuation first; this one did not.
+         Matched on the customer number as well, because the office pastes that
+         column and it is the strongest key there is. */
+      const existingCust = custByPhoneDigits.get(phone)
+        || jobAddresses.find(a => String((a.data||{}).phone||'').replace(/\D/g,'') === phone);
       if(existingCust){
         const custUpdates = {};
         if(name) custUpdates.name = name;
