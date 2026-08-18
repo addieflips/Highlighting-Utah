@@ -15854,7 +15854,26 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
         /* extractCleanCity so a pasted town lands in exactly the shape Edit
            Customer writes and the routes read — "Lehi, UT" and " Lehi " must not
            become towns of their own, each earning a crew-day for one house. */
-        const updates = { street: street, city: extractCleanCity(city) || city, state: state, zip: zip, address: fullAddress };
+        /* ⚠ A BLANK IN THE SHEET NEVER WIPES WHAT THE RECORD HAS.
+           These five were the only fields written unconditionally — every other
+           one below is guarded with `if(name)`, `if(phone)`, `if(email)`. So a
+           column left blank for a row, or a paste one column short, wrote
+           city:'' straight over a good town. A customer with no town CANNOT BE
+           SCHEDULED AT ALL: every crew-day is a town, a blank matches none of
+           them, and the house sits out the season in silence — which is the
+           expensive half, because nothing announces it.
+           Same rule the schedule sync and the rest of this importer already
+           follow. Correcting a town still works exactly as before; only
+           erasing one by omission stops. */
+        const updates = {};
+        if(street) updates.street = street;
+        if(city)   updates.city = extractCleanCity(city) || city;
+        if(state)  updates.state = state;
+        if(zip)    updates.zip = zip;
+        /* The full address is BUILT from the three above, so it may only be
+           rewritten when the street it is built from is really there —
+           otherwise it lands as a stray ", UT". */
+        if(street) updates.address = fullAddress;
         if(coords.lat !== null){ updates.lat = coords.lat; updates.lng = coords.lng; updates.needsGeocode = false; }
         if(name) updates.name = name;
         if(phone) updates.phone = phone;

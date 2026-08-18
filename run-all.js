@@ -7866,8 +7866,25 @@ suite('Suite 31. A corrected town still finds its customer');
     (admin.match(/if\(BULK_BY_NUMBER && !anchorIsNumbers\)\{/g) || []).length === 2,
     'with no other key, every row would fall through to "add" and duplicate the whole book');
   check('S31', 'a pasted town is cleaned the way Edit Customer cleans it',
-    /city: extractCleanCity\(city\) \|\| city/.test(admin),
+    /updates\.city = extractCleanCity\(city\) \|\| city;/.test(admin),
     '"Lehi, UT" and " Lehi " must not become towns of their own, each earning a crew-day for one house');
+
+  /* ⭐ A BLANK IN THE SHEET NEVER WIPES WHAT THE RECORD HAS (added 2026-08-18).
+     street/city/state/zip/address were the ONLY fields written unconditionally
+     — name, phone, email and the rest have always been guarded. So a column
+     blank for a row, or a paste one column short, wrote city:'' over a good
+     town. That is the expensive kind of silent: a customer with no town cannot
+     be scheduled AT ALL, because every crew-day is a town and a blank matches
+     none of them, so the house just sits out the season. */
+  check('S31', 'a blank column never erases an address field it has nothing for',
+    /if\(street\) updates\.street = street;/.test(admin) &&
+    /if\(city\)   updates\.city = /.test(admin) &&
+    /if\(state\)  updates\.state = state;/.test(admin) &&
+    /if\(zip\)    updates\.zip = zip;/.test(admin),
+    'correcting a town must still work; only erasing one by omission stops');
+  check('S31', 'and the full address is only rebuilt when there is a street to build it from',
+    /if\(street\) updates\.address = fullAddress;/.test(admin),
+    'buildFullAddress with no street lands a stray ", UT" in the address field');
   /* Two rows for one house used to become two new customers — ugly but visible.
      Now that a street on its own can find its customer, both rows write to the
      same record and the lower one silently wins. Addie's own paste has one:
