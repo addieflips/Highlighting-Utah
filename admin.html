@@ -7624,7 +7624,12 @@ function quoteKindLabel(d){
   const q = d || {};
   const what = (q.changed && q.changed.what) || '';
   if(what === 'sides') return 'House addition';
-  if(what === 'lights') return 'Colour change';
+  /* ⚠ NO "Colour change" LABEL, deliberately. Owner, 2026-08-18: "actually we
+     dont want to requote color changes so that shouldnt be a label."
+     A colour change costs the same to hang, so there is nothing to re-price —
+     it takes the $30 change fee and goes to the Warehouse queue to be rebuilt,
+     and never becomes a quote at all. A label for a row that can never exist
+     is a label somebody will one day try to explain. */
   if(what === 'address' || q.existingCustomerAddressChange) return 'Address change';
   if(what === 'feet') return 'Feet changed';
   /* Re-quoted by hand from the card: not a new lead, and not one of the
@@ -15676,7 +15681,19 @@ async function hlxLoadConnectedSheet(ask){
     box.value = hlxRowsToTsv(rows);
     if(typeof rbSplitSheetIntoBoxes === "function") rbSplitSheetIntoBoxes();
   }
-  return {rows: rows.length, name: handle.name || "", when: file.lastModified || 0};
+  /* ⚠ DID THE COLUMNS ACTUALLY LAND? A workbook can read perfectly and still be
+     the wrong workbook. The owner connected "2026 Customer Numbers.xlsx" — a
+     two-column list of numbers and names — and was told it was connected with
+     924 rows, because it WAS: 924 rows of the wrong thing. The columns the
+     comparison needs were empty and nothing said so until she pressed Compare
+     and got advice about pasting, which is not a problem she had.
+     Checked here, at the moment of picking, where it can still be undone. */
+  const filled = function(id){
+    const el = document.getElementById(id);
+    return !!(el && el.value && el.value.split("\n").filter(function(l){ return l.trim(); }).length);
+  };
+  const usable = filled("rbNamesArea") && (filled("rbStreetsArea") || filled("rbPhonesArea"));
+  return {rows: rows.length, name: handle.name || "", when: file.lastModified || 0, usable: usable};
 }
 /* ⭐ FOUR WAYS TO RECOGNISE THE SAME PERSON, STRONGEST FIRST.
    Owner, 2026-08-18, reading a list of customers the comparison said were not
@@ -16648,6 +16665,15 @@ document.getElementById('rbConnectSheetBtn')?.addEventListener('click', onceAtAT
       rbShowSheetStatus("Picked, but the file could not be read. Try again, or paste the sheet in.", true);
       return;
     }
+    if(!res.usable){
+      /* \u26a0 Not saved as the connection. Remembering a file that cannot be used
+         means every future Compare fails the same way, silently. */
+      await hlxSheetHandleClear();
+      rbShowSheetStatus("That file read fine (" + res.rows + " rows) but it is not your customer list \u2014 " +
+        "I could not find Name with an Address or Phone in it. If you picked \u201c2026 Customer Numbers\u201d, " +
+        "press this again and choose \u201c2026 Master List\u201d instead.", true);
+      return;
+    }
     rbShowSheetStatus("Connected to " + (res.name || "your sheet") + " \u2014 " + res.rows +
       " rows. It is read where it sits; nothing is copied or downloaded.");
   } catch(err){
@@ -16717,9 +16743,22 @@ document.getElementById('rbFindMissingBtn')?.addEventListener('click', async fun
          the wrong ones, and the honest answer is "this does not look right"
          rather than a list nobody should act on. */
   if(!found.read){
+    /* ⚠ SAY WHICH FILE IS CONNECTED. The owner connected "2026 Customer
+       Numbers.xlsx" — a two-column list of numbers and names — and was told to
+       paste the sheet in, which is advice for a problem she did not have. The
+       file was fine; it was the wrong file, and only this message was in a
+       position to say so. */
+    const connected = document.getElementById('rbConnectSheetStatus');
+    const connectedName = (connected && /Connected to ([^—]+)/.exec(connected.textContent) || [])[1];
     report.innerHTML = '<div style="border:2px solid var(--ember); border-radius:10px; padding:14px; background:var(--paper); font-size:13px;">' +
-      '<strong>Nothing to compare.</strong> No rows were read from the sheet. Paste the whole sheet into the big box above ' +
-      '(with its heading row), or fill in at least the Name, Address and Phone columns, then press this again.</div>';
+      '<strong>Nothing to compare.</strong> No rows were read.' +
+      (connectedName
+        ? '<br><br>The connected file is <strong>' + esc(connectedName.trim()) + '</strong>. If that is not your master customer list, ' +
+          'press <strong>Use my master sheet</strong> again and pick <strong>2026 Master List.xlsx</strong> instead ' +
+          '&mdash; it needs the columns Name, Address, City and Phone, and a file of just customer numbers has none of them.'
+        : ' Paste the whole sheet into the big box above (with its heading row), or fill in at least the Name, ' +
+          'Address and Phone columns, then press this again.') +
+      '</div>';
     return;
   }
   if(found.bookSize && found.matchedCount < Math.min(found.read, found.bookSize) * 0.5){

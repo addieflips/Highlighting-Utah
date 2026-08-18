@@ -13853,6 +13853,22 @@ suite('Suite 61. Reading the master sheet where it lives');
       /showOpenFilePicker\(\{/.test(body),
       'the browser refuses to open it otherwise, so this cannot be done for the office automatically');
   }
+  /* ⭐ THE WRONG FILE IS CAUGHT WHEN IT IS PICKED. The owner connected
+     "2026 Customer Numbers.xlsx" — 924 rows of numbers and names — was told it
+     was connected with 924 rows, and only found out at Compare, which then
+     advised her to paste the sheet in. Pasting is the one thing this feature
+     exists to remove, and the file was not even the problem: it was the wrong
+     file. */
+  check('S61', 'a workbook with no usable columns is refused when it is picked',
+    /const usable = filled\("rbNamesArea"\) && \(filled\("rbStreetsArea"\) \|\| filled\("rbPhonesArea"\)\);/.test(admin) &&
+    /if\(!res\.usable\)\{/.test(admin),
+    'a file can read perfectly and still be the wrong file — 924 rows of the wrong thing is still 924 rows');
+  check('S61', 'and an unusable one is not remembered',
+    /await hlxSheetHandleClear\(\);/.test(admin),
+    'remembering it means every future Compare fails the same way, silently');
+  check('S61', 'the empty-comparison message names the connected file',
+    /The connected file is <strong>/.test(admin) && /2026 Master List/.test(admin),
+    'sending her to paste is advice for a problem she does not have');
   check('S61', 'and the paste is still read when nothing is connected',
     /if\(!usedConnected && sheetBox && sheetBox\.value\.trim\(\)/.test(admin),
     '"I just want to paste in when I\u2019m doing a specific peice" — that is this line');
@@ -14205,8 +14221,15 @@ suite('Suite 64. Back into Quotes, and labelled for what it is');
         f({}) === 'First time quote');
       check('S64', 'a sides change is a house addition',
         f({changed: {what: 'sides'}, existingCustomerId: 'x'}) === 'House addition');
-      check('S64', 'a colour change is a colour change',
-        f({changed: {what: 'lights'}, existingCustomerId: 'x'}) === 'Colour change');
+      /* ⚠ RETIRED 2026-08-18, same day it was added. Owner: "actually we dont
+         want to requote color changes so that shouldnt be a label."
+         A colour change costs the same to hang, so there is nothing to
+         re-price: it takes the $30 change fee and goes to the Warehouse queue
+         to be rebuilt, and never becomes a quote. A label for a row that cannot
+         exist is one somebody will eventually try to explain. */
+      check('S64', 'a colour change is NOT given a label of its own',
+        f({changed: {what: 'lights'}, existingCustomerId: 'x'}) !== 'Colour change',
+        'colour changes never reach Quotes — they are a fee and a rebuild, not a re-price');
 
       /* ⚠ "or if i forgot something also that" — the cases she did not name are
          labelled for what they ARE, not squeezed into the nearest of the three.
