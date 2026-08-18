@@ -15281,19 +15281,18 @@ function findMergeableCustomers(routedIds){
     (groups[nm] = groups[nm] || []).push(c);
   });
   const ready = [], review = [];
-  Object.keys(groups).forEach(function(nm){
-    const list = groups[nm];
+  const uniq = function(vals){
+    const out = [];
+    vals.forEach(function(v){ if(v && out.indexOf(v) === -1) out.push(v); });
+    return out;
+  };
+  const numOf = function(c){ return String(((c && c.data) || {}).customerNumber || '').trim(); };
+  /* One set of copies believed to be the same house. */
+  const consider = function(list){
     if(list.length < 2) return;
-    const uniq = function(vals){
-      const out = [];
-      vals.forEach(function(v){ if(v && out.indexOf(v) === -1) out.push(v); });
-      return out;
-    };
-    const numbers = uniq(list.map(function(c){ return String((c.data||{}).customerNumber || '').trim(); }));
     const streets = uniq(list.map(function(c){ return dupStreetOf(c.data || {}); }));
     const onRoute = list.filter(function(c){ return routed[c.id]; });
     const why = [];
-    if(numbers.length > 1) why.push('two customer numbers (' + numbers.join(', ') + ')');
     if(streets.length > 1) why.push('two different addresses');
     if(onRoute.length > 1) why.push('more than one copy is on a route');
     const sorted = list.slice().sort(function(a, b){
@@ -15315,8 +15314,40 @@ function findMergeableCustomers(routedIds){
       Object.keys(add).forEach(function(f){ if(!(f in gains)) gains[f] = add[f]; });
     });
     const entry = {name: (keeper.data || {}).name || '(no name)', keeper: keeper, losers: losers,
-                   gains: gains, why: why};
+                   gains: gains, why: why, number: numOf(keeper)};
     if(why.length) review.push(entry); else ready.push(entry);
+  };
+  Object.keys(groups).forEach(function(nm){
+    const all = groups[nm];
+    if(all.length < 2) return;
+    const numbers = uniq(all.map(numOf));
+    /* ⭐ THE SAME NAME ON SEVERAL NUMBERS IS SEVERAL HOUSES, AND EACH IS
+       CONSIDERED ON ITS OWN.
+       Owner, 2026-08-18, reading Health Check's "two customers sharing one
+       customer number": "any same number same name should merge." Caitlin
+       Rigamoto is listed twice on number 31 AND twice on 713 — four records,
+       two houses. Grouping by name alone saw two numbers and refused the lot,
+       which is why nothing on that list could be cleared.
+       ⚠ Nothing is ever merged ACROSS numbers. Number 479 is May Sara against
+       Rachel Oslund — two different people on one number, which the name
+       grouping never brings together in the first place, and which stays a
+       job for the office. */
+    if(numbers.length <= 1){
+      consider(all);
+      return;
+    }
+    numbers.forEach(function(n){
+      consider(all.filter(function(c){ return numOf(c) === n; }));
+    });
+    /* ⚠ A copy with NO number, where the name is spread over several, cannot be
+       placed: it might belong to any of those houses. Reported, never guessed. */
+    const loose = all.filter(function(c){ return !numOf(c); });
+    if(loose.length){
+      review.push({name: (loose[0].data || {}).name || '(no name)', keeper: loose[0],
+                   losers: loose.slice(1), gains: {}, number: '',
+                   why: ['no customer number, and this name is on ' + numbers.length +
+                         ' of them (' + numbers.join(', ') + ') — I cannot tell which house']});
+    }
   });
   return {ready: ready, review: review};
 }
@@ -15453,7 +15484,9 @@ document.getElementById('dupExactBtn')?.addEventListener('click', onceAtATime(as
           found.ready.slice(0, 200).map(function(g){
             const fields = Object.keys(g.gains);
             return '<div style="padding:4px 0; border-bottom:1px solid var(--line);">' +
-              '<strong>' + esc(g.name) + '</strong> — keeping ' + esc(whereOf(g.keeper)) +
+              '<strong>' + esc(g.name) + '</strong>' +
+              (g.number ? ' <span style="color:var(--slate);">#' + esc(g.number) + '</span>' : '') +
+              ' — keeping ' + esc(whereOf(g.keeper)) +
               (fields.length
                 ? ' <span style="color:var(--slate);">gains ' + esc(fields.join(', ')) + '</span>'
                 : ' <span style="color:var(--slate);">nothing to gain — the spare copy was empty</span>') +

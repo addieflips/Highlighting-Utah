@@ -12108,14 +12108,58 @@ suite('Suite 54. Merging a customer who is in the book twice');
           'got ' + one.ready[0].keeper.id + ' and ' + two.ready[0].keeper.id);
       }
 
-      /* ⚠ THE THREE REFUSALS. */
+      /* ⭐ THE SAME NAME ON SEVERAL NUMBERS IS SEVERAL HOUSES.
+         Owner, 2026-08-18, reading Health Check's "two customers sharing one
+         customer number": "any same number same name should merge." Straight
+         off that list — Caitlin Rigamoto is listed twice on number 31 AND
+         twice on 713. Four records, two houses. Grouping by name alone saw two
+         numbers and refused the lot, which is why nothing on that report could
+         be cleared. */
       {
-        const r = run([c('a', { name: 'Julie Cattani', street: '1 A St', customerNumber: '883' }),
-                       c('b', { name: 'Julie Cattani', street: '1 A St', customerNumber: '901' })]);
-        check('S54', 'two customer numbers under one name are refused',
-          r.ready.length === 0 && r.review.length === 1 && /two customer numbers/.test(r.review[0].why.join(';')),
-          'two people, or a numbering mistake — either way not this button\u2019s call');
+        const BAD31 = { name: 'Caitlin Rigamoto', customerNumber: '31', street: '', city: '', address: ', UT', housePrice: 300 };
+        const BAD713 = { name: 'Caitlin Rigamoto', customerNumber: '713', street: '', city: '', address: ', UT', housePrice: 400 };
+        const r = run([
+          c('a31', { name: 'Caitlin Rigamoto', customerNumber: '31', street: '1 A St' }), c('b31', BAD31),
+          c('a713', { name: 'Caitlin Rigamoto', customerNumber: '713', street: '9 B Rd' }), c('b713', BAD713)
+        ]);
+        check('S54', 'the same name on two numbers is two houses, and each merges on its own',
+          r.ready.length === 2 && r.ready.every(g => g.losers.length === 1),
+          'got ' + r.ready.length + ' ready, ' + r.review.length + ' refused — the whole of that ' +
+          'Health Check list is this shape, and grouping by name alone refused every line of it');
+
+        /* ⚠ NOTHING EVER CROSSES A NUMBER. */
+        const g31 = r.ready.filter(g => g.keeper.data.customerNumber === '31')[0];
+        const g713 = r.ready.filter(g => g.keeper.data.customerNumber === '713')[0];
+        check('S54', 'and neither house takes anything off the other',
+          !!g31 && !!g713 && g31.gains.housePrice === 300 && g713.gains.housePrice === 400 &&
+          g31.keeper.data.street === '1 A St' && g713.keeper.data.street === '9 B Rd',
+          'number 31 gained ' + (g31 && g31.gains.housePrice) + ', 713 gained ' + (g713 && g713.gains.housePrice));
       }
+
+      /* ⚠ Two different PEOPLE on one number — Health Check's number 479, May
+         Sara against Rachel Oslund — are never brought together at all, because
+         the names never group. That stays a job for the office. */
+      {
+        const r = run([c('a', { name: 'May Sara', customerNumber: '479', street: '1 A St' }),
+                       c('b', { name: 'Rachel Oslund', customerNumber: '479', street: '9 B Rd' })]);
+        check('S54', 'two different people sharing a number are never merged',
+          r.ready.length === 0 && r.review.length === 0,
+          'one of them has to lose the number, and choosing which is not this button\u2019s job');
+      }
+
+      /* ⚠ A copy with no number, where the name is spread over several, cannot
+         be placed — it might belong to any of those houses. */
+      {
+        const r = run([c('a', { name: 'Jana McJunkin', customerNumber: '600', street: '1 A St' }),
+                       c('b', { name: 'Jana McJunkin', customerNumber: '601', street: '9 B Rd' }),
+                       c('loose', { name: 'Jana McJunkin', street: '', city: '', address: ', UT' })]);
+        check('S54', 'an unnumbered copy under a name with several numbers is reported, not guessed',
+          r.ready.length === 0 && r.review.length === 1 &&
+          /cannot tell which house/.test(r.review[0].why.join(';')),
+          JSON.stringify(r.review.map(x => x.why)));
+      }
+
+      /* ⚠ THE REFUSALS THAT REMAIN. */
       {
         const r = run([c('a', { name: 'Julie Cattani', street: '1 A St' }),
                        c('b', { name: 'Julie Cattani', street: '99 B Rd' })]);
