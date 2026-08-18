@@ -7230,7 +7230,7 @@ suite('Suite 27. Short crew-days reach into nearby towns');
       Alpine: [40.453, -111.777], Draper: [40.524, -111.863], Sandy: [40.572, -111.859],
       Orem: [40.297, -111.695], Herriman: [40.514, -112.033]
     };
-    const run = (counts) => {
+    const run = (counts, opts) => {
       const waiting = [];
       Object.keys(counts).forEach(city => {
         for (let i = 0; i < counts[city]; i++) {
@@ -7238,7 +7238,7 @@ suite('Suite 27. Short crew-days reach into nearby towns');
                          stop: { lat: at[city][0], lng: at[city][1] } });
         }
       });
-      const days = api.plan(waiting, {}, { floorDate: '2026-10-01', maxDays: 40 });
+      const days = api.plan(waiting, {}, Object.assign({ floorDate: '2026-10-01', maxDays: 40 }, opts || {}));
       const byDate = {};
       days.forEach(d => { (byDate[d.date] = byDate[d.date] || []).push(d); });
       return { days, byDate, dates: Object.keys(byDate).sort(),
@@ -7247,14 +7247,32 @@ suite('Suite 27. Short crew-days reach into nearby towns');
 
     // The reported symptom: 40 houses = one full day, previously spread over four.
     const tail = run({ Lehi: 5, Herriman: 5, Alpine: 5, Draper: 5, Sandy: 5, Orem: 5, 'American Fork': 5, Highland: 5 });
-    check('S27', 'a tail of small towns is still packed, within the one-other-town rule',
-      tail.dates.length <= 3,
+    const run27 = run;
+    check('S27', 'a tail of small towns is packed into as few days as possible',
+      tail.dates.length <= 2,
       'took ' + tail.dates.length + ' working days for 40 houses; one crew one town took four');
-    /* ⭐ The rule that made the number above go from 2 to 3, asserted here so
-       the trade is visible rather than looking like the packing got worse. */
-    check('S27', 'and no crew is sent to more than two towns',
+    /* ⭐ THE TWO-TOWN RULE IS THE BUILDER'S, AND THE BUILDER STILL KEEPS IT.
+       Owner: "each crew is only doing one other city" — so nothing that comes
+       off the build itself may hold three.
+
+       What may is the tail sweep, and only to delete a whole date: owner,
+       2026-08-18, "we should fit as many of those into other days as possible,
+       just stuff those guys into another day." In this fixture Orem's five had
+       a working day to themselves; the sweep hands them to the American
+       Fork crew and the third date stops existing. The trade is asserted both
+       ways below so neither half can drift.
+
+       ⚠ Nearby only. Permission to mix towns is not permission to send a crew
+       from Sandy to Orem — see 'a town far away is never borrowed from'. */
+    const raw = run27({ Lehi: 5, Herriman: 5, Alpine: 5, Draper: 5, Sandy: 5, Orem: 5, 'American Fork': 5, Highland: 5 }, { pack: false });
+    check('S27', 'the build itself still never sends a crew to more than two towns',
+      raw.days.every(d => d.towns.length <= 2),
+      'worst crew held ' + Math.max.apply(null, raw.days.map(d => d.towns.length)) + ' towns before the sweep ran');
+    check('S27', 'and a third town only ever appears where it removed a day',
+      tail.dates.length < raw.dates.length ||
       tail.days.every(d => d.towns.length <= 2),
-      'worst day held ' + Math.max.apply(null, tail.days.map(d => d.towns.length)) + ' towns');
+      'the sweep took ' + raw.dates.length + ' dates to ' + tail.dates.length +
+      ' — mixing a third town into a route is only worth it for a day the crew no longer has to drive to');
     check('S27', 'and nobody is left behind while packing', tail.placed === tail.total,
       tail.placed + ' of ' + tail.total);
     check('S27', 'a topped-up day records every town it holds',
@@ -10989,6 +11007,443 @@ suite('Suite 50. A Pref Date that names an actual day');
   check('S50', 'a named day is never overwritten with a plain month',
     /if\(prefSpecificDate\(a, yr\) && !prefSpecificDate\(b, yr\)\) return true;/.test(admin),
     'the customer record only holds the five standard wordings, so "11/9+" lives only on the plan — a sync that flattened it would throw the day away every time it ran');
+}
+
+
+/* ============================================================
+ * Suite 51. The dribble at the end of the season.
+ *
+ * Owner, 2026-08-18: "near the end of the season days start to look like this
+ *   Mon Nov 23 / 15 left / Bluffdale · Mapleton
+ *   Tue Nov 24 /  2 left / Spanish Fork
+ *   Mon Dec  7 /  6 left / Orem · South Jordan
+ *   Wed Dec  9 /  2 left / Vineyard
+ * thats not good we should fit as many of those into other days as possible,
+ * just stuff those guys into another day."
+ *
+ * Twenty-five houses over four days across three weeks: four mornings of
+ * loading the truck and driving out. The town names on a day are the DAY's,
+ * across both crews — so 23 November is two crews, not one.
+ * ============================================================ */
+suite('Suite 51. The dribble at the end of the season');
+{
+  const fn = (name) => {
+    const at = admin.indexOf('function ' + name + '(');
+    if (at < 0) return '';
+    let d = 0;
+    for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+    }
+    return '';
+  };
+
+  const src = fn('packTailCrewDays');
+  check('S51', 'packTailCrewDays exists', !!src);
+
+  if (src) {
+    const sb = {};
+    new Function('MAX_STOPS_PER_ROUTE', 'CREWS_PER_DAY',
+      src + 'this.pack = packTailCrewDays;').call(sb, 20, 2);
+
+    /* Real geography, and only what is genuinely within a crew's reach:
+       Bluffdale/South Jordan sit together in the south valley, Mapleton and
+       Spanish Fork are neighbours, Orem and Vineyard share a border. Nothing
+       else on this list is near anything else. */
+    const NEAR = { Bluffdale: ['South Jordan'], 'South Jordan': ['Bluffdale'],
+                   Mapleton: ['Spanish Fork'], 'Spanish Fork': ['Mapleton'],
+                   Orem: ['Vineyard', 'Lindon'], Vineyard: ['Orem'], Lindon: ['Orem'] };
+    /* Real driving distances, for the rescue. Orem to Mapleton is a genuine
+       twenty minutes; Bluffdale to Mapleton is most of the valley. */
+    const MILES = {
+      Orem: { Mapleton: 14, 'Spanish Fork': 13, Bluffdale: 26, 'South Jordan': 31, Vineyard: 4 },
+      Lindon: { Orem: 5, Mapleton: 18, Bluffdale: 22, 'South Jordan': 27, Vineyard: 6, 'Spanish Fork': 17 },
+      Mapleton: { Orem: 14, Vineyard: 16, Bluffdale: 38, 'South Jordan': 43, 'Spanish Fork': 4 },
+      Bluffdale: { Mapleton: 38, Orem: 26, Vineyard: 24, 'Spanish Fork': 41, 'South Jordan': 5 },
+      'South Jordan': { Mapleton: 43, Orem: 31, Bluffdale: 5, Vineyard: 29, 'Spanish Fork': 46 },
+      Vineyard: { Orem: 4, Mapleton: 16, Bluffdale: 24, 'South Jordan': 29, 'Spanish Fork': 17 },
+      'Spanish Fork': { Mapleton: 4, Orem: 13, Vineyard: 17, Bluffdale: 41, 'South Jordan': 46 }
+    };
+
+    const build = (rows) => {
+      const town = {};
+      const days = rows.map(r => {
+        const ids = [];
+        for (let i = 0; i < r.n; i++) {
+          const id = r.city + '@' + r.date + '#' + i;
+          town[id] = { city: r.city, from: r.from || '' };
+          ids.push(id);
+        }
+        return { date: r.date, crew: String(r.crew), city: r.city,
+                 towns: r.towns ? r.towns.slice() : [r.city], ids: ids };
+      });
+      return { days, town };
+    };
+    const run = (rows, opts) => {
+      const f = build(rows);
+      const out = sb.pack(f.days, Object.assign({
+        cap: 20, crews: 2,
+        from: id => f.town[id].from,
+        townOf: id => f.town[id].city,
+        nearby: c => NEAR[c] || [],
+        dist: (a, b) => (MILES[a] && MILES[a][b] != null) ? MILES[a][b] : null
+      }, opts || {}));
+      out.town = f.town;
+      out.dates = Array.from(new Set(out.days.map(d => d.date))).sort();
+      out.all = out.days.reduce((a, d) => a.concat(d.ids), []);
+      return out;
+    };
+
+    /* ⭐ THE OWNER'S OWN FOUR DAYS. */
+    const HERS = [
+      { date: '2026-11-23', crew: 1, city: 'Bluffdale', n: 8 },
+      { date: '2026-11-23', crew: 2, city: 'Mapleton', n: 7 },
+      { date: '2026-11-24', crew: 1, city: 'Spanish Fork', n: 2 },
+      { date: '2026-12-07', crew: 1, city: 'Orem', n: 3 },
+      { date: '2026-12-07', crew: 2, city: 'South Jordan', n: 3 },
+      { date: '2026-12-09', crew: 1, city: 'Vineyard', n: 2 }
+    ];
+    const hers = run(HERS);
+
+    check('S51', 'her four days become two', hers.dates.length === 2,
+      'still ' + hers.dates.length + ' days: ' + hers.dates.join(', '));
+    check('S51', 'and the season stops two weeks earlier',
+      hers.dates[hers.dates.length - 1] < '2026-12-07',
+      'last day is ' + hers.dates[hers.dates.length - 1] + ', was 9 December');
+    check('S51', 'all twenty-five houses are still there, once each',
+      hers.all.length === 25 && new Set(hers.all).size === 25,
+      hers.all.length + ' houses, ' + (hers.all.length - new Set(hers.all).size) + ' of them twice');
+
+    /* ⚠ THE ONE THAT WOULD LOSE HER A CUSTOMER. */
+    check('S51', 'nobody is moved to a LATER day than they already had',
+      hers.moved.every(m => m.to < m.from) && hers.relocated.every(r => r.to < r.from),
+      'this pass may shorten the season, never push somebody back: ' +
+      JSON.stringify(hers.moved.filter(m => m.to >= m.from).concat(hers.relocated.filter(r => r.to >= r.from))));
+
+    /* ⚠ The rule the whole schedule is built on. */
+    check('S51', 'a town far away is never picked up',
+      hers.days.every(d => d.towns.every(t =>
+        t === d.city || (NEAR[d.city] || []).indexOf(t) !== -1)),
+      '"just stuff those guys into another day" is permission to mix towns, not to send a crew across the valley: ' +
+      JSON.stringify(hers.days.map(d => d.towns)));
+
+    check('S51', 'two crews are never sent to the same town on the same day',
+      hers.dates.every(dt => {
+        const seen = {};
+        return hers.days.filter(d => d.date === dt)
+          .every(d => d.towns.every(t => { if (seen[t]) return false; seen[t] = 1; return true; }));
+      }), JSON.stringify(hers.days.map(d => d.date + ' ' + d.towns.join('+'))));
+
+    check('S51', 'never more crews out on a day than there are crews',
+      hers.dates.every(dt => hers.days.filter(d => d.date === dt).length <= 2));
+
+    check('S51', 'never more than twenty on one crew',
+      hers.days.every(d => d.ids.length <= 20));
+
+    /* The cheap move, and the one her example actually needed: a day holding
+       less than one crew's worth means a crew is standing idle on that date. */
+    check('S51', 'a whole crew-day rides an earlier date that has a crew spare',
+      hers.relocated.length >= 1,
+      'Vineyard should ride 24 November as its own crew rather than being mixed into anybody: ' +
+      JSON.stringify(hers.relocated));
+
+    /* ---- ⚠ nobody is hung before they said they could be ---- */
+    {
+      const late = run([
+        { date: '2026-11-23', crew: 1, city: 'Bluffdale', n: 8 },
+        { date: '2026-11-23', crew: 2, city: 'Mapleton', n: 7 },
+        /* After Thanksgiving. These may not go back to November whatever it costs. */
+        { date: '2026-12-07', crew: 1, city: 'South Jordan', n: 3, from: '2026-11-27' },
+        { date: '2026-12-09', crew: 1, city: 'Spanish Fork', n: 2, from: '2026-11-27' }
+      ]);
+      const early = [];
+      late.days.forEach(d => d.ids.forEach(id => {
+        const f = late.town[id].from;
+        if (f && d.date < f) early.push(id + ' on ' + d.date + ' but not allowed until ' + f);
+      }));
+      check('S51', 'an After-Thanksgiving house is never dragged back into November',
+        early.length === 0, early.join('; '));
+      check('S51', 'but it is still packed with the others that can wait',
+        late.dates.length === 2,
+        'the two December days should still become one: ' + late.dates.join(', '));
+    }
+
+    /* ---- a real day is not taken apart ---- */
+    {
+      const healthy = run([
+        { date: '2026-10-05', crew: 1, city: 'Bluffdale', n: 20 },
+        { date: '2026-10-06', crew: 1, city: 'South Jordan', n: 20 }
+      ]);
+      check('S51', 'a full day is left exactly as it is',
+        healthy.dates.length === 2 && healthy.moved.length === 0 && healthy.relocated.length === 0,
+        'twenty houses is a day, not a leftover');
+    }
+    {
+      const ten = run([
+        { date: '2026-10-05', crew: 1, city: 'Bluffdale', n: 12 },
+        { date: '2026-10-06', crew: 1, city: 'South Jordan', n: 10 }
+      ]);
+      check('S51', 'and so is a day holding ten',
+        ten.dates.length === 2 && ten.moved.length === 0,
+        'the line is half a crew — below that it is a leftover, at it it is a day');
+    }
+
+    /* ---- ⭐ the third town is only bought with a day ---- */
+    {
+      /* Bluffdale is full, so its crew cannot take everybody. Vineyard has
+         nowhere to go at all — it is near nothing here — so 9 December
+         survives, and the day that survives must not have been mixed for
+         nothing. */
+      const stuck = run([
+        { date: '2026-10-05', crew: 1, city: 'Bluffdale', n: 18 },
+        { date: '2026-10-05', crew: 2, city: 'Mapleton', n: 18 },
+        { date: '2026-12-09', crew: 1, city: 'South Jordan', n: 4 },
+        { date: '2026-12-09', crew: 2, city: 'Orem', n: 4 }
+      ]);
+      const threes = stuck.days.filter(d => d.towns.length > 2);
+      check('S51', 'a crew is not given a third town for a day that survives anyway',
+        threes.length === 0,
+        'mixing a third town costs the crew real driving and is only worth a day removed: ' +
+        JSON.stringify(threes.map(d => d.date + ' ' + d.towns.join('+'))));
+      check('S51', 'and the house that had nowhere to go still has a day',
+        stuck.all.length === 44 && new Set(stuck.all).size === 44,
+        'a house the packer cannot place must stay where it is, never be dropped');
+    }
+
+    /* ---- ⭐ ONE HOUSE DOES NOT GET A CREW TO ITSELF ---- */
+    {
+      /* Straight off the real season: after everything else has packed, a
+         single Mapleton house was left holding 2 December on its own. Mapleton
+         is not "nearby" anything that is working, so every rule above refuses
+         it — and a whole crew drives to Mapleton for one house. */
+      const lone = run([
+        { date: '2026-11-27', crew: 1, city: 'Orem', n: 5, from: '2026-11-27' },
+        { date: '2026-11-27', crew: 2, city: 'Vineyard', n: 4, from: '2026-11-27' },
+        { date: '2026-12-02', crew: 1, city: 'Mapleton', n: 1, from: '2026-11-27' }
+      ]);
+      check('S51', 'a lone house is taken along on a day somebody is already working',
+        lone.dates.length === 1 && lone.dates[0] === '2026-11-27',
+        'a fourteen-mile detour beats a whole morning for one house: ' + lone.dates.join(', '));
+      check('S51', 'and the long drive is recorded as what it is',
+        lone.moved.length === 1 && lone.moved[0].rescued === true,
+        'the report has to be able to say a crew was sent further than the borrowing rule allows');
+    }
+    {
+      /* ⚠ Bounded. Mapleton to South Jordan is most of the valley. */
+      const tooFar = run([
+        { date: '2026-11-27', crew: 1, city: 'South Jordan', n: 5, from: '2026-11-27' },
+        { date: '2026-11-27', crew: 2, city: 'Bluffdale', n: 4, from: '2026-11-27' },
+        { date: '2026-12-02', crew: 1, city: 'Mapleton', n: 1, from: '2026-11-27' }
+      ]);
+      check('S51', 'but a crew is not sent across the valley even for a lone house',
+        tooFar.dates.length === 2,
+        'forty-three miles each way is a worse day than the one it saves');
+    }
+    {
+      /* ⚠ It is a rescue, not a rule: four houses is a small route, not a
+         wasted morning, and it stays in its own town. */
+      const four = run([
+        { date: '2026-11-27', crew: 1, city: 'Orem', n: 5, from: '2026-11-27' },
+        { date: '2026-11-27', crew: 2, city: 'Vineyard', n: 4, from: '2026-11-27' },
+        { date: '2026-12-02', crew: 1, city: 'Mapleton', n: 4, from: '2026-11-27' }
+      ]);
+      check('S51', 'and four houses are left to their own day',
+        four.dates.length === 2,
+        'the rescue is for the one-and-two-house days, not for anything under-full');
+    }
+    {
+      /* ⚠ And only when the DATE goes. A crew-day sharing its date with
+         another has saved nothing by moving. */
+      const shared = run([
+        { date: '2026-11-27', crew: 1, city: 'Orem', n: 5, from: '2026-11-27' },
+        { date: '2026-11-27', crew: 2, city: 'Vineyard', n: 4, from: '2026-11-27' },
+        { date: '2026-12-02', crew: 1, city: 'Mapleton', n: 1, from: '2026-11-27' },
+        { date: '2026-12-02', crew: 2, city: 'Bluffdale', n: 15, from: '2026-11-27' }
+      ]);
+      const far = shared.days.filter(d => d.towns.indexOf('Mapleton') !== -1 && d.city === 'Orem');
+      check('S51', 'and not when the crew would still have to come out that day anyway',
+        far.length === 0 && shared.dates.length === 2,
+        'the Bluffdale crew is on 2 December regardless, so the Mapleton house costs nothing extra there');
+    }
+    /* ---- ⚠ EVERY WAY A HOUSE COULD BE MOVED LATER ---- */
+    {
+      /* The same town on a later day is the most tempting target there is —
+         perfectly tidy, and two customers hung a day later than they were
+         told. A thin day at the FRONT of the season must simply stay. */
+      const forward = run([
+        { date: '2026-10-05', crew: 1, city: 'Bluffdale', n: 15 },
+        { date: '2026-10-05', crew: 2, city: 'Mapleton', n: 2 },
+        { date: '2026-10-06', crew: 1, city: 'Mapleton', n: 12 },
+        { date: '2026-10-06', crew: 2, city: 'Orem', n: 12 }
+      ]);
+      const still = forward.days.filter(d => d.date === '2026-10-05' && d.city === 'Mapleton');
+      check('S51', 'a thin day early on is NOT emptied into a tidier day later',
+        still.length === 1 && still[0].ids.length === 2 && forward.moved.length === 0,
+        'joining the later Mapleton day would look neat and would hang two people a day late');
+    }
+    {
+      /* ⚠ And the whole-crew-day move has its own copy of every guard. */
+      const ride = run([
+        { date: '2026-11-23', crew: 1, city: 'Bluffdale', n: 8 },
+        { date: '2026-12-07', crew: 1, city: 'Mapleton', n: 2, from: '2026-12-01' }
+      ]);
+      const early = [];
+      ride.days.forEach(d => d.ids.forEach(id => {
+        const f = ride.town[id].from;
+        if (f && d.date < f) early.push(id + ' on ' + d.date + ', not allowed until ' + f);
+      }));
+      check('S51', 'a whole crew-day never rides a date its houses are barred from',
+        early.length === 0,
+        '23 November has a crew standing idle, which makes it very inviting: ' + early.join('; '));
+    }
+    {
+      const same = run([
+        { date: '2026-11-23', crew: 1, city: 'Bluffdale', n: 8 },
+        { date: '2026-12-07', crew: 1, city: 'Bluffdale', n: 2 }
+      ]);
+      check('S51', 'and it never puts a second crew in a town already being worked',
+        same.dates.length === 1 &&
+        same.days.filter(d => d.date === '2026-11-23').length === 1,
+        'the two should join the crew that is already going to Bluffdale, not ride beside it: ' +
+        JSON.stringify(same.days.map(d => d.date + ' c' + d.crew + ' ' + d.towns.join('+'))));
+    }
+
+    /* ---- ⚠ the third town, when the day does NOT disappear ---- */
+    {
+      /* The Orem crew already holds Orem and Vineyard and has room for three.
+         Lindon has five and nowhere else to go, so two are stuck however this
+         goes — the day survives, and a crew that gains nothing must not gain a
+         third town either. */
+      const partial = run([
+        { date: '2026-10-05', crew: 1, city: 'Orem', n: 17, towns: ['Orem', 'Vineyard'] },
+        { date: '2026-10-06', crew: 1, city: 'Lindon', n: 5 },
+        { date: '2026-10-06', crew: 2, city: 'Bluffdale', n: 5 }
+      ]);
+      const three = partial.days.filter(d => d.towns.length > 2);
+      check('S51', 'a crew gains a third town only if the day it came from disappears',
+        three.length === 0,
+        'Lindon keeps its day whatever happens, so mixing three of them into the Orem route buys nothing: ' +
+        JSON.stringify(three.map(d => d.date + ' ' + d.towns.join('+'))));
+      check('S51', 'and the houses that had to stay are all still there',
+        partial.all.length === 27 && new Set(partial.all).size === 27,
+        partial.all.length + ' of 27');
+    }
+
+    /* ---- ⚠ twenty is twenty even when a day is being dissolved ---- */
+    {
+      const brim = run([
+        { date: '2026-10-05', crew: 1, city: 'Bluffdale', n: 19 },
+        { date: '2026-10-05', crew: 2, city: 'Mapleton', n: 19 },
+        { date: '2026-10-06', crew: 1, city: 'South Jordan', n: 3 },
+        { date: '2026-10-06', crew: 2, city: 'Orem', n: 3 }
+      ]);
+      check('S51', 'a crew with one seat left takes one house, not three',
+        brim.days.every(d => d.ids.length <= 20),
+        'worst crew held ' + Math.max.apply(null, brim.days.map(d => d.ids.length)) +
+        ' — the cap is the crew\u2019s day, not a target');
+      check('S51', 'and the ones that did not fit keep their day',
+        brim.all.length === 44 && new Set(brim.all).size === 44,
+        brim.all.length + ' of 44');
+    }
+    /* ---- and the whole thing is pure ---- */
+    {
+      const f = build(HERS);
+      const snapshot = JSON.stringify(f.days.map(d => d.ids.length));
+      sb.pack(f.days.slice(), { cap: 20, crews: 2,
+        from: id => f.town[id].from, townOf: id => f.town[id].city, nearby: c => NEAR[c] || [] });
+      check('S51', 'note: the packer works on the crew-days it is given',
+        JSON.stringify(f.days.map(d => d.ids.length)) !== snapshot,
+        'it edits them in place and returns the survivors, which is what planNewCrewDays wants — recorded so nobody assumes a copy');
+    }
+  }
+
+  /* ---- the crew numbers, closed up ---- */
+  {
+    const rsrc = fn('renumberCrewsByDate');
+    check('S51', 'renumberCrewsByDate exists', !!rsrc);
+    if (rsrc) {
+      const rb = {};
+      new Function(rsrc + 'this.f = renumberCrewsByDate;').call(rb);
+
+      /* ⭐ Exactly what a dissolved day leaves behind: crew 1 has gone and
+         crew 2 is still out, so the day reads as a crew that did not turn up. */
+      const gap = rb.f([{ date: '2026-11-23', crew: '2', ids: [1] }], {});
+      check('S51', 'a day left with only crew 2 becomes crew 1',
+        gap[0].crew === '1', 'crew ' + gap[0].crew);
+
+      const two = rb.f([{ date: '2026-11-23', crew: '2', ids: [1] },
+                        { date: '2026-11-23', crew: '4', ids: [2] }], {});
+      check('S51', 'and two survivors become 1 and 2',
+        two.map(d => d.crew).join(',') === '1,2', two.map(d => d.crew).join(','));
+
+      /* ⚠ A day that already existed keeps its crew number, and nothing new
+         may be given the same one. */
+      const held = rb.f([{ date: '2026-11-23', crew: '5', ids: [1] }],
+                        { '2026-11-23': { '1': 'Lehi' } });
+      check('S51', 'a number already in use that day is stepped over',
+        held[0].crew === '2',
+        'got crew ' + held[0].crew + ' — two crews answering to \u201ccrew 1\u201d is worse than a gap');
+
+      const days = rb.f([{ date: '2026-11-23', crew: '2', ids: [1] },
+                         { date: '2026-11-24', crew: '2', ids: [2] }], {});
+      check('S51', 'each day is numbered on its own',
+        days.every(d => d.crew === '1'), days.map(d => d.date + ' c' + d.crew).join(', '));
+    }
+  }
+
+  /* ---- end to end, through the real builder ---- */
+  {
+    const start = admin.indexOf('function planNewCrewDays(waiting, taken, opts)');
+    const end = admin.indexOf('/* Top every day up to the cap.', start);
+    check('S51', 'the builder runs the packer before handing the plan back',
+      /if\(o\.pack === false\) return out;/.test(admin) &&
+      /const packed = packTailCrewDays\(out, \{/.test(admin) &&
+      /return renumberCrewsByDate\(packed\.days, taken \|\| \{\}\);/.test(admin));
+
+    const api = new Function(
+      'function toDateStr(dt){return dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+"-"+String(dt.getDate()).padStart(2,"0");}' +
+      'function haversine(a,b,c,d){const R=3958.8,t=x=>x*Math.PI/180;const dl=t(c-a),dg=t(d-b);' +
+      'const q=Math.sin(dl/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dg/2)**2;return 2*R*Math.asin(Math.sqrt(q));}' +
+      'function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x;}' +
+      'function isWeekend(d){const k=d.getDay();return k===0||k===6;}' +
+      'function nextWorkingDay(d){let x=new Date(d);while(isWeekend(x))x=addDays(x,1);return x;}' +
+      'function seasonFirstDate(){return new Date(2026,9,1);}' +
+      admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) +
+      admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) +
+      'let NEARBY_TOWN_LIST={};' + fn('sameTownName') + fn('townCentres') + fn('nearbyTowns') +
+      admin.slice(start, end) +
+      '\nreturn {plan: planNewCrewDays, cap: MAX_STOPS_PER_ROUTE};')();
+
+    const at = { Bluffdale: [40.489, -111.939], 'South Jordan': [40.562, -111.929],
+                 Mapleton: [40.130, -111.578], 'Spanish Fork': [40.115, -111.655],
+                 Orem: [40.297, -111.695], Vineyard: [40.307, -111.755] };
+    const waiting = [];
+    Object.keys(at).forEach(city => {
+      const n = city === 'Bluffdale' ? 8 : (city === 'Mapleton' ? 7 : 3);
+      for (let i = 0; i < n; i++) waiting.push({ id: city + i, city: city, priority: 2,
+        from: '2026-10-01', stop: { lat: at[city][0], lng: at[city][1] } });
+    });
+    const raw = api.plan(waiting, {}, { floorDate: '2026-10-01', maxDays: 40, pack: false });
+    const packed = api.plan(waiting, {}, { floorDate: '2026-10-01', maxDays: 40 });
+    const dcount = (ds) => new Set(ds.map(d => d.date)).size;
+
+    check('S51', 'a whole season of small towns comes out in fewer days',
+      dcount(packed) <= dcount(raw),
+      'the raw build took ' + dcount(raw) + ' days, packed took ' + dcount(packed));
+    check('S51', 'and nobody is lost or duplicated on the way through',
+      (() => {
+        const ids = packed.reduce((a, d) => a.concat(d.ids), []);
+        return ids.length === waiting.length && new Set(ids).size === waiting.length;
+      })(),
+      'the builder must hand back exactly what it was given');
+    check('S51', 'the crew numbers on a day have no gap in them',
+      Array.from(new Set(packed.map(d => d.date))).every(dt => {
+        const crews = packed.filter(d => d.date === dt).map(d => Number(d.crew)).sort();
+        return crews.every((c, i) => c === i + 1);
+      }),
+      'a day labelled "crew 2" with no crew 1 reads as a crew missing: ' +
+      JSON.stringify(packed.map(d => d.date + ' c' + d.crew)));
+  }
 }
 
 // A check that scores after this summary is a check that cannot fail the build.
