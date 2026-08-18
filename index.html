@@ -2134,7 +2134,16 @@ function navigate(){
     var quoteParams = new URLSearchParams(queryString);
     var quoteToken = quoteParams.get('token');
     var quoteAction = quoteParams.get('action');
-    if(quoteToken && (quoteAction === 'approve' || quoteAction === 'decline' || quoteAction === 'maybe_next_year') && typeof handleQuoteLink === 'function'){
+    /* A TOKEN IS ENOUGH. This used to also require an action, and any link
+       without one silently did nothing — which was most of the links customers
+       actually get. The coloured buttons inside the email body carry
+       &action=..., but the "View Your Quote" button on every quote and nudge
+       email, and the {{link}} in both text-message templates, are a bare
+       ?token=. Those landed on the install-details form, headed "Thanks for
+       approving!" when they had not approved, with no way to approve and no
+       token wired to the form, so submitting it said "Something went wrong".
+       handleQuoteLink now offers the three answers when there is no action. */
+    if(quoteToken && typeof handleQuoteLink === 'function'){
       document.body.classList.add('quote-minimal');
       handleQuoteLink(quoteToken, quoteAction);
     }
@@ -3759,7 +3768,53 @@ function confirmQuoteDecline(token){
     });
   });
 }
+/* The three answers, for someone who arrived on a link that did not say which
+   one they meant — the "View Your Quote" button and the texted link. They have
+   just read the email with the price and the photos in it, so this asks the
+   question rather than repeating the quote back at them. Declining still goes
+   through the same "are you sure" second chance the emailed decline button
+   uses, because a decline archives the quote. */
+/* A FUNCTION, not a var holding an array. The hash router runs while this
+   script is still being evaluated, long before a `var` further down the file
+   has been assigned — so a list declared there is still undefined at the
+   moment the router calls in, and reading .indexOf off it throws. A function
+   declaration is hoisted whole and is safe to call at any point. */
+function isQuoteLinkAction(action){
+  return action === 'approve' || action === 'decline' || action === 'maybe_next_year';
+}
+function offerQuoteChoice(token){
+  var confirmWrap = document.getElementById('quoteLinkConfirm');
+  var confirmMsg = document.getElementById('quoteLinkConfirmMsg');
+  var actions = document.getElementById('quoteLinkConfirmActions');
+  var formWrap = document.getElementById('quoteDetailFormWrap');
+  var successWrap = document.getElementById('quoteDetailSuccess');
+  /* Set now, not when they answer: the details form saves through this token,
+     and approving from here drops them straight into that form. */
+  quoteDetailToken = token;
+  if(successWrap) successWrap.style.display = 'none';
+  if(formWrap) formWrap.style.display = 'none';
+  document.body.classList.add('quote-minimal');
+  if(confirmWrap) confirmWrap.style.display = 'block';
+  if(confirmMsg) confirmMsg.textContent = 'Your Highlighting Utah quote';
+  setQuoteConfirmSub('Everything is in the email we sent you \u2014 the price, and the photos of your home. What would you like to do?');
+  if(!actions) return;
+  actions.style.display = 'block';
+  actions.innerHTML =
+    '<button type="button" class="qbtn qbtn-gold" data-qd="approve">Approve my quote</button>'+
+    '<button type="button" class="qbtn qbtn-plain" data-qd="maybe_next_year">Maybe next year</button>'+
+    '<button type="button" class="qbtn qbtn-quiet" data-qd="decline">Not right now</button>';
+  actions.querySelectorAll('[data-qd]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      actions.style.display = 'none';
+      actions.innerHTML = '';
+      setQuoteConfirmSub('');
+      /* No third argument on purpose, so decline still confirms. */
+      handleQuoteLink(token, btn.dataset.qd);
+    });
+  });
+}
 function handleQuoteLink(token, action, confirmed){
+  if(!isQuoteLinkAction(action)) return offerQuoteChoice(token);
   if(action === 'decline' && !confirmed) return confirmQuoteDecline(token);
 
   var formWrap = document.getElementById('quoteDetailFormWrap');

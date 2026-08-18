@@ -39,6 +39,7 @@ const TESTS_DIR = ['tests', 'test']
  * appears; an unmapped spec is reported rather than silently skipped. */
 const SPEC_TARGETS = {
   'portal.spec.js': 'index.html',
+  'quote-link.spec.js': 'index.html',
   'public.spec.js': 'index.html',
   'admin.spec.js': 'admin.html',
   'crew.spec.js': 'employee.html'
