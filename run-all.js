@@ -12873,6 +12873,77 @@ suite('Suite 58. The sheet against the book, both ways round');
       return ctx.f();
     };
     const c = (id, o) => ({ id: id, data: o });
+    /* ---- ⭐ ONE PERSON, NOT TWO PROBLEMS ---- */
+    {
+      /* Straight out of the owner's own report:
+           sheet:   "Brit / Dani Anderson #20 — 1499 W 800 N, Pleasant Grove"
+           website: "Anderson Brit / Dani", no number, no address
+         "why did she pop up if shes already there" — because she was in BOTH
+         lists at once: her record matched no row, and her row matched no
+         record. Two entries, two different-sounding faults, one customer. */
+      const book = [c('anderson', { name: 'Anderson Brit / Dani', street: '', address: ', UT' }),
+                    c('other', { name: 'Someone Else', street: '1 A St', city: 'Lehi' })];
+      const r = run([{ name: 'Anderson Brit / Dani', cu: '20',
+                       street: '1499 W 800 N', city: 'Pleasant Grove' },
+                     { name: 'Else Someone', street: '1 A St', city: 'Lehi' }], book);
+
+      check('S58', 'her sheet row is joined to the record she is already on',
+        r.rows.length === 1 && !!r.rows[0].pairedSite && r.rows[0].pairedSite.id === 'anderson',
+        'got ' + JSON.stringify(r.rows.map(function(x){ return x.name + '->' + (x.pairedSite && x.pairedSite.id); })));
+      /* ⚠ THE FIX FOR THE CONFUSION: she must not ALSO be listed as a
+         customer missing from the sheet. */
+      check('S58', 'and she is no longer reported a second time on the other list',
+        !r.onlyOnSite.some(function(x){ return x.id === 'anderson'; }) && r.pairedCount === 1,
+        'listing one person as two separate problems is what made the report unreadable: ' +
+        JSON.stringify(r.onlyOnSite.map(function(x){ return x.id; })));
+      check('S58', 'the record she is on is carried across so the report can name it',
+        !!r.rows[0] && !!r.rows[0].pairedSite &&
+        r.rows[0].pairedSite.where === 'no address at all' && r.rows[0].pairedSite.cu === '',
+        'naming the address is what answers "why did she pop up" — the website has her at none');
+      check('S58', 'and she is still left unticked',
+        !!r.rows[0] && r.rows[0].suspect === true,
+        'the answer is Merge duplicates, not adding a second copy');
+    }
+    {
+      /* ⚠ Two records of that name and there is nothing to join it to with
+         any confidence — it stays a plain warning, both stay listed. */
+      const book = [c('a1', { name: 'Anderson Brit / Dani', street: '' }),
+                    c('a2', { name: 'Anderson Brit / Dani', street: '' })];
+      const r = run([{ name: 'Anderson Brit / Dani', cu: '20', street: '1499 W 800 N', city: 'Pleasant Grove' }], book);
+      /* ⚠ And one record must not be claimed by two rows — the second would be
+         told it is already here, on a record the first has taken. */
+      {
+        const b2 = [c('one', { name: 'Anderson Brit / Dani', street: '' })];
+        const r2 = run([{ name: 'Anderson Brit / Dani', cu: '20', street: '1499 W 800 N', city: 'Pleasant Grove' },
+                        { name: 'Anderson Brit / Dani', cu: '21', street: '55 Other Rd', city: 'Lehi' }], b2);
+        check('S58', 'one record is claimed by at most one row',
+          r2.pairedCount === 1 && r2.rows.filter(function(x){ return !!x.pairedSite; }).length === 1,
+          'rows paired: ' + r2.rows.filter(function(x){ return !!x.pairedSite; }).length +
+          ', pairedCount ' + r2.pairedCount);
+      }
+      check('S58', 'two records of one name are not joined by guesswork',
+        !r.rows[0].pairedSite && r.onlyOnSite.length === 2 && r.pairedCount === 0,
+        'picking one of two would be a guess about which record is really hers');
+    }
+    {
+      /* ⚠ A genuinely new customer is not paired with anybody. */
+      const book = [c('x', { name: 'Someone Else', street: '1 A St', city: 'Lehi' })];
+      const r = run([{ name: 'Brown Kathy', street: '77 Holly Ln', city: 'Lehi' },
+                     { name: 'Else Someone', street: '1 A St', city: 'Lehi' }], book);
+      check('S58', 'a genuinely new customer is joined to nobody and stays ticked',
+        r.rows.length === 1 && !r.rows[0].pairedSite && r.rows[0].suspect === false,
+        'the pairing must not make everything look like a duplicate');
+    }
+
+    /* The report has to SHOW the record, not just know about it. */
+    check('S58', 'the report names the record and its address beside the row',
+      /Already on the website<\/strong> as/.test(admin) &&
+      /esc\(r\.pairedSite\.name\)/.test(admin) &&
+      /esc\(r\.pairedSite\.cu\)/.test(admin) &&
+      /esc\(r\.pairedSite\.where\)/.test(admin) &&
+      /Merge duplicates/.test(admin),
+      'a pairing nobody is shown answers nothing — and the NAME and NUMBER are half of it, ' +
+      'because "already here" without saying as whom is the question, not the answer');
     /* ---- ⭐ A COMPARISON THAT DID NOT READ THE SHEET IS NOT A RESULT ---- */
     {
       const book = [c('a', { name: 'Aaron Gardner', street: '11694 S Thornberry Dr', city: 'Draper' }),

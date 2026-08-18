@@ -15389,7 +15389,40 @@ function rbCollectMissingCustomers(){
     if(a.stray !== b.stray) return a.stray ? -1 : 1;
     return String(a.name).toLowerCase() < String(b.name).toLowerCase() ? -1 : 1;
   });
-  return {rows: rows, skipped: skipped, onlyOnSite: onlyOnSite, diffs: diffs,
+  /* ⭐ ONE PERSON, NOT TWO PROBLEMS.
+     Owner, 2026-08-18, reading her own report:
+       "Brit / Dani Anderson #20 — 1499 W 800 N, Pleasant Grove"
+       "⚠ Anderson Brit / Dani (no number) is already here"
+       "why did she pop up if shes already there"
+     Because she was in BOTH lists. Her website record matched no row on the
+     sheet, so it counted as "on the website but not on the sheet"; her sheet
+     row matched no record, so it counted as "on the sheet but not on the
+     website". Two entries, two different-sounding faults, one customer — and
+     neither of them the actual answer, which is that the record has an address
+     no paste can reach and wants MERGING, not adding.
+     So where a sheet row and an unreachable record carry the same name, they
+     are joined: the row keeps the record beside it, and the record comes out
+     of the other list rather than being reported twice. */
+  const siteByName = {};
+  onlyOnSite.forEach(function(x){
+    const k = dupNormName(x.name);
+    if(!k) return;
+    (siteByName[k] = siteByName[k] || []).push(x);
+  });
+  const paired = {};
+  rows.forEach(function(r){
+    const k = dupNormName(r.name);
+    const hits = k ? (siteByName[k] || []) : [];
+    /* Exactly one, or there is nothing to join it to with any confidence. */
+    if(hits.length === 1 && !paired[hits[0].id]){
+      r.pairedSite = hits[0];
+      paired[hits[0].id] = true;
+    }
+  });
+  return {rows: rows, skipped: skipped,
+          onlyOnSite: onlyOnSite.filter(function(x){ return !paired[x.id]; }),
+          pairedCount: Object.keys(paired).length,
+          diffs: diffs,
           read: read, matchedCount: Object.keys(matched).length, bookSize: jobAddresses.length};
 }
 let rbPendingAdds = null;
@@ -16140,8 +16173,19 @@ document.getElementById('rbFindMissingBtn')?.addEventListener('click', function(
       '<td style="padding:4px 8px 4px 0; vertical-align:top;"><strong>' + esc(r.name || '(no name)') + '</strong>' +
         (r.cu ? ' <span style="color:var(--slate);">#' + esc(r.cu) + '</span>' : '') + '</td>' +
       '<td style="padding:4px 0; vertical-align:top;">' + esc(where) +
-        (r.namesake ? '<div style="color:var(--ember); font-size:12px; margin-top:2px;">⚠ ' + esc(r.namesake) +
-                      ' — adding this row would make a second copy, not a new customer</div>' : '') +
+        /* ⭐ THE SAME PERSON, SHOWN SIDE BY SIDE. Naming the record and its
+           address is what turns "why did she pop up if she's already there"
+           into an obvious answer: because the website has her at a different
+           address, or at none, so no row can reach her. */
+        (r.pairedSite
+          ? '<div style="color:var(--ember); font-size:12px; margin-top:3px;">⚠ <strong>Already on the website</strong> as ' +
+            esc(r.pairedSite.name) + (r.pairedSite.cu ? ' #' + esc(r.pairedSite.cu) : ' (no number)') +
+            ' — ' + esc(r.pairedSite.where) + '.<br>' +
+            'Same person, and the website’s address does not match this row, which is why nothing found her. ' +
+            'Leave this unticked and use <strong>Danger Zone → Merge duplicates</strong>, which folds the two into one ' +
+            'and keeps whichever address is real. Adding her here would make a second copy.</div>'
+          : (r.namesake ? '<div style="color:var(--ember); font-size:12px; margin-top:2px;">⚠ ' + esc(r.namesake) +
+                      ' — adding this row would make a second copy, not a new customer</div>' : '')) +
       '</td></tr>';
   }).join('');
   report.innerHTML =
@@ -16150,8 +16194,10 @@ document.getElementById('rbFindMissingBtn')?.addEventListener('click', function(
         ' row(s) on the sheet match nobody on the website.</div>' +
       '<div style="font-size:12.5px; color:var(--slate); margin-bottom:8px;">' +
         sure + ' look genuinely new and are ticked. ' + (found.rows.length - sure) +
-        ' share a name with somebody already here and are left unticked — those are usually the same ' +
-        'person on a record the matcher cannot reach, and adding them makes a duplicate. Nothing is added until you press the button.</div>' +
+        ' share a name with somebody already here and are left unticked' +
+        (found.pairedCount ? ', ' + found.pairedCount + ' of them matched to the exact record they are already on' : '') +
+        ' — those are the same person on a record the matcher cannot reach, and they want merging rather than adding. ' +
+        'Nothing is added until you press the button.</div>' +
       '<div style="max-height:300px; overflow:auto;"><table style="border-collapse:collapse; font-size:13px; width:100%;">' + rowsHtml + '</table></div>' +
       (found.skipped.length ? '<div style="font-size:12.5px; color:var(--slate); margin-top:8px;">' + found.skipped.length +
         ' row(s) repeat a house higher up the paste and are listed once.</div>' : '') +
