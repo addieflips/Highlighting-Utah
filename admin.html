@@ -17063,7 +17063,7 @@ function bulkFieldsMatch(updates, current){
    What is written down is the pasted columns plus the cursor. It lives in
    localStorage on this machine, and it is deleted the moment the run finishes
    or is cancelled, so it is not left lying about after the job is done. */
-const BULK_CHUNK_SIZE = 150;
+const BULK_CHUNK_SIZE = 50;
 const BULK_JOB_KEY = 'hu.bulkImportJob.v1';
 
 /* Enough of the identifier column to tell one paste from another, without

@@ -9188,11 +9188,11 @@ suite('Suite 39. Importing in batches, and remembering the place');
   };
 
   /* The exact number is the owner's call and has moved once already (250 on
-     2026-08-17, then 150 the same day because 250 still crashed). Asserted
-     exactly, so changing it is a deliberate edit here rather than a silent
-     drift in behaviour. */
-  check('S39', 'the batch size is 150, as asked for',
-    /const BULK_CHUNK_SIZE = 150;/.test(admin));
+     2026-08-17, then 150, then 50, all on the same day, as each one still
+     used too much). Asserted exactly, so changing it is a deliberate edit
+     here rather than a silent drift in behaviour. */
+  check('S39', 'the batch size is 50, as asked for',
+    /const BULK_CHUNK_SIZE = 50;/.test(admin));
 
   check('S39', 'the loop runs one batch, not the whole paste',
     /for\(let i = startAt; i < stopAt; i\+\+\)\{/.test(admin) &&
