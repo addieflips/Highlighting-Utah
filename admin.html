@@ -4188,6 +4188,8 @@ function switchToAdminPanel(panelName){
   document.getElementById('sidebar').classList.remove('open');
   renderFavoritesSection();
   ensurePanelData(panelName);
+  /* Anything this panel was owed while it was closed — see safeRender. */
+  flushPendingRenders(panelName);
   try{ sessionStorage.setItem('huLastPanel', panelName); }catch(e){}
 }
 /* ---------------- Panel data loads when the panel is opened ----------------
@@ -16787,9 +16789,74 @@ function renderWarehouseRecycleQueue(){
 /* Every panel redraws off this one listener. Without isolation a single
    failing render — a map that didn't load, one bad record — silently kills
    every render after it, which is why panels sat on "Loading…". */
+/* ---------------- Panels draw when they are OPEN ----------------
+   Owner, 2026-08-17: "its still using to much memory can you cut it down
+   anymore".
+
+   Loading the DATA lazily (see PANEL_DATA) fixed the listeners. This is the
+   other half: the DRAWING. Every customer change ran all twenty-one renders
+   below, and several of them build one row, one option or one map marker per
+   customer — for panels nobody had opened. With a thousand houses on file
+   that is tens of thousands of elements built and held for tabs that were
+   never looked at.
+
+   A render whose panel is not on screen is now RECORDED, not run, and is run
+   the moment that panel is opened. Nothing is dropped and nothing goes stale:
+   jobAddresses itself still updates on every write, so every figure is
+   correct the instant its panel is drawn.
+
+   ⚠ A label with no entry in RENDER_PANEL always draws. That is the safe
+   direction: an unmapped render costs memory, an incorrectly mapped one shows
+   somebody stale numbers. Add new renders to the map deliberately.
+   ⚠ None of these feeds a sidebar badge — those are badgeQuotes,
+   badgeMessages, badgeProjTodo and badgeHealth, which come from their own
+   eager loaders and are untouched by this. */
+const RENDER_PANEL = {
+  routeAddressList: 'routes',
+  takedowns: 'routes',
+  overviewMap: 'routes',
+  fixCount: 'routes',
+  routeOrderedList: 'routes',
+  memberExportCount: 'memberexport',
+  warehouseQueue: 'warehouse',
+  warehouseRecycleQueue: 'warehouse',
+  whCustomerList: 'warehouse',
+  customerNumbers: 'customer-numbers',
+  dashRsvp: 'dashboard',
+  etMemberSelect: 'automation',
+  etRecipients: 'automation',
+  invRecipients: 'automation',
+  invPreview: 'automation',
+  allCustomersTable: 'addcustomer'
+};
+const pendingRenders = new Map();   // label -> the function to run when its panel opens
+function adminPanelIsOpen(panelName){
+  const el = document.getElementById('panel-' + panelName);
+  return !!(el && el.classList.contains('active'));
+}
 function safeRender(label, fn){
-  try{ if(typeof fn === 'function') fn(); }
+  if(typeof fn !== 'function') return;
+  const panelName = RENDER_PANEL[label];
+  if(panelName && !adminPanelIsOpen(panelName)){
+    /* Keep the LATEST one only — replaying an old closure would draw figures
+       that have already been superseded. */
+    pendingRenders.set(label, fn);
+    return;
+  }
+  pendingRenders.delete(label);
+  try{ fn(); }
   catch(err){ console.error('Render failed: ' + label, err); }
+}
+/* Draw everything this panel was owed, then forget it. Called from
+   switchToAdminPanel AFTER the panel is marked active, so anything the render
+   itself triggers sees an open panel and runs normally. */
+function flushPendingRenders(panelName){
+  pendingRenders.forEach(function(fn, label){
+    if(RENDER_PANEL[label] !== panelName) return;
+    pendingRenders.delete(label);
+    try{ fn(); }
+    catch(err){ console.error('Render failed: ' + label, err); }
+  });
 }
 /* Drawing all of this is EXPENSIVE: eighteen renders across every customer on
    file, one of them a Google map that builds a marker per house. Fine for a

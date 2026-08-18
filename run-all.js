@@ -8991,6 +8991,171 @@ suite('Suite 37. The bulk import does less work for the same result');
     '"nothing changed" and "it did not run" look identical afterwards');
 }
 
+
+/* ============================================================
+ * Suite 38. Panels draw when they are opened, not before.
+ *
+ * Owner, 2026-08-17: "its still using to much memory can you cut it down
+ * anymore".
+ *
+ * Loading the DATA lazily (Suite 21) dealt with the listeners. This is the
+ * drawing: twenty-one renders ran on every customer change, several of them
+ * building a row, an option or a map marker PER CUSTOMER, for panels nobody had
+ * opened — roughly sixty elements per house across the deferred ones, plus a
+ * Google marker each, on a book of about a thousand houses.
+ *
+ * The dangerous failure here is the quiet one: a panel name that does not
+ * exist means that render never runs at all and the panel sits empty for ever.
+ * So the map is checked against the real panels, both directions.
+ * ============================================================ */
+suite('Suite 38. Panels draw when they are opened');
+{
+  const mapMatch = admin.match(/const RENDER_PANEL = \{([\s\S]*?)\n\};/);
+  check('S38', 'RENDER_PANEL exists', !!mapMatch);
+
+  if (mapMatch) {
+    const entries = [...mapMatch[1].matchAll(/([a-zA-Z]+):\s*'([^']+)'/g)].map(m => [m[1], m[2]]);
+    check('S38', 'the map is not empty', entries.length >= 10, 'found ' + entries.length);
+
+    /* ⚠ THE ONE THAT MATTERS. A typo here does not throw and does not show up
+       until somebody opens that tab and finds it blank. */
+    const realPanels = new Set([...admin.matchAll(/<div class="panel"[^>]*id="panel-([a-zA-Z0-9_-]+)"/g)].map(m => m[1]));
+    const badPanel = entries.filter(([, p]) => !realPanels.has(p));
+    check('S38', 'every panel named in the map is a real panel',
+      badPanel.length === 0,
+      'these would never draw: ' + badPanel.map(x => x[0] + ' -> panel-' + x[1]).join(', '));
+
+    const navPanels = new Set([...admin.matchAll(/data-panel="([a-zA-Z0-9_-]+)"/g)].map(m => m[1]));
+    check('S38', 'every panel named in the map can actually be opened',
+      entries.every(([, p]) => navPanels.has(p)),
+      'a panel with no nav item can never be opened, so its renders would never flush');
+
+    /* Every label in the map has to be a label safeRender is really called
+       with, or the entry does nothing. */
+    const usedLabels = new Set([...admin.matchAll(/safeRender\('([a-zA-Z]+)'/g)].map(m => m[1]));
+    const orphan = entries.filter(([l]) => !usedLabels.has(l));
+    check('S38', 'every label in the map is a render that exists',
+      orphan.length === 0, 'orphaned entries: ' + orphan.map(x => x[0]).join(', '));
+
+    /* The heavy ones — the per-customer builders — must all be deferred, or
+       this whole exercise saves nothing. */
+    ['allCustomersTable', 'overviewMap', 'customerNumbers', 'whCustomerList', 'takedowns']
+      .forEach(label => {
+        check('S38', label + ' is deferred until its panel opens',
+          entries.some(([l]) => l === label),
+          'this one builds something per customer; leaving it eager is most of the memory');
+      });
+  }
+
+  /* Behaviour, run for real against a fake DOM of panels. */
+  const grab = (name) => {
+    const at = admin.indexOf('function ' + name + '(');
+    if (at < 0) return null;
+    let d = 0;
+    for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+    }
+    return null;
+  };
+  const safeSrc = grab('safeRender'), openSrc = grab('adminPanelIsOpen'), flushSrc = grab('flushPendingRenders');
+  check('S38', 'safeRender, adminPanelIsOpen and flushPendingRenders all exist',
+    !!safeSrc && !!openSrc && !!flushSrc);
+
+  if (!JSDOM) {
+    note('jsdom not installed — skipping the deferred-render behaviour run');
+  } else if (safeSrc && openSrc && flushSrc && mapMatch) {
+    const dom = new JSDOM(
+      '<div class="panel active" id="panel-addcustomer"></div>' +
+      '<div class="panel" id="panel-routes"></div>' +
+      '<div class="panel" id="panel-warehouse"></div>'
+    );
+    const doc = dom.window.document;
+    const sb = {};
+    new Function('document',
+      'const RENDER_PANEL = {' + mapMatch[1] + '\n};' +
+      'const pendingRenders = new Map();' +
+      openSrc + safeSrc + flushSrc +
+      'this.safeRender = safeRender; this.flush = flushPendingRenders; this.pending = pendingRenders;'
+    ).call(sb, doc);
+
+    let openPanelDrew = 0, closedPanelDrew = 0;
+    sb.safeRender('allCustomersTable', () => { openPanelDrew++; });
+    sb.safeRender('overviewMap', () => { closedPanelDrew++; });
+
+    check('S38', 'a render for the OPEN panel runs straight away', openPanelDrew === 1);
+    check('S38', 'a render for a CLOSED panel does not run', closedPanelDrew === 0,
+      'this is the whole saving — building it for a tab nobody opened is the memory');
+    check('S38', 'and it is remembered rather than thrown away', sb.pending.has('overviewMap'));
+
+    /* Repeated writes while closed must not queue up N copies. */
+    sb.safeRender('overviewMap', () => { closedPanelDrew += 10; });
+    check('S38', 'only the newest pending render is kept', sb.pending.size === 1,
+      'replaying an old one would draw figures that have already been superseded');
+
+    doc.getElementById('panel-routes').classList.add('active');
+    sb.flush('routes');
+    check('S38', 'opening the panel draws what it was owed', closedPanelDrew === 10,
+      'got ' + closedPanelDrew + ' — it must run the LATEST version, not the first');
+    check('S38', 'and it is not left queued afterwards', sb.pending.size === 0);
+
+    /* An unmapped label must always draw — the safe direction. */
+    let unmappedDrew = 0;
+    sb.safeRender('somethingBrandNew', () => { unmappedDrew++; });
+    check('S38', 'a render with no entry in the map always draws', unmappedDrew === 1,
+      'an unmapped render costs memory; a wrongly mapped one shows stale numbers, so unmapped must be the default');
+
+    /* A render that throws must not take the others down, and must not be
+       stuck pending for ever. */
+    doc.getElementById('panel-warehouse').classList.add('active');
+    let after = 0;
+    // Deliberate throw — silence the console so the suite output stays readable.
+    const realErr = console.error; console.error = function(){};
+    sb.safeRender('whCustomerList', () => { throw new Error('boom'); });
+    sb.safeRender('warehouseQueue', () => { after++; });
+    console.error = realErr;
+    check('S38', 'one render throwing does not stop the next', after === 1);
+  }
+
+  check('S38', 'opening a panel flushes what it was owed',
+    /flushPendingRenders\(panelName\);/.test(admin) &&
+    admin.indexOf('ensurePanelData(panelName);') < admin.indexOf('flushPendingRenders(panelName);'),
+    'the flush has to come after the panel is marked active, or the renders it triggers defer themselves again');
+
+  /* A badge has to be right before anyone clicks anything, so it can never
+     wait for a panel to be opened. Asked properly: does any render that is
+     now deferred actually write to a badge element? (The first version of
+     this check scanned for the word "badge" near RENDER_PANEL and failed on
+     the comment that says badges are excluded.) */
+  {
+    const BADGES = ['badgeQuotes', 'badgeMessages', 'badgeProjTodo', 'badgeHealth'];
+    check('S38', 'all four sidebar badges still exist',
+      BADGES.every(b => admin.indexOf('id="' + b + '"') > 0));
+
+    const bodyOf = (name) => {
+      const at = admin.indexOf('function ' + name + '(');
+      if (at < 0) return '';
+      let d = 0;
+      for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+        if (admin[i] === '{') d++;
+        else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+      }
+      return '';
+    };
+    /* The renderer behind each deferred label, read off the safeRender call. */
+    const deferredFns = [...admin.matchAll(/safeRender\('([a-zA-Z]+)',\s*(?:typeof\s+)?([a-zA-Z]+)/g)]
+      .filter(m => new RegExp('\\b' + m[1] + ':').test((admin.match(/const RENDER_PANEL = \{[\s\S]*?\n\};/) || [''])[0]))
+      .map(m => m[2]);
+    const offenders = deferredFns.filter(fn => BADGES.some(b => bodyOf(fn).indexOf(b) >= 0));
+    check('S38', 'no deferred render writes a sidebar badge',
+      offenders.length === 0,
+      'these would leave a badge wrong until their tab was opened: ' + offenders.join(', '));
+    check('S38', 'the badge check actually found the deferred renderers',
+      deferredFns.length >= 10,
+      'only found ' + deferredFns.length + ' — if this drops to nothing the check above passes for the wrong reason');
+  }
+}
+
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
