@@ -7607,6 +7607,32 @@ function showConvertQuoteChoice(quoteId, d){
     autoConvertQuoteToCustomer(quoteId, d);
   });
 }
+/* ⭐ WHAT KIND OF QUOTE THIS IS. Owner, 2026-08-18: "lets make every quote
+   labeled as first time quote, color change, house addition", then "one of the
+   three, or if i forgot something also that".
+
+   So the three she named come first, and the cases she did not name are
+   labelled for what they are rather than squeezed into the nearest of the
+   three. A quote called a "first time quote" when it is really an address
+   change is worse than a fourth label — it sends somebody to charge a set-up
+   fee to a customer who has been with them for years.
+
+   ⚠ EVERY quote gets one, including the plain ones. A label that only appears
+   on the unusual rows makes its absence the thing you have to notice, and an
+   absence is not something anybody notices on a busy list. */
+function quoteKindLabel(d){
+  const q = d || {};
+  const what = (q.changed && q.changed.what) || '';
+  if(what === 'sides') return 'House addition';
+  if(what === 'lights') return 'Colour change';
+  if(what === 'address' || q.existingCustomerAddressChange) return 'Address change';
+  if(what === 'feet') return 'Feet changed';
+  /* Re-quoted by hand from the card: not a new lead, and not one of the
+     reasons above either. */
+  if(Number(q.requoteCount) > 0 || q.requoteFrom) return 'Re-quote';
+  if(q.existingCustomerId) return 'Existing customer';
+  return 'First time quote';
+}
 function renderQuoteRows(filtered){
   const list = document.getElementById('quotesList');
   let html = '';
@@ -7617,6 +7643,13 @@ function renderQuoteRows(filtered){
     html += '<div class="row-item">'+
       '<div class="rmain">'+
         '<div class="row-name-line">'+esc(d.name)+' <span class="status-pill status-'+status+'">'+status+'</span>'+
+        /* ⭐ WHAT KIND OF QUOTE THIS IS, on every row. Owner, 2026-08-18:
+           "lets make every quote labeled as first time quote, color change,
+           house addition" — after "in quotes we should be able to see color
+           change or side of house change". The blue box below already explains
+           a re-quote, but only once the card is open, and the list is where you
+           decide which one to open. See quoteKindLabel. */
+        ' <span class="status-pill" style="background:#EEF1FF; color:#33397a; font-weight:700;">'+esc(quoteKindLabel(d))+'</span>'+
         (quoteStage(d) === 'new' ? (d.existingCustomerId
           ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA; font-weight:700;">Old house &middot; re-quote</span>'
           : (Number(d.requoteCount) > 0
@@ -7642,6 +7675,11 @@ function renderQuoteRows(filtered){
                 (d.changed.oldPrice ? '. They were paying '+fmtMoney(d.changed.oldPrice)+'.' : '.')+
                 ((Number(d.changed.newFeet) > 200 && Number(d.changed.oldFeet) <= 200)
                   ? '<div style="margin-top:4px; color:#B91C1C; font-weight:700;">Now over 200 ft \u2014 needs 2 bins and a 5000-series number. Their old number goes back to the pool.</div>' : '')+
+                '</div>'
+              : d.changed.what === 'sides'
+              ? '<div style="margin-top:4px;">Sides changed from <strong>'+esc(d.changed.oldSides || 'none recorded')+'</strong> to <strong>'+esc(d.changed.newSides || 'none')+'</strong>'+
+                (d.changed.oldPrice ? '. They were paying '+fmtMoney(d.changed.oldPrice)+'.' : '.')+
+                '<div style="margin-top:4px;">They asked for this in the Member Portal and were told they would be re-quoted. Measure again &mdash; more sides is more feet, which can change the bin count and the number series too.</div>'+
                 '</div>'
               : '<div style="margin-top:4px;">Address changed from <strong>'+esc(d.changed.oldAddress || '')+'</strong>. Needs re-geocoding, and any saved route still holds the old one.</div>')+
           '</div>'

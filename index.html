@@ -4562,6 +4562,49 @@ document.getElementById("sidesSaveBtn") && document.getElementById("sidesSaveBtn
     });
     if(currentJobAddressData) currentJobAddressData.houseSides = picked;
     if(currentLookupRecord) currentLookupRecord.houseSides = picked;
+    /* ⭐ PUT THEM BACK IN QUOTES TO BE RE-PRICED.
+       Owner, 2026-08-18: "we need to set it up so they are requoted, so they
+       are removed as a customer and added in quotes instead."
+
+       This is the second half. The quote carries existingCustomerId, which is
+       what the Quotes list already reads to show "Old house · re-quote", to
+       skip the $30 set-up fee, and to pick the re-quote email template rather
+       than the new-lead one. `changed` is what fills the blue explainer on the
+       card, so whoever prices it can see what moved without opening anything.
+
+       ⚠ THE CUSTOMER RECORD IS NOT DELETED, and that is deliberate. Deleting
+       it would take their portal token with it — signing them out of the page
+       they are standing on — along with their invoice, their place on the
+       route, their customer number, their measured feet, their gate code and
+       their photos. They would also vanish from the crew's day mid-season.
+       The existing address-change flow, which is the same situation, does not
+       delete either. The old record is REPLACED when the new quote is priced
+       and converted, which is the step that knows what the new numbers are. */
+    try{
+      await addDoc(collection(db,'quotes'), {
+        name: (currentLookupRecord && currentLookupRecord.name) || '',
+        phone: (currentLookupRecord && currentLookupRecord.phone) || '',
+        email: (currentLookupRecord && currentLookupRecord.email) || '',
+        address: (currentJobAddressData && currentJobAddressData.address) || '',
+        houseSides: picked,
+        existingCustomerId: currentJobAddressId || null,
+        existingCustomerNumber: (currentJobAddressData && currentJobAddressData.customerNumber) || '',
+        changed: {
+          what: 'sides',
+          oldSides: portalSidesWords(before),
+          newSides: portalSidesWords(picked),
+          oldPrice: (currentJobAddressData && Number(currentJobAddressData.housePrice)) || 0
+        },
+        notes: 'Existing Customer - Sides Changed',
+        status: 'new', createdAt: serverTimestamp()
+      });
+    } catch(err){
+      /* The sides ARE saved and the record IS flagged by now, so a failure
+         here loses the quote card, not the change. Say so rather than
+         claiming success. */
+      statusEl.textContent = 'Saved, but we could not open your re-quote automatically — please call (801) 901-0011.';
+      return;
+    }
     /* The office hears about it the same way an address change is announced —
        the flag on the record is what puts them in a list, and this is what
        puts them in somebody's inbox today. */

@@ -14113,6 +14113,137 @@ suite('Suite 63. Changing your sides in the Member Portal');
     'threatening a charge that is not coming is how a portal stops being believed');
 }
 
+
+/* ============================================================
+ * Suite 64. Back into Quotes to be re-priced, and labelled for what it is.
+ *
+ * Owner, 2026-08-18: "we need to set it up so they are requoted, so they are
+ * removed as a customer and added in quotes instead"; then "in quotes we should
+ * be able to see color change or side of house change"; then "lets make every
+ * quote labeled as first time quote, color change, house addition"; then "one
+ * of the three, or if i forgot something also that".
+ *
+ * ⚠ THE CUSTOMER RECORD IS NOT DELETED, and that is a deliberate reading of
+ * "removed as a customer". Deleting it would take their portal token with it —
+ * signing them out of the page they are standing on — along with their invoice,
+ * their place on the crew's route, their customer number, their measured feet,
+ * their gate code and their photos. The existing address-change flow, which is
+ * the same situation, does not delete either. The old record is REPLACED when
+ * the new quote is priced and converted, which is the step that knows what the
+ * new numbers are.
+ * ============================================================ */
+suite('Suite 64. Back into Quotes, and labelled for what it is');
+{
+  const index = read('index.html');
+
+  /* ---- ⭐ the portal opens a re-quote ---- */
+  {
+    const at = index.indexOf('document.getElementById("sidesSaveBtn")');
+    const end = index.indexOf("document.getElementById('infoSaveBtn')", at);
+    const body = at > 0 && end > at ? index.slice(at, end) : '';
+    check('S64', 'the sides handler was found', !!body);
+
+    /* ⚠ Directly awaited inside the try, with nothing in between. Testing that
+       the call merely APPEARS passed with "if(false)" in front of it — the text
+       was still there, just unreachable. */
+    check('S64', 'changing the sides opens a quote',
+      /try\{\s*await addDoc\(collection\(db,'quotes'\), \{/.test(body),
+      '"added in quotes instead" — this is that');
+    /* ⭐ These three fields are what make it a RE-quote rather than a new lead:
+       the Quotes list reads existingCustomerId to show "Old house · re-quote",
+       to skip the $30 set-up fee, and to pick the re-quote email template. */
+    check('S64', 'and it is marked as an existing customer, not a new lead',
+      /existingCustomerId: currentJobAddressId \|\| null,/.test(body) &&
+      /existingCustomerNumber:/.test(body),
+      'without this they are charged a $30 set-up fee they already paid years ago');
+    check('S64', 'it records what changed, so whoever prices it can see why',
+      /what: 'sides',/.test(body) && /oldSides:/.test(body) && /newSides:/.test(body),
+      'a re-quote with no reason on it is a card somebody has to ring the customer about');
+    /* ⚠ The actual price, not the field merely existing — "oldPrice: 0" passed
+       a test for the name alone, and 0 is exactly what it looks like when the
+       lookup is broken. */
+    check('S64', 'and what they were paying before',
+      /oldPrice: \(currentJobAddressData && Number\(currentJobAddressData\.housePrice\)\)/.test(body),
+      'a new price with nothing to compare it against is not a decision anybody can make');
+
+    /* ⚠ NOT DELETED. */
+    check('S64', 'the customer record is NOT deleted',
+      !/deleteDoc/.test(body),
+      'deleting it signs them out of the portal they are standing on, and takes their invoice, ' +
+      'their route stop, their number, their feet and their gate code with it');
+
+    /* ⚠ The sides are saved BEFORE the quote is opened, so a failure to open
+       the quote cannot lose the change itself. */
+    check('S64', 'the change is saved before the quote is opened',
+      body.indexOf('section: "sides"') < body.indexOf("addDoc(collection(db,'quotes')"),
+      'the other order loses the change if the quote write fails');
+    check('S64', 'and a failed quote says so rather than claiming success',
+      /Saved, but we could not open your re-quote automatically/.test(body),
+      'the sides ARE saved by then, so "Saved!" would be true and useless');
+  }
+
+  /* ---- ⭐ every quote says what kind it is ---- */
+  {
+    const src = (function(){
+      const at = admin.indexOf('function quoteKindLabel(');
+      if (at < 0) return '';
+      let d = 0;
+      for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+        if (admin[i] === '{') d++;
+        else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+      }
+      return '';
+    })();
+    check('S64', 'quoteKindLabel exists', !!src);
+    if (src) {
+      const sb = {};
+      new Function(src + 'this.f = quoteKindLabel;').call(sb);
+      const f = sb.f;
+
+      /* ⭐ THE THREE THE OWNER NAMED. */
+      check('S64', 'a plain new lead is a first time quote',
+        f({}) === 'First time quote');
+      check('S64', 'a sides change is a house addition',
+        f({changed: {what: 'sides'}, existingCustomerId: 'x'}) === 'House addition');
+      check('S64', 'a colour change is a colour change',
+        f({changed: {what: 'lights'}, existingCustomerId: 'x'}) === 'Colour change');
+
+      /* ⚠ "or if i forgot something also that" — the cases she did not name are
+         labelled for what they ARE, not squeezed into the nearest of the three.
+         Calling an address change a "first time quote" sends somebody to charge
+         a set-up fee to a customer of ten years. */
+      check('S64', 'an address change says so rather than pretending to be new',
+        f({changed: {what: 'address'}}) === 'Address change' &&
+        f({existingCustomerAddressChange: true}) === 'Address change');
+      check('S64', 'a hand re-quote says so',
+        f({requoteCount: 2}) === 'Re-quote' && f({requoteFrom: {price: 300}}) === 'Re-quote');
+      check('S64', 'and an existing customer with no stated reason is not called new',
+        f({existingCustomerId: 'x'}) === 'Existing customer',
+        'got "' + f({existingCustomerId: 'x'}) + '" — "first time quote" on a returning customer is the ' +
+        'one that costs money, because it is what decides the $30 set-up fee');
+
+      /* ⚠ EVERY quote gets one. */
+      check('S64', 'there is no quote without a label',
+        [{}, {existingCustomerId: 'x'}, {changed: {what: 'sides'}}, {requoteCount: 1},
+         {changed: {what: 'feet'}}, {existingCustomerAddressChange: true}]
+          .every(function(q){ return !!f(q) && typeof f(q) === 'string'; }),
+        'a label that only appears on the unusual rows makes its ABSENCE the thing you have to ' +
+        'notice, and nobody notices an absence on a busy list');
+    }
+    check('S64', 'and the label is on the row itself',
+      /esc\(quoteKindLabel\(d\)\)/.test(admin),
+      'the blue box explains a re-quote once the card is open; the list is where you choose which to open');
+  }
+
+  /* ---- the card explains a sides change in full ---- */
+  check('S64', 'the quote card explains a sides change',
+    /d\.changed\.what === 'sides'/.test(admin) && /Sides changed from/.test(admin));
+  check('S64', 'and warns that the feet may have moved with it',
+    /more sides is more feet, which can change the bin count and the number series/.test(admin),
+    'a house going over 260ft needs another bin and a 5000-series number — the same trap the ' +
+    'feet-changed explainer already calls out');
+}
+
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
