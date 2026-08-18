@@ -10451,6 +10451,183 @@ suite('Suite 46. Nobody is hung before the month they asked for');
     'a plan saved before the rule existed is already breaking it, with nothing having changed today');
 }
 
+
+/* ============================================================
+ * Suite 47. The two biggest towns get each day, recounted daily.
+ *
+ * Owner, 2026-08-17: "we want to start with the two cities that have the most
+ * clients and work our way down to the cities with the least clients, so if
+ * lehi has 140 houses heriman has 120 and AF has 119 then today is Lehi and
+ * heriman but tomorrow is Lehi and AF."
+ *
+ * The builder used to walk TOWN by town — take the biggest, give it days until
+ * its queue emptied, move on — which is why the season opened Lehi-Draper,
+ * Lehi-Draper, Lehi-Draper. It now walks DAY by day and recounts before each
+ * one, so a town that was just worked drops down the list on its own.
+ * ============================================================ */
+suite('Suite 47. The two biggest towns get each day');
+{
+  const fn = (name) => {
+    const at = admin.indexOf('function ' + name + '(');
+    if (at < 0) return '';
+    let d = 0;
+    for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+    }
+    return '';
+  };
+  const planStart = admin.indexOf('function planNewCrewDays(waiting, taken, opts)');
+  const planEnd = admin.indexOf('/* Top every day up to the cap');
+  check('S47', 'planNewCrewDays found', planStart > 0 && planEnd > planStart);
+
+  if (planStart > 0 && planEnd > planStart) {
+    const ctx = {};
+    new Function(
+      admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) +
+      admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) +
+      'let NEARBY_TOWN_LIST={};' + fn('sameTownName') + fn('haversine') + fn('townCentres') + fn('nearbyTowns') +
+      'function seasonFirstDate(){return new Date(2026,9,1);}' +
+      fn('toDateStr') + fn('nextWorkingDay') + admin.slice(planStart, planEnd) +
+      ';this.plan=planNewCrewDays;'
+    ).call(ctx);
+
+    /* Far apart on purpose: this suite is about WHICH towns get the day, so
+       nobody should be borrowing and muddying the answer. */
+    const far = { Lehi: [40.391, -111.851], Herriman: [40.514, -112.633],
+                  'American Fork': [40.377, -112.396], Orem: [40.297, -113.1] };
+    const make = (counts, priority, from) => {
+      const w = [];
+      Object.keys(counts).forEach(c => {
+        for (let i = 0; i < counts[c]; i++) {
+          w.push({ id: c + '#' + i, city: c, priority: priority == null ? 1 : priority,
+                   from: from || '2026-10-01', stop: { lat: far[c][0], lng: far[c][1] } });
+        }
+      });
+      return w;
+    };
+    const byDay = (days) => {
+      const m = {};
+      days.forEach(d => { (m[d.date] = m[d.date] || []).push(d); });
+      return m;
+    };
+
+    /* ⭐ THE OWNER'S OWN EXAMPLE, NUMBER FOR NUMBER. */
+    {
+      const days = ctx.plan(make({ Lehi: 140, Herriman: 120, 'American Fork': 119 }), {},
+        { floorDate: '2026-10-01', maxDays: 60 });
+      const m = byDay(days);
+      const dates = Object.keys(m).sort();
+      const townsOn = (d) => m[d].map(x => x.city).sort();
+
+      check('S47', 'day one goes to the two biggest towns',
+        JSON.stringify(townsOn(dates[0])) === JSON.stringify(['Herriman', 'Lehi']),
+        'got ' + JSON.stringify(townsOn(dates[0])) + ' — Lehi 140 and Herriman 120 are the top two');
+
+      check('S47', 'day two swaps Herriman for American Fork',
+        JSON.stringify(townsOn(dates[1])) === JSON.stringify(['American Fork', 'Lehi']),
+        'got ' + JSON.stringify(townsOn(dates[1])) +
+        ' — after day one it is Lehi 120, AF 119, Herriman 100, so AF takes the seat');
+
+      check('S47', 'nobody is lost',
+        days.reduce((s, d) => s + d.ids.length, 0) === 379,
+        days.reduce((s, d) => s + d.ids.length, 0) + ' of 379');
+    }
+
+    /* The count really is redone: a town worked twice drops below one worked once. */
+    {
+      const days = ctx.plan(make({ Lehi: 60, Herriman: 41 }), {}, { floorDate: '2026-10-01', maxDays: 60 });
+      const m = byDay(days);
+      const dates = Object.keys(m).sort();
+      const first = m[dates[0]].map(x => x.city).sort();
+      check('S47', 'two towns both get a crew on day one', JSON.stringify(first) === JSON.stringify(['Herriman', 'Lehi']));
+      /* Lehi 60 -> 40, Herriman 41 -> 21. Day two: Lehi 40 and Herriman 21,
+         both still present, so both go again. Day three: Lehi 20, Herriman 1 —
+         Lehi still leads. The point is Herriman is never starved by Lehi
+         taking every early slot, which is what the old town-by-town walk did. */
+      const lehiDays = days.filter(d => d.city === 'Lehi').length;
+      const herrimanDays = days.filter(d => d.city === 'Herriman').length;
+      check('S47', 'the smaller town is not starved of early days',
+        herrimanDays >= 2 && lehiDays >= 3,
+        'Lehi ' + lehiDays + ' days, Herriman ' + herrimanDays + ' days');
+    }
+
+    /* ⚠ "Most clients" must mean most ALLOWED today, or a town full of November
+       houses wins an October day and then places nobody. */
+    {
+      const w = make({ Lehi: 10 }, 1, '2026-10-01')
+        .concat(make({ Herriman: 100 }, 3, '2026-11-01'));
+      const days = ctx.plan(w, {}, { floorDate: '2026-10-01', maxDays: 60 });
+      const m = byDay(days);
+      const first = Object.keys(m).sort()[0];
+      check('S47', 'a town of November houses does not win an October day',
+        first === '2026-10-01' && m[first].every(d => d.city === 'Lehi'),
+        'first day was ' + first + ' with ' + JSON.stringify(m[first].map(d => d.city)) +
+        ' — Herriman has ten times as many but none of them may be hung yet');
+      check('S47', 'and the November town gets its days once November arrives',
+        days.some(d => d.city === 'Herriman' && d.date >= '2026-11-01'));
+      check('S47', 'nothing is dropped along the way',
+        days.reduce((s, d) => s + d.ids.length, 0) === 110);
+    }
+
+    /* Nothing placeable today and everything waiting for a later month: it must
+       jump rather than step through the calendar or spin. */
+    {
+      const days = ctx.plan(make({ Lehi: 5 }, 3, '2026-11-16'), {}, { floorDate: '2026-10-01', maxDays: 60 });
+      check('S47', 'it jumps straight to the first date anybody is allowed',
+        days.length === 1 && days[0].date === '2026-11-16',
+        JSON.stringify(days.map(d => d.date)));
+
+      /* ⚠ And the jump has to be a JUMP, not a walk. Stepping one working day
+         at a time reaches the same answer for a gap of a few weeks, so a short
+         gap cannot tell the two apart — but the walk runs out of the 400-spin
+         horizon on a long one and drops the houses entirely. */
+      const farOff = ctx.plan(make({ Lehi: 5 }, 3, '2028-06-01'), {}, { floorDate: '2026-10-01', maxDays: 60 });
+      check('S47', 'a date beyond the search horizon is still reached',
+        farOff.length === 1 && farOff[0].date === '2028-06-01' && farOff[0].ids.length === 5,
+        JSON.stringify(farOff.map(d => d.date)) + ' — walking there one day at a time exhausts the horizon and loses them');
+    }
+
+    /* The rules from the earlier work must all still hold. */
+    {
+      const near = { Lehi: [40.391, -111.851], Highland: [40.425, -111.795],
+                     'American Fork': [40.377, -111.796], Alpine: [40.453, -111.777] };
+      const w = [];
+      Object.keys(near).forEach(c => {
+        for (let i = 0; i < 7; i++) w.push({ id: c + i, city: c, priority: 1, from: '2026-10-01',
+                                             stop: { lat: near[c][0], lng: near[c][1] } });
+      });
+      const days = ctx.plan(w, {}, { floorDate: '2026-10-01', maxDays: 60 });
+      check('S47', 'a crew still visits at most two towns',
+        days.every(d => d.towns.length <= 2),
+        'worst was ' + Math.max.apply(null, days.map(d => d.towns.length)));
+      check('S47', 'a crew still leads with its own town',
+        days.every(d => d.towns[0] === d.city));
+      const clash = [];
+      const seen = {};
+      days.forEach(d => {
+        seen[d.date] = seen[d.date] || [];
+        d.towns.forEach(t => {
+          if (seen[d.date].indexOf(t) >= 0) clash.push(d.date + ' ' + t);
+          seen[d.date].push(t);
+        });
+      });
+      check('S47', 'two crews are still never in one town on one day', clash.length === 0, clash.join(', '));
+      check('S47', 'and everybody is still placed',
+        days.reduce((s, d) => s + d.ids.length, 0) === 28);
+    }
+
+    /* Same input, same plan — ties broken by name, not by object order. */
+    {
+      const a = ctx.plan(make({ Lehi: 20, Herriman: 20 }), {}, { floorDate: '2026-10-01', maxDays: 60 });
+      const b = ctx.plan(make({ Herriman: 20, Lehi: 20 }), {}, { floorDate: '2026-10-01', maxDays: 60 });
+      check('S47', 'an even tie gives the same plan whichever order the towns arrive in',
+        JSON.stringify(a.map(d => d.date + d.city)) === JSON.stringify(b.map(d => d.date + d.city)),
+        'a plan that changes when nothing changed is impossible to trust');
+    }
+  }
+}
+
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
