@@ -27529,10 +27529,25 @@ function serialize(){
    NOT run on its own. It replaces the day structure, and somebody may have
    moved houses about by hand; that is a decision to take deliberately, which is
    why it is a button with an undo rather than something that happens on load. */
+/* ⭐ THE DATE IN THE SEASON START BOX, not a fixed 1 October.
+   Owner, 2026-08-17: "I created a list and can you change the season start
+   date to Oct 10." Setting the box shifted the dates on screen, and then
+   Rebuild days snapped the whole season back to 1 October and zeroed the
+   shift — so the choice could not be made to stick.
+
+   ⚠ IT STILL CANNOT START EARLIER THAN 1 OCTOBER. That guard is the reason
+   this function existed: the plan used to begin at whatever the earliest
+   imported row said, which is how a season opened with a day holding two
+   people. A LATER date is a deliberate choice and is honoured; an earlier
+   one is almost always an imported row and is clamped. */
 function seasonStartDate(){
-  /* Always 1 October. The plan used to start at whatever the earliest imported
-     row said, which is how a season could begin with a day holding two people. */
-  return new Date(BASE_START.getFullYear(), 9, 1);
+  const chosen = addDays(BASE_START, globalDelta || 0);
+  const firstOct = new Date(chosen.getFullYear(), 9, 1);
+  const start = chosen > firstOct
+    ? new Date(chosen.getFullYear(), chosen.getMonth(), chosen.getDate())
+    : firstOct;
+  start.setHours(0,0,0,0);
+  return start;
 }
 /* When a house is first allowed to be hung. November-only waits for November;
    everything else can go from the first day of the season. */
@@ -27579,7 +27594,7 @@ function rebuildSeasonDays(){
   const today=new Date(); today.setHours(0,0,0,0);
   /* Fixes ride along on a day rather than being scheduled by town, so they stay
      where somebody put them. */
-  const keep=[], movable=[], riders=[];
+  const keep=[], movable=[], riders=[], locked=[];
   /* WHAT IS LEFT TO DO drives everything, not what was planned.
      Owner, 2026-08-17: "if a crew only got 2 houses done in a city then we still
      will need another day for that day if it still has more houses than the city
@@ -27594,6 +27609,19 @@ function rebuildSeasonDays(){
     if(d.isFixRoute||d.isTakedown){ keep.push(d); return; }
     const houses=d.houses||[];
     const dt=dayDate(d);
+    /* ⭐ A DAY THAT IS ALMOST HERE IS SET, AND REBUILD LEAVES IT ALONE.
+       Owner, 2026-08-17: "if we are within 2 days of a day and I hit rebuild
+       days, any days within two days are set and should not rebuild."
+       The crew has been told where they are going, the bins are being loaded
+       against that list, and the customers have been messaged. Re-flowing it
+       the night before is worse than a slightly untidy season.
+       Same horizon the pins already use — PIN_HONOURED_BUSINESS_DAYS, the
+       next two WORKING days, so a Friday rebuild does not quietly set
+       Saturday and Sunday and leave Monday loose.
+       The whole day is kept, houses and all: its houses must NOT go back in
+       the pool, or they would be scheduled a second time somewhere else. */
+    const setSoon = dt && dt >= today && dt <= pinHorizon();
+    if(setSoon){ locked.push(d); keep.push(d); return; }
     const worked=(dt&&dt<today)||houses.some(function(h){return h.done;});
     if(!worked){
       houses.forEach(function(h){ (h.isFix?riders:movable).push(h); });
@@ -27605,7 +27633,9 @@ function rebuildSeasonDays(){
        drop it rather than leaving an empty day in the calendar. */
     if(done.length){ d.houses=done; keep.push(d); }
   });
-  if(!movable.length) return {error:'Every house is done or already on a day that has been worked.'};
+  if(!movable.length) return {error: locked.length
+    ? ('Nothing to rebuild \u2014 every house left is on one of the ' + locked.length + ' day(s) already set for the next two working days.')
+    : 'Every house is done or already on a day that has been worked.'};
   const byId={};
   const waiting=movable.map(function(h,i){
     const key='rb'+i;
@@ -27668,7 +27698,7 @@ function rebuildSeasonDays(){
   SEASON=newDays.concat(keep);
   computeDates();
   selSchedule=installDays()[0]?installDays()[0].id:null;
-  return {days:newDays.length, houses:movable.length, unplaced:unplaced.length,
+  return {days:newDays.length, houses:movable.length, unplaced:unplaced.length, locked:locked.length,
           kept:keep.filter(function(d){return !d.isFixRoute&&!d.isTakedown;}).length,
           first:dates[0], last:dates[dates.length-1]};
 }

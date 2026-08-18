@@ -7372,6 +7372,10 @@ suite('Suite 28. The Schedule season rebuilt from its houses');
       admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) + '\n' +
       'let NEARBY_TOWN_LIST={};' + fn('sameTownName') +
       fn('townCentres') + fn('nearbyTowns') + fn('installPriority') + admin.slice(planStart, planEnd) +
+      /* The rebuild now asks pinHorizon whether a day is close enough to be
+         SET, so the sandbox needs it and its constant. */
+      'const PIN_HONOURED_BUSINESS_DAYS=' + (admin.match(/const PIN_HONOURED_BUSINESS_DAYS=(d+);/)||[])[1] + ';' +
+      fn('pinHorizon') +
       fn('seasonStartDate') + fn('houseAllowedFrom') + fn('houseInstallPriority') +
       'function cityOf(h){return (h.city||"").trim();}' +
       'function sameCity(a,b){return (""+a).trim().toLowerCase()===(""+b).trim().toLowerCase();}' +
@@ -7405,7 +7409,10 @@ suite('Suite 28. The Schedule season rebuilt from its houses');
 
     check('S28', 'the rebuild reports what it did', !out.r.error && out.r.days > 0 && out.r.houses === mixed.length,
       JSON.stringify(out.r));
-    check('S28', 'the season starts on 1 October', out.r.first === '2026-10-01',
+    /* Still 1 October here because nothing has moved the Season start box —
+       that is the DEFAULT now rather than a hard rule. Suite 49 covers the
+       office choosing a later date and it sticking through a rebuild. */
+    check('S28', 'the season starts on 1 October when nothing has been moved', out.r.first === '2026-10-01',
       'started ' + out.r.first + " — owner: 'we always start on oct 1st'");
 
     // The complaint: a day whose label did not match the people on it.
@@ -10626,6 +10633,235 @@ suite('Suite 47. The two biggest towns get each day');
         'a plan that changes when nothing changed is impossible to trust');
     }
   }
+}
+
+
+/* ============================================================
+ * Suite 48. A day that is almost here is SET, and Rebuild leaves it alone.
+ *
+ * Owner, 2026-08-17: "if we are within 2 days of a day and I hit rebuild days,
+ * any days within two days are set and should not rebuild."
+ *
+ * By then the crew has been told where they are going, the bins are loaded
+ * against that list and the customers have been messaged. Re-flowing it the
+ * night before is worse than a slightly untidy season.
+ *
+ * The dangerous half is NOT the day moving — it is the houses on it going back
+ * into the pool and being scheduled a SECOND time somewhere else. Most of this
+ * suite is about that.
+ * ============================================================ */
+suite('Suite 48. Days within two working days are set');
+{
+  const fn = (name) => {
+    const at = admin.indexOf('function ' + name + '(');
+    if (at < 0) return '';
+    let d = 0;
+    for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+    }
+    return '';
+  };
+
+  check('S48', 'the rebuild asks whether a day is close enough to be set',
+    /const setSoon = dt && dt >= today && dt <= pinHorizon\(\);/.test(admin),
+    'and uses the SAME horizon the pins already use, not a second definition');
+
+  check('S48', 'a set day is kept whole, houses and all',
+    /if\(setSoon\)\{ locked\.push\(d\); keep\.push\(d\); return; \}/.test(admin),
+    'the return is the important part: without it the houses fall through into the pool and get a second day');
+
+  check('S48', 'the check runs BEFORE the worked/not-worked split',
+    admin.indexOf('const setSoon = dt && dt >= today') <
+    admin.indexOf('const worked=(dt&&dt<today)'),
+    'a day that is set but has nothing done yet must be caught first, or it is treated as fair game');
+
+  check('S48', 'it is measured in WORKING days',
+    /PIN_HONOURED_BUSINESS_DAYS=2;/.test(admin) &&
+    /while\(isWeekend\(d\)\)d=addDays\(d,1\);/.test(fn('pinHorizon')),
+    'a Friday rebuild must not quietly set Saturday and Sunday and leave Monday loose');
+
+  check('S48', 'the rebuild reports how many it left alone',
+    /locked:locked\.length,/.test(admin));
+
+  check('S48', 'and says so when there is nothing left to rebuild',
+    /every house left is on one of the/.test(admin),
+    '"nothing to rebuild" with no reason reads as a broken button');
+
+  /* ---- run it ---- */
+  {
+    const planStart = admin.indexOf('function planNewCrewDays(waiting, taken, opts)');
+    const planEnd = admin.indexOf('/* Top every day up to the cap');
+    const ctx = {};
+    /* Today is fixed so the horizon is predictable: Mon 5 Oct 2026, which makes
+       the next two working days Tue 6 and Wed 7. */
+    const TODAY = new Date(2026, 9, 5);
+    new Function('__TODAY',
+      'function toDateStr(dt){return dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+"-"+String(dt.getDate()).padStart(2,"0");}' +
+      'function haversine(a,b,c,d){const R=3958.8,t=x=>x*Math.PI/180;const dl=t(c-a),dg=t(d-b);' +
+      'const q=Math.sin(dl/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dg/2)**2;return 2*R*Math.asin(Math.sqrt(q));}' +
+      'function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x;}' +
+      'function isWeekend(d){const k=d.getDay();return k===0||k===6;}' +
+      'function isoOf(d){return toDateStr(d);}' +
+      'function daysBetween(a,b){return Math.round((a-b)/86400000);}' +
+      'function mdToDate(md){const p=(""+md).split("-").map(Number);return new Date(2026,p[0]-1,p[1]);}' +
+      'function extractCleanCity(c){return (""+(c==null?"":c)).trim();}' +
+      'function customerForHouse(h){return h.__cust||null;}' +
+      'function nextWorkingDay(d){let x=new Date(d);while(isWeekend(x))x=addDays(x,1);return x;}' +
+      'function dayDate(d){return d._date;}' +
+      'function installDays(){return SEASON.filter(d=>!d.isFixRoute&&!d.isTakedown);}' +
+      'function computeDates(){SEASON.forEach(d=>{if(d.base!=null)d._date=addDays(BASE_START,d.base);});}' +
+      'var CREWS=[{name:"Crew 1",city:""},{name:"Crew 2",city:""}];' +
+      'var BASE_START=new Date(2026,9,1),globalDelta=0,SEASON=[],selSchedule=null;\n' +
+      admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) + '\n' +
+      admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) + '\n' +
+      'let NEARBY_TOWN_LIST={};' + fn('sameTownName') + fn('townCentres') + fn('nearbyTowns') +
+      'function seasonFirstDate(){return new Date(2026,9,1);}' +
+      admin.slice(planStart, planEnd) +
+      'const PIN_HONOURED_BUSINESS_DAYS=2;' +
+      /* pinHorizon and "today" both pinned to the fixed date */
+      'function pinHorizon(){let d=new Date(__TODAY);d.setHours(0,0,0,0);' +
+      'for(let i=0;i<PIN_HONOURED_BUSINESS_DAYS;i++){d=addDays(d,1);while(isWeekend(d))d=addDays(d,1);}return d;}' +
+      fn('seasonStartDate') + fn('houseAllowedFrom') + fn('houseInstallPriority') +
+      fn('rebuildSeasonDays').replace('const today=new Date();', 'const today=new Date(__TODAY);') +
+      '\nthis.run=function(seed){SEASON=seed;return {r:rebuildSeasonDays(), season:SEASON};};'
+    ).call(ctx, TODAY);
+
+    const house = (city, name) => ({ id: name, name: name, city: city, pref: 'OCT',
+      __cust: { data: { city: city, lat: 40.39, lng: -111.85 } } });
+    const day = (dateObj, houses, base) => ({ id: 'd' + dateObj.getDate(), base: base,
+      _date: dateObj, houses: houses });
+
+    /* Mon 5 Oct is today. Tue 6 and Wed 7 are set. Thu 8 is fair game. */
+    const soon = [house('Lehi', 'soon1'), house('Lehi', 'soon2')];
+    const later = [house('Herriman', 'later1'), house('Herriman', 'later2')];
+    const seed = [
+      day(new Date(2026, 9, 6), soon, 5),
+      day(new Date(2026, 9, 8), later, 7)
+    ];
+    const out = ctx.run(seed);
+
+    check('S48', 'a day two working days out is left exactly as it was',
+      out.season.some(d => d.houses === soon || (d.houses.length === 2 && d.houses[0] === soon[0])),
+      'the 6 October day and both its houses should be untouched');
+
+    check('S48', 'and it is counted as left alone',
+      out.r && out.r.locked === 1,
+      'locked was ' + (out.r && out.r.locked));
+
+    /* ⚠ THE ONE THAT MATTERS. */
+    {
+      const all = [];
+      out.season.forEach(d => (d.houses || []).forEach(h => all.push(h.name)));
+      const twice = all.filter((n, i) => all.indexOf(n) !== i);
+      check('S48', 'nobody on the set day is scheduled a second time',
+        twice.length === 0,
+        'appearing twice: ' + twice.join(', ') + ' — a house left on a set day AND put back in the pool gets two dates');
+      check('S48', 'and nobody is lost either',
+        all.length === 4, 'found ' + all.length + ' of 4');
+    }
+
+    check('S48', 'the later day WAS rebuilt',
+      out.r && out.r.days >= 1 && out.r.houses === 2,
+      'only the two Herriman houses were movable: ' + JSON.stringify(out.r));
+
+    /* Everything set: a clear message rather than a silent no-op. */
+    {
+      const only = ctx.run([day(new Date(2026, 9, 7), [house('Lehi', 'x')], 6)]);
+      check('S48', 'when every house is on a set day it says why',
+        only.r && only.r.error && /already set for the next two working days/.test(only.r.error),
+        JSON.stringify(only.r));
+    }
+
+    /* A day further out is still rebuilt normally. */
+    {
+      const far = ctx.run([day(new Date(2026, 9, 20), [house('Lehi', 'y'), house('Lehi', 'z')], 19)]);
+      check('S48', 'a day well in the future is still rebuilt',
+        far.r && !far.r.error && far.r.locked === 0 && far.r.houses === 2,
+        JSON.stringify(far.r));
+    }
+  }
+}
+
+
+/* ============================================================
+ * Suite 49. The Season start box actually decides the season start.
+ *
+ * Owner, 2026-08-17: "I created a list and can you change the season start date
+ * to Oct 10." Setting the box shifted the dates on screen, and then Rebuild
+ * days snapped everything back to 1 October and zeroed the shift — so the
+ * choice could not be made to stick.
+ *
+ * ⚠ The clamp is the part worth keeping. seasonStartDate existed because the
+ * plan used to begin at whatever the earliest imported row said, which is how a
+ * season opened with a day holding two people. Later than 1 October is a
+ * decision; earlier is almost always an imported row.
+ * ============================================================ */
+suite('Suite 49. The Season start box decides the start');
+{
+  const fn = (name) => {
+    const at = admin.indexOf('function ' + name + '(');
+    if (at < 0) return '';
+    let d = 0;
+    for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+    }
+    return '';
+  };
+
+  const src = fn('seasonStartDate');
+  check('S49', 'seasonStartDate exists', !!src);
+
+  if (src) {
+    const startWith = (base, delta) => {
+      const sb = {};
+      new Function('BASE_START', 'globalDelta', 'addDays',
+        src + 'this.f = seasonStartDate;'
+      ).call(sb, base, delta, (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; });
+      return sb.f();
+    };
+    const iso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+
+    check('S49', 'no shift still means 1 October',
+      iso(startWith(new Date(2026, 9, 1), 0)) === '2026-10-01');
+
+    /* ⭐ THE ASK. Base 1 Oct shifted nine days is 10 October. */
+    check('S49', 'a start pushed to 10 October is honoured',
+      iso(startWith(new Date(2026, 9, 1), 9)) === '2026-10-10',
+      'got ' + iso(startWith(new Date(2026, 9, 1), 9)));
+
+    check('S49', 'a start pushed well into November is honoured too',
+      iso(startWith(new Date(2026, 9, 1), 35)) === '2026-11-05');
+
+    /* ⚠ THE CLAMP. */
+    check('S49', 'an earlier date is clamped back to 1 October',
+      iso(startWith(new Date(2026, 9, 1), -16)) === '2026-10-01',
+      'got ' + iso(startWith(new Date(2026, 9, 1), -16)) +
+      ' — a September start is almost always an imported row, and that is the bug this function was written for');
+
+    check('S49', 'an imported base earlier than October is clamped as well',
+      iso(startWith(new Date(2026, 8, 15), 0)) === '2026-10-01',
+      'got ' + iso(startWith(new Date(2026, 8, 15), 0)));
+
+    check('S49', 'the answer is midnight, so date comparisons are clean',
+      startWith(new Date(2026, 9, 1), 9).getHours() === 0);
+
+    /* Rebuilding twice must not drift: the rebuild writes BASE_START = start and
+       zeroes the shift, so asking again gives the same answer. */
+    {
+      const once = startWith(new Date(2026, 9, 1), 9);
+      const twice = startWith(once, 0);
+      check('S49', 'rebuilding again keeps the same start',
+        iso(twice) === iso(once),
+        'a start that crept forward on every rebuild would be worse than one that ignored the box');
+    }
+  }
+
+  check('S49', 'the box still only shifts, and the rebuild reads the shift',
+    /globalDelta=daysBetween\(new Date\(t\.value\+.T00:00:00.\),BASE_START\)/.test(admin) &&
+    /const chosen = addDays\(BASE_START, globalDelta \|\| 0\);/.test(admin),
+    'these two have to agree, or the number on screen is not the number that builds');
 }
 
 // A check that scores after this summary is a check that cannot fail the build.
