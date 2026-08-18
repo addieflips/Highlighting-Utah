@@ -15172,7 +15172,26 @@ function rbCollectNumberFixes(){
     /* '' for the number, deliberately: matching on it would send the row to
        whoever currently holds it, which is the wrong house by definition. */
     const existing = bulkFindCustomer(street, phone, String(cities[i] || ''), String(zips[i] || ''), '');
-    if(!existing){ missing.push({row: i + 1, cu: cu, name: label}); continue; }
+    if(!existing){
+      /* ⭐ SAY WHO, AND SAY WHAT IS PROBABLY WRONG. "9 row(s) match nobody" is
+         a dead end — the office cannot act on a count. If exactly one customer
+         carries this row's name, that is almost certainly the same person with
+         an address the matcher cannot reach, so name them and say what number
+         they are on. That single line is what turned "May Sara is still 479"
+         from a mystery into a fix. */
+      const sameName = dupNormName(who)
+        ? jobAddresses.filter(function(it){ return dupNormName((it.data || {}).name) === dupNormName(who); })
+        : [];
+      missing.push({row: i + 1, cu: cu, name: label,
+                    hint: sameName.length === 1
+                      ? (((sameName[0].data || {}).name || '(no name)') + ' is here on ' +
+                         (String((sameName[0].data || {}).customerNumber || '').trim()
+                            ? '#' + String(sameName[0].data.customerNumber).trim()
+                            : 'no number') +
+                         ', but their address does not match this row')
+                      : (sameName.length > 1 ? sameName.length + ' customers share this name' : '')});
+      continue;
+    }
     if(claimed[existing.id]){
       collided.push({row: i + 1, first: claimed[existing.id], cu: cu, name: label});
       continue;
@@ -15725,8 +15744,16 @@ document.getElementById('rbFixNumbersBtn')?.addEventListener('click', function()
         (found.taken.length > 6 ? ', and ' + (found.taken.length - 6) + ' more' : '') + '.</div>'
       : '') +
     (found.missing.length
-      ? '<div style="font-size:12.5px; color:var(--slate); margin-top:8px;">' + found.missing.length +
-        ' row(s) match nobody here, so there is no house to put the number on.</div>'
+      ? '<div style="font-size:12.5px; color:var(--slate); margin-top:8px;"><strong>' + found.missing.length +
+        ' row(s) match nobody here</strong>, so there is no house to put the number on. ' +
+        'Their address on file does not match the sheet — the full import would ADD these as new ' +
+        'customers rather than correct them:<div style="margin-top:5px; line-height:1.6;">' +
+        found.missing.slice(0, 20).map(function(x){
+          return 'row ' + x.row + ' &middot; ' + esc(x.name) + ' &rarr; #' + esc(x.cu) +
+                 (x.hint ? ' <span style="color:var(--ember);">&mdash; ' + esc(x.hint) + '</span>' : '');
+        }).join('<br>') +
+        (found.missing.length > 20 ? '<br>… and ' + (found.missing.length - 20) + ' more.' : '') +
+        '</div></div>'
       : '');
   if(!found.changes.length){
     report.innerHTML = box('Every customer number already matches the sheet — nothing to change.' + refusals);
@@ -19787,28 +19814,60 @@ function findExistingAddressMatch(street, phone, city, zip, custNumber){
     if(byNumOnly) return byNumOnly;
   }
   const normStreetEarly = normalizeStreetForMatch(street);
-  if(!normStreetEarly) return undefined;
   const digitsEarly = (phone || '').replace(/\D/g,'');
-  if(digitsEarly){
-    const byPhone = jobAddresses.find(function(it){
-      if(String(it.data.phone || '').replace(/\D/g,'') !== digitsEarly) return false;
-      const s = normalizeStreetForMatch(it.data.street || (it.data.address || '').split(',')[0]);
+  const streetOf = function(it){
+    return normalizeStreetForMatch(it.data.street || (it.data.address || '').split(',')[0]);
+  };
+  if(normStreetEarly){
+    if(digitsEarly){
+      const byPhone = jobAddresses.find(function(it){
+        if(String(it.data.phone || '').replace(/\D/g,'') !== digitsEarly) return false;
+        const s = streetOf(it);
+        return s && s === normStreetEarly;
+      });
+      if(byPhone) return byPhone;
+    }
+    const found = findAddressMatchByTown(street, phone, city, zip);
+    if(found) return found;
+    /* Nothing to go on but the street, and the town disagrees. If exactly ONE
+       house in the book is on that street it is that house and the town is what
+       is being fixed. Two or more and we genuinely cannot tell Main St in Lehi
+       from Main St in Orem, so we say nothing and let it be reported rather than
+       guessing and merging two different customers. */
+    const sameStreet = jobAddresses.filter(function(it){
+      const s = streetOf(it);
       return s && s === normStreetEarly;
     });
-    if(byPhone) return byPhone;
+    if(sameStreet.length === 1) return sameStreet[0];
   }
-  const found = findAddressMatchByTown(street, phone, city, zip);
-  if(found) return found;
-  /* Nothing to go on but the street, and the town disagrees. If exactly ONE
-     house in the book is on that street it is that house and the town is what
-     is being fixed. Two or more and we genuinely cannot tell Main St in Lehi
-     from Main St in Orem, so we say nothing and let it be reported rather than
-     guessing and merging two different customers. */
-  const sameStreet = jobAddresses.filter(function(it){
-    const s = normalizeStreetForMatch(it.data.street || (it.data.address || '').split(',')[0]);
-    return s && s === normStreetEarly;
-  });
-  return sameStreet.length === 1 ? sameStreet[0] : undefined;
+  /* ⭐ LAST RESORT: THE PHONE, WHEN THE RECORD HAS NO STREET TO MATCH ON.
+     Owner, 2026-08-18: "may sara is supposed to be at 541 and I bulk update for
+     that and she does but then she goes back to 479" — and Fix CU# only then
+     reported her row as matching nobody, though the sheet has her full address
+     and phone.
+
+     EVERY route above needs the STREET to agree, the phone one included — it
+     checks the phone AND the street. So a record whose street was wiped (the
+     ", UT" rows a blank Street column wrote over the whole book) can never be
+     found again by any paste, however complete the paste is. The import then
+     treats the row as somebody new and ADDS another copy, which is how one
+     book became two, and why correcting a number appeared to undo itself: the
+     new copy carried the right number and the old one kept the wrong one.
+
+     ⚠ ONLY A RECORD WITH NO STREET, and only when exactly ONE of them holds
+     that phone. Both halves are load-bearing. Families share one phone across
+     two houses — that is why the phone was never a key on its own — so
+     matching a phone against a record that HAS a street could rewrite the
+     wrong house's address. A record with no street has nothing to lose and
+     nothing else can ever reach it. */
+  if(digitsEarly){
+    const strandedOnPhone = jobAddresses.filter(function(it){
+      if(String(it.data.phone || '').replace(/\D/g,'') !== digitsEarly) return false;
+      return !streetOf(it);
+    });
+    if(strandedOnPhone.length === 1) return strandedOnPhone[0];
+  }
+  return undefined;
 }
 /* The original test, unchanged: same street, and the town or zip agrees. Kept
    whole rather than folded into the above so the rule it encodes — Utah County

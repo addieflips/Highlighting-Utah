@@ -12503,7 +12503,7 @@ suite('Suite 56. Why May Sara went back to 479');
         };
         const ctx = {};
         new Function('BULK_BY_NUMBER', 'jobAddresses', 'rbHeaderOffset', 'rbCol', 'rbName', 'bulkFindCustomer',
-          src + 'this.f = rbCollectNumberFixes;'
+          fn('dupNormName') + src + 'this.f = rbCollectNumberFixes;'
         ).call(ctx, false, book,
           () => 0,
           (id) => cols[id] || [],
@@ -12582,6 +12582,31 @@ suite('Suite 56. Why May Sara went back to 479');
         check('S56', 'a row matching nobody is reported, never added as a new customer',
           r.changes.length === 0 && r.missing.length === 1,
           'this tool only ever corrects a number on a house that is already here');
+        check('S56', 'and a row matching nobody with no namesake gets no hint',
+          r.missing[0].hint === '',
+          'a hint that fires on nothing would be noise on every stray row');
+      }
+      /* ⭐ THE LINE THAT ANSWERS THE QUESTION. A row that matches nobody, where
+         exactly one customer carries that name, must SAY so and say what number
+         they are on — otherwise the report is "9 rows match nobody" and the
+         office is back where it started. */
+      {
+        const book = [cust('may', 'May Sara', '1 A St', '8015550001', '479')];
+        const r = run([{ cu: '541', street: '9 Z St', phone: '8019999999', name: 'May Sara' }], book);
+        check('S56', 'an unmatched row names the customer of that name and the number they are on',
+          r.missing.length === 1 && /May Sara/.test(r.missing[0].hint) && /#479/.test(r.missing[0].hint),
+          'got "' + (r.missing[0] && r.missing[0].hint) + '"');
+        check('S56', 'and it is still refused rather than written',
+          r.changes.length === 0,
+          'a name is not enough to move a customer number onto a house');
+      }
+      {
+        const book = [cust('a', 'May Sara', '1 A St', '8015550001', '479'),
+                      cust('b', 'May Sara', '9 B Rd', '8015550002', '542')];
+        const r = run([{ cu: '541', street: '9 Z St', phone: '8019999999', name: 'May Sara' }], book);
+        check('S56', 'two customers of one name are counted, not picked between',
+          r.missing.length === 1 && /2 customers share this name/.test(r.missing[0].hint),
+          'got "' + (r.missing[0] && r.missing[0].hint) + '"');
       }
       {
         const book = [cust('may', 'May Sara', '1 A St', '8015550001', '')];
@@ -12614,6 +12639,146 @@ suite('Suite 56. Why May Sara went back to 479');
         /may still be labelled on bins/.test(body),
         'changing a number does not relabel anything physical, and nothing else says so');
     }
+  }
+}
+
+
+/* ============================================================
+ * Suite 57. A record with no street could never be found again.
+ *
+ * Owner, 2026-08-18: Fix CU# only reported "9 row(s) match nobody here...
+ * although may sara is still 479" — while the master sheet, row 755, carries
+ * her complete details: #541, 14224 S Summit Crest Ln, Herriman, 84096,
+ * 8014551795.
+ *
+ * ⭐ EVERY ROUTE THROUGH findExistingAddressMatch NEEDED THE STREET TO AGREE,
+ * the phone one included — it checked the phone AND the street. So a record
+ * whose street had been wiped, which is what the ", UT" rows are, could not be
+ * reached by ANY paste however complete. The import treated the row as a new
+ * customer and added another copy.
+ *
+ * That is the engine underneath everything else in this book: it is why one
+ * book became two, why the strays have no address, and why correcting a
+ * customer number looked like it undid itself — the new copy carried the right
+ * number and the old one kept the wrong one.
+ * ============================================================ */
+suite('Suite 57. A record with no street could never be found again');
+{
+  const fn = (name) => {
+    const at = admin.indexOf('function ' + name + '(');
+    if (at < 0) return '';
+    let d = 0;
+    for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+    }
+    return '';
+  };
+
+  const src = fn('findExistingAddressMatch');
+  const byTown = fn('findAddressMatchByTown');
+  check('S57', 'findExistingAddressMatch found', !!src && !!byTown);
+
+  if (src && byTown) {
+    const run = (book, row) => {
+      const ctx = {};
+      new Function('jobAddresses', 'normalizeStreetForMatch',
+        byTown + src + 'this.f = findExistingAddressMatch;'
+      ).call(ctx, book,
+        (v) => String(v == null ? '' : v).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim());
+      return ctx.f(row.street || '', row.phone || '', row.city || '', row.zip || '', row.cn || '');
+    };
+    const c = (id, o) => ({ id: id, data: o });
+
+    /* ⭐ MAY SARA. Her record was left with no street; the sheet row is complete. */
+    {
+      const book = [c('may', { name: 'May Sara', customerNumber: '479',
+                               street: '', city: 'Herriman', address: ', UT', phone: '8014551795' })];
+      const hit = run(book, { street: '14224 S Summit Crest Ln', phone: '8014551795',
+                              city: 'Herriman', zip: '84096' });
+      check('S57', 'a complete row finds the customer whose street was wiped',
+        !!hit && hit.id === 'may',
+        'without this the row matches nobody and the import ADDS a second copy — which is ' +
+        'exactly what "she goes back to 479" was');
+    }
+
+    /* Everything that already worked still does. */
+    {
+      const book = [c('a', { street: '14224 S Summit Crest Ln', city: 'Herriman', phone: '8014551795' })];
+      check('S57', 'the ordinary street-and-phone match is untouched',
+        (run(book, { street: '14224 S Summit Crest Ln', phone: '8014551795', city: 'Herriman' }) || {}).id === 'a');
+      check('S57', 'and a corrected town still matches on street and phone',
+        (run(book, { street: '14224 S Summit Crest Ln', phone: '8014551795', city: 'Bluffdale' }) || {}).id === 'a',
+        'the town is often the thing being fixed, so it cannot decide whether this is the same house');
+    }
+    {
+      const book = [c('a', { street: '1 Main St', city: 'Lehi', phone: '8015550001' })];
+      check('S57', 'a customer number given as the key still wins outright',
+        (run([c('n', { customerNumber: '900', street: 'somewhere else' })].concat(book),
+             { street: '1 Main St', phone: '8015550001', cn: '900' }) || {}).id === 'n');
+    }
+
+    /* ⚠ THE TWO HALVES OF THE GUARD, both load-bearing. */
+    {
+      /* A family with two houses on one phone. The second house is NEW and must
+         NOT overwrite the first — this is why the phone was never a key alone. */
+      const book = [c('house1', { street: '1 Main St', city: 'Lehi', phone: '8015550001' })];
+      const hit = run(book, { street: '99 Other Rd', phone: '8015550001', city: 'Lehi' });
+      check('S57', 'a phone is never matched against a record that HAS a street',
+        !hit,
+        'got ' + (hit && hit.id) + ' — a second house on the family phone would have rewritten ' +
+        'the first house\u2019s address');
+    }
+    {
+      /* Two stranded records on one phone: genuinely cannot tell which. */
+      const book = [c('s1', { street: '', address: ', UT', phone: '8015550001' }),
+                    c('s2', { street: '', address: ', UT', phone: '8015550001' })];
+      check('S57', 'two street-less records on one phone are refused, not guessed',
+        !run(book, { street: '1 Main St', phone: '8015550001', city: 'Lehi' }),
+        'reporting it beats merging two different customers');
+    }
+    {
+      const book = [c('s1', { street: '', address: ', UT', phone: '8015550001' })];
+      check('S57', 'and a row with no phone cannot reach a street-less record at all',
+        !run(book, { street: '1 Main St', phone: '', city: 'Lehi' }),
+        'there would be nothing left to identify them by');
+    }
+
+    /* ⚠ A row with NO street can now still find its customer. */
+    {
+      const book = [c('s1', { street: '', address: ', UT', phone: '8015550001' })];
+      check('S57', 'a row with no street of its own still reaches a street-less record',
+        (run(book, { street: '', phone: '8015550001', city: 'Herriman' }) || {}).id === 's1',
+        'the function used to give up the moment the ROW had no street, before it looked at anything else');
+    }
+    {
+      const book = [c('a', { street: '1 Main St', city: 'Lehi', phone: '8015550001' })];
+      check('S57', 'but a row with neither street nor a stranded phone still matches nobody',
+        !run(book, { street: '', phone: '8019999999', city: 'Lehi' }),
+        'guessing here is how two different customers get merged');
+    }
+
+    /* ⚠ The street-name fallback keeps its "exactly one" rule. */
+    {
+      const book = [c('a', { street: '100 N', city: 'Lehi' }), c('b', { street: '100 N', city: 'Orem' })];
+      check('S57', 'a street two houses share is still not enough on its own',
+        !run(book, { street: '100 N', phone: '', city: 'Provo' }),
+        'Utah County repeats street names across towns');
+    }
+  }
+
+  /* ---- the report has to name them, or the count is a dead end ---- */
+  {
+    const at = admin.indexOf("document.getElementById('rbFixNumbersBtn')");
+    const end = admin.indexOf("document.getElementById('rbCheckBtn')", at);
+    const body = at > 0 && end > at ? admin.slice(at, end) : '';
+    check('S57', 'the unmatched rows are listed, not just counted',
+      /'row ' \+ x\.row \+ ' &middot; ' \+ esc\(x\.name\)/.test(body),
+      '"9 row(s) match nobody" is a dead end — the office cannot act on a count');
+    check('S57', 'and a customer of the same name is named with the number they are on',
+      /their address does not match this row/.test(admin) &&
+      /x\.hint/.test(body),
+      'that single line is what turned "May Sara is still 479" from a mystery into a fix');
   }
 }
 
