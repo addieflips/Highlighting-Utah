@@ -8040,13 +8040,20 @@ suite('Suite 33. One nudge template, one email, whoever sends it');
 /*
  * The Nudge template is sent from FOUR places: the quote card's Send/Preview,
  * the "Nudge everyone shown" bulk button, Automation Emails -> Preview & Send,
- * and the nightly Cloud Function. On 2026-08-17 the middle two rendered it
- * differently — they went straight through resolveLinkTokens, which has never
- * known about {{photo}}, so the customer got the literal text "{{photo}}" and
- * ONE set of approve/maybe/decline buttons while the quote card and the
- * automatic nudge showed two. That is the bug this suite exists to stop coming
- * back, and it is checked by RUNNING both renderers rather than reading them,
+ * and the nightly Cloud Function. Two things have to stay true of all four, and
+ * both are checked by RUNNING the two renderers rather than reading them,
  * because the difference is in what comes out, not in what the code says.
+ *
+ *   1. Nobody is ever mailed a literal "{{photo}}". Until 2026-08-17 the bulk
+ *      button and Automation Emails went straight through resolveLinkTokens,
+ *      which has never known about that token, and customers got the raw text.
+ *
+ *   2. ⭐ EXACTLY ONE set of approve/maybe/decline buttons, however many photos
+ *      the quote has. The owner's decision, 2026-08-17: "just one approved,
+ *      Maybe later, Decline". The quote card and the automatic nudge used to
+ *      repeat the three buttons on the far side of a stack of two or more
+ *      photos. It read as a mistake and is gone from both. A second set coming
+ *      back on either side fails this suite.
  */
 {
   const fns = read('functions/index.js');
@@ -8073,7 +8080,7 @@ suite('Suite 33. One nudge template, one email, whoever sends it');
 
   // ---- lift the server renderer out of functions/index.js ----
   const serverParts = ['quotePhotosServer', 'cloudEmailPhotoServer', 'escServer',
-    'quotePhotoEmailHtmlServer', 'repeatQuoteButtonsServer', 'properNameServer']
+    'quotePhotoEmailHtmlServer', 'properNameServer']
     .map(n => grabBrowser(n, fns));
   const bStart = fns.indexOf("      const quoteToken = q.quoteToken || '';");
   const bEnd = fns.indexOf('      const res = await fetch(', bStart);
@@ -8082,10 +8089,22 @@ suite('Suite 33. One nudge template, one email, whoever sends it');
     serverParts.every(Boolean) && bStart !== -1 && bEnd > bStart,
     'same reasoning — if the anchors move, this fails rather than quietly testing nothing');
 
+  check('S33', 'the button-repeating logic is gone from the browser',
+    !/HU_PHOTOS/.test(admin) && !/margin-bottom:14px;'\s*\+ buttons/.test(admin),
+    'the marker and the copied-buttons splice both belonged to the repeat — either one back means the doubling is back');
+  check('S33', 'and gone from the server',
+    !/function repeatQuoteButtonsServer/.test(fns) && !/repeatQuoteButtonsServer\(/.test(fns),
+    'leaving it defined but uncalled is how it gets wired back in by accident');
+
   // ---- the shipped default Nudge body, read from the file, not retyped ----
   const bodyDecl = admin.match(/const DEFAULT_QUOTE_NUDGE_BODY = ([\s\S]*?);\r?\n/);
   check('S33', 'the default Nudge body is findable', !!bodyDecl);
 
+  /* Wrapped, because the renderers are lifted out of the real files and a
+     change to either can make the lifted slice reference something this suite
+     no longer pulls in. That must read as "Suite 33 failed", not as the whole
+     run dying with a stack trace three suites early. */
+  try {
   if (browserParts.every(Boolean) && widthDecl && cloudDecl && serverParts.every(Boolean) &&
       bStart !== -1 && bEnd > bStart && bodyDecl) {
     const NUDGE = new Function('return ' + bodyDecl[1].replace(/\r/g, ''))();
@@ -8119,22 +8138,46 @@ suite('Suite 33. One nudge template, one email, whoever sends it');
     const b2 = shape(renderBrowser(NUDGE, two));
     const s2 = shape(renderServer(quoteWith(two), NUDGE));
 
-    check('S33', 'one photo — office and automatic nudge agree, one set of buttons',
-      JSON.stringify(b1) === JSON.stringify(s1) && b1.approve === 1 && b1.maybe === 1 && b1.decline === 1,
+    check('S33', 'one photo — office and automatic nudge produce the same email',
+      JSON.stringify(b1) === JSON.stringify(s1),
       'browser ' + JSON.stringify(b1) + ' vs server ' + JSON.stringify(s1));
 
-    check('S33', 'two photos — both repeat the buttons on the far side of the stack',
-      JSON.stringify(b2) === JSON.stringify(s2) && b2.approve === 2 && b2.maybe === 2 && b2.decline === 2,
+    check('S33', 'two photos — office and automatic nudge produce the same email',
+      JSON.stringify(b2) === JSON.stringify(s2),
       'browser ' + JSON.stringify(b2) + ' vs server ' + JSON.stringify(s2));
 
-    check('S33', 'all three of the buttons are repeated, not just the green one',
-      b2.approve === b2.maybe && b2.maybe === b2.decline,
-      'matching only the green and gold ones is what once left "Decline" off the copied set');
+    /* The owner asked for one set. Agreeing with each other is not enough —
+       both agreeing on TWO is the thing being ruled out. */
+    check('S33', 'one photo — exactly one Approve / Maybe Next Year / Decline',
+      b1.approve === 1 && b1.maybe === 1 && b1.decline === 1 &&
+      s1.approve === 1 && s1.maybe === 1 && s1.decline === 1,
+      'browser ' + JSON.stringify(b1) + ' vs server ' + JSON.stringify(s1));
+
+    check('S33', 'two photos — still exactly one of each, not a second set',
+      b2.approve === 1 && b2.maybe === 1 && b2.decline === 1 &&
+      s2.approve === 1 && s2.maybe === 1 && s2.decline === 1,
+      'this is the doubling the owner asked to remove: browser ' +
+      JSON.stringify(b2) + ' vs server ' + JSON.stringify(s2));
+
+    check('S33', 'a third photo does not add buttons either',
+      (function () {
+        const three = [photo('a', 'Front of house'), photo('b', 'Right side'), photo('c', 'Left side')];
+        const b3 = shape(renderBrowser(NUDGE, three));
+        const s3 = shape(renderServer(quoteWith(three), NUDGE));
+        return JSON.stringify(b3) === JSON.stringify(s3) &&
+          b3.approve === 1 && b3.maybe === 1 && b3.decline === 1;
+      })(),
+      'the old rule keyed off "more than one photo", so three is the same case as two');
 
     check('S33', 'no customer is ever mailed a literal {{photo}}',
       !b1.leftToken && !b2.leftToken && !s1.leftToken && !s2.leftToken &&
       !shape(renderBrowser(NUDGE, [])).leftToken,
       'this is exactly what the bulk nudge and Automation Emails used to send');
+  }
+  } catch (e) {
+    check('S33', 'both nudge renderers still run', false,
+      'lifting them out of the real files threw: ' + (e && e.message || e) +
+      '\n          — usually a helper the renderer needs that this suite does not lift, or one that has just been reintroduced');
   }
 
   // ---- and the wiring: every place that mails a template runs it ----
@@ -8163,9 +8206,6 @@ suite('Suite 33. One nudge template, one email, whoever sends it');
   check('S33', 'Automation Emails preview runs the placer',
     usesHelper('etUpdatePreview', admin),
     'the preview has to show what the send will produce');
-  check('S33', 'nobody kept a private copy of the button-repeating logic',
-    (admin.match(/HU_PHOTOS/g) || []).length === 1,
-    'the marker should appear only inside applyQuotePhotoBlock — more than that means a second copy has grown back');
 
   // Preview and send must stay the same call, or the office approves one email
   // and the customer gets another.
