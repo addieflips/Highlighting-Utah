@@ -208,6 +208,26 @@ const FAKE_FUNCTIONS_MODULE = `
     portalSave:        () => ({ ok: true, saved: true }),
     publicQuoteLookup: publicQuoteLookup,
 
+    /* The emailed quote buttons and the quote link both answer through this
+       one. Mirrors the real quoteRespond (functions/index.js): it looks the
+       quote up BY TOKEN — nothing else — and refuses an unknown action, so a
+       spec that sends a bad token or a bad action gets the real failure rather
+       than a cheerful ok. */
+    quoteRespond: function (payload) {
+      const token = String((payload && payload.quoteToken) || '').trim();
+      const action = String((payload && payload.action) || '').toLowerCase();
+      if (['approve', 'decline', 'maybe_next_year'].indexOf(action) === -1) {
+        throw new Error('Unknown quote action.');
+      }
+      let hit = null;
+      Object.keys(F.quotes || {}).forEach(function (k) {
+        if (F.quotes[k].data.quoteToken === token) hit = F.quotes[k];
+      });
+      if (!hit) return { ok: false };
+      return { ok: true, quoteId: hit.id, name: hit.data.name,
+               formCompleted: !!hit.data.formCompleted };
+    },
+
     /* index.html calls this on load to fetch the three public-safe EmailJS
      * identifiers. It is fire-and-forget with a .catch() that swallows
      * failure, so a missing fake does not break the page — but it DOES send a
