@@ -1468,12 +1468,14 @@
             <button type="button" class="portal-tab-btn active" data-tab="payment">Payment</button>
             <button type="button" class="portal-tab-btn" data-tab="info">Information</button>
             <button type="button" class="portal-tab-btn" data-tab="lights">Light Colors</button>
+            <button type="button" class="portal-tab-btn" data-tab="sides">Sides</button>
             <button type="button" class="portal-tab-btn" data-tab="changes">Changes</button>
             <button type="button" class="portal-tab-btn" data-tab="contact">Contact</button>
             <button type="button" class="portal-tab-btn" data-tab="cancel">Cancel</button>
           </div>
 
           <div class="portal-more-menu" id="portalMoreMenu">
+            <button type="button" data-tab="sides">Which sides</button>
             <button type="button" data-tab="contact">Contact us</button>
             <button type="button" data-tab="cancel">Cancel service</button>
           </div>
@@ -1598,6 +1600,26 @@
               <p class="form-note" style="margin:-10px 0 20px;">If your community or property is gated, this lets our crew get in without calling ahead.</p>
               <button type="button" class="btn btn-gold btn-block" id="infoSaveBtn">Save Information</button>
               <div id="infoSaveStatus" role="status" aria-live="polite" style="font-size:13px; color:var(--slate); margin-top:8px; text-align:center;"></div>
+            </div>
+
+            <!-- ⭐ WHICH SIDES, IN THE PORTAL. Owner, 2026-08-18: "in the member
+                 portal it should pop up and also if someone changes how many
+                 sides of their house ... it should say you will be requoted and
+                 have them okay or cancel."
+                 Its own card rather than part of Lights, because the two cost
+                 different things: colours are a $30 change fee, sides are a new
+                 price altogether. -->
+            <div id="tabPanel-sides" style="display:none;">
+              <div style="background:#FDF3E3; border:1px solid #E7C98B; border-radius:10px; padding:11px 14px; margin:0 0 12px; font-size:12.5px; color:#7A5B1E; line-height:1.5;">&#9888;&#65039; <strong>Heads up:</strong> changing which sides of your house are lit changes the amount of lights we hang, so <strong>we will need to re-quote you</strong> before your install.</div>
+              <p class="form-note" style="margin:0 0 10px;">Tick the sides you would like lit, then save below.</p>
+              <div style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:14px;">
+                <label class="quote-side-pick"><input type="checkbox" class="portal-side-check" value="front"> Front of house</label>
+                <label class="quote-side-pick"><input type="checkbox" class="portal-side-check" value="right"> Right side</label>
+                <label class="quote-side-pick"><input type="checkbox" class="portal-side-check" value="left"> Left side</label>
+                <label class="quote-side-pick"><input type="checkbox" class="portal-side-check" value="back"> Back</label>
+              </div>
+              <button type="button" class="btn btn-gold btn-block" id="sidesSaveBtn">Save Sides</button>
+              <div id="sidesSaveStatus" role="status" aria-live="polite" style="font-size:13px; color:var(--slate); margin-top:8px;"></div>
             </div>
 
             <div id="tabPanel-lights" style="display:none;">
@@ -2910,6 +2932,8 @@ async function hmLoadHouseMapForInvoice(phoneDigits, opts){
       savePortalLogin(lookupRes.token);
     }
 
+    /* Which sides they are down for, ticked from the record. */
+    try{ portalRenderSides(); }catch(err){}
     document.getElementById('infoAddress').value = addrDoc.address || '';
     document.getElementById('infoGateCode').value = addrDoc.gateCode || '';
     if(addrDoc.phone2){
@@ -4477,6 +4501,83 @@ document.getElementById('addEmail2Link').addEventListener('click', function(e){
   this.style.display = 'none';
 });
 
+/* ⭐ WHICH SIDES, IN THE MEMBER PORTAL.
+   Owner, 2026-08-18: "in the member portal it should pop up and also if
+   someone changes how many sides of their house ... it should say you will be
+   requoted and have them okay or cancel."
+
+   The colour tab already warns about its $30 fee and, better, says nothing is
+   owed while the free 48-hour window is open. This is the same shape for a
+   different cost: sides change the amount of lights, so the answer is not a
+   fee but a new quote.
+
+   ⚠ THE WARNING ONLY APPEARS WHEN SOMETHING ACTUALLY CHANGED. Warning on a
+   save that changes nothing trains people to click through the one that
+   matters. */
+var PORTAL_SIDE_LABELS = {front: "Front of house", right: "Right side", left: "Left side", back: "Back"};
+function portalSidesFromRecord(){
+  var d = currentJobAddressData || {};
+  var r = currentLookupRecord || {};
+  var list = Array.isArray(d.houseSides) ? d.houseSides
+           : (Array.isArray(r.houseSides) ? r.houseSides : []);
+  return list;
+}
+function portalRenderSides(){
+  var have = portalSidesFromRecord();
+  document.querySelectorAll(".portal-side-check").forEach(function(cb){
+    cb.checked = have.indexOf(cb.value) !== -1;
+  });
+}
+function portalSidesPicked(){
+  return Array.prototype.slice.call(document.querySelectorAll(".portal-side-check:checked"))
+    .map(function(cb){ return cb.value; });
+}
+function portalSidesWords(list){
+  if(!list.length) return "none";
+  return list.map(function(k){ return PORTAL_SIDE_LABELS[k] || k; }).join(", ");
+}
+document.getElementById("sidesSaveBtn") && document.getElementById("sidesSaveBtn").addEventListener("click", async function(){
+  var statusEl = document.getElementById("sidesSaveStatus");
+  if(!currentLookupRecord && !currentJobAddressId){ statusEl.textContent = "Please look up your invoice first."; return; }
+  var picked = portalSidesPicked();
+  var before = portalSidesFromRecord();
+  var same = picked.slice().sort().join(",") === before.slice().sort().join(",");
+  if(same){ statusEl.textContent = "That is already what we have — nothing to change."; return; }
+  /* ⚠ The confirm names BOTH lists. "You will be requoted" without saying what
+     changed is the kind of warning people agree to and then ring about. */
+  var ok = window.confirm(
+    "You are changing which sides of your house we light.\n\n" +
+    "    Now: " + portalSidesWords(before) + "\n" +
+    "    New: " + portalSidesWords(picked) + "\n\n" +
+    "This changes how many lights we hang, so we will need to RE-QUOTE you before your install. " +
+    "Your price may go up or down.\n\nDo you want us to re-quote you?"
+  );
+  if(!ok){ statusEl.textContent = ""; portalRenderSides(); return; }
+  statusEl.textContent = "Saving…";
+  try{
+    await callPortalFn("portalSave", {
+      token: getActivePortalToken(),
+      section: "sides",
+      data: {houseSides: picked}
+    });
+    if(currentJobAddressData) currentJobAddressData.houseSides = picked;
+    if(currentLookupRecord) currentLookupRecord.houseSides = picked;
+    /* The office hears about it the same way an address change is announced —
+       the flag on the record is what puts them in a list, and this is what
+       puts them in somebody's inbox today. */
+    notifyBusinessOfMessage({
+      customer_name: (currentLookupRecord && currentLookupRecord.name) || "",
+      customer_phone: (currentLookupRecord && currentLookupRecord.phone) || "",
+      customer_email: (currentLookupRecord && currentLookupRecord.email) || "",
+      topic: "Existing Customer - Sides Changed",
+      message: "Customer changed which sides they want lit, from " + portalSidesWords(before) +
+               " to " + portalSidesWords(picked) + ". They need re-quoting before install."
+    });
+    statusEl.textContent = "Saved. We will be in touch with your new quote.";
+  } catch(err){
+    statusEl.textContent = "Could not save that — please call (801) 901-0011.";
+  }
+});
 document.getElementById('infoSaveBtn').addEventListener('click', async function(){
   var statusEl = document.getElementById('infoSaveStatus');
   if(!currentLookupRecord && !currentJobAddressId){ statusEl.textContent = 'Please look up your invoice first.'; return; }

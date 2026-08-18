@@ -556,6 +556,10 @@ const PORTAL_WRITE_FIELDS = {
   preferences: ['installPreference', 'wireColor', 'outletTimer', 'specificOutlet',
                 'specificOutletNotes', 'notes'],
   lights:      ['lightsDescription'],
+  /* ⭐ Which sides they want lit. Its own section, not folded into
+     'preferences', because changing it changes the PRICE — see the requote
+     flag below — and a section is what decides whether that runs. */
+  sides:       ['houseSides'],
   cancel:      ['cancellationReason']
 };
 
@@ -565,7 +569,7 @@ const PORTAL_WRITE_FIELDS = {
 const PORTAL_READ_FIELDS = [
   'name', 'phone', 'email', 'address', 'phone2', 'email2', 'gateCode',
   'lightsDescription', 'installPreference', 'wireColor', 'outletTimer',
-  'specificOutlet', 'specificOutletNotes', 'notes', 'rsvpStatus',
+  'specificOutlet', 'specificOutletNotes', 'notes', 'rsvpStatus', 'houseSides',
   'seasonStatus', 'cancellationReason', 'housePhotoUrl', 'houseHighlights',
   'quoteDetailQuoteId',
   /* "When are you coming?" is the most-asked question of the season and the
@@ -987,6 +991,34 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
     addressChanged = !!(oldData.address && updates.address &&
                         updates.address !== oldData.address);
     updates.seasonStatus = addressChanged ? 'address_changed' : 'needs_changes';
+  }
+
+  /* ⭐ CHANGING WHICH SIDES CHANGES THE PRICE.
+     Owner, 2026-08-18: "if it says how many sides it should say you will be
+     requoted and have them okay or cancel".
+
+     The customer is warned in the portal before they save, but a warning
+     nobody acts on is theatre — so the record is FLAGGED here, which is what
+     puts them in front of the office. Same shape as the other portal signals:
+     a field on the record that a list in admin reads.
+
+     ⚠ VALIDATED, not trusted. This arrives from a browser, so it is reduced to
+     the four keys the app knows; anything else is dropped rather than stored.
+     A free-text array here would end up on a crew card. */
+  if (section === 'sides') {
+    const KNOWN = ['front', 'right', 'left', 'back'];
+    const wanted = Array.isArray(updates.houseSides) ? updates.houseSides : [];
+    const clean = [];
+    KNOWN.forEach(function (k) {
+      if (wanted.indexOf(k) !== -1) clean.push(k);
+    });
+    updates.houseSides = clean;
+    const before = Array.isArray(oldData.houseSides) ? oldData.houseSides.slice().sort().join(',') : '';
+    if (clean.slice().sort().join(',') !== before) {
+      updates.needsRequote = true;
+      updates.needsRequoteAt = admin.firestore.FieldValue.serverTimestamp();
+      updates.seasonStatus = 'needs_changes';
+    }
   }
 
   if (section === 'cancel') {

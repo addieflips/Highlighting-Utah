@@ -14000,6 +14000,119 @@ suite('Suite 62. Which sides of the house');
     'defaulting to front would put a made-up answer on 962 records that were never asked');
 }
 
+
+/* ============================================================
+ * Suite 63. Changing your sides in the Member Portal.
+ *
+ * Owner, 2026-08-18: "in the member portal it should pop up and also if someone
+ * changes how many sides of their house or color change a pop up should come,
+ * if it says how many sides it should say you will be requoted and have them
+ * okay or cancel and with color change it should tell them it comes with a $30
+ * fee".
+ *
+ * ⚠ THE COLOUR HALF ALREADY EXISTED, and is better than a flat warning: it
+ * says nothing is owed while the free 48-hour window is open, rather than
+ * threatening a charge that is not coming. It was left alone. This suite is
+ * about the sides half, which did not exist.
+ *
+ * The two costs are different and so are the two messages: colours are a $30
+ * change fee, sides change how many lights are hung and so need a new quote.
+ * ============================================================ */
+suite('Suite 63. Changing your sides in the Member Portal');
+{
+  const index = read('index.html');
+  const fns = read('functions/index.js');
+
+  /* ---- the portal shows it ---- */
+  check('S63', 'the portal has a Sides tab and panel',
+    index.indexOf('id="tabPanel-sides"') > 0 &&
+    /data-tab="sides"/.test(index));
+  check('S63', 'with the same four names as everywhere else',
+    ['front', 'right', 'left', 'back'].every(function(k){
+      return index.indexOf('class="portal-side-check" value="' + k + '"') > 0;
+    }),
+    'a second vocabulary for the same four walls is how a crew hangs the wrong one');
+  check('S63', 'and it is filled in from the record on load',
+    /try\{ portalRenderSides\(\); \}catch\(err\)\{\}/.test(index),
+    'an empty set of boxes reads as "we are lighting none of it"');
+
+  /* ---- ⭐ the pop-up ---- */
+  {
+    const at = index.indexOf('document.getElementById("sidesSaveBtn")');
+    const end = index.indexOf("document.getElementById('infoSaveBtn')", at);
+    const body = at > 0 && end > at ? index.slice(at, end) : '';
+    check('S63', 'the sides save handler was found', !!body);
+
+    check('S63', 'it asks before saving, and can be cancelled',
+      /var ok = window\.confirm\(/.test(body) &&
+      /if\(!ok\)\{ statusEl\.textContent = ""; portalRenderSides\(\); return; \}/.test(body),
+      'Cancel has to put the boxes BACK, or the screen shows a change that was never saved');
+    check('S63', 'and it says they will be re-quoted, in those words',
+      /RE-QUOTE you before your install/.test(body),
+      'the owner asked for exactly this: "it should say you will be requoted"');
+    /* ⚠ Naming both lists is what stops the follow-up phone call. */
+    /* ⚠ Asserted on the LABELS inside the confirm, not on the helper name —
+       portalSidesWords is called again in the office notice below, so testing
+       for it passed with the whole "Now:" line deleted. */
+    check('S63', 'the pop-up names what it is changing FROM and TO',
+      /"    Now: " \+ portalSidesWords\(before\)/.test(body) &&
+      /"    New: " \+ portalSidesWords\(picked\)/.test(body),
+      '"you will be requoted" without saying what changed is a warning people agree to and then ring about');
+    /* ⚠ A warning on a no-op teaches people to click through the real one. */
+    check('S63', 'and it does NOT ask when nothing actually changed',
+      /if\(same\)\{ statusEl\.textContent = "That is already what we have/.test(body),
+      'warning on a save that changes nothing trains people to dismiss the one that matters');
+    check('S63', 'the office is told, not just the customer',
+      /Existing Customer - Sides Changed/.test(body) && /notifyBusinessOfMessage/.test(body),
+      'a promise of a re-quote that reaches nobody is worse than no promise');
+  }
+
+  /* ---- ⭐ and the server makes it real ---- */
+  check('S63', 'the portal may read the sides',
+    /'notes', 'rsvpStatus', 'houseSides',/.test(fns),
+    'a field the portal cannot read is a field the customer never sees');
+  check('S63', 'and may write them, in their own section',
+    /sides:\s+\['houseSides'\],/.test(fns),
+    'its own section is what lets the requote flag run only for this change');
+
+  {
+    const at = fns.indexOf("if (section === 'sides')");
+    const end = fns.indexOf("if (section === 'cancel')", at);
+    const body = at > 0 && end > at ? fns.slice(at, end) : '';
+    check('S63', 'the sides branch was found', !!body);
+    /* ⚠ THIS ARRIVES FROM A BROWSER. */
+    check('S63', 'what the browser sends is reduced to the four known sides',
+      /const KNOWN = \['front', 'right', 'left', 'back'\];/.test(body) &&
+      /if \(wanted\.indexOf\(k\) !== -1\) clean\.push\(k\);/.test(body) &&
+      /updates\.houseSides = clean;/.test(body),
+      'free text from a browser would end up printed on a crew card');
+    check('S63', 'and a real change flags them for re-quoting',
+      /updates\.needsRequote = true;/.test(body),
+      'the warning is what the customer sees; THIS is what the office sees');
+    /* ⚠ Only on a real change — otherwise every portal visit flags them. */
+    check('S63', 'a save that changes nothing does not flag anyone',
+      /if \(clean\.slice\(\)\.sort\(\)\.join\(','\) !== before\) \{/.test(body),
+      'flagging on every save would fill the office list with people who changed nothing');
+    /* ⚠ BOTH sides sorted, or the comparison is order-sensitive on one of them
+       and every visit looks like a change. Testing for one .sort() passed with
+       the other removed. */
+    check('S63', 'and the order they ticked the boxes in is not a change',
+      /oldData\.houseSides\.slice\(\)\.sort\(\)\.join\(','\)/.test(body) &&
+      /clean\.slice\(\)\.sort\(\)\.join\(','\)/.test(body),
+      'front,right and right,front are the same house');
+  }
+
+  /* ---- the colour half, which already existed and was left alone ---- */
+  check('S63', 'the colour tab still warns about its $30 fee',
+    /Changing your lights adds a one-time \$30 change fee/.test(index));
+  /* ⚠ And still says when it is FREE. This is the part a flat "it costs $30"
+     would have destroyed, and the owner's instruction could have been read that
+     way. */
+  check('S63', 'and still says nothing is owed inside the free 48 hours',
+    /You are still inside your free 48-hour window, so this change costs nothing/.test(index),
+    'threatening a charge that is not coming is how a portal stops being believed');
+}
+
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
