@@ -9208,9 +9208,16 @@ suite('Suite 39. Importing in batches, and remembering the place');
 
   /* ⚠ THE ONE THAT MATTERS MOST. Everything decides "existing or new" by
      looking in jobAddresses. Empty means every row looks new. */
-  check('S39', 'it refuses to run at all against an empty customer list',
-    /if\(!jobAddresses\.length\)\{[\s\S]{0,400}?return;/.test(admin),
-    'resuming before the customer list has loaded would add every row as a brand new customer, and there is no cheap undo for that');
+  {
+    /* Scoped to the IMPORT. A second, identical-looking guard now exists in
+       the fix-names tool, and a file-wide search matched that one instead —
+       so deleting the import's guard read as a pass. */
+    const impGuard = admin.slice(admin.indexOf("document.getElementById('rbImportBtn').addEventListener"), admin.indexOf('// --- Invoice Bulk Update ---'));
+    check('S39', 'it refuses to run at all against an empty customer list',
+      /if\(!jobAddresses\.length\)\{/.test(impGuard) &&
+      /every row as a brand new customer/.test(impGuard),
+      'resuming before the customer list has loaded would add every row as a brand new customer, and there is no cheap undo for that');
+  }
 
   check('S39', 'the refusal happens before any row is written',
     admin.indexOf('if(!jobAddresses.length){') < admin.indexOf('for(let i = startAt; i < stopAt; i++){'),
@@ -9640,6 +9647,135 @@ suite('Suite 41. The saved job carries everything the import reads');
       check('S41', 'a job saved before this existed is left as it is, not guessed',
         doc.getElementById('rbFlipNames').checked === false,
         'a half-finished job from the old build must not change meaning under the office');
+    }
+  }
+}
+
+
+/* ============================================================
+ * Suite 42. Fix names only — matched on the customer number.
+ *
+ * Owner, 2026-08-17: "not evryones name got flipped for some reason", then
+ * "tell me how many peoples name in the website isnt right". Sampling her own
+ * website export against the sheet: 0 of 45 had been turned round.
+ *
+ * The flip itself was never the problem — all 945 importable rows turn round
+ * correctly. REACH was. The import identifies a row by phone AND street, so a
+ * customer with no phone on the sheet, or a record on file with no street to
+ * match against, is never touched.
+ *
+ * Every one of those has a customer NUMBER, so this pass matches on the number
+ * and writes exactly one field. It is deliberately not folded into the import:
+ * matching on the number is what the import refuses to do while the numbers
+ * are being repaired, and widening that would send whole rows of data to the
+ * wrong customer. A name is small and visible; an address, a price and a bin
+ * count are not.
+ * ============================================================ */
+suite('Suite 42. Fix names only, matched on the customer number');
+{
+  const lift = (name) => {
+    const at = admin.indexOf('function ' + name + '(');
+    if (at < 0) return null;
+    let d = 0;
+    for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+    }
+    return null;
+  };
+
+  check('S42', 'the button exists', admin.indexOf('id="rbFixNamesBtn"') > 0);
+  check('S42', 'rbCollectNameFixes exists', !!lift('rbCollectNameFixes'));
+
+  /* ⚠ It must write the NAME and nothing else. The whole reason this is allowed
+     to match on a number the importer will not trust is that the blast radius
+     is one visible field. */
+  {
+    const at = admin.indexOf("go.addEventListener('click', onceAtATime");
+    const end = admin.indexOf('rbPendingNameFixes = null;', at);
+    const body = at > 0 && end > at ? admin.slice(at, end) : '';
+    check('S42', 'the apply step writes only the name', !!body &&
+      /updateDoc\(doc\(db,'jobAddresses', list\[i\]\.id\), \{name: list\[i\]\.to\}\)/.test(body) &&
+      !/street|city|zip|customerNumber|measuredFeet|housePrice/.test(body),
+      'matching on a number the importer will not trust is only safe while one visible field is at stake');
+  }
+
+  {
+    /* Scoped to THIS handler. The import has a guard that reads almost the
+       same, and a file-wide search matched that one instead — so removing
+       this tool's guard read as a pass. Both checks are now scoped, in
+       opposite directions. */
+    const toolBlk = admin.slice(admin.indexOf("document.getElementById('rbFixNamesBtn')"),
+                                admin.indexOf("document.getElementById('rbCheckBtn')"));
+    check('S42', 'it refuses to run against an empty customer list',
+      toolBlk.indexOf('if(!jobAddresses.length){') > 0 &&
+      /has not finished loading/.test(toolBlk),
+      'with no customers loaded it would report every name as needing a change and match none of them');
+  }
+
+  check('S42', 'it shows what it would change before writing anything',
+    /would change\. Nothing has been saved yet\./.test(admin) &&
+    /id="rbFixNamesGoBtn"/.test(admin),
+    'a rename of nine hundred customers is not something to set off with one click');
+
+  /* ---- the matching, run for real ---- */
+  if (!JSDOM) {
+    note('jsdom not installed — skipping the name-matching run');
+  } else {
+    const src = lift('rbCollectNameFixes');
+    if (src) {
+      const dom = new JSDOM(
+        '<input type="checkbox" id="rbFlipNames" checked>' +
+        '<textarea id="rbCustNumbersArea"></textarea><textarea id="rbNamesArea"></textarea>' +
+        '<textarea id="rbStreetsArea"></textarea>'
+      );
+      const doc = dom.window.document;
+      const jobAddresses = [
+        {id: 'a', data: {customerNumber: '144', name: 'Cattani Julie'}},   // needs turning round
+        {id: 'b', data: {customerNumber: '85',  name: 'Paul /Jill Beckstead'}}, // already right
+        {id: 'c', data: {customerNumber: '112', name: 'Brown Kathy'}},     // no phone on the sheet
+        {id: 'd', data: {customerNumber: '',    name: 'Nobody'}},          // no number at all
+      ];
+      const sb = {};
+      new Function('document', 'jobAddresses',
+        lift('rbHeaderOffset') + lift('rbCol') + lift('flipLastFirstName') +
+        'function rbName(r){ const f = document.getElementById("rbFlipNames"); return (f && f.checked) ? flipLastFirstName(r) : r; }' +
+        src + 'this.collect = rbCollectNameFixes;'
+      ).call(sb, doc, jobAddresses);
+
+      doc.getElementById('rbCustNumbersArea').value = ['144', '85', '112', '999'].join('\n');
+      doc.getElementById('rbNamesArea').value =
+        ['Cattani Julie', 'Beckstead Paul /Jill', 'Brown Kathy', 'Ghost Person'].join('\n');
+
+      const out = sb.collect();
+
+      check('S42', 'a name that needs turning round is picked up',
+        out.changes.some(c => c.cu === '144' && c.to === 'Julie Cattani'),
+        'got ' + JSON.stringify(out.changes));
+
+      check('S42', 'a name already the right way round is left alone',
+        !out.changes.some(c => c.cu === '85'),
+        'rewriting a correct name is churn, and on a re-run it would look like the tool never settles');
+
+      /* ⚠ THE WHOLE POINT. #112 has no phone on the sheet, so the import skips
+         it — this pass reaches it by number. */
+      check('S42', 'a customer the import cannot reach IS reached by number',
+        out.changes.some(c => c.cu === '112' && c.to === 'Kathy Brown'),
+        'these are exactly the ones that were left surname-first');
+
+      check('S42', 'a number nobody holds is reported, not guessed at',
+        out.missing.length === 1 && out.missing[0].cu === '999');
+
+      check('S42', 'a row with no number is passed over',
+        !out.changes.some(c => !c.cu));
+
+      /* With the flip OFF it must take the sheet name as written. */
+      doc.getElementById('rbFlipNames').checked = false;
+      const plain = sb.collect();
+      check('S42', 'with the flip off it uses the name exactly as pasted',
+        plain.changes.some(c => c.cu === '85' && c.to === 'Beckstead Paul /Jill') &&
+        !plain.changes.some(c => c.cu === '144'),
+        'the tick box means the same thing here as it does in the import');
     }
   }
 }

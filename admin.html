@@ -1547,7 +1547,9 @@
                  anything is written. -->
             <button type="button" class="btn btn-outline" id="rbCheckBtn" style="margin-top:6px;">Check First (changes nothing)</button>
             <button type="button" class="btn btn-gold" id="rbImportBtn" style="margin-top:6px;">Import / Update Customers</button>
+            <button type="button" class="btn btn-outline" id="rbFixNamesBtn" style="margin-top:6px;">Fix names only</button>
             <span id="rbImportStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
+            <div id="rbFixNamesReport" style="margin-top:10px;"></div>
             <div id="rbCheckReport" style="margin-top:10px;"></div>
           </div>
           <div style="border-top:1px solid var(--line); margin:20px 0 0; padding-top:16px;">
@@ -15060,6 +15062,96 @@ document.getElementById('rbSheetClearBtn')?.addEventListener('click', function()
   if(checkReport) checkReport.innerHTML = '';
   const status = document.getElementById('rbSheetStatus');
   if(status) status.textContent = 'Everything cleared. Nothing was saved.';
+});
+/* ---------------- FIX NAMES ONLY -------------------------------------------
+   Owner, 2026-08-17: "not evryones name got flipped for some reason".
+
+   The flip itself was fine — all 945 importable rows turn round correctly.
+   The problem is REACH. The import identifies a row by phone AND street, so a
+   customer with no phone on the sheet (17 of them), or a record on file with
+   no street to match against, is never touched and keeps whatever name it had.
+
+   Every one of those has a CUSTOMER NUMBER, so this pass matches on the number
+   alone and writes ONE field: the name. It is deliberately separate from the
+   import rather than folded into it — matching on the number is exactly what
+   the import refuses to do while the numbers are being repaired, and widening
+   that would send whole rows of data to the wrong customer. A name is small,
+   visible, and easy to put back; an address, a price and a bin count are not.
+
+   It shows what it would change and waits to be told to go ahead. */
+let rbPendingNameFixes = null;
+function rbCollectNameFixes(){
+  const hoff = rbHeaderOffset();
+  const nums = rbCol('rbCustNumbersArea', hoff);
+  const namesRaw = rbCol('rbNamesArea', hoff);
+  const len = Math.max(nums.length, namesRaw.length);
+  const changes = [], missing = [];
+  const seen = {};
+  for(let i = 0; i < len; i++){
+    const cu = String(nums[i] || '').trim();
+    const wanted = rbName(String(namesRaw[i] || '').trim()).trim();
+    if(!cu || !wanted) continue;
+    /* The same number twice in one paste cannot be acted on — see the
+       importer's duplicate check. Reported rather than guessed at. */
+    if(seen[cu]){ continue; }
+    seen[cu] = true;
+    const hits = jobAddresses.filter(function(it){ return String(it.data.customerNumber || '') === cu; });
+    if(!hits.length){ missing.push({cu: cu, name: wanted}); continue; }
+    hits.forEach(function(it){
+      const now = String(it.data.name || '').trim();
+      if(now !== wanted) changes.push({id: it.id, cu: cu, from: now, to: wanted});
+    });
+  }
+  return {changes: changes, missing: missing};
+}
+document.getElementById('rbFixNamesBtn')?.addEventListener('click', function(){
+  const report = document.getElementById('rbFixNamesReport');
+  const statusEl = document.getElementById('rbImportStatus');
+  if(!report) return;
+  report.innerHTML = '';
+  if(!jobAddresses.length){
+    statusEl.textContent = 'The customer list has not finished loading yet. Give it a moment and try again.';
+    return;
+  }
+  const found = rbCollectNameFixes();
+  rbPendingNameFixes = found.changes;
+  if(!found.changes.length){
+    report.innerHTML = '<div style="border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--paper); font-size:13px;">' +
+      'Every name already matches the sheet \u2014 nothing to change.' +
+      (found.missing.length ? ' ' + found.missing.length + ' number(s) on the sheet are not on anybody here.' : '') +
+      '</div>';
+    return;
+  }
+  const shown = found.changes.slice(0, 40).map(function(c){
+    return '<tr><td style="padding:2px 10px 2px 0; color:var(--slate);">#' + esc(c.cu) + '</td>' +
+           '<td style="padding:2px 10px 2px 0;">' + esc(c.from || '(blank)') + '</td>' +
+           '<td style="padding:2px 0;">\u2192 <strong>' + esc(c.to) + '</strong></td></tr>';
+  }).join('');
+  report.innerHTML =
+    '<div style="border:2px solid var(--gold-dim); border-radius:10px; padding:14px; background:var(--snow);">' +
+      '<div style="font-weight:700; margin-bottom:8px;">' + found.changes.length + ' name(s) would change. Nothing has been saved yet.</div>' +
+      '<div style="max-height:240px; overflow:auto;"><table style="border-collapse:collapse; font-size:13px;">' + shown + '</table></div>' +
+      (found.changes.length > 40 ? '<div style="font-size:12.5px; color:var(--slate); margin-top:6px;">\u2026 and ' + (found.changes.length - 40) + ' more.</div>' : '') +
+      (found.missing.length ? '<div style="font-size:12.5px; color:var(--slate); margin-top:8px;">' + found.missing.length + ' number(s) on the sheet are not on anybody here, so those rows were passed over.</div>' : '') +
+      '<button type="button" class="btn btn-gold" id="rbFixNamesGoBtn" style="margin-top:12px;">Change these ' + found.changes.length + ' name(s)</button>' +
+    '</div>';
+  const go = document.getElementById('rbFixNamesGoBtn');
+  if(go) go.addEventListener('click', onceAtATime(async function(){ return withBulkWrites(async function(){
+    const list = rbPendingNameFixes || [];
+    let done = 0, failed = 0;
+    for(let i = 0; i < list.length; i++){
+      statusEl.textContent = 'Renaming ' + (i+1) + ' of ' + list.length + '\u2026';
+      await bulkBreathe(i);
+      try{
+        await updateDoc(doc(db,'jobAddresses', list[i].id), {name: list[i].to});
+        done++;
+      } catch(err){ failed++; }
+    }
+    rbPendingNameFixes = null;
+    report.innerHTML = '<div style="border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--paper); font-size:13px;">' +
+      done + ' name(s) changed' + (failed ? ', ' + failed + ' failed' : '') + '. Nothing else on those customers was touched.</div>';
+    statusEl.textContent = '';
+  }); }, function(){ return document.getElementById('rbFixNamesGoBtn'); }));
 });
 document.getElementById('rbCheckBtn')?.addEventListener('click', function(){
   const statusEl = document.getElementById('rbImportStatus');
