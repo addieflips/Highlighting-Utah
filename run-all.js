@@ -7401,7 +7401,7 @@ suite('Suite 28. The Schedule season rebuilt from its houses');
          SET, so the sandbox needs it and its constant. */
       'const PIN_HONOURED_BUSINESS_DAYS=' + (admin.match(/const PIN_HONOURED_BUSINESS_DAYS=(d+);/)||[])[1] + ';' +
       fn('pinHorizon') +
-      fn('seasonStartDate') + fn('prefSpecificDate') + fn('houseAllowedFrom') + fn('houseInstallPriority') +
+      fn('seasonStartDate') + fn('prefSpecificDate') + fn('houseAllowedFrom') + fn('houseDeadline') + fn('houseInstallPriority') +
       'function cityOf(h){return (h.city||"").trim();}' +
       'function sameCity(a,b){return (""+a).trim().toLowerCase()===(""+b).trim().toLowerCase();}' +
       fn('rebuildSeasonDays') + fn('dayAreas') + fn('dayCrewTowns') + fn('crewTownsFor') +
@@ -10773,7 +10773,7 @@ suite('Suite 48. Days within two working days are set');
       /* pinHorizon and "today" both pinned to the fixed date */
       'function pinHorizon(){let d=new Date(__TODAY);d.setHours(0,0,0,0);' +
       'for(let i=0;i<PIN_HONOURED_BUSINESS_DAYS;i++){d=addDays(d,1);while(isWeekend(d))d=addDays(d,1);}return d;}' +
-      fn('seasonStartDate') + fn('prefSpecificDate') + fn('houseAllowedFrom') + fn('houseInstallPriority') +
+      fn('seasonStartDate') + fn('prefSpecificDate') + fn('houseAllowedFrom') + fn('houseDeadline') + fn('houseInstallPriority') +
       fn('rebuildSeasonDays').replace('const today=new Date();', 'const today=new Date(__TODAY);') +
       '\nthis.run=function(seed){SEASON=seed;return {r:rebuildSeasonDays(), season:SEASON};};'
     ).call(ctx, TODAY);
@@ -11268,16 +11268,30 @@ suite('Suite 51. The dribble at the end of the season');
         'forty-three miles each way is a worse day than the one it saves');
     }
     {
-      /* ⚠ It is a rescue, not a rule: four houses is a small route, not a
-         wasted morning, and it stays in its own town. */
+      /* ⭐ THE BOUNDARY IS THE DAY'S TOTAL, NOT ONE CREW'S SHARE.
+         Owner, 2026-08-18: "6, 8, and 11 houses every day is really bad... we
+         cant just be waisting time." Four houses is a whole morning of loading
+         the truck and driving out, so four goes the same way one does. */
       const four = run([
         { date: '2026-11-27', crew: 1, city: 'Orem', n: 5, from: '2026-11-27' },
         { date: '2026-11-27', crew: 2, city: 'Vineyard', n: 4, from: '2026-11-27' },
         { date: '2026-12-02', crew: 1, city: 'Mapleton', n: 4, from: '2026-11-27' }
       ]);
-      check('S51', 'and four houses are left to their own day',
-        four.dates.length === 2,
-        'the rescue is for the one-and-two-house days, not for anything under-full');
+      check('S51', 'a day of four is a wasted morning and goes too',
+        four.dates.length === 1,
+        'still ' + four.dates.length + ' days — the first version only rescued a crew-day of three ' +
+        'that was alone on its date, so two crews of two never qualified and neither did one crew of four');
+
+      /* ⚠ But a day that is genuinely worth going out for is never taken apart,
+         however tempting the towns look. */
+      const real = run([
+        { date: '2026-11-27', crew: 1, city: 'Orem', n: 5, from: '2026-11-27' },
+        { date: '2026-11-27', crew: 2, city: 'Vineyard', n: 4, from: '2026-11-27' },
+        { date: '2026-12-02', crew: 1, city: 'Mapleton', n: 12, from: '2026-11-27' }
+      ]);
+      check('S51', 'and a day holding twelve is a real day, left alone',
+        real.dates.length === 2 && real.moved.length === 0,
+        'twelve houses pays for the morning; scattering them over a fourteen-mile detour does not');
     }
     {
       /* ⚠ And only when the DATE goes. A crew-day sharing its date with
@@ -11554,7 +11568,7 @@ suite('Suite 52. Thanksgiving');
 
   /* ---- ⭐ as close to Thanksgiving as possible ---- */
   {
-    const src = THX_CONST + fn('prefSpecificDate') + fn('houseAllowedFrom') + fn('houseInstallPriority');
+    const src = THX_CONST + fn('prefSpecificDate') + fn('houseAllowedFrom') + fn('houseDeadline') + fn('houseInstallPriority');
     check('S52', 'the timing functions were found', !!fn('houseAllowedFrom'));
     if (fn('houseAllowedFrom')) {
       const sb = {};
@@ -11625,6 +11639,280 @@ suite('Suite 52. Thanksgiving');
       '⚠ ' + (m ? m[1] : '?') + ' days. Tightening this puts them closer to the holiday and pushes ' +
       'anybody who does not fit PAST it, which is the one outcome the label exists to prevent. ' +
       'Seven days is five working days — two hundred slots.');
+  }
+}
+
+
+/* ============================================================
+ * Suite 53. October is a deadline, not a starting gun.
+ *
+ * Owner, 2026-08-18, reading a 26 November day holding three customers who had
+ * asked for October: "we need to get everyone who requested Oct done in Oct
+ * none in November and if any in Nov it should be Nov 1st but only if theres
+ * literally no other way." And: "6, 8, and 11 houses every day is really bad,
+ * if you need stuff some anys in to fill the day up in those areas but we cant
+ * just be waisting time."
+ *
+ * Two halves. The builder has to REACH the small towns while it is still
+ * October — ordering inside a town never helped, because October was already
+ * first in the queue and it was the TOWN that was late. And the tail sweep has
+ * to be allowed to move somebody to a later day to kill a wasted morning,
+ * without ever moving an October customer into November.
+ *
+ * Measured on the real 962-house sheet: 221 October customers, none finishing
+ * after 31 October, 28 working days, nothing in December.
+ * ============================================================ */
+suite('Suite 53. October is a deadline');
+{
+  const fn = (name) => {
+    const at = admin.indexOf('function ' + name + '(');
+    if (at < 0) return '';
+    let d = 0;
+    for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+    }
+    return '';
+  };
+  const iso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') +
+                     '-' + String(d.getDate()).padStart(2, '0');
+
+  /* ---- ⭐ the last day a house may be hung ---- */
+  {
+    const src = fn('houseDeadline');
+    check('S53', 'houseDeadline exists', !!src);
+    if (src) {
+      const sb = {};
+      new Function('BASE_START', 'thanksgivingDate', 'isoOf',
+        THX_CONST + fn('prefSpecificDate') + src + 'this.f = houseDeadline;'
+      ).call(sb, new Date(2026, 9, 1), (y) => new Date(y, 10, 26), iso);
+      const f = (pref) => sb.f({ pref: pref });
+
+      check('S53', 'October ends on the 31st', f('October') === '2026-10-31', f('October'));
+      check('S53', 'and the sheet spelling too', f('OCT') === '2026-10-31');
+
+      /* ⚠ THE ONE THAT IS EASY TO GET BACKWARDS. */
+      check('S53', '"10/28+" has NO deadline — the plus means "not before"',
+        f('10/28+') === '',
+        'got "' + f('10/28+') + '". They asked not to be hung before the 28th, which any later day ' +
+        'satisfies. Reading it as an October deadline would trap the one customer this rule exists to free.');
+      check('S53', 'and neither does "11/9+"', f('11/9+') === '');
+      /* ⚠ Including the spellings that also start with a month word — this is
+         the one the guard in front of the OCT branch actually protects. */
+      check('S53', 'nor does "Oct 28", which names a day AND starts with OCT',
+        f('Oct 28') === '' && f('28-Oct') === '',
+        'got "' + f('Oct 28') + '" — naming a day says when they can START, and picking up ' +
+        'a 31 October ceiling on top of it is a constraint the customer never asked for');
+
+      check('S53', 'Before Thanksgiving ends at the holiday',
+        f('November - Before Thanksgiving') === '2026-11-26', f('November - Before Thanksgiving'));
+
+      check('S53', 'nobody else has a deadline at all',
+        f('November') === '' && f('') === '' && f('ANY') === '' &&
+        f('After Thanksgiving') === '' && f('THX') === '',
+        'a deadline nobody asked for would pin houses to dates for no reason');
+    }
+  }
+
+  /* ---- ⭐ the builder reaches the small towns while it is still October ---- */
+  {
+    const start = admin.indexOf('function planNewCrewDays(waiting, taken, opts)');
+    const end = admin.indexOf('/* Top every day up to the cap.', start);
+    const api = new Function(
+      'function toDateStr(dt){return dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+"-"+String(dt.getDate()).padStart(2,"0");}' +
+      'function haversine(a,b,c,d){const R=3958.8,t=x=>x*Math.PI/180;const dl=t(c-a),dg=t(d-b);' +
+      'const q=Math.sin(dl/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dg/2)**2;return 2*R*Math.asin(Math.sqrt(q));}' +
+      'function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x;}' +
+      'function seasonFirstDate(){return new Date(2026,9,1);}' +
+      fn('thanksgivingDate') +
+      admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) +
+      admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) +
+      'let NEARBY_TOWN_LIST={};' + fn('sameTownName') + fn('townCentres') + fn('nearbyTowns') +
+      admin.slice(start, end) +
+      '\nreturn {plan: planNewCrewDays};')();
+
+    const AT = { Lehi: [40.391, -111.851], Highland: [40.425, -111.795],
+                 'American Fork': [40.377, -111.796], Levan: [39.555, -111.862],
+                 /* Far enough from the rest that it can never be borrowed — it has
+                    to WIN a crew, which is the thing being tested. */
+                 Draper: [40.524, -111.863] };
+    const make = (city, n, priority) => {
+      const out = [];
+      for (let i = 0; i < n; i++) out.push({ id: city + priority + i, city: city, priority: priority,
+        from: '2026-10-01', until: '', stop: { lat: AT[city][0], lng: AT[city][1] } });
+      return out;
+    };
+    const dateOfCity = (days, city) => {
+      let first = '';
+      days.forEach(d => d.ids.forEach(id => {
+        if (id.indexOf(city) === 0 && (!first || d.date < first)) first = d.date;
+      }));
+      return first;
+    };
+
+    /* ⭐ THE REPORTED BUG. Lehi is huge but has no October left; a town of two
+       still holding an October customer must not wait behind eighty who said
+       they did not mind. */
+    {
+      /* ⚠ THERE HAVE TO BE TWO BIG TOWNS. With only one, the second crew has
+         nothing else to do and picks the small town on the first day anyway —
+         so head-count alone would look identical and the check would prove
+         nothing. Lehi and Draper between them keep both crews busy for days. */
+      const waiting = make('Lehi', 80, 2)
+        .concat(make('Draper', 60, 2))
+        .concat(make('Highland', 2, 1));
+      const days = api.plan(waiting, {}, { floorDate: '2026-10-01', maxDays: 40, pack: false });
+      const first = days.map(d => d.date).sort()[0];
+      check('S53', 'a small town with an October customer goes on the FIRST day, ahead of two big towns without one',
+        dateOfCity(days, 'Highland') === first,
+        'Highland went ' + dateOfCity(days, 'Highland') + ', the season opens ' + first +
+        ' — head-count alone left those two October customers queueing behind a hundred and forty ' +
+        'people who had said they did not mind, which is how they ended up on 26 November');
+    }
+
+    /* ⚠ AND IT DOES NOT UNDO THE OWNER'S OWN RULE. When the urgency is equal —
+       which it is through most of October, because every town still has
+       October houses — the biggest town still goes first. */
+    {
+      const waiting = make('Lehi', 40, 1).concat(make('Highland', 8, 1));
+      const days = api.plan(waiting, {}, { floorDate: '2026-10-01', maxDays: 40, pack: false });
+      const first = days.filter(d => d.date === days[0].date).map(d => d.city);
+      check('S53', 'among towns that are equally urgent the biggest still goes first',
+        first.indexOf('Lehi') !== -1,
+        'first day went to ' + first.join(', ') +
+        ' — "we want to start with the two cities that have the most clients" is still the rule');
+    }
+
+    /* ⚠ A town nobody is near still gets its day rather than being dropped. */
+    {
+      const waiting = make('Lehi', 30, 2).concat(make('Levan', 1, 1));
+      const days = api.plan(waiting, {}, { floorDate: '2026-10-01', maxDays: 40, pack: false });
+      check('S53', 'a lone October customer a hundred miles out is still scheduled',
+        !!dateOfCity(days, 'Levan'),
+        'there is no efficient answer for one customer in Levan, but losing them is not it');
+    }
+  }
+
+  /* ---- ⭐ moving somebody to a LATER day, and the line it must not cross ---- */
+  {
+    const src = fn('packTailCrewDays');
+    check('S53', 'packTailCrewDays found', !!src);
+    if (src) {
+      const sb = {};
+      new Function('MAX_STOPS_PER_ROUTE', 'CREWS_PER_DAY', src + 'this.pack = packTailCrewDays;')
+        .call(sb, 20, 2);
+
+      const build = (rows) => {
+        const meta = {};
+        const days = rows.map(r => {
+          const ids = [];
+          for (let i = 0; i < r.n; i++) {
+            const id = r.city + '@' + r.date + '#' + i;
+            meta[id] = { city: r.city, from: r.from || '', until: r.until || '' };
+            ids.push(id);
+          }
+          return { date: r.date, crew: String(r.crew), city: r.city, towns: [r.city], ids: ids };
+        });
+        return { days, meta };
+      };
+      const run = (rows, opts) => {
+        const f = build(rows);
+        const out = sb.pack(f.days, Object.assign({
+          cap: 20, crews: 2,
+          from: id => f.meta[id].from,
+          until: id => f.meta[id].until,
+          townOf: id => f.meta[id].city,
+          nearby: c => (c === 'Lehi' ? ['Highland'] : (c === 'Highland' ? ['Lehi'] : [])),
+          dist: () => 5
+        }, opts || {}));
+        out.meta = f.meta;
+        out.dates = Array.from(new Set(out.days.map(d => d.date))).sort();
+        out.dateOf = {};
+        out.days.forEach(d => d.ids.forEach(id => { out.dateOf[id] = d.date; }));
+        return out;
+      };
+
+      /* ⭐ THE REAL CASE. The "10/28+" customer holds 28 October on their own
+         because nobody else is allowed in October by then. The plus means "not
+         before the 28th", and 2 November satisfies that just as well — on a day
+         the crew is already working. */
+      {
+        const r = run([
+          { date: '2026-10-28', crew: 1, city: 'Lehi', n: 1, from: '2026-10-28', until: '' },
+          { date: '2026-11-02', crew: 1, city: 'Lehi', n: 15 }
+        ]);
+        check('S53', 'a lone house with no deadline rides a later day the crew is already working',
+          r.dates.length === 1 && r.dates[0] === '2026-11-02',
+          'still ' + r.dates.join(', ') + ' — one house is a whole morning');
+      }
+
+      /* ⚠ THE LINE. Same shape, but the customer asked for October. */
+      {
+        const r = run([
+          { date: '2026-10-28', crew: 1, city: 'Lehi', n: 1, from: '2026-10-01', until: '2026-10-31' },
+          { date: '2026-11-02', crew: 1, city: 'Lehi', n: 15 }
+        ]);
+        check('S53', 'an October customer is NEVER swept into November to save a day',
+          r.dates.length === 2 && r.dateOf['Lehi@2026-10-28#0'] === '2026-10-28',
+          'landed ' + r.dateOf['Lehi@2026-10-28#0'] +
+          ' — this is the exact complaint the work started from, and a saved day is not worth it');
+      }
+
+      /* ⚠ Later is a LAST resort. An earlier day that works always wins. */
+      {
+        const r = run([
+          { date: '2026-10-26', crew: 1, city: 'Lehi', n: 15 },
+          { date: '2026-10-28', crew: 1, city: 'Lehi', n: 1 },
+          { date: '2026-11-02', crew: 1, city: 'Lehi', n: 15 }
+        ]);
+        check('S53', 'an earlier day always beats a later one',
+          r.dateOf['Lehi@2026-10-28#0'] === '2026-10-26',
+          'landed ' + r.dateOf['Lehi@2026-10-28#0'] +
+          ' — moving a customer back is free, moving them on is a cost');
+      }
+
+      /* ⚠ And ONLY off a day that was not worth going out for.
+         Here one crew holds five — thin enough to be looked at — but the day as
+         a whole holds thirteen, so the morning is paying for itself. The five
+         would fit perfectly on the later Lehi day, which is exactly the tidy,
+         plausible move that must not happen: it would hang five people later
+         for no saving at all. */
+      {
+        const r = run([
+          { date: '2026-10-28', crew: 1, city: 'Lehi', n: 5 },
+          { date: '2026-10-28', crew: 2, city: 'Highland', n: 8 },
+          { date: '2026-11-02', crew: 1, city: 'Lehi', n: 15 }
+        ]);
+        check('S53', 'a thin crew on a day that IS worth working is not pushed later',
+          r.dateOf['Lehi@2026-10-28#0'] === '2026-10-28' && r.dates.length === 2,
+          'landed ' + r.dateOf['Lehi@2026-10-28#0'] + ' across ' + r.dates.length +
+          ' days — the crew is out on the 28th either way, so moving them buys nothing and costs five people five days');
+      }
+
+      /* ⚠ FAIL SAFE. A caller that never supplies deadlines gets no later moves
+         at all, rather than every house looking deadline-free. */
+      {
+        const f = build([
+          { date: '2026-10-28', crew: 1, city: 'Lehi', n: 1, from: '2026-10-28' },
+          { date: '2026-11-02', crew: 1, city: 'Lehi', n: 15 }
+        ]);
+        const out = sb.pack(f.days, {
+          cap: 20, crews: 2,
+          from: id => f.meta[id].from,
+          townOf: id => f.meta[id].city,
+          nearby: () => [],
+          dist: () => 5
+        });
+        check('S53', 'no deadlines supplied means nobody is moved later',
+          Array.from(new Set(out.days.map(d => d.date))).length === 2,
+          'an October customer on 9 November would be silent, and it is exactly how this bug happened');
+      }
+
+      check('S53', 'and the builder hands the deadlines through',
+        /until: function\(id\)\{ return \(wById\[id\] && wById\[id\]\.until\) \|\| ''; \},/.test(admin) &&
+        /until:houseDeadline\(h\),/.test(admin),
+        'the packer cannot work them out for itself — it never sees the customer record');
+    }
   }
 }
 

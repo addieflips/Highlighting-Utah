@@ -21320,12 +21320,20 @@ function planNewCrewDays(waiting, taken, opts){
   });
   const centres = townCentres(byCity);
   const dateOf = function(ds){ return new Date(ds.slice(0,4), Number(ds.slice(5,7)) - 1, ds.slice(8,10)); };
-  const allowedCount = function(city, ds){
+  /* How many are allowed today, and how urgent the most urgent of them is.
+     byCity is sorted by priority first, so the first allowed house IS the most
+     urgent allowed house — no second scan needed. */
+  const allowedStats = function(city, ds){
     const q = byCity[city] || [];
-    let n = 0;
-    for(let i = 0; i < q.length; i++) if(q[i].from <= ds) n++;
-    return n;
+    let n = 0, urg = 99;
+    for(let i = 0; i < q.length; i++){
+      if(q[i].from > ds) continue;
+      n++;
+      if(q[i].priority < urg) urg = q[i].priority;
+    }
+    return {n: n, urg: urg};
   };
+  const allowedCount = function(city, ds){ return allowedStats(city, ds).n; };
   const out = [];
   let made = 0;
   let dt = nextWorkingDay(dateOf(floor));
@@ -21341,15 +21349,45 @@ function planNewCrewDays(waiting, taken, opts){
     if(freeSlot){
       for(let cr = 1; cr <= crews && made < maxDays; cr++){
         if((busy[ds] || {})[String(cr)]) continue;
-        /* THE TOWN WITH THE MOST STILL WAITING, counted fresh. Ties go
-           alphabetically so the same input always gives the same plan. */
+        /* ⭐ THE MOST URGENT TOWN, AND AMONG EQUALS THE ONE WITH THE MOST
+           STILL WAITING. Counted fresh, ties alphabetical so the same input
+           always gives the same plan.
+
+           Owner, 2026-08-18, reading October customers sitting on a 26 November
+           day: "we need to get everyone who requested Oct done in Oct none in
+           November and if any in Nov it should be Nov 1st but only if theres
+           literally no other way."
+
+           Head-count alone could not do that. A town is worked when its count
+           wins, and everything on it goes out that day — so a town of five was
+           not reached until November, and its October customers went to
+           November with it. Ordering inside a town never helped: October is
+           already first in the queue, it was the TOWN that was late.
+
+           ⚠ THIS DOES NOT UNDO "THE TWO BIGGEST TOWNS GET EACH DAY". Through
+           most of October every town still has October houses waiting, so the
+           urgency is equal everywhere and the head-count decides exactly as
+           before — the owner's own Lehi/Herriman/American Fork example is
+           unchanged. It only bites once the big towns have no October left:
+           their best waiting house becomes a no-preference one, and a small
+           town still holding an October customer now goes first. Which is the
+           same rule the borrowing already followed, and the same rule the owner
+           gave earlier: "we shouldnt be doing anyone who said any until oct are
+           done."
+
+           The small town then tops up from a neighbour in the usual way, which
+           is the owner's "if you need stuff some anys in to fill the day up in
+           those areas" — the day goes out full rather than holding five. */
         let pick = null;
         Object.keys(byCity).forEach(function(c){
           if(!byCity[c].length) return;
           if(townsUsedOn(ds).indexOf(c) !== -1) return;   // the other crew is already there
-          const n = allowedCount(c, ds);
-          if(!n) return;
-          if(!pick || n > pick.n || (n === pick.n && c < pick.city)) pick = {city: c, n: n};
+          const st = allowedStats(c, ds);
+          if(!st.n) return;
+          if(!pick || st.urg < pick.urg ||
+             (st.urg === pick.urg && (st.n > pick.n || (st.n === pick.n && c < pick.city)))){
+            pick = {city: c, n: st.n, urg: st.urg};
+          }
         });
         if(!pick) break;
         const city = pick.city;
@@ -21426,6 +21464,7 @@ function planNewCrewDays(waiting, taken, opts){
   const packed = packTailCrewDays(out, {
     cap: cap, crews: crews, thin: o.thin, taken: taken || {},
     from: function(id){ return (wById[id] && wById[id].from) || ''; },
+    until: function(id){ return (wById[id] && wById[id].until) || ''; },
     townOf: function(id){ return (wById[id] && wById[id].city) || ''; },
     nearby: function(c){ return nearbyTowns(c, centres); },
     dist: function(a, b){
@@ -21500,20 +21539,39 @@ function packTailCrewDays(built, opts){
      holding ten is a day. */
   const thin = o.thin == null ? Math.ceil(cap / 2) : o.thin;
   const allowedFrom = o.from || function(){ return ''; };
+  /* The last day a house may be hung, '' where the customer never named one.
+     Without it there is no way to tell "October" (a deadline) from "10/28+" (a
+     starting gun).
+     ⚠ FAIL SAFE: a caller that does not supply this gets NO later moves at all,
+     rather than every house looking deadline-free. Getting this wrong is how an
+     October customer ends up on 9 November, which is the exact complaint this
+     work started from — and it would be silent. */
+  const allowedUntil = o.until || null;
+  const mayMoveLater = !!allowedUntil;
   const townOf = o.townOf || function(){ return ''; };
   const nearby = o.nearby || function(){ return []; };
   /* Miles between two towns, for the rescue below only. Without it a far town
      is simply never picked up. */
   const milesBetween = o.dist || function(){ return null; };
-  /* ⭐ THE RESCUE. A crew-day of three or fewer that is the ONLY thing left on
-     its date may be handed to a crew further away than the borrowing rule
-     allows. On the real season this is the single Mapleton house sitting alone
-     on 2 December: a whole crew, a whole morning, one house. A twenty-mile
-     detour on a day somebody is already working beats a day of its own.
-     Still bounded — 'stuff those guys into another day' is not permission to
-     send a crew from Salt Lake to Payson — and still only when the date
-     actually disappears. */
-  const rescueMax = o.rescueMax == null ? 3 : o.rescueMax;
+  /* ⭐ THE RESCUE, AND WHAT COUNTS AS A WASTED MORNING.
+     Owner, 2026-08-18: "6, 8, and 11 houses every day is really bad... we cant
+     just be waisting time."
+     A day is a whole morning of loading the truck and driving out whether it
+     holds four houses or forty, so the thing worth measuring is the DAY's
+     total, not one crew's share of it. Below this the day is not paying for
+     itself, and its houses may be handed to crews further away than the
+     borrowing rule allows. On the real season that is a day of four in West
+     Jordan, Murray and Cottonwood Heights, all of them within a few miles of a
+     day already going out.
+     ⚠ FIRST WRITTEN AS "a crew-day of three or fewer that is the only thing on
+     its date", which was too narrow twice over: a date holding two crews of two
+     never qualified, and neither did one crew holding four. Both are wasted
+     mornings.
+     ⚠ Still bounded by distance — "stuff those guys into another day" is
+     permission to mix TOWNS, not to send a crew from Salt Lake to Payson — and
+     still only where the crew-day empties completely. A full day is never taken
+     apart: a crew already coming out that day costs nothing extra. */
+  const wastedDay = o.wastedDay == null ? 12 : o.wastedDay;
   const rescueMiles = o.rescueMiles == null ? 30 : o.rescueMiles;
   /* Days that already existed before this build: their towns and their crews
      still count against a date, but they are not moved and not moved into. */
@@ -21541,6 +21599,12 @@ function packTailCrewDays(built, opts){
       const cd = list[i];
       if(cd !== except && cd.date === date && cd.ids.length) n++;
     }
+    return n;
+  };
+  /* Everything the crews are out for on that date, across both of them. */
+  const housesOn = function(date){
+    let n = 0;
+    for(let i = 0; i < list.length; i++) if(list[i].date === date) n += list[i].ids.length;
     return n;
   };
   /* The whole crew-day can only ride a date every one of its houses is allowed
@@ -21592,20 +21656,35 @@ function packTailCrewDays(built, opts){
        how much mixing is allowed. */
     const extra = [];
     for(let n = 0; n < list.length; n++) extra[n] = 0;
-    /* A rescue is only on the table when this crew-day is tiny AND is the last
-       thing on its date, so moving it removes a whole morning rather than
-       lengthening somebody's drive for nothing. */
-    const rescuing = src.ids.length <= rescueMax && crewsOn(src.date, src) === 0;
+    /* A rescue is on the table when the whole DAY is not paying for itself.
+       Measured across both crews, because the morning is spent either way. */
+    const rescuing = housesOn(src.date) < wastedDay;
     const plan = [];
     for(let k = 0; k < src.ids.length; k++){
       const id = src.ids[k];
       const town = townOf(id);
       const okDate = allowedFrom(id);
-      let bestAt = -1, bestScore = 99, bestDate = '', bestMiles = Infinity;
+      const deadline = mayMoveLater ? allowedUntil(id) : null;
+      let bestAt = -1, bestScore = 99, bestDate = '', bestMiles = Infinity, bestLater = true;
       for(let j = 0; j < list.length; j++){
         const tgt = list[j];
         if(tgt === src || !tgt.ids.length) continue;
-        if(tgt.date >= src.date) continue;               // never later
+        if(tgt.date === src.date) continue;
+        /* ⭐ LATER IS ALLOWED ONLY TO KILL A WASTED MORNING, AND ONLY WHERE THE
+           CUSTOMER NEVER NAMED A LAST DAY.
+           Owner, 2026-08-18: "if you need stuff some anys in to fill the day up
+           in those areas but we cant just be waisting time."
+           On the real season this is the "10/28+" customer — nobody else is
+           allowed in October by then, so they hold 28 October on their own. The
+           plus means "not before the 28th", which 2 November satisfies just as
+           well, and 2 November is a day the crew is already working.
+           ⚠ An October house has a deadline of the 31st and can never be swept
+           into November this way. Earlier is always preferred — see the score. */
+        const later = tgt.date > src.date;
+        if(later){
+          if(!rescuing || !mayMoveLater) continue;
+          if(deadline && tgt.date > deadline) continue;
+        }
         if(okDate && tgt.date < okDate) continue;        // never before they may be hung
         if(cap - (tgt.ids.length + extra[j]) <= 0) continue;
         const towns = tgt.towns || [];
@@ -21620,20 +21699,32 @@ function packTailCrewDays(built, opts){
           if(km == null || km > rescueMiles) continue;
           score = 3; miles = km;
         } else continue;                                     // too far to be worth a day
-        /* Closest to the day they already had, so a house is disturbed as
-           little as the move allows — and on a rescue, the shortest drive. */
-        const better = score < bestScore ||
-          (score === bestScore && (score === 3 ? miles < bestMiles : tgt.date > bestDate));
+        /* ⚠ EARLIER ALWAYS BEATS LATER, whatever the towns look like: moving a
+           customer back is free, moving them on is a cost. Within a direction,
+           the closest day to the one they already had — and on a rescue, the
+           shortest drive. */
+        const better = (later !== bestLater) ? !later
+          : (score < bestScore ? true
+            : (score !== bestScore ? false
+              : (score === 3 ? miles < bestMiles
+                : (later ? tgt.date < bestDate : tgt.date > bestDate))));
         if(better){
-          bestAt = j; bestScore = score; bestDate = tgt.date; bestMiles = miles;
+          bestAt = j; bestScore = score; bestDate = tgt.date; bestMiles = miles; bestLater = later;
         }
       }
       if(bestAt === -1) continue;
       extra[bestAt]++;
       plan.push({id: id, town: town, at: bestAt, score: bestScore});
     }
+    /* ⚠ ALL OF IT OR NONE OF IT. A crew-day that only half empties still costs
+       the same morning, and now costs it for a handful instead of a dayful —
+       on the real season a partial sweep left ONE house holding 28 October
+       while the four beside it went elsewhere. Nothing was saved and four
+       routes got longer. So the moves are committed only where the crew-day
+       goes completely; otherwise the day is left exactly as it was. */
     const emptied = plan.length === src.ids.length;
-    const take = emptied ? plan : plan.filter(function(p){ return p.score < 2; });
+    if(!emptied) continue;
+    const take = plan;
     if(!take.length) continue;
     const gone = {};
     take.forEach(function(p){
@@ -27887,6 +27978,40 @@ function houseAllowedFrom(h, startStr){
   if(p.indexOf('NOV')===0) return (BASE_START.getFullYear())+'-11-01';
   return startStr;
 }
+/* ⭐ THE LAST DAY A HOUSE MAY BE HUNG, where the customer named one.
+   Owner, 2026-08-18, reading October customers sitting on a 26 November day:
+   "we need to get everyone who requested Oct done in Oct none in November and
+   if any in Nov it should be Nov 1st but only if theres literally no other
+   way."
+
+   houseAllowedFrom says the EARLIEST a house may go out. Nothing said the
+   latest, so nothing could tell the difference between a preference that is a
+   starting gun and one that is a deadline. "October" is a deadline. So is
+   "Before Thanksgiving". "November", "Any" and "After Thanksgiving" are not,
+   and neither is "10/28+" — the plus is the customer saying "not before
+   then", which any later day satisfies.
+
+   Returns '' where there is no deadline. Only the tail sweep reads it, and
+   only to decide whether somebody may be moved to a LATER day than the one
+   they already have. */
+function houseDeadline(h){
+  const p=(''+((h&&h.pref)||'')).trim().toUpperCase();
+  if(p.indexOf('AFTER THANKS') !== -1 || p === 'THX') return '';
+  if(p.indexOf('BEFORE THANKS') !== -1 || p === 'THANKSGIVING'){
+    return isoOf(thanksgivingDate(BASE_START.getFullYear()));
+  }
+  /* A NAMED DAY IS A FLOOR, NOT A CEILING. "10/28+" and "11/9+" say "not
+     before then"; the customer named the earliest day they want, not the last.
+     houseAllowedFrom already holds them to it.
+     ⚠ This has to sit ahead of the month branch to catch the spellings that
+     ALSO start with a month word — "Oct 28" — which would otherwise pick up a
+     31 October deadline nobody asked for. The two on the real sheet are written
+     "10/28+" and "11/9+" and never reach that branch at all, so this guard is
+     protecting a spelling the office has not used yet rather than one it has. */
+  if(prefSpecificDate(p, BASE_START.getFullYear())) return '';
+  if(p.indexOf('OCT')===0) return (BASE_START.getFullYear())+'-10-31';
+  return '';
+}
 /* ⭐ NEW HANGS COME FIRST, whatever month they asked for.
    Owner, 2026-08-17: "the very top priority is new hangs, so if a new hang
    requested Any they are the first chance we get in Oct and if they said Nov
@@ -27974,6 +28099,9 @@ function rebuildSeasonDays(){
     const d=(cust&&cust.data)||{};
     return {id:key, city:town, priority:houseInstallPriority(h,d),
             from:houseAllowedFrom(h,startStr),
+            /* '' for almost everybody. Only "October" and "Before Thanksgiving"
+               name a last day, and only the tail sweep reads it. */
+            until:houseDeadline(h),
             /* Coordinates come off the customer record — the imported rows have
                none — and only decide whether two towns are near enough to share
                a crew. A house without them still gets a day in its own town. */
