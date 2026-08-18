@@ -13804,6 +13804,35 @@ suite('Suite 61. Reading the master sheet where it lives');
 
   /* ---- the button, and the fallback ---- */
   check('S61', 'the button is there', admin.indexOf('id="rbConnectSheetBtn"') > 0);
+
+  /* ⭐ THE EVERYDAY PATH IS THE ONE ON SCREEN. Owner, 2026-08-18: "update the
+     entire bulk update section so we dont have more than we need cause I'm
+     getting confused." Seven buttons in one row, four of them for pasting a
+     single column, is what the confusion was. Connect and Compare stay out
+     front; the column tools are folded away. Nothing was deleted — every one of
+     them is still there and still tested. */
+  {
+    const fold = admin.indexOf('Paste one column at a time, or import with invoices');
+    const foldEnd = admin.indexOf('</details>', fold);
+    check('S61', 'the one-column tools are folded away', fold > 0 && foldEnd > fold);
+    const folded = fold > 0 && foldEnd > fold ? admin.slice(fold, foldEnd) : '';
+    check('S61', 'Connect and Compare are NOT folded away',
+      admin.indexOf('id="rbConnectSheetBtn"') < fold &&
+      admin.indexOf('id="rbFindMissingBtn"') < fold,
+      'those two are the day-to-day path and have to be the first thing on the page');
+    check('S61', 'and the one-column tools ARE',
+      /id="rbFixNamesBtn"/.test(folded) && /id="rbFixNumbersBtn"/.test(folded) &&
+      /id="rbImportBtn"/.test(folded) && /id="rbCheckBtn"/.test(folded),
+      'Fix names, Fix CU#, Check First and Import are all one-off jobs: ' +
+      'still there, still working, just not in the way');
+    check('S61', 'nothing was deleted to achieve it',
+      admin.indexOf('id="rbFixNamesBtn"') > 0 && admin.indexOf('id="rbFixNumbersBtn"') > 0 &&
+      admin.indexOf('id="rbImportBtn"') > 0,
+      'tidying a page is not a reason to lose a tool that works');
+    check('S61', 'and the page says which one to reach for',
+      /<strong>Day to day:<\/strong>/.test(admin),
+      'the tools were all here and all explained; what was missing was which one to use');
+  }
   /* ⚠ Scoped to the button's own handler and to the GUARD, not to the message.
      Testing that the sentence exists somewhere in the file passed with the
      check around it deleted — the sentence was still there, just unreachable. */

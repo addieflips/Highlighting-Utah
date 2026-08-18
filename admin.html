@@ -1415,6 +1415,10 @@
         </button>
         <div id="bulkUpdatesPanel" style="display:none; margin-top:16px;">
           <p style="font-size:13px;">Creates or updates customer records here first, so Routes, Invoices, Quotes, and the Customers list all stay in sync automatically from this one import.</p>
+          <!-- ⭐ WHAT TO DO, IN ONE LINE. Owner, 2026-08-18: "I'm getting
+               confused." The tools were all here and all explained; what was
+               missing was which one to reach for. -->
+          <p style="font-size:13px; background:var(--snow); border-left:3px solid var(--gold-dim); padding:8px 12px; margin:0 0 4px;"><strong>Day to day:</strong> connect your master sheet once, then press <strong>Compare</strong> and tick what is right. Everything else on this page is for one-off jobs &mdash; pasting a single column, or importing with invoices &mdash; and is folded away below.</p>
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
             <!-- ⭐ THE WHOLE SHEET, IN ONE GO.
                  Owner, 2026-08-17: "I want to make it so I just paste the master
@@ -1430,13 +1434,34 @@
               <h4 style="margin:0 0 6px;">Paste the whole master sheet</h4>
               <p style="font-size:13px; margin:0 0 10px;">Select the sheet in Excel &mdash; <strong>heading row and all</strong> &mdash; copy, and paste it in here. It reads the headings, works out which column is which, and fills in the boxes below for you. Nothing is saved until you press Check First and then Import, same as always.</p>
               <textarea id="rbSheetArea" rows="6" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--paper); color:var(--ink); font-family:monospace; font-size:12px;" placeholder="CU #&#9;Name&#9;Address&#9;City&#9;Zip&#9;Phone&#9;Email&#9;Notes&#9;Wire&#9;Lights&#9;Timer&#9;$$&#9;Pref Date&#9;# Feet&#10;144&#9;Cattani Julie&#9;6037 W 11860 N&#9;Highland&#9;84003&#9;8019795123&#9;…"></textarea>
-              <button type="button" class="btn btn-gold" id="rbSheetSplitBtn" style="margin-top:8px;">Split it into the boxes below</button>
+              <button type="button" class="btn btn-gold" id="rbSheetSplitBtn" style="margin-top:8px;">Read it into the columns</button>
               <button type="button" class="btn btn-outline btn-sm" id="rbSheetClearBtn" style="margin-top:8px;">Clear every box</button>
               <span id="rbSheetStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
               <div id="rbSheetReport" style="margin-top:12px;"></div>
+              <!-- ⭐ THE EVERYDAY PATH, ON ITS OWN. Owner, 2026-08-18: "update
+                   the entire bulk update section so we dont have more than we
+                   need cause I'm getting confused." Seven buttons in one row,
+                   four of which were for one column at a time, is what the
+                   confusion was. Connect and Compare are what she uses; the
+                   column tools moved into the folded section below. -->
+              <div style="border-top:1px solid var(--line); margin-top:16px; padding-top:14px;">
+                <div style="font-weight:700; font-size:13.5px; margin-bottom:4px;">&#9312; Where the sheet comes from</div>
+                <p style="font-size:12.5px; color:var(--slate); margin:0 0 8px;">Pick your master sheet once on this computer and it is read straight from OneDrive every time &mdash; no pasting. Or paste it into the box above instead, for a one-off.</p>
+                <button type="button" class="btn btn-outline" id="rbConnectSheetBtn">Use my master sheet (pick it once)</button>
+                <span id="rbConnectSheetStatus" style="font-size:12.5px; color:var(--slate); margin-left:8px;"></span>
+                <div style="font-weight:700; font-size:13.5px; margin:16px 0 4px;">&#9313; Compare it with the website</div>
+                <p style="font-size:12.5px; color:var(--slate); margin:0 0 8px;">Changes nothing on its own. Lists who is on the sheet but not on the website, who is on the website but not on the sheet, and every field the two disagree about &mdash; then you tick what is right and sync it. <strong>This is the one to use.</strong></p>
+                <button type="button" class="btn btn-gold" id="rbFindMissingBtn">Compare this sheet with the website</button>
+                <div id="rbMissingReport" style="margin-top:12px;"></div>
+              </div>
             </div>
-            <h4 style="margin:0 0 6px;">Routes Fields</h4>
-            <p style="font-size:13px;">These fill themselves in from the box above. You only need to touch them if you are pasting one column on its own, or to check what landed where before importing. <strong>Row 1 in every box must be the same customer.</strong> We always geocode within Utah, and update an existing customer instead of duplicating them when the phone or street already matches.</p>
+            <!-- ⭐ FOLDED AWAY. Everything below is for pasting ONE column on
+                 its own — the "specific piece" case. It is the same tested code
+                 it always was; it is simply not the first thing you see any
+                 more, because it is not the thing you normally do. -->
+            <details style="margin:0 0 8px;">
+              <summary style="cursor:pointer; font-weight:700; font-size:13.5px; padding:6px 0;">Paste one column at a time, or import with invoices</summary>
+            <p style="font-size:13px; margin-top:10px;">These fill themselves in from the box above. You only need to touch them if you are pasting one column on its own, or tocheck what landed where before importing. <strong>Row 1 in every box must be the same customer.</strong> We always geocode within Utah, and update an existing customer instead of duplicating them when the phone or street already matches.</p>
             <p id="rbIdentifierHint" style="font-size:12.5px; color:var(--dusk); font-weight:600; margin:0 0 8px;"></p>
             <div class="form-grid-2">
               <div class="form-row">
@@ -1549,19 +1574,11 @@
             <button type="button" class="btn btn-gold" id="rbImportBtn" style="margin-top:6px;">Import / Update Customers</button>
             <button type="button" class="btn btn-outline" id="rbFixNamesBtn" style="margin-top:6px;">Fix names only</button>
             <button type="button" class="btn btn-outline" id="rbFixNumbersBtn" style="margin-top:6px;">Fix CU# only</button>
-            <!-- ⚠ NAMED FOR THE SIDE IT COMPARES AGAINST, not the side it reads.
-                 It was "Compare with my Excel sheet", which the owner rightly
-                 read as circular: the sheet is what you just pasted in, so the
-                 thing being compared WITH is the website. -->
-            <button type="button" class="btn btn-outline" id="rbConnectSheetBtn" style="margin-top:6px;">Use my master sheet (pick it once)</button>
-            <span id="rbConnectSheetStatus" style="font-size:12.5px; color:var(--slate); margin-left:8px;"></span>
-            <button type="button" class="btn btn-outline" id="rbFindMissingBtn" style="margin-top:6px;">Compare this sheet with the website</button>
-            <div style="font-size:12.5px; color:var(--slate); margin-top:6px;">Changes nothing on its own. Lists who is on the sheet but not on the website, who is on the website but not on the sheet, and every field the two disagree about &mdash; then you tick what is right and sync it.</div>
             <span id="rbImportStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
             <div id="rbFixNamesReport" style="margin-top:10px;"></div>
             <div id="rbFixNumbersReport" style="margin-top:10px;"></div>
-            <div id="rbMissingReport" style="margin-top:10px;"></div>
             <div id="rbCheckReport" style="margin-top:10px;"></div>
+            </details>
           </div>
           <div style="border-top:1px solid var(--line); margin:20px 0 0; padding-top:16px;">
             <h4 style="margin:0 0 6px;">Invoice Fields</h4>
