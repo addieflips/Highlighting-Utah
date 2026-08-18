@@ -27708,6 +27708,80 @@ const SCHEDULE_SYNC_FIELDS = [
                                    same:function(a,b){ return ('' + (a||'')).replace(/\D/g,'') === ('' + (b||'')).replace(/\D/g,''); }},
   {key:'details', label:'notes',   read:function(d){ return d.notes; }}
 ];
+/* ---------------- NOBODY IS HUNG BEFORE THEY ASKED TO BE ------------------
+   Owner, 2026-08-17: "the first day should not be doing any Nov people, in
+   fact under no circumstance do we do anyone in Nov i october we just wait
+   until Nov instead".
+
+   The BUILDER has always honoured this — houseAllowedFrom gates it. What did
+   not was a plan already saved: the season lives in Firestore, so a day built
+   before somebody changed their mind keeps them on it. And the customer sync
+   makes that worse on purpose, because it now pulls a changed timing across —
+   so a house can be sitting on 1 October holding the word NOVEMBER.
+
+   This moves them, rather than reporting them. It is a LOCAL move: the house
+   goes to the earliest existing day it is allowed on that still has room,
+   preferring one already working its town so the crew is not sent somewhere
+   new. Nothing else on the plan is reshuffled — a full re-flow is what
+   "Rebuild days" is for, and that has an undo.
+
+   ⚠ A house already ticked DONE is history and is never moved. */
+function enforceInstallTiming(){
+  const moved = [], stuck = [];
+  if(typeof SEASON === 'undefined' || !SEASON.length) return {moved: moved, stuck: stuck};
+  const startStr = isoOf(seasonStartDate());
+  const dayStr = function(d){ const dt = dayDate(d); return dt ? isoOf(dt) : null; };
+  const installs = SEASON.filter(function(d){ return !d.isFixRoute && !d.isTakedown && dayStr(d); })
+                         .sort(function(a, b){ return dayStr(a) < dayStr(b) ? -1 : (dayStr(a) > dayStr(b) ? 1 : 0); });
+  const cap = (typeof maxStopsPerWorkingDay === 'function') ? maxStopsPerWorkingDay() : 40;
+  installs.forEach(function(day){
+    const here = dayStr(day);
+    (day.houses || []).slice().forEach(function(h){
+      if(h.isFix || h.isTakedown || h.done) return;
+      const from = houseAllowedFrom(h, startStr);
+      if(!from || here >= from) return;   // allowed to be here
+      const town = extractCleanCity(h.city);
+      const room = installs.filter(function(t){
+        const ts = dayStr(t);
+        return ts && ts >= from && t !== day && (t.houses || []).length < cap;
+      });
+      /* A day already working this town first, so honouring the timing does not
+         quietly break the one-town rule as well. */
+      const sameTown = room.filter(function(t){
+        return (t.houses || []).some(function(x){ return extractCleanCity(x.city) === town; });
+      })[0];
+      const target = sameTown || room[0];
+      if(!target){
+        stuck.push({name: h.name || '(no name)', pref: h.pref || '', notBefore: from});
+        return;
+      }
+      day.houses = day.houses.filter(function(x){ return x !== h; });
+      target.houses.push(h);
+      moved.push({name: h.name || '(no name)', pref: h.pref || '', fromDate: here, toDate: dayStr(target)});
+    });
+  });
+  return {moved: moved, stuck: stuck};
+}
+/* A saved plan built before the one-other-town rule can hold a crew-day full of
+   towns. Counted and reported rather than rearranged: re-flowing the season is
+   what Rebuild days is for, and it has an undo. */
+function crewDaysOverTownLimit(){
+  const over = [];
+  if(typeof SEASON === 'undefined') return over;
+  SEASON.forEach(function(d){
+    if(d.isFixRoute || d.isTakedown) return;
+    const towns = {};
+    (d.houses || []).forEach(function(h){
+      const t = extractCleanCity(h.city);
+      if(t) towns[t] = true;
+    });
+    const n = Object.keys(towns).length;
+    /* Two crews, each allowed its own town plus one other, so four is the most
+       a WORKING DAY can legitimately hold. */
+    if(n > 4) over.push({date: dayDate(d) ? isoOf(dayDate(d)) : '?', towns: Object.keys(towns)});
+  });
+  return over;
+}
 function syncHousesFromCustomers(){
   const changed = [];
   if(typeof jobAddresses === 'undefined' || !jobAddresses.length) return changed;
@@ -28156,13 +28230,22 @@ function exportCSV(){
     if(!loaded) return 0;   // nothing to sync into yet
     let moved=[];
     try{ moved=syncHousesFromCustomers(); }catch(err){ console.error("Schedule sync failed:",err); return 0; }
-    if(!moved.length) return 0;
+    /* ⭐ AND THEN HOLD THE TIMING. Pulling a changed month across is only half
+       the job — the house is still sitting on the old day. Runs even when the
+       sync itself found nothing, because a plan saved earlier can already be
+       breaking the rule. */
+    let timing={moved:[],stuck:[]};
+    try{ timing=enforceInstallTiming(); }catch(err){ console.error("Timing sweep failed:",err); }
+    if(!moved.length && !timing.moved.length && !timing.stuck.length) return 0;
     computeDates(); renderAll(); scheduleSave();
     if(!(opts&&opts.quiet)){
-      const what=moved.length===1
+      const bits=[];
+      if(moved.length) bits.push(moved.length===1
         ? (moved[0].name+"\u2019s "+moved[0].field+" changed")
-        : (moved.length+" changes picked up from the customer list");
-      toast(what);
+        : (moved.length+" changes picked up from the customer list"));
+      if(timing.moved.length) bits.push(timing.moved.length+" moved to a day their timing allows");
+      if(timing.stuck.length) bits.push(timing.stuck.length+" could not be moved \u2014 no later day has room");
+      if(bits.length) toast(bits.join(" \u00b7 "));
     }
     return moved.length;
   };

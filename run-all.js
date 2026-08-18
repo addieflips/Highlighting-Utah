@@ -10105,7 +10105,7 @@ suite('Suite 44. The plan keeps up with the customer list');
     'syncing into a plan that is not there would throw on a timer, for ever');
 
   check('S44', 'a sync that changes nothing says nothing',
-    /if\(!moved\.length\) return 0;/.test(admin),
+    admin.indexOf('if(!moved.length && !timing.moved.length && !timing.stuck.length) return 0;') > 0,
     'a toast every five minutes is how somebody learns to ignore toasts');
 }
 
@@ -10276,6 +10276,179 @@ suite('Suite 45. Deleting duplicate customers');
 
   check('S45', 'it refuses to run against an empty customer list',
     /if\(!jobAddresses\.length\)\{[\s\S]{0,200}?has not finished loading/.test(admin));
+}
+
+
+/* ============================================================
+ * Suite 46. Nobody is hung before the month they asked for.
+ *
+ * Owner, 2026-08-17, looking at a real 1 October day: "the first day should not
+ * be doing any Nov people, in fact under no circumstance do we do anyone in Nov
+ * i october we just wait until Nov instead". Rylee Oliver, marked NOV, was
+ * stop 39 on 1 October.
+ *
+ * The BUILDER never did that — houseAllowedFrom gates it. Two other things did:
+ *   - the season is SAVED, so a day built before somebody changed their mind
+ *     keeps them on it;
+ *   - the customer sync added the same day now pulls a changed month across,
+ *     which leaves a house sitting on 1 October holding the word NOVEMBER.
+ * So the rule has to be enforced on the plan, not only at build time.
+ * ============================================================ */
+suite('Suite 46. Nobody is hung before the month they asked for');
+{
+  const fn = (name) => {
+    const at = admin.indexOf('function ' + name + '(');
+    if (at < 0) return '';
+    let d = 0;
+    for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+    }
+    return '';
+  };
+
+  const src = fn('enforceInstallTiming');
+  check('S46', 'enforceInstallTiming exists', !!src);
+
+  if (src) {
+    const build = (SEASON) => {
+      const sb = {};
+      new Function('SEASON', 'isoOf', 'seasonStartDate', 'dayDate', 'houseAllowedFrom',
+        'extractCleanCity', 'maxStopsPerWorkingDay',
+        src + 'this.run = enforceInstallTiming;'
+      ).call(sb, SEASON,
+        (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'),
+        () => new Date(2026, 9, 1),
+        (d) => d._date,
+        (h, startStr) => {
+          const p = ('' + ((h && h.pref) || '')).trim().toUpperCase();
+          if (p.indexOf('NOV') === 0) return '2026-11-01';
+          return startStr;
+        },
+        (c) => ('' + (c || '')).split(',')[0].trim(),
+        () => 40);
+      return sb.run;
+    };
+
+    /* ⭐ THE REPORTED CASE. */
+    {
+      const nov = { name: 'Rylee Oliver', pref: 'NOV', city: 'Draper' };
+      const oct = { name: 'Judy Black', pref: 'OCT', city: 'Lehi' };
+      const SEASON = [
+        { _date: new Date(2026, 9, 1), houses: [oct, nov] },
+        { _date: new Date(2026, 10, 2), houses: [{ name: 'Someone', pref: 'NOV', city: 'Draper' }] }
+      ];
+      const out = build(SEASON)();
+      check('S46', 'a November house is taken off an October day',
+        SEASON[0].houses.indexOf(nov) === -1,
+        'this is the exact stop the owner found on 1 October');
+      check('S46', 'and lands on a day it is allowed on',
+        SEASON[1].houses.indexOf(nov) !== -1);
+      check('S46', 'the October house beside it is untouched',
+        SEASON[0].houses.length === 1 && SEASON[0].houses[0] === oct);
+      check('S46', 'and the move is reported',
+        out.moved.length === 1 && out.moved[0].name === 'Rylee Oliver' &&
+        out.moved[0].fromDate === '2026-10-01' && out.moved[0].toDate === '2026-11-02',
+        JSON.stringify(out.moved));
+    }
+
+    /* It prefers a November day already working that town. */
+    {
+      const nov = { name: 'X', pref: 'November', city: 'Draper' };
+      const SEASON = [
+        { _date: new Date(2026, 9, 1), houses: [nov] },
+        { _date: new Date(2026, 10, 2), houses: [{ name: 'a', pref: 'NOV', city: 'Sandy' }] },
+        { _date: new Date(2026, 10, 3), houses: [{ name: 'b', pref: 'NOV', city: 'Draper' }] }
+      ];
+      build(SEASON)();
+      check('S46', 'it prefers a later day already working that town',
+        SEASON[2].houses.indexOf(nov) !== -1 && SEASON[1].houses.indexOf(nov) === -1,
+        'sending the crew somewhere new to honour a date would break the town rule instead');
+    }
+
+    /* Nothing to move it to: say so rather than dropping it. */
+    {
+      const nov = { name: 'Stuck', pref: 'NOV', city: 'Draper' };
+      const SEASON = [{ _date: new Date(2026, 9, 1), houses: [nov] }];
+      const out = build(SEASON)();
+      check('S46', 'with nowhere to go it stays put and is reported',
+        SEASON[0].houses.indexOf(nov) !== -1 && out.stuck.length === 1 &&
+        out.stuck[0].notBefore === '2026-11-01',
+        'dropping them off the plan silently is worse than leaving them visible');
+    }
+
+    /* ⚠ A house already done is history. */
+    {
+      const done = { name: 'Done', pref: 'NOV', city: 'Draper', done: true };
+      const SEASON = [
+        { _date: new Date(2026, 9, 1), houses: [done] },
+        { _date: new Date(2026, 10, 2), houses: [] }
+      ];
+      const out = build(SEASON)();
+      check('S46', 'a house already ticked done is never moved',
+        SEASON[0].houses.indexOf(done) !== -1 && out.moved.length === 0,
+        'that day is the record of what actually happened');
+    }
+
+    /* October and no-preference houses are left exactly where they are. */
+    {
+      const a = { name: 'A', pref: 'OCT', city: 'Lehi' };
+      const b = { name: 'B', pref: '', city: 'Lehi' };
+      const SEASON = [
+        { _date: new Date(2026, 9, 1), houses: [a, b] },
+        { _date: new Date(2026, 10, 2), houses: [] }
+      ];
+      const out = build(SEASON)();
+      check('S46', 'October and no-preference houses are not touched',
+        SEASON[0].houses.length === 2 && out.moved.length === 0);
+    }
+
+    /* A full day is not overfilled to honour a date. */
+    {
+      const nov = { name: 'N', pref: 'NOV', city: 'Draper' };
+      const full = [];
+      for (let i = 0; i < 40; i++) full.push({ name: 'f' + i, pref: 'NOV', city: 'Draper' });
+      const SEASON = [
+        { _date: new Date(2026, 9, 1), houses: [nov] },
+        { _date: new Date(2026, 10, 2), houses: full }
+      ];
+      const out = build(SEASON)();
+      check('S46', 'a day already at 40 is not pushed over the cap',
+        SEASON[1].houses.length === 40 && out.stuck.length === 1,
+        '40 a day is the cap and honouring a date must not break it');
+    }
+  }
+
+  /* ---- the saved-plan warning ---- */
+  {
+    const src2 = fn('crewDaysOverTownLimit');
+    check('S46', 'crewDaysOverTownLimit exists', !!src2);
+    if (src2) {
+      const sb = {};
+      new Function('SEASON', 'dayDate', 'isoOf', 'extractCleanCity',
+        src2 + 'this.run = crewDaysOverTownLimit;'
+      ).call(sb, [
+        { _date: new Date(2026, 9, 1), houses: [
+          { city: 'Lehi' }, { city: 'Draper' }, { city: 'American Fork' },
+          { city: 'Highland' }, { city: 'Herriman' }, { city: 'Alpine' } ] },
+        { _date: new Date(2026, 9, 2), houses: [{ city: 'Lehi' }, { city: 'Draper' }] }
+      ], (d) => d._date,
+        (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'),
+        (c) => ('' + (c || '')).split(',')[0].trim());
+      const over = sb.run();
+      check('S46', 'a saved day carrying too many towns is spotted',
+        over.length === 1 && over[0].date === '2026-10-01',
+        JSON.stringify(over));
+      check('S46', 'a legitimate two-crew two-town day is not flagged',
+        !over.some(o => o.date === '2026-10-02'),
+        'two crews, each its own town plus at most one other, is four towns at most');
+    }
+  }
+
+  check('S46', 'the sweep runs on every sync, not only when a field changed',
+    admin.indexOf('timing=enforceInstallTiming();') > 0 &&
+    admin.indexOf('if(!moved.length && !timing.moved.length && !timing.stuck.length) return 0;') > 0,
+    'a plan saved before the rule existed is already breaking it, with nothing having changed today');
 }
 
 // A check that scores after this summary is a check that cannot fail the build.
