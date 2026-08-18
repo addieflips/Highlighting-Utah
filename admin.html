@@ -15301,6 +15301,10 @@ function rbCollectMissingCustomers(){
   ];
   const len = Math.max(streets.length, phones.length, namesRaw.length, nums.length);
   const rows = [], skipped = [], diffs = [];
+  /* How many rows the paste actually yielded. Without this the report cannot
+     tell "your sheet and the book agree" from "I could not read your sheet",
+     and those look identical from the outside — see the guard in the handler. */
+  let read = 0;
   const seen = {};
   /* Every customer the sheet accounted for. Whatever is left over is on the
      website and NOT on the sheet — the other half of the owner's question. */
@@ -15312,6 +15316,7 @@ function rbCollectMissingCustomers(){
     const cu = String(nums[i] || '').trim();
     /* Nothing to identify a person by is nothing to add. */
     if(!who && !street && !phone) continue;
+    read++;
     const hit = bulkFindCustomer(street, String(phones[i] || ''), String(cities[i] || ''), String(zips[i] || ''), cu);
     if(hit){
       matched[hit.id] = true;
@@ -15384,7 +15389,8 @@ function rbCollectMissingCustomers(){
     if(a.stray !== b.stray) return a.stray ? -1 : 1;
     return String(a.name).toLowerCase() < String(b.name).toLowerCase() ? -1 : 1;
   });
-  return {rows: rows, skipped: skipped, onlyOnSite: onlyOnSite, diffs: diffs};
+  return {rows: rows, skipped: skipped, onlyOnSite: onlyOnSite, diffs: diffs,
+          read: read, matchedCount: Object.keys(matched).length, bookSize: jobAddresses.length};
 }
 let rbPendingAdds = null;
 let rbPendingDiffs = null;
@@ -16029,6 +16035,38 @@ document.getElementById('rbFindMissingBtn')?.addEventListener('click', function(
     try{ rbSplitSheetIntoBoxes(sheetBox.value); }catch(err){}
   }
   const found = rbCollectMissingCustomers();
+  /* ⭐ A COMPARISON THAT DID NOT READ THE SHEET IS NOT A RESULT.
+     Owner, 2026-08-18, shown ~900 names under "on the website but not on your
+     sheet": "It should only show differences not just everything."
+
+     That list was the whole book, and it was right to be alarmed: with no rows
+     read, NOTHING can match, so every customer looks missing from the sheet.
+     The tool cannot tell that from a genuine answer, so it stated a broken
+     comparison as a finding — which is worse than refusing, because it reads
+     like nine hundred problems.
+
+     Two ways out, and both say what to do rather than what happened:
+       - no rows at all: the paste is empty or the columns did not line up;
+       - hardly any matched: the paste was read but the columns are shifted or
+         the wrong ones, and the honest answer is "this does not look right"
+         rather than a list nobody should act on. */
+  if(!found.read){
+    report.innerHTML = '<div style="border:2px solid var(--ember); border-radius:10px; padding:14px; background:var(--paper); font-size:13px;">' +
+      '<strong>Nothing to compare.</strong> No rows were read from the sheet. Paste the whole sheet into the big box above ' +
+      '(with its heading row), or fill in at least the Name, Address and Phone columns, then press this again.</div>';
+    return;
+  }
+  if(found.bookSize && found.matchedCount < Math.min(found.read, found.bookSize) * 0.5){
+    report.innerHTML = '<div style="border:2px solid var(--ember); border-radius:10px; padding:14px; background:var(--paper); font-size:13px;">' +
+      '<strong>This does not look right, so nothing is listed.</strong><br>' +
+      'I read <strong>' + found.read + '</strong> row(s) from the sheet and only <strong>' + found.matchedCount +
+      '</strong> of them matched a customer here, out of ' + found.bookSize + ' on the website. ' +
+      'If that were true almost your whole book would be wrong, which it is not — far more likely the columns are ' +
+      'shifted by a row, or a column is in the wrong box.<br><br>' +
+      'Press <strong>Check First</strong> to see how the rows are being read, make sure the heading row is the top line ' +
+      'of the paste, then come back.</div>';
+    return;
+  }
   rbPendingAdds = found.rows;
   /* The second list is always shown — it is half the question, and "nobody is
      missing from the website" is not an answer to "who is on the website and
@@ -16062,6 +16100,11 @@ document.getElementById('rbFindMissingBtn')?.addEventListener('click', function(
     : '<div style="border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--paper); font-size:13px; margin-top:12px;">' +
       'Every customer on both sides already matches, field for field.</div>';
   const strays = found.onlyOnSite.filter(function(x){ return x.stray; }).length;
+  /* Said first, every time. If the paste was misread these two numbers show it
+     at a glance, before anybody reads a list and starts acting on it. */
+  const tally = '<div style="font-size:12.5px; color:var(--slate); margin-bottom:8px;">' +
+    'Read <strong>' + found.read + '</strong> row(s) from the sheet · <strong>' + found.matchedCount +
+    '</strong> matched a customer on the website · <strong>' + found.bookSize + '</strong> customers here in total.</div>';
   const siteOnly = found.onlyOnSite.length
     ? '<div style="border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--paper); margin-top:12px;">' +
         '<div style="font-weight:700; margin-bottom:4px;">' + found.onlyOnSite.length +
@@ -16084,7 +16127,7 @@ document.getElementById('rbFindMissingBtn')?.addEventListener('click', function(
     report.innerHTML = '<div style="border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--paper); font-size:13px;">' +
       'Everybody on the sheet is already on the website.' +
       (found.skipped.length ? ' ' + found.skipped.length + ' row(s) repeat a house higher up the paste and were counted once.' : '') +
-      '</div>' + diffHtml + siteOnly;
+      '</div>' + tally + diffHtml + siteOnly;
     rbWireDiffButtons(report, statusEl);
     return;
   }
@@ -16118,7 +16161,7 @@ document.getElementById('rbFindMissingBtn')?.addEventListener('click', function(
         '<button type="button" class="btn btn-gold" id="rbAddGoBtn">Add the ticked customers</button>' +
       '</div>' +
       '<div style="font-size:12px; color:var(--slate); margin-top:6px;">Adds the customer record only — no invoice is created. Run Bulk Update afterwards if they need billing.</div>' +
-    '</div>' + diffHtml + siteOnly;
+    '</div>' + tally + diffHtml + siteOnly;
   rbWireDiffButtons(report, statusEl);
   const picks = function(){ return Array.prototype.slice.call(document.querySelectorAll('.rb-add-pick')); };
   document.getElementById('rbAddAllBtn')?.addEventListener('click', function(){ picks().forEach(function(p){ p.checked = true; }); });

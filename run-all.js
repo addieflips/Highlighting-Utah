@@ -185,6 +185,7 @@ function findQueries(src) {
       else if (src[i] === ')') depth--;
       i++;
     }
+
     const body = src.slice(m.index, i);
     if (body.includes('where') && body.includes('orderBy')) out.push(body);
   }
@@ -12872,6 +12873,52 @@ suite('Suite 58. The sheet against the book, both ways round');
       return ctx.f();
     };
     const c = (id, o) => ({ id: id, data: o });
+    /* ---- ⭐ A COMPARISON THAT DID NOT READ THE SHEET IS NOT A RESULT ---- */
+    {
+      const book = [c('a', { name: 'Aaron Gardner', street: '11694 S Thornberry Dr', city: 'Draper' }),
+                    c('b', { name: 'Abby McLennan', street: '11763 S Beau Leadow Ln', city: 'Draper' })];
+      const r = run([], book);
+      check('S58', 'an empty paste reads no rows',
+        r.read === 0,
+        'got ' + r.read);
+      /* ⚠ THE ONE THE OWNER SAW. With nothing read, NOTHING can match, so
+         every customer looks missing from the sheet and the report listed the
+         entire book — nine hundred names presented as nine hundred problems. */
+      check('S58', 'and the handler refuses instead of listing the whole book',
+        /if\(!found\.read\)\{/.test(admin) && /Nothing to compare/.test(admin),
+        'the counts are the tell: no rows read means the paste was not understood, not that the book is wrong');
+    }
+    {
+      /* Read fine, but only a sliver matched — columns shifted by a row, or a
+         column in the wrong box. Same symptom, same wrong conclusion. */
+      const book = [];
+      for (let i = 0; i < 20; i++) book.push(c('c' + i, { name: 'Person ' + i, street: i + ' Real St', city: 'Lehi' }));
+      const r = run([{ name: 'Nobody One', street: '999 Wrong Way', city: 'Lehi' },
+                     { name: 'Nobody Two', street: '998 Wrong Way', city: 'Lehi' }], book);
+      check('S58', 'rows that match nothing are counted honestly',
+        r.read === 2 && r.matchedCount === 0 && r.bookSize === 20,
+        JSON.stringify({read: r.read, matched: r.matchedCount, book: r.bookSize}));
+      check('S58', 'and the handler refuses when hardly anything matched',
+        /found\.matchedCount < Math\.min\(found\.read, found\.bookSize\) \* 0\.5/.test(admin) &&
+        /This does not look right, so nothing is listed/.test(admin),
+        'a list nobody should act on is worse than saying the comparison failed');
+    }
+    {
+      /* ⚠ And a GENUINE comparison still gets through the guard. */
+      const book = [];
+      for (let i = 0; i < 10; i++) book.push(c('c' + i, { name: 'Person ' + i, street: i + ' Real St', city: 'Lehi' }));
+      const rows = [];
+      for (let i = 0; i < 10; i++) rows.push({ name: 'Person ' + i, street: i + ' Real St', city: 'Lehi' });
+      rows.push({ name: 'Kathy Brown', street: '77 Holly Ln', city: 'Lehi' });
+      const r = run(rows, book);
+      check('S58', 'a sheet that really does match is not blocked by the guard',
+        r.read === 11 && r.matchedCount === 10 &&
+        r.matchedCount >= Math.min(r.read, r.bookSize) * 0.5,
+        JSON.stringify({read: r.read, matched: r.matchedCount, book: r.bookSize}));
+      check('S58', 'and it finds the one genuinely missing customer',
+        r.rows.length === 1 && r.rows[0].name === 'Kathy Brown',
+        JSON.stringify(r.rows.map(function(x){ return x.name; })));
+    }
 
     /* ⭐ KATHY BROWN. On the sheet, not on the website. */
     {
@@ -13030,6 +13077,15 @@ suite('Suite 58. The sheet against the book, both ways round');
     const end = admin.indexOf("document.getElementById('rbCheckBtn')", at);
     const body = at > 0 && end > at ? admin.slice(at, end) : '';
     check('S58', 'the handler was found', !!body);
+    /* ⚠ Said BEFORE any list, every time. These two numbers are what let the
+       office tell "the sheet and the book agree" from "I could not read your
+       sheet" — the two look identical from the outside, and mistaking the
+       second for the first is what produced a nine-hundred-name report. */
+    check('S58', 'the report opens with how many rows were read and how many matched',
+      /Read <strong>' \+ found\.read \+ '<\/strong> row\(s\) from the sheet/.test(body) &&
+      /' \+ found\.matchedCount \+/.test(body) &&
+      body.indexOf('const tally =') < body.indexOf('const siteOnly ='),
+      'a count that comes after the list is read after the damage');
 
     /* ⭐ "I should just be able to paste in my excel sheet." */
     check('S58', 'it splits the pasted sheet itself rather than sending you to another button',
