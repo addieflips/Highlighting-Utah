@@ -14642,11 +14642,16 @@ const rbCountIds = {
    below them onto the wrong person. */
 function rbParseSheetGrid(text){
   const src = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-  /* Tab if there is one on the first line — that is Excel. Otherwise comma, so
-     a .csv opened in a text editor still works. Never guessed per row: a
-     delimiter that changes halfway through would silently re-cut the grid. */
-  const firstLine = src.split('\n')[0] || '';
-  const delim = firstLine.indexOf('\t') >= 0 ? '\t' : ',';
+  /* Tab means Excel; comma means a .csv opened in a text editor. Decided ONCE
+     for the whole paste — a delimiter that changed halfway through would
+     silently re-cut the grid — but decided by looking at the first several
+     lines rather than only the first.
+     Only the first line was checked before, and that is not always the heading
+     row: a sheet can open with a title, a blank line, or a merged cell, none of
+     which contains a tab. The whole paste was then cut on commas, every row
+     came back as a single cell, and no heading could match anything. */
+  const probe = src.split('\n').slice(0, 12);
+  const delim = probe.some(function(l){ return l.indexOf('\t') >= 0; }) ? '\t' : ',';
   const rows = [];
   let row = [], cell = '', inQuotes = false;
   for(let i = 0; i < src.length; i++){
@@ -14727,6 +14732,44 @@ function rbMatchSheetHeadings(headerRow){
   return {mapped: mapped, ignored: ignored};
 }
 
+/* WHICH ROW IS THE HEADING ROW? Not always the first one.
+   Owner, 2026-08-17, having pasted the master sheet: "I could not recognise any
+   of those headings." The sheet does not necessarily start at its heading row —
+   a title line, a blank line, or a couple of spacer rows above it are all
+   ordinary, and Excel copies whatever is selected, which may begin a row early
+   or a row late.
+   So score the first few rows by how many headings each one yields and take the
+   best. A real heading row recognises several; a row of customer data recognises
+   none, because a phone number is not the word "Phone". Two is the floor —
+   one lucky word out of a data row must not be mistaken for a heading. */
+const RB_HEADER_SEARCH_ROWS = 8;
+function rbFindHeadingRow(grid){
+  let best = null;
+  const limit = Math.min(RB_HEADER_SEARCH_ROWS, grid.length);
+  for(let i = 0; i < limit; i++){
+    const tried = rbMatchSheetHeadings(grid[i]);
+    if(!best || tried.mapped.length > best.match.mapped.length){
+      best = {index: i, match: tried};
+    }
+  }
+  if(!best || best.match.mapped.length < 2) return null;
+  return best;
+}
+
+/* ⚠ A SPLIT THAT FAILS MUST NOT LEAVE THE LAST ONE SITTING THERE.
+   The boxes keep their contents for the whole session, so a refused paste used
+   to leave the PREVIOUS sheet still loaded and still importable — the screen
+   said it had not worked while nine hundred rows from an earlier paste sat
+   below, one Check First away from going in. Emptying them costs a re-paste;
+   the alternative costs the wrong data. */
+function rbClearBulkBoxes(){
+  rbAreaIds.forEach(function(id){
+    const el = document.getElementById(id);
+    if(el) el.value = '';
+  });
+  if(typeof rbRefreshCounts === 'function') rbRefreshCounts();
+}
+
 function rbSplitSheetIntoBoxes(){
   const box = document.getElementById('rbSheetArea');
   const statusEl = document.getElementById('rbSheetStatus');
@@ -14735,21 +14778,32 @@ function rbSplitSheetIntoBoxes(){
   report.innerHTML = '';
   const grid = rbParseSheetGrid(box.value);
   if(grid.length < 2){
+    rbClearBulkBoxes();
     statusEl.textContent = 'Paste the sheet including its heading row — that top row is what tells me which column is which.';
     return;
   }
-  const match = rbMatchSheetHeadings(grid[0]);
-  if(!match.mapped.length){
-    statusEl.textContent = 'I could not recognise any of those headings. The top row needs to be the real heading row (CU #, Name, Address, City, Zip, Phone …).';
+  const found = rbFindHeadingRow(grid);
+  if(!found){
+    /* SAY WHAT WAS ACTUALLY READ. The old message just asserted the top row was
+       wrong and left nothing to act on — it could not tell a sheet pasted
+       without its headings from one whose tabs never arrived, and those need
+       opposite fixes. */
+    rbClearBulkBoxes();
+    const shown = (grid[0] || []).filter(function(c){ return String(c || '').trim(); }).slice(0, 8);
+    statusEl.textContent = grid[0] && grid[0].length < 2
+      ? 'That came through as one column rather than a grid, so there is nothing to split. Copy it straight out of Excel (select the cells, Ctrl+C) rather than from a printout or a PDF.'
+      : 'I could not recognise any of the headings. The heading row has to be in there somewhere near the top — CU #, Name, Address, City, Zip, Phone. What I read at the top was: ' + (shown.length ? shown.join('  |  ') : '(nothing)');
     return;
   }
+  const match = found.match;
   const identityCols = match.mapped.filter(function(m){ return RB_SHEET_IDENTITY.indexOf(m.area) >= 0; });
   if(!identityCols.length){
+    rbClearBulkBoxes();
     statusEl.textContent = 'None of those columns says who each row is. I need at least one of Customer #, Name, Address or Phone.';
     return;
   }
 
-  const body = grid.slice(1);
+  const body = grid.slice(found.index + 1);
   const isReal = function(r){ return identityCols.some(function(m){ return !!(r[m.index] || '').trim(); }); };
   const rows = body.filter(isReal);
   const dropped = body.length - rows.length;
@@ -14804,6 +14858,11 @@ function rbSplitSheetIntoBoxes(){
     + (dropped
         ? '<p style="margin:10px 0 0; font-size:13px; color:var(--slate);">' + dropped
           + ' empty row' + (dropped === 1 ? '' : 's') + ' at the end of the sheet ignored.</p>'
+        : '')
+    + (found.index
+        ? '<p style="margin:10px 0 0; font-size:13px; color:var(--slate);">Your headings were on row '
+          + (found.index + 1) + ', so the ' + found.index + ' row' + (found.index === 1 ? '' : 's') 
+          + ' above ' + (found.index === 1 ? 'it was' : 'them were') + ' skipped.</p>'
         : '')
     + namePreview
     + '<p style="margin:10px 0 0; font-size:13px;">Now press <strong>Check First</strong> below. Nothing has been saved yet.</p>'

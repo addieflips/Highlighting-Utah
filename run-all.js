@@ -8587,6 +8587,8 @@ suite('Suite 36. Pasting the whole sheet');
     note('jsdom not installed — skipping the whole-sheet split run');
   } else if (colsMatch && identityMatch && parseSrc && keysSrc && matchSrc) {
     const splitSrc = grab('rbSplitSheetIntoBoxes');
+    const scanSrc = grab('rbFindHeadingRow');
+    const clearSrc = grab('rbClearBulkBoxes');
     const escSrc = grab('esc');
     const flipSrc = grab('flipLastFirstName');
     check('S36', 'rbSplitSheetIntoBoxes exists', !!splitSrc);
@@ -8604,7 +8606,8 @@ suite('Suite 36. Pasting the whole sheet');
         'const RB_SHEET_COLUMNS = ' + colsMatch[1].replace(/;$/, '') + ';' +
         'const RB_SHEET_IDENTITY = ' + identityMatch[1] + ';' +
         'const rbAreaIds = ' + JSON.stringify(AREAS) + ';' +
-        matchSrc + escSrc + flipSrc +
+        'const RB_HEADER_SEARCH_ROWS = ' + (admin.match(/const RB_HEADER_SEARCH_ROWS = (\d+);/) || [])[1] + ';' +
+        matchSrc + scanSrc + clearSrc + escSrc + flipSrc +
         'function rbName(r){ const f = document.getElementById("rbFlipNames"); return (f && f.checked) ? flipLastFirstName(r) : r; }' +
         'function rbRefreshCounts(){}' +
         splitSrc + 'this.split = rbSplitSheetIntoBoxes;'
@@ -8668,6 +8671,56 @@ suite('Suite 36. Pasting the whole sheet');
       check('S36', 'the split never reports more customers than it wrote',
         /^1 customer split into 4 boxes\.$/.test(doc.getElementById('rbSheetStatus').textContent),
         'status said: ' + doc.getElementById('rbSheetStatus').textContent);
+
+      /* ---- the shapes a real Excel copy actually arrives in ----
+         Added 2026-08-17 after the owner pasted the master sheet and got
+         "I could not recognise any of those headings". A sheet does not
+         reliably begin on its heading row — a title, a blank line or a couple
+         of spacer rows above it are all ordinary — and only row 1 was ever
+         looked at. */
+      const HDR = 'CU #\tName\tAddress\tCity\tZip\tPhone\tEmail';
+      const ROW = '144\tCattani Julie\t6037 W 11860 N\tHighland\t84003\t8019795123\tj@x.com';
+      const runSheet = (text) => {
+        doc.getElementById('rbSheetArea').value = text;
+        sb2.split();
+        return {
+          status: doc.getElementById('rbSheetStatus').textContent,
+          report: doc.getElementById('rbSheetReport').textContent,
+          rows: (doc.getElementById('rbCustNumbersArea').value || '').split('\n').filter(Boolean).length,
+        };
+      };
+
+      [['a blank line above the headings', '\n' + HDR + '\n' + ROW],
+       ['a title row above the headings', '2026 Master List\n' + HDR + '\n' + ROW],
+       ['a title and a blank line above', '2026 Master List\n\n' + HDR + '\n' + ROW],
+      ].forEach(([label, text]) => {
+        const r = runSheet(text);
+        check('S36', label + ' still finds them', r.rows === 1, 'status was: ' + r.status);
+      });
+
+      check('S36', 'and the report says which row the headings were on',
+        /headings were on row 2/.test(runSheet('2026 Master List\n' + HDR + '\n' + ROW).report),
+        'skipping rows in silence is how somebody loses a customer without noticing');
+
+      /* A sheet with no headings must NOT be guessed at. One lucky word in a
+         row of data is not a heading row. */
+      const noHead = runSheet(ROW + '\n' + ROW);
+      check('S36', 'data with no heading row is refused, not guessed', noHead.rows === 0);
+      check('S36', 'and the refusal quotes what it actually read',
+        noHead.status.indexOf('144') >= 0 && noHead.status.indexOf('Cattani Julie') >= 0,
+        'the old message only asserted the top row was wrong and gave nothing to act on; status was: ' + noHead.status);
+
+      /* Tabs lost on the way in — copied off a printout or a PDF. */
+      const flat = runSheet(HDR.split('\t').join(' ') + '\n' + ROW.split('\t').join(' '));
+      check('S36', 'a paste that arrived as one column says so plainly',
+        flat.rows === 0 && /one column/.test(flat.status), 'status was: ' + flat.status);
+
+      /* The delimiter is chosen across the first several lines, not just the
+         first — a title line has no tab in it, and picking comma off that line
+         turned every row into a single cell. */
+      check('S36', 'a title line does not make it read the sheet as comma-separated',
+        runSheet('2026 Master List\n' + HDR + '\n' + ROW).rows === 1);
+
     }
   }
 
