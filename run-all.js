@@ -10371,9 +10371,14 @@ suite('Suite 45. Deleting duplicate customers');
 
   /* ⚠ The number must NOT go back in the pool — the keeper still holds it. */
   {
-    const at = admin.indexOf("go.addEventListener('click', onceAtATime");
+    /* ⚠ ANCHORED ON THIS TOOL'S OWN BUTTON. "go.addEventListener('click',
+       onceAtATime" is a shape every Danger Zone and Bulk Updates tool shares,
+       and this slice has now been captured twice by a newly added one sitting
+       earlier in the file. Start from the handler the check is about. */
+    const owner = admin.indexOf("document.getElementById('dupFindBtn')");
+    const at = admin.indexOf("go.addEventListener('click', onceAtATime", owner);
     const end = admin.indexOf('dupPending = null;', at);
-    const body = at > 0 && end > at ? admin.slice(at, end) : '';
+    const body = owner > 0 && at > owner && end > at ? admin.slice(at, end) : '';
     check('S45', 'the delete does NOT return the number to the pool', !!body &&
       body.indexOf('availableCustomerNumbers') === -1,
       'the copy being kept still holds that number; pooling it would hand a live number to somebody new');
@@ -12626,7 +12631,14 @@ suite('Suite 56. Why May Sara went back to 479');
     /* ⚠ It writes ONE field. That is what makes a targeted fixer safe to run. */
     {
       const a2 = admin.indexOf("document.getElementById('rbFixNumbersBtn')");
-      const b2 = admin.indexOf("document.getElementById('rbCheckBtn')", a2);
+      /* ⚠ Ends at the NEXT handler, whatever it happens to be. Anchoring on
+         rbCheckBtn broke the moment another button was added between the two:
+         the slice swallowed it and this check failed on code it was never
+         about. */
+      const after = ['rbFindMissingBtn', 'rbCheckBtn']
+        .map(function(id){ return admin.indexOf("document.getElementById('" + id + "')", a2); })
+        .filter(function(x){ return x > a2; });
+      const b2 = after.length ? Math.min.apply(null, after) : -1;
       const body = a2 > 0 && b2 > a2 ? admin.slice(a2, b2) : '';
       check('S56', 'the handler was found', !!body);
       check('S56', 'it writes the customer number and nothing else',
@@ -12779,6 +12791,284 @@ suite('Suite 57. A record with no street could never be found again');
       /their address does not match this row/.test(admin) &&
       /x\.hint/.test(body),
       'that single line is what turned "May Sara is still 479" from a mystery into a fix');
+  }
+}
+
+
+/* ============================================================
+ * Suite 58. The sheet against the book, both ways round.
+ *
+ * Owner, 2026-08-18: "kathy brown exists on the excel but not on the website
+ * make it so I can check for people who dont exist on the website and I can
+ * choose to add them", then: "I want it to tell me everyone not on the list
+ * that exists and everyone on the list that doesnt exist, and I should just be
+ * able to paste in my excel sheet."
+ *
+ * ⚠ THE TWO ANSWERS MEAN DIFFERENT THINGS, which is why neither is a plain
+ * list. A sheet row matching nobody is usually a new customer — but it is also
+ * exactly what a stray copy looks like from the other side, so a row whose name
+ * is already in the book comes UNTICKED. And a customer no row reaches is
+ * usually not somebody who left: it is a record whose street was wiped, which
+ * is the very reason no row can reach it.
+ * ============================================================ */
+suite('Suite 58. The sheet against the book, both ways round');
+{
+  const fn = (name) => {
+    const at = admin.indexOf('function ' + name + '(');
+    if (at < 0) return '';
+    let d = 0;
+    for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+    }
+    return '';
+  };
+  const src = fn('rbCollectMissingCustomers');
+  check('S58', 'the button exists', admin.indexOf('id="rbFindMissingBtn"') > 0);
+  check('S58', 'rbCollectMissingCustomers exists', !!src);
+
+  if (src) {
+    const run = (rows, book) => {
+      const cols = {
+        rbStreetsArea: rows.map(r => r.street || ''),
+        rbCustNumbersArea: rows.map(r => r.cu || ''),
+        rbNamesArea: rows.map(r => r.name || ''),
+        rbPhonesArea: rows.map(r => r.phone || ''),
+        rbEmailsArea: rows.map(r => r.email || ''),
+        rbCitiesArea: rows.map(r => r.city || ''),
+        rbStatesArea: rows.map(r => ''),
+        rbZipsArea: rows.map(r => r.zip || ''),
+        rbInstallPrefArea: rows.map(r => r.pref || ''),
+        rbFeetArea: rows.map(r => r.feet || ''),
+        rbNotesArea: rows.map(r => r.notes || ''),
+        rbWireArea: rows.map(r => r.wire || ''),
+        rbTimerArea: rows.map(r => r.timer || ''),
+        rbEavesArea: rows.map(r => r.eaves || '')
+      };
+      const ctx = {};
+      new Function('jobAddresses', 'rbHeaderOffset', 'rbCol', 'rbName', 'bulkFindCustomer',
+        'normalizeStreetForMatch',
+        /* The real town cleaner, not a stub: "Lehi, UT" and "Lehi" are one town,
+           and a stub would keep this green through a change to what counts as one. */
+        fn('extractCleanCity') +
+        fn('dupNormName') + fn('rbNormalizeInstallPref') + fn('rbNormalizeFeet') +
+        fn('rbNormalizeWire') + fn('rbNormalizeYesNo') + 'const RB_INSTALL_PREF_OPTIONS = [];' +
+        src + 'this.f = rbCollectMissingCustomers;'
+      ).call(ctx, book,
+        () => 0,
+        (id) => cols[id] || [],
+        (n) => n,
+        /* Stands in for the real matcher: street must agree, as it does there. */
+        (street, phone) => book.filter(b =>
+          street && String(b.data.street || '') === String(street))[0],
+        (v) => String(v == null ? '' : v).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim());
+      return ctx.f();
+    };
+    const c = (id, o) => ({ id: id, data: o });
+
+    /* ⭐ KATHY BROWN. On the sheet, not on the website. */
+    {
+      const book = [c('a', { name: 'Someone Else', street: '1 A St', city: 'Lehi' })];
+      const r = run([
+        { name: 'Brown Kathy', street: '77 Holly Ln', city: 'Lehi', cu: '812', phone: '8015550777' },
+        { name: 'Else Someone', street: '1 A St', city: 'Lehi' }
+      ], book);
+      check('S58', 'a customer on the sheet but not on the website is found',
+        r.rows.length === 1 && r.rows[0].name === 'Brown Kathy',
+        JSON.stringify(r.rows.map(x => x.name)));
+      check('S58', 'and she comes TICKED, because nobody of that name is here',
+        r.rows.length === 1 && r.rows[0].suspect === false && r.rows[0].namesake === '');
+      check('S58', 'her details are carried across for the add',
+        r.rows.length === 1 && r.rows[0].cu === '812' && r.rows[0].street === '77 Holly Ln' &&
+        r.rows[0].phone === '8015550777',
+        'the record added has to be the same shape the import would have added');
+    }
+
+    /* ⚠ THE TRAP. A row matching nobody is ALSO what a stray copy looks like,
+       so a name already in the book means "probably the same person on a
+       record the matcher cannot reach" — adding it makes a duplicate. */
+    {
+      const book = [c('stray', { name: 'May Sara', street: '', address: ', UT', customerNumber: '479' })];
+      const r = run([{ name: 'May Sara', street: '14224 S Summit Crest Ln', city: 'Herriman', cu: '541' }], book);
+      check('S58', 'a row whose name is already in the book comes UNTICKED',
+        r.rows.length === 1 && r.rows[0].suspect === true,
+        'ticking it by default is how the office would add a second May Sara while trying to fix the first');
+      check('S58', 'and it says who is already here and on what number',
+        r.rows.length === 1 && /May Sara/.test(r.rows[0].namesake) && /#479/.test(r.rows[0].namesake),
+        'got "' + (r.rows[0] && r.rows[0].namesake) + '"');
+    }
+    {
+      const book = [c('x', { name: 'May Sara', street: '1 A St' }), c('y', { name: 'May Sara', street: '9 B Rd' })];
+      const r = run([{ name: 'May Sara', street: '77 New Pl', city: 'Lehi' }], book);
+      check('S58', 'two of that name are counted, not picked between',
+        r.rows.length === 1 && /2 customers already have this name/.test(r.rows[0].namesake));
+    }
+
+    /* ⭐ THE OTHER DIRECTION. */
+    {
+      const book = [c('gone', { name: 'Left Last Year', street: '5 Old Rd', city: 'Lehi' }),
+                    c('stray', { name: 'May Sara', street: '', address: ', UT', customerNumber: '479' }),
+                    c('here', { name: 'Still Here', street: '1 A St', city: 'Lehi' })];
+      const r = run([{ name: 'Here Still', street: '1 A St', city: 'Lehi' }], book);
+      check('S58', 'customers no row on the sheet reaches are listed',
+        r.onlyOnSite.length === 2 &&
+        r.onlyOnSite.map(x => x.id).sort().join(',') === 'gone,stray',
+        JSON.stringify(r.onlyOnSite.map(x => x.id)));
+      check('S58', 'and a matched customer is NOT listed as missing from the sheet',
+        !r.onlyOnSite.some(x => x.id === 'here'));
+
+      /* ⚠ The one with no street is the one that matters, so it sorts first
+         and is marked. It is not somebody who left — it is the record the
+         matcher cannot reach, which is WHY no row reached it. */
+      check('S58', 'the record with no street is flagged as a stray and listed first',
+        r.onlyOnSite.length === 2 && r.onlyOnSite[0].id === 'stray' &&
+        r.onlyOnSite[0].stray === true && r.onlyOnSite[1].stray === false,
+        'listing it flat among people who left is how it stays invisible');
+      check('S58', 'and it says what is wrong with it',
+        r.onlyOnSite.length > 0 && /no address at all|no street/.test(r.onlyOnSite[0].where),
+        /* ⚠ Evaluated eagerly, so it must survive an empty list — a check whose
+           MESSAGE throws takes the whole suite down instead of failing. */
+        JSON.stringify(r.onlyOnSite.map(function(x){ return x.where; })));
+    }
+
+    /* ⚠ The same house twice in one paste must not be offered twice. */
+    {
+      const book = [];
+      const r = run([
+        { name: 'Brown Kathy', street: '77 Holly Ln', city: 'Lehi', phone: '8015550777' },
+        { name: 'Brown Kathy', street: '77 Holly Ln', city: 'Lehi', phone: '8015550777' }
+      ], book);
+      check('S58', 'a house repeated in the paste is offered once, not twice',
+        r.rows.length === 1 && r.skipped.length === 1,
+        'ticking both would add the customer twice in one press');
+    }
+    {
+      const r = run([{ name: '', street: '', phone: '' }], []);
+      check('S58', 'an empty row is not offered as a customer',
+        r.rows.length === 0, 'nothing to identify a person by is nothing to add');
+    }
+    /* ---- ⭐ EVERY FIELD THAT DISAGREES ---- */
+    {
+      const book = [c('a', { name: 'Kathy Brown', street: '77 Holly Ln', city: 'Lehi',
+                             customerNumber: '812', phone: '8015550777', email: 'k@b.com',
+                             installPreference: 'October', measuredFeet: 200,
+                             notes: 'gate code 1234', wireColor: 'White', zip: '84043' })];
+      const r = run([{
+        name: 'Brown Kathy', street: '77 Holly Ln', city: 'Lehi', cu: '900',
+        phone: '8015550777', email: 'kathy@brown.com'
+      }], book);
+      const by = {};
+      r.diffs.forEach(function(d){ by[d.key] = d; });
+      check('S58', 'a customer number that disagrees is reported as a difference',
+        !!by.customerNumber && by.customerNumber.from === '812' && by.customerNumber.to === '900',
+        JSON.stringify(r.diffs.map(function(d){ return d.key; })));
+      check('S58', 'and so is an email',
+        !!by.email && by.email.to === 'kathy@brown.com');
+      /* ⚠ THE FLIP. The sheet writes Last First and the site First Last, so
+         comparing the raw strings would report a name difference on every
+         single customer — the report would be unreadable and the sync would
+         rewrite the whole book backwards. */
+      check('S58', 'the name is compared on its WORDS, so Last-First order is not a difference',
+        !by.name,
+        'got ' + JSON.stringify(by.name || null) + ' — the sheet writes Brown Kathy and the site Kathy Brown, ' +
+        'so comparing the strings reports a name difference on EVERY customer and a sync rewrites the book backwards');
+      /* ⚠ Same for the fields that agree. */
+      /* ⚠ A town is stored as the office typed it. "Lehi, UT" and "Lehi" are
+         one town, and comparing the raw text reports a change on every
+         customer whose town carries a state or a stray space. */
+      {
+        const tb = [c('t', { name: 'Kathy Brown', street: '77 Holly Ln', city: 'Lehi, UT' })];
+        const tr = run([{ name: 'Brown Kathy', street: '77 Holly Ln', city: 'Lehi' }], tb);
+        check('S58', 'a town is compared as a town, not as text',
+          !tr.diffs.some(function(d){ return d.key === 'city'; }),
+          JSON.stringify(tr.diffs.map(function(d){ return d.key + ':' + d.from + '->' + d.to; })));
+      }
+      check('S58', 'fields that already agree are not reported',
+        !by.street && !by.city && !by.phone,
+        'reporting them would bury the real differences: ' + JSON.stringify(Object.keys(by)));
+      /* ⚠ A BLANK ON THE SHEET IS NOT A DIFFERENCE. */
+      check('S58', 'a column the sheet leaves blank never appears as a difference',
+        !by.notes && !by.wireColor && !by.zip,
+        'the sheet not saying is not the sheet saying "none" — and syncing it would empty the book');
+    }
+    {
+      const book = [c('a', { name: 'Kathy Brown', street: '77 Holly Ln', installPreference: 'OCT' })];
+      const r = run([{ name: 'Brown Kathy', street: '77 Holly Ln', pref: 'October' }], book);
+      check('S58', 'timing is compared by meaning, so OCT and October are not a difference',
+        !r.diffs.some(function(d){ return d.key === 'installPreference'; }),
+        'otherwise every customer shows a timing difference on every comparison, for ever');
+    }
+    {
+      const book = [c('a', { name: 'Kathy Brown', street: '77 Holly Ln', installPreference: 'October' })];
+      const r = run([{ name: 'Brown Kathy', street: '77 Holly Ln', pref: 'NOV' }], book);
+      const d = r.diffs.filter(function(x){ return x.key === "installPreference"; })[0];
+      check('S58', 'but a real timing change IS a difference, and is written in the app\u2019s own wording',
+        !!d && d.to === 'November',
+        'got ' + JSON.stringify(d || null) + ' — writing the sheet\u2019s "NOV" verbatim would mean nothing to the scheduler');
+    }
+    {
+      const book = [c('a', { name: 'Kathy Brown', street: '77 Holly Ln', measuredFeet: 200 })];
+      const r = run([{ name: 'Brown Kathy', street: '77 Holly Ln', feet: '240' }], book);
+      const d = r.diffs.filter(function(x){ return x.key === "measuredFeet"; })[0];
+      check('S58', 'feet are compared and written as a NUMBER',
+        !!d && d.write === 240 && typeof d.write === 'number',
+        'the string "240" would break every bin and bundle calculation that reads it');
+    }
+
+  }
+
+  /* ---- the handler ---- */
+  {
+    const at = admin.indexOf("document.getElementById('rbFindMissingBtn')");
+    const end = admin.indexOf("document.getElementById('rbCheckBtn')", at);
+    const body = at > 0 && end > at ? admin.slice(at, end) : '';
+    check('S58', 'the handler was found', !!body);
+
+    /* ⭐ "I should just be able to paste in my excel sheet." */
+    check('S58', 'it splits the pasted sheet itself rather than sending you to another button',
+      /rbSplitSheetIntoBoxes\(sheetBox\.value\)/.test(body));
+
+    check('S58', 'nothing is added until the button is pressed',
+      body.indexOf('rbAddGoBtn') > 0 &&
+      body.indexOf("addDoc(collection(db,'jobAddresses'), doc2)") > body.indexOf('rbAddGoBtn'),
+      'a scan that wrote as it went would add every stray copy on the list');
+    /* ⚠ The boxes are read when PRESSED, not when drawn. */
+    check('S58', 'it adds exactly what is still ticked at the moment you press',
+      /picks\(\)\.forEach\(function\(p\)\{ if\(p\.checked\) wanted\[p\.getAttribute\('data-i'\)\] = true; \}\);/.test(body),
+      'reading the ticks from the scan would ignore every box the office had just changed');
+    check('S58', 'and it adds nothing when nothing is ticked',
+      /if\(!list\.length\)\{ statusEl\.textContent = 'Nothing was ticked/.test(body));
+
+    check('S58', 'it creates no invoice, and says so',
+      !/setDoc\(doc\(db,'invoices'/.test(body) && /No invoice was created/.test(body),
+      'writing money is its own decision and belongs to the full Bulk Update');
+    check('S58', 'the customers on the website but not on the sheet are only REPORTED',
+      !/deleteDoc/.test(body),
+      'deleting customers in bulk belongs to Danger Zone, behind its own confirmation');
+    /* ---- ⭐ the sync itself ---- */
+    const sync = fn('rbWireDiffButtons');
+    check('S58', 'rbWireDiffButtons exists', !!sync);
+    check('S58', 'the sync applies only what is still ticked',
+      /const list = all\.filter\(function\(x, n\)\{ return n >= 400 \|\| wanted\[String\(n\)\]; \}\);/.test(sync),
+      'writing every difference regardless of the boxes makes the review meaningless');
+    check('S58', 'the ticks are read when the button is PRESSED',
+      /picks\(\)\.forEach\(function\(p\)\{ if\(p\.checked\) wanted\[p\.getAttribute\('data-n'\)\] = true; \}\);/.test(sync),
+      'reading them from the scan would ignore every box the office had just changed');
+    /* ⚠ One write per CUSTOMER. A customer with six differences is one
+       update; six writes would be six times the cost on a book of this size,
+       and six chances to half-apply somebody. */
+    check('S58', 'a customer with several differences is written once',
+      /\(byCust\[x\.id\] = byCust\[x\.id\] \|\| \{\}\)\[x\.key\] = x\.write;/.test(sync) &&
+      /updateDoc\(doc\(db,'jobAddresses', ids\[i\]\), byCust\[ids\[i\]\]\)/.test(sync));
+    check('S58', 'and it syncs nothing when nothing is ticked',
+      /if\(!list\.length\)\{ statusEl\.textContent = 'Nothing was ticked/.test(sync));
+    check('S58', 'the sync never touches an invoice',
+      !/invoices/.test(sync),
+      'the price lives on the invoice and writing money is its own decision');
+
+    check('S58', 'and the stray ones are pointed at the tool that fixes them',
+      /Merge duplicates/.test(body),
+      'a list with no next step is where this stalls');
   }
 }
 

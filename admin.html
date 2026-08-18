@@ -1549,9 +1549,11 @@
             <button type="button" class="btn btn-gold" id="rbImportBtn" style="margin-top:6px;">Import / Update Customers</button>
             <button type="button" class="btn btn-outline" id="rbFixNamesBtn" style="margin-top:6px;">Fix names only</button>
             <button type="button" class="btn btn-outline" id="rbFixNumbersBtn" style="margin-top:6px;">Fix CU# only</button>
+            <button type="button" class="btn btn-outline" id="rbFindMissingBtn" style="margin-top:6px;">Compare with my Excel sheet</button>
             <span id="rbImportStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
             <div id="rbFixNamesReport" style="margin-top:10px;"></div>
             <div id="rbFixNumbersReport" style="margin-top:10px;"></div>
+            <div id="rbMissingReport" style="margin-top:10px;"></div>
             <div id="rbCheckReport" style="margin-top:10px;"></div>
           </div>
           <div style="border-top:1px solid var(--line); margin:20px 0 0; padding-top:16px;">
@@ -15210,6 +15212,218 @@ function rbCollectNumberFixes(){
   return {changes: changes, missing: missing, collided: collided, taken: taken, wrongMode: false};
 }
 let rbPendingNumberFixes = null;
+/* ⭐ WHO IS ON THE SHEET BUT NOT ON THE WEBSITE.
+   Owner, 2026-08-18: "kathy brown exists on the excel but not on the website
+   make it so I can check for people who dont exist on the website and I can
+   choose to add them."
+
+   The full import already adds them, along with updating nine hundred other
+   people in the same pass. This is the same question asked on its own: which
+   rows match nobody, shown one per line, each with a tick box.
+
+   ⚠ IT ONLY REPORTS. Adding is a separate press, and only the rows still
+   ticked are added — because "matches nobody" is exactly what a stray record
+   looks like too, and the difference between a genuinely new customer and a
+   record whose address the matcher cannot reach is a judgement the office has
+   to make. Every row therefore names the customer of the same name if there is
+   exactly one, which is the tell.
+
+   The row is read the same way the import reads it, so a customer added here
+   is the same shape as one added there — with one deliberate exception: NO
+   INVOICE IS CREATED. Writing money needs its own decision, and the full Bulk
+   Update is where that is made. */
+function rbCollectMissingCustomers(){
+  const hoff = rbHeaderOffset();
+  const col = function(id){ return rbCol(id, hoff); };
+  const streets = col('rbStreetsArea');
+  const nums = col('rbCustNumbersArea');
+  const namesRaw = col('rbNamesArea');
+  const phones = col('rbPhonesArea');
+  const emails = col('rbEmailsArea');
+  const cities = col('rbCitiesArea');
+  const states = col('rbStatesArea');
+  const zips = col('rbZipsArea');
+  const installPrefRaw = col('rbInstallPrefArea'), feetRaw = col('rbFeetArea');
+  const notesRaw = col('rbNotesArea'), wireRaw = col('rbWireArea');
+  const timerRaw = col('rbTimerArea'), eavesRaw = col('rbEavesArea');
+  const txt = function(a, i){ return String(a[i] === undefined || a[i] === null ? '' : a[i]).trim(); };
+  const digits = function(v){ return String(v == null ? '' : v).replace(/\D/g,''); };
+  const plain = function(a, b){
+    return String(a == null ? '' : a).trim() === String(b == null ? '' : b).trim();
+  };
+  /* Which fields are compared, how each is read off the sheet, and what counts
+     as "the same" for it. Kept as a list so adding one is a line rather than
+     another hand-written comparison that forgets the blank rule.
+     ⚠ Money is NOT here. The price lives on the invoice, and writing money is
+     its own decision — the full Bulk Update is where that is made. */
+  const RB_SYNC_FIELDS = [
+    /* ⚠ COMPARED ON THE WORDS, NOT THEIR ORDER. The sheet writes "Brown Kathy"
+       and the site "Kathy Brown", so comparing the strings would report a name
+       difference on EVERY customer — the report would be unreadable and a sync
+       would depend entirely on whether the flip box happened to be ticked.
+       Putting the order right is what "Fix names only" is for; this reports a
+       name only when the words themselves differ. The value written is still
+       the flipped one, so it lands in the site's order. */
+    {key:'name',            label:'Name',    read:function(i){ return rbName(txt(namesRaw, i)).trim(); },
+                                             same:function(a,b){ return dupNormName(a) === dupNormName(b); }},
+    {key:'customerNumber',  label:'CU#',     read:function(i){ return txt(nums, i); }, same:plain},
+    {key:'street',          label:'Address', read:function(i){ return txt(streets, i); },
+                                             same:function(a,b){ return normalizeStreetForMatch(a) === normalizeStreetForMatch(b); }},
+    {key:'city',            label:'Town',    read:function(i){ return txt(cities, i); },
+                                             same:function(a,b){ return extractCleanCity(a) === extractCleanCity(b); }},
+    {key:'zip',             label:'Zip',     read:function(i){ return txt(zips, i); }, same:plain},
+    {key:'phone',           label:'Phone',   read:function(i){ return digits(txt(phones, i)); },
+                                             same:function(a,b){ return digits(a) === digits(b); }},
+    {key:'email',           label:'Email',   read:function(i){ return txt(emails, i); },
+                                             same:function(a,b){ return String(a||'').trim().toLowerCase() === String(b||'').trim().toLowerCase(); }},
+    /* Compared by MEANING, not spelling — "OCT" and "October" are the same
+       thing, and treating them as different would report a difference on every
+       customer, every time. */
+    /* ⚠ Compared through the importer's OWN normaliser, on both sides. "OCT"
+       and "October" are the same instruction, and comparing the spellings would
+       report a difference on every customer every time.
+       prefKey does exactly this job but lives inside the Schedule widget's
+       module and is not callable from here — Suite 2 catches that, and did. */
+    {key:'installPreference', label:'Timing', read:function(i){ return rbNormalizeInstallPref(txt(installPrefRaw, i)); },
+                                             same:function(a,b){ return rbNormalizeInstallPref(String(a||'')) === rbNormalizeInstallPref(String(b||'')); }},
+    {key:'measuredFeet',    label:'Feet',    read:function(i){ return rbNormalizeFeet(txt(feetRaw, i)); },
+                                             same:function(a,b){ return (Number(a)||0) === (Number(b)||0); },
+                                             write:function(v){ return Number(v); }},
+    {key:'wireColor',       label:'Wire',    read:function(i){ return rbNormalizeWire(txt(wireRaw, i)); }, same:plain},
+    {key:'outletTimer',     label:'Timer',   read:function(i){ return rbNormalizeYesNo(txt(timerRaw, i)); }, same:plain},
+    {key:'useEaves',        label:'Eaves',   read:function(i){ return rbNormalizeYesNo(txt(eavesRaw, i)); }, same:plain},
+    {key:'notes',           label:'Notes',   read:function(i){ return txt(notesRaw, i); }, same:plain}
+  ];
+  const len = Math.max(streets.length, phones.length, namesRaw.length, nums.length);
+  const rows = [], skipped = [], diffs = [];
+  const seen = {};
+  /* Every customer the sheet accounted for. Whatever is left over is on the
+     website and NOT on the sheet — the other half of the owner's question. */
+  const matched = {};
+  for(let i = 0; i < len; i++){
+    const street = String(streets[i] || '').trim();
+    const phone = String(phones[i] || '').replace(/\D/g,'');
+    const who = rbName(String(namesRaw[i] || '').trim()).trim();
+    const cu = String(nums[i] || '').trim();
+    /* Nothing to identify a person by is nothing to add. */
+    if(!who && !street && !phone) continue;
+    const hit = bulkFindCustomer(street, String(phones[i] || ''), String(cities[i] || ''), String(zips[i] || ''), cu);
+    if(hit){
+      matched[hit.id] = true;
+      /* ⭐ AND EVERY FIELD THAT DISAGREES. Owner: "so it tells me all the
+         imperfections between the two and if all the imperfections are right
+         and nothing is wrong then they just sync."
+         ⚠ A BLANK ON THE SHEET IS NOT A DIFFERENCE. The sheet not saying is not
+         the sheet saying "none" — same rule the importer and the schedule sync
+         already follow, and the reason a half-filled column cannot empty the
+         book. */
+      const d = hit.data || {};
+      RB_SYNC_FIELDS.forEach(function(f){
+        const theirs = f.read(i);
+        if(theirs === null || theirs === undefined || String(theirs).trim() === '') return;
+        const mine = d[f.key];
+        if(f.same(mine, theirs)) return;
+        diffs.push({id: hit.id, row: i + 1, who: (d.name || who || street),
+                    key: f.key, label: f.label,
+                    from: (mine === null || mine === undefined || String(mine).trim() === '') ? '' : String(mine),
+                    to: theirs, write: f.write ? f.write(theirs) : theirs});
+      });
+      continue;
+    }
+    /* ⚠ The same house twice in one paste would be added twice. */
+    const key = (normalizeStreetForMatch(street) || '') + '|' + phone + '|' + dupNormName(who);
+    if(seen[key]){ skipped.push({row: i + 1, name: who || street, first: seen[key]}); continue; }
+    seen[key] = i + 1;
+    const sameName = dupNormName(who)
+      ? jobAddresses.filter(function(it){ return dupNormName((it.data || {}).name) === dupNormName(who); })
+      : [];
+    rows.push({
+      i: i, row: i + 1, name: who, street: street, phone: phone,
+      email: String(emails[i] || '').trim(),
+      city: String(cities[i] || '').trim(), state: String(states[i] || '').trim() || 'UT',
+      zip: String(zips[i] || '').trim(), cu: cu,
+      /* ⚠ THE TELL. A namesake already here almost always means this is not a
+         new customer at all — it is the same person on a record the matcher
+         cannot reach, and adding them would make a duplicate rather than fix
+         one. Those rows come UNTICKED. */
+      namesake: sameName.length === 1
+        ? (((sameName[0].data || {}).name || '(no name)') +
+           (String((sameName[0].data || {}).customerNumber || '').trim()
+              ? ' #' + String(sameName[0].data.customerNumber).trim() : ' (no number)') +
+           ' is already here')
+        : (sameName.length > 1 ? sameName.length + ' customers already have this name' : ''),
+      suspect: sameName.length > 0
+    });
+  }
+  /* ⭐ AND THE OTHER WAY ROUND. Owner: "I want it to tell me everyone not on
+     the list that exists and everyone on the list that doesnt exist."
+     A customer no row on the sheet reached is either somebody who left, or —
+     far more often in this book — a stray copy whose address was wiped, which
+     is precisely why no row can reach it. The two read very differently, so
+     each one says which it looks like rather than being listed flat.
+     ⚠ REPORTED ONLY. Deleting customers in bulk is the most destructive thing
+     in the app and belongs to Danger Zone, behind its own confirmation. */
+  const onlyOnSite = jobAddresses.filter(function(c){ return !matched[c.id]; }).map(function(c){
+    const d = c.data || {};
+    const street = String(d.street || '').trim();
+    const town = extractCleanCity(d.city) || '';
+    return {
+      id: c.id,
+      name: d.name || '(no name)',
+      cu: String(d.customerNumber || '').trim(),
+      where: street ? (street + (town ? ', ' + town : '')) : (town ? 'no street, only "' + town + '"' : 'no address at all'),
+      /* No street means no paste can ever reach it — see findExistingAddressMatch. */
+      stray: !street
+    };
+  }).sort(function(a, b){
+    if(a.stray !== b.stray) return a.stray ? -1 : 1;
+    return String(a.name).toLowerCase() < String(b.name).toLowerCase() ? -1 : 1;
+  });
+  return {rows: rows, skipped: skipped, onlyOnSite: onlyOnSite, diffs: diffs};
+}
+let rbPendingAdds = null;
+let rbPendingDiffs = null;
+/* The sync half of the comparison: apply the ticked field changes.
+   ⚠ Read at the moment of pressing, not when the list was drawn, or every box
+   the office had just unticked would be ignored. */
+function rbWireDiffButtons(report, statusEl){
+  const picks = function(){ return Array.prototype.slice.call(document.querySelectorAll('.rb-diff-pick')); };
+  document.getElementById('rbDiffAllBtn')?.addEventListener('click', function(){ picks().forEach(function(p){ p.checked = true; }); });
+  document.getElementById('rbDiffNoneBtn')?.addEventListener('click', function(){ picks().forEach(function(p){ p.checked = false; }); });
+  const go = document.getElementById('rbDiffGoBtn');
+  if(!go) return;
+  go.addEventListener('click', onceAtATime(async function(){ return withBulkWrites(async function(){
+    const all = rbPendingDiffs || [];
+    const wanted = {};
+    picks().forEach(function(p){ if(p.checked) wanted[p.getAttribute('data-n')] = true; });
+    /* Rows past the 400 shown have no box, so they ride on the tick-all
+       default — the list said so. */
+    const list = all.filter(function(x, n){ return n >= 400 || wanted[String(n)]; });
+    if(!list.length){ statusEl.textContent = 'Nothing was ticked, so nothing was synced.'; return; }
+    /* One write per CUSTOMER, not per field: a customer with six differences is
+       one update, not six. */
+    const byCust = {};
+    list.forEach(function(x){ (byCust[x.id] = byCust[x.id] || {})[x.key] = x.write; });
+    const ids = Object.keys(byCust);
+    let done = 0, failed = 0, fields = 0;
+    for(let i = 0; i < ids.length; i++){
+      statusEl.textContent = 'Syncing ' + (i+1) + ' of ' + ids.length + '…';
+      await bulkBreathe(i);
+      try{
+        await updateDoc(doc(db,'jobAddresses', ids[i]), byCust[ids[i]]);
+        fields += Object.keys(byCust[ids[i]]).length;
+        done++;
+      } catch(err){ failed++; }
+    }
+    rbPendingDiffs = null;
+    logActivity('Synced ' + fields + ' field(s) from the master sheet onto ' + done + ' customer(s)', 'customers', '');
+    report.innerHTML = '<div style="border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--paper); font-size:13px;">' +
+      fields + ' field(s) synced across ' + done + ' customer(s)' + (failed ? ', ' + failed + ' failed' : '') +
+      '. Nothing that was blank on the sheet was written, and no invoice was touched. ' +
+      'Press Compare again to check.</div>';
+    statusEl.textContent = '';
+  }); }, function(){ return document.getElementById('rbDiffGoBtn'); }));
+}
 /* ---------------- DUPLICATE CUSTOMERS ---------------------------------------
    Owner, 2026-08-17, reading Health Check: "actually yes we Have duplicate
    customers which is bad we need to delete duplicates". 1,923 customers on
@@ -15792,6 +16006,184 @@ document.getElementById('rbFixNumbersBtn')?.addEventListener('click', function()
       'the old one may still be labelled on bins in the warehouse.</div>';
     statusEl.textContent = '';
   }); }, function(){ return document.getElementById('rbFixNumbersGoBtn'); }));
+});
+document.getElementById('rbFindMissingBtn')?.addEventListener('click', function(){
+  const report = document.getElementById('rbMissingReport');
+  const statusEl = document.getElementById('rbImportStatus');
+  if(!report) return;
+  report.innerHTML = '';
+  if(!jobAddresses.length){
+    statusEl.textContent = 'The customer list has not finished loading yet. Give it a moment and try again.';
+    return;
+  }
+  /* ⭐ JUST PASTE THE SHEET. Owner: "I should just be able to paste in my excel
+     sheet." If the whole-sheet box has something in it, split it into the
+     columns first rather than making somebody find the other button. */
+  const sheetBox = document.getElementById('rbSheetArea');
+  if(sheetBox && sheetBox.value.trim() && typeof rbSplitSheetIntoBoxes === 'function'){
+    try{ rbSplitSheetIntoBoxes(sheetBox.value); }catch(err){}
+  }
+  const found = rbCollectMissingCustomers();
+  rbPendingAdds = found.rows;
+  /* The second list is always shown — it is half the question, and "nobody is
+     missing from the website" is not an answer to "who is on the website and
+     not on my sheet". */
+  rbPendingDiffs = found.diffs;
+  /* ⭐ EVERY FIELD THAT DISAGREES, ticked and ready to apply. Owner: "so it
+     tells me all the imperfections between the two and if all the imperfections
+     are right and nothing is wrong then they just sync." */
+  const diffHtml = found.diffs.length
+    ? '<div style="border:2px solid var(--gold-dim); border-radius:10px; padding:14px; background:var(--snow); margin-top:12px;">' +
+        '<div style="font-weight:700; margin-bottom:4px;">' + found.diffs.length +
+          ' field(s) differ between your sheet and the website.</div>' +
+        '<div style="font-size:12.5px; color:var(--slate); margin-bottom:8px;">The sheet is treated as right and the website is brought to it. ' +
+          'A blank on the sheet is never a difference — it cannot empty anything here. Untick anything you disagree with.</div>' +
+        '<div style="max-height:300px; overflow:auto;"><table style="border-collapse:collapse; font-size:13px; width:100%;">' +
+        found.diffs.slice(0, 400).map(function(x, n){
+          return '<tr style="border-bottom:1px solid var(--line);">' +
+            '<td style="padding:3px 8px 3px 0;"><input type="checkbox" class="rb-diff-pick" data-n="' + n + '" checked></td>' +
+            '<td style="padding:3px 8px 3px 0;">' + esc(x.who) + '</td>' +
+            '<td style="padding:3px 8px 3px 0; color:var(--slate);">' + esc(x.label) + '</td>' +
+            '<td style="padding:3px 8px 3px 0; color:var(--slate);">' + esc(x.from || '(blank)') + '</td>' +
+            '<td style="padding:3px 0;">→ <strong>' + esc(String(x.to)) + '</strong></td></tr>';
+        }).join('') + '</table></div>' +
+        (found.diffs.length > 400 ? '<div style="font-size:12.5px; color:var(--slate); margin-top:6px;">Showing the first 400 of ' + found.diffs.length + '; pressing the button applies every ticked one.</div>' : '') +
+        '<div style="margin-top:12px;">' +
+          '<button type="button" class="btn ghost" id="rbDiffAllBtn">Tick all</button> ' +
+          '<button type="button" class="btn ghost" id="rbDiffNoneBtn">Untick all</button> ' +
+          '<button type="button" class="btn btn-gold" id="rbDiffGoBtn">Sync the ticked changes</button>' +
+        '</div>' +
+      '</div>'
+    : '<div style="border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--paper); font-size:13px; margin-top:12px;">' +
+      'Every customer on both sides already matches, field for field.</div>';
+  const strays = found.onlyOnSite.filter(function(x){ return x.stray; }).length;
+  const siteOnly = found.onlyOnSite.length
+    ? '<div style="border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--paper); margin-top:12px;">' +
+        '<div style="font-weight:700; margin-bottom:4px;">' + found.onlyOnSite.length +
+          ' customer(s) are on the website but not on your sheet.</div>' +
+        '<div style="font-size:12.5px; color:var(--slate); margin-bottom:8px;">' +
+          (strays ? '<strong>' + strays + '</strong> of them have no street on file, which means no paste can ever reach them — ' +
+                    'those are almost certainly stray copies, and <strong>Danger Zone → Merge duplicates</strong> is what folds them back in. ' : '') +
+          'The rest are people who have left the sheet. Nothing here is deleted or changed.</div>' +
+        '<div style="max-height:240px; overflow:auto; font-size:13px; line-height:1.6;">' +
+        found.onlyOnSite.slice(0, 200).map(function(x){
+          return (x.stray ? '<span style="color:var(--ember);">⚠ </span>' : '') +
+                 '<strong>' + esc(x.name) + '</strong>' + (x.cu ? ' <span style="color:var(--slate);">#' + esc(x.cu) + '</span>' : '') +
+                 ' &mdash; ' + esc(x.where);
+        }).join('<br>') +
+        (found.onlyOnSite.length > 200 ? '<br>… and ' + (found.onlyOnSite.length - 200) + ' more.' : '') +
+        '</div></div>'
+    : '<div style="border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--paper); font-size:13px; margin-top:12px;">' +
+      'Everybody on the website is also on your sheet.</div>';
+  if(!found.rows.length){
+    report.innerHTML = '<div style="border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--paper); font-size:13px;">' +
+      'Everybody on the sheet is already on the website.' +
+      (found.skipped.length ? ' ' + found.skipped.length + ' row(s) repeat a house higher up the paste and were counted once.' : '') +
+      '</div>' + diffHtml + siteOnly;
+    rbWireDiffButtons(report, statusEl);
+    return;
+  }
+  const sure = found.rows.filter(function(r){ return !r.suspect; }).length;
+  const rowsHtml = found.rows.map(function(r){
+    const where = [r.street, r.city].filter(Boolean).join(', ') || 'no address on the sheet';
+    return '<tr style="border-bottom:1px solid var(--line);">' +
+      '<td style="padding:4px 8px 4px 0; vertical-align:top;">' +
+        '<input type="checkbox" class="rb-add-pick" data-i="' + r.i + '"' + (r.suspect ? '' : ' checked') + '></td>' +
+      '<td style="padding:4px 8px 4px 0; vertical-align:top;"><strong>' + esc(r.name || '(no name)') + '</strong>' +
+        (r.cu ? ' <span style="color:var(--slate);">#' + esc(r.cu) + '</span>' : '') + '</td>' +
+      '<td style="padding:4px 0; vertical-align:top;">' + esc(where) +
+        (r.namesake ? '<div style="color:var(--ember); font-size:12px; margin-top:2px;">⚠ ' + esc(r.namesake) +
+                      ' — adding this row would make a second copy, not a new customer</div>' : '') +
+      '</td></tr>';
+  }).join('');
+  report.innerHTML =
+    '<div style="border:2px solid var(--gold-dim); border-radius:10px; padding:14px; background:var(--snow);">' +
+      '<div style="font-weight:700; margin-bottom:4px;">' + found.rows.length +
+        ' row(s) on the sheet match nobody on the website.</div>' +
+      '<div style="font-size:12.5px; color:var(--slate); margin-bottom:8px;">' +
+        sure + ' look genuinely new and are ticked. ' + (found.rows.length - sure) +
+        ' share a name with somebody already here and are left unticked — those are usually the same ' +
+        'person on a record the matcher cannot reach, and adding them makes a duplicate. Nothing is added until you press the button.</div>' +
+      '<div style="max-height:300px; overflow:auto;"><table style="border-collapse:collapse; font-size:13px; width:100%;">' + rowsHtml + '</table></div>' +
+      (found.skipped.length ? '<div style="font-size:12.5px; color:var(--slate); margin-top:8px;">' + found.skipped.length +
+        ' row(s) repeat a house higher up the paste and are listed once.</div>' : '') +
+      '<div style="margin-top:12px;">' +
+        '<button type="button" class="btn ghost" id="rbAddAllBtn">Tick all</button> ' +
+        '<button type="button" class="btn ghost" id="rbAddNoneBtn">Untick all</button> ' +
+        '<button type="button" class="btn btn-gold" id="rbAddGoBtn">Add the ticked customers</button>' +
+      '</div>' +
+      '<div style="font-size:12px; color:var(--slate); margin-top:6px;">Adds the customer record only — no invoice is created. Run Bulk Update afterwards if they need billing.</div>' +
+    '</div>' + diffHtml + siteOnly;
+  rbWireDiffButtons(report, statusEl);
+  const picks = function(){ return Array.prototype.slice.call(document.querySelectorAll('.rb-add-pick')); };
+  document.getElementById('rbAddAllBtn')?.addEventListener('click', function(){ picks().forEach(function(p){ p.checked = true; }); });
+  document.getElementById('rbAddNoneBtn')?.addEventListener('click', function(){ picks().forEach(function(p){ p.checked = false; }); });
+  const go = document.getElementById('rbAddGoBtn');
+  if(go) go.addEventListener('click', onceAtATime(async function(){ return withBulkWrites(async function(){
+    /* Read the boxes at the moment of pressing, not when the list was drawn. */
+    const wanted = {};
+    picks().forEach(function(p){ if(p.checked) wanted[p.getAttribute('data-i')] = true; });
+    const list = (rbPendingAdds || []).filter(function(r){ return wanted[String(r.i)]; });
+    if(!list.length){ statusEl.textContent = 'Nothing was ticked, so nothing was added.'; return; }
+    const hoff = rbHeaderOffset();
+    const colOf = function(id){ return rbCol(id, hoff); };
+    const dates = colOf('rbDatesArea'), colorsRaw = colOf('rbColorsArea');
+    const installPrefRaw = colOf('rbInstallPrefArea'), wireRaw = colOf('rbWireArea');
+    const timerRaw = colOf('rbTimerArea'), eavesRaw = colOf('rbEavesArea');
+    const difficultyRaw = colOf('rbDifficultyArea'), feetRaw = colOf('rbFeetArea');
+    const notesRaw = colOf('rbNotesArea');
+    let done = 0, failed = 0, noPin = 0;
+    for(let n = 0; n < list.length; n++){
+      const r = list[n], i = r.i;
+      statusEl.textContent = 'Adding ' + (n+1) + ' of ' + list.length + '…';
+      await bulkBreathe(n);
+      try{
+        const fullAddress = buildFullAddress(r.street, r.city, r.zip);
+        let coords = {lat: null, lng: null};
+        if(r.street){
+          try{ coords = await geocodeAddress(fullAddress) || {lat: null, lng: null}; }
+          catch(err){ coords = {lat: null, lng: null}; }
+        }
+        if(coords.lat === null) noPin++;
+        const detected = rbDetectColorsAndPattern(colorsRaw[i] || '');
+        const feetVal = rbNormalizeFeet(feetRaw[i] || '');
+        const dateTypedIn = dates[i] || '';
+        const doc2 = {
+          street: r.street, city: r.city, state: r.state, zip: r.zip,
+          address: fullAddress, name: r.name, phone: r.phone, email: r.email,
+          difficulty: rbNormalizeDifficulty(difficultyRaw[i] || '') || 'Unrated',
+          lightColors: detected.colors, lightsDescription: detected.pattern,
+          installPreference: rbNormalizeInstallPref(installPrefRaw[i] || '') || 'Normal Schedule',
+          wireColor: rbNormalizeWire(wireRaw[i] || '') || '',
+          outletTimer: rbNormalizeYesNo(timerRaw[i] || '') || '',
+          useEaves: rbNormalizeYesNo(eavesRaw[i] || '') || '',
+          portalToken: generatePortalToken(),
+          lat: coords.lat, lng: coords.lng, needsGeocode: coords.lat === null,
+          scheduled: false,
+          createdAt: dateTypedIn ? Timestamp.fromDate(new Date(dateTypedIn)) : serverTimestamp()
+        };
+        if(r.cu){
+          doc2.customerNumber = r.cu;
+          if(parseInt(r.cu,10) < 5000) doc2.numberOfBins = 1;
+        }
+        if(feetVal){
+          doc2.measuredFeet = Number(feetVal);
+          doc2.numberOfBins = cnBinsForFeet(Number(feetVal));
+        }
+        const notesVal = (notesRaw[i] || '').trim();
+        if(notesVal) doc2.notes = notesVal;
+        await addDoc(collection(db,'jobAddresses'), doc2);
+        done++;
+      } catch(err){ failed++; }
+    }
+    rbPendingAdds = null;
+    logActivity('Added ' + done + ' customer(s) missing from the website', 'customers', '');
+    report.innerHTML = '<div style="border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--paper); font-size:13px;">' +
+      done + ' customer(s) added' + (failed ? ', ' + failed + ' failed' : '') +
+      (noPin ? ', ' + noPin + ' without a map pin (All Customers → Filters → Map Pin → "Needs Pin")' : '') +
+      '. No invoice was created for any of them — run Bulk Update if they need billing.</div>';
+    statusEl.textContent = '';
+  }); }, function(){ return document.getElementById('rbAddGoBtn'); }));
 });
 document.getElementById('rbCheckBtn')?.addEventListener('click', function(){
   const statusEl = document.getElementById('rbImportStatus');
