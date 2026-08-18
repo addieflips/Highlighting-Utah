@@ -7915,9 +7915,19 @@ suite('Suite 31. A corrected town still finds its customer');
   check('S31', 'Check First warns when two rows are the same house',
     /const dupeRows = \[\]/.test(admin) && /repeat an address already higher up the list/.test(admin),
     'the second row overwrites the first, price and town included, and nothing afterwards says so');
-  check('S31', 'the duplicate check normalises the street the same way the matcher does',
-    /const k = normalizeStreetForMatch\(r\.street\)/.test(admin),
-    'comparing raw text would miss "9494 S 1860 W " against "9494 S 1860 W"');
+  /* ⭐ AND IT COMPARES THE RESOLVED RECORD, NOT THE STREET (changed 2026-08-18).
+     Owner: "may sara is supposed to be at 541 and I bulk update for that and she
+     does but then she goes back to 479." Two rows for two DIFFERENT people
+     resolved to one record — bulkFindCustomer matches by phone as well as by
+     address — so they never repeated a street and this warning never fired. */
+  check('S31', 'Check First compares the customer each row resolves to',
+    /const k = r\.existingId \|\| \('street:' \+ normalizeStreetForMatch\(r\.street\)\);/.test(admin) &&
+    /existingId: existing \? existing\.id : '',/.test(admin),
+    'two people sharing a phone land on one record without ever repeating a street');
+  check('S31', 'and still falls back to the street for rows that match nobody',
+    /'street:' \+ normalizeStreetForMatch\(r\.street\)/.test(admin),
+    'two NEW rows for one house have no record to compare, and comparing raw text ' +
+    'would miss "9494 S 1860 W " against "9494 S 1860 W"');
   check('S31', 'Check First shows a town that is about to change',
     /townChanges/.test(admin) && /oldTown/.test(admin) && /newTown/.test(admin),
     'the town moving a house to another crew is worth seeing before it is written, not after');
@@ -12398,6 +12408,212 @@ suite('Suite 55. Jeff Richards, and Richards Jeff');
     check('S55', 'and the price is still reported, now as detail rather than a filter',
       /priced \$/.test(block),
       'the old check only listed customers WITH a price, which is exactly why the stray was invisible');
+  }
+}
+
+
+/* ============================================================
+ * Suite 56. Why May Sara went back to 479.
+ *
+ * Owner, 2026-08-18: "when I bulk update this keeps happening where people go
+ * back to the wrong numbers like may sara for example is supposed to be at 541
+ * and I bulk update for that and she does but then she goes back to 479."
+ *
+ * ⭐ NOTHING REVERTED IT. Two rows of the SAME paste resolved to the same
+ * customer record, and the lower one won — inside a single run. Row A wrote
+ * 541, row B matched the same house further down the sheet and wrote 479 over
+ * it. It looks exactly like the update failing or being undone, and it is
+ * neither, which is why it kept happening.
+ *
+ * ⚠ AND IT IS NOT ALWAYS A REPEATED ADDRESS, which is all Check First used to
+ * compare. bulkFindCustomer resolves a row by PHONE as well as by street, so
+ * two rows for two genuinely different people land on one record whenever they
+ * share a phone. May Sara and Rachel Oslund were already sharing number 479 on
+ * the Health Check list — the same fault seen from the other end.
+ * ============================================================ */
+suite('Suite 56. Why May Sara went back to 479');
+{
+  /* ---- ⭐ the import writes a record at most once per run ---- */
+  const at = admin.indexOf('const claimedBy = {};');
+  check('S56', 'the import tracks which records it has already written', at > 0);
+
+  check('S56', 'a row that lands on an already-written record is refused, not applied',
+    /if\(claimedBy\[existing\.id\]\)\{/.test(admin) &&
+    /collided\.push\(\{row: i \+ 1, first: claimedBy\[existing\.id\],/.test(admin),
+    'letting the lower row win is the whole fault — it silently replaces what the earlier row wrote');
+
+  /* ⚠ Both landmarks searched from the claim onwards. "const fullAddress =
+     buildFullAddress(...)" appears in Check First TOO, earlier in the file, and
+     an unscoped indexOf compared against that one instead — failing a check
+     that was correct. */
+  check('S56', 'and it is refused BEFORE anything is written',
+    at > 0 &&
+    admin.indexOf('claimedBy[existing.id] = i + 1;', at) > at &&
+    admin.indexOf('claimedBy[existing.id] = i + 1;', at) <
+    admin.indexOf('const fullAddress = buildFullAddress(street, city, zip);', at),
+    'claiming after the write would let the collision happen once before being noticed');
+
+  check('S56', 'an unchanged row still claims its record',
+    !/if\(claimedBy\[existing\.id\] && changed\)/.test(admin),
+    'it matched the house, so a later row landing on it is the same collision — ' +
+    'claiming only when something changed would leave the hole half open');
+
+  /* ⚠ A record created by THIS run has to be claimed too. */
+  check('S56', 'a record this run just added is claimed as well',
+    /const addedRef = await addDoc\(collection\(db,'jobAddresses'\), newDoc\);/.test(admin) &&
+    /if\(addedRef && addedRef\.id\) claimedBy\[addedRef\.id\] = i \+ 1;/.test(admin),
+    'jobAddresses does not hold it until the listener catches up, so a later row for the same ' +
+    'house would not FIND it and would add a second copy — a book duplicating itself a pair at a time');
+
+  /* ⚠ Silence is what made this take three passes to notice. */
+  check('S56', 'the collisions are named in the report, by row',
+    /const collidedNote = collided\.length/.test(admin) &&
+    /pointed at a customer another row had already updated/.test(admin) &&
+    /'row ' \+ x\.row/.test(admin),
+    'a count alone would still read as "the update did not work"');
+  check('S56', 'and the note actually reaches the status line',
+    /\+ alreadyRightTotal \+ collidedNote \+ movedNote \+ skippedNote;/.test(admin),
+    'a note nobody is shown is the same as no note');
+
+  /* ---- ⭐ Fix CU# only ---- */
+  {
+    const fn = (name) => {
+      const a = admin.indexOf('function ' + name + '(');
+      if (a < 0) return '';
+      let d = 0;
+      for (let i = admin.indexOf('{', a); i < admin.length; i++) {
+        if (admin[i] === '{') d++;
+        else if (admin[i] === '}') { d--; if (!d) return admin.slice(a, i + 1); }
+      }
+      return '';
+    };
+    const src = fn('rbCollectNumberFixes');
+    check('S56', 'the button exists', admin.indexOf('id="rbFixNumbersBtn"') > 0);
+    check('S56', 'rbCollectNumberFixes exists', !!src);
+
+    if (src) {
+      const run = (rows, book) => {
+        const cols = {
+          rbCustNumbersArea: rows.map(r => r.cu || ''),
+          rbStreetsArea: rows.map(r => r.street || ''),
+          rbPhonesArea: rows.map(r => r.phone || ''),
+          rbCitiesArea: rows.map(r => r.city || ''),
+          rbZipsArea: rows.map(r => r.zip || ''),
+          rbNamesArea: rows.map(r => r.name || '')
+        };
+        const ctx = {};
+        new Function('BULK_BY_NUMBER', 'jobAddresses', 'rbHeaderOffset', 'rbCol', 'rbName', 'bulkFindCustomer',
+          src + 'this.f = rbCollectNumberFixes;'
+        ).call(ctx, false, book,
+          () => 0,
+          (id) => cols[id] || [],
+          (n) => n,
+          /* Stands in for findExistingAddressMatch: phone first, then street —
+             the same two keys, in the same order, as the real matcher. */
+          (street, phone) => book.filter(b =>
+            (phone && String(b.data.phone || '') === String(phone)) ||
+            (street && String(b.data.street || '') === String(street)))[0]);
+        return ctx.f();
+      };
+      const cust = (id, name, street, phone, cu) => ({ id, data: { name, street, phone, customerNumber: cu } });
+
+      /* ⭐ MAY SARA. The sheet says 541; her record says 479. */
+      {
+        const book = [cust('may', 'May Sara', '1 A St', '8015550001', '479')];
+        const r = run([{ cu: '541', street: '1 A St', phone: '8015550001', name: 'May Sara' }], book);
+        check('S56', 'a wrong number is corrected to the one on the sheet',
+          r.changes.length === 1 && r.changes[0].from === '479' && r.changes[0].to === '541',
+          JSON.stringify(r.changes));
+      }
+
+      /* ⚠ IT CANNOT MATCH ON THE NUMBER, because the number is what is wrong.
+         Matching on 541 would find whoever holds 541 — the wrong house by
+         definition — which is how a correction lands on a stranger. */
+      {
+        const book = [cust('may', 'May Sara', '1 A St', '8015550001', '479'),
+                      cust('other', 'Someone Else', '9 B Rd', '8015550002', '541')];
+        const r = run([{ cu: '541', street: '1 A St', phone: '8015550001', name: 'May Sara' }], book);
+        check('S56', 'a number already on somebody else is refused, not taken from them',
+          r.changes.length === 0 && r.taken.length === 1 && r.taken[0].heldBy === 'Someone Else',
+          'writing it would put two houses on one number, which is what Health Check\u2019s ' +
+          '"two customers sharing one customer number" exists to catch: ' + JSON.stringify(r.taken));
+      }
+
+      /* ⭐ THE COLLISION, in the tool that fixes numbers. */
+      {
+        const book = [cust('may', 'May Sara', '1 A St', '8015550001', '479')];
+        const r = run([
+          { cu: '541', street: '1 A St', phone: '8015550001', name: 'May Sara' },
+          { cu: '479', street: '', phone: '8015550001', name: 'Rachel Oslund' }
+        ], book);
+        check('S56', 'a second row for the same house does NOT overwrite the first',
+          r.changes.length === 1 && r.changes[0].to === '541' && r.collided.length === 1,
+          'this is the bug exactly: the 479 row is lower down and used to win. Got ' +
+          JSON.stringify(r.changes) + ' and ' + r.collided.length + ' collision(s)');
+        check('S56', 'and the refused row is reported with both row numbers',
+          r.collided.length === 1 && r.collided[0].row === 2 && r.collided[0].first === 1,
+          JSON.stringify(r.collided));
+      }
+
+      /* ⚠ STRUCTURAL, and deliberately so. Passing the number as the match key
+         would send the row to whoever currently HOLDS that number — the wrong
+         house by definition, which is how a correction lands on a stranger.
+         It cannot be shown by running the function: bulkFindCustomer only reads
+         that argument when the import is keyed on numbers, and this tool
+         refuses to run in that mode at all. So the guarantee is that the '' is
+         written there, and this is what holds it. */
+      check('S56', 'the number is never used as the key to find the house',
+        /const existing = bulkFindCustomer\(street, phone, String\(cities\[i\] \|\| ''\), String\(zips\[i\] \|\| ''\), ''\);/.test(admin),
+        'the number is the thing being corrected, so it cannot also be what identifies the customer');
+      check('S56', 'and it refuses to run when the import IS keyed on numbers',
+        /if\(BULK_BY_NUMBER\) return \{changes: \[\], missing: \[\], collided: \[\], taken: \[\], wrongMode: true\};/.test(admin) &&
+        /found\.wrongMode/.test(admin),
+        'in that mode the number identifies the customer, so correcting it by matching on it is circular');
+
+      {
+        const book = [cust('may', 'May Sara', '1 A St', '8015550001', '541')];
+        const r = run([{ cu: '541', street: '1 A St', phone: '8015550001', name: 'May Sara' }], book);
+        check('S56', 'a number that is already right is not rewritten',
+          r.changes.length === 0, 'a no-op write is still a write, on every row of the sheet');
+      }
+      {
+        const book = [cust('may', 'May Sara', '1 A St', '8015550001', '479')];
+        const r = run([{ cu: '900', street: '99 Nowhere', phone: '8019999999', name: 'Ghost' }], book);
+        check('S56', 'a row matching nobody is reported, never added as a new customer',
+          r.changes.length === 0 && r.missing.length === 1,
+          'this tool only ever corrects a number on a house that is already here');
+      }
+      {
+        const book = [cust('may', 'May Sara', '1 A St', '8015550001', '')];
+        const r = run([{ cu: '541', street: '1 A St', phone: '8015550001', name: 'May Sara' }], book);
+        check('S56', 'a customer with no number at all can be given one',
+          r.changes.length === 1 && r.changes[0].from === '' && r.changes[0].to === '541');
+      }
+      {
+        const book = [cust('may', 'May Sara', '1 A St', '8015550001', '479')];
+        const r = run([{ cu: '', street: '1 A St', phone: '8015550001', name: 'May Sara' }], book);
+        check('S56', 'a blank number on the sheet never wipes the one on file',
+          r.changes.length === 0,
+          'the sheet not saying is not the sheet saying "none"');
+      }
+    }
+
+    /* ⚠ It writes ONE field. That is what makes a targeted fixer safe to run. */
+    {
+      const a2 = admin.indexOf("document.getElementById('rbFixNumbersBtn')");
+      const b2 = admin.indexOf("document.getElementById('rbCheckBtn')", a2);
+      const body = a2 > 0 && b2 > a2 ? admin.slice(a2, b2) : '';
+      check('S56', 'the handler was found', !!body);
+      check('S56', 'it writes the customer number and nothing else',
+        /updateDoc\(doc\(db,'jobAddresses', list\[i\]\.id\), \{customerNumber: list\[i\]\.to\}\)/.test(body) &&
+        !/street|city|zip|housePrice|measuredFeet|name:/.test(body.slice(body.indexOf('rbFixNumbersGoBtn'))),
+        'the blast radius being one visible field is the whole argument for this button');
+      check('S56', 'it only writes the list it showed you',
+        /const list = rbPendingNumberFixes \|\| \[\];/.test(body));
+      check('S56', 'and it says the old number may still be on bins in the warehouse',
+        /may still be labelled on bins/.test(body),
+        'changing a number does not relabel anything physical, and nothing else says so');
+    }
   }
 }
 

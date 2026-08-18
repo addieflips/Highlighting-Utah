@@ -1548,8 +1548,10 @@
             <button type="button" class="btn btn-outline" id="rbCheckBtn" style="margin-top:6px;">Check First (changes nothing)</button>
             <button type="button" class="btn btn-gold" id="rbImportBtn" style="margin-top:6px;">Import / Update Customers</button>
             <button type="button" class="btn btn-outline" id="rbFixNamesBtn" style="margin-top:6px;">Fix names only</button>
+            <button type="button" class="btn btn-outline" id="rbFixNumbersBtn" style="margin-top:6px;">Fix CU# only</button>
             <span id="rbImportStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
             <div id="rbFixNamesReport" style="margin-top:10px;"></div>
+            <div id="rbFixNumbersReport" style="margin-top:10px;"></div>
             <div id="rbCheckReport" style="margin-top:10px;"></div>
           </div>
           <div style="border-top:1px solid var(--line); margin:20px 0 0; padding-top:16px;">
@@ -15121,6 +15123,74 @@ function rbCollectNameFixes(){
   }
   return {changes: changes, missing: missing};
 }
+/* ⭐ FIX THE CUSTOMER NUMBERS AND NOTHING ELSE.
+   Owner, 2026-08-18: "in bulk update make it #CU update like how you did with
+   update names."
+
+   The mirror image of the name fixer, and it has to be. That one MATCHES on
+   the number and writes the name; this one cannot match on the number, because
+   the number is the thing being corrected. It resolves each row the way the
+   full import does — phone with the street — and writes `customerNumber` and
+   nothing else.
+
+   Three ways a row is refused rather than written, all reported by row:
+     - it matches nobody, so there is no house to put the number on;
+     - it matches a record an EARLIER row already claimed. This is the fault
+       behind "she goes back to 479": two rows landing on one house, the lower
+       one winning, inside a single run;
+     - the number it wants is already on a DIFFERENT customer. Writing it would
+       put two houses on one number, which is the exact thing Health Check's
+       "two customers sharing one customer number" is there to catch, and the
+       warehouse cannot label bins for it. */
+function rbCollectNumberFixes(){
+  if(BULK_BY_NUMBER) return {changes: [], missing: [], collided: [], taken: [], wrongMode: true};
+  const hoff = rbHeaderOffset();
+  const nums = rbCol('rbCustNumbersArea', hoff);
+  const streets = rbCol('rbStreetsArea', hoff);
+  const phones = rbCol('rbPhonesArea', hoff);
+  const cities = rbCol('rbCitiesArea', hoff);
+  const zips = rbCol('rbZipsArea', hoff);
+  const namesRaw = rbCol('rbNamesArea', hoff);
+  const len = Math.max(nums.length, streets.length, phones.length);
+  const changes = [], missing = [], collided = [], taken = [];
+  const claimed = {};
+  /* Who holds each number as things stand. First match wins, exactly as
+     custByNumber does, so this agrees with the rest of the app about who
+     "has" a number when the book still has duplicates on it. */
+  const holder = {};
+  jobAddresses.forEach(function(it){
+    const n = String(((it && it.data) || {}).customerNumber || '').trim();
+    if(n && !holder[n]) holder[n] = it;
+  });
+  for(let i = 0; i < len; i++){
+    const cu = String(nums[i] || '').trim();
+    if(!cu) continue;
+    const street = String(streets[i] || '').trim();
+    const phone = String(phones[i] || '').trim();
+    const who = rbName(String(namesRaw[i] || '').trim()).trim();
+    const label = who || street || ('row ' + (i + 1));
+    /* '' for the number, deliberately: matching on it would send the row to
+       whoever currently holds it, which is the wrong house by definition. */
+    const existing = bulkFindCustomer(street, phone, String(cities[i] || ''), String(zips[i] || ''), '');
+    if(!existing){ missing.push({row: i + 1, cu: cu, name: label}); continue; }
+    if(claimed[existing.id]){
+      collided.push({row: i + 1, first: claimed[existing.id], cu: cu, name: label});
+      continue;
+    }
+    claimed[existing.id] = i + 1;
+    const now = String((existing.data || {}).customerNumber || '').trim();
+    if(now === cu) continue;
+    const held = holder[cu];
+    if(held && held.id !== existing.id){
+      taken.push({row: i + 1, cu: cu, name: label, heldBy: (held.data || {}).name || '(no name)'});
+      continue;
+    }
+    changes.push({id: existing.id, from: now, to: cu,
+                  name: (existing.data || {}).name || label});
+  }
+  return {changes: changes, missing: missing, collided: collided, taken: taken, wrongMode: false};
+}
+let rbPendingNumberFixes = null;
 /* ---------------- DUPLICATE CUSTOMERS ---------------------------------------
    Owner, 2026-08-17, reading Health Check: "actually yes we Have duplicate
    customers which is bad we need to delete duplicates". 1,923 customers on
@@ -15621,6 +15691,81 @@ document.getElementById('rbFixNamesBtn')?.addEventListener('click', function(){
     statusEl.textContent = '';
   }); }, function(){ return document.getElementById('rbFixNamesGoBtn'); }));
 });
+document.getElementById('rbFixNumbersBtn')?.addEventListener('click', function(){
+  const report = document.getElementById('rbFixNumbersReport');
+  const statusEl = document.getElementById('rbImportStatus');
+  if(!report) return;
+  report.innerHTML = '';
+  if(!jobAddresses.length){
+    statusEl.textContent = 'The customer list has not finished loading yet. Give it a moment and try again.';
+    return;
+  }
+  const found = rbCollectNumberFixes();
+  rbPendingNumberFixes = found.changes;
+  const box = function(inner){
+    return '<div style="border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--paper); font-size:13px;">' + inner + '</div>';
+  };
+  if(found.wrongMode){
+    report.innerHTML = box('This tool matches on the phone and address, so it cannot run while the import is keyed on the customer number — the number is the thing it is correcting.');
+    return;
+  }
+  /* Every refusal, said out loud. A row that quietly did nothing is what makes
+     this look broken. */
+  const refusals =
+    (found.collided.length
+      ? '<div style="font-size:12.5px; color:var(--ember); margin-top:8px;"><strong>⚠ ' + found.collided.length +
+        ' row(s) point at a customer an earlier row already claimed</strong> — two rows for one house. Left alone: ' +
+        found.collided.slice(0, 6).map(function(x){ return 'row ' + x.row + ' (' + esc(x.name) + ' → #' + esc(x.cu) + ') repeats row ' + x.first; }).join('; ') +
+        (found.collided.length > 6 ? ', and ' + (found.collided.length - 6) + ' more' : '') + '.</div>'
+      : '') +
+    (found.taken.length
+      ? '<div style="font-size:12.5px; color:var(--ember); margin-top:8px;"><strong>⚠ ' + found.taken.length +
+        ' number(s) already belong to somebody else</strong> — writing them would put two houses on one number. Left alone: ' +
+        found.taken.slice(0, 6).map(function(x){ return '#' + esc(x.cu) + ' wanted by ' + esc(x.name) + ', held by ' + esc(x.heldBy); }).join('; ') +
+        (found.taken.length > 6 ? ', and ' + (found.taken.length - 6) + ' more' : '') + '.</div>'
+      : '') +
+    (found.missing.length
+      ? '<div style="font-size:12.5px; color:var(--slate); margin-top:8px;">' + found.missing.length +
+        ' row(s) match nobody here, so there is no house to put the number on.</div>'
+      : '');
+  if(!found.changes.length){
+    report.innerHTML = box('Every customer number already matches the sheet — nothing to change.' + refusals);
+    return;
+  }
+  const shown = found.changes.slice(0, 40).map(function(c){
+    return '<tr><td style="padding:2px 10px 2px 0;">' + esc(c.name) + '</td>' +
+           '<td style="padding:2px 10px 2px 0; color:var(--slate);">' + esc(c.from ? '#' + c.from : '(no number)') + '</td>' +
+           '<td style="padding:2px 0;">→ <strong>#' + esc(c.to) + '</strong></td></tr>';
+  }).join('');
+  report.innerHTML =
+    '<div style="border:2px solid var(--gold-dim); border-radius:10px; padding:14px; background:var(--snow);">' +
+      '<div style="font-weight:700; margin-bottom:8px;">' + found.changes.length + ' customer number(s) would change. Nothing has been saved yet.</div>' +
+      '<div style="max-height:240px; overflow:auto;"><table style="border-collapse:collapse; font-size:13px;">' + shown + '</table></div>' +
+      (found.changes.length > 40 ? '<div style="font-size:12.5px; color:var(--slate); margin-top:6px;">… and ' + (found.changes.length - 40) + ' more.</div>' : '') +
+      refusals +
+      '<button type="button" class="btn btn-gold" id="rbFixNumbersGoBtn" style="margin-top:12px;">Change these ' + found.changes.length + ' number(s)</button>' +
+    '</div>';
+  const go = document.getElementById('rbFixNumbersGoBtn');
+  if(go) go.addEventListener('click', onceAtATime(async function(){ return withBulkWrites(async function(){
+    const list = rbPendingNumberFixes || [];
+    let done = 0, failed = 0;
+    for(let i = 0; i < list.length; i++){
+      statusEl.textContent = 'Numbering ' + (i+1) + ' of ' + list.length + '…';
+      await bulkBreathe(i);
+      try{
+        await updateDoc(doc(db,'jobAddresses', list[i].id), {customerNumber: list[i].to});
+        done++;
+      } catch(err){ failed++; }
+    }
+    rbPendingNumberFixes = null;
+    report.innerHTML =
+      '<div style="border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--paper); font-size:13px;">' +
+      done + ' customer number(s) changed' + (failed ? ', ' + failed + ' failed' : '') +
+      '. Nothing else on those customers was touched, and no number was returned to the available pool — ' +
+      'the old one may still be labelled on bins in the warehouse.</div>';
+    statusEl.textContent = '';
+  }); }, function(){ return document.getElementById('rbFixNumbersGoBtn'); }));
+});
 document.getElementById('rbCheckBtn')?.addEventListener('click', function(){
   const statusEl = document.getElementById('rbImportStatus');
   const report = document.getElementById('rbCheckReport');
@@ -15710,6 +15855,10 @@ document.getElementById('rbCheckBtn')?.addEventListener('click', function(){
       oldName: existing ? (existing.data.name || '') : '',
       nameChanges: !!(existing && names[i] && names[i] !== (existing.data.name || '')),
       cn: custNumbers[i] || '',
+      /* Which RECORD this row resolves to. The collision that matters is two
+         rows landing on one customer, and bulkFindCustomer can do that by
+         PHONE — so comparing streets alone missed it entirely. */
+      existingId: existing ? existing.id : '',
       oldTown: existing ? (extractCleanCity(existing.data.city) || '') : '',
       newTown: extractCleanCity(cities[i] || '') || '',
       townChanges: !!(existing && extractCleanCity(cities[i] || '') &&
@@ -15723,14 +15872,23 @@ document.getElementById('rbCheckBtn')?.addEventListener('click', function(){
      own can find its customer, BOTH rows write to that one record and the
      second quietly overwrites the first. Whichever row sits lower down wins,
      including its price and its town, and nothing afterwards says so. Cheap to
-     spot here, invisible once it has happened. */
-  const seenStreet = {};
+     spot here, invisible once it has happened.
+
+     ⭐ COMPARED ON THE RESOLVED RECORD, NOT THE STREET (changed 2026-08-18).
+     Owner: "may sara is supposed to be at 541 and I bulk update for that and
+     she does but then she goes back to 479." Two rows for two different people
+     resolved to one record — bulkFindCustomer matches by PHONE as well as by
+     address, so they never repeated a street and this warning never fired.
+     Row A wrote 541, row B wrote 479 over it, inside the same run. */
+  const seenRecord = {};
   const dupeRows = [];
   rows.forEach(function(r){
-    const k = normalizeStreetForMatch(r.street);
-    if(!k) return;
-    if(seenStreet[k]) dupeRows.push({row: r.row, first: seenStreet[k], street: r.street});
-    else seenStreet[k] = r.row;
+    /* An unmatched row is a new customer and collides with nothing; fall back
+       to the street so two new rows for one house are still caught. */
+    const k = r.existingId || ('street:' + normalizeStreetForMatch(r.street));
+    if(!k || k === 'street:') return;
+    if(seenRecord[k]) dupeRows.push({row: r.row, first: seenRecord[k], street: r.street || r.name});
+    else seenRecord[k] = r.row;
   });
   statusEl.textContent = 'Nothing has been written.';
   report.innerHTML =
@@ -16007,6 +16165,29 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
   let added = 0, updated = 0, failed = 0, billed = 0, noPhoneNoInvoice = 0, noPin = 0, skipped = 0;
   // How much work this run did NOT have to do — see pinIsGood and unchanged.
   let pinsKept = 0, unchangedRows = 0, invoiceReadsSaved = 0;
+  /* ⭐ ONE RECORD, ONE ROW — THE REASON A NUMBER "GOES BACK".
+     Owner, 2026-08-18: "when I bulk update this keeps happening where people go
+     back to the wrong numbers... may sara is supposed to be at 541 and I bulk
+     update for that and she does but then she goes back to 479."
+
+     Nothing reverted it. TWO ROWS OF THE SAME PASTE resolved to the same
+     customer record, and the lower one won — inside the very same run. Row A
+     wrote 541, row B came along later, matched the same house, and wrote 479
+     over it. It looks like the update failed or was undone, and it is neither.
+
+     ⚠ WHY IT IS NOT ALWAYS A REPEATED ADDRESS, which is all Check First
+     compared. bulkFindCustomer resolves a row by PHONE or by street, so two
+     rows for two genuinely different people land on one record whenever they
+     share a phone — a couple, a landlord, a number typed into the wrong row.
+     May Sara and Rachel Oslund were already sharing customer number 479 on the
+     Health Check list, which is the same fault seen from the other end.
+
+     So a record is written AT MOST ONCE per run: the first row to claim it
+     wins, and every later row that resolves to it is refused and reported by
+     row number. Refusing is the safe direction — the alternative is silently
+     keeping whichever row happened to sit lower in the spreadsheet. */
+  const claimedBy = {};
+  const collided = [];
   /* ⚡ EVERY INVOICE IN ONE QUERY, instead of one read per row.
      The loop used to getDoc the invoice for each row that had a phone —
      ~945 sequential round trips on the master sheet, each one waiting for the
@@ -16088,6 +16269,21 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
          the wrong customer. Phone with the street identifies the house instead,
          and the number on the row is then WRITTEN — the import corrects it. */
       const existing = bulkFindCustomer(street, phone, city, zip, cn);
+      /* Claimed as soon as the row resolves — before the geocode, which is a
+         network call this row no longer needs, and before anything is written.
+         An unchanged row still claims: it matched the record, so a later row
+         landing on it is the same collision. */
+      if(existing){
+        if(claimedBy[existing.id]){
+          collided.push({row: i + 1, first: claimedBy[existing.id],
+                         name: name || street || ('row ' + (i + 1)),
+                         held: existing.data.name || '',
+                         cn: cn || ''});
+          skipped++;
+          continue;
+        }
+        claimedBy[existing.id] = i + 1;
+      }
       const fullAddress = buildFullAddress(street, city, zip);
       /* Geocode ONLY when the answer could differ from what is already stored:
          a customer we have never seen, one with no pin yet, or one whose
@@ -16229,7 +16425,12 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
           newDoc.numberOfBins = cnBinsForFeet(Number(feetVal));
         }
         if(notesVal) newDoc.notes = notesVal;
-        await addDoc(collection(db,'jobAddresses'), newDoc);
+        /* Claimed as well. The local jobAddresses cache does not hold this
+           record until the Firestore listener catches up, so a later row for
+           the same house would not FIND it and would add a second copy — which
+           is how a book duplicates itself one pair at a time. */
+        const addedRef = await addDoc(collection(db,'jobAddresses'), newDoc);
+        if(addedRef && addedRef.id) claimedBy[addedRef.id] = i + 1;
         added++;
       }
       /* A number typed in here might be one already sitting in the recycled
@@ -16375,7 +16576,22 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
   const alreadyRightTotal = runTotals.unchangedRows
     ? ' ' + runTotals.unchangedRows + ' row(s) already matched and were left alone.'
     : '';
-  statusEl.textContent = (hoff ? 'First line ignored as headings. ' : '') + streets.length + ' row(s) read \u2014 ' + runTotals.added + ' added, ' + runTotals.updated + ' updated' + (runTotals.billed ? ', ' + runTotals.billed + ' invoice(s) billed' : '') + (runTotals.noPhoneNoInvoice ? ', ' + runTotals.noPhoneNoInvoice + ' amount(s) skipped (no phone on file)' : '') + (runTotals.noPin ? ', ' + runTotals.noPin + ' added without a map pin (All Customers → Filters → Map Pin → "Needs Pin", or see Health Check)' : '') + (runTotals.failed ? ', ' + runTotals.failed + ' failed' : '') + '.' + alreadyRightTotal + movedNote + skippedNote;
+  /* ⭐ NAMED, NOT COUNTED. This is the one that looks like the tool undid its
+     own work — "she goes back to 479" — so the report has to say which rows
+     fought over which house, or the office is left thinking the update failed. */
+  const collidedNote = collided.length
+    ? ' ⚠ ' + collided.length + ' row(s) pointed at a customer another row had already updated, ' +
+      'and were LEFT ALONE rather than overwriting it: ' +
+      collided.slice(0, 6).map(function(x){
+        return 'row ' + x.row + ' (' + x.name + ')' +
+               (x.cn ? ' wanted #' + x.cn : '') +
+               ' hit the same record as row ' + x.first +
+               (x.held ? ' — on file as ' + x.held : '');
+      }).join('; ') +
+      (collided.length > 6 ? ', and ' + (collided.length - 6) + ' more' : '') +
+      '. Two rows for one house, or two people sharing a phone — fix the sheet and run it again.'
+    : '';
+  statusEl.textContent = (hoff ? 'First line ignored as headings. ' : '') + streets.length + ' row(s) read \u2014 ' + runTotals.added + ' added, ' + runTotals.updated + ' updated' + (runTotals.billed ? ', ' + runTotals.billed + ' invoice(s) billed' : '') + (runTotals.noPhoneNoInvoice ? ', ' + runTotals.noPhoneNoInvoice + ' amount(s) skipped (no phone on file)' : '') + (runTotals.noPin ? ', ' + runTotals.noPin + ' added without a map pin (All Customers → Filters → Map Pin → "Needs Pin", or see Health Check)' : '') + (runTotals.failed ? ', ' + runTotals.failed + ' failed' : '') + '.' + alreadyRightTotal + collidedNote + movedNote + skippedNote;
   rbAreaIds.forEach(function(id){ document.getElementById(id).value = ''; });
   const sheetBox = document.getElementById('rbSheetArea');
   if(sheetBox) sheetBox.value = '';
