@@ -1590,6 +1590,14 @@
           <span id="dupStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
           <div id="dupReport" style="margin-top:12px;"></div>
         </div>
+        <div class="card" style="border:2px solid var(--gold-dim); margin-top:14px;">
+          <h3 style="margin:0 0 6px;">Exact duplicates</h3>
+          <p style="font-size:13px; margin:0 0 10px;">The simple one. Finds records where <strong>every single field is the same</strong> &mdash; name, address, town, phone, email, price, feet, colours, notes, all of it &mdash; and keeps one of them. Because the copies are identical there is nothing to weigh up and nothing that can be lost.</p>
+          <p style="font-size:13px; margin:0 0 10px; color:var(--slate);">If two copies differ by so much as a phone number they are left alone for the tool above. A blank field and a missing one count as the same thing. Deletes nothing until you press the second button.</p>
+          <button type="button" class="btn btn-outline" id="dupExactBtn">Find exact duplicates (changes nothing)</button>
+          <span id="dupExactStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
+          <div id="dupExactReport" style="margin-top:12px;"></div>
+        </div>
         <div class="card" style="background:#2a1210; border-color:#5c2820;">
           <h3 style="color:#fff;">Danger Zone</h3>
           <p style="font-size:13px; color:rgba(255,255,255,.7);">Permanently deletes every customer &mdash; their Route entry, their House Map, and their Invoice, all together. This cannot be undone.</p>
@@ -15197,6 +15205,90 @@ function findDuplicateCustomers(invoiceKeys, routedIds){
   });
   return {ready: ready, review: review};
 }
+/* ⭐ EVERY FIELD, IN A FORM TWO RECORDS CAN BE COMPARED BY.
+   Owner, 2026-08-18: "create a button that delete duplicates, meaning
+   everything is the same."
+
+   The tool above WEIGHS two copies and picks the richer one, which needs a
+   judgement and is why it refuses so many pairs. This asks a much smaller
+   question with a much safer answer: are these two records identical? If they
+   are, one of them can go and nothing at all is lost — there is no field on
+   the loser that the keeper does not already have, by definition.
+
+   ⚠ EVERY key is compared, not a chosen list. A list would quietly stop
+   protecting whatever field somebody adds next, and the whole safety of this
+   button rests on "everything is the same" really meaning everything.
+
+   Two normalisations, both of which only ever make it REFUSE more or judge
+   fairly, never delete more:
+     - keys are sorted, because two documents can hold the same fields in a
+       different order and a raw stringify would call them different;
+     - a blank field and a missing one are the same thing. The importer writes
+       email:'' where a hand-edit leaves the key off entirely, and to the
+       office those are both "no email". A blank carries no information, so
+       treating them alike cannot lose any. */
+function dupFingerprint(d){
+  const norm = function(v){
+    if(v === null || v === undefined) return null;
+    if(Array.isArray(v)) return v.map(norm);
+    if(typeof v === 'object'){
+      /* A Firestore Timestamp is an object with methods; compare the instant. */
+      if(typeof v.seconds === 'number') return 'ts:' + v.seconds;
+      const o = {};
+      Object.keys(v).sort().forEach(function(k){ o[k] = norm(v[k]); });
+      return o;
+    }
+    if(typeof v === 'string') return v.trim();
+    return v;
+  };
+  const out = {};
+  Object.keys(d || {}).sort().forEach(function(k){
+    const v = norm(d[k]);
+    if(v === null || v === '') return;
+    out[k] = v;
+  });
+  return JSON.stringify(out);
+}
+/* Groups of records that are identical in every field. Returns one entry per
+   group: the copy to keep, and the copies that can go.
+
+   ⚠ THE ONE IT KEEPS IS THE ONE THE CREW IS GOING TO. Deleting a record takes
+   it off any upcoming route, so keeping a copy that is NOT on a route would
+   quietly cancel a stop the crew has been told about. Otherwise the oldest,
+   which is the original, and then the id so the same book always gives the
+   same answer.
+
+   ⚠ A GROUP WITH TWO COPIES ON ROUTES IS REFUSED. That is the same house
+   scheduled twice, possibly on different days, and which stop the crew should
+   lose is the office's call rather than this button's. */
+function findIdenticalCustomers(routedIds){
+  const routed = routedIds || {};
+  const groups = {};
+  jobAddresses.forEach(function(c){
+    const fp = dupFingerprint((c && c.data) || {});
+    /* A record with nothing in it is not "the same as" another empty one in
+       any useful sense, and deleting blanks is not what this button is for. */
+    if(!fp || fp === '{}') return;
+    (groups[fp] = groups[fp] || []).push(c);
+  });
+  const ready = [], review = [];
+  Object.keys(groups).forEach(function(fp){
+    const list = groups[fp];
+    if(list.length < 2) return;
+    const onRoute = list.filter(function(c){ return routed[c.id]; });
+    const sorted = list.slice().sort(function(a, b){
+      const ar = routed[a.id] ? 1 : 0, br = routed[b.id] ? 1 : 0;
+      if(ar !== br) return br - ar;
+      const as = (a.data && a.data.createdAt && a.data.createdAt.seconds) || 0;
+      const bs = (b.data && b.data.createdAt && b.data.createdAt.seconds) || 0;
+      if(as !== bs) return as - bs;
+      return String(a.id) < String(b.id) ? -1 : 1;
+    });
+    const entry = {keeper: sorted[0], losers: sorted.slice(1), routed: onRoute.length};
+    if(onRoute.length > 1) review.push(entry); else ready.push(entry);
+  });
+  return {ready: ready, review: review};
+}
 let dupPending = null;
 document.getElementById('dupFindBtn')?.addEventListener('click', onceAtATime(async function(){
   const statusEl = document.getElementById('dupStatus');
@@ -15288,6 +15380,95 @@ document.getElementById('dupFindBtn')?.addEventListener('click', onceAtATime(asy
     }); }, function(){ return document.getElementById('dupDeleteBtn'); }));
   }
 }, function(){ return document.getElementById('dupFindBtn'); }));
+
+let dupExactPending = null;
+document.getElementById('dupExactBtn')?.addEventListener('click', onceAtATime(async function(){
+  const statusEl = document.getElementById('dupExactStatus');
+  const report = document.getElementById('dupExactReport');
+  report.innerHTML = '';
+  dupExactPending = null;
+  if(!jobAddresses.length){
+    statusEl.textContent = 'The customer list has not finished loading yet.';
+    return;
+  }
+  /* Routes decide WHICH copy is kept, so they have to be known before choosing.
+     No invoice read is needed here and that is not an oversight: identical
+     records produce an identical invoice key, so both copies point at the same
+     invoice and deleting one cannot orphan it. */
+  const routedIds = {};
+  Object.keys(scheduledRoutesCache || {}).forEach(function(dt){
+    (scheduledRoutesCache[dt] || []).forEach(function(r){
+      ((r.data && r.data.stops) || []).forEach(function(st){ if(st && st.id) routedIds[st.id] = true; });
+    });
+  });
+  const found = findIdenticalCustomers(routedIds);
+  const toDelete = found.ready.reduce(function(n, g){ return n + g.losers.length; }, 0);
+  dupExactPending = found.ready;
+  const nameOf = function(c){ return (c.data && c.data.name) || '(no name)'; };
+  const whereOf = function(c){
+    const d = c.data || {};
+    return [d.street || '', extractCleanCity(d.city) || ''].filter(Boolean).join(', ') || 'no address';
+  };
+  statusEl.textContent = found.ready.length + ' identical group(s), ' + toDelete + ' record(s) would go.' +
+    (found.review.length ? ' ' + found.review.length + ' need you to decide.' : '');
+  report.innerHTML =
+    '<div style="border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--paper);">' +
+      (toDelete
+        ? '<div style="font-weight:700; margin-bottom:8px;">' + toDelete + ' record(s) are an exact copy of one being kept. Nothing has been deleted yet.</div>' +
+          '<div style="font-size:12.5px; color:var(--slate); margin-bottom:8px;">Every field matches, so there is nothing on the copies being deleted that the one being kept does not already have.</div>' +
+          '<div style="max-height:300px; overflow:auto; font-size:13px; line-height:1.6;">' +
+          found.ready.slice(0, 200).map(function(g){
+            return '<div style="padding:4px 0; border-bottom:1px solid var(--line);">' +
+              '<strong>' + esc(nameOf(g.keeper)) + '</strong> — ' + esc(whereOf(g.keeper)) +
+              ' <span style="color:var(--slate);">keeping 1' + (g.routed ? ' (the copy the crew is going to)' : '') +
+              ', deleting ' + g.losers.length + '</span></div>';
+          }).join('') + '</div>' +
+          (found.ready.length > 200 ? '<div style="font-size:12.5px; color:var(--slate); margin-top:6px;">… and ' + (found.ready.length - 200) + ' more groups.</div>' : '') +
+          '<div style="margin-top:12px;"><input type="text" id="dupExactConfirmInput" placeholder="Type DELETE to unlock" style="padding:9px 11px; border-radius:8px; border:1px solid var(--line); font-size:13px;"> ' +
+          '<button type="button" class="btn btn-gold" id="dupExactDeleteBtn" disabled>Delete ' + toDelete + ' exact copy(s)</button></div>'
+        : '<div style="font-weight:700;">No records are an exact copy of another.</div>' +
+          '<div style="font-size:12.5px; color:var(--slate); margin-top:6px;">If you expected some, the copies differ somewhere — use <strong>Find duplicates</strong> above, which weighs them instead.</div>') +
+      (found.review.length
+        ? '<div style="margin-top:12px; font-size:13px;"><strong>' + found.review.length + ' group(s) I will not decide</strong> — more than one copy is on an upcoming route, so the same house is scheduled twice and which stop to lose is your call:' +
+          '<div style="max-height:180px; overflow:auto; margin-top:6px; line-height:1.6;">' +
+          found.review.slice(0, 60).map(function(g){ return esc(nameOf(g.keeper)) + ' — ' + esc(whereOf(g.keeper)); }).join('<br>') +
+          '</div></div>'
+        : '') +
+    '</div>';
+  const input = document.getElementById('dupExactConfirmInput');
+  const go = document.getElementById('dupExactDeleteBtn');
+  if(input && go){
+    input.addEventListener('input', function(){ go.disabled = input.value.trim().toUpperCase() !== 'DELETE'; });
+    go.addEventListener('click', onceAtATime(async function(){ return withBulkWrites(async function(){
+      const groups = dupExactPending || [];
+      let gone = 0, failed = 0, i = 0;
+      for(const g of groups){
+        for(const l of g.losers){
+          statusEl.textContent = 'Deleting ' + (i+1) + ' of ' + toDelete + '…';
+          await bulkBreathe(i++);
+          try{
+            /* Off any route it was on first, or the crew is left with a stop
+               pointing at a customer who is not there. The keeper is the routed
+               copy wherever there was one, so this only ever strips a second,
+               duplicate stop. */
+            if(typeof removeCustomerFromUpcomingRoutes === 'function'){
+              await removeCustomerFromUpcomingRoutes(l.id);
+            }
+            await deleteDoc(doc(db,'jobAddresses', l.id));
+            gone++;
+          } catch(err){ failed++; }
+        }
+      }
+      dupExactPending = null;
+      logActivity('Deleted ' + gone + ' exact duplicate customer record(s)', 'customers', '');
+      report.innerHTML = '<div style="border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--paper); font-size:13px;">' +
+        gone + ' exact copy(s) deleted' + (failed ? ', ' + failed + ' failed' : '') +
+        '. Every one was identical to the record kept, so nothing was lost. The copy kept still holds its customer number — no number went back in the pool. ' +
+        'Run it again to check.</div>';
+      statusEl.textContent = '';
+    }); }, function(){ return document.getElementById('dupExactDeleteBtn'); }));
+  }
+}, function(){ return document.getElementById('dupExactBtn'); }));
 
 document.getElementById('rbFixNamesBtn')?.addEventListener('click', function(){
   const report = document.getElementById('rbFixNamesReport');

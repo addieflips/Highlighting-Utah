@@ -9746,9 +9746,15 @@ suite('Suite 42. Fix names only, matched on the customer number');
      to match on a number the importer will not trust is that the blast radius
      is one visible field. */
   {
-    const at = admin.indexOf("go.addEventListener('click', onceAtATime");
+    /* ⚠ ANCHORED ON THIS TOOL'S OWN HANDLER. "go.addEventListener('click',
+       onceAtATime" is a shape several Danger Zone tools share — the exact
+       duplicate button added one more in 2026-08-18 and, sitting earlier in
+       the file, it captured this slice and turned a real pass into a failure.
+       Start from the button this check is about. */
+    const owner = admin.indexOf("document.getElementById('rbFixNamesBtn')");
+    const at = admin.indexOf("go.addEventListener('click', onceAtATime", owner);
     const end = admin.indexOf('rbPendingNameFixes = null;', at);
-    const body = at > 0 && end > at ? admin.slice(at, end) : '';
+    const body = owner > 0 && at > owner && end > at ? admin.slice(at, end) : '';
     check('S42', 'the apply step writes only the name', !!body &&
       /updateDoc\(doc\(db,'jobAddresses', list\[i\]\.id\), \{name: list\[i\]\.to\}\)/.test(body) &&
       !/street|city|zip|customerNumber|measuredFeet|housePrice/.test(body),
@@ -11930,6 +11936,191 @@ suite('Suite 53. October is a deadline');
         /until:houseDeadline\(h\),/.test(admin),
         'the packer cannot work them out for itself — it never sees the customer record');
     }
+  }
+}
+
+
+/* ============================================================
+ * Suite 54. Deleting the copies that are identical.
+ *
+ * Owner, 2026-08-18: "we need to delete duplicate customers, create a button
+ * that delete duplicates, meaning everything is the same."
+ *
+ * The scored tool (Suite 45) WEIGHS two copies and keeps the richer one, which
+ * is a judgement, which is why it refuses so many pairs. This asks a smaller
+ * question with a much safer answer: are these records identical? If they are,
+ * one can go and nothing is lost — there is no field on the loser the keeper
+ * does not already have, by definition.
+ *
+ * So the whole safety of the button rests on "everything is the same" really
+ * meaning EVERYTHING. Most of this suite is about the ways that could quietly
+ * stop being true.
+ * ============================================================ */
+suite('Suite 54. Deleting the copies that are identical');
+{
+  const fn = (name) => {
+    const at = admin.indexOf('function ' + name + '(');
+    if (at < 0) return '';
+    let d = 0;
+    for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+    }
+    return '';
+  };
+
+  const fpSrc = fn('dupFingerprint');
+  const findSrc = fn('findIdenticalCustomers');
+  check('S54', 'dupFingerprint and findIdenticalCustomers exist', !!fpSrc && !!findSrc);
+
+  if (fpSrc) {
+    const sb = {};
+    new Function(fpSrc + 'this.fp = dupFingerprint;').call(sb);
+    const fp = sb.fp;
+
+    check('S54', 'two identical records match',
+      fp({ name: 'Julie Cattani', city: 'Lehi', phone: '801-555-0100' }) ===
+      fp({ name: 'Julie Cattani', city: 'Lehi', phone: '801-555-0100' }));
+
+    /* ⚠ THE WHOLE POINT. Any difference at all has to block it. */
+    check('S54', 'a different phone stops them matching',
+      fp({ name: 'Julie', phone: '801-555-0100' }) !== fp({ name: 'Julie', phone: '801-555-0101' }));
+    check('S54', 'a different town stops them matching',
+      fp({ name: 'Julie', city: 'Lehi' }) !== fp({ name: 'Julie', city: 'Highland' }));
+    check('S54', 'a field one has and the other does not stops them matching',
+      fp({ name: 'Julie', notes: 'gate code 1234' }) !== fp({ name: 'Julie' }),
+      'the note would be deleted with the record and never seen again');
+    check('S54', 'a different price or footage stops them matching',
+      fp({ name: 'J', housePrice: 355 }) !== fp({ name: 'J', housePrice: 415 }) &&
+      fp({ name: 'J', measuredFeet: 120 }) !== fp({ name: 'J', measuredFeet: 121 }));
+    check('S54', 'a different list of colours stops them matching',
+      fp({ name: 'J', lightColors: ['Red', 'Green'] }) !== fp({ name: 'J', lightColors: ['Red', 'Blue'] }),
+      'and order matters, because the crew hangs them in it');
+    check('S54', 'a false does not read as a missing field',
+      fp({ name: 'J', chargeNewMemberFee: false }) !== fp({ name: 'J' }),
+      'a flag deliberately turned off is not the same as one nobody set');
+
+    /* ⚠ Sorting the keys — two documents can hold the same fields in a
+       different order and must still be recognised as the same record. */
+    check('S54', 'the order the fields happen to be in makes no difference',
+      fp({ name: 'Julie', city: 'Lehi' }) === fp({ city: 'Lehi', name: 'Julie' }),
+      'without sorting this finds nothing at all, which looks like "no duplicates"');
+
+    /* Blank and missing are the same thing to the office — the importer writes
+       one where a hand-edit leaves the other. */
+    check('S54', 'a blank field and a missing one count as the same',
+      fp({ name: 'Julie', email: '' }) === fp({ name: 'Julie' }) &&
+      fp({ name: 'Julie', email: '   ' }) === fp({ name: 'Julie' }),
+      'a blank carries no information, so treating them alike cannot lose any');
+    check('S54', 'and surrounding spaces do not make two records different',
+      fp({ name: ' Julie ', city: 'Lehi' }) === fp({ name: 'Julie', city: 'Lehi' }));
+
+    check('S54', 'two timestamps at the same instant match, two at different ones do not',
+      fp({ name: 'J', createdAt: { seconds: 100, nanoseconds: 0 } }) ===
+      fp({ name: 'J', createdAt: { seconds: 100, nanoseconds: 5 } }) &&
+      fp({ name: 'J', createdAt: { seconds: 100, nanoseconds: 0 } }) !==
+      fp({ name: 'J', createdAt: { seconds: 200, nanoseconds: 0 } }),
+      'every customer shares one import date, so this field almost never separates two copies anyway');
+  }
+
+  if (fpSrc && findSrc) {
+    const sb2 = {};
+    new Function('jobAddresses', fpSrc + findSrc + 'this.find = findIdenticalCustomers;');
+    const run = (custs, routed) => {
+      const ctx = {};
+      new Function('jobAddresses', fpSrc + findSrc + 'this.find = findIdenticalCustomers;').call(ctx, custs);
+      return ctx.find(routed || {});
+    };
+    const c = (id, data) => ({ id: id, data: data });
+    const SAME = { name: 'Julie Cattani', street: '123 Main St', city: 'Lehi', phone: '8015550100' };
+
+    {
+      const r = run([c('a', SAME), c('b', SAME), c('c', { name: 'Someone Else', city: 'Lehi' })]);
+      check('S54', 'a plain identical pair is ready to go',
+        r.ready.length === 1 && r.ready[0].losers.length === 1,
+        JSON.stringify(r.ready.length) + ' groups');
+      check('S54', 'and a record with no twin is left completely alone',
+        r.ready.every(g => g.keeper.id !== 'c' && g.losers.every(l => l.id !== 'c')));
+    }
+
+    {
+      const r = run([c('a', SAME), c('b', SAME), c('d', SAME)]);
+      check('S54', 'three copies keep one and delete two',
+        r.ready.length === 1 && r.ready[0].losers.length === 2);
+    }
+
+    /* ⚠ THE ONE THAT WOULD CANCEL A STOP. Deleting a record takes it off any
+       upcoming route, so the copy on the route is the copy that must survive. */
+    {
+      const r = run([c('a', SAME), c('b', SAME)], { b: true });
+      check('S54', 'the copy the crew is going to is the one kept',
+        r.ready.length === 1 && r.ready[0].keeper.id === 'b' && r.ready[0].losers[0].id === 'a',
+        'kept ' + (r.ready[0] && r.ready[0].keeper.id) +
+        ' — keeping the unrouted copy would quietly cancel a stop the crew has been told about');
+    }
+
+    /* ⚠ And when BOTH are on routes the same house is scheduled twice; which
+       stop to lose is the office's call. */
+    {
+      const r = run([c('a', SAME), c('b', SAME)], { a: true, b: true });
+      check('S54', 'two copies both on routes are refused, not guessed',
+        r.ready.length === 0 && r.review.length === 1,
+        'ready ' + r.ready.length + ', review ' + r.review.length);
+    }
+
+    {
+      const r = run([c('a', SAME), c('b', { name: 'Julie Cattani', street: '123 Main St', city: 'Lehi', phone: '8015550101' })]);
+      check('S54', 'a pair differing by one digit is NOT touched',
+        r.ready.length === 0 && r.review.length === 0,
+        'they go to the tool that weighs them, not to this one');
+    }
+
+    {
+      const r = run([c('a', {}), c('b', {}), c('e', { name: '', city: '   ' })]);
+      check('S54', 'empty records are never deleted as copies of each other',
+        r.ready.length === 0,
+        'deleting blanks is not what this button is for, and three empties are not "the same customer"');
+    }
+
+    /* Same input, same answer, whatever order the book arrives in. */
+    {
+      const one = run([c('a', SAME), c('b', SAME)]);
+      const two = run([c('b', SAME), c('a', SAME)]);
+      check('S54', 'the same book always gives the same answer',
+        one.ready[0].keeper.id === two.ready[0].keeper.id,
+        'a delete list that changed between two presses of the same button would be unreviewable');
+    }
+  }
+
+  /* ---- the button, and the guards around it ---- */
+  check('S54', 'the button is there', admin.indexOf('id="dupExactBtn"') > 0);
+
+  {
+    const at = admin.indexOf("document.getElementById('dupExactBtn')");
+    const end = admin.indexOf("document.getElementById('rbFixNamesBtn')", at);
+    const body = at > 0 && end > at ? admin.slice(at, end) : '';
+    check('S54', 'the handler was found', !!body);
+    /* ⚠ SCOPED TO THIS HANDLER. The scored tool above has a DELETE lock spelled
+       identically, so a file-wide search passed with this one's lock removed. */
+    check('S54', 'it deletes nothing until DELETE is typed',
+      /input\.value\.trim\(\)\.toUpperCase\(\) !== 'DELETE'/.test(body) &&
+      admin.indexOf('id="dupExactDeleteBtn"') > 0,
+      'same lock as every other bulk delete in Danger Zone');
+    check('S54', 'it takes the copy off any route before deleting it',
+      /removeCustomerFromUpcomingRoutes\(l\.id\)/.test(body),
+      'or the crew is left with a stop pointing at a customer who is not there');
+    check('S54', 'it deletes only the losers, never the keeper',
+      /deleteDoc\(doc\(db,'jobAddresses', l\.id\)\)/.test(body) &&
+      !/deleteDoc\(doc\(db,'jobAddresses', g\.keeper/.test(body));
+    check('S54', 'it only ever deletes what the scan put in front of you',
+      /const groups = dupExactPending \|\| \[\];/.test(body),
+      'deleting from a fresh scan would delete a list nobody had seen');
+    check('S54', 'and it writes the deletion to the activity log',
+      /logActivity\('Deleted ' \+ gone \+ ' exact duplicate customer record/.test(body));
+    /* ⚠ The customer number stays with the copy that was kept. */
+    check('S54', 'no customer number is handed back to the pool',
+      !/availableCustomerNumbers/.test(body),
+      'the copy being kept still holds it, so pooling it would hand a live number to somebody new');
   }
 }
 
