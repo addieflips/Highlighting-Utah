@@ -15137,7 +15137,28 @@ function rbCollectNameFixes(){
        it, and pooling it would hand a live number to somebody new.
    Re-running is the resume: a run that dies half way simply finds fewer the
    next time. */
-function dupNormName(v){ return String(v == null ? '' : v).toLowerCase().replace(/[^a-z0-9]/g, ''); }
+/* ⭐ THE WORDS OF A NAME, IN NO PARTICULAR ORDER.
+   Owner, 2026-08-18, showing two records for one man:
+     "Jeff Richards #5029 — 449 E 200 N, Levan"
+     "Richards Jeff — Levan, UT"
+   The second is the Excel spelling. The master sheet is "Last First" and the
+   site is "First Last", so a copy made by an import that did not flip the
+   names keeps the sheet's order — and this is systematic across the strays,
+   not a one-off.
+
+   Sorting the words makes the order irrelevant, so those two group. The risk
+   it adds is two DIFFERENT people whose names are each other reversed
+   ("James Morgan" and "Morgan James"), which is rare and still has to get past
+   the customer-number and address guards before anything is merged. */
+function dupNormName(v){
+  return String(v == null ? '' : v).toLowerCase()
+    /* An apostrophe is INSIDE a word, not between two — O'Brien is one name.
+       Treating it as a separator split it into "o" and "brien", which then
+       sorted apart from a record spelled OBrien. */
+    .replace(/['‘’]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .split(' ').filter(Boolean).sort().join('');
+}
 function dupStreetOf(d){ return normalizeStreetForMatch(d.street || String(d.address || '').split(',')[0]); }
 /* What this record carries that would be lost with it. Anything in here makes
    a record a candidate for keeping, and a record holding something the other
@@ -26128,14 +26149,34 @@ function hcRunChecks(){
   });
   checks.push({
     id: 'noNumber',
-    title: 'Customer with a price but no customer number',
-    why: 'Nothing to label their bins with, so the warehouse cannot build for them.',
+    /* ⭐ WIDENED 2026-08-18 from "with a price but no number" to everybody
+       without one. Owner: "make a indicator in health check for customers
+       without a number", after finding this pair in All Customers:
+         Jeff Richards #5029 — 449 E 200 N, Levan, UT 84639 — scheduled, $980
+         Richards Jeff       — Levan, UT                    — no number, no price
+       The stray has no price, so the old filter could not see it — and a stray
+       is exactly what this needs to surface, because a record with no number
+       AND no street is an import leftover rather than a customer waiting to be
+       numbered. The price is now part of what each row SAYS instead of what it
+       filters on, so the urgent ones still stand out. */
+    title: 'Customer with no customer number',
+    why: 'The number is what the warehouse labels bins by and what the master sheet is matched on. A customer without one cannot be built for and is invisible to every tool that works by number.',
     fix: null,
-    fixNote: 'No button: assigning numbers is done in the Customer Numbers panel, where you can see what is free.',
+    fixNote: 'No button: assigning numbers is done in the Customer Numbers panel, where you can see what is free. One with no street either is almost always a stray copy — Danger Zone → Merge duplicates folds it into the record that does have the address.',
     rows: jobAddresses.filter(function(c){
+      return !String((c.data || {}).customerNumber || '').trim();
+    }).map(function(c){
       const d = c.data || {};
-      return (Number(d.housePrice) || 0) > 0 && !String(d.customerNumber || '').trim();
-    }).map(function(c){ return {label: hcName(c.data), detail: hcAddr(c.data)}; })
+      const street = String(d.street || '').trim();
+      const town = extractCleanCity(d.city) || '';
+      const price = Number(d.housePrice) || 0;
+      const bits = [];
+      if(street) bits.push(street + (town ? ', ' + town : ''));
+      else bits.push(town ? 'no street, only "' + town + '" — looks like a stray copy'
+                          : 'no address at all — looks like a stray copy');
+      if(price > 0) bits.push('priced $' + price + ', so the warehouse cannot build for them');
+      return {label: hcName(d), detail: bits.join(' · ')};
+    })
   });
   checks.push({
     id: 'noBundleBasis',

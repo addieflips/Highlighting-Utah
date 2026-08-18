@@ -332,6 +332,20 @@ const whWireLabelSrc     = extractFn(admin, 'whWireLabel');
    list would happily stay green while the app's own list moved on. */
 const whColorsFromWordsSrc = extractFn(admin, 'whColorsFromWords');
 const whLightColorsSrc = (admin.match(/const WH_LIGHT_COLORS\s*=\s*\[[^\]]*\];/) || [])[0];
+/* Health Check's "customer with no number" row reads the town off the record.
+   Lifted from admin.html rather than stubbed, for the same reason as the
+   colours: a stub would keep this suite green through a change to what the app
+   actually counts as a town. */
+const hcCleanCitySrc = (function(){
+  const at = admin.indexOf('function extractCleanCity(');
+  if (at < 0) return '';
+  let d = 0;
+  for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+    if (admin[i] === '{') d++;
+    else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+  }
+  return '';
+})();
 /* Health Check's "light colours written as words" row reads this. Admin-only —
    employee.html has no copy and is not expected to. */
 const whUnreadableSrc = extractFn(admin, 'whUnreadableLightParts');
@@ -1994,6 +2008,9 @@ console.log('\n=== 7. Health check engine ===');
     ${whLightColorsSrc || ''}
     ${whColorsFromWordsSrc || ''}
     ${whUnreadableSrc || ''}
+    /* The "customer with no number" check reads the town off the record, and
+       lifts the real cleaner for the same reason as the colours above. */
+    ${hcCleanCitySrc || ''}
   `;
   let hc;
   try {
@@ -2219,10 +2236,16 @@ console.log('\n=== 7. Health check engine ===');
     'without naming the text there is nothing for anyone to go and fix');
 
   const all = hc.run();
-  /* 19 since 2026-08-15 — "light colours written as words" was added. The count
-     is deliberately hard-coded: a check silently disappearing is exactly the
-     kind of thing nobody notices, so adding or removing one has to be a
-     conscious edit here too. */
+  /* 19 since 2026-08-15, when "light colours written as words" was added.
+     STILL 19 after 2026-08-18: the owner asked for an indicator for customers
+     with no customer number, and the honest answer was that one already
+     existed — 'noNumber' — just narrowed to customers WITH a price, which is
+     why her stray "Richards Jeff — Levan, UT" was invisible to it. Widening
+     that check was right; pushing a second one was not, and briefly gave two
+     checks the same id. If a new check really is needed, give it its own id
+     and change this number in the same edit.
+     The count is deliberately hard-coded: a check silently disappearing is
+     exactly the kind of thing nobody notices. */
   check('health', 'all 19 checks present',
     all.length === 19, 'got ' + all.length);
   check('health', 'fix buttons limited to the unambiguous checks',
@@ -12250,6 +12273,132 @@ suite('Suite 54. Merging a customer who is in the book twice');
   check('S54', 'and the bulk import still refuses to add a customer with no street',
     /if\(!existing && !street\)\{ failed\+\+; continue; \}/.test(admin),
     'this is the guard that would have stopped the whole book duplicating; it was added after it happened');
+}
+
+
+/* ============================================================
+ * Suite 55. Jeff Richards, and Richards Jeff.
+ *
+ * Owner, 2026-08-18, pasting two rows out of All Customers:
+ *   Jeff Richards #5029 — 449 E 200 N, Levan, UT 84639 — scheduled Oct 12, $980
+ *   Richards Jeff       — Levan, UT                    — no number, no invoice
+ * "make a indicator in health check for customers without a number"
+ *
+ * Two separate things fall out of that pair.
+ *
+ * "Levan, UT" is buildFullAddress('', 'Levan', '') — a blank street again, the
+ * same cause as ", UT". And "Richards Jeff" is the EXCEL spelling: the master
+ * sheet is "Last First" and the site is "First Last", so a copy made by an
+ * import that did not flip the names keeps the sheet's order. That is
+ * systematic across the strays, not a one-off — and it meant the merge tool
+ * could not see this pair at all.
+ * ============================================================ */
+suite('Suite 55. Jeff Richards, and Richards Jeff');
+{
+  const fn = (name) => {
+    const at = admin.indexOf('function ' + name + '(');
+    if (at < 0) return '';
+    let d = 0;
+    for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+    }
+    return '';
+  };
+
+  /* ---- ⭐ the name matches whichever way round it is written ---- */
+  {
+    const src = fn('dupNormName');
+    check('S55', 'dupNormName exists', !!src);
+    if (src) {
+      const sb = {};
+      new Function(src + 'this.f = dupNormName;').call(sb);
+      const f = sb.f;
+
+      check('S55', '"Jeff Richards" and "Richards Jeff" are the same customer',
+        f('Jeff Richards') === f('Richards Jeff'),
+        'the sheet is Last First and the site is First Last, so a copy made without the ' +
+        'flip keeps the sheet order — and the merge tool could not see this pair at all');
+      check('S55', 'and so are "Cattani, Julie" and "Julie Cattani"',
+        f('Cattani, Julie') === f('Julie Cattani'),
+        'the comma is how Excel writes it');
+      check('S55', 'case and punctuation still make no difference',
+        f('  JEFF   RICHARDS ') === f('jeff richards') &&
+        f("O'Brien Mary") === f('Mary OBrien'));
+      check('S55', 'a middle name still separates two people',
+        f('Jeff Richards') !== f('Jeff A Richards'),
+        'dropping a word would fold a father and son together');
+
+      /* ⚠ Two genuinely different names must still not collide. */
+      check('S55', 'different people are still different',
+        f('Jeff Richards') !== f('Jeff Richardson') &&
+        f('Sean Hilton') !== f('Shawn Hilton') &&
+        f('Erin Wade') !== f('Erin Wademan'));
+    }
+  }
+
+  /* ---- ⭐ and the pair now merges ---- */
+  {
+    const src = fn('findMergeableCustomers');
+    if (src) {
+      const ctx = {};
+      const good = { id: 'good', data: { name: 'Jeff Richards', customerNumber: '5029',
+        street: '449 E 200 N', city: 'Levan', zip: '84639', phone: '8015973375' } };
+      /* The stray, exactly as it reads in All Customers: Excel name order, no
+         number, and a town with no street in front of it. */
+      const stray = { id: 'stray', data: { name: 'Richards Jeff', street: '', city: 'Levan',
+        address: 'Levan, UT', installPreference: 'Normal Schedule' } };
+      new Function('jobAddresses', 'dupNormName', 'dupStreetOf', 'extractCleanCity',
+        'MERGE_ADDRESS_FIELDS', 'MERGE_SKIP_FIELDS',
+        fn('mergeBlank') + fn('dupAddressIsEmpty') + fn('mergeFieldsFrom') + src +
+        'this.find = findMergeableCustomers;'
+      ).call(ctx, [good, stray],
+        (function(){ const o = {}; new Function(fn('dupNormName') + 'this.f = dupNormName;').call(o); return o.f; })(),
+        (d) => (d && d.street) || '', (c) => (c || '').trim(),
+        { street: 1, city: 1, state: 1, zip: 1, address: 1, lat: 1, lng: 1, needsGeocode: 1 },
+        { portalToken: 1 });
+      const r = ctx.find({});
+
+      check('S55', 'the owner\u2019s own pair is found and merged',
+        r.ready.length === 1 && r.ready[0].keeper.id === 'good' && r.ready[0].losers.length === 1,
+        'ready ' + r.ready.length + ', refused ' + r.review.length);
+      check('S55', 'the record with the real address and the number is the one kept',
+        r.ready.length === 1 && r.ready[0].keeper.data.customerNumber === '5029' &&
+        r.ready[0].keeper.data.street === '449 E 200 N');
+      check('S55', 'and "Levan, UT" never replaces the real address',
+        r.ready.length === 1 && !('address' in r.ready[0].gains) && !('street' in r.ready[0].gains),
+        'a town with no street in front of it is not an address: ' +
+        JSON.stringify(r.ready.length ? r.ready[0].gains : {}));
+    }
+  }
+
+  /* ---- ⭐ the Health Check row ---- */
+  {
+    /* Sliced to the NEXT check rather than a character count, so growing this
+       one cannot quietly move the window off what is being asserted. */
+    const at = admin.indexOf("id: 'noNumber',");
+    const nextPush = admin.indexOf('checks.push({', at);
+    check('S55', 'the check is registered', at > 0 && nextPush > at);
+    const block = at > 0 && nextPush > at ? admin.slice(at, nextPush) : '';
+    check('S55', 'it counts customers with no customer number',
+      /return !String\(\(c\.data \|\| \{\}\)\.customerNumber \|\| ''\)\.trim\(\);/.test(block),
+      'a number of 0 or "  " is no number');
+    check('S55', 'it has no fix button',
+      /fix: null,/.test(block) && !/fix: '/.test(block),
+      'the code cannot invent a customer number, and picking one at scale is how numbers get reused');
+    /* ⚠ BOTH shapes of stray have to say so. The first version of this check
+       matched the phrase anywhere in the block, so deleting it from the
+       "no street, only a town" branch — which is the owner's own Jeff Richards
+       case — still passed on the other branch. */
+    check('S55', 'it says which ones look like strays, whether or not a town survived',
+      /no street, only "' \+ town \+ '" — looks like a stray copy/.test(block) &&
+      /no address at all — looks like a stray copy/.test(block),
+      'a record with no number AND no street is an import leftover, not a customer waiting for a ' +
+      'number — that difference is the whole value of the row');
+    check('S55', 'and the price is still reported, now as detail rather than a filter',
+      /priced \$/.test(block),
+      'the old check only listed customers WITH a price, which is exactly why the stray was invisible');
+  }
 }
 
 // A check that scores after this summary is a check that cannot fail the build.
