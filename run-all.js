@@ -13637,9 +13637,12 @@ suite('Suite 60. The colours as the office actually writes them');
     /* ⚠ BOTH import branches, counted. The update branch and the add branch
        spell this identically, so testing that the line exists passed with the
        first one gutted. */
+    /* Both branches, counted. They spell this identically, so testing that the
+       line exists passed with one of them gutted. Widened 2026-08-18 when a
+       side-count started being lifted out of Notes the same way. */
     check('S60', 'both import branches drop a colours-only note rather than writing it',
-      (admin.match(/const notesVal = rbNotesLooksLikeColors\(notesRawVal\) \? '' : notesRawVal;/g) || []).length === 2,
-      'found ' + (admin.match(/const notesVal = rbNotesLooksLikeColors\(notesRawVal\) \? '' : notesRawVal;/g) || []).length +
+      (admin.match(/const notesVal = \(notesSides \|\| rbNotesLooksLikeColors\(notesRawVal\)\) \? '' : notesRawVal;/g) || []).length === 2,
+      'found ' + (admin.match(/const notesVal = \(notesSides \|\| rbNotesLooksLikeColors\(notesRawVal\)\) \? '' : notesRawVal;/g) || []).length +
       ' of 2 — an unguarded branch writes "red/green/pure" onto the crew card as an instruction');
     check('S60', 'and the comparison reads Notes the same way',
       /return rbNotesLooksLikeColors\(v\) \? '' : v;/.test(admin),
@@ -13853,6 +13856,148 @@ suite('Suite 61. Reading the master sheet where it lives');
   check('S61', 'and the paste is still read when nothing is connected',
     /if\(!usedConnected && sheetBox && sheetBox\.value\.trim\(\)/.test(admin),
     '"I just want to paste in when I\u2019m doing a specific peice" — that is this line');
+}
+
+
+/* ============================================================
+ * Suite 62. Which sides of the house.
+ *
+ * Owner, 2026-08-18: "when notes says something like 3 sides then instead of
+ * adding it to notes it should be added so that front of house, right side of
+ * house and left side of house is all checked in the website", and then "we
+ * have a checkbox section saying which sides of the house so that may need to
+ * be included" — followed by "oh wait no you are right its not there but I
+ * believe it does exist in quotes so we need to make it so it exists in both
+ * edit customers and quotes".
+ *
+ * It existed in neither. Quotes had the four side NAMES, but only as labels for
+ * photographs — which side each picture shows — never as a question about which
+ * sides get lit. So this is a new field in three places at once: the quote
+ * form, Add Customer and Edit Customer, plus the import lifting it out of the
+ * Notes column where it had been living as a sentence.
+ *
+ * On the real sheet: "3 sides" x8, "front and side" x5, "2 sides" x2,
+ * "4 sides", and two that only look like counts.
+ * ============================================================ */
+suite('Suite 62. Which sides of the house');
+{
+  const fn = (name) => {
+    const at = admin.indexOf('function ' + name + '(');
+    if (at < 0) return '';
+    let d = 0;
+    for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+    }
+    return '';
+  };
+
+  /* ---- ⭐ reading a side-count out of the Notes column ---- */
+  {
+    const src = fn('rbSidesFromNote');
+    check('S62', 'rbSidesFromNote exists', !!src);
+    if (src) {
+      const sb = {};
+      new Function("const RB_SIDE_ORDER = ['front','right','left','back'];" + src +
+        'this.f = rbSidesFromNote;').call(sb);
+      const f = function(v){ const r = sb.f(v); return r === null ? null : r.join(','); };
+
+      /* ⭐ THE OWNER'S OWN EXAMPLE, and the commonest note on the sheet. */
+      check('S62', '"3 sides" is front, right and left',
+        f('3 sides') === 'front,right,left', 'got ' + f('3 sides'));
+      check('S62', 'and the count runs from the front round',
+        f('1 side') === 'front' && f('2 sides') === 'front,right' &&
+        f('4 sides') === 'front,right,left,back',
+        JSON.stringify([f('1 side'), f('2 sides'), f('4 sides')]));
+      check('S62', '"front and side" is two, however it is punctuated',
+        f('front and side') === 'front,right' && f('Front & Side') === 'front,right' &&
+        f('front + sides') === 'front,right');
+      check('S62', 'and the other ways of saying it',
+        f('front') === 'front' && f('front and back') === 'front,back' &&
+        f('all 4 sides') === 'front,right,left,back' && f('all sides') === 'front,right,left,back');
+      check('S62', 'case and spacing make no difference',
+        f('  3 SIDES  ') === 'front,right,left');
+
+      /* ⚠ THE HALF THAT MATTERS MORE. Null means the note is KEPT and nothing
+         is ticked — guessing here puts three sides on a house that may have
+         one, and the crew hangs lights nobody asked for. */
+      check('S62', 'an instruction that merely mentions sides is left as a note',
+        f('map other 3 sides') === null && f('add 2 sides') === null &&
+        f('remove patio lights in back') === null,
+        'got ' + JSON.stringify([f('map other 3 sides'), f('add 2 sides')]) +
+        ' — "map other 3 sides" is about the map, not about what gets lit');
+      check('S62', 'a real note is never mistaken for a count',
+        f('DO NOT ADD TIMER') === null && f('gate code 1234') === null &&
+        f('Warm w/ berry peaks (3 green on each side of peak)') === null);
+      check('S62', 'a count nobody could mean is refused',
+        f('5 sides') === null && f('0 sides') === null);
+      check('S62', 'and a blank is not a count',
+        f('') === null && f('   ') === null && f(null) === null);
+    }
+  }
+
+  /* ---- the import lifts it out and ticks it ---- */
+  check('S62', 'the import reads a side-count out of the Notes column',
+    (admin.match(/const notesSides = rbSidesFromNote\(notesRawVal\);/g) || []).length === 2,
+    'both branches, or a customer added gets the sentence and one updated gets the ticks');
+  check('S62', 'a note that IS a side-count is not also written as a note',
+    /const notesVal = \(notesSides \|\| rbNotesLooksLikeColors\(notesRawVal\)\) \? '' : notesRawVal;/.test(admin),
+    'leaving it in Notes as well is how the crew ends up reading the same thing twice');
+  check('S62', 'and it is written to the customer, on every path',
+    /if\(notesSides\) updates\.houseSides = notesSides;/.test(admin) &&
+    /if\(notesSides\) newDoc\.houseSides = notesSides;/.test(admin) &&
+    /if\(notesSides\) doc2\.houseSides = notesSides;/.test(admin),
+    'update, add, and the add-the-missing-ones tool');
+
+  /* ---- ⭐ the field exists in all three places, with ONE set of words ---- */
+  {
+    check('S62', 'Edit Customer has the checkboxes', admin.indexOf('id="editCustHouseSides"') > 0);
+    check('S62', 'Add Customer has them too', admin.indexOf('id="addCustHouseSides"') > 0,
+      'a customer added by hand, or converted from a quote, has to carry the same field');
+    const index = read('index.html');
+    check('S62', 'and the quote form asks the customer directly',
+      index.indexOf('id="quoteSidesRow"') > 0 && /name="house_sides"/.test(index));
+
+    /* ⚠ ONE SET OF WORDS. The quote photos already call them Front of house /
+       Right side / Left side / Back; a second vocabulary for the same four
+       things is how "the right side" comes to mean two different walls. */
+    ['front', 'right', 'left', 'back'].forEach(function(k){
+      check('S62', 'the "' + k + '" value is the same on all three forms',
+        admin.indexOf('class="editcust-side-check" value="' + k + '"') > 0 &&
+        admin.indexOf('class="addcust-side-check" value="' + k + '"') > 0 &&
+        index.indexOf('name="house_sides" value="' + k + '"') > 0);
+    });
+    check('S62', 'and they use the same words the quote photos already use',
+      /QUOTE_SIDE_ORDER = \['front', 'right', 'left', 'back'\]/.test(index) &&
+      /Front of house/.test(admin) && /Right side/.test(admin),
+      'a second vocabulary for the same four walls is how a crew hangs the wrong one');
+  }
+
+  /* ---- it survives the round trip ---- */
+  check('S62', 'Edit Customer loads what was saved',
+    /const custSides = Array\.isArray\(d\.houseSides\) \? d\.houseSides : \[\];/.test(admin));
+  check('S62', 'and saves what is ticked',
+    /const newHouseSides = Array\.from\(document\.querySelectorAll\('\.editcust-side-check:checked'\)\)/.test(admin) &&
+    /houseSides: newHouseSides,/.test(admin));
+  check('S62', 'Add Customer saves what is ticked',
+    /const selectedSides = Array\.from\(document\.querySelectorAll\('\.addcust-side-check:checked'\)\)/.test(admin) &&
+    /houseSides: selectedSides,/.test(admin));
+  /* ⭐ THE POINT OF ASKING ON THE QUOTE AT ALL. */
+  check('S62', 'a quote carries its sides through to the customer',
+    /const quoteSides = Array\.isArray\(d\.houseSides\) \? d\.houseSides : \[\];/.test(admin) &&
+    /\.addcust-side-check/.test(admin),
+    'both convert paths go through this form, so this one fill covers them');
+  {
+    const index = read('index.html');
+    check('S62', 'and the quote actually stores it',
+      /houseSides: fd\.getAll\('house_sides'\),/.test(index),
+      '⚠ getAll, not get — a checkbox group is a list, and get() keeps only the first one ticked');
+  }
+  /* ⚠ Blank means "never asked", not "front only". */
+  check('S62', 'nothing is ticked by default',
+    !/class="editcust-side-check" value="front" checked/.test(admin) &&
+    !/class="addcust-side-check" value="front" checked/.test(admin),
+    'defaulting to front would put a made-up answer on 962 records that were never asked');
 }
 
 // A check that scores after this summary is a check that cannot fail the build.

@@ -1252,6 +1252,18 @@
               </div>
             </div>
           </div>
+          <!-- ⭐ Which sides, asked here too, so a customer added by hand or
+               converted from a quote carries the same field as one edited
+               later. Same four names as the quote form and the photo labels. -->
+          <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
+            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Which Sides Of The House?</label>
+            <div class="pill-check-row" id="addCustHouseSides">
+              <label class="pill-check"><input type="checkbox" class="addcust-side-check" value="front"> Front of house</label>
+              <label class="pill-check"><input type="checkbox" class="addcust-side-check" value="right"> Right side</label>
+              <label class="pill-check"><input type="checkbox" class="addcust-side-check" value="left"> Left side</label>
+              <label class="pill-check"><input type="checkbox" class="addcust-side-check" value="back"> Back</label>
+            </div>
+          </div>
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
             <div class="form-row" style="max-width:180px;"><label>Wire Color</label>
               <select id="addCustWireColor">
@@ -1777,6 +1789,22 @@
               <label class="pill-check"><input type="checkbox" class="editcust-color-check" value="Pink"> Pink</label>
               <label class="pill-check"><input type="checkbox" class="editcust-color-check" value="Multi"> Multi</label>
             </div>
+          </div>
+          <!-- ⭐ WHICH SIDES OF THE HOUSE. Owner, 2026-08-18: a note reading
+               "3 sides" should mean front, right and left are ticked rather
+               than the words sitting in Notes where nothing can read them.
+               The four names are the SAME four the quote photos already use
+               (QUOTE_SIDE_LABELS in index.html), so the crew sees one set of
+               words for "the right side of the house" everywhere. -->
+          <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
+            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Which Sides Of The House?</label>
+            <div class="pill-check-row" id="editCustHouseSides">
+              <label class="pill-check"><input type="checkbox" class="editcust-side-check" value="front"> Front of house</label>
+              <label class="pill-check"><input type="checkbox" class="editcust-side-check" value="right"> Right side</label>
+              <label class="pill-check"><input type="checkbox" class="editcust-side-check" value="left"> Left side</label>
+              <label class="pill-check"><input type="checkbox" class="editcust-side-check" value="back"> Back</label>
+            </div>
+            <p style="font-size:11.5px; color:var(--slate); margin:6px 0 0;">Leave all four blank if it has never been asked &mdash; blank means &ldquo;not recorded&rdquo;, not &ldquo;front only&rdquo;.</p>
           </div>
           <div class="form-row" style="max-width:180px;"><label>Wire Color</label>
             <select id="editCustWireColor">
@@ -7379,6 +7407,13 @@ function fillAddCustFromQuote(quoteId, d){
   document.getElementById('routeCityInput').value = d.city || '';
   document.getElementById('routeZipInput').value = d.zip || '';
   document.getElementById('addCustEmail').value = d.email || '';
+  /* ⭐ The sides they picked on the quote, carried straight through — the only
+     reason asking on the quote form is worth anything. */
+  const quoteSides = Array.isArray(d.houseSides) ? d.houseSides : [];
+  document.querySelectorAll('.addcust-side-check').forEach(function(cb){
+    cb.checked = quoteSides.indexOf(cb.value) !== -1;
+    cb.closest('.pill-check').classList.toggle('checked', cb.checked);
+  });
   const colors = d.lightColors || [];
   document.querySelectorAll('.addcust-color-check').forEach(function(cb){
     cb.checked = colors.includes(cb.value);
@@ -13742,6 +13777,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
   const propertyLabel = document.getElementById('addCustPropertyLabel').value.trim();
   const phone2 = document.getElementById('addCustPhone2').value.replace(/\D/g,'');
   const email2 = document.getElementById('addCustEmail2').value.trim();
+  const selectedSides = Array.from(document.querySelectorAll('.addcust-side-check:checked')).map(function(el){ return el.value; });
   const selectedColors = Array.from(document.querySelectorAll('.addcust-color-check:checked')).map(el => el.value);
   // The free-text "Additional Notes" input under Lights was removed from the
   // form, so the description is just the colours now. Crew-facing detail lives
@@ -13967,7 +14003,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
       contactMethod: (addCustFromQuoteId ? (addCustContactMethodFromQuote || '') : ''),
       wireColor: wireColor,
       lat: coords.lat, lng: coords.lng, needsGeocode: pinFailed, needsLightBuild: !!lightsDescription,
-      scheduled: false, createdAt: serverTimestamp(), housePrice: price, measuredFeet: measuredFeet, gateCode: gateCode, outletTimer: outletTimer, useEaves: useEaves, specificOutlet: specificOutlet, specificOutletNotes: specificOutletNotes, notes: custNotes, wantsMailedInvoice: wantsMailedInvoice, numberOfBins: numberOfBins, customerNumber: customerNumber
+      scheduled: false, createdAt: serverTimestamp(), housePrice: price, measuredFeet: measuredFeet, gateCode: gateCode, outletTimer: outletTimer, useEaves: useEaves, specificOutlet: specificOutlet, specificOutletNotes: specificOutletNotes, notes: custNotes, wantsMailedInvoice: wantsMailedInvoice, numberOfBins: numberOfBins, houseSides: selectedSides, customerNumber: customerNumber
     }, billingElsewhere ? {billToPhone: billToPhone} : {}));
     // If this number was sitting in the available pool, it isn't available anymore.
     if(customerNumber){
@@ -14064,6 +14100,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
     document.getElementById('addCustPropertyLabel').value = '';
     document.getElementById('addCustPhone2').value = '';
     document.getElementById('addCustEmail2').value = '';
+    document.querySelectorAll('.addcust-side-check').forEach(function(cb){ cb.checked = false; cb.closest('.pill-check').classList.remove('checked'); });
     document.querySelectorAll('.addcust-color-check').forEach(function(cb){ cb.checked = false; cb.closest('.pill-check').classList.remove('checked'); });
     document.getElementById('addCustWireColor').value = 'White';
     document.getElementById('addCustInstallPref').value = 'Normal Schedule';
@@ -15109,6 +15146,46 @@ function rbNormalizeColors(raw){
              (RB_LIGHT_COLOR_OPTIONS.find(function(opt){ return opt.toLowerCase() === key; })) ||
              c;
     });
+}
+/* ⭐ "3 SIDES" IS A FACT ABOUT THE HOUSE, NOT A SENTENCE.
+   Owner, 2026-08-18: "when notes says something like 3 sides then instead of
+   adding it to notes it should be added so that front of house, right side of
+   house and left side of house is all checked".
+
+   On the real sheet: "3 sides" x8, "front and side" x5, "2 sides" x2,
+   "4 sides", "add 2 sides", "map other 3 sides". Left in Notes it is a sentence
+   the crew has to interpret at the door; as ticks it is something the office
+   can filter and price on.
+
+   The convention, which is the owner's: sides are counted from the front
+   round, so 2 is front and right, 3 adds the left, 4 adds the back. "Front and
+   side" is two.
+
+   ⚠ RETURNS NULL WHERE IT CANNOT TELL, and null means the note is kept and
+   nothing is ticked. "map other 3 sides" is an instruction about the map, not a
+   count of what gets lit, and guessing at it would put three sides on a house
+   that may only have one.
+
+   ⚠ EVERY PATTERN IS ANCHORED ^...$, and that is what does the refusing. A
+   note has to be the count and NOTHING else. There was a keyword guard here
+   for "map", "add" and "remove" as well; it was removed once red-checking
+   showed it could not change a single answer — the anchors had already caught
+   all three — and a guard that cannot fail is a guard nobody can trust. */
+const RB_SIDE_ORDER = ['front', 'right', 'left', 'back'];
+function rbSidesFromNote(raw){
+  const text = String(raw == null ? '' : raw).trim().toLowerCase();
+  if(!text) return null;
+  let m = text.match(/^(\d)\s*sides?$/);
+  if(m){
+    const n = Number(m[1]);
+    if(n >= 1 && n <= 4) return RB_SIDE_ORDER.slice(0, n);
+    return null;
+  }
+  if(/^front\s*(and|&|\+)\s*sides?$/.test(text)) return RB_SIDE_ORDER.slice(0, 2);
+  if(/^front\s*(and|&|\+)\s*back$/.test(text)) return ['front', 'back'];
+  if(/^front$/.test(text)) return ['front'];
+  if(/^all\s*(4|four)?\s*sides?$/.test(text)) return RB_SIDE_ORDER.slice();
+  return null;
 }
 /* ⭐ A COLOUR LIST THAT LANDED IN THE NOTES COLUMN IS NOT A NOTE.
    Owner, 2026-08-18: "if you ever see color in the notes catagory:
@@ -16786,8 +16863,12 @@ document.getElementById('rbFindMissingBtn')?.addEventListener('click', async fun
         const notesRawVal = (notesRaw[i] || '').trim();
         /* A colour list in the Notes column is the Lights column written in the
            wrong place — see rbNotesLooksLikeColors. */
-        const notesVal = rbNotesLooksLikeColors(notesRawVal) ? '' : notesRawVal;
+        /* A count of sides is a fact about the house — ticked, not written
+           into Notes where nothing can read it. See rbSidesFromNote. */
+        const notesSides = rbSidesFromNote(notesRawVal);
+        const notesVal = (notesSides || rbNotesLooksLikeColors(notesRawVal)) ? '' : notesRawVal;
         if(notesVal) doc2.notes = notesVal;
+        if(notesSides) doc2.houseSides = notesSides;
         if(r.pairedSite){
           /* ⭐ UPDATE, DON'T ADD. Owner, 2026-08-18: "I want it to update the
              customer not add a new one."
@@ -17335,7 +17416,10 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
     const notesRawVal = (notesRaw[i] || '').trim();
         /* A colour list in the Notes column is the Lights column written in the
            wrong place — see rbNotesLooksLikeColors. */
-        const notesVal = rbNotesLooksLikeColors(notesRawVal) ? '' : notesRawVal;
+        /* A count of sides is a fact about the house — ticked, not written
+           into Notes where nothing can read it. See rbSidesFromNote. */
+        const notesSides = rbSidesFromNote(notesRawVal);
+        const notesVal = (notesSides || rbNotesLooksLikeColors(notesRawVal)) ? '' : notesRawVal;
     const amountTypedIn = amounts[i] || '';
     const price = amountTypedIn ? Number(amountTypedIn.replace(/[,$]/g,'')) : null;
     // Already validated above (format, in-batch duplicates, and against every
@@ -17482,6 +17566,7 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
           updates.numberOfBins = cnBinsForFeet(Number(feetVal));
         }
         if(notesVal) updates.notes = notesVal;
+        if(notesSides) updates.houseSides = notesSides;
         if(bulkFieldsMatch(updates, existing.data)){
           /* Counted, not silent. "Nothing changed" and "it did not run" look
              identical afterwards, and the difference matters. */
@@ -17513,6 +17598,7 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
           newDoc.numberOfBins = cnBinsForFeet(Number(feetVal));
         }
         if(notesVal) newDoc.notes = notesVal;
+        if(notesSides) newDoc.houseSides = notesSides;
         /* Claimed as well. The local jobAddresses cache does not hold this
            record until the Firestore listener catches up, so a later row for
            the same house would not FIND it and would add a second copy — which
@@ -21461,6 +21547,14 @@ function openEditCustomerModal(id){
     cb.checked = custColors.includes(cb.value);
     cb.closest('.pill-check').classList.toggle('checked', cb.checked);
   });
+  /* Which sides. An ABSENT list and an empty one are the same thing here:
+     nobody has been asked. That is why nothing is ticked by default rather
+     than front. */
+  const custSides = Array.isArray(d.houseSides) ? d.houseSides : [];
+  document.querySelectorAll('.editcust-side-check').forEach(function(cb){
+    cb.checked = custSides.indexOf(cb.value) !== -1;
+    cb.closest('.pill-check').classList.toggle('checked', cb.checked);
+  });
   document.getElementById('editCustInstallPref').value = d.installPreference || 'Normal Schedule';
   document.getElementById('editCustNotes').value = d.notes || '';
   document.getElementById('editCustPhotoFile').value = '';
@@ -21691,6 +21785,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const newInvoiceNotes = document.getElementById('editCustInvoiceNotes').value.trim();
   const newWantsMailed = document.getElementById('editCustWantsMailed').checked;
   const newColors = Array.from(document.querySelectorAll('.editcust-color-check:checked')).map(el => el.value);
+  const newHouseSides = Array.from(document.querySelectorAll('.editcust-side-check:checked')).map(function(el){ return el.value; });
   const newLightsDescription = compileLightsDescription(newColors.join(', '), '');
   const newInstallPref = document.getElementById('editCustInstallPref').value;
   const newHouseNotes = document.getElementById('editCustNotes').value.trim();
@@ -21732,7 +21827,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   statusEl.textContent = 'Saving…';
   try{
     const newNoTexts = document.getElementById('editCustNoTexts').checked;
-    const addrUpdates = {smsOptedOut: newNoTexts, name: newName, propertyLabel: newPropertyLabel, phone: newPhone, phone2: newPhone2, email: newEmail, email2: newEmail2, address: newAddress, city: newCity, customerNumber: newCustNumber, rsvpStatus: newRsvp, housePrice: newHousePrice, measuredFeet: newMeasuredFeet, wireColor: newWireColor, billToPhone: newBillTo, gateCode: newGateCode, outletTimer: newOutletTimer, useEaves: newUseEaves, specificOutlet: newSpecificOutlet, specificOutletNotes: newSpecificOutletNotes, numberOfBins: newBins, wantsMailedInvoice: newWantsMailed, layoutMapUrl: editCustLayoutMapUrl, earliestInstallDate: newEarliestInstallStr ? new Date(newEarliestInstallStr + 'T00:00:00') : null};
+    const addrUpdates = {smsOptedOut: newNoTexts, name: newName, propertyLabel: newPropertyLabel, phone: newPhone, phone2: newPhone2, email: newEmail, email2: newEmail2, address: newAddress, city: newCity, customerNumber: newCustNumber, rsvpStatus: newRsvp, housePrice: newHousePrice, measuredFeet: newMeasuredFeet, wireColor: newWireColor, billToPhone: newBillTo, gateCode: newGateCode, outletTimer: newOutletTimer, useEaves: newUseEaves, specificOutlet: newSpecificOutlet, specificOutletNotes: newSpecificOutletNotes, numberOfBins: newBins, wantsMailedInvoice: newWantsMailed, houseSides: newHouseSides, layoutMapUrl: editCustLayoutMapUrl, earliestInstallDate: newEarliestInstallStr ? new Date(newEarliestInstallStr + 'T00:00:00') : null};
     /* Stamped on every customer save. Without these two the concurrent-edit
        check above has nothing to compare — a customer record carried no
        updatedAt at all, so "has anyone touched this since I opened it?" was

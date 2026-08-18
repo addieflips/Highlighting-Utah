@@ -566,6 +566,9 @@
      form — including the sentence warning that a light change costs $30 — and
      the customer base skews older. Anything a customer is expected to read
      before spending money should not be the smallest text on the page. */
+  .quote-side-pick{ display:inline-flex; align-items:center; gap:7px; padding:8px 12px;
+    border:1px solid rgba(0,0,0,.18); border-radius:999px; font-size:14px; cursor:pointer; }
+  .quote-side-pick input{ width:15px; height:15px; margin:0; }
   .form-note{ font-size:14px; color:var(--slate); margin-top:6px; line-height:1.5; }
   .form-success{
     display:none; text-align:center; padding:50px 30px;
@@ -1248,6 +1251,23 @@
               <option value="Text">Text</option>
               <option value="Email">Email</option>
             </select>
+          </div>
+          <!-- ⭐ WHICH SIDES THEY WANT LIT. Owner, 2026-08-18: the office was
+               writing this into Notes as "3 sides", where nothing could read it
+               and the crew had to interpret a sentence. Asked here, at the one
+               moment the customer is describing their own house, and carried
+               through to the customer record when the quote is converted.
+               ⚠ The four names are the same four the photo buttons already use
+               below, so "Right side" means one thing on this page. -->
+          <div class="form-row" id="quoteSidesRow">
+            <label>Which sides would you like lit?</label>
+            <p class="form-note" style="margin:0 0 8px;">Tick any that apply &mdash; most people have just the front. You can change this later.</p>
+            <div style="display:flex; flex-wrap:wrap; gap:10px;">
+              <label class="quote-side-pick"><input type="checkbox" name="house_sides" value="front"> Front of house</label>
+              <label class="quote-side-pick"><input type="checkbox" name="house_sides" value="right"> Right side</label>
+              <label class="quote-side-pick"><input type="checkbox" name="house_sides" value="left"> Left side</label>
+              <label class="quote-side-pick"><input type="checkbox" name="house_sides" value="back"> Back</label>
+            </div>
           </div>
           <!-- Phase 2: buildings + per-side photos, built from the approved
                multi-address mockup (claude/multi-address-combined-mockup.html).
@@ -2617,6 +2637,9 @@ quoteFormEl.addEventListener('submit', async function(e){
     street: street, city: city, zip: zip,
     address: street + ', ' + city + ' ' + zip,
     contactMethod: fd.get('contact_method'),
+    /* Which sides they want lit. getAll, not get — a checkbox group is a list,
+       and get() would quietly keep only the first one ticked. */
+    houseSides: fd.getAll('house_sides'),
     buildings: buildingsPayload.map(function(b){ return {name: b.name, photos: b.photos}; }),
     quotePhotos: quotePhotosPayload,
     frontPhotoUrl: mainPhoto ? mainPhoto.url : null,
