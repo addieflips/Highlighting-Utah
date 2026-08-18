@@ -20764,7 +20764,7 @@ async function noticeRoutesReconciled(report){
    an interval, and it can never take the page down with it. */
 function runReconcileAuto(){
   if(reconcileRunning) return;
-  /* � THE GUARD IS "HAVE THE ROUTES LOADED", NOT "ARE THERE ANY ROUTES".
+  /* ⭐ THE GUARD IS "HAVE THE ROUTES LOADED", NOT "ARE THERE ANY ROUTES".
      It used to be the latter, and that single condition is why nothing was ever
      scheduled: with no saved routes the sweep returned immediately, so the pass
      that BUILDS the missing days never ran, so there were never any saved
@@ -21444,7 +21444,7 @@ function toDateStr(dt){
 function loadScheduledRoutes(){
   onSnapshot(collection(db,'scheduledRoutes'), function(snap){
     scheduledRoutesCache = {};
-    /* Set AFTER the first snapshot, empty or not  see runReconcileAuto. */
+    /* Set AFTER the first snapshot, empty or not — see runReconcileAuto. */
     scheduledRoutesLoaded = true;
     snap.forEach(function(docSnap){
       const d = docSnap.data();
@@ -25567,7 +25567,7 @@ async function runProjectTestSync(){
   if(projTestSyncRunning) return null;
   projTestSyncRunning = true;
   try{
-    /* Fetched on demand rather than shipped inside admin.html  see
+    /* Fetched on demand rather than shipped inside admin.html — see
        js/test-seed.js. The caller swallows a throw from this function, so a
        failed import would stop the checklist syncing silently; run-all.js
        asserts this import still exists for exactly that reason. */
@@ -25634,7 +25634,7 @@ async function runProjectTestSync(){
     projTestSyncRunning = false;
   }
 }
-/* TEST_SEED lives in js/test-seed.js now  runProjectTestSync imports it on
+/* TEST_SEED lives in js/test-seed.js now — runProjectTestSync imports it on
    demand. See the header of that file for why. */
 function attachDeleteHandlers(container){
   container.querySelectorAll('[data-del]').forEach(function(btn){
