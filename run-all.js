@@ -9160,7 +9160,7 @@ suite('Suite 38. Panels draw when they are opened');
 
 
 /* ============================================================
- * Suite 39. Importing 250 at a time, and remembering where it got to.
+ * Suite 39. Importing a batch at a time, and remembering where it got to.
  *
  * Owner, 2026-08-17: "we need to cut it up because it crashes at 250 so we need
  * to go 250 at a time then refresh but it needs to remember".
@@ -9187,8 +9187,12 @@ suite('Suite 39. Importing in batches, and remembering the place');
     return null;
   };
 
-  check('S39', 'the batch size is 250, as asked for',
-    /const BULK_CHUNK_SIZE = 250;/.test(admin));
+  /* The exact number is the owner's call and has moved once already (250 on
+     2026-08-17, then 150 the same day because 250 still crashed). Asserted
+     exactly, so changing it is a deliberate edit here rather than a silent
+     drift in behaviour. */
+  check('S39', 'the batch size is 150, as asked for',
+    /const BULK_CHUNK_SIZE = 150;/.test(admin));
 
   check('S39', 'the loop runs one batch, not the whole paste',
     /for\(let i = startAt; i < stopAt; i\+\+\)\{/.test(admin) &&
@@ -9234,7 +9238,7 @@ suite('Suite 39. Importing in batches, and remembering the place');
 
   check('S39', 'the totals carry across batches',
     /carried\.added \+ added/.test(admin) && /carried\.updated \+ updated/.test(admin),
-    'otherwise the finish line describes only the last 250 rows');
+    'otherwise the finish line describes only the last batch');
 
   check('S39', 'a failure to save the place says so instead of reloading',
     /I could NOT save the place/.test(admin) &&

@@ -15684,7 +15684,7 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
     ? ' ' + unchangedRows + ' row(s) already matched and were left alone.'
     : '';
   /* Running totals across every batch, so the finish line describes the whole
-     import and not just the last 250 rows. */
+     import and not just the last batch. */
   const runTotals = {
     added: carried.added + added,
     updated: carried.updated + updated,
@@ -17056,14 +17056,14 @@ function bulkFieldsMatch(updates, current){
 
    A run of nine hundred rows builds up in the tab until it dies, and dying
    halfway through is the worst outcome: some customers written, some not, and
-   no way to tell which. So the import now does 250 rows and STOPS, writes down
+   no way to tell which. So the import now does BULK_CHUNK_SIZE rows and STOPS,
    exactly where it got to, and picks up from there — across a page refresh,
    which is what actually hands the memory back.
 
    What is written down is the pasted columns plus the cursor. It lives in
    localStorage on this machine, and it is deleted the moment the run finishes
    or is cancelled, so it is not left lying about after the job is done. */
-const BULK_CHUNK_SIZE = 250;
+const BULK_CHUNK_SIZE = 150;
 const BULK_JOB_KEY = 'hu.bulkImportJob.v1';
 
 /* Enough of the identifier column to tell one paste from another, without
