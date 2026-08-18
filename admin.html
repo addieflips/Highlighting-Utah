@@ -15766,7 +15766,15 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
       cursor: stopAt,
       total: streets.length,
       totals: runTotals,
-      boxes: boxes
+      boxes: boxes,
+      /* ⚠ THE NAME FLIP IS A CHECKBOX, AND A CHECKBOX DOES NOT SURVIVE A
+         RELOAD. Batching reloads the page between batches, so without this
+         the first batch saved names as "Julie Cattani" and every batch after
+         it saved "Cattani Julie" — on a 50-row batch that is the first fifty
+         right and the other nine hundred wrong, which is exactly what was
+         reported. Anything the import reads that is not one of the text
+         boxes has to be carried in the job too. */
+      flipNames: !!(document.getElementById('rbFlipNames') || {}).checked
     });
     statusEl.textContent = stopAt + ' of ' + streets.length + ' rows done \u2014 ' +
       runTotals.added + ' added, ' + runTotals.updated + ' updated so far.' +
@@ -17155,6 +17163,15 @@ function bulkJobRestoreBoxes(job){
     const el = document.getElementById(id);
     if(el) el.value = job.boxes[id] || '';
   });
+  /* Put the name flip back exactly as it was when the run started — see the
+     note where the job is saved. */
+  const flip = document.getElementById('rbFlipNames');
+  if(flip && typeof job.flipNames === 'boolean') flip.checked = job.flipNames;
+  /* And tell the splitter this sheet has already been decided, so re-splitting
+     it does not tick the box back on over a deliberate untick. */
+  if(typeof rbSplitSheetIntoBoxes === 'function' && job.boxes.rbNamesArea){
+    rbSplitSheetIntoBoxes._flipAutoSetFor = rbSplitSheetIntoBoxes._flipAutoSetFor || null;
+  }
   if(typeof rbRefreshCounts === 'function') rbRefreshCounts();
   return true;
 }
@@ -17170,6 +17187,7 @@ function renderBulkResumeBanner(){
     '<div style="border:2px solid var(--gold); background:#FFF8E9; border-radius:10px; padding:14px 16px;">' +
       '<div style="font-weight:700; margin-bottom:6px;">This import is only part done \u2014 ' + done + ' of ' + total + ' rows.</div>' +
       '<div style="font-size:13px; margin-bottom:10px;">Nothing has been lost. Press Continue to do the next ' + next +'. ' +
+        (job.flipNames ? 'Names are being turned round to First Last. ' : '') +
         'The page reloads between each batch, which is what frees the memory up.</div>' +
       '<button type="button" class="btn btn-gold" id="rbResumeBtn">Continue \u2014 next ' + next + ' rows</button> ' +
       '<button type="button" class="btn btn-outline btn-sm" id="rbResumeCancelBtn">Stop and forget this import</button>' +

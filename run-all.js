@@ -9225,10 +9225,15 @@ suite('Suite 39. Importing in batches, and remembering the place');
     /if\(!job \|\| job\.identifier !== BULK_IDENTIFIER\) return null;/.test(admin),
     'half the rows matched on the number and half on the phone is not a repairable state');
 
-  check('S39', 'the boxes are NOT cleared while a job is unfinished',
-    /if\(moreToDo\)\{[\s\S]{0,1400}?return;/.test(admin) &&
-    admin.indexOf('if(moreToDo){') < admin.indexOf("rbAreaIds.forEach(function(id){ document.getElementById(id).value = ''; });"),
-    'clearing them mid-job would lose the half of the paste that has not run yet');
+  {
+    const imp2 = admin.slice(admin.indexOf('let pinsKept = 0'), admin.indexOf('// --- Invoice Bulk Update ---'));
+    const branchAt = imp2.indexOf('if(moreToDo){');
+    const clearAt = imp2.indexOf("rbAreaIds.forEach(function(id){ document.getElementById(id).value = ''; });");
+    check('S39', 'the boxes are NOT cleared while a job is unfinished',
+      branchAt > 0 && clearAt > branchAt &&
+      imp2.slice(branchAt, clearAt).indexOf('return;') > 0,
+      'clearing them mid-job would lose the half of the paste that has not run yet');
+  }
 
   {
     /* Scoped to the import handler: bulkJobClear() also appears in the
@@ -9495,6 +9500,146 @@ suite('Suite 40. Pasting a sheet turns the names round');
       sb.split();
       check('S40', 'a different sheet ticks it again', flipBox.checked === true,
         'the decision is per paste, not once for the session');
+    }
+  }
+}
+
+
+/* ============================================================
+ * Suite 41. Everything the import reads must survive the reload.
+ *
+ * Owner, 2026-08-17, after running it: "its not making them first name last
+ * name after its done".
+ *
+ * The name flip is a CHECKBOX. Batching reloads the page between batches. The
+ * saved job carried the eighteen text boxes and nothing else, so the first
+ * batch wrote "Julie Cattani" and every batch after it wrote "Cattani Julie" —
+ * at 50 rows a batch, fifty right and nine hundred wrong.
+ *
+ * The general rule this suite exists to hold: ANY input the import reads that
+ * is not one of the rbAreaIds text boxes has to be carried in the job too.
+ * ============================================================ */
+suite('Suite 41. The saved job carries everything the import reads');
+{
+  check('S41', 'the flip is saved with the job',
+    /flipNames: !!\(document\.getElementById\('rbFlipNames'\) \|\| \{\}\)\.checked/.test(admin),
+    'a checkbox does not survive a reload, so it has to travel in the job');
+
+  check('S41', 'and is put back when the job resumes',
+    /if\(flip && typeof job\.flipNames === 'boolean'\) flip\.checked = job\.flipNames;/.test(admin),
+    'restoring the text boxes alone is what caused the names to come out wrong');
+
+  check('S41', 'the resume banner says the names are being turned round',
+    /Names are being turned round to First Last/.test(admin),
+    'across a reload there is otherwise nothing on screen saying which way names will be saved');
+
+  /* ---- the inventory check ----
+     Every element the import reads for its per-row values must either be an
+     rbAreaIds box (already saved) or be listed in the job. This is what stops
+     the same class of bug arriving with the next new input. */
+  {
+    const lift0 = (name) => {
+      const at = admin.indexOf('function ' + name + '(');
+      if (at < 0) return '';
+      let d = 0;
+      for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+        if (admin[i] === '{') d++;
+        else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+      }
+      return '';
+    };
+    /* ⚠ The loop body is not the whole story: rbFlipNames is read inside
+       rbName(), which lives outside it, so scanning the loop alone would have
+       missed the very bug this suite exists for. Follow the per-row helpers. */
+    const imp = admin.slice(admin.indexOf('let pinsKept = 0'), admin.indexOf('// --- Invoice Bulk Update ---'))
+      + lift0('rbName') + lift0('rbCol') + lift0('rbHeaderOffset');
+    const readsIds = [...imp.matchAll(/getElementById\('([a-zA-Z0-9_-]+)'\)/g)].map(m => m[1]);
+    const areas = JSON.parse((admin.match(/const rbAreaIds = (\[[^\]]*\]);/) || [])[1].replace(/'/g, '"'));
+    /* Elements the import only WRITES to, or reads for display, are not inputs
+       and do not need carrying. Listed explicitly so a new one shows up here
+       rather than being silently assumed harmless. */
+    const NOT_INPUT = ['rbImportStatus', 'rbCheckReport', 'rbSheetArea', 'rbSheetReport',
+                       'rbSheetStatus', 'rbResumeBanner', 'rbResumeBtn', 'rbResumeCancelBtn',
+                       'rbImportBtn'];
+    const jobBlock = imp.slice(imp.indexOf('const remembered = bulkJobSave({'), imp.indexOf('});', imp.indexOf('const remembered = bulkJobSave({')));
+    const unaccounted = [...new Set(readsIds)].filter(id =>
+      areas.indexOf(id) < 0 && NOT_INPUT.indexOf(id) < 0 && jobBlock.indexOf(id) < 0);
+    check('S41', 'every input the import reads is carried in the job',
+      unaccounted.length === 0,
+      'these are read during an import but are not saved with it, so a resumed batch would read a different value: ' + unaccounted.join(', '));
+  }
+
+  /* ---- and the round trip, run for real ---- */
+  if (!JSDOM) {
+    note('jsdom not installed — skipping the reload round trip');
+  } else {
+    const lift = (name) => {
+      const at = admin.indexOf('function ' + name + '(');
+      if (at < 0) return null;
+      let d = 0;
+      for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+        if (admin[i] === '{') d++;
+        else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+      }
+      return null;
+    };
+    const areas = JSON.parse((admin.match(/const rbAreaIds = (\[[^\]]*\]);/) || [])[1].replace(/'/g, '"'));
+    const restoreSrc = lift('bulkJobRestoreBoxes');
+    check('S41', 'bulkJobRestoreBoxes exists', !!restoreSrc);
+
+    if (restoreSrc) {
+      /* A page that has just RELOADED: boxes empty, checkbox off. */
+      const dom = new JSDOM(
+        '<input type="checkbox" id="rbFlipNames">' +
+        areas.map(a => '<textarea id="' + a + '"></textarea>').join('')
+      );
+      const doc = dom.window.document;
+      const sb = {};
+      new Function('document', 'rbAreaIds',
+        'function rbRefreshCounts(){}' +
+        'function rbSplitSheetIntoBoxes(){}' +
+        restoreSrc + lift('flipLastFirstName') +
+        'function rbName(r){ const f = document.getElementById("rbFlipNames"); return (f && f.checked) ? flipLastFirstName(r) : r; }' +
+        'this.restore = bulkJobRestoreBoxes; this.rbName = rbName;'
+      ).call(sb, doc, areas);
+
+      const job = {
+        cursor: 50, total: 962, identifier: 'phone+address', fingerprint: 'x',
+        boxes: {rbNamesArea: 'Cattani Julie', rbPhonesArea: '8019795123'},
+        flipNames: true
+      };
+
+      check('S41', 'the checkbox starts off after a reload',
+        doc.getElementById('rbFlipNames').checked === false);
+
+      sb.restore(job);
+
+      check('S41', 'resuming puts the flip back on',
+        doc.getElementById('rbFlipNames').checked === true,
+        'this is the bug: without it every batch after the first saved names the wrong way round');
+      check('S41', 'so the name is saved First Last on batch two as well',
+        sb.rbName(doc.getElementById('rbNamesArea').value) === 'Julie Cattani',
+        'got ' + sb.rbName(doc.getElementById('rbNamesArea').value));
+
+      /* And the other direction: a job saved with the flip OFF must not turn it
+         on when it resumes. */
+      doc.getElementById('rbFlipNames').checked = true;
+      sb.restore(Object.assign({}, job, {flipNames: false}));
+      check('S41', 'a job saved with the flip off stays off',
+        doc.getElementById('rbFlipNames').checked === false,
+        'a sheet that is already First Last must not be reversed half way through');
+      check('S41', 'and that name is left alone',
+        sb.rbName(doc.getElementById('rbNamesArea').value) === 'Cattani Julie');
+
+      /* An old job from before this fix has no flipNames at all. It must not
+         crash, and must not silently flip. */
+      doc.getElementById('rbFlipNames').checked = false;
+      const legacy = Object.assign({}, job);
+      delete legacy.flipNames;
+      sb.restore(legacy);
+      check('S41', 'a job saved before this existed is left as it is, not guessed',
+        doc.getElementById('rbFlipNames').checked === false,
+        'a half-finished job from the old build must not change meaning under the office');
     }
   }
 }
