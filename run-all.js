@@ -7942,8 +7942,10 @@ suite('Suite 32. Customer number as identifier, and flipped names');
      owner actually saw: "customer number says 963 lines in red, but it
      shouldnt be in red because it is the indicator". */
   check('S32', 'the live counters are anchored on the identifier column',
-    (admin.match(/wireBulkCounts\(rbAreaIds, BULK_BY_NUMBER \? 'rbCustNumbersArea' : BULK_BY_PHONE \? 'rbPhonesArea' : 'rbStreetsArea', rbCountIds\)/g) || []).length === 2,
-    'anchored on anything but the identifier, the identifier itself gets flagged as the wrong length');
+    (admin.match(/wireBulkCounts\(rbAreaIds, BULK_BY_NUMBER \? 'rbCustNumbersArea' : BULK_BY_PHONE \? 'rbPhonesArea' : 'rbStreetsArea', rbCountIds\)/g) || []).length === 1 &&
+    /const rbRefreshCounts = wireBulkCounts\(/.test(admin) &&
+    /rbRefreshCounts\(\);/.test(admin),
+    'anchored on anything but the identifier, the identifier itself gets flagged as the wrong length. CHANGED 2026-08-17: wired ONCE now and reused through rbRefreshCounts, rather than the same call written out twice — one wiring site cannot disagree with itself');
   check('S32', 'the anchor is never the column reported as being wrong',
     /const anchorLabel = anchorIsNumbers \? 'Customer #' : anchorIsPhones \? 'Phone Number' : 'Street Address'/.test(admin) &&
     /arr\.length !== anchor\.length/.test(admin),
@@ -9153,6 +9155,183 @@ suite('Suite 38. Panels draw when they are opened');
     check('S38', 'the badge check actually found the deferred renderers',
       deferredFns.length >= 10,
       'only found ' + deferredFns.length + ' — if this drops to nothing the check above passes for the wrong reason');
+  }
+}
+
+
+/* ============================================================
+ * Suite 39. Importing 250 at a time, and remembering where it got to.
+ *
+ * Owner, 2026-08-17: "we need to cut it up because it crashes at 250 so we need
+ * to go 250 at a time then refresh but it needs to remember".
+ *
+ * Dying half way through a nine hundred row import is the worst outcome there
+ * is: some customers written, some not, and nothing on screen saying which. So
+ * the run stops at a known row, writes the place down, and picks up from there
+ * across a refresh.
+ *
+ * Everything here is about the REMEMBERING being trustworthy. A cursor that
+ * points into the wrong list, or a resume against a customer list that has not
+ * loaded, does far more damage than the crash it replaced.
+ * ============================================================ */
+suite('Suite 39. Importing in batches, and remembering the place');
+{
+  const lift = (name) => {
+    const at = admin.indexOf('function ' + name + '(');
+    if (at < 0) return null;
+    let d = 0;
+    for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+    }
+    return null;
+  };
+
+  check('S39', 'the batch size is 250, as asked for',
+    /const BULK_CHUNK_SIZE = 250;/.test(admin));
+
+  check('S39', 'the loop runs one batch, not the whole paste',
+    /for\(let i = startAt; i < stopAt; i\+\+\)\{/.test(admin) &&
+    /const stopAt = Math\.min\(streets\.length, startAt \+ BULK_CHUNK_SIZE\);/.test(admin));
+
+  /* ⚠ THE ONE THAT MATTERS MOST. Everything decides "existing or new" by
+     looking in jobAddresses. Empty means every row looks new. */
+  check('S39', 'it refuses to run at all against an empty customer list',
+    /if\(!jobAddresses\.length\)\{[\s\S]{0,400}?return;/.test(admin),
+    'resuming before the customer list has loaded would add every row as a brand new customer, and there is no cheap undo for that');
+
+  check('S39', 'the refusal happens before any row is written',
+    admin.indexOf('if(!jobAddresses.length){') < admin.indexOf('for(let i = startAt; i < stopAt; i++){'),
+    'a guard after the loop guards nothing');
+
+  /* The cursor is only meaningful against the paste it was taken from. */
+  check('S39', 'a saved place is only used when the boxes hold the same paste',
+    /const resuming = !!\(savedJob && savedJob\.fingerprint === jobFingerprint && savedJob\.cursor < streets\.length\);/.test(admin),
+    'a cursor from a different paste points into the wrong list, and every row after it goes to the wrong customer');
+
+  check('S39', 'a job saved under a different identifier mode is not resumed',
+    /if\(!job \|\| job\.identifier !== BULK_IDENTIFIER\) return null;/.test(admin),
+    'half the rows matched on the number and half on the phone is not a repairable state');
+
+  check('S39', 'the boxes are NOT cleared while a job is unfinished',
+    /if\(moreToDo\)\{[\s\S]{0,1400}?return;/.test(admin) &&
+    admin.indexOf('if(moreToDo){') < admin.indexOf("rbAreaIds.forEach(function(id){ document.getElementById(id).value = ''; });"),
+    'clearing them mid-job would lose the half of the paste that has not run yet');
+
+  {
+    /* Scoped to the import handler: bulkJobClear() also appears in the
+       banner's Cancel button, and a bare indexOf finds that one instead —
+       which is how deleting the one that matters still read as a pass. */
+    const imp = admin.slice(admin.indexOf('let pinsKept = 0'), admin.indexOf('// --- Invoice Bulk Update ---'));
+    check('S39', 'finishing clears the saved place',
+      imp.indexOf('bulkJobClear();') > 0 &&
+      imp.indexOf('bulkJobClear();') > imp.indexOf('if(moreToDo){'),
+      'a finished job left behind would offer to re-run rows that are already done');
+    check('S39', 'and the unfinished branch returns before it',
+      imp.indexOf('if(moreToDo){') > 0 && /if\(moreToDo\)\{[\s\S]*?return;/.test(imp),
+      'falling through would clear the place while the job is still half done');
+  }
+
+  check('S39', 'the totals carry across batches',
+    /carried\.added \+ added/.test(admin) && /carried\.updated \+ updated/.test(admin),
+    'otherwise the finish line describes only the last 250 rows');
+
+  check('S39', 'a failure to save the place says so instead of reloading',
+    /I could NOT save the place/.test(admin) &&
+    /if\(remembered\)\{[\s\S]{0,200}?location\.reload/.test(admin),
+    'reloading after a failed save would lose the run with nothing to resume from');
+
+  check('S39', 'an unfinished job announces itself when the page comes back',
+    /renderBulkResumeBanner\(\); \} catch\(err\)\{\}/.test(admin),
+    'a refresh would otherwise look exactly like the import having vanished');
+
+  /* ---- the job store, run for real ---- */
+  {
+    const fpSrc = lift('bulkJobFingerprint');
+    check('S39', 'bulkJobFingerprint exists', !!fpSrc);
+    if (fpSrc) {
+      const sb = {};
+      new Function(fpSrc + 'this.f = bulkJobFingerprint;').call(sb);
+      const f = sb.f;
+      const a = ['1','2','3','4','5','6','7','8'];
+      check('S39', 'the same paste fingerprints the same', f(a) === f(a.slice()));
+      check('S39', 'a paste of a different length fingerprints differently',
+        f(a) !== f(a.slice(0, 7)));
+      check('S39', 'a changed first row fingerprints differently',
+        f(a) !== f(['9','2','3','4','5','6','7','8']));
+      check('S39', 'a changed last row fingerprints differently',
+        f(a) !== f(['1','2','3','4','5','6','7','9']),
+        'the tail has to count, or appending rows to the sheet would silently reuse the old cursor');
+    }
+  }
+
+  if (!JSDOM) {
+    note('jsdom not installed — skipping the save/resume round trip');
+  } else {
+    const saveSrc = lift('bulkJobSave'), loadSrc = lift('bulkJobLoad'), clearSrc = lift('bulkJobClear');
+    check('S39', 'the job store exists', !!saveSrc && !!loadSrc && !!clearSrc);
+    if (saveSrc && loadSrc && clearSrc) {
+      const store = {};
+      const localStorage = {
+        getItem: (k) => (k in store ? store[k] : null),
+        setItem: (k, v) => { store[k] = String(v); },
+        removeItem: (k) => { delete store[k]; }
+      };
+      const sb = {};
+      new Function('localStorage', 'BULK_IDENTIFIER',
+        "const BULK_JOB_KEY = 'hu.bulkImportJob.v1';" +
+        saveSrc + loadSrc + clearSrc +
+        'this.save = bulkJobSave; this.load = bulkJobLoad; this.clear = bulkJobClear;'
+      ).call(sb, localStorage, 'phone+address');
+
+      check('S39', 'nothing saved means nothing to resume', sb.load() === null);
+
+      const job = {identifier: 'phone+address', fingerprint: 'abc', cursor: 250, total: 962,
+                   totals: {added: 1, updated: 249}, boxes: {rbNamesArea: 'x'}};
+      check('S39', 'a job saves', sb.save(job) === true);
+
+      const back = sb.load();
+      check('S39', 'and comes back with the place it got to',
+        back && back.cursor === 250 && back.total === 962 && back.fingerprint === 'abc');
+      check('S39', 'including the columns, so a refresh keeps the paste',
+        back && back.boxes && back.boxes.rbNamesArea === 'x');
+      check('S39', 'and the running totals', back && back.totals.updated === 249);
+
+      sb.clear();
+      check('S39', 'clearing really removes it', sb.load() === null);
+
+      /* A job written under a different identifier mode must be refused. */
+      const sb2 = {};
+      new Function('localStorage', 'BULK_IDENTIFIER',
+        "const BULK_JOB_KEY = 'hu.bulkImportJob.v1';" +
+        saveSrc + loadSrc + clearSrc +
+        'this.save = bulkJobSave; this.load = bulkJobLoad;'
+      ).call(sb2, localStorage, 'number');
+      sb.save(job);
+      check('S39', 'a job from another identifier mode is not offered',
+        sb2.load() === null,
+        'resuming across a mode change would match half the rows one way and half another');
+      sb.clear();
+
+      /* Corrupt or half-written storage must not throw on a page load. */
+      store['hu.bulkImportJob.v1'] = '{not json';
+      check('S39', 'unreadable storage is treated as no job, not a crash',
+        sb.load() === null);
+      store['hu.bulkImportJob.v1'] = JSON.stringify({identifier: 'phone+address'});
+      check('S39', 'a job with no cursor is refused',
+        sb.load() === null,
+        'a missing cursor would be read as 0 and re-run rows that are already done');
+      delete store['hu.bulkImportJob.v1'];
+
+      /* A full disk must not look like success. */
+      const sb3 = {};
+      new Function('localStorage', 'BULK_IDENTIFIER',
+        "const BULK_JOB_KEY = 'hu.bulkImportJob.v1';" + saveSrc + 'this.save = bulkJobSave;'
+      ).call(sb3, {setItem: () => { throw new Error('QuotaExceeded'); }}, 'phone+address');
+      check('S39', 'a save that fails reports false rather than throwing',
+        sb3.save(job) === false,
+        'the caller uses this to decide whether it is safe to reload');
+    }
   }
 }
 

@@ -1426,6 +1426,7 @@
                  then Check First and Import run exactly as they always have,
                  which is why every guard already written still applies. -->
             <div style="border:2px solid var(--gold-dim); border-radius:12px; padding:16px; margin:0 0 20px; background:var(--snow);">
+              <div id="rbResumeBanner" style="display:none; margin:0 0 12px;"></div>
               <h4 style="margin:0 0 6px;">Paste the whole master sheet</h4>
               <p style="font-size:13px; margin:0 0 10px;">Select the sheet in Excel &mdash; <strong>heading row and all</strong> &mdash; copy, and paste it in here. It reads the headings, works out which column is which, and fills in the boxes below for you. Nothing is saved until you press Check First and then Import, same as always.</p>
               <textarea id="rbSheetArea" rows="6" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--paper); color:var(--ink); font-family:monospace; font-size:12px;" placeholder="CU #&#9;Name&#9;Address&#9;City&#9;Zip&#9;Phone&#9;Email&#9;Notes&#9;Wire&#9;Lights&#9;Timer&#9;$$&#9;Pref Date&#9;# Feet&#10;144&#9;Cattani Julie&#9;6037 W 11860 N&#9;Highland&#9;84003&#9;8019795123&#9;…"></textarea>
@@ -14961,6 +14962,12 @@ function rbDetectColorsAndPattern(raw){
    rbSplitSheetIntoBoxes), and a textarea set from code never fires 'input', so
    the counters would sit on "0 rows" over nine hundred filled-in lines. */
 const rbRefreshCounts = wireBulkCounts(rbAreaIds, BULK_BY_NUMBER ? 'rbCustNumbersArea' : BULK_BY_PHONE ? 'rbPhonesArea' : 'rbStreetsArea', rbCountIds);
+/* An unfinished import has to announce itself the moment the page comes back,
+   or a refresh looks exactly like the run having vanished. Defined later in
+   the file, so this waits until everything is parsed. */
+setTimeout(function(){
+  try{ renderBulkResumeBanner(); } catch(err){}
+}, 0);
 /* ---- Check First for the customer bulk importer -------------------------
  *
  * This tool matches each pasted row against an existing customer and UPDATES
@@ -15364,6 +15371,25 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
       return;
     }
   }
+  /* ⚠ REFUSE TO RUN AGAINST AN EMPTY CUSTOMER LIST. Everything here decides
+     "existing customer or new one" by looking in jobAddresses. If that has not
+     loaded yet — a fresh page, a slow connection, a resumed job started too
+     early — every single row looks new and the whole book gets duplicated.
+     This is the one mistake with no cheap undo, so it is a hard stop. */
+  if(!jobAddresses.length){
+    statusEl.textContent = 'The customer list has not finished loading yet. Give it a moment and press Import again \u2014 running now would add every row as a brand new customer.';
+    return;
+  }
+  /* ---- where does this run start? ----
+     A saved job means an earlier batch stopped part way. Its cursor is only
+     trusted if the boxes still hold the SAME paste — otherwise the cursor
+     points into a different list. */
+  const jobFingerprint = bulkJobFingerprint(anchor);
+  const savedJob = bulkJobLoad();
+  const resuming = !!(savedJob && savedJob.fingerprint === jobFingerprint && savedJob.cursor < streets.length);
+  const startAt = resuming ? savedJob.cursor : 0;
+  const stopAt = Math.min(streets.length, startAt + BULK_CHUNK_SIZE);
+  const carried = (resuming && savedJob.totals) ? savedJob.totals : {added:0, updated:0, failed:0, billed:0, noPhoneNoInvoice:0, noPin:0, skipped:0, unchangedRows:0};
   let added = 0, updated = 0, failed = 0, billed = 0, noPhoneNoInvoice = 0, noPin = 0, skipped = 0;
   // How much work this run did NOT have to do — see pinIsGood and unchanged.
   let pinsKept = 0, unchangedRows = 0, invoiceReadsSaved = 0;
@@ -15402,8 +15428,8 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
     poolSnap.forEach(function(d){ pooledNumbers.add(d.id); });
   } catch(err){ pooledNumbers = null; }
   let poolDeletesSaved = 0;
-  for(let i = 0; i < streets.length; i++){
-    statusEl.textContent = 'Locating ' + (i+1) + ' of ' + streets.length + '…';
+  for(let i = startAt; i < stopAt; i++){
+    statusEl.textContent = 'Row ' + (i+1) + ' of ' + streets.length + ' (this batch ends at ' + stopAt + ')…';
     await bulkBreathe(i);
     /* Cannot be identified — see skipRow. Skipped rather than guessed at. */
     if(skipRow[i]){ skipped++; continue; }
@@ -15657,9 +15683,62 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
   const alreadyRightNote = unchangedRows
     ? ' ' + unchangedRows + ' row(s) already matched and were left alone.'
     : '';
-  statusEl.textContent = (hoff ? 'First line ignored as headings. ' : '') + streets.length + ' row(s) read \u2014 ' + added + ' added, ' + updated + ' updated' + (billed ? ', ' + billed + ' invoice(s) billed' : '') + (noPhoneNoInvoice ? ', ' + noPhoneNoInvoice + ' amount(s) skipped (no phone on file)' : '') + (noPin ? ', ' + noPin + ' added without a map pin (All Customers → Filters → Map Pin → "Needs Pin", or see Health Check)' : '') + (failed ? ', ' + failed + ' failed' : '') + '.' + alreadyRightNote + movedNote + skippedNote;
+  /* Running totals across every batch, so the finish line describes the whole
+     import and not just the last 250 rows. */
+  const runTotals = {
+    added: carried.added + added,
+    updated: carried.updated + updated,
+    failed: carried.failed + failed,
+    billed: carried.billed + billed,
+    noPhoneNoInvoice: carried.noPhoneNoInvoice + noPhoneNoInvoice,
+    noPin: carried.noPin + noPin,
+    skipped: carried.skipped + skipped,
+    unchangedRows: carried.unchangedRows + unchangedRows
+  };
+  const moreToDo = stopAt < streets.length;
+
+  if(moreToDo){
+    /* PAUSE. Write down exactly where we got to, and keep the columns in the
+       boxes — nothing is cleared while a job is unfinished, or a refresh would
+       lose the half of the paste that has not run yet. */
+    const boxes = {};
+    rbAreaIds.forEach(function(id){
+      const el = document.getElementById(id);
+      boxes[id] = el ? el.value : '';
+    });
+    const remembered = bulkJobSave({
+      identifier: BULK_IDENTIFIER,
+      fingerprint: jobFingerprint,
+      cursor: stopAt,
+      total: streets.length,
+      totals: runTotals,
+      boxes: boxes
+    });
+    statusEl.textContent = stopAt + ' of ' + streets.length + ' rows done \u2014 ' +
+      runTotals.added + ' added, ' + runTotals.updated + ' updated so far.' +
+      (remembered
+        ? ' Saved. The page will reload in a moment; press Continue to do the next batch.'
+        : ' \u26A0 I could NOT save the place \u2014 do not refresh, just press Import again to carry on.');
+    renderBulkResumeBanner();
+    if(remembered){
+      /* The reload is the point of doing this in batches: it is what actually
+         hands the memory back. Delayed so the line above can be read first. */
+      setTimeout(function(){ location.reload(); }, 2500);
+    }
+    return;
+  }
+
+  /* DONE — the note of where we got to is no longer wanted. */
+  bulkJobClear();
+  renderBulkResumeBanner();
+  const alreadyRightTotal = runTotals.unchangedRows
+    ? ' ' + runTotals.unchangedRows + ' row(s) already matched and were left alone.'
+    : '';
+  statusEl.textContent = (hoff ? 'First line ignored as headings. ' : '') + streets.length + ' row(s) read \u2014 ' + runTotals.added + ' added, ' + runTotals.updated + ' updated' + (runTotals.billed ? ', ' + runTotals.billed + ' invoice(s) billed' : '') + (runTotals.noPhoneNoInvoice ? ', ' + runTotals.noPhoneNoInvoice + ' amount(s) skipped (no phone on file)' : '') + (runTotals.noPin ? ', ' + runTotals.noPin + ' added without a map pin (All Customers → Filters → Map Pin → "Needs Pin", or see Health Check)' : '') + (runTotals.failed ? ', ' + runTotals.failed + ' failed' : '') + '.' + alreadyRightTotal + movedNote + skippedNote;
   rbAreaIds.forEach(function(id){ document.getElementById(id).value = ''; });
-  wireBulkCounts(rbAreaIds, BULK_BY_NUMBER ? 'rbCustNumbersArea' : BULK_BY_PHONE ? 'rbPhonesArea' : 'rbStreetsArea', rbCountIds)();
+  const sheetBox = document.getElementById('rbSheetArea');
+  if(sheetBox) sheetBox.value = '';
+  rbRefreshCounts();
 }); }, function(){ return document.getElementById('rbImportBtn'); }));
 // --- Invoice Bulk Update ---
 const ibAreaIds = ['ibNamesArea','ibPhonesArea','ibEmailsArea','ibAmountsArea'];
@@ -16969,6 +17048,93 @@ function bulkFieldsMatch(updates, current){
       return Number(now) === Number(next);
     }
     return String(now === undefined || now === null ? '' : now) === String(next);
+  });
+}
+/* ---------------- IMPORTING IN CHUNKS, AND REMEMBERING WHERE IT GOT TO ------
+   Owner, 2026-08-17: "we need to cut it up because it crashes at 250 so we
+   need to go 250 at a time then refresh but it needs to remember".
+
+   A run of nine hundred rows builds up in the tab until it dies, and dying
+   halfway through is the worst outcome: some customers written, some not, and
+   no way to tell which. So the import now does 250 rows and STOPS, writes down
+   exactly where it got to, and picks up from there — across a page refresh,
+   which is what actually hands the memory back.
+
+   What is written down is the pasted columns plus the cursor. It lives in
+   localStorage on this machine, and it is deleted the moment the run finishes
+   or is cancelled, so it is not left lying about after the job is done. */
+const BULK_CHUNK_SIZE = 250;
+const BULK_JOB_KEY = 'hu.bulkImportJob.v1';
+
+/* Enough of the identifier column to tell one paste from another, without
+   keeping a second copy of the whole thing. If this does not match, the boxes
+   hold something different from what the job was for and the cursor would
+   point into the wrong list — so we start again rather than guess. */
+function bulkJobFingerprint(anchorVals){
+  const a = anchorVals || [];
+  return a.length + '|' + a.slice(0, 3).join('~') + '|' + a.slice(-3).join('~');
+}
+function bulkJobSave(job){
+  try{ localStorage.setItem(BULK_JOB_KEY, JSON.stringify(job)); return true; }
+  catch(err){ return false; }   // quota, private mode — caller tells the user
+}
+function bulkJobLoad(){
+  try{
+    const raw = localStorage.getItem(BULK_JOB_KEY);
+    if(!raw) return null;
+    const job = JSON.parse(raw);
+    /* A job saved under a different identifier mode cannot be resumed: the
+       rows would be matched to customers a different way half way through. */
+    if(!job || job.identifier !== BULK_IDENTIFIER) return null;
+    if(typeof job.cursor !== 'number' || typeof job.total !== 'number') return null;
+    return job;
+  } catch(err){ return null; }
+}
+function bulkJobClear(){
+  try{ localStorage.removeItem(BULK_JOB_KEY); } catch(err){}
+}
+/* Put the saved columns back in the boxes, so Check First and the row counts
+   work on a resumed job exactly as they do on a fresh paste. */
+function bulkJobRestoreBoxes(job){
+  if(!job || !job.boxes) return false;
+  rbAreaIds.forEach(function(id){
+    const el = document.getElementById(id);
+    if(el) el.value = job.boxes[id] || '';
+  });
+  if(typeof rbRefreshCounts === 'function') rbRefreshCounts();
+  return true;
+}
+function renderBulkResumeBanner(){
+  const el = document.getElementById('rbResumeBanner');
+  if(!el) return;
+  const job = bulkJobLoad();
+  if(!job || job.cursor >= job.total){ el.style.display = 'none'; el.innerHTML = ''; return; }
+  const done = job.cursor, total = job.total;
+  const next = Math.min(BULK_CHUNK_SIZE, total - done);
+  el.style.display = 'block';
+  el.innerHTML =
+    '<div style="border:2px solid var(--gold); background:#FFF8E9; border-radius:10px; padding:14px 16px;">' +
+      '<div style="font-weight:700; margin-bottom:6px;">This import is only part done \u2014 ' + done + ' of ' + total + ' rows.</div>' +
+      '<div style="font-size:13px; margin-bottom:10px;">Nothing has been lost. Press Continue to do the next ' + next +'. ' +
+        'The page reloads between each batch, which is what frees the memory up.</div>' +
+      '<button type="button" class="btn btn-gold" id="rbResumeBtn">Continue \u2014 next ' + next + ' rows</button> ' +
+      '<button type="button" class="btn btn-outline btn-sm" id="rbResumeCancelBtn">Stop and forget this import</button>' +
+    '</div>';
+  const go = document.getElementById('rbResumeBtn');
+  if(go) go.addEventListener('click', function(){
+    bulkJobRestoreBoxes(job);
+    const btn = document.getElementById('rbImportBtn');
+    if(btn) btn.click();
+  });
+  const stop = document.getElementById('rbResumeCancelBtn');
+  if(stop) stop.addEventListener('click', function(){
+    /* Only the note of where it got to is thrown away. Everything already
+       written to a customer stays written — there is no undo here and this
+       button must not pretend to be one. */
+    bulkJobClear();
+    renderBulkResumeBanner();
+    const st = document.getElementById('rbImportStatus');
+    if(st) st.textContent = 'Stopped. The rows already done are saved; the rest were not started.';
   });
 }
 async function bulkBreathe(rowIndex){
