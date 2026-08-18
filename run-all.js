@@ -7247,8 +7247,14 @@ suite('Suite 27. Short crew-days reach into nearby towns');
 
     // The reported symptom: 40 houses = one full day, previously spread over four.
     const tail = run({ Lehi: 5, Herriman: 5, Alpine: 5, Draper: 5, Sandy: 5, Orem: 5, 'American Fork': 5, Highland: 5 });
-    check('S27', 'a tail of small towns is packed into fewer days', tail.dates.length <= 2,
+    check('S27', 'a tail of small towns is still packed, within the one-other-town rule',
+      tail.dates.length <= 3,
       'took ' + tail.dates.length + ' working days for 40 houses; one crew one town took four');
+    /* ⭐ The rule that made the number above go from 2 to 3, asserted here so
+       the trade is visible rather than looking like the packing got worse. */
+    check('S27', 'and no crew is sent to more than two towns',
+      tail.days.every(d => d.towns.length <= 2),
+      'worst day held ' + Math.max.apply(null, tail.days.map(d => d.towns.length)) + ' towns');
     check('S27', 'and nobody is left behind while packing', tail.placed === tail.total,
       tail.placed + ' of ' + tail.total);
     check('S27', 'a topped-up day records every town it holds',
@@ -9776,6 +9782,170 @@ suite('Suite 42. Fix names only, matched on the customer number');
         plain.changes.some(c => c.cu === '85' && c.to === 'Beckstead Paul /Jill') &&
         !plain.changes.some(c => c.cu === '144'),
         'the tick box means the same thing here as it does in the import');
+    }
+  }
+}
+
+
+/* ============================================================
+ * Suite 43. Who goes out first, and who a crew is allowed to visit.
+ *
+ * Owner, 2026-08-17, reading a real Oct 1 day that held Lehi, Draper, American
+ * Fork, Herriman, South Jordan, Alpine and Pleasant Grove all at once, with
+ * "Any" houses on it while October houses waited:
+ *   - "on the first day we need to be prioritizing people who asked to be hung
+ *      in oct, so we shouldnt be doing anyone who said any until oct are done"
+ *   - "before we include anyone from AF we need to get everyone Lehi Oct done
+ *      first and then if there arent 20 houses for Lehi Oct we can go to AF oct"
+ *   - "each crew is only doing one other city ... but we dont have one doing
+ *      American fork, saratoga springs, and Lehi"
+ *   - "the very top priority is new hangs, so if a new hang requested Any they
+ *      are the first chance we get in Oct and if they said Nov we do them the
+ *      first chance we get in Nov"
+ * ============================================================ */
+suite('Suite 43. Install order and the one-other-town rule');
+{
+  const fn = (name) => {
+    const at = admin.indexOf('function ' + name + '(');
+    if (at < 0) return '';
+    let d = 0;
+    for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+    }
+    return '';
+  };
+
+  /* ---- the ordering itself ---- */
+  {
+    const src = fn('houseInstallPriority');
+    check('S43', 'houseInstallPriority exists', !!src);
+    if (src) {
+      const sb = {};
+      new Function(src + 'this.p = houseInstallPriority;').call(sb);
+      const p = sb.p;
+      const NEW = { chargeNewMemberFee: true };
+      const OLD = { chargeNewMemberFee: false };
+
+      check('S43', 'a new hang outranks a returning October house',
+        p({ pref: 'Any' }, NEW) < p({ pref: 'October' }, OLD),
+        'a new hang who said Any goes at the first chance in October');
+      check('S43', 'a new hang who asked for November also sorts first',
+        p({ pref: 'November' }, NEW) < p({ pref: 'October' }, OLD),
+        'houseAllowedFrom still holds them to November — this only decides the order once they are allowed');
+      check('S43', 'October beats no-preference for returning customers',
+        p({ pref: 'October' }, OLD) < p({ pref: '' }, OLD),
+        'nobody who said Any should go while October houses are waiting');
+      check('S43', 'no-preference beats November',
+        p({ pref: '' }, OLD) < p({ pref: 'November' }, OLD));
+      check('S43', 'a missing customer record does not crash it',
+        typeof p({ pref: 'October' }, null) === 'number' && typeof p({}, undefined) === 'number');
+      check('S43', 'the new-hang flag is the same one the Routes badge reads',
+        /chargeNewMemberFee === true/.test(src) && /chargeNewMemberFee === true/.test(fn('isNewHangUrgent')),
+        'two different definitions of "new hang" would drift apart');
+    }
+  }
+
+  check('S43', 'the customer record is passed in, not ignored',
+    /priority:houseInstallPriority\(h,d\)/.test(admin),
+    'without the record every house looks like a returning one and new hangs lose their place');
+
+  /* ---- the builder, run for real ---- */
+  {
+    const planStart = admin.indexOf('function planNewCrewDays(waiting, taken, opts)');
+    const planEnd = admin.indexOf('/* Top every day up to the cap');
+    check('S43', 'planNewCrewDays found', planStart > 0 && planEnd > planStart);
+    if (planStart > 0 && planEnd > planStart) {
+      const ctx = {};
+      new Function(
+        admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) +
+        admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) +
+        'let NEARBY_TOWN_LIST={};' + fn('sameTownName') + fn('haversine') + fn('townCentres') + fn('nearbyTowns') +
+        'function seasonFirstDate(){return new Date(2026,9,1);}' +
+        fn('toDateStr') + fn('nextWorkingDay') + admin.slice(planStart, planEnd) +
+        ';this.plan=planNewCrewDays;'
+      ).call(ctx);
+
+      const at = {
+        Lehi: [40.391, -111.851], Highland: [40.425, -111.795], 'American Fork': [40.377, -111.796],
+        Alpine: [40.453, -111.777], Draper: [40.524, -111.863], Sandy: [40.572, -111.859],
+        Orem: [40.297, -111.695], Herriman: [40.514, -112.033]
+      };
+      const make = (city, n, priority) => {
+        const out = [];
+        for (let i = 0; i < n; i++) out.push({ id: city + priority + i, city, priority,
+          from: '2026-10-01', stop: { lat: at[city][0], lng: at[city][1] } });
+        return out;
+      };
+
+      /* ⭐ THE REPORTED DAY. Lehi is short, and two neighbours can fill it:
+         American Fork has October houses, Highland has only "Any" houses. */
+      /* Lehi must hold the BIGGEST backlog, or the neighbours are handed their
+         own full days first and there is nothing left to borrow — which is what
+         the first version of this test actually measured. */
+      const waiting = []
+        .concat(make('Lehi', 12, 1))           // Lehi, October — short of 20
+        /* American Fork is the NEARER neighbour (~2.9 mi) and has only "Any"
+           houses; Highland is farther (~3.9 mi) and has the October ones. So
+           picking the most urgent town and picking the closest give DIFFERENT
+           answers, which is the only way this check can tell them apart. */
+        .concat(make('American Fork', 8, 2))   // nearer, no preference
+        .concat(make('Highland', 8, 1));       // farther, October
+      const days = ctx.plan(waiting, {}, { floorDate: '2026-10-01', maxDays: 40 });
+
+      check('S43', 'no crew is sent to more than two towns',
+        days.every(d => d.towns.length <= 2),
+        'worst crew-day held ' + Math.max.apply(null, days.map(d => d.towns.length)) +
+        ' towns; the owner ruled out three');
+
+      check('S43', 'a crew-day always leads with its own town',
+        days.every(d => d.towns[0] === d.city));
+
+      const lehiDay = days.filter(d => d.city === 'Lehi')[0];
+      check('S43', 'the short Lehi day borrows from exactly one town',
+        !!lehiDay && lehiDay.towns.length === 2,
+        lehiDay ? 'towns: ' + lehiDay.towns.join(' + ') : 'no Lehi day built');
+
+      /* ⭐ AND IT PICKS THE OCTOBER TOWN, not simply the nearest one. */
+      check('S43', 'it borrows from the town with October houses, not the nearer "Any" one',
+        !!lehiDay && lehiDay.towns[1] === 'Highland',
+        lehiDay ? 'borrowed from ' + lehiDay.towns[1] + ' — American Fork is closer but has only Any houses' : 'no Lehi day built');
+
+      check('S43', 'the Lehi day is filled to the cap',
+        !!lehiDay && lehiDay.ids.length === 20,
+        lehiDay ? 'held ' + lehiDay.ids.length : 'no Lehi day built');
+
+      check('S43', 'every Lehi house is on it before anybody is borrowed',
+        !!lehiDay && lehiDay.ids.filter(id => id.indexOf('Lehi') === 0).length === 12,
+        'the day s own town is exhausted first');
+
+      check('S43', 'and the borrowed ones are the October houses',
+        !!lehiDay && lehiDay.ids.filter(id => id.indexOf('Highland') === 0).length === 8 &&
+        !lehiDay.ids.some(id => id.indexOf('American Fork') === 0),
+        'nobody who said Any should ride while October houses are still waiting next door');
+
+      check('S43', 'nobody is lost',
+        days.reduce((s, d) => s + d.ids.length, 0) === waiting.length,
+        days.reduce((s, d) => s + d.ids.length, 0) + ' of ' + waiting.length);
+
+      /* Two crews still never land in the same town on the same day. */
+      const clash = [];
+      const seen = {};
+      days.forEach(d => {
+        seen[d.date] = seen[d.date] || [];
+        d.towns.forEach(t => {
+          if (seen[d.date].indexOf(t) >= 0) clash.push(d.date + ' ' + t);
+          seen[d.date].push(t);
+        });
+      });
+      check('S43', 'two crews are never in one town on one day', clash.length === 0,
+        clash.join(', '));
+
+      /* A town with nothing near it still gets its own day rather than waiting. */
+      const alone = ctx.plan(make('Orem', 6, 1), {}, { floorDate: '2026-10-01', maxDays: 40 });
+      check('S43', 'a town with no neighbour still goes out on its own',
+        alone.length === 1 && alone[0].towns.length === 1 && alone[0].ids.length === 6,
+        JSON.stringify(alone.map(d => d.towns)));
     }
   }
 }

@@ -21146,8 +21146,25 @@ function planNewCrewDays(waiting, taken, opts){
          stretched the season into December. */
       const towns = [city];
       if(ids.length < cap){
+        /* ⭐ ITS OWN TOWN, AND AT MOST ONE OTHER. Never two others.
+           Owner, 2026-08-17: "each crew is only doing one other city — we have
+           one crew doing Lehi American fork and another doing Heremin Draper,
+           but we dont have one doing American fork, saratoga springs, and
+           Lehi." It used to walk every neighbour in range until the day was
+           full, which is how one crew-day ended up carrying Lehi, Draper,
+           American Fork, Herriman, South Jordan, Alpine and Pleasant Grove at
+           once — a day nobody can actually drive.
+
+           WHICH neighbour: the one whose most urgent waiting house is the most
+           urgent, not simply the closest. Owner, same message: "we shouldnt be
+           doing anyone who said any until oct are done". A neighbour with
+           October houses therefore beats a nearer one with only "Any" houses,
+           and distance decides it only when they are equally urgent —
+           nearbyTowns already returns them nearest-first, so the first best
+           score wins. */
         const near = nearbyTowns(city, centres);
-        for(let n = 0; n < near.length && ids.length < cap; n++){
+        let pick = null;
+        for(let n = 0; n < near.length; n++){
           const other = near[n];
           /* Never a town another crew is already in that day — two crews in one
              town on one day is the arrangement the owner ruled out, and it stays
@@ -21155,14 +21172,27 @@ function planNewCrewDays(waiting, taken, opts){
           if(townsUsedOn(slot.date).indexOf(other) !== -1) continue;
           const oq = byCity[other];
           if(!oq || !oq.length) continue;
-          const borrowed = [];
-          for(let i = 0; i < oq.length && ids.length + borrowed.length < cap; i++){
-            if(oq[i].from <= slot.date) borrowed.push(i);
+          /* Only houses ALLOWED on this date count towards how urgent a town
+             is — a town whose only October houses are already placed, leaving
+             November ones that cannot ride today, is not an October town. */
+          let best = null;
+          for(let i = 0; i < oq.length; i++){
+            if(oq[i].from > slot.date) continue;
+            if(best === null || oq[i].priority < best) best = oq[i].priority;
           }
-          if(!borrowed.length) continue;
-          borrowed.forEach(function(i){ ids.push(oq[i].id); });
-          for(let i = borrowed.length - 1; i >= 0; i--) oq.splice(borrowed[i], 1);
-          towns.push(other);
+          if(best === null) continue;
+          if(!pick || best < pick.best) pick = {town: other, best: best, queue: oq};
+        }
+        if(pick){
+          const borrowed = [];
+          for(let i = 0; i < pick.queue.length && ids.length + borrowed.length < cap; i++){
+            if(pick.queue[i].from <= slot.date) borrowed.push(i);
+          }
+          if(borrowed.length){
+            borrowed.forEach(function(i){ ids.push(pick.queue[i].id); });
+            for(let i = borrowed.length - 1; i >= 0; i--) pick.queue.splice(borrowed[i], 1);
+            towns.push(pick.town);
+          }
         }
       }
       busy[slot.date] = busy[slot.date] || {};
@@ -27295,11 +27325,22 @@ function houseAllowedFrom(h, startStr){
   if(p.indexOf('NOV')===0) return (BASE_START.getFullYear())+'-11-01';
   return startStr;
 }
-function houseInstallPriority(h){
+/* ⭐ NEW HANGS COME FIRST, whatever month they asked for.
+   Owner, 2026-08-17: "the very top priority is new hangs, so if a new hang
+   requested Any they are the first chance we get in Oct and if they said Nov
+   we do them the first chance we get in Nov."
+   Note what this does NOT do: it does not move a November house into October.
+   houseAllowedFrom still gates that, so a new hang who said November sits at
+   the head of the queue being skipped over every October day, and is taken
+   first on the first November one — which is exactly what was asked for.
+   chargeNewMemberFee is the same flag the New Hang badge on Routes reads,
+   so the two cannot drift apart. */
+function houseInstallPriority(h, custData){
   const p=(''+((h&&h.pref)||'')).trim().toUpperCase();
-  if(p.indexOf('OCT')===0) return 0;   // asked for October — goes out first
-  if(p.indexOf('NOV')===0) return 2;   // asked for November — waits
-  return 1;                            // no preference — fills in behind October
+  if(custData && custData.chargeNewMemberFee === true) return 0;   // never been hung
+  if(p.indexOf('OCT')===0) return 1;   // asked for October
+  if(p.indexOf('NOV')===0) return 3;   // asked for November — waits
+  return 2;                            // no preference — fills in behind October
 }
 function rebuildSeasonDays(){
   if(typeof planNewCrewDays!=='function') return {error:'The day builder is not available on this page.'};
@@ -27345,7 +27386,7 @@ function rebuildSeasonDays(){
     const cust=customerForHouse(h);
     const town=extractCleanCity((cust&&cust.data&&cust.data.city)||h.city);
     const d=(cust&&cust.data)||{};
-    return {id:key, city:town, priority:houseInstallPriority(h),
+    return {id:key, city:town, priority:houseInstallPriority(h,d),
             from:houseAllowedFrom(h,startStr),
             /* Coordinates come off the customer record — the imported rows have
                none — and only decide whether two towns are near enough to share
