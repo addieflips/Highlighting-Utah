@@ -1553,6 +1553,8 @@
                  It was "Compare with my Excel sheet", which the owner rightly
                  read as circular: the sheet is what you just pasted in, so the
                  thing being compared WITH is the website. -->
+            <button type="button" class="btn btn-outline" id="rbConnectSheetBtn" style="margin-top:6px;">Use my master sheet (pick it once)</button>
+            <span id="rbConnectSheetStatus" style="font-size:12.5px; color:var(--slate); margin-left:8px;"></span>
             <button type="button" class="btn btn-outline" id="rbFindMissingBtn" style="margin-top:6px;">Compare this sheet with the website</button>
             <div style="font-size:12.5px; color:var(--slate); margin-top:6px;">Changes nothing on its own. Lists who is on the sheet but not on the website, who is on the website but not on the sheet, and every field the two disagree about &mdash; then you tick what is right and sync it.</div>
             <span id="rbImportStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
@@ -15303,6 +15305,247 @@ function rbCollectNumberFixes(){
   return {changes: changes, missing: missing, collided: collided, taken: taken, wrongMode: false};
 }
 let rbPendingNumberFixes = null;
+/* ================= THE MASTER SHEET, READ WHERE IT LIVES ==================
+   Owner, 2026-08-18: "I want the excel sheet to be in direct sync so I dont
+   need to paste it in, I just want to paste in when I'm doing a specific
+   peice" — and then, "okay go the local route but make sure it never
+   redownloads the file".
+
+   ⚠ WHY NOT ONEDRIVE OVER THE INTERNET. Reading the file from OneDrive means
+   Microsoft Graph, Graph means an app registration, and Microsoft now refuses
+   to register an app outside a directory — "You may get a new directory by
+   joining the M365 Developer Program or signing up for Azure". Tested rather
+   than assumed, 2026-08-18: the retired consumer endpoint answers 400 on every
+   URL form, graph.microsoft.com/shares answers 401, and the 1drv.ms link
+   answers 403. There is no anonymous way in.
+
+   ⭐ SO IT READS THE FILE ON THIS COMPUTER — which IS the OneDrive file. The
+   copy in the OneDrive folder is not a separate document; OneDrive is what
+   keeps it the same on every machine. Reading it here reads what OneDrive last
+   synced down.
+
+   ⚠ NOTHING IS EVER DOWNLOADED OR WRITTEN. The browser hands over a read-only
+   handle to the file already on disk; the bytes are parsed in memory and
+   dropped. There is no fetch, no Blob URL, no save dialog, and no second copy
+   to go stale — which was the owner's worry, and is the one thing that would
+   make this worse than pasting.
+
+   The handle is remembered in IndexedDB, so the file is chosen once per
+   computer and never again. Chrome and Edge only; anywhere else the paste
+   boxes work exactly as they always have. */
+const HLX_SHEET_DB = "hluSheetHandle";
+const HLX_SHEET_KEY = "masterSheet";
+function hlxSheetStore(mode){
+  return new Promise(function(resolve, reject){
+    const req = indexedDB.open(HLX_SHEET_DB, 1);
+    req.onupgradeneeded = function(){ req.result.createObjectStore("handles"); };
+    req.onerror = function(){ reject(req.error); };
+    req.onsuccess = function(){
+      const db = req.result;
+      resolve(db.transaction("handles", mode).objectStore("handles"));
+    };
+  });
+}
+function hlxSheetHandleSave(handle){
+  return hlxSheetStore("readwrite").then(function(store){
+    return new Promise(function(resolve, reject){
+      const r = store.put(handle, HLX_SHEET_KEY);
+      r.onsuccess = function(){ resolve(true); };
+      r.onerror = function(){ reject(r.error); };
+    });
+  });
+}
+function hlxSheetHandleLoad(){
+  return hlxSheetStore("readonly").then(function(store){
+    return new Promise(function(resolve){
+      const r = store.get(HLX_SHEET_KEY);
+      r.onsuccess = function(){ resolve(r.result || null); };
+      r.onerror = function(){ resolve(null); };
+    });
+  }).catch(function(){ return null; });
+}
+function hlxSheetHandleClear(){
+  return hlxSheetStore("readwrite").then(function(store){
+    return new Promise(function(resolve){
+      const r = store.delete(HLX_SHEET_KEY);
+      r.onsuccess = function(){ resolve(true); };
+      r.onerror = function(){ resolve(false); };
+    });
+  }).catch(function(){ return false; });
+}
+/* ---- the .xlsx itself ----
+   A workbook is a zip of XML. Ported from the reader written against THIS
+   sheet on 2026-08-17, with its two hard-won traps kept:
+     - walk the <c> tags by hand, because a greedy attribute match eats the
+       self-closing slash and then runs the value capture on into the next
+       cell, silently swallowing columns;
+     - an empty cell is ABSENT from the XML, so cells are placed by the column
+       letter in r= rather than by the order they appear. */
+async function hlxInflateRaw(bytes){
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+async function hlxUnzip(buf){
+  const view = new DataView(buf);
+  const u8 = new Uint8Array(buf);
+  let eocd = -1;
+  for(let i = u8.length - 22; i >= 0; i--){ if(view.getUint32(i, true) === 0x06054b50){ eocd = i; break; } }
+  if(eocd < 0) throw new Error("That file is not a .xlsx workbook.");
+  let n = view.getUint16(eocd + 10, true);
+  let off = view.getUint32(eocd + 16, true);
+  if(off === 0xffffffff || n === 0xffff){
+    const l = eocd - 20;
+    if(view.getUint32(l, true) !== 0x07064b50) throw new Error("Cannot read this workbook (zip64).");
+    const z = Number(view.getBigUint64(l + 8, true));
+    n = Number(view.getBigUint64(z + 32, true));
+    off = Number(view.getBigUint64(z + 48, true));
+  }
+  const out = {};
+  const dec = new TextDecoder();
+  for(let i = 0; i < n; i++){
+    if(view.getUint32(off, true) !== 0x02014b50) throw new Error("Cannot read this workbook.");
+    const nameLen = view.getUint16(off + 28, true);
+    const extraLen = view.getUint16(off + 30, true);
+    const cmtLen = view.getUint16(off + 32, true);
+    const lho = view.getUint32(off + 42, true);
+    const name = dec.decode(u8.subarray(off + 46, off + 46 + nameLen));
+    const method = view.getUint16(off + 10, true);
+    const csize = view.getUint32(off + 20, true);
+    const lnameLen = view.getUint16(lho + 26, true);
+    const lextraLen = view.getUint16(lho + 28, true);
+    const dataStart = lho + 30 + lnameLen + lextraLen;
+    const raw = u8.subarray(dataStart, dataStart + csize);
+    /* Only the two parts that are actually read are inflated — a workbook
+       carries styles, themes and drawings this never looks at. */
+    if(/^xl\/(sharedStrings\.xml|workbook\.xml|worksheets\/sheet\d+\.xml)$/.test(name)){
+      out[name] = method === 0 ? raw.slice() : await hlxInflateRaw(raw);
+    } else {
+      out[name] = null;
+    }
+    off += 46 + nameLen + extraLen + cmtLen;
+  }
+  return out;
+}
+function hlxXmlText(v){
+  return String(v)
+    .replace(/&#(\d+);/g, function(m, d){ return String.fromCodePoint(+d); })
+    .replace(/&#x([0-9a-fA-F]+);/g, function(m, h){ return String.fromCodePoint(parseInt(h, 16)); })
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'").replace(/&amp;/g, "&");
+}
+function hlxSharedStrings(xml){
+  if(!xml) return [];
+  const out = [];
+  const si = xml.split(/<si[ >]/).slice(1);
+  si.forEach(function(chunk){
+    const body = chunk.slice(0, chunk.indexOf("</si>"));
+    let text = "";
+    const re = /<t[^>]*>([\s\S]*?)<\/t>/g;
+    let m;
+    while((m = re.exec(body))) text += hlxXmlText(m[1]);
+    out.push(text);
+  });
+  return out;
+}
+function hlxColNum(ref){
+  let n = 0;
+  for(let i = 0; i < ref.length; i++){
+    const c = ref.charCodeAt(i);
+    if(c < 65 || c > 90) break;
+    n = n * 26 + (c - 64);
+  }
+  return n - 1;
+}
+function hlxReadSheet(xml, ss){
+  const rows = [];
+  const rowRe = /<row[^>]*r="(\d+)"[^>]*>([\s\S]*?)<\/row>|<row[^>]*r="(\d+)"[^>]*\/>/g;
+  let rm;
+  while((rm = rowRe.exec(xml))){
+    const rn = parseInt(rm[1] || rm[3], 10);
+    const body = rm[2] || "";
+    const cells = [];
+    const tagRe = /<c\b((?:[^>"]|"[^"]*")*)>/g;
+    let cm;
+    while((cm = tagRe.exec(body))){
+      let attrs = cm[1] || "";
+      const selfClosing = /\/\s*$/.test(attrs);
+      if(selfClosing) attrs = attrs.replace(/\/\s*$/, "");
+      const ref = (attrs.match(/\br="([A-Z]+)\d+"/) || [])[1];
+      if(!ref) continue;
+      const ci = hlxColNum(ref);
+      let inner = "";
+      if(!selfClosing){
+        const close = body.indexOf("</c>", tagRe.lastIndex);
+        inner = close < 0 ? "" : body.slice(tagRe.lastIndex, close);
+        tagRe.lastIndex = close < 0 ? body.length : close + 4;
+      }
+      const t = (attrs.match(/t="([^"]+)"/) || [])[1];
+      let v = "";
+      if(t === "inlineStr"){
+        const re = /<t[^>]*>([\s\S]*?)<\/t>/g;
+        let m2;
+        while((m2 = re.exec(inner))) v += hlxXmlText(m2[1]);
+      } else {
+        const vm = inner.match(/<v>([\s\S]*?)<\/v>/);
+        if(vm){
+          v = hlxXmlText(vm[1]);
+          if(t === "s"){ const idx = parseInt(v, 10); v = (ss[idx] === undefined ? "" : ss[idx]); }
+        }
+      }
+      cells[ci] = v;
+    }
+    rows[rn - 1] = cells;
+  }
+  for(let i = 0; i < rows.length; i++) if(!rows[i]) rows[i] = [];
+  return rows;
+}
+async function hlxWorkbookRows(file){
+  const z = await hlxUnzip(await file.arrayBuffer());
+  const dec = new TextDecoder();
+  const ss = hlxSharedStrings(z["xl/sharedStrings.xml"] ? dec.decode(z["xl/sharedStrings.xml"]) : "");
+  const names = Object.keys(z).filter(function(k){ return /^xl\/worksheets\/sheet\d+\.xml$/.test(k); })
+    .sort(function(a, b){ return parseInt(a.match(/\d+/)[0], 10) - parseInt(b.match(/\d+/)[0], 10); });
+  if(!names.length || !z[names[0]]) throw new Error("That workbook has no readable sheet.");
+  return hlxReadSheet(dec.decode(z[names[0]]), ss);
+}
+/* The splitter already knows how to find the heading row, line the columns up
+   and turn the names round, and every one of those rules is tested. So the
+   workbook is handed to it in the shape a paste arrives in, rather than a
+   second path that could disagree with the first.
+   ⚠ A tab or a newline inside a cell would split it into two columns, so they
+   become spaces — the only edit made to anything read from the file. */
+function hlxRowsToTsv(rows){
+  return rows.map(function(r){
+    return (r || []).map(function(c){
+      return String(c === undefined || c === null ? "" : c).replace(/[\t\r\n]+/g, " ");
+    }).join("\t");
+  }).join("\n");
+}
+function hlxSheetSupported(){ return typeof window !== "undefined" && !!window.showOpenFilePicker; }
+async function hlxSheetPermission(handle, ask){
+  if(!handle || !handle.queryPermission) return "granted";
+  const opts = {mode: "read"};
+  let state = await handle.queryPermission(opts);
+  if(state === "granted") return state;
+  if(ask && handle.requestPermission) state = await handle.requestPermission(opts);
+  return state;
+}
+/* Reads the connected workbook and fills the paste boxes from it. Returns the
+   number of rows read, or 0 when there is nothing connected. */
+async function hlxLoadConnectedSheet(ask){
+  const handle = await hlxSheetHandleLoad();
+  if(!handle) return {rows: 0, reason: "none"};
+  const state = await hlxSheetPermission(handle, !!ask);
+  if(state !== "granted") return {rows: 0, reason: "permission", name: handle.name || ""};
+  const file = await handle.getFile();
+  const rows = await hlxWorkbookRows(file);
+  const box = document.getElementById("rbSheetArea");
+  if(box){
+    box.value = hlxRowsToTsv(rows);
+    if(typeof rbSplitSheetIntoBoxes === "function") rbSplitSheetIntoBoxes();
+  }
+  return {rows: rows.length, name: handle.name || "", when: file.lastModified || 0};
+}
 /* ⭐ FOUR WAYS TO RECOGNISE THE SAME PERSON, STRONGEST FIRST.
    Owner, 2026-08-18, reading a list of customers the comparison said were not
    on her sheet — "Anderson Brit / Dani — Pleasant Grove", "Richards Jeff —
@@ -16241,7 +16484,54 @@ document.getElementById('rbFixNumbersBtn')?.addEventListener('click', function()
     statusEl.textContent = '';
   }); }, function(){ return document.getElementById('rbFixNumbersGoBtn'); }));
 });
-document.getElementById('rbFindMissingBtn')?.addEventListener('click', function(){
+/* ⭐ PICK THE FILE ONCE, THEN NEVER AGAIN ON THIS COMPUTER.
+   ⚠ showOpenFilePicker only opens from a real click, so this cannot be done
+   for the office automatically — the one press is the browser's rule, not a
+   design choice. */
+function rbShowSheetStatus(text, warn){
+  const el = document.getElementById("rbConnectSheetStatus");
+  if(!el) return;
+  el.textContent = text || "";
+  el.style.color = warn ? "var(--ember)" : "var(--slate)";
+}
+document.getElementById('rbConnectSheetBtn')?.addEventListener('click', onceAtATime(async function(){
+  if(!hlxSheetSupported()){
+    rbShowSheetStatus("This browser cannot hold onto a file — use Chrome or Edge, or paste the sheet in as usual.", true);
+    return;
+  }
+  let handle;
+  try{
+    const picked = await window.showOpenFilePicker({
+      multiple: false,
+      types: [{description: "Excel workbook", accept: {"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"]}}]
+    });
+    handle = picked && picked[0];
+  } catch(err){ return; }          // they closed the dialog
+  if(!handle) return;
+  rbShowSheetStatus("Reading \u2026");
+  try{
+    await hlxSheetHandleSave(handle);
+    const res = await hlxLoadConnectedSheet(true);
+    if(!res.rows){
+      rbShowSheetStatus("Picked, but the file could not be read. Try again, or paste the sheet in.", true);
+      return;
+    }
+    rbShowSheetStatus("Connected to " + (res.name || "your sheet") + " \u2014 " + res.rows +
+      " rows. It is read where it sits; nothing is copied or downloaded.");
+  } catch(err){
+    rbShowSheetStatus("Could not read that file: " + ((err && err.message) || "unknown error"), true);
+  }
+}, function(){ return document.getElementById('rbConnectSheetBtn'); }));
+/* Say on arrival whether a sheet is already connected, so the office is not
+   left guessing whether the last press stuck. */
+setTimeout(function(){
+  if(!hlxSheetSupported()) return;
+  hlxSheetHandleLoad().then(function(h){
+    if(!h) return;
+    rbShowSheetStatus("Connected to " + (h.name || "your sheet") + " \u2014 press Compare and it is read straight from there.");
+  }).catch(function(){});
+}, 0);
+document.getElementById('rbFindMissingBtn')?.addEventListener('click', async function(){
   const report = document.getElementById('rbMissingReport');
   const statusEl = document.getElementById('rbImportStatus');
   if(!report) return;
@@ -16250,12 +16540,33 @@ document.getElementById('rbFindMissingBtn')?.addEventListener('click', function(
     statusEl.textContent = 'The customer list has not finished loading yet. Give it a moment and try again.';
     return;
   }
+  /* ⭐ THE CONNECTED SHEET FIRST. Owner: "I want the excel sheet to be in
+     direct sync so I dont need to paste it in, I just want to paste in when
+     I'm doing a specific peice" — so a connected workbook is read every time,
+     and the paste boxes still win when there is no workbook connected, which
+     is the "specific piece" case.
+     ⚠ Read where it sits. No copy is made, nothing is downloaded, and there is
+     no second file to go stale. */
+  let usedConnected = false;
+  if(hlxSheetSupported()){
+    try{
+      const live = await hlxLoadConnectedSheet(false);
+      if(live.rows){
+        usedConnected = true;
+        rbShowSheetStatus("Read " + live.rows + " rows straight from " + (live.name || "your sheet") + ".");
+      } else if(live.reason === "permission"){
+        rbShowSheetStatus("Chrome needs you to confirm access again \u2014 press \u201cUse my master sheet\u201d once.", true);
+      }
+    } catch(err){
+      rbShowSheetStatus("Could not read the connected sheet: " + ((err && err.message) || "unknown error"), true);
+    }
+  }
   /* ⭐ JUST PASTE THE SHEET. Owner: "I should just be able to paste in my excel
      sheet." If the whole-sheet box has something in it, split it into the
      columns first rather than making somebody find the other button. */
   const sheetBox = document.getElementById('rbSheetArea');
-  if(sheetBox && sheetBox.value.trim() && typeof rbSplitSheetIntoBoxes === 'function'){
-    try{ rbSplitSheetIntoBoxes(sheetBox.value); }catch(err){}
+  if(!usedConnected && sheetBox && sheetBox.value.trim() && typeof rbSplitSheetIntoBoxes === 'function'){
+    try{ rbSplitSheetIntoBoxes(); }catch(err){}
   }
   const found = rbCollectMissingCustomers();
   /* ⭐ A COMPARISON THAT DID NOT READ THE SHEET IS NOT A RESULT.

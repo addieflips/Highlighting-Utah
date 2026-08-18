@@ -13295,8 +13295,20 @@ suite('Suite 58. The sheet against the book, both ways round');
       'a count that comes after the list is read after the damage');
 
     /* ⭐ "I should just be able to paste in my excel sheet." */
+    /* rbSplitSheetIntoBoxes reads the box itself and takes no argument — the
+       old check passed an argument it ignores, which read as though the two
+       were connected when they were not. */
     check('S58', 'it splits the pasted sheet itself rather than sending you to another button',
-      /rbSplitSheetIntoBoxes\(sheetBox\.value\)/.test(body));
+      /if\(!usedConnected && sheetBox && sheetBox\.value\.trim\(\)/.test(body) &&
+      /rbSplitSheetIntoBoxes\(\);/.test(body));
+    /* ⭐ AND THE CONNECTED WORKBOOK COMES FIRST. Owner: "I want the excel sheet
+       to be in direct sync so I dont need to paste it in, I just want to paste
+       in when I'm doing a specific peice" — so the paste is the fallback, not
+       the other way round. */
+    check('S58', 'a connected workbook is read before the paste boxes',
+      /const live = await hlxLoadConnectedSheet\(false\);/.test(body) &&
+      body.indexOf('hlxLoadConnectedSheet(false)') < body.indexOf('rbSplitSheetIntoBoxes();'),
+      'reading the paste first would quietly ignore the sheet she connected');
 
     check('S58', 'nothing is added until the button is pressed',
       body.indexOf('rbAddGoBtn') > 0 &&
@@ -13633,6 +13645,185 @@ suite('Suite 60. The colours as the office actually writes them');
       /return rbNotesLooksLikeColors\(v\) \? '' : v;/.test(admin),
       'or it would offer to write one as a difference');
   }
+}
+
+
+/* ============================================================
+ * Suite 61. Reading the master sheet where it lives.
+ *
+ * Owner, 2026-08-18: "I want the excel sheet to be in direct sync so I dont
+ * need to paste it in, I just want to paste in when I'm doing a specific
+ * peice", then "okay go the local route but make sure it never redownloads the
+ * file".
+ *
+ * ⚠ WHY NOT ONEDRIVE OVER THE INTERNET. Tested rather than assumed: the retired
+ * consumer endpoint answers 400 on every URL form, graph.microsoft.com/shares
+ * answers 401, and the 1drv.ms link answers 403. Reading it remotely needs an
+ * app registration, and Microsoft now refuses to register an app outside a
+ * directory. So it reads the file on this computer — which IS the OneDrive
+ * file; OneDrive is what keeps it the same everywhere.
+ *
+ * The parser is a port of the reader written against this exact sheet, and it
+ * was proved against it before shipping: 968 rows, 64,856 cells, zero
+ * differences from the reference.
+ * ============================================================ */
+suite('Suite 61. Reading the master sheet where it lives');
+{
+  const fn = (name) => {
+    let at = admin.indexOf('async function ' + name + '(');
+    if (at < 0) at = admin.indexOf('function ' + name + '(');
+    if (at < 0) return '';
+    let d = 0;
+    for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+    }
+    return '';
+  };
+  const parts = ['hlxInflateRaw','hlxUnzip','hlxXmlText','hlxSharedStrings',
+                 'hlxColNum','hlxReadSheet','hlxWorkbookRows','hlxRowsToTsv'];
+  const src = parts.map(fn).join('');
+  check('S61', 'the reader is all there', parts.every(function(p){ return !!fn(p); }),
+    'missing: ' + parts.filter(function(p){ return !fn(p); }).join(', '));
+
+  /* ⚠ NOTHING IS DOWNLOADED, WRITTEN OR COPIED — the owner's own condition.
+     A second copy on disk is the one thing that would make this worse than
+     pasting, because it would go stale silently. */
+  {
+    const at = admin.indexOf('const HLX_SHEET_DB');
+    const end = admin.indexOf('/* ⭐ FOUR WAYS TO RECOGNISE THE SAME PERSON', at);
+    const block = at > 0 && end > at ? admin.slice(at, end) : '';
+    check('S61', 'the sheet code was found', !!block);
+    check('S61', 'it never writes a file, and never offers one to save',
+      !/showSaveFilePicker|createWritable|URL\.createObjectURL|download=/.test(block),
+      '"make sure it never redownloads the file" — this is that, asserted');
+    check('S61', 'and it never fetches the workbook from anywhere',
+      !/fetch\(|XMLHttpRequest|api\.onedrive|graph\.microsoft/.test(block),
+      'the whole point is that the file is already on this computer');
+    check('S61', 'it asks only for READ permission',
+      /mode: "read"/.test(block) && !/mode: "readwrite"/.test(block),
+      'read-only is what makes it impossible for this to damage the sheet');
+    check('S61', 'the handle is remembered, so the file is picked once per computer',
+      /indexedDB\.open\(HLX_SHEET_DB/.test(block) && /store\.put\(handle, HLX_SHEET_KEY\)/.test(block));
+    check('S61', 'and only the parts it actually reads are inflated',
+      /sharedStrings\\\.xml\|workbook\\\.xml\|worksheets/.test(block) || /out\[name\] = null;/.test(block),
+      'a workbook carries styles, themes and drawings this never looks at');
+  }
+
+  if (parts.every(function(p){ return !!fn(p); })) {
+    /* A real .xlsx, built here, so this tests the PARSER rather than a copy of
+       its own assumptions — and so the suite does not depend on a file that
+       only exists on one machine. Entries are STORED (method 0), which is legal
+       zip and keeps the fixture readable. */
+    const zip = (files) => {
+      const enc = new TextEncoder();
+      const chunks = [], central = [];
+      let off = 0;
+      const u32 = (n) => [n & 255, (n >> 8) & 255, (n >> 16) & 255, (n >>> 24) & 255];
+      const u16 = (n) => [n & 255, (n >> 8) & 255];
+      Object.keys(files).forEach(function(name){
+        const nb = enc.encode(name), db = enc.encode(files[name]);
+        const local = [].concat(u32(0x04034b50), u16(20), u16(0), u16(0), u16(0), u16(0),
+                                u32(0), u32(db.length), u32(db.length), u16(nb.length), u16(0));
+        chunks.push(new Uint8Array(local), nb, db);
+        central.push({name: nb, size: db.length, off: off});
+        off += local.length + nb.length + db.length;
+      });
+      const cdStart = off;
+      central.forEach(function(e){
+        const c = [].concat(u32(0x02014b50), u16(20), u16(20), u16(0), u16(0), u16(0), u16(0),
+                            u32(0), u32(e.size), u32(e.size), u16(e.name.length),
+                            u16(0), u16(0), u16(0), u16(0), u32(0), u32(e.off));
+        chunks.push(new Uint8Array(c), e.name);
+        off += c.length + e.name.length;
+      });
+      chunks.push(new Uint8Array([].concat(u32(0x06054b50), u16(0), u16(0),
+        u16(central.length), u16(central.length), u32(off - cdStart), u32(cdStart), u16(0))));
+      let total = 0;
+      chunks.forEach(function(c){ total += c.length; });
+      const out = new Uint8Array(total);
+      let p = 0;
+      chunks.forEach(function(c){ out.set(c, p); p += c.length; });
+      return out.buffer;
+    };
+
+    const api = new Function('Blob', 'Response', 'DecompressionStream', 'TextDecoder', 'TextEncoder',
+      src + 'return {rows: hlxWorkbookRows, tsv: hlxRowsToTsv};'
+    )(Blob, Response, DecompressionStream, TextDecoder, TextEncoder);
+
+    const SHEET =
+      '<worksheet><sheetData>' +
+      '<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c><c r="C1" t="s"><v>2</v></c></row>' +
+      /* ⚠ B2 is ABSENT, not empty — that is how a blank cell is stored, and
+         placing cells in the order they appear would slide C2 into B2. */
+      '<row r="2"><c r="A2" t="s"><v>3</v></c><c r="C2"><v>541</v></c></row>' +
+      /* ⚠ A self-closing cell. A greedy attribute match eats the slash and then
+         runs the value capture on into the NEXT cell, swallowing columns. */
+      '<row r="3"><c r="A3" t="s"><v>4</v></c><c r="B3"/><c r="C3" t="s"><v>5</v></c></row>' +
+      '</sheetData></worksheet>';
+    const SS = '<sst>' +
+      ['CU #','Name','City','May Sara','Brown Kathy','Lehi']
+        .map(function(t){ return '<si><t>' + t + '</t></si>'; }).join('') + '</sst>';
+    const book = zip({
+      'xl/workbook.xml': '<workbook><sheets><sheet name="Sheet1"/></sheets></workbook>',
+      'xl/sharedStrings.xml': SS,
+      'xl/worksheets/sheet1.xml': SHEET,
+      'xl/styles.xml': '<styleSheet/>'
+    });
+    const file = {arrayBuffer: function(){ return Promise.resolve(book); }};
+
+    pendingAsync.push((async () => {
+      const rows = await api.rows(file);
+      check('S61', 'a workbook is read into rows', rows.length === 3, 'got ' + rows.length);
+      check('S61', 'shared strings are resolved, not left as numbers',
+        (rows[0] || []).join('|') === 'CU #|Name|City', JSON.stringify(rows[0]));
+      /* ⭐ THE TRAP THAT SWALLOWS COLUMNS. */
+      check('S61', 'an absent cell keeps its column, so nothing slides left',
+        rows[1][0] === 'May Sara' && (rows[1][1] === undefined || rows[1][1] === '') &&
+        rows[1][2] === '541',
+        'got ' + JSON.stringify(rows[1]) + ' — placing cells in the order they appear puts the ' +
+        'customer number in the Name column and every column after it is wrong');
+      check('S61', 'a self-closing cell does not eat the one after it',
+        rows[2][0] === 'Brown Kathy' && rows[2][2] === 'Lehi',
+        'got ' + JSON.stringify(rows[2]) + ' — a greedy attribute match runs the value capture ' +
+        'on into the next cell');
+
+      const tsv = api.tsv(rows);
+      check('S61', 'the rows become the tab-separated shape the splitter already understands',
+        tsv.split('\n').length === 3 && tsv.split('\n')[0].split('\t').length === 3,
+        JSON.stringify(tsv));
+      /* ⚠ A tab or newline inside a cell would split it into two columns and
+         shift every column after it. */
+      check('S61', 'a tab inside a cell cannot split it into two columns',
+        api.tsv([['a\tb', 'c'], ['d\ne', 'f']]).split('\n').every(function(l){
+          return l.split('\t').length === 2;
+        }),
+        JSON.stringify(api.tsv([['a\tb', 'c'], ['d\ne', 'f']])));
+    })());
+  }
+
+  /* ---- the button, and the fallback ---- */
+  check('S61', 'the button is there', admin.indexOf('id="rbConnectSheetBtn"') > 0);
+  /* ⚠ Scoped to the button's own handler and to the GUARD, not to the message.
+     Testing that the sentence exists somewhere in the file passed with the
+     check around it deleted — the sentence was still there, just unreachable. */
+  {
+    const at = admin.indexOf("document.getElementById('rbConnectSheetBtn')");
+    const end = admin.indexOf("document.getElementById('rbFindMissingBtn')", at);
+    const body = at > 0 && end > at ? admin.slice(at, end) : '';
+    check('S61', 'the connect handler was found', !!body);
+    check('S61', 'a browser that cannot hold a file is told to paste instead',
+      /if\(!hlxSheetSupported\(\)\)\{/.test(body) &&
+      /This browser cannot hold onto a file/.test(body),
+      'Chrome and Edge only — anywhere else the paste boxes have to keep working, and ' +
+      'a picker that silently does nothing is worse than being told');
+    check('S61', 'and the picker is only ever opened by a real click',
+      /showOpenFilePicker\(\{/.test(body),
+      'the browser refuses to open it otherwise, so this cannot be done for the office automatically');
+  }
+  check('S61', 'and the paste is still read when nothing is connected',
+    /if\(!usedConnected && sheetBox && sheetBox\.value\.trim\(\)/.test(admin),
+    '"I just want to paste in when I\u2019m doing a specific peice" — that is this line');
 }
 
 // A check that scores after this summary is a check that cannot fail the build.
