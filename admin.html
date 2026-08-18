@@ -14466,7 +14466,7 @@ function wireBulkCounts(areaIds, anchorId, countIdMap){
    WRITTEN rather than as the key, so a wrong number gets CORRECTED by the
    import instead of sending the row to the wrong customer. That is what the
    2026-08-17 repair relied on. */
-const BULK_IDENTIFIER = 'number';
+const BULK_IDENTIFIER = 'phone+address';
 const BULK_BY_NUMBER = BULK_IDENTIFIER === 'number';
 const BULK_BY_PHONE = BULK_IDENTIFIER === 'phone+address';
 /* The asterisks follow the switch as well, so flipping the constant cannot
@@ -14818,11 +14818,15 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
   const names = alignBulkRows(rbCol('rbNamesArea', hoff).map(rbName), anchor.length);
   // Validate every number up front — a half-finished numbering run is worse than none.
   const numProblems = [];
-  /* Both halves of the identifier are required while it IS the identifier —
-     owner: "both are required so there should be no duplicates with both".
-     A row with only one of them cannot be identified, and matching it on the
-     half it does have is how a row lands on the wrong customer. Reported before
-     anything is written rather than skipped quietly part-way through. */
+  /* Rows that cannot be identified are SKIPPED, not treated as a reason to
+     refuse the whole paste. Owner, 2026-08-17: "I will manually fix everyone
+     without a phone number" — that plan needs the other nine hundred to go
+     through while the short list is worked on by hand. Blocking everything for
+     fourteen rows would mean the import could never run at all.
+     They are counted and named rather than dropped in silence: a skipped row
+     looks exactly like a successful one afterwards, which is how somebody ends
+     up believing a customer was updated when nothing touched them. */
+  const skipRow = {};
   if(!BULK_BY_NUMBER){
     const otherLabel = BULK_BY_PHONE ? 'phone' : 'town';
     const others = BULK_BY_PHONE
@@ -14831,14 +14835,10 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
     for(let i = 0; i < anchor.length; i++){
       const other = others[i] || '';
       const st = (streets[i] || '').trim();
-      /* Named as well as numbered. These lines ARE the list somebody then works
-         through by hand — owner, 2026-08-17: "I will manually fix everyone
-         without a phone number" — and a row number on its own does not tell you
-         who to go and look up. */
+      if(other && st) continue;
       const who = names[i] ? names[i] + ', ' : '';
-      if(!other && !st) numProblems.push('Row ' + (i+1) + ': ' + (who || 'no name, ') + 'no address and no ' + otherLabel + '.');
-      else if(!other) numProblems.push('Row ' + (i+1) + ': ' + who + 'no ' + otherLabel + ' (' + st + ').');
-      else if(!st) numProblems.push('Row ' + (i+1) + ': ' + who + 'no address (' + other + ').');
+      skipRow[i] = 'Row ' + (i+1) + ': ' + (who || 'no name, ') +
+        (!other && !st ? 'no address and no ' + otherLabel : (!other ? 'no ' + otherLabel + ' (' + st + ')' : 'no address (' + other + ')'));
     }
   }
   const seenNums = {};
@@ -14957,10 +14957,12 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
       return;
     }
   }
-  let added = 0, updated = 0, failed = 0, billed = 0, noPhoneNoInvoice = 0, noPin = 0;
+  let added = 0, updated = 0, failed = 0, billed = 0, noPhoneNoInvoice = 0, noPin = 0, skipped = 0;
   for(let i = 0; i < streets.length; i++){
     statusEl.textContent = 'Locating ' + (i+1) + ' of ' + streets.length + '…';
     await bulkBreathe(i);
+    /* Cannot be identified — see skipRow. Skipped rather than guessed at. */
+    if(skipRow[i]){ skipped++; continue; }
     const street = streets[i];
     const name = names[i] || '';
     const phone = (phones[i] || '').replace(/\D/g,'');
@@ -15114,11 +15116,23 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
     }
   }
   /* Said out loud, because the whole point of allowing it was that it resolves itself — and "should" is not "did". */
+  /* Named, and shown in full in the report box. A skipped row looks exactly
+     like a successful one afterwards — this is the only place it says so. */
+  const skipList = Object.keys(skipRow).map(function(k){ return skipRow[k]; });
+  if(skipList.length){
+    const box = document.getElementById('rbCheckReport');
+    if(box){
+      box.innerHTML = '<div style="font-weight:700; margin-bottom:6px;">' + skipList.length + ' row(s) skipped &mdash; nothing was written for these</div>' +
+        '<div style="max-height:280px; overflow:auto; border:1px solid var(--line); border-radius:8px; padding:8px 10px; font-size:12.5px; line-height:1.7;">' +
+        skipList.map(function(t){ return esc(t); }).join('<br>') + '</div>';
+    }
+  }
+  const skippedNote = skipList.length ? ' ' + skipList.length + ' row(s) skipped for having no phone or no address — listed below.' : '';
   const movedNote = numMoves.length
     ? ' ' + numMoves.length + ' number(s) were taken off whoever held them before'
       + ' — run Health Check to confirm none are still shared.'
     : '';
-  statusEl.textContent = (hoff ? 'First line ignored as headings. ' : '') + streets.length + ' row(s) read \u2014 ' + added + ' added, ' + updated + ' updated' + (billed ? ', ' + billed + ' invoice(s) billed' : '') + (noPhoneNoInvoice ? ', ' + noPhoneNoInvoice + ' amount(s) skipped (no phone on file)' : '') + (noPin ? ', ' + noPin + ' added without a map pin (All Customers → Filters → Map Pin → "Needs Pin", or see Health Check)' : '') + (failed ? ', ' + failed + ' failed' : '') + '.' + movedNote;
+  statusEl.textContent = (hoff ? 'First line ignored as headings. ' : '') + streets.length + ' row(s) read \u2014 ' + added + ' added, ' + updated + ' updated' + (billed ? ', ' + billed + ' invoice(s) billed' : '') + (noPhoneNoInvoice ? ', ' + noPhoneNoInvoice + ' amount(s) skipped (no phone on file)' : '') + (noPin ? ', ' + noPin + ' added without a map pin (All Customers → Filters → Map Pin → "Needs Pin", or see Health Check)' : '') + (failed ? ', ' + failed + ' failed' : '') + '.' + movedNote + skippedNote;
   rbAreaIds.forEach(function(id){ document.getElementById(id).value = ''; });
   wireBulkCounts(rbAreaIds, BULK_BY_NUMBER ? 'rbCustNumbersArea' : BULK_BY_PHONE ? 'rbPhonesArea' : 'rbStreetsArea', rbCountIds)();
 }); }, function(){ return document.getElementById('rbImportBtn'); }));

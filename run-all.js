@@ -7945,10 +7945,19 @@ suite('Suite 32. Customer number as identifier, and flipped names');
     /const BULK_BY_NUMBER = BULK_IDENTIFIER === 'number';/.test(admin),
     'two flags that can disagree is how a half-flipped switch happens');
   if (bulkMode !== 'number') {
-    check('S32', 'while on a two-column identifier, BOTH halves are required per row',
-      /no address and no ' \+ otherLabel \+ '\./.test(admin) &&
-      /no ' \+ otherLabel \+ ' \(/.test(admin) && /no address \(/.test(admin),
-      'a row with only one half cannot be identified, and matching on the half it has puts it on the wrong customer');
+    /* Changed 2026-08-17 from refusing the whole paste to SKIPPING the rows.
+       Owner: "I will manually fix everyone without a phone number" — that plan
+       needs the other nine hundred to go through while the short list is worked
+       on. Blocking everything for fourteen rows means the import never runs. */
+    check('S32', 'a row missing half the identifier is skipped, not matched on the half it has',
+      /if\(skipRow\[i\]\)\{ skipped\+\+; continue; \}/.test(admin) &&
+      /no address and no ' \+ otherLabel/.test(admin),
+      'matching on the half it does have is how a row lands on the wrong customer');
+    check('S32', 'and the skipped rows are named, not silently dropped',
+      /const skipList = Object\.keys\(skipRow\)/.test(admin) &&
+      /row\(s\) skipped &mdash; nothing was written for these/.test(admin) &&
+      /const skippedNote = skipList\.length/.test(admin),
+      'a skipped row looks exactly like a successful one afterwards — this is the only place it says otherwise');
     check('S32', 'and the other half is named after whichever it is',
       /const otherLabel = BULK_BY_PHONE \? 'phone' : 'town';/.test(admin),
       'telling somebody a row has "no phone" while the town is what is missing sends them to the wrong column');
