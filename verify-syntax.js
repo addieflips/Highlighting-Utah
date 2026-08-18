@@ -100,5 +100,54 @@ if (fs.existsSync(fnsPath)) {
   check('functions/index.js exists', false, 'not found at ' + fnsPath);
 }
 
+/*
+ * Mangled characters.
+ *
+ * Added 2026-08-18, after eleven of them were found sitting in main. Every one
+ * was an em dash that had become a raw U+0014 control character, or a § / ⭐
+ * that had become U+FFFD, the "I could not decode this" replacement character.
+ * They get in when a file is read as one encoding and written back as another —
+ * some editor or script in the chain does not speak UTF-8 — and they are
+ * invisible: an editor renders U+0014 as nothing at all, so a sentence just
+ * quietly loses its punctuation and nobody sees a reason to look.
+ *
+ * They were all in comments that time, which is luck, not design. The same
+ * mangling inside a customer-facing string would put a control character in an
+ * email, and inside a Firestore field name or an element id it would break the
+ * app outright. Neither node --check nor the div count can see any of it,
+ * because the file is still perfectly valid JavaScript.
+ *
+ * Tabs, newlines and carriage returns are the only control characters a source
+ * file legitimately contains.
+ */
+const TEXT_FILES = HTML_FILES.concat([
+  'functions/index.js', 'js/money.js', 'js/test-seed.js',
+  'run-all.js', 'money-parity.test.js', 'selector-contract.test.js',
+]);
+let mangled = [];
+TEXT_FILES.forEach(file => {
+  const full = path.join(ROOT, file);
+  if (!fs.existsSync(full)) return;
+  const text = fs.readFileSync(full, 'utf8');
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    const bad = (code < 32 && code !== 9 && code !== 10 && code !== 13) ||
+                code === 127 || code === 0xFFFD;
+    if (!bad) continue;
+    const line = text.slice(0, i).split('\n').length;
+    mangled.push(file + ':' + line + '  U+' +
+      code.toString(16).toUpperCase().padStart(4, '0') +
+      '  …' + text.slice(Math.max(0, i - 30), i + 12).replace(/\n/g, '\\n') + '…');
+  }
+});
+check('no mangled characters in any source file',
+  mangled.length === 0,
+  mangled.length
+    ? mangled.slice(0, 12).join('\n        ') +
+      (mangled.length > 12 ? '\n        …and ' + (mangled.length - 12) + ' more' : '') +
+      '\n        A U+0014 is almost always an em dash that lost its encoding; U+FFFD is a character' +
+      '\n        something could not decode. Put the real character back — do not delete the line.'
+    : '');
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed\n');
 process.exit(fail ? 1 : 0);

@@ -1,6 +1,6 @@
 /* The Project To-Do checklist seed.
  *
- * MOVED OUT OF admin.html 2026-08-14. It is ~217KB  12.8% of the page 
+ * MOVED OUT OF admin.html 2026-08-14. It is ~217KB — 12.8% of the page —
  * and was downloaded on every admin load and pushed down the wire again on
  * every deploy, even though the test list changes far less often than the
  * dashboard wrapped around it. admin.html now pulls it in with a dynamic
@@ -9,7 +9,7 @@
  *
  * Each row is [id, area, title, steps, expected, version, status, notes,
  * retestReason]. Bump the version whenever the wording changes, or the test
- * quietly goes stale  see CLAUDE.md �0 and �9.9.
+ * quietly goes stale — see CLAUDE.md §0 and §9.9.
  */
 export const TEST_SEED = [
   [1,"Public Site","Quote request form","1. Open a new tab in your web browser and go to highlightingutah.com (this is the public website that customers see — don't log into anything).\n2. Near the top of the page, find and click the gold button that says 'Free Quote'.\n3. A form will pop up. Fill in every box: your name, phone number, email, street address, city, zip code, and how you'd like to be contacted (phone call, text, or email).\n4. Click the 'Submit' button at the bottom of the form.\n5. Now open the admin site (the private office dashboard — ask for the login if you don't have it) and look at the menu on the left side of the screen.\n6. Click the words 'Quote Requests'.","On the public website, you should see a thank-you message appear. In admin's Quote Requests list, a new card should appear at the very top with everything you just typed in it, and a small label that says 'New'.",1,"Pass","",""],

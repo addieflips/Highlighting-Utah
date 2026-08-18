@@ -5005,7 +5005,7 @@ suite('17. A new customer lands on the next day in their city');
 
   eval(extractFn(admin, 'thanksgivingDate'));
   /* The alias table and the normaliser, because every timing rule reads through
-     them now  "NOV" has to mean November here exactly as it does in the page. */
+     them now — "NOV" has to mean November here exactly as it does in the page. */
   /* Rewritten to a global assignment: a `const` declared inside eval() is
      scoped to that eval and invisible to everything after it, unlike a function
      declaration. */
@@ -5561,7 +5561,7 @@ suite('18. Forty houses a day');
       ' inWindow: stillInWindow, latest: latestPreferredInstallDate, isNew: isNewHangHouse})');
 
     check('cap', 'the cap is twenty houses per town per day', api.max === 20,
-      "owner: 'only 20 houses per city'  40 was the whole DAY, two crews of twenty");
+      "owner: 'only 20 houses per city' — 40 was the whole DAY, two crews of twenty");
     const yes = () => true;   // "everybody is allowed on every day", for the cap tests
 
     /* Everybody returning except #3, which is a new hang. */
