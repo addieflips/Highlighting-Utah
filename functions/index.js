@@ -2259,25 +2259,14 @@ function quotePhotoEmailHtmlServer(photos) {
     '<tr><td style="font-family:Arial,sans-serif;"><p style="margin:8px 0 0; font-size:12px; color:#6E6858;">Not showing? ' + links + '.</p></td></tr>' +
     '</table>';
 }
-/* Copies the approve/maybe/decline buttons onto the far side of the photo
-   block, so there is a set above them and a set below. The template still
-   only contains them once. */
-function repeatQuoteButtonsServer(body, photoHtml) {
-  const at = body.indexOf(photoHtml);
-  if (at === -1) return body;
-  const btnRe = /<a\b[^>]*(?:background:\s*#2E6B3E|background:\s*#D89F3D|background:\s*#8A8F9C)[^>]*>[\s\S]*?<\/a>/gi;
-  let first = null, last = null, m;
-  while ((m = btnRe.exec(body)) !== null) {
-    if (m.index > at && m.index < at + photoHtml.length) continue;   // ignore anything inside the photos
-    if (first === null) first = m.index;
-    last = m.index + m[0].length;
-  }
-  if (first === null || last === null) return body;
-  const buttons = body.slice(first, last);
-  return at > first
-    ? body.slice(0, at + photoHtml.length) + '<div style="margin-top:14px;">' + buttons + '</div>' + body.slice(at + photoHtml.length)
-    : body.slice(0, at) + '<div style="margin-bottom:14px;">' + buttons + '</div>' + body.slice(at);
-}
+/* ⭐ ONE SET OF BUTTONS - the owner's decision, 2026-08-17: "just one approved,
+   Maybe later, Decline". There used to be a repeatQuoteButtonsServer here that
+   copied the approve/maybe/decline buttons onto the far side of a stack of two
+   or more photos, so "Approve" was never far down a phone, and admin.html did
+   the same in the browser. It read as a mistake, so it is gone from both. Do
+   not reintroduce it as a "fix" for a long email - it was deliberate once and
+   was deliberately removed. Suite 33 of run-all.js runs this renderer and the
+   browser one side by side and fails if either grows a second set. */
 
 async function runQuoteNudgeBatch(source) {
   const now = new Date();
@@ -2364,10 +2353,6 @@ async function runQuoteNudgeBatch(source) {
       body = body.split('{{quote_decline_button}}').join('<a href="' + base + '&action=decline" style="' + btn + ' background:#8A8F9C; color:#ffffff;">Decline Quote</a>');
       body = body.split('{{link}}').join(base);
       body = body.replace(/\n/g, '<br>');
-      /* Buttons on both sides of a stack of photos, so "Approve" is never
-         three screens down a phone. Only when there is more than one photo -
-         with a single one the template's own placement is fine. */
-      if (photoHtml && quotePhotos.length > 1) body = repeatQuoteButtonsServer(body, photoHtml);
 
       const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
         method: 'POST',
