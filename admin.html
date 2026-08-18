@@ -14995,11 +14995,26 @@ function rbNormalizeYesNo(raw){
    Returns '' for anything with no number in it at all, and '' means LEAVE THE
    FEET ALONE — never 0. Writing 0 would drop a measured house back to one bin
    and re-price it at nothing. */
+/* ⭐ A NUMBER, OR NOTHING. Owner, 2026-08-18: "feet should update as well but
+   only if the info was in number format."
+   It used to take the first number found ANYWHERE in the cell, so the one row
+   reading "160 red/warm & 40 solid green" — a lighting description that had
+   landed in the wrong column — set measuredFeet to 160. That is the highest
+   leverage field there is: it drives the bin count, the bundle count, the
+   number series and the auto-price, so a wrong one is wrong in four places.
+   Counted on the real sheet: 134 cells filled, 122 plain numbers, 11 saying
+   "suncrest" (a neighbourhood in the wrong column, already ignored because it
+   has no digits), and that one description.
+   A unit is still fine — 200, 200ft, 200 ft, 200', 200 feet — because that is
+   the same fact written out. Anything with other words in it is not a footage
+   and is left alone, so the record keeps whatever it already had. */
 function rbNormalizeFeet(raw){
   if(!raw) return '';
-  const m = String(raw).replace(/[,$]/g,'').match(/\d+(?:\.\d+)?/);
-  if(!m) return '';
-  const n = Number(m[0]);
+  const cleaned = String(raw).replace(/[,$]/g,'').trim()
+    .replace(/\s*(?:ft\.?|feet|foot|'|’|")\s*$/i, '')
+    .trim();
+  if(!/^\d+(?:\.\d+)?$/.test(cleaned)) return '';
+  const n = Number(cleaned);
   return (isFinite(n) && n > 0) ? String(Math.round(n)) : '';
 }
 const RB_INSTALL_PREF_OPTIONS = ['Normal Schedule','October','November','November - Before Thanksgiving','After Thanksgiving'];
@@ -15024,12 +15039,83 @@ function rbNormalizeInstallPref(raw){
   if(short.indexOf('nov') !== -1 || /^11[/-]/.test(short)) return 'November';
   return raw.trim();
 }
+/* ⭐ THE COLOURS AS THE OFFICE ACTUALLY WRITES THEM.
+   Owner, 2026-08-18: "when we do colors like this: pure/pure/rr/gg or any other
+   format than the exact one we use it fails to read".
+
+   It only ever matched the full option name exactly, so anything shorter came
+   through as itself and meant nothing to the rest of the app. Counted on the
+   real sheet: 37 distinct tokens in the Lights column and 28 of them
+   unrecognised, covering 542 mentions — "warm" 256, "pure" 135, "r" 49,
+   "g" 33, plus rr, gg, ww, b, o and "4red".
+
+   ⚠ ONLY WHAT IS UNAMBIGUOUS. A wrong colour is a crew hanging the wrong
+   lights on somebody's house, so anything that could be two things is left
+   exactly as it was rather than guessed:
+     "white"  — pure or warm? 22 mentions, and the two are different products.
+     "soft"   — usually warm white, but that is an assumption. 12 mentions.
+     "w"      — warm or white.
+     "p"      — pure, pink or purple.
+   Those pass through untouched, which is how they stay visible as something a
+   person still has to decide, instead of quietly becoming the wrong colour. */
+const RB_LIGHT_COLOR_OPTIONS = ['Warm White','Pure White','Red','Green','Blue','Purple','Orange','Pink','Multi'];
+const RB_COLOR_ALIASES = {
+  'warm':'Warm White', 'ww':'Warm White', 'warmwhite':'Warm White', 'warm w':'Warm White',
+  'warm white':'Warm White', 'wwarm':'Warm White',
+  'pure':'Pure White', 'pw':'Pure White', 'purewhite':'Pure White', 'pure white':'Pure White',
+  'r':'Red', 'rr':'Red', 'rrr':'Red', 'red':'Red',
+  'g':'Green', 'gg':'Green', 'ggg':'Green', 'green':'Green',
+  'b':'Blue', 'bb':'Blue', 'blue':'Blue',
+  'purple':'Purple', 'purp':'Purple',
+  'o':'Orange', 'orange':'Orange',
+  'pink':'Pink', 'pk':'Pink',
+  'multi':'Multi', 'multicolor':'Multi', 'multicolour':'Multi', 'multi color':'Multi'
+};
 function rbNormalizeColors(raw){
   if(!raw) return [];
-  const RB_LIGHT_COLOR_OPTIONS = ['Warm White','Pure White','Red','Green','Blue','Purple','Orange','Pink','Multi'];
-  return raw.split(/[,/]/).map(function(c){ return c.trim(); }).filter(Boolean).map(function(c){
-    const match = RB_LIGHT_COLOR_OPTIONS.find(function(opt){ return opt.toLowerCase() === c.toLowerCase(); });
-    return match || c;
+  return String(raw)
+    /* The office separates them every way there is: "pure/pure", "red, green",
+       "pure.red", "red also green", "warm & berry". */
+    .split(/[,/&+.;|]|\s+and\s+|\s+also\s+/i)
+    .map(function(c){ return c.trim(); })
+    .filter(Boolean)
+    .map(function(c){
+      const low = c.toLowerCase().replace(/\s+/g, ' ');
+      /* A count in front of the colour — "4red", "2 green" — is how a pattern
+         gets written. The colour is the part that matters here; the count is
+         kept in the pattern string by rbDetectColorsAndPattern. */
+      const counted = low.match(/^\d+\s*(.+)$/);
+      const key = counted ? counted[1].trim() : low;
+      return RB_COLOR_ALIASES[key] ||
+             (RB_LIGHT_COLOR_OPTIONS.find(function(opt){ return opt.toLowerCase() === key; })) ||
+             c;
+    });
+}
+/* ⭐ A COLOUR LIST THAT LANDED IN THE NOTES COLUMN IS NOT A NOTE.
+   Owner, 2026-08-18: "if you ever see color in the notes catagory:
+   Notes (blank) → red/green/pure ignore it."
+
+   The colours belong in Lights; when they turn up under Notes it is the same
+   fact written in the wrong column, and writing it through puts "red/green/pure"
+   on the crew's card as an instruction, where it reads like something they are
+   supposed to do differently.
+
+   ⚠ ONLY WHEN THE WHOLE THING IS COLOURS. "red door" and "Warm w/ berry peaks
+   (3 green on each side of peak)" are real notes that happen to mention a
+   colour, and losing either would lose the crew real information — so a single
+   token that is not a recognised colour makes it a note again. */
+function rbNotesLooksLikeColors(raw){
+  const text = String(raw == null ? '' : raw).trim();
+  if(!text) return false;
+  const parts = text.split(/[,/&+.;|]|\s+and\s+|\s+also\s+/i)
+    .map(function(p){ return p.trim(); }).filter(Boolean);
+  if(!parts.length) return false;
+  return parts.every(function(p){
+    const low = p.toLowerCase().replace(/\s+/g, ' ');
+    const counted = low.match(/^\d+\s*(.+)$/);
+    const key = counted ? counted[1].trim() : low;
+    return !!RB_COLOR_ALIASES[key] ||
+           RB_LIGHT_COLOR_OPTIONS.some(function(opt){ return opt.toLowerCase() === key; });
   });
 }
 // A repeated color in the list means it's a specific alternating pattern (order + repeats matter);
@@ -15297,7 +15383,13 @@ function rbCollectMissingCustomers(){
     {key:'wireColor',       label:'Wire',    read:function(i){ return rbNormalizeWire(txt(wireRaw, i)); }, same:plain},
     {key:'outletTimer',     label:'Timer',   read:function(i){ return rbNormalizeYesNo(txt(timerRaw, i)); }, same:plain},
     {key:'useEaves',        label:'Eaves',   read:function(i){ return rbNormalizeYesNo(txt(eavesRaw, i)); }, same:plain},
-    {key:'notes',           label:'Notes',   read:function(i){ return txt(notesRaw, i); }, same:plain}
+    /* A colour list in the Notes column is not a note — same rule as the
+       import, or the comparison would offer to write one as a difference. */
+    {key:'notes',           label:'Notes',
+                            read:function(i){
+                              const v = txt(notesRaw, i);
+                              return rbNotesLooksLikeColors(v) ? '' : v;
+                            }, same:plain}
   ];
   const len = Math.max(streets.length, phones.length, namesRaw.length, nums.length);
   const rows = [], skipped = [], diffs = [];
@@ -15362,6 +15454,8 @@ function rbCollectMissingCustomers(){
               ? ' #' + String(sameName[0].data.customerNumber).trim() : ' (no number)') +
            ' is already here')
         : (sameName.length > 1 ? sameName.length + ' customers already have this name' : ''),
+      /* ⚠ Only a namesake that is NOT the one we are paired with makes a row
+         doubtful. A paired row is not doubtful at all — it is an update. */
       suspect: sameName.length > 0
     });
   }
@@ -15417,6 +15511,11 @@ function rbCollectMissingCustomers(){
     if(hits.length === 1 && !paired[hits[0].id]){
       r.pairedSite = hits[0];
       paired[hits[0].id] = true;
+      /* ⭐ Owner, 2026-08-18: "I want it to update the customer not add a new
+         one." A paired row is not a doubtful add — it is the row that belongs
+         to that record, so it is ticked, and pressing the button writes it ONTO
+         the record instead of creating a second copy. */
+      r.suspect = false;
     }
   });
   return {rows: rows, skipped: skipped,
@@ -16178,12 +16277,10 @@ document.getElementById('rbFindMissingBtn')?.addEventListener('click', function(
            into an obvious answer: because the website has her at a different
            address, or at none, so no row can reach her. */
         (r.pairedSite
-          ? '<div style="color:var(--ember); font-size:12px; margin-top:3px;">⚠ <strong>Already on the website</strong> as ' +
+          ? '<div style="color:var(--slate); font-size:12px; margin-top:3px;"><strong>Already on the website</strong> as ' +
             esc(r.pairedSite.name) + (r.pairedSite.cu ? ' #' + esc(r.pairedSite.cu) : ' (no number)') +
             ' — ' + esc(r.pairedSite.where) + '.<br>' +
-            'Same person, and the website’s address does not match this row, which is why nothing found her. ' +
-            'Leave this unticked and use <strong>Danger Zone → Merge duplicates</strong>, which folds the two into one ' +
-            'and keeps whichever address is real. Adding her here would make a second copy.</div>'
+            'Ticking this <strong>updates that record</strong> from this row rather than adding a second copy.</div>'
           : (r.namesake ? '<div style="color:var(--ember); font-size:12px; margin-top:2px;">⚠ ' + esc(r.namesake) +
                       ' — adding this row would make a second copy, not a new customer</div>' : '')) +
       '</td></tr>';
@@ -16226,7 +16323,7 @@ document.getElementById('rbFindMissingBtn')?.addEventListener('click', function(
     const timerRaw = colOf('rbTimerArea'), eavesRaw = colOf('rbEavesArea');
     const difficultyRaw = colOf('rbDifficultyArea'), feetRaw = colOf('rbFeetArea');
     const notesRaw = colOf('rbNotesArea');
-    let done = 0, failed = 0, noPin = 0;
+    let done = 0, failed = 0, noPin = 0, updatedExisting = 0;
     for(let n = 0; n < list.length; n++){
       const r = list[n], i = r.i;
       statusEl.textContent = 'Adding ' + (n+1) + ' of ' + list.length + '…';
@@ -16264,16 +16361,36 @@ document.getElementById('rbFindMissingBtn')?.addEventListener('click', function(
           doc2.measuredFeet = Number(feetVal);
           doc2.numberOfBins = cnBinsForFeet(Number(feetVal));
         }
-        const notesVal = (notesRaw[i] || '').trim();
+        const notesRawVal = (notesRaw[i] || '').trim();
+        /* A colour list in the Notes column is the Lights column written in the
+           wrong place — see rbNotesLooksLikeColors. */
+        const notesVal = rbNotesLooksLikeColors(notesRawVal) ? '' : notesRawVal;
         if(notesVal) doc2.notes = notesVal;
-        await addDoc(collection(db,'jobAddresses'), doc2);
-        done++;
+        if(r.pairedSite){
+          /* ⭐ UPDATE, DON'T ADD. Owner, 2026-08-18: "I want it to update the
+             customer not add a new one."
+             This row is the same person as a record already here, sitting on an
+             address the matcher could not reach — so writing the row ONTO that
+             record is the whole fix. It gains the address that makes it
+             findable again, and the second copy never exists.
+             ⚠ portalToken is left alone: it is what the customer signs in with
+             and what every emailed link already carries, so minting a fresh one
+             here would silently break the links that are out there. */
+          delete doc2.portalToken;
+          await updateDoc(doc(db,'jobAddresses', r.pairedSite.id), doc2);
+          updatedExisting++;
+        } else {
+          await addDoc(collection(db,'jobAddresses'), doc2);
+          done++;
+        }
       } catch(err){ failed++; }
     }
     rbPendingAdds = null;
     logActivity('Added ' + done + ' customer(s) missing from the website', 'customers', '');
     report.innerHTML = '<div style="border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--paper); font-size:13px;">' +
-      done + ' customer(s) added' + (failed ? ', ' + failed + ' failed' : '') +
+      done + ' customer(s) added' +
+      (updatedExisting ? ', ' + updatedExisting + ' existing record(s) updated instead of copied' : '') +
+      (failed ? ', ' + failed + ' failed' : '') +
       (noPin ? ', ' + noPin + ' without a map pin (All Customers → Filters → Map Pin → "Needs Pin")' : '') +
       '. No invoice was created for any of them — run Bulk Update if they need billing.</div>';
     statusEl.textContent = '';
@@ -16760,7 +16877,10 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
     const useEavesVal = rbNormalizeYesNo(eavesRaw[i] || '');
     const difficultyVal = rbNormalizeDifficulty(difficultyRaw[i] || '');
     const feetVal = rbNormalizeFeet(feetRaw[i] || '');
-    const notesVal = (notesRaw[i] || '').trim();
+    const notesRawVal = (notesRaw[i] || '').trim();
+        /* A colour list in the Notes column is the Lights column written in the
+           wrong place — see rbNotesLooksLikeColors. */
+        const notesVal = rbNotesLooksLikeColors(notesRawVal) ? '' : notesRawVal;
     const amountTypedIn = amounts[i] || '';
     const price = amountTypedIn ? Number(amountTypedIn.replace(/[,$]/g,'')) : null;
     // Already validated above (format, in-batch duplicates, and against every

@@ -333,6 +333,21 @@ const whWireLabelSrc     = extractFn(admin, 'whWireLabel');
    list would happily stay green while the app's own list moved on. */
 const whColorsFromWordsSrc = extractFn(admin, 'whColorsFromWords');
 const whLightColorsSrc = (admin.match(/const WH_LIGHT_COLORS\s*=\s*\[[^\]]*\];/) || [])[0];
+/* The colour options and aliases, read out of admin.html rather than restated,
+   so a change to what the app accepts as a colour reaches the tests too. */
+const RB_COLOR_OPTS = (function(){
+  const m = admin.match(/const RB_LIGHT_COLOR_OPTIONS = (\[[^\]]*\]);/);
+  return m ? JSON.parse(m[1].replace(/'/g, '"')) : [];
+})();
+const RB_COLOR_ALIAS = (function(){
+  const at = admin.indexOf('const RB_COLOR_ALIASES = {');
+  if (at < 0) return {};
+  const end = admin.indexOf('};', at);
+  const body = admin.slice(admin.indexOf('{', at), end + 1);
+  const out = {};
+  body.replace(/'([^']+)'\s*:\s*'([^']+)'/g, function(_, k, v){ out[k] = v; return ''; });
+  return out;
+})();
 /* Health Check's "customer with no number" row reads the town off the record.
    Lifted from admin.html rather than stubbed, for the same reason as the
    colours: a stub would keep this suite green through a change to what the app
@@ -8920,10 +8935,26 @@ suite('Suite 36. Pasting the whole sheet');
       new Function(src + 'this.f = rbNormalizeFeet;').call(sb);
       const f = sb.f;
       check('S36', 'a plain number comes through', f('230') === '230');
-      check('S36', 'a descriptive cell keeps its leading number',
-        f('160 red/warm & 40 solid green') === '160',
-        'got "' + f('160 red/warm & 40 solid green') + '"');
+      /* ⭐ CHANGED 2026-08-18. Owner: "feet should update as well but only if
+         the info was in number format." It used to take the first number found
+         anywhere, so this row — a lighting description that had landed in the
+         wrong column — set measuredFeet to 160. That field drives the bin
+         count, the bundle count, the number series and the auto-price, so one
+         wrong value is wrong in four places. It is the ONE cell of its kind on
+         the real sheet; the other eleven non-numbers say "suncrest". */
+      check('S36', 'a descriptive cell is NOT mined for a number',
+        f('160 red/warm & 40 solid green') === '',
+        'got "' + f('160 red/warm & 40 solid green') + '" — leaving the record alone is right, ' +
+        'because whatever it already had was measured rather than guessed at');
       check('S36', 'a stray $ or comma is ignored', f('$1,300') === '1300');
+      /* ⚠ A unit is the same fact written out, so it still counts. */
+      check('S36', 'a number with its unit still counts',
+        f('200ft') === '200' && f('200 ft') === '200' && f("200'") === '200' &&
+        f('200 feet') === '200',
+        'refusing these would quietly stop updating anybody who wrote the unit in');
+      check('S36', 'and a neighbourhood name in the wrong column is ignored',
+        f('suncrest') === '' && f('Suncrest') === '',
+        'eleven rows of the real sheet say this');
       check('S36', 'a blank stays blank, never 0',
         f('') === '' && f('   ') === '' && f('n/a') === '',
         'writing 0 would drop a measured house back to one bin and re-price it at nothing');
@@ -12858,6 +12889,11 @@ suite('Suite 58. The sheet against the book, both ways round');
         'normalizeStreetForMatch',
         /* The real town cleaner, not a stub: "Lehi, UT" and "Lehi" are one town,
            and a stub would keep this green through a change to what counts as one. */
+        /* The colour aliases and the notes guard: the comparison reads Notes
+           through it, so a stub would let a colour list through as a note. */
+        "const RB_LIGHT_COLOR_OPTIONS = " + JSON.stringify(RB_COLOR_OPTS) + ';' +
+        "const RB_COLOR_ALIASES = " + JSON.stringify(RB_COLOR_ALIAS) + ';' +
+        fn('rbNotesLooksLikeColors') +
         fn('extractCleanCity') +
         fn('dupNormName') + fn('rbNormalizeInstallPref') + fn('rbNormalizeFeet') +
         fn('rbNormalizeWire') + fn('rbNormalizeYesNo') + 'const RB_INSTALL_PREF_OPTIONS = [];' +
@@ -12900,9 +12936,15 @@ suite('Suite 58. The sheet against the book, both ways round');
         !!r.rows[0] && !!r.rows[0].pairedSite &&
         r.rows[0].pairedSite.where === 'no address at all' && r.rows[0].pairedSite.cu === '',
         'naming the address is what answers "why did she pop up" — the website has her at none');
-      check('S58', 'and she is still left unticked',
-        !!r.rows[0] && r.rows[0].suspect === true,
-        'the answer is Merge duplicates, not adding a second copy');
+      /* ⭐ CHANGED 2026-08-18. Owner: "I want it to update the customer not add
+         a new one." A paired row is not a doubtful add — it is the row that
+         belongs to that record, so it is ticked, and pressing the button writes
+         it ONTO the record. The record gains the address that makes it findable
+         again and the second copy never exists. */
+      check('S58', 'and she is TICKED, because ticking her updates that record',
+        !!r.rows[0] && r.rows[0].suspect === false,
+        'she was left unticked and sent to Merge duplicates, which is a second trip for ' +
+        'something this row already knows how to fix');
     }
     {
       /* ⚠ Two records of that name and there is nothing to join it to with
@@ -13015,9 +13057,11 @@ suite('Suite 58. The sheet against the book, both ways round');
     {
       const book = [c('stray', { name: 'May Sara', street: '', address: ', UT', customerNumber: '479' })];
       const r = run([{ name: 'May Sara', street: '14224 S Summit Crest Ln', city: 'Herriman', cu: '541' }], book);
-      check('S58', 'a row whose name is already in the book comes UNTICKED',
-        r.rows.length === 1 && r.rows[0].suspect === true,
-        'ticking it by default is how the office would add a second May Sara while trying to fix the first');
+      /* This row IS the record's row — same name, and that record is reachable
+         by nothing — so it pairs, and pairing means update rather than add. */
+      check('S58', 'a row that pairs with an unreachable record is ticked, to update it',
+        r.rows.length === 1 && r.rows[0].suspect === false && !!r.rows[0].pairedSite,
+        'ticking it adds nothing — it writes this row onto the record that is already here');
       check('S58', 'and it says who is already here and on what number',
         r.rows.length === 1 && /May Sara/.test(r.rows[0].namesake) && /#479/.test(r.rows[0].namesake),
         'got "' + (r.rows[0] && r.rows[0].namesake) + '"');
@@ -13173,6 +13217,21 @@ suite('Suite 58. The sheet against the book, both ways round');
     check('S58', 'and it adds nothing when nothing is ticked',
       /if\(!list\.length\)\{ statusEl\.textContent = 'Nothing was ticked/.test(body));
 
+    /* ⭐ AND THE WRITE FOLLOWS THE PAIRING. Owner: "I want it to update the
+       customer not add a new one." */
+    check('S58', 'a paired row updates its record instead of adding a copy',
+      /if\(r\.pairedSite\)\{/.test(body) &&
+      /updateDoc\(doc\(db,'jobAddresses', r\.pairedSite\.id\), doc2\)/.test(body) &&
+      body.indexOf("updateDoc(doc(db,'jobAddresses', r.pairedSite.id), doc2)") <
+      body.indexOf("addDoc(collection(db,'jobAddresses'), doc2)"),
+      'the add is the ELSE branch — a paired row must never reach it');
+    /* ⚠ The token is what the customer signs in with and what every emailed
+       link already carries. */
+    check('S58', 'and updating never mints a new portal token',
+      /delete doc2\.portalToken;/.test(body),
+      'a fresh token silently breaks every link already sent to that customer');
+    check('S58', 'the report says how many were updated rather than added',
+      /existing record\(s\) updated instead of copied/.test(body));
     check('S58', 'it creates no invoice, and says so',
       !/setDoc\(doc\(db,'invoices'/.test(body) && /No invoice was created/.test(body),
       'writing money is its own decision and belongs to the full Bulk Update');
@@ -13354,6 +13413,133 @@ suite('Suite 59. Signing in on your parents\u2019 account');
       /checkRateLimit\('phone_' \+ phone\)/.test(lookupSrc) &&
       /checkRateLimit\('email_' \+ email\)/.test(lookupSrc),
       'widening which surnames work makes this limiter MORE load-bearing, not less');
+  }
+}
+
+
+/* ============================================================
+ * Suite 60. The colours as the office actually writes them.
+ *
+ * Owner, 2026-08-18: "when we do colors like this: pure/pure/rr/gg or any
+ * other format than the exact one we use it fails to read, make it so it can
+ * read many different ways"; and "if you ever see color in the notes catagory
+ * ... ignore it".
+ *
+ * Counted on the real master sheet: 37 distinct tokens in the Lights column,
+ * 28 of them unrecognised, covering 542 mentions — "warm" 256, "pure" 135,
+ * "r" 49, "g" 33, plus rr, gg, ww, b, o and "4red".
+ *
+ * ⚠ A WRONG COLOUR IS A CREW HANGING THE WRONG LIGHTS. So this reads more
+ * spellings, and refuses to guess at the ambiguous ones — half this suite is
+ * about the second part.
+ * ============================================================ */
+suite('Suite 60. The colours as the office actually writes them');
+{
+  const fn = (name) => {
+    const at = admin.indexOf('function ' + name + '(');
+    if (at < 0) return '';
+    let d = 0;
+    for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+    }
+    return '';
+  };
+  const consts = 'const RB_LIGHT_COLOR_OPTIONS = ' + JSON.stringify(RB_COLOR_OPTS) + ';' +
+                 'const RB_COLOR_ALIASES = ' + JSON.stringify(RB_COLOR_ALIAS) + ';';
+  const norm = fn('rbNormalizeColors');
+  const detect = fn('rbDetectColorsAndPattern');
+  const notesGuard = fn('rbNotesLooksLikeColors');
+  check('S60', 'the colour functions were found', !!norm && !!detect && !!notesGuard);
+
+  if (norm && detect && notesGuard) {
+    const sb = {};
+    new Function(consts + norm + detect + notesGuard +
+      'this.n = rbNormalizeColors; this.d = rbDetectColorsAndPattern; this.g = rbNotesLooksLikeColors;').call(sb);
+
+    /* ⭐ THE OWNER'S OWN EXAMPLE. */
+    check('S60', '"pure/pure/rr/gg" is read',
+      sb.n('pure/pure/rr/gg').join('|') === 'Pure White|Pure White|Red|Green',
+      'got ' + JSON.stringify(sb.n('pure/pure/rr/gg')));
+    check('S60', 'and the repeat makes it an alternating pattern, not a plain set',
+      (function(){
+        const r = sb.d('pure/pure/rr/gg');
+        return r.colors.join('|') === 'Pure White|Red|Green' &&
+               r.pattern === 'Pure White, Pure White, Red, Green';
+      })(),
+      JSON.stringify(sb.d('pure/pure/rr/gg')));
+
+    /* The tokens that actually appear, by how often. */
+    check('S60', '"warm" is Warm White (256 mentions)', sb.n('warm').join('') === 'Warm White');
+    check('S60', '"pure" is Pure White (135)', sb.n('pure').join('') === 'Pure White');
+    check('S60', 'single letters r, g, b, o',
+      sb.n('r').join('') === 'Red' && sb.n('g').join('') === 'Green' &&
+      sb.n('b').join('') === 'Blue' && sb.n('o').join('') === 'Orange');
+    check('S60', 'doubled letters rr, gg, ww',
+      sb.n('rr').join('') === 'Red' && sb.n('gg').join('') === 'Green' &&
+      sb.n('ww').join('') === 'Warm White');
+    check('S60', 'and the spellings in between',
+      sb.n('warm w').join('') === 'Warm White' && sb.n('wwarm').join('') === 'Warm White' &&
+      sb.n('warmwhite').join('') === 'Warm White' && sb.n('purewhite').join('') === 'Pure White');
+    check('S60', 'the exact option names still work, as they always did',
+      sb.n('Warm White, Pure White, Red').join('|') === 'Warm White|Pure White|Red');
+    check('S60', 'case and spacing make no difference',
+      sb.n('  WARM /   Pure  ').join('|') === 'Warm White|Pure White');
+
+    /* Separators the office uses. */
+    check('S60', 'commas, slashes, ampersands, dots and "and" all separate',
+      sb.n('red, green').join('|') === 'Red|Green' &&
+      sb.n('pure.red').join('|') === 'Pure White|Red' &&
+      sb.n('red & green').join('|') === 'Red|Green' &&
+      sb.n('red also green').join('|') === 'Red|Green' &&
+      sb.n('red and green').join('|') === 'Red|Green');
+
+    /* A count in front is how a pattern gets written. */
+    check('S60', 'a count in front of a colour is understood',
+      sb.n('4red').join('') === 'Red' && sb.n('2 green').join('') === 'Green',
+      'got ' + JSON.stringify(sb.n('4red')) + ' and ' + JSON.stringify(sb.n('2 green')));
+
+    /* ⚠ THE HALF THAT MATTERS MORE: never guess. */
+    check('S60', '"white" is left alone — pure or warm is a real difference',
+      sb.n('white').join('') === 'white',
+      'got "' + sb.n('white').join('') + '". 22 mentions, and the two are different products — ' +
+      'passing it through is how it stays visible as something a person has to decide');
+    check('S60', '"w" is left alone — warm or white',
+      sb.n('w').join('') === 'w');
+    check('S60', '"soft" is left alone — usually warm white, but that is an assumption',
+      sb.n('soft').join('') === 'soft');
+    check('S60', '"p" is left alone — pure, pink or purple',
+      sb.n('p').join('') === 'p');
+    check('S60', 'and free text is never turned into a colour',
+      sb.n('berry peas').join('') === 'berry peas' &&
+      sb.n('add 60 bulbs').join('|').indexOf('Red') === -1,
+      JSON.stringify(sb.n('add 60 bulbs')));
+
+    /* ---- ⭐ colours in the Notes column ---- */
+    check('S60', 'a note that is nothing but colours is recognised',
+      sb.g('red/green/pure') === true && sb.g('pure/pure/rr/gg') === true &&
+      sb.g('warm') === true,
+      'those belong in Lights; on the crew card they read like an instruction');
+    /* ⚠ A REAL NOTE THAT MENTIONS A COLOUR IS STILL A NOTE. */
+    check('S60', 'a real note is not thrown away for mentioning a colour',
+      sb.g('red door') === false &&
+      sb.g('Warm w/ berry peaks (3 green on each side of peak)') === false &&
+      sb.g('3 sides') === false &&
+      sb.g('DO NOT ADD TIMER') === false,
+      'losing any of these loses the crew something they need');
+    check('S60', 'and a blank note is not a colour list',
+      sb.g('') === false && sb.g('   ') === false);
+
+    /* ⚠ BOTH import branches, counted. The update branch and the add branch
+       spell this identically, so testing that the line exists passed with the
+       first one gutted. */
+    check('S60', 'both import branches drop a colours-only note rather than writing it',
+      (admin.match(/const notesVal = rbNotesLooksLikeColors\(notesRawVal\) \? '' : notesRawVal;/g) || []).length === 2,
+      'found ' + (admin.match(/const notesVal = rbNotesLooksLikeColors\(notesRawVal\) \? '' : notesRawVal;/g) || []).length +
+      ' of 2 — an unguarded branch writes "red/green/pure" onto the crew card as an instruction');
+    check('S60', 'and the comparison reads Notes the same way',
+      /return rbNotesLooksLikeColors\(v\) \? '' : v;/.test(admin),
+      'or it would offer to write one as a difference');
   }
 }
 
