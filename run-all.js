@@ -12978,7 +12978,7 @@ suite('Suite 58. The sheet against the book, both ways round');
        number 479 held by BOTH May Sara and Rachel Oslund. */
     {
       const book = [c('rachel', { name: 'Rachel Oslund', customerNumber: '479', street: '594 N 150 E', city: 'American Fork' })];
-      const r = run([{ name: 'May Sara', cu: '479', street: '14224 S Summit Crest Ln', city: 'Herriman' }], book);
+      const r = run([{ name: 'May Sara', cu: '479', street: '14224 S Summit Crest Ln', city: 'Herriman', phone: '8014551795' }], book);
       check('S58', 'a shared customer number does not bind one person to another',
         r.rows.length === 1 && r.matchedCount === 0,
         'matching on 479 alone would offer to overwrite Rachel Oslund with May Sara\u2019s details');
@@ -12996,7 +12996,7 @@ suite('Suite 58. The sheet against the book, both ways round');
       /* ⚠ Two of a name is NOT a weaker match, it is no match. */
       const book = [c('a', { name: 'Chad Henry', street: '1 A St', city: 'Herriman' }),
                     c('b', { name: 'Chad Henry', street: '9 B Rd', city: 'Lehi' })];
-      const r = run([{ name: 'Henry Chad', street: '77 New Pl', city: 'Provo' }], book);
+      const r = run([{ name: 'Henry Chad', street: '77 New Pl', city: 'Provo', phone: '8015558888' }], book);
       check('S58', 'two customers of one name are not picked between',
         r.rows.length === 1 && r.matchedCount === 0,
         'choosing one would be a guess about which record is really theirs');
@@ -13051,7 +13051,7 @@ suite('Suite 58. The sheet against the book, both ways round');
     {
       /* ⚠ A genuinely new customer is not paired with anybody. */
       const book = [c('x', { name: 'Someone Else', street: '1 A St', city: 'Lehi' })];
-      const r = run([{ name: 'Brown Kathy', street: '77 Holly Ln', city: 'Lehi' },
+      const r = run([{ name: 'Brown Kathy', street: '77 Holly Ln', city: 'Lehi', phone: '8015550777' },
                      { name: 'Else Someone', street: '1 A St', city: 'Lehi' }], book);
       check('S58', 'a genuinely new customer is joined to nobody and stays ticked',
         r.rows.length === 1 && !r.rows[0].pairedSite && r.rows[0].suspect === false,
@@ -13103,7 +13103,7 @@ suite('Suite 58. The sheet against the book, both ways round');
       for (let i = 0; i < 10; i++) book.push(c('c' + i, { name: 'Person ' + i, street: i + ' Real St', city: 'Lehi' }));
       const rows = [];
       for (let i = 0; i < 10; i++) rows.push({ name: 'Person ' + i, street: i + ' Real St', city: 'Lehi' });
-      rows.push({ name: 'Kathy Brown', street: '77 Holly Ln', city: 'Lehi' });
+      rows.push({ name: 'Kathy Brown', street: '77 Holly Ln', city: 'Lehi', phone: '8015550777' });
       const r = run(rows, book);
       check('S58', 'a sheet that really does match is not blocked by the guard',
         r.read === 11 && r.matchedCount === 10 &&
@@ -13132,12 +13132,68 @@ suite('Suite 58. The sheet against the book, both ways round');
         'the record added has to be the same shape the import would have added');
     }
 
+    /* ---- ⭐ WHO BELONGS ON THE WEBSITE AT ALL ---- */
+    {
+      /* Owner, 2026-08-18: "theres a few people without a phone number but they
+         have an email, those people should be o the website but then theres
+         people who dont have email or phone number and those people are just
+         for the excel sheet."
+         Counted on the real sheet: 850 have both, 5 phone only, 100 EMAIL ONLY,
+         and 7 with neither. */
+      const r = run([{ name: 'Email Only', street: '1 A St', city: 'Lehi', email: 'e@x.com' },
+                     { name: 'Phone Only', street: '2 B St', city: 'Lehi', phone: '8015550001' },
+                     { name: 'Neither One', street: '3 C St', city: 'Lehi' }], []);
+      check('S58', 'somebody with an email but no phone belongs on the website',
+        r.rows.some(function(x){ return x.name === 'Email Only'; }),
+        'offered: ' + JSON.stringify(r.rows.map(function(x){ return x.name; })));
+      check('S58', 'and so does somebody with a phone but no email',
+        r.rows.some(function(x){ return x.name === 'Phone Only'; }));
+      /* ⚠ A customer nobody can invoice or message is not one the website can
+         use — and adding them means they come back as "missing" on every
+         comparison for the rest of the season. */
+      check('S58', 'but somebody with NEITHER is not offered as missing',
+        !r.rows.some(function(x){ return x.name === 'Neither One'; }) &&
+        r.sheetOnly.length === 1 && r.sheetOnly[0].name === 'Neither One',
+        'offered ' + JSON.stringify(r.rows.map(function(x){ return x.name; })) +
+        ', sheet-only ' + JSON.stringify(r.sheetOnly.map(function(x){ return x.name; })));
+      /* ⚠ The message AND the thing that shows it. Testing for the sentence
+         alone passed with the whole block made unreachable — the words were
+         still in the file, just never rendered. */
+      check('S58', 'and they are still listed, not silently dropped',
+        admin.indexOf('have no phone and no email, so they stay on the sheet only') > 0 &&
+        /\(found\.sheetOnly\.length\s*$/m.test(admin.slice(admin.indexOf('const tally ='), admin.indexOf('const siteOnly ='))),
+        'a row that just disappears is one nobody can check');
+    }
+    {
+      /* ⭐ And an email FINDS them. A hundred people on the sheet have an email
+         and no phone; without email as a key their only identifier is a name,
+         which is the weakest one there is. */
+      /* ⚠ TWO of that name, so the NAME step cannot answer — only the email
+         can. With one namesake the name step matched anyway and this passed
+         with the email step deleted. */
+      const book = [c('e', { name: 'Email Only', street: '', email: 'e@x.com' }),
+                    c('e2', { name: 'Email Only', street: '5 Z Rd', email: 'other@x.com' })];
+      const r = run([{ name: 'Only Email', street: '9 New Rd', city: 'Lehi', email: 'E@X.COM' }], book);
+      check('S58', 'an email only one customer has finds them, whatever its case',
+        r.rows.length === 0 && r.matchedCount === 1,
+        'a record with no street and no phone has nothing else left to be found by');
+    }
+    {
+      /* ⚠ But not against a disagreeing name — a shared family address is one
+         mailbox and two people. */
+      const book = [c('e', { name: 'Someone Different', street: '', email: 'e@x.com' })];
+      const r = run([{ name: 'Only Email', street: '9 New Rd', city: 'Lehi', email: 'e@x.com' }], book);
+      check('S58', 'a matching email is refused when the names disagree',
+        r.rows.length === 1 && r.matchedCount === 0,
+        'households share one email, so it identifies a mailbox rather than a person');
+    }
+
     /* ⚠ THE TRAP. A row matching nobody is ALSO what a stray copy looks like,
        so a name already in the book means "probably the same person on a
        record the matcher cannot reach" — adding it makes a duplicate. */
     {
       const book = [c('stray', { name: 'May Sara', street: '', address: ', UT', customerNumber: '479' })];
-      const r = run([{ name: 'May Sara', street: '14224 S Summit Crest Ln', city: 'Herriman', cu: '541' }], book);
+      const r = run([{ name: 'May Sara', street: '14224 S Summit Crest Ln', city: 'Herriman', cu: '541', phone: '8014551795' }], book);
       /* ⭐ RESTATED 2026-08-18. This used to be offered as a doubtful ADD with
          a warning beside it. It is not an add at all: the name finds her, so
          she is a matched customer whose record is missing the address and the
@@ -13160,7 +13216,7 @@ suite('Suite 58. The sheet against the book, both ways round');
     }
     {
       const book = [c('x', { name: 'May Sara', street: '1 A St' }), c('y', { name: 'May Sara', street: '9 B Rd' })];
-      const r = run([{ name: 'May Sara', street: '77 New Pl', city: 'Lehi' }], book);
+      const r = run([{ name: 'May Sara', street: '77 New Pl', city: 'Lehi', phone: '8015552222' }], book);
       check('S58', 'two of that name are counted, not picked between',
         r.rows.length === 1 && /2 customers already have this name/.test(r.rows[0].namesake));
     }

@@ -15749,6 +15749,17 @@ function rbCompareFindCustomer(row){
     const hit = only(samePhone);
     if(hit && namesAgree(hit)) return {cust: hit, via: 'phone'};
   }
+  /* 2b. The email, when exactly one customer has it. On the real sheet 100
+     people have an email and NO phone — the owner's "those people should be on
+     the website" — and without this the only key they have is their name. */
+  const mail = String(row.email == null ? '' : row.email).trim().toLowerCase();
+  if(mail){
+    const sameMail = jobAddresses.filter(function(c){
+      return String((c.data || {}).email || '').trim().toLowerCase() === mail;
+    });
+    const hit = only(sameMail);
+    if(hit && namesAgree(hit)) return {cust: hit, via: 'email'};
+  }
   /* 3. Street and phone together — what the import itself uses. */
   const byAddress = bulkFindCustomer(row.street, String(row.phone || ''),
                                      String(row.city || ''), String(row.zip || ''), cu);
@@ -15859,7 +15870,7 @@ function rbCollectMissingCustomers(){
                             }, same:plain}
   ];
   const len = Math.max(streets.length, phones.length, namesRaw.length, nums.length);
-  const rows = [], skipped = [], diffs = [];
+  const rows = [], skipped = [], diffs = [], sheetOnly = [];
   /* How many rows the paste actually yielded. Without this the report cannot
      tell "your sheet and the book agree" from "I could not read your sheet",
      and those look identical from the outside — see the guard in the handler. */
@@ -15879,6 +15890,7 @@ function rbCollectMissingCustomers(){
     /* Four keys, not one — see rbCompareFindCustomer. */
     const found = rbCompareFindCustomer({
       name: who, cu: cu, street: street, phone: String(phones[i] || ''),
+      email: String(emails[i] || ''),
       city: String(cities[i] || ''), zip: String(zips[i] || '')
     });
     const hit = found && found.cust;
@@ -15913,6 +15925,24 @@ function rbCollectMissingCustomers(){
                     from: (mine === null || mine === undefined || String(mine).trim() === '') ? '' : String(mine),
                     to: theirs, write: f.write ? f.write(theirs) : theirs});
       });
+      continue;
+    }
+    /* ⭐ NO PHONE AND NO EMAIL MEANS THE SHEET, NOT THE WEBSITE.
+       Owner, 2026-08-18: "theres a few people without a phone number but they
+       have an email, those people should be o the website but then theres
+       people who dont have email or phone number and those people are just for
+       the excel sheet."
+
+       Counted on the real sheet: 850 have both, 5 phone only, 100 EMAIL ONLY —
+       who belong here — and 7 with neither, who do not. Adding those 7 would
+       create customers nobody can invoice, message or reach, and they would
+       come back as "missing from the website" on every single comparison for
+       the rest of the season. Listed on their own instead, so the office can
+       see them without being nagged about them. */
+    const mail = String(emails[i] || '').trim();
+    if(!phone && !mail){
+      sheetOnly.push({row: i + 1, name: who || street || ('row ' + (i + 1)), cu: cu,
+                      where: [street, String(cities[i] || '').trim()].filter(Boolean).join(', ')});
       continue;
     }
     /* ⚠ The same house twice in one paste would be added twice. */
@@ -16001,7 +16031,7 @@ function rbCollectMissingCustomers(){
       r.suspect = false;
     }
   });
-  return {rows: rows, skipped: skipped,
+  return {rows: rows, skipped: skipped, sheetOnly: sheetOnly,
           onlyOnSite: onlyOnSite.filter(function(x){ return !paired[x.id]; }),
           pairedCount: Object.keys(paired).length,
           diffs: diffs,
@@ -16812,7 +16842,22 @@ document.getElementById('rbFindMissingBtn')?.addEventListener('click', async fun
      at a glance, before anybody reads a list and starts acting on it. */
   const tally = '<div style="font-size:12.5px; color:var(--slate); margin-bottom:8px;">' +
     'Read <strong>' + found.read + '</strong> row(s) from the sheet · <strong>' + found.matchedCount +
-    '</strong> matched a customer on the website · <strong>' + found.bookSize + '</strong> customers here in total.</div>';
+    '</strong> matched a customer on the website · <strong>' + found.bookSize + '</strong> customers here in total.</div>' +
+    /* ⭐ Sheet-only people, said once and then left alone. Owner: "people who
+       dont have email or phone number and those people are just for the excel
+       sheet." Without this line they simply vanish from the report, and a
+       row that disappears is one nobody can check. */
+    (found.sheetOnly.length
+      ? '<div style="font-size:12.5px; color:var(--slate); margin-bottom:8px; border-left:3px solid var(--line); padding-left:10px;">' +
+        '<strong>' + found.sheetOnly.length + '</strong> row(s) have no phone and no email, so they stay on the sheet only &mdash; ' +
+        'a customer nobody can invoice or message is not one the website can use. Not counted as missing:' +
+        '<div style="margin-top:4px; line-height:1.6;">' +
+        found.sheetOnly.slice(0, 20).map(function(x){
+          return esc(x.name) + (x.cu ? ' #' + esc(x.cu) : '') + (x.where ? ' &mdash; ' + esc(x.where) : '');
+        }).join('<br>') +
+        (found.sheetOnly.length > 20 ? '<br>… and ' + (found.sheetOnly.length - 20) + ' more.' : '') +
+        '</div></div>'
+      : '');
   const siteOnly = found.onlyOnSite.length
     ? '<div style="border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--paper); margin-top:12px;">' +
         '<div style="font-weight:700; margin-bottom:4px;">' + found.onlyOnSite.length +
