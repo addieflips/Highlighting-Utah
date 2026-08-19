@@ -1175,6 +1175,7 @@
       <div class="route-tabs" id="custSectionTabs" style="margin-bottom:20px;">
         <button class="route-tab-btn active" data-custtab="add" draggable="true">Add a Customer</button>
         <button class="route-tab-btn" data-custtab="all" draggable="true">All Customers</button>
+        <button class="route-tab-btn" data-custtab="billing" draggable="true">Who Pays for Whom</button>
         <button class="route-tab-btn" data-custtab="bulk" draggable="true">Bulk Updates</button>
         <button class="route-tab-btn" data-custtab="danger" draggable="true">Danger Zone</button>
       </div>
@@ -1405,6 +1406,33 @@
       </div>
       </div>
       
+      <!-- ⭐ WHO PAYS FOR WHOM.
+           One invoice can cover several houses — a parent paying for a child, a
+           landlord paying for tenants, a cabin as well as a house. Every other
+           screen in the app is arranged by HOUSE, so the only way to answer "who
+           is on this person's bill" was to search the phone number and read the
+           results. This is that answer, laid out per payer, with the same group
+           syncPayerInvoice sums so the houses listed always add up to the
+           amount charged. The customer now sees the same list in their portal
+           and on the RSVP email, so this is what the office is looking at when
+           somebody rings up about it. -->
+      <div class="route-tab-panel" id="custtab-billing">
+        <div class="card">
+          <h3 style="margin:0 0 6px;">Who Pays for Whom</h3>
+          <p style="font-size:13px; color:var(--slate); margin:0 0 14px;">
+            Every bill that covers more than one house. The customer sees this same list in their portal and on their RSVP email.
+            A house is on somebody else&rsquo;s bill when its <strong>Bill To Phone</strong> is filled in, or when two houses share one phone number.
+            Houses that said No for this season are not billed and are not listed.
+          </p>
+          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:14px;">
+            <input type="text" id="billingGroupSearch" placeholder="Search by payer, house, phone, or address..." style="flex:1; min-width:220px; padding:10px 14px; border-radius:10px; border:1px solid var(--line); background:var(--snow); font-size:14px;">
+            <button type="button" class="btn btn-outline btn-sm" id="billingGroupExportBtn">Export to Excel</button>
+          </div>
+          <p id="billingGroupCount" style="font-size:12.5px; color:var(--slate); margin:0 0 10px;"></p>
+          <div id="billingGroupList"></div>
+        </div>
+      </div>
+
       <div class="route-tab-panel" id="custtab-bulk">
 <!-- Fill in a missing town from the map pin. Not a nice-to-have: every
      scheduling decision in this app is made per town, so a customer whose town
@@ -5310,6 +5338,69 @@ function htmlEmailToPlainText(html){
     .replace(/<[^>]+>/g, '')
     .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
 }
+/* ⭐ "WHO AM I PAYING FOR THIS YEAR?" — as an email block.
+ *
+ * A payer whose bill covers several houses got one figure and one name in
+ * every email we send, so the RSVP that asks them to commit for the season
+ * never said which houses they were committing to. This is that list.
+ *
+ * ⚠ ONLY EVER SENT TO THE PAYER. A house with billToPhone set is billed to
+ * somebody else — sending them the group would name a landlord's other tenants
+ * and their prices to a person who is not paying for any of them.
+ * ⚠ AND ONLY WHEN THERE IS MORE THAN ONE. A single-house customer reading
+ * "this bill covers 1 property" learns nothing and gains a paragraph.
+ */
+function billedHousesForContact(phone){
+  const digits = String(phone||'').replace(/\D/g,'');
+  const cust = digits ? (jobAddresses||[]).find(a => String(a.data.phone||'').replace(/\D/g,'') === digits) : null;
+  if(!cust) return [];
+  if(String(cust.data.billToPhone||'').replace(/\D/g,'')) return [];
+  const houses = billedHousesFor(cust.data);
+  return houses.length > 1 ? houses : [];
+}
+function billedHousesRows(houses){
+  return (houses||[]).map(function(h){
+    const d = h.data || {};
+    return {
+      name: d.name || '(no name on file)',
+      address: d.address || '',
+      label: d.propertyLabel || '',
+      price: Number(d.housePrice) || 0
+    };
+  });
+}
+/* Built with a table and inline styles for the same reason {{price_block}} is:
+   Outlook ignores nearly all CSS. */
+function billedHousesEmailBlock(phone){
+  const rows = billedHousesRows(billedHousesForContact(phone));
+  if(!rows.length) return '';
+  const anyPriced = rows.some(r => r.price > 0);
+  const total = rows.reduce((s,r) => s + r.price, 0);
+  return '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:14px 0;">'+
+    '<tr><td style="background:#F1F5EB; border-radius:10px; padding:16px 18px; font-family:Arial,sans-serif;">'+
+      '<div style="font-size:11px; letter-spacing:1.2px; text-transform:uppercase; color:#6E6858; font-weight:bold;">Who you are paying for this year</div>'+
+      rows.map(function(r){
+        return '<div style="padding:8px 0; border-bottom:1px solid #DDE3D2;">'+
+          (r.price > 0 ? '<span style="float:right; font-weight:bold; color:#1E3B2C;">'+fmtMoney(r.price)+'</span>' : '')+
+          '<div style="font-size:14px; font-weight:bold; color:#1E3B2C;">'+esc(r.name)+(r.label ? ' <span style="font-weight:normal; color:#6E6858;">('+esc(r.label)+')</span>' : '')+'</div>'+
+          (r.address ? '<div style="font-size:12.5px; color:#6E6858;">'+esc(r.address)+'</div>' : '')+
+        '</div>';
+      }).join('')+
+      (anyPriced ? '<div style="padding-top:10px; font-size:13px; color:#1E3B2C;"><strong>'+rows.length+' properties &mdash; '+fmtMoney(total)+' of installation in total.</strong> Any fees or credits are shown on your invoice.</div>'
+                 : '<div style="padding-top:10px; font-size:13px; color:#1E3B2C;"><strong>'+rows.length+' properties on one bill.</strong></div>')+
+      '<div style="font-size:12.5px; color:#6E6858; padding-top:6px;">If any of these should not be on your bill this year, just reply and tell us.</div>'+
+    '</td></tr></table>';
+}
+/* The same list as plain text, for the on-screen preview — a preview box shows
+   textContent, so pasting the HTML in would show people the markup. */
+function billedHousesPlainText(phone){
+  const rows = billedHousesRows(billedHousesForContact(phone));
+  if(!rows.length) return '';
+  return '\n\nWHO YOU ARE PAYING FOR THIS YEAR\n' + rows.map(function(r){
+    return '  • ' + r.name + (r.label ? ' (' + r.label + ')' : '') + (r.address ? ' — ' + r.address : '') +
+           (r.price > 0 ? ' — ' + fmtMoney(r.price) : '');
+  }).join('\n') + '\n';
+}
 async function resolveLinkTokens(text, phone, amount, opts){
   opts = opts || {};
   let out = text;
@@ -5368,6 +5459,14 @@ async function resolveLinkTokens(text, phone, amount, opts){
     out = out.split('{{portal_button}}').join('<a href="'+portalUrl+'" style="'+btnStyleGold+'">Log Into Your Portal</a>');
     out = out.split('{{pay_button}}').join('<a href="'+portalUrl+'" style="'+btnStyleGold+'">Pay Your Invoice</a>');
     out = out.split('{{view_portal_button}}').join('<a href="'+portalUrl+'" style="'+btnStyleGold+'">View Your Portal</a>');
+  }
+  /* {{houses_block}} names every house on this payer's bill. Any template can
+     use it; the RSVP send appends it by itself when the template does not, so
+     nobody has to know the token exists to get the answer. Resolves to nothing
+     at all for the ordinary one-house customer. */
+  if(out.indexOf('{{houses_block}}') !== -1 || out.indexOf('{{houses_list}}') !== -1){
+    out = out.split('{{houses_block}}').join(billedHousesEmailBlock(phone));
+    out = out.split('{{houses_list}}').join(billedHousesPlainText(phone).trim());
   }
   if(out.indexOf('{{messages_link}}') !== -1 || out.indexOf('{{messages_button}}') !== -1){
     const messagesUrl = 'https://highlightingutah.com/#/contact';
@@ -6097,6 +6196,13 @@ function rsvpFirstNameOnly(fullName){
   const parts = (fullName || '').trim().split(/\s+/).filter(Boolean);
   return parts[0] || '';
 }
+/* Does the saved RSVP template already place the who-you-are-paying-for list
+   itself? Read in two places — the send and the preview — so they cannot
+   disagree about whether the block gets appended. */
+function rsvpTemplateHasHouses(template){
+  const t = String(template||'');
+  return t.indexOf('{{houses_block}}') !== -1 || t.indexOf('{{houses_list}}') !== -1;
+}
 document.getElementById('sendRsvpEmailBtn')?.addEventListener('click', async function(){
   const serviceId = document.getElementById('emailjsServiceId').value.trim();
   const templateId = document.getElementById('emailjsTemplateId').value.trim();
@@ -6120,7 +6226,13 @@ document.getElementById('sendRsvpEmailBtn')?.addEventListener('click', async fun
   for(const item of withEmail){
     const d = item.data;
     const footer = await buildOutgoingEmailFooter(d.phone, 0, {includePortal: document.getElementById('rsvpIncludePortal')?.checked, includeVenmo: false, includeMessages: document.getElementById('rsvpIncludeMessages')?.checked});
-    const message = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, rsvpFirstNameOnly(d.name) || 'there'), d.phone, 0) + footer;
+    /* A payer with several houses on one bill is being asked to commit for the
+       season without being told which houses that covers. Appended rather than
+       left to a token so the saved template does not have to be edited for
+       anyone to get it — and skipped when the template DOES place the token
+       itself, or the list would appear twice. Empty for a one-house customer. */
+    const housesBlock = rsvpTemplateHasHouses(template) ? '' : billedHousesEmailBlock(d.phone);
+    const message = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, rsvpFirstNameOnly(d.name) || 'there'), d.phone, 0) + housesBlock + footer;
     statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + withEmail.length + '…';
     try{
       await emailjs.send(serviceId, templateId, {
@@ -6151,10 +6263,17 @@ function rsvpUpdatePreview(){
   const member = jobAddresses.find(m => m.id === memberId);
   if(!member){ box.textContent = 'Pick a member above to see the preview.'; return; }
   const template = document.getElementById('rsvpEmailTemplate')?.value;
+  /* The preview has to show the appended house list too, or the office signs
+     off on an email that is not the one that goes out. Plain text, because this
+     box shows textContent — the real send uses the HTML table. */
+  const houses = billedHousesPlainText(member.data.phone);
   box.textContent = template.replace(/\{\{name\}\}/g, rsvpFirstNameOnly(member.data.name) || 'there')
+    .replace(/\{\{houses_block\}\}/g, houses.trim())
+    .replace(/\{\{houses_list\}\}/g, houses.trim())
     .replace(/\{\{rsvp_yes_button\}\}/g, '[Yes button]')
     .replace(/\{\{rsvp_back_button\}\}/g, '[Back Next Year button]')
-    .replace(/\{\{rsvp_no_button\}\}/g, '[No button]');
+    .replace(/\{\{rsvp_no_button\}\}/g, '[No button]')
+    + (rsvpTemplateHasHouses(template) ? '' : houses);
 }
 function rsvpRenderRecipientList(){
   const list = document.getElementById('rsvpRecipientList');
@@ -9989,6 +10108,51 @@ function audienceBillingGroup(d){
   if(inv && Array.isArray(inv.data.billedHouseIds) && inv.data.billedHouseIds.length > 1) return 'multi';
   return 'own';
 }
+/* ---- Who is paying for whom ------------------------------------------------
+   One invoice can cover several houses: a parent paying for a child, a landlord
+   paying for tenants, a cabin as well as a house. Three places have to name that
+   group and they must all name the SAME one, or a customer reads a list of
+   houses that does not add up to the amount printed beside it — the portal box,
+   the {{houses_block}} email token, and the Who Pays for Whom tab.
+
+   ⚠ THE GROUP HAS TWO HALVES, and syncPayerInvoice sums both:
+     - a house with billToPhone set joins THAT payer's bill
+     - a house with no billToPhone keys off custInvoiceKey, so two records under
+       one phone already share an invoice with no field set anywhere
+   Reading only billToPhone finds the first half and silently loses the second.
+
+   ⚠ A house that RSVP'd 'no' is not billed this season, so it is not in the
+   group — the same rule syncPayerInvoice and runInvoiceBatch apply to the
+   total. Naming a house the money does not include is the bug this prevents. */
+function billingGroupsByPayer(){
+  const groups = new Map();
+  (jobAddresses||[]).forEach(function(a){
+    const d = a.data || {};
+    if(String(d.rsvpStatus||'') === 'no') return;
+    const key = String(d.billToPhone||'').replace(/\D/g,'') || custInvoiceKey(d);
+    if(!key) return;
+    if(!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(a);
+  });
+  return groups;
+}
+/* Every house on one payer's bill. `who` is a customer record OR a bare key. */
+function billedHousesFor(who){
+  const key = (who && typeof who === 'object')
+    ? (String(who.billToPhone||'').replace(/\D/g,'') || custInvoiceKey(who))
+    : String(who||'').trim();
+  if(!key) return [];
+  return billingGroupsByPayer().get(key) || [];
+}
+/* The payer's own record inside their group, when one of the houses is theirs.
+   A group can have none — the office can bill three houses to a phone that is
+   nobody's customer record, which Health Check already reports. */
+function billingGroupPayer(key, houses){
+  return (houses||[]).find(function(h){
+    const d = h.data || {};
+    return !String(d.billToPhone||'').replace(/\D/g,'') && custInvoiceKey(d) === key;
+  }) || null;
+}
 let etFilterGateCode = 'all';
 let etFilterPayment = 'all';
 let etFilterRsvp = 'all';
@@ -13726,6 +13890,14 @@ function setupDraggableTabBar(containerId, dataAttr, storageKey, onActivate){
     savedOrder.forEach(function(key){
       const el = container.querySelector('[data-'+dataAttr+'="'+key+'"]');
       if(el) container.appendChild(el);
+    });
+    /* A tab added since this order was saved is in no saved position, so every
+       saved tab gets appended AFTER it and the brand-new one silently lands
+       first — in front of the tab people actually open. Anything the saved
+       order does not name goes to the end instead, which is where a new tab
+       belongs and where it was written in the markup. */
+    Array.from(container.querySelectorAll('[data-'+dataAttr+']')).forEach(function(el){
+      if(savedOrder.indexOf(el.dataset[dataAttr]) === -1) container.appendChild(el);
     });
   }
   function saveOrder(){
@@ -19925,6 +20097,7 @@ const RENDER_PANEL = {
   invRecipients: 'automation',
   invPreview: 'automation',
   allCustomersTable: 'addcustomer',
+  billingGroups: 'addcustomer',
   scheduleSync: 'schedule'
 };
 const pendingRenders = new Map();   // label -> the function to run when its panel opens
@@ -19993,6 +20166,10 @@ function renderJobAddressPanels(){
        from - a saved edit only appeared after retyping the search or switching
        tabs. It renders from jobAddresses, which has just been rebuilt above. */
     safeRender('allCustomersTable', typeof renderAllCustomersTable === 'function' ? renderAllCustomersTable : null);
+    /* Who Pays for Whom reads the same jobAddresses list, so a bill-to change
+       has to redraw it or the office is looking at yesterday's groups while the
+       customer's portal already shows today's. */
+    safeRender('billingGroups', typeof renderBillingGroups === 'function' ? renderBillingGroups : null);
     /* The Schedule tab keeps its own copy of every house, so a customer edit
        has to be pulled across or the plan quietly works from stale towns and
        stale timings. Goes through safeRender so it follows the same rule as
@@ -22126,6 +22303,7 @@ setupDraggableTabBar('custSectionTabs', 'custtab', 'huCustTabOrder', function(ta
     });
   });
   if(tabName === 'all') renderAllCustomersTable();
+  if(tabName === 'billing') renderBillingGroups();
 });
 function loadHouseMapsIdSet(){
   /* House Maps was retired. Dad's scanned hand-drawn layout now lives directly on
@@ -22223,6 +22401,138 @@ function allCustRouteStatus(d){
   if(d.scheduled) return 'Scheduled';
   return 'Unscheduled';
 }
+/* ---------------- WHO PAYS FOR WHOM (Customers > Who Pays for Whom) --------
+   Every screen in this app is arranged by HOUSE, so nothing anywhere answered
+   "who is on this person's bill" — the office had to search a phone number and
+   read the results. The customer is now shown that list in their portal and on
+   their RSVP email, so the office needs to be looking at the same one.
+
+   ⚠ IT MUST USE billingGroupsByPayer, not a scan for billToPhone. Two houses
+   sharing one phone with no billToPhone set are already on one invoice, and a
+   billToPhone-only scan would swear they were separate — while the customer's
+   own portal, which reads the invoice, listed them together. */
+let billingGroupSearchTerm = '';
+function billingGroupRows(){
+  const groups = billingGroupsByPayer();
+  const out = [];
+  groups.forEach(function(houses, key){
+    if(houses.length < 2) return;                 // one house is not a group
+    const payer = billingGroupPayer(key, houses);
+    const inv = (typeof invoiceById !== 'undefined' && invoiceById.get) ? invoiceById.get(key) : null;
+    out.push({
+      key: key,
+      payer: payer,
+      payerName: (payer && payer.data.name) || (inv && inv.data.name) || '',
+      houses: houses.slice().sort(function(a,b){ return String((a.data||{}).name||'').localeCompare(String((b.data||{}).name||'')); }),
+      priceTotal: houses.reduce(function(s,h){ return s + (Number((h.data||{}).housePrice)||0); }, 0),
+      inv: inv
+    });
+  });
+  out.sort(function(a,b){
+    /* Biggest bills first — a payer covering six houses is the one somebody
+       rings up about. Name breaks the tie so the order never wobbles. */
+    if(b.houses.length !== a.houses.length) return b.houses.length - a.houses.length;
+    return String(a.payerName||'').localeCompare(String(b.payerName||''));
+  });
+  return out;
+}
+function billingGroupMatches(g, term){
+  if(!term) return true;
+  const hay = [g.payerName, g.key].concat(g.houses.map(function(h){
+    const d = h.data || {};
+    return [d.name, d.address, d.phone, d.customerNumber, d.email].join(' ');
+  })).join(' ').toLowerCase();
+  return hay.indexOf(term) !== -1;
+}
+function renderBillingGroups(){
+  const list = document.getElementById('billingGroupList');
+  const countEl = document.getElementById('billingGroupCount');
+  if(!list) return;
+  const all = billingGroupRows();
+  const term = billingGroupSearchTerm.toLowerCase();
+  const shown = all.filter(function(g){ return billingGroupMatches(g, term); });
+  if(countEl){
+    const houseTotal = all.reduce(function(s,g){ return s + g.houses.length; }, 0);
+    countEl.textContent = all.length
+      ? (all.length + ' bill' + (all.length === 1 ? '' : 's') + ' covering ' + houseTotal + ' houses' +
+         (term ? ' — ' + shown.length + ' matching your search' : ''))
+      : 'Nobody is being billed for more than one house right now.';
+  }
+  if(!shown.length){
+    list.innerHTML = '<div class="empty-note">' +
+      (all.length ? 'No bill matches that search.' : 'Every customer is paying for their own house only. Fill in a customer&rsquo;s <strong>Bill To Phone</strong> to put their house on somebody else&rsquo;s bill.') +
+      '</div>';
+    return;
+  }
+  list.innerHTML = shown.map(function(g){
+    const balance = g.inv ? balanceDueAmount(g.inv.data) : null;
+    const status = g.inv
+      ? computeInvoiceStatus(g.inv.data.install, g.inv.data.removal, g.inv.data.deposit, g.inv.data.credits, g.inv.data.changeFees)
+      : 'No invoice yet';
+    /* ⚠ A group whose key matches no customer record is real and worth saying
+       out loud: the office typed a Bill To Phone that belongs to nobody, so
+       these houses are billed to a person who cannot sign in and will never be
+       emailed. Health Check reports it too; this is where it is obvious. */
+    const payerLine = g.payer
+      ? '<strong>' + esc(g.payerName || '(no name)') + '</strong>' +
+        '<span style="color:var(--slate); font-size:12.5px;"> &middot; ' + esc(fmtPhone(g.key)) + '</span>'
+      : '<strong style="color:var(--ember);">' + esc(g.payerName || fmtPhone(g.key)) + ' &mdash; no customer record</strong>' +
+        '<span style="color:var(--slate); font-size:12.5px;"> &middot; billed to ' + esc(fmtPhone(g.key)) + ', which is nobody on file</span>';
+    return '<div style="border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin-bottom:12px; background:var(--snow);">' +
+      '<div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:baseline; margin-bottom:8px;">' +
+        '<div>' + payerLine + '</div>' +
+        '<div style="font-size:12.5px; color:var(--slate);">' + esc(status) +
+          (balance === null ? '' : ' &middot; ' + esc(fmtMoney(balance)) + ' due') + '</div>' +
+      '</div>' +
+      '<div style="font-size:12.5px; color:var(--slate); margin-bottom:6px;">Paying for ' + g.houses.length + ' houses &mdash; ' + esc(fmtMoney(g.priceTotal)) + ' of installation</div>' +
+      g.houses.map(function(h){
+        const d = h.data || {};
+        const isPayer = g.payer && g.payer.id === h.id;
+        return '<div style="display:flex; justify-content:space-between; gap:10px; padding:6px 0; border-top:1px solid var(--line); font-size:13px;">' +
+          '<div>' +
+            '<button type="button" data-billinghouse="' + esc(h.id) + '" style="font-weight:600; background:none; border:0; padding:0; color:var(--dusk); cursor:pointer; font-size:13px; text-align:left;">' + esc(d.name || '(no name)') + '</button>' +
+            (isPayer ? ' <span style="font-size:11.5px; color:var(--slate);">(pays the bill)</span>' : '') +
+            (d.propertyLabel ? ' <span style="font-size:11.5px; color:var(--slate);">(' + esc(d.propertyLabel) + ')</span>' : '') +
+            '<div style="color:var(--slate); font-size:12.5px;">' + esc(d.address || 'no address on file') +
+              (d.customerNumber ? ' &middot; #' + esc(d.customerNumber) : '') + '</div>' +
+          '</div>' +
+          '<div style="white-space:nowrap; font-weight:600;">' + esc(fmtMoney(Number(d.housePrice)||0)) + '</div>' +
+        '</div>';
+      }).join('') +
+    '</div>';
+  }).join('');
+  list.querySelectorAll('[data-billinghouse]').forEach(function(btn){
+    btn.addEventListener('click', function(){ openEditCustomerModal(btn.dataset.billinghouse); });
+  });
+}
+document.getElementById('billingGroupSearch')?.addEventListener('input', function(){
+  billingGroupSearchTerm = this.value.trim();
+  renderBillingGroups();
+});
+document.getElementById('billingGroupExportBtn')?.addEventListener('click', function(){
+  const rows = [];
+  billingGroupRows().forEach(function(g){
+    g.houses.forEach(function(h){
+      const d = h.data || {};
+      rows.push({
+        'Pays the Bill': g.payerName || '(no customer record)',
+        'Payer Phone': fmtPhone(g.key),
+        'House': d.name || '',
+        'Address': d.address || '',
+        'Customer #': d.customerNumber || '',
+        'House Price': Number(d.housePrice) || 0,
+        'Houses on This Bill': g.houses.length,
+        'Bill Total (installs)': g.priceTotal,
+        'Balance Due': g.inv ? balanceDueAmount(g.inv.data) : ''
+      });
+    });
+  });
+  if(!rows.length){ alert('Nobody is being billed for more than one house right now, so there is nothing to export.'); return; }
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Who Pays for Whom');
+  XLSX.writeFile(wb, 'who-pays-for-whom-'+toDateStr(new Date())+'.xlsx');
+});
 function renderAllCustomersTable(){
   const body = document.getElementById('allCustTableBody');
   if(!body) return;
