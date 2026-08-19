@@ -13325,8 +13325,11 @@ suite('Suite 58. The sheet against the book, both ways round');
          half of it. It is the WEBSITE record with no street, and the sheet having one
          is not a contradiction — it is the reason the two never met. */
       check('S58', 'the report names which side has no street, and shows the other side',
-        /This <strong>website record<\/strong> has no street/.test(admin) &&
-        /Your sheet has them at/.test(admin),
+        /* The long "which side" sentence now shows only where the row is NOT already
+           labelled DUPLICATE — there the badge and the row number say it, and the
+           sheet address is in the right-hand column anyway. */
+        /No street on this <strong>website record<\/strong>/.test(admin) &&
+        /o\.sheetWhere \? .{0,40}&middot;/.test(admin),
         'saying "no street on file" without saying whose reads as a contradiction of the sheet she is looking at');
       /* And the sheet address really is carried through, not just written about. */
       check('S58', 'and the sheet address is carried onto the record',
@@ -13337,8 +13340,8 @@ suite('Suite 58. The sheet against the book, both ways round');
            that doesnt exist because there is only on tom fry in the website". So the
            report has to name WHICH of the two records is the spare, not just note that
            the name appears twice. */
-        /a spare copy/.test(admin) && /already found their real record/.test(admin) &&
-        /There is only one of them, so this record should not exist/.test(admin),
+        /#B91C1C[^>]*>DUPLICATE</.test(admin) &&
+        /Ticked: this copy goes, after anything it still carries moves to the real record/.test(admin),
         'calling a duplicate a missing customer sends somebody looking for a person who is not lost');
     }
 
@@ -14987,7 +14990,7 @@ suite('Suite 67. Conflicts come first, are labelled MANUAL, and are never pre-ti
     } catch (e) { html = "THREW: " + e.message; }
 
     check('S67', 'a spare copy really reaches the screen as one',
-      /a spare copy/.test(html) && /Row 412/.test(html),
+      /#B91C1C[^>]*>DUPLICATE</.test(html) && /Row 412/.test(html),
       'the messages were all present in the source and none of them rendered — got: ' + html.slice(0, 200));
     check('S67', 'and the sheet address really renders beside it',
       /3473 W 2550 N, Lehi/.test(html),
@@ -15003,7 +15006,7 @@ suite('Suite 67. Conflicts come first, are labelled MANUAL, and are never pre-ti
                        stray: false, onSheetRow: 0, keeperId: null, sheetWhere: "" }] });
     } catch (e) { plain = "THREW: " + e.message; }
     check('S67', 'and somebody genuinely gone gets no tick and no claim',
-      !/rb-spare-pick/.test(plain) && !/a spare copy/.test(plain),
+      !/rb-spare-pick/.test(plain) && !/#B91C1C[^>]*>DUPLICATE</.test(plain),
       'offering to delete somebody who really has left the sheet is the one thing this must not do');
   }
 
@@ -15011,7 +15014,7 @@ suite('Suite 67. Conflicts come first, are labelled MANUAL, and are never pre-ti
     /class="rb-spare-pick"[^>]{0,160}checked/.test(admin.replace(/\r?\n/g, " ")),
     'she asked twice for the sync to do it without another step');
   check('S67', 'and it is still shown before anything is pressed',
-    /a spare copy/.test(admin) && /Tick it and Sync|already found their real record/.test(admin),
+    /#B91C1C[^>]*>DUPLICATE</.test(admin) && /Ticked: this copy goes/.test(admin),
     'automatic is fine; invisible is not — a delete nobody saw coming has no undo');
 
   /* ---- the ordering ---- */
