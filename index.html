@@ -4588,7 +4588,22 @@ document.getElementById("sidesSaveBtn") && document.getElementById("sidesSaveBtn
         address: (currentJobAddressData && currentJobAddressData.address) || '',
         houseSides: picked,
         existingCustomerId: currentJobAddressId || null,
+        /* ⭐ EVERYTHING THE OLD RECORD KNEW, CARRIED ON THE QUOTE.
+           Owner, 2026-08-18: "we should be able to find what their old # was no
+           matter what", "hold everything as long as they stay below 260 feet",
+           and "if they go above 260 feet hold what you can".
+
+           The re-quote is where their measurement changes, so whether the old
+           number still works cannot be decided here — 260ft is the line where a
+           house needs a second bin and a 5000-series number. What CAN be done
+           here is make sure nothing is lost while they are in the quote: the
+           number, the feet, the bin count and the lights all travel with them,
+           so whoever prices it can hand back whatever still fits. */
         existingCustomerNumber: (currentJobAddressData && currentJobAddressData.customerNumber) || '',
+        existingMeasuredFeet: (currentJobAddressData && Number(currentJobAddressData.measuredFeet)) || 0,
+        existingNumberOfBins: (currentJobAddressData && Number(currentJobAddressData.numberOfBins)) || 0,
+        existingLightsDescription: (currentJobAddressData && currentJobAddressData.lightsDescription) || '',
+        existingLightColors: (currentJobAddressData && currentJobAddressData.lightColors) || [],
         changed: {
           what: 'sides',
           oldSides: portalSidesWords(before),

@@ -7684,7 +7684,26 @@ function renderQuoteRows(filtered){
               : d.changed.what === 'sides'
               ? '<div style="margin-top:4px;">Sides changed from <strong>'+esc(d.changed.oldSides || 'none recorded')+'</strong> to <strong>'+esc(d.changed.newSides || 'none')+'</strong>'+
                 (d.changed.oldPrice ? '. They were paying '+fmtMoney(d.changed.oldPrice)+'.' : '.')+
-                '<div style="margin-top:4px;">They asked for this in the Member Portal and were told they would be re-quoted. Measure again &mdash; more sides is more feet, which can change the bin count and the number series too.</div>'+
+                '<div style="margin-top:4px;">They asked for this in the Member Portal and were told they would be re-quoted.</div>'+
+                /* ⭐ WHAT THEY ALREADY HAVE, AND WHAT TO DO WITH IT.
+                   Owner, 2026-08-18: "their should be a clear way to tell this
+                   isnt a new quote so we dont accidentally build the house
+                   again but hold everything as long as they stay below 260
+                   feet", and "if they go above 260 feet hold what you can".
+                   260ft is the line: below it their existing bin and number
+                   still fit, so nothing needs rebuilding or renumbering. */
+                '<div style="margin-top:8px; background:#FFF8E9; border:1px solid var(--gold-dim); border-radius:8px; padding:8px 10px;">'+
+                  '<strong>⚠ They are already built &mdash; do not build this house again.</strong>'+
+                  '<div style="margin-top:3px;">'+
+                    'On file: '+
+                    (d.existingCustomerNumber ? '<strong>#'+esc(d.existingCustomerNumber)+'</strong>' : 'no number')+
+                    (Number(d.existingMeasuredFeet) ? ' &middot; <strong>'+Number(d.existingMeasuredFeet)+' ft</strong>' : '')+
+                    (Number(d.existingNumberOfBins) ? ' &middot; <strong>'+Number(d.existingNumberOfBins)+' bin'+(Number(d.existingNumberOfBins) === 1 ? '' : 's')+'</strong>' : '')+
+                    (d.existingLightsDescription ? ' &middot; '+esc(d.existingLightsDescription) : '')+
+                  '</div>'+
+                  '<div style="margin-top:4px;">Re-measure. <strong>Under '+CN_DOUBLE_BIN_FEET+' ft</strong> and everything above stays as it is &mdash; same number, same bin, same lights, just more of them hung. '+
+                  '<strong>Over '+CN_DOUBLE_BIN_FEET+' ft</strong> they need another bin and a 5000-series number, so keep whatever still fits and change only what has to.</div>'+
+                '</div>'+
                 '</div>'
               : '<div style="margin-top:4px;">Address changed from <strong>'+esc(d.changed.oldAddress || '')+'</strong>. Needs re-geocoding, and any saved route still holds the old one.</div>')+
           '</div>'

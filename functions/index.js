@@ -1013,10 +1013,13 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
       if (wanted.indexOf(k) !== -1) clean.push(k);
     });
     updates.houseSides = clean;
+    /* ⚠ NO "needs re-quote" FLAG. Owner, 2026-08-18: "we shouldnt need a flag
+       that says needs requote the customer should just appear in the requote
+       section." The quote the portal opens IS the record of it — a second flag
+       saying the same thing is a second thing to keep in step, and the one that
+       goes stale is the one nobody is looking at. */
     const before = Array.isArray(oldData.houseSides) ? oldData.houseSides.slice().sort().join(',') : '';
     if (clean.slice().sort().join(',') !== before) {
-      updates.needsRequote = true;
-      updates.needsRequoteAt = admin.firestore.FieldValue.serverTimestamp();
       updates.seasonStatus = 'needs_changes';
     }
   }

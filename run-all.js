@@ -14158,9 +14158,14 @@ suite('Suite 63. Changing your sides in the Member Portal');
       /if \(wanted\.indexOf\(k\) !== -1\) clean\.push\(k\);/.test(body) &&
       /updates\.houseSides = clean;/.test(body),
       'free text from a browser would end up printed on a crew card');
-    check('S63', 'and a real change flags them for re-quoting',
-      /updates\.needsRequote = true;/.test(body),
-      'the warning is what the customer sees; THIS is what the office sees');
+    /* ⚠ RETIRED 2026-08-18, the same day it was added. Owner: "we shouldnt need
+       a flag that says needs requote the customer should just appear in the
+       requote section." The quote the portal opens IS the record of it; a
+       second flag saying the same thing is a second thing to keep in step, and
+       the one that goes stale is the one nobody is looking at. */
+    check('S63', 'there is no separate needs-requote flag',
+      !/needsRequote/.test(body),
+      'the quote is the record — a flag beside it is a second truth to maintain');
     /* ⚠ Only on a real change — otherwise every portal visit flags them. */
     check('S63', 'a save that changes nothing does not flag anyone',
       /if \(clean\.slice\(\)\.sort\(\)\.join\(','\) !== before\) \{/.test(body),
@@ -14254,6 +14259,52 @@ suite('Suite 64. Back into Quotes, and labelled for what it is');
       'the sides ARE saved by then, so "Saved!" would be true and useless');
   }
 
+  /* ---- ⭐ NOTHING IS LOST WHILE THEY ARE IN THE QUOTE ---- */
+  {
+    const at = index.indexOf('document.getElementById("sidesSaveBtn")');
+    const end = index.indexOf("document.getElementById('infoSaveBtn')", at);
+    const body = at > 0 && end > at ? index.slice(at, end) : '';
+    /* Owner, 2026-08-18: "we should be able to find what their old # was no
+       matter what", "hold everything as long as they stay below 260 feet",
+       and "if they go above 260 feet hold what you can".
+       The re-quote is where the measurement changes, so whether the old number
+       still fits cannot be decided when the quote is opened. What CAN be done
+       is carry everything the old record knew, so whoever prices it can hand
+       back whatever still works. */
+    check('S64', 'the old customer number travels with them',
+      /existingCustomerNumber:/.test(body),
+      '"no matter what" — this is the one that must survive');
+    check('S64', 'and so do the feet, the bins and the lights',
+      /existingMeasuredFeet:/.test(body) && /existingNumberOfBins:/.test(body) &&
+      /existingLightsDescription:/.test(body) && /existingLightColors:/.test(body),
+      'held so the office can keep whatever still fits rather than rebuilding from nothing');
+  }
+  check('S64', 'the card says not to build the house again',
+    admin.indexOf('They are already built &mdash; do not build this house again') > 0,
+    'a re-quote that reads like a new lead is a second set of lights built for a house that has some');
+  /* ⚠ NOT a grep for the three field names. A grep still passes when the
+     line is left standing but can never print - `false ? ... : ''` - which is
+     the shape this dies in. The "On file" strip is lifted out and RUN against
+     a record instead, so it fails the moment one of the three stops showing. */
+  {
+    const at = admin.indexOf("'On file: '+");
+    const end = at > 0 ? admin.indexOf("'</div>'+", at) : -1;
+    const strip = (at > 0 && end > at) ? admin.slice(at, end).replace(/\+\s*$/, '') : "''";
+    const esc = v => String(v);
+    const d = { existingCustomerNumber: '541', existingMeasuredFeet: 300,
+                existingNumberOfBins: 2, existingLightsDescription: 'warm white' };
+    let onFile = '';
+    try { onFile = eval('(' + strip + ')'); } catch (e) { onFile = 'THREW: ' + e.message; }
+    check('S64', 'and it shows what they already have',
+      /#541/.test(onFile) && /300 ft/.test(onFile) && /2 bins/.test(onFile) &&
+      /warm white/.test(onFile),
+      'telling somebody not to rebuild without showing them what exists is half an instruction');
+  }
+  /* ⚠ The 260ft line, named rather than written down twice. */
+  check('S64', 'the 260ft line comes from the same constant the bins do',
+    admin.indexOf(String.fromCharCode(39)+"+CN_DOUBLE_BIN_FEET+"+String.fromCharCode(39)+" ft</strong> and everything above stays as it is") > 0,
+    'a hard-coded 260 here would drift the day that number moves');
+
   /* ---- ⭐ every quote says what kind it is ---- */
   {
     const src = (function(){
@@ -14318,7 +14369,7 @@ suite('Suite 64. Back into Quotes, and labelled for what it is');
   check('S64', 'the quote card explains a sides change',
     /d\.changed\.what === 'sides'/.test(admin) && /Sides changed from/.test(admin));
   check('S64', 'and warns that the feet may have moved with it',
-    /more sides is more feet, which can change the bin count and the number series/.test(admin),
+    admin.indexOf('they need another bin and a 5000-series number') > 0,
     'a house going over 260ft needs another bin and a 5000-series number — the same trap the ' +
     'feet-changed explainer already calls out');
 }
