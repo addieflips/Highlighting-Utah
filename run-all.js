@@ -760,6 +760,38 @@ const RETIRED_CHECKLIST_TERMS = [
   const seedEnd = seedSrc.indexOf('\n];', seedStart) + 3;
   const TEST_SEED = new Function(seedSrc.slice(seedStart, seedEnd) + '; return TEST_SEED;')();
 
+  /* ⚠ EVERY ROW IS A COMPLETE ROW, CHECKED BEFORE ANYTHING READS ONE.
+
+     Resolving a merge conflict between two seed rows can eat the comma
+     between them, and `[...]\n[...]` is NOT a syntax error — it reads as an
+     index expression, so the list quietly holds ONE UNDEFINED ELEMENT while
+     `node --check` passes happily. Nearly shipped on 2026-08-19 doing exactly
+     that, when two sessions both added a row numbered 201.
+
+     Everything below indexes rows (row[0], row[3]), so without this the run
+     died at the retired-terms loop with a raw TypeError and NO failure list —
+     a crash, not a FAIL. The build did stop, which is the important half, but
+     a stack trace pointing at run-all.js tells you nothing about the seed
+     being the thing that is broken. Name it instead. */
+  const SEED_ROWS = TEST_SEED.filter(function (r) { return Array.isArray(r); });
+  {
+    const holes = TEST_SEED
+      .map(function (row, i) { return { at: i + 1, row: row }; })
+      .filter(function (e) { return !Array.isArray(e.row) || e.row.length !== 9; });
+    check('logic', 'every checklist row is a complete 9-field row',
+      holes.length === 0,
+      holes.length
+        ? ('seed row ' + holes.map(function (e) { return e.at; }).join(', ') +
+           ' is not a 9-field array — usually a comma lost between two rows, ' +
+           'which parses as an index expression and leaves a hole')
+        : undefined);
+    const unnumbered = SEED_ROWS.filter(function (r) { return typeof r[0] !== 'number'; });
+    check('logic', 'every checklist row carries a number',
+      unnumbered.length === 0,
+      'the checklist syncs into Firestore keyed on that number — a row without ' +
+      'one cannot be created, updated or pruned');
+  }
+
   /* The move itself, guarded from both ends. Inlining it again silently undoes
      the saving; failing to import it silently stops the checklist syncing, and
      the caller swallows that error (see runProjectTestSync in admin.html). */
@@ -789,7 +821,7 @@ const RETIRED_CHECKLIST_TERMS = [
     /catch\s*\(\s*err\s*\)\s*\{[^}]*could not load js\/test-seed\.js/.test(admin),
     'the dynamic import has no catch — if js/test-seed.js 404s the checklist stops syncing and says nothing');
   for (const [term, why] of RETIRED_CHECKLIST_TERMS) {
-    const hits = TEST_SEED.filter(row => (row[3] + ' ' + row[4]).toLowerCase().includes(term));
+    const hits = SEED_ROWS.filter(row => (row[3] + ' ' + row[4]).toLowerCase().includes(term));
     check('logic', 'checklist wording: no test still says "' + term + '"',
       hits.length === 0,
       hits.length ? ('#' + hits.map(r => r[0]).join(', #') + ' — ' + why) : undefined);
@@ -799,7 +831,7 @@ const RETIRED_CHECKLIST_TERMS = [
      owner has already scored disappears. It happened once, when two sessions
      each added a test numbered 193 and both were kept in a merge. */
   {
-    const ids = TEST_SEED.map(row => row[0]);
+    const ids = SEED_ROWS.map(row => row[0]);
     const dupes = [...new Set(ids.filter((id, i) => ids.indexOf(id) !== i))];
     check('logic', 'every checklist test has its own id',
       dupes.length === 0,
@@ -15716,23 +15748,130 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
     'convertedToCustomerAt is the owner’s "once they are created"; ' +
     'existingCustomerId is a re-quote against a live record');
 
-  /* ⚠ THE TRAP THIS EXISTS TO STOP. Looking the quote’s phone up in
-     jobAddresses is the obvious implementation and it is wrong: 17 numbers in
-     the real book are shared and 14 of those are two genuinely different
-     houses. A new house quoted against a parent’s phone would be told it is
-     already a member and would never be asked for its install details. */
-  const memberBlock = (respond.match(/let alreadyMember = false;[\s\S]*?\n  }\n/) || [''])[0];
-  check('S70', 'the existing-member check never joins on the phone number',
-    !!memberBlock && !/findByPhone|findByEmail|phoneDigits/.test(memberBlock),
-    'a shared phone is a household here, not one customer — a phone join ' +
-    'silently skips the details form for a brand-new house');
+  /* ⚠ THE TRAP THIS EXISTS TO STOP, and it is RUN rather than grepped.
+
+     Matching a quote to a customer on CONTACT ALONE is the obvious
+     implementation and it is wrong here: 17 phone numbers in the real book are
+     shared, and 14 of those are two genuinely different houses (a parent
+     paying for a child's place). A brand-new house quoted against a parent's
+     phone would be told it was already a member and would never be asked for
+     its install details at all. The ADDRESS is what keeps them apart.
+
+     An earlier version of this check was a regex over the source. It went on
+     passing after the matcher was rewritten, because the `else` branch added
+     to the code broke the window the regex was slicing — it was reading a
+     truncated block and finding nothing, which looks exactly like success.
+     That is the third time in this repo a text-only check has been green over
+     code it was not actually looking at. So this builds the two houses and
+     asks the real function. */
+  {
+    const matchSrc = extractFn(fns, 'quoteMatchesExistingCustomer');
+    const normSrc = extractFn(fns, 'quoteMatchAddressServer');
+    check('S70', 'the existing-customer matcher exists', !!matchSrc && !!normSrc);
+    check('S70', 'and it is async in the real file',
+      /async function quoteMatchesExistingCustomer\(/.test(fns),
+      'it awaits Firestore — if it stops being async it returns a promise that ' +
+      'is always truthy, and EVERY approver is called an existing member');
+    if (matchSrc && normSrc) {
+      /* One phone, two houses. This is the real shape from the book. */
+      const BOOK = [
+        { phoneDigits: '8015550111', emailLower: 'dad@x.com', address: '12 Oak Street' },
+        { phoneDigits: '8015550111', emailLower: 'kid@x.com', address: '99 Elm Avenue' }
+      ];
+      const db = {
+        collection: function () {
+          return {
+            where: function (field, _op, value) {
+              return {
+                limit: function () {
+                  return {
+                    get: function () {
+                      return Promise.resolve({
+                        docs: BOOK.filter(function (r) { return r[field] === value; })
+                          .map(function (r) { return { data: function () { return r; } }; })
+                      });
+                    }
+                  };
+                }
+              };
+            }
+          };
+        }
+      };
+      const sb = {};
+      new Function('db', 'digitsOnly', 'console',
+        /* ⚠ extractFn matches on "function NAME(" and so LOSES the async
+           keyword. CLAUDE.md records this suite being caught by it twice; this
+           was the third. Put it back, and assert it really is async against the
+           whole file rather than the extracted body. */
+        normSrc + 'async ' + matchSrc + 'this.match = quoteMatchesExistingCustomer;'
+      ).call(sb, db, function (v) { return String(v == null ? '' : v).replace(/\D/g, ''); }, console);
+
+      pendingAsync.push((async function () {
+        /* The child's brand-new house, quoted on the parent's phone. */
+        check('S70', 'a new house on a shared phone is NOT called an existing member',
+          (await sb.match({ phone: '(801) 555-0111', address: '5 New Road' })) === false,
+          'this is the household case — 14 of 17 shared numbers in the real book ' +
+          'are a parent and a child at two different addresses');
+        /* The parent themselves. */
+        check('S70', 'the same phone AT THE SAME ADDRESS is an existing member',
+          (await sb.match({ phone: '801-555-0111', address: '12 Oak Street.' })) === true,
+          'punctuation and case must not stop a real member matching');
+        /* ⚠ A REAL LIMIT, ASSERTED SO IT IS VISIBLE RATHER THAN SURPRISING.
+           The normaliser folds case, punctuation and spacing — it does NOT
+           know that "St." means "Street". admin.html's own badge has always
+           behaved this way, so the office card and this agree; but it does
+           mean a member whose quote spells the street differently from their
+           customer record still sees the details form. Widening it is a
+           change to BOTH copies at once, and to this line. */
+        check('S70', 'a differently-WORDED street does not match, and that is admin’s rule too',
+          (await sb.match({ phone: '8015550111', address: '12 Oak St' })) === false,
+          'if this starts passing, admin.html and the server have diverged — ' +
+          'quoteAlreadyACustomer does not do abbreviations either');
+        check('S70', 'and the child matches at THEIR address, not the parent’s',
+          (await sb.match({ phone: '8015550111', address: '99 Elm Avenue' })) === true,
+          'the candidate list must not stop at the first record behind a shared phone');
+        check('S70', 'an email match still needs the address to agree',
+          (await sb.match({ email: 'dad@x.com', address: '77 Somewhere Else' })) === false,
+          'contact alone is never enough, whichever contact it is');
+        check('S70', 'and matches when it does',
+          (await sb.match({ email: 'DAD@X.com ', address: ' 12 oak street ' })) === true,
+          'case and stray spaces are normalised on both sides');
+        check('S70', 'a quote with no address is never a member',
+          (await sb.match({ phone: '8015550111', address: '' })) === false,
+          'an empty address would otherwise match every record with an empty one');
+      })());
+
+      /* ⚠ A SECOND COPY OF A RULE THAT ALREADY LIVES IN admin.html. That is
+         the duplicated-maths problem money-parity.test.js exists for, so the
+         two are asserted identical here rather than trusted to stay in step. */
+      const adminNorm = extractFn(admin, 'quoteMatchAddress');
+      check('S70', 'admin.html still has quoteMatchAddress', !!adminNorm);
+      if (adminNorm) {
+        const a = {}, b = {};
+        new Function(adminNorm + 'this.f = quoteMatchAddress;').call(a);
+        new Function(normSrc + 'this.f = quoteMatchAddressServer;').call(b);
+        const SAMPLES = ['12 Oak St.', ' 12  oak   street ', '#4, 9 Elm Ave', '', null,
+                         'A.B.C, 1 Road', '  ', '1234 W 500 S #12'];
+        const differ = SAMPLES.filter(function (x) { return a.f(x) !== b.f(x); });
+        check('S70', 'the office and the server normalise an address identically',
+          differ.length === 0,
+          'they disagree on: ' + JSON.stringify(differ) + ' — the office would ' +
+          'call somebody an existing customer and the customer\'s page would not');
+      }
+    }
+  }
 
   /* ⚠ A quoteToken is generated in the visitor’s own browser, so anybody able
      to submit the public quote form knows one. Handing back a portalToken is
      the account takeover closed in portalLookup on 2026-08-14. */
+  /* Scoped to the WHOLE of quoteRespond, not a sub-slice: a sub-slice is what
+     stopped matching when the code grew an else branch a few checks above.
+     ⚠ COMMENTS STRIPPED. The rule is written down in the code, right where it
+     applies, so a plain search finds its own explanation and reports the
+     explanation as the violation. */
   check('S70', 'and it never hands back a portal credential',
-    !/portalToken/.test(memberBlock || '') &&
-    !/portalToken/.test((respond.match(/return \{[\s\S]*?\n  \};/) || [''])[0]),
+    !/portalToken/.test(stripComments(respond)),
     'the quote token would become a customer session — the exact hole ' +
     'closed in portalLookup on 2026-08-14');
 
