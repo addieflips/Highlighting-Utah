@@ -13319,6 +13319,19 @@ suite('Suite 58. The sheet against the book, both ways round');
         gone.onlyOnSite.length === 1 && !gone.onlyOnSite[0].onSheetRow,
         'a label that is always on is not a label');
 
+      /* ⭐ SAY WHICH SIDE IS MISSING THE STREET. Owner, 2026-08-19: "for some reason
+         I got this: No street on file, so no paste can reach them ... but in the excel
+         sheet it has an address: 3473 W 2550 N". Both were true; the message only said
+         half of it. It is the WEBSITE record with no street, and the sheet having one
+         is not a contradiction — it is the reason the two never met. */
+      check('S58', 'the report names which side has no street, and shows the other side',
+        /This <strong>website record<\/strong> has no street/.test(admin) &&
+        /Your sheet has them at/.test(admin),
+        'saying "no street on file" without saying whose reads as a contradiction of the sheet she is looking at');
+      /* And the sheet address really is carried through, not just written about. */
+      check('S58', 'and the sheet address is carried onto the record',
+        r.onlyOnSite[0] && typeof r.onlyOnSite[0].sheetWhere === "string",
+        'a message that names an address needs the address');
       check('S58', 'and the report offers the fix rather than the puzzle',
         /* Owner, 2026-08-19: "whichever one is wrong should be listed as a customer
            that doesnt exist because there is only on tom fry in the website". So the
@@ -14932,9 +14945,24 @@ suite('Suite 67. Conflicts come first, are labelled MANUAL, and are never pre-ti
     /Nothing is deleted here/.test(admin) &&
     /\(o\.keeperId && o\.id !== o\.keeperId\)/.test(admin),
     'without a keeper a delete is a guess about which of two records is the real one');
-  check('S67', 'and a spare is never ticked for you',
-    !/class="rb-spare-pick"[^>]{0,120}checked/.test(admin),
-    'every other row here is reversible by editing a field back; this one is not');
+  /* ⭐ REVERSED 2026-08-19, same day, on the owner’s instruction: "and so when it syncs
+     it should automatically delete dupes." I had spares unticked by default; she asked
+     for the opposite twice, so a plain Sync now clears them.
+
+     ⚠ WHAT MAKES THAT DEFENSIBLE IS HER OWN NAME RULE: "two different names are never
+     duplicates though unless one is surname first name and the other is first,
+     surname." dupNormName SORTS the words, so Griner Lauren and Lauren Griner are one
+     key while a real typo (Chafffetz against Chaffetz) is not. A ticked row is
+     therefore always the same name on a keeper the sheet itself found — never a guess
+     about which of two people this is. The three write-side safeguards are unchanged
+     and are checked in Suite 58: merge before delete, off the routes first, and a
+     keeper that is known and is not the spare. */
+  check('S67', 'a spare copy is ticked, so a plain Sync clears it',
+    /class="rb-spare-pick"[^>]{0,160}checked/.test(admin.replace(/\r?\n/g, " ")),
+    'she asked twice for the sync to do it without another step');
+  check('S67', 'and it is still shown before anything is pressed',
+    /a spare copy/.test(admin) && /Tick it and Sync|already found their real record/.test(admin),
+    'automatic is fine; invisible is not — a delete nobody saw coming has no undo');
 
   /* ---- the ordering ---- */
   check('S67', 'a conflict outranks every gap, whatever the field',

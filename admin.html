@@ -16279,9 +16279,15 @@ function rbCollectMissingCustomers(){
      the words, so "Aiono Shelley" and "Shelley Aiono" are the same key — which is
      what makes this survive the Last-First / First-Last difference too. */
   const sheetNameKeys = {};
+  const sheetNameAddr = {};
   for(let i = 0; i < len; i++){
     const nm = dupNormName(rbName(String(namesRaw[i] || '').trim()).trim());
-    if(nm) sheetNameKeys[nm] = i + 1;
+    if(nm && !sheetNameKeys[nm]) sheetNameKeys[nm] = i + 1;
+    /* The address the SHEET holds for them, so the report can show both sides
+       rather than saying "no street" and leaving her to work out whose. */
+    if(nm && !sheetNameAddr[nm]){
+      sheetNameAddr[nm] = [String(streets[i] || '').trim(), String(cities[i] || '').trim()].filter(Boolean).join(', ');
+    }
   }
   const onlyOnSite = jobAddresses.filter(function(c){ return !matched[c.id]; }).map(function(c){
     const d = c.data || {};
@@ -16298,7 +16304,8 @@ function rbCollectMissingCustomers(){
          could not be reached. Almost always a second copy of somebody whose good
          record the sheet row matched instead. */
       onSheetRow: sheetNameKeys[dupNormName(d.name)] || 0,
-      keeperId: matchedByRow[sheetNameKeys[dupNormName(d.name)] || 0] || null
+      keeperId: matchedByRow[sheetNameKeys[dupNormName(d.name)] || 0] || null,
+      sheetWhere: sheetNameAddr[dupNormName(d.name)] || ''
     };
   }).sort(function(a, b){
     if(a.stray !== b.stray) return a.stray ? -1 : 1;
@@ -16520,8 +16527,17 @@ function rbRenderLedger(found){
          never be reached by any paste, so it shows up as "missing from the sheet"
          for ever no matter how many times you compare. Say which tool fixes it,
          here, rather than leaving it looking like a customer who quit. */
+      /* ⭐ SAY WHICH SIDE IS MISSING THE STREET. Owner, 2026-08-19: "for some
+         reason I got this: No street on file, so no paste can reach them ... but in
+         the excel sheet it has an address: 3473 W 2550 N".
+         Both were true and the message only said half of it. The WEBSITE record has
+         no street; the sheet has one. Which is not a contradiction — it is the
+         reason the two never met, and it is also the fix. */
       if(o.stray){
-        left += '<div style="color:var(--ember); font-size:11.5px; margin-top:2px;">No street on file, so no paste can reach them &mdash; almost certainly a stray copy. <strong>Danger Zone &rarr; Merge duplicates</strong> folds it back in.</div>';
+        left += '<div style="color:var(--ember); font-size:11.5px; margin-top:2px;">This <strong>website record</strong> has no street, which is why no row on your sheet can reach it.</div>';
+        if(o.sheetWhere){
+          right += '<div style="color:var(--slate); font-size:11.5px; margin-top:2px;">Your sheet has them at <strong>' + esc(o.sheetWhere) + '</strong>.</div>';
+        }
       }
       right = rbLedgerCell('');
       /* ⭐ A TICK ONLY WHEN THERE IS SOMETHING TO DO. Owner, 2026-08-19: "if they
@@ -16531,7 +16547,16 @@ function rbRenderLedger(found){
          ⚠ NEVER ticked by default. Everything else in this list is reversible by
          editing a field back; this one is not. */
       box = (o.keeperId && o.id !== o.keeperId)
-        ? '<input type="checkbox" class="rb-spare-pick" data-spare="' + esc(o.id) + '" data-keeper="' + esc(o.keeperId) + '">'
+        /* ⭐ TICKED, so a plain Sync clears them. Owner, 2026-08-19: "and so when it
+           syncs it should automatically delete dupes." I had these off by default and
+           she asked for the opposite, so they are on.
+           ⚠ WHAT MAKES THAT DEFENSIBLE IS THE NAME RULE, hers: "two different names are
+           never duplicates though unless one is surname first name and the other is
+           first, surname." dupNormName SORTS the words, so Griner Lauren and Lauren
+           Griner are one key and a genuine typo is not — which means a ticked row is
+           always the same name, on a keeper the sheet itself found. It is still listed
+           before you press anything, and unticking is one click. */
+        ? '<input type="checkbox" class="rb-spare-pick" data-spare="' + esc(o.id) + '" data-keeper="' + esc(o.keeperId) + '" checked>'
         : '<span title="Nothing is deleted here" style="color:var(--slate);">&mdash;</span>';
     }
     html += '<tr style="border-bottom:1px solid var(--line);">' +
