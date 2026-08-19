@@ -15994,6 +15994,16 @@ function rbCompareFindCustomer(row){
    is the same shape as one added there — with one deliberate exception: NO
    INVOICE IS CREATED. Writing money needs its own decision, and the full Bulk
    Update is where that is made. */
+/* ⭐ THE $ COLUMN AS A NUMBER. "$650", "650.00", "1,200" and " 650 " are all the
+   same price; anything that is not a number at all (a note, a dash) reads as blank,
+   and blank is never a difference — so a half-filled money column cannot zero
+   anybody’s price. Same rule the rest of the comparison already follows. */
+function rbNormalizeMoney(v){
+  const raw = String(v === undefined || v === null ? "" : v).replace(/[$,\s]/g, "");
+  if(!raw) return "";
+  const n = Number(raw);
+  return (isFinite(n) && n >= 0) ? n : "";
+}
 function rbCollectMissingCustomers(){
   const hoff = rbHeaderOffset();
   const col = function(id){ return rbCol(id, hoff); };
@@ -16002,6 +16012,7 @@ function rbCollectMissingCustomers(){
   const namesRaw = col('rbNamesArea');
   const phones = col('rbPhonesArea');
   const emails = col('rbEmailsArea');
+  const amounts = col('rbAmountsArea');
   const cities = col('rbCitiesArea');
   const states = col('rbStatesArea');
   const zips = col('rbZipsArea');
@@ -16018,6 +16029,50 @@ function rbCollectMissingCustomers(){
      another hand-written comparison that forgets the blank rule.
      ⚠ Money is NOT here. The price lives on the invoice, and writing money is
      its own decision — the full Bulk Update is where that is made. */
+  /* ⭐ WHAT TO LOOK AT FIRST. Owner, 2026-08-19, in two goes. First: "sorted from
+     most important to most different — at the top would probably be customer that
+     exists on one but not the other and then next would probably be the address
+     then the price". Then, correcting herself: "actually the very top priority
+     should be things that require manual fixes that would fail to sync like if
+     they both have an address but theyre different and I need to decide which
+     ones right."
+
+     That second message is a different axis from the first, and it is the more
+     useful one, so the order is now two-tier:
+
+       TIER 1 — CONFLICTS. Both sides hold a real value and they disagree. Nothing
+       can decide these; the tool would be guessing, and "the sheet is right" is
+       exactly the guess that quietly overwrites a correction somebody made in the
+       office this morning. These come first and come UNTICKED.
+
+       TIER 2 — FILLS. The website has nothing and the sheet has something. There
+       is no decision in that; it is the sync doing its job, and it stays ticked.
+
+     Inside each tier, by what actually goes wrong when the field is wrong:
+
+       Address  the crew drives to it
+       Price    it is money
+       Feet     one number decides bins, number series, bundles and the price
+       CU#      the label on the bin; the wrong one is another house’s lights
+       Town     routes are built town by town, so this moves them to another day
+       Phone    how they are reached, and how invoices group onto one payer
+       Email    the other way they are reached
+       Name     usually a spelling fix by the time it reaches here
+       Timing   which month they asked for
+       Zip / Wire / Timer / Eaves / Notes  detail on the job sheet
+
+     (A customer who exists on only ONE side is not in this table at all — those
+     are the two columns above it, which is where she asked for them.)
+
+     ⚠ THE ARRAY IS SORTED, NOT THE DISPLAY. rbWireDiffButtons finds each ticked
+     row by its INDEX in rbPendingDiffs, and treats everything past the 400 drawn
+     as ticked because it was never shown. Reordering at render time would hand
+     those two rules a different list than the one on screen — the wrong customer
+     synced, silently. Sorting the array itself keeps index, checkbox and row the
+     same thing they have always been. */
+  const RB_FIELD_RANK = {street: 1, housePrice: 2, measuredFeet: 3, customerNumber: 4,
+    city: 5, phone: 6, email: 7, name: 8, installPreference: 9,
+    zip: 10, wireColor: 11, outletTimer: 12, useEaves: 13, notes: 14};
   const RB_SYNC_FIELDS = [
     /* ⚠ COMPARED ON THE WORDS, NOT THEIR ORDER. The sheet writes "Brown Kathy"
        and the site "Kathy Brown", so comparing the strings would report a name
@@ -16049,6 +16104,13 @@ function rbCollectMissingCustomers(){
     {key:'installPreference', label:'Timing', read:function(i){ return rbNormalizeInstallPref(txt(installPrefRaw, i)); },
                                              same:function(a,b){ return rbNormalizeInstallPref(String(a||'')) === rbNormalizeInstallPref(String(b||'')); }},
     {key:'measuredFeet',    label:'Feet',    read:function(i){ return rbNormalizeFeet(txt(feetRaw, i)); },
+                                             same:function(a,b){ return (Number(a)||0) === (Number(b)||0); },
+                                             write:function(v){ return Number(v); }},
+    /* ⭐ PRICE, ADDED 2026-08-19 because the owner ranked it second and it was not
+       being compared at all — so a house being charged the wrong amount was the
+       one difference this tool could never show her. A blank on the sheet is still
+       not a difference, so an empty $ column can never zero a price. */
+    {key:'housePrice',      label:'Price',   read:function(i){ return rbNormalizeMoney(txt(amounts, i)); },
                                              same:function(a,b){ return (Number(a)||0) === (Number(b)||0); },
                                              write:function(v){ return Number(v); }},
     {key:'wireColor',       label:'Wire',    read:function(i){ return rbNormalizeWire(txt(wireRaw, i)); }, same:plain},
@@ -16134,6 +16196,9 @@ function rbCollectMissingCustomers(){
                        ticked rather than after it is written. */
                     via: found.via,
                     key: f.key, label: f.label,
+                    /* Both sides hold something and they disagree — a decision, not
+                       a fill. Worked out HERE, where both values are in hand. */
+                    conflict: !(mine === null || mine === undefined || String(mine).trim() === ''),
                     from: (mine === null || mine === undefined || String(mine).trim() === '') ? '' : String(mine),
                     to: theirs, write: f.write ? f.write(theirs) : theirs});
       });
@@ -16243,6 +16308,16 @@ function rbCollectMissingCustomers(){
       r.suspect = false;
     }
   });
+  /* Decisions first, then fills; inside each, most consequential field first, then
+     grouped by person so one customer’s problems read together rather than
+     scattered down the page. Sorted HERE, on the array the sync itself reads —
+     see the warning on RB_FIELD_RANK. */
+  diffs.sort(function(a, b){
+    if(!!a.conflict !== !!b.conflict) return a.conflict ? -1 : 1;
+    const ra = RB_FIELD_RANK[a.key] || 99, rb = RB_FIELD_RANK[b.key] || 99;
+    if(ra !== rb) return ra - rb;
+    return String(a.who || '').localeCompare(String(b.who || ''));
+  });
   return {rows: rows, skipped: skipped, sheetOnly: sheetOnly,
           onlyOnSite: onlyOnSite.filter(function(x){ return !paired[x.id]; }),
           pairedCount: Object.keys(paired).length,
@@ -16255,6 +16330,26 @@ let rbPendingDiffs = null;
 /* The sync half of the comparison: apply the ticked field changes.
    ⚠ Read at the moment of pressing, not when the list was drawn, or every box
    the office had just unticked would be ignored. */
+/* How many of the differences need a person rather than a rule. */
+function rbDiffManualCount(diffs){
+  return (diffs || []).filter(function(x){ return x && x.conflict; }).length;
+}
+/* ⭐ THE MANUAL BANNER. Owner, 2026-08-19: "the very top priority should be things
+   that require manual fixes that would fail to sync like if they both have an
+   address but theyre different and I need to decide which ones right", then "and
+   they should be labeled manual".
+   A conflict is not a harder version of a gap, it is a different thing: there is no
+   right answer in the data, and the value that would be overwritten is the one
+   somebody in the office typed most recently. */
+function rbManualBanner(diffs){
+  const n = rbDiffManualCount(diffs);
+  if(!n) return '';
+  return '<div style="font-size:12.5px; margin-bottom:8px; background:#FFF8E9; border:1px solid var(--gold-dim); border-radius:8px; padding:8px 10px;">' +
+    '<strong>' + n + ' need you to decide.</strong> ' +
+    'Both sides hold a real value and they disagree, so nothing can pick for you &mdash; they are labelled ' +
+    '<strong>MANUAL</strong>, they sort to the top, and they come UNTICKED. Tick one to take your sheet&rsquo;s value; ' +
+    'leave it and the website keeps what it has.</div>';
+}
 function rbWireDiffButtons(report, statusEl){
   const picks = function(){ return Array.prototype.slice.call(document.querySelectorAll('.rb-diff-pick')); };
   document.getElementById('rbDiffAllBtn')?.addEventListener('click', function(){ picks().forEach(function(p){ p.checked = true; }); });
@@ -16265,9 +16360,15 @@ function rbWireDiffButtons(report, statusEl){
     const all = rbPendingDiffs || [];
     const wanted = {};
     picks().forEach(function(p){ if(p.checked) wanted[p.getAttribute('data-n')] = true; });
-    /* Rows past the 400 shown have no box, so they ride on the tick-all
-       default — the list said so. */
-    const list = all.filter(function(x, n){ return n >= 400 || wanted[String(n)]; });
+    /* Rows past the 400 shown have no box, so they ride on the tick-all default.
+       ⚠ EXCEPT A CONFLICT, which is never ticked on screen and must not become
+       ticked merely by being far enough down the list. Conflicts sort to the TOP so
+       in practice they are always drawn — but "in practice" is not a guarantee, and
+       what goes wrong here is overwriting a value nobody chose to overwrite. */
+    const list = all.filter(function(x, n){
+      if(wanted[String(n)]) return true;
+      return n >= 400 && !(x && x.conflict);
+    });
     if(!list.length){ statusEl.textContent = 'Nothing was ticked, so nothing was synced.'; return; }
     /* One write per CUSTOMER, not per field: a customer with six differences is
        one update, not six. */
@@ -17042,18 +17143,35 @@ document.getElementById('rbFindMissingBtn')?.addEventListener('click', async fun
     ? '<div style="border:2px solid var(--gold-dim); border-radius:10px; padding:14px; background:var(--snow); margin-top:12px;">' +
         '<div style="font-weight:700; margin-bottom:4px;">' + found.diffs.length +
           ' field(s) differ between your sheet and the website.</div>' +
-        '<div style="font-size:12.5px; color:var(--slate); margin-bottom:8px;">The sheet is treated as right and the website is brought to it. ' +
+        rbManualBanner(found.diffs) +
+        '<div style="font-size:12.5px; color:var(--slate); margin-bottom:8px;">The rest are gaps rather than disagreements &mdash; the website has nothing and the sheet does, so the sheet fills them in. ' +
           'A blank on the sheet is never a difference — it cannot empty anything here. Untick anything you disagree with.</div>' +
         '<div style="max-height:300px; overflow:auto;"><table style="border-collapse:collapse; font-size:13px; width:100%;">' +
+        /* ⭐ TWO COLUMNS, HEADED. Owner: "one on the left showing things on the
+           website not in the excel and on the right the things in excel not in the
+           website." For a customer who exists on only one side that is the pair of
+           lists above; for a field that disagrees it is these two columns. */
+        '<tr style="border-bottom:2px solid var(--line); font-size:11px; text-transform:uppercase; color:var(--slate); letter-spacing:.04em;">' +
+          '<th></th><th style="padding:3px 8px 3px 0; text-align:left;">Who</th>' +
+          '<th style="padding:3px 8px 3px 0; text-align:left;">Field</th>' +
+          '<th style="padding:3px 8px 3px 0; text-align:left;">On the website</th>' +
+          '<th style="padding:3px 0; text-align:left;">In your sheet</th></tr>' +
         found.diffs.slice(0, 400).map(function(x, n){
           return '<tr style="border-bottom:1px solid var(--line);">' +
-            '<td style="padding:3px 8px 3px 0;"><input type="checkbox" class="rb-diff-pick" data-n="' + n + '" checked></td>' +
-            '<td style="padding:3px 8px 3px 0;">' + esc(x.who) +
+            /* ⚠ A CONFLICT IS NEVER TICKED BY DEFAULT. Ticked, it takes the
+               sheet’s side of a decision nobody has made, and the value it would
+               overwrite is the one somebody typed most recently. A gap has no
+               second value to lose, so it stays ticked. */
+            '<td style="padding:3px 8px 3px 0;"><input type="checkbox" class="rb-diff-pick" data-n="' + n + '"' +
+              (x.conflict ? '' : ' checked') + '></td>' +
+            '<td style="padding:3px 8px 3px 0;">' +
+              (x.conflict ? '<span style="background:var(--gold-dim); color:#5a4300; font-weight:700; font-size:10px; padding:1px 5px; border-radius:4px; letter-spacing:.05em;">MANUAL</span> ' : '') +
+              esc(x.who) +
               (x.via && x.via !== 'address'
                 ? '<span style="color:var(--slate); font-size:11.5px;"> (matched on ' + esc(x.via) + ')</span>'
                 : '') + '</td>' +
             '<td style="padding:3px 8px 3px 0; color:var(--slate);">' + esc(x.label) + '</td>' +
-            '<td style="padding:3px 8px 3px 0; color:var(--slate);">' + esc(x.from || '(blank)') + '</td>' +
+            '<td style="padding:3px 8px 3px 0;' + (x.conflict ? ' font-weight:600;' : ' color:var(--slate);') + '">' + esc(x.from || '(not set)') + '</td>' +
             '<td style="padding:3px 0;">→ <strong>' + esc(String(x.to)) + '</strong></td></tr>';
         }).join('') + '</table></div>' +
         (found.diffs.length > 400 ? '<div style="font-size:12.5px; color:var(--slate); margin-top:6px;">Showing the first 400 of ' + found.diffs.length + '; pressing the button applies every ticked one.</div>' : '') +

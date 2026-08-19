@@ -12979,7 +12979,8 @@ suite('Suite 58. The sheet against the book, both ways round');
         rbNotesArea: rows.map(r => r.notes || ''),
         rbWireArea: rows.map(r => r.wire || ''),
         rbTimerArea: rows.map(r => r.timer || ''),
-        rbEavesArea: rows.map(r => r.eaves || '')
+        rbEavesArea: rows.map(r => r.eaves || ''),
+        rbAmountsArea: rows.map(r => r.price === undefined ? '' : r.price)
       };
       const ctx = {};
       new Function('jobAddresses', 'rbHeaderOffset', 'rbCol', 'rbName', 'bulkFindCustomer',
@@ -12994,7 +12995,8 @@ suite('Suite 58. The sheet against the book, both ways round');
         fn('rbNotesLooksLikeColors') +
         fn('extractCleanCity') +
         fn('dupNormName') + fn('rbNormalizeInstallPref') + fn('rbNormalizeFeet') +
-        fn('rbNormalizeWire') + fn('rbNormalizeYesNo') + 'const RB_INSTALL_PREF_OPTIONS = [];' +
+        fn('rbNormalizeWire') + fn('rbNormalizeYesNo') + fn('rbNormalizeMoney') +
+        'const RB_INSTALL_PREF_OPTIONS = [];' +
         src + 'this.f = rbCollectMissingCustomers;'
       ).call(ctx, book,
         () => 0,
@@ -13247,6 +13249,38 @@ suite('Suite 58. The sheet against the book, both ways round');
       check('S58', 'and none of their names is printed',
         !/found\.sheetOnly\.slice\(/.test(admin),
         'she has already decided about these people; listing them re-asks the question every time');
+    }
+
+    /* ---- ⭐ WHAT SHE HAS TO LOOK AT FIRST ---- */
+    {
+      /* Owner, 2026-08-19: "the very top priority should be things that require
+         manual fixes that would fail to sync like if they both have an address but
+         theyre different and I need to decide which ones right."
+
+         ⚠ THE FIXTURE PUTS THE CONFLICT ON THE LEAST IMPORTANT FIELD AND THE GAP ON
+         A MORE IMPORTANT ONE, deliberately. Notes is rank 14 and Town is rank 5, so
+         if the conflict tier were dropped the Town gap would sort first and this
+         check would still pass on any fixture where the two happened to agree. */
+      const r = run([{ name: 'Ann Book', street: '5 E St', city: 'Lehi', phone: '8015550055',
+                       notes: 'ladder round the back' }],
+                    [c('c1', { name: 'Ann Book', street: '5 E St', phone: '8015550055',
+                               notes: 'gate is locked' })]);
+      check('S58', 'a conflict comes first even when its field matters less',
+        r.diffs.length >= 2 && r.diffs[0].key === 'notes' && r.diffs[0].conflict === true,
+        'got ' + JSON.stringify(r.diffs.map(function(d){ return d.key + (d.conflict ? ':conflict' : ':gap'); })));
+      check('S58', 'and a gap is not called a conflict',
+        r.diffs.some(function(d){ return d.key === 'city' && !d.conflict; }),
+        'the website has no town at all here, so there is nothing to decide between');
+
+      /* ⚠ AND A BLANK ON THE SHEET IS STILL NOT A CONFLICT. This is the rule that
+         stops a half-filled column emptying the book, and a conflict tier that read
+         "both sides differ" without checking the sheet side would break it. */
+      const blank = run([{ name: 'Ann Book', street: '5 E St', phone: '8015550055' }],
+                        [c('c1', { name: 'Ann Book', street: '5 E St', phone: '8015550055',
+                                   notes: 'gate is locked', city: 'Lehi' })]);
+      check('S58', 'a sheet that says nothing raises nothing at all',
+        blank.diffs.length === 0,
+        'got ' + JSON.stringify(blank.diffs.map(function(d){ return d.key; })));
     }
 
     /* ---- ⭐ A ROW WITH NO NAME IS NOT A CUSTOMER ---- */
@@ -13531,8 +13565,16 @@ suite('Suite 58. The sheet against the book, both ways round');
     const sync = fn('rbWireDiffButtons');
     check('S58', 'rbWireDiffButtons exists', !!sync);
     check('S58', 'the sync applies only what is still ticked',
-      /const list = all\.filter\(function\(x, n\)\{ return n >= 400 \|\| wanted\[String\(n\)\]; \}\);/.test(sync),
+      /if\(wanted\[String\(n\)\]\) return true;/.test(sync),
       'writing every difference regardless of the boxes makes the review meaningless');
+      /* ⚠ A CONFLICT NEVER RIDES ON THE DEFAULT. Rows past the 400 drawn have no box
+         and are treated as ticked, because the list said so. A conflict is never ticked
+         on screen, so letting it through on that rule would overwrite a value nobody
+         chose to overwrite. Conflicts sort to the TOP so in practice they are always
+         drawn — which is exactly why this needs a check rather than an argument. */
+      check('S58', 'but a conflict past the 400 drawn is never assumed ticked',
+        /return n >= 400 && !\(x && x\.conflict\);/.test(sync),
+        'a decision she never saw must not be made for her by a display limit');
     check('S58', 'the ticks are read when the button is PRESSED',
       /picks\(\)\.forEach\(function\(p\)\{ if\(p\.checked\) wanted\[p\.getAttribute\('data-n'\)\] = true; \}\);/.test(sync),
       'reading them from the scan would ignore every box the office had just changed');
@@ -14708,6 +14750,82 @@ suite('Suite 66. The master sheet choice is remembered for every computer');
     check('S66', 'a computer that already has it says so and stops',
       /if\(h\){[\s\S]{0,240}return;/.test(body),
       'asking somebody to re-pick a file they already picked is how a message gets ignored');
+  }
+}
+
+/* ================= 67. What to look at first in the comparison ================
+   Owner, 2026-08-19, in three messages. "it should be sorted from most important to
+   most different — at the top would probably be customer that exists on one but not
+   the other and then next would probably be the address then the price". Then:
+   "actually the very top priority should be things that require manual fixes that
+   would fail to sync like if they both have an address but theyre different and I
+   need to decide which ones right". Then: "and they should be labeled manual".
+
+   The second message is a different axis from the first and it wins: a CONFLICT
+   (both sides hold a real value and they disagree) is not a harder version of a gap,
+   it is a thing no rule can settle. The value it would overwrite is the one somebody
+   in the office typed most recently.
+   ============================================================================= */
+suite('Suite 67. Conflicts come first, are labelled MANUAL, and are never pre-ticked');
+{
+  const admin = read("admin.html");
+
+  /* ---- the ordering ---- */
+  check('S67', 'a conflict outranks every gap, whatever the field',
+    /if\(!!a\.conflict !== !!b\.conflict\) return a\.conflict \? -1 : 1;/.test(admin),
+    'an address she has to decide about matters more than a note the sheet can just fill in');
+  check('S67', 'and the two she named lead the rest',
+    /RB_FIELD_RANK = \{street: 1, housePrice: 2/.test(admin),
+    '"at the top would probably be customer that exists on one but not the other and then ' +
+    'next would probably be the address then the price"');
+
+  /* ⚠ SORTED ON THE ARRAY, NOT AT RENDER TIME. rbWireDiffButtons finds each ticked
+     row by its INDEX in rbPendingDiffs and treats everything past the 400 drawn as
+     ticked. Reordering only the display would hand those two rules a different list
+     than the one on screen — the wrong customer synced, and silently. */
+  /* ⚠ The ordering itself is proved by RUNNING the collector — see Suite 58,
+     "a conflict comes first even when its field matters less". A text check here
+     passed happily with the sort disabled by an if(0) in front of it. */
+  check('S67', 'the sort is applied to the array the sync reads, not to the display',
+    admin.indexOf('diffs.sort(function(a, b){') > 0 &&
+    admin.indexOf('diffs.sort(function(a, b){') < admin.indexOf('return {rows: rows, skipped: skipped'),
+    'sorting only the display would desynchronise the checkboxes from the writes');
+
+  /* ---- the label ---- */
+  check('S67', 'a conflict is labelled MANUAL on its row',
+    /x\.conflict \? .{0,240}MANUAL<\/span>/.test(admin),
+    'owner: "they should be labeled manual"');
+  check('S67', 'and the report says how many need her',
+    /function rbDiffManualCount\(/.test(admin) && /need you to decide\.<\/strong>/.test(admin),
+    'a label on a row nobody scrolls to is not a warning');
+
+  /* ---- and they are never pre-ticked ---- */
+  check('S67', 'a conflict does not come ticked',
+    /\(x\.conflict \? '' : ' checked'\)/.test(admin),
+    'ticked, it takes the sheet side of a decision nobody made, over the value someone typed most recently');
+
+  /* ---- price, which was not compared at all ---- */
+  check('S67', 'price is compared',
+    /\{key:'housePrice',/.test(admin) && /rbNormalizeMoney\(txt\(amounts, i\)\)/.test(admin),
+    'she ranked it second and it was the one difference this tool could never show her');
+  {
+    const money = extractFn(admin, "rbNormalizeMoney");
+    check('S67', 'rbNormalizeMoney exists', !!money);
+    if (money) {
+      const sb = {};
+      new Function(money + "this.f = rbNormalizeMoney;").call(sb);
+      const f = sb.f;
+      check('S67', 'it reads the ways a price is actually typed',
+        f("$650") === 650 && f("650.00") === 650 && f("1,200") === 1200 && f(" 650 ") === 650,
+        'a $ or a comma is not a different price');
+      /* ⚠ A BLANK IS NOT A ZERO. An empty or unreadable $ cell must read as blank,
+         because blank is never a difference — otherwise a half-filled money column
+         offers to set a book of customers to nothing. */
+      check('S67', 'and anything that is not a price reads as blank, never zero',
+        money.indexOf("return \"\";") > 0 &&
+        f("") === "" && f("n/a") === "" && f("-") === "" && f(null) === "",
+        'reading junk as 0 would offer to zero every price the sheet did not fill in');
+    }
   }
 }
 
