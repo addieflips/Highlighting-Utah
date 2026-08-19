@@ -25139,6 +25139,26 @@ async function noticeRoutesReconciled(report){
     if(typeof toast === 'function'){
       toast('Routes were updated, but the note about it could not be saved — check Routes for changed days.');
     }
+    /* ⚠ A TOAST IS NOT A RECORD. It is gone the moment they look away, and this
+       is the LAST step of a sweep that has already rewritten real routes — the
+       failure mode this whole block exists for is days moving with nobody
+       knowing. So a short note still goes in the System folder, where it keeps.
+       (Restored 2026-08-19: it was lost when admin.html was pasted over from a
+       stale read, along with sysNoteBody. The toast is kept as well — it is the
+       half that gets noticed immediately.)
+
+       Short on purpose: whatever refused the long one, length cannot be the
+       reason this is refused too. */
+    try{
+      await addDoc(collection(db,'messages'), {
+        topic: 'Routes Kept Up To Date', folder: 'System',
+        name: '', phone: '', email: '', contactMethod: '',
+        message: 'The upcoming routes were checked and ' + lines.length +
+          ' thing(s) changed. The full note could not be saved, so open Routes to see them.',
+        autoQueuedToWarehouse: false, needsReassign: false,
+        createdAt: serverTimestamp()
+      });
+    } catch(err2){ console.error('And the short reconcile note failed too:', err2); }
   }
 }
 /* Same shape as the automatic health check: a few seconds after sign-in, then on

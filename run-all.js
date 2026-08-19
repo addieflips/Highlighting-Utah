@@ -15486,6 +15486,36 @@ suite('Suite 69. An existing member is asked what is changing, not handed the ne
   }
 }
 
+
+suite('Suite 70. A reconcile note that cannot be saved still leaves a record');
+{
+  /* ⚠ RESTORED 2026-08-19 after a paste-over from a stale read dropped it (the
+     same paste took sysNoteBody with it). The long note failing was invisible
+     for weeks; the paste left a toast in its place, and a toast is gone the
+     moment the office looks away. This is the LAST step of a sweep that has
+     already rewritten real routes, so "the sweep happened" is the part that has
+     to survive in somewhere it keeps. */
+  const notice = sectionFrom(admin, admin.indexOf('async function noticeRoutesReconciled'));
+  const catchBlock = (notice.match(/\} catch\(err\)\{[\s\S]*$/) || [''])[0];
+
+  check('S70', 'noticeRoutesReconciled still exists', !!notice);
+  check('S70', 'a failed note is still said on screen',
+    /toast\(/.test(catchBlock),
+    'the immediate half — the office is looking at the page right now');
+  check('S70', 'and a short note is still written to the System folder',
+    /addDoc\(collection\(db,'messages'\)/.test(catchBlock),
+    'a toast is not a record; routes have already been rewritten by this point');
+  check('S70', 'the short note says how many things changed',
+    /lines\.length \+\n?\s*' thing\(s\) changed/.test(catchBlock),
+    'a note that does not say the sweep did anything is no better than silence');
+  check('S70', 'and the short note goes to the System folder like the long one',
+    /folder: 'System'/.test(catchBlock),
+    'the office looks in one place for these');
+  check('S70', 'a second failure cannot take the sweep down with it',
+    /catch\(err2\)/.test(catchBlock),
+    'the routes are already written — throwing here would strand the caller');
+}
+
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
