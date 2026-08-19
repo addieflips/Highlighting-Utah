@@ -16324,7 +16324,7 @@ function rbNameForSheet(name){
 }
 /* The header row her workbook actually has, in order. */
 const RB_SHEET_HEADERS = ['CU #', 'Name', 'Address', 'City', 'Zip', 'Phone', 'Email',
-  'Notes', 'Wire', 'Lights', 'Timer', 'Up Plug', 'Misc', '$', 'Set Up Fee', 'Pref Date', '# Feet'];
+  'Notes', 'Wire', 'Lights', 'Timer', 'Up Plug', 'Misc', String.fromCharCode(36, 36), 'Set Up Fee', 'Pref Date', '# Feet'];
 function rbCustomerToSheetRow(d){
   const c = d || {};
   const num = function(v){ return Number(v) > 0 ? String(Number(v)) : ''; };

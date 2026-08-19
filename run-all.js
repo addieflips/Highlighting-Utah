@@ -14965,8 +14965,15 @@ suite('Suite 69. A customer as a row of the master sheet');
        one column out, which reads as "everything is wrong" — which is exactly what she
        reported when the values were invented. */
     check('S69', 'the columns are in the order her workbook has them',
+      /* ⚠ THE MONEY COLUMN IS SPELLED WITH TWO SIGNS AND IS BUILT FROM CHARACTER
+         CODES HERE ON PURPOSE. Written as a literal it lost one of them in BOTH the
+         code and this check on 2026-08-19, so the test agreed with the bug and passed;
+         it took running the mapping over 400 real customers to find that 394 of them
+         came back with no price. A check that can be mangled the same way as the thing
+         it checks is not a check. */
       sb.hdr.join("|") ===
-      "CU #|Name|Address|City|Zip|Phone|Email|Notes|Wire|Lights|Timer|Up Plug|Misc|$|Set Up Fee|Pref Date|# Feet",
+      "CU #|Name|Address|City|Zip|Phone|Email|Notes|Wire|Lights|Timer|Up Plug|Misc|" +
+      String.fromCharCode(36, 36) + "|Set Up Fee|Pref Date|# Feet",
       'got ' + sb.hdr.join('|'));
 
     const cust = { name: "Rachel Oslund", customerNumber: "479", street: "594 N 150 E",
@@ -14981,9 +14988,9 @@ suite('Suite 69. A customer as a row of the master sheet');
 
     /* ⭐ "just put the standard price no fees in excel that will be website onle" */
     check('S69', 'the price is the standard one, with no fees folded in',
-      col("$") === "450",
+      col(String.fromCharCode(36,36)) === "450",
       'changeFees and the set-up fee live on the invoice; adding them here makes a ' +
-      'second place for the number to disagree — got ' + col('$'));
+      'second place for the number to disagree — got ' + col(String.fromCharCode(36,36)));
     check('S69', 'and the Set Up Fee column is left alone',
       col("Set Up Fee") === "",
       'the website is where a fee is decided');
