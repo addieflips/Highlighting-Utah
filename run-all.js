@@ -15997,6 +15997,40 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
 }
 
 
+  /* ---- the OTHER way in: approving from inside the portal ------------
+     ⚠ THIS IS THE ONE THAT WAS ACTUALLY BROKEN. The portal's own Approve
+     button ended with `window.location.hash = '/quote-details'` — the
+     new-customer install-details page — and it went there with NO ?token= on
+     the end. handleQuoteLink only runs when the router sees a token, so the
+     whole member flow above was bypassed and the form simply rendered. A
+     member testing from their portal saw the form no matter what the email
+     route did. */
+  {
+    /* Its own read: this block sits outside the Suite 70 scope where `idx`
+       was declared. */
+    const idxSrc = read('index.html');
+    const portalApprove = sectionFrom(idxSrc, idxSrc.indexOf("document.getElementById('quoteApproveBtn')"));
+    check('S70', 'the portal approve handler is still there', !!portalApprove);
+    if (portalApprove) {
+      const atMember = portalApprove.indexOf('res.alreadyMember');
+      const atForm = portalApprove.indexOf("hash = '/quote-details'");
+      check('S70', 'a member approving in the portal is NOT sent to the form',
+        atMember !== -1 && atForm !== -1 && atMember < atForm,
+        'the member branch has to come first, or the redirect fires for everyone ' +
+        'and the install-details form appears inside their own portal');
+      check('S70', 'and they are shown that it was approved',
+        /quoteApprovedMsg/.test(portalApprove),
+        'the card just vanishing looks like the button did nothing');
+      /* ⚠ The other half of the owner's rule: somebody who is NOT yet a
+         customer still needs that form — it is the only place their colours,
+         wire and timer are collected. */
+      check('S70', 'but a not-yet-converted customer still gets the form',
+        atForm !== -1 && /return;/.test(portalApprove.slice(atMember, atForm)),
+        'the member branch must RETURN, leaving the redirect reachable for ' +
+        'everyone else — deleting it would lose new customers’ install details');
+    }
+  }
+
 suite('Suite 71. A reconcile note that cannot be saved still leaves a record');
 {
   /* ⚠ RESTORED 2026-08-19 after a paste-over from a stale read dropped it (the

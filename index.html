@@ -5016,6 +5016,31 @@ document.getElementById('quoteApproveBtn').addEventListener('click', async funct
       customer_email: currentQuoteData.email || '', topic: 'Quote Approved',
       message: 'Approved quote of ' + fmt(currentQuoteData.quotedPrice) + ' for ' + (currentQuoteData.address || 'their address') + '.'
     });
+    /* ⭐ A MEMBER APPROVING FROM INSIDE THEIR OWN PORTAL IS ALREADY WHERE THEY
+       NEED TO BE. Owner, 2026-08-19: "if they approve in there member portal
+       they should not have the 2 steps just will log them into there member
+       portal and they will be updated to approve."
+
+       This used to send EVERYONE to /quote-details — the NEW-CUSTOMER install
+       details form — and it went there with NO ?token= on the end, so the
+       quote-link handler never ran and nothing downstream could intervene.
+       That is why the form kept appearing however the member arrived.
+
+       The two-step question belongs to the EMAIL route, where we cannot know
+       whether they are signed in. In here we do know, so there is nothing to
+       ask: mark it approved and leave them in their portal. */
+    if(res.alreadyMember){
+      var reviewCard = document.getElementById('quoteReviewCard');
+      if(reviewCard) reviewCard.classList.remove('show');
+      var approvedMsg = document.getElementById('quoteApprovedMsg');
+      if(approvedMsg) approvedMsg.style.display = '';
+      statusEl.textContent = '';
+      return;
+    }
+    /* Not converted to a customer yet, so this is the ONE place their light
+       colours, wire and timer get collected. Owner, 2026-08-19: "new members
+       that have not been converted to a costumer yet should still be given the
+       form". */
     quoteDetailQuoteId = currentQuoteId;
     quoteDetailToken = (currentQuoteData && currentQuoteData.quoteToken) || quoteDetailToken || null;
     window.location.hash = '/quote-details';
