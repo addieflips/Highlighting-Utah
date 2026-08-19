@@ -15825,7 +15825,14 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
      the real book are shared and 14 of those are two genuinely different
      houses. A new house quoted against a parent’s phone would be told it is
      already a member and would never be asked for its install details. */
-  const memberBlock = (respond.match(/let alreadyMember = false;[\s\S]*?\n  }\n/) || [''])[0];
+  /* ⚠ CRLF-SAFE, and it has to be. functions/index.js is CRLF, so the bare newline
+     here matched nothing, memberBlock came back empty, and the check failed against
+     code that was correct all along — quoteRespond uses convertedToCustomerAt and
+     existingCustomerId exactly as intended and never joins on a phone. Section 7 of
+     CLAUDE.md names this precise trap and it still caught main out. A check that
+     cannot find its target must fail loudly, and this one did, which is the only
+     reason anybody noticed. */
+  const memberBlock = (respond.match(/let alreadyMember = false;[\s\S]*?\r?\n  }\r?\n/) || [''])[0];
   check('S70', 'the existing-member check never joins on the phone number',
     !!memberBlock && !/findByPhone|findByEmail|phoneDigits/.test(memberBlock),
     'a shared phone is a household here, not one customer — a phone join ' +
