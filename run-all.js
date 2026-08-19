@@ -13548,8 +13548,11 @@ suite('Suite 58. The sheet against the book, both ways round');
            that doesnt exist because there is only on tom fry in the website". So the
            report has to name WHICH of the two records is the spare, not just note that
            the name appears twice. */
-        /a spare copy/.test(admin) && /already found their real record/.test(admin) &&
-        /There is only one of them, so this record should not exist/.test(admin),
+        /* Reworded when the owner asked for the badge instead of the paragraph:
+           "instead of all those words where it says not on the sheet just call it
+           duplicate". The claim is the same, the wording is one word. */
+        /#B91C1C[^>]*>DUPLICATE</.test(admin) &&
+        /Ticked: this copy goes, after anything it still carries moves to the real record/.test(admin),
         'calling a duplicate a missing customer sends somebody looking for a person who is not lost');
     }
 
@@ -15118,6 +15121,107 @@ suite('Suite 66. The master sheet choice is remembered for every computer');
    it is a thing no rule can settle. The value it would overwrite is the one somebody
    in the office typed most recently.
    ============================================================================= */
+/* ================= 69. A customer written back into her sheet ==================
+   Owner, 2026-08-19: "all her information needs to be put into excel", and "I want
+   new quotes to be able to have their info put into the first open row in excel, and
+   include all the info".
+
+   Then, shown a test row I had filled with invented values: "its getting customer
+   numbers wrong, the price is wrong, the everything other than address and name is
+   wrong really." Fair — that row was filler to prove the file format, not her data.
+   The MAPPING is the part that has to be right, and she ruled on the three columns
+   that were not obvious.
+   ============================================================================= */
+suite('Suite 69. A customer as a row of the master sheet');
+{
+  const admin = read("admin.html");
+  const hdrM = admin.match(/const RB_SHEET_HEADERS = \[[\s\S]*?\];/);
+  check('S69', 'the sheet column order is written down', !!hdrM);
+  const rowSrc = extractFn(admin, "rbCustomerToSheetRow");
+  const nameSrc = extractFn(admin, "rbNameForSheet");
+  check('S69', 'rbCustomerToSheetRow and rbNameForSheet exist', !!rowSrc && !!nameSrc);
+  if (hdrM && rowSrc && nameSrc) {
+    const sb = {};
+    new Function(hdrM[0] + nameSrc + rowSrc +
+      "this.row = rbCustomerToSheetRow; this.name = rbNameForSheet; this.hdr = RB_SHEET_HEADERS;").call(sb);
+
+    /* ⚠ THE ORDER MUST MATCH THE REAL WORKBOOK. Getting this wrong writes every value
+       one column out, which reads as "everything is wrong" — which is exactly what she
+       reported when the values were invented. */
+    check('S69', 'the columns are in the order her workbook has them',
+      /* ⚠ THE MONEY COLUMN IS SPELLED WITH TWO SIGNS AND IS BUILT FROM CHARACTER
+         CODES HERE ON PURPOSE. Written as a literal it lost one of them in BOTH the
+         code and this check on 2026-08-19, so the test agreed with the bug and passed;
+         it took running the mapping over 400 real customers to find that 394 of them
+         came back with no price. A check that can be mangled the same way as the thing
+         it checks is not a check. */
+      sb.hdr.join("|") ===
+      "CU #|Name|Address|City|Zip|Phone|Email|Notes|Wire|Lights|Timer|Up Plug|Misc|" +
+      String.fromCharCode(36, 36) + "|Set Up Fee|Pref Date|# Feet",
+      'got ' + sb.hdr.join('|'));
+
+    const cust = { name: "Rachel Oslund", customerNumber: "479", street: "594 N 150 E",
+      city: "American Fork", zip: "84003", phone: "(801) 555-0479",
+      email: "Rachel@Example.com", notes: "ladder round the back", wireColor: "W",
+      lightColors: ["Warm White", "Red"], outletTimer: "Yes",
+      specificOutlet: "Yes", specificOutletNotes: "the one by the garage",
+      housePrice: 450, changeFees: 30, chargeNewMemberFee: true,
+      installPreference: "November", measuredFeet: 210 };
+    const r = sb.row(cust);
+    const col = function(h){ return r[sb.hdr.indexOf(h)]; };
+
+    /* ⭐ "just put the standard price no fees in excel that will be website onle" */
+    check('S69', 'the price is the standard one, with no fees folded in',
+      col(String.fromCharCode(36,36)) === "450",
+      'changeFees and the set-up fee live on the invoice; adding them here makes a ' +
+      'second place for the number to disagree — got ' + col(String.fromCharCode(36,36)));
+    check('S69', 'and the Set Up Fee column is left alone',
+      col("Set Up Fee") === "",
+      'the website is where a fee is decided');
+
+    /* ⭐ "up plug is outlet prefrence ... only use if they said which outlet to use" */
+    check('S69', 'Up Plug carries the outlet they named',
+      col("Up Plug") === "the one by the garage",
+      'specificOutlet is a Yes/No flag and the words are in specificOutletNotes — ' +
+      'writing the flag puts "Yes" in a column meant to say WHICH outlet');
+    /* ⚠ AND ONLY THEN. A note left behind a No must not leak into the sheet. */
+    check('S69', 'and stays empty when they did not name one',
+      sb.row(Object.assign({}, cust, { specificOutlet: "No" }))[sb.hdr.indexOf("Up Plug")] === "" &&
+      sb.row(Object.assign({}, cust, { specificOutlet: "" }))[sb.hdr.indexOf("Up Plug")] === "",
+      '"only use if they said which outlet to use"');
+
+    /* ⭐ "misc not going to be needed ... we just need it for past customers" */
+    check('S69', 'Misc is never written',
+      col("Misc") === "",
+      'it is there for history, not for anything the website knows');
+
+    /* ⚠ THE NAME GOES IN LAST FIRST, or the one column every comparison leans on
+       disagrees with itself. */
+    check('S69', 'the name is written the way her sheet writes names',
+      col("Name") === "Oslund Rachel" &&
+      sb.name("Brit / Dani Anderson") === "Anderson Brit / Dani" &&
+      sb.name("Cher") === "Cher",
+      'her sheet is Last First and the website is First Last, deliberately — got ' + col('Name'));
+
+    check('S69', 'the rest land in their own columns',
+      col("CU #") === "479" && col("Address") === "594 N 150 E" &&
+      col("City") === "American Fork" && col("Zip") === "84003" &&
+      col("Phone") === "8015550479" && col("Notes") === "ladder round the back" &&
+      col("Wire") === "W" && col("Timer") === "Yes" &&
+      col("Pref Date") === "November" && col("# Feet") === "210",
+      'got ' + JSON.stringify(r));
+    check('S69', 'and the lights come from the description or the colours',
+      col("Lights") === "Warm White/Red" &&
+      sb.row(Object.assign({}, cust, { lightsDescription: "red/pure" }))[sb.hdr.indexOf("Lights")] === "red/pure",
+      'the written description wins where there is one');
+
+    /* ⚠ AN EMPTY RECORD MUST PRODUCE EMPTY CELLS, not zeros or the word undefined. */
+    check('S69', 'a record with nothing in it writes nothing',
+      sb.row({}).every(function(v){ return v === ""; }),
+      'a 0 in the price column is a claim that they pay nothing — got ' + JSON.stringify(sb.row({})));
+  }
+}
+
 suite('Suite 67. Conflicts come first, are labelled MANUAL, and are never pre-ticked');
 {
   const admin = read("admin.html");
@@ -15748,6 +15852,15 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
     'convertedToCustomerAt is the owner’s "once they are created"; ' +
     'existingCustomerId is a re-quote against a live record');
 
+  /* ⚠ THEIR CRLF FIX LANDED ON A CHECK THAT NO LONGER EXISTS, and the lesson
+     is kept rather than the line. The other session made the old memberBlock
+     regex CRLF-safe because main went red on it — their diagnosis was right and
+     the fix was right. That regex check is gone now: it asserted the matcher
+     never touches a phone, which stopped being true when the matcher started
+     using address PLUS phone. What replaced it RUNS the matcher, so there is no
+     newline to get wrong. Measured here: this checkout is pure LF and theirs is
+     CRLF, which is exactly why no regex in this suite may assume either — every
+     one below uses \r?\n or avoids newlines entirely. */
   /* ⚠ THE TRAP THIS EXISTS TO STOP, and it is RUN rather than grepped.
 
      Matching a quote to a customer on CONTACT ALONE is the obvious

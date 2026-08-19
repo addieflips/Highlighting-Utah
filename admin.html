@@ -16513,6 +16513,72 @@ function rbNormalizeMoney(v){
   const n = Number(raw);
   return (isFinite(n) && n >= 0) ? n : "";
 }
+/* ⭐ A CUSTOMER AS A ROW OF HER SHEET. Owner, 2026-08-19: "all her information needs
+   to be put into excel", then "I want new quotes to be able to have their info put
+   into the first open row in excel, and include all the info".
+
+   The column order is HERS and is read off the real workbook, not invented:
+   CU # | Name | Address | City | Zip | Phone | Email | Notes | Wire | Lights |
+   Timer | Up Plug | Misc | $ | Set Up Fee | Pref Date | # Feet
+
+   Three of those she ruled on directly, and each is a deliberate blank or a
+   deliberate narrowing rather than an oversight:
+
+     $          "just put the standard price no fees in excel that will be website
+                 onle" — so housePrice ALONE. Change fees and the set-up fee live on
+                 the invoice and stay there.
+     Set Up Fee  left blank for the same reason. The website is where a fee is
+                 decided; copying one here makes a second place to disagree.
+     Up Plug     "outlet prefrence or eaves or anything like that so only use if they
+                 said which outlet to use" — so the outlet NOTE, and only when they
+                 actually named one. specificOutlet is a Yes/No flag and the words
+                 are in specificOutletNotes; writing the flag would put "Yes" in a
+                 column that is supposed to say WHICH outlet.
+     Misc        "not going to be needed ... we just need it for past customers" —
+                 never written, never cleared.
+
+   ⚠ THE NAME GOES IN LAST FIRST. Her sheet is "Oslund Rachel" and the website is
+   "Rachel Oslund"; that difference is deliberate and documented, so writing the
+   site’s order into her sheet would make the one column every comparison leans on
+   disagree with itself. */
+function rbNameForSheet(name){
+  const parts = String(name == null ? '' : name).trim().split(/\s+/).filter(Boolean);
+  if(parts.length < 2) return parts.join(' ');
+  /* The LAST word is the surname — "Brit / Dani Anderson" is the Andersons, and the
+     first three words are all given names. */
+  const last = parts[parts.length - 1];
+  return last + ' ' + parts.slice(0, parts.length - 1).join(' ');
+}
+/* The header row her workbook actually has, in order. */
+const RB_SHEET_HEADERS = ['CU #', 'Name', 'Address', 'City', 'Zip', 'Phone', 'Email',
+  'Notes', 'Wire', 'Lights', 'Timer', 'Up Plug', 'Misc', String.fromCharCode(36, 36), 'Set Up Fee', 'Pref Date', '# Feet'];
+function rbCustomerToSheetRow(d){
+  const c = d || {};
+  const num = function(v){ return Number(v) > 0 ? String(Number(v)) : ''; };
+  const lights = String(c.lightsDescription || '').trim() ||
+    (Array.isArray(c.lightColors) ? c.lightColors.join('/') : '');
+  return [
+    String(c.customerNumber == null ? '' : c.customerNumber).trim(),
+    rbNameForSheet(c.name),
+    String(c.street || '').trim(),
+    String(c.city || '').trim(),
+    String(c.zip || '').trim(),
+    String(c.phone || '').replace(/\D/g, ''),
+    String(c.email || '').trim(),
+    String(c.notes || '').trim(),
+    String(c.wireColor || '').trim(),
+    lights,
+    String(c.outletTimer || '').trim(),
+    /* Only when they said WHICH outlet. */
+    (String(c.specificOutlet || '').trim() === 'Yes')
+      ? String(c.specificOutletNotes || '').trim() : '',
+    '',                       /* Misc — kept for past customers, never written */
+    num(c.housePrice),          /* standard price only, no fees */
+    '',                       /* Set Up Fee — stays on the website */
+    String(c.installPreference || '').trim(),
+    num(c.measuredFeet)
+  ];
+}
 function rbCollectMissingCustomers(){
   const hoff = rbHeaderOffset();
   const col = function(id){ return rbCol(id, hoff); };
@@ -16788,9 +16854,13 @@ function rbCollectMissingCustomers(){
      the words, so "Aiono Shelley" and "Shelley Aiono" are the same key — which is
      what makes this survive the Last-First / First-Last difference too. */
   const sheetNameKeys = {};
+  const sheetNameAddr = {};
   for(let i = 0; i < len; i++){
     const nm = dupNormName(rbName(String(namesRaw[i] || '').trim()).trim());
-    if(nm) sheetNameKeys[nm] = i + 1;
+    if(nm && !sheetNameKeys[nm]) sheetNameKeys[nm] = i + 1;
+    /* The address the SHEET holds for them, so the report can show both sides rather
+       than saying "no street" and leaving her to work out whose. */
+    if(nm && !sheetNameAddr[nm]) sheetNameAddr[nm] = [String(streets[i] || '').trim(), String(cities[i] || '').trim()].filter(Boolean).join(', ');
   }
   const onlyOnSite = jobAddresses.filter(function(c){ return !matched[c.id]; }).map(function(c){
     const d = c.data || {};
@@ -16807,7 +16877,8 @@ function rbCollectMissingCustomers(){
          could not be reached. Almost always a second copy of somebody whose good
          record the sheet row matched instead. */
       onSheetRow: sheetNameKeys[dupNormName(d.name)] || 0,
-      keeperId: matchedByRow[sheetNameKeys[dupNormName(d.name)] || 0] || null
+      keeperId: matchedByRow[sheetNameKeys[dupNormName(d.name)] || 0] || null,
+      sheetWhere: sheetNameAddr[dupNormName(d.name)] || ''
     };
   }).sort(function(a, b){
     if(a.stray !== b.stray) return a.stray ? -1 : 1;
@@ -17007,9 +17078,22 @@ function rbRenderLedger(found){
       }
     } else {
       const o = x.o;
-      head = '<span style="background:#EEF1FF; color:#33397a; font-weight:700; font-size:10px; padding:1px 5px; border-radius:4px;">NOT ON THE SHEET</span> ' + esc(o.name) + (0 ? '' : '');
+      /* ⭐ CALL IT WHAT IT IS. Owner, 2026-08-19: "instead of all those words where
+         it says not on the sheet just call it duplicate."
+         It was labelled NOT ON THE SHEET and then took three sentences to explain
+         that it is not that at all. One word does the whole job. */
+      head = (o.onSheetRow
+        ? '<span style="background:#FDECEA; color:#B91C1C; font-weight:700; font-size:10px; padding:1px 5px; border-radius:4px;">DUPLICATE</span> '
+        : '<span style="background:#EEF1FF; color:#33397a; font-weight:700; font-size:10px; padding:1px 5px; border-radius:4px;">NOT ON THE SHEET</span> ') + esc(o.name);
       head += o.cu ? ' #' + esc(o.cu) : '';
       left = rbLedgerCell(o.where);
+      /* ⚠ THE DEFAULT GOES FIRST. It sat at the END of this branch once, after the
+         blocks that fill it — so the messages were built and then overwritten with
+         "— nothing —". That is the bug the owner reported as "griner is a duplicate
+         here but its not finding her as a duplicate still", and it came back when a
+         parallel session pasted over this file. Suite 67 runs the renderer, so it
+         cannot come back a third time unnoticed. */
+      right = rbLedgerCell('');
       /* ⭐ NOT "a customer that doesn’t exist". If the sheet holds this name, the
          right-hand column says so and names the row — the fix is to fold the two
          records together, not to wonder who this is. */
@@ -17020,19 +17104,30 @@ function rbRenderLedger(found){
            Exactly — the sheet row already found the real record, so THIS one is the
            spare. Saying which of the two is which is the whole difference between a
            finding and a puzzle. */
-        right = '<strong>Not a missing customer &mdash; a spare copy.</strong> Row ' + o.onSheetRow + ' of your sheet already found their real record' +
+        /* One line. The badge already said DUPLICATE; repeating it in three
+           sentences is how a list stops being read. */
+        right = 'Row ' + o.onSheetRow +
+          (o.sheetWhere ? ' &middot; ' + esc(o.sheetWhere) : '') +
           (o.keeperId && o.id !== o.keeperId
-            ? '<div style="color:var(--ember); font-size:11.5px; margin-top:2px;">There is only one of them, so this record should not exist. <strong>Tick it and Sync</strong> to fold anything it still carries into the real record and remove it. It comes off any upcoming route first.</div>'
-            : '<div style="color:var(--ember); font-size:11.5px; margin-top:2px;">There is only one of them, so this record should not exist. <strong>Danger Zone &rarr; Merge duplicates</strong> folds it into the one the sheet already found.</div>');
+            ? '<div style="color:var(--slate); font-size:11.5px; margin-top:2px;">Ticked: this copy goes, after anything it still carries moves to the real record and it comes off any route.</div>'
+            : '<div style="color:var(--ember); font-size:11.5px; margin-top:2px;">Fold it in with <strong>Danger Zone &rarr; Merge duplicates</strong>.</div>');
       }
       /* ⭐ A STRAY IS NOT SOMEBODY WHO LEFT THE SHEET. A record with no street can
          never be reached by any paste, so it shows up as "missing from the sheet"
          for ever no matter how many times you compare. Say which tool fixes it,
          here, rather than leaving it looking like a customer who quit. */
-      if(o.stray){
-        left += '<div style="color:var(--ember); font-size:11.5px; margin-top:2px;">No street on file, so no paste can reach them &mdash; almost certainly a stray copy. <strong>Danger Zone &rarr; Merge duplicates</strong> folds it back in.</div>';
+      /* ⭐ SAY WHICH SIDE IS MISSING THE STREET. Owner, 2026-08-19: "for some
+         reason I got this: No street on file, so no paste can reach them ... but in
+         the excel sheet it has an address: 3473 W 2550 N".
+         Both were true and the message only said half of it. The WEBSITE record has
+         no street; the sheet has one. Which is not a contradiction — it is the
+         reason the two never met, and it is also the fix. */
+      /* Only worth saying when it is NOT already labelled a duplicate — there the
+         badge and the row number have said it, and the sheet address is on the right
+         already. Kept for the other case, where "no street" is the whole finding. */
+      if(o.stray && !o.onSheetRow){
+        left += '<div style="color:var(--ember); font-size:11.5px; margin-top:2px;">No street on this <strong>website record</strong>, so no row on your sheet can reach it.</div>';
       }
-      right = rbLedgerCell('');
       /* ⭐ A TICK ONLY WHEN THERE IS SOMETHING TO DO. Owner, 2026-08-19: "if they
          are both equally right then it just deletes one of them when they sync it."
          Offered only where the keeper is KNOWN — the record the sheet row already
