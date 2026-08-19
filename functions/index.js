@@ -824,6 +824,78 @@ async function ensureToken(id, data) {
   return token;
 }
 
+/* --- Who a bill is actually for -------------------------------------------
+ *
+ * One invoice can cover several houses — a parent paying for a child's house, a
+ * landlord paying for tenants, somebody with a cabin as well as a house. The
+ * office set that up deliberately and the nightly run bills it as ONE amount.
+ * The portal showed that one amount beside ONE address, so the number simply
+ * looked too big for the house on the screen, and it never said WHOSE houses
+ * were on it. Naming them is the whole point of these two helpers.
+ *
+ * ⚠ THE GROUP HAS TWO HALVES and naming only one half is worse than naming
+ * none — the list would then disagree with the total printed under it:
+ *   - a house with billToPhone === key, joined to this bill by the office
+ *   - a house with NO billToPhone whose own invoice key IS key, which is two
+ *     records under one phone sharing an invoice without any field being set
+ * runInvoiceBatch below and syncPayerInvoice in admin.html both sum exactly
+ * that group. Keep all three in step or the names and the money disagree.
+ *
+ * ⚠ WHICH HELPER TO USE MATTERS. billedHousesByIds reads the invoice's own
+ * billedHouseIds — the list the total was summed from — so the rows and the
+ * amount beside them can never drift apart, and it needs no query at all.
+ * billedHousesByKey is the fallback for a record with no invoice yet (that is
+ * portalLookup's case) and covers only the billToPhone half, because the other
+ * half would need a `where('phone','==',digits)` query and stored phones are
+ * NOT all digits-only — the office types "(801) 555-0123" and the import keeps
+ * it. That query is the same mistake that quietly duplicated the whole book
+ * once; do not add it here.
+ *
+ * A house that RSVP'd 'no' is not billed this season and is in neither list,
+ * exactly as it is left out of the total.
+ */
+function houseBillingRow(id, d) {
+  return {
+    id: id,
+    name: d.name || '',
+    address: d.address || '',
+    propertyLabel: d.propertyLabel || '',
+    lightsDescription: d.lightsDescription || '',
+    housePrice: Number(d.housePrice) || 0,
+    scheduledDate: d.scheduledDate || null,
+    completed: !!d.completed,
+    removalDone: !!d.removalDone
+  };
+}
+async function billedHousesByIds(ids) {
+  const wanted = (Array.isArray(ids) ? ids : []).filter(Boolean);
+  if (!wanted.length) return [];
+  const refs = wanted.map(function (id) { return db.collection('jobAddresses').doc(id); });
+  const snaps = await db.getAll.apply(db, refs);
+  const out = [];
+  snaps.forEach(function (s) {
+    if (!s.exists) return;                       // deleted since the bill was built
+    const d = s.data() || {};
+    if (String(d.rsvpStatus || '') === 'no') return;
+    out.push(houseBillingRow(s.id, d));
+  });
+  return out;
+}
+async function billedHousesByKey(key, selfId, selfData) {
+  const out = [];
+  const seen = {};
+  const add = function (id, d) {
+    if (seen[id] || String(d.rsvpStatus || '') === 'no') return;
+    seen[id] = true;
+    out.push(houseBillingRow(id, d));
+  };
+  if (selfId) add(selfId, selfData || {});
+  if (!key) return out;
+  const snap = await db.collection('jobAddresses').where('billToPhone', '==', key).get();
+  snap.forEach(function (d) { add(d.id, d.data() || {}); });
+  return out;
+}
+
 /* --- portalLookup ---------------------------------------------------------
  * Replaces every direct jobAddresses read the public site used to do,
  * including the three full-collection downloads that made every portal
@@ -909,30 +981,16 @@ exports.portalLookup = onCall({ cors: true }, async (request) => {
    * Returns the sibling addresses so the portal can name them. Deliberately
    * cheap: one query on the billing key, and only the fields needed to tell
    * the houses apart — nothing here is a second full customer record.
+   *
+   * ⚠ NAMES, not just addresses. "Who exactly am I paying for this year" is
+   * the question, and an address alone does not answer it for a parent paying
+   * for two children — see houseBillingRow.
    */
   let houses = [];
   try {
     const billKey = digitsOnly(match.data.billToPhone) || invoiceKeyFor(match.data);
-    if (billKey) {
-      const sibSnap = await db.collection('jobAddresses').where('billToPhone', '==', billKey).get();
-      const seen = {};
-      const add = function (id, d) {
-        if (seen[id]) return;
-        seen[id] = true;
-        houses.push({
-          id: id,
-          address: d.address || '',
-          propertyLabel: d.propertyLabel || '',
-          lightsDescription: d.lightsDescription || '',
-          scheduledDate: d.scheduledDate || null,
-          completed: !!d.completed,
-          removalDone: !!d.removalDone
-        });
-      };
-      // The payer's own house first, then anything billed to them.
-      add(match.id, match.data);
-      sibSnap.forEach(function (d) { add(d.id, d.data()); });
-    }
+    // The payer's own house first, then anything billed to them.
+    houses = await billedHousesByKey(billKey, match.id, match.data);
   } catch (err) {
     // A failed sibling lookup must never stop somebody reaching their account.
     console.error('[HU] multi-house lookup failed', err);
@@ -1441,6 +1499,52 @@ exports.quoteRespond = onCall({ cors: true }, async (request) => {
     }
   }
 
+  /* --- Is this quote for somebody who is ALREADY one of our members? -------
+   * A member who approves does NOT want the new-customer install-details form:
+   * we already hold their colours, their wire, their timer and their notes,
+   * and re-collecting it invites a second build of a house that already has
+   * lights. They get "anything changing this year?" instead (index.html).
+   *
+   * ⚠ THE LINK MUST BE AN EXPLICIT ONE, NEVER A PHONE MATCH. The obvious
+   * implementation looks up quoteData.phone in jobAddresses -- and it is
+   * wrong, because a phone number is not one household here. 17 numbers in
+   * the real book are shared and 14 of those are genuinely two houses (a
+   * parent paying for a child's place). A brand-new house quoted against a
+   * parent's phone would be told it is already a member and would never be
+   * asked for its install details at all. So only two things count:
+   *   convertedToCustomerAt -- this very quote has already been made into a
+   *     customer. Staff-only: firestore.rules forbids a public create from
+   *     setting it. This is the owner's "once they are created" case.
+   *   existingCustomerId    -- a re-quote raised against a live customer, by
+   *     the portal or the office, and the record still has to exist.
+   *
+   * ⚠ AND IT NEVER RETURNS A portalToken. A quoteToken is generated in the
+   * visitor's own browser, so anyone able to submit the public quote form
+   * knows one; upgrading it into a customer credential is the exact account
+   * takeover that was closed in portalLookup on 2026-08-14. All that goes
+   * back is a yes/no and the contact the quote itself already carries, so the
+   * page can fill in the sign-in box. Signing in is still last-name checked
+   * and still rate limited.
+   * ---------------------------------------------------------------------- */
+  let alreadyMember = false;
+  if (action === 'approve') {
+    try {
+      if (quoteData.convertedToCustomerAt) {
+        alreadyMember = true;
+      } else if (quoteData.existingCustomerId) {
+        const cSnap = await db.collection('jobAddresses')
+          .doc(String(quoteData.existingCustomerId)).get();
+        alreadyMember = cSnap.exists;
+      }
+    } catch (err) {
+      /* Never let this sink the approval - it is already recorded above. A
+         member who wrongly gets the details form can still fill it in; a
+         customer whose approval failed has to ring the office. */
+      console.error('[HU] existing-member check failed:', err);
+      alreadyMember = false;
+    }
+  }
+
   return {
     ok: true,
     action: action,
@@ -1451,7 +1555,13 @@ exports.quoteRespond = onCall({ cors: true }, async (request) => {
        is useless without the token they already hold. */
     quoteId: quoteId,
     name: quoteData.name || '',
-    formCompleted: !!quoteData.formCompleted
+    formCompleted: !!quoteData.formCompleted,
+    /* See the block above. A boolean, plus the contact already written on this
+       quote so the portal sign-in box can be filled in - never a token. */
+    alreadyMember: alreadyMember,
+    memberContact: alreadyMember
+      ? (quoteData.email || quoteData.phone || '')
+      : ''
   };
 });
 
@@ -1759,7 +1869,32 @@ exports.portalInvoice = onCall({ cors: true }, async (request) => {
     ? data.lastLightChangeFeeAt.toMillis() : 0;
   record.lightChangeFreeUntil = lastFeeAt > 0 ? lastFeeAt + (48 * 60 * 60 * 1000) : null;
 
-  return { found: true, record };
+  /* ⭐ WHO THIS BILL IS FOR, sent from HERE and not only from portalLookup.
+   *
+   * portalLookup already returned `houses`, but only the token link and the
+   * email sign-in go through it — the ordinary phone-and-surname sign-in calls
+   * renderCustomerInvoicePage straight away, so for most customers the list was
+   * never fetched at all and the "this bill covers N properties" box could not
+   * appear. The BILL is the right place for it anyway: it is authorised by the
+   * same check that just authorised the balance, and reading the invoice's own
+   * billedHouseIds means the rows and the total can never disagree.
+   *
+   * Falls back to the billing-key query for an invoice written before
+   * billedHouseIds existed. A failure here never denies anybody their invoice:
+   * an empty list just hides one box. */
+  let houses = [];
+  try {
+    houses = Array.isArray(data.billedHouseIds) && data.billedHouseIds.length
+      ? await billedHousesByIds(data.billedHouseIds)
+      : await billedHousesByKey(key, '', null);
+  } catch (err) {
+    console.error('[HU] billed-house lookup failed', err);
+    houses = [];
+  }
+
+  // Only sent when there is genuinely more than one — a single-house customer
+  // sees no change at all.
+  return { found: true, record, houses: houses.length > 1 ? houses : [] };
 });
 
 /* ---------------------------------------------------------------------------
