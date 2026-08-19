@@ -16136,6 +16136,9 @@ function rbCollectMissingCustomers(){
   /* Every customer the sheet accounted for. Whatever is left over is on the
      website and NOT on the sheet — the other half of the owner's question. */
   const matched = {};
+  /* Which customer each sheet row reached. A spare copy needs its keeper by id,
+     and the keeper is by definition the record that row already found. */
+  const matchedByRow = {};
   for(let i = 0; i < len; i++){
     const street = String(streets[i] || '').trim();
     const phone = String(phones[i] || '').replace(/\D/g,'');
@@ -16177,6 +16180,7 @@ function rbCollectMissingCustomers(){
     }
     if(hit){
       matched[hit.id] = i + 1;
+      matchedByRow[i + 1] = hit.id;
       /* ⭐ AND EVERY FIELD THAT DISAGREES. Owner: "so it tells me all the
          imperfections between the two and if all the imperfections are right
          and nothing is wrong then they just sync."
@@ -16293,7 +16297,8 @@ function rbCollectMissingCustomers(){
       /* Their name IS on the sheet, so they have not left it — this record just
          could not be reached. Almost always a second copy of somebody whose good
          record the sheet row matched instead. */
-      onSheetRow: sheetNameKeys[dupNormName(d.name)] || 0
+      onSheetRow: sheetNameKeys[dupNormName(d.name)] || 0,
+      keeperId: matchedByRow[sheetNameKeys[dupNormName(d.name)] || 0] || null
     };
   }).sort(function(a, b){
     if(a.stray !== b.stray) return a.stray ? -1 : 1;
@@ -16507,7 +16512,9 @@ function rbRenderLedger(found){
            spare. Saying which of the two is which is the whole difference between a
            finding and a puzzle. */
         right = '<strong>Not a missing customer &mdash; a spare copy.</strong> Row ' + o.onSheetRow + ' of your sheet already found their real record' +
-          '<div style="color:var(--ember); font-size:11.5px; margin-top:2px;">There is only one of them, so this record should not exist. <strong>Danger Zone &rarr; Merge duplicates</strong> folds it into the one the sheet already found.</div>';
+          (o.keeperId && o.id !== o.keeperId
+            ? '<div style="color:var(--ember); font-size:11.5px; margin-top:2px;">There is only one of them, so this record should not exist. <strong>Tick it and Sync</strong> to fold anything it still carries into the real record and remove it. It comes off any upcoming route first.</div>'
+            : '<div style="color:var(--ember); font-size:11.5px; margin-top:2px;">There is only one of them, so this record should not exist. <strong>Danger Zone &rarr; Merge duplicates</strong> folds it into the one the sheet already found.</div>');
       }
       /* ⭐ A STRAY IS NOT SOMEBODY WHO LEFT THE SHEET. A record with no street can
          never be reached by any paste, so it shows up as "missing from the sheet"
@@ -16517,7 +16524,15 @@ function rbRenderLedger(found){
         left += '<div style="color:var(--ember); font-size:11.5px; margin-top:2px;">No street on file, so no paste can reach them &mdash; almost certainly a stray copy. <strong>Danger Zone &rarr; Merge duplicates</strong> folds it back in.</div>';
       }
       right = rbLedgerCell('');
-      box = '<span title="Nothing here is ever deleted" style="color:var(--slate);">&mdash;</span>';
+      /* ⭐ A TICK ONLY WHEN THERE IS SOMETHING TO DO. Owner, 2026-08-19: "if they
+         are both equally right then it just deletes one of them when they sync it."
+         Offered only where the keeper is KNOWN — the record the sheet row already
+         found — so the delete can never be a guess about which of two is real.
+         ⚠ NEVER ticked by default. Everything else in this list is reversible by
+         editing a field back; this one is not. */
+      box = (o.keeperId && o.id !== o.keeperId)
+        ? '<input type="checkbox" class="rb-spare-pick" data-spare="' + esc(o.id) + '" data-keeper="' + esc(o.keeperId) + '">'
+        : '<span title="Nothing is deleted here" style="color:var(--slate);">&mdash;</span>';
     }
     html += '<tr style="border-bottom:1px solid var(--line);">' +
       '<td style="padding:5px 6px 5px 0; vertical-align:top;">' + box + '</td>' +
@@ -16593,10 +16608,54 @@ function rbWireDiffButtons(report, statusEl){
         done++;
       } catch(err){ failed++; }
     }
+    /* ⭐ FOLD IN THE SPARE COPIES THAT WERE TICKED. Owner, 2026-08-19: "if they are
+       both equally right then it just deletes one of them when they sync it."
+
+       I pushed back on this once because deleting a customer is the one thing here
+       with no cheap undo; she asked again, so it is built — with the three
+       safeguards that make it safe rather than merely quick:
+
+         1. MERGE BEFORE DELETE. Everything the spare still carries and the keeper
+            does not is written onto the keeper FIRST, through mergeFieldsFrom, which
+            only ever fills blanks. Writing the keeper before removing the spare is
+            load-bearing: the other order can lose the very field this exists to
+            rescue.
+         2. OFF THE ROUTES FIRST. Deleting a record that is on an upcoming route
+            leaves the crew a stop pointing at a customer who is gone.
+         3. THE KEEPER MUST BE KNOWN AND MUST NOT BE THE SPARE. The keeper is the
+            record the sheet row already found, so "which of these two is real" is
+            never a guess. A row without one has no tick at all.
+
+       ⚠ The number is NOT returned to availableCustomerNumbers. The keeper still
+       holds it; pooling it would hand a live number to somebody new. Same rule the
+       merge tool follows. */
+    const spares = Array.prototype.slice.call(document.querySelectorAll('.rb-spare-pick'))
+      .filter(function(p){ return p.checked; })
+      .map(function(p){ return {id: p.getAttribute('data-spare'), keeper: p.getAttribute('data-keeper')}; })
+      .filter(function(x){ return x.id && x.keeper && x.id !== x.keeper; });
+    let folded = 0, foldFailed = 0;
+    for(let i = 0; i < spares.length; i++){
+      const sp = spares[i];
+      statusEl.textContent = 'Folding in spare copy ' + (i+1) + ' of ' + spares.length + '\u2026';
+      await bulkBreathe(i);
+      try{
+        const spareRec = jobAddresses.find(function(c){ return c.id === sp.id; });
+        const keepRec = jobAddresses.find(function(c){ return c.id === sp.keeper; });
+        if(!spareRec || !keepRec){ foldFailed++; continue; }
+        const gains = mergeFieldsFrom(keepRec.data || {}, spareRec.data || {});
+        if(Object.keys(gains).length) await updateDoc(doc(db,'jobAddresses', sp.keeper), gains);
+        await removeCustomerFromUpcomingRoutes(sp.id);
+        await deleteDoc(doc(db,'jobAddresses', sp.id));
+        folded++;
+      } catch(err){ foldFailed++; }
+    }
+    if(folded) logActivity('Folded ' + folded + ' spare customer record(s) into the record the sheet found', 'customers', '');
     rbPendingDiffs = null;
     logActivity('Synced ' + fields + ' field(s) from the master sheet onto ' + done + ' customer(s)', 'customers', '');
     report.innerHTML = '<div style="border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--paper); font-size:13px;">' +
       fields + ' field(s) synced across ' + done + ' customer(s)' + (failed ? ', ' + failed + ' failed' : '') +
+      (folded ? ', ' + folded + ' spare copy(ies) folded in and removed' : '') +
+      (foldFailed ? ', ' + foldFailed + ' spare copy(ies) could not be folded' : '') +
       '. Nothing that was blank on the sheet was written, and no invoice was touched. ' +
       'Press Compare again to check.</div>';
     statusEl.textContent = '';

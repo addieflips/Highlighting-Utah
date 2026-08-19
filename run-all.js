@@ -13644,7 +13644,35 @@ suite('Suite 58. The sheet against the book, both ways round');
          on screen, so letting it through on that rule would overwrite a value nobody
          chose to overwrite. Conflicts sort to the TOP so in practice they are always
          drawn — which is exactly why this needs a check rather than an argument. */
-      check('S58', 'but a conflict past the 400 drawn is never assumed ticked',
+      const KEEP_WRITE = 'updateDoc(doc(db,' + String.fromCharCode(39) + 'jobAddresses' +
+      String.fromCharCode(39) + ', sp.keeper)';
+    const SPARE_DELETE = 'deleteDoc(doc(db,' + String.fromCharCode(39) + 'jobAddresses' +
+      String.fromCharCode(39) + ', sp.id))';
+    /* ⭐ FOLDING IN A SPARE COPY. Owner, 2026-08-19: "if they are both equally right
+       then it just deletes one of them when they sync it." Deleting a customer is the
+       one thing here with no cheap undo, so the ORDER of these three steps is the
+       whole safety argument, not a detail. */
+    check('S58', 'the keeper is written BEFORE the spare is deleted',
+      sync.indexOf(KEEP_WRITE) > 0 && sync.indexOf(KEEP_WRITE) < sync.indexOf(SPARE_DELETE),
+      'the other order can lose the very field the merge exists to rescue');
+    check('S58', 'and it comes off the routes before it goes',
+      sync.indexOf('removeCustomerFromUpcomingRoutes(sp.id)') > 0 &&
+      sync.indexOf('removeCustomerFromUpcomingRoutes(sp.id)') < sync.indexOf(SPARE_DELETE),
+      'deleting a routed record leaves the crew a stop pointing at a customer who is gone');
+    check('S58', 'only blanks are filled, never overwritten',
+      /mergeFieldsFrom\(keepRec\.data \|\| \{\}, spareRec\.data \|\| \{\}\)/.test(sync),
+      'a merge that overwrites can destroy information; one that only fills gaps cannot');
+    check('S58', 'a spare is never folded into itself, or into an unknown keeper',
+      /x\.id && x\.keeper && x\.id !== x\.keeper/.test(sync),
+      'folding a record into itself deletes it and rescues nothing');
+    /* ⚠ AND THE NUMBER STAYS PUT. The keeper still holds it; pooling it would hand a
+       live number to the next new customer. Same rule the merge tool follows. */
+    check('S58', 'and the customer number is not returned to the pool',
+      /* ⚠ Comments stripped first: the rule is written down right there in the code,
+         so a plain search finds the explanation and calls it a violation. */
+      !/availableCustomerNumbers/.test(sync.replace(/\/\*[\s\S]*?\*\//g, " ")),
+      'the keeper still holds that number — pooling it would put two houses on one label');
+    check('S58', 'but a conflict past the 400 drawn is never assumed ticked',
         /return n >= 400 && !\(x && x\.conflict\);/.test(sync),
         'a decision she never saw must not be made for her by a display limit');
     check('S58', 'the ticks are read when the button is PRESSED',
@@ -14895,9 +14923,18 @@ suite('Suite 67. Conflicts come first, are labelled MANUAL, and are never pre-ti
     !/rbFavourSheetBtn[^;]{0,400}updateDoc/.test(admin.replace(/\r?\n/g, " ")),
     'a button labelled favour that also saved would be a sync nobody asked for');
 
-  check('S67', 'a website-only row can never be ticked',
-    /Nothing here is ever deleted/.test(admin),
-    'nobody is deleted for being off the sheet, so offering a box would promise something the tool will not do');
+  /* ⭐ RETIRED 2026-08-19, same day. Owner: "if they are both equally right then it
+     just deletes one of them when they sync it." A website-only row CAN now be
+     ticked — but only where the keeper is known, which is the record the sheet row
+     already found. Somebody who genuinely left the sheet still has no box, because
+     there is nothing to fold them into. That is the line the checks below hold. */
+  check('S67', 'a row with no known keeper still cannot be ticked',
+    /Nothing is deleted here/.test(admin) &&
+    /\(o\.keeperId && o\.id !== o\.keeperId\)/.test(admin),
+    'without a keeper a delete is a guess about which of two records is the real one');
+  check('S67', 'and a spare is never ticked for you',
+    !/class="rb-spare-pick"[^>]{0,120}checked/.test(admin),
+    'every other row here is reversible by editing a field back; this one is not');
 
   /* ---- the ordering ---- */
   check('S67', 'a conflict outranks every gap, whatever the field',
