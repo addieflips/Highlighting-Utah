@@ -24821,12 +24821,62 @@ async function noticeRoutesReconciled(report){
     await addDoc(collection(db,'messages'), {
       topic: 'Routes Kept Up To Date', folder: 'System',
       name: '', phone: '', email: '', contactMethod: '',
-      message: 'The upcoming routes were checked and these changed:\n\n' + lines.join('\n') +
-        '\n\nNobody has been told about any date that moved — if a day was already confirmed with them, they need to hear it from you.',
+      message: sysNoteBody('The upcoming routes were checked and these changed:\n\n', lines,
+        '\n\nNobody has been told about any date that moved — if a day was already confirmed with them, they need to hear it from you.'),
       autoQueuedToWarehouse: false, needsReassign: false,
       createdAt: serverTimestamp()
     });
-  } catch(err){ console.error('Could not raise the reconcile note:', err); }
+  } catch(err){
+    /* ⚠ The office hears nothing when this fails, and it failed quietly for weeks.
+       One retry with a bare one-line note: if the long one is still refused for any
+       reason, the sweep having HAPPENED is the part that must survive. */
+    console.error('Could not raise the reconcile note:', err);
+    try{
+      await addDoc(collection(db,'messages'), {
+        topic: 'Routes Kept Up To Date', folder: 'System',
+        name: '', phone: '', email: '', contactMethod: '',
+        message: 'The upcoming routes were checked and ' + lines.length +
+          ' thing(s) changed. The full note could not be saved, so open Routes to see them.',
+        autoQueuedToWarehouse: false, needsReassign: false,
+        createdAt: serverTimestamp()
+      });
+    } catch(err2){ console.error('And the short reconcile note failed too:', err2); }
+  }
+}
+/* ⭐ A SYSTEM NOTE THAT IS TOO LONG IS NO NOTE AT ALL.
+   Owner, 2026-08-19, from her error log: "Could not raise the reconcile note:
+   Missing or insufficient permissions." It had been failing for a while.
+
+   It is not a permissions problem in the usual sense. firestore.rules caps a
+   message at 5000 characters on CREATE, and the reconcile note grows a line per
+   hand-built day and a clause per retired one — a full season rebuild sails past
+   it. Firestore reports a rule that says no as "insufficient permissions", which
+   is why this read as an auth fault for so long.
+
+   ⚠ THE CAP IS NOT THE BUG AND MUST NOT BE RAISED. Creating a message is a PUBLIC
+   write — that is how the contact form on the website works without a login — and
+   the size limit is what stops anybody posting a novel into the office inbox. The
+   note is what has to be shorter.
+
+   ⚠ AND IT MUST STILL SAY SOMETHING. Dropping the whole note because it is long
+   loses the sweep entirely, which is the one thing worse than a trimmed one — so
+   what does not fit is COUNTED, not silently cut. */
+const SYS_NOTE_CAP = 4000;
+function sysNoteBody(intro, lines, outro){
+  const head = String(intro || '');
+  const tail = String(outro || '');
+  const room = SYS_NOTE_CAP - head.length - tail.length;
+  const kept = [];
+  let used = 0, dropped = 0;
+  (lines || []).forEach(function(l){
+    const line = String(l == null ? '' : l);
+    if(used + line.length + 1 <= room){ kept.push(line); used += line.length + 1; }
+    else dropped++;
+  });
+  if(dropped){
+    kept.push('… and ' + dropped + ' more change(s), not listed here — the note would have been too long to save. Routes and the calendar show all of it.');
+  }
+  return head + kept.join('\n') + tail;
 }
 /* Same shape as the automatic health check: a few seconds after sign-in, then on
    an interval, and it can never take the page down with it. */

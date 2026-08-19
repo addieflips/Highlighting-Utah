@@ -14882,6 +14882,76 @@ suite('Suite 66. The master sheet choice is remembered for every computer');
    it is a thing no rule can settle. The value it would overwrite is the one somebody
    in the office typed most recently.
    ============================================================================= */
+/* ================= 68. A system note that is too long to save ================
+   Owner, 2026-08-19, from her error log: "Could not raise the reconcile note:
+   Missing or insufficient permissions." It had been failing for a while.
+
+   Not a permissions fault in the usual sense. firestore.rules caps a message at
+   5000 characters on CREATE, and the reconcile note grows a line per hand-built
+   day; a full season rebuild sails past it. Firestore reports a rule that says no
+   as "insufficient permissions", which is why it read as an auth problem.
+
+   ⚠ THE CAP IS NOT THE BUG. Creating a message is a PUBLIC write — that is how the
+   website contact form works without a login — and the limit is what stops anybody
+   posting a novel into the office inbox. Raising it to fix this would open that.
+   ============================================================================= */
+suite('Suite 68. The reconcile note fits inside the rule that guards a public write');
+{
+  const admin = read("admin.html");
+  const rules = read("firestore.rules");
+
+  /* The rule this has to live inside, read from the rules file rather than assumed. */
+  {
+    const m = rules.match(/request\.resource\.data\.message\.size\(\) < (\d+)/);
+    check('S68', 'the message size limit is still in the rules', !!m,
+      'if this cap ever goes, the public create path can be used to post anything of any length');
+    const cap = m ? Number(m[1]) : 0;
+
+    const src = extractFn(admin, "sysNoteBody");
+    check('S68', 'sysNoteBody exists', !!src);
+    if (src && cap) {
+      const sb = {};
+      new Function("const SYS_NOTE_CAP = " +
+        (admin.match(/const SYS_NOTE_CAP = (\d+);/) || [0, 0])[1] + ";" +
+        src + "this.f = sysNoteBody;").call(sb);
+      const f = sb.f;
+
+      /* ⚠ THE FIXTURE IS BIGGER THAN THE CAP ON PURPOSE. A note that already fits
+         proves nothing — it is the oversized one that was failing. */
+      const many = [];
+      for (let i = 0; i < 400; i++) many.push("Mon 3 Nov crew 2 (Lehi) had more crews out than you have, so nothing was touched — line " + i);
+      const intro = "The upcoming routes were checked and these changed:\n\n";
+      const outro = "\n\nNobody has been told about any date that moved.";
+      const body = f(intro, many, outro);
+
+      check('S68', 'a note far too long for the rule is brought under it',
+        body.length < cap,
+        'it was ' + body.length + ' characters against a limit of ' + cap +
+        ' — Firestore refuses that as \"insufficient permissions\", which is what she saw');
+      check('S68', 'and what did not fit is counted, not silently dropped',
+        /and \d+ more change\(s\), not listed here/.test(body),
+      'a note that quietly loses half the sweep is worse than one that says it did');
+      check('S68', 'and the opening and closing lines always survive',
+        body.indexOf(intro) === 0 && body.indexOf(outro) === body.length - outro.length,
+        'the warning that nobody has been told about a moved date is the part that must not be trimmed');
+
+      /* ⚠ A note that fits must come through untouched, or every note gets the
+         apology line and it stops meaning anything. */
+      const small = f(intro, ["One day was rebuilt."], outro);
+      check('S68', 'a note that already fits is left exactly as it was',
+        small === intro + "One day was rebuilt." + outro,
+        'an apology on every note trains people to ignore it');
+    }
+  }
+
+  /* ⚠ AND IT MUST STILL SAY SOMETHING IF THE LONG ONE IS REFUSED. It failed quietly
+     for weeks; the office heard nothing at all. */
+  check('S68', 'a failed note falls back to a one-line one',
+    /And the short reconcile note failed too/.test(admin) &&
+    /The full note could not be saved, so open Routes to see them/.test(admin),
+    'the sweep having happened is the part that has to survive, whatever the note does');
+}
+
 suite('Suite 67. Conflicts come first, are labelled MANUAL, and are never pre-ticked');
 {
   const admin = read("admin.html");
