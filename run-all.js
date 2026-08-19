@@ -13510,7 +13510,7 @@ suite('Suite 58. The sheet against the book, both ways round');
     check('S58', 'the report opens with how many rows were read and how many matched',
       /Read <strong>' \+ found\.read \+ '<\/strong> row\(s\) from the sheet/.test(body) &&
       /' \+ found\.matchedCount \+/.test(body) &&
-      body.indexOf('const tally =') < body.indexOf('const siteOnly ='),
+      body.indexOf('const tally =') < body.indexOf('rbRenderLedger(found)'),
       'a count that comes after the list is read after the damage');
 
     /* ⭐ "I should just be able to paste in my excel sheet." */
@@ -13591,7 +13591,7 @@ suite('Suite 58. The sheet against the book, both ways round');
       'the price lives on the invoice and writing money is its own decision');
 
     check('S58', 'and the stray ones are pointed at the tool that fixes them',
-      /Merge duplicates/.test(body),
+      /No street on file, so no paste can reach them/.test(admin) && /Merge duplicates/.test(admin),
       'a list with no next step is where this stalls');
   }
 }
@@ -14770,6 +14770,40 @@ suite('Suite 67. Conflicts come first, are labelled MANUAL, and are never pre-ti
 {
   const admin = read("admin.html");
 
+  /* ---- ⭐ ONE LIST, TWO COLUMNS ---- */
+  /* Owner, 2026-08-19: "I want the two columns side by side, the left side is things
+     in website not in excel and right side is things in excel not in website with a
+     sync button at the bottom." It was three stacked blocks, so one customer could
+     appear in two of them and you read the page three times to find the work. */
+  check('S67', 'the report is one ledger, not three stacked blocks',
+    /function rbRenderLedger\(/.test(admin) &&
+    !/const diffHtml = found\.diffs\.length/.test(admin) &&
+    !/const siteOnly = found\.onlyOnSite\.length/.test(admin),
+    'leaving the old blocks in place would spell the same element ids and give the next person two screens to edit');
+  check('S67', 'and both columns are headed by which side they are',
+    /On the website, not in your sheet<\/th>/.test(admin) &&
+    /In your sheet, not on the website<\/th>/.test(admin),
+    'two unlabelled columns are a guess about which way the sync runs');
+
+  /* ⚠ THE ORDER SHE ASKED FOR, IN ONE PLACE. */
+  check('S67', 'manual first, then a missing customer, then address, then price',
+    /if\(x\.kind === .diff. && x\.d\.conflict\) return 0;/.test(admin) &&
+    /if\(x\.kind !== .diff.\) return 1;/.test(admin) &&
+    /if\(k === .street.\) return 2;/.test(admin) &&
+    /if\(k === .housePrice.\) return 3;/.test(admin),
+    'the owner set this order out field by field; a rank table that drifts from it is not the thing she asked for');
+
+  /* ⚠ A ROW KEEPS THE INDEX ITS WRITER USES. rbWireDiffButtons finds ticked rows by
+     their index in rbPendingDiffs and treats anything past the 400th as ticked.
+     Renumbering for display would hand it a different list than the one on screen. */
+  check('S67', 'the ledger renumbers nothing',
+    /data-n="' \+ x\.n/.test(admin) && /data-i="' \+ r\.i/.test(admin),
+    'display order changed; the identity the writers match on did not');
+
+  check('S67', 'a website-only row can never be ticked',
+    /Nothing here is ever deleted/.test(admin),
+    'nobody is deleted for being off the sheet, so offering a box would promise something the tool will not do');
+
   /* ---- the ordering ---- */
   check('S67', 'a conflict outranks every gap, whatever the field',
     /if\(!!a\.conflict !== !!b\.conflict\) return a\.conflict \? -1 : 1;/.test(admin),
@@ -14793,7 +14827,7 @@ suite('Suite 67. Conflicts come first, are labelled MANUAL, and are never pre-ti
 
   /* ---- the label ---- */
   check('S67', 'a conflict is labelled MANUAL on its row',
-    /x\.conflict \? .{0,240}MANUAL<\/span>/.test(admin),
+    /manualRow \? .{0,200}MANUAL FIX<\/span>/.test(admin),
     'owner: "they should be labeled manual"');
   check('S67', 'and the report says how many need her',
     /function rbDiffManualCount\(/.test(admin) && /need you to decide\.<\/strong>/.test(admin),
@@ -14801,7 +14835,7 @@ suite('Suite 67. Conflicts come first, are labelled MANUAL, and are never pre-ti
 
   /* ---- and they are never pre-ticked ---- */
   check('S67', 'a conflict does not come ticked',
-    /\(x\.conflict \? '' : ' checked'\)/.test(admin),
+    /d\.conflict \? '' : ' checked'/.test(admin),
     'ticked, it takes the sheet side of a decision nobody made, over the value someone typed most recently');
 
   /* ---- price, which was not compared at all ---- */

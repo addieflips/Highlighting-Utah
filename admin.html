@@ -16350,10 +16350,150 @@ function rbManualBanner(diffs){
     '<strong>MANUAL</strong>, they sort to the top, and they come UNTICKED. Tick one to take your sheet&rsquo;s value; ' +
     'leave it and the website keeps what it has.</div>';
 }
+/* ⭐ THE WHOLE COMPARISON AS ONE RANKED, TWO-COLUMN LIST.
+   Owner, 2026-08-19: "I want the two columns side by side, the left side is
+   things in website not in excel and right side is things in excel not in
+   website with a sync button at the bottom, it should be organized with the top
+   of the list showing differences that require manual fixes such as they both
+   have an address that needs manual fixing to decide which one to keep and then
+   next in priority is the most critical things such as address in one but the
+   other doesnt have an address and next would be price is different or requires
+   to be synced, but anything manual is at the top and is labeled manual fix."
+
+   It used to be three stacked blocks - missing here, fields that differ, missing
+   there - so the same customer could appear in two of them and you read the page
+   three times to find out what actually needed doing. Now every discrepancy is
+   ONE row: what the website says on the left, what the sheet says on the right.
+
+   THE ORDER, exactly as she set it out:
+     0  MANUAL FIX  - both sides hold a real value and they disagree. No rule can
+                      settle it; the value that would be overwritten is the one
+                      somebody typed most recently. Unticked.
+     1  the customer is on one side only - the extreme case of "one has it and
+                      the other does not"
+     2  address gap, 3 price gap, then the rest by RB_FIELD_RANK.
+
+   ⚠ THE TICK BOXES KEEP THEIR OLD CLASSES AND INDICES (rb-add-pick/data-i and
+   rb-diff-pick/data-n). The two handlers that do the writing find their rows by
+   those, and rbWireDiffButtons also treats anything past the 400th diff as
+   ticked. Renumbering for display would hand those rules a different list than
+   the one on screen. Layout changed; identity did not. */
+function rbLedgerRank(x){
+  if(x.kind === 'diff' && x.d.conflict) return 0;
+  if(x.kind !== 'diff') return 1;
+  const k = x.d.key;
+  if(k === 'street') return 2;
+  if(k === 'housePrice') return 3;
+  return 4 + (typeof RB_LEDGER_FIELD_RANK === 'object' ? (RB_LEDGER_FIELD_RANK[k] || 20) : 20);
+}
+/* Same order the collector sorts by, repeated here because the ledger mixes
+   diffs with whole customers and needs one scale for both. */
+const RB_LEDGER_FIELD_RANK = {street:1, housePrice:2, measuredFeet:3, customerNumber:4,
+  city:5, phone:6, email:7, name:8, installPreference:9,
+  zip:10, wireColor:11, outletTimer:12, useEaves:13, notes:14};
+function rbLedgerRows(found){
+  const out = [];
+  (found.diffs || []).forEach(function(d, n){ out.push({kind:'diff', d:d, n:n}); });
+  (found.rows || []).forEach(function(r){ out.push({kind:'add', r:r}); });
+  (found.onlyOnSite || []).forEach(function(o){ out.push({kind:'site', o:o}); });
+  out.forEach(function(x, i){ x._i = i; });
+  out.sort(function(a, b){
+    const ra = rbLedgerRank(a), rb = rbLedgerRank(b);
+    if(ra !== rb) return ra - rb;
+    return a._i - b._i;   /* stable: keeps the collector’s own order inside a tier */
+  });
+  return out;
+}
+function rbLedgerCell(text, muted){
+  if(!text) return '<span style="color:var(--slate); font-style:italic;">— nothing —</span>';
+  return (muted ? '<span style="color:var(--slate);">' : '<span>') + esc(text) + '</span>';
+}
+function rbRenderLedger(found){
+  const rows = rbLedgerRows(found);
+  if(!rows.length) return '<div style="border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--paper); font-size:13px;">Your sheet and the website agree, customer for customer and field for field.</div>';
+  const manual = rows.filter(function(x){ return rbLedgerRank(x) === 0; }).length;
+  let html = '<div style="border:2px solid var(--gold-dim); border-radius:10px; padding:14px; background:var(--snow);">';
+  html += '<div style="font-weight:700; margin-bottom:6px;">' + rows.length + ' thing(s) do not match.</div>';
+  if(manual){
+    html += '<div style="font-size:12.5px; margin-bottom:10px; background:#FFF8E9; border:1px solid var(--gold-dim); border-radius:8px; padding:8px 10px;">' +
+      '<strong>' + manual + ' need a MANUAL FIX.</strong> Both sides hold a real value and they disagree, so nothing can pick for you. They are at the top and come unticked — tick one to take your sheet&rsquo;s value, leave it and the website keeps what it has.</div>';
+  }
+  html += '<div style="max-height:460px; overflow:auto;"><table style="border-collapse:collapse; font-size:13px; width:100%; table-layout:fixed;">';
+  html += '<tr style="font-size:11px; text-transform:uppercase; color:var(--slate); letter-spacing:.04em; border-bottom:2px solid var(--line);">' +
+    '<th style="width:26px;"></th>' +
+    '<th style="padding:4px 8px 4px 0; text-align:left; width:44%;">On the website, not in your sheet</th>' +
+    '<th style="padding:4px 0; text-align:left;">In your sheet, not on the website</th></tr>';
+  rows.forEach(function(x){
+    const manualRow = rbLedgerRank(x) === 0;
+    let box = '', left = '', right = '', head = '';
+    if(x.kind === 'diff'){
+      const d = x.d;
+      box = '<input type="checkbox" class="rb-diff-pick" data-n="' + x.n + '"' + (d.conflict ? '' : ' checked') + '>';
+      head = esc(d.who) + ' <span style="color:var(--slate);">&middot; ' + esc(d.label) + '</span>';
+      left = rbLedgerCell(d.from, !d.conflict);
+      right = rbLedgerCell(String(d.to));
+    } else if(x.kind === 'add'){
+      const r = x.r;
+      box = '<input type="checkbox" class="rb-add-pick" data-i="' + r.i + '"' + (r.suspect ? '' : ' checked') + '>';
+      head = '<span style="background:#E8F3EC; color:#2E6B3E; font-weight:700; font-size:10px; padding:1px 5px; border-radius:4px;">NOT ON THE WEBSITE</span> ' + esc(r.name || '(no name)') + (r.cu ? ' #' + esc(r.cu) : '');
+      left = rbLedgerCell('');
+      right = rbLedgerCell([r.street, r.city].filter(Boolean).join(', '));
+      if(r.pairedSite){
+        /* ⭐ NAME THE RECORD AND ITS ADDRESS. Owner, shown a row she thought was
+           already there: "why did she pop up if shes already there". Because the
+           website holds her at a different address, or at none, so no row can reach
+           her. Saying WHICH record and WHERE is what turns that into an obvious
+           answer instead of a puzzle. */
+        left = '<strong>Already on the website</strong> as ' + esc(r.pairedSite.name) +
+          (r.pairedSite.cu ? ' #' + esc(r.pairedSite.cu) : ' (no number)') +
+          '<div style="color:var(--slate); font-size:11.5px;">' + esc(r.pairedSite.where) + '</div>';
+        right += '<div style="color:var(--slate); font-size:11.5px; margin-top:2px;">Ticking this <strong>updates that record</strong> rather than adding a second copy.</div>';
+      }
+    } else {
+      const o = x.o;
+      head = '<span style="background:#EEF1FF; color:#33397a; font-weight:700; font-size:10px; padding:1px 5px; border-radius:4px;">NOT ON THE SHEET</span> ' + esc(o.name) + (0 ? '' : '');
+      head += o.cu ? ' #' + esc(o.cu) : '';
+      left = rbLedgerCell(o.where);
+      /* ⭐ A STRAY IS NOT SOMEBODY WHO LEFT THE SHEET. A record with no street can
+         never be reached by any paste, so it shows up as "missing from the sheet"
+         for ever no matter how many times you compare. Say which tool fixes it,
+         here, rather than leaving it looking like a customer who quit. */
+      if(o.stray){
+        left += '<div style="color:var(--ember); font-size:11.5px; margin-top:2px;">No street on file, so no paste can reach them &mdash; almost certainly a stray copy. <strong>Danger Zone &rarr; Merge duplicates</strong> folds it back in.</div>';
+      }
+      right = rbLedgerCell('');
+      box = '<span title="Nothing here is ever deleted" style="color:var(--slate);">&mdash;</span>';
+    }
+    html += '<tr style="border-bottom:1px solid var(--line);">' +
+      '<td style="padding:5px 6px 5px 0; vertical-align:top;">' + box + '</td>' +
+      '<td colspan="2" style="padding:5px 0 0 0; vertical-align:top;">' +
+        (manualRow ? '<span style="background:var(--gold-dim); color:#5a4300; font-weight:700; font-size:10px; padding:1px 5px; border-radius:4px; letter-spacing:.05em;">MANUAL FIX</span> ' : '') +
+        head + '</td></tr>';
+    html += '<tr style="border-bottom:1px solid var(--line);"><td></td>' +
+      '<td style="padding:0 8px 6px 0; vertical-align:top; word-break:break-word;">' + left + '</td>' +
+      '<td style="padding:0 0 6px 0; vertical-align:top; word-break:break-word;">' + right + '</td></tr>';
+  });
+  html += '</table></div>';
+  html += '<div style="margin-top:12px;">' +
+    '<button type="button" class="btn ghost" id="rbAddAllBtn">Tick all</button> ' +
+    '<button type="button" class="btn ghost" id="rbAddNoneBtn">Untick all</button> ' +
+    /* ⚠ TWO BUTTONS, NOT ONE, AND DELIBERATELY SO. Adding a customer and editing
+       one are different writes: the first creates a record and a place in the book,
+       the second changes fields on records that already exist. One button would have
+       to report both outcomes in one line and they fail in different ways. They sit
+       together at the bottom of the one list, in the order you would use them. */
+    '<button type="button" class="btn btn-gold" id="rbDiffGoBtn">Sync the ticked changes</button> ' +
+    '<button type="button" class="btn btn-gold" id="rbAddGoBtn">Add the ticked customers</button>' +
+    '</div>';
+  html += '<div style="font-size:12px; color:var(--slate); margin-top:6px;">New customers are added as a record only — no invoice. Nobody is ever deleted: a customer on the website and not on the sheet is shown for information.</div>';
+  html += '</div>';
+  return html;
+}
 function rbWireDiffButtons(report, statusEl){
   const picks = function(){ return Array.prototype.slice.call(document.querySelectorAll('.rb-diff-pick')); };
-  document.getElementById('rbDiffAllBtn')?.addEventListener('click', function(){ picks().forEach(function(p){ p.checked = true; }); });
-  document.getElementById('rbDiffNoneBtn')?.addEventListener('click', function(){ picks().forEach(function(p){ p.checked = false; }); });
+  /* ⚠ The tick-all pair lives in the ledger now and covers BOTH kinds of row,
+     so the diff table’s own pair is gone. Wiring ids that no longer exist is a
+     silent no-op behind ?. — exactly what gate C catches. */
   const go = document.getElementById('rbDiffGoBtn');
   if(!go) return;
   go.addEventListener('click', onceAtATime(async function(){ return withBulkWrites(async function(){
@@ -17139,50 +17279,8 @@ document.getElementById('rbFindMissingBtn')?.addEventListener('click', async fun
   /* ⭐ EVERY FIELD THAT DISAGREES, ticked and ready to apply. Owner: "so it
      tells me all the imperfections between the two and if all the imperfections
      are right and nothing is wrong then they just sync." */
-  const diffHtml = found.diffs.length
-    ? '<div style="border:2px solid var(--gold-dim); border-radius:10px; padding:14px; background:var(--snow); margin-top:12px;">' +
-        '<div style="font-weight:700; margin-bottom:4px;">' + found.diffs.length +
-          ' field(s) differ between your sheet and the website.</div>' +
-        rbManualBanner(found.diffs) +
-        '<div style="font-size:12.5px; color:var(--slate); margin-bottom:8px;">The rest are gaps rather than disagreements &mdash; the website has nothing and the sheet does, so the sheet fills them in. ' +
-          'A blank on the sheet is never a difference — it cannot empty anything here. Untick anything you disagree with.</div>' +
-        '<div style="max-height:300px; overflow:auto;"><table style="border-collapse:collapse; font-size:13px; width:100%;">' +
-        /* ⭐ TWO COLUMNS, HEADED. Owner: "one on the left showing things on the
-           website not in the excel and on the right the things in excel not in the
-           website." For a customer who exists on only one side that is the pair of
-           lists above; for a field that disagrees it is these two columns. */
-        '<tr style="border-bottom:2px solid var(--line); font-size:11px; text-transform:uppercase; color:var(--slate); letter-spacing:.04em;">' +
-          '<th></th><th style="padding:3px 8px 3px 0; text-align:left;">Who</th>' +
-          '<th style="padding:3px 8px 3px 0; text-align:left;">Field</th>' +
-          '<th style="padding:3px 8px 3px 0; text-align:left;">On the website</th>' +
-          '<th style="padding:3px 0; text-align:left;">In your sheet</th></tr>' +
-        found.diffs.slice(0, 400).map(function(x, n){
-          return '<tr style="border-bottom:1px solid var(--line);">' +
-            /* ⚠ A CONFLICT IS NEVER TICKED BY DEFAULT. Ticked, it takes the
-               sheet’s side of a decision nobody has made, and the value it would
-               overwrite is the one somebody typed most recently. A gap has no
-               second value to lose, so it stays ticked. */
-            '<td style="padding:3px 8px 3px 0;"><input type="checkbox" class="rb-diff-pick" data-n="' + n + '"' +
-              (x.conflict ? '' : ' checked') + '></td>' +
-            '<td style="padding:3px 8px 3px 0;">' +
-              (x.conflict ? '<span style="background:var(--gold-dim); color:#5a4300; font-weight:700; font-size:10px; padding:1px 5px; border-radius:4px; letter-spacing:.05em;">MANUAL</span> ' : '') +
-              esc(x.who) +
-              (x.via && x.via !== 'address'
-                ? '<span style="color:var(--slate); font-size:11.5px;"> (matched on ' + esc(x.via) + ')</span>'
-                : '') + '</td>' +
-            '<td style="padding:3px 8px 3px 0; color:var(--slate);">' + esc(x.label) + '</td>' +
-            '<td style="padding:3px 8px 3px 0;' + (x.conflict ? ' font-weight:600;' : ' color:var(--slate);') + '">' + esc(x.from || '(not set)') + '</td>' +
-            '<td style="padding:3px 0;">→ <strong>' + esc(String(x.to)) + '</strong></td></tr>';
-        }).join('') + '</table></div>' +
-        (found.diffs.length > 400 ? '<div style="font-size:12.5px; color:var(--slate); margin-top:6px;">Showing the first 400 of ' + found.diffs.length + '; pressing the button applies every ticked one.</div>' : '') +
-        '<div style="margin-top:12px;">' +
-          '<button type="button" class="btn ghost" id="rbDiffAllBtn">Tick all</button> ' +
-          '<button type="button" class="btn ghost" id="rbDiffNoneBtn">Untick all</button> ' +
-          '<button type="button" class="btn btn-gold" id="rbDiffGoBtn">Sync the ticked changes</button>' +
-        '</div>' +
-      '</div>'
-    : '<div style="border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--paper); font-size:13px; margin-top:12px;">' +
-      'Every customer on both sides already matches, field for field.</div>';
+  /* ⚠ `diffHtml` and `siteOnly` were two of the three stacked blocks the owner
+     replaced on 2026-08-19 with one ranked two-column list. See rbRenderLedger. */
   const strays = found.onlyOnSite.filter(function(x){ return x.stray; }).length;
   /* Said first, every time. If the paste was misread these two numbers show it
      at a glance, before anybody reads a list and starts acting on it. */
@@ -17211,76 +17309,21 @@ document.getElementById('rbFindMissingBtn')?.addEventListener('click', async fun
         '<strong>' + found.nameless + '</strong> row(s) on the sheet have no name, so they are not customers and were skipped.' +
         '</div>'
       : '');
-  const siteOnly = found.onlyOnSite.length
-    ? '<div style="border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--paper); margin-top:12px;">' +
-        '<div style="font-weight:700; margin-bottom:4px;">' + found.onlyOnSite.length +
-          ' customer(s) are on the website but not on your sheet.</div>' +
-        '<div style="font-size:12.5px; color:var(--slate); margin-bottom:8px;">' +
-          (strays ? '<strong>' + strays + '</strong> of them have no street on file, which means no paste can ever reach them — ' +
-                    'those are almost certainly stray copies, and <strong>Danger Zone → Merge duplicates</strong> is what folds them back in. ' : '') +
-          'The rest are people who have left the sheet. Nothing here is deleted or changed.</div>' +
-        '<div style="max-height:240px; overflow:auto; font-size:13px; line-height:1.6;">' +
-        found.onlyOnSite.slice(0, 200).map(function(x){
-          return (x.stray ? '<span style="color:var(--ember);">⚠ </span>' : '') +
-                 '<strong>' + esc(x.name) + '</strong>' + (x.cu ? ' <span style="color:var(--slate);">#' + esc(x.cu) + '</span>' : '') +
-                 ' &mdash; ' + esc(x.where);
-        }).join('<br>') +
-        (found.onlyOnSite.length > 200 ? '<br>… and ' + (found.onlyOnSite.length - 200) + ' more.' : '') +
-        '</div></div>'
-    : '<div style="border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--paper); font-size:13px; margin-top:12px;">' +
-      'Everybody on the website is also on your sheet.</div>';
   if(!found.rows.length){
     report.innerHTML = '<div style="border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--paper); font-size:13px;">' +
       'Everybody on the sheet is already on the website.' +
       (found.skipped.length ? ' ' + found.skipped.length + ' row(s) repeat a house higher up the paste and were counted once.' : '') +
-      '</div>' + tally + diffHtml + siteOnly;
+      '</div>' + tally + rbRenderLedger(found);
     rbWireDiffButtons(report, statusEl);
     return;
   }
-  const sure = found.rows.filter(function(r){ return !r.suspect; }).length;
-  const rowsHtml = found.rows.map(function(r){
-    const where = [r.street, r.city].filter(Boolean).join(', ') || 'no address on the sheet';
-    return '<tr style="border-bottom:1px solid var(--line);">' +
-      '<td style="padding:4px 8px 4px 0; vertical-align:top;">' +
-        '<input type="checkbox" class="rb-add-pick" data-i="' + r.i + '"' + (r.suspect ? '' : ' checked') + '></td>' +
-      '<td style="padding:4px 8px 4px 0; vertical-align:top;"><strong>' + esc(r.name || '(no name)') + '</strong>' +
-        (r.cu ? ' <span style="color:var(--slate);">#' + esc(r.cu) + '</span>' : '') + '</td>' +
-      '<td style="padding:4px 0; vertical-align:top;">' + esc(where) +
-        /* ⭐ THE SAME PERSON, SHOWN SIDE BY SIDE. Naming the record and its
-           address is what turns "why did she pop up if she's already there"
-           into an obvious answer: because the website has her at a different
-           address, or at none, so no row can reach her. */
-        (r.pairedSite
-          ? '<div style="color:var(--slate); font-size:12px; margin-top:3px;"><strong>Already on the website</strong> as ' +
-            esc(r.pairedSite.name) + (r.pairedSite.cu ? ' #' + esc(r.pairedSite.cu) : ' (no number)') +
-            ' — ' + esc(r.pairedSite.where) + '.<br>' +
-            'Ticking this <strong>updates that record</strong> from this row rather than adding a second copy.</div>'
-          : (r.namesake ? '<div style="color:var(--ember); font-size:12px; margin-top:2px;">⚠ ' + esc(r.namesake) +
-                      ' — adding this row would make a second copy, not a new customer</div>' : '')) +
-      '</td></tr>';
-  }).join('');
-  report.innerHTML =
-    '<div style="border:2px solid var(--gold-dim); border-radius:10px; padding:14px; background:var(--snow);">' +
-      '<div style="font-weight:700; margin-bottom:4px;">' + found.rows.length +
-        ' row(s) on the sheet match nobody on the website.</div>' +
-      '<div style="font-size:12.5px; color:var(--slate); margin-bottom:8px;">' +
-        sure + ' look genuinely new and are ticked. ' + (found.rows.length - sure) +
-        ' share a name with somebody already here and are left unticked' +
-        (found.pairedCount ? ', ' + found.pairedCount + ' of them matched to the exact record they are already on' : '') +
-        ' — those are the same person on a record the matcher cannot reach, and they want merging rather than adding. ' +
-        'Nothing is added until you press the button.</div>' +
-      '<div style="max-height:300px; overflow:auto;"><table style="border-collapse:collapse; font-size:13px; width:100%;">' + rowsHtml + '</table></div>' +
-      (found.skipped.length ? '<div style="font-size:12.5px; color:var(--slate); margin-top:8px;">' + found.skipped.length +
-        ' row(s) repeat a house higher up the paste and are listed once.</div>' : '') +
-      '<div style="margin-top:12px;">' +
-        '<button type="button" class="btn ghost" id="rbAddAllBtn">Tick all</button> ' +
-        '<button type="button" class="btn ghost" id="rbAddNoneBtn">Untick all</button> ' +
-        '<button type="button" class="btn btn-gold" id="rbAddGoBtn">Add the ticked customers</button>' +
-      '</div>' +
-      '<div style="font-size:12px; color:var(--slate); margin-top:6px;">Adds the customer record only — no invoice is created. Run Bulk Update afterwards if they need billing.</div>' +
-    '</div>' + tally + diffHtml + siteOnly;
+  /* The add table lived here; those rows are in the ledger now. */
+  report.innerHTML = tally + rbRenderLedger(found);
   rbWireDiffButtons(report, statusEl);
-  const picks = function(){ return Array.prototype.slice.call(document.querySelectorAll('.rb-add-pick')); };
+  /* Both kinds of row, because they are one list on screen now: ticking all and
+     then finding half of it untouched is worse than no button. The two GO buttons
+     still read only their own class, so each writes only what it should. */
+  const picks = function(){ return Array.prototype.slice.call(document.querySelectorAll('.rb-add-pick, .rb-diff-pick')); };
   document.getElementById('rbAddAllBtn')?.addEventListener('click', function(){ picks().forEach(function(p){ p.checked = true; }); });
   document.getElementById('rbAddNoneBtn')?.addEventListener('click', function(){ picks().forEach(function(p){ p.checked = false; }); });
   const go = document.getElementById('rbAddGoBtn');
