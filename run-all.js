@@ -1083,6 +1083,16 @@ if (JSDOM) {
   // renderQuoteRows also calls isRequote(d) — for the "Send updated quote"
   // button label and the re-quote wording. Mirrors the real one in admin.html.
   global.isRequote = d => !!(d && (d.existingCustomerId || Number(d.requoteCount) > 0));
+  // showConvertQuoteChoice now looks the customer up before deciding WHICH popup
+  // to open, so the live customer list has to exist here. Empty by default means
+  // "this customer has been deleted since", which is the fall-through case; the
+  // re-quote checks below fill it in for the case that actually matters.
+  global.jobAddresses = [];
+  global.CN_DOUBLE_BIN_FEET = 260;
+  global.cnBinsForFeet = f => (Number(f) > 0 ? Math.ceil(Number(f) / 260) : 0);
+  global.openEditCustomerModal = () => {};
+  global.toast = () => {};
+  global.requoteBeingConverted = null;
 
   // Sliced through the end of renderQuoteRows (not just up to innerHTML) so
   // the data-pricingtoggle click handler is actually live for the toggle test.
@@ -1388,7 +1398,12 @@ if (JSDOM) {
 
       /* A re-quote is an existing customer, so the set-up fee defaults OFF —
          they already paid it the year they joined. Charging it again is the
-         kind of money bug that only shows up on somebody's bill. */
+         kind of money bug that only shows up on somebody's bill.
+
+         ⚠ jobAddresses is EMPTY here, so this is the case where the customer
+         has actually been deleted since the re-quote was raised — the only case
+         that still builds them as a new customer. The live-customer case never
+         reaches this popup at all; it is checked on its own below. */
       closePopup();
       showConvertQuoteChoice('q-re', Object.assign({}, full, {
         existingCustomerId: 'cust1', chargeSetupFee: undefined
@@ -1396,6 +1411,65 @@ if (JSDOM) {
       check('render', 'convert popup — a re-quote does not promise a $30 fee',
         !popup().textContent.includes('$30 set-up fee'),
         'an existing customer would be charged the join fee a second time');
+      check('render', 'convert popup — a re-quote whose customer is gone is still built',
+        !!document.getElementById('convertQuoteAutoBtn'),
+        'the record really can have been deleted since; that one case does need building');
+
+      /* ⭐ A RE-QUOTE FOR SOMEBODY STILL ON THE BOOKS UPDATES THEM. Owner,
+         2026-08-19: "we dont need to remove them we just need it to update them
+         after they confirm their new price."
+
+         This is the check that stops the book duplicating. Everything in the
+         Convert popup builds a NEW customer; run against somebody who already
+         exists it makes a second copy of them, which is how ~944 duplicates got
+         into this book once already and has no cheap undo. */
+      global.jobAddresses = [{ id: 'cust1', data: {
+        name: 'Dana Whitmore', customerNumber: '541', housePrice: 480,
+        measuredFeet: 180 } }];
+      closePopup();
+      showConvertQuoteChoice('q-re', Object.assign({}, full, {
+        existingCustomerId: 'cust1', chargeSetupFee: undefined
+      }));
+      check('render', 'a re-quote for a live customer never offers to build them again',
+        !document.getElementById('convertQuoteAutoBtn') &&
+        !!document.getElementById('applyRequoteBtn'),
+        'converting an existing customer as a new one is how this book duplicated itself');
+      check('render', 'and it says it is updating the record they already have',
+        popup().textContent.includes('does not') && popup().textContent.includes('#541'),
+        'the office has to be able to tell this from the popup that adds a second copy');
+      check('render', 'and shows the old price beside the new one',
+        popup().textContent.includes('$480.00') && popup().textContent.includes('$615.00'),
+        'a price change nobody can see before pressing the button is a price change nobody checks');
+
+      /* ⚠ THE 260 LINE, SAID BEFORE THE FORM OPENS. Owner: "hold everything as
+         long as they stay below 260 feet", "if they go above 260 feet hold what you
+         can". #541 is a regular number; 300 ft is 2 bins, which is the 5000 series
+         — so the number is the one thing that cannot be held, and that is worth
+         knowing before the form is filled in rather than as a confirm box halfway
+         through saving. */
+      closePopup();
+      showConvertQuoteChoice('q-re2', Object.assign({}, full, {
+        existingCustomerId: 'cust1', chargeSetupFee: undefined, estimatedFeet: 300
+      }));
+      check('render', 'and warns when the new footage outgrows their number',
+        popup().textContent.includes('no longer matches') &&
+        popup().textContent.includes('5000-series'),
+        'holding what you can means knowing which one thing cannot be held');
+      check('render', 'while still promising everything else is held',
+        popup().textContent.includes('Everything else is held'),
+        'a warning that reads like a reset makes the office rebuild a house that is already up');
+
+      /* Under the line nothing has to change at all, and saying so is the other
+         half of the same promise. */
+      closePopup();
+      showConvertQuoteChoice('q-re3', Object.assign({}, full, {
+        existingCustomerId: 'cust1', chargeSetupFee: undefined, estimatedFeet: 200
+      }));
+      check('render', 'and says nothing has to change when they stay under it',
+        popup().textContent.includes('still fits') &&
+        !popup().textContent.includes('no longer matches'),
+        'two hundred feet is one bin either way; a warning here is one nobody believes');
+      global.jobAddresses = [];
 
       /* Priced from footage rather than an approved price still counts as
          having a price — the form fills one in, so it must not be listed as
@@ -14372,6 +14446,146 @@ suite('Suite 64. Back into Quotes, and labelled for what it is');
     admin.indexOf('they need another bin and a 5000-series number') > 0,
     'a house going over 260ft needs another bin and a 5000-series number — the same trap the ' +
     'feet-changed explainer already calls out');
+}
+
+/* ================= 65. Re-quotes are their own folder, and they UPDATE =========
+   Owner, 2026-08-19: "so will we have a place seperate from quotes named requotes
+   cause if thats the case we dont need to remove them we just need it to update
+   them after they confirm their new price."
+
+   That question replaced a worse plan. Re-quoting was heading towards DELETING the
+   customer and letting the quote convert them back in - which signs them out of
+   their portal mid-change, has to pull them off any route they are already on, and
+   leaves their invoice homeless until somebody finishes the quote. A folder costs
+   one tab and none of that. These checks hold both halves of the answer: the
+   folder exists, and converting updates instead of adding.
+   ============================================================================= */
+suite('Suite 65. Re-quotes have their own folder and update the customer');
+{
+  const admin = read("admin.html");
+
+  /* ---- the folder ---- */
+  check('S65', 'there is a Re-quotes tab',
+    /data-quotestage="requote"/.test(admin) && /id="quoteStageCountRequote"/.test(admin),
+    'the owner asked for a place separate from quotes; a filter nobody can see is not one');
+  check('S65', 'and its count is filled in like the others',
+    admin.indexOf("getElementById('quoteStageCountRequote').textContent") > 0,
+    'a folder with no number beside it is a folder nobody opens');
+
+  {
+    const at = admin.indexOf('function quoteFolder(');
+    let src = '';
+    if (at >= 0) {
+      let d = 0;
+      for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+        if (admin[i] === '{') d++;
+        else if (admin[i] === '}') { d--; if (!d) { src = admin.slice(at, i + 1); break; } }
+      }
+    }
+    check('S65', 'quoteFolder exists', !!src);
+    if (src) {
+      const sb = {};
+      new Function(
+        'function quoteStage(d){' +
+        '  if((d.status||"new")==="closed"||d.quoteArchived||d.approvalStatus==="declined"||d.approvalStatus==="maybe_next_year") return "closed";' +
+        '  if(typeof d.quotedPrice !== "number") return "new";' +
+        '  if(d.approvalStatus==="approved" && d.formCompleted) return "form";' +
+        '  return "send";' +
+        '}' +
+        'function isRequote(d){ return !!(d && (d.existingCustomerId || Number(d.requoteCount) > 0)); }' +
+        src + 'this.f = quoteFolder;'
+      ).call(sb);
+      const f = sb.f;
+
+      check('S65', 'an ordinary quote keeps the folder its stage says',
+        f({}) === 'new' && f({quotedPrice: 400}) === 'send' &&
+        f({quotedPrice: 400, approvalStatus: 'approved', formCompleted: true}) === 'form',
+        'diverting re-quotes must not move anybody else');
+
+      /* ⚠ A RE-QUOTE IS IN EXACTLY ONE FOLDER. Subtracted from the ordinary tabs
+         rather than shown in both: a card in two places is a job two people do, or
+         - far more likely - a job each of them assumes the other did. */
+      check('S65', 'an open re-quote goes to Re-quotes at every stage',
+        f({existingCustomerId: 'c1'}) === 'requote' &&
+        f({existingCustomerId: 'c1', quotedPrice: 400}) === 'requote' &&
+        f({existingCustomerId: 'c1', quotedPrice: 400, approvalStatus: 'approved', formCompleted: true}) === 'requote',
+        'a re-quote that is priced must not fall back into the ordinary pipeline half way through');
+      check('S65', 'including one raised by hand off an existing quote',
+        f({requoteCount: 1, quotedPrice: 400}) === 'requote',
+        'both kinds of re-quote are the same job and belong in the same place');
+
+      /* ⚠ CLOSED IS STILL ONE FOLDER, deliberately. History is looked up in one
+         place; splitting it means checking both every time and finding it in
+         neither when the guess is wrong. */
+      check('S65', 'a finished re-quote is filed with all the other history',
+        f({existingCustomerId: 'c1', status: 'closed'}) === 'closed' &&
+        f({existingCustomerId: 'c1', quoteArchived: true}) === 'closed' &&
+        f({existingCustomerId: 'c1', approvalStatus: 'declined'}) === 'closed',
+        'Closed is where somebody looks for what happened; two Closeds is one too many');
+    }
+  }
+
+  check('S65', 'the list is filtered by folder, not by stage',
+    admin.indexOf('quotesCache.filter(item => quoteFolder(item.data) === quoteStageFilter)') > 0,
+    'a tab nothing files into is an empty tab');
+  check('S65', 'and a card that moves follows itself to its folder',
+    admin.indexOf('quoteStageFilter = quoteFolder(item.data);') > 0,
+    'pricing a re-quote would otherwise send the office to a tab the card is not in — the disappearing-card bug that function exists to prevent');
+
+  /* ---- and converting one UPDATES ---- */
+  check('S65', 'a live existing customer never reaches the build-a-customer popup',
+    /if\(stillACustomer\)\{ showApplyRequoteChoice\(quoteId, d, stillACustomer\); return; \}/.test(admin),
+    'building somebody who already exists is how ~944 duplicates got into this book');
+  check('S65', 'and it is checked against the live list, not just the field',
+    /jobAddresses\.find\(function\(a\)\{ return a\.id === d\.existingCustomerId; \}\)/.test(admin),
+    'a customer really can have been deleted since the re-quote was raised, and that one case does need building');
+
+  {
+    const at = admin.indexOf("document.getElementById('editCustSaveBtn').addEventListener");
+    const end = admin.indexOf("document.getElementById('editCustOverlay').style.display = 'none';", at);
+    const body = (at > 0 && end > at) ? admin.slice(at, end) : '';
+    check('S65', 'the edit-customer save handler was found', !!body);
+
+    /* ⚠ THE LOOP. Applying a re-quote whose whole point was new footage would
+       trip the "feet changed - raise a re-quote" rule and raise another one for
+       the same change, so the office never reaches the end of the list. */
+    check('S65', 'applying a re-quote does not raise another one',
+      /if\(\(feetChanged \|\| addressChanged\) && !requoteBeingConverted\)/.test(body),
+      'the re-quote in hand IS this change; raising another for it never terminates');
+
+    check('S65', 'and the re-quote closes itself once the record is saved',
+      /if\(requoteBeingConverted\)\{/.test(body) &&
+      body.indexOf("status: 'closed', convertedToCustomerAt: serverTimestamp()") > 0,
+      'the owner asked for it to update them, not for a card to close by hand afterwards');
+
+    /* ⚠ ITS OWN BLOCK, not part of the feet/address branch. The commonest
+       re-quote changes only the PRICE - the sides are already on the record by the
+       time the quote is raised - so folding the close into that branch would leave
+       the card open for ever in exactly the ordinary case. */
+    /* The four-space indent IS the check. Nested inside the feet/address branch
+       it would be six or more, and a re-quote answered by a price alone - which
+       is the commonest kind - would then sit open for ever. */
+    check('S65', 'closing it does not depend on the feet or the address changing',
+      /\r?\n    if\(requoteBeingConverted\)\{/.test(body),
+      'the commonest re-quote changes only the price, so a close folded into the feet branch never runs');
+
+    /* ⚠ A failure closing the card must not fail the save. The customer is
+       already right; the worst case is a card closed by hand, which somebody can
+       see, whereas rolling the save back silently undoes the new price. */
+    check('S65', 'and a failure there is reported, not thrown',
+      /catch\(err\)\{[\s\S]{0,400}re-quote card is still open/.test(body),
+      'losing the price to save the card would be exactly the wrong way round');
+  }
+
+  /* ---- the stale 200 that had been sitting on the feet-changed card ---- */
+  check('S65', 'the feet-changed warning uses the real bin line',
+    /cnBinsForFeet\(Number\(d\.changed\.newFeet\)\) >= 2 && cnBinsForFeet\(Number\(d\.changed\.oldFeet\)\) < 2/.test(admin),
+    'it said 200 while CN_DOUBLE_BIN_FEET said 260, so 210 -> 250 ft was told in red it needed a ' +
+    'second bin it does not need, and 190 -> 265 was told nothing at all');
+  check('S65', 'and no longer claims their number goes back to the pool',
+    !/Their old number goes back to the pool/.test(admin),
+    'it does not — the customer holds it until somebody reassigns them, and a pool that is ' +
+    'told a live number is free hands it to the next new customer');
 }
 
 // A check that scores after this summary is a check that cannot fail the build.

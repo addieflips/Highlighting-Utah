@@ -2876,6 +2876,7 @@
         <button type="button" class="btn btn-sm" data-quotestage="new" style="font-weight:700;">Quotes<span id="quoteStageCountNew" class="folder-count"></span></button>
         <button type="button" class="btn btn-sm" data-quotestage="send" style="font-weight:700;">Awaiting Response<span id="quoteStageCountSend" class="folder-count"></span></button>
         <button type="button" class="btn btn-sm" data-quotestage="form" style="font-weight:700;">Ready to Convert<span id="quoteStageCountForm" class="folder-count"></span></button>
+        <button type="button" class="btn btn-sm" data-quotestage="requote" style="font-weight:700;">Re-quotes<span id="quoteStageCountRequote" class="folder-count"></span></button>
         <button type="button" class="btn btn-sm" data-quotestage="closed" style="font-weight:700;">Closed<span id="quoteStageCountClosed" class="folder-count"></span></button>
       </div>
       <div style="margin-bottom:14px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
@@ -6424,6 +6425,32 @@ let quoteTemplateNames = {
 function isRequote(d){
   return !!(d && (d.existingCustomerId || Number(d.requoteCount) > 0));
 }
+/* ⭐ WHICH FOLDER A QUOTE IS FILED IN. Owner, 2026-08-19: "will we have a
+   place seperate from quotes named requotes cause if thats the case we dont
+   need to remove them we just need it to update them after they confirm
+   their new price."
+
+   That question settled a design that had been heading somewhere worse. The
+   plan had been to DELETE the customer and let the re-quote convert them back
+   in - which signs them out of their portal mid-change, has to pull them off
+   any route they are already on, and leaves their invoice homeless for as long
+   as it takes somebody to finish the quote. Giving re-quotes their own folder
+   costs one tab and none of that: the customer record never stops existing,
+   and converting the re-quote UPDATES it. See requoteBeingConverted.
+
+   ⚠ CLOSED IS STILL ONE FOLDER, deliberately. A finished re-quote is history
+   and history is looked up in one place - splitting it in two means checking
+   both every time and finding it in neither when the guess is wrong. So this
+   only diverts a re-quote while it is still OPEN.
+
+   ⚠ A re-quote must be in exactly ONE folder. It is subtracted from new/send/
+   form rather than shown in both, because a card in two places is a job two
+   people do, or - far more likely - nobody does. */
+function quoteFolder(d){
+  const stage = quoteStage(d);
+  if(stage === 'closed') return 'closed';
+  return isRequote(d) ? 'requote' : stage;
+}
 function quoteTemplateFor(d, kind){
   if(kind === 'nudge') return quoteTemplateNames.nudge;
   return isRequote(d) ? quoteTemplateNames.requote : quoteTemplateNames.newQuote;
@@ -7020,11 +7047,12 @@ function renderQuotesList(){
   }
   const stageTabsEl = document.getElementById('quoteStageTabs');
   if(stageTabsEl){
-    const stageCounts = {new:0, send:0, form:0, closed:0};
-    quotesCache.forEach(function(item){ stageCounts[quoteStage(item.data)]++; });
+    const stageCounts = {new:0, send:0, form:0, requote:0, closed:0};
+    quotesCache.forEach(function(item){ stageCounts[quoteFolder(item.data)]++; });
     document.getElementById('quoteStageCountNew').textContent = ' (' + stageCounts.new + ')';
     document.getElementById('quoteStageCountSend').textContent = ' (' + stageCounts.send + ')';
     document.getElementById('quoteStageCountForm').textContent = ' (' + stageCounts.form + ')';
+    document.getElementById('quoteStageCountRequote').textContent = ' (' + stageCounts.requote + ')';
     document.getElementById('quoteStageCountClosed').textContent = ' (' + stageCounts.closed + ')';
     stageTabsEl.querySelectorAll('[data-quotestage]').forEach(function(btn){
       const active = btn.dataset.quotestage === quoteStageFilter;
@@ -7039,7 +7067,7 @@ function renderQuotesList(){
   renderQuoteStageControls();
   /* The tab IS the view now — no separate "awaiting" folder, and no status or
      approval dropdown, since the pipeline already encodes both. */
-  let filtered = quotesCache.filter(item => quoteStage(item.data) === quoteStageFilter);
+  let filtered = quotesCache.filter(item => quoteFolder(item.data) === quoteStageFilter);
   if(quoteFilter === 'flagged') filtered = filtered.filter(item => !item.data.frontPhotoUrl);
   let sentOnes = [];
   if(quoteStageFilter === 'send'){
@@ -7066,6 +7094,7 @@ function renderQuotesList(){
       new: 'No new quote requests waiting to be priced.',
       send: quoteQuietDays > 0 ? 'Nobody has been quiet that long. Lower the number to see everyone.' : 'Nothing waiting on a customer right now.',
       form: 'Nobody has finished their form yet.',
+      requote: 'No re-quotes open. This is where a customer lands when they change something \u2014 another side of the house, a different address \u2014 and needs pricing again.',
       closed: showArchivedQuotes ? 'Nothing archived.' : 'Nothing closed yet.'
     }[quoteStageFilter] || 'No quote requests match this view.';
     list.innerHTML = '<div class="empty-note">'+(quoteFilter==='flagged' ? 'Nothing flagged in this tab.' : emptyMsg)+'</div>';
@@ -7544,8 +7573,93 @@ function autoConvertQuoteToCustomer(quoteId, d){
     (carried.chargesSetupFee ? ', with the $30 set-up fee' : '') +
     (carried.photoCount ? ', photo' + (carried.photoCount > 1 ? 's' : '') + ' included' : '') + '…');
 }
+/* ⭐ APPLYING A RE-QUOTE TO THE CUSTOMER IT CAME FROM. Owner, 2026-08-19:
+   "so will we have a place seperate from quotes named requotes cause if thats
+   the case we dont need to remove them we just need it to update them after
+   they confirm their new price."
+
+   Both halves of that are here. The ordinary Convert popup builds a NEW customer
+   from a quote; run against a re-quote it would put a second copy of somebody
+   already on the books into a book that has been duplicated once already, and
+   there is no cheap undo for that. So a quote that still points at a live
+   customer never reaches that popup - it reaches this one, which updates.
+
+   ⚠ IT REUSES THE EDIT CUSTOMER FORM RATHER THAN WRITING ITS OWN UPDATE. That
+   form already re-derives the bin count from the feet, warns when the number
+   series no longer matches, rebuilds the invoice, re-syncs saved route stops and
+   queues the warehouse. A fresh write path here would have to do all of it again
+   and would be the copy that quietly falls behind. The only things filled in are
+   the two the re-quote actually decides: the new price, and the new footage.
+
+   ⚠ THE OFFICE STILL PRESSES SAVE. The re-quote is priced from a re-measure
+   somebody did at the house, and the number rule (CN_DOUBLE_BIN_FEET) can need a
+   human answer - keeping the old number or moving to the 5000 series. Applying it
+   silently would make that decision for them. */
+function showApplyRequoteChoice(quoteId, d, existingItem){
+  const ed = existingItem.data || {};
+  const who = ed.name || d.name || ('this customer');
+  const oldPrice = Number(ed.housePrice || 0);
+  const newPrice = typeof d.quotedPrice === 'number' ? d.quotedPrice : null;
+  const oldFeet = Number(ed.measuredFeet || 0);
+  const newFeet = Number(d.estimatedFeet || 0);
+  const oldBins = oldFeet ? cnBinsForFeet(oldFeet) : 0;
+  const newBins = newFeet ? cnBinsForFeet(newFeet) : 0;
+  const num = String(ed.customerNumber || '').trim();
+  /* Whether the number they already hold survives the new footage. This is the
+     owner's "hold everything as long as they stay below 260 feet... if they go
+     above 260 feet hold what you can" said out loud, BEFORE the form opens,
+     rather than as a confirm box halfway through saving. */
+  const numberStillFits = !newFeet || !num || (newBins >= 2) === (parseInt(num, 10) >= 5000);
+  const overlay = document.createElement('div');
+  overlay.className = 'needsfix-popup-overlay';
+  overlay.innerHTML = '<div class="needsfix-popup" style="max-width:500px;">'+
+    '<h3 style="color:var(--dusk);">Update '+esc(who)+'</h3>'+
+    '<p>They are already a customer'+(num ? ' on <strong>#'+esc(num)+'</strong>' : '')+', so this updates the record they already have. It does <strong>not</strong> add a second copy of them, and they keep their number, their invoice and their place on any route.</p>'+
+    '<div style="background:var(--paper); border-radius:10px; padding:10px 13px; font-size:13px; line-height:1.6;">'+
+      (newPrice !== null
+        ? '<div>Price <strong>'+fmtMoney(oldPrice)+'</strong> &rarr; <strong>'+fmtMoney(newPrice)+'</strong></div>'
+        : '<div style="color:var(--ember);">This re-quote has no price on it yet.</div>')+
+      (newFeet
+        ? '<div>Feet <strong>'+(oldFeet || 'not recorded')+'</strong> &rarr; <strong>'+newFeet+' ft</strong>'+
+            (newBins ? ' &middot; '+newBins+' bin'+(newBins === 1 ? '' : 's') : '')+'</div>'
+        : '<div style="color:var(--slate);">No new footage on the re-quote &mdash; their '+(oldFeet ? oldFeet+' ft' : 'footage')+' stays as it is.</div>')+
+    '</div>'+
+    (numberStillFits
+      ? (num && newFeet ? '<p style="font-size:12.5px; color:var(--slate);">Under '+CN_DOUBLE_BIN_FEET+' ft either way, so #'+esc(num)+' still fits and nothing else has to change.</p>' : '')
+      : '<p style="font-size:12.5px; color:var(--ember); background:#FDECEA; border:1px solid #F3C8C2; border-radius:9px; padding:8px 11px;">'+
+          '<strong>#'+esc(num)+' no longer matches the footage.</strong> '+newFeet+' ft is '+newBins+' bin'+(newBins === 1 ? '' : 's')+', which uses '+(newBins >= 2 ? 'a 5000-series' : 'a regular')+' number. Everything else is held \u2014 the form will ask about the number when you save.</p>')+
+    '<div style="display:flex; flex-direction:column; gap:9px; margin-top:14px;">'+
+      '<button type="button" class="btn btn-gold" id="applyRequoteBtn" style="text-align:left;">Open their record with the new price'+
+        '<span style="display:block; font-weight:500; font-size:12px; opacity:.85; margin-top:2px;">Check it over, then press Save Changes. The re-quote closes itself.</span></button>'+
+      '<button type="button" class="btn btn-outline" id="applyRequoteCancelBtn" style="text-align:center; color:var(--slate);">Cancel</button>'+
+    '</div>'+
+  '</div>';
+  document.body.appendChild(overlay);
+  function close(){ overlay.remove(); }
+  overlay.addEventListener('click', function(e){ if(e.target === overlay) close(); });
+  document.getElementById('applyRequoteCancelBtn').addEventListener('click', close);
+  document.getElementById('applyRequoteBtn').addEventListener('click', function(){
+    close();
+    openEditCustomerModal(existingItem.id);
+    /* AFTER the modal fills itself from the record, or the record would write
+       straight back over the two fields this whole step exists to change. */
+    if(newPrice !== null) document.getElementById('editCustHousePrice').value = newPrice;
+    if(newFeet) document.getElementById('editCustFeet').value = newFeet;
+    requoteBeingConverted = quoteId;
+    toast('New price filled in for '+(who)+' \u2014 check it over and press Save Changes.');
+  });
+}
 /* The popup that asks which way. */
 function showConvertQuoteChoice(quoteId, d){
+  /* ⚠ A RE-QUOTE NEVER REACHES THE REST OF THIS FUNCTION. Everything below
+     builds a NEW customer, which for somebody already on the books is a second
+     copy of them - the exact mistake that put ~944 duplicates in this book once
+     already. Checked against the live list rather than trusting the field: a
+     customer really can have been deleted since the re-quote was raised, and in
+     that one case building them again is right. */
+  const stillACustomer = d.existingCustomerId
+    ? jobAddresses.find(function(a){ return a.id === d.existingCustomerId; }) : null;
+  if(stillACustomer){ showApplyRequoteChoice(quoteId, d, stillACustomer); return; }
   const who = d.name || d.address || 'this quote';
   const chargesSetupFee = d.chargeSetupFee !== undefined ? d.chargeSetupFee : !d.existingCustomerId;
   /* What the automatic path would be missing, said out loud BEFORE it runs
@@ -7678,8 +7792,14 @@ function renderQuoteRows(filtered){
             (d.changed.what === 'feet'
               ? '<div style="margin-top:4px;">Feet changed <strong>'+d.changed.oldFeet+' ft &rarr; '+d.changed.newFeet+' ft</strong>'+
                 (d.changed.oldPrice ? '. They were paying '+fmtMoney(d.changed.oldPrice)+'.' : '.')+
-                ((Number(d.changed.newFeet) > 200 && Number(d.changed.oldFeet) <= 200)
-                  ? '<div style="margin-top:4px; color:#B91C1C; font-weight:700;">Now over 200 ft \u2014 needs 2 bins and a 5000-series number. Their old number goes back to the pool.</div>' : '')+
+                /* ⚠ 260, READ FROM THE BIN MATHS, not the 200 that was typed here.
+                   The two had disagreed since CN_DOUBLE_BIN_FEET was settled at 260,
+                   so a house going 210 -> 250 ft was told in red that it needed a
+                   second bin it does not need, and one going 190 -> 265 was told
+                   nothing at all. And the old number does NOT go back to the pool -
+                   the customer still holds it until somebody reassigns them. */
+                ((cnBinsForFeet(Number(d.changed.newFeet)) >= 2 && cnBinsForFeet(Number(d.changed.oldFeet)) < 2)
+                  ? '<div style="margin-top:4px; color:#B91C1C; font-weight:700;">Now over '+CN_DOUBLE_BIN_FEET+' ft \u2014 needs '+cnBinsForFeet(Number(d.changed.newFeet))+' bins and a 5000-series number.</div>' : '')+
                 '</div>'
               : d.changed.what === 'sides'
               ? '<div style="margin-top:4px;">Sides changed from <strong>'+esc(d.changed.oldSides || 'none recorded')+'</strong> to <strong>'+esc(d.changed.newSides || 'none')+'</strong>'+
@@ -8528,7 +8648,10 @@ function renderQuoteRows(filtered){
     const item = quotesCache.find(q => q.id === id);
     if(!item) return;
     Object.assign(item.data, patch);
-    quoteStageFilter = quoteStage(item.data);
+    /* quoteFolder, not quoteStage: pricing a re-quote keeps it in Re-quotes,
+       and sending the card to a tab it is not in is the disappearing-card bug
+       this whole function exists to prevent. */
+    quoteStageFilter = quoteFolder(item.data);
     renderQuotesList();
   }
   list.querySelectorAll('[data-getquotelink]').forEach(function(btn){
@@ -21545,6 +21668,17 @@ function renderAllCustomersTable(){
   });
 }
 let editCustomerId = null;
+/* ⭐ THE RE-QUOTE THE OPEN EDIT MODAL IS ANSWERING. Owner, 2026-08-19: "we
+   dont need to remove them we just need it to update them after they confirm
+   their new price."
+
+   Set while somebody is applying a re-quote to the customer it came from. It
+   does two things on save, and BOTH matter: the quote is closed as answered,
+   and the "feet changed - raise a re-quote" rule further down is held off. 
+   Without the second one, applying a re-quote whose whole point was new
+   footage immediately raises another re-quote for the same change, and the
+   office never reaches the end of the list. */
+let requoteBeingConverted = null;
 /* The record's updatedAt at the moment the Edit Customer modal was opened, so
    the save can tell whether anyone else has touched it since. */
 let editCustOpenedWithUpdatedAt = null;
@@ -21844,6 +21978,10 @@ document.getElementById('editCustDeleteBtn').addEventListener('click', async fun
 document.getElementById('editCustCancelBtn').addEventListener('click', function(){
   document.getElementById('editCustOverlay').style.display = 'none';
   editCustomerId = null;
+  /* Cancelling leaves the re-quote OPEN and waiting, which is right - nothing
+     was applied. Not clearing this would close it against the next customer
+     somebody happens to edit. */
+  requoteBeingConverted = null;
 });
 document.getElementById('editCustSaveBtn').addEventListener('click', async function(){
   if(!editCustomerId) return;
@@ -22126,7 +22264,9 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
         toast((newName || 'They') + ' rejoined after recycling — lights need rebuilding and a new number. Note in the Inbox.');
       } catch(err){ console.error('Could not raise the rejoin note:', err); }
     }
-    if(feetChanged || addressChanged){
+    /* ⚠ NOT while a re-quote is being applied. The re-quote in hand IS this
+       change; raising another for it is a loop the office cannot finish. */
+    if((feetChanged || addressChanged) && !requoteBeingConverted){
       try{
         const already = quotesCache.find(function(q){
           return q.data.existingCustomerId === editCustomerId && quoteStage(q.data) === 'new';
@@ -22155,6 +22295,32 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
           toast((newName || 'They') + ' need a re-quote \u2014 it\'s waiting in Quotes.');
         }
       } catch(err){ console.error('Could not raise a re-quote:', err); }
+    }
+    /* ⭐ THE RE-QUOTE IS ANSWERED. Owner, 2026-08-19: "we just need it to
+       update them after they confirm their new price." The record above is now
+       the new price, so the quote has nothing left to do.
+
+       ⚠ This is its OWN block, not part of the feet/address branch above. A
+       re-quote can be answered by changing only the PRICE - which is the
+       commonest case, since the sides are already on the record by the time the
+       quote is raised - and that changes neither feet nor address, so folding it
+       into that branch would leave the card sitting open for ever.
+
+       ⚠ A failure here must not fail the save. The customer is already correct;
+       the worst case is a card that has to be closed by hand, which is visible,
+       whereas rolling the save back would silently undo the price. */
+    if(requoteBeingConverted){
+      const answeredQuoteId = requoteBeingConverted;
+      requoteBeingConverted = null;
+      try{
+        await updateDoc(doc(db,'quotes', answeredQuoteId), {
+          status: 'closed', convertedToCustomerAt: serverTimestamp(),
+          convertedToCustomerId: editCustomerId
+        });
+      } catch(err){
+        console.error('Saved the customer but could not close the re-quote:', err);
+        toast((newName || 'They') + ' were updated, but their re-quote card is still open \u2014 close it by hand.');
+      }
     }
     /* Saved routes carry a copy of the customer taken when the route was built,
        and the crew portal reads that copy rather than looking the customer up.
