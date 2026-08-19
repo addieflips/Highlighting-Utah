@@ -16257,6 +16257,28 @@ function rbCollectMissingCustomers(){
      each one says which it looks like rather than being listed flat.
      ⚠ REPORTED ONLY. Deleting customers in bulk is the most destructive thing
      in the app and belongs to Danger Zone, behind its own confirmation. */
+  /* ⭐ IS THIS PERSON REALLY OFF THE SHEET, OR JUST UNREACHABLE? Owner, 2026-08-19,
+     reading a list of "NOT ON THE SHEET" names: "a lot of these people just have
+     their name backward in the website ... it should see that as something that
+     needs to be fixed rather than a customer that doesnt exist."
+
+     She was right that something was wrong, and it turned out to be worse than the
+     name order. Checked against the real book: Aiono Shelley, Anderson Ryan, Burton
+     Corinne, Byrd Whitney, Cardon Howard, Chafffetz Julie and Fry Tom are ALL on
+     the sheet, each with a full street address. They were reported as gone because
+     their website record has no street — only a town — so no row can reach it, and
+     the sheet row matched the OTHER copy of them instead.
+
+     So "nobody on the sheet reached this record" and "this person is not on the
+     sheet" are different statements, and only the first one was ever true. Comparing
+     the name against every name the sheet holds tells them apart. dupNormName sorts
+     the words, so "Aiono Shelley" and "Shelley Aiono" are the same key — which is
+     what makes this survive the Last-First / First-Last difference too. */
+  const sheetNameKeys = {};
+  for(let i = 0; i < len; i++){
+    const nm = dupNormName(rbName(String(namesRaw[i] || '').trim()).trim());
+    if(nm) sheetNameKeys[nm] = i + 1;
+  }
   const onlyOnSite = jobAddresses.filter(function(c){ return !matched[c.id]; }).map(function(c){
     const d = c.data || {};
     const street = String(d.street || '').trim();
@@ -16267,7 +16289,11 @@ function rbCollectMissingCustomers(){
       cu: String(d.customerNumber || '').trim(),
       where: street ? (street + (town ? ', ' + town : '')) : (town ? 'no street, only "' + town + '"' : 'no address at all'),
       /* No street means no paste can ever reach it — see findExistingAddressMatch. */
-      stray: !street
+      stray: !street,
+      /* Their name IS on the sheet, so they have not left it — this record just
+         could not be reached. Almost always a second copy of somebody whose good
+         record the sheet row matched instead. */
+      onSheetRow: sheetNameKeys[dupNormName(d.name)] || 0
     };
   }).sort(function(a, b){
     if(a.stray !== b.stray) return a.stray ? -1 : 1;
@@ -16416,7 +16442,19 @@ function rbRenderLedger(found){
   html += '<div style="font-weight:700; margin-bottom:6px;">' + rows.length + ' thing(s) do not match.</div>';
   if(manual){
     html += '<div style="font-size:12.5px; margin-bottom:10px; background:#FFF8E9; border:1px solid var(--gold-dim); border-radius:8px; padding:8px 10px;">' +
-      '<strong>' + manual + ' need a MANUAL FIX.</strong> Both sides hold a real value and they disagree, so nothing can pick for you. They are at the top and come unticked — tick one to take your sheet&rsquo;s value, leave it and the website keeps what it has.</div>';
+      '<strong>' + manual + ' need a MANUAL FIX.</strong> Both sides hold a real value and they disagree, so nothing can pick for you. They are at the top and come unticked — tick one to take your sheet&rsquo;s value, leave it and the website keeps what it has.' +
+      /* ⭐ OR DECIDE THEM ALL AT ONCE. Owner, 2026-08-19: "there should also be two
+         buttons for favor website and favor excel so if they both have different
+         ones then i can just tick the manual fixes and do it that way."
+         A tick already means "take the sheet" and no tick means "keep the website",
+         so these are not a new rule — they are the same two answers, applied to
+         every manual row in one press. Nothing is written until you press Sync.
+         ⚠ They touch ONLY the manual rows. A gap has no second value, so favouring
+         the website on one would throw away the only value anybody holds. */
+      '<div style="margin-top:8px;">' +
+      '<button type="button" class="btn ghost btn-sm" id="rbFavourSheetBtn">Favour my sheet (tick all ' + manual + ')</button> ' +
+      '<button type="button" class="btn ghost btn-sm" id="rbFavourSiteBtn">Favour the website (untick all ' + manual + ')</button>' +
+      '</div></div>';
   }
   html += '<div style="max-height:460px; overflow:auto;"><table style="border-collapse:collapse; font-size:13px; width:100%; table-layout:fixed;">';
   html += '<tr style="font-size:11px; text-transform:uppercase; color:var(--slate); letter-spacing:.04em; border-bottom:2px solid var(--line);">' +
@@ -16428,7 +16466,11 @@ function rbRenderLedger(found){
     let box = '', left = '', right = '', head = '';
     if(x.kind === 'diff'){
       const d = x.d;
-      box = '<input type="checkbox" class="rb-diff-pick" data-n="' + x.n + '"' + (d.conflict ? '' : ' checked') + '>';
+      /* data-manual marks the rows the two Favour buttons act on. Only the
+         conflicts: a gap has no second value, so "favour the website" on one would
+         mean throwing away the only value anybody has. */
+      box = '<input type="checkbox" class="rb-diff-pick" data-n="' + x.n + '"' +
+        (d.conflict ? ' data-manual="1"' : ' checked') + '>';
       head = esc(d.who) + ' <span style="color:var(--slate);">&middot; ' + esc(d.label) + '</span>';
       left = rbLedgerCell(d.from, !d.conflict);
       right = rbLedgerCell(String(d.to));
@@ -16454,6 +16496,19 @@ function rbRenderLedger(found){
       head = '<span style="background:#EEF1FF; color:#33397a; font-weight:700; font-size:10px; padding:1px 5px; border-radius:4px;">NOT ON THE SHEET</span> ' + esc(o.name) + (0 ? '' : '');
       head += o.cu ? ' #' + esc(o.cu) : '';
       left = rbLedgerCell(o.where);
+      /* ⭐ NOT "a customer that doesn’t exist". If the sheet holds this name, the
+         right-hand column says so and names the row — the fix is to fold the two
+         records together, not to wonder who this is. */
+      if(o.onSheetRow){
+        /* ⭐ NAME THE COPY THAT SHOULD NOT EXIST. Owner, 2026-08-19: "if there is a
+           tom fry but then also a fry tom whichever one is wrong should be listed as a
+           customer that doesnt exist because there is only on tom fry in the website".
+           Exactly — the sheet row already found the real record, so THIS one is the
+           spare. Saying which of the two is which is the whole difference between a
+           finding and a puzzle. */
+        right = '<strong>Not a missing customer &mdash; a spare copy.</strong> Row ' + o.onSheetRow + ' of your sheet already found their real record' +
+          '<div style="color:var(--ember); font-size:11.5px; margin-top:2px;">There is only one of them, so this record should not exist. <strong>Danger Zone &rarr; Merge duplicates</strong> folds it into the one the sheet already found.</div>';
+      }
       /* ⭐ A STRAY IS NOT SOMEBODY WHO LEFT THE SHEET. A record with no street can
          never be reached by any paste, so it shows up as "missing from the sheet"
          for ever no matter how many times you compare. Say which tool fixes it,
@@ -16491,6 +16546,19 @@ function rbRenderLedger(found){
 }
 function rbWireDiffButtons(report, statusEl){
   const picks = function(){ return Array.prototype.slice.call(document.querySelectorAll('.rb-diff-pick')); };
+  /* ⭐ THE TWO FAVOUR BUTTONS. They only move tick boxes — nothing is written
+     until Sync is pressed, so pressing the wrong one costs a second press. */
+  const manualPicks = function(){
+    return Array.prototype.slice.call(document.querySelectorAll('.rb-diff-pick[data-manual="1"]'));
+  };
+  document.getElementById('rbFavourSheetBtn')?.addEventListener('click', function(){
+    manualPicks().forEach(function(p){ p.checked = true; });
+    if(statusEl) statusEl.textContent = manualPicks().length + ' manual fix(es) set to your sheet’s value. Nothing is written until you press Sync.';
+  });
+  document.getElementById('rbFavourSiteBtn')?.addEventListener('click', function(){
+    manualPicks().forEach(function(p){ p.checked = false; });
+    if(statusEl) statusEl.textContent = manualPicks().length + ' manual fix(es) left as the website has them. Nothing is written until you press Sync.';
+  });
   /* ⚠ The tick-all pair lives in the ledger now and covers BOTH kinds of row,
      so the diff table’s own pair is gone. Wiring ids that no longer exist is a
      silent no-op behind ?. — exactly what gate C catches. */

@@ -13283,6 +13283,52 @@ suite('Suite 58. The sheet against the book, both ways round');
         'got ' + JSON.stringify(blank.diffs.map(function(d){ return d.key; })));
     }
 
+    /* ---- ⭐ "NOT ON THE SHEET" MUST MEAN NOT ON THE SHEET ---- */
+    {
+      /* Owner, 2026-08-19, reading a list of names the report called missing: "a lot
+         of these people just have their name backward in the website ... it should see
+         that as something that needs to be fixed rather than a customer that doesnt
+         exist."
+
+         Checked against the real book: Aiono Shelley, Anderson Ryan, Burton Corinne,
+         Byrd Whitney, Cardon Howard, Chafffetz Julie and Fry Tom were ALL on the sheet
+         with full street addresses. Their website record has only a town, so no row
+         can reach it and the sheet row matched their OTHER copy instead.
+
+         ⚠ THE FIXTURE REPRODUCES THAT EXACTLY: two website records for one person, the
+         good one reachable by street and a second holding only a town. With one record
+         the sheet row simply matches it and nothing is left over, so the check would
+         pass no matter what the code did.
+
+         ⚠ AND THE STRAY IS NAMED THE OTHER WAY ROUND, which is what she noticed. It has
+         to be recognised through dupNormName, which sorts the words, or Last-First
+         records stay invisible. */
+      const r = run([{ name: 'Aiono Shelley', street: '1530 E Smithfield Dr', city: 'Eagle Mountain', phone: '8015550111' }],
+                    [c('good', { name: 'Shelley Aiono', street: '1530 E Smithfield Dr', city: 'Eagle Mountain', phone: '8015550111' }),
+                     c('stray', { name: 'Aiono Shelley', city: 'Eagle Mountain' })]);
+      check('S58', 'an unreached record whose name IS on the sheet says so',
+        r.onlyOnSite.length === 1 && r.onlyOnSite[0].onSheetRow > 0,
+        'got ' + JSON.stringify(r.onlyOnSite.map(function(x){ return x.name + ':' + x.onSheetRow; })));
+
+      /* ⚠ And somebody who really HAS left the sheet must still read as gone, or the
+         label means nothing. */
+      const gone = run([{ name: 'Aiono Shelley', street: '1530 E Smithfield Dr', city: 'Eagle Mountain', phone: '8015550111' }],
+                       [c('good', { name: 'Shelley Aiono', street: '1530 E Smithfield Dr', city: 'Eagle Mountain', phone: '8015550111' }),
+                        c('left', { name: 'Somebody Else', city: 'Lehi' })]);
+      check('S58', 'and somebody genuinely off the sheet is not mislabelled',
+        gone.onlyOnSite.length === 1 && !gone.onlyOnSite[0].onSheetRow,
+        'a label that is always on is not a label');
+
+      check('S58', 'and the report offers the fix rather than the puzzle',
+        /* Owner, 2026-08-19: "whichever one is wrong should be listed as a customer
+           that doesnt exist because there is only on tom fry in the website". So the
+           report has to name WHICH of the two records is the spare, not just note that
+           the name appears twice. */
+        /a spare copy/.test(admin) && /already found their real record/.test(admin) &&
+        /There is only one of them, so this record should not exist/.test(admin),
+        'calling a duplicate a missing customer sends somebody looking for a person who is not lost');
+    }
+
     /* ---- ⭐ A ROW WITH NO NAME IS NOT A CUSTOMER ---- */
     {
       /* Owner, 2026-08-19, shown four of these sitting in the add list:
@@ -14826,6 +14872,29 @@ suite('Suite 67. Conflicts come first, are labelled MANUAL, and are never pre-ti
     /data-n="' \+ x\.n/.test(admin) && /data-i="' \+ r\.i/.test(admin),
     'display order changed; the identity the writers match on did not');
 
+  /* ---- ⭐ DECIDING EVERY MANUAL FIX AT ONCE ---- */
+  /* Owner, 2026-08-19: "there should also be two buttons for favor website and favor
+     excel so if they both have different ones then i can just tick the manual fixes
+     and do it that way." A tick already means take the sheet and no tick means keep
+     the website, so these are the same two answers applied in one press. */
+  check('S67', 'there is a button for each side of a manual fix',
+    /id="rbFavourSheetBtn"/.test(admin) && /id="rbFavourSiteBtn"/.test(admin),
+    'deciding two hundred of them one box at a time is why nobody would decide them');
+
+  /* ⚠ ONLY THE MANUAL ROWS. A gap has no second value, so favouring the website on
+     one would throw away the only value anybody holds — the sheet fills a blank and
+     there is nothing on the other side to prefer. */
+  check('S67', 'and they act only on the manual rows',
+    admin.indexOf('.rb-diff-pick[data-manual="1"]') > 0 &&
+    /d\.conflict \? ' data-manual="1"'/.test(admin),
+    'a favour button that also unticked the gaps would quietly drop everything the sheet was going to fill in');
+
+  /* ⚠ THEY WRITE NOTHING. Pressing the wrong one costs a second press, not a sync. */
+  check('S67', 'and neither writes anything on its own',
+    /rbFavourSheetBtn[^;]{0,400}p\.checked = true;/.test(admin.replace(/\r?\n/g, " ")) &&
+    !/rbFavourSheetBtn[^;]{0,400}updateDoc/.test(admin.replace(/\r?\n/g, " ")),
+    'a button labelled favour that also saved would be a sync nobody asked for');
+
   check('S67', 'a website-only row can never be ticked',
     /Nothing here is ever deleted/.test(admin),
     'nobody is deleted for being off the sheet, so offering a box would promise something the tool will not do');
@@ -14861,7 +14930,10 @@ suite('Suite 67. Conflicts come first, are labelled MANUAL, and are never pre-ti
 
   /* ---- and they are never pre-ticked ---- */
   check('S67', 'a conflict does not come ticked',
-    /d\.conflict \? '' : ' checked'/.test(admin),
+    /* The conflict branch now also stamps data-manual, which is what the two Favour
+       buttons select on — but the half that matters here is unchanged: a conflict
+       gets no checked attribute. */
+    /d\.conflict \? ' data-manual="1"' : ' checked'/.test(admin),
     'ticked, it takes the sheet side of a decision nobody made, over the value someone typed most recently');
 
   /* ---- price, which was not compared at all ---- */
