@@ -15317,6 +15317,175 @@ suite('Suite 68. Awaiting Response, the address check, and the route notice');
     'it is what stops somebody pasting a novel into the public contact form');
 }
 
+
+suite('Suite 69. An existing member is asked what is changing, not handed the new-customer form');
+{
+  /* Owner, 2026-08-19: "I need the members that already exist not to go to the
+     form once they are created. It should just show a message similar to Do you
+     want anything changed with your lights this year? If they say yes they will
+     go straight to there member portal if they say No than a cute message will
+     come up".
+
+     The form collects colours, wire, timer and notes. A member already has all
+     of it on file, and admin's own quote card already warns the office about
+     this case ("Already a customer... do not Convert to Customer again") - this
+     is the half the customer sees. */
+  const idx = read('index.html');
+  const fns = read('functions/index.js');
+  const respond = sectionFrom(fns, fns.indexOf('exports.quoteRespond = onCall'));
+
+  /* ---- the server decides, and it decides narrowly ------------------- */
+  check('S69', 'quoteRespond answers whether this is an existing member',
+    /alreadyMember: alreadyMember/.test(respond) || /alreadyMember,/.test(respond),
+    'without it the page cannot tell a member from a first-time customer');
+
+  check('S69', 'the two signals are the explicit ones, not a phone match',
+    /quoteData\.convertedToCustomerAt/.test(respond) &&
+    /quoteData\.existingCustomerId/.test(respond),
+    'convertedToCustomerAt is the owner’s "once they are created"; ' +
+    'existingCustomerId is a re-quote against a live record');
+
+  /* ⚠ THE TRAP THIS EXISTS TO STOP. Looking the quote’s phone up in
+     jobAddresses is the obvious implementation and it is wrong: 17 numbers in
+     the real book are shared and 14 of those are two genuinely different
+     houses. A new house quoted against a parent’s phone would be told it is
+     already a member and would never be asked for its install details. */
+  const memberBlock = (respond.match(/let alreadyMember = false;[\s\S]*?\n  }\n/) || [''])[0];
+  check('S69', 'the existing-member check never joins on the phone number',
+    !!memberBlock && !/findByPhone|findByEmail|phoneDigits/.test(memberBlock),
+    'a shared phone is a household here, not one customer — a phone join ' +
+    'silently skips the details form for a brand-new house');
+
+  /* ⚠ A quoteToken is generated in the visitor’s own browser, so anybody able
+     to submit the public quote form knows one. Handing back a portalToken is
+     the account takeover closed in portalLookup on 2026-08-14. */
+  check('S69', 'and it never hands back a portal credential',
+    !/portalToken/.test(memberBlock || '') &&
+    !/portalToken/.test((respond.match(/return \{[\s\S]*?\n  \};/) || [''])[0]),
+    'the quote token would become a customer session — the exact hole ' +
+    'closed in portalLookup on 2026-08-14');
+
+  check('S69', 'a failed check refuses rather than guessing yes',
+    /catch[\s\S]{0,400}alreadyMember = false;/.test(respond),
+    'wrongly saying "member" loses a real customer’s install details');
+
+  /* ⚠ A KNOWN DISCONNECT, recorded rather than papered over.
+
+     admin.html decides the same question a THIRD way -- quoteAlreadyACustomer,
+     which matches the quote's ADDRESS plus its phone or email against the book
+     (address as well as contact, so a parent and child sharing a number are
+     still two houses). That is what puts "Already a customer... do not Convert
+     to Customer again" on the office's quote card.
+
+     The server deliberately does NOT copy it. Doing so would mean a second
+     copy of the address normalisation living on the other side of the wire,
+     which is the duplicated-maths problem money-parity.test.js exists for, and
+     the two would drift.
+
+     What that costs: BOTH writes that mark a quote converted are best-effort
+     (admin.html catches and toasts, because the customer is already created by
+     then). If one of those fails, the person IS a member but the quote does not
+     say so, and they would still be shown the install-details form. The office
+     is told at the time and can close the card by hand, which also fixes this.
+
+     Closes when the server and admin agree by construction -- most likely by
+     the conversion writing an explicit link that cannot silently go missing.  */
+  gap('S69 existing-member test agrees with admin\'s own',
+    /quoteAlreadyACustomer/.test(respond),
+    'a quote whose convert-write failed leaves a real member being asked for ' +
+    'install details we already hold; admin already flags that card');
+
+  /* ---- the page asks the question, in that order ---------------------- */
+  const handle = extractFn(idx, 'handleQuoteLink');
+  check('S69', 'handleQuoteLink still exists', !!handle);
+  if (handle) {
+    const atMember = handle.indexOf('res.alreadyMember');
+    const atForm = handle.indexOf('res.formCompleted');
+    check('S69', 'the member question is asked BEFORE the form-already-done branch',
+      atMember !== -1 && atForm !== -1 && atMember < atForm,
+      'a member who once filled the form in would otherwise be told "nothing ' +
+      'else to do" and never asked the one question we want answered');
+  }
+
+  /* ---- and it is RUN, not grepped ------------------------------------
+     ⚠ A regex over the file proves the words are in the source, which is a
+     different and weaker claim than that they reach the screen. This repo lost
+     a day to exactly that on 2026-08-19: every text check passed while a
+     default assignment further down overwrote the message with "nothing". */
+  if (!JSDOM) {
+    note('jsdom not installed — skipping the member-question render');
+  } else {
+    const offerSrc = extractFn(idx, 'offerMemberChangeChoice');
+    const openSrc = extractFn(idx, 'openPortalFromQuote');
+    check('S69', 'offerMemberChangeChoice exists', !!offerSrc);
+    check('S69', 'openPortalFromQuote exists', !!openSrc);
+    if (offerSrc && openSrc) {
+      const dom = new JSDOM(
+        '<div id="quoteLinkConfirm" style="display:none"></div>' +
+        '<div id="quoteLinkConfirmMsg"></div>' +
+        '<div id="quoteLinkConfirmSub"></div>' +
+        '<div id="quoteLinkConfirmActions" style="display:none"></div>' +
+        '<div id="quoteDetailFormWrap"></div>' +
+        '<div id="quoteDetailSuccess"></div>' +
+        '<input id="lookupPhone"><input id="lookupLastName">',
+        /* A real origin, or jsdom refuses localStorage - which this reads to
+           decide whether they are already signed in on this device. */
+        { url: 'https://highlightingutah.com/' });
+      const doc = dom.window.document;
+      const sb = { opened: [] };
+      new Function('document', 'window', 'localStorage',
+        'function setQuoteConfirmSub(h){ document.getElementById("quoteLinkConfirmSub").innerHTML = h || ""; }' +
+        offerSrc + openSrc +
+        'this.offer = offerMemberChangeChoice; this.open = openPortalFromQuote;'
+      ).call(sb, doc, dom.window, dom.window.localStorage);
+
+      sb.offer('sam@example.com');
+      const msg = () => doc.getElementById('quoteLinkConfirmMsg').textContent;
+      const sub = () => doc.getElementById('quoteLinkConfirmSub').textContent;
+      const acts = doc.getElementById('quoteLinkConfirmActions');
+
+      check('S69', 'the question actually reaches the screen',
+        /anything changed with your lights this year/i.test(msg()),
+        'this is the owner’s own wording and it has to be the thing rendered');
+      check('S69', 'the install-details form is put away',
+        doc.getElementById('quoteDetailFormWrap').style.display === 'none',
+        'the approve branch shows it before this answer arrives, so it has to ' +
+        'be hidden again here or the member sees both');
+      check('S69', 'both answers are offered',
+        acts.querySelectorAll('[data-mc="yes"]').length === 1 &&
+        acts.querySelectorAll('[data-mc="no"]').length === 1,
+        'one button each — yes goes to the portal, no closes it off');
+
+      /* No = the warm ending. */
+      acts.querySelector('[data-mc="no"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }));
+      check('S69', '"No" leaves a warm message, not a bare acknowledgement',
+        /all set/i.test(msg()) && /can’t wait|cannot wait/i.test(sub()),
+        'the owner asked for "something a little more nice"');
+      check('S69', 'and the buttons are taken away once answered',
+        acts.style.display === 'none' && acts.innerHTML === '',
+        'leaving them up invites a second answer to a question already answered');
+
+      /* Yes = their portal. With no saved login on this device it must fall
+         back to the normal, rate-limited, last-name-checked sign-in. */
+      sb.offer('sam@example.com');
+      acts.querySelector('[data-mc="yes"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }));
+      check('S69', '"Yes" sends them to the Member Portal',
+        String(dom.window.location.hash) === '#/payment',
+        'the owner asked for "straight to there member portal"');
+      check('S69', 'and fills the sign-in box in for them',
+        doc.getElementById('lookupPhone').value === 'sam@example.com',
+        'they still type their last name — that check and its rate limit are ' +
+        'what a quote token must never be allowed to skip');
+      check('S69', 'the site chrome comes back on the way out',
+        !/quote-minimal/.test(doc.body.className),
+        'navigate() clears rsvp-minimal but not quote-minimal, so the portal ' +
+        'would render with no header and no footer');
+    }
+  }
+}
+
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));

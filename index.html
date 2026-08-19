@@ -3860,6 +3860,87 @@ function offerQuoteChoice(token){
     });
   });
 }
+/* An approval from somebody who is ALREADY one of our members. They must not
+   be dropped into the new-customer install-details form: we already hold their
+   colours, wire, timer and notes, and asking again is how a house that already
+   has lights gets built a second time. Owner, 2026-08-19: "the members that
+   already exist not to go to the form once they are created... a message
+   similar to Do you want anything changed with your lights this year?"
+
+   Deliberately the same two-button shape the RSVP link already uses
+   (handleRsvpLink's "Do you want to make any changes?"), so a member who
+   arrives from either email is asked the same question the same way. */
+function offerMemberChangeChoice(contactHint){
+  var confirmWrap = document.getElementById('quoteLinkConfirm');
+  var confirmMsg = document.getElementById('quoteLinkConfirmMsg');
+  var actions = document.getElementById('quoteLinkConfirmActions');
+  var formWrap = document.getElementById('quoteDetailFormWrap');
+  var successWrap = document.getElementById('quoteDetailSuccess');
+  /* The approve branch shows the form immediately, before this answer comes
+     back, so it has to be put away again here. */
+  if(formWrap) formWrap.style.display = 'none';
+  if(successWrap) successWrap.style.display = 'none';
+  document.body.classList.remove('rsvp-minimal');
+  document.body.classList.add('quote-minimal');
+  if(confirmWrap) confirmWrap.style.display = 'block';
+  if(confirmMsg) confirmMsg.textContent = 'Do you want anything changed with your lights this year?';
+  setQuoteConfirmSub('You\u2019re already set up with us, so there\u2019s nothing to fill in \u2014 we just need to know if anything is changing.');
+  if(!actions) return;
+  actions.style.display = 'block';
+  actions.innerHTML =
+    '<button type="button" class="qbtn qbtn-gold" data-mc="yes">Yes, I\u2019d like to make a change</button>'+
+    '<button type="button" class="qbtn qbtn-plain" data-mc="no">No, keep everything the same</button>';
+  actions.querySelectorAll('[data-mc]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      if(btn.dataset.mc === 'yes'){ openPortalFromQuote(contactHint); return; }
+      actions.style.display = 'none';
+      actions.innerHTML = '';
+      if(confirmMsg) confirmMsg.textContent = 'Perfect \u2014 you\u2019re all set. \uD83C\uDF84';
+      setQuoteConfirmSub('We can\u2019t wait to light up your home again this year. We\u2019ll be in touch to get you on the schedule \u2014 there\u2019s nothing else for you to do.');
+    });
+  });
+}
+/* "Yes" hands them to their own portal, where every change they could want to
+   make already lives.
+
+   ⚠ IT DOES NOT SIGN THEM IN FROM THE QUOTE LINK. The token in their hand is a
+   quoteToken, which is generated in the visitor's own browser when the public
+   quote form is submitted -- so anyone who can submit that form knows one.
+   Turning it into a portal session is precisely the account takeover closed in
+   portalLookup on 2026-08-14, and quoteRespond deliberately never returns a
+   portalToken. A login already saved on THIS device is a different thing and is
+   used; otherwise they sign in normally, with the contact box filled in for
+   them and the last-name check and rate limit still doing their job. */
+function openPortalFromQuote(contactHint){
+  var confirmWrap = document.getElementById('quoteLinkConfirm');
+  var actions = document.getElementById('quoteLinkConfirmActions');
+  if(actions){ actions.style.display = 'none'; actions.innerHTML = ''; }
+  if(confirmWrap) confirmWrap.style.display = 'none';
+  setQuoteConfirmSub('');
+  /* navigate() clears rsvp-minimal but not quote-minimal, so the site chrome
+     stays hidden unless this takes it off. */
+  document.body.classList.remove('quote-minimal');
+  window.location.hash = '/payment';
+  var savedToken = null, savedCreds = null;
+  try{ savedToken = localStorage.getItem('huPortalToken'); } catch(e){}
+  try{
+    var rawCreds = localStorage.getItem('huPortalCreds');
+    if(rawCreds) savedCreds = JSON.parse(rawCreds);
+  } catch(e){}
+  if(savedCreds && savedCreds.c && savedCreds.ln && typeof performSignInLookup === 'function'){
+    if(typeof hideLoginPrompt === 'function') hideLoginPrompt();
+    performSignInLookup(savedCreds.c, savedCreds.ln);
+    return;
+  }
+  if(savedToken && typeof loadPortalByToken === 'function'){
+    loadPortalByToken(savedToken);
+    return;
+  }
+  var contactEl = document.getElementById('lookupPhone');
+  if(contactEl && contactHint) contactEl.value = contactHint;
+  var lastNameEl = document.getElementById('lookupLastName');
+  if(lastNameEl){ try{ lastNameEl.focus(); } catch(e){} }
+}
 function handleQuoteLink(token, action, confirmed){
   if(!isQuoteLinkAction(action)) return offerQuoteChoice(token);
   if(action === 'decline' && !confirmed) return confirmQuoteDecline(token);
@@ -3896,6 +3977,13 @@ function handleQuoteLink(token, action, confirmed){
       /* Re-asserted here as well: this runs after everything else on the page
          has finished loading, so nothing can wipe it afterwards. */
       quoteDetailToken = token;
+      /* Checked BEFORE formCompleted: a member who once filled the form in
+         would otherwise be told "nothing else to do" and never be asked the
+         one question we actually want an answer to. */
+      if(res.alreadyMember){
+        offerMemberChangeChoice(res.memberContact || '');
+        return;
+      }
       /* Already done it once - no point making them fill it in twice. */
       if(res.formCompleted){
         if(formWrap) formWrap.style.display = 'none';

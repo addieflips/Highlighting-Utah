@@ -1441,6 +1441,52 @@ exports.quoteRespond = onCall({ cors: true }, async (request) => {
     }
   }
 
+  /* --- Is this quote for somebody who is ALREADY one of our members? -------
+   * A member who approves does NOT want the new-customer install-details form:
+   * we already hold their colours, their wire, their timer and their notes,
+   * and re-collecting it invites a second build of a house that already has
+   * lights. They get "anything changing this year?" instead (index.html).
+   *
+   * ⚠ THE LINK MUST BE AN EXPLICIT ONE, NEVER A PHONE MATCH. The obvious
+   * implementation looks up quoteData.phone in jobAddresses -- and it is
+   * wrong, because a phone number is not one household here. 17 numbers in
+   * the real book are shared and 14 of those are genuinely two houses (a
+   * parent paying for a child's place). A brand-new house quoted against a
+   * parent's phone would be told it is already a member and would never be
+   * asked for its install details at all. So only two things count:
+   *   convertedToCustomerAt -- this very quote has already been made into a
+   *     customer. Staff-only: firestore.rules forbids a public create from
+   *     setting it. This is the owner's "once they are created" case.
+   *   existingCustomerId    -- a re-quote raised against a live customer, by
+   *     the portal or the office, and the record still has to exist.
+   *
+   * ⚠ AND IT NEVER RETURNS A portalToken. A quoteToken is generated in the
+   * visitor's own browser, so anyone able to submit the public quote form
+   * knows one; upgrading it into a customer credential is the exact account
+   * takeover that was closed in portalLookup on 2026-08-14. All that goes
+   * back is a yes/no and the contact the quote itself already carries, so the
+   * page can fill in the sign-in box. Signing in is still last-name checked
+   * and still rate limited.
+   * ---------------------------------------------------------------------- */
+  let alreadyMember = false;
+  if (action === 'approve') {
+    try {
+      if (quoteData.convertedToCustomerAt) {
+        alreadyMember = true;
+      } else if (quoteData.existingCustomerId) {
+        const cSnap = await db.collection('jobAddresses')
+          .doc(String(quoteData.existingCustomerId)).get();
+        alreadyMember = cSnap.exists;
+      }
+    } catch (err) {
+      /* Never let this sink the approval - it is already recorded above. A
+         member who wrongly gets the details form can still fill it in; a
+         customer whose approval failed has to ring the office. */
+      console.error('[HU] existing-member check failed:', err);
+      alreadyMember = false;
+    }
+  }
+
   return {
     ok: true,
     action: action,
@@ -1451,7 +1497,13 @@ exports.quoteRespond = onCall({ cors: true }, async (request) => {
        is useless without the token they already hold. */
     quoteId: quoteId,
     name: quoteData.name || '',
-    formCompleted: !!quoteData.formCompleted
+    formCompleted: !!quoteData.formCompleted,
+    /* See the block above. A boolean, plus the contact already written on this
+       quote so the portal sign-in box can be filled in - never a token. */
+    alreadyMember: alreadyMember,
+    memberContact: alreadyMember
+      ? (quoteData.email || quoteData.phone || '')
+      : ''
   };
 });
 
