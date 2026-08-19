@@ -14643,6 +14643,74 @@ suite('Suite 65. Re-quotes have their own folder and update the customer');
     'told a live number is free hands it to the next new customer');
 }
 
+/* ================= 66. The master sheet choice travels ========================
+   Owner, 2026-08-19: "I want it to be that in the admin when I select the master
+   sheet it permanently remembers it no matter what computer I'm on."
+
+   Two things were tangled in that and only one can travel. THE CHOICE — which
+   workbook, how many rows, when and from where — is information, so it lives in
+   Firestore and is the same everywhere. THE PERMISSION to read a file on a
+   particular disk is a browser rule no code can carry across machines.
+
+   So the deliverable is: a computer that has never been set up says exactly which
+   file to pick instead of sitting blank and inviting the wrong one — which has
+   already happened once, with "2026 Customer Numbers".
+   ============================================================================= */
+suite('Suite 66. The master sheet choice is remembered for every computer');
+{
+  const admin = read("admin.html");
+
+  check('S66', 'the choice is written somewhere shared, not just this browser',
+    /setDoc\(doc\(db, "settings", HLX_SHEET_SETTINGS\), \{/.test(admin),
+    'IndexedDB is per-computer by definition, so a note kept only there can never travel');
+  check('S66', 'and it records enough to recognise the file again',
+    /name: res\.name/.test(admin) && /rows: Number\(res\.rows\)/.test(admin) &&
+    /connectedAt: serverTimestamp\(\)/.test(admin),
+    'a name alone cannot tell a current sheet from one replaced in March');
+
+  {
+    const at = admin.indexOf("document.getElementById('rbConnectSheetBtn')");
+    const end = admin.indexOf('rbFindMissingBtn', at);
+    const body = (at > 0 && end > at) ? admin.slice(at, end) : '';
+    check('S66', 'the connect handler was found', !!body);
+
+    /* ⚠ ORDER IS THE WHOLE SAFETY ARGUMENT. The unusable-workbook guard has to
+       run BEFORE the choice is written, or connecting the wrong file once sends
+       every other computer to pick that same wrong file — which is worse than
+       the original mistake, because it now looks authoritative. */
+    check('S66', 'only a usable workbook is ever remembered',
+      body.indexOf('await hlxSheetRemember(res)') > body.indexOf('await hlxSheetHandleClear()'),
+      'remembering the wrong workbook spreads one bad pick to every machine');
+
+    /* ⚠ AND A FAILED NOTE IS NOT A FAILED CONNECTION. */
+    check('S66', 'a write that fails does not undo the connection',
+      /catch\(err\)\{[\s\S]{0,260}Could not remember which master sheet/.test(admin),
+      'the sheet IS connected here; sending her back to the picker over a failed note is noise');
+  }
+
+  {
+    const at = admin.indexOf('hlxSheetHandleLoad().then(async function(h){');
+    const end = at > 0 ? admin.indexOf('rbFindMissingBtn', at) : -1;
+    const body = (at > 0 && end > at) ? admin.slice(at, end) : '';
+    check('S66', 'the arrival check was found', !!body);
+
+    /* ⭐ THE POINT OF THE WHOLE THING. A machine with no handle used to show
+       nothing at all, which is an invitation to connect whatever looks right. */
+    check('S66', 'a computer with no access is told which file to pick',
+      /const saved = await hlxSheetRemembered\(\)/.test(body) &&
+      /Your master sheet is/.test(body),
+    'blank is what let the two-column number list be connected in the first place');
+    check('S66', 'and it names the file rather than describing one',
+      /saved\.name/.test(body) && /saved\.rows/.test(body),
+      'a row count is what separates the master list from the two-column number list');
+
+    /* ⚠ A computer that IS set up must not be nagged. */
+    check('S66', 'a computer that already has it says so and stops',
+      /if\(h\){[\s\S]{0,240}return;/.test(body),
+      'asking somebody to re-pick a file they already picked is how a message gets ignored');
+  }
+}
+
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));

@@ -15800,6 +15800,57 @@ function hlxRowsToTsv(rows){
     }).join("\t");
   }).join("\n");
 }
+/* ⭐ WHICH FILE IS THE MASTER SHEET, REMEMBERED FOR EVERY COMPUTER.
+   Owner, 2026-08-19: "I want it to be that in the admin when I select the
+   master sheet it permanently remembers it no matter what computer I'm on."
+
+   Two different things were tangled up in that, and only one of them can
+   actually travel:
+
+     THE CHOICE — which workbook is the master sheet, how many rows it had, when
+     it was last connected and from where. That is just information, so it lives
+     in Firestore and is the same on every machine, for ever.
+
+     THE PERMISSION — leave to read a file on THIS disk. A browser will not let a
+     web page carry that to another computer, and no amount of code changes it:
+     it is the same rule that stops any website reading your documents. So a new
+     computer still needs ONE press of the button.
+
+   What this buys is that the press is never a question. A machine that has not
+   been set up says exactly which file to pick, where it lives and what it should
+   contain, instead of sitting blank and letting somebody connect the wrong
+   workbook — which has already happened once with "2026 Customer Numbers".
+
+   ⚠ THE REAL FIX IS A NETWORK ONE, and it just became possible: reading the file
+   from OneDrive over the wire needs a Microsoft app registration, which a
+   personal Microsoft account cannot have (tested 2026-08-18: 400/401/403 on every
+   anonymous route). A Microsoft 365 WORK account has a directory and can. If that
+   is ever set up, this whole per-computer step disappears. */
+const HLX_SHEET_SETTINGS = "masterSheet";
+async function hlxSheetRemember(res){
+  try{
+    await setDoc(doc(db, "settings", HLX_SHEET_SETTINGS), {
+      name: res.name || "",
+      rows: Number(res.rows) || 0,
+      fileModified: Number(res.when) || 0,
+      connectedAt: serverTimestamp(),
+      /* Which machine, in plain words, so "it works on mine" has an answer. */
+      connectedFrom: (navigator.userAgentData && navigator.userAgentData.platform) ||
+                     (navigator.platform || "a computer")
+    }, {merge: true});
+  } catch(err){
+    /* ⚠ NEVER FAILS THE CONNECTION. The sheet is connected on this computer
+       whether or not the note about it saved; treating a failed note as a failed
+       connection would send somebody back to the picker for nothing. */
+    console.error("Could not remember which master sheet was picked:", err);
+  }
+}
+async function hlxSheetRemembered(){
+  try{
+    const snap = await getDoc(doc(db, "settings", HLX_SHEET_SETTINGS));
+    return snap.exists() ? snap.data() : null;
+  } catch(err){ return null; }
+}
 function hlxSheetSupported(){ return typeof window !== "undefined" && !!window.showOpenFilePicker; }
 async function hlxSheetPermission(handle, ask){
   if(!handle || !handle.queryPermission) return "granted";
@@ -16866,8 +16917,12 @@ document.getElementById('rbConnectSheetBtn')?.addEventListener('click', onceAtAT
         "press this again and choose \u201c2026 Master List\u201d instead.", true);
       return;
     }
+    /* ⚠ The wrong-workbook guard above runs FIRST, so only a sheet that really
+       is the customer list is ever written here. Remembering an unusable one
+       would send every other computer to pick the same wrong file. */
+    await hlxSheetRemember(res);
     rbShowSheetStatus("Connected to " + (res.name || "your sheet") + " \u2014 " + res.rows +
-      " rows. It is read where it sits; nothing is copied or downloaded.");
+      " rows. Remembered for every computer. It is read where it sits; nothing is copied or downloaded.");
   } catch(err){
     rbShowSheetStatus("Could not read that file: " + ((err && err.message) || "unknown error"), true);
   }
@@ -16876,9 +16931,20 @@ document.getElementById('rbConnectSheetBtn')?.addEventListener('click', onceAtAT
    left guessing whether the last press stuck. */
 setTimeout(function(){
   if(!hlxSheetSupported()) return;
-  hlxSheetHandleLoad().then(function(h){
-    if(!h) return;
-    rbShowSheetStatus("Connected to " + (h.name || "your sheet") + " \u2014 press Compare and it is read straight from there.");
+  hlxSheetHandleLoad().then(async function(h){
+    if(h){
+      rbShowSheetStatus("Connected to " + (h.name || "your sheet") + " \u2014 press Compare and it is read straight from there.");
+      return;
+    }
+    /* ⭐ NOTHING ON THIS COMPUTER, BUT THE CHOICE IS KNOWN. Rather than a blank
+       space that invites somebody to pick whatever looks right, say which file
+       it is and what it should contain. The press is the browser's rule; the
+       guesswork was ours. */
+    const saved = await hlxSheetRemembered();
+    if(!saved || !saved.name) return;
+    rbShowSheetStatus("Your master sheet is \u201c" + saved.name + "\u201d" +
+      (saved.rows ? " (" + saved.rows + " rows)" : "") +
+      " \u2014 this computer has not been given access to it yet. Press the button and pick that file once.");
   }).catch(function(){});
 }, 0);
 document.getElementById('rbFindMissingBtn')?.addEventListener('click', async function(){
