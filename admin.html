@@ -16232,6 +16232,212 @@ function hlxReadSheet(xml, ss){
   for(let i = 0; i < rows.length; i++) if(!rows[i]) rows[i] = [];
   return rows;
 }
+/* ⭐ WRITING BACK INTO THE SAME WORKBOOK.
+   Owner, 2026-08-19: "all her information needs to be put into excel", "I want new
+   quotes to be able to have their info put into the first open row in excel, and
+   include all the info", and then the constraint that shapes all of it: "it should
+   not redownload the excel and edit it though it should update that exact file".
+
+   So: the same file handle, reopened for writing, bytes replaced in place. No copy,
+   no download, no second file to go stale.
+
+   THREE DECISIONS MAKE THIS SAFE RATHER THAN HOPEFUL, and each was arrived at by
+   getting it wrong first in a Node rehearsal against the real workbook:
+
+     1. INLINE STRINGS. A new cell carries its own text (t="inlineStr") instead of an
+        index into sharedStrings.xml. Editing that shared table is how a naive
+        appender corrupts every OTHER row in the book.
+     2. DEFLATE, NOT STORE. Storing turned a 352KB workbook into 2.3MB. This file
+        syncs to OneDrive from several computers; it must not balloon.
+     3. VERIFY BEFORE WRITING. The rebuilt bytes are parsed back with the SAME reader
+        the rest of the app uses, and must come back with exactly the rows expected
+        and unchanged headers. If they do not, nothing is written at all.
+
+   ⚠ ROWS ARE ONLY EVER APPENDED. Nothing already in the sheet is edited or moved.
+   ⚠ The permission is asked for at the moment of writing, from a real click, because
+   the browser grants read and write separately and read is all the comparison needs. */
+let HLX_CRC_TABLE = null;
+function hlxCrc32(u8){
+  if(!HLX_CRC_TABLE){
+    HLX_CRC_TABLE = new Int32Array(256);
+    for(let n = 0; n < 256; n++){
+      let c = n;
+      for(let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      HLX_CRC_TABLE[n] = c;
+    }
+  }
+  let c = -1;
+  for(let i = 0; i < u8.length; i++) c = HLX_CRC_TABLE[(c ^ u8[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ -1) >>> 0;
+}
+async function hlxDeflateRaw(u8){
+  const st = new Blob([u8]).stream().pipeThrough(new CompressionStream("deflate-raw"));
+  return new Uint8Array(await new Response(st).arrayBuffer());
+}
+/* Every entry, inflated and kept — hlxUnzip throws away what it does not read, which
+   is right for reading and useless for rebuilding. */
+async function hlxUnzipAll(buf){
+  const view = new DataView(buf);
+  const u8 = new Uint8Array(buf);
+  let eocd = -1;
+  for(let i = u8.length - 22; i >= 0; i--){ if(view.getUint32(i, true) === 0x06054b50){ eocd = i; break; } }
+  if(eocd < 0) throw new Error("That file is not a .xlsx workbook.");
+  const n = view.getUint16(eocd + 10, true);
+  let off = view.getUint32(eocd + 16, true);
+  if(off === 0xffffffff || n === 0xffff) throw new Error("Cannot rewrite this workbook (zip64).");
+  const dec = new TextDecoder();
+  const out = [];
+  for(let i = 0; i < n; i++){
+    if(view.getUint32(off, true) !== 0x02014b50) throw new Error("Cannot read this workbook.");
+    const nameLen = view.getUint16(off + 28, true);
+    const extraLen = view.getUint16(off + 30, true);
+    const cmtLen = view.getUint16(off + 32, true);
+    const lho = view.getUint32(off + 42, true);
+    const name = dec.decode(u8.subarray(off + 46, off + 46 + nameLen));
+    const method = view.getUint16(off + 10, true);
+    const csize = view.getUint32(off + 20, true);
+    const lnameLen = view.getUint16(lho + 26, true);
+    const lextraLen = view.getUint16(lho + 28, true);
+    const dataStart = lho + 30 + lnameLen + lextraLen;
+    const raw = u8.subarray(dataStart, dataStart + csize);
+    out.push({name: name, data: method === 0 ? raw.slice() : await hlxInflateRaw(raw)});
+    off += 46 + nameLen + extraLen + cmtLen;
+  }
+  return out;
+}
+async function hlxZip(entries){
+  const enc = new TextEncoder();
+  const locals = [], centrals = [];
+  let offset = 0;
+  for(let i = 0; i < entries.length; i++){
+    const e = entries[i];
+    const name = enc.encode(e.name);
+    const data = e.data;
+    const crc = hlxCrc32(data);
+    const packed = await hlxDeflateRaw(data);
+    const store = packed.length >= data.length;
+    const body = store ? data : packed;
+    const lh = new DataView(new ArrayBuffer(30));
+    lh.setUint32(0, 0x04034b50, true);
+    lh.setUint16(4, 20, true);
+    lh.setUint16(8, store ? 0 : 8, true);
+    lh.setUint32(14, crc, true);
+    lh.setUint32(18, body.length, true);
+    lh.setUint32(22, data.length, true);
+    lh.setUint16(26, name.length, true);
+    locals.push(new Uint8Array(lh.buffer), name, body);
+    const ch = new DataView(new ArrayBuffer(46));
+    ch.setUint32(0, 0x02014b50, true);
+    ch.setUint16(4, 20, true); ch.setUint16(6, 20, true);
+    ch.setUint16(10, store ? 0 : 8, true);
+    ch.setUint32(16, crc, true);
+    ch.setUint32(20, body.length, true);
+    ch.setUint32(24, data.length, true);
+    ch.setUint16(28, name.length, true);
+    ch.setUint32(42, offset, true);
+    centrals.push(new Uint8Array(ch.buffer), name);
+    offset += 30 + name.length + body.length;
+  }
+  const eocd = new DataView(new ArrayBuffer(22));
+  const centralLen = centrals.reduce(function(a, b){ return a + b.length; }, 0);
+  eocd.setUint32(0, 0x06054b50, true);
+  eocd.setUint16(8, entries.length, true);
+  eocd.setUint16(10, entries.length, true);
+  eocd.setUint32(12, centralLen, true);
+  eocd.setUint32(16, offset, true);
+  const parts = locals.concat(centrals, [new Uint8Array(eocd.buffer)]);
+  const total = parts.reduce(function(a, b){ return a + b.length; }, 0);
+  const outBuf = new Uint8Array(total);
+  let p = 0;
+  parts.forEach(function(part){ outBuf.set(part, p); p += part.length; });
+  return outBuf;
+}
+function hlxColName(n){
+  let s = "";
+  n = n + 1;
+  while(n > 0){ const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); }
+  return s;
+}
+function hlxRowXml(rowNum, values){
+  let x = "<row r=" + "'" + rowNum + "'" + ">";
+  values.forEach(function(v, i){
+    if(v === "" || v == null) return;
+    const t = String(v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    x += "<c r=" + "'" + hlxColName(i) + rowNum + "'" +
+      " t=" + "'" + "inlineStr" + "'" +
+      "><is><t xml:space=" + "'" + "preserve" + "'" + ">" + t + "</t></is></c>";
+  });
+  return x + "</row>";
+}
+/* ⭐ APPEND ROWS TO THE CONNECTED WORKBOOK, IN PLACE.
+   Returns {written, rowsBefore, rowsAfter} or throws with something the office can
+   act on. Nothing is written unless the rebuilt bytes parse back correctly first —
+   see the three decisions above hlxCrc32. */
+async function hlxAppendRowsToSheet(rows){
+  if(!rows || !rows.length) return {written: 0};
+  const handle = await hlxSheetHandleLoad();
+  if(!handle) throw new Error("No sheet is connected. Press \u201cUse my master sheet\u201d first.");
+  /* ⚠ READ AND WRITE ARE GRANTED SEPARATELY. The comparison only ever needed read,
+     so this is the first time write is asked for, and it has to come from a click. */
+  let state = "granted";
+  if(handle.queryPermission) state = await handle.queryPermission({mode: "readwrite"});
+  if(state !== "granted" && handle.requestPermission){
+    state = await handle.requestPermission({mode: "readwrite"});
+  }
+  if(state !== "granted"){
+    throw new Error("Chrome would not let me write to the file. Press the button again and " +
+      "choose Allow \u2014 read and write are asked for separately, so allowing it to be read " +
+      "earlier does not cover this.");
+  }
+  const file = await handle.getFile();
+  const buf = await file.arrayBuffer();
+
+  /* What is in there now, so the check afterwards has something to compare against. */
+  const before = await hlxWorkbookRows(new Blob([buf]));
+  const beforeCount = before.length;
+  const beforeHead = (before[0] || []).map(function(v){ return String(v == null ? "" : v).trim(); }).join("|");
+
+  const entries = await hlxUnzipAll(buf);
+  const sheet = entries.filter(function(e){ return /^xl\/worksheets\/sheet1\.xml$/.test(e.name); })[0];
+  if(!sheet) throw new Error("That workbook has no first sheet to write to.");
+  const dec = new TextDecoder(), enc = new TextEncoder();
+  let xml = dec.decode(sheet.data);
+  if(xml.indexOf("</sheetData>") < 0) throw new Error("That sheet is not in a shape I can add a row to.");
+  /* The first open row is the one after the highest row that exists — read off the
+     sheet itself rather than counted, because a sheet can have gaps. */
+  let maxRow = 0;
+  xml.replace(/<row[^>]*\sr="(\d+)"/g, function(m, num){ maxRow = Math.max(maxRow, Number(num)); return m; });
+  let inject = "";
+  rows.forEach(function(vals, i){ inject += hlxRowXml(maxRow + 1 + i, vals); });
+  xml = xml.replace("</sheetData>", inject + "</sheetData>");
+  sheet.data = enc.encode(xml);
+  const rebuilt = await hlxZip(entries);
+
+  /* ⭐ VERIFY BEFORE WRITING. This is the whole safety story: the new bytes are read
+     back with the same reader the rest of the app uses, and must come back with
+     exactly the rows expected and the headers untouched. A workbook that does not
+     parse never reaches the disk. */
+  let check;
+  try{ check = await hlxWorkbookRows(new Blob([rebuilt])); }
+  catch(err){ throw new Error("Built a workbook that could not be read back, so nothing was written. (" + (err && err.message) + ")"); }
+  const afterHead = (check[0] || []).map(function(v){ return String(v == null ? "" : v).trim(); }).join("|");
+  if(check.length !== beforeCount + rows.length){
+    throw new Error("The rebuilt sheet came back with " + check.length + " rows, expected " +
+      (beforeCount + rows.length) + " \u2014 nothing was written.");
+  }
+  if(afterHead !== beforeHead){
+    throw new Error("The rebuilt sheet lost its heading row, so nothing was written.");
+  }
+
+  const w = await handle.createWritable();
+  await w.write(rebuilt);
+  await w.close();
+  return {written: rows.length, rowsBefore: beforeCount - 1, rowsAfter: check.length - 1, firstRow: maxRow + 1};
+}
+/* One customer, straight into the first open row. */
+async function hlxAddCustomerToSheet(d){
+  return hlxAppendRowsToSheet([rbCustomerToSheetRow(d)]);
+}
 async function hlxWorkbookRows(file){
   const z = await hlxUnzip(await file.arrayBuffer());
   const dec = new TextDecoder();

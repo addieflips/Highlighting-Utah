@@ -14247,15 +14247,34 @@ suite('Suite 61. Reading the master sheet where it lives');
     const end = admin.indexOf('/* ⭐ FOUR WAYS TO RECOGNISE THE SAME PERSON', at);
     const block = at > 0 && end > at ? admin.slice(at, end) : '';
     check('S61', 'the sheet code was found', !!block);
-    check('S61', 'it never writes a file, and never offers one to save',
-      !/showSaveFilePicker|createWritable|URL\.createObjectURL|download=/.test(block),
-      '"make sure it never redownloads the file" — this is that, asserted');
+    /* ⭐ CHANGED 2026-08-19. She asked for writing: "all her information needs to be
+       put into excel ... it should not redownload the excel and edit it though it
+       should update that exact file."
+       So createWritable is now allowed — that IS updating that exact file, through
+       the handle she picked. What stays forbidden is every route that would make a
+       SECOND copy: a save dialog, a blob URL, a download link. That was the actual
+       worry behind "never redownloads the file", and it is untouched. */
+    check('S61', 'it never downloads the workbook or offers a copy to save',
+      !/showSaveFilePicker|URL\.createObjectURL|download=/.test(block),
+      'a second copy is the thing she did not want; writing the original is what she asked for');
+    check('S61', 'and it writes only through the handle she picked',
+      !/createWritable/.test(block) || /handle\.createWritable\(\)/.test(admin),
+      'writing anywhere but the connected file is how a second sheet appears');
     check('S61', 'and it never fetches the workbook from anywhere',
       !/fetch\(|XMLHttpRequest|api\.onedrive|graph\.microsoft/.test(block),
       'the whole point is that the file is already on this computer');
-    check('S61', 'it asks only for READ permission',
-      /mode: "read"/.test(block) && !/mode: "readwrite"/.test(block),
-      'read-only is what makes it impossible for this to damage the sheet');
+    /* ⚠ READ AND WRITE ARE STILL ASKED FOR SEPARATELY, and reading still asks for
+       read alone. The comparison runs constantly and never needs write; asking for
+       write there would hand a permanent write grant to a screen that only looks. */
+    check('S61', 'reading the sheet still asks for read alone',
+      /mode: "read"/.test(block),
+      'the comparison only looks — it has no business holding a write grant');
+    /* ⚠ And write is asked for at the moment of writing, in its own function. */
+    check('S61', 'and write is asked for separately, where the writing happens',
+      /mode: "readwrite"/.test(admin) &&
+      /async function hlxAppendRowsToSheet/.test(admin) &&
+      (extractFn(admin, "hlxAppendRowsToSheet") || "").indexOf('mode: "readwrite"') > 0,
+      'a write grant belongs to the thing that writes, not to the thing that reads');
     check('S61', 'the handle is remembered, so the file is picked once per computer',
       /indexedDB\.open\(HLX_SHEET_DB/.test(block) && /store\.put\(handle, HLX_SHEET_KEY\)/.test(block));
     check('S61', 'and only the parts it actually reads are inflated',
