@@ -17207,12 +17207,30 @@ document.getElementById('rbFindMissingBtn')?.addEventListener('click', async fun
   let usedConnected = false;
   if(hlxSheetSupported()){
     try{
-      const live = await hlxLoadConnectedSheet(false);
+      /* ⭐ ASK FOR THE PERMISSION HERE, ON THIS CLICK. Owner, 2026-08-19: "it
+         makes me get the file everytime i refresh the page, i want it to
+         remember."
+
+         Chrome forgets leave to read a file when the page reloads. The HANDLE
+         survives in IndexedDB; the permission does not. No code changes that — it
+         is the same rule that stops any website reading your documents.
+
+         What WAS wrong is that this passed false, meaning "do not ask", so Compare
+         failed and sent her to press a different button first. A button press IS
+         the gesture the browser requires, so it can ask right here: one Chrome
+         prompt, and the comparison she actually asked for runs in the same press.
+
+         ⚠ Chrome’s own prompt offers "Allow on every visit". THAT is what survives
+         a refresh, and only she can choose it — so the message says so rather than
+         leaving her to re-pick the file every morning. */
+      const live = await hlxLoadConnectedSheet(true);
       if(live.rows){
         usedConnected = true;
         rbShowSheetStatus("Read " + live.rows + " rows straight from " + (live.name || "your sheet") + ".");
       } else if(live.reason === "permission"){
-        rbShowSheetStatus("Chrome needs you to confirm access again \u2014 press \u201cUse my master sheet\u201d once.", true);
+        rbShowSheetStatus("Chrome would not let me read the file. Press Compare again and choose " +
+          "\u201cAllow on every visit\u201d in the box Chrome shows \u2014 that is the setting that stops it " +
+          "asking after every refresh.", true);
       }
     } catch(err){
       rbShowSheetStatus("Could not read the connected sheet: " + ((err && err.message) || "unknown error"), true);

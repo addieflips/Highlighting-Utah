@@ -13525,9 +13525,21 @@ suite('Suite 58. The sheet against the book, both ways round');
        in when I'm doing a specific peice" — so the paste is the fallback, not
        the other way round. */
     check('S58', 'a connected workbook is read before the paste boxes',
-      /const live = await hlxLoadConnectedSheet\(false\);/.test(body) &&
-      body.indexOf('hlxLoadConnectedSheet(false)') < body.indexOf('rbSplitSheetIntoBoxes();'),
+      /const live = await hlxLoadConnectedSheet\(true\);/.test(body) &&
+      body.indexOf('hlxLoadConnectedSheet(true)') < body.indexOf('rbSplitSheetIntoBoxes();'),
       'reading the paste first would quietly ignore the sheet she connected');
+    /* ⭐ AND IT ASKS FOR THE PERMISSION ON ITS OWN CLICK. Owner, 2026-08-19: "it
+       makes me get the file everytime i refresh the page". Chrome drops leave to
+       read a file on every reload; the handle survives, the permission does not.
+       This used to pass false — do not ask — so Compare failed and sent her to a
+       different button first. A button press IS the gesture the browser wants, so
+       one press now prompts and compares. */
+    check('S58', 'and asks for permission itself rather than failing',
+      /hlxLoadConnectedSheet\(true\)/.test(body),
+      'sending somebody to press another button first is a step the browser never asked for');
+    check('S58', 'and the refusal message names the setting that actually fixes it',
+      /Allow on every visit/.test(admin),
+      'only she can choose it, so a message that does not name it leaves her re-picking the file every morning');
 
     check('S58', 'nothing is added until the button is pressed',
       body.indexOf('rbAddGoBtn') > 0 &&
