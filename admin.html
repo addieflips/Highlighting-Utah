@@ -16508,6 +16508,12 @@ function rbRenderLedger(found){
       head = '<span style="background:#EEF1FF; color:#33397a; font-weight:700; font-size:10px; padding:1px 5px; border-radius:4px;">NOT ON THE SHEET</span> ' + esc(o.name) + (0 ? '' : '');
       head += o.cu ? ' #' + esc(o.cu) : '';
       left = rbLedgerCell(o.where);
+      /* ⚠ THE DEFAULT GOES FIRST. It used to sit at the END of this branch, after the
+         two blocks below had filled  in — so both messages were built and then
+         silently overwritten with "— nothing —". That is exactly what the owner saw:
+         "griner is a duplicate here but its not finding her as a duplicate still". The
+         detection was fine; the render threw the answer away. */
+      right = rbLedgerCell('');
       /* ⭐ NOT "a customer that doesn’t exist". If the sheet holds this name, the
          right-hand column says so and names the row — the fix is to fold the two
          records together, not to wonder who this is. */
@@ -16539,7 +16545,6 @@ function rbRenderLedger(found){
           right += '<div style="color:var(--slate); font-size:11.5px; margin-top:2px;">Your sheet has them at <strong>' + esc(o.sheetWhere) + '</strong>.</div>';
         }
       }
-      right = rbLedgerCell('');
       /* ⭐ A TICK ONLY WHEN THERE IS SOMETHING TO DO. Owner, 2026-08-19: "if they
          are both equally right then it just deletes one of them when they sync it."
          Offered only where the keeper is KNOWN — the record the sheet row already

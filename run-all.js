@@ -14957,6 +14957,56 @@ suite('Suite 67. Conflicts come first, are labelled MANUAL, and are never pre-ti
      about which of two people this is. The three write-side safeguards are unchanged
      and are checked in Suite 58: merge before delete, off the routes first, and a
      keeper that is known and is not the spare. */
+  /* ⭐ RUN THE RENDERER, DO NOT READ IT. Owner, 2026-08-19: "griner is a duplicate
+     here but its not finding her as a duplicate still."
+
+     She was right and the detection was fine. The bug was in the render: the default
+     `right = rbLedgerCell("")` sat at the END of the website-only branch, after the
+     two blocks that fill it, so both messages were built and then overwritten with
+     "— nothing —". Every check I had matched the SOURCE TEXT of those messages, and
+     the text was all present and correct — it just never reached the screen.
+
+     So this one executes rbRenderLedger against a fixture and reads the HTML it
+     actually produces. That is the only shape of check that could have caught it. */
+  {
+    const src = [extractFn(admin, "rbLedgerRank"), extractFn(admin, "rbLedgerRows"),
+                 extractFn(admin, "rbLedgerCell"), extractFn(admin, "rbRenderLedger")].join("\n");
+    check('S67', 'the ledger renderer was found', src.indexOf('function rbRenderLedger') >= 0);
+    const sb = {};
+    let html = "";
+    try {
+      new Function(
+        "const esc = s => String(s == null ? '' : s);" +
+        "const RB_LEDGER_FIELD_RANK = {street:1, housePrice:2};" +
+        src + "this.f = rbRenderLedger;"
+      ).call(sb);
+      html = sb.f({ diffs: [], rows: [],
+        onlyOnSite: [{ id: "spare1", name: "Lauren Griner", cu: "328",
+                       where: "no address at all", stray: true,
+                       onSheetRow: 412, keeperId: "real1", sheetWhere: "3473 W 2550 N, Lehi" }] });
+    } catch (e) { html = "THREW: " + e.message; }
+
+    check('S67', 'a spare copy really reaches the screen as one',
+      /a spare copy/.test(html) && /Row 412/.test(html),
+      'the messages were all present in the source and none of them rendered — got: ' + html.slice(0, 200));
+    check('S67', 'and the sheet address really renders beside it',
+      /3473 W 2550 N, Lehi/.test(html),
+      'she was told the record had no street while looking at the street on her sheet');
+    check('S67', 'and it renders ticked',
+      /rb-spare-pick[^>]*checked/.test(html),
+      'a Sync that clears nothing is not the automatic delete she asked for');
+    /* ⚠ And the opposite: nothing to fold in must still say nothing. */
+    let plain = "";
+    try {
+      plain = sb.f({ diffs: [], rows: [],
+        onlyOnSite: [{ id: "gone1", name: "Somebody Else", cu: "", where: "Lehi",
+                       stray: false, onSheetRow: 0, keeperId: null, sheetWhere: "" }] });
+    } catch (e) { plain = "THREW: " + e.message; }
+    check('S67', 'and somebody genuinely gone gets no tick and no claim',
+      !/rb-spare-pick/.test(plain) && !/a spare copy/.test(plain),
+      'offering to delete somebody who really has left the sheet is the one thing this must not do');
+  }
+
   check('S67', 'a spare copy is ticked, so a plain Sync clears it',
     /class="rb-spare-pick"[^>]{0,160}checked/.test(admin.replace(/\r?\n/g, " ")),
     'she asked twice for the sync to do it without another step');
