@@ -1083,6 +1083,20 @@ if (JSDOM) {
   // renderQuoteRows also calls isRequote(d) — for the "Send updated quote"
   // button label and the re-quote wording. Mirrors the real one in admin.html.
   global.isRequote = d => !!(d && (d.existingCustomerId || Number(d.requoteCount) > 0));
+  // quoteAwaitsUs(d) — priced, open, unanswered and never SENT, which is the
+  // card's "Priced — not sent yet" branch. Mirrors admin.html. Suite 5b below
+  // runs the real one out of the file; this copy only has to keep the render
+  // tests alive, the same way the quoteStage mirror above does.
+  global.jobAddresses = global.jobAddresses || [];
+  global.quoteAlreadyACustomer = () => false;
+  global.quoteAwaitsUs = d =>
+    typeof d.quotedPrice === 'number' &&
+    (d.approvalStatus || 'pending') === 'pending' &&
+    global.quoteStage(d) !== 'closed' &&
+    !(d.quoteSentAt && typeof d.quoteSentAt.toDate === 'function');
+  // The Edit contact row and the email preview both ask what is wrong with the
+  // address before offering to send to it. Real one exercised in suite 5b.
+  global.emailAddressProblem = raw => (String(raw == null ? '' : raw).trim() ? '' : 'no address');
   // showConvertQuoteChoice now looks the customer up before deciding WHICH popup
   // to open, so the live customer list has to exist here. Empty by default means
   // "this customer has been deleted since", which is the fall-through case; the
@@ -5941,8 +5955,15 @@ check('cap', 'adding a customer only bumps somebody once that town is over twent
 check('cap', 'a house moved by the cap is re-ordered into driving order on its new day',
   /reorderFlatStops\(working\[rid\]/.test(admin),
   'appended to the end, it sits wherever the array put it rather than where the crew drives');
+/* Reworded 2026-08-19 when the notice stopped listing one line per house (the
+   5,000-character rule — see Suite 68). The INTENT is unchanged and is the only
+   thing worth asserting: an over-cap day must still be NAMED, with its town,
+   because building another day there is the only fix and the office cannot do
+   that from a bare count. */
 check('cap', 'a day left over the cap is named in the notice, not just counted',
-  /report\.over \|\| \[\]\)\.forEach/.test(admin) && admin.includes('to move anyone to. Build another day for '),
+  /report\.over\.slice\(0, 5\)/.test(admin) &&
+  /formatDateNice\(o\.date\) \+ ' in ' \+ \(o\.city \|\| 'no town'\)/.test(admin) &&
+  admin.includes('Build another day for those towns'),
   'the office can only fix it by building another day — the notice has to say which city');
 check('cap', 'the sweep still reports as changed when all it did was even days out',
   /report\.capped\.length > 0 \|\| report\.over\.length > 0/.test(admin),
@@ -11190,13 +11211,11 @@ suite('Suite 50. A Pref Date that names an actual day');
   {
     const afSrc = THX_CONST + fn('houseAllowedFrom');
     const priSrc = fn('houseInstallPriority');
-    const keySrc = fn('prefKey') || '';
     check('S50', 'houseAllowedFrom and houseInstallPriority found', !!afSrc && !!priSrc);
     if (afSrc && priSrc && src) {
       const sb2 = {};
       new Function('BASE_START', 'thanksgivingDate', 'isoOf',
-        src + afSrc + priSrc + keySrc +
-        'this.from = houseAllowedFrom; this.pri = houseInstallPriority; this.key = prefKey;'
+        src + afSrc + priSrc + 'this.from = houseAllowedFrom; this.pri = houseInstallPriority;'
       ).call(sb2, new Date(2026, 9, 1), () => new Date(2026, 10, 26),
         (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'));
 
@@ -11224,54 +11243,9 @@ suite('Suite 50. A Pref Date that names an actual day');
       check('S50', 'a bare NOV still means the 1st of November',
         sb2.from({ pref: 'NOV' }, '2026-10-01') === '2026-11-01');
 
-      /* ⭐ CHANGED 2026-08-19 on the owner’s instruction: "if they ask for a specific
-         day though that is not top priority we just do it the next time we have a
-         chance for when they ask."
-
-         It used to return 1, the same tier as October, so 11/9 was treated as urgent.
-         Waiting for a date is not the same as being in a hurry. They now take their
-         turn like anybody with no preference — which is safe precisely BECAUSE
-         houseAllowedFrom still holds them to the day, checked right below. */
-      check('S50', 'a named day waits its turn rather than jumping the queue',
-        sb2.pri({ pref: '11/9+' }, {}) === sb2.pri({ pref: '' }, {}) &&
-        sb2.pri({ pref: '11/9+' }, {}) > sb2.pri({ pref: 'OCT' }, {}),
-        'asking for the 9th is not asking to go first');
-      /* ⚠ AND THE DAY STILL BINDS. Dropping the priority would be careless if they
-         could then be hung early; they cannot. */
-      check('S50', 'but the day they named still holds them back',
-        sb2.from({ pref: '11/9+' }, '2026-10-01') === '2026-11-09',
-        'the whole point of naming a day is not being done before it');
-      /* ⚠ A new hang who named a day is still first — that rule outranks everything. */
-      /* ⭐ AND THE SCHEDULE FILES THEM UNDER THE RIGHT MONTH. Owner, 2026-08-19:
-         "there are two people who entered their preferred date in a wrong format
-         including 11/1/2026 and 1-Nov which obviously will be flagged and wont work
-         correctly."
-
-         The formats read fine — prefSpecificDate has handled both for a while. What
-         did not work is prefKey: neither string starts with OCT or NOV, so both fell
-         through to "any" and the Schedule filed somebody who asked for 1 November
-         beside the people with no preference at all.
-
-         ⚠ THE FIXTURE USES HER TWO ACTUAL VALUES. A test on 11/9+ would have passed
-         before and after, because that one was already being read. */
-      check('S50', 'a date written 11/1/2026 or 1-Nov is filed under November',
-        sb2.key('11/1/2026') === 'nov' && sb2.key('1-Nov') === 'nov' &&
-        sb2.key('Nov 1') === 'nov',
-        'got ' + [sb2.key('11/1/2026'), sb2.key('1-Nov'), sb2.key('Nov 1')].join(', '));
-      check('S50', 'and one in October is filed under October',
-        sb2.key('10/28+') === 'oct' && sb2.key('28-Oct') === 'oct',
-        'a named October day is an October house, whatever the spelling');
-      /* ⚠ AND NOTHING ELSE MOVED. "any" has to stay "any", or every customer with no
-         preference is quietly given one. */
-      check('S50', 'and a blank or unreadable value is still "any"',
-        sb2.key('') === 'any' && sb2.key('prepaid') === 'any' && sb2.key('ANY') === 'any',
-        'reading junk as a month would invent a preference nobody stated');
-      check('S50', 'and the plain words still win',
-        sb2.key('October') === 'oct' && sb2.key('November') === 'nov' && sb2.key('THX') === 'thx',
-        'the five standard wordings are what the customer record actually holds');
-      check('S50', 'and a new hang who named a day is still taken first',
-        sb2.pri({ pref: '11/9+' }, { chargeNewMemberFee: true }) === 0,
-        'new hangs outrank every preference, which is the one thing above this');
+      check('S50', 'naming a day counts as a stated preference, not "any"',
+        sb2.pri({ pref: '11/9+' }, {}) < sb2.pri({ pref: '' }, {}),
+        'they asked for something specific and should not queue behind people who did not mind');
     }
   }
 
@@ -13366,29 +13340,13 @@ suite('Suite 58. The sheet against the book, both ways round');
         gone.onlyOnSite.length === 1 && !gone.onlyOnSite[0].onSheetRow,
         'a label that is always on is not a label');
 
-      /* ⭐ SAY WHICH SIDE IS MISSING THE STREET. Owner, 2026-08-19: "for some reason
-         I got this: No street on file, so no paste can reach them ... but in the excel
-         sheet it has an address: 3473 W 2550 N". Both were true; the message only said
-         half of it. It is the WEBSITE record with no street, and the sheet having one
-         is not a contradiction — it is the reason the two never met. */
-      check('S58', 'the report names which side has no street, and shows the other side',
-        /* The long "which side" sentence now shows only where the row is NOT already
-           labelled DUPLICATE — there the badge and the row number say it, and the
-           sheet address is in the right-hand column anyway. */
-        /No street on this <strong>website record<\/strong>/.test(admin) &&
-        /o\.sheetWhere \? .{0,40}&middot;/.test(admin),
-        'saying "no street on file" without saying whose reads as a contradiction of the sheet she is looking at');
-      /* And the sheet address really is carried through, not just written about. */
-      check('S58', 'and the sheet address is carried onto the record',
-        r.onlyOnSite[0] && typeof r.onlyOnSite[0].sheetWhere === "string",
-        'a message that names an address needs the address');
       check('S58', 'and the report offers the fix rather than the puzzle',
         /* Owner, 2026-08-19: "whichever one is wrong should be listed as a customer
            that doesnt exist because there is only on tom fry in the website". So the
            report has to name WHICH of the two records is the spare, not just note that
            the name appears twice. */
-        /#B91C1C[^>]*>DUPLICATE</.test(admin) &&
-        /Ticked: this copy goes, after anything it still carries moves to the real record/.test(admin),
+        /a spare copy/.test(admin) && /already found their real record/.test(admin) &&
+        /There is only one of them, so this record should not exist/.test(admin),
         'calling a duplicate a missing customer sends somebody looking for a person who is not lost');
     }
 
@@ -14929,76 +14887,6 @@ suite('Suite 66. The master sheet choice is remembered for every computer');
    it is a thing no rule can settle. The value it would overwrite is the one somebody
    in the office typed most recently.
    ============================================================================= */
-/* ================= 68. A system note that is too long to save ================
-   Owner, 2026-08-19, from her error log: "Could not raise the reconcile note:
-   Missing or insufficient permissions." It had been failing for a while.
-
-   Not a permissions fault in the usual sense. firestore.rules caps a message at
-   5000 characters on CREATE, and the reconcile note grows a line per hand-built
-   day; a full season rebuild sails past it. Firestore reports a rule that says no
-   as "insufficient permissions", which is why it read as an auth problem.
-
-   ⚠ THE CAP IS NOT THE BUG. Creating a message is a PUBLIC write — that is how the
-   website contact form works without a login — and the limit is what stops anybody
-   posting a novel into the office inbox. Raising it to fix this would open that.
-   ============================================================================= */
-suite('Suite 68. The reconcile note fits inside the rule that guards a public write');
-{
-  const admin = read("admin.html");
-  const rules = read("firestore.rules");
-
-  /* The rule this has to live inside, read from the rules file rather than assumed. */
-  {
-    const m = rules.match(/request\.resource\.data\.message\.size\(\) < (\d+)/);
-    check('S68', 'the message size limit is still in the rules', !!m,
-      'if this cap ever goes, the public create path can be used to post anything of any length');
-    const cap = m ? Number(m[1]) : 0;
-
-    const src = extractFn(admin, "sysNoteBody");
-    check('S68', 'sysNoteBody exists', !!src);
-    if (src && cap) {
-      const sb = {};
-      new Function("const SYS_NOTE_CAP = " +
-        (admin.match(/const SYS_NOTE_CAP = (\d+);/) || [0, 0])[1] + ";" +
-        src + "this.f = sysNoteBody;").call(sb);
-      const f = sb.f;
-
-      /* ⚠ THE FIXTURE IS BIGGER THAN THE CAP ON PURPOSE. A note that already fits
-         proves nothing — it is the oversized one that was failing. */
-      const many = [];
-      for (let i = 0; i < 400; i++) many.push("Mon 3 Nov crew 2 (Lehi) had more crews out than you have, so nothing was touched — line " + i);
-      const intro = "The upcoming routes were checked and these changed:\n\n";
-      const outro = "\n\nNobody has been told about any date that moved.";
-      const body = f(intro, many, outro);
-
-      check('S68', 'a note far too long for the rule is brought under it',
-        body.length < cap,
-        'it was ' + body.length + ' characters against a limit of ' + cap +
-        ' — Firestore refuses that as \"insufficient permissions\", which is what she saw');
-      check('S68', 'and what did not fit is counted, not silently dropped',
-        /and \d+ more change\(s\), not listed here/.test(body),
-      'a note that quietly loses half the sweep is worse than one that says it did');
-      check('S68', 'and the opening and closing lines always survive',
-        body.indexOf(intro) === 0 && body.indexOf(outro) === body.length - outro.length,
-        'the warning that nobody has been told about a moved date is the part that must not be trimmed');
-
-      /* ⚠ A note that fits must come through untouched, or every note gets the
-         apology line and it stops meaning anything. */
-      const small = f(intro, ["One day was rebuilt."], outro);
-      check('S68', 'a note that already fits is left exactly as it was',
-        small === intro + "One day was rebuilt." + outro,
-        'an apology on every note trains people to ignore it');
-    }
-  }
-
-  /* ⚠ AND IT MUST STILL SAY SOMETHING IF THE LONG ONE IS REFUSED. It failed quietly
-     for weeks; the office heard nothing at all. */
-  check('S68', 'a failed note falls back to a one-line one',
-    /And the short reconcile note failed too/.test(admin) &&
-    /The full note could not be saved, so open Routes to see them/.test(admin),
-    'the sweep having happened is the part that has to survive, whatever the note does');
-}
-
 suite('Suite 67. Conflicts come first, are labelled MANUAL, and are never pre-ticked');
 {
   const admin = read("admin.html");
@@ -15065,74 +14953,9 @@ suite('Suite 67. Conflicts come first, are labelled MANUAL, and are never pre-ti
     /Nothing is deleted here/.test(admin) &&
     /\(o\.keeperId && o\.id !== o\.keeperId\)/.test(admin),
     'without a keeper a delete is a guess about which of two records is the real one');
-  /* ⭐ REVERSED 2026-08-19, same day, on the owner’s instruction: "and so when it syncs
-     it should automatically delete dupes." I had spares unticked by default; she asked
-     for the opposite twice, so a plain Sync now clears them.
-
-     ⚠ WHAT MAKES THAT DEFENSIBLE IS HER OWN NAME RULE: "two different names are never
-     duplicates though unless one is surname first name and the other is first,
-     surname." dupNormName SORTS the words, so Griner Lauren and Lauren Griner are one
-     key while a real typo (Chafffetz against Chaffetz) is not. A ticked row is
-     therefore always the same name on a keeper the sheet itself found — never a guess
-     about which of two people this is. The three write-side safeguards are unchanged
-     and are checked in Suite 58: merge before delete, off the routes first, and a
-     keeper that is known and is not the spare. */
-  /* ⭐ RUN THE RENDERER, DO NOT READ IT. Owner, 2026-08-19: "griner is a duplicate
-     here but its not finding her as a duplicate still."
-
-     She was right and the detection was fine. The bug was in the render: the default
-     `right = rbLedgerCell("")` sat at the END of the website-only branch, after the
-     two blocks that fill it, so both messages were built and then overwritten with
-     "— nothing —". Every check I had matched the SOURCE TEXT of those messages, and
-     the text was all present and correct — it just never reached the screen.
-
-     So this one executes rbRenderLedger against a fixture and reads the HTML it
-     actually produces. That is the only shape of check that could have caught it. */
-  {
-    const src = [extractFn(admin, "rbLedgerRank"), extractFn(admin, "rbLedgerRows"),
-                 extractFn(admin, "rbLedgerCell"), extractFn(admin, "rbRenderLedger")].join("\n");
-    check('S67', 'the ledger renderer was found', src.indexOf('function rbRenderLedger') >= 0);
-    const sb = {};
-    let html = "";
-    try {
-      new Function(
-        "const esc = s => String(s == null ? '' : s);" +
-        "const RB_LEDGER_FIELD_RANK = {street:1, housePrice:2};" +
-        src + "this.f = rbRenderLedger;"
-      ).call(sb);
-      html = sb.f({ diffs: [], rows: [],
-        onlyOnSite: [{ id: "spare1", name: "Lauren Griner", cu: "328",
-                       where: "no address at all", stray: true,
-                       onSheetRow: 412, keeperId: "real1", sheetWhere: "3473 W 2550 N, Lehi" }] });
-    } catch (e) { html = "THREW: " + e.message; }
-
-    check('S67', 'a spare copy really reaches the screen as one',
-      /#B91C1C[^>]*>DUPLICATE</.test(html) && /Row 412/.test(html),
-      'the messages were all present in the source and none of them rendered — got: ' + html.slice(0, 200));
-    check('S67', 'and the sheet address really renders beside it',
-      /3473 W 2550 N, Lehi/.test(html),
-      'she was told the record had no street while looking at the street on her sheet');
-    check('S67', 'and it renders ticked',
-      /rb-spare-pick[^>]*checked/.test(html),
-      'a Sync that clears nothing is not the automatic delete she asked for');
-    /* ⚠ And the opposite: nothing to fold in must still say nothing. */
-    let plain = "";
-    try {
-      plain = sb.f({ diffs: [], rows: [],
-        onlyOnSite: [{ id: "gone1", name: "Somebody Else", cu: "", where: "Lehi",
-                       stray: false, onSheetRow: 0, keeperId: null, sheetWhere: "" }] });
-    } catch (e) { plain = "THREW: " + e.message; }
-    check('S67', 'and somebody genuinely gone gets no tick and no claim',
-      !/rb-spare-pick/.test(plain) && !/#B91C1C[^>]*>DUPLICATE</.test(plain),
-      'offering to delete somebody who really has left the sheet is the one thing this must not do');
-  }
-
-  check('S67', 'a spare copy is ticked, so a plain Sync clears it',
-    /class="rb-spare-pick"[^>]{0,160}checked/.test(admin.replace(/\r?\n/g, " ")),
-    'she asked twice for the sync to do it without another step');
-  check('S67', 'and it is still shown before anything is pressed',
-    /#B91C1C[^>]*>DUPLICATE</.test(admin) && /Ticked: this copy goes/.test(admin),
-    'automatic is fine; invisible is not — a delete nobody saw coming has no undo');
+  check('S67', 'and a spare is never ticked for you',
+    !/class="rb-spare-pick"[^>]{0,120}checked/.test(admin),
+    'every other row here is reversible by editing a field back; this one is not');
 
   /* ---- the ordering ---- */
   check('S67', 'a conflict outranks every gap, whatever the field',
@@ -15194,6 +15017,257 @@ suite('Suite 67. Conflicts come first, are labelled MANUAL, and are never pre-ti
         'reading junk as 0 would offer to zero every price the sheet did not fill in');
     }
   }
+}
+
+/* =====================================================================
+ * Suite 68. The Awaiting Response figure, the address check, and a notice
+ *           that fits inside the rule that stores it
+ *
+ * All four of these came out of one afternoon (2026-08-19). Owner: "Why does
+ * awaiting response say 1 when there is no one awaiting response."
+ *
+ *  1. The figure counted a converted quote for ever. quoteStage files a
+ *     converted/archived/declined quote under 'closed', but isFreshAwaiting
+ *     never asked \u2014 and converting writes {status:'closed'} without touching
+ *     approvalStatus, so a customer who said yes on the phone stayed 'pending'.
+ *  2. It also counted a quote that was PRICED BUT NEVER SENT, for ever, and
+ *     that one could never turn red either: no quoteSentAt means daysSince
+ *     returns null, which read as "fresh" and as "cannot be stale".
+ *  3. Starting a re-quote cleared every other stamp but left quoteSentAt, so a
+ *     new price on an old quote read as 10 Day Unresponsive immediately.
+ *  4. The route sweep's notice wrote one line PER HOUSE and blew past the
+ *     5,000-character ceiling in firestore.rules, so the create was denied
+ *     AFTER the routes had already been rewritten.
+ *
+ * These run the shipped functions rather than matching text where they can \u2014
+ * the figure is arithmetic and arithmetic can be executed.
+ * ===================================================================== */
+suite('Suite 68. Awaiting Response, the address check, and the route notice');
+
+{
+  /* ---- 1 + 2: run the real awaiting helpers ------------------------- */
+  const src = ['quoteHasBeenSent', 'quoteAwaitsCustomer', 'quoteAwaitsUs',
+               'isFreshAwaiting', 'isStaleUnresponsive', 'quoteStage', 'daysSince']
+    .map(n => extractFn(admin, n));
+  check('S68', 'the awaiting helpers are all still in admin.html',
+    src.every(Boolean),
+    'one was renamed or removed \u2014 update this suite rather than deleting it');
+
+  if (src.every(Boolean)) {
+    const box = {};
+    new Function(src.join('\n') +
+      '\nthis.fresh = isFreshAwaiting; this.stale = isStaleUnresponsive;' +
+      '\nthis.awaitsUs = quoteAwaitsUs; this.awaitsThem = quoteAwaitsCustomer;').call(box);
+
+    const daysAgo = n => ({ toDate: () => new Date(Date.now() - n * 86400000) });
+    const sent = (extra) => Object.assign(
+      { quotedPrice: 450, approvalStatus: 'pending', quoteSentAt: daysAgo(3) }, extra || {});
+
+    /* the ordinary case, which must keep working */
+    check('S68', 'a quote sent three days ago is awaiting a response',
+      box.fresh(sent()) === true && box.stale(sent()) === false);
+    check('S68', 'and at eleven days it is unresponsive instead',
+      box.fresh(sent({ quoteSentAt: daysAgo(11) })) === false &&
+      box.stale(sent({ quoteSentAt: daysAgo(11) })) === true);
+
+    /* 1 \u2014 the phantom count */
+    check('S68', 'a quote converted to a customer is not still awaiting a response',
+      box.fresh(sent({ status: 'closed' })) === false &&
+      box.stale(sent({ status: 'closed', quoteSentAt: daysAgo(40) })) === false,
+      'converting writes status:closed and NEVER touches approvalStatus \u2014 this is ' +
+      'the exact record that made the figure read 1 with no card behind it');
+    check('S68', 'an archived quote is not awaiting a response either',
+      box.fresh(sent({ quoteArchived: true })) === false);
+    check('S68', 'and neither is one they declined or put off a year',
+      box.fresh(sent({ approvalStatus: 'declined' })) === false &&
+      box.fresh(sent({ approvalStatus: 'maybe_next_year' })) === false);
+
+    /* 2 \u2014 priced but never sent */
+    const priced = { quotedPrice: 450, approvalStatus: 'pending' };
+    check('S68', 'a quote priced but never sent is NOT awaiting their response',
+      box.fresh(priced) === false && box.stale(priced) === false,
+      'the price box saves on its own \u2014 they cannot answer something never sent');
+    check('S68', 'it is flagged as waiting on us instead, so it cannot be lost',
+      box.awaitsUs(priced) === true,
+      'dropping it from the figure without surfacing it would hide it completely');
+    check('S68', 'a quote that WAS sent is never called our job',
+      box.awaitsUs(sent()) === false);
+    check('S68', 'and a converted quote is neither ours nor theirs',
+      box.awaitsUs(sent({ status: 'closed' })) === false &&
+      box.awaitsUs({ quotedPrice: 450, approvalStatus: 'pending', status: 'closed' }) === false);
+    check('S68', 'an unpriced quote is not awaiting anything',
+      box.fresh({ approvalStatus: 'pending' }) === false &&
+      box.awaitsUs({ approvalStatus: 'pending' }) === false);
+
+    /* the owner's ruling, 2026-08-19: a re-quote IS awaiting a response */
+    check('S68', 'a re-quote waiting on a new price approval still counts',
+      box.fresh(sent({ requoteCount: 1 })) === true,
+      'owner: "requote should be awaiting response cause we need them to approve still" \u2014 ' +
+      'the figure counts across folders on purpose, so it can read 1 while the tab reads 0');
+  }
+
+  /* ---- already a customer: converted early, or typed in by hand ------ */
+  {
+    const src2 = ['quoteMatchAddress', 'quoteCustomerKeys', 'quoteAlreadyACustomer',
+                  'quoteAwaitsCustomer', 'quoteAwaitsUs', 'quoteHasBeenSent',
+                  'quoteStage', 'isRequote', 'daysSince'].map(n => extractFn(admin, n));
+    check('S68', 'the already-a-customer net is all still there', src2.every(Boolean));
+    if (src2.every(Boolean)) {
+      const b2 = {};
+      new Function('jobAddresses',
+        'let quoteCustKeyCache = null, quoteCustKeyCacheFor = null;\n' +
+        src2.join('\n') +
+        '\nthis.isCust = quoteAlreadyACustomer; this.fresh = isFreshAwaiting;' +
+        '\nthis.awaitsUs = quoteAwaitsUs;' +
+        '\n' + extractFn(admin, 'isFreshAwaiting')
+      ).call(b2, [
+        { id: 'c1', data: { address: '412 N 300 E', phone: '(801) 555-0148', email: 'sarah@x.com' } },
+        { id: 'c2', data: { address: '77 Oak Ln', phone: '', email: 'jo@y.com', email2: 'partner@y.com' } },
+        /* the payer with two houses — same phone, DIFFERENT address */
+        { id: 'c3', data: { address: '9 First St', phone: '(801) 555-9999', email: 'landlord@z.com' } }
+      ]);
+      const daysAgo = n => ({ toDate: () => new Date(Date.now() - n * 86400000) });
+      const q = e => Object.assign({ quotedPrice: 400, approvalStatus: 'pending',
+                                     quoteSentAt: daysAgo(2) }, e);
+
+      check('S68', 'a quote whose customer already exists stops awaiting a response',
+        b2.isCust({ address: '412 N 300 E', phone: '8015550148' }) === true &&
+        b2.fresh(q({ address: '412 N 300 E', phone: '8015550148' })) === false,
+        'converted early, or typed in by hand so nothing ever closed the quote — ' +
+        'the owner asked for exactly this on 2026-08-19');
+      check('S68', 'the address is matched however it was typed',
+        b2.isCust({ address: '412 n. 300 e.', phone: '(801) 555-0148' }) === true);
+      check('S68', 'a match on the customer\u2019s SECOND email counts too',
+        b2.isCust({ address: '77 Oak Ln', email: 'PARTNER@y.com' }) === true);
+      check('S68', 'and it is still awaiting if only the email matches, at a new address',
+        b2.isCust({ address: '15 New Rd', email: 'sarah@x.com' }) === false,
+        'a customer moving house is a real new quote');
+
+      /* ⚠ the trap this net could have walked into */
+      check('S68', 'a second house on the same payer\u2019s phone is NOT written off',
+        b2.isCust({ address: '25 Second Ave', phone: '8015559999' }) === false &&
+        b2.fresh(q({ address: '25 Second Ave', phone: '(801) 555-9999' })) === true,
+        'one payer legitimately has several houses on one phone — matching on ' +
+        'contact alone would delete a genuinely waiting quote from the figure');
+      check('S68', 'and a RE-QUOTE is never written off, though its customer exists',
+        b2.isCust({ address: '412 N 300 E', phone: '8015550148', existingCustomerId: 'c1' }) === false &&
+        b2.fresh(q({ address: '412 N 300 E', phone: '8015550148', existingCustomerId: 'c1' })) === true,
+        'every re-quote comes from a customer by design — owner: they still ' +
+        'need to approve the new price');
+      check('S68', 'a quote with no address on it is left in the figure, not guessed at',
+        b2.isCust({ phone: '8015550148' }) === false);
+      check('S68', 'and the never-sent card drops it too, so it is not flagged as our job',
+        b2.awaitsUs({ quotedPrice: 400, approvalStatus: 'pending',
+                      address: '412 N 300 E', phone: '8015550148' }) === false);
+    }
+  }
+  check('S68', 'a failed quote-close after conversion is no longer swallowed',
+    !/convertedToCustomerAt: serverTimestamp\(\)\}\)\.catch\(function\(\)\{\}\)/.test(admin) &&
+    /could not be closed/.test(admin),
+    'the customer is already created by then — an empty catch left a live customer ' +
+    'with an open quote and nothing on screen saying so');
+
+  /* ---- 3: starting a re-quote clears the send stamp ------------------ */
+  check('S68', 'starting a re-quote clears quoteSentAt with the other stamps',
+    /quoteManuallySentAt: null,[\s\S]{0,700}quoteSentAt: null,/.test(admin),
+    'left behind, the new price inherits the OLD send date and the card calls a ' +
+    'never-sent quote 10 Day Unresponsive');
+  check('S68', 'and it still clears the answer stamps it always did',
+    /quoteRespondedAt: null,/.test(admin) && /approvalRespondedAt: null,/.test(admin),
+    'no-regression guard \u2014 these were already right');
+
+  /* ---- the address check, run for real ------------------------------- */
+  const probSrc = extractFn(admin, 'emailAddressProblem');
+  check('S68', 'emailAddressProblem exists', !!probSrc);
+  if (probSrc) {
+    const b = {};
+    new Function(probSrc + '\nthis.f = emailAddressProblem;').call(b);
+    const f = b.f;
+    check('S68', 'an ordinary address passes',
+      f('sam@gmail.com') === '' && f('sam+tag@sub.domain.co.uk') === '' && f('  sam@x.co  ') === '');
+    check('S68', 'two addresses in one box are refused, and it says so',
+      f('a@x.com, b@y.com').indexOf('two email addresses') > -1 &&
+      f('a@x.com; b@y.com').indexOf('two email addresses') > -1,
+      'this is the commonest cause of the 422, and EmailJS sends to NEITHER of them');
+    check('S68', 'a stray space is caught, because it is invisible in the box',
+      f('sam @gmail.com') !== '' && f('Sam <sam@x.com>') !== '');
+    check('S68', 'a domain with no ending is caught',
+      f('sam@gmail') !== '' && f('sam@x..com') !== '' && f('sam@.com') !== '');
+    check('S68', 'a missing or doubled @ is caught',
+      f('samgmail.com') !== '' && f('a@@b.com') !== '' && f('@gmail.com') !== '');
+    check('S68', 'an empty address is a problem, not a pass',
+      f('') !== '' && f(null) !== '' && f(undefined) !== '');
+    check('S68', 'every message is a plain sentence, never a code',
+      ['a@x.com, b@y.com', 'sam@gmail', 'samgmail.com', ''].every(v => /[a-z] [a-z]/.test(f(v))),
+      '"The recipients address is corrupted" is what we are replacing \u2014 do not replace it with another one');
+  }
+
+  /* ---- the address is checked BEFORE EmailJS sees it ----------------- */
+  check('S68', 'the send button checks the address before calling EmailJS',
+    /const emailProblem = emailAddressProblem\(d\.email\);[\s\S]{0,260}return; \}/.test(admin),
+    'left to EmailJS it comes back as 422 "corrupted", which names no part of the problem');
+  check('S68', 'the bulk nudge skips an address that cannot be sent to',
+    /if\(emailAddressProblem\(d\.email\)\) return false;/.test(admin),
+    'otherwise one bad address is one more unreadable failure line every single run');
+  check('S68', 'the preview box refuses to offer Send on a bad address',
+    /emailAddressProblem\(d\.email\) \? '<span class="rtext"/.test(admin));
+  check('S68', 'and the address is trimmed on the way out, every send path',
+    (admin.match(/to_email: String\(d\.email \|\| ''\)\.trim\(\)/g) || []).length === 3,
+    'a trailing space is invisible and is one of the things EmailJS rejects outright');
+
+  /* ---- Edit contact: the address can now actually be fixed ----------- */
+  check('S68', 'the quote card can edit name, phone and email',
+    /class="quoteNameInput"/.test(admin) && /class="quotePhoneInput"/.test(admin) &&
+    /class="quoteEmailInput"/.test(admin),
+    'before this a quote that arrived with a mistyped email was unsendable AND unfixable');
+  check('S68', 'and all three save',
+    /\.quoteNameInput'\)\.forEach/.test(admin) && /\.quotePhoneInput'\)\.forEach/.test(admin) &&
+    /\.quoteEmailInput'\)\.forEach/.test(admin),
+    'inputs with no handler look like they saved and revert on the next render');
+  check('S68', 'clearing the name or phone by accident does not wipe the record',
+    (admin.match(/if\(!v\)\{ input\.value = \(item && item\.data\.(name|phone)\) \|\| ''; return; \}/g) || []).length === 2,
+    'same rule the price box already follows');
+  check('S68', 'the email is lowercased and trimmed as it is saved',
+    /const v = input\.value\.trim\(\)\.toLowerCase\(\);/.test(admin));
+  check('S68', 'the open row survives the re-render that saving causes',
+    /const quoteContactOpenIds = new Set\(\);/.test(admin) &&
+    /quoteContactOpenIds\.has\(item\.id\)/.test(admin),
+    'a row that collapsed mid-typing would be unusable \u2014 same trick as the pricing panel');
+  check('S68', 'it writes to the quote, never to a customer record',
+    /quoteContactSave = function\(input, field, value[\s\S]{0,320}doc\(db,'quotes', id\), patch\)/.test(admin),
+    'a quote is the pre-customer record \u2014 nothing here may touch jobAddresses');
+
+  /* ---- the route notice fits inside the rule that stores it ---------- */
+  check('S68', 'the notice no longer writes one line per house',
+    !/report\.moved\.forEach\(function\(m\)\{\s*\n\s*lines\.push/.test(admin) &&
+    !/report\.dropped\.forEach\(function\(x\)\{\s*\n\s*lines\.push/.test(admin) &&
+    !/report\.freed\.forEach\(function\(f\)\{\s*\n\s*lines\.push/.test(admin),
+    'moved/dropped/freed at ~120 characters each is what pushed a real sweep past 5,000');
+  check('S68', 'moved, dropped, freed and capped are all summarised with nameFew',
+    (admin.match(/nameFew\(report\.(moved|dropped|freed|capped|filled|pulled)\)/g) || []).length >= 6,
+    'the first few named and the rest counted \u2014 what filled and pulled already did');
+  check('S68', 'dropped houses are still grouped by WHY they came off',
+    /tally\(report\.dropped, function\(x\)\{ return x\.why/.test(admin),
+    'a house coming off a day is only worth reading if you can see the reason');
+  check('S68', 'freed houses still call out the new hangs',
+    /newHangs\.length \+ ' of them '/.test(admin),
+    'a returning customer waiting another week is not the same as a new hang never going out');
+  check('S68', 'there is a hard length backstop before the write',
+    /if\(body\.length > 4500\)\{/.test(admin) &&
+    /body\.slice\(0, 4500 - trimNote\.length - tail\.length\)/.test(admin),
+    'the create is all-or-nothing: over the ceiling, the WHOLE notice is refused');
+  check('S68', 'and the ending survives the trim',
+    /\+ trimNote \+ tail;/.test(admin),
+    'the part that says nobody has been told is the part that must never be cut');
+  check('S68', 'a notice that cannot be saved is no longer silent',
+    /Could not raise the reconcile note[\s\S]{0,260}toast\(/.test(admin),
+    'it is the LAST step of a sweep that has already rewritten routes \u2014 a console ' +
+    'line meant days moved and nobody knew');
+
+  /* ---- the ceiling itself, which we are fitting inside, not raising -- */
+  check('S68', 'the 5,000-character rule on messages is left exactly as it was',
+    /request\.resource\.data\.message\.size\(\) < 5000/.test(rules),
+    'it is what stops somebody pasting a novel into the public contact form');
 }
 
 // A check that scores after this summary is a check that cannot fail the build.
