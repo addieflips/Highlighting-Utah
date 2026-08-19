@@ -3228,6 +3228,14 @@ function renderCustomerInvoicePage(raw, opts){
       install: invInstall, removal: invRemoval, changeFees: invChangeFee,
       credits: invCredits, deposit: invDeposit, totalDue: totalDue
     });
+    /* The bill names its own houses now (portalInvoice returns them). Only the
+       token link and the email sign-in ever went through portalLookup, so on
+       the ordinary phone-and-surname sign-in portalHouses stayed empty and the
+       "this bill covers N properties" box never appeared for the customers who
+       most needed it. Left alone when the answer is missing — the synthetic
+       no-bill-yet record below carries no houses, and blanking the list there
+       would throw away what portalLookup already found. */
+    if(Array.isArray(res.houses)) portalHouses = res.houses;
     renderPortalHouses();
     renderLastPaymentNote(record);
     renderScheduleStrip(currentJobAddressData || currentLookupRecord);
@@ -3290,16 +3298,31 @@ function renderPortalHouses(){
   var box = document.getElementById('invHouses');
   if(!box) return;
   if(!portalHouses || portalHouses.length < 2){ box.style.display = 'none'; return; }
-  box.innerHTML = '<div style="font-weight:700; margin-bottom:6px;">This bill covers ' + portalHouses.length + ' properties</div>' +
+  /* Names, not only addresses. A parent paying for two children's houses could
+     read a list of two streets and still not know which of their family was on
+     the bill — "who exactly am I paying for this year" is the actual question,
+     and the address alone does not answer it. The name leads each row and the
+     address sits under it; the price is shown per house so the rows visibly
+     add up to the number underneath. */
+  var priced = portalHouses.filter(function(h){ return (Number(h.housePrice) || 0) > 0; }).length;
+  box.innerHTML = '<div style="font-weight:700; margin-bottom:6px;">Who this bill covers &mdash; ' + portalHouses.length + ' properties</div>' +
     portalHouses.map(function(h){
-      var label = h.propertyLabel ? escapeHtmlPortal(h.propertyLabel) + ' — ' : '';
+      var label = h.propertyLabel ? ' <span style="opacity:.75;">(' + escapeHtmlPortal(h.propertyLabel) + ')</span>' : '';
       var state = h.removalDone ? 'taken down'
                 : (h.completed ? 'installed'
                 : (h.scheduledDate ? 'scheduled for ' + escapeHtmlPortal(portalNiceDate(h.scheduledDate)) : 'not scheduled yet'));
-      return '<div style="padding:2px 0;">• ' + label + escapeHtmlPortal(h.address || 'address on file') +
-             ' <span style="opacity:.75;">(' + state + ')</span></div>';
+      var price = (Number(h.housePrice) || 0) > 0
+        ? '<span style="float:right; font-weight:600;">' + fmt(Number(h.housePrice)) + '</span>' : '';
+      return '<div style="padding:4px 0; border-top:1px solid #C3D8EC;">' + price +
+             '<div style="font-weight:600;">' + escapeHtmlPortal(h.name || 'Name not on file') + label + '</div>' +
+             '<div style="opacity:.8;">' + escapeHtmlPortal(h.address || 'address on file') + ' &mdash; ' + state + '</div>' +
+             '</div>';
     }).join('') +
-    '<div style="margin-top:6px; opacity:.85;">The balance below is the total for all of them together.</div>';
+    '<div style="margin-top:8px; opacity:.85;">' +
+      (priced === portalHouses.length
+        ? 'These are the installations on your bill. The balance below is the total for all of them together, plus any fees or credits.'
+        : 'The balance below is the total for all of them together.') +
+    '</div>';
   box.style.display = 'block';
 }
 
