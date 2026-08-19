@@ -13615,7 +13615,12 @@ suite('Suite 58. The sheet against the book, both ways round');
   {
     const at = admin.indexOf("document.getElementById('rbFindMissingBtn')");
     const end = admin.indexOf("document.getElementById('rbCheckBtn')", at);
-    const body = at > 0 && end > at ? admin.slice(at, end) : '';
+    /* ⭐ The add loop moved OUT of its button on 2026-08-19 when the two buttons became
+       one (owner: "with a sync button at the bottom"). It lives in rbApplyTickedAdds
+       now, outside this slice — so the slice carries it along, rather than every check
+       below going quietly green on code it can no longer see. */
+    const body = (at > 0 && end > at ? admin.slice(at, end) : '') +
+      (extractFn(admin, 'rbApplyTickedAdds') || '');
     check('S58', 'the handler was found', !!body);
     /* ⚠ Said BEFORE any list, every time. These two numbers are what let the
        office tell "the sheet and the book agree" from "I could not read your
@@ -13656,15 +13661,26 @@ suite('Suite 58. The sheet against the book, both ways round');
       'only she can choose it, so a message that does not name it leaves her re-picking the file every morning');
 
     check('S58', 'nothing is added until the button is pressed',
-      body.indexOf('rbAddGoBtn') > 0 &&
-      body.indexOf("addDoc(collection(db,'jobAddresses'), doc2)") > body.indexOf('rbAddGoBtn'),
+      /* The add no longer sits behind its own button — it is rbApplyTickedAdds, run by
+         the one Sync button. What matters is unchanged: nothing is written until a
+         press, and the press is what reads the ticks. */
+      /* ⚠ extractFn searches for "function NAME(" and so slices from there, DROPPING
+         the async keyword — this suite has been caught by that before. The async is
+         checked against the whole file; the ORDER is checked in the slice. */
+      /async function rbApplyTickedAdds/.test(admin) &&
+      /function rbApplyTickedAdds/.test(body) &&
+      body.indexOf("addDoc(collection(db,'jobAddresses'), doc2)") > body.indexOf('async function rbApplyTickedAdds'),
       'a scan that wrote as it went would add every stray copy on the list');
     /* ⚠ The boxes are read when PRESSED, not when drawn. */
     check('S58', 'it adds exactly what is still ticked at the moment you press',
       /picks\(\)\.forEach\(function\(p\)\{ if\(p\.checked\) wanted\[p\.getAttribute\('data-i'\)\] = true; \}\);/.test(body),
       'reading the ticks from the scan would ignore every box the office had just changed');
+    /* ⚠ The guard moved into rbApplyTickedAdds and now RETURNS COUNTS rather than
+       writing a message, because the one button has to say one thing at the end. An
+       empty add list must leave the record untouched and let the sync half speak. */
     check('S58', 'and it adds nothing when nothing is ticked',
-      /if\(!list\.length\)\{ statusEl\.textContent = 'Nothing was ticked/.test(body));
+      /if\(!list\.length\) return \{done: 0, failed: 0, noPin: 0, updatedExisting: 0, ran: false\};/.test(body),
+      'a half that writes its own message would overwrite the other half’s answer');
 
     /* ⭐ AND THE WRITE FOLLOWS THE PAIRING. Owner: "I want it to update the
        customer not add a new one." */
@@ -13694,9 +13710,13 @@ suite('Suite 58. The sheet against the book, both ways round');
       /delete doc2\.portalToken;/.test(body),
       'a fresh token silently breaks every link already sent to that customer');
     check('S58', 'the report says how many were updated rather than added',
-      /existing record\(s\) updated instead of copied/.test(body));
+      /existing record\(s\) updated instead of copied/.test(admin),
+    'the one summary is written by the sync handler now, not by the add half');
+    /* ⚠ Both halves still matter: the add code must not touch an invoice, and the
+       one summary must still SAY so — the sentence moved to the combined report. */
     check('S58', 'it creates no invoice, and says so',
-      !/setDoc\(doc\(db,'invoices'/.test(body) && /No invoice was created/.test(body),
+      !/setDoc\(doc\(db,'invoices'/.test(body) &&
+      /no invoice was created or touched/.test(admin),
       'writing money is its own decision and belongs to the full Bulk Update');
     check('S58', 'the customers on the website but not on the sheet are only REPORTED',
       !/deleteDoc/.test(body),
@@ -13752,8 +13772,16 @@ suite('Suite 58. The sheet against the book, both ways round');
     check('S58', 'a customer with several differences is written once',
       /\(byCust\[x\.id\] = byCust\[x\.id\] \|\| \{\}\)\[x\.key\] = x\.write;/.test(sync) &&
       /updateDoc\(doc\(db,'jobAddresses', ids\[i\]\), byCust\[ids\[i\]\]\)/.test(sync));
+    /* ⚠ NOW ALSO CHECKS THE ADD HALF. "Nothing ticked" is only true when NEITHER
+       half had anything; returning early on an empty diff list would throw away adds
+       that had just run in the same press. */
     check('S58', 'and it syncs nothing when nothing is ticked',
-      /if\(!list\.length\)\{ statusEl\.textContent = 'Nothing was ticked/.test(sync));
+      /if\(!list\.length && !added\.ran\)\{ statusEl\.textContent = 'Nothing was ticked/.test(sync),
+      'an early return here would silently discard the adds from the same press');
+    check('S58', 'and one press does both halves',
+      /const added = await rbApplyTickedAdds\(statusEl\);/.test(sync) &&
+      sync.indexOf('rbApplyTickedAdds') < sync.indexOf('const all = rbPendingDiffs'),
+      'the owner asked for one button; two that must be pressed in order is still two');
     check('S58', 'the sync never touches an invoice',
       !/invoices/.test(sync),
       'the price lives on the invoice and writing money is its own decision');

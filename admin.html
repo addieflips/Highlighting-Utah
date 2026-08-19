@@ -16829,17 +16829,122 @@ function rbRenderLedger(found){
   html += '<div style="margin-top:12px;">' +
     '<button type="button" class="btn ghost" id="rbAddAllBtn">Tick all</button> ' +
     '<button type="button" class="btn ghost" id="rbAddNoneBtn">Untick all</button> ' +
-    /* ⚠ TWO BUTTONS, NOT ONE, AND DELIBERATELY SO. Adding a customer and editing
-       one are different writes: the first creates a record and a place in the book,
-       the second changes fields on records that already exist. One button would have
-       to report both outcomes in one line and they fail in different ways. They sit
-       together at the bottom of the one list, in the order you would use them. */
-    '<button type="button" class="btn btn-gold" id="rbDiffGoBtn">Sync the ticked changes</button> ' +
-    '<button type="button" class="btn btn-gold" id="rbAddGoBtn">Add the ticked customers</button>' +
+    /* ⭐ ONE BUTTON. Owner, 2026-08-19: "with a sync button at the bottom" — singular.
+       It shipped with two because adding a customer and editing one are different
+       writes and I would not merge them in a hurry. The unhurried version: both loops
+       are functions, this runs them in turn, and ONE sentence says what each did.
+       ⚠ Adds run FIRST. A row that adds somebody and a row that edits somebody are
+       independent, but a spare copy being folded in DELETES a record, and doing that
+       before the adds have read their own list is asking for trouble. */
+    '<button type="button" class="btn btn-gold" id="rbSyncAllBtn">Sync everything ticked</button>' +
     '</div>';
   html += '<div style="font-size:12px; color:var(--slate); margin-top:6px;">New customers are added as a record only — no invoice. Nobody is ever deleted: a customer on the website and not on the sheet is shown for information.</div>';
   html += '</div>';
   return html;
+}
+/* ⭐ THE ADD WORK, LIFTED OUT OF ITS BUTTON. Owner, 2026-08-19, describing the one
+   list: "with a sync button at the bottom" — singular. It shipped with two, because
+   adding a customer and editing one are different writes and I did not want to merge
+   them in a hurry. This is the unhurried version: both loops are functions now, one
+   button calls both in turn, and the summary says what each did.
+   ⚠ Returns counts and writes NO report of its own — one press must produce one
+   sentence, not two that overwrite each other. That overwriting is exactly why the
+   quick version of this was not worth shipping. */
+async function rbApplyTickedAdds(statusEl){
+  const picks = function(){ return Array.prototype.slice.call(document.querySelectorAll('.rb-add-pick')); };
+  const wanted = {};
+  picks().forEach(function(p){ if(p.checked) wanted[p.getAttribute('data-i')] = true; });
+  const list = (rbPendingAdds || []).filter(function(r){ return wanted[String(r.i)]; });
+  if(!list.length) return {done: 0, failed: 0, noPin: 0, updatedExisting: 0, ran: false};
+
+  const hoff = rbHeaderOffset();
+  const colOf = function(id){ return rbCol(id, hoff); };
+  const dates = colOf('rbDatesArea'), colorsRaw = colOf('rbColorsArea');
+  const installPrefRaw = colOf('rbInstallPrefArea'), wireRaw = colOf('rbWireArea');
+  const timerRaw = colOf('rbTimerArea'), eavesRaw = colOf('rbEavesArea');
+  const difficultyRaw = colOf('rbDifficultyArea'), feetRaw = colOf('rbFeetArea');
+  const notesRaw = colOf('rbNotesArea');
+  const amountsRaw = colOf('rbAmountsArea');
+  let done = 0, failed = 0, noPin = 0, updatedExisting = 0;
+  for(let n = 0; n < list.length; n++){
+    const r = list[n], i = r.i;
+    statusEl.textContent = 'Adding ' + (n+1) + ' of ' + list.length + '…';
+    await bulkBreathe(n);
+    try{
+      const fullAddress = buildFullAddress(r.street, r.city, r.zip);
+      let coords = {lat: null, lng: null};
+      if(r.street){
+        try{ coords = await geocodeAddress(fullAddress) || {lat: null, lng: null}; }
+        catch(err){ coords = {lat: null, lng: null}; }
+      }
+      if(coords.lat === null) noPin++;
+      const detected = rbDetectColorsAndPattern(colorsRaw[i] || '');
+      const feetVal = rbNormalizeFeet(feetRaw[i] || '');
+      const dateTypedIn = dates[i] || '';
+      const doc2 = {
+        street: r.street, city: r.city, state: r.state, zip: r.zip,
+        address: fullAddress, name: r.name, phone: r.phone, email: r.email,
+        difficulty: rbNormalizeDifficulty(difficultyRaw[i] || '') || 'Unrated',
+        lightColors: detected.colors, lightsDescription: detected.pattern,
+        installPreference: rbNormalizeInstallPref(installPrefRaw[i] || '') || 'Normal Schedule',
+        wireColor: rbNormalizeWire(wireRaw[i] || '') || '',
+        outletTimer: rbNormalizeYesNo(timerRaw[i] || '') || '',
+        useEaves: rbNormalizeYesNo(eavesRaw[i] || '') || '',
+        portalToken: generatePortalToken(),
+        lat: coords.lat, lng: coords.lng, needsGeocode: coords.lat === null,
+        scheduled: false,
+        createdAt: dateTypedIn ? Timestamp.fromDate(new Date(dateTypedIn)) : serverTimestamp()
+      };
+      if(r.cu){
+        doc2.customerNumber = r.cu;
+        if(parseInt(r.cu,10) < 5000) doc2.numberOfBins = 1;
+      }
+      if(feetVal){
+        doc2.measuredFeet = Number(feetVal);
+        doc2.numberOfBins = cnBinsForFeet(Number(feetVal));
+      }
+      /* ⭐ THE PRICE COMES ACROSS TOO. Owner, 2026-08-19: "when I sync it and add
+         a full new customer to the website does it convert all of their info?"
+         It did not — the $ column was read for the comparison but never written
+         on an add, so a customer arrived with no price and could not be billed
+         until somebody noticed. Worse, the next comparison then flagged every one
+         of them as a price gap, which reads like a problem rather than an omission.
+         ⚠ NO INVOICE IS CREATED HERE and that has not changed. This puts the price
+         on the RECORD; billing is still Bulk Update, deliberately, because an
+         invoice is money leaving somewhere and belongs behind its own button. */
+      const priceVal = rbNormalizeMoney(amountsRaw[i] || '');
+      if(priceVal !== '' && Number(priceVal) > 0) doc2.housePrice = Number(priceVal);
+      const notesRawVal = (notesRaw[i] || '').trim();
+      /* A colour list in the Notes column is the Lights column written in the
+         wrong place — see rbNotesLooksLikeColors. */
+      /* A count of sides is a fact about the house — ticked, not written
+         into Notes where nothing can read it. See rbSidesFromNote. */
+      const notesSides = rbSidesFromNote(notesRawVal);
+      const notesVal = (notesSides || rbNotesLooksLikeColors(notesRawVal)) ? '' : notesRawVal;
+      if(notesVal) doc2.notes = notesVal;
+      if(notesSides) doc2.houseSides = notesSides;
+      if(r.pairedSite){
+        /* ⭐ UPDATE, DON'T ADD. Owner, 2026-08-18: "I want it to update the
+           customer not add a new one."
+           This row is the same person as a record already here, sitting on an
+           address the matcher could not reach — so writing the row ONTO that
+           record is the whole fix. It gains the address that makes it
+           findable again, and the second copy never exists.
+           ⚠ portalToken is left alone: it is what the customer signs in with
+           and what every emailed link already carries, so minting a fresh one
+           here would silently break the links that are out there. */
+        delete doc2.portalToken;
+        await updateDoc(doc(db,'jobAddresses', r.pairedSite.id), doc2);
+        updatedExisting++;
+      } else {
+        await addDoc(collection(db,'jobAddresses'), doc2);
+        done++;
+      }
+    } catch(err){ failed++; }
+  }
+  rbPendingAdds = null;
+  if(done) logActivity('Added ' + done + ' customer(s) missing from the website', 'customers', '');
+  return {done: done, failed: failed, noPin: noPin, updatedExisting: updatedExisting, ran: true};
 }
 function rbWireDiffButtons(report, statusEl){
   const picks = function(){ return Array.prototype.slice.call(document.querySelectorAll('.rb-diff-pick')); };
@@ -16859,9 +16964,13 @@ function rbWireDiffButtons(report, statusEl){
   /* ⚠ The tick-all pair lives in the ledger now and covers BOTH kinds of row,
      so the diff table’s own pair is gone. Wiring ids that no longer exist is a
      silent no-op behind ?. — exactly what gate C catches. */
-  const go = document.getElementById('rbDiffGoBtn');
+  const go = document.getElementById('rbSyncAllBtn');
   if(!go) return;
   go.addEventListener('click', onceAtATime(async function(){ return withBulkWrites(async function(){
+    /* ⭐ THE ADDS, FIRST AND IN THE SAME PRESS. rbApplyTickedAdds returns counts and
+       writes no report of its own, so the two halves cannot overwrite each other’s
+       answer — which is the whole reason this was two buttons until now. */
+    const added = await rbApplyTickedAdds(statusEl);
     const all = rbPendingDiffs || [];
     const wanted = {};
     picks().forEach(function(p){ if(p.checked) wanted[p.getAttribute('data-n')] = true; });
@@ -16874,7 +16983,10 @@ function rbWireDiffButtons(report, statusEl){
       if(wanted[String(n)]) return true;
       return n >= 400 && !(x && x.conflict);
     });
-    if(!list.length){ statusEl.textContent = 'Nothing was ticked, so nothing was synced.'; return; }
+    /* ⚠ "Nothing ticked" is only true when NEITHER half had anything. It used to
+       return here on an empty diff list, which after the merge would have thrown away
+       the adds that had just run. */
+    if(!list.length && !added.ran){ statusEl.textContent = 'Nothing was ticked, so nothing was synced.'; return; }
     /* One write per CUSTOMER, not per field: a customer with six differences is
        one update, not six. */
     const byCust = {};
@@ -16935,13 +17047,18 @@ function rbWireDiffButtons(report, statusEl){
     rbPendingDiffs = null;
     logActivity('Synced ' + fields + ' field(s) from the master sheet onto ' + done + ' customer(s)', 'customers', '');
     report.innerHTML = '<div style="border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--paper); font-size:13px;">' +
+      (added.done ? added.done + ' customer(s) added' : '') +
+      (added.updatedExisting ? (added.done ? ', ' : '') + added.updatedExisting + ' existing record(s) updated instead of copied' : '') +
+      (added.failed ? ', ' + added.failed + ' add(s) failed' : '') +
+      (added.noPin ? ', ' + added.noPin + ' without a map pin (All Customers → Filters → Map Pin → "Needs Pin")' : '') +
+      ((added.done || added.updatedExisting) ? '. ' : '') +
       fields + ' field(s) synced across ' + done + ' customer(s)' + (failed ? ', ' + failed + ' failed' : '') +
       (folded ? ', ' + folded + ' spare copy(ies) folded in and removed' : '') +
       (foldFailed ? ', ' + foldFailed + ' spare copy(ies) could not be folded' : '') +
-      '. Nothing that was blank on the sheet was written, and no invoice was touched. ' +
+      '. Nothing that was blank on the sheet was written, and no invoice was created or touched — run Bulk Update if anybody new needs billing. ' +
       'Press Compare again to check.</div>';
     statusEl.textContent = '';
-  }); }, function(){ return document.getElementById('rbDiffGoBtn'); }));
+  }); }, function(){ return document.getElementById('rbSyncAllBtn'); }));
 }
 /* ---------------- DUPLICATE CUSTOMERS ---------------------------------------
    Owner, 2026-08-17, reading Health Check: "actually yes we Have duplicate
@@ -17748,113 +17865,14 @@ document.getElementById('rbFindMissingBtn')?.addEventListener('click', async fun
   report.innerHTML = tally + rbRenderLedger(found);
   rbWireDiffButtons(report, statusEl);
   /* Both kinds of row, because they are one list on screen now: ticking all and
-     then finding half of it untouched is worse than no button. The two GO buttons
-     still read only their own class, so each writes only what it should. */
+     then finding half of it untouched is worse than no button. The one Sync button
+     runs both halves, each reading only its own class. */
   const picks = function(){ return Array.prototype.slice.call(document.querySelectorAll('.rb-add-pick, .rb-diff-pick')); };
   document.getElementById('rbAddAllBtn')?.addEventListener('click', function(){ picks().forEach(function(p){ p.checked = true; }); });
   document.getElementById('rbAddNoneBtn')?.addEventListener('click', function(){ picks().forEach(function(p){ p.checked = false; }); });
-  const go = document.getElementById('rbAddGoBtn');
-  if(go) go.addEventListener('click', onceAtATime(async function(){ return withBulkWrites(async function(){
-    /* Read the boxes at the moment of pressing, not when the list was drawn. */
-    const wanted = {};
-    picks().forEach(function(p){ if(p.checked) wanted[p.getAttribute('data-i')] = true; });
-    const list = (rbPendingAdds || []).filter(function(r){ return wanted[String(r.i)]; });
-    if(!list.length){ statusEl.textContent = 'Nothing was ticked, so nothing was added.'; return; }
-    const hoff = rbHeaderOffset();
-    const colOf = function(id){ return rbCol(id, hoff); };
-    const dates = colOf('rbDatesArea'), colorsRaw = colOf('rbColorsArea');
-    const installPrefRaw = colOf('rbInstallPrefArea'), wireRaw = colOf('rbWireArea');
-    const timerRaw = colOf('rbTimerArea'), eavesRaw = colOf('rbEavesArea');
-    const difficultyRaw = colOf('rbDifficultyArea'), feetRaw = colOf('rbFeetArea');
-    const notesRaw = colOf('rbNotesArea');
-    const amountsRaw = colOf('rbAmountsArea');
-    let done = 0, failed = 0, noPin = 0, updatedExisting = 0;
-    for(let n = 0; n < list.length; n++){
-      const r = list[n], i = r.i;
-      statusEl.textContent = 'Adding ' + (n+1) + ' of ' + list.length + '…';
-      await bulkBreathe(n);
-      try{
-        const fullAddress = buildFullAddress(r.street, r.city, r.zip);
-        let coords = {lat: null, lng: null};
-        if(r.street){
-          try{ coords = await geocodeAddress(fullAddress) || {lat: null, lng: null}; }
-          catch(err){ coords = {lat: null, lng: null}; }
-        }
-        if(coords.lat === null) noPin++;
-        const detected = rbDetectColorsAndPattern(colorsRaw[i] || '');
-        const feetVal = rbNormalizeFeet(feetRaw[i] || '');
-        const dateTypedIn = dates[i] || '';
-        const doc2 = {
-          street: r.street, city: r.city, state: r.state, zip: r.zip,
-          address: fullAddress, name: r.name, phone: r.phone, email: r.email,
-          difficulty: rbNormalizeDifficulty(difficultyRaw[i] || '') || 'Unrated',
-          lightColors: detected.colors, lightsDescription: detected.pattern,
-          installPreference: rbNormalizeInstallPref(installPrefRaw[i] || '') || 'Normal Schedule',
-          wireColor: rbNormalizeWire(wireRaw[i] || '') || '',
-          outletTimer: rbNormalizeYesNo(timerRaw[i] || '') || '',
-          useEaves: rbNormalizeYesNo(eavesRaw[i] || '') || '',
-          portalToken: generatePortalToken(),
-          lat: coords.lat, lng: coords.lng, needsGeocode: coords.lat === null,
-          scheduled: false,
-          createdAt: dateTypedIn ? Timestamp.fromDate(new Date(dateTypedIn)) : serverTimestamp()
-        };
-        if(r.cu){
-          doc2.customerNumber = r.cu;
-          if(parseInt(r.cu,10) < 5000) doc2.numberOfBins = 1;
-        }
-        if(feetVal){
-          doc2.measuredFeet = Number(feetVal);
-          doc2.numberOfBins = cnBinsForFeet(Number(feetVal));
-        }
-        /* ⭐ THE PRICE COMES ACROSS TOO. Owner, 2026-08-19: "when I sync it and add
-           a full new customer to the website does it convert all of their info?"
-           It did not — the $ column was read for the comparison but never written
-           on an add, so a customer arrived with no price and could not be billed
-           until somebody noticed. Worse, the next comparison then flagged every one
-           of them as a price gap, which reads like a problem rather than an omission.
-           ⚠ NO INVOICE IS CREATED HERE and that has not changed. This puts the price
-           on the RECORD; billing is still Bulk Update, deliberately, because an
-           invoice is money leaving somewhere and belongs behind its own button. */
-        const priceVal = rbNormalizeMoney(amountsRaw[i] || '');
-        if(priceVal !== '' && Number(priceVal) > 0) doc2.housePrice = Number(priceVal);
-        const notesRawVal = (notesRaw[i] || '').trim();
-        /* A colour list in the Notes column is the Lights column written in the
-           wrong place — see rbNotesLooksLikeColors. */
-        /* A count of sides is a fact about the house — ticked, not written
-           into Notes where nothing can read it. See rbSidesFromNote. */
-        const notesSides = rbSidesFromNote(notesRawVal);
-        const notesVal = (notesSides || rbNotesLooksLikeColors(notesRawVal)) ? '' : notesRawVal;
-        if(notesVal) doc2.notes = notesVal;
-        if(notesSides) doc2.houseSides = notesSides;
-        if(r.pairedSite){
-          /* ⭐ UPDATE, DON'T ADD. Owner, 2026-08-18: "I want it to update the
-             customer not add a new one."
-             This row is the same person as a record already here, sitting on an
-             address the matcher could not reach — so writing the row ONTO that
-             record is the whole fix. It gains the address that makes it
-             findable again, and the second copy never exists.
-             ⚠ portalToken is left alone: it is what the customer signs in with
-             and what every emailed link already carries, so minting a fresh one
-             here would silently break the links that are out there. */
-          delete doc2.portalToken;
-          await updateDoc(doc(db,'jobAddresses', r.pairedSite.id), doc2);
-          updatedExisting++;
-        } else {
-          await addDoc(collection(db,'jobAddresses'), doc2);
-          done++;
-        }
-      } catch(err){ failed++; }
-    }
-    rbPendingAdds = null;
-    logActivity('Added ' + done + ' customer(s) missing from the website', 'customers', '');
-    report.innerHTML = '<div style="border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--paper); font-size:13px;">' +
-      done + ' customer(s) added' +
-      (updatedExisting ? ', ' + updatedExisting + ' existing record(s) updated instead of copied' : '') +
-      (failed ? ', ' + failed + ' failed' : '') +
-      (noPin ? ', ' + noPin + ' without a map pin (All Customers → Filters → Map Pin → "Needs Pin")' : '') +
-      '. No invoice was created for any of them — run Bulk Update if they need billing.</div>';
-    statusEl.textContent = '';
-  }); }, function(){ return document.getElementById('rbAddGoBtn'); }));
+  /* The add work lives in rbApplyTickedAdds now and is run by the one Sync button,
+     so there is no second GO button here to wire. */
+
 });
 document.getElementById('rbCheckBtn')?.addEventListener('click', function(){
   const statusEl = document.getElementById('rbImportStatus');
