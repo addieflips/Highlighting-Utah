@@ -11190,11 +11190,13 @@ suite('Suite 50. A Pref Date that names an actual day');
   {
     const afSrc = THX_CONST + fn('houseAllowedFrom');
     const priSrc = fn('houseInstallPriority');
+    const keySrc = fn('prefKey') || '';
     check('S50', 'houseAllowedFrom and houseInstallPriority found', !!afSrc && !!priSrc);
     if (afSrc && priSrc && src) {
       const sb2 = {};
       new Function('BASE_START', 'thanksgivingDate', 'isoOf',
-        src + afSrc + priSrc + 'this.from = houseAllowedFrom; this.pri = houseInstallPriority;'
+        src + afSrc + priSrc + keySrc +
+        'this.from = houseAllowedFrom; this.pri = houseInstallPriority; this.key = prefKey;'
       ).call(sb2, new Date(2026, 9, 1), () => new Date(2026, 10, 26),
         (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'));
 
@@ -11222,9 +11224,54 @@ suite('Suite 50. A Pref Date that names an actual day');
       check('S50', 'a bare NOV still means the 1st of November',
         sb2.from({ pref: 'NOV' }, '2026-10-01') === '2026-11-01');
 
-      check('S50', 'naming a day counts as a stated preference, not "any"',
-        sb2.pri({ pref: '11/9+' }, {}) < sb2.pri({ pref: '' }, {}),
-        'they asked for something specific and should not queue behind people who did not mind');
+      /* ⭐ CHANGED 2026-08-19 on the owner’s instruction: "if they ask for a specific
+         day though that is not top priority we just do it the next time we have a
+         chance for when they ask."
+
+         It used to return 1, the same tier as October, so 11/9 was treated as urgent.
+         Waiting for a date is not the same as being in a hurry. They now take their
+         turn like anybody with no preference — which is safe precisely BECAUSE
+         houseAllowedFrom still holds them to the day, checked right below. */
+      check('S50', 'a named day waits its turn rather than jumping the queue',
+        sb2.pri({ pref: '11/9+' }, {}) === sb2.pri({ pref: '' }, {}) &&
+        sb2.pri({ pref: '11/9+' }, {}) > sb2.pri({ pref: 'OCT' }, {}),
+        'asking for the 9th is not asking to go first');
+      /* ⚠ AND THE DAY STILL BINDS. Dropping the priority would be careless if they
+         could then be hung early; they cannot. */
+      check('S50', 'but the day they named still holds them back',
+        sb2.from({ pref: '11/9+' }, '2026-10-01') === '2026-11-09',
+        'the whole point of naming a day is not being done before it');
+      /* ⚠ A new hang who named a day is still first — that rule outranks everything. */
+      /* ⭐ AND THE SCHEDULE FILES THEM UNDER THE RIGHT MONTH. Owner, 2026-08-19:
+         "there are two people who entered their preferred date in a wrong format
+         including 11/1/2026 and 1-Nov which obviously will be flagged and wont work
+         correctly."
+
+         The formats read fine — prefSpecificDate has handled both for a while. What
+         did not work is prefKey: neither string starts with OCT or NOV, so both fell
+         through to "any" and the Schedule filed somebody who asked for 1 November
+         beside the people with no preference at all.
+
+         ⚠ THE FIXTURE USES HER TWO ACTUAL VALUES. A test on 11/9+ would have passed
+         before and after, because that one was already being read. */
+      check('S50', 'a date written 11/1/2026 or 1-Nov is filed under November',
+        sb2.key('11/1/2026') === 'nov' && sb2.key('1-Nov') === 'nov' &&
+        sb2.key('Nov 1') === 'nov',
+        'got ' + [sb2.key('11/1/2026'), sb2.key('1-Nov'), sb2.key('Nov 1')].join(', '));
+      check('S50', 'and one in October is filed under October',
+        sb2.key('10/28+') === 'oct' && sb2.key('28-Oct') === 'oct',
+        'a named October day is an October house, whatever the spelling');
+      /* ⚠ AND NOTHING ELSE MOVED. "any" has to stay "any", or every customer with no
+         preference is quietly given one. */
+      check('S50', 'and a blank or unreadable value is still "any"',
+        sb2.key('') === 'any' && sb2.key('prepaid') === 'any' && sb2.key('ANY') === 'any',
+        'reading junk as a month would invent a preference nobody stated');
+      check('S50', 'and the plain words still win',
+        sb2.key('October') === 'oct' && sb2.key('November') === 'nov' && sb2.key('THX') === 'thx',
+        'the five standard wordings are what the customer record actually holds');
+      check('S50', 'and a new hang who named a day is still taken first',
+        sb2.pri({ pref: '11/9+' }, { chargeNewMemberFee: true }) === 0,
+        'new hangs outrank every preference, which is the one thing above this');
     }
   }
 
