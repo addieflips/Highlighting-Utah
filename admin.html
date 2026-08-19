@@ -4611,17 +4611,21 @@ let quoteCustKeyCache = null, quoteCustKeyCacheFor = null;
 function quoteCustomerKeys(){
   const list = (typeof jobAddresses !== 'undefined' && jobAddresses) ? jobAddresses : [];
   if(quoteCustKeyCacheFor === list && quoteCustKeyCache) return quoteCustKeyCache;
-  const keys = new Set();
+  /* A Map, not a Set. `.has()` behaves identically so quoteAlreadyACustomer is
+     unchanged, but `.get()` also hands back WHICH customer matched — which is
+     what quoteExistingCustomer below needs to find their portal token. Two
+     copies of this matching rule is exactly what we are avoiding. */
+  const keys = new Map();
   list.forEach(function(c){
     const d = (c && c.data) ? c.data : c;
     if(!d) return;
     const addr = quoteMatchAddress(d.address);
     if(!addr) return;
     const phone = String(d.phone || '').replace(/\D/g, '');
-    if(phone) keys.add(addr + '|p' + phone);
+    if(phone) keys.set(addr + '|p' + phone, c);
     [d.email, d.email2].forEach(function(e){
       const em = String(e || '').trim().toLowerCase();
-      if(em) keys.add(addr + '|e' + em);
+      if(em) keys.set(addr + '|e' + em, c);
     });
   });
   quoteCustKeyCache = keys;
@@ -4638,6 +4642,29 @@ function quoteAlreadyACustomer(d){
   if(phone && keys.has(addr + '|p' + phone)) return true;
   const em = String(d.email || '').trim().toLowerCase();
   return !!(em && keys.has(addr + '|e' + em));
+}
+/* WHICH customer this quote belongs to, by the same rule — used to put their
+   own portal link in a quote email so approving can let them straight in.
+
+   ⚠ ADDRESS PLUS CONTACT, NEVER CONTACT ALONE, and here the reason is sharper
+   than anywhere else: a portal link IS a login. 17 phone numbers in the real
+   book are shared and 14 of those are a parent and a child at two different
+   houses. Matching on the phone alone would post the PARENT'S portal link into
+   the CHILD'S quote email — handing one customer a working login to another
+   customer's account, with their address, gate code and invoice in it.
+
+   ⚠ Unlike quoteAlreadyACustomer this does NOT exclude a re-quote: a re-quote
+   is raised against a live member and they are exactly who should be let in. */
+function quoteExistingCustomer(d){
+  if(!d) return null;
+  const addr = quoteMatchAddress(d.address);
+  if(!addr) return null;
+  const keys = quoteCustomerKeys();
+  const phone = String(d.phone || '').replace(/\D/g, '');
+  if(phone && keys.has(addr + '|p' + phone)) return keys.get(addr + '|p' + phone);
+  const em = String(d.email || '').trim().toLowerCase();
+  if(em && keys.has(addr + '|e' + em)) return keys.get(addr + '|e' + em);
+  return null;
 }
 function quoteAwaitsCustomer(d){
   if(typeof d.quotedPrice !== 'number') return false;
@@ -5498,7 +5525,25 @@ async function resolveLinkTokens(text, phone, amount, opts){
     const quote = quotesCache.find(q => (q.data.phone||'').replace(/\D/g,'') === phoneDigits);
     if(quote && quote.data.quoteToken){
       const quoteToken = quote.data.quoteToken;
-      const approveUrl = 'https://highlightingutah.com/#/quote-details?token='+quoteToken+'&action=approve';
+      /* ⭐ AN EXISTING MEMBER'S QUOTE EMAIL ALSO CARRIES THEIR OWN PORTAL LINK,
+         so pressing Approve can let them straight in instead of asking them to
+         sign in again. This is how the RSVP email has always worked.
+
+         ⚠ THE TOKEN GOES IN THE EMAIL, IT IS NEVER HANDED BACK BY THE SERVER.
+         That distinction is the whole security argument. A quoteToken is
+         generated in the visitor's own browser, so anybody who can submit the
+         public quote form knows one; turning it into a portal session is the
+         account takeover closed in portalLookup on 2026-08-14. A portal token
+         posted into an email we send to the address ON FILE is different —
+         receiving it already proves who they are.
+
+         ⚠ And matched on ADDRESS PLUS CONTACT (quoteExistingCustomer), never
+         the phone alone, or a parent's portal link lands in their child's quote
+         email. A new lead has no customer record, so they simply get no `p` and
+         nothing changes for them. */
+      const qCust = typeof quoteExistingCustomer === 'function' ? quoteExistingCustomer(quote.data) : null;
+      const qPortal = (qCust && qCust.data && qCust.data.portalToken) ? ('&p=' + encodeURIComponent(qCust.data.portalToken)) : '';
+      const approveUrl = 'https://highlightingutah.com/#/quote-details?token='+quoteToken+qPortal+'&action=approve';
       const declineUrl = 'https://highlightingutah.com/#/quote-details?token='+quoteToken+'&action=decline';
       const maybeUrl = 'https://highlightingutah.com/#/quote-details?token='+quoteToken+'&action=maybe_next_year';
       const btnStyleQuote = 'display:inline-block; padding:11px 18px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:14px; margin:6px 4px;';

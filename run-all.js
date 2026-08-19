@@ -15942,12 +15942,26 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
            decide whether they are already signed in on this device. */
         { url: 'https://highlightingutah.com/' });
       const doc = dom.window.document;
-      const sb = { opened: [] };
-      new Function('document', 'window', 'localStorage',
-        'function setQuoteConfirmSub(h){ document.getElementById("quoteLinkConfirmSub").innerHTML = h || ""; }' +
-        offerSrc + openSrc +
-        'this.offer = offerMemberChangeChoice; this.open = openPortalFromQuote;'
-      ).call(sb, doc, dom.window, dom.window.localStorage);
+      const sb = { opened: [], loggedInWith: null };
+      /* ⚠ MODULE-LEVEL STATE HAS TO BE DECLARED HERE. openPortalFromQuote reads
+         quoteLinkPortalToken (the router sets it from the &p= on the link) and
+         calls savePortalLogin / loadPortalByToken. A lifted function whose
+         globals are missing throws a ReferenceError, which scores as an
+         ordinary FAIL and reads as the feature being broken. */
+      const mkSandbox = function (d, w, portalToken) {
+        const box = { loggedInWith: null };
+        new Function('document', 'window', 'localStorage', 'sb',
+          'var quoteLinkPortalToken = ' + JSON.stringify(portalToken || null) + ';' +
+          'function savePortalLogin(t){ try{ localStorage.setItem("huPortalToken", t); }catch(e){} }' +
+          'function loadPortalByToken(t){ sb.loggedInWith = t; }' +
+          'function setQuoteConfirmSub(h){ document.getElementById("quoteLinkConfirmSub").innerHTML = h || ""; }' +
+          offerSrc + openSrc +
+          'this.offer = offerMemberChangeChoice; this.open = openPortalFromQuote;'
+        ).call(box, d, w, w.localStorage, box);
+        return box;
+      };
+      const sbNoToken = mkSandbox(doc, dom.window, null);
+      sb.offer = sbNoToken.offer; sb.open = sbNoToken.open;
 
       sb.offer('sam@example.com');
       const msg = () => doc.getElementById('quoteLinkConfirmMsg').textContent;
@@ -15988,6 +16002,24 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
         doc.getElementById('lookupPhone').value === 'sam@example.com',
         'they still type their last name — that check and its rate limit are ' +
         'what a quote token must never be allowed to skip');
+      /* ⭐ The member's own portal token, carried in the quote email we sent to
+         the address on file, lets them in with no typing at all. */
+      {
+        const dom2 = new JSDOM(
+          '<div id="quoteLinkConfirm"></div><div id="quoteLinkConfirmMsg"></div>' +
+          '<div id="quoteLinkConfirmSub"></div><div id="quoteLinkConfirmActions"></div>' +
+          '<div id="quoteDetailFormWrap"></div><div id="quoteDetailSuccess"></div>' +
+          '<input id="lookupPhone"><input id="lookupLastName">',
+          { url: 'https://highlightingutah.com/' });
+        const withToken = mkSandbox(dom2.window.document, dom2.window, 'PORTALTOKEN123');
+        withToken.open('sam@example.com');
+        check('S70', 'a portal token in the email logs them straight in',
+          withToken.loggedInWith === 'PORTALTOKEN123',
+          'this is the whole point of putting it in the link — no second sign-in');
+        check('S70', 'and it never asks them to type anything',
+          dom2.window.document.getElementById('lookupPhone').value === '',
+          'falling through to the sign-in box means the token was ignored');
+      }
       check('S70', 'the site chrome comes back on the way out',
         !/quote-minimal/.test(doc.body.className),
         'navigate() clears rsvp-minimal but not quote-minimal, so the portal ' +
@@ -15996,6 +16028,55 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
   }
 }
 
+
+  /* ---- WHOSE portal link goes in the quote email --------------------
+     ⚠ THE MOST DANGEROUS MISTAKE AVAILABLE IN THIS WHOLE FEATURE. The quote
+     email for an existing member carries their own portal token so approving
+     can let them in. A portal token IS a login. Match it on the phone alone
+     and a PARENT'S login is posted into their CHILD'S quote email — handing
+     one customer a working session on another customer's account, with their
+     address, gate code and invoice in it. 17 numbers in the real book are
+     shared and 14 of those are exactly that shape.
+
+     This check exists because a sabotage that made the match phone-only was
+     NOT caught by anything else in the suite. */
+  {
+    const admSrc = read('admin.html');
+    const parts = ['quoteMatchAddress', 'quoteCustomerKeys', 'quoteExistingCustomer']
+      .map(n => extractFn(admSrc, n));
+    check('S70', 'quoteExistingCustomer and its helpers exist', parts.every(Boolean));
+    if (parts.every(Boolean)) {
+      const BOOK = [
+        { id: 'dad', data: { name: 'Dad', address: '12 Oak Street', phone: '(801) 555-0111',
+                             email: 'dad@x.com', portalToken: 'DAD-TOKEN' } },
+        { id: 'kid', data: { name: 'Kid', address: '99 Elm Avenue', phone: '801-555-0111',
+                             email: 'kid@x.com', portalToken: 'KID-TOKEN' } }
+      ];
+      const box = {};
+      new Function('jobAddresses',
+        'let quoteCustKeyCache = null, quoteCustKeyCacheFor = null;' +
+        parts.join('\n') + 'this.find = quoteExistingCustomer;'
+      ).call(box, BOOK);
+
+      const got = q => { const c = box.find(q); return c && c.data ? c.data.portalToken : null; };
+
+      check('S70', 'the parent’s quote gets the PARENT’S portal link',
+        got({ address: '12 Oak Street', phone: '8015550111' }) === 'DAD-TOKEN');
+      check('S70', 'and the child’s quote gets the CHILD’S, on the very same phone',
+        got({ address: '99 Elm Avenue', phone: '8015550111' }) === 'KID-TOKEN',
+        'matching on the phone alone hands the parent a login to the child’s ' +
+        'account, or the other way round — this is the leak the address prevents');
+      check('S70', 'a brand-new house on that shared phone gets NO portal link',
+        got({ address: '5 New Road', phone: '8015550111' }) === null,
+        'a new lead has no portal — anything returned here would be somebody else’s');
+      check('S70', 'an address with no matching contact gets none either',
+        got({ address: '12 Oak Street', phone: '8019999999' }) === null,
+        'the address alone is not proof — a landlord and tenant share one');
+      check('S70', 'and a quote with no address gets none',
+        got({ phone: '8015550111' }) === null,
+        'no address means no way to tell the two houses apart, so refuse');
+    }
+  }
 
   /* ---- the OTHER way in: approving from inside the portal ------------
      ⚠ THIS IS THE ONE THAT WAS ACTUALLY BROKEN. The portal's own Approve
