@@ -30860,9 +30860,16 @@ function houseDeadline(h){
 function houseInstallPriority(h, custData){
   const p=(''+((h&&h.pref)||'')).trim().toUpperCase();
   if(custData && custData.chargeNewMemberFee === true) return 0;   // never been hung
-  /* Naming a day is as definite as naming a month — houseAllowedFrom already
-     holds them to it, so this only decides their order once they are allowed. */
-  if(prefSpecificDate(p, BASE_START.getFullYear())) return 1;
+  /* ⭐ A NAMED DAY IS NOT AN URGENT ONE. Owner, 2026-08-19: "if they ask for a
+     specific day though that is not top priority we just do it the next time we
+     have a chance for when they ask."
+
+     It used to return 1, the same tier as October, so somebody who wrote 11/9 was
+     treated as being in a hurry. They are not — they are waiting for a date, which
+     is a different thing. houseAllowedFrom already holds them until that day; from
+     there they take their turn like anybody with no preference, which is exactly
+     "the next time we have a chance". */
+  if(prefSpecificDate(p, BASE_START.getFullYear())) return 2;
   if(p.indexOf('OCT')===0) return 1;   // asked for October
   if(p.indexOf('AFTER THANKS') !== -1 || p === 'THX') return 4;   // last of all
   /* ⚠ FIRST ONCE THE RUN-UP OPENS. houseAllowedFrom holds these back until the
@@ -31037,6 +31044,29 @@ function prefKey(p){
   if(u.indexOf('AFTER THANKS') !== -1 || u === 'THX') return 'thx';
   if(u.indexOf('OCT') === 0) return 'oct';
   if(u.indexOf('NOV') === 0) return 'nov';
+  /* ⭐ A DAY IS A MONTH TOO. Owner, 2026-08-19: "there are two people who entered
+     their preferred date in a wrong format including 11/1/2026 and 1-Nov which
+     obviously will be flagged and wont work correctly."
+
+     The formats read fine — prefSpecificDate has handled both for a while. What
+     did not work is HERE: neither starts with OCT or NOV, so both fell through to
+     "any" and the Schedule filed a customer who asked for 1 November alongside the
+     people with no preference at all.
+
+     ⚠ THIS IS A COMPARISON KEY, NOT A REWRITE. The periodic sync compares timings
+     through prefKey and leaves the plan’s own wording alone, so "11/1/2026" and
+     "November" now agree about the MONTH without either being flattened into the
+     other — which is what SCHEDULE_SYNC_FIELDS warns about a few lines down.
+
+     ⚠ And the DAY still governs when they actually go out: houseAllowedFrom reads
+     prefSpecificDate directly and holds them to the 1st, not to November. */
+  const named = (typeof prefSpecificDate === 'function')
+    ? prefSpecificDate(u, BASE_START.getFullYear()) : null;
+  if(named){
+    const mo = named.slice(5, 7);
+    if(mo === '10') return 'oct';
+    if(mo === '11') return 'nov';
+  }
   return 'any';
 }
 /* Which fields ride along, and how to read each one off the customer. Kept as
