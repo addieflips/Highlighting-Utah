@@ -13230,13 +13230,68 @@ suite('Suite 58. The sheet against the book, both ways round');
         r.sheetOnly.length === 1 && r.sheetOnly[0].name === 'Neither One',
         'offered ' + JSON.stringify(r.rows.map(function(x){ return x.name; })) +
         ', sheet-only ' + JSON.stringify(r.sheetOnly.map(function(x){ return x.name; })));
-      /* ⚠ The message AND the thing that shows it. Testing for the sentence
-         alone passed with the whole block made unreachable — the words were
-         still in the file, just never rendered. */
-      check('S58', 'and they are still listed, not silently dropped',
-        admin.indexOf('have no phone and no email, so they stay on the sheet only') > 0 &&
+      /* ⚠ COUNTED, NOT NAMED. Owner, 2026-08-19, reading five of these names
+         among the ones she was being asked to add: "they are only for the excel
+         sheet and should not show here either." Naming them turns a decision
+         already made back into a to-do list on every comparison. The count stays
+         so the rows are still accounted for — a row that just disappears is one
+         nobody can check.
+
+         ⚠ The message AND the thing that shows it. Testing for the sentence alone
+         passed with the whole block made unreachable — the words were still in the
+         file, just never rendered. */
+      check('S58', 'sheet-only rows are counted, not named',
+        admin.indexOf('so they belong to the sheet only') > 0 &&
         /\(found\.sheetOnly\.length\s*$/m.test(admin.slice(admin.indexOf('const tally ='), admin.indexOf('const siteOnly ='))),
         'a row that just disappears is one nobody can check');
+      check('S58', 'and none of their names is printed',
+        !/found\.sheetOnly\.slice\(/.test(admin),
+        'she has already decided about these people; listing them re-asks the question every time');
+    }
+
+    /* ---- ⭐ A ROW WITH NO NAME IS NOT A CUSTOMER ---- */
+    {
+      /* Owner, 2026-08-19, shown four of these sitting in the add list:
+         "no names should not show here cause they just arent a customer."
+
+         On the real master sheet that is 94 rows, every one of them a bare phone
+         number with no name, no address and no email — a call list kept at the
+         bottom of the same file. They carry a PHONE, so the no-phone-and-no-email
+         rule above could never reach them, and ticking one would have created a
+         customer with no name at all.
+
+         ⚠ THE FIXTURE GIVES THE NAMELESS ROW A PHONE, deliberately. Without one it
+         is caught by the sheet-only rule and this check passes whether the new
+         guard exists or not — which is exactly the shape the real 94 rows have. */
+      const r = run([{ name: 'Real Person', street: '9 D St', city: 'Lehi', phone: '8015550009' },
+                     { name: '', phone: '8018360620' },
+                     { name: '', phone: '8016457877' }], []);
+      check('S58', 'a sheet row with no name is never offered as a customer',
+        r.rows.length === 1 && r.rows[0].name === 'Real Person',
+        'offered: ' + JSON.stringify(r.rows.map(function(x){ return x.name; })));
+      check('S58', 'and it is counted rather than silently dropped',
+        r.nameless === 2,
+        'a whole paste going quiet because the Name column was never mapped has to look ' +
+        'different from a clean sheet — got ' + r.nameless);
+      check('S58', 'and it is not filed as sheet-only either',
+        r.sheetOnly.length === 0,
+        'sheet-only is about people nobody can reach; these are not people');
+
+      /* The count AND the thing that shows it. Same trap the sheet-only line
+         already carries: a number nothing renders is a number nobody sees. */
+      check('S58', 'and the count is actually rendered',
+        admin.indexOf('have no name, so they are not customers and were skipped') > 0 &&
+        /\(found\.nameless\s*$/m.test(admin.slice(admin.indexOf('const tally ='), admin.indexOf('const siteOnly ='))),
+        'ninety-four rows vanishing with nothing said about them is the thing this check exists to stop');
+
+      /* ⚠ AND THE WHOLE-PASTE CASE. Every row nameless means the Name column was
+         never mapped, and a confident "everybody is already on the website" would
+         be the worst possible answer. read stays 0, which is what trips the
+         "nothing to compare" refusal in the handler. */
+      const none = run([{ name: '', phone: '8018360620' }, { name: '', phone: '8016457877' }], []);
+      check('S58', 'a sheet with no names at all reads as nothing read',
+        none.read === 0 && none.rows.length === 0,
+        'otherwise an unmapped Name column reports a confident nothing');
     }
     {
       /* ⭐ And an email FINDS them. A hundred people on the sheet have an email

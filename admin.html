@@ -16013,6 +16013,8 @@ function rbCollectMissingCustomers(){
   ];
   const len = Math.max(streets.length, phones.length, namesRaw.length, nums.length);
   const rows = [], skipped = [], diffs = [], sheetOnly = [];
+  /* Rows on the sheet that name nobody. See the guard in the loop. */
+  let nameless = 0;
   /* How many rows the paste actually yielded. Without this the report cannot
      tell "your sheet and the book agree" from "I could not read your sheet",
      and those look identical from the outside — see the guard in the handler. */
@@ -16026,8 +16028,25 @@ function rbCollectMissingCustomers(){
     const phone = String(phones[i] || '').replace(/\D/g,'');
     const who = rbName(String(namesRaw[i] || '').trim()).trim();
     const cu = String(nums[i] || '').trim();
-    /* Nothing to identify a person by is nothing to add. */
-    if(!who && !street && !phone) continue;
+    /* ⭐ NO NAME IS NOT A CUSTOMER. Owner, 2026-08-19, shown four of them
+       sitting in the add list: "no names should not show here cause they just
+       arent a customer."
+
+       On the real master sheet that is 94 rows, every one of them a bare phone
+       number with no name, no address and no email — a call list kept at the
+       bottom of the same file. Because they carry a phone, the "no phone and no
+       email" rule further down could never reach them, so they were offered for
+       adding on every single comparison, and adding one would have created a
+       customer with no name at all.
+
+       ⚠ COUNTED, NOT SILENTLY DROPPED. A whole paste going quiet because the
+       Name column was never mapped has to look different from a clean sheet.
+       `read` is not incremented either, so that case still trips the "nothing to
+       compare" refusal rather than reporting a confident nothing. */
+    if(!who){
+      if(street || phone || String(emails[i] || '').trim()) nameless++;
+      continue;
+    }
     read++;
     /* Four keys, not one — see rbCompareFindCustomer. */
     const found = rbCompareFindCustomer({
@@ -16177,6 +16196,7 @@ function rbCollectMissingCustomers(){
           onlyOnSite: onlyOnSite.filter(function(x){ return !paired[x.id]; }),
           pairedCount: Object.keys(paired).length,
           diffs: diffs,
+          nameless: nameless,
           read: read, matchedCount: Object.keys(matched).length, bookSize: jobAddresses.length};
 }
 let rbPendingAdds = null;
@@ -16989,16 +17009,23 @@ document.getElementById('rbFindMissingBtn')?.addEventListener('click', async fun
        dont have email or phone number and those people are just for the excel
        sheet." Without this line they simply vanish from the report, and a
        row that disappears is one nobody can check. */
+    /* ⚠ A COUNT, NOT A LIST. Owner, 2026-08-19, reading five of these names
+       among the ones she was being asked to add: "they are only for the excel
+       sheet and should not show here either." Naming them turns a settled
+       decision back into a to-do list every time the comparison is run, and
+       nobody re-reads a paragraph they have already agreed with. The number
+       stays so the rows are still accounted for. */
     (found.sheetOnly.length
       ? '<div style="font-size:12.5px; color:var(--slate); margin-bottom:8px; border-left:3px solid var(--line); padding-left:10px;">' +
-        '<strong>' + found.sheetOnly.length + '</strong> row(s) have no phone and no email, so they stay on the sheet only &mdash; ' +
-        'a customer nobody can invoice or message is not one the website can use. Not counted as missing:' +
-        '<div style="margin-top:4px; line-height:1.6;">' +
-        found.sheetOnly.slice(0, 20).map(function(x){
-          return esc(x.name) + (x.cu ? ' #' + esc(x.cu) : '') + (x.where ? ' &mdash; ' + esc(x.where) : '');
-        }).join('<br>') +
-        (found.sheetOnly.length > 20 ? '<br>… and ' + (found.sheetOnly.length - 20) + ' more.' : '') +
-        '</div></div>'
+        '<strong>' + found.sheetOnly.length + '</strong> row(s) have no phone and no email, so they belong to the sheet only ' +
+        'and are not listed here \u2014 a customer nobody can invoice or message is not one the website can use.' +
+        '</div>'
+      : '') +
+    /* Same idea for rows that name nobody at all. */
+    (found.nameless
+      ? '<div style="font-size:12.5px; color:var(--slate); margin-bottom:8px; border-left:3px solid var(--line); padding-left:10px;">' +
+        '<strong>' + found.nameless + '</strong> row(s) on the sheet have no name, so they are not customers and were skipped.' +
+        '</div>'
       : '');
   const siteOnly = found.onlyOnSite.length
     ? '<div style="border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--paper); margin-top:12px;">' +
