@@ -2874,24 +2874,148 @@ suite('10f. Portal sign-in reads, and multi-property customers');
      by billToPhone, billed as ONE invoice with a line per address. The portal
      showed the FIRST address and a combined balance, so the number simply
      looked too big for the house on screen. */
+  check('multi-house', 'the billed-house group is resolved in ONE place',
+    /function houseBillingRow/.test(fns) && /async function billedHousesByIds/.test(fns) &&
+    /async function billedHousesByKey/.test(fns),
+    'portalLookup and portalInvoice both name the houses on a bill — two copies of that ' +
+    'grouping drift, and then the list stops agreeing with the total printed under it');
   check('multi-house', 'portalLookup returns every house on the bill',
-    /const sibSnap = await db\.collection\('jobAddresses'\)\.where\('billToPhone', '==', billKey\)/.test(fns),
+    /houses = await billedHousesByKey\(billKey, match\.id, match\.data\)/.test(fns),
     'the portal stopped at the first match and the rest were invisible');
+  check('multi-house', 'the BILL names its own houses, not only the sign-in',
+    /await billedHousesByIds\(data\.billedHouseIds\)/.test(fns),
+    'only the token link and the email sign-in go through portalLookup — the ordinary ' +
+    'phone-and-surname sign-in calls the invoice straight away, so for most customers the ' +
+    'list was fetched by nobody and the panel could never appear');
+  check('multi-house', 'and it reads the list the total was summed from',
+    /inv\.billedHouseIds = active\.map/.test(fns),
+    'resolving the group a second way lets the rows disagree with the amount beside them');
   check('multi-house', 'a single-house customer is sent nothing extra',
-    /houses: houses\.length > 1 \? houses : \[\]/.test(fns),
-    'the ordinary customer should see no change at all');
-  check('multi-house', 'a failed sibling lookup cannot block sign-in',
-    /multi-house lookup failed/.test(fns) && /houses = \[\];/.test(fns),
+    (fns.match(/houses\.length > 1 \? houses : \[\]/g) || []).length >= 2,
+    'the ordinary customer should see no change at all, and BOTH endpoints have to hold that');
+  check('multi-house', 'a failed lookup cannot block sign-in or an invoice',
+    /multi-house lookup failed/.test(fns) && /billed-house lookup failed/.test(fns),
     'nothing about a second property should stand between somebody and their account');
-  check('multi-house', 'the portal names the properties the bill covers',
-    /function renderPortalHouses/.test(idx) && /This bill covers /.test(idx),
-    'a balance covering three houses shown against one address is just a wrong-looking number');
-  check('multi-house', 'it says the balance is the total for all of them',
-    /the total for all of them together/.test(idx),
-    'that sentence is the entire point of the panel');
   check('multi-house', 'no crew or stop order reaches the customer',
-    !/assignedCrew/.test(fns.slice(fns.indexOf('const sibSnap'), fns.indexOf('const sibSnap') + 900)),
+    !/assignedCrew/.test(extractFn(fns, 'houseBillingRow') || 'assignedCrew'),
     'the same rule as the schedule strip — the date is theirs, the routing is not');
+
+  /* ⚠ RUN THEM. Every check above matches TEXT, which proves a line is present
+     and nothing whatever about what it returns. This repo has been burned three
+     times in one day by a text-only check sitting green over code that could
+     not run — a sort behind an if(0), a price behind an if(false), and a
+     message that was built and then overwritten before it reached the screen.
+     The rule that actually matters here is arithmetic against a fixture: a
+     house that said no for this season is not in the total, so it must not be
+     named on the bill either. Execute it. */
+  {
+    const rowSrc = extractFn(fns, 'houseBillingRow');
+    const byIdsSrc = extractFn(fns, 'billedHousesByIds');
+    const byKeySrc = extractFn(fns, 'billedHousesByKey');
+    if (!rowSrc || !byIdsSrc || !byKeySrc) {
+      check('multi-house', 'the billed-house helpers are runnable', false,
+        'renamed or removed — update this suite rather than deleting it');
+    } else {
+      /* Dana pays. Kyle is billed to her. Sam said no and is not on this
+         season's bill at all. Rae is billed to somebody else entirely. */
+      const book = {
+        h1: { name: 'Dana Pratt', address: '1 Elm', housePrice: 400, phone: '8015550111' },
+        h2: { name: 'Kyle Pratt', address: '2 Oak', housePrice: 350, billToPhone: '8015550111' },
+        h3: { name: 'Sam Pratt', address: '3 Ash', housePrice: 300, billToPhone: '8015550111', rsvpStatus: 'no' },
+        h4: { name: 'Rae Downs', address: '4 Fir', housePrice: 500, billToPhone: '8015559999' }
+      };
+      const fakeDb = {
+        getAll: async (...refs) => refs.map(r => ({
+          id: r.__id, exists: Object.prototype.hasOwnProperty.call(book, r.__id),
+          data: () => book[r.__id]
+        })),
+        collection: () => ({
+          doc: id => ({ __id: id }),
+          where: (field, op, val) => ({
+            get: async () => ({
+              forEach: cb => Object.keys(book).forEach(id => {
+                if (String(book[id][field] || '') === String(val)) cb({ id, data: () => book[id] });
+              })
+            })
+          })
+        })
+      };
+      const bh = {};
+      new Function('db',
+        rowSrc + '\n' + 'async ' + byIdsSrc + '\n' + 'async ' + byKeySrc + '\n' +
+        'this.byIds = billedHousesByIds; this.byKey = billedHousesByKey;'
+      ).call(bh, fakeDb);
+
+      pendingAsync.push((async () => {
+        const byIds = await bh.byIds(['h1', 'h2', 'h3', 'gone']);
+        check('multi-house', 'the bill names the houses the money came from',
+          byIds.length === 2 && byIds.map(h => h.name).sort().join('|') === 'Dana Pratt|Kyle Pratt',
+          'these are the two the total was summed from');
+        check('multi-house', 'a house that said no is never named on the bill',
+          !byIds.some(h => h.name === 'Sam Pratt'),
+          'runInvoiceBatch leaves a cancelled house out of the total — naming it here would ' +
+          'print a list that does not add up to the amount underneath it');
+        check('multi-house', 'a house deleted since the bill was built is skipped, not crashed on',
+          byIds.length === 2,
+          'billedHouseIds is a snapshot and a record really can go away');
+        check('multi-house', 'it carries the NAME and the price, not just the address',
+          byIds.every(h => h.name) && byIds.every(h => typeof h.housePrice === 'number'),
+          '"who exactly am I paying for" is the question, and a street on its own does not ' +
+          'answer it for a parent paying for two children');
+
+        const byKey = await bh.byKey('8015550111', 'h1', book.h1);
+        check('multi-house', 'the fallback finds the payer AND everyone billed to them',
+          byKey.map(h => h.id).sort().join('|') === 'h1|h2',
+          'h3 said no; h4 is billed to somebody else');
+        check('multi-house', 'and it never reaches into another payer’s group',
+          !byKey.some(h => h.id === 'h4'),
+          'a bill must only ever name its own houses');
+      })());
+    }
+  }
+
+  /* The panel itself, RUN rather than grepped — same reasoning. */
+  if (!JSDOM) {
+    note('jsdom not installed — skipping the multi-house portal panel run');
+  } else {
+    const rphSrc = extractFn(idx, 'renderPortalHouses');
+    if (!rphSrc) {
+      check('multi-house', 'renderPortalHouses is findable', false,
+        'renamed or removed — update this suite rather than deleting it');
+    } else {
+      const dom = new JSDOM('<div id="invHouses"></div>');
+      const render = new Function('document', 'escapeHtmlPortal', 'portalNiceDate', 'fmt',
+        'return function(houses){ var portalHouses = houses;\n' + rphSrc +
+        '\nrenderPortalHouses(); return document.getElementById("invHouses"); };'
+      )(dom.window.document,
+        t => String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;'),
+        () => 'Oct 3',
+        n => '$' + Number(n || 0).toFixed(0));
+
+      const two = render([
+        { name: 'Dana Pratt', address: '1 Elm', housePrice: 400, completed: true },
+        { name: 'Kyle Pratt', address: '2 Oak', housePrice: 350, scheduledDate: '2026-10-03' }
+      ]);
+      check('multi-house', 'the portal names the people the bill covers',
+        two.style.display === 'block' &&
+        two.innerHTML.indexOf('Dana Pratt') !== -1 && two.innerHTML.indexOf('Kyle Pratt') !== -1,
+        'a balance covering two houses shown against one name is just a wrong-looking number');
+      check('multi-house', 'and shows what each of them costs',
+        two.innerHTML.indexOf('$400') !== -1 && two.innerHTML.indexOf('$350') !== -1,
+        'the rows have to visibly add up to the figure underneath them');
+      check('multi-house', 'it says the balance is the total for all of them',
+        /total for all of them together/.test(two.innerHTML),
+        'that sentence is the entire point of the panel');
+      check('multi-house', 'a house with no name on file still gets a row',
+        render([{ address: '1 Elm' }, { address: '2 Oak' }]).innerHTML.indexOf('Name not on file') !== -1,
+        'dropping the row would leave a list that no longer adds up to the total');
+
+      const one = render([{ name: 'Solo Jones', address: '9 Vine', housePrice: 200 }]);
+      check('multi-house', 'the ordinary one-house customer sees nothing at all',
+        one.style.display === 'none',
+        'a box saying "this bill covers 1 property" is a paragraph and no information');
+    }
+  }
 })();
 
 suite('10g. All Customers on a phone');
@@ -13618,7 +13742,12 @@ suite('Suite 58. The sheet against the book, both ways round');
   {
     const at = admin.indexOf("document.getElementById('rbFindMissingBtn')");
     const end = admin.indexOf("document.getElementById('rbCheckBtn')", at);
-    const body = at > 0 && end > at ? admin.slice(at, end) : '';
+    /* ⭐ The add loop moved OUT of its button on 2026-08-19 when the two buttons became
+       one (owner: "with a sync button at the bottom"). It lives in rbApplyTickedAdds
+       now, outside this slice — so the slice carries it along, rather than every check
+       below going quietly green on code it can no longer see. */
+    const body = (at > 0 && end > at ? admin.slice(at, end) : '') +
+      (extractFn(admin, 'rbApplyTickedAdds') || '');
     check('S58', 'the handler was found', !!body);
     /* ⚠ Said BEFORE any list, every time. These two numbers are what let the
        office tell "the sheet and the book agree" from "I could not read your
@@ -13659,15 +13788,26 @@ suite('Suite 58. The sheet against the book, both ways round');
       'only she can choose it, so a message that does not name it leaves her re-picking the file every morning');
 
     check('S58', 'nothing is added until the button is pressed',
-      body.indexOf('rbAddGoBtn') > 0 &&
-      body.indexOf("addDoc(collection(db,'jobAddresses'), doc2)") > body.indexOf('rbAddGoBtn'),
+      /* The add no longer sits behind its own button — it is rbApplyTickedAdds, run by
+         the one Sync button. What matters is unchanged: nothing is written until a
+         press, and the press is what reads the ticks. */
+      /* ⚠ extractFn searches for "function NAME(" and so slices from there, DROPPING
+         the async keyword — this suite has been caught by that before. The async is
+         checked against the whole file; the ORDER is checked in the slice. */
+      /async function rbApplyTickedAdds/.test(admin) &&
+      /function rbApplyTickedAdds/.test(body) &&
+      body.indexOf("addDoc(collection(db,'jobAddresses'), doc2)") > body.indexOf('async function rbApplyTickedAdds'),
       'a scan that wrote as it went would add every stray copy on the list');
     /* ⚠ The boxes are read when PRESSED, not when drawn. */
     check('S58', 'it adds exactly what is still ticked at the moment you press',
       /picks\(\)\.forEach\(function\(p\)\{ if\(p\.checked\) wanted\[p\.getAttribute\('data-i'\)\] = true; \}\);/.test(body),
       'reading the ticks from the scan would ignore every box the office had just changed');
+    /* ⚠ The guard moved into rbApplyTickedAdds and now RETURNS COUNTS rather than
+       writing a message, because the one button has to say one thing at the end. An
+       empty add list must leave the record untouched and let the sync half speak. */
     check('S58', 'and it adds nothing when nothing is ticked',
-      /if\(!list\.length\)\{ statusEl\.textContent = 'Nothing was ticked/.test(body));
+      /if\(!list\.length\) return \{done: 0, failed: 0, noPin: 0, updatedExisting: 0, ran: false\};/.test(body),
+      'a half that writes its own message would overwrite the other half’s answer');
 
     /* ⭐ AND THE WRITE FOLLOWS THE PAIRING. Owner: "I want it to update the
        customer not add a new one." */
@@ -13697,9 +13837,13 @@ suite('Suite 58. The sheet against the book, both ways round');
       /delete doc2\.portalToken;/.test(body),
       'a fresh token silently breaks every link already sent to that customer');
     check('S58', 'the report says how many were updated rather than added',
-      /existing record\(s\) updated instead of copied/.test(body));
+      /existing record\(s\) updated instead of copied/.test(admin),
+    'the one summary is written by the sync handler now, not by the add half');
+    /* ⚠ Both halves still matter: the add code must not touch an invoice, and the
+       one summary must still SAY so — the sentence moved to the combined report. */
     check('S58', 'it creates no invoice, and says so',
-      !/setDoc\(doc\(db,'invoices'/.test(body) && /No invoice was created/.test(body),
+      !/setDoc\(doc\(db,'invoices'/.test(body) &&
+      /no invoice was created or touched/.test(admin),
       'writing money is its own decision and belongs to the full Bulk Update');
     check('S58', 'the customers on the website but not on the sheet are only REPORTED',
       !/deleteDoc/.test(body),
@@ -13755,8 +13899,16 @@ suite('Suite 58. The sheet against the book, both ways round');
     check('S58', 'a customer with several differences is written once',
       /\(byCust\[x\.id\] = byCust\[x\.id\] \|\| \{\}\)\[x\.key\] = x\.write;/.test(sync) &&
       /updateDoc\(doc\(db,'jobAddresses', ids\[i\]\), byCust\[ids\[i\]\]\)/.test(sync));
+    /* ⚠ NOW ALSO CHECKS THE ADD HALF. "Nothing ticked" is only true when NEITHER
+       half had anything; returning early on an empty diff list would throw away adds
+       that had just run in the same press. */
     check('S58', 'and it syncs nothing when nothing is ticked',
-      /if\(!list\.length\)\{ statusEl\.textContent = 'Nothing was ticked/.test(sync));
+      /if\(!list\.length && !added\.ran\)\{ statusEl\.textContent = 'Nothing was ticked/.test(sync),
+      'an early return here would silently discard the adds from the same press');
+    check('S58', 'and one press does both halves',
+      /const added = await rbApplyTickedAdds\(statusEl\);/.test(sync) &&
+      sync.indexOf('rbApplyTickedAdds') < sync.indexOf('const all = rbPendingDiffs'),
+      'the owner asked for one button; two that must be pressed in order is still two');
     check('S58', 'the sync never touches an invoice',
       !/invoices/.test(sync),
       'the price lives on the invoice and writing money is its own decision');
@@ -15197,8 +15349,17 @@ suite('Suite 68. Awaiting Response, the address check, and the route notice');
 
 {
   /* ---- 1 + 2: run the real awaiting helpers ------------------------- */
+  /* ⚠ quoteAlreadyACustomer and the two helpers under it are in this list
+     because quoteAwaitsCustomer CALLS them. They were added to admin.html on
+     2026-08-19 and not added here, so this suite threw ReferenceError before
+     it reached its first assertion — and a throw here kills the whole run
+     before the summary, which is exactly the state that blocks the Cloud
+     Functions deploy gate. If a new helper appears in that chain, add it here
+     too rather than stubbing it: a stub would make the "already a customer"
+     branch untestable while still reporting green. */
   const src = ['quoteHasBeenSent', 'quoteAwaitsCustomer', 'quoteAwaitsUs',
-               'isFreshAwaiting', 'isStaleUnresponsive', 'quoteStage', 'daysSince']
+               'isFreshAwaiting', 'isStaleUnresponsive', 'quoteStage', 'daysSince',
+               'quoteAlreadyACustomer', 'quoteMatchAddress', 'quoteCustomerKeys']
     .map(n => extractFn(admin, n));
   check('S68', 'the awaiting helpers are all still in admin.html',
     src.every(Boolean),
@@ -15206,7 +15367,7 @@ suite('Suite 68. Awaiting Response, the address check, and the route notice');
 
   if (src.every(Boolean)) {
     const box = {};
-    new Function(src.join('\n') +
+    new Function('let quoteCustKeyCache = null, quoteCustKeyCacheFor = null;\n' + src.join('\n') +
       '\nthis.fresh = isFreshAwaiting; this.stale = isStaleUnresponsive;' +
       '\nthis.awaitsUs = quoteAwaitsUs; this.awaitsThem = quoteAwaitsCustomer;').call(box);
 
@@ -15419,6 +15580,415 @@ suite('Suite 68. Awaiting Response, the address check, and the route notice');
   check('S68', 'the 5,000-character rule on messages is left exactly as it was',
     /request\.resource\.data\.message\.size\(\) < 5000/.test(rules),
     'it is what stops somebody pasting a novel into the public contact form');
+}
+
+/* =====================================================================
+ * Suite 69. Who pays for whom
+ *
+ * A payer can be billed for several houses at once — a parent paying for a
+ * child, a landlord paying for tenants, a cabin as well as a house. The office
+ * set that up on purpose and the nightly run bills it as ONE amount, but every
+ * screen in the app is arranged by HOUSE, so nothing anywhere said WHOSE houses
+ * were on a bill. The customer saw a figure bigger than the house they were
+ * looking at; the office had to search a phone number and read the results.
+ *
+ * Three surfaces now answer it — the portal panel (Suite 5's §5.9, above), the
+ * RSVP email, and the Who Pays for Whom tab. They MUST name the same group as
+ * syncPayerInvoice sums, or a customer reads a list of houses that does not add
+ * up to the amount printed beside it.
+ * ===================================================================== */
+suite('Suite 69. Who pays for whom');
+
+{
+  const billingSrc = ['billingGroupsByPayer', 'billedHousesFor', 'billingGroupPayer',
+                      'billedHousesForContact', 'billedHousesRows', 'billedHousesEmailBlock',
+                      'billedHousesPlainText', 'rsvpTemplateHasHouses',
+                      'billingGroupRows', 'billingGroupMatches', 'renderBillingGroups']
+    .map(n => extractFn(admin, n));
+  check('who-pays', 'the who-pays helpers are all still in admin.html',
+    billingSrc.every(Boolean),
+    'one was renamed or removed — update this suite rather than deleting it');
+
+  if (billingSrc.every(Boolean)) {
+    /* Dana pays for her own house and Kyle's. Sam is on her bill but said no
+       for this season. Ivy and Ivy's cabin share ONE phone with no billToPhone
+       anywhere — already one invoice, and the case a billToPhone-only scan
+       cannot see. Solo pays for himself alone. */
+    const book = [
+      { id: 'h1', data: { name: 'Dana Pratt', address: '1 Elm', phone: '8015550111', housePrice: 400 } },
+      { id: 'h2', data: { name: 'Kyle Pratt', address: '2 Oak', phone: '8015552222', billToPhone: '8015550111', housePrice: 350 } },
+      { id: 'h3', data: { name: 'Sam Pratt', address: '3 Ash', phone: '8015553333', billToPhone: '8015550111', housePrice: 300, rsvpStatus: 'no' } },
+      { id: 'h4', data: { name: 'Ivy Nunez', address: '4 Fir', phone: '8015554444', housePrice: 500 } },
+      { id: 'h5', data: { name: 'Ivy Nunez', address: '5 Pine cabin', phone: '8015554444', propertyLabel: 'Cabin', housePrice: 250 } },
+      { id: 'h6', data: { name: 'Solo Jones', address: '9 Vine', phone: '8015556666', housePrice: 200 } }
+    ];
+    const bg = {};
+    new Function('jobAddresses', 'custInvoiceKey', 'esc', 'fmtMoney', 'invoiceById',
+      'balanceDueAmount', 'computeInvoiceStatus', 'document', 'let billingGroupSearchTerm = "";\n' +
+      billingSrc.join('\n') + '\n' +
+      'this.groups = billingGroupsByPayer; this.forCust = billedHousesFor;' +
+      'this.payerOf = billingGroupPayer; this.forContact = billedHousesForContact;' +
+      'this.block = billedHousesEmailBlock; this.plain = billedHousesPlainText;' +
+      'this.hasToken = rsvpTemplateHasHouses; this.rows = billingGroupRows;' +
+      'this.matches = billingGroupMatches;' +
+      'this.render = function(term){ billingGroupSearchTerm = term || ""; renderBillingGroups(); };'
+    ).call(bg,
+      book,
+      d => String((d && d.phone) || '').replace(/\D/g, '') || String((d && d.email) || '').toLowerCase().trim(),
+      t => String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;'),
+      n => '$' + Number(n || 0).toFixed(0),
+      new Map(),
+      () => 0,
+      () => 'Unpaid',
+      null);
+
+    // ---- the grouping itself -------------------------------------------
+    const groups = bg.groups();
+    check('who-pays', 'a house billed to somebody else joins THEIR bill',
+      (groups.get('8015550111') || []).map(h => h.id).sort().join('|') === 'h1|h2',
+      'that is the whole billToPhone feature');
+    check('who-pays', 'two houses on one phone are one bill with no field set',
+      (groups.get('8015554444') || []).map(h => h.id).sort().join('|') === 'h4|h5',
+      'custInvoiceKey already files them under one invoice — a billToPhone-only scan swears ' +
+      'they are separate while the customer’s own portal, which reads the invoice, lists them ' +
+      'together, and then the office and the customer disagree');
+    check('who-pays', 'a house that said no is in nobody’s group',
+      !JSON.stringify(Array.from(groups.values())).includes('Sam Pratt'),
+      'syncPayerInvoice leaves a cancelled house out of the total, so naming it would print a ' +
+      'list that does not add up');
+    check('who-pays', 'the payer’s own record is identified inside the group',
+      (bg.payerOf('8015550111', groups.get('8015550111')) || {}).id === 'h1' &&
+      bg.payerOf('8015559999', []) === null,
+      'a bill-to phone belonging to nobody on file is real — the office typed it — and has to ' +
+      'read as "no customer record" rather than picking an arbitrary house');
+    check('who-pays', 'looking a customer up by record finds their bill',
+      bg.forCust(book[1].data).map(h => h.id).sort().join('|') === 'h1|h2',
+      'Kyle is billed to Dana, so Kyle’s bill IS Dana’s group');
+
+    // ---- what goes in an email ------------------------------------------
+    check('who-pays', 'a house billed to somebody else is never sent the list',
+      bg.forContact('8015552222').length === 0,
+      'Kyle pays for nothing — sending him the group would name a landlord’s other tenants, ' +
+      'and their prices, to a person who is not paying for any of them');
+    check('who-pays', 'and a one-house customer gets nothing at all',
+      bg.forContact('8015556666').length === 0 && bg.block('8015556666') === '',
+      '"this bill covers 1 property" is a paragraph and no information');
+    const dana = bg.block('8015550111');
+    check('who-pays', 'the payer’s email names the people and the amounts',
+      dana.indexOf('Dana Pratt') !== -1 && dana.indexOf('Kyle Pratt') !== -1 &&
+      dana.indexOf('$400') !== -1 && dana.indexOf('$350') !== -1,
+      '"who exactly am I paying for this year" is the question and a street does not answer it');
+    check('who-pays', 'the cancelled house is not in the email either',
+      dana.indexOf('Sam Pratt') === -1,
+      'the same rule as the total — one list, one set of houses');
+    check('who-pays', 'it is a table with inline styles, like every other email block here',
+      /<table role="presentation"/.test(dana),
+      'Outlook ignores nearly all CSS — a styled div arrives unstyled');
+    check('who-pays', 'the preview text says the same thing as the email',
+      bg.plain('8015550111').indexOf('Dana Pratt') !== -1 &&
+      bg.plain('8015550111').indexOf('Kyle Pratt') !== -1 &&
+      bg.plain('8015556666') === '',
+      'the office signs off on the preview — if it differs from the send, the sign-off is worthless');
+
+    // ---- the RSVP email actually carries it ------------------------------
+    check('who-pays', 'the RSVP send appends the list itself',
+      /const housesBlock = rsvpTemplateHasHouses\(template\) \? '' : billedHousesEmailBlock\(d\.phone\)/.test(admin) &&
+      /\+ housesBlock \+ footer;/.test(admin),
+      'the saved template belongs to the owner — nobody should have to edit it, or know a ' +
+      'token exists, for the answer to appear');
+    check('who-pays', 'and does NOT append it twice when the template places it',
+      bg.hasToken('hi {{houses_block}}') === true && bg.hasToken('hi {{houses_list}}') === true &&
+      bg.hasToken('hi {{name}}') === false,
+      'a template that uses the token would otherwise show the list, then show it again');
+    check('who-pays', 'the token resolves for any template, not only the RSVP one',
+      /\{\{houses_block\}\}'\)\.join\(billedHousesEmailBlock\(phone\)\)/.test(admin),
+      'resolveLinkTokens is where every other email token lives');
+    check('who-pays', 'the RSVP preview shows the appended list too',
+      /billedHousesPlainText\(member\.data\.phone\)/.test(admin),
+      'a preview that omits it signs off on an email nobody has read');
+
+    // ---- the office screen -----------------------------------------------
+    check('who-pays', 'the Who Pays for Whom tab exists and is wired',
+      /data-custtab="billing"/.test(admin) && /id="custtab-billing"/.test(admin) &&
+      /if\(tabName === 'billing'\) renderBillingGroups\(\);/.test(admin),
+      'a panel nothing switches to is a panel nobody can open');
+    check('who-pays', 'it redraws when a customer changes',
+      /billingGroups: 'addcustomer'/.test(admin) &&
+      /safeRender\('billingGroups'/.test(admin),
+      'a bill-to change has to reach it, or the office reads yesterday’s groups while the ' +
+      'customer’s portal already shows today’s');
+    check('who-pays', 'a tab added after somebody saved a tab order goes to the END',
+      /if\(savedOrder\.indexOf\(el\.dataset\[dataAttr\]\) === -1\) container\.appendChild\(el\)/.test(admin),
+      'every saved tab is appended after it otherwise, so the brand-new tab silently lands ' +
+      'first — in front of the one people actually open');
+    check('who-pays', 'the search covers the houses, not only the payer',
+      bg.matches({ payerName: 'Dana Pratt', key: '8015550111', houses: [book[1]] }, 'kyle') === true &&
+      bg.matches({ payerName: 'Dana Pratt', key: '8015550111', houses: [book[1]] }, 'zzz') === false,
+      'the name somebody types is usually the person being paid FOR, not the payer');
+
+    const rows = bg.rows();
+    check('who-pays', 'only bills covering more than one house are listed',
+      rows.length === 2 && !rows.some(r => r.key === '8015556666'),
+      'a list of every customer paying for their own house is the customer list again');
+    check('who-pays', 'the biggest bill comes first and the order never wobbles',
+      rows[0].houses.length >= rows[1].houses.length,
+      'a payer covering six houses is the one somebody rings up about');
+    check('who-pays', 'the total is the sum of the houses actually on the bill',
+      rows.filter(r => r.key === '8015550111')[0].priceTotal === 750,
+      'Sam said no and is not billed — 400 + 350, not 1,050');
+  }
+}
+
+if (!JSDOM) {
+  note('jsdom not installed — skipping the Who Pays for Whom render run');
+} else {
+  const renderSrc = ['billingGroupsByPayer', 'billingGroupPayer', 'billingGroupRows',
+                     'billingGroupMatches', 'renderBillingGroups'].map(n => extractFn(admin, n));
+  if (!renderSrc.every(Boolean)) {
+    check('who-pays', 'the Who Pays for Whom renderer is findable', false,
+      'renamed or removed — update this suite rather than deleting it');
+  } else {
+    const dom = new JSDOM('<p id="billingGroupCount"></p><div id="billingGroupList"></div>');
+    const book = [
+      { id: 'h1', data: { name: 'Dana Pratt', address: '1 Elm', phone: '8015550111', housePrice: 400, customerNumber: '1201' } },
+      { id: 'h2', data: { name: 'Kyle Pratt', address: '2 Oak', phone: '8015552222', billToPhone: '8015550111', housePrice: 350 } },
+      { id: 'h3', data: { name: 'Solo Jones', address: '9 Vine', phone: '8015556666', housePrice: 200 } }
+    ];
+    const paint = new Function('jobAddresses', 'custInvoiceKey', 'esc', 'fmtMoney', 'fmtPhone',
+      'invoiceById', 'balanceDueAmount', 'computeInvoiceStatus', 'document', 'openEditCustomerModal',
+      'let billingGroupSearchTerm = "";\n' + renderSrc.join('\n') +
+      '\nreturn function(term){ billingGroupSearchTerm = term || ""; renderBillingGroups();' +
+      ' return { list: document.getElementById("billingGroupList"),' +
+      '          count: document.getElementById("billingGroupCount") }; };'
+    )(book,
+      d => String((d && d.phone) || '').replace(/\D/g, ''),
+      t => String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;'),
+      n => '$' + Number(n || 0).toFixed(0),
+      p => String(p),
+      new Map(),
+      () => 0,
+      () => 'Unpaid',
+      dom.window.document,
+      () => {});
+
+    const out = paint('');
+    check('who-pays', 'the office screen names the payer and everyone on their bill',
+      out.list.innerHTML.indexOf('Dana Pratt') !== -1 &&
+      out.list.innerHTML.indexOf('Kyle Pratt') !== -1,
+      'this is the screen somebody is looking at while the customer reads the same list ' +
+      'on their own portal');
+    check('who-pays', 'a customer paying only for themselves is not listed',
+      out.list.innerHTML.indexOf('Solo Jones') === -1,
+      'otherwise this is just the customer list with extra steps');
+    check('who-pays', 'it says how many bills and how many houses',
+      /1 bill covering 2 houses/.test(out.count.textContent),
+      'the count is what tells the office whether the tab is worth opening');
+    check('who-pays', 'a search that matches nobody says so instead of going blank',
+      /No bill matches that search/.test(paint('zzzz').list.innerHTML),
+      'an empty panel reads as "the feature is broken"');
+    check('who-pays', 'searching the person being paid FOR finds the bill',
+      paint('kyle').list.innerHTML.indexOf('Dana Pratt') !== -1,
+      'that is the name the office is given on the phone');
+  }
+}
+
+
+suite('Suite 70. An existing member is asked what is changing, not handed the new-customer form');
+{
+  /* Owner, 2026-08-19: "I need the members that already exist not to go to the
+     form once they are created. It should just show a message similar to Do you
+     want anything changed with your lights this year? If they say yes they will
+     go straight to there member portal if they say No than a cute message will
+     come up".
+
+     The form collects colours, wire, timer and notes. A member already has all
+     of it on file, and admin's own quote card already warns the office about
+     this case ("Already a customer... do not Convert to Customer again") - this
+     is the half the customer sees. */
+  const idx = read('index.html');
+  const fns = read('functions/index.js');
+  const respond = sectionFrom(fns, fns.indexOf('exports.quoteRespond = onCall'));
+
+  /* ---- the server decides, and it decides narrowly ------------------- */
+  check('S70', 'quoteRespond answers whether this is an existing member',
+    /alreadyMember: alreadyMember/.test(respond) || /alreadyMember,/.test(respond),
+    'without it the page cannot tell a member from a first-time customer');
+
+  check('S70', 'the two signals are the explicit ones, not a phone match',
+    /quoteData\.convertedToCustomerAt/.test(respond) &&
+    /quoteData\.existingCustomerId/.test(respond),
+    'convertedToCustomerAt is the owner’s "once they are created"; ' +
+    'existingCustomerId is a re-quote against a live record');
+
+  /* ⚠ THE TRAP THIS EXISTS TO STOP. Looking the quote’s phone up in
+     jobAddresses is the obvious implementation and it is wrong: 17 numbers in
+     the real book are shared and 14 of those are two genuinely different
+     houses. A new house quoted against a parent’s phone would be told it is
+     already a member and would never be asked for its install details. */
+  const memberBlock = (respond.match(/let alreadyMember = false;[\s\S]*?\n  }\n/) || [''])[0];
+  check('S70', 'the existing-member check never joins on the phone number',
+    !!memberBlock && !/findByPhone|findByEmail|phoneDigits/.test(memberBlock),
+    'a shared phone is a household here, not one customer — a phone join ' +
+    'silently skips the details form for a brand-new house');
+
+  /* ⚠ A quoteToken is generated in the visitor’s own browser, so anybody able
+     to submit the public quote form knows one. Handing back a portalToken is
+     the account takeover closed in portalLookup on 2026-08-14. */
+  check('S70', 'and it never hands back a portal credential',
+    !/portalToken/.test(memberBlock || '') &&
+    !/portalToken/.test((respond.match(/return \{[\s\S]*?\n  \};/) || [''])[0]),
+    'the quote token would become a customer session — the exact hole ' +
+    'closed in portalLookup on 2026-08-14');
+
+  check('S70', 'a failed check refuses rather than guessing yes',
+    /catch[\s\S]{0,400}alreadyMember = false;/.test(respond),
+    'wrongly saying "member" loses a real customer’s install details');
+
+  /* ⚠ A KNOWN DISCONNECT, recorded rather than papered over.
+
+     admin.html decides the same question a THIRD way -- quoteAlreadyACustomer,
+     which matches the quote's ADDRESS plus its phone or email against the book
+     (address as well as contact, so a parent and child sharing a number are
+     still two houses). That is what puts "Already a customer... do not Convert
+     to Customer again" on the office's quote card.
+
+     The server deliberately does NOT copy it. Doing so would mean a second
+     copy of the address normalisation living on the other side of the wire,
+     which is the duplicated-maths problem money-parity.test.js exists for, and
+     the two would drift.
+
+     What that costs: BOTH writes that mark a quote converted are best-effort
+     (admin.html catches and toasts, because the customer is already created by
+     then). If one of those fails, the person IS a member but the quote does not
+     say so, and they would still be shown the install-details form. The office
+     is told at the time and can close the card by hand, which also fixes this.
+
+     Closes when the server and admin agree by construction -- most likely by
+     the conversion writing an explicit link that cannot silently go missing.  */
+  gap('S70 existing-member test agrees with admin\'s own',
+    /quoteAlreadyACustomer/.test(respond),
+    'a quote whose convert-write failed leaves a real member being asked for ' +
+    'install details we already hold; admin already flags that card');
+
+  /* ---- the page asks the question, in that order ---------------------- */
+  const handle = extractFn(idx, 'handleQuoteLink');
+  check('S70', 'handleQuoteLink still exists', !!handle);
+  if (handle) {
+    const atMember = handle.indexOf('res.alreadyMember');
+    const atForm = handle.indexOf('res.formCompleted');
+    check('S70', 'the member question is asked BEFORE the form-already-done branch',
+      atMember !== -1 && atForm !== -1 && atMember < atForm,
+      'a member who once filled the form in would otherwise be told "nothing ' +
+      'else to do" and never asked the one question we want answered');
+  }
+
+  /* ---- and it is RUN, not grepped ------------------------------------
+     ⚠ A regex over the file proves the words are in the source, which is a
+     different and weaker claim than that they reach the screen. This repo lost
+     a day to exactly that on 2026-08-19: every text check passed while a
+     default assignment further down overwrote the message with "nothing". */
+  if (!JSDOM) {
+    note('jsdom not installed — skipping the member-question render');
+  } else {
+    const offerSrc = extractFn(idx, 'offerMemberChangeChoice');
+    const openSrc = extractFn(idx, 'openPortalFromQuote');
+    check('S70', 'offerMemberChangeChoice exists', !!offerSrc);
+    check('S70', 'openPortalFromQuote exists', !!openSrc);
+    if (offerSrc && openSrc) {
+      const dom = new JSDOM(
+        '<div id="quoteLinkConfirm" style="display:none"></div>' +
+        '<div id="quoteLinkConfirmMsg"></div>' +
+        '<div id="quoteLinkConfirmSub"></div>' +
+        '<div id="quoteLinkConfirmActions" style="display:none"></div>' +
+        '<div id="quoteDetailFormWrap"></div>' +
+        '<div id="quoteDetailSuccess"></div>' +
+        '<input id="lookupPhone"><input id="lookupLastName">',
+        /* A real origin, or jsdom refuses localStorage - which this reads to
+           decide whether they are already signed in on this device. */
+        { url: 'https://highlightingutah.com/' });
+      const doc = dom.window.document;
+      const sb = { opened: [] };
+      new Function('document', 'window', 'localStorage',
+        'function setQuoteConfirmSub(h){ document.getElementById("quoteLinkConfirmSub").innerHTML = h || ""; }' +
+        offerSrc + openSrc +
+        'this.offer = offerMemberChangeChoice; this.open = openPortalFromQuote;'
+      ).call(sb, doc, dom.window, dom.window.localStorage);
+
+      sb.offer('sam@example.com');
+      const msg = () => doc.getElementById('quoteLinkConfirmMsg').textContent;
+      const sub = () => doc.getElementById('quoteLinkConfirmSub').textContent;
+      const acts = doc.getElementById('quoteLinkConfirmActions');
+
+      check('S70', 'the question actually reaches the screen',
+        /anything changed with your lights this year/i.test(msg()),
+        'this is the owner’s own wording and it has to be the thing rendered');
+      check('S70', 'the install-details form is put away',
+        doc.getElementById('quoteDetailFormWrap').style.display === 'none',
+        'the approve branch shows it before this answer arrives, so it has to ' +
+        'be hidden again here or the member sees both');
+      check('S70', 'both answers are offered',
+        acts.querySelectorAll('[data-mc="yes"]').length === 1 &&
+        acts.querySelectorAll('[data-mc="no"]').length === 1,
+        'one button each — yes goes to the portal, no closes it off');
+
+      /* No = the warm ending. */
+      acts.querySelector('[data-mc="no"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }));
+      check('S70', '"No" leaves a warm message, not a bare acknowledgement',
+        /all set/i.test(msg()) && /can’t wait|cannot wait/i.test(sub()),
+        'the owner asked for "something a little more nice"');
+      check('S70', 'and the buttons are taken away once answered',
+        acts.style.display === 'none' && acts.innerHTML === '',
+        'leaving them up invites a second answer to a question already answered');
+
+      /* Yes = their portal. With no saved login on this device it must fall
+         back to the normal, rate-limited, last-name-checked sign-in. */
+      sb.offer('sam@example.com');
+      acts.querySelector('[data-mc="yes"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }));
+      check('S70', '"Yes" sends them to the Member Portal',
+        String(dom.window.location.hash) === '#/payment',
+        'the owner asked for "straight to there member portal"');
+      check('S70', 'and fills the sign-in box in for them',
+        doc.getElementById('lookupPhone').value === 'sam@example.com',
+        'they still type their last name — that check and its rate limit are ' +
+        'what a quote token must never be allowed to skip');
+      check('S70', 'the site chrome comes back on the way out',
+        !/quote-minimal/.test(doc.body.className),
+        'navigate() clears rsvp-minimal but not quote-minimal, so the portal ' +
+        'would render with no header and no footer');
+    }
+  }
+}
+
+
+suite('Suite 71. A reconcile note that cannot be saved still leaves a record');
+{
+  /* ⚠ RESTORED 2026-08-19 after a paste-over from a stale read dropped it (the
+     same paste took sysNoteBody with it). The long note failing was invisible
+     for weeks; the paste left a toast in its place, and a toast is gone the
+     moment the office looks away. This is the LAST step of a sweep that has
+     already rewritten real routes, so "the sweep happened" is the part that has
+     to survive in somewhere it keeps. */
+  const notice = sectionFrom(admin, admin.indexOf('async function noticeRoutesReconciled'));
+  const catchBlock = (notice.match(/\} catch\(err\)\{[\s\S]*$/) || [''])[0];
+
+  check('S71', 'noticeRoutesReconciled still exists', !!notice);
+  check('S71', 'a failed note is still said on screen',
+    /toast\(/.test(catchBlock),
+    'the immediate half — the office is looking at the page right now');
+  check('S71', 'and a short note is still written to the System folder',
+    /addDoc\(collection\(db,'messages'\)/.test(catchBlock),
+    'a toast is not a record; routes have already been rewritten by this point');
+  check('S71', 'the short note says how many things changed',
+    /lines\.length \+\n?\s*' thing\(s\) changed/.test(catchBlock),
+    'a note that does not say the sweep did anything is no better than silence');
+  check('S71', 'and the short note goes to the System folder like the long one',
+    /folder: 'System'/.test(catchBlock),
+    'the office looks in one place for these');
+  check('S71', 'a second failure cannot take the sweep down with it',
+    /catch\(err2\)/.test(catchBlock),
+    'the routes are already written — throwing here would strand the caller');
 }
 
 // A check that scores after this summary is a check that cannot fail the build.
