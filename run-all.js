@@ -16078,6 +16078,23 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
     }
   }
 
+  /* ⚠ EVERY quote-email builder must carry the portal token, not just one.
+     CLAUDE.md records that the big "View Your Quote" button is the link most
+     customers actually press — the coloured buttons in the body are the minority
+     path. Wiring only the body button would have looked right in a test and
+     done nothing for most people. */
+  {
+    const admSrc2 = read('admin.html');
+    const builders = admSrc2.split("button_url: 'https://highlightingutah.com/#/quote-details?token='");
+    check('S70', 'every "View Your Quote" builder adds the portal token',
+      builders.length > 1 && builders.slice(1).every(b => /^[^\n]*quotePortalParam\(/.test(b)),
+      'a quote-email link that omits it sends a member to the sign-in box ' +
+      'instead of into their portal');
+    check('S70', 'and they all go through the ONE helper',
+      (admSrc2.match(/quotePortalParam\(/g) || []).length >= 4,
+      'a second inline copy of the rule is one that drifts');
+  }
+
   /* ---- the OTHER way in: approving from inside the portal ------------
      ⚠ THIS IS THE ONE THAT WAS ACTUALLY BROKEN. The portal's own Approve
      button ended with `window.location.hash = '/quote-details'` — the

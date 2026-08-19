@@ -4655,6 +4655,17 @@ function quoteAlreadyACustomer(d){
 
    ⚠ Unlike quoteAlreadyACustomer this does NOT exclude a re-quote: a re-quote
    is raised against a live member and they are exactly who should be let in. */
+/* The `&p=` for a quote link: the member's OWN portal token, or nothing at all
+   for a new lead. Every quote-email builder goes through this, so the big
+   "View Your Quote" button and the coloured Approve button in the body cannot
+   drift apart — and CLAUDE.md notes the big button is the one most customers
+   actually press, so it is the one that matters most.
+   Safety argument lives on quoteExistingCustomer: address PLUS contact. */
+function quotePortalParam(d){
+  const c = quoteExistingCustomer(d);
+  const t = c && c.data ? c.data.portalToken : '';
+  return t ? ('&p=' + encodeURIComponent(t)) : '';
+}
 function quoteExistingCustomer(d){
   if(!d) return null;
   const addr = quoteMatchAddress(d.address);
@@ -5541,8 +5552,7 @@ async function resolveLinkTokens(text, phone, amount, opts){
          the phone alone, or a parent's portal link lands in their child's quote
          email. A new lead has no customer record, so they simply get no `p` and
          nothing changes for them. */
-      const qCust = typeof quoteExistingCustomer === 'function' ? quoteExistingCustomer(quote.data) : null;
-      const qPortal = (qCust && qCust.data && qCust.data.portalToken) ? ('&p=' + encodeURIComponent(qCust.data.portalToken)) : '';
+      const qPortal = quotePortalParam(quote.data);
       const approveUrl = 'https://highlightingutah.com/#/quote-details?token='+quoteToken+qPortal+'&action=approve';
       const declineUrl = 'https://highlightingutah.com/#/quote-details?token='+quoteToken+'&action=decline';
       const maybeUrl = 'https://highlightingutah.com/#/quote-details?token='+quoteToken+'&action=maybe_next_year';
@@ -6873,7 +6883,7 @@ async function nudgeEveryoneShown(){
       html = applyQuotePhotoBlock(html, quotePhotoList(d), true);
       await emailjs.send(cfg.serviceId, cfg.templateId, {
         to_email: String(d.email || '').trim(), to_name: d.name || '', subject: 'Just checking in on your quote', message: html,
-        button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || ''),
+        button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || '') + quotePortalParam(d),
         button_label: 'View Your Quote'
       });
       await updateDoc(doc(db,'quotes', item.id), {
@@ -8670,7 +8680,7 @@ function renderQuoteRows(filtered){
       emailjs.init(cfg.publicKey);
       await emailjs.send(cfg.serviceId, cfg.templateId, {
         to_email: String(d.email || '').trim(), to_name: d.name || '', subject: built.subject, message: built.html,
-        button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || ''),
+        button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || '') + quotePortalParam(d),
         button_label: 'View Your Quote'
       });
       await updateDoc(doc(db,'quotes', id), {
@@ -8804,7 +8814,7 @@ function renderQuoteRows(filtered){
         emailjs.init(cfg.publicKey);
         await emailjs.send(cfg.serviceId, cfg.templateId, {
           to_email: String(d.email || '').trim(), to_name: d.name || '', subject: subject, message: html,
-          button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || ''),
+          button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || '') + quotePortalParam(d),
           button_label: 'View Your Quote'
         });
         if(kind === 'nudge'){
