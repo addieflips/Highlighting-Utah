@@ -17340,6 +17340,7 @@ document.getElementById('rbFindMissingBtn')?.addEventListener('click', async fun
     const timerRaw = colOf('rbTimerArea'), eavesRaw = colOf('rbEavesArea');
     const difficultyRaw = colOf('rbDifficultyArea'), feetRaw = colOf('rbFeetArea');
     const notesRaw = colOf('rbNotesArea');
+    const amountsRaw = colOf('rbAmountsArea');
     let done = 0, failed = 0, noPin = 0, updatedExisting = 0;
     for(let n = 0; n < list.length; n++){
       const r = list[n], i = r.i;
@@ -17378,6 +17379,17 @@ document.getElementById('rbFindMissingBtn')?.addEventListener('click', async fun
           doc2.measuredFeet = Number(feetVal);
           doc2.numberOfBins = cnBinsForFeet(Number(feetVal));
         }
+        /* ⭐ THE PRICE COMES ACROSS TOO. Owner, 2026-08-19: "when I sync it and add
+           a full new customer to the website does it convert all of their info?"
+           It did not — the $ column was read for the comparison but never written
+           on an add, so a customer arrived with no price and could not be billed
+           until somebody noticed. Worse, the next comparison then flagged every one
+           of them as a price gap, which reads like a problem rather than an omission.
+           ⚠ NO INVOICE IS CREATED HERE and that has not changed. This puts the price
+           on the RECORD; billing is still Bulk Update, deliberately, because an
+           invoice is money leaving somewhere and belongs behind its own button. */
+        const priceVal = rbNormalizeMoney(amountsRaw[i] || '');
+        if(priceVal !== '' && Number(priceVal) > 0) doc2.housePrice = Number(priceVal);
         const notesRawVal = (notesRaw[i] || '').trim();
         /* A colour list in the Notes column is the Lights column written in the
            wrong place — see rbNotesLooksLikeColors. */

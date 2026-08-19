@@ -13542,6 +13542,20 @@ suite('Suite 58. The sheet against the book, both ways round');
 
     /* ⭐ AND THE WRITE FOLLOWS THE PAIRING. Owner: "I want it to update the
        customer not add a new one." */
+    /* ⭐ WHAT AN ADD ACTUALLY CARRIES. Owner, 2026-08-19: "when I sync it and add a
+       full new customer to the website does it convert all of their info?" It did
+       not. The money column was read for the comparison but never written on an add,
+       so a customer arrived with no price — and the next comparison then flagged every
+       one of them as a price gap, which reads like a fault rather than an omission. */
+    check('S58', 'adding a customer carries their price across',
+      /if\(priceVal !== '' && Number\(priceVal\) > 0\) doc2\.housePrice = Number\(priceVal\)/.test(body) &&
+      /const priceVal = rbNormalizeMoney/.test(body),
+      'a customer with no price cannot be billed and nothing says so at the time');
+    /* ⚠ AND STILL NO INVOICE. A price on the record is not the same as billing
+       somebody; an invoice is money and belongs behind its own button. */
+    check('S58', 'but still creates no invoice',
+      !/'invoices'/.test(body),
+      'adding a customer must never quietly bill them');
     check('S58', 'a paired row updates its record instead of adding a copy',
       /if\(r\.pairedSite\)\{/.test(body) &&
       /updateDoc\(doc\(db,'jobAddresses', r\.pairedSite\.id\), doc2\)/.test(body) &&
