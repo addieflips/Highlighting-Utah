@@ -4524,17 +4524,151 @@ function daysSince(ts){
   if(!ts || !ts.toDate) return null;
   return Math.floor((Date.now() - ts.toDate().getTime()) / 86400000);
 }
-function isFreshAwaiting(d){
+/* ⭐ WAITING ON THEM, OR WAITING ON US. Three things have to be true before a
+   quote is genuinely "awaiting a response", and two of them were never asked.
+
+   1. IT MUST STILL BE OPEN. quoteStage files a converted, closed, declined,
+      maybe-next-year or archived quote under 'closed' - but this counted purely
+      off approvalStatus, and converting a quote writes {status:'closed'} and
+      never touches approvalStatus. So a customer who said yes on the phone and
+      was converted by hand stayed 'pending' for ever, counted in the Awaiting
+      Response figure, with no card anywhere in that tab to explain the number.
+      That is the phantom 1 the owner asked about on 2026-08-19.
+   2. IT MUST ACTUALLY HAVE BEEN SENT. Priced and sent are NOT the same state -
+      the price box on the quote card saves quotedPrice on its own, so typing a
+      price and stopping there is an ordinary thing to do. With no quoteSentAt,
+      daysSince returns null, which isFreshAwaiting read as "fresh" and
+      isStaleUnresponsive read as "cannot be stale" - so a quote nobody ever
+      sent counted as awaiting for ever and could never turn red. It is not
+      waiting on the customer at all; it is waiting on us, and quoteAwaitsUs
+      below is what the card says instead of pretending otherwise.
+   3. The price and the pending answer, which were already checked.
+
+   ⚠ A re-quote DOES count - the owner confirmed 2026-08-19: "requote should be
+   awaiting response cause we need them to approve still." That means the figure
+   counts across folders and can read 1 while the Awaiting Response TAB reads 0,
+   because quoteFolder diverts an open re-quote to Requotes. That is correct, not
+   a bug - do not "fix" it by excluding re-quotes. */
+function quoteHasBeenSent(d){
+  return !!(d && d.quoteSentAt && typeof d.quoteSentAt.toDate === 'function');
+}
+/* ⭐ THEY ARE ALREADY A CUSTOMER, WHATEVER THE QUOTE SAYS.
+   Marking the quote closed at conversion is the tidy path, and it is what the
+   fill-in-from-quote button does. But there are two ways round it, and both
+   leave a live customer with an open quote still counting as awaiting:
+
+     a) the customer is typed in by hand instead of filled in from the quote,
+        so nothing ever links the two and nothing ever closes the quote;
+     b) the close write itself fails (it is a separate updateDoc AFTER the
+        customer is created — see the conversion path, where it used to be
+        wrapped in an empty catch that threw the error away).
+
+   So the status flag is not trusted on its own. If a customer exists at the
+   same address AND on the same phone or email, the quote has been converted,
+   and nobody is waiting on an answer from them.
+
+   ⚠ ADDRESS **AND** CONTACT, never contact alone. One payer legitimately has
+   several houses on one phone (billToPhone, quoteGroupId siblings), so a phone
+   match by itself would delete a genuinely-waiting quote for their second
+   house out of the figure. The address is what makes it the same house.
+
+   ⚠ AND NEVER A RE-QUOTE. A re-quote is FROM an existing customer by design —
+   that is the whole point of it — so every one of them would match here. The
+   owner's ruling on 2026-08-19 was that a re-quote IS awaiting a response,
+   because the new price still needs approving. isRequote is checked first. */
+function quoteMatchAddress(a){
+  return String(a == null ? '' : a).toLowerCase().replace(/[.,#]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+let quoteCustKeyCache = null, quoteCustKeyCacheFor = null;
+function quoteCustomerKeys(){
+  const list = (typeof jobAddresses !== 'undefined' && jobAddresses) ? jobAddresses : [];
+  if(quoteCustKeyCacheFor === list && quoteCustKeyCache) return quoteCustKeyCache;
+  const keys = new Set();
+  list.forEach(function(c){
+    const d = (c && c.data) ? c.data : c;
+    if(!d) return;
+    const addr = quoteMatchAddress(d.address);
+    if(!addr) return;
+    const phone = String(d.phone || '').replace(/\D/g, '');
+    if(phone) keys.add(addr + '|p' + phone);
+    [d.email, d.email2].forEach(function(e){
+      const em = String(e || '').trim().toLowerCase();
+      if(em) keys.add(addr + '|e' + em);
+    });
+  });
+  quoteCustKeyCache = keys;
+  quoteCustKeyCacheFor = list;
+  return keys;
+}
+function quoteAlreadyACustomer(d){
+  if(!d) return false;
+  if(typeof isRequote === 'function' && isRequote(d)) return false;
+  const addr = quoteMatchAddress(d.address);
+  if(!addr) return false;
+  const keys = quoteCustomerKeys();
+  const phone = String(d.phone || '').replace(/\D/g, '');
+  if(phone && keys.has(addr + '|p' + phone)) return true;
+  const em = String(d.email || '').trim().toLowerCase();
+  return !!(em && keys.has(addr + '|e' + em));
+}
+function quoteAwaitsCustomer(d){
   if(typeof d.quotedPrice !== 'number') return false;
   if((d.approvalStatus||'pending') !== 'pending') return false;
+  if(quoteStage(d) === 'closed') return false;
+  if(quoteAlreadyACustomer(d)) return false;
+  return quoteHasBeenSent(d);
+}
+/* Priced, still open, still unanswered - and never sent. The customer cannot
+   respond to something they were never given, so this is our job, not theirs. */
+function quoteAwaitsUs(d){
+  if(typeof d.quotedPrice !== 'number') return false;
+  if((d.approvalStatus||'pending') !== 'pending') return false;
+  if(quoteStage(d) === 'closed') return false;
+  if(quoteAlreadyACustomer(d)) return false;
+  return !quoteHasBeenSent(d);
+}
+function isFreshAwaiting(d){
+  if(!quoteAwaitsCustomer(d)) return false;
   const days = daysSince(d.quoteSentAt);
-  return days === null || days < 10;
+  return days !== null && days < 10;
 }
 function isStaleUnresponsive(d){
-  if(typeof d.quotedPrice !== 'number') return false;
-  if((d.approvalStatus||'pending') !== 'pending') return false;
+  if(!quoteAwaitsCustomer(d)) return false;
   const days = daysSince(d.quoteSentAt);
   return days !== null && days >= 10;
+}
+/* ⭐ CHECK THE ADDRESS BEFORE SENDING, NOT AFTER. EmailJS answers a bad
+   recipient with 422 "The recipients address is corrupted" - which names no
+   part of the problem, and which the owner hit on a live quote on 2026-08-19.
+   Nothing goes out when it fires: not the first of two addresses, not anything.
+   The whole send fails.
+
+   ⚠ to_email TAKES EXACTLY ONE ADDRESS. Two in the box - comma, semicolon or
+   just a space between them - is the commonest cause and is rejected here with
+   wording that says so. Splitting them and sending twice was considered and
+   turned down by the owner. The Secondary Email on a CUSTOMER is a different
+   thing again: it lets a second person sign in to the portal, and nothing has
+   ever sent to it.
+
+   Returns '' when the address is usable, or a plain sentence saying what is
+   wrong with it. Deliberately not a single clever regex - the point is to tell
+   her which part to fix. */
+function emailAddressProblem(raw){
+  const s = String(raw == null ? '' : raw).trim();
+  if(!s) return 'There is no email address on this quote.';
+  if(/[,;]/.test(s)) return 'There are two email addresses in that box. This sends to one person \u2014 leave just the address they want it at.';
+  if(/\s/.test(s)) return 'There is a space in that email address.';
+  if(/[<>()\[\]\\"]/.test(s)) return 'That address has extra characters wrapped around it \u2014 just the address on its own, like sam@gmail.com.';
+  const parts = s.split('@');
+  if(parts.length < 2) return 'That address is missing its @.';
+  if(parts.length > 2) return 'That address has more than one @ in it.';
+  if(!parts[0]) return 'There is nothing before the @.';
+  const domain = parts[1];
+  if(!domain) return 'There is nothing after the @.';
+  if(domain.indexOf('.') === -1) return 'The part after the @ is missing its ending, like .com.';
+  if(/^[.-]/.test(domain) || /[.-]$/.test(domain) || domain.indexOf('..') !== -1) return 'The part after the @ does not look finished.';
+  if(!/^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$/.test(s)) return 'That does not look like a complete email address.';
+  return '';
 }
 function trashIcon(){ return '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0l-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/></svg>'; }
 function editIcon(){ return '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg>'; }
@@ -6508,7 +6642,10 @@ function quotesToNudge(){
   return quotesCache.filter(function(item){
     const d = item.data;
     if(quoteStage(d) !== 'send') return false;
-    if(!d.email) return false;
+    /* An address EmailJS will reject is not "someone we can nudge". Left in,
+       one bad address turned into one more line in the failure list every run,
+       with the same unreadable "corrupted" wording each time. */
+    if(emailAddressProblem(d.email)) return false;
     if(typeof d.quotedPrice !== 'number') return false;
     if(quoteQuietDays > 0){
       const days = daysSince(d.quoteSentAt);
@@ -6571,7 +6708,7 @@ async function nudgeEveryoneShown(){
          the same template did not match. */
       html = applyQuotePhotoBlock(html, quotePhotoList(d), true);
       await emailjs.send(cfg.serviceId, cfg.templateId, {
-        to_email: d.email, to_name: d.name || '', subject: 'Just checking in on your quote', message: html,
+        to_email: String(d.email || '').trim(), to_name: d.name || '', subject: 'Just checking in on your quote', message: html,
         button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || ''),
         button_label: 'View Your Quote'
       });
@@ -7124,6 +7261,10 @@ function renderQuotesList(){
 // id so it survives the re-render a save triggers instead of collapsing
 // mid-edit (native <details> loses its open state when innerHTML is rebuilt).
 const quotePricingOpenIds = new Set();
+/* Which cards have the Edit contact row open. Same reason as above: saving
+   anything on a card re-renders the whole list, and a row that collapsed
+   mid-typing would be unusable. */
+const quoteContactOpenIds = new Set();
 /* Which cards currently have an email preview open, and which template kind
    it was built from. The preview is part of the card HTML, so it is thrown
    away every time the list re-renders - and a re-render is exactly what
@@ -7782,6 +7923,38 @@ function renderQuoteRows(filtered){
         (Number(d.quoteNudgeCount) ? ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100;">Nudged '+d.quoteNudgeCount+'&times;</span>' : '')+(d.existingCustomerAddressChange ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Existing Customer &mdash; Address Changed</span>' : '')+(d.approvalStatus === 'approved' ? ' <span class="status-pill status-paid">&#10003; Approved</span>' : '')+(d.approvalStatus === 'declined' ? ' <span class="status-pill status-due">Declined</span>' : '')+(d.approvalStatus === 'maybe_next_year' ? ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100;">Maybe Next Year</span>' : '')+(isStaleUnresponsive(d) ? ' <span class="status-pill" style="background:#FDECEA; color:#B91C1C; font-weight:700;">&#9200; 10 Day Unresponsive</span>' : '')+(d.outletTimer === 'Yes' ? ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">&#9201; Wants Timer</span>' : '')+'</div>'+
         '<button type="button" class="address-link-btn" data-previewquoteaddr="'+esc(d.address)+'">'+esc(d.address)+'</button>'+
         '<div class="row-phone-line">'+esc(d.phone)+' &middot; '+esc(d.email)+' &middot; '+fmtDate(d.createdAt)+'</div>'+
+        /* ⭐ THE CONTACT DETAILS ARE EDITABLE HERE, AND ONLY HERE. Until
+           2026-08-19 a quote card could change the feet, the price, the set-up
+           fee and the status - and nothing else. Name, phone and email were
+           display-only, so a quote that arrived with a mistyped email was
+           unsendable AND unfixable: the only ways out were deleting it and
+           re-keying it by hand (losing the photo and the approval token) or
+           editing a customer record that does not exist yet. That came up the
+           day EmailJS rejected a live quote with "The recipients address is
+           corrupted" and there was nowhere to correct the address.
+
+           ⚠ THIS WRITES TO THE QUOTE, NOT TO A CUSTOMER. A quote is the
+           pre-customer record; once it converts, the customer is edited on
+           Customers as usual. Nothing here touches jobAddresses.
+
+           Deliberately three plain boxes that save when you leave them, the
+           same as the price and feet boxes right below - no modal, nothing new
+           to learn, and it works on a phone. */
+        '<div style="margin-top:6px;">'+
+          '<button type="button" class="btn btn-outline btn-sm" data-contacttoggle="'+item.id+'">'+(quoteContactOpenIds.has(item.id) ? 'Hide contact details' : 'Edit contact') + '</button>'+
+        '</div>'+
+        (quoteContactOpenIds.has(item.id)
+          ? '<div style="margin-top:8px; background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:10px 12px;">'+
+              '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:10px;">'+
+                '<div class="form-row" style="margin:0;"><label style="font-size:11.5px;">Name</label><input type="text" class="quoteNameInput" data-id="'+item.id+'" value="'+esc(d.name||'')+'" style="font-size:13px; padding:8px 10px;"></div>'+
+                '<div class="form-row" style="margin:0;"><label style="font-size:11.5px;">Phone</label><input type="tel" class="quotePhoneInput" data-id="'+item.id+'" value="'+esc(d.phone||'')+'" style="font-size:13px; padding:8px 10px;"></div>'+
+                '<div class="form-row" style="margin:0;"><label style="font-size:11.5px;">Email</label><input type="text" class="quoteEmailInput" data-id="'+item.id+'" value="'+esc(d.email||'')+'" autocapitalize="off" autocorrect="off" spellcheck="false" style="font-size:13px; padding:8px 10px;"></div>'+
+              '</div>'+
+              '<div class="rtext quote-contact-status" data-statusfor="'+item.id+'" style="margin-top:8px; min-height:16px;">'+
+                (emailAddressProblem(d.email) ? '<span style="color:var(--ember);">'+esc(emailAddressProblem(d.email))+'</span>' : 'Saves when you tap out of a box.')+
+              '</div>'+
+            '</div>'
+          : '')+
         '<div class="rtext">Prefers: '+esc(d.contactMethod)+
           (formDone ? ' &middot; Timer: <strong>'+(d.outletTimer === 'Yes' ? 'Yes' : 'No')+'</strong>' : '')+
           (formDone && d.wireColor ? ' &middot; Wire: <strong>'+esc(d.wireColor)+'</strong>' : '')+'</div>'+
@@ -7979,6 +8152,21 @@ function renderQuoteRows(filtered){
                 '<button type="button" class="btn btn-outline btn-sm" data-markapproval="'+item.id+'" data-value="approved" style="margin-top:6px;">Actually, Mark Approved'+(again ? ' Again' : '')+'</button>';
               const days = daysSince(d.quoteSentAt);
               const isStale = days !== null && days >= 10;
+              /* ⚠ NEVER SENT IS NOT THE SAME AS AWAITING. The price box saves on
+                 its own, so a priced quote that was never sent is an ordinary
+                 state - and saying "Awaiting response" on it points at the
+                 customer for something they have not been given. It used to
+                 count in the Awaiting Response figure for ever and could never
+                 turn red, so nothing ever surfaced it. Now it says whose job it
+                 is, and quoteAwaitsCustomer keeps it out of that figure. */
+              if(quoteAwaitsUs(d)){
+                return '<div class="rtext" style="margin-top:8px; color:#8A6100; font-weight:700;">Priced \u2014 not sent yet. They cannot approve it until you send it.</div>'+
+                  '<div style="display:flex; gap:8px; margin-top:6px; flex-wrap:wrap;">'+
+                    '<button type="button" class="btn btn-outline btn-sm" data-markapproval="'+item.id+'" data-value="approved">Mark Approved'+(again ? ' Again' : '')+'</button>'+
+                    '<button type="button" class="btn btn-outline btn-sm" data-markapproval="'+item.id+'" data-value="maybe_next_year">Mark Maybe Next Year</button>'+
+                    '<button type="button" class="btn btn-outline btn-sm" data-markapproval="'+item.id+'" data-value="declined">Mark Declined</button>'+
+                  '</div>';
+              }
               return '<div class="rtext" style="margin-top:8px; color:'+(isStale?'#B91C1C; font-weight:700;':'var(--slate);')+'">'+(isStale ? "10 Day Unresponsive — give them a call or send another email" : 'Awaiting'+(again ? ' their answer on the new price' : ' response')+(days !== null ? ' &mdash; sent '+days+(days===1?' day':' days')+' ago' : ''))+'</div>'+
                 '<div style="display:flex; gap:8px; margin-top:6px; flex-wrap:wrap;">'+
                   '<button type="button" class="btn btn-gold btn-sm" data-markapproval="'+item.id+'" data-value="approved">Mark Approved'+(again ? ' Again' : '')+'</button>'+
@@ -8272,7 +8460,13 @@ function renderQuoteRows(filtered){
     const d = item.data;
     const statusEl = () => document.querySelector('.quotelink-status[data-statusfor="'+id+'"]');
     const say = (text, colour) => { const el = statusEl(); if(el){ el.style.color = colour || 'var(--slate)'; el.textContent = text; } };
-    if(!d.email){ say('No email address on this quote \u2014 add one first.', 'var(--ember)'); return; }
+    /* ⭐ THE ADDRESS IS CHECKED HERE, BEFORE EmailJS SEES IT. Left to EmailJS,
+       a bad recipient comes back as 422 "The recipients address is corrupted",
+       which names no part of the problem, and nothing is sent at all - not the
+       first of two addresses, not anything. Say what is wrong and point at the
+       one place it can now be fixed. */
+    const emailProblem = emailAddressProblem(d.email);
+    if(emailProblem){ say(emailProblem + ' Use Edit contact at the top of this card to fix it, then send.', 'var(--ember)'); return; }
     /* A price is not optional: the whole email is built around it, and a quote
        without one is nonsense to the customer. */
     if(typeof d.quotedPrice !== 'number' || d.quotedPrice <= 0){
@@ -8311,7 +8505,7 @@ function renderQuoteRows(filtered){
       const built = await buildQuoteEmailHtml(d, 'quote', template);
       emailjs.init(cfg.publicKey);
       await emailjs.send(cfg.serviceId, cfg.templateId, {
-        to_email: d.email, to_name: d.name || '', subject: built.subject, message: built.html,
+        to_email: String(d.email || '').trim(), to_name: d.name || '', subject: built.subject, message: built.html,
         button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || ''),
         button_label: 'View Your Quote'
       });
@@ -8399,7 +8593,7 @@ function renderQuoteRows(filtered){
       '<div class="quoteemail-preview" style="border:1px solid var(--line); border-radius:10px; background:#fff; padding:18px; font-family:Arial,sans-serif; font-size:14px; color:#222; line-height:1.55; max-height:520px; overflow:auto;">'+html+'</div>'+
       (d.frontPhotoUrl ? '' : '<div class="rtext" style="color:var(--ember); margin-top:6px;">No photo on this quote \u2014 add one above and reopen this to include it.</div>')+
       '<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">'+
-        (d.email ? '<button type="button" class="btn btn-gold btn-sm quoteemail-send-btn" data-kind="'+kind+'">Send it</button>' : '<span class="rtext" style="color:var(--ember);">No email address on this quote.</span>')+
+        (emailAddressProblem(d.email) ? '<span class="rtext" style="color:var(--ember);">'+esc(emailAddressProblem(d.email))+' Use Edit contact at the top of this card.</span>' : '<button type="button" class="btn btn-gold btn-sm quoteemail-send-btn" data-kind="'+kind+'">Send it</button>')+
         '<button type="button" class="btn btn-outline btn-sm quoteemail-copy-btn">Copy instead</button>'+
       '</div>'+
       '<div class="quoteemail-sendstatus rtext" style="margin-top:6px;"></div>';
@@ -8445,7 +8639,7 @@ function renderQuoteRows(filtered){
       try{
         emailjs.init(cfg.publicKey);
         await emailjs.send(cfg.serviceId, cfg.templateId, {
-          to_email: d.email, to_name: d.name || '', subject: subject, message: html,
+          to_email: String(d.email || '').trim(), to_name: d.name || '', subject: subject, message: html,
           button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || ''),
           button_label: 'View Your Quote'
         });
@@ -8845,6 +9039,13 @@ function renderQuoteRows(filtered){
              offers to send instead of warning that it already went. */
           quoteManuallySent: false,
           quoteManuallySentAt: null,
+          /* ⚠ AND THE SEND STAMP ITSELF, which was the one this block missed.
+             quoteSentAt is what every day count reads. Left behind, a re-quote
+             carries the date the ORIGINAL quote went out, so the moment a new
+             price is typed the card reads "10 Day Unresponsive" for a quote
+             that has not been sent at all - blaming the customer for silence on
+             a number they have never seen. */
+          quoteSentAt: null,
           quoteNudgeCount: 0,
           /* Live work again - comes back out of Closed and out of the archive,
              whichever of the two it was sitting in. */
@@ -8986,6 +9187,76 @@ function renderQuoteRows(filtered){
   list.querySelectorAll('.quoteFeetInput').forEach(function(input){
     input.addEventListener('change', function(){
       updateDoc(doc(db,'quotes',input.dataset.id), {estimatedFeet: Number(input.value) || 0});
+    });
+  });
+  /* ⭐ EDIT CONTACT. Opens and closes the row without a re-render, the same
+     way the pricing panel does - re-rendering would throw away anything half
+     typed in the boxes it is about to show. */
+  list.querySelectorAll('[data-contacttoggle]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      const id = btn.dataset.contacttoggle;
+      if(quoteContactOpenIds.has(id)) quoteContactOpenIds.delete(id);
+      else quoteContactOpenIds.add(id);
+      renderQuotesList();
+    });
+  });
+  /* Name, phone and email save on blur, like every other box on this card.
+     ⚠ A BLANK NAME OR PHONE IS NOT SAVED. Clearing a box by accident and
+     tapping away must not wipe what is on the record - the same rule the price
+     box already follows. The EMAIL is different and is allowed to be cleared,
+     because "there is no email on this quote" is a real state the send button
+     already handles, and refusing to save an empty one would trap a quote that
+     needs the address taken off and put back.
+
+     The email is lowercased and trimmed on the way in. Trimming is not tidying:
+     a trailing space is one of the things EmailJS rejects outright with "The
+     recipients address is corrupted", and it is invisible in the box. */
+  const quoteContactSay = function(id, text, colour){
+    const el = list.querySelector('.quote-contact-status[data-statusfor="'+id+'"]');
+    if(el){ el.style.color = colour || 'var(--slate)'; el.textContent = text; }
+  };
+  const quoteContactSave = function(input, field, value, okText, okColour){
+    const id = input.dataset.id;
+    const patch = {}; patch[field] = value;
+    updateDoc(doc(db,'quotes', id), patch).then(function(){
+      quoteContactSay(id, okText, okColour || '#2E6B3E');
+    }).catch(function(err){
+      console.error('Could not save the quote contact details:', err);
+      quoteContactSay(id, 'Could not save that \u2014 check your connection and try again.', 'var(--ember)');
+    });
+  };
+  list.querySelectorAll('.quoteNameInput').forEach(function(input){
+    input.addEventListener('change', function(){
+      const item = quotesCache.find(q => q.id === input.dataset.id);
+      const v = input.value.trim();
+      if(!v){ input.value = (item && item.data.name) || ''; return; }
+      if(item && v === (item.data.name || '')) return;
+      quoteContactSave(input, 'name', v, 'Name saved.');
+    });
+  });
+  list.querySelectorAll('.quotePhoneInput').forEach(function(input){
+    input.addEventListener('change', function(){
+      const item = quotesCache.find(q => q.id === input.dataset.id);
+      const v = input.value.trim();
+      if(!v){ input.value = (item && item.data.phone) || ''; return; }
+      if(item && v === (item.data.phone || '')) return;
+      quoteContactSave(input, 'phone', v, 'Phone saved.');
+    });
+  });
+  list.querySelectorAll('.quoteEmailInput').forEach(function(input){
+    input.addEventListener('change', function(){
+      const item = quotesCache.find(q => q.id === input.dataset.id);
+      const v = input.value.trim().toLowerCase();
+      input.value = v;
+      if(item && v === (item.data.email || '')) return;
+      /* Saved either way, then told what is wrong with it. Refusing to save a
+         half-corrected address would mean losing the correction on the next
+         re-render, which is worse than holding a bad one the send button will
+         stop anyway. */
+      const problem = v ? emailAddressProblem(v) : '';
+      quoteContactSave(input, 'email', v,
+        problem ? ('Saved, but it still will not send. ' + problem) : (v ? 'Email saved.' : 'Email cleared.'),
+        problem ? 'var(--ember)' : '#2E6B3E');
     });
   });
   /* Quoted Price saves on blur, exactly like the boxes above it. It used to
@@ -14195,7 +14466,18 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
       await deleteDoc(doc(db,'availableCustomerNumbers', customerNumber)).catch(function(){ /* fine if it was never pooled */ });
     }
     if(addCustFromQuoteId){
-      await updateDoc(doc(db,'quotes', addCustFromQuoteId), {status: 'closed', convertedToCustomerAt: serverTimestamp()}).catch(function(){});
+      /* ⚠ THIS IS THE WRITE THAT TAKES THE QUOTE OUT OF THE PIPELINE, and it
+         used to be wrapped in an empty catch. The customer above is already
+         created by this point, so a failure here leaves a live customer with a
+         quote still sitting in Awaiting Response — with nothing on screen ever
+         saying so. Say it. (The figure no longer depends on this write landing,
+         because quoteAlreadyACustomer catches it either way, but a quote stuck
+         in the wrong folder is still wrong.) */
+      await updateDoc(doc(db,'quotes', addCustFromQuoteId), {status: 'closed', convertedToCustomerAt: serverTimestamp()})
+        .catch(function(err){
+          console.error('The customer was created but their quote could not be closed:', err);
+          toast('Customer added \u2014 but their quote could not be closed. Set it to Closed by hand.');
+        });
       addCustFromQuoteId = null;
       addCustQuoteLightsPattern = '';
       renderAddCustQuoteBanner('');
@@ -16279,15 +16561,9 @@ function rbCollectMissingCustomers(){
      the words, so "Aiono Shelley" and "Shelley Aiono" are the same key — which is
      what makes this survive the Last-First / First-Last difference too. */
   const sheetNameKeys = {};
-  const sheetNameAddr = {};
   for(let i = 0; i < len; i++){
     const nm = dupNormName(rbName(String(namesRaw[i] || '').trim()).trim());
-    if(nm && !sheetNameKeys[nm]) sheetNameKeys[nm] = i + 1;
-    /* The address the SHEET holds for them, so the report can show both sides
-       rather than saying "no street" and leaving her to work out whose. */
-    if(nm && !sheetNameAddr[nm]){
-      sheetNameAddr[nm] = [String(streets[i] || '').trim(), String(cities[i] || '').trim()].filter(Boolean).join(', ');
-    }
+    if(nm) sheetNameKeys[nm] = i + 1;
   }
   const onlyOnSite = jobAddresses.filter(function(c){ return !matched[c.id]; }).map(function(c){
     const d = c.data || {};
@@ -16304,8 +16580,7 @@ function rbCollectMissingCustomers(){
          could not be reached. Almost always a second copy of somebody whose good
          record the sheet row matched instead. */
       onSheetRow: sheetNameKeys[dupNormName(d.name)] || 0,
-      keeperId: matchedByRow[sheetNameKeys[dupNormName(d.name)] || 0] || null,
-      sheetWhere: sheetNameAddr[dupNormName(d.name)] || ''
+      keeperId: matchedByRow[sheetNameKeys[dupNormName(d.name)] || 0] || null
     };
   }).sort(function(a, b){
     if(a.stray !== b.stray) return a.stray ? -1 : 1;
@@ -16505,21 +16780,9 @@ function rbRenderLedger(found){
       }
     } else {
       const o = x.o;
-      /* ⭐ CALL IT WHAT IT IS. Owner, 2026-08-19: "instead of all those words where
-         it says not on the sheet just call it duplicate."
-         It was labelled NOT ON THE SHEET and then took three sentences to explain
-         that it is not that at all. One word does the whole job. */
-      head = (o.onSheetRow
-        ? '<span style="background:#FDECEA; color:#B91C1C; font-weight:700; font-size:10px; padding:1px 5px; border-radius:4px;">DUPLICATE</span> '
-        : '<span style="background:#EEF1FF; color:#33397a; font-weight:700; font-size:10px; padding:1px 5px; border-radius:4px;">NOT ON THE SHEET</span> ') + esc(o.name);
+      head = '<span style="background:#EEF1FF; color:#33397a; font-weight:700; font-size:10px; padding:1px 5px; border-radius:4px;">NOT ON THE SHEET</span> ' + esc(o.name) + (0 ? '' : '');
       head += o.cu ? ' #' + esc(o.cu) : '';
       left = rbLedgerCell(o.where);
-      /* ⚠ THE DEFAULT GOES FIRST. It used to sit at the END of this branch, after the
-         two blocks below had filled  in — so both messages were built and then
-         silently overwritten with "— nothing —". That is exactly what the owner saw:
-         "griner is a duplicate here but its not finding her as a duplicate still". The
-         detection was fine; the render threw the answer away. */
-      right = rbLedgerCell('');
       /* ⭐ NOT "a customer that doesn’t exist". If the sheet holds this name, the
          right-hand column says so and names the row — the fix is to fold the two
          records together, not to wonder who this is. */
@@ -16530,30 +16793,19 @@ function rbRenderLedger(found){
            Exactly — the sheet row already found the real record, so THIS one is the
            spare. Saying which of the two is which is the whole difference between a
            finding and a puzzle. */
-        /* One line. The badge already said DUPLICATE; repeating it in three
-           sentences is how a list stops being read. */
-        right = 'Row ' + o.onSheetRow +
-          (o.sheetWhere ? ' &middot; ' + esc(o.sheetWhere) : '') +
+        right = '<strong>Not a missing customer &mdash; a spare copy.</strong> Row ' + o.onSheetRow + ' of your sheet already found their real record' +
           (o.keeperId && o.id !== o.keeperId
-            ? '<div style="color:var(--slate); font-size:11.5px; margin-top:2px;">Ticked: this copy goes, after anything it still carries moves to the real record and it comes off any route.</div>'
-            : '<div style="color:var(--ember); font-size:11.5px; margin-top:2px;">Fold it in with <strong>Danger Zone &rarr; Merge duplicates</strong>.</div>');
+            ? '<div style="color:var(--ember); font-size:11.5px; margin-top:2px;">There is only one of them, so this record should not exist. <strong>Tick it and Sync</strong> to fold anything it still carries into the real record and remove it. It comes off any upcoming route first.</div>'
+            : '<div style="color:var(--ember); font-size:11.5px; margin-top:2px;">There is only one of them, so this record should not exist. <strong>Danger Zone &rarr; Merge duplicates</strong> folds it into the one the sheet already found.</div>');
       }
       /* ⭐ A STRAY IS NOT SOMEBODY WHO LEFT THE SHEET. A record with no street can
          never be reached by any paste, so it shows up as "missing from the sheet"
          for ever no matter how many times you compare. Say which tool fixes it,
          here, rather than leaving it looking like a customer who quit. */
-      /* ⭐ SAY WHICH SIDE IS MISSING THE STREET. Owner, 2026-08-19: "for some
-         reason I got this: No street on file, so no paste can reach them ... but in
-         the excel sheet it has an address: 3473 W 2550 N".
-         Both were true and the message only said half of it. The WEBSITE record has
-         no street; the sheet has one. Which is not a contradiction — it is the
-         reason the two never met, and it is also the fix. */
-      /* Only worth saying when it is NOT already labelled a duplicate — there the
-         badge and the row number have said it, and the sheet address is on the right
-         already. Kept for the other case, where "no street" is the whole finding. */
-      if(o.stray && !o.onSheetRow){
-        left += '<div style="color:var(--ember); font-size:11.5px; margin-top:2px;">No street on this <strong>website record</strong>, so no row on your sheet can reach it.</div>';
+      if(o.stray){
+        left += '<div style="color:var(--ember); font-size:11.5px; margin-top:2px;">No street on file, so no paste can reach them &mdash; almost certainly a stray copy. <strong>Danger Zone &rarr; Merge duplicates</strong> folds it back in.</div>';
       }
+      right = rbLedgerCell('');
       /* ⭐ A TICK ONLY WHEN THERE IS SOMETHING TO DO. Owner, 2026-08-19: "if they
          are both equally right then it just deletes one of them when they sync it."
          Offered only where the keeper is KNOWN — the record the sheet row already
@@ -16561,16 +16813,7 @@ function rbRenderLedger(found){
          ⚠ NEVER ticked by default. Everything else in this list is reversible by
          editing a field back; this one is not. */
       box = (o.keeperId && o.id !== o.keeperId)
-        /* ⭐ TICKED, so a plain Sync clears them. Owner, 2026-08-19: "and so when it
-           syncs it should automatically delete dupes." I had these off by default and
-           she asked for the opposite, so they are on.
-           ⚠ WHAT MAKES THAT DEFENSIBLE IS THE NAME RULE, hers: "two different names are
-           never duplicates though unless one is surname first name and the other is
-           first, surname." dupNormName SORTS the words, so Griner Lauren and Lauren
-           Griner are one key and a genuine typo is not — which means a ticked row is
-           always the same name, on a keeper the sheet itself found. It is still listed
-           before you press anything, and unticking is one click. */
-        ? '<input type="checkbox" class="rb-spare-pick" data-spare="' + esc(o.id) + '" data-keeper="' + esc(o.keeperId) + '" checked>'
+        ? '<input type="checkbox" class="rb-spare-pick" data-spare="' + esc(o.id) + '" data-keeper="' + esc(o.keeperId) + '">'
         : '<span title="Nothing is deleted here" style="color:var(--slate);">&mdash;</span>';
     }
     html += '<tr style="border-bottom:1px solid var(--line);">' +
@@ -16594,7 +16837,7 @@ function rbRenderLedger(found){
     '<button type="button" class="btn btn-gold" id="rbDiffGoBtn">Sync the ticked changes</button> ' +
     '<button type="button" class="btn btn-gold" id="rbAddGoBtn">Add the ticked customers</button>' +
     '</div>';
-  html += '<div style="font-size:12px; color:var(--slate); margin-top:6px;">New customers are added as a record only — no invoice. A customer on the website who is genuinely not on your sheet is shown for information and is never touched; one marked <strong>DUPLICATE</strong> is a second copy of somebody your sheet already found, and a ticked one is folded into the real record and removed.</div>';
+  html += '<div style="font-size:12px; color:var(--slate); margin-top:6px;">New customers are added as a record only — no invoice. Nobody is ever deleted: a customer on the website and not on the sheet is shown for information.</div>';
   html += '</div>';
   return html;
 }
@@ -24691,43 +24934,93 @@ async function reconcileUpcomingRoutes(){
 }
 /* One notice per sweep, never one per house — a sweep that tidies twelve things
    must not put twelve notices in front of somebody. */
+/* ⭐ EVERY LIST IN HERE IS SUMMARISED, NEVER LISTED IN FULL. Two separate
+   reasons, and the second one is the reason this was rewritten on 2026-08-19.
+
+   1. A notice with three hundred names in it is a notice nobody reads, which
+      is the same as no notice at all. (That was already the thinking behind
+      report.filled and report.pulled; the other five lists never got it.)
+   2. ⚠ IT COULD NOT BE WRITTEN AT ALL. firestore.rules allows create on
+      messages/{id} only when message.size() < 5000, and there is NO signed-in
+      exception — admin creates a message through the same rule the public
+      contact form uses. moved / dropped / freed / capped / over each pushed one
+      line PER HOUSE at roughly 90–140 characters, so a real sweep sailed past
+      5,000 and the create came back "Missing or insufficient permissions".
+
+   And the note is written LAST, after every scheduledRoutes updateDoc has
+   already committed. So the sweep built days, moved houses and pulled people
+   off routes — and the one thing that would have told the office about any of
+   it was the only thing that failed. Silently, in the console.
+
+   The 5,000 ceiling is deliberately NOT being raised: it is what stops somebody
+   pasting a novel into the contact form. The lines fit inside it instead. */
 async function noticeRoutesReconciled(report){
   const lines = [];
-  if(report.refreshed) lines.push(report.refreshed + ' stop' + (report.refreshed === 1 ? '' : 's') +
-    ' updated to match the customer record (address, phone, gate code and the like).');
-  report.moved.forEach(function(m){
-    lines.push(m.name + ' moved' + (m.from ? ' from ' + formatDateNice(m.from) : '') + ' to ' + formatDateNice(m.to) + '.');
-  });
-  report.dropped.forEach(function(x){
-    lines.push(x.name + ' taken off ' + formatDateNice(x.date) + ' — ' + x.why + '.');
-  });
-  report.freed.forEach(function(f){
-    lines.push(f.name + (f.newHang ? ' is a NEW HANG and' : '') + ' has no day to go on in ' + f.city +
-      ', so they are ' + (f.newHang ? 'still waiting' : 'back in the pool') +
-      ' — generate a route for ' + f.city + ' and they will be picked up.');
-  });
-  /* The cap doing its job, and the cap failing to. Both are worth a line: the
-     first is a customer whose date changed, the second is a day the office has
-     to do something about. */
-  (report.capped || []).forEach(function(c){
-    lines.push((c.name || 'A house') + ' moved from ' + formatDateNice(c.from) + ' to ' +
-      formatDateNice(c.to) + ' — ' + formatDateNice(c.from) + ' was over ' + MAX_STOPS_PER_ROUTE +
-      ' houses.');
-  });
-  (report.over || []).forEach(function(o){
-    lines.push('⚠ ' + formatDateNice(o.date) + ' in ' + (o.city || 'no city') + ' is at ' + o.count +
-      ' houses, over the ' + o.cap + ' cap, and there is no later day in ' + (o.city || 'that city') +
-      ' to move anyone to. Build another day for ' + (o.city || 'that city') +
-      ' and it will even itself out.');
-  });
-  /* Filling days is the one thing here that moves people in BULK — the first
-     sweep after it shipped can schedule hundreds. Listing every one of those by
-     name produces a notice nobody reads, which is the same as no notice at all,
-     so these two are counted and only the first few are named. */
+  /* Names the first few and counts the rest — enough to recognise the sweep
+     without turning the note into a directory. Declared up here now, because
+     every list below uses it, not just the last two. */
   const nameFew = function(list){
     const few = list.slice(0, 6).map(function(x){ return x.name || 'a house'; });
     return few.join(', ') + (list.length > few.length ? ' and ' + (list.length - few.length) + ' more' : '');
   };
+  /* count things by some key, in one place, so every summary below reads the
+     same way round: "(Oct 14: 3, Oct 15: 2)". */
+  const tally = function(list, keyOf){
+    const by = {};
+    list.forEach(function(x){ const k = keyOf(x); by[k] = (by[k] || 0) + 1; });
+    return by;
+  };
+  const tallyText = function(by, label){
+    return Object.keys(by).sort().map(function(k){ return (label ? label(k) : k) + ': ' + by[k]; }).join(', ');
+  };
+  if(report.refreshed) lines.push(report.refreshed + ' stop' + (report.refreshed === 1 ? '' : 's') +
+    ' updated to match the customer record (address, phone, gate code and the like).');
+  if((report.moved || []).length){
+    lines.push(report.moved.length + ' house' + (report.moved.length === 1 ? '' : 's') +
+      ' moved to a different day — ' + nameFew(report.moved) +
+      ' (' + tallyText(tally(report.moved, function(m){ return m.to; }), formatDateNice) + ').');
+  }
+  if((report.dropped || []).length){
+    /* Grouped by REASON rather than by date. A house coming off a day is only
+       worth reading if you can see why, and the why is the same for whole
+       batches at a time (said no, cancelled, moved town). */
+    lines.push(report.dropped.length + ' house' + (report.dropped.length === 1 ? '' : 's') +
+      ' taken off a day — ' + nameFew(report.dropped) +
+      ' (' + tallyText(tally(report.dropped, function(x){ return x.why || 'no reason given'; })) + ').');
+  }
+  if((report.freed || []).length){
+    const newHangs = report.freed.filter(function(f){ return f.newHang; });
+    lines.push(report.freed.length + ' house' + (report.freed.length === 1 ? '' : 's') +
+      ' have no day to go on in their town — ' + nameFew(report.freed) +
+      ' (' + tallyText(tally(report.freed, function(f){ return f.city || 'no town'; })) + ')' +
+      (newHangs.length ? '. ' + newHangs.length + ' of them ' + (newHangs.length === 1 ? 'is a NEW HANG' : 'are NEW HANGS') +
+        ' and cannot wait' : '') +
+      '. Generate a route for those towns and they will be picked up.');
+  }
+  /* The cap doing its job, and the cap failing to. Both are worth saying: the
+     first is a set of customers whose date changed, the second is a day the
+     office has to do something about. The second stays close to per-day
+     because there is one line per OVERFULL DAY, not per house — but it is
+     still capped, because a first sweep of a season can find a lot of them. */
+  if((report.capped || []).length){
+    lines.push(report.capped.length + ' house' + (report.capped.length === 1 ? '' : 's') +
+      ' moved to a later day because the day ' + (report.capped.length === 1 ? 'was' : 'they were on was') +
+      ' over ' + MAX_STOPS_PER_ROUTE + ' houses — ' + nameFew(report.capped) +
+      ' (' + tallyText(tally(report.capped, function(c){ return c.to; }), formatDateNice) + ').');
+  }
+  if((report.over || []).length){
+    const shown = report.over.slice(0, 5);
+    lines.push('⚠ ' + report.over.length + ' day' + (report.over.length === 1 ? '' : 's') +
+      ' ' + (report.over.length === 1 ? 'is' : 'are') + ' over the ' + MAX_STOPS_PER_ROUTE +
+      '-house cap with no later day in that town to move anyone to — ' +
+      shown.map(function(o){
+        return formatDateNice(o.date) + ' in ' + (o.city || 'no town') + ' at ' + o.count;
+      }).join('; ') +
+      (report.over.length > shown.length ? '; and ' + (report.over.length - shown.length) + ' more' : '') +
+      '. Build another day for those towns and it will even itself out.');
+  }
+  /* Filling days is the one thing here that moves people in BULK — the first
+     sweep after it shipped can schedule hundreds. */
   if((report.filled || []).length){
     const byDay = {};
     report.filled.forEach(function(f){ byDay[f.to] = (byDay[f.to] || 0) + 1; });
@@ -24817,66 +25110,36 @@ async function noticeRoutesReconciled(report){
     lines.push(str.noCity.length + ' house' + (str.noCity.length === 1 ? '' : 's') +
       ' have no town on file, so there is no day to match them to.');
   }
+  /* ⚠ THE BACKSTOP FOR THE 5,000-CHARACTER RULE. Every list above is summarised
+     now, so this should never fire — which is exactly why it is here. A sweep
+     bigger than any we have seen must lose the tail of a note, not the whole
+     note: the create is all-or-nothing, and a rejected create is a route change
+     nobody hears about. Cut well short of 5,000 so the ending, which is the
+     part that says nobody has been told, always survives. */
+  const tail = '\n\nNobody has been told about any date that moved — if a day was already confirmed with them, they need to hear it from you.';
+  const head = 'The upcoming routes were checked and these changed:\n\n';
+  let body = head + lines.join('\n') + tail;
+  if(body.length > 4500){
+    const trimNote = '\n\n… the rest is trimmed to fit in one note. Open Routes to see every day in full.';
+    body = body.slice(0, 4500 - trimNote.length - tail.length) + trimNote + tail;
+  }
   try{
     await addDoc(collection(db,'messages'), {
       topic: 'Routes Kept Up To Date', folder: 'System',
       name: '', phone: '', email: '', contactMethod: '',
-      message: sysNoteBody('The upcoming routes were checked and these changed:\n\n', lines,
-        '\n\nNobody has been told about any date that moved — if a day was already confirmed with them, they need to hear it from you.'),
+      message: body,
       autoQueuedToWarehouse: false, needsReassign: false,
       createdAt: serverTimestamp()
     });
   } catch(err){
-    /* ⚠ The office hears nothing when this fails, and it failed quietly for weeks.
-       One retry with a bare one-line note: if the long one is still refused for any
-       reason, the sweep having HAPPENED is the part that must survive. */
+    /* ⚠ THIS FAILING USED TO BE INVISIBLE. It is the last step of a sweep that
+       has ALREADY rewritten routes, so a console line meant days moved and
+       nobody knew. Say it on screen. */
     console.error('Could not raise the reconcile note:', err);
-    try{
-      await addDoc(collection(db,'messages'), {
-        topic: 'Routes Kept Up To Date', folder: 'System',
-        name: '', phone: '', email: '', contactMethod: '',
-        message: 'The upcoming routes were checked and ' + lines.length +
-          ' thing(s) changed. The full note could not be saved, so open Routes to see them.',
-        autoQueuedToWarehouse: false, needsReassign: false,
-        createdAt: serverTimestamp()
-      });
-    } catch(err2){ console.error('And the short reconcile note failed too:', err2); }
+    if(typeof toast === 'function'){
+      toast('Routes were updated, but the note about it could not be saved — check Routes for changed days.');
+    }
   }
-}
-/* ⭐ A SYSTEM NOTE THAT IS TOO LONG IS NO NOTE AT ALL.
-   Owner, 2026-08-19, from her error log: "Could not raise the reconcile note:
-   Missing or insufficient permissions." It had been failing for a while.
-
-   It is not a permissions problem in the usual sense. firestore.rules caps a
-   message at 5000 characters on CREATE, and the reconcile note grows a line per
-   hand-built day and a clause per retired one — a full season rebuild sails past
-   it. Firestore reports a rule that says no as "insufficient permissions", which
-   is why this read as an auth fault for so long.
-
-   ⚠ THE CAP IS NOT THE BUG AND MUST NOT BE RAISED. Creating a message is a PUBLIC
-   write — that is how the contact form on the website works without a login — and
-   the size limit is what stops anybody posting a novel into the office inbox. The
-   note is what has to be shorter.
-
-   ⚠ AND IT MUST STILL SAY SOMETHING. Dropping the whole note because it is long
-   loses the sweep entirely, which is the one thing worse than a trimmed one — so
-   what does not fit is COUNTED, not silently cut. */
-const SYS_NOTE_CAP = 4000;
-function sysNoteBody(intro, lines, outro){
-  const head = String(intro || '');
-  const tail = String(outro || '');
-  const room = SYS_NOTE_CAP - head.length - tail.length;
-  const kept = [];
-  let used = 0, dropped = 0;
-  (lines || []).forEach(function(l){
-    const line = String(l == null ? '' : l);
-    if(used + line.length + 1 <= room){ kept.push(line); used += line.length + 1; }
-    else dropped++;
-  });
-  if(dropped){
-    kept.push('… and ' + dropped + ' more change(s), not listed here — the note would have been too long to save. Routes and the calendar show all of it.');
-  }
-  return head + kept.join('\n') + tail;
 }
 /* Same shape as the automatic health check: a few seconds after sign-in, then on
    an interval, and it can never take the page down with it. */
@@ -30597,16 +30860,9 @@ function houseDeadline(h){
 function houseInstallPriority(h, custData){
   const p=(''+((h&&h.pref)||'')).trim().toUpperCase();
   if(custData && custData.chargeNewMemberFee === true) return 0;   // never been hung
-  /* ⭐ A NAMED DAY IS NOT AN URGENT ONE. Owner, 2026-08-19: "if they ask for a
-     specific day though that is not top priority we just do it the next time we
-     have a chance for when they ask."
-
-     It used to return 1, the same tier as October, so somebody who wrote 11/9 was
-     treated as being in a hurry. They are not — they are waiting for a date, which
-     is a different thing. houseAllowedFrom already holds them until that day; from
-     there they take their turn like anybody with no preference, which is exactly
-     "the next time we have a chance". */
-  if(prefSpecificDate(p, BASE_START.getFullYear())) return 2;
+  /* Naming a day is as definite as naming a month — houseAllowedFrom already
+     holds them to it, so this only decides their order once they are allowed. */
+  if(prefSpecificDate(p, BASE_START.getFullYear())) return 1;
   if(p.indexOf('OCT')===0) return 1;   // asked for October
   if(p.indexOf('AFTER THANKS') !== -1 || p === 'THX') return 4;   // last of all
   /* ⚠ FIRST ONCE THE RUN-UP OPENS. houseAllowedFrom holds these back until the
@@ -30781,29 +31037,6 @@ function prefKey(p){
   if(u.indexOf('AFTER THANKS') !== -1 || u === 'THX') return 'thx';
   if(u.indexOf('OCT') === 0) return 'oct';
   if(u.indexOf('NOV') === 0) return 'nov';
-  /* ⭐ A DAY IS A MONTH TOO. Owner, 2026-08-19: "there are two people who entered
-     their preferred date in a wrong format including 11/1/2026 and 1-Nov which
-     obviously will be flagged and wont work correctly."
-
-     The formats read fine — prefSpecificDate has handled both for a while. What
-     did not work is HERE: neither starts with OCT or NOV, so both fell through to
-     "any" and the Schedule filed a customer who asked for 1 November alongside the
-     people with no preference at all.
-
-     ⚠ THIS IS A COMPARISON KEY, NOT A REWRITE. The periodic sync compares timings
-     through prefKey and leaves the plan’s own wording alone, so "11/1/2026" and
-     "November" now agree about the MONTH without either being flattened into the
-     other — which is what SCHEDULE_SYNC_FIELDS warns about a few lines down.
-
-     ⚠ And the DAY still governs when they actually go out: houseAllowedFrom reads
-     prefSpecificDate directly and holds them to the 1st, not to November. */
-  const named = (typeof prefSpecificDate === 'function')
-    ? prefSpecificDate(u, BASE_START.getFullYear()) : null;
-  if(named){
-    const mo = named.slice(5, 7);
-    if(mo === '10') return 'oct';
-    if(mo === '11') return 'nov';
-  }
   return 'any';
 }
 /* Which fields ride along, and how to read each one off the customer. Kept as
