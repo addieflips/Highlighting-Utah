@@ -17040,16 +17040,34 @@ const HLX_STATE_TABS = [
      ⚠ It reads rsvpStatus "yes", which is what both writers really set: portalRsvp
      from the RSVP link and the office dropdown. Nobody has that answer yet on purpose -
      everybody is being moved to Unanswered first. */
+  /* ⭐ WHO IS CONFIRMED FOR THE SEASON. Owner, 2026-08-20: "new hangs color changes
+     and requotes should be automatically updated into the yes sheet because obviously
+     they are confirmed."
+     Obvious once said, and the first version missed all three: it waited for an RSVP
+     answer, and none of these people are ever going to be sent one. Somebody who has
+     just agreed a price, picked new colours, or been re-quoted has confirmed by doing,
+     which is a stronger answer than a tick in an email.
+
+     ⚠ AN ANSWERED NO STILL WINS. All four of these are inferred from an action;
+     rsvpStatus "no" or "backnextyear" is a person saying the words. Somebody who books
+     a colour change and then tells us they are out for the season is OUT " + M + " otherwise
+     they land on the Yes sheet and get a crew.
+
+     ⚠ AND AN ASSUMED YES IS STILL NOT AN ANSWER. Converting a quote writes
+     rsvpStatus "yes" at creation with no rsvpRespondedAt, which is why that branch needs
+     the timestamp: on the status alone the first press emptied most of the customer list
+     onto this sheet. The other three are real events with their own marks. */
   {tab: "Yes", label: "confirmed",
-   /* ⚠ ANSWERED YES, NOT ASSUMED YES. Owner: "everyone who is confirmed AFTER we
-      RSVP will need to go to the Yes tab." Converting a quote writes rsvpStatus "yes"
-      at creation with no rsvpRespondedAt — the office knows they want lights, but
-      nobody has asked them about THIS season yet. On the status alone, the first
-      press of Update customer info would have emptied most of the customer list into
-      the Yes sheet before a single RSVP had been sent.
-      rsvpRespondedAt is the difference, and every route that takes a real answer
-      stamps it. The reset clears it, so a new round starts with the sheet quiet. */
-   holds: function(d){ return String(d.rsvpStatus || "").toLowerCase() === "yes" && !!d.rsvpRespondedAt; }},
+   holds: function(d){
+     const said = String(d.rsvpStatus || '').toLowerCase();
+     if(said === 'no' || said === 'backnextyear') return false;
+     if(d.maybeNextYear) return false;
+     if(said === 'yes' && d.rsvpRespondedAt) return true;   /* answered the RSVP */
+     if(d.chargeNewMemberFee === true) return true;         /* a new hang */
+     if(d.lightsChangedAt) return true;                     /* a colour change */
+     if(d.requoteAppliedAt) return true;                    /* a re-quote, applied */
+     return false;
+   }},
   {tab: "Contact 2027", label: "maybe next year",
    /* ⚠ THE STATUS IS "backnextyear". "maybe_next_year" was written here and NOTHING
       sets it on a customer — that is the QUOTE field (approvalStatus). A customer who
@@ -17322,6 +17340,77 @@ async function rbSettlePrepaid(statusEl){
   if(settled) logActivity('Marked ' + settled + ' prepaid customer(s) as paid', 'invoices', '');
   return {settled: settled, already: already, failed: failed};
 }
+/* ⭐ AND ANYBODY WHO IS NOT ON THE SHEET AT ALL. Owner, 2026-08-20: "it says
+   customer info is updated but rachel oslund doesnt exist in the excel."
+
+   She was right, and the message was the misleading part. The button only ever wrote
+   to the SIDE TABS — Recycle, Color Changes, Contact 2027, Yes — and then said it had
+   updated the sheet. A customer who was on the website and on none of those tabs, like
+   Rachel Oslund, was never written anywhere, and the only way to add her was to go to
+   the comparison screen and tick her by hand. The owner asked for ONE button.
+
+   ⚠ THE SAME KEYS IN BOTH DIRECTIONS. hlxRowIdentityKeys already decides whether
+   two SHEET rows are the same person; the customer is turned into a sheet row first
+   (rbCustomerToSheetRow, the same builder the append uses) and run through it. One rule,
+   so "already there" cannot mean two different things depending on which way you look.
+
+   ⚠ AND IT REFUSES RATHER THAN GUESSING BIG. This appends to the live customer list.
+   If matching broke, EVERY customer would look missing, and pressing a button would
+   duplicate the whole book. So: nothing when the sheet reads empty, nothing when there
+   is no Name column, and nothing when more than a quarter of the book looks absent —
+   that is a broken comparison, not nine hundred new customers. It says so instead. */
+const HLX_ADD_MAX_SHARE = 0.25;
+const HLX_ADD_PER_RUN = 25;
+async function hlxAddMissingCustomersToSheet(){
+  const handle = await hlxSheetHandleLoad();
+  if(!handle) return null;
+  if(!Array.isArray(jobAddresses) || !jobAddresses.length) return null;
+  const file = await handle.getFile();
+  const all = await hlxWorkbookRowsAllSheets(file);
+  const rows = all.rows || [];
+  if(rows.length < 2) return {refused: "the sheet came back empty"};
+  const hdr = (rows[0] || []).map(function(v){ return String(v == null ? "" : v).trim(); });
+  const col = {};
+  hdr.forEach(function(h, i){ if(h && col[h] == null) col[h] = i; });
+  if(col["Name"] == null) return {refused: "that workbook has no Name column"};
+
+  const claimed = {};
+  for(let i = 1; i < rows.length; i++){
+    hlxRowIdentityKeys(rows[i] || [], col).forEach(function(k){ claimed[k] = true; });
+  }
+
+  /* The customer read through the SAME key function, by way of the same row builder
+     the append uses, so the two sides cannot drift apart. */
+  const outCol = {};
+  RB_SHEET_HEADERS.forEach(function(h, i){ if(outCol[h] == null) outCol[h] = i; });
+  const missing = [];
+  jobAddresses.forEach(function(c){
+    const d = c.data || {};
+    if(!String(d.name || "").trim()) return;
+    const row = rbCustomerToSheetRow(d);
+    const keys = hlxRowIdentityKeys(row, outCol);
+    if(!keys.length) return;
+    if(keys.some(function(k){ return claimed[k]; })) return;
+    /* Claim them now, so two records of the same person in the book do not both
+       get written on the same pass. */
+    keys.forEach(function(k){ claimed[k] = true; });
+    missing.push({id: c.id, name: d.name, row: row});
+  });
+
+  if(!missing.length) return {added: 0, left: 0};
+  if(missing.length > Math.ceil(jobAddresses.length * HLX_ADD_MAX_SHARE)){
+    return {refused: missing.length + " of " + jobAddresses.length + " customers look " +
+      "missing from the sheet, which is too many to be true \u2014 that is a matching " +
+      "problem, not nine hundred new customers. Nothing was written. Use the sheet " +
+      "comparison to see what is going on."};
+  }
+
+  const batch = missing.slice(0, HLX_ADD_PER_RUN);
+  const res = await hlxAppendRowsToSheet(batch.map(function(m){ return m.row; }));
+  return {added: (res && res.written) || 0,
+          left: Math.max(0, missing.length - batch.length),
+          names: batch.map(function(m){ return m.name; })};
+}
 async function hlxUpdateCustomerInfo(statusEl){
   const say = function(t){ if(statusEl) statusEl.textContent = t; };
   if(!hlxSheetSupported()){
@@ -17348,6 +17437,19 @@ async function hlxUpdateCustomerInfo(statusEl){
       if(res.written) done.push(res.written + " to " + t.tab);
     } catch(err){ failed.push(t.tab + " (" + ((err && err.message) || "failed") + ")"); }
   }
+  /* ⭐ AND ANYBODY MISSING FROM THE CUSTOMER LIST ENTIRELY. This is the half that
+     was absent when the owner reported "it says customer info is updated but rachel
+     oslund doesnt exist in the excel". */
+  try{
+    say("Checking who is missing from the sheet…");
+    const add = await hlxAddMissingCustomersToSheet();
+    if(add && add.refused){ failed.push(add.refused); }
+    else if(add && add.added){
+      done.push(add.added + " added to the customer list");
+      if(add.left) failed.push(add.left + " more still to add \u2014 press again");
+    }
+  } catch(err){ failed.push("adding missing customers (" + ((err && err.message) || "failed") + ")"); }
+
   /* ⭐ THE SAME PRESS DOES THE TWO THINGS THE SHEET IMPLIES. Owner: "theres only one
      sync button because anything I dont want synced will be manually fixed." */
   try{
@@ -24927,6 +25029,17 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        the ReQuotes wording instead of the new-customer one. */
     const feetChanged = Number(d.measuredFeet || 0) !== Number(newMeasuredFeet || 0);
     const addressChanged = String(d.address || '').trim().toLowerCase() !== String(newAddress || '').trim().toLowerCase();
+    /* ⭐ APPLYING A RE-QUOTE CONFIRMS THEM FOR THE SEASON. Owner, 2026-08-20: "new
+       hangs color changes and requotes should be automatically updated into the yes
+       sheet because obviously they are confirmed." They have just agreed a new price;
+       nobody is going to email them asking whether they meant it.
+       ⚠ STAMPED ON THE CUSTOMER, and set HERE rather than in the block below that
+       closes the quote " + M + " that block runs after this write, so anything added to
+       addrUpdates down there is never saved.
+       ⚠ AND NOT requotedAt, which already exists and lives on the QUOTE document.
+       A tab reading customer data would never see it: a branch that looks right and
+       can never run. */
+    if(requoteBeingConverted) addrUpdates.requoteAppliedAt = serverTimestamp();
     await updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates);
     /* Pool bookkeeping, after the record is safely written. Each half is
        guarded on its own: a pool write that fails must not undo a save that
