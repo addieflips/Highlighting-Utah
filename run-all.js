@@ -7499,8 +7499,32 @@ suite('Suite 26. Schedule picks up a corrected town');
     !/custByAddrKey/.test(matchSrc || ''),
     'custByAddrKey is keyed on address AND town, so it cannot find a house whose town is wrong');
   check('S26', 'the plan syncs towns after it loads', /syncTownsWhenCustomersReady\(\)/.test(admin));
-  check('S26', 'and there is a button to re-pull them by hand', /t\.id==='syncTownsBtn'/.test(admin) &&
-    /id=\\"syncTownsBtn\\"/.test(admin));
+  /* ONE button since 2026-08-20. Owner: "those two buttons just need to be
+     combined because I want one button that just makes everything
+     recaluculate". It is still a hand press and it still pulls the customer
+     records across BEFORE it lays the days out — a rebuild groups by town, so
+     the other order lays the season out from towns already known to be wrong. */
+  check('S26', 'and there is a button to re-pull them by hand',
+    /t\.id==='recalcBtn'/.test(admin) && /id=\\"recalcBtn\\"/.test(admin) &&
+    /pulled=syncHousesFromCustomers\(\)/.test(admin));
+  {
+    const press = admin.slice(admin.indexOf("if(t.id==='recalcBtn'){"),
+                              admin.indexOf("if(t.id==='undoRebuildBtn'){"));
+    check('S26', 'the one button syncs the customers BEFORE it rebuilds the days',
+      press.indexOf('syncHousesFromCustomers()') > -1 &&
+      press.indexOf('syncHousesFromCustomers()') < press.indexOf('rebuildSeasonDays()'),
+      'rebuilding first lays the whole season out from the towns somebody just corrected');
+    check('S26', 'and generates the routes after the days exist',
+      press.indexOf('rebuildSeasonDays()') < press.indexOf('generateAllRoutes()'),
+      'ordering days that are about to be rebuilt orders the wrong days');
+    check('S26', 'one press is still one undo',
+      /preRebuild=before/.test(press) && press.indexOf('const before=JSON.stringify(serialize())') <
+        press.indexOf('syncHousesFromCustomers()'),
+      'the snapshot has to be taken before ANY of the three run, or Undo puts back a half-changed plan');
+    check('S26', 'it refuses to run against a customer list that has not loaded',
+      /jobAddresses===\'undefined\'\|\|!jobAddresses\.length/.test(press),
+      'it would quietly lay the season out from the imported copy and look like it worked');
+  }
 }
 
 /*
@@ -7869,7 +7893,7 @@ suite('Suite 28. The Schedule season rebuilt from its houses');
 
   // It must be deliberate, and reversible.
   check('S28', 'the rebuild is a button, not something that happens on load',
-    /t\.id==='rebuildBtn'/.test(admin) && !/rebuildSeasonDays\(\);\s*renderAll/.test(admin));
+    /t\.id==='recalcBtn'/.test(admin) && !/rebuildSeasonDays\(\);\s*renderAll/.test(admin));
   check('S28', 'one press can be undone', /t\.id==='undoRebuildBtn'/.test(admin) && /preRebuild=before/.test(admin),
     'it replaces the day structure and somebody may have moved houses by hand');
   check('S28', 'nothing stores a crew split that could go stale',
@@ -11149,8 +11173,18 @@ suite('Suite 48. Days within two working days are set');
   };
 
   check('S48', 'the rebuild asks whether a day is close enough to be set',
-    /const setSoon = dt && dt >= today && dt <= pinHorizon\(\);/.test(admin),
+    /const setSoon = dt && dt >= today &&[\s\S]{0,200}dt <= pinHorizon\(\)/.test(admin),
     'and uses the SAME horizon the pins already use, not a second definition');
+  /* ⭐ AND the 48-hour clock, added 2026-08-20. Owner: "it needs to keep track
+     of the time US mountain time to make sure if a day is within 48 hours it is
+     unchangable." EITHER lock holds — whichever is longer — because a lock that
+     shortens is a printed sheet that moves. */
+  check('S48', 'and the 48-hour Mountain-time lock holds it too',
+    /const setSoon = dt && dt >= today &&[\s\S]{0,200}routeDayIsLocked\(isoOf\(dt\)\)/.test(admin),
+    'the business-day horizon and the 48-hour clock answer slightly different questions');
+  check('S48', 'the 48-hour lock is only ever applied to a day still ahead of us',
+    /const setSoon = dt && dt >= today/.test(admin),
+    'a past day belongs to the worked branch, which is what puts the houses nobody got to back in the pool');
 
   check('S48', 'a set day is kept whole, houses and all',
     /if\(setSoon\)\{ locked\.push\(d\); keep\.push\(d\); return; \}/.test(admin),
@@ -19510,6 +19544,288 @@ suite('Suite 71. A reconcile note that cannot be saved still leaves a record');
   check('S71', 'a second failure cannot take the sweep down with it',
     /catch\(err2\)/.test(catchBlock),
     'the routes are already written — throwing here would strand the caller');
+}
+
+/*
+ * Suite 77. The route generator in Schedule.
+ *
+ * Owner, 2026-08-20: "we need to add the route generator into schedule because
+ * we need it to print in the right order, it should create two routes one for
+ * each crew and it should automatically generate the route when they click
+ * rebuild days or refresh towns, also those two buttons just need to be
+ * combined because I want one button that just makes everything recaluculate
+ * but not recalculate houses within two days cause weve already printed those
+ * houses so it needs to keep track of the time US mountain time to make sure
+ * if a day is within 48 hours it is unchangable."
+ *
+ * These checks RUN the shipped code — the generator, the crew sheet builder and
+ * the panel's own grouping — against fixtures. The lesson that earned that
+ * (2026-08-19, the ledger render): a regex proves the words are in the file,
+ * which is a different and weaker claim than the crew getting the right sheet.
+ */
+suite('77. Schedule route generator');
+{
+  /* ⚠ TWO SLICES, NOT ONE. haversine and the orderer sit ~12,000 lines apart
+     in admin.html, so a single slice between them drags in every top-level
+     line in between — including markup wiring, which dies on a null element
+     and takes the whole run down with a stack trace that names neither. */
+  const havStart = admin.indexOf('function haversine(lat1, lng1, lat2, lng2)');
+  const havEnd = admin.indexOf('\n}', havStart) + 2;
+  const geoStart = admin.indexOf('function twoOptImprove(ordered, startPoint)');
+  const geoEnd = admin.indexOf('function nearestNeighborOrder(', geoStart);
+  const lockStart = admin.indexOf('const ROUTE_LOCK_HOURS');
+  const lockEnd = admin.indexOf('async function reconcileUpcomingRoutes(', lockStart);
+  const crewStart = admin.indexOf('function cityOf(h)');
+  const crewEnd = admin.indexOf('/* ---------- build from imported rows', crewStart);
+  const sheetStart = admin.indexOf('function schedSheetRows(');
+  const sheetEnd = admin.indexOf('function schedOpenPrint(', sheetStart);
+  const crewRowsStart = admin.indexOf('function crewSheetRows(');
+  const crewRowsEnd = admin.indexOf('function printCrewSheet(', crewRowsStart);
+  if ([havStart, geoStart, lockStart, crewStart, sheetStart, crewRowsStart].some(i => i === -1) ||
+      geoEnd < geoStart || lockEnd < lockStart || crewEnd < crewStart ||
+      sheetEnd < sheetStart || crewRowsEnd < crewRowsStart) {
+    check('S77', 'the route generator and its neighbours are findable',
+      false, 'renamed or removed — update this test rather than deleting it');
+  } else {
+    global.dlabel = () => ({ wd: 'Mon', full: 'Nov 3' });
+    global.dayDate = d => d._date;
+    global.isoOf = d => [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'),
+                         String(d.getDate()).padStart(2, '0')].join('-');
+    global.fmtPhone = () => '(801) 555-0100';
+    global.isNewMemberHouse = () => false;
+    global.esc = s => (s || '').toString();
+    global.personName = n => n;
+    /* The customer index itself is covered elsewhere; what matters here is that
+       the generator reads the COORDINATES off the customer record rather than
+       expecting the imported plan row to carry them. */
+    global.customerForHouse = h => (h && h._cust) ? { data: h._cust } : null;
+    const at = (name, city, lat) => ({ name, city, price: 1, _cust: { lat, lng: -111.85 } });
+
+    /* ⚠ THE TWO TOWNS INTERLEAVE ON THE GROUND — Lehi on the even hundredths,
+       Alpine on the odd ones between them. That is the whole point of the
+       fixture: with the towns in two separate clumps, ordering the day as ONE
+       list gives the SAME answer as ordering each crew on its own, so a check
+       against clumped towns passes whether the crew split is honoured or not.
+       It was, on the first pass, and a sabotage that deleted the split went
+       straight through it. Interleaved, a single list reads L,A,L,A…
+       Fed in scrambled, so the right answer is not the input order either. */
+    const L1 = at('L1', 'Lehi', 40.00), L2 = at('L2', 'Lehi', 40.06),
+          L3 = at('L3', 'Lehi', 40.02), L4 = at('L4', 'Lehi', 40.04);
+    const A1 = at('A1', 'Alpine', 40.01), A2 = at('A2', 'Alpine', 40.05),
+          A3 = at('A3', 'Alpine', 40.03);
+    const loose = { name: 'Nowhere', city: '', price: 1, _cust: { lat: 41.9, lng: -111.85 } };
+    const mkDay = () => ({ id: 'd1', _date: new Date(2026, 10, 3),
+      houses: [L1, A1, L2, A2, L3, A3, L4] });
+
+    global.allHouses = () => mkDay().houses;
+    global.SEASON = [];
+    const gen = eval(admin.slice(havStart, havEnd) + '\n' +
+      admin.slice(geoStart, geoEnd) + '\n' +
+      admin.slice(lockStart, lockEnd) + '\n' +
+      admin.slice(crewStart, crewEnd) + '\n' +
+      admin.slice(sheetStart, sheetEnd) + '\n' +
+      admin.slice(crewRowsStart, crewRowsEnd) + '\n' +
+      ';({ day: generateDayRoutes, all: generateAllRoutes, order: orderHousesForDriving,' +
+      '   labels: crewRouteLabels, routeRows: schedRouteRows, crewRows: crewSheetRows,' +
+      '   houses: crewHousesFor, locked: routeDayIsLocked, hours: hoursUntilDayStarts,' +
+      '   setSeason(s){ SEASON = s; }, setCrews(l){ CREWS = normalizeCrews(l); } })');
+
+    const day = mkDay();
+    const n = gen.day(day);
+    check('S77', 'a day comes back as two routes, one town each, in driving order',
+      day.houses.map(h => h.name).join() === 'L1,L3,L4,L2,A1,A3,A2',
+      'got [' + day.houses.map(h => h.name).join() + '] — a crew handed the input order drives the town twice');
+    check('S77', 'the crews are not interleaved',
+      day.houses.slice(0, 4).every(h => h.city === 'Lehi') &&
+      day.houses.slice(4).every(h => h.city === 'Alpine'),
+      'one ordered list for the whole day sends each crew into the other\'s town and back');
+    check('S77', 'and it reports how many stops it ordered', n === 7, 'got ' + n);
+
+    /* The failure that costs a customer a visit, so it is checked directly. */
+    const before = mkDay().houses.slice();
+    const d2 = mkDay(); d2.houses.push(loose);
+    gen.day(d2);
+    check('S77', 'nothing is dropped by re-ordering',
+      d2.houses.length === 8 && before.every(h => d2.houses.indexOf(h) > -1),
+      'a lost stop is a customer nobody visits, and it is invisible on a printed sheet');
+    /* ⚠ ASSERTS THE WHOLE ORDER, not just that the spare is last. It arrives
+       last in the fixture too, so "is it on the end" is true before the code
+       runs — and dropping the concat that carries it makes the day come back a
+       different length, which the guard turns into "leave the day alone". Only
+       the full order tells those two apart. */
+    check('S77', 'a house in neither crew\'s town is kept, on the end, and the day is still ordered',
+      d2.houses.map(h => h.name).join() === 'L1,L3,L4,L2,A1,A3,A2,Nowhere',
+      'it still has to be driven to — got [' + d2.houses.map(h => h.name).join() + ']');
+
+    /* A plan imported today has no coordinates on anything. It must come back
+       whole rather than throwing or emptying the day. */
+    const bare = { id: 'b', _date: new Date(2026, 10, 3),
+      houses: [{ name: 'X', city: 'Lehi' }, { name: 'Y', city: 'Lehi' }, { name: 'Z', city: 'Lehi' }] };
+    gen.day(bare);
+    check('S77', 'houses that have never been geocoded still all come back',
+      bare.houses.length === 3 && bare.houses.map(h => h.name).sort().join() === 'X,Y,Z',
+      'the bulk import creates houses with no lat/lng on purpose');
+
+    /* ⭐ 48 HOURS. The lock is the whole reason this may not simply run over the
+       season, so it is proved by RUNNING it over days at known distances.
+       ⚠ THREE houses, not two: with two stops there is only one possible order,
+       so an ordered day and an untouched one look identical and the check proves
+       nothing. Fed in scrambled, the shortest route is a,c,b. */
+    const dayAt = (offsetDays, name) => {
+      const d = new Date(); d.setHours(12, 0, 0, 0);
+      d.setDate(d.getDate() + offsetDays);
+      return { id: name, _date: d, houses: [
+        Object.assign({}, L1, { name: name + '-a' }),
+        Object.assign({}, L2, { name: name + '-b' }),
+        Object.assign({}, L3, { name: name + '-c' }) ] };
+    };
+    const soon = dayAt(1, 'soon'), later = dayAt(30, 'later'), past = dayAt(-5, 'past');
+    gen.setSeason([soon, later, past]);
+    const res = gen.all();
+    check('S77', 'a day inside 48 hours is left exactly as it was',
+      soon.houses.map(h => h.name).join() === 'soon-a,soon-b,soon-c',
+      'the crew is already holding that sheet on paper');
+    check('S77', 'a day further out is ordered',
+      later.houses.map(h => h.name).join() === 'later-a,later-c,later-b',
+      'got [' + later.houses.map(h => h.name).join() + ']');
+    check('S77', 'a day already gone is left alone too',
+      past.houses.map(h => h.name).join() === 'past-a,past-b,past-c',
+      'it is the record of what the crew was sent out with');
+    check('S77', 'and it counts what it held back so the office can be told',
+      res.locked === 2 && res.days === 1,
+      'a day skipped in silence looks like a day it forgot — got locked=' + res.locked + ' days=' + res.days);
+
+    const started = dayAt(30, 'started');
+    started.houses[0].done = true;
+    gen.setSeason([started]);
+    gen.all();
+    check('S77', 'a day somebody is ticking through is not re-ordered under them',
+      started.houses.map(h => h.name).join() === 'started-a,started-b,started-c',
+      'they are working down that list right now');
+
+    /* The clock itself: Mountain time, measured to the START of the day, because
+       the truck is loaded the night before. */
+    check('S77', 'the lock is measured to the start of the day, not the end',
+      Math.round(gen.hours('2026-11-05', { date: '2026-11-03', hour: 0, minute: 0 })) === 48 &&
+      gen.locked('2026-11-05', { date: '2026-11-03', hour: 1, minute: 0 }) === true &&
+      gen.locked('2026-11-05', { date: '2026-11-03', hour: 0, minute: 0 }) === false,
+      'the crew loads the truck the night before, so the useful moment is when the day starts');
+    check('S77', 'a nonsense date never reads as locked',
+      gen.locked('') === false && gen.hours('not-a-date', { date: '2026-11-03', hour: 0, minute: 0 }) === Infinity,
+      'reading a junk value as "inside 48 hours" would freeze days nobody can unfreeze');
+
+    /* ⭐ THE BUG THIS FOUND ON THE WAY PAST: a crew sheet for a crew holding two
+       towns printed EMPTY, because the rows were filtered against crewCityFor,
+       which JOINS the towns into one string. A crew day is one town plus at most
+       one other, so that was every mixed day the builder makes.
+       ⚠ THE FIXTURE HAS TO MAKE A CREW TAKE TWO TOWNS, and the split is by
+       head-count: the big town goes to one crew and the two small ones both land
+       on the other. Four Lehi against two Alpine and one Draper does it; three
+       houses in two towns does NOT, and the first version of this check was
+       vacuous for exactly that reason. */
+    gen.setCrews([{ name: 'Dad + Ty', city: '' }, { name: 'Crew 2', city: '' }]);
+    const D1 = at('D1', 'Draper', 40.70);
+    const mixed = { id: 'm', _date: new Date(2026, 10, 3),
+      houses: [L1, L2, L3, L4, A1, A2, D1] };
+    check('S77', 'a crew really does hold two towns on a mixed day',
+      gen.houses(1, mixed).length === 3,
+      'with one crew town this whole check proves nothing — got ' + gen.houses(1, mixed).length);
+    const rows = gen.crewRows(mixed, 1);
+    check('S77', 'and their sheet prints all of them, not nothing',
+      rows.length === 3 && rows.map(r => r.name).join() === 'A1,A2,D1',
+      'filtering rows against the joined town string matched nothing at all — got [' +
+        rows.map(r => r.name).join() + ']');
+    check('S77', 'the crew sheet still numbers from 1',
+      rows.length === 3 && rows[0].stop === 1 && rows[2].stop === 3);
+    check('S77', 'the other crew gets only their own town',
+      gen.crewRows(mixed, 0).map(r => r.name).join() === 'L1,L2,L3,L4');
+    check('S77', 'a crew with nothing on the day still prints nothing',
+      gen.crewRows({ id: 'x', _date: new Date(2026, 10, 3), houses: [] }, 1).length === 0);
+
+    /* The printed rows name the crew and count from 1 per route. */
+    const pd = mkDay(); gen.day(pd);
+    const pr = gen.routeRows(pd);
+    check('S77', 'every printed row says which crew is driving it',
+      pr.every(r => /Dad \+ Ty|Crew 2/.test(r.route)),
+      'with two crews on a day, whose sheet a row belongs to is the first thing anybody needs');
+    check('S77', 'each route counts its stops from 1',
+      pr[0].stop === 1 && pr[4].stop === 1 && pr[3].stop === 4,
+      'a crew reading a shared sheet should see their own numbering, not their block of somebody else\'s');
+    check('S77', 'the printed order is the order on screen',
+      pr.map(r => r.name).join() === pd.houses.map(h => h.name).join(),
+      'the paper and the panel disagreeing is worse than either being wrong');
+    gen.setCrews(null);
+  }
+}
+
+/* The periodic customer sync moves houses between days; a house dropped on the
+   end of its new day is a house out of driving order, so the sync re-orders
+   what it moved rather than waiting for a press. */
+{
+  const syncStart = admin.indexOf('window.scheduleSyncFromCustomers=function(opts){');
+  const syncEnd = admin.indexOf('function __startSyncTimer()', syncStart);
+  const sync = (syncStart > -1 && syncEnd > syncStart) ? admin.slice(syncStart, syncEnd) : '';
+  check('S77', 'the periodic sync re-orders the days it changed',
+    /routes=generateAllRoutes\(\)/.test(sync),
+    'enforceInstallTiming puts a moved house on the END of its new day');
+  check('S77', 'but only when a house actually moved day or town',
+    /if\(timing\.moved\.length \|\| townChanged\)/.test(sync),
+    'a changed phone number does not alter a route — re-ordering the season every five minutes would');
+  check('S77', 'and it happens BEFORE the plan is drawn and saved',
+    sync.indexOf('generateAllRoutes()') < sync.indexOf('computeDates(); renderAll(); scheduleSave();'),
+    'ordering after the draw shows the office one order and saves another');
+  check('S77', 'a failure ordering routes cannot take the sync down',
+    /catch\(err\)\{ console\.error\('Route generation failed:'/.test(sync),
+    'the towns and timings it just pulled across matter more than the order');
+  check('S77', 'and the screen says the order changed',
+    /re-ordered for driving/.test(sync),
+    'automatic is fine; invisible is not');
+}
+
+/* The panel draws the same two routes the sheet prints — RUN, not read. */
+{
+  const panelStart = admin.indexOf('function renderPanelInto(elId,day)');
+  const panelEnd = admin.indexOf('function renderSearch(q)', panelStart);
+  const crewStart = admin.indexOf('function cityOf(h)');
+  const crewEnd = admin.indexOf('/* ---------- build from imported rows', crewStart);
+  if (panelStart === -1 || panelEnd < panelStart) {
+    check('S77', 'the day panel is findable', false, 'renamed — update this test');
+  } else {
+    const out = { innerHTML: '' };
+    global.RT = { getElementById: () => out };
+    global.esc = s => (s || '').toString();
+    global.dlabel = () => ({ wd: 'Mon', full: 'Nov 3' });
+    global.dayDate = d => d._date;
+    global.isoOf = () => '2026-11-03';
+    global.isWeekend = () => false;
+    global.effectivePin = () => null;
+    global.deltaFor = () => 0;
+    global.weekGuideHTML = () => '';
+    global.allHouses = () => [];
+    /* Stubbed on purpose: this is a check about GROUPING, and the stop card has
+       its own coverage. A card that renders is not the question here. */
+    global.stopHTML = (h, n) => '<stop>' + h.name + '#' + n + '</stop>';
+    const panel = eval(admin.slice(crewStart, crewEnd) + '\n' +
+      admin.slice(panelStart, panelEnd) +
+      '\n;({ render: renderPanelInto, setCrews(l){ CREWS = normalizeCrews(l); } })');
+    panel.setCrews(null);
+    const day = { id: 'd', _date: new Date(2026, 10, 3), cascade: 0, houses: [
+      { name: 'L1', city: 'Lehi' }, { name: 'L2', city: 'Lehi' },
+      { name: 'A1', city: 'Alpine' }, { name: 'N1', city: '' } ] };
+    panel.render('panel', day);
+    const html = out.innerHTML;
+    check('S77', 'the panel draws one heading per crew route',
+      (html.match(/class="routehead"/g) || []).length === 2,
+      'one numbered list for the whole day reads as one route — got ' +
+        (html.match(/class="routehead"/g) || []).length);
+    check('S77', 'each route on screen counts from 1',
+      html.indexOf('<stop>L1#1</stop>') > -1 && html.indexOf('<stop>A1#1</stop>') > -1,
+      'the crew counting down the screen and the crew counting down the sheet must agree');
+    check('S77', 'a house in neither town is still drawn, and says so',
+      /routehead spare/.test(html) && html.indexOf('<stop>N1#1</stop>') > -1,
+      'a stop nobody holds a sheet for is a stop nobody drives to');
+    panel.setCrews(null);
+  }
 }
 
 // A check that scores after this summary is a check that cannot fail the build.
