@@ -16641,6 +16641,38 @@ suite('Suite 80. A blank is a blank, and a default is a default');
     "coercing a blank to No on load writes it back as No the moment they save " +
     "anything else on that form");
 
+  /* ---- and the blank is worth keeping only if it can be found ---- */
+  {
+    /* ⭐ A DISTINCTION NOBODY CAN SEE IS NOT WORTH PRESERVING. Not pre-answering the
+       question buys exactly one thing: knowing who was never asked. That is only worth
+       anything if the office can pull that list up and ask them, so the audience is
+       RUN here rather than described. */
+    const audAll = sectionFrom(admin, admin.indexOf("  if(etFilterOutlet === 'yes')"));
+    const stop = audAll.indexOf('// ', audAll.indexOf('unasked'));
+    const blk = stop > 0 ? audAll.slice(0, stop) : audAll.split('  if(etFilter')[0];
+    check('S80', 'the outlet audience block was found to run',
+      /unasked/.test(blk), blk.slice(0, 120));
+
+    const run = new Function('members', 'etFilterOutlet',
+      'let out = members;' + blk.replace(/\bmembers\b/g, 'out') + 'return out;');
+    const book = [
+      {data: {name: 'Yes Please', outletTimer: 'Yes'}},
+      {data: {name: 'No Thanks', outletTimer: 'No'}},
+      {data: {name: 'Never Asked'}},
+      {data: {name: 'Blank Too', outletTimer: ''}}
+    ];
+    const pick = (mode) => run(book, mode).map(m => m.data.name).join();
+
+    check('S80', 'Never answered finds only the people nobody asked',
+      pick('unasked') === 'Never Asked,Blank Too',
+      'a missing field and an empty one are the same silence');
+    check('S80', 'Has a timer is unaffected', pick('yes') === 'Yes Please');
+    check('S80', 'and No timer still means no timer, blanks included',
+      pick('no') === 'No Thanks,Never Asked,Blank Too',
+      'for anything operational a blank and a No mean the same thing — narrowing ' +
+      'that audience would quietly shrink a list somebody is already using');
+  }
+
   /* ---- and nothing PRINTS an answer nobody gave ---- */
   check('S80', 'the office card shows the timer only when it was answered',
     !/Timer: <strong>.\+\(d.outletTimer === .Yes. \? .Yes. : .No.\)/.test(admin),

@@ -2892,6 +2892,10 @@
                 <option value="all">All</option>
                 <option value="yes">Has a timer</option>
                 <option value="no">No timer</option>
+                <!-- ⭐ THE POINT OF NOT PRE-ANSWERING THE QUESTION. "No timer" above is
+                     the operational answer and still includes these; this is the one that
+                     finds the people nobody ever actually asked. -->
+                <option value="unasked">Never answered</option>
               </select>
             </div>
             <div class="form-row" style="margin:0;"><label style="font-size:11.5px;">Installed this season</label>
@@ -10406,6 +10410,11 @@ function etRenderRecipientList(){
   // Outlet timer
   if(etFilterOutlet === 'yes') members = members.filter(m => m.data.outletTimer === 'Yes');
   else if(etFilterOutlet === 'no') members = members.filter(m => m.data.outletTimer !== 'Yes');
+  /* ⚠ A BLANK IS NOT A NO, and this is the only place that can tell them apart.
+     "No timer" above is deliberately left alone: for anything operational a blank and
+     a No mean the same thing, and splitting them there would quietly shrink an
+     audience somebody is already using. */
+  else if(etFilterOutlet === 'unasked') members = members.filter(m => !m.data.outletTimer);
   // Installed this season
   if(etFilterInstalled === 'yes') members = members.filter(m => m.data.completed === true);
   else if(etFilterInstalled === 'no') members = members.filter(m => m.data.completed !== true);
