@@ -15236,6 +15236,66 @@ suite('Suite 66. The master sheet choice is remembered for every computer');
 suite('Suite 69. A customer as a row of the master sheet');
 {
   const admin = read("admin.html");
+  const fns = read("functions/index.js");
+
+  /* ⭐ A COLOUR CHANGE IS A NEW CUSTOMER NOW. Owner, 2026-08-19: "get rid of color
+     change fee and just make it new customer fee", then, asked whether that should
+     include going out first: "Its fine they can be treated as a new customer do it." */
+  check('S69', 'a colour change charges the new-customer fee, not its own',
+    /updates\.chargeNewMemberFee = true;/.test(fns) &&
+    !/reason: .Light color change./.test(fns),
+    'two fees for one change is the money bug the transaction around it exists to prevent');
+  /* ⚠ AND IT MUST NOT ALSO WRITE changeFees. That would charge thirty dollars twice. */
+  check('S69', 'and does not also add a change fee',
+    !/invWrite\.changeFees = newFees;/.test(fns),
+    'this replaces the fee, it does not add to it');
+  /* ⚠ THE 48-HOUR ROUTE LOCK SURVIVES. It has nothing to do with the fee: it keeps a
+     customer off an install route while their pattern may still move, and losing it
+     would let a crew hang lights that are about to change. */
+  check('S69', 'and the route lock is untouched',
+    /jobAddrLightUpdate\.lightsLockedUntil/.test(fns) &&
+    /lightsChangedAfterAssign = true/.test(fns),
+    'the lock is about the crew, not about money');
+
+  /* ⭐ PREPAID READS AS PAID. Owner, shown the Paid/Unpaid column: "change their tag
+     to paid." The tag is arithmetic over the invoice, so the only honest way is to
+     record the payment. */
+  check('S69', 'a prepaid customer has their invoice settled',
+    /async function rbSettlePrepaid\(/.test(admin) &&
+    /deposit: owed,/.test(admin),
+    'the tag is computeInvoiceStatus — nothing else makes it say Paid');
+  /* ⚠ NEVER TWICE, AND NEVER DOWNWARDS. Pressing the button again must not move money,
+     and somebody who part-paid by card must not have it overwritten by a spreadsheet
+     word. */
+  check('S69', 'and it never pays twice or reduces what was paid',
+    /if\(owed <= 0 \|\| paid >= owed\){ already\+\+; continue; }/.test(admin),
+    'a second press must be a no-op, not a second payment');
+  check('S69', 'and the payment says where it came from',
+    /Prepaid \u2014 recorded from the master sheet/.test(admin),
+    'money appearing with no explanation gets unpicked months later by somebody who cannot tell it from a mistake');
+
+  /* ⭐ BILL-TO. Owner: "yes they should have one member portal and on invoice but still
+     remain two seperate customers" — which is exactly what billToPhone already does. */
+  check('S69', 'a bill-to name is turned into the existing bill-to link',
+    /async function rbResolveBillTo\(/.test(admin) && /billToPhone: String\(/.test(admin),
+    'billToPhone already gives one invoice and one portal while both stay their own customer');
+  /* ⚠ ONE MATCH ONLY. Two customers of that name is not a weaker answer, it is no
+     answer — picking one sends somebody else’s bill to the wrong house. */
+  check('S69', 'and a name matching two customers is reported, not guessed',
+    /if\(hits\.length > 1\){ ambiguous\+\+; continue; }/.test(admin),
+    'that is money going to the wrong house');
+  /* ⚠ AND NOT TO THEMSELVES. */
+  check('S69', 'and never joins a customer to their own invoice',
+    /x\.id !== c\.id/.test(admin),
+    'an invoice pointing at itself is a loop nobody notices until it is billed');
+  /* ⚠ IF THE PAYER IS NOT OURS, NOTHING HAPPENS. Owner: "if they arent it doesnt
+     matter ... that means were already using whoever it is information already." */
+  check('S69', 'and a payer who is not a customer is left alone',
+    /if\(!hits\.length\){ notOurs\+\+; continue; }/.test(admin),
+    'the name stays on the record where a person can read it');
+}
+{
+  const admin = read("admin.html");
   /* ⭐ THE MISC COLUMN HOLDS FIVE DIFFERENT THINGS, and the owner named every one of
      them on 2026-08-19: bill-to, a side count, a gate code, how the bill travels, and
      "if the misc column says anything I havent mentioned that should be put in notes
