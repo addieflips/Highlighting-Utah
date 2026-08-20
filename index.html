@@ -1263,10 +1263,14 @@
             <label>Which sides would you like lit?</label>
             <p class="form-note" style="margin:0 0 8px;">Tick any that apply &mdash; most people have just the front. You can change this later.</p>
             <div style="display:flex; flex-wrap:wrap; gap:10px;">
-              <label class="quote-side-pick"><input type="checkbox" name="house_sides" value="front"> Front of house</label>
-              <label class="quote-side-pick"><input type="checkbox" name="house_sides" value="right"> Right side</label>
-              <label class="quote-side-pick"><input type="checkbox" name="house_sides" value="left"> Left side</label>
-              <label class="quote-side-pick"><input type="checkbox" name="house_sides" value="back"> Back</label>
+              <!-- ⭐ A COUNT, NOT FOUR NAMES. Owner, 2026-08-19: "we need it to say 1,
+                   2, 3, or 4 sides of the house so then it can just be connected and we
+                   dont have to guess if its the left or right side." Her sheet has said
+                   "2 sides" for years; asking which two invented a fact nobody recorded. -->
+              <label class="quote-side-pick"><input type="radio" name="house_sides" value="1"> 1 side</label>
+              <label class="quote-side-pick"><input type="radio" name="house_sides" value="2"> 2 sides</label>
+              <label class="quote-side-pick"><input type="radio" name="house_sides" value="3"> 3 sides</label>
+              <label class="quote-side-pick"><input type="radio" name="house_sides" value="4"> 4 sides</label>
             </div>
           </div>
           <!-- Phase 2: buildings + per-side photos, built from the approved
@@ -1613,10 +1617,10 @@
               <div style="background:#FDF3E3; border:1px solid #E7C98B; border-radius:10px; padding:11px 14px; margin:0 0 12px; font-size:12.5px; color:#7A5B1E; line-height:1.5;">&#9888;&#65039; <strong>Heads up:</strong> changing which sides of your house are lit changes the amount of lights we hang, so <strong>we will need to re-quote you</strong> before your install.</div>
               <p class="form-note" style="margin:0 0 10px;">Tick the sides you would like lit, then save below.</p>
               <div style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:14px;">
-                <label class="quote-side-pick"><input type="checkbox" class="portal-side-check" value="front"> Front of house</label>
-                <label class="quote-side-pick"><input type="checkbox" class="portal-side-check" value="right"> Right side</label>
-                <label class="quote-side-pick"><input type="checkbox" class="portal-side-check" value="left"> Left side</label>
-                <label class="quote-side-pick"><input type="checkbox" class="portal-side-check" value="back"> Back</label>
+                <label class="quote-side-pick"><input type="radio" name="portal_sides" class="portal-side-pick" value="1"> 1 side</label>
+                <label class="quote-side-pick"><input type="radio" name="portal_sides" class="portal-side-pick" value="2"> 2 sides</label>
+                <label class="quote-side-pick"><input type="radio" name="portal_sides" class="portal-side-pick" value="3"> 3 sides</label>
+                <label class="quote-side-pick"><input type="radio" name="portal_sides" class="portal-side-pick" value="4"> 4 sides</label>
               </div>
               <button type="button" class="btn btn-gold btn-block" id="sidesSaveBtn">Save Sides</button>
               <div id="sidesSaveStatus" role="status" aria-live="polite" style="font-size:13px; color:var(--slate); margin-top:8px;"></div>
@@ -2665,7 +2669,7 @@ quoteFormEl.addEventListener('submit', async function(e){
     contactMethod: fd.get('contact_method'),
     /* Which sides they want lit. getAll, not get — a checkbox group is a list,
        and get() would quietly keep only the first one ticked. */
-    houseSides: fd.getAll('house_sides'),
+    houseSides: portalSideCount(fd.get('house_sides')),
     buildings: buildingsPayload.map(function(b){ return {name: b.name, photos: b.photos}; }),
     quotePhotos: quotePhotosPayload,
     frontPhotoUrl: mainPhoto ? mainPhoto.url : null,
@@ -4672,33 +4676,42 @@ document.getElementById('addEmail2Link').addEventListener('click', function(e){
    save that changes nothing trains people to click through the one that
    matters. */
 var PORTAL_SIDE_LABELS = {front: "Front of house", right: "Right side", left: "Left side", back: "Back"};
+/* ⭐ SIDES ARE A COUNT. Owner, 2026-08-19: "in the website its called front left
+   right and back side, we need it to say 1, 2, 3, or 4 sides of the house so then it
+   can just be connected and we dont have to guess if its the left or right side."
+   ⚠ THE OLD SHAPE STILL READS. Every customer on the books holds an ARRAY of side
+   names; three names is three sides, which is the same fact said the old way. A
+   member whose record predates this must not be shown "not recorded". */
+function portalSideCount(v){
+  if(Array.isArray(v)) return Math.min(4, v.filter(Boolean).length);
+  var n = Number(String(v == null ? "" : v).replace(/[^0-9]/g, ""));
+  return (n >= 1 && n <= 4) ? n : 0;
+}
 function portalSidesFromRecord(){
   var d = currentJobAddressData || {};
   var r = currentLookupRecord || {};
-  var list = Array.isArray(d.houseSides) ? d.houseSides
-           : (Array.isArray(r.houseSides) ? r.houseSides : []);
-  return list;
+  return portalSideCount(d.houseSides !== undefined ? d.houseSides : r.houseSides);
 }
 function portalRenderSides(){
   var have = portalSidesFromRecord();
-  document.querySelectorAll(".portal-side-check").forEach(function(cb){
-    cb.checked = have.indexOf(cb.value) !== -1;
+  document.querySelectorAll(".portal-side-pick").forEach(function(rb){
+    rb.checked = (Number(rb.value) === have);
   });
 }
 function portalSidesPicked(){
-  return Array.prototype.slice.call(document.querySelectorAll(".portal-side-check:checked"))
-    .map(function(cb){ return cb.value; });
+  var el = document.querySelector(".portal-side-pick:checked");
+  return portalSideCount(el ? el.value : 0);
 }
-function portalSidesWords(list){
-  if(!list.length) return "none";
-  return list.map(function(k){ return PORTAL_SIDE_LABELS[k] || k; }).join(", ");
+function portalSidesWords(n){
+  var c = portalSideCount(n);
+  return c ? (c + " side" + (c === 1 ? "" : "s")) : "none";
 }
 document.getElementById("sidesSaveBtn") && document.getElementById("sidesSaveBtn").addEventListener("click", async function(){
   var statusEl = document.getElementById("sidesSaveStatus");
   if(!currentLookupRecord && !currentJobAddressId){ statusEl.textContent = "Please look up your invoice first."; return; }
   var picked = portalSidesPicked();
   var before = portalSidesFromRecord();
-  var same = picked.slice().sort().join(",") === before.slice().sort().join(",");
+  var same = picked === before;
   if(same){ statusEl.textContent = "That is already what we have — nothing to change."; return; }
   /* ⚠ The confirm names BOTH lists. "You will be requoted" without saying what
      changed is the kind of warning people agree to and then ring about. */

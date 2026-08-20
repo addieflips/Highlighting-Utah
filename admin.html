@@ -1267,10 +1267,11 @@
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
             <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Which Sides Of The House?</label>
             <div class="pill-check-row" id="addCustHouseSides">
-              <label class="pill-check"><input type="checkbox" class="addcust-side-check" value="front"> Front of house</label>
-              <label class="pill-check"><input type="checkbox" class="addcust-side-check" value="right"> Right side</label>
-              <label class="pill-check"><input type="checkbox" class="addcust-side-check" value="left"> Left side</label>
-              <label class="pill-check"><input type="checkbox" class="addcust-side-check" value="back"> Back</label>
+              <label class="pill-check"><input type="radio" name="addcust-sides" class="addcust-side-pick" value=""> Not recorded</label>
+              <label class="pill-check"><input type="radio" name="addcust-sides" class="addcust-side-pick" value="1"> 1 side</label>
+              <label class="pill-check"><input type="radio" name="addcust-sides" class="addcust-side-pick" value="2"> 2 sides</label>
+              <label class="pill-check"><input type="radio" name="addcust-sides" class="addcust-side-pick" value="3"> 3 sides</label>
+              <label class="pill-check"><input type="radio" name="addcust-sides" class="addcust-side-pick" value="4"> 4 sides</label>
             </div>
           </div>
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
@@ -1600,6 +1601,14 @@
                    into the website in the what outlets spot". It is the column that
                    says WHICH outlet to use, so it lands in Specific Outlet rather
                    than being a yes/no of its own. -->
+              <!-- ⭐ MISC. Owner, 2026-08-19: it holds bill-to, a side count, a gate
+                   code, how the bill should travel, and often nothing we want. Each is
+                   picked out by rbMiscParse and anything unrecognised is left alone. -->
+              <div class="form-row">
+                <label>Misc (optional) <span class="bulk-count" id="rbCountMisc">0 rows</span></label>
+                <textarea id="rbMiscArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="bill to Kelly Brown&#10;mail bill&#10;gate #5225&#10;3 sides"></textarea>
+                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">Bill-to, how the bill travels, a gate code, or a side count. Anything else in here is left exactly as it is.</p>
+              </div>
               <div class="form-row">
                 <label>Up Plug / which outlet (optional) <span class="bulk-count" id="rbCountUpPlug">0 rows</span></label>
                 <textarea id="rbUpPlugArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="the one by the garage&#10;round the back&#10;(blank = leave as is)"></textarea>
@@ -1844,10 +1853,11 @@
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
             <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Which Sides Of The House?</label>
             <div class="pill-check-row" id="editCustHouseSides">
-              <label class="pill-check"><input type="checkbox" class="editcust-side-check" value="front"> Front of house</label>
-              <label class="pill-check"><input type="checkbox" class="editcust-side-check" value="right"> Right side</label>
-              <label class="pill-check"><input type="checkbox" class="editcust-side-check" value="left"> Left side</label>
-              <label class="pill-check"><input type="checkbox" class="editcust-side-check" value="back"> Back</label>
+              <label class="pill-check"><input type="radio" name="editcust-sides" class="editcust-side-pick" value=""> Not recorded</label>
+              <label class="pill-check"><input type="radio" name="editcust-sides" class="editcust-side-pick" value="1"> 1 side</label>
+              <label class="pill-check"><input type="radio" name="editcust-sides" class="editcust-side-pick" value="2"> 2 sides</label>
+              <label class="pill-check"><input type="radio" name="editcust-sides" class="editcust-side-pick" value="3"> 3 sides</label>
+              <label class="pill-check"><input type="radio" name="editcust-sides" class="editcust-side-pick" value="4"> 4 sides</label>
             </div>
             <p style="font-size:11.5px; color:var(--slate); margin:6px 0 0;">Leave all four blank if it has never been asked &mdash; blank means &ldquo;not recorded&rdquo;, not &ldquo;front only&rdquo;.</p>
           </div>
@@ -7770,11 +7780,15 @@ function fillAddCustFromQuote(quoteId, d){
   document.getElementById('addCustEmail').value = d.email || '';
   /* ⭐ The sides they picked on the quote, carried straight through — the only
      reason asking on the quote form is worth anything. */
-  const quoteSides = Array.isArray(d.houseSides) ? d.houseSides : [];
-  document.querySelectorAll('.addcust-side-check').forEach(function(cb){
-    cb.checked = quoteSides.indexOf(cb.value) !== -1;
-    cb.closest('.pill-check').classList.toggle('checked', cb.checked);
-  });
+  /* ⭐ Whatever shape the record holds — a count now, an array of side names on any
+     customer saved before 2026-08-19 — houseSideCount reads both. */
+  {
+    const n = houseSideCount(d.houseSides);
+    document.querySelectorAll('.addcust-side-pick').forEach(function(rb){
+      rb.checked = (String(rb.value || '') === (n ? String(n) : ''));
+      const w = rb.closest('.pill-check'); if(w) w.classList.toggle('checked', rb.checked);
+    });
+  }
   const colors = d.lightColors || [];
   document.querySelectorAll('.addcust-color-check').forEach(function(cb){
     cb.checked = colors.includes(cb.value);
@@ -14519,7 +14533,8 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
   const propertyLabel = document.getElementById('addCustPropertyLabel').value.trim();
   const phone2 = document.getElementById('addCustPhone2').value.replace(/\D/g,'');
   const email2 = document.getElementById('addCustEmail2').value.trim();
-  const selectedSides = Array.from(document.querySelectorAll('.addcust-side-check:checked')).map(function(el){ return el.value; });
+  /* A count, and 0 means nobody has said — which is not the same as "none". */
+  const selectedSides = houseSideCount((document.querySelector('.addcust-side-pick:checked') || {}).value);
   const selectedColors = Array.from(document.querySelectorAll('.addcust-color-check:checked')).map(el => el.value);
   // The free-text "Additional Notes" input under Lights was removed from the
   // form, so the description is just the colours now. Crew-facing detail lives
@@ -14853,7 +14868,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
     document.getElementById('addCustPropertyLabel').value = '';
     document.getElementById('addCustPhone2').value = '';
     document.getElementById('addCustEmail2').value = '';
-    document.querySelectorAll('.addcust-side-check').forEach(function(cb){ cb.checked = false; cb.closest('.pill-check').classList.remove('checked'); });
+    document.querySelectorAll('.addcust-side-pick').forEach(function(rb){ rb.checked = (rb.value === ''); const w = rb.closest('.pill-check'); if(w) w.classList.toggle('checked', rb.checked); });
     document.querySelectorAll('.addcust-color-check').forEach(function(cb){ cb.checked = false; cb.closest('.pill-check').classList.remove('checked'); });
     document.getElementById('addCustWireColor').value = 'White';
     document.getElementById('addCustInstallPref').value = 'Normal Schedule';
@@ -15453,13 +15468,13 @@ function rbCol(id, off){
   if(!el) return [];
   return el.value.split('\n').slice(off || 0).map(function(s){ return s.trim(); });
 }
-const rbAreaIds = ['rbNamesArea','rbPhonesArea','rbEmailsArea','rbStreetsArea','rbCitiesArea','rbStatesArea','rbZipsArea','rbDatesArea','rbColorsArea','rbAmountsArea','rbInstallPrefArea','rbCustNumbersArea','rbWireArea','rbTimerArea','rbEavesArea','rbUpPlugArea','rbDifficultyArea','rbFeetArea','rbNotesArea'];
+const rbAreaIds = ['rbNamesArea','rbPhonesArea','rbEmailsArea','rbStreetsArea','rbCitiesArea','rbStatesArea','rbZipsArea','rbDatesArea','rbColorsArea','rbAmountsArea','rbInstallPrefArea','rbCustNumbersArea','rbWireArea','rbTimerArea','rbEavesArea','rbUpPlugArea','rbMiscArea','rbDifficultyArea','rbFeetArea','rbNotesArea'];
 const rbCountIds = {
   rbNamesArea:'rbCountNames', rbPhonesArea:'rbCountPhones', rbEmailsArea:'rbCountEmails',
   rbStreetsArea:'rbCountStreets', rbCitiesArea:'rbCountCities', rbStatesArea:'rbCountStates', rbZipsArea:'rbCountZips', rbDatesArea:'rbCountDates',
   rbColorsArea:'rbCountColors', rbAmountsArea:'rbCountAmounts', rbInstallPrefArea:'rbCountInstallPref', rbCustNumbersArea:'rbCountCustNumbers',
   rbWireArea:'rbCountWire', rbTimerArea:'rbCountTimer', rbEavesArea:'rbCountEaves',
-  rbUpPlugArea:'rbCountUpPlug',
+  rbUpPlugArea:'rbCountUpPlug', rbMiscArea:'rbCountMisc',
   rbDifficultyArea:'rbCountDifficulty', rbFeetArea:'rbCountFeet', rbNotesArea:'rbCountNotes'
 };
 
@@ -15547,6 +15562,8 @@ const RB_SHEET_COLUMNS = [
   /* ⭐ Owner: "up plug should be read and then put into the website in the what
      outlets spot". Her sheet writes it "Up Plug". */
   {area:'rbUpPlugArea',      label:'Up Plug',       aliases:['up plug','upplug','outlet','which outlet','plug']},
+  /* ⭐ Misc carries five different things — see rbMiscParse. */
+  {area:'rbMiscArea',        label:'Misc',          aliases:['misc','miscellaneous','other']},
   {area:'rbAmountsArea',     label:'Payment Amount',aliases:['$$','$','price','amount','payment amount','total','cost']},
   {area:'rbInstallPrefArea', label:'Install Month', aliases:['pref date','preferred date','install month','install preference','preference','pref']},
   {area:'rbFeetArea',        label:'Measured Feet', aliases:['# feet','feet','measured feet','ft','footage']},
@@ -15958,20 +15975,183 @@ function rbNormalizeColors(raw){
    showed it could not change a single answer — the anchors had already caught
    all three — and a guard that cannot fail is a guard nobody can trust. */
 const RB_SIDE_ORDER = ['front', 'right', 'left', 'back'];
+/* ⭐ SIDES ARE A COUNT, NOT FOUR NAMES. Owner, 2026-08-19: "in the website its
+   called front left right and back side, we need it to say 1, 2, 3, or 4 sides of
+   the house so then it can just be connected and we dont have to guess if its the
+   left or right side."
+
+   Her sheet has said "2 sides", "3 sides" for years. The website asked which four
+   named sides, so matching the two meant guessing WHICH two a "2 sides" customer
+   meant — a guess nobody can make and nobody should have to. A count matches a
+   count.
+
+   ⚠ THE OLD SHAPE STILL HAS TO READ. Every customer on the books today holds an
+   ARRAY of side names, and a customer whose record predates this must not come back
+   as "not recorded". An array of three names is three sides, which is the same fact
+   said the old way.
+
+   ⚠ THIS IS NOT THE PHOTO LABELS. A photo of the front of the house is still a
+   photo of the front — QUOTE_SIDE_LABELS in index.html is a different thing and is
+   deliberately untouched. You photograph the front; you do not photograph "side 2". */
+function houseSideCount(v){
+  if(Array.isArray(v)) return Math.min(4, v.filter(Boolean).length);
+  const n = Number(String(v == null ? '' : v).replace(/[^0-9]/g, ''));
+  return (n >= 1 && n <= 4) ? n : 0;
+}
+function houseSideWords(v){
+  const n = houseSideCount(v);
+  return n ? (n + ' side' + (n === 1 ? '' : 's')) : 'not recorded';
+}
+/* ⚠ RETURNS A COUNT NOW, not a list of side names. Owner, 2026-08-19: "we need it
+   to say 1, 2, 3, or 4 sides of the house so then it can just be connected and we
+   dont have to guess if its the left or right side."
+   This function was the clearest case of that guess: her sheet says "2 sides" and it
+   was answering "front and right", which is a fact she never wrote down. The count
+   is what she actually said. */
+/* ⭐ THE MISC COLUMN HOLDS FIVE DIFFERENT THINGS. Owner, 2026-08-19, over several
+   messages: "Misc holds bill to, and also 2 sides of house 3 sides 4 sides which we
+   will need to have in sync", "sometimes misc will hold gate codes ... just remove the
+   letters and only use the numbers", "also sometimes notes will hold gatecodes so we
+   need to look for that in misc and notes", and "we need to save text or email or mail
+   bill ... if it says text or mail that needs to be synced".
+
+   Read off the real sheet, Misc is filled on 35 rows and genuinely says all of:
+     "Bill to Kelly Brown (Highland)"   a person to bill instead
+     "mail bill" / "text bill"          how the bill should reach them
+     "gate #5225" / "#2015" / "6736#"   a gate code
+     "3 sides"                          how much of the house is lit
+     "paid 2025", "remap", "venmo request tomfry13"   none of the above
+
+   ⚠ THE LAST LINE IS THE IMPORTANT ONE. Most of the column is not for us, and
+   anything unrecognised is left exactly where it is. A parser that tries to make
+   something of every cell will put "referral discount" in a gate code field.
+
+   ⚠ A GATE CODE NEEDS A MARKER, NOT JUST DIGITS. "gate", "code", or a # attached to
+   the number. Bare digits like "51500" are left alone — that could be a price, a
+   footage, or last year’s anything, and putting it on the crew card as a gate code is
+   worse than leaving it in Misc where a person can read it. */
+/* ⭐ PREPAID CAN BE ANYWHERE. Owner, 2026-08-19: "some people have prepaid and we dont
+   have a column for that so if they have prepaid we need to put it into the website
+   that they are already paid but prepaid can be in any column."
+   So it is looked for across the whole row rather than in one place. On the real sheet
+   it turns up in Pref Date and in Misc, which is exactly why there is no column to
+   point at.
+   ⚠ THE WORD HAS TO STAND ALONE. "prepaid" yes; "not prepaid" and "prepaid?" are
+   somebody thinking aloud, and reading either as money received is the wrong way to be
+   wrong. */
+function rbRowSaysPrepaid(values){
+  return (values || []).some(function(v){
+    const t = String(v == null ? "" : v).trim().toLowerCase();
+    if(!t) return false;
+    /* ⚠ THE WORD HAS TO MEAN IT. "not prepaid" and "prepaid?" are somebody thinking
+       aloud, and reading either as money received is the wrong way to be wrong. */
+    if(/\b(not|non|un)[\s-]*pre[\s-]*paid\b/.test(t)) return false;
+    if(/pre[\s-]*paid\s*\?/.test(t)) return false;
+    return /\bpre[\s-]*paid\b/.test(t);
+  });
+}
+function rbMiscParse(raw){
+  const text = String(raw == null ? "" : raw).trim();
+  const out = {billToName: "", mailBill: false, textBill: false, gateCode: "", sides: 0, leftover: "", used: false};
+  if(!text) return out;
+  const low = text.toLowerCase();
+
+  /* How the bill travels. Email is the default and is never written here — owner: "we
+     by default email bill so you dont need to worry about that". */
+  if(/\bmail(ed)?\s+bill\b|\bbill\s+by\s+mail\b/.test(low)){ out.mailBill = true; out.used = true; }
+  if(/\btext(ed)?\s+bill\b|\bbill\s+by\s+text\b/.test(low)){ out.textBill = true; out.used = true; }
+
+  /* Somebody else pays. "bill steve laycock", "Bill to Kelly Brown (Highland)",
+     "Send bill to Raul Pelagio" — the town in brackets is a hint for a person, not
+     part of the name. */
+  if(!out.mailBill && !out.textBill){
+    const m = text.match(/^(?:send\s+)?bill\s+(?:to\s+)?(.+)$/i);
+    if(m){
+      out.billToName = m[1].replace(/\([^)]*\)/g, "").trim();
+      out.used = !!out.billToName;
+    }
+  }
+
+  /* ⚠ ONE READER FOR BOTH COLUMNS. Misc and Notes both carry gate codes and they are
+     written the same careless ways in each; two readers would drift. */
+  const gate = rbGateCodeFromText(text);
+  if(gate){ out.gateCode = gate; out.used = true; }
+
+  /* ⭐ ANYTHING ELSE IS A NOTE. Owner, 2026-08-19: "if the misc column says anything I
+     havent mentioned that should be put in notes section of the all customers when we
+     sync the two."
+     On the real sheet that is "paid 2025", "remap", "venmo request tomfry13",
+     "referral discount", "51500" — none of which belongs in a field, and all of which
+     somebody wrote down for a reason. The Notes column is where a human can read it.
+     ⚠ leftover is set ONLY when nothing else claimed the cell, so "mail bill" does not
+     arrive as a note as well as a setting. */
+  /* And the side count, through the same reader the Notes column uses. */
+  const sides = rbSidesFromNote(text);
+  if(sides){ out.sides = sides; out.used = true; }
+  if(!out.used) out.leftover = text;
+  return out;
+}
+/* ⭐ A GATE CODE IN THE NOTES COLUMN. Owner: "sometimes notes will hold gatecodes so
+   we need to look for that in misc and notes". On the real sheet: "JAN GATE CODE
+   851409", "Gate Code 6321".
+   ⚠ THE NOTE IS NOT CONSUMED. "Find using 905 S 330 W AF (then navigate to right
+   address)" mentions no gate and stays a note; and even a note that DOES carry a code
+   often carries other words the crew needs, so the code is copied out rather than the
+   note being emptied. */
+/* ⭐ A PLUG OR OUTLET INSTRUCTION IN THE NOTES COLUMN. Owner, 2026-08-19: "up plug
+   is about preference on using outlet in eaves, but sometimes they give plug or
+   outlet information in notes and if they do that should go to the outlet preference
+   we already have set up in all customers."
+
+   ⚠ THE WHOLE NOTE IS CARRIED ACROSS, not the matched fragment. "Use the outlet by
+   the garage, not the one on the porch" is one instruction; handing the crew only
+   the half a regex liked is worse than handing them nothing.
+   ⚠ AND THE NOTE IS NOT EMPTIED. The same sentence often carries something else the
+   crew needs, so it is copied, not moved.
+   ⚠ A gate code is not an outlet. "gate code 6321" mentions neither plug nor outlet
+   and must not become an outlet instruction. */
+function rbOutletFromNote(raw){
+  const text = String(raw == null ? "" : raw).trim();
+  if(!text) return "";
+  if(!/\b(outlet|plug|eave)/i.test(text)) return "";
+  /* A colour list or a bare side count is not an outlet instruction either. */
+  if(rbSidesFromNote(text)) return "";
+  return text;
+}
+function rbGateCodeFromText(raw){
+  const text = String(raw == null ? "" : raw).trim();
+  if(!text) return "";
+  /* ⭐ MANY SPELLINGS, NOT ONE. Owner, 2026-08-19: "make sure you format it in many
+     formats so it doesnt flag if its not exactly Gate Code: or anything else like
+     that." On the real sheet alone: "JAN GATE CODE 851409", "Gate Code 6321",
+     "gate #5225", "code #0624", "Gate:code: 123456". The word, any punctuation or
+     none, then the digits.
+     ⚠ A MARKER IS STILL REQUIRED. Bare digits are left alone — "51500" in Misc could
+     be a price or a footage, and putting it on a crew card as a gate code is worse
+     than leaving it where a person can read it. */
+  const m = text.match(/(?:gate|gatecode|code)\b[^0-9]{0,20}(\d{3,})/i);
+  if(m) return m[1];
+  /* A number wearing a # and nothing else: "#2015", "6736#". */
+  const h = text.match(/^#\s*(\d{3,})$|^(\d{3,})\s*#$/);
+  if(h) return h[1] || h[2];
+  return "";
+}
 function rbSidesFromNote(raw){
   const text = String(raw == null ? '' : raw).trim().toLowerCase();
-  if(!text) return null;
+  if(!text) return 0;
   let m = text.match(/^(\d)\s*sides?$/);
   if(m){
     const n = Number(m[1]);
-    if(n >= 1 && n <= 4) return RB_SIDE_ORDER.slice(0, n);
-    return null;
+    return (n >= 1 && n <= 4) ? n : 0;
   }
-  if(/^front\s*(and|&|\+)\s*sides?$/.test(text)) return RB_SIDE_ORDER.slice(0, 2);
-  if(/^front\s*(and|&|\+)\s*back$/.test(text)) return ['front', 'back'];
-  if(/^front$/.test(text)) return ['front'];
-  if(/^all\s*(4|four)?\s*sides?$/.test(text)) return RB_SIDE_ORDER.slice();
-  return null;
+  /* Her own wordings. "Front and side" is two; "front and back" is also two — which
+     is the point of counting rather than naming: both are two sides of lights, and
+     which two was never recorded anywhere. */
+  if(/^front\s*(and|&|\+)\s*sides?$/.test(text)) return 2;
+  if(/^front\s*(and|&|\+)\s*back$/.test(text)) return 2;
+  if(/^front$/.test(text)) return 1;
+  if(/^all\s*(4|four)?\s*sides?$/.test(text)) return 4;
+  return 0;
 }
 /* ⭐ A COLOUR LIST THAT LANDED IN THE NOTES COLUMN IS NOT A NOTE.
    Owner, 2026-08-18: "if you ever see color in the notes catagory:
@@ -17666,6 +17846,7 @@ async function rbApplyTickedAdds(statusEl){
   const installPrefRaw = colOf('rbInstallPrefArea'), wireRaw = colOf('rbWireArea');
   const timerRaw = colOf('rbTimerArea'), eavesRaw = colOf('rbEavesArea');
   const upPlugRaw = colOf('rbUpPlugArea');
+  const miscRaw = colOf('rbMiscArea');
   const difficultyRaw = colOf('rbDifficultyArea'), feetRaw = colOf('rbFeetArea');
   const notesRaw = colOf('rbNotesArea');
   const amountsRaw = colOf('rbAmountsArea');
@@ -17701,8 +17882,14 @@ async function rbApplyTickedAdds(statusEl){
            words into the flag would leave the crew a "Yes" and no outlet. And a blank
            column says nothing, so it must not tick the flag to No.
            Blank is left alone entirely, the same as every other column here. */
-        specificOutlet: String(upPlugRaw[i] || '').trim() ? 'Yes' : '',
-        specificOutletNotes: String(upPlugRaw[i] || '').trim(),
+        /* ⭐ THE OUTLET PREFERENCE COMES FROM EITHER COLUMN. Owner: Up Plug is about
+           which outlet or the eaves, "but sometimes they give plug or outlet
+           information in notes and if they do that should go to the outlet preference
+           we already have set up in all customers".
+           ⚠ UP PLUG WINS where both say something — it is the column meant for it,
+           and a note is where things end up when there was nowhere else to put them. */
+        specificOutlet: (String(upPlugRaw[i] || '').trim() || rbOutletFromNote(notesRaw[i])) ? 'Yes' : '',
+        specificOutletNotes: String(upPlugRaw[i] || '').trim() || rbOutletFromNote(notesRaw[i]),
         portalToken: generatePortalToken(),
         lat: coords.lat, lng: coords.lng, needsGeocode: coords.lat === null,
         scheduled: false,
@@ -17734,8 +17921,31 @@ async function rbApplyTickedAdds(statusEl){
          into Notes where nothing can read it. See rbSidesFromNote. */
       const notesSides = rbSidesFromNote(notesRawVal);
       const notesVal = (notesSides || rbNotesLooksLikeColors(notesRawVal)) ? '' : notesRawVal;
-      if(notesVal) doc2.notes = notesVal;
-      if(notesSides) doc2.houseSides = notesSides;
+      /* ⭐ EVERYTHING THE MISC COLUMN CARRIES. Owner, 2026-08-19, across several
+         messages: bill-to, a side count, a gate code, how the bill travels, and "if the
+         misc column says anything I havent mentioned that should be put in notes
+         section of the all customers when we sync the two". */
+      const misc = rbMiscParse(miscRaw[i]);
+      /* A gate code can be in either column. Misc wins where both have one — a note is
+         where things end up when there was nowhere else to put them. */
+      const gate = misc.gateCode || rbGateCodeFromText(notesRawVal);
+      if(gate) doc2.gateCode = gate;
+      if(misc.mailBill) doc2.wantsMailedInvoice = true;
+      /* ⚠ EMAIL IS THE DEFAULT AND IS NEVER WRITTEN. Owner: "we by default email bill
+         so you dont need to worry about that" — so only the two exceptions are
+         recorded, and a blank Misc leaves the default alone. */
+      if(misc.textBill) doc2.wantsTextedInvoice = true;
+      const sideCount = misc.sides || notesSides;
+      if(sideCount) doc2.houseSides = sideCount;
+      /* ⚠ THE LEFTOVER JOINS THE NOTE, it does not replace it. Both columns can carry
+         something worth reading, and "remap" plus a real note is two facts, not one. */
+      const noteBits = [notesVal, misc.leftover].filter(Boolean);
+      if(noteBits.length) doc2.notes = noteBits.join(' \u2014 ');
+      /* ⚠ THE BILL-TO NAME IS KEPT, NOT RESOLVED HERE. Owner: "first we check if the
+         person we bill to is even a customer of ours, if they arent it doesnt matter."
+         Matching a name to a customer needs the whole book in hand, which is the
+         comparison’s job, not this loop’s. */
+      if(misc.billToName) doc2.billToName = misc.billToName;
       if(r.pairedSite){
         /* ⭐ UPDATE, DON'T ADD. Owner, 2026-08-18: "I want it to update the
            customer not add a new one."
@@ -23511,11 +23721,15 @@ function openEditCustomerModal(id){
   /* Which sides. An ABSENT list and an empty one are the same thing here:
      nobody has been asked. That is why nothing is ticked by default rather
      than front. */
-  const custSides = Array.isArray(d.houseSides) ? d.houseSides : [];
-  document.querySelectorAll('.editcust-side-check').forEach(function(cb){
-    cb.checked = custSides.indexOf(cb.value) !== -1;
-    cb.closest('.pill-check').classList.toggle('checked', cb.checked);
-  });
+  /* ⭐ A COUNT NOW, and houseSideCount reads the old array shape too — every customer
+     saved before 2026-08-19 holds one, and they must not come back as "not recorded". */
+  {
+    const n = houseSideCount(d.houseSides);
+    document.querySelectorAll('.editcust-side-pick').forEach(function(rb){
+      rb.checked = (String(rb.value || '') === (n ? String(n) : ''));
+      const w = rb.closest('.pill-check'); if(w) w.classList.toggle('checked', rb.checked);
+    });
+  }
   document.getElementById('editCustInstallPref').value = d.installPreference || 'Normal Schedule';
   document.getElementById('editCustNotes').value = d.notes || '';
   document.getElementById('editCustPhotoFile').value = '';
@@ -23750,7 +23964,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const newInvoiceNotes = document.getElementById('editCustInvoiceNotes').value.trim();
   const newWantsMailed = document.getElementById('editCustWantsMailed').checked;
   const newColors = Array.from(document.querySelectorAll('.editcust-color-check:checked')).map(el => el.value);
-  const newHouseSides = Array.from(document.querySelectorAll('.editcust-side-check:checked')).map(function(el){ return el.value; });
+  const newHouseSides = houseSideCount((document.querySelector('.editcust-side-pick:checked') || {}).value);
   const newLightsDescription = compileLightsDescription(newColors.join(', '), '');
   const newInstallPref = document.getElementById('editCustInstallPref').value;
   const newHouseNotes = document.getElementById('editCustNotes').value.trim();
