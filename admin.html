@@ -1164,6 +1164,14 @@
     </div>
     </div>
     <div class="sidebar-footer">
+      <!-- ⭐ UPDATE CUSTOMER INFO, ON EVERY PAGE. Owner, 2026-08-19: "we wont want
+           this in bulk updates rather just update customer info button somewhere you
+           can see on every page of the admin page."
+           The sidebar is the only thing on screen whichever panel is open, so this is
+           where "every page" actually lives. Bulk Updates is a place you go on
+           purpose; this is a thing you press when you notice something. -->
+      <button id="updateCustInfoBtn" title="Send recycles, colour changes and Maybe Next Year to their tabs in your sheet">Update customer info</button>
+      <div class="who" id="updateCustInfoStatus" style="min-height:14px;"></div>
       <div class="who" id="whoAmI"></div>
       <button id="logoutBtn">Log Out</button>
     </div>
@@ -1587,6 +1595,15 @@
                 <label>Use Eaves (optional) <span class="bulk-count" id="rbCountEaves">0 rows</span></label>
                 <textarea id="rbEavesArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="Yes&#10;No&#10;(blank = leave as is)"></textarea>
                 <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">Type Yes or No (y/n also works). Blank leaves it unchanged.</p>
+              </div>
+              <!-- ⭐ UP PLUG. Owner, 2026-08-19: "up plug should be read and then put
+                   into the website in the what outlets spot". It is the column that
+                   says WHICH outlet to use, so it lands in Specific Outlet rather
+                   than being a yes/no of its own. -->
+              <div class="form-row">
+                <label>Up Plug / which outlet (optional) <span class="bulk-count" id="rbCountUpPlug">0 rows</span></label>
+                <textarea id="rbUpPlugArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="the one by the garage&#10;round the back&#10;(blank = leave as is)"></textarea>
+                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">Whatever they said about which outlet to use. Anything here ticks Specific Outlet and becomes the note the crew reads. Blank leaves it unchanged.</p>
               </div>
               <div class="form-row">
                 <label>Measured Feet (optional) <span class="bulk-count" id="rbCountFeet">0 rows</span></label>
@@ -15436,12 +15453,13 @@ function rbCol(id, off){
   if(!el) return [];
   return el.value.split('\n').slice(off || 0).map(function(s){ return s.trim(); });
 }
-const rbAreaIds = ['rbNamesArea','rbPhonesArea','rbEmailsArea','rbStreetsArea','rbCitiesArea','rbStatesArea','rbZipsArea','rbDatesArea','rbColorsArea','rbAmountsArea','rbInstallPrefArea','rbCustNumbersArea','rbWireArea','rbTimerArea','rbEavesArea','rbDifficultyArea','rbFeetArea','rbNotesArea'];
+const rbAreaIds = ['rbNamesArea','rbPhonesArea','rbEmailsArea','rbStreetsArea','rbCitiesArea','rbStatesArea','rbZipsArea','rbDatesArea','rbColorsArea','rbAmountsArea','rbInstallPrefArea','rbCustNumbersArea','rbWireArea','rbTimerArea','rbEavesArea','rbUpPlugArea','rbDifficultyArea','rbFeetArea','rbNotesArea'];
 const rbCountIds = {
   rbNamesArea:'rbCountNames', rbPhonesArea:'rbCountPhones', rbEmailsArea:'rbCountEmails',
   rbStreetsArea:'rbCountStreets', rbCitiesArea:'rbCountCities', rbStatesArea:'rbCountStates', rbZipsArea:'rbCountZips', rbDatesArea:'rbCountDates',
   rbColorsArea:'rbCountColors', rbAmountsArea:'rbCountAmounts', rbInstallPrefArea:'rbCountInstallPref', rbCustNumbersArea:'rbCountCustNumbers',
   rbWireArea:'rbCountWire', rbTimerArea:'rbCountTimer', rbEavesArea:'rbCountEaves',
+  rbUpPlugArea:'rbCountUpPlug',
   rbDifficultyArea:'rbCountDifficulty', rbFeetArea:'rbCountFeet', rbNotesArea:'rbCountNotes'
 };
 
@@ -15526,6 +15544,9 @@ const RB_SHEET_COLUMNS = [
      reading the real values. If it does mean Use Eaves, add it here; until
      somebody says so it is reported as left alone. */
   {area:'rbEavesArea',       label:'Use Eaves',     aliases:['eaves','use eaves']},
+  /* ⭐ Owner: "up plug should be read and then put into the website in the what
+     outlets spot". Her sheet writes it "Up Plug". */
+  {area:'rbUpPlugArea',      label:'Up Plug',       aliases:['up plug','upplug','outlet','which outlet','plug']},
   {area:'rbAmountsArea',     label:'Payment Amount',aliases:['$$','$','price','amount','payment amount','total','cost']},
   {area:'rbInstallPrefArea', label:'Install Month', aliases:['pref date','preferred date','install month','install preference','preference','pref']},
   {area:'rbFeetArea',        label:'Measured Feet', aliases:['# feet','feet','measured feet','ft','footage']},
@@ -15861,7 +15882,26 @@ const RB_COLOR_ALIASES = {
   'purple':'Purple', 'purp':'Purple',
   'o':'Orange', 'orange':'Orange',
   'pink':'Pink', 'pk':'Pink',
-  'multi':'Multi', 'multicolor':'Multi', 'multicolour':'Multi', 'multi color':'Multi'
+  'multi':'Multi', 'multicolor':'Multi', 'multicolour':'Multi', 'multi color':'Multi',
+  /* ⭐ THE FOUR THE OFFICE HAD TO RULE ON. These sat unmapped for weeks because a
+     wrong guess writes the wrong lights onto a house; the owner settled them all on
+     2026-08-19.
+
+       p     "p is pure"
+       w     "w is warm white"
+       soft  "soft is a color we dont use anymore so we should have them under
+             color: soft(recycled) so then we can find them later cause we need to
+             switch their lights" — so it is NOT dropped and NOT guessed at. It is
+             kept under its own name, which is what makes those houses findable.
+       white "lets just say is put warm and pure because we really dont know" — the
+             only honest answer, and the reason an alias may be a LIST.
+
+     ⚠ soft(recycled) is deliberately not one of the tickable colours. It is a flag
+     that these lights are the old stock and have to be swapped, not a colour
+     anybody should be able to choose for a new house. */
+  'p':'Pure White', 'w':'Warm White',
+  'soft':'soft(recycled)', 'soft white':'soft(recycled)',
+  'white':['Warm White', 'Pure White']
 };
 function rbNormalizeColors(raw){
   if(!raw) return [];
@@ -15881,7 +15921,17 @@ function rbNormalizeColors(raw){
       return RB_COLOR_ALIASES[key] ||
              (RB_LIGHT_COLOR_OPTIONS.find(function(opt){ return opt.toLowerCase() === key; })) ||
              c;
-    });
+    })
+    /* ⚠ ONE WORD CAN MEAN TWO COLOURS. "white" is warm AND pure, because nobody
+       knows which was meant — so an alias may be a list and the list is flattened
+       here. Everything else still maps one to one. */
+    .reduce(function(out, v){ return out.concat(v); }, [])
+    /* ⚠ NO DEDUPE HERE, and that was a real mistake for about ten minutes. "pure/pure"
+       is TWO entries on purpose: rbDetectColorsAndPattern reads the repetition to work
+       out that the string is an alternating pattern rather than a plain set, and it
+       does its own deduping for the colour list. Removing duplicates at this level
+       silently turns every pattern into a set. */
+    ;
 }
 /* ⭐ "3 SIDES" IS A FACT ABOUT THE HOUSE, NOT A SENTENCE.
    Owner, 2026-08-18: "when notes says something like 3 sides then instead of
@@ -16472,11 +16522,101 @@ function hlxRowXml(rowNum, values){
   });
   return x + "</row>";
 }
+/* ⭐ THE THREE TABS THAT ARE NOT THE CUSTOMER LIST. Owner, 2026-08-19:
+   "recycle should go to the recycle tab in excel first row possible, color change
+   same thing but to the color change tab and maybe next years should be moved to
+   the contact 2027 tab first blank row."
+
+   Each is a state the WEBSITE already knows about, so nobody has to remember to
+   copy anything: a customer flagged for recycling, one who asked for a colour
+   change, and one who said maybe next year. The button gathers whoever is in each
+   state and writes them to the matching tab.
+
+   ⚠ WHAT IS ALREADY THERE IS NOT WRITTEN AGAIN. The tab is read first and anybody
+   whose name is already on it is skipped — otherwise pressing the button twice
+   doubles the tab, and it is a button somebody will press twice. */
+/* ⚠ THESE ARE THE APP'S OWN FLAGS, checked against the source rather than guessed.
+   I first wrote needsRecycle and colorChangeRequested; neither exists. That is the
+   same mistake as the invented test row, and the same fix: read the code.
+     needsLightRecycle  set when a customer says no and their lights come back
+     needsLightBuild    set by portalSave when the light pattern genuinely CHANGED,
+                        which is what a colour change is here — there is no separate
+                        colour-change flag, and inventing one would have been a third
+                        source of truth
+     maybeNextYear / rsvpStatus  the two ways Maybe Next Year is recorded */
+const HLX_STATE_TABS = [
+  {tab: "Recycle", label: "recycling",
+   holds: function(d){ return !!d.needsLightRecycle; }},
+  {tab: "Color Changes", label: "colour changes",
+   holds: function(d){ return !!d.needsLightBuild; }},
+  {tab: "Contact 2027", label: "maybe next year",
+   holds: function(d){ return !!d.maybeNextYear || d.rsvpStatus === "maybe_next_year"; }}
+];
+async function hlxNamesAlreadyOnTab(tabName){
+  const handle = await hlxSheetHandleLoad();
+  if(!handle) return null;
+  const file = await handle.getFile();
+  const entries = await hlxUnzipAll(await file.arrayBuffer());
+  const part = hlxSheetPartFor(entries, tabName);
+  if(!part) return null;
+  const seen = {};
+  /* Inline text and shared-string cells both end up as words here; the name is
+     what we match on, normalised the same way every other comparison does it. */
+  const xml = new TextDecoder().decode(part.data);
+  const ss = await hlxWorkbookSharedStrings(entries);
+  hlxReadSheet(xml, ss).forEach(function(row){
+    (row || []).forEach(function(cell){
+      const k = dupNormName(cell);
+      if(k) seen[k] = true;
+    });
+  });
+  return seen;
+}
+function hlxWorkbookSharedStrings(entries){
+  const e = entries.filter(function(x){ return x.name === "xl/sharedStrings.xml"; })[0];
+  return hlxSharedStrings(e ? new TextDecoder().decode(e.data) : "");
+}
 /* ⭐ APPEND ROWS TO THE CONNECTED WORKBOOK, IN PLACE.
    Returns {written, rowsBefore, rowsAfter} or throws with something the office can
    act on. Nothing is written unless the rebuilt bytes parse back correctly first —
    see the three decisions above hlxCrc32. */
-async function hlxAppendRowsToSheet(rows){
+/* ⭐ WHICH FILE INSIDE THE WORKBOOK IS THAT TAB. Owner, 2026-08-19: "recycle should
+   go to the recycle tab in excel first row possible, color change same thing but to
+   the color change tab and maybe next years should be moved to the contact 2027 tab
+   first blank row."
+
+   A tab name is not a filename. workbook.xml lists the tabs and points at a
+   relationship id; xl/_rels/workbook.xml.rels turns that into worksheets/sheetN.xml.
+   ⚠ THE ORDER OF THE PARTS MEANS NOTHING — in her book "Recycle" is sheet8.xml and
+   "Contact 2027" is sheet9.xml, but Sheet1 is sheet2.xml and the 2025 tab is
+   sheet1.xml. Guessing by position would write customers into the wrong tab. */
+function hlxSheetPartFor(entries, tabName){
+  const find = function(n){ return entries.filter(function(e){ return e.name === n; })[0]; };
+  const wbE = find("xl/workbook.xml"), relE = find("xl/_rels/workbook.xml.rels");
+  if(!wbE || !relE) return null;
+  const dec = new TextDecoder();
+  const wb = dec.decode(wbE.data), rel = dec.decode(relE.data);
+  const want = String(tabName || "").trim().toLowerCase();
+  let rid = "";
+  wb.replace(/<sheet[^>]*>/g, function(tag){
+    const nm = (tag.match(/name="([^"]*)"/) || [])[1];
+    const id = (tag.match(/r:id="([^"]*)"/) || [])[1];
+    if(nm && id && nm.trim().toLowerCase() === want) rid = id;
+    return tag;
+  });
+  if(!rid) return null;
+  let target = "";
+  rel.replace(/<Relationship[^>]*>/g, function(tag){
+    const id = (tag.match(/Id="([^"]*)"/) || [])[1];
+    const t = (tag.match(/Target="([^"]*)"/) || [])[1];
+    if(id === rid && t) target = t;
+    return tag;
+  });
+  if(!target) return null;
+  const full = "xl/" + target.replace(/^\/*/, "").replace(/^xl\//, "");
+  return find(full) || null;
+}
+async function hlxAppendRowsToSheet(rows, tabName){
   if(!rows || !rows.length) return {written: 0};
   const handle = await hlxSheetHandleLoad();
   if(!handle) throw new Error("No sheet is connected. Press \u201cUse my master sheet\u201d first.");
@@ -16501,8 +16641,16 @@ async function hlxAppendRowsToSheet(rows){
   const beforeHead = (before[0] || []).map(function(v){ return String(v == null ? "" : v).trim(); }).join("|");
 
   const entries = await hlxUnzipAll(buf);
-  const sheet = entries.filter(function(e){ return /^xl\/worksheets\/sheet1\.xml$/.test(e.name); })[0];
-  if(!sheet) throw new Error("That workbook has no first sheet to write to.");
+  /* Named tab, or the customer list when nobody says otherwise. */
+  const sheet = tabName
+    ? hlxSheetPartFor(entries, tabName)
+    : entries.filter(function(e){ return /^xl\/worksheets\/sheet1\.xml$/.test(e.name); })[0];
+  if(!sheet){
+    throw new Error(tabName
+      ? ("Your workbook has no tab called \u201c" + tabName + "\u201d, so nothing was written. " +
+         "Add the tab, or tell me what it is called.")
+      : "That workbook has no first sheet to write to.");
+  }
   const dec = new TextDecoder(), enc = new TextEncoder();
   let xml = dec.decode(sheet.data);
   if(xml.indexOf("</sheetData>") < 0) throw new Error("That sheet is not in a shape I can add a row to.");
@@ -16524,12 +16672,28 @@ async function hlxAppendRowsToSheet(rows){
   try{ check = await hlxWorkbookRows(new Blob([rebuilt])); }
   catch(err){ throw new Error("Built a workbook that could not be read back, so nothing was written. (" + (err && err.message) + ")"); }
   const afterHead = (check[0] || []).map(function(v){ return String(v == null ? "" : v).trim(); }).join("|");
-  if(check.length !== beforeCount + rows.length){
-    throw new Error("The rebuilt sheet came back with " + check.length + " rows, expected " +
-      (beforeCount + rows.length) + " \u2014 nothing was written.");
+  /* ⚠ hlxWorkbookRows reads the FIRST sheet, which is the customer list. When the
+     rows went to another tab that is exactly the right thing to check: the customer
+     list must come back UNTOUCHED. Expecting it to grow would be checking the wrong
+     sheet and would refuse every write to Recycle or Contact 2027. */
+  const expected = tabName ? beforeCount : beforeCount + rows.length;
+  if(check.length !== expected){
+    throw new Error("The customer list came back with " + check.length + " rows, expected " +
+      expected + " \u2014 nothing was written.");
   }
   if(afterHead !== beforeHead){
-    throw new Error("The rebuilt sheet lost its heading row, so nothing was written.");
+    throw new Error("The rebuilt workbook lost its heading row, so nothing was written.");
+  }
+  /* And when it DID go to another tab, that tab has to have grown. */
+  if(tabName){
+    const back = await hlxUnzipAll(rebuilt.buffer ? rebuilt.buffer : rebuilt);
+    const part = hlxSheetPartFor(back, tabName);
+    if(!part) throw new Error("The rebuilt workbook lost the \u201c" + tabName + "\u201d tab, so nothing was written.");
+    let n = 0;
+    new TextDecoder().decode(part.data).replace(/<row[\s>]/g, function(m){ n++; return m; });
+    if(n < rows.length){
+      throw new Error("The \u201c" + tabName + "\u201d tab did not take the new row(s), so nothing was written.");
+    }
   }
 
   const w = await handle.createWritable();
@@ -16538,6 +16702,54 @@ async function hlxAppendRowsToSheet(rows){
   return {written: rows.length, rowsBefore: beforeCount - 1, rowsAfter: check.length - 1, firstRow: maxRow + 1};
 }
 /* One customer, straight into the first open row. */
+/* ⭐ UPDATE CUSTOMER INFO — the button that lives on every page.
+   Owner, 2026-08-19: "we wont want this in bulk updates rather just update customer
+   info button somewhere you can see on every page of the admin page."
+
+   It sends each state the website already knows about to its own tab: recycling to
+   Recycle, colour changes to Color Changes, maybe-next-year to Contact 2027, each
+   into the first open row.
+
+   ⚠ NOBODY IS WRITTEN TWICE. Every tab is read first and anybody already named on it
+   is skipped. This is a button somebody will press twice — out of doubt, or because
+   the first press was slow — and without this that doubles the tab.
+   ⚠ ONE TAB FAILING DOES NOT STOP THE OTHERS, and every outcome is reported. A tab
+   she has not made yet should not cost her the two that worked.
+   ⚠ It writes to her workbook, so it says what it did rather than going quiet. */
+async function hlxUpdateCustomerInfo(statusEl){
+  const say = function(t){ if(statusEl) statusEl.textContent = t; };
+  if(!hlxSheetSupported()){
+    say("This browser cannot write to the sheet \u2014 use Chrome or Edge.");
+    return;
+  }
+  const handle = await hlxSheetHandleLoad();
+  if(!handle){
+    say("No sheet connected \u2014 Bulk Updates, \u201cUse my master sheet\u201d.");
+    return;
+  }
+  const done = [], failed = [];
+  for(let i = 0; i < HLX_STATE_TABS.length; i++){
+    const t = HLX_STATE_TABS[i];
+    try{
+      const already = await hlxNamesAlreadyOnTab(t.tab);
+      if(already === null){ failed.push(t.tab + " (no such tab)"); continue; }
+      const who = jobAddresses.filter(function(c){ return t.holds(c.data || {}); })
+        .filter(function(c){ return !already[dupNormName((c.data || {}).name)]; });
+      if(!who.length) continue;
+      say("Writing " + who.length + " to " + t.tab + "\u2026");
+      const res = await hlxAppendRowsToSheet(
+        who.map(function(c){ return rbCustomerToSheetRow(c.data || {}); }), t.tab);
+      if(res.written) done.push(res.written + " to " + t.tab);
+    } catch(err){ failed.push(t.tab + " (" + ((err && err.message) || "failed") + ")"); }
+  }
+  if(done.length) logActivity("Updated the sheet: " + done.join(", "), "customers", "");
+  say(!done.length && !failed.length
+    ? "Nothing new to send \u2014 everybody is already on their tab."
+    : (done.join(", ") || "Nothing written") + (failed.length ? ". Could not do: " + failed.join(", ") : "."));
+}
+document.getElementById("updateCustInfoBtn")?.addEventListener("click", onceAtATime(async function(){
+  return hlxUpdateCustomerInfo(document.getElementById("updateCustInfoStatus"));
+}, function(){ return document.getElementById("updateCustInfoBtn"); }));
 async function hlxAddCustomerToSheet(d){
   return hlxAppendRowsToSheet([rbCustomerToSheetRow(d)]);
 }
@@ -17453,6 +17665,7 @@ async function rbApplyTickedAdds(statusEl){
   const dates = colOf('rbDatesArea'), colorsRaw = colOf('rbColorsArea');
   const installPrefRaw = colOf('rbInstallPrefArea'), wireRaw = colOf('rbWireArea');
   const timerRaw = colOf('rbTimerArea'), eavesRaw = colOf('rbEavesArea');
+  const upPlugRaw = colOf('rbUpPlugArea');
   const difficultyRaw = colOf('rbDifficultyArea'), feetRaw = colOf('rbFeetArea');
   const notesRaw = colOf('rbNotesArea');
   const amountsRaw = colOf('rbAmountsArea');
@@ -17481,6 +17694,15 @@ async function rbApplyTickedAdds(statusEl){
         wireColor: rbNormalizeWire(wireRaw[i] || '') || '',
         outletTimer: rbNormalizeYesNo(timerRaw[i] || '') || '',
         useEaves: rbNormalizeYesNo(eavesRaw[i] || '') || '',
+        /* ⭐ UP PLUG GOES TO THE OUTLET FIELDS. Owner, 2026-08-19: "up plug should be
+           read and then put into the website in the what outlets spot".
+           ⚠ TWO FIELDS, NOT ONE. specificOutlet is the Yes/No the office filters on and
+           specificOutletNotes is what the crew actually reads at the door — writing the
+           words into the flag would leave the crew a "Yes" and no outlet. And a blank
+           column says nothing, so it must not tick the flag to No.
+           Blank is left alone entirely, the same as every other column here. */
+        specificOutlet: String(upPlugRaw[i] || '').trim() ? 'Yes' : '',
+        specificOutletNotes: String(upPlugRaw[i] || '').trim(),
         portalToken: generatePortalToken(),
         lat: coords.lat, lng: coords.lng, needsGeocode: coords.lat === null,
         scheduled: false,

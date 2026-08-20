@@ -345,7 +345,15 @@ const RB_COLOR_ALIAS = (function(){
   const end = admin.indexOf('};', at);
   const body = admin.slice(admin.indexOf('{', at), end + 1);
   const out = {};
-  body.replace(/'([^']+)'\s*:\s*'([^']+)'/g, function(_, k, v){ out[k] = v; return ''; });
+  /* ⚠ A VALUE MAY BE A LIST. "white" maps to BOTH warm and pure, because nobody
+     knows which was meant. A parser that only understands string values drops that
+     key silently, and then the suite is testing an alias table the app does not
+     have — which is exactly what happened when the key was added. */
+  body.replace(/'([^']+)'\s*:\s*\[([^\]]+)\]/g, function(_, k, list){
+    out[k] = list.split(',').map(function(v){ return v.trim().replace(/^'/, '').replace(/'$/, ''); });
+    return '';
+  });
+  body.replace(/'([^']+)'\s*:\s*'([^']+)'/g, function(_, k, v){ if(!(k in out)) out[k] = v; return ''; });
   return out;
 })();
 /* Health Check's "customer with no number" row reads the town off the record.
@@ -9192,9 +9200,16 @@ suite('Suite 36. Pasting the whole sheet');
     }
   }
 
-  check('S36', '"Up Plug" is not guessed into a real field',
-    !/'up plug'/.test(admin),
-    'it reads like Yes/No but 99 of its cells are "?"; mapping it would write that to 99 customers');
+  /* ⭐ SETTLED 2026-08-19: "up plug should be read and then put into the website in
+     the what outlets spot". It is the column that says WHICH outlet, so it fills the
+     note the crew reads and ticks the flag the office filters on.
+     ⚠ TWO FIELDS, NOT ONE. Writing the words into the Yes/No flag would leave the
+     crew a "Yes" and no outlet. */
+    check('S60', '"Up Plug" fills the outlet note and ticks the flag',
+      /\{area:'rbUpPlugArea'/.test(admin) &&
+      /specificOutletNotes: String\(upPlugRaw\[i\]/.test(admin) &&
+      /specificOutlet: String\(upPlugRaw\[i\] \|\| ''\)\.trim\(\) \? 'Yes' : ''/.test(admin),
+      'the column that says which outlet has to reach the crew, not just be counted');
 
   {
     const at = admin.indexOf('function rbNormalizeFeet(');
@@ -14185,17 +14200,32 @@ suite('Suite 60. The colours as the office actually writes them');
       sb.n('4red').join('') === 'Red' && sb.n('2 green').join('') === 'Green',
       'got ' + JSON.stringify(sb.n('4red')) + ' and ' + JSON.stringify(sb.n('2 green')));
 
-    /* ⚠ THE HALF THAT MATTERS MORE: never guess. */
-    check('S60', '"white" is left alone — pure or warm is a real difference',
-      sb.n('white').join('') === 'white',
-      'got "' + sb.n('white').join('') + '". 22 mentions, and the two are different products — ' +
-      'passing it through is how it stays visible as something a person has to decide');
-    check('S60', '"w" is left alone — warm or white',
-      sb.n('w').join('') === 'w');
-    check('S60', '"soft" is left alone — usually warm white, but that is an assumption',
-      sb.n('soft').join('') === 'soft');
-    check('S60', '"p" is left alone — pure, pink or purple',
-      sb.n('p').join('') === 'p');
+    /* ⭐ SETTLED 2026-08-19, after weeks of deliberately passing it through. It was
+       left alone precisely so a person would decide, and she did: "white lets just say
+       is put warm and pure because we really dont know". Both, rather than a guess at
+       one — the honest answer to 22 mentions nobody can now reconstruct. Checked just
+       below, with the other three she settled the same day. */
+    /* ⭐ SETTLED 2026-08-19. These three sat unmapped for weeks because a wrong guess
+     writes the wrong lights onto a house, and the owner ruled on all of them:
+     "p is pure", "w is warm white", and for soft, "soft is a color we dont use
+     anymore so we should have them under color: soft(recycled) so then we can find
+     them later cause we need to switch their lights". */
+    check('S60', '"w" is warm white and "p" is pure',
+      sb.n('w').join('|') === 'Warm White' && sb.n('p').join('|') === 'Pure White',
+      'got w=' + JSON.stringify(sb.n('w')) + ' p=' + JSON.stringify(sb.n('p')));
+    /* ⚠ SOFT IS KEPT, NOT TRANSLATED. It is stock they no longer use, so the point is
+       to be able to FIND those houses later and swap the lights — turning it into
+       Warm White would hide exactly the customers she needs to see. */
+    check('S60', '"soft" is kept under its own name so those houses can be found',
+      sb.n('soft').join('|') === 'soft(recycled)' &&
+      sb.n('soft white').join('|') === 'soft(recycled)',
+      'got ' + JSON.stringify(sb.n('soft')));
+    /* ⚠ "white" MEANS BOTH, and is the reason an alias may be a list. Owner: "white
+       lets just say is put warm and pure because we really dont know". Guessing one
+       would be a claim nobody can support. */
+    check('S60', '"white" becomes warm AND pure, because nobody knows which',
+      sb.n('white').join('|') === 'Warm White|Pure White',
+      'got ' + JSON.stringify(sb.n('white')));
     check('S60', 'and free text is never turned into a colour',
       sb.n('berry peas').join('') === 'berry peas' &&
       sb.n('add 60 bulbs').join('|').indexOf('Red') === -1,
@@ -15152,6 +15182,93 @@ suite('Suite 66. The master sheet choice is remembered for every computer');
    that were not obvious.
    ============================================================================= */
 suite('Suite 69. A customer as a row of the master sheet');
+{
+  const admin = read("admin.html");
+  /* ⭐ THE BUTTON ON EVERY PAGE. Owner, 2026-08-19: "we wont want this in bulk updates
+     rather just update customer info button somewhere you can see on every page of the
+     admin page." The sidebar is the only thing on screen whichever panel is open. */
+  check('S69', 'the button lives in the sidebar, so it is on every panel',
+    /id="updateCustInfoBtn"/.test(admin) &&
+    admin.indexOf('id="updateCustInfoBtn"') > admin.indexOf('class="sidebar-footer"') &&
+    admin.indexOf('id="updateCustInfoBtn"') < admin.indexOf('<div class="main">'),
+    'in a panel it would be a place you have to go to, which is what Bulk Updates already was');
+
+  /* ⚠ THE FLAGS ARE THE APP’S OWN. I first wrote needsRecycle and
+     colorChangeRequested and neither exists — the same mistake as the invented test
+     row. needsLightRecycle and needsLightBuild are the real ones. */
+  check('S69', 'the three tabs read flags that actually exist',
+    /holds: function\(d\){ return !!d\.needsLightRecycle; }/.test(admin) && /holds: function\(d\){ return !!d\.needsLightBuild; }/.test(admin) &&
+    /d\.maybeNextYear \|\| d\.rsvpStatus === "maybe_next_year"/.test(admin),
+    'a flag nobody sets is a tab that stays empty for ever');
+  check('S69', 'and each goes to its own tab',
+    /tab: "Recycle"/.test(admin) && /tab: "Color Changes"/.test(admin) &&
+    /tab: "Contact 2027"/.test(admin),
+    'the owner named all three by name');
+
+  /* ⚠ PRESSED TWICE MUST NOT DOUBLE THE TAB. It is a button somebody presses again
+     when the first press looked slow. */
+  check('S69', 'anybody already on the tab is skipped',
+    /const already = await hlxNamesAlreadyOnTab\(t\.tab\)/.test(admin) &&
+    /\.filter\(function\(c\){ return !already\[dupNormName/.test(admin),
+    'without this the second press writes everybody again');
+  /* ⚠ ONE TAB FAILING MUST NOT COST HER THE OTHERS. */
+  check('S69', 'a tab that fails does not stop the rest',
+    /} catch\(err\){ failed\.push\(t\.tab/.test(admin) &&
+    /Could not do: /.test(admin),
+    'a tab she has not made yet should not lose her the two that worked');
+}
+{
+  const admin = read("admin.html");
+  /* ⭐ A TAB NAME IS NOT A FILENAME. Owner, 2026-08-19: "recycle should go to the
+     recycle tab in excel first row possible, color change same thing but to the color
+     change tab and maybe next years should be moved to the contact 2027 tab".
+
+     ⚠ THE PART ORDER MEANS NOTHING. Checked against her real workbook: the tab named
+     "2025" is sheet1.xml, "Sheet1" is sheet2.xml, Recycle is sheet8 and Contact 2027
+     is sheet9. Anything that guessed by position would write customers into somebody
+     else’s tab. workbook.xml gives a relationship id and the rels file turns that
+     into the filename — both hops are required. */
+  {
+    const src = extractFn(admin, "hlxSheetPartFor");
+    check('S69', 'hlxSheetPartFor exists', !!src);
+    if(src){
+      const sb = {};
+      new Function(src + "this.f = hlxSheetPartFor;").call(sb);
+      const enc = function(t){ return {data: new TextEncoder().encode(t)}; };
+      const entries = [
+        Object.assign({name: "xl/workbook.xml"}, enc(
+          '<sheets><sheet name="2025" r:id="rId1"/><sheet name="Recycle" r:id="rId8"/>' +
+          '<sheet name="Contact 2027" r:id="rId9"/></sheets>')),
+        Object.assign({name: "xl/_rels/workbook.xml.rels"}, enc(
+          '<Relationship Id="rId8" Target="worksheets/sheet8.xml"/>' +
+          '<Relationship Id="rId1" Target="worksheets/sheet1.xml"/>' +
+          '<Relationship Id="rId9" Target="worksheets/sheet9.xml"/>')),
+        {name: "xl/worksheets/sheet1.xml", data: new Uint8Array()},
+        {name: "xl/worksheets/sheet8.xml", data: new Uint8Array()},
+        {name: "xl/worksheets/sheet9.xml", data: new Uint8Array()}
+      ];
+      check('S69', 'a tab is found through the relationship, not by position',
+        (sb.f(entries, "Recycle") || {}).name === "xl/worksheets/sheet8.xml" &&
+        (sb.f(entries, "Contact 2027") || {}).name === "xl/worksheets/sheet9.xml" &&
+        (sb.f(entries, "2025") || {}).name === "xl/worksheets/sheet1.xml",
+        'in her real book the tab order and the part order genuinely disagree');
+      check('S69', 'and the tab name is matched however it is capitalised',
+        (sb.f(entries, "recycle") || {}).name === "xl/worksheets/sheet8.xml" &&
+        (sb.f(entries, " RECYCLE ") || {}).name === "xl/worksheets/sheet8.xml",
+        'a tab typed in a different case is the same tab');
+      /* ⚠ AND AN UNKNOWN TAB IS NULL, NOT A GUESS. Falling back to the first sheet
+         would write a recycled customer into the customer list. */
+      check('S69', 'and a tab that does not exist is refused rather than guessed',
+        sb.f(entries, "No Such Tab") === null,
+        'falling back to the first sheet would put a recycled customer in the customer list');
+    }
+  }
+  /* ⚠ AND WHEN ROWS GO TO ANOTHER TAB, THE CUSTOMER LIST MUST NOT GROW. Verifying
+     against the first sheet either way would refuse every write to Recycle. */
+  check('S69', 'writing to a tab expects the customer list to stay the same size',
+    /const expected = tabName \? beforeCount : beforeCount \+ rows\.length;/.test(admin),
+    'the check has to know which sheet it is checking');
+}
 {
   const admin = read("admin.html");
   /* ⭐ THE ROW IS WRITTEN WITH DOUBLE-QUOTED ATTRIBUTES, and it is not cosmetic.
