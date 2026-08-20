@@ -1164,6 +1164,14 @@
     </div>
     </div>
     <div class="sidebar-footer">
+      <!-- ⭐ UPDATE CUSTOMER INFO, ON EVERY PAGE. Owner, 2026-08-19: "we wont want
+           this in bulk updates rather just update customer info button somewhere you
+           can see on every page of the admin page."
+           The sidebar is the only thing on screen whichever panel is open, so this is
+           where "every page" actually lives. Bulk Updates is a place you go on
+           purpose; this is a thing you press when you notice something. -->
+      <button id="updateCustInfoBtn" title="Send recycles, colour changes and Maybe Next Year to their tabs in your sheet">Update customer info</button>
+      <div class="who" id="updateCustInfoStatus" style="min-height:14px;"></div>
       <div class="who" id="whoAmI"></div>
       <button id="logoutBtn">Log Out</button>
     </div>
@@ -16514,6 +16522,60 @@ function hlxRowXml(rowNum, values){
   });
   return x + "</row>";
 }
+/* ⭐ THE THREE TABS THAT ARE NOT THE CUSTOMER LIST. Owner, 2026-08-19:
+   "recycle should go to the recycle tab in excel first row possible, color change
+   same thing but to the color change tab and maybe next years should be moved to
+   the contact 2027 tab first blank row."
+
+   Each is a state the WEBSITE already knows about, so nobody has to remember to
+   copy anything: a customer flagged for recycling, one who asked for a colour
+   change, and one who said maybe next year. The button gathers whoever is in each
+   state and writes them to the matching tab.
+
+   ⚠ WHAT IS ALREADY THERE IS NOT WRITTEN AGAIN. The tab is read first and anybody
+   whose name is already on it is skipped — otherwise pressing the button twice
+   doubles the tab, and it is a button somebody will press twice. */
+/* ⚠ THESE ARE THE APP'S OWN FLAGS, checked against the source rather than guessed.
+   I first wrote needsRecycle and colorChangeRequested; neither exists. That is the
+   same mistake as the invented test row, and the same fix: read the code.
+     needsLightRecycle  set when a customer says no and their lights come back
+     needsLightBuild    set by portalSave when the light pattern genuinely CHANGED,
+                        which is what a colour change is here — there is no separate
+                        colour-change flag, and inventing one would have been a third
+                        source of truth
+     maybeNextYear / rsvpStatus  the two ways Maybe Next Year is recorded */
+const HLX_STATE_TABS = [
+  {tab: "Recycle", label: "recycling",
+   holds: function(d){ return !!d.needsLightRecycle; }},
+  {tab: "Color Changes", label: "colour changes",
+   holds: function(d){ return !!d.needsLightBuild; }},
+  {tab: "Contact 2027", label: "maybe next year",
+   holds: function(d){ return !!d.maybeNextYear || d.rsvpStatus === "maybe_next_year"; }}
+];
+async function hlxNamesAlreadyOnTab(tabName){
+  const handle = await hlxSheetHandleLoad();
+  if(!handle) return null;
+  const file = await handle.getFile();
+  const entries = await hlxUnzipAll(await file.arrayBuffer());
+  const part = hlxSheetPartFor(entries, tabName);
+  if(!part) return null;
+  const seen = {};
+  /* Inline text and shared-string cells both end up as words here; the name is
+     what we match on, normalised the same way every other comparison does it. */
+  const xml = new TextDecoder().decode(part.data);
+  const ss = await hlxWorkbookSharedStrings(entries);
+  hlxReadSheet(xml, ss).forEach(function(row){
+    (row || []).forEach(function(cell){
+      const k = dupNormName(cell);
+      if(k) seen[k] = true;
+    });
+  });
+  return seen;
+}
+function hlxWorkbookSharedStrings(entries){
+  const e = entries.filter(function(x){ return x.name === "xl/sharedStrings.xml"; })[0];
+  return hlxSharedStrings(e ? new TextDecoder().decode(e.data) : "");
+}
 /* ⭐ APPEND ROWS TO THE CONNECTED WORKBOOK, IN PLACE.
    Returns {written, rowsBefore, rowsAfter} or throws with something the office can
    act on. Nothing is written unless the rebuilt bytes parse back correctly first —
@@ -16640,6 +16702,54 @@ async function hlxAppendRowsToSheet(rows, tabName){
   return {written: rows.length, rowsBefore: beforeCount - 1, rowsAfter: check.length - 1, firstRow: maxRow + 1};
 }
 /* One customer, straight into the first open row. */
+/* ⭐ UPDATE CUSTOMER INFO — the button that lives on every page.
+   Owner, 2026-08-19: "we wont want this in bulk updates rather just update customer
+   info button somewhere you can see on every page of the admin page."
+
+   It sends each state the website already knows about to its own tab: recycling to
+   Recycle, colour changes to Color Changes, maybe-next-year to Contact 2027, each
+   into the first open row.
+
+   ⚠ NOBODY IS WRITTEN TWICE. Every tab is read first and anybody already named on it
+   is skipped. This is a button somebody will press twice — out of doubt, or because
+   the first press was slow — and without this that doubles the tab.
+   ⚠ ONE TAB FAILING DOES NOT STOP THE OTHERS, and every outcome is reported. A tab
+   she has not made yet should not cost her the two that worked.
+   ⚠ It writes to her workbook, so it says what it did rather than going quiet. */
+async function hlxUpdateCustomerInfo(statusEl){
+  const say = function(t){ if(statusEl) statusEl.textContent = t; };
+  if(!hlxSheetSupported()){
+    say("This browser cannot write to the sheet \u2014 use Chrome or Edge.");
+    return;
+  }
+  const handle = await hlxSheetHandleLoad();
+  if(!handle){
+    say("No sheet connected \u2014 Bulk Updates, \u201cUse my master sheet\u201d.");
+    return;
+  }
+  const done = [], failed = [];
+  for(let i = 0; i < HLX_STATE_TABS.length; i++){
+    const t = HLX_STATE_TABS[i];
+    try{
+      const already = await hlxNamesAlreadyOnTab(t.tab);
+      if(already === null){ failed.push(t.tab + " (no such tab)"); continue; }
+      const who = jobAddresses.filter(function(c){ return t.holds(c.data || {}); })
+        .filter(function(c){ return !already[dupNormName((c.data || {}).name)]; });
+      if(!who.length) continue;
+      say("Writing " + who.length + " to " + t.tab + "\u2026");
+      const res = await hlxAppendRowsToSheet(
+        who.map(function(c){ return rbCustomerToSheetRow(c.data || {}); }), t.tab);
+      if(res.written) done.push(res.written + " to " + t.tab);
+    } catch(err){ failed.push(t.tab + " (" + ((err && err.message) || "failed") + ")"); }
+  }
+  if(done.length) logActivity("Updated the sheet: " + done.join(", "), "customers", "");
+  say(!done.length && !failed.length
+    ? "Nothing new to send \u2014 everybody is already on their tab."
+    : (done.join(", ") || "Nothing written") + (failed.length ? ". Could not do: " + failed.join(", ") : "."));
+}
+document.getElementById("updateCustInfoBtn")?.addEventListener("click", onceAtATime(async function(){
+  return hlxUpdateCustomerInfo(document.getElementById("updateCustInfoStatus"));
+}, function(){ return document.getElementById("updateCustInfoBtn"); }));
 async function hlxAddCustomerToSheet(d){
   return hlxAppendRowsToSheet([rbCustomerToSheetRow(d)]);
 }

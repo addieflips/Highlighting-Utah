@@ -15184,6 +15184,41 @@ suite('Suite 66. The master sheet choice is remembered for every computer');
 suite('Suite 69. A customer as a row of the master sheet');
 {
   const admin = read("admin.html");
+  /* ⭐ THE BUTTON ON EVERY PAGE. Owner, 2026-08-19: "we wont want this in bulk updates
+     rather just update customer info button somewhere you can see on every page of the
+     admin page." The sidebar is the only thing on screen whichever panel is open. */
+  check('S69', 'the button lives in the sidebar, so it is on every panel',
+    /id="updateCustInfoBtn"/.test(admin) &&
+    admin.indexOf('id="updateCustInfoBtn"') > admin.indexOf('class="sidebar-footer"') &&
+    admin.indexOf('id="updateCustInfoBtn"') < admin.indexOf('<div class="main">'),
+    'in a panel it would be a place you have to go to, which is what Bulk Updates already was');
+
+  /* ⚠ THE FLAGS ARE THE APP’S OWN. I first wrote needsRecycle and
+     colorChangeRequested and neither exists — the same mistake as the invented test
+     row. needsLightRecycle and needsLightBuild are the real ones. */
+  check('S69', 'the three tabs read flags that actually exist',
+    /holds: function\(d\){ return !!d\.needsLightRecycle; }/.test(admin) && /holds: function\(d\){ return !!d\.needsLightBuild; }/.test(admin) &&
+    /d\.maybeNextYear \|\| d\.rsvpStatus === "maybe_next_year"/.test(admin),
+    'a flag nobody sets is a tab that stays empty for ever');
+  check('S69', 'and each goes to its own tab',
+    /tab: "Recycle"/.test(admin) && /tab: "Color Changes"/.test(admin) &&
+    /tab: "Contact 2027"/.test(admin),
+    'the owner named all three by name');
+
+  /* ⚠ PRESSED TWICE MUST NOT DOUBLE THE TAB. It is a button somebody presses again
+     when the first press looked slow. */
+  check('S69', 'anybody already on the tab is skipped',
+    /const already = await hlxNamesAlreadyOnTab\(t\.tab\)/.test(admin) &&
+    /\.filter\(function\(c\){ return !already\[dupNormName/.test(admin),
+    'without this the second press writes everybody again');
+  /* ⚠ ONE TAB FAILING MUST NOT COST HER THE OTHERS. */
+  check('S69', 'a tab that fails does not stop the rest',
+    /} catch\(err\){ failed\.push\(t\.tab/.test(admin) &&
+    /Could not do: /.test(admin),
+    'a tab she has not made yet should not lose her the two that worked');
+}
+{
+  const admin = read("admin.html");
   /* ⭐ A TAB NAME IS NOT A FILENAME. Owner, 2026-08-19: "recycle should go to the
      recycle tab in excel first row possible, color change same thing but to the color
      change tab and maybe next years should be moved to the contact 2027 tab".
