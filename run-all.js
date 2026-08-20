@@ -15236,6 +15236,51 @@ suite('Suite 66. The master sheet choice is remembered for every computer');
 suite('Suite 69. A customer as a row of the master sheet');
 {
   const admin = read("admin.html");
+  /* ⭐ WHAT THE SHEET SETS HAS TO BE VISIBLE. Three fields now arrive from the master
+     sheet and had nowhere to appear: prepaid, wants-texted, and a bill-to name whose
+     payer is NOT one of our customers. A value nobody can see is a value nobody can
+     check, and the whole point of reading Misc is that she can correct what it got
+     wrong. */
+  {
+    const src = extractFn(admin, "custSheetChips");
+    check('S69', 'custSheetChips exists', !!src);
+    if(src){
+      const sb = {};
+      new Function("const esc = function(v){ return String(v == null ? '' : v); };" +
+        src + "this.f = custSheetChips;").call(sb);
+      /* ⚠ AND THE CHIPS ACTUALLY REACH THE ROW. Building them and never rendering them
+         is the exact shape of a bug that shipped earlier today — the message was correct
+         and a later assignment threw it away. */
+      check('S69', 'the chips are drawn on the customer row',
+        /\+custNumChip\(r\.d\)\+binBadge\+custSheetChips\(r\.d\)/.test(admin),
+        'a chip nothing renders is a chip nobody sees');
+      check('S69', 'prepaid and text-bill show on the row',
+        /PREPAID/.test(sb.f({prepaid: true})) &&
+        /TEXT BILL/.test(sb.f({wantsTextedInvoice: true})) &&
+        sb.f({}) === "",
+        'a value nobody can see is a value nobody can check');
+      /* ⚠ ONLY THE UNRESOLVED BILL-TO. A resolved one already reads "Billed to …" in
+         the invoice column, and the same fact twice in one row is how a row stops being
+         read. The unresolved one is worth showing precisely because nothing else will
+         ever act on it. */
+      check('S69', 'a bill-to that could not be linked is shown',
+        /BILL TO Kelly Brown/.test(sb.f({billToName: "Kelly Brown"})),
+        'the payer is not one of our customers, so nothing else will ever mention it');
+      check('S69', 'and a resolved one is not shown twice',
+        sb.f({billToName: "Kelly Brown", billToPhone: "8015550001"}) === "",
+        'the invoice column already says Billed to');
+    }
+  }
+  /* ⚠ AND THE TEXT PREFERENCE IS EDITABLE, not just readable. The sheet can set it
+     wrong, and there was no box to correct it with. */
+  check('S69', 'the office can set the text-bill preference by hand',
+    /id="editCustWantsTexted"/.test(admin) &&
+    /wantsTextedInvoice: newWantsTexted,/.test(admin) &&
+    /getElementById\('editCustWantsTexted'\)\.checked = !!d\.wantsTextedInvoice;/.test(admin),
+    'read, write and load — a box that saves but never loads shows blank on every open');
+}
+{
+  const admin = read("admin.html");
   /* ⭐ THE MAIN IMPORT READS MISC TOO, and for a while it did not. Everything the owner
      asked for on 2026-08-19 — the gate code, bill-to, prepaid, mail/text bill, the side
      count, the leftover joining the note — went into the "add the ones missing from the
