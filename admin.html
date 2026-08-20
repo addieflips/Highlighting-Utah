@@ -26939,7 +26939,23 @@ function planNewCrewDays(waiting, taken, opts){
   });
   Object.keys(byCity).forEach(function(c){
     byCity[c].sort(function(a,b){
-      return (a.priority - b.priority) || (a.from < b.from ? -1 : (a.from > b.from ? 1 : 0));
+      /* ⭐ ONCE A NAMED DAY HAS OPENED, IT GOES AHEAD OF THE PEOPLE WHO DO NOT MIND
+         (added 2026-08-20). Owner: "for people who have exact dates try to do it close
+         to then, having it as a floor is good but try to do their house the next
+         possible chance after that but thats not high on priority."
+
+         A floor alone only says NOT BEFORE. Somebody who asked for 9 November was then
+         ordered behind every Any house, because those opened on day one of the season
+         and sort earlier by `from` — so the person who named a day waited longest of
+         anybody. This is a TIEBREAK inside the priority tier, which is what "not high
+         on priority" means: it never jumps a tier, it just decides who goes first among
+         people who are otherwise equal.
+
+         Among named days it is still earliest-first, so somebody already past their day
+         is not overtaken by somebody whose day has only just arrived. */
+      return (a.priority - b.priority) ||
+             ((b.named ? 1 : 0) - (a.named ? 1 : 0)) ||
+             (a.from < b.from ? -1 : (a.from > b.from ? 1 : 0));
     });
   });
   const centres = townCentres(byCity);
@@ -27016,10 +27032,37 @@ function planNewCrewDays(waiting, taken, opts){
         if(!pick) break;
         const city = pick.city;
         const queue = byCity[city];
-        const take = [];
-        for(let i = 0; i < queue.length && take.length < cap; i++){
-          if(queue[i].from <= ds) take.push(i);
+        /* ⭐ TWO SHORT DAYS BEAT A FULL ONE AND A STUB (added 2026-08-20). Owner:
+           "we want to prioritze 1 crew over one man crew so at the begining of the
+           season try to fill up the days that would be 1 mans with a few people who said
+           Any or blank and preffered date and try to fill them up to 12-15 even if that
+           means not every day is at 40 before that."
+
+           Filling to the cap and moving on is what MAKES one-man days: a town with
+           twenty-eight waiting gives twenty today and eight tomorrow, and the eight is
+           a morning for one person. Fourteen and fourteen is two proper crew days for
+           the same houses and the same number of mornings.
+
+           Only when the leftover would actually be a one-man day. A remainder of twelve
+           is a one-crew day and those are fine — she is explicit that one crew is the
+           thing to aim for, not fullness.
+
+           ⚠ THE PEOPLE HELD BACK ARE THE FLEXIBLE ONES, and that falls out of the
+           sort above rather than being chosen here: the queue is priority-ordered, so
+           whoever is left for the second day is whoever minded least. That is "fill
+           them up with a few people who said Any or blank", from the other end.
+
+           ⚠ ELIGIBLE, NOT WAITING. A house whose named day has not arrived cannot
+           fill anything today, so it must not count towards the split — counting it
+           would shrink today's day for houses that are not allowed on it. */
+        const eligible = [];
+        for(let i = 0; i < queue.length; i++) if(queue[i].from <= ds) eligible.push(i);
+        const oneMan = (typeof ONE_MAN_MAX_HOUSES === 'number') ? ONE_MAN_MAX_HOUSES : 8;
+        let want = cap;
+        if(eligible.length > cap && (eligible.length - cap) <= oneMan){
+          want = Math.ceil(eligible.length / 2);
         }
+        const take = eligible.slice(0, want);
         if(!take.length) break;
         const ids = take.map(function(i){ return queue[i].id; });
         for(let i = take.length - 1; i >= 0; i--) queue.splice(take[i], 1);
@@ -34423,6 +34466,11 @@ function rebuildSeasonDays(){
     const town=extractCleanCity((cust&&cust.data&&cust.data.city)||h.city);
     const d=(cust&&cust.data)||{};
     return {id:key, city:town, priority:houseInstallPriority(h,d),
+            /* ⭐ DID THEY NAME A DAY? The builder sorts on this so somebody who asked
+               for the 9th goes ahead of the people who did not mind, once the 9th has
+               arrived. Worked out here because the plan row is what carries the
+               spelling — 1-Nov, 11/1, 11/9+ all come through as pref. */
+            named:!!prefSpecificDate((h&&h.pref)||'', BASE_START.getFullYear()),
             from:houseAllowedFrom(h,startStr),
             /* '' for almost everybody. Only "October" and "Before Thanksgiving"
                name a last day, and only the tail sweep reads it. */

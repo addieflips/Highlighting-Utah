@@ -6704,6 +6704,112 @@ suite('22. Building the crew-days the season needs');
       rescueSrc.indexOf('const planned = addTowns[j]') !== -1,
       'without it the guard is right for one house at a time and wrong for the pair');
 
+    /* ⭐ TWO SHORT DAYS BEAT A FULL ONE AND A STUB (added 2026-08-20). Owner: "we
+       want to prioritze 1 crew over one man crew so at the begining of the season try
+       to fill up the days that would be 1 mans with a few people who said Any or blank
+       and preffered date and try to fill them up to 12-15 even if that means not every
+       day is at 40 before that."
+
+       Filling to the cap and moving on is what MAKES one-man days: twenty-eight waiting
+       gives twenty today and eight tomorrow, and eight is a morning for one person.
+       Fourteen and fourteen is two proper crew days out of the same houses and the same
+       number of mornings. */
+    const sizesOf = (built) => built.map(d => d.ids.length).join();
+
+    let split = api.plan(who(28, 'Lehi'), {}, { floorDate: '2026-10-01' });
+    check('build', 'a town of 28 splits 14 and 14 rather than 20 and a stub of 8',
+      sizesOf(split) === '14,14',
+      'got ' + sizesOf(split) + ' — eight is one man on his own for a whole morning');
+    check('build', 'and nobody is lost in the split',
+      split.reduce((n, d) => n + d.ids.length, 0) === 28);
+
+    split = api.plan(who(25, 'Lehi'), {}, { floorDate: '2026-10-01' });
+    check('build', 'twenty-five comes out 13 and 12, both inside her 12 to 15',
+      sizesOf(split) === '13,12',
+      'got ' + sizesOf(split));
+
+    /* ⚠ ONLY WHEN THE LEFTOVER WOULD ACTUALLY BE A ONE-MAN DAY. A remainder of
+       twelve is a one-crew day, and she is explicit that one crew is fine — reshaping
+       a day that was already going to work costs a full crew-day for nothing. */
+    split = api.plan(who(32, 'Lehi'), {}, { floorDate: '2026-10-01' });
+    check('build', 'a town of 32 still fills to twenty, because twelve is a fine day',
+      sizesOf(split) === '20,12',
+      'got ' + sizesOf(split) + ' — twelve is one crew, not one man');
+
+    /* And it keeps working down a long town rather than only fixing the first pair. */
+    split = api.plan(who(48, 'Lehi'), {}, { floorDate: '2026-10-01' });
+    check('build', 'a town of 48 comes out 20, 14, 14 rather than 20, 20 and 8',
+      sizesOf(split) === '20,14,14',
+      'got ' + sizesOf(split) + ' — the stub only appears on the last pair, so the ' +
+      'look-ahead has to run every day and not just the first');
+
+    /* ⚠ A TOWN THAT FITS IN ONE DAY IS LEFT ALONE. There is no stub to avoid, and
+       halving it would invent a second morning out of nothing. */
+    check('build', 'a town of 20 is one full day, not two of ten',
+      sizesOf(api.plan(who(20, 'Lehi'), {}, { floorDate: '2026-10-01' })) === '20');
+    check('build', 'and a town of 8 is simply a day of 8',
+      sizesOf(api.plan(who(8, 'Lehi'), {}, { floorDate: '2026-10-01' })) === '8',
+      'nothing here can conjure houses that do not exist — that is what the one man ' +
+      'installs tab is for');
+
+    /* ⭐ ONCE A NAMED DAY HAS OPENED IT GOES AHEAD OF THE PEOPLE WHO DO NOT MIND.
+       Owner: "for people who have exact dates try to do it close to then, having it as
+       a floor is good but try to do their house the next possible chance after that but
+       thats not high on priority."
+
+       ⚠ A FLOOR ALONE ONLY SAYS NOT BEFORE. Somebody who asked for the 9th was then
+       ordered BEHIND every Any house, because those opened on day one of the season and
+       sort earlier by `from` — so the one person who named a day waited longest of
+       anybody. This is a tiebreak inside the tier, which is what "not high on priority"
+       means: it never jumps a tier. */
+    const flexible = (n) => Array.from({ length: n }, (_, k) => ({
+      id: 'any-' + k, city: 'Lehi', priority: 2, from: '2026-10-01', named: false }));
+    const onTheDay = (n, from) => Array.from({ length: n }, (_, k) => ({
+      id: 'named-' + from + '-' + k, city: 'Lehi', priority: 2, from: from, named: true }));
+
+    const mixed = api.plan(flexible(30).concat(onTheDay(3, '2026-10-01')), {},
+      { floorDate: '2026-10-01' });
+    const firstDay = mixed[0].ids.join(' ');
+    check('build', 'a named day that has opened is taken on the first day, not the last',
+      /named-/.test(firstDay),
+      'got ' + firstDay.slice(0, 90) + ' — they asked for that day and everybody ' +
+      'ahead of them said they did not mind');
+
+    /* ⚠ AND IT NEVER JUMPS A TIER. An October house outranks a named day in November
+       whatever the tiebreak says, because the tier is the rule and this is only the
+       order within it. */
+    const urgent = Array.from({ length: 25 }, (_, k) => ({
+      id: 'oct-' + k, city: 'Lehi', priority: 1, from: '2026-10-01', named: false }));
+    const tiered = api.plan(urgent.concat(onTheDay(5, '2026-10-01')), {},
+      { floorDate: '2026-10-01' });
+    check('build', 'but a more urgent tier still goes first',
+      tiered[0].ids.every(id => /^oct-/.test(id)),
+      'got ' + tiered[0].ids.slice(0, 6).join(' ') + ' — "not high on priority" means ' +
+      'a tiebreak, not a promotion');
+
+    /* Among named days it is still earliest first, so somebody already past their day
+       is not overtaken by somebody whose day has only just come round.
+
+       ⚠ MORE THAN ONE DAY OF THEM, or the check is vacuous: with twenty houses and a
+       cap of twenty they all land on day one whatever the order, and a red-check
+       flipping the comparison sails through. */
+    const twoDates = api.plan(onTheDay(15, '2026-10-01').concat(onTheDay(15, '2026-10-05')),
+      {}, { floorDate: '2026-10-05' });
+    check('build', 'and the one waiting longest past their day goes first',
+      twoDates[0].ids.filter(id => /2026-10-01/.test(id)).length === 15,
+      'got ' + twoDates[0].ids.filter(id => /2026-10-01/.test(id)).length + ' of the ' +
+      'earlier group on day one — the ones already past their date must not be ' +
+      'overtaken by a date that has only just arrived');
+
+    /* ⚠ AND THE FLAG HAS TO BE SET FROM THE REAL SPELLING. Every fixture above
+       hands the named flag in ready-made, so none of them notices if
+       rebuildSeasonDays stops working it out — and then no real customer is ever
+       flagged, however good the sort is. */
+    check('build', 'the rebuild works the named flag out from what the customer wrote',
+      /named:!!prefSpecificDate/.test(extractFn(admin, 'rebuildSeasonDays')),
+      'the plan row carries the spelling (1-Nov, 11/1, 11/9+), so this is where it ' +
+      'has to be read');
+
     // ---- one town, more people than one day holds -----------------------
     let out = api.plan(who(50, 'Lehi'), {}, { floorDate: '2026-10-01' });
     check('build', 'a town of 50 becomes three crew-days of 20, 20 and 10',
