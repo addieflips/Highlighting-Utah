@@ -1612,9 +1612,9 @@
                 <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">Bill-to, how the bill travels, a gate code, or a side count. Anything else in here is left exactly as it is.</p>
               </div>
               <div class="form-row">
-                <label>Up Plug / which outlet (optional) <span class="bulk-count" id="rbCountUpPlug">0 rows</span></label>
-                <textarea id="rbUpPlugArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="the one by the garage&#10;round the back&#10;(blank = leave as is)"></textarea>
-                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">Whatever they said about which outlet to use. Anything here ticks Specific Outlet and becomes the note the crew reads. Blank leaves it unchanged.</p>
+                <label>Up Plug / use the eaves outlet (optional) <span class="bulk-count" id="rbCountUpPlug">0 rows</span></label>
+                <textarea id="rbUpPlugArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="Yes&#10;No&#10;? or blank = leave as is"></textarea>
+                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">Yes or No — whether to use the outlet in the eaves. A question mark means nobody knows yet and is left alone. An instruction naming <em>which</em> outlet goes in Notes, not here.</p>
               </div>
               <div class="form-row">
                 <label>Measured Feet (optional) <span class="bulk-count" id="rbCountFeet">0 rows</span></label>
@@ -16097,23 +16097,43 @@ function rbRowSaysPrepaid(values){
 }
 function rbMiscParse(raw){
   const text = String(raw == null ? "" : raw).trim();
-  const out = {billToName: "", mailBill: false, textBill: false, gateCode: "", sides: 0, leftover: "", used: false};
+  const out = {billToName: "", billToEmail: "", mailBill: false, textBill: false, gateCode: "", sides: 0, leftover: "", used: false};
   if(!text) return out;
   const low = text.toLowerCase();
 
   /* How the bill travels. Email is the default and is never written here — owner: "we
-     by default email bill so you dont need to worry about that". */
-  if(/\bmail(ed)?\s+bill\b|\bbill\s+by\s+mail\b/.test(low)){ out.mailBill = true; out.used = true; }
-  if(/\btext(ed)?\s+bill\b|\bbill\s+by\s+text\b/.test(low)){ out.textBill = true; out.used = true; }
+     by default email bill so you dont need to worry about that".
+     ⚠ A WORD MAY SIT BETWEEN. A dry run over the real sheet found "text the bill",
+     which "text bill" does not match — so it was being filed as a leftover note and
+     the preference was lost. The office writes these the way people talk. */
+  if(/\bmail(ed)?\s+(the\s+|her\s+|his\s+|their\s+)?bill\b|\bbill\s+by\s+mail\b/.test(low)){
+    out.mailBill = true; out.used = true;
+  }
+  if(/\btext(ed)?\s+(the\s+|her\s+|his\s+|their\s+)?bill\b|\bbill\s+by\s+text\b/.test(low)){
+    out.textBill = true; out.used = true;
+  }
 
   /* Somebody else pays. "bill steve laycock", "Bill to Kelly Brown (Highland)",
      "Send bill to Raul Pelagio" — the town in brackets is a hint for a person, not
      part of the name. */
   if(!out.mailBill && !out.textBill){
-    const m = text.match(/^(?:send\s+)?bill\s+(?:to\s+)?(.+)$/i);
+    /* ⚠ A PREFIX MAY COME FIRST. The real sheet has "cc bill to Jennalesa@gmail.com",
+       which an anchored "bill…" could not see, so it was filed as a leftover note and
+       the payer was lost. */
+    const m = text.match(/^(?:cc\s+|send\s+|please\s+)*bill\s+(?:to\s+)?(.+)$/i);
     if(m){
-      out.billToName = m[1].replace(/\([^)]*\)/g, "").trim();
-      out.used = !!out.billToName;
+      const target = m[1].replace(/\([^)]*\)/g, "").trim();
+      /* ⭐ AND THE PAYER MAY BE AN EMAIL, not a name. Matching a customer by email is
+         stronger than by name, so it is kept separately rather than squeezed into the
+         name field where a name-matcher would never find it. */
+      const asEmail = target.match(/[^\s<>()]+@[^\s<>()]+\.[a-z]{2,}/i);
+      if(asEmail){
+        out.billToEmail = asEmail[0].toLowerCase();
+        out.used = true;
+      } else if(target){
+        out.billToName = target;
+        out.used = true;
+      }
     }
   }
 
@@ -16981,15 +17001,21 @@ async function hlxAppendRowsToSheet(rows, tabName){
 async function rbResolveBillTo(statusEl){
   const waiting = jobAddresses.filter(function(c){
     const d = c.data || {};
-    return d.billToName && !String(d.billToPhone || '').trim();
+    return (d.billToName || d.billToEmail) && !String(d.billToPhone || '').trim();
   });
   let linked = 0, notOurs = 0, ambiguous = 0, failed = 0;
   for(let i = 0; i < waiting.length; i++){
     const c = waiting[i];
+    /* ⭐ AN EMAIL IS A STRONGER KEY THAN A NAME, so it is tried first. The real sheet
+       says "cc bill to Jennalesa@gmail.com" — matching that on a name would fail, and
+       matching it on the email is exact. */
+    const wantEmail = String((c.data || {}).billToEmail || '').trim().toLowerCase();
     const want = dupNormName((c.data || {}).billToName);
     const hits = jobAddresses.filter(function(x){
-      return x.id !== c.id && dupNormName((x.data || {}).name) === want &&
-             String((x.data || {}).phone || '').replace(/\D/g, '');
+      if(x.id === c.id) return false;
+      if(!String((x.data || {}).phone || '').replace(/\D/g, '')) return false;
+      if(wantEmail) return String((x.data || {}).email || '').trim().toLowerCase() === wantEmail;
+      return want && dupNormName((x.data || {}).name) === want;
     });
     if(!hits.length){ notOurs++; continue; }
     if(hits.length > 1){ ambiguous++; continue; }
@@ -18030,14 +18056,22 @@ async function rbApplyTickedAdds(statusEl){
            words into the flag would leave the crew a "Yes" and no outlet. And a blank
            column says nothing, so it must not tick the flag to No.
            Blank is left alone entirely, the same as every other column here. */
-        /* ⭐ THE OUTLET PREFERENCE COMES FROM EITHER COLUMN. Owner: Up Plug is about
-           which outlet or the eaves, "but sometimes they give plug or outlet
-           information in notes and if they do that should go to the outlet preference
-           we already have set up in all customers".
-           ⚠ UP PLUG WINS where both say something — it is the column meant for it,
-           and a note is where things end up when there was nowhere else to put them. */
-        specificOutlet: (String(upPlugRaw[i] || '').trim() || rbOutletFromNote(notesRaw[i])) ? 'Yes' : '',
-        specificOutletNotes: String(upPlugRaw[i] || '').trim() || rbOutletFromNote(notesRaw[i]),
+        /* ⭐ UP PLUG IS A YES/NO, AND IT IS THE EAVES QUESTION. Owner: "up plug is
+           about preference on using outlet in eaves". A dry run over the real sheet
+           settled what that column actually holds: 112 "yes", 98 "?", 61 "no", 3 "y".
+           FOUR distinct values, none of them a description.
+
+           ⚠ THE FIRST VERSION OF THIS WAS WRONG TWICE. It wrote the word "yes" into
+           the note the crew reads, and it set Specific Outlet to Yes for anything
+           non-blank — which is backwards for the 61 who said NO and invents an answer
+           for the 98 who wrote "?". Reading the column beat reasoning about its name.
+
+           ⚠ "?" IS NOT A NO. rbNormalizeYesNo returns blank for it, and blank leaves
+           the record alone, which is the honest answer to a question mark. */
+        useEaves: rbNormalizeYesNo(upPlugRaw[i] || '') || rbNormalizeYesNo(eavesRaw[i] || '') || '',
+        /* WHICH outlet is a different question, and it only ever appears in Notes. */
+        specificOutlet: rbOutletFromNote(notesRaw[i]) ? 'Yes' : '',
+        specificOutletNotes: rbOutletFromNote(notesRaw[i]),
         portalToken: generatePortalToken(),
         lat: coords.lat, lng: coords.lng, needsGeocode: coords.lat === null,
         scheduled: false,
@@ -18094,6 +18128,7 @@ async function rbApplyTickedAdds(statusEl){
          Matching a name to a customer needs the whole book in hand, which is the
          comparison’s job, not this loop’s. */
       if(misc.billToName) doc2.billToName = misc.billToName;
+      if(misc.billToEmail) doc2.billToEmail = misc.billToEmail;
       /* ⭐ PREPAID. Owner, 2026-08-19: "some people have prepaid and we dont have a
          column for that so if they have prepaid we need to put it into the website that
          they are already paid but prepaid can be in any column", then, shown the
@@ -19618,9 +19653,11 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
         const noteBits = [notesRest, misc.leftover].filter(Boolean);
         const notesVal = noteBits.join(' \u2014 ');
         const sideCount = misc.sides || notesSides;
-        /* An outlet instruction can be in Up Plug or buried in a note. Up Plug wins:
-           it is the column meant for it. */
-        const outletFromSheet = String(upPlugRaw[i] || '').trim() || rbOutletFromNote(notesRawVal);
+        /* ⭐ UP PLUG IS THE EAVES YES/NO — see the note on the other import path. The
+           real column holds only yes / no / ? / y, so it can never be an instruction.
+           WHICH outlet only ever appears in Notes. */
+        const eavesFromSheet = rbNormalizeYesNo(upPlugRaw[i] || '');
+        const outletFromSheet = rbOutletFromNote(notesRawVal);
         const prepaidRow = rbRowSaysPrepaid([miscRaw[i], notesRawVal, dates[i],
                                              installPrefRaw[i], amounts[i]]);
     const amountTypedIn = amounts[i] || '';
@@ -19775,11 +19812,14 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
           updates.specificOutlet = 'Yes';
           updates.specificOutletNotes = outletFromSheet;
         }
+        /* ⚠ Blank means "?" or empty — nobody has said, so nothing is written. */
+        if(eavesFromSheet) updates.useEaves = eavesFromSheet;
         /* ⚠ EMAIL IS THE DEFAULT AND IS NEVER WRITTEN. Only the two exceptions are
            recorded, so a blank Misc is not a decision about everybody else. */
         if(misc.mailBill) updates.wantsMailedInvoice = true;
         if(misc.textBill) updates.wantsTextedInvoice = true;
         if(misc.billToName) updates.billToName = misc.billToName;
+        if(misc.billToEmail) updates.billToEmail = misc.billToEmail;
         if(prepaidRow) updates.prepaid = true;
         if(bulkFieldsMatch(updates, existing.data)){
           /* Counted, not silent. "Nothing changed" and "it did not run" look
@@ -19818,9 +19858,11 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
           newDoc.specificOutlet = 'Yes';
           newDoc.specificOutletNotes = outletFromSheet;
         }
+        if(eavesFromSheet) newDoc.useEaves = eavesFromSheet;
         if(misc.mailBill) newDoc.wantsMailedInvoice = true;
         if(misc.textBill) newDoc.wantsTextedInvoice = true;
         if(misc.billToName) newDoc.billToName = misc.billToName;
+        if(misc.billToEmail) newDoc.billToEmail = misc.billToEmail;
         if(prepaidRow) newDoc.prepaid = true;
         /* Claimed as well. The local jobAddresses cache does not hold this
            record until the Firestore listener catches up, so a later row for
