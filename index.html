@@ -1380,7 +1380,7 @@
               <label>Would you like an outlet timer?</label>
               <div class="radio-row">
                 <label class="radio-pill"><input type="radio" name="outlet_timer" value="Yes"> Yes</label>
-                <label class="radio-pill selected"><input type="radio" name="outlet_timer" value="No" checked> No</label>
+                <label class="radio-pill"><input type="radio" name="outlet_timer" value="No"> No</label>
               </div>
               <p class="form-note">Automatically turns your lights on and off at set times each night.</p>
             </div>
@@ -1388,7 +1388,7 @@
               <label>Do you have a specific outlet you want us to use?</label>
               <div class="radio-row">
                 <label class="radio-pill"><input type="radio" name="specific_outlet" value="Yes"> Yes</label>
-                <label class="radio-pill selected"><input type="radio" name="specific_outlet" value="No" checked> No</label>
+                <label class="radio-pill"><input type="radio" name="specific_outlet" value="No"> No</label>
               </div>
               <div class="form-row" id="specificOutletNotesWrap" style="display:none; margin-top:12px;">
                 <label>Which outlet?</label>
@@ -1700,14 +1700,14 @@
               <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:8px; margin-top:18px; padding-top:14px; border-top:1px solid var(--line);">Would you like an outlet timer?</label>
               <div class="radio-row" id="changesOutletTimerRow">
                 <label class="radio-pill"><input type="radio" name="changes_outlet_timer" value="Yes"> Yes</label>
-                <label class="radio-pill selected"><input type="radio" name="changes_outlet_timer" value="No" checked> No</label>
+                <label class="radio-pill"><input type="radio" name="changes_outlet_timer" value="No"> No</label>
               </div>
               <p class="form-note" style="margin-top:6px;">Automatically turns your lights on and off at set times each night.</p>
 
               <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:8px; margin-top:14px;">Do you have a specific outlet you want us to use?</label>
               <div class="radio-row" id="changesSpecificOutletRow">
                 <label class="radio-pill"><input type="radio" name="changes_specific_outlet" value="Yes"> Yes</label>
-                <label class="radio-pill selected"><input type="radio" name="changes_specific_outlet" value="No" checked> No</label>
+                <label class="radio-pill"><input type="radio" name="changes_specific_outlet" value="No"> No</label>
               </div>
               <div id="changesSpecificOutletNotesWrap" style="display:none; margin-top:10px;">
                 <textarea id="changesSpecificOutletNotes" rows="3" placeholder="e.g. the outlet on the back patio, or under the eave near the garage" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px; box-sizing:border-box;"></textarea>
@@ -2718,8 +2718,18 @@ quoteDetailFormEl.addEventListener('submit', async function(e){
     lightColors: lightColors,
     lightsDescription: lightsDescription,
     wireColor: fd.get('wire_color') || 'Any',
-    outletTimer: fd.get('outlet_timer') || 'No',
-    specificOutlet: fd.get('specific_outlet') || 'No',
+    /* ⭐ A YES/NO WITH NO ANSWER STAYS BLANK (changed 2026-08-20). Owner: "yes and
+       no questions dont have a default answer though just leave those blank if
+       unanswered."
+       Both of these used to read `|| 'No'`, and both radios came pre-ticked on No —
+       so a customer who never read the question was recorded as having said no to it.
+       That is an answer nobody gave, and once it is on the record it is
+       indistinguishable from a real one.
+       ⚠ Blank still behaves as no timer everywhere it matters (the audience filter
+       tests for 'Yes'), so nothing starts installing timers — the difference is only
+       that we stop claiming they were asked. */
+    outletTimer: fd.get('outlet_timer') || '',
+    specificOutlet: fd.get('specific_outlet') || '',
     specificOutletNotes: fd.get('specific_outlet') === 'Yes' ? (fd.get('specific_outlet_notes') || '').trim() : '',
     notes: fd.get('notes') || '', gateCode: fd.get('gate_code') || '',
     installPreference: fd.get('install_month') || 'Normal Schedule',
@@ -2956,7 +2966,7 @@ async function hmLoadHouseMapForInvoice(phoneDigits, opts){
     }
     document.getElementById('schedSelect').value = addrDoc.installPreference || 'Normal Schedule';
     document.getElementById('wireColorSelect').value = addrDoc.wireColor || 'White';
-    var loadedOutletTimer = addrDoc.outletTimer === 'Yes' ? 'Yes' : 'No';
+    var loadedOutletTimer = addrDoc.outletTimer === 'Yes' ? 'Yes' : (addrDoc.outletTimer === 'No' ? 'No' : '');
     document.querySelectorAll('input[name="changes_outlet_timer"]').forEach(function(r){
       r.checked = r.value === loadedOutletTimer;
       r.closest('.radio-pill').classList.toggle('selected', r.checked);
@@ -4682,10 +4692,16 @@ var PORTAL_SIDE_LABELS = {front: "Front of house", right: "Right side", left: "L
    ⚠ THE OLD SHAPE STILL READS. Every customer on the books holds an ARRAY of side
    names; three names is three sides, which is the same fact said the old way. A
    member whose record predates this must not be shown "not recorded". */
+/* ⭐ ONE SIDE IS THE DEFAULT " + M + " see the long note beside houseSideCount in
+   admin.html. The same floor has to be here, or the portal sends 1 for a house the
+   server still reads as 0 and every unrecorded customer gets a re-quote. */
 function portalSideCount(v){
-  if(Array.isArray(v)) return Math.min(4, v.filter(Boolean).length);
+  if(Array.isArray(v)){
+    var listed = Math.min(4, v.filter(Boolean).length);
+    return listed || 1;
+  }
   var n = Number(String(v == null ? "" : v).replace(/[^0-9]/g, ""));
-  return (n >= 1 && n <= 4) ? n : 0;
+  return (n >= 1 && n <= 4) ? n : 1;
 }
 function portalSidesFromRecord(){
   var d = currentJobAddressData || {};
@@ -4704,7 +4720,7 @@ function portalSidesPicked(){
 }
 function portalSidesWords(n){
   var c = portalSideCount(n);
-  return c ? (c + " side" + (c === 1 ? "" : "s")) : "none";
+  return c + " side" + (c === 1 ? "" : "s");
 }
 document.getElementById("sidesSaveBtn") && document.getElementById("sidesSaveBtn").addEventListener("click", async function(){
   var statusEl = document.getElementById("sidesSaveStatus");

@@ -2892,6 +2892,10 @@
                 <option value="all">All</option>
                 <option value="yes">Has a timer</option>
                 <option value="no">No timer</option>
+                <!-- ⭐ THE POINT OF NOT PRE-ANSWERING THE QUESTION. "No timer" above is
+                     the operational answer and still includes these; this is the one that
+                     finds the people nobody ever actually asked. -->
+                <option value="unasked">Never answered</option>
               </select>
             </div>
             <div class="form-row" style="margin:0;"><label style="font-size:11.5px;">Installed this season</label>
@@ -8247,7 +8251,7 @@ function renderQuoteRows(filtered){
             '</div>'
           : '')+
         '<div class="rtext">Prefers: '+esc(d.contactMethod)+
-          (formDone ? ' &middot; Timer: <strong>'+(d.outletTimer === 'Yes' ? 'Yes' : 'No')+'</strong>' : '')+
+          (formDone && d.outletTimer ? ' &middot; Timer: <strong>'+esc(d.outletTimer)+'</strong>' : '')+
           (formDone && d.wireColor ? ' &middot; Wire: <strong>'+esc(d.wireColor)+'</strong>' : '')+'</div>'+
         // ---- Why this is a re-quote --------------------------------------
         ((quoteStage(d) === 'new' && d.existingCustomerId && d.changed) ? (
@@ -10406,6 +10410,11 @@ function etRenderRecipientList(){
   // Outlet timer
   if(etFilterOutlet === 'yes') members = members.filter(m => m.data.outletTimer === 'Yes');
   else if(etFilterOutlet === 'no') members = members.filter(m => m.data.outletTimer !== 'Yes');
+  /* ⚠ A BLANK IS NOT A NO, and this is the only place that can tell them apart.
+     "No timer" above is deliberately left alone: for anything operational a blank and
+     a No mean the same thing, and splitting them there would quietly shrink an
+     audience somebody is already using. */
+  else if(etFilterOutlet === 'unasked') members = members.filter(m => !m.data.outletTimer);
   // Installed this season
   if(etFilterInstalled === 'yes') members = members.filter(m => m.data.completed === true);
   else if(etFilterInstalled === 'no') members = members.filter(m => m.data.completed !== true);
@@ -14951,6 +14960,37 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
       gateCode: gateCode, specificOutlet: specificOutlet, specificOutletNotes: specificOutletNotes,
       customerNumber: customerNumber, installPreference: installPreference
     });
+    /* ⭐ AND STRAIGHT ONTO THE SHEET. Owner: "I want new quotes to be able to have
+       their info put into the first open row in excel, and include all the info."
+       hlxAddCustomerToSheet was written for exactly this and then never called by
+       anything — it sat as dead code while new customers reached the website and
+       never the workbook, which is the drift the whole comparison exists to clean up.
+
+       ⚠ BEST EFFORT, AND IT SAYS SO WHEN IT FAILS. The customer is already saved by
+       this point. A workbook that is not connected on this machine, or a write
+       permission Chrome will not grant without a fresh click, must not undo that —
+       but it must not pass silently either, or the office believes the sheet is up to
+       date when it is not. Everything it could not write is still found by the
+       comparison and the one sync button.
+
+       ⚠ NEW CUSTOMERS GO TO THE 2025 SHEET, not the Yes one. The Yes sheet is for
+       people who have ANSWERED an RSVP; nobody has asked this one anything yet. */
+    try{
+      const sheetRes = await hlxAddCustomerToSheet({
+        name: name, address: fullAddress, city: city, zip: zip, phone: phone,
+        email: email, notes: custNotes, wireColor: wireColor,
+        lightsDescription: lightsDescription, lightColors: selectedColors,
+        outletTimer: outletTimer, housePrice: price, measuredFeet: measuredFeet,
+        customerNumber: customerNumber, installPreference: installPreference,
+        gateCode: gateCode, houseSides: selectedSides, useEaves: useEaves,
+        billToPhone: billToPhone
+      });
+      if(sheetRes && sheetRes.written) toast(name + " added to the master sheet, row " + sheetRes.firstRow + ".");
+    } catch(err){
+      toast("Customer saved, but NOT written to the master sheet " + String.fromCharCode(8212) + " " +
+        ((err && err.message) || "the sheet is not connected on this computer") +
+        " They will show up in the sheet comparison until it is done.");
+    }
     document.getElementById('routeStreetInput').value = '';
     document.getElementById('routeCityInput').value = '';
     document.getElementById('routeZipInput').value = '';
@@ -14976,7 +15016,9 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
     document.getElementById('addCustPropertyLabel').value = '';
     document.getElementById('addCustPhone2').value = '';
     document.getElementById('addCustEmail2').value = '';
-    document.querySelectorAll('.addcust-side-pick').forEach(function(rb){ rb.checked = (rb.value === ''); const w = rb.closest('.pill-check'); if(w) w.classList.toggle('checked', rb.checked); });
+    /* Back to the default rather than to nothing: one side is what an unrecorded
+       house counts as, so the form should show what it is about to save. */
+    document.querySelectorAll('.addcust-side-pick').forEach(function(rb){ rb.checked = (String(rb.value) === String(HOUSE_SIDES_DEFAULT)); const w = rb.closest('.pill-check'); if(w) w.classList.toggle('checked', rb.checked); });
     document.querySelectorAll('.addcust-color-check').forEach(function(cb){ cb.checked = false; cb.closest('.pill-check').classList.remove('checked'); });
     document.getElementById('addCustWireColor').value = 'White';
     document.getElementById('addCustInstallPref').value = 'Normal Schedule';
@@ -16101,14 +16143,31 @@ const RB_SIDE_ORDER = ['front', 'right', 'left', 'back'];
    ⚠ THIS IS NOT THE PHOTO LABELS. A photo of the front of the house is still a
    photo of the front — QUOTE_SIDE_LABELS in index.html is a different thing and is
    deliberately untouched. You photograph the front; you do not photograph "side 2". */
+/* ⭐ ONE SIDE IS THE DEFAULT, NOT A GUESS TO BE RECORDED (changed 2026-08-20).
+   Owner: "if anything is not recoreded just put it on default dont create a thing for
+   it or type it or anything, for example how many sides of the house? not recorded,
+   default: 1."
+   Every house has a front. Answering "not recorded" put a phrase on a crew card that
+   nobody can act on, and left the office deciding the same question by hand over and
+   over. One is the smallest true answer and the one that is right most often.
+
+   ⚠ THE DEFAULT LIVES IN THE COUNT, in all THREE copies of it: this one, the
+   member portal, and the server. Applying it in only one place would make an
+   unrecorded house read as 0 on one side of a comparison and 1 on the other, and
+   `updates.houseSides !== before` raises a RE-QUOTE " + M + " so every customer whose sides
+   were never written down would have been sent one for a change nobody made. */
+const HOUSE_SIDES_DEFAULT = 1;
 function houseSideCount(v){
-  if(Array.isArray(v)) return Math.min(4, v.filter(Boolean).length);
+  if(Array.isArray(v)){
+    const listed = Math.min(4, v.filter(Boolean).length);
+    return listed || HOUSE_SIDES_DEFAULT;
+  }
   const n = Number(String(v == null ? '' : v).replace(/[^0-9]/g, ''));
-  return (n >= 1 && n <= 4) ? n : 0;
+  return (n >= 1 && n <= 4) ? n : HOUSE_SIDES_DEFAULT;
 }
 function houseSideWords(v){
   const n = houseSideCount(v);
-  return n ? (n + ' side' + (n === 1 ? '' : 's')) : 'not recorded';
+  return n + ' side' + (n === 1 ? '' : 's');
 }
 /* ⚠ RETURNS A COUNT NOW, not a list of side names. Owner, 2026-08-19: "we need it
    to say 1, 2, 3, or 4 sides of the house so then it can just be connected and we
@@ -27412,7 +27471,7 @@ function renderRouteOrderedList(ordered){
       (hd.notes ? '<div style="font-size:12.5px; color:var(--slate); margin-top:2px;">&#128221; '+esc(hd.notes)+'</div>' : '')+
       (hd.specificOutlet === 'Yes' && hd.specificOutletNotes ? '<div style="font-size:12.5px; color:#4338CA; margin-top:2px;">&#128268; Outlet: '+esc(hd.specificOutletNotes)+'</div>' : '')+
       (hd.lightsDescription ? '<div style="font-size:12.5px; color:var(--dusk); font-weight:600; margin-top:2px;">&#127875; Light Colors: '+esc(hd.lightsDescription)+'</div>' : '')+
-      '<div style="font-size:12.5px; color:var(--slate); margin-top:2px;">Wire: '+esc(hd.wireColor || 'White')+' &middot; Timer: '+(hd.outletTimer === 'Yes' ? 'Yes' : 'No')+(hd.useEaves ? ' &middot; Eaves: '+esc(hd.useEaves) : '')+'</div>'+
+      '<div style="font-size:12.5px; color:var(--slate); margin-top:2px;">Wire: '+esc(hd.wireColor || 'White')+(hd.outletTimer ? ' &middot; Timer: '+esc(hd.outletTimer) : '')+(hd.useEaves ? ' &middot; Eaves: '+esc(hd.useEaves) : '')+'</div>'+
       (hd.oneTimeNote ? '<div style="font-size:12.5px; color:var(--ember); margin-top:2px;">&#128221; (this visit only) '+esc(hd.oneTimeNote)+'</div>' : '')+
       (needsFix && (hd.fixNote || hd.fixPhotoUrl) ? (
         '<div style="background:#FDECEA; border:1px solid #f0b3ac; border-radius:8px; padding:10px 12px; margin-top:8px;">'+
