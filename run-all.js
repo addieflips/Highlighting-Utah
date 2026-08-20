@@ -16716,7 +16716,55 @@ if (!JSDOM) {
  * about what it REFUSES to touch.
  * ------------------------------------------------------------------------- */
 pendingAsync.push((async () => {
-  suite('Suite 86. The sync takes people off sheets they no longer belong on');
+  /* ---------------------------------------------------------------------------
+ * Suite 87. The Recycle sheet IS the warehouse recycle queue
+ *
+ * Owner, 2026-08-20: "recycles should be synced with the recycles in the wrehouse
+ * section of the website."
+ *
+ * They already are, and this is what keeps them that way: both read the same field.
+ * Two lists that mean the same thing, computed in two places, drift the first time
+ * somebody edits one of them, and the drift is silent — the sheet simply stops
+ * matching what the warehouse shows, and nothing says so.
+ * ------------------------------------------------------------------------- */
+suite('Suite 87. The Recycle sheet IS the warehouse recycle queue');
+
+{
+  const wh = extractFn(admin, 'whRecycleGroups');
+  check('S87', 'the warehouse recycle queue is still there', !!wh);
+
+  const tabsSrc = admin.match(/const HLX_STATE_TABS = \[[\s\S]*?\n\];/);
+  check('S87', 'the tab table is still there', !!tabsSrc);
+
+  if (wh && tabsSrc) {
+    check('S87', 'the warehouse decides by needsLightRecycle',
+      /if\(!d\.needsLightRecycle\) return;/.test(wh),
+      'if the warehouse ever asks a different question, the sheet has to ask it too');
+
+    const b = {};
+    new Function(tabsSrc[0] + 'this.t = HLX_STATE_TABS;').call(b);
+    const rec = (b.t.filter(x => x.tab === 'Recycle')[0] || {}).holds;
+    check('S87', 'and so does the Recycle sheet',
+      typeof rec === 'function' &&
+      rec({needsLightRecycle: true}) === true &&
+      rec({needsLightRecycle: false}) !== true &&
+      rec({}) !== true,
+      'the same field, so a customer is on both lists or on neither');
+
+    /* ⚠ AND THE CASE THAT ONCE PUT THEM OUT OF STEP. The warehouse deliberately
+       includes people with no lights recorded: an RSVP of no flags them, and requiring a
+       lights description as well meant they never appeared in the queue, so their
+       customer number never came back to the pool. The sheet must not be fussier. */
+    check('S87', 'somebody flagged with no lights recorded is on both',
+      rec({needsLightRecycle: true, lightsDescription: ''}) === true,
+      'the warehouse says exactly this in its own comment, and the sheet has to agree');
+    check('S87', 'and having lights is not by itself a recycle',
+      rec({lightsDescription: 'Red, Green'}) !== true,
+      'that is a build, not a recycle');
+  }
+}
+
+suite('Suite 86. The sync takes people off sheets they no longer belong on');
 
   const lift86 = (n) => {
     let st = admin.indexOf('async function ' + n + '(');
@@ -17919,6 +17967,19 @@ pendingAsync.push((async () => {
       /Frome Liz/.test(r.status),
       "got: " + r.status + " — a count says there is a problem and nothing about " +
       "what to do next, and there are never many of these");
+    /* ⭐ AND IT IS INFORMATION, NOT A PROBLEM. Owner, when this was
+       reported under "Could not do": "i put liz frome there i want her there."
+       These sheets are hers, and a name typed onto one is a decision — it just
+       cannot be traced back to a customer record, which is a different thing from
+       being wrong. */
+    check('S82', 'and it is not filed under Could not do',
+      (function(){
+        const cut = r.status.indexOf('Could not do');
+        return cut === -1 || r.status.indexOf('Frome Liz') < cut;
+      })(),
+      "got: " + r.status + " " + String.fromCharCode(8212) + " a row somebody " +
+      "added on purpose, listed as a failure, sends them looking for a fault " +
+      "that is not there, every single run");
     check('S82', 'and a sheet the guard would not touch says so separately',
       /too many for me to remove/.test(r.status) &&
       !/no customer of that name: Color Changes/.test(r.status),
