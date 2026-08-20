@@ -27090,7 +27090,15 @@ function packTailCrewDays(built, opts){
        before anything is committed, because whether the day disappears decides
        how much mixing is allowed. */
     const extra = [];
-    for(let n = 0; n < list.length; n++) extra[n] = 0;
+    /* ⭐ TOWNS THIS PLAN WILL ADD, alongside the houses it will add. Nothing is
+       committed until the whole crew-day is known to empty, so `tgt.towns` still reads
+       as it did before the plan started — and a town check against it alone lets TWO
+       houses from two different towns each see the same single spare slot and both
+       take it. That is 27 October: Payson and Santaquin both swept onto one crew, each
+       believing it was the only one. `extra` already had to exist for exactly the same
+       reason on the house count. */
+    const addTowns = [];
+    for(let n = 0; n < list.length; n++){ extra[n] = 0; addTowns[n] = []; }
     /* A rescue is on the table when the whole DAY is not paying for itself.
        Measured across both crews, because the morning is spent either way. */
     const rescuing = housesOn(src.date) < wastedDay;
@@ -27123,13 +27131,32 @@ function packTailCrewDays(built, opts){
         if(okDate && tgt.date < okDate) continue;        // never before they may be hung
         if(cap - (tgt.ids.length + extra[j]) <= 0) continue;
         const towns = tgt.towns || [];
-        const has = !!town && towns.indexOf(town) !== -1;
+        const planned = addTowns[j];
+        const has = !!town && (towns.indexOf(town) !== -1 || planned.indexOf(town) !== -1);
         if(!has && townsOn(tgt.date, tgt)[town]) continue;   // the other crew is already there
         let score, miles = 0;
         if(has) score = 0;                                   // already going to that town
-        else if(nearby(tgt.city).indexOf(town) !== -1){
-          score = towns.length < 2 ? 1 : 2;                  // the crew’s spare town slot, or the third
-        } else if(rescuing){
+        /* ⭐ A CREW IS ITS OWN TOWN PLUS AT MOST ONE OTHER. NO EXCEPTIONS.
+           Owner, 2026-08-20: "we should never have a day with 5 towns no exceptions."
+
+           This line is what built 27 October with six: Cottonwood Hts and Murray as
+           the crew’s legitimate pair, then Holladay and Midvale handed over as a THIRD
+           and FOURTH town (the old score of 2 said so in its own comment), and Payson
+           and Santaquin swept in by the rescue below, which checked the MILES but
+           never the town count.
+
+           ⚠ AND THIS IS WHY PRESSING RECALCULATE NEVER CLEARED THE WARNING. It was
+           not a stale plan and it was not the timing sweep alone — the builder itself
+           put those towns there, so every rebuild laid them out and put them straight
+           back. Anything that tests the SWEEP and not the BUILDER passes while the day
+           on screen still has six towns on it.
+
+           The cost is real and she has chosen it: a near-empty day that can no longer
+           be emptied stays a near-empty day. A morning with eight houses on it is a
+           bad day; a crew driving six towns is a bad day AND a wrong sheet. */
+        else if(towns.length + planned.length >= 2) continue;   // its own town plus one, counting this plan
+        else if(nearby(tgt.city).indexOf(town) !== -1) score = 1;   // the spare town slot
+        else if(rescuing){
           const km = milesBetween(tgt.city, town);
           if(km == null || km > rescueMiles) continue;
           score = 3; miles = km;
@@ -27149,6 +27176,8 @@ function packTailCrewDays(built, opts){
       }
       if(bestAt === -1) continue;
       extra[bestAt]++;
+      if(town && (list[bestAt].towns || []).indexOf(town) === -1 &&
+         addTowns[bestAt].indexOf(town) === -1) addTowns[bestAt].push(town);
       plan.push({id: id, town: town, at: bestAt, score: bestScore});
     }
     /* ⚠ ALL OF IT OR NONE OF IT. A crew-day that only half empties still costs
@@ -27170,7 +27199,10 @@ function packTailCrewDays(built, opts){
       }
       gone[p.id] = true;
       moved.push({id: p.id, from: src.date, to: tgt.date, town: p.town,
-                  mixed: p.score === 2, rescued: p.score === 3});
+                  /* mixed was score 2, a crew's THIRD town. That cannot happen any
+                     more, so it is always false — kept so anything reading the
+                     report still finds the field where it expects it. */
+                  mixed: false, rescued: p.score === 3});
     });
     src.ids = src.ids.filter(function(id){ return !gone[id]; });
   }
@@ -34119,7 +34151,24 @@ function rebuildSeasonDays(){
      day, where they are visible, instead of being dropped on the floor. */
   const unplaced=placeable.filter(function(w){return !placedIds[w.id];}).map(function(w){return byId[w.id];})
     .concat(homeless.map(function(w){return byId[w.id];}));
-  if(newDays.length&&unplaced.length) newDays[newDays.length-1].houses=newDays[newDays.length-1].houses.concat(unplaced);
+  /* ⭐ AND THEY DO NOT BREAK THE TOWN RULE ON THE WAY IN (changed 2026-08-20).
+     Owner: "we should never have a day with 5 towns no exceptions." These all used to
+     be tipped onto the LAST day whatever towns it was already holding, which turned
+     the tidiest day of the season into the worst sheet in it.
+     A house with no town at all adds no town, so it still simply goes on the end —
+     that is the case this was written for, and it is the common one. */
+  if(newDays.length&&unplaced.length){
+    const last=newDays[newDays.length-1];
+    unplaced.forEach(function(h){
+      const t=extractCleanCity(h.city);
+      if(!t){ last.houses.push(h); return; }
+      const home=newDays.filter(function(d){
+        return (d.houses||[]).some(function(x){ return extractCleanCity(x.city)===t; });
+      })[0];
+      const room=newDays.filter(function(d){ return dayTownCount(d)<maxTownsPerDay(); })[0];
+      (home||room||last).houses.push(h);
+    });
+  }
   if(newDays.length&&riders.length) newDays[0].houses=newDays[0].houses.concat(riders);
   if(!newDays.length) return {error:'Nothing could be scheduled — check the towns on these customers.'};
   BASE_START=start;
@@ -34256,8 +34305,8 @@ function dayTownCount(day){
   return Object.keys(seen).length;
 }
 function enforceInstallTiming(){
-  const moved = [], stuck = [], crowded = [];
-  if(typeof SEASON === 'undefined' || !SEASON.length) return {moved: moved, stuck: stuck, crowded: crowded};
+  const moved = [], stuck = [];
+  if(typeof SEASON === 'undefined' || !SEASON.length) return {moved: moved, stuck: stuck};
   const startStr = isoOf(seasonStartDate());
   const dayStr = function(d){ const dt = dayDate(d); return dt ? isoOf(dt) : null; };
   const installs = SEASON.filter(function(d){ return !d.isFixRoute && !d.isTakedown && dayStr(d); })
@@ -34297,13 +34346,17 @@ function enforceInstallTiming(){
          on the earliest day it is allowed on that has room, just not on one already
          carrying as many towns as a crew can drive. */
       const roomy = room.filter(function(t){ return dayTownCount(t) < maxTownsPerDay(); })[0];
-      /* ⚠ AND IF NOTHING CAN, IT STILL GOES SOMEWHERE AND SAYS SO. Leaving the
-         house where it is means a customer hung in a month they ruled out, which is
-         worse than a crowded day — but it must not happen silently, or the warning
-         at the top of the tab becomes a mystery all over again. */
-      const target = sameTown || roomy || room[0];
-      if(target && !sameTown && !roomy){
-        crowded.push({name: h.name || '(no name)', town: town, date: dayStr(target)});
+      /* ⭐ AND IF NOTHING CAN TAKE IT, IT IS NOT MOVED. CHANGED 2026-08-20 — this
+         shipped hours earlier as `sameTown || roomy || room[0]`, which crowded a day
+         as a last resort and reported it. Owner: "we should never have a day with 5
+         towns no exceptions." So there is no last resort: the house is reported as
+         stuck, exactly like one with no later day at all, and the office decides.
+         A customer sitting on a day earlier than they asked for is visible and
+         fixable; a crew handed a six-town sheet finds out on the road. */
+      const target = sameTown || roomy;
+      if(!target){
+        stuck.push({name: h.name || '(no name)', pref: h.pref || '', notBefore: from});
+        return;
       }
       if(!target){
         stuck.push({name: h.name || '(no name)', pref: h.pref || '', notBefore: from});
@@ -34314,7 +34367,7 @@ function enforceInstallTiming(){
       moved.push({name: h.name || '(no name)', pref: h.pref || '', fromDate: here, toDate: dayStr(target)});
     });
   });
-  return {moved: moved, stuck: stuck, crowded: crowded};
+  return {moved: moved, stuck: stuck};
 }
 /* A saved plan built before the one-other-town rule can hold a crew-day full of
    towns. Counted and reported rather than rearranged: re-flowing the season is

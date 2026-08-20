@@ -6504,7 +6504,17 @@ suite('22. Building the crew-days the season needs');
       String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
     const consts = admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'),
                                admin.indexOf('function installPriority'));
-    const api = eval(consts + '\n' +
+    /* ⚠ WITHOUT THESE A CREW CANNOT BORROW A TOWN AT ALL. nearbyTowns works its
+       neighbours out by measuring town centres, so it needs haversine, and it looks
+       for a typed-in list first, so NEARBY_TOWN_LIST has to exist. The harness gave it
+       neither, so it returned an empty list every time and every check below ran
+       against a builder with its town-mixing switched off — which is how a day of six
+       towns reached the live book with this suite green. The list is left EMPTY on
+       purpose: these fixtures test the MEASURED rule, and a typed-in one overrides it. */
+    const LF_ = String.fromCharCode(10);
+    const prelude = 'const NEARBY_TOWN_LIST = {};' + LF_ +
+      extractFn(admin, 'haversine') + LF_ + extractFn(admin, 'sameTownName') + LF_;
+    const api = eval(prelude + consts + '\n' +
       extractFn(admin, 'installPriority') + '\n' + admin.slice(start, end) +
       '\n;({plan: planNewCrewDays, pri: installPriority, cap: MAX_STOPS_PER_ROUTE,' +
       ' crews: CREWS_PER_DAY, firstDate: seasonFirstDate, working: isWorkingDay})');
@@ -6534,6 +6544,151 @@ suite('22. Building the crew-days the season needs');
       id: city + '-' + (pref || 'any') + '-' + i, city: city,
       priority: api.pri({ installPreference: pref }), from: from || '2026-10-01'
     }));
+
+    /* ⭐ NO DATE EVER CARRIES MORE THAN FOUR TOWNS. Owner, 2026-08-20: "we should
+       never have a day with 5 towns no exceptions."
+
+       ⚠ THIS IS THE CHECK THAT WAS MISSING, and its absence is the whole story.
+       27 October came out holding Cottonwood Hts, Holladay, Midvale, Murray, Payson
+       and Santaquin. Two rounds of fixing went into the TIMING SWEEP, which also
+       crowded days — and both rounds were verified by tests that only ever ran the
+       sweep. The builder put four of those towns there itself and every rebuild put
+       them straight back, which is exactly why pressing Recalculate never cleared the
+       warning.
+
+       Two things in the builder did it, and both are asserted below through the real
+       planNewCrewDays rather than by reading the source:
+         - the nearby-town hand-off scored a crew's THIRD town as merely worse than
+           its second, instead of refusing it;
+         - the near-empty-day rescue checked the MILES to a town and never the number
+           of towns already on the day it was moving into. */
+    const townsByDate = (built) => {
+      const by = {};
+      built.forEach(function (d) {
+        (by[d.date] = by[d.date] || {});
+        (d.towns || [d.city]).forEach(function (t) { if (t) by[d.date][t] = true; });
+      });
+      return Object.keys(by).map(function (dt) {
+        return { date: dt, towns: Object.keys(by[dt]) };
+      });
+    };
+    const worstDay = (built) => townsByDate(built)
+      .sort(function (a, b) { return b.towns.length - a.towns.length; })[0] || { towns: [] };
+
+    /* Her own shape: a cluster of small Salt Lake towns that cannot fill their own
+       days, plus two far southern towns with a handful of houses each — precisely the
+       case the rescue was written for, and precisely where it used to run riot. */
+    /* ⚠ nearby AND dist COME FROM THE OPTIONS, and default to "nothing is near
+       anything". A fixture that omits them leaves the borrowing and the rescue
+       completely inert, so it passes whatever those two do — the first version of
+       this check did exactly that and sailed through a sabotage that restored the
+       original bug. The live page feeds them from the Scheduling settings. */
+    /* ⚠ nearby AND dist COME FROM THE OPTIONS and default to "nothing is near
+       anything", which leaves the borrowing and the rescue completely inert. A fixture
+       that omits them passes whatever those two do — the first version of this check
+       did exactly that, and sailed straight through a sabotage that restored the
+       original bug. The live page feeds both from the Scheduling settings.
+
+       ⚠ AND THE SHAPE HAS TO FORCE THE CASE. Six small towns alone is not enough:
+       the builder gives each one its own crew and never borrows, so no date reaches
+       four towns and a fifth can never be added. What is needed is a date where BOTH
+       crews already hold their own town PLUS one, and a near-empty day close enough
+       that the rescue wants to empty into it. That is 27 October in the real book. */
+    /* ⚠ THE BORROWING IS DRIVEN BY COORDINATES, not by the `nearby` option — that
+       one is only consulted by the rescue. nearbyTowns measures town centres worked
+       out from each house's `stop`, so a fixture whose houses carry no coordinates
+       leaves a crew unable to borrow at all, no date ever reaches four towns, and the
+       check passes no matter what the builder does. Two earlier versions of this
+       fixture did exactly that and let a sabotage restoring the original bug through.
+
+       Four Salt Lake towns inside the eight-mile neighbour radius, and Payson forty
+       miles south — far enough that nobody may BORROW it, close enough that the
+       rescue may empty its near-empty day into somebody (the rescue measures with the
+       `dist` option, which is why both are supplied). */
+    const CENTRE = {
+      Murray:            {lat: 40.667, lng: -111.888},
+      Midvale:           {lat: 40.611, lng: -111.899},
+      Holladay:          {lat: 40.669, lng: -111.825},
+      'Cottonwood Hts':  {lat: 40.620, lng: -111.810},
+      Payson:            {lat: 40.044, lng: -111.732},
+      Santaquin:         {lat: 39.977, lng: -111.786}
+    };
+    const placed = (n, city) => who(n, city).map(function (h) {
+      return Object.assign({}, h, {stop: CENTRE[city]});
+    });
+    const milesMap = function (a, b) {
+      const pair = [a, b];
+      if (pair.indexOf('Payson') === -1) return 5;
+      return 25;   // within the rescue's thirty, well outside the borrow's eight
+    };
+
+    /* Two crew-pairs on one date, and Payson alone holding three — under the twelve
+       that makes a day not worth the morning, so the rescue tries to empty it. */
+    /* Two crew-pairs on one date, and a thin day holding TWO far towns — three
+       houses and two, five in all, under the twelve that makes a day not worth the
+       morning, so the rescue tries to empty it.
+
+       ⚠ TWO far towns, not one. With a single one the rescue adds a single town
+       and the day comes out at five — already wrong, but only just. Her 27 October
+       had Payson AND Santaquin on it, and that is the case the plan-wide count exists
+       for: each of them can see the same one spare slot and take it. */
+    const messy = placed(8, 'Murray').concat(
+      placed(4, 'Midvale'), placed(8, 'Holladay'), placed(4, 'Cottonwood Hts'),
+      placed(3, 'Payson'), placed(2, 'Santaquin'));
+    const built = api.plan(messy, {}, { floorDate: '2026-10-01', dist: milesMap });
+
+    check('build', 'no date is built with more than four towns',
+      worstDay(built).towns.length <= 4,
+      'worst was ' + worstDay(built).date + ' with ' + worstDay(built).towns.length +
+      ': ' + worstDay(built).towns.join(', ') + ' — no exceptions means no exceptions');
+
+    /* ⚠ AND NO SINGLE CREW HOLDS MORE THAN TWO. Four towns on a DATE is only right
+       when it is two crews holding two each. Two crews where one holds three and the
+       other one still totals four, and still hands somebody an undrivable sheet. */
+    check('build', 'and no one crew holds more than its own town plus one other',
+      built.every(function (d) { return (d.towns || [d.city]).length <= 2; }),
+      'the worst crew-day held ' +
+      Math.max.apply(null, built.map(function (d) { return (d.towns || [d.city]).length; })) +
+      ' towns');
+
+    check('build', 'and nobody is dropped to achieve that',
+      built.reduce(function (n, d) { return n + d.ids.length; }, 0) === messy.length,
+      'refusing to crowd a day must never turn into refusing to schedule somebody');
+
+    /* ⚠ WHAT THIS FIXTURE DOES **NOT** PROVE, stated plainly so nobody trusts it
+       further than it goes. It builds a season and asserts the invariant, and it does
+       now reach the borrowing code (earlier versions did not even do that). But it has
+       NOT been made to reproduce the six-town day from the live book: sabotaging the
+       two guards below leaves this fixture unchanged, because its queue ordering never
+       drives the builder down the path that goes wrong.
+
+       So the guards are ALSO asserted directly. That is weaker than a behavioural
+       check and is not pretended otherwise — it is here because the alternative was
+       claiming coverage that does not exist, and this bug has already survived two
+       rounds of fixes that were 'verified' exactly that way.
+
+       The evidence for what went wrong is from the live book, not from here: on 27
+       October each crew held THREE towns (Cottonwood Hts + Holladay + Midvale, and
+       Murray + Santaquin + Payson). Own town, plus one borrowed, plus one more. */
+    const rescueSrc = admin.slice(start, end);
+    check('build', 'a crew that already has two towns is refused a third',
+      /towns\.length \+ planned\.length >= 2\s*\) continue/.test(rescueSrc),
+      'this replaced `score = towns.length < 2 ? 1 : 2`, whose own comment called the ' +
+      'second case "the third" town');
+    check('build', 'and the old third-town score is gone for good',
+      rescueSrc.indexOf('towns.length < 2 ? 1 : 2') === -1,
+      'that one line is what put Holladay and Midvale on the Cottonwood Hts crew');
+
+    /* ⭐ AND THE COUNT INCLUDES THE TOWNS THIS PLAN IS ABOUT TO ADD. The rescue
+       plans every house first and commits only if the whole crew-day empties, so
+       `tgt.towns` still reads as it did before planning started. Checking against that
+       alone lets TWO houses from two different towns each see the same single spare
+       slot and both take it — which is Payson AND Santaquin on one crew. `extra`
+       already existed for precisely this reason on the house count. */
+    check('build', 'the town check counts what the plan will add, not just what is there',
+      rescueSrc.indexOf('addTowns[bestAt].push(town)') !== -1 &&
+      rescueSrc.indexOf('const planned = addTowns[j]') !== -1,
+      'without it the guard is right for one house at a time and wrong for the pair');
 
     // ---- one town, more people than one day holds -----------------------
     let out = api.plan(who(50, 'Lehi'), {}, { floorDate: '2026-10-01' });
@@ -17358,25 +17513,27 @@ suite('Suite 98. The timing sweep is what was making the crowded days');
       dayNamed(pref, '2026-10-27').houses.length === 3,
       'the crew is driving to Payson that day already');
 
-    /* ⚠ WHEN EVERY DAY IS FULL OF TOWNS IT STILL MOVES, AND SAYS SO. Leaving the
-       house is a customer hung in a month they ruled out. Moving it silently is how
-       this bug stayed invisible for so long. */
+    /* ⭐ WHEN EVERY DAY IS FULL OF TOWNS, NOBODY IS MOVED. Owner, 2026-08-20: "we
+       should never have a day with 5 towns no exceptions." An earlier version of this
+       shipped with a last resort that crowded a day and reported it; there is no last
+       resort now. The house is reported as stuck and the office decides. Somebody
+       sitting on a day earlier than they asked for is visible and fixable; a crew
+       handed a six-town sheet finds out on the road. */
     const tight = run([
       {date: '2026-10-15', houses: [H('Early', 'Payson', '2026-10-27')]},
       {date: '2026-10-27', houses: full}
     ]);
-    check('S98', 'with nowhere under the limit it still honours the timing',
-      dayNamed(tight, '2026-10-15').houses.length === 0 &&
-      dayNamed(tight, '2026-10-27').houses.length === 5,
-      'a wrong month is worse than a crowded day');
-    check('S98', 'and it reports the day it had to crowd',
-      tight.report.crowded.length === 1 &&
-      tight.report.crowded[0].date === '2026-10-27' &&
-      tight.report.crowded[0].town === 'Payson',
-      'otherwise the warning at the top of the tab is a mystery with no author');
-    check('S98', 'the ordinary case reports nothing crowded',
-      out.report.crowded.length === 0 && pref.report.crowded.length === 0,
-      'a report that always fires is a report nobody reads');
+    check('S98', 'with nowhere under the limit, nobody is moved onto a full day',
+      dayNamed(tight, '2026-10-27').houses.length === 4 &&
+      townsOn(dayNamed(tight, '2026-10-27')).length === 4,
+      'got ' + townsOn(dayNamed(tight, '2026-10-27')).length + ' towns — no exceptions ' +
+      'means no exceptions');
+    check('S98', 'and the house is reported as stuck rather than moved silently',
+      tight.report.stuck.length === 1 && tight.report.moved.length === 0,
+      'the office has to be able to see who could not be placed');
+    check('S98', 'the house stays where it was rather than vanishing',
+      dayNamed(tight, '2026-10-15').houses.length === 1,
+      'a stop nobody is holding a sheet for is a stop nobody drives to');
 
     check('S98', 'a house with nowhere later at all is reported as stuck, not moved',
       (function(){
