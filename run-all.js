@@ -16624,6 +16624,197 @@ suite('Suite 78. What the third RSVP status breaks if nobody looks');
       'them on the Yes sheet with no answer at all');
   }
 }
+/* ---------------------------------------------------------------------------
+ * Suite 79. Invoices keep themselves in step
+ *
+ * Owner, 2026-08-20: "invoices should be in sync with all customers meaning they
+ * automatically get created and archived and anything else."
+ *
+ * This one writes to the invoices collection on a timer, with nobody watching, so
+ * it is run here rather than read. updateDoc is a recorder: the checks are about
+ * what WOULD be written, and just as much about what would not.
+ * ------------------------------------------------------------------------- */
+pendingAsync.push((async () => {
+  suite('Suite 79. Invoices keep themselves in step');
+
+  const lift79 = (n) => {
+    let st = admin.indexOf('async function ' + n + '(');
+    if (st < 0) st = admin.indexOf('function ' + n + '(');
+    if (st < 0) return '';
+    let i = admin.indexOf('{', st), d = 0;
+    for (; i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(st, i + 1); }
+    }
+    return '';
+  };
+  const src = lift79('invoiceAutoSync');
+  check('S79', 'the automatic invoice sync is still there', !!src,
+    'renamed or removed — update this suite rather than deleting it');
+  if (!src) return;
+
+  /* Everything it leans on is a stub that records. Nothing reaches Firestore. */
+  function run79(customers, invoices, opts) {
+    opts = opts || {};
+    const wrote = [];
+    const logged = [];
+    const groups = {};
+    customers.forEach(c => {
+      const k = (c.data || {}).billToPhone || (c.data || {}).phone || '';
+      if (!k) return;
+      (groups[k] = groups[k] || []).push(c);
+    });
+    const synced = [];
+    const box = {};
+    new Function(
+      'hcCachesReady', 'jobAddresses', 'allInvoicesCache', 'hcInvoiceGroups',
+      'syncPayerInvoice', 'updateDoc', 'doc', 'db', 'serverTimestamp',
+      'computeInvoiceStatus', 'logActivity', 'console',
+      'const INV_AUTOSYNC_PER_RUN = ' + (opts.perRun || 25) + '; let invAutoSyncBusy = false;' +
+      src + 'this.f = invoiceAutoSync;'
+    ).call(box,
+      () => opts.ready !== false,
+      customers, invoices,
+      () => groups,
+      async (payer) => { synced.push(payer); },
+      async (ref, patch) => { wrote.push({ref: ref, patch: patch}); },
+      (db, col, id) => (col + '/' + id), {},
+      () => 'STAMP',
+      (i, r, dep) => {
+        const total = (+i || 0) + (+r || 0);
+        const paid = +dep || 0;
+        if (total <= 0 || paid <= 0) return 'Unpaid';
+        return paid >= total ? 'Paid in Full' : 'Partial Payment';
+      },
+      (msg) => { logged.push(msg); },
+      {error: function(){}, log: function(){}});
+    return box.f().then(r => ({res: r, wrote: wrote, synced: synced, logged: logged}));
+  }
+
+  const cust = (id, phone, price) => ({id: id, data: {name: id, phone: phone, housePrice: price}});
+  const inv = (id, d) => ({id: id, data: d || {}});
+
+  /* ---- created ---- */
+  {
+    const r = await run79([cust('ada', '8015550001', 400)], []);
+    check('S79', 'a customer with a price and no invoice gets one, unprompted',
+      r.synced.join() === '8015550001' && r.res.created === 1,
+      'the health check has always FOUND these — "money you simply do not collect" — ' +
+      'and then waited for somebody to notice a badge and press a button');
+    check('S79', 'and it says so in the activity log',
+      r.logged.some(m => /invoice\(s\) created/.test(m)),
+      'work done while nobody is watching has to leave a trace, or the first ' +
+      'anybody knows of a mistake is the money');
+  }
+  {
+    const r = await run79([cust('ada', '8015550001', 0)], []);
+    check('S79', 'a customer with NO price is left alone',
+      r.res.created === 0 && !r.synced.length,
+      'an invoice for nothing is a bill for nothing');
+  }
+
+  /* ---- kept in line ---- */
+  {
+    const r = await run79([cust('ada', '8015550001', 400)],
+      [inv('8015550001', {install: 250, removal: 0, deposit: 0, status: 'Unpaid'})]);
+    check('S79', 'a total that drifted from the house price is pulled back',
+      r.res.resynced === 1 && r.synced.join() === '8015550001');
+  }
+  {
+    const r = await run79([cust('ada', '8015550001', 400)],
+      [inv('8015550001', {install: 430, removal: 0, deposit: 0, newMemberFeeApplied: true})]);
+    check('S79', 'but the new member fee is NOT read as drift',
+      r.res.resynced === 0,
+      'the $30 is a real charge on top of the houses — counting it as drift would ' +
+      'rewrite every new customer' + "'" + 's invoice on every pass, for ever, and each ' +
+      'pass would strip the fee back off');
+  }
+  {
+    const r = await run79([cust('ada', '8015550001', 400)],
+      [inv('8015550001', {install: 400, removal: 0, deposit: 400, status: 'Unpaid'})]);
+    check('S79', 'a status that disagrees with its own figures is recomputed',
+      r.res.restatused === 1 &&
+      r.wrote.some(w => w.ref === 'invoices/8015550001' && w.patch.status === 'Paid in Full'),
+      'somebody who has paid in full still being chased is the complaint that ' +
+      'costs a customer');
+  }
+
+  /* ---- archived, never deleted ---- */
+  {
+    const r = await run79([cust('ada', '8015550001', 400)],
+      [inv('8015550001', {install: 400}), inv('8015559999', {install: 300, deposit: 300, name: 'Gone Away'})]);
+    check('S79', 'an invoice with no customer left is archived',
+      r.res.archived === 1 &&
+      r.wrote.some(w => w.ref === 'invoices/8015559999' && w.patch.archived === true));
+    check('S79', 'and NOTHING is ever deleted',
+      !r.wrote.some(w => w.patch && w.patch.deleted) &&
+      r.wrote.every(w => !!w.patch),
+      'the health check refuses to offer a delete button here for a reason it ' +
+      'states outright: deleting an invoice can destroy a payment record. That ' +
+      'one had $300 collected against it');
+    check('S79', 'the archived invoice keeps every figure it had',
+      r.wrote.filter(w => w.ref === 'invoices/8015559999')
+       .every(w => w.patch.install === undefined && w.patch.deposit === undefined),
+      'archiving is a marker, not a money operation — it stays in the cache, stays ' +
+      'findable by key, and goes on counting in every total');
+  }
+  {
+    const r = await run79([cust('ada', '8015550001', 400), cust('back', '8015559999', 300)],
+      [inv('8015550001', {install: 400}),
+       inv('8015559999', {install: 300, archived: true})]);
+    check('S79', 'and a customer who comes back un-archives their own invoice',
+      r.res.restored === 1 &&
+      r.wrote.some(w => w.ref === 'invoices/8015559999' && w.patch.archived === false),
+      'the same phone number finds the same invoice, exactly as they left it');
+  }
+
+  /* ---- and the two ways it refuses to run ---- */
+  {
+    const r = await run79([], [inv('8015559999', {install: 300})]);
+    check('S79', 'an EMPTY customer list archives nothing at all',
+      r.res === null && !r.wrote.length,
+      'this is the one that matters: before the customers land, every invoice in ' +
+      'the book looks like an orphan. One unguarded pass would archive the entire ' +
+      'ledger');
+  }
+  {
+    const r = await run79([cust('ada', '8015550001', 400)], [], {ready: false});
+    check('S79', 'and it waits for the caches the health check waits for',
+      r.res === null && !r.synced.length,
+      'same guard, same reason');
+  }
+
+  /* ---- and they actually leave the list on screen ---- */
+  {
+    const render = sectionFrom(admin, admin.indexOf("function renderInvoicesList()"));
+    const at = render.indexOf("const showArch =");
+    const blk = at < 0 ? "" : render.slice(at, render.indexOf("if(invoiceSearchTerm)", at));
+    check('S79', 'the archived filter block was found to run', !!blk);
+    if (blk) {
+      const run = new Function("allInvoicesCache", "document", blk + "return filtered;");
+      const book = [{id: "a", data: {}}, {id: "b", data: {archived: true}}];
+      const docStub = (checked) => ({ getElementById: () => ({ checked: checked }) });
+      check('S79', 'an archived invoice is off the working list by default',
+        run(book, docStub(false)).map(x => x.id).join() === "a",
+        'archiving that leaves them on screen has achieved nothing at all');
+      check('S79', 'and ticking the box brings them back',
+        run(book, docStub(true)).map(x => x.id).join() === "a,b",
+        'the money is still theirs to look up; it is only out of the way');
+    }
+  }
+
+  /* ---- the cap is not silent ---- */
+  {
+    const many = [];
+    for (let i = 0; i < 30; i++) many.push(cust('c' + i, '80155500' + (10 + i), 400));
+    const r = await run79(many, [], {perRun: 25});
+    check('S79', 'a big backlog is spread over several passes',
+      r.synced.length === 25 && r.res.created === 25);
+    check('S79', 'and what is left over is COUNTED, not quietly dropped',
+      r.res.left === 5,
+      'a number that stops going down is the only way anybody would spot a stall');
+  }
+})());
 pendingAsync.push((async () => {
   suite('Suite 77. The customer list is not one sheet');
 

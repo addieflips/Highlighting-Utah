@@ -2569,6 +2569,11 @@
               <button type="button" class="btn btn-gold btn-sm" id="applyInvFilterBtn" style="width:100%; margin-top:10px;">Apply</button>
             </div>
             <span id="invFilterSummary" style="font-size:12.5px; color:var(--slate);"></span>
+            <!-- ⚠ ARCHIVED = the customer is gone, the money is not. These are invoices
+                 with nobody left to bill: deleted, or their phone changed. Nothing is
+                 ever deleted, because that would destroy a payment record - they are
+                 just out of the way. Every figure on them still counts everywhere else. -->
+            <label style="display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--slate);"><input type="checkbox" id="invShowArchived"> Show archived (no customer)</label>
           </div>
           <div class="row-list" id="invoicesList"><div class="empty-note">Loading…</div></div>
         </div>
@@ -11841,7 +11846,13 @@ function renderInvoicesList(){
      past. Clicking filters the list down to just those. */
   renderReceiptErrorBanner();
   if(!allInvoicesCache.length){ list.innerHTML = '<div class="empty-note">No invoices yet.</div>'; return; }
-  let filtered = allInvoicesCache;
+  /* ⚠ ARCHIVED ONES ARE HIDDEN, NOT GONE. They still sit in allInvoicesCache, so
+     every keyed lookup and every money total behaves exactly as before — this is a
+     view filter and nothing more. Ticking the box brings them back. */
+  const showArch = document.getElementById("invShowArchived");
+  let filtered = (showArch && showArch.checked)
+    ? allInvoicesCache
+    : allInvoicesCache.filter(function(item){ return !(item.data || {}).archived; });
   if(invoiceSearchTerm){
     const t = invoiceSearchTerm.toLowerCase();
     filtered = filtered.filter(item => (item.data.name||'').toLowerCase().indexOf(t) !== -1);
@@ -30939,12 +30950,133 @@ async function renderActivityToday(){
     el.textContent = 'Could not load the activity log.';
   }
 }
+/* ⭐ INVOICES KEEP THEMSELVES IN STEP WITH THE CUSTOMER LIST (added 2026-08-20).
+   Owner: "invoices should be in sync with all customers meaning they automatically
+   get created and archived and anything else."
+
+   Every one of these was already FOUND by the health check and already had a fix
+   button; the office just had to notice the badge and press it. A customer with a
+   price and no invoice is money simply not collected, and nobody presses a button
+   they have not seen.
+
+   ⚠ ONLY THE FIXES THE HEALTH CHECK ITSELF CALLS SAFE. Each of these rebuilds
+   from data already on file and destroys nothing: create the missing invoice, pull a
+   drifted total back to the house prices, recompute a status that disagrees with its
+   own numbers. Everything else in that panel still waits for a human.
+
+   ⚠ AN ORPHAN IS ARCHIVED, NEVER DELETED. The health check says why, and it is
+   still true: "deleting an invoice can destroy a payment record". Archiving is a
+   MARKER, not a money operation — the document keeps every figure it had, stays in
+   allInvoicesCache, and goes on being found by key and counted in every total. All
+   that changes is that it drops out of the working list. So a customer who comes
+   back to the same phone number finds their invoice exactly as they left it, and it
+   un-archives itself on the next pass.
+
+   ⚠ AND IT REFUSES TO RUN ON A HALF-LOADED BOOK. If the customers have not
+   arrived yet, every invoice looks like an orphan. hcCachesReady() is the same guard
+   the health check uses, and the empty-list test is a second one, because the cost
+   of being wrong here is archiving the entire ledger in one pass. */
+const INV_AUTOSYNC_PER_RUN = 25;
+let invAutoSyncBusy = false;
+async function invoiceAutoSync(){
+  if(invAutoSyncBusy) return null;
+  if(!hcCachesReady()) return null;
+  if(!Array.isArray(jobAddresses) || !jobAddresses.length) return null;
+  if(!Array.isArray(allInvoicesCache)) return null;
+  invAutoSyncBusy = true;
+  const out = {created: 0, resynced: 0, restatused: 0, archived: 0, restored: 0, left: 0, failed: 0};
+  try{
+    const groups = hcInvoiceGroups();
+    const invById = {};
+    allInvoicesCache.forEach(function(i){ invById[i.id] = i; });
+
+    /* Payers who need their invoice built or brought back into line. */
+    const needSync = [];
+    Object.keys(groups).forEach(function(payer){
+      const inv = invById[payer];
+      const priced = groups[payer].some(function(c){ return (Number((c.data || {}).housePrice) || 0) > 0; });
+      if(!inv){ if(priced) needSync.push({payer: payer, why: "created"}); return; }
+      const d = inv.data || {};
+      const houses = groups[payer].reduce(function(t, c){ return t + (Number((c.data || {}).housePrice) || 0); }, 0);
+      /* The new-member fee is a real charge on top of the houses, so it is added
+         back before comparing " + M + " otherwise every customer who paid it reads as
+         drifted, for ever. */
+      const fee = Number(d.newMemberFeeApplied ? 30 : 0);
+      if(houses > 0 && Math.round((Number(d.install) || 0) * 100) !== Math.round((houses + fee) * 100)){
+        needSync.push({payer: payer, why: "resynced"});
+      }
+    });
+
+    for(let i = 0; i < needSync.length && i < INV_AUTOSYNC_PER_RUN; i++){
+      try{
+        await syncPayerInvoice(needSync[i].payer);
+        if(needSync[i].why === "created") out.created++; else out.resynced++;
+      } catch(err){ out.failed++; }
+    }
+    /* ⚠ NO SILENT CAP. A first run on a book that has drifted for weeks could be
+       hundreds of writes; it is spread over the ten-minute passes instead. What is
+       left over is COUNTED and said out loud, because a number that stops going down
+       is the only way anybody would know it had stalled. */
+    out.left = Math.max(0, needSync.length - INV_AUTOSYNC_PER_RUN);
+
+    /* A status that disagrees with its own figures. */
+    for(const inv of allInvoicesCache){
+      const d = inv.data || {};
+      if(d.archived) continue;
+      const live = computeInvoiceStatus(d.install, d.removal, d.deposit, d.credits, d.changeFees);
+      if(d.status && d.status !== live){
+        try{ await updateDoc(doc(db, "invoices", inv.id), {status: live}); d.status = live; out.restatused++; }
+        catch(err){ out.failed++; }
+      }
+    }
+
+    /* Orphans out of the working list, and anybody who came back into it. */
+    for(const inv of allInvoicesCache){
+      const d = inv.data || {};
+      const hasCustomer = !!groups[inv.id];
+      if(!hasCustomer && !d.archived){
+        try{
+          await updateDoc(doc(db, "invoices", inv.id), {archived: true, archivedAt: serverTimestamp()});
+          d.archived = true;
+          out.archived++;
+        } catch(err){ out.failed++; }
+      } else if(hasCustomer && d.archived){
+        try{
+          await updateDoc(doc(db, "invoices", inv.id), {archived: false, archivedAt: null});
+          d.archived = false;
+          out.restored++;
+        } catch(err){ out.failed++; }
+      }
+    }
+
+    if(out.created || out.archived || out.restored){
+      const bits = [];
+      if(out.created) bits.push(out.created + " invoice(s) created");
+      if(out.archived) bits.push(out.archived + " archived (no customer)");
+      if(out.restored) bits.push(out.restored + " brought back");
+      logActivity("Invoices kept in step: " + bits.join(", "), "invoices", "");
+    }
+  } catch(err){
+    console.error("[HU] invoice auto-sync failed", err);
+  } finally {
+    invAutoSyncBusy = false;
+  }
+  return out;
+}
 function runHealthCheckAuto(){
   if(!hcCachesReady()) return;
   try{
     hcLastChecks = hcRunChecks();
     hcRender();          // this is what writes the sidebar badge
     renderActivityToday().catch(function(){});
+    /* Behind the check that just found the problems, and never in front of it:
+       the sync leans on hcInvoiceGroups, and a failure here must not stop the badge
+       being written. */
+    invoiceAutoSync().then(function(r){
+      if(r && (r.created || r.resynced || r.archived || r.restored)){
+        try{ hcLastChecks = hcRunChecks(); hcRender(); } catch(err){}
+      }
+    }).catch(function(){});
   } catch(err){
     // Never let a background check break the page it is running behind.
     console.error('[HU] automatic health check failed', err);
@@ -30963,6 +31095,9 @@ function startHealthCheckAuto(){
   if(btn) btn.addEventListener('click', runHealthCheck);
   const hide = document.getElementById('hcHideClean');
   if(hide) hide.addEventListener('change', hcRender);
+  /* The archived toggle only changes what is drawn, so it redraws and nothing else. */
+  const sa = document.getElementById('invShowArchived');
+  if(sa) sa.addEventListener('change', function(){ try{ renderInvoicesList(); }catch(e){} });
 })();
 /* ---------------- PROJECT: TEST CHECKLIST ----------------
    Three tabs, three collections:
