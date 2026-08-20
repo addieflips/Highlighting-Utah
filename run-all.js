@@ -3959,6 +3959,10 @@ if (!JSDOM) {
       check('warehouse', 'the Add From Inbox helpers are findable',
         false, 'renamed or removed — update this test rather than deleting it');
     }
+    /* ⚠ The recycle queue reads archived people as well as customers now, so the
+       sandbox has to declare that cache. Without it the lifted function throws a
+       ReferenceError and the whole file dies before a single check runs. */
+    global.whArchivedPending = [];
     eval(admin.slice(whStart, buildStart) + '\n' + admin.slice(buildStart, buildEnd) + '\n' +
          admin.slice(recycleStart, recycleEnd) + '\n' +
          (formEnd > formStart ? admin.slice(formStart, formEnd) : '') + '\n');
@@ -16759,6 +16763,90 @@ pendingAsync.push((async () => {
  * change. A round trip that reports itself as a difference asks the office to fix
  * something that is already right, every single time.
  * ------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+ * Suite 90. The Recycle queue reads the archive, not just the book
+ *
+ * Owner, 2026-08-20, looking at an empty Recycle queue: "liz frome isnt in the
+ * recycle section, you dont need them in their as a customer data you have all
+ * that data it should just need the data."
+ *
+ * The queue was built from CUSTOMERS, and somebody removed is not one — so under
+ * her own flow (removed, then recycled) it could never show the very people it
+ * exists for. "Nothing needs to be recycled right now" while their lights sat in a
+ * van.
+ * ------------------------------------------------------------------------- */
+suite('Suite 90. The Recycle queue reads the archive, not just the book');
+
+{
+  const groupsSrc = extractFn(admin, 'whRecycleGroups');
+  check('S90', 'the recycle grouping is still there', !!groupsSrc);
+
+  if (groupsSrc) {
+    const run = new Function('jobAddresses', 'whArchivedPending', 'whGroupKey',
+      groupsSrc + 'return whRecycleGroups();');
+    const key = (pattern, wire) => (pattern || '') + '|' + (wire || '');
+    const cust = (name, flagged) => ({id: name, data: {name: name,
+      needsLightRecycle: !!flagged, lightsDescription: 'Red, Green', wireColor: 'White'}});
+    const arch = (name) => ({id: name, archived: true, data: {name: name,
+      lightsDescription: 'Red, Green', wireColor: 'White'}});
+    const whoIsListed = (r) => Object.keys(r.groups)
+      .reduce((all, k) => all.concat(r.groups[k].map(x => x.data.name)), []).sort().join(',');
+
+    check('S90', 'a customer flagged for recycling is still listed',
+      whoIsListed(run([cust('Pending Pat', true)], [], key)) === 'Pending Pat');
+    check('S90', 'and one who is not flagged is not',
+      whoIsListed(run([cust('Ordinary Olive', false)], [], key)) === '');
+
+    check('S90', 'somebody already REMOVED is listed too',
+      whoIsListed(run([], [arch('Frome Liz')], key)) === 'Frome Liz',
+      'this is the whole complaint: they are not a customer any more, which is ' +
+      'exactly why they are on this list');
+    check('S90', 'and the two kinds sit together in one queue',
+      whoIsListed(run([cust('Pending Pat', true)], [arch('Frome Liz')], key)) ===
+        'Frome Liz,Pending Pat',
+      'the warehouse does not care which side of the delete button somebody is on ' +
+      'when it is pulling lights apart');
+    check('S90', 'grouped by the same pattern, so one bundle is one row',
+      Object.keys(run([cust('Pending Pat', true)], [arch('Frome Liz')], key).groups).length === 1,
+      'same colours and wire is the same job');
+
+    check('S90', 'and nothing at all is still nothing',
+      whoIsListed(run([], [], key)) === '');
+  }
+
+  /* ⚠ ONLY THE ONES STILL WAITING ARE WATCHED. The archive grows for ever; the
+     working set does not. */
+  const watch = extractFn(admin, 'whWatchArchivedPending');
+  check('S90', 'the archive watcher exists', !!watch);
+  check('S90', 'and it asks only for the ones not yet recycled',
+    /where\('recycled', ?'==', ?false\)/.test(watch),
+    'listening to the whole archive gets slower every season for no benefit');
+  check('S90', 'archiving somebody starts them un-recycled',
+    /recycled: false,/.test(extractFn(admin, 'hlxRemoveCustomerToRecycle')),
+    'an explicit false, because Firestore cannot query for a field that is absent ' +
+    '\u2014 without it every archived person is invisible to that query');
+
+  /* ⚠ AND THE WATCHER HAS TO BE STARTED. Defined and never called is the state
+     three other things in this file have been found in. */
+  check('S90', 'the watcher is actually started at boot',
+    /* ⚠ A CALL, not the definition: "function whWatchArchivedPending(){" contains
+       an empty pair of brackets too, and a red-check that deleted the call passed. */
+    admin.indexOf('whWatchArchivedPending();') !== -1,
+    'a listener nobody calls is an empty queue that looks correct');
+
+  /* ---- and marking one recycled ---- */
+  const done = sectionFrom(admin, admin.indexOf("list.querySelectorAll('[data-whrecycledone]')"));
+  check('S90', 'marking an archived person recycled closes the archive entry',
+    /updateDoc\(doc\(db,'archivedCustomers', custId\), {[\s\S]{0,80}recycled: true/.test(done),
+    'there is no customer record left to delete — that already went');
+  check('S90', 'and it does not try to delete a customer that is not there',
+    /* ⚠ And the branch has to be REACHABLE - if(false) left every word in place. */
+    /if\(archivedItem\){/.test(done) &&
+    done.indexOf('archivedItem') < done.indexOf('hlxRemoveCustomerToRecycle'),
+    'the archived branch has to answer first, or it falls through to a removal ' +
+    'path looking for a record that does not exist');
+}
+
 suite('Suite 89. The outlet instruction is not a difference');
 
 {
