@@ -5014,6 +5014,13 @@ suite('15. The printed schedule sheet');
       { name: 'Five', city: 'Alpine', price: 1 }, { name: 'Six', city: 'Alpine', price: 1 },
       { name: 'Seven', city: 'Lehi', price: 1 } ] };
     global.allHouses = () => dayA.houses.concat(dayB.houses);
+    /* ⚠ A SECOND TOWN NOW HAS TO BE A NEIGHBOUR, and this sandbox has no customer
+       records to measure between towns, so the office’s own list is what makes the
+       pairing legal here — the same list the live page loads from Scheduling settings.
+       A fixture without it gets one town per crew and the rest unassigned, which is the
+       rule working rather than the test failing. */
+    const NEARBY_TOWN_LIST = {Lehi: ['Alpine', 'Draper'], Alpine: ['Lehi', 'Draper'],
+                              Draper: ['Lehi', 'Alpine']};
     const crew = eval(admin.slice(crewStart, crewEnd) + '\n' +
       admin.slice(sheetStart2, sheetEnd2) + '\n' +
       admin.slice(crewRowsStart, crewRowsEnd) + '\n' +
@@ -7905,6 +7912,11 @@ suite('Suite 28. The Schedule season rebuilt from its houses');
       fn('seasonStartDate') + fn('prefSpecificDate') + fn('houseAllowedFrom') + fn('houseDeadline') + fn('houseInstallPriority') +
       'function cityOf(h){return (h.city||"").trim();}' +
       'function sameCity(a,b){return (""+a).trim().toLowerCase()===(""+b).trim().toLowerCase();}' +
+      /* ⚠ dayCrewTowns NOW CAPS A CREW AT TWO TOWNS and tests whether a second one
+         is a neighbour, so the sandbox needs the constant and the test with it — a lift
+         missing either throws, and takes the whole suite down with it. */
+      'const MAX_TOWNS_PER_CREW=' + (admin.match(/const MAX_TOWNS_PER_CREW = (\d+);/)||[])[1] + ';' +
+      fn('townsAreNeighbours') +
       fn('rebuildSeasonDays') + fn('dayAreas') + fn('dayCrewTowns') + fn('crewTownsFor') +
       '\nthis.run=function(seed){SEASON=seed;SEASON.forEach(function(d){d._date=new Date(2026,9,1+d.base);});' +
       'var r=rebuildSeasonDays();return {r:r,days:SEASON.filter(function(d){return !d.isFixRoute&&!d.isTakedown;})' +
@@ -10989,7 +11001,7 @@ suite('Suite 46. Nobody is hung before the month they asked for');
         /* ⚠ LIFTED, NOT STUBBED (2026-08-20). The sweep now asks how many towns a
            day already holds before it moves anybody onto it, and a stub of that is a
            stub of the fix itself. CREWS_PER_DAY is left to its own fallback of two. */
-        fn('dayTownCount') + fn('maxTownsPerDay') +
+        'const MAX_TOWNS_PER_CREW=' + (admin.match(/const MAX_TOWNS_PER_CREW = (\d+);/)||[])[1] + ';' + fn('dayTownCount') + fn('maxTownsPerDay') +
         src + 'this.run = enforceInstallTiming;'
       ).call(sb, SEASON,
         (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'),
@@ -11104,7 +11116,7 @@ suite('Suite 46. Nobody is hung before the month they asked for');
         /* ⚠ THE LIMIT IS LIFTED TOO. It used to be the number 4 written into this
            function; sharing it with the timing sweep is the point of the change, so a
            stub here would test a constant that no longer exists. */
-        fn('maxTownsPerDay') +
+        'const MAX_TOWNS_PER_CREW=' + (admin.match(/const MAX_TOWNS_PER_CREW = (\d+);/)||[])[1] + ';' + fn('maxTownsPerDay') +
         src2 + 'this.run = crewDaysOverTownLimit;'
       ).call(sb, [
         { _date: new Date(2026, 9, 1), houses: [
@@ -17413,11 +17425,17 @@ suite('Suite 97. The New Members tab, and two buttons, are gone');
 suite('Suite 98. The timing sweep is what was making the crowded days');
 
 {
+  /* ⚠ THE DAY NUMBER IS DERIVED FROM THE CREW ONE NOW, so every sandbox that lifts
+     maxTownsPerDay has to carry the constant too — the rule is per crew and the day
+     figure is only ever a summary of it. Declared out here because two separate blocks
+     below need it. */
+  const PERCREW = 'const MAX_TOWNS_PER_CREW=' +
+  (admin.match(/const MAX_TOWNS_PER_CREW = (\d+);/) || [])[1] + ';';
   const lim = extractFn(admin, 'maxTownsPerDay');
   check('S98', 'the town limit is a function, not a number typed twice', !!lim);
 
   if (lim) {
-    const at = (n) => new Function('CREWS_PER_DAY', lim + 'return maxTownsPerDay();')(n);
+    const at = (n) => new Function('CREWS_PER_DAY', PERCREW + lim + 'return maxTownsPerDay();')(n);
     check('S98', 'two crews may hold four towns between them', at(2) === 4);
     /* ⚠ ONE CREW A DAY IS A SETTING THE OFFICE CAN PICK (the Scheduling panel
        writes CREWS_PER_DAY). A hard-coded four would let a single crew wander four
@@ -17454,7 +17472,7 @@ suite('Suite 98. The timing sweep is what was making the crowded days');
   if (src && lim) {
     const run = function (season) {
       return new Function('SEASON',
-        'const CREWS_PER_DAY = 2;' +
+        'const CREWS_PER_DAY = 2;' + PERCREW +
         'const isoOf = function(d){ return d; };' +
         'const seasonStartDate = function(){ return "2026-10-10"; };' +
         'const dayDate = function(d){ return d.date; };' +
@@ -17867,6 +17885,177 @@ suite('Suite 100. One crew days, and who works them');
     /1 CREW/.test(extractFn(admin, 'renderDayList')),
     'a one-man day and a two-crew day look identical in a list of dates, and the ' +
     'difference is who has to be rostered');
+}
+/* ---------------------------------------------------------------------------
+ * Suite 101. One dominant city a crew, and a neighbour if it must
+ *
+ * Owner, 2026-08-20: "the rule isnt one day can have 4 citys its one crew can have 1
+ * dominant city with some flakes in another city so one crew can go in a max of 2
+ * cities but we need to try to prioritze a crew being in one city but if thats not
+ * possible they can also be in one nearby city." Then, sharpening it: "1 city for a
+ * crew would be 4th or 5th in priority though but the second city being a neighboring
+ * city is mandatory not a priority."
+ *
+ * So: two cities a crew is the CEILING, a neighbouring second city is a RULE, and
+ * staying in one city is a nicety that loses to almost everything.
+ *
+ * ⚠ dayCrewTowns shared out every town on a day between the two crews with no cap
+ * at all, so a day holding six towns gave one crew THREE. The builder had already
+ * been taught the rule and it changed nothing visible, because THIS is where a season
+ * day's crews are decided and it is what the panel, the sheet and the route generator
+ * all read.
+ * ------------------------------------------------------------------------- */
+suite('Suite 101. One dominant city a crew, and a neighbour if it must');
+
+{
+  const townsSrc = extractFn(admin, 'dayCrewTowns');
+  const nearSrc = extractFn(admin, 'townsAreNeighbours');
+  check('S101', 'the crew-town rule is there to run', !!townsSrc && !!nearSrc);
+
+  if (townsSrc && nearSrc) {
+    /* Coordinates go on the customer record, which is where the live page reads them
+       from too — the plan's own house rows have never carried any. */
+    const split = (houses, near, crews) => new Function(
+      'houses', 'NEARBY_TOWN_LIST', 'CREWS',
+      'const MAX_TOWNS_PER_CREW = 2;' +
+      'const NEARBY_TOWN_MILES = 8;' +
+      'const cityOf = function(h){ return (h.city || "").trim(); };' +
+      'const sameCity = function(a, b){ return String(a).trim().toLowerCase() === ' +
+      '  String(b).trim().toLowerCase(); };' +
+      'const customerForHouse = function(h){ return h._cust ? {data: h._cust} : null; };' +
+      extractFn(admin, 'haversine') + nearSrc + townsSrc +
+      'return dayCrewTowns({houses: houses});')(houses, near || {}, crews ||
+        [{name: 'A', city: ''}, {name: 'B', city: ''}]);
+
+    /* Utah county, roughly. Lehi and Alpine are a few miles apart; Payson is forty
+       miles south of both. */
+    const H = (city, lat) => ({city: city, _cust: {lat: lat, lng: -111.85}});
+    const many = (n, city, lat) => Array.from({length: n}, () => H(city, lat));
+
+    /* ⭐ SIX TOWNS USED TO COME OUT THREE AND THREE. That is her 27 October. */
+    const six = many(6, 'Lehi', 40.39).concat(
+      many(5, 'Alpine', 40.45), many(4, 'Highland', 40.42), many(4, 'Draper', 40.52),
+      many(3, 'Payson', 40.04), many(2, 'Santaquin', 39.97));
+    const out6 = split(six);
+    check('S101', 'no crew is ever given more than two towns',
+      out6[0].length <= 2 && out6[1].length <= 2,
+      'got ' + out6[0].length + ' and ' + out6[1].length + ' — ' +
+      JSON.stringify(out6) + '; this is exactly how 27 October ended up with three ' +
+      'towns on each crew');
+
+    /* ⭐ AND THE SECOND ONE IS A NEIGHBOUR, WHICH IS THE PART THAT IS MANDATORY.
+       Payson is forty miles from Lehi. Pairing them is the sheet the rule exists to
+       prevent, and load-balancing alone used to do exactly that. */
+    const paired = out6.filter(t => t.length === 2);
+    const milesApart = (x, y) => {
+      const at = {Lehi: 40.39, Alpine: 40.45, Highland: 40.42, Draper: 40.52,
+                  Payson: 40.04, Santaquin: 39.97};
+      return Math.abs(at[x] - at[y]) * 69;
+    };
+    check('S101', 'a crew holding two towns holds two that are close together',
+      paired.every(t => milesApart(t[0], t[1]) <= 8),
+      'got ' + JSON.stringify(paired) + ' — a second town forty miles away is not ' +
+      '"some flakes in another city", it is a second job');
+
+    /* ⚠ AND WHAT NOBODY MAY TAKE STAYS VISIBLE. It is not quietly loaded onto a
+       crew that cannot drive it; unassignedHousesFor reports it and it still prints
+       on the day. */
+    const held = out6[0].concat(out6[1]);
+    check('S101', 'towns nobody may take are left unassigned, not hidden',
+      held.length < 6,
+      'six towns cannot all be legally held by two crews taking two each with a ' +
+      'neighbour rule');
+
+    /* ---- the simple cases still behave ---- */
+    check('S101', 'one town on the day goes to one crew, and the other gets nothing',
+      (function(){ const o = split(many(9, 'Lehi', 40.39));
+        return o[0].length === 1 && o[1].length === 0; })(),
+      'owner: "we need to try to prioritze a crew being in one city"');
+
+    check('S101', 'two towns on the day go one each, not both to one crew',
+      (function(){ const o = split(many(9, 'Lehi', 40.39).concat(many(8, 'Alpine', 40.45)));
+        return o[0].length === 1 && o[1].length === 1; })(),
+      'a crew with no town yet is carrying least, so it wins on its own — which is ' +
+      'how one-city-per-crew gets honoured without being given a priority it does ' +
+      'not have');
+
+    /* ⭐ THREE NEARBY TOWNS: somebody has to take a second, and it must be a
+       neighbour. Nobody is left out when the towns genuinely are close. */
+    const three = split(many(9, 'Lehi', 40.39).concat(
+      many(8, 'Alpine', 40.45), many(4, 'Highland', 40.42)));
+    check('S101', 'a third nearby town is picked up rather than abandoned',
+      three[0].length + three[1].length === 3,
+      'got ' + JSON.stringify(three) + ' — these are all within a few miles');
+
+    /* ⚠ A FAR THIRD TOWN IS NOT. This is the difference between the rule and a
+       plain cap: two crews COULD hold it under a cap of two each, and must not. */
+    const far = split(many(9, 'Lehi', 40.39).concat(
+      many(8, 'Alpine', 40.45), many(4, 'Payson', 40.04)));
+    check('S101', 'a far third town is left unassigned even though a crew has room',
+      far[0].length + far[1].length === 2,
+      'got ' + JSON.stringify(far) + ' — room is not permission');
+
+    /* ⭐ FIVE TOWNS ALL WITHIN A FEW MILES: the neighbour test says yes to every
+       pairing, so the only thing stopping a crew taking a third is the CAP. Without a
+       fixture where nearness cannot do the job on its own, deleting the cap changes
+       nothing and the check is decoration. */
+    const packed = split(many(9, 'Lehi', 40.39).concat(
+      many(8, 'Alpine', 40.45), many(6, 'Highland', 40.42),
+      many(4, 'Cedar Hills', 40.41), many(3, 'American Fork', 40.38)));
+    check('S101', 'five neighbouring towns still give two crews two each',
+      packed[0].length === 2 && packed[1].length === 2,
+      'got ' + JSON.stringify(packed) + ' — every one of these is a legal neighbour ' +
+      'of the others, so nearness alone will not hold the line');
+    check('S101', 'and the fifth is left unassigned rather than making a third',
+      packed[0].concat(packed[1]).length === 4,
+      'a crew driving three towns is the thing the rule forbids, however close they are');
+
+    /* ⚠ A TOWN NOBODY CAN MEASURE IS NOT A NEIGHBOUR. Houses whose customer record
+       has no coordinates yet (never geocoded, or unmatched) give no town centre. The
+       honest answer is no: pairing on an unknown distance is how a crew ends up driving
+       fifty miles for two houses. If a real pair keeps turning up unassigned the fix is
+       to add it to the nearby-towns list, not to soften this. */
+    /* ⚠ AND THIS NEEDS THREE TOWNS. With two crews and two towns each crew simply
+       takes its own as a dominant city and the neighbour test is never consulted at
+       all — the first version of this fixture had exactly that shape and proved
+       nothing. The third town is the one that has to be somebody's SECOND. */
+    const blind = split(many(9, 'Lehi', 40.39).concat(
+      many(8, 'Alpine', 40.45),
+      [{city: 'Nowhere'}, {city: 'Nowhere'}, {city: 'Nowhere'}]));
+    check('S101', 'a town nobody can measure is never made a second town',
+      blind[0].length === 1 && blind[1].length === 1,
+      'got ' + JSON.stringify(blind) + ' — pairing on an unknown distance is how a ' +
+      'crew ends up driving fifty miles for two houses. If a real pair keeps turning ' +
+      'up unassigned the fix is the nearby-towns list, not softening this');
+
+    /* ⭐ THE OFFICE'S TYPED LIST WINS OVER THE TAPE MEASURE. Somebody who has
+       always worked those two together said so once and should be believed. */
+    const told = split(many(9, 'Lehi', 40.39).concat(
+      many(8, 'Alpine', 40.45), many(4, 'Payson', 40.04)),
+      {Lehi: ['Payson'], Payson: ['Lehi']});
+    check('S101', 'a pairing the office typed in is honoured over the distance',
+      told[0].concat(told[1]).length === 3 &&
+      told.some(t => t.length === 2 && t.indexOf('Lehi') !== -1 && t.indexOf('Payson') !== -1),
+      'got ' + JSON.stringify(told) + ' — Payson is forty miles from Lehi, and a ' +
+      'business that has always worked those two together said so once');
+
+    check('S101', 'and a pairing it did NOT type in, for a town it did list, is a no',
+      (function(){
+        const o = split(many(9, 'Lehi', 40.39).concat(
+          many(8, 'Alpine', 40.45), many(4, 'Highland', 40.42)),
+          {Lehi: ['Alpine'], Alpine: ['Lehi']});
+        return o[0].length === 1 && o[1].length === 1;
+      })(),
+      'Highland is two miles away, so the tape measure would pair it happily. The ' +
+      'office listing Lehi and Alpine and leaving Highland off is an ANSWER, not a gap');
+  }
+
+  /* ---- and the limit is expressed per crew ---- */
+  check('S101', 'the limit is a crew rule with the day figure derived from it',
+    /const MAX_TOWNS_PER_CREW = 2;/.test(admin) &&
+    /crews \* MAX_TOWNS_PER_CREW/.test(extractFn(admin, 'maxTownsPerDay')),
+    'four on a day is fine when it is two crews holding two each, and four split ' +
+    'three and one is not — a day-level number cannot tell those apart');
 }
 /* ---------------------------------------------------------------------------
  * Suite 92. A day inside 48 hours is printed, and printed is finished
@@ -20752,6 +20941,17 @@ suite('77. Schedule route generator');
 
     global.allHouses = () => mkDay().houses;
     global.SEASON = [];
+    /* ⭐ A CREW’S SECOND TOWN MUST NOW BE A NEIGHBOUR (2026-08-20). Owner: "the
+       second city being a neighboring city is mandatory not a priority." Draper sits at
+       40.70 in this fixture and Lehi and Alpine at about 40.03 — forty-six miles apart,
+       which is precisely the sheet the rule exists to prevent, and it used to be handed
+       to a crew silently.
+
+       ⚠ The point of the checks below is the crew sheet that printed EMPTY for a crew
+       holding TWO towns, so the two-town case has to survive. The office’s own
+       nearby-towns list is what makes the pairing legal, exactly as it does live — and
+       Lehi is deliberately left out of it, so Draper can only join Alpine. */
+    const NEARBY_TOWN_LIST = {Alpine: ['Draper'], Draper: ['Alpine']};
     const gen = eval(admin.slice(havStart, havEnd) + '\n' +
       admin.slice(geoStart, geoEnd) + '\n' +
       admin.slice(lockStart, lockEnd) + '\n' +

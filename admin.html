@@ -33153,6 +33153,54 @@ function planCities(){
    Towns go to the crew carrying fewer houses, biggest town first. That
    reproduces the split the builder makes on a day it built, and still gives a
    sensible answer for a day that has been added to since. */
+/* One dominant city, plus at most one neighbour. Declared here, beside the rule
+   it governs, so anything lifting dayCrewTowns gets it too. */
+const MAX_TOWNS_PER_CREW = 2;
+/* ⭐ A SECOND CITY MUST BE A NEIGHBOUR. Owner, 2026-08-20: "the second city being a
+   neighboring city is mandatory not a priority" — and, of staying in one city at all,
+   "1 city for a crew would be 4th or 5th in priority". So one-city is a nicety and this
+   is a rule: a crew may only pick up flakes in a town it is already driving past.
+
+   Asked the same two ways the builder asks it, in the same order: the list the office
+   typed into Scheduling settings wins, and failing that the towns are measured — same
+   eight miles, same haversine. Measured from the CUSTOMER records, because the plan's
+   own house rows carry no coordinates.
+
+   ⚠ IT ANSWERS NO WHEN IT CANNOT TELL, and that is deliberate. An unknown pairing
+   leaves those houses unassigned and visible rather than quietly loaded onto a crew
+   that may be driving fifty miles for them. If a real pair keeps coming up unassigned,
+   the answer is to add it to the nearby-towns list, not to soften this. */
+function townsAreNeighbours(a, b, day){
+  if(!a || !b) return false;
+  if(sameCity(a, b)) return true;
+  if(typeof NEARBY_TOWN_LIST === 'object' && NEARBY_TOWN_LIST){
+    const named = function(from, to){
+      const key = Object.keys(NEARBY_TOWN_LIST).filter(function(k){ return sameCity(k, from); })[0];
+      return !!key && (NEARBY_TOWN_LIST[key] || []).some(function(n){ return sameCity(n, to); });
+    };
+    if(named(a, b) || named(b, a)) return true;
+    /* A town the office HAS listed, but not against this one, is a settled no. */
+    const listed = function(t){
+      return Object.keys(NEARBY_TOWN_LIST).some(function(k){ return sameCity(k, t); });
+    };
+    if(listed(a) || listed(b)) return false;
+  }
+  if(typeof haversine !== 'function') return false;
+  const centre = function(town){
+    let n = 0, la = 0, ln = 0;
+    (((day && day.houses) || [])).forEach(function(h){
+      if(!sameCity(cityOf(h), town)) return;
+      const cust = (typeof customerForHouse === 'function') ? customerForHouse(h) : null;
+      const d = (cust && cust.data) || {};
+      if(typeof d.lat === 'number' && typeof d.lng === 'number'){ la += d.lat; ln += d.lng; n++; }
+    });
+    return n ? {lat: la / n, lng: ln / n} : null;
+  };
+  const pa = centre(a), pb = centre(b);
+  if(!pa || !pb) return false;
+  const miles = (typeof NEARBY_TOWN_MILES === 'number') ? NEARBY_TOWN_MILES : 8;
+  return haversine(pa.lat, pa.lng, pb.lat, pb.lng) <= miles;
+}
 function dayCrewTowns(day){
   const counts={};
   ((day&&day.houses)||[]).forEach(function(h){ const c=cityOf(h); if(c) counts[c]=(counts[c]||0)+1; });
@@ -33173,11 +33221,39 @@ function dayCrewTowns(day){
      nobody to give the rest to and it stays unassigned ON PURPOSE — a house in
      a town neither crew is working is a house nobody is holding a sheet for,
      and that has to stay visible rather than being quietly absorbed. */
+  /* ⭐ ONE DOMINANT CITY EACH, PLUS AT MOST ONE NEIGHBOUR (changed 2026-08-20).
+     Owner: "one crew can have 1 dominant city with some flakes in another city so one
+     crew can go in a max of 2 cities."
+
+     ⚠ THIS SHARED OUT EVERY TOWN WITH NO CAP AT ALL, so a day holding six towns
+     handed THREE to each crew — which is what her 27 October actually was. The builder
+     had already been taught the rule and it made no difference, because THIS is where a
+     season day's crews are worked out, and it is what the panel, the printed sheet and
+     the route generator all read. Fixing the builder without fixing this fixes nothing
+     anybody can see.
+
+     ⚠ AND A DAY-LEVEL COUNT CANNOT EXPRESS THE RULE: four towns split three and one
+     passes any "no more than four on a day" test while one crew drives three cities.
+
+     Biggest town first, to whichever crew can legally take it and is carrying least.
+     A crew with no town yet has load zero, so it wins on its own — which is how
+     "prefer one city per crew" gets honoured without being given a priority it does
+     not have ("1 city for a crew would be 4th or 5th in priority").
+
+     Anything nobody may take stays UNASSIGNED, exactly as a town neither crew is
+     pinned to already does: it still prints on the day and unassignedHousesFor reports
+     it, rather than being quietly loaded onto a crew that cannot drive it. */
   if(auto.length){
     towns.forEach(function(t){
       if(taken[t]) return;
-      let i=auto[0];
-      auto.forEach(function(k){ if(load[k]<load[i]) i=k; });
+      const legal=auto.filter(function(k){
+        if(out[k].length >= MAX_TOWNS_PER_CREW) return false;
+        if(!out[k].length) return true;                 // its dominant city
+        return townsAreNeighbours(out[k][0], t, day);   // mandatory, not a preference
+      });
+      if(!legal.length) return;
+      let i=legal[0];
+      legal.forEach(function(k){ if(load[k]<load[i]) i=k; });
       out[i].push(t); load[i]+=counts[t]; taken[t]=true;
     });
   }
@@ -34398,9 +34474,14 @@ const SCHEDULE_SYNC_FIELDS = [
 /* How many towns one DATE may legitimately hold. Each crew does its own town plus
    at most one other, so it follows the crew count rather than a hard-coded four —
    set the office to one crew a day and the answer becomes two. */
+/* ⭐ THE LIMIT BELONGS TO THE CREW. Owner, 2026-08-20: "the rule isnt one day can
+   have 4 citys its one crew can have 1 dominant city with some flakes in another city
+   so one crew can go in a max of 2 cities." A day holding four towns is perfectly fine
+   when it is two crews holding two each. The day-level number below is derived from
+   this one and is only ever a summary of it. */
 function maxTownsPerDay(){
   const crews = (typeof CREWS_PER_DAY === 'number' && CREWS_PER_DAY > 0) ? CREWS_PER_DAY : 2;
-  return crews * 2;
+  return crews * MAX_TOWNS_PER_CREW;
 }
 function dayTownCount(day){
   const seen = {};
