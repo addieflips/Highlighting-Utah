@@ -13935,10 +13935,77 @@ const INSTALL_PREF_ALIASES = {
   'before thanksgiving': 'November - Before Thanksgiving',
   'after thanksgiving': 'After Thanksgiving'
 };
+
 function normInstallPref(p){
   const key = String(p == null ? '' : p).trim().toLowerCase();
   if(!key) return '';
   return INSTALL_PREF_ALIASES[key] || String(p).trim();
+}
+/* ⭐ THE DATE PARSER LIVES OUT HERE, not in the Schedule widget (moved 2026-08-20).
+   Owner: "we have a situation where the system cant read every format so we need to
+   make sure the system can tell what all these mean" — over a list of 1-Nov, 11/1,
+   11/9+ and 10/28+.
+
+   ⚠ EVERY ONE OF THOSE ALREADY PARSED. What went wrong is that this function was
+   declared INSIDE the schedule module, so only the season could ask it. The customer
+   and route side — earliestAllowedInstallDate, isInstallPrefLocked, the Install Timing
+   badge — matched the five standard wordings and nothing else, so somebody who wrote
+   11/9+ read as no preference: the nightly fill could put them on a route on 1 October
+   while the Schedule tab was carefully holding them to 9 November.
+
+   Two halves of the app disagreeing about one customer is worse than either being
+   wrong alone, because whichever runs last wins and neither says anything. One copy,
+   where both can reach it. */
+/* ⭐ A PREF DATE CAN NAME AN ACTUAL DAY, and then that day is the answer.
+   Owner, 2026-08-17: "if someone left Pref start date as blank that counts as
+   any, but if someone Put Thx or even a specific date or after then adjust to
+   that as well."
+
+   What is really in that column on the master sheet, counted:
+     NOV 255 · OCT 220 · ANY 202 · 45962 x14 · THX 14 · 11/9+ x4 · 10/28+ · prepaid
+
+   45962 is not a number, it is how Excel stores 1 November — a date cell read
+   raw comes out as a serial. Fourteen customers were carrying one and every
+   one of them was being read as "no preference" and offered the first day of
+   October. "11/9+" and "10/28+" were too.
+
+   ⚠ ALWAYS THE SEASON'S YEAR, never the year in the cell. Those serials say
+   2025 because that is when the sheet was typed; the customer means the 1st of
+   November coming, not one that has been and gone.
+   Anything unparseable — "prepaid" — is no preference, which is the same as
+   blank, and is deliberately NOT an error: a stray note must not stop a house
+   being scheduled at all. */
+function prefSpecificDate(pref, year){
+  const raw = ('' + (pref == null ? '' : pref)).trim();
+  if(!raw) return null;
+  const MONTHS = {JAN:1,FEB:2,MAR:3,APR:4,MAY:5,JUN:6,JUL:7,AUG:8,SEP:9,OCT:10,NOV:11,DEC:12};
+  const iso = function(m, d){
+    if(!(m >= 1 && m <= 12) || !(d >= 1 && d <= 31)) return null;
+    return year + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+  };
+  const up = raw.toUpperCase();
+  /* An Excel date serial: days since 30 Dec 1899. Bounded so a customer number
+     or a price can never be mistaken for one. */
+  if(/^\d{5}(\.\d+)?$/.test(up)){
+    const n = Number(up);
+    if(n > 40000 && n < 60000){
+      const dt = new Date(Date.UTC(1899, 11, 30) + Math.floor(n) * 86400000);
+      return iso(dt.getUTCMonth() + 1, dt.getUTCDate());
+    }
+    return null;
+  }
+  /* 1-Nov, 1 Nov, 1-NOVEMBER — day first, then the month name. Checked before
+     the numeric form so the "1-" is not read as a month. */
+  let m = up.match(/^(\d{1,2})\s*[-\/ ]\s*([A-Z]{3,})/);
+  if(m && MONTHS[m[2].slice(0,3)]) return iso(MONTHS[m[2].slice(0,3)], Number(m[1]));
+  /* Nov 1, NOVEMBER 1 — month name then day. A bare NOV has no day and must
+     NOT match here, or every November house would be pinned to a single date. */
+  m = up.match(/^([A-Z]{3,})[A-Z]*\s+(\d{1,2})\b/);
+  if(m && MONTHS[m[1].slice(0,3)]) return iso(MONTHS[m[1].slice(0,3)], Number(m[2]));
+  /* 11/9+, 10/28+, 11-1 — month then day, the way the sheet writes it. */
+  m = up.match(/^(\d{1,2})\s*[\/-]\s*(\d{1,2})/);
+  if(m) return iso(Number(m[1]), Number(m[2]));
+  return null;
 }
 /* Recognised at all? Anything else is somebody's freehand note and is treated
    as no preference — visible, rather than silently obeyed as if it were one. */
@@ -13946,6 +14013,40 @@ function isKnownInstallPref(p){
   const n = normInstallPref(p);
   return n === 'October' || n === 'November' || n === 'Normal Schedule' ||
          n === 'November - Before Thanksgiving' || n === 'After Thanksgiving';
+}
+/* ⭐ A NAMED DAY IS A FLOOR, AND THE ROUTES SIDE HAD NEVER HEARD OF ONE (added
+   2026-08-20). Owner: "we have a situation where the system cant read every format so
+   we need to make sure the system can tell what all these mean", over a list of
+   1-Nov, 11/1, 11/9+ and 10/28+.
+
+   ⚠ THEY ALL PARSED PERFECTLY ALREADY. prefSpecificDate has read every one of those
+   spellings for a while, and the Schedule tab honours them — houseAllowedFrom holds
+   the house until the day, houseDeadline deliberately gives it no ceiling. The bug was
+   that NOTHING ELSE ASKED. earliestAllowedInstallDate, isInstallPrefLocked and the
+   Install Timing badge each matched only the five standard wordings, so a customer who
+   wrote 11/9+ came out as no preference: the nightly fill could put them on a crew
+   route on 1 October, and their badge said Normal Schedule.
+
+   That is two halves of the app disagreeing about the same customer, which is worse
+   than either being wrong on its own — the season says November, the route says today,
+   and whichever ran last wins.
+
+   ⚠ A FLOOR, NEVER A CEILING. "11/9+" and "10/28+" say not before then; the plus is
+   the customer naming their earliest day, not their last. A bare "11/1" is read the
+   same way, deliberately: somebody writing a date means "from here", and turning it
+   into a deadline would push people PAST a day they asked for. houseDeadline says the
+   same thing in the same words.
+
+   ⚠ AND IT ONLY EVER MOVES THE DATE LATER. A named day already gone by leaves the
+   floor at today rather than dragging it backwards into the past. */
+function prefNamedFloor(installPreferenceRaw, year){
+  const raw = normInstallPref(installPreferenceRaw);
+  if(typeof prefSpecificDate !== 'function') return null;
+  const iso = prefSpecificDate(raw, year);
+  if(!iso) return null;
+  const parts = ('' + iso).split('-');
+  const dt = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+  return isNaN(dt) ? null : dt;
 }
 function isInstallPrefLocked(installPreferenceRaw){
   const installPreference = normInstallPref(installPreferenceRaw);
@@ -13960,6 +14061,9 @@ function isInstallPrefLocked(installPreferenceRaw){
     const dayAfter = new Date(tg.getFullYear(), tg.getMonth(), tg.getDate() + 1);
     return now < dayAfter;
   }
+  /* Same question for a customer who named a day instead of a month. */
+  const named = prefNamedFloor(installPreferenceRaw, year);
+  if(named) return now < named;
   return false;
 }
 // Staff-only date restriction, independent of Install Timing — set from Edit Customer, never visible/editable by the customer.
@@ -14003,6 +14107,17 @@ function isBeforeThanksgivingUrgent(d){
 // Base color-coded badge for a house's Install Timing, reflecting locked/urgent state. See color legend in the Routes tab.
 function installTimingBadge(d){
   const pref = normInstallPref(d && d.installPreference) || 'Normal Schedule';
+  /* ⭐ SHOW THE DAY THEY NAMED. It used to fall through to Normal Schedule, so the
+     one customer on the sheet who asked for a specific date looked exactly like the
+     four hundred who did not mind. Read before the month branches, because "1-Nov"
+     is not the same instruction as "November". */
+  const named = prefNamedFloor(d && d.installPreference, (new Date()).getFullYear());
+  if(named){
+    const label = named.toLocaleDateString('en-US', {month: 'short', day: 'numeric'});
+    return isInstallPrefLocked(d && d.installPreference)
+      ? {label: 'From ' + label, bg: '#E4EEFC', color: '#25548F'}
+      : {label: 'From ' + label + ' \u2014 open', bg: '#E8F4EC', color: '#2B6B45'};
+  }
   if(pref === 'October'){
     return isOctoberUrgent(d)
       ? {label:'⚠ October — Due by Oct 31', bg:'#FDEBD3', color:'#B45309'}
@@ -26090,6 +26205,11 @@ function earliestAllowedInstallDate(d){
     const tg = thanksgivingDate(now.getFullYear());
     const dayAfter = new Date(tg.getFullYear(), tg.getMonth(), tg.getDate() + 1);
     if(dayAfter > earliest) earliest = dayAfter;
+  } else {
+    /* ⚠ AND A NAMED DAY. Without this a customer who wrote 11/9+ was allowed out
+       today, while the Schedule tab was carefully holding them to 9 November. */
+    const named = prefNamedFloor(d && d.installPreference, now.getFullYear());
+    if(named && named > earliest) earliest = named;
   }
   if(d && d.earliestInstallDate){
     const staff = d.earliestInstallDate.toDate ? d.earliestInstallDate.toDate() : new Date(d.earliestInstallDate);
@@ -34115,57 +34235,7 @@ function seasonStartDate(){
 }
 /* When a house is first allowed to be hung. November-only waits for November;
    everything else can go from the first day of the season. */
-/* ⭐ A PREF DATE CAN NAME AN ACTUAL DAY, and then that day is the answer.
-   Owner, 2026-08-17: "if someone left Pref start date as blank that counts as
-   any, but if someone Put Thx or even a specific date or after then adjust to
-   that as well."
 
-   What is really in that column on the master sheet, counted:
-     NOV 255 · OCT 220 · ANY 202 · 45962 x14 · THX 14 · 11/9+ x4 · 10/28+ · prepaid
-
-   45962 is not a number, it is how Excel stores 1 November — a date cell read
-   raw comes out as a serial. Fourteen customers were carrying one and every
-   one of them was being read as "no preference" and offered the first day of
-   October. "11/9+" and "10/28+" were too.
-
-   ⚠ ALWAYS THE SEASON'S YEAR, never the year in the cell. Those serials say
-   2025 because that is when the sheet was typed; the customer means the 1st of
-   November coming, not one that has been and gone.
-   Anything unparseable — "prepaid" — is no preference, which is the same as
-   blank, and is deliberately NOT an error: a stray note must not stop a house
-   being scheduled at all. */
-function prefSpecificDate(pref, year){
-  const raw = ('' + (pref == null ? '' : pref)).trim();
-  if(!raw) return null;
-  const MONTHS = {JAN:1,FEB:2,MAR:3,APR:4,MAY:5,JUN:6,JUL:7,AUG:8,SEP:9,OCT:10,NOV:11,DEC:12};
-  const iso = function(m, d){
-    if(!(m >= 1 && m <= 12) || !(d >= 1 && d <= 31)) return null;
-    return year + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
-  };
-  const up = raw.toUpperCase();
-  /* An Excel date serial: days since 30 Dec 1899. Bounded so a customer number
-     or a price can never be mistaken for one. */
-  if(/^\d{5}(\.\d+)?$/.test(up)){
-    const n = Number(up);
-    if(n > 40000 && n < 60000){
-      const dt = new Date(Date.UTC(1899, 11, 30) + Math.floor(n) * 86400000);
-      return iso(dt.getUTCMonth() + 1, dt.getUTCDate());
-    }
-    return null;
-  }
-  /* 1-Nov, 1 Nov, 1-NOVEMBER — day first, then the month name. Checked before
-     the numeric form so the "1-" is not read as a month. */
-  let m = up.match(/^(\d{1,2})\s*[-\/ ]\s*([A-Z]{3,})/);
-  if(m && MONTHS[m[2].slice(0,3)]) return iso(MONTHS[m[2].slice(0,3)], Number(m[1]));
-  /* Nov 1, NOVEMBER 1 — month name then day. A bare NOV has no day and must
-     NOT match here, or every November house would be pinned to a single date. */
-  m = up.match(/^([A-Z]{3,})[A-Z]*\s+(\d{1,2})\b/);
-  if(m && MONTHS[m[1].slice(0,3)]) return iso(MONTHS[m[1].slice(0,3)], Number(m[2]));
-  /* 11/9+, 10/28+, 11-1 — month then day, the way the sheet writes it. */
-  m = up.match(/^(\d{1,2})\s*[\/-]\s*(\d{1,2})/);
-  if(m) return iso(Number(m[1]), Number(m[2]));
-  return null;
-}
 /* ⚠ "After Thanksgiving" is NOT "no preference", and used to be read as one.
    The master sheet writes it THX, which normalises to "After Thanksgiving",
    and neither OCT nor NOV matches it — so those houses were treated as having

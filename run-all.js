@@ -5346,6 +5346,11 @@ suite('17. A new customer lands on the next day in their city');
   }
   eval(extractFn(admin, 'normInstallPref'));
   eval(extractFn(admin, 'isKnownInstallPref'));
+  /* ⚠ earliestAllowedInstallDate NOW HONOURS A NAMED DAY (1-Nov, 11/9+, 10/28+), so
+     the parser and the floor helper have to come with it — without them it throws and
+     takes the whole suite down. */
+  eval(extractFn(admin, 'prefSpecificDate'));
+  eval(extractFn(admin, 'prefNamedFloor'));
   eval(extractFn(admin, 'earliestAllowedInstallDate'));
   eval(extractFn(admin, 'extractCleanCity'));
   eval(extractFn(admin, 'toDateStr'));
@@ -5520,6 +5525,8 @@ suite('17. A new customer lands on the next day in their city');
   const recStart = admin.indexOf('const RECONCILE_INTERVAL_MS');
   const recEnd = admin.indexOf('function scheduledFieldForType');
   const NEEDED = ['thanksgivingDate','earliestAllowedInstallDate','extractCleanCity','toDateStr',
+                  /* a named day (1-Nov, 11/9+) is a floor the fill has to respect too */
+                  'normInstallPref','prefSpecificDate','prefNamedFloor',
                   'formatDateNice','routeCityOf','findNextRouteDayInCity','customerToStop',
                   'haversine','twoOptImprove','reorderFlatStops','nextDayStr',
                   /* isOutForSeason lives up with the install-timing helpers, far
@@ -7079,6 +7086,11 @@ suite('24. The same preference, written five different ways');
     const o = {}; eval(aliasSrc.replace('const INSTALL_PREF_ALIASES', 'var x')); return x; })();
   global.normInstallPref = api.norm;
   eval(extractFn(admin, 'toDateStr'));
+  /* ⚠ earliestAllowedInstallDate NOW HONOURS A NAMED DAY (1-Nov, 11/9+, 10/28+), so
+     the parser and the floor helper have to come with it — without them it throws and
+     takes the whole suite down. */
+  eval(extractFn(admin, 'prefSpecificDate'));
+  eval(extractFn(admin, 'prefNamedFloor'));
   eval(extractFn(admin, 'earliestAllowedInstallDate'));
   const nov = earliestAllowedInstallDate({installPreference:'NOV'});
   const novLong = earliestAllowedInstallDate({installPreference:'November'});
@@ -18155,6 +18167,133 @@ suite('Suite 102. Which towns are actually close');
     admin.indexOf('typed && Object.keys(typed).length') !== -1,
     'a business that has always worked two towns together said so once and should ' +
     'be believed over anything shipped in the page');
+}
+/* ---------------------------------------------------------------------------
+ * Suite 103. A named day is read everywhere, not just by the season
+ *
+ * Owner, 2026-08-20: "we have a situation where the system cant read every format so
+ * we need to make sure the system can tell what all these mean", over a column of
+ * 1-Nov, 11/1, 11/9+ and 10/28+.
+ *
+ * ⚠ EVERY ONE OF THOSE ALREADY PARSED. prefSpecificDate has read all four spellings
+ * for a while and the Schedule tab honours them. The fault was WHERE it was declared:
+ * inside the schedule module, so only the season could ask. The customer and route
+ * side matched the five standard wordings and nothing else, so a customer who wrote
+ * 11/9+ read as no preference — the nightly fill could put them on a route on 1
+ * October while the season was carefully holding them to 9 November.
+ *
+ * Two halves of the app disagreeing about one customer is worse than either being
+ * wrong alone: whichever runs last wins, and neither says a word.
+ * ------------------------------------------------------------------------- */
+suite('Suite 103. A named day is read everywhere, not just by the season');
+
+{
+  /* ⭐ THE STRUCTURAL POINT, and the actual bug. If this ever moves back inside the
+     widget the customer side goes quietly blind again. */
+  const parserAt = admin.indexOf('function prefSpecificDate(');
+  const widgetAt = admin.indexOf('const MARKUP=');
+  check('S103', 'the date parser is out where both halves of the page can reach it',
+    parserAt !== -1 && widgetAt !== -1 && parserAt < widgetAt,
+    'declared inside the schedule module only the season can ask it, and the ' +
+    'customer side falls back to "no preference" without ever saying so');
+  check('S103', 'and there is only one of it',
+    admin.split('function prefSpecificDate(').length - 1 === 1,
+    'two copies is two answers');
+
+  const floorSrc = extractFn(admin, 'prefNamedFloor');
+  check('S103', 'the named-day floor helper exists', !!floorSrc);
+
+  if (floorSrc) {
+    const aliases = admin.slice(admin.indexOf('const INSTALL_PREF_ALIASES'),
+                                admin.indexOf('function normInstallPref'));
+    const base = aliases + extractFn(admin, 'normInstallPref') +
+      extractFn(admin, 'prefSpecificDate') + floorSrc +
+      extractFn(admin, 'thanksgivingDate');
+    const floor = (v) => new Function('v',
+      base + 'const d = prefNamedFloor(v, 2026); return d ? d.getFullYear() + "-" + ' +
+      '("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2) : null;')(v);
+
+    /* Her column, verbatim. */
+    check('S103', '1-Nov is the first of November', floor('1-Nov') === '2026-11-01');
+    check('S103', '11/1 is the same day written the other way',
+      floor('11/1') === '2026-11-01',
+      'month first, the way the sheet writes it');
+    check('S103', '11/9+ is the ninth of November', floor('11/9+') === '2026-11-09');
+    check('S103', '10/28+ is the twenty-eighth of October', floor('10/28+') === '2026-10-28');
+
+    /* ⚠ AND THE MONTH WORDS ARE NOT DAYS. A bare NOV must not come back as a date,
+       or every November customer gets pinned to one square on the calendar. */
+    check('S103', 'a bare month is not a named day',
+      floor('November') === null && floor('NOV') === null && floor('October') === null,
+      'got ' + floor('November') + ' — this would pin four hundred people to one day');
+    check('S103', 'and neither is no preference at all',
+      floor('Normal Schedule') === null && floor('') === null && floor(null) === null);
+    check('S103', 'nor is After Thanksgiving, which is a rule of its own',
+      floor('After Thanksgiving') === null && floor('THX') === null);
+  }
+
+  /* ---- the gate the nightly fill actually reads ---- */
+  const earlySrc = extractFn(admin, 'earliestAllowedInstallDate');
+  check('S103', 'the earliest-allowed gate exists', !!earlySrc);
+
+  if (earlySrc && floorSrc) {
+    const aliases = admin.slice(admin.indexOf('const INSTALL_PREF_ALIASES'),
+                                admin.indexOf('function normInstallPref'));
+    const early = (pref) => new Function('pref',
+      aliases + extractFn(admin, 'normInstallPref') + extractFn(admin, 'prefSpecificDate') +
+      floorSrc + extractFn(admin, 'thanksgivingDate') + earlySrc +
+      'const d = earliestAllowedInstallDate({installPreference: pref});' +
+      'return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ' +
+      '("0" + d.getDate()).slice(-2);')(pref);
+    const todayIso = (function(){ const n = new Date();
+      return n.getFullYear() + '-' + ('0' + (n.getMonth() + 1)).slice(-2) + '-' +
+        ('0' + n.getDate()).slice(-2); })();
+
+    /* ⭐ THIS IS THE BUG, STATED. Before the fix every one of these came back as
+       today, and the fill was free to hang them straight away. */
+    check('S103', 'somebody who wrote 11/9+ is not allowed out before the ninth',
+      early('11/9+') > todayIso && /-11-09$/.test(early('11/9+')),
+      'got ' + early('11/9+') + ' — the season was holding them to the ninth while ' +
+      'the route side thought they were free today');
+    check('S103', 'and 1-Nov is held to the first',
+      /-11-01$/.test(early('1-Nov')));
+    check('S103', 'and 10/28+ to the twenty-eighth',
+      /-10-28$/.test(early('10/28+')));
+
+    /* ⚠ A FLOOR, NEVER A CEILING. The plus means the customer named their EARLIEST
+       day, not their last. Nothing here may turn a named day into a deadline: that
+       would push somebody PAST a day they asked for, which is the opposite of what
+       they wrote. houseDeadline says the same thing in the same words. */
+    check('S103', 'a named day never becomes a deadline',
+    extractFn(admin, 'houseDeadline').indexOf("prefSpecificDate(p, BASE_START.getFullYear())) return ''") !== -1,
+      'houseDeadline has to keep returning nothing for these, or a customer who ' +
+      'said "not before the 28th" gets a ceiling nobody asked for');
+
+    /* ⚠ AND IT ONLY EVER MOVES THE DATE LATER. Reading 10/28+ in December must not
+       drag the floor back into October and re-open somebody who is already done. */
+    check('S103', 'a day already gone by leaves the floor at today',
+      early('1/1') === todayIso,
+      'got ' + early('1/1') + ' — the first of January is behind us');
+
+    /* The five standard wordings are untouched. */
+    check('S103', 'November still opens on the first', /-11-01$/.test(early('November')));
+    check('S103', 'October and no preference are still free today',
+      early('October') === todayIso && early('Normal Schedule') === todayIso);
+  }
+
+  /* ---- and the office can see it on the card ---- */
+  const badge = extractFn(admin, 'installTimingBadge');
+  check('S103', 'the badge names the day they asked for',
+    /prefNamedFloor/.test(badge),
+    'it used to fall through to Normal Schedule, so the one customer who named a ' +
+    'date looked exactly like the four hundred who did not mind');
+  check('S103', 'and it is read before the month branches',
+    badge.indexOf('prefNamedFloor') < badge.indexOf("pref === 'November'"),
+    '"1-Nov" is not the same instruction as "November"');
+  check('S103', 'the lock asks the same question',
+    /prefNamedFloor/.test(extractFn(admin, 'isInstallPrefLocked')),
+    'its own comment says it mirrors earliestAllowedInstallDate — change one, ' +
+    'change the other');
 }
 /* ---------------------------------------------------------------------------
  * Suite 92. A day inside 48 hours is printed, and printed is finished
