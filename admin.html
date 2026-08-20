@@ -14580,12 +14580,42 @@ async function syncPayerInvoice(payerKey){
     return;
   }
   const total = active.reduce((s,h) => s + (Number(h.data.housePrice)||0), 0);
-  const payerHouse = linked.find(h => custInvoiceKey(h.data) === key && !h.data.billToPhone);
   let existing = {};
   try{
     const existingSnap = await getDoc(doc(db,'invoices',key));
     if(existingSnap.exists()) existing = existingSnap.data();
   } catch(err){ /* no existing invoice yet, fine */ }
+  /* ⭐ WHOSE NAME GOES ON THE BILL, when several houses answer to the same phone.
+     Reported by the owner, 2026-08-20: an invoice covering four Anderson houses was
+     addressed to "Brit / Dani Anderson" when Heather Anderson is the one who pays.
+     "I edited brit/danis page so that might be why but it should still show heather".
+
+     Exactly why. FOUR Anderson houses share 8013721805 — Heather (#14), Brit / Dani
+     (#20), Loren (#27) and Ryan (#972) — and this was a .find(), so the bill was
+     addressed to whichever of them happened to come first. Editing any one of them
+     reorders the list and the name on the invoice changes for no reason the office
+     can see. Seventeen numbers in the real book are shared like this.
+
+     ⚠ THE LOWEST CUSTOMER NUMBER WINS: the longest-standing account, and so the
+     likeliest bill payer. On the Andersons that is Heather, which is the right answer
+     here. The point is less which rule than that it is STABLE — the same houses give
+     the same answer whatever order they arrive in, so nothing flips when a sibling
+     is edited.
+
+     ⚠ AND DELIBERATELY NOT "KEEP THE NAME ALREADY ON THE INVOICE". That was the
+     first version, and it is the trap: the name sitting there right now was put
+     there by this bug, so preferring it would have preserved Brit / Dani for ever and
+     called it respecting a decision. Nothing human is being overruled — there is no
+     screen anywhere that sets an invoice name; it has always been derived. */
+  const payerCandidates = linked.filter(h => custInvoiceKey(h.data) === key && !h.data.billToPhone);
+  const payerHouse = payerCandidates.slice().sort(function(a, b){
+    const na = Number((a.data || {}).customerNumber) || Infinity;
+    const nb = Number((b.data || {}).customerNumber) || Infinity;
+    if(na !== nb) return na - nb;
+    /* Neither has a number: fall back on the id, so it is still the same answer
+       every time rather than whatever order Firestore handed them over in. */
+    return String(a.id).localeCompare(String(b.id));
+  })[0];
   // Keep the $30 new-member fee that was already applied — the sum of house
   // prices doesn't include it, so rebuilding install without it would silently
   // undo the fee (and the Health Check total-drift test, which expects it, would
