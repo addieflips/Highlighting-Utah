@@ -6799,6 +6799,10 @@ function initData(){
   loadCustomCodes();
   loadMessages();
   loadInvoices();
+  /* ⭐ The Recycle queue lists people who have already been removed as customers, so
+     it needs the archive as well as the book. Only the ones still waiting are watched —
+     the archive grows for ever and the working set does not. */
+  whWatchArchivedPending();
   loadProjectTests();
   /* loadProjectPeople, the Reviews/Gallery/Hero/FAQ loaders, the people loaders
      and the money loaders now run when their panel is first opened — see
@@ -21879,6 +21883,23 @@ function updateFixAvailableCount(){
 }
 /* Same reason as whBuildQueueGroups below: the screen and the printed sheet
    both read this, so they cannot drift apart. */
+/* ⭐ WHO IS ARCHIVED AND STILL WAITING TO BE RECYCLED. Only the ones still
+   waiting are listened to " + M + " the archive grows for ever and the working set does not. */
+let whArchivedPending = [];
+function whWatchArchivedPending(){
+  try{
+    const q = query(collection(db,'archivedCustomers'), where('recycled','==',false));
+    onSnapshot(q, function(snap){
+      whArchivedPending = [];
+      snap.forEach(function(docSnap){
+        const v = docSnap.data() || {};
+        /* Shaped like a customer so the queue can treat both the same. */
+        whArchivedPending.push({id: docSnap.id, archived: true, data: v.customer || {}});
+      });
+      try{ safeRender('warehouseRecycleQueue', renderWarehouseRecycleQueue); } catch(err){}
+    });
+  } catch(err){ console.error("[HU] archived recycle watch failed", err); }
+}
 function whRecycleGroups(){
   const groups = {};
   jobAddresses.forEach(function(item){
@@ -21888,6 +21909,15 @@ function whRecycleGroups(){
        then never appeared in this list, so their customer number never came
        back to the available pool. */
     if(!d.needsLightRecycle) return;
+    const key = whGroupKey(d.lightsDescription || 'No lights recorded', d.wireColor);
+    if(!groups[key]) groups[key] = [];
+    groups[key].push(item);
+  });
+  /* ⭐ AND EVERYBODY ALREADY REMOVED WHOSE LIGHTS ARE STILL OUT THERE. They are not
+     customers any more " + M + " that is the whole point of them being here " + M + " so the queue
+     reads the archive alongside the book. Same shape, same grouping, same buttons. */
+  (whArchivedPending || []).forEach(function(item){
+    const d = item.data || {};
     const key = whGroupKey(d.lightsDescription || 'No lights recorded', d.wireColor);
     if(!groups[key]) groups[key] = [];
     groups[key].push(item);
@@ -21946,6 +21976,25 @@ function renderWarehouseRecycleQueue(){
     btn.addEventListener('click', async function(e){
       e.stopPropagation();
       const custId = btn.dataset.whrecycledone;
+      /* ⭐ THE ROW MAY BE AN ARCHIVED ONE. The queue lists people already removed
+         alongside customers still on the book, because "you dont need them in their as
+         a customer data you have all that data". There is no record to delete for those
+         " + M + " the record already went " + M + " so marking them recycled is just closing off the
+         archive entry, which is what says their lights are back in stock. */
+      const archivedItem = (whArchivedPending || []).find(a => a.id === custId);
+      if(archivedItem){
+        const ad = archivedItem.data || {};
+        if(!confirm('Mark ' + (ad.name || 'this record') + ' recycled?' +
+          '\n\nTheir lights come back into stock and they come off this list. They were ' +
+          'already removed as a customer, so nothing else changes.')) return;
+        try{
+          await updateDoc(doc(db,'archivedCustomers', custId), {
+            recycled: true, recycledAt: serverTimestamp() });
+          toast((ad.name || 'They') + ' recycled.');
+          logActivity('Recycled ' + (ad.name || custId) + ' (already removed as a customer)', 'customers', custId);
+        } catch(err){ toast('Could not finish that one \u2014 try again.'); }
+        return;
+      }
       const item = jobAddresses.find(a => a.id === custId);
       if(!item) return;
       /* ⭐ RECYCLED MEANS THEY ARE NOT A CUSTOMER ANY MORE. Owner, 2026-08-20: "yes
@@ -25022,6 +25071,15 @@ async function hlxRemoveCustomerToRecycle(item, opts){
     archivedAt: serverTimestamp(),
     archivedBy: paymentLedgerUser(),
     reason: o.reason || 'recycled',
+    /* ⭐ STILL TO BE RECYCLED. Owner, 2026-08-20, looking at an empty Recycle
+       queue: "liz frome isnt in the recycle section, you dont need them in their as a
+       customer data you have all that data it should just need the data."
+       Quite right. The queue was built from CUSTOMERS, and somebody who has been
+       removed is not one — so under her own flow (removed, then recycled) the queue
+       could never show the very people it exists for. It reads the archive too now,
+       and this is the flag that says whether their lights are still out there.
+       ⚠ An explicit false, not a missing field: Firestore cannot query for absent. */
+    recycled: false,
     customerNumberWas: num || ''
   });
 
