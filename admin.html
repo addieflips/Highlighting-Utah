@@ -17017,7 +17017,15 @@ function hlxRowXml(rowNum, values){
                         source of truth
      maybeNextYear / rsvpStatus  the two ways Maybe Next Year is recorded */
 const HLX_STATE_TABS = [
-  {tab: "Recycle", label: "recycling",
+  /* ⭐ ON RECYCLE, HAVING NO CUSTOMER RECORD IS THE END OF THE STORY, not a
+     problem with the row. Owner, 2026-08-20: "yes people in recycle should not exist
+     as a customer."
+     The order of events is: they say no, the flag goes on, they appear in the
+     warehouse queue and on this sheet, the lights are pulled back into stock, and then
+     the customer record goes. What is left is this row, which is the RECORD that it
+     happened " + M + " Frome Liz being exactly that. So an unmatched name here is expected and
+     is not worth a word; on the other sheets it is worth mentioning. */
+  {tab: "Recycle", label: "recycling", goneIsNormal: true,
    holds: function(d){ return !!d.needsLightRecycle; }},
   /* ⭐ A COLOUR CHANGE IS NOT THE SAME AS A BUILD (fixed 2026-08-20). The owner,
      shown twelve people this tab had just written to her sheet: "we dont have anyone
@@ -17552,7 +17560,11 @@ async function hlxPruneStateTabs(){
       const matches = jobAddresses.filter(function(c){
         return dupNormName((c.data || {}).name) === key;
       });
-      if(!matches.length){ strangers.push(tab.tab + ": " + who); continue; }
+      if(!matches.length){
+        /* Still never removed " + M + " only never remarked upon. */
+        if(!tab.goneIsNormal) strangers.push(tab.tab + ": " + who);
+        continue;
+      }
       if(matches.some(function(c){ return tab.holds(c.data || {}); })) continue;
       doomed.push({el: el, who: who});
     }
@@ -24903,8 +24915,47 @@ document.getElementById('editCustDeleteBtn').addEventListener('click', async fun
   const d = item.data;
   const num = String(d.customerNumber||'');
   const carryWarn = Number(d.carryoverCredit) > 0 ? '\n\n⚠️ They have ' + fmtMoney(Number(d.carryoverCredit)) + ' in credit on file toward a future invoice — deleting them loses it.' : '';
-  if(!confirm('Delete ' + (d.name || 'this customer') + ' at ' + (d.street || d.address || '') + '?\n\nThis removes them and their invoice permanently.' + (num ? ' Number #' + num + ' goes back into the available pool.' : '') + carryWarn + '\n\nThis cannot be undone.')) return;
+  /* ⭐ THE RECYCLE INSTRUCTION HAS TO OUTLIVE THE CUSTOMER. Owner, 2026-08-20:
+     "yes people in recycle should not exist as a customer", and "they are removed as a
+     customer and then recycled." That is the order it really happens in, and it broke
+     this: needsLightRecycle is a field ON the customer, so deleting them takes the
+     instruction with it. They vanish from the warehouse queue " + M + " which is built from
+     customers " + M + " and from every future write to the Recycle sheet, and the lights sit in
+     somebody’s van with nothing anywhere saying to pull them apart.
+     So they are written to the sheet BEFORE the record goes. The row is then the whole
+     record of it, which is exactly what Frome Liz is.
+
+     ⚠ AND IT IS EVERYBODY, not only the ones already flagged. Owner: "anyone
+     removed as a customer immediately goes to recycle as well." Obvious once said: if
+     they are no longer a customer then their lights are coming back, whether or not
+     anybody remembered to tick the box first. Reading needsLightRecycle here would
+     have caught only the ones who answered no through the RSVP and missed every
+     customer the office removes by hand, which is most of them. */
+  const recycleFirst = true;
+  if(!confirm('Delete ' + (d.name || 'this customer') + ' at ' + (d.street || d.address || '') + '?\n\nThis removes them and their invoice permanently.' + (num ? ' Number #' + num + ' goes back into the available pool.' : '') + '\n\nThey go onto the Recycle sheet first, so their lights get pulled back into stock.' + carryWarn + '\n\nThis cannot be undone.')) return;
   const statusEl = document.getElementById('editCustStatus');
+  statusEl.textContent = 'Deleting\u2026';
+  /* ⚠ BEST EFFORT, AND BEFORE THE DELETE. If the sheet is not connected on this
+     computer the customer is still deleted " + M + " refusing would strand somebody who just
+     wants a record gone " + M + " but it says so, because a silent miss here is a bundle of
+     lights nobody knows to take apart. Already-on-the-sheet is not written twice. */
+  if(recycleFirst){
+    try{
+      statusEl.textContent = 'Adding them to the Recycle sheet\u2026';
+      const already = await hlxNamesAlreadyOnTab("Recycle");
+      const key = dupNormName(d.name);
+      if(!already || !already[key]){
+        await hlxAppendRowsToSheet([rbCustomerToSheetRow(d)], "Recycle");
+      }
+    } catch(err){
+      if(!confirm("They could not be added to the Recycle sheet " + String.fromCharCode(8212) + " " +
+        ((err && err.message) || "the sheet is not connected on this computer") +
+        "\n\nDelete them anyway? Nothing will be left saying their lights need pulling apart.")){
+        statusEl.textContent = 'Not deleted.';
+        return;
+      }
+    }
+  }
   statusEl.textContent = 'Deleting\u2026';
   try{
     // Same cleanup the delete-all path does, so a single delete doesn't leave orphans.

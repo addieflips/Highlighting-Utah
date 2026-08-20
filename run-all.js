@@ -16730,6 +16730,49 @@ pendingAsync.push((async () => {
 suite('Suite 87. The Recycle sheet IS the warehouse recycle queue');
 
 {
+  /* ⭐ THE RECYCLE INSTRUCTION OUTLIVES THE CUSTOMER. Owner: "yes people in recycle
+     should not exist as a customer", "they are removed as a customer and then recycled",
+     and "anyone removed as a customer immediately goes to recycle as well."
+
+     That order broke this. needsLightRecycle lives ON the customer, so deleting them
+     takes it with them: they disappear from the warehouse queue, which is built from
+     customers, and from every future write to the sheet. The lights then sit in a van
+     with nothing anywhere saying to pull them apart. */
+  const del = sectionFrom(admin, admin.indexOf("document.getElementById('editCustDeleteBtn').addEventListener"));
+  check('S87', 'the delete handler is findable', !!del);
+
+  check('S87', 'deleting a customer writes them to the Recycle sheet',
+    /hlxAppendRowsToSheet\(\[rbCustomerToSheetRow\(d\)\], "Recycle"\)/.test(del),
+    'once the record is gone that row IS the whole record of it, which is exactly ' +
+    'what Frome Liz is');
+  /* ⚠ AND THE BLOCK HAS TO BE REACHABLE. A red-check wrapping it in if(false)
+     left every word of it in the file and passed, because these read the source. */
+  check('S87', 'and the write is not behind a dead condition',
+    /if\(recycleFirst\){/.test(del) && /const recycleFirst = true;/.test(del),
+    'text being present is not the same as text that runs');
+  check('S87', 'and BEFORE the record is deleted, not after',
+    del.indexOf('hlxAppendRowsToSheet') < del.indexOf('deleteDoc'),
+    'afterwards there is nothing left to build the row from');
+
+  /* ⚠ EVERYBODY, not only the ones already flagged. */
+  check('S87', 'it does not wait for needsLightRecycle to be set',
+    /const recycleFirst = true;/.test(del),
+    'reading the flag here catches only the people who answered no through the RSVP ' +
+    'and misses every customer the office removes by hand, which is most of them');
+  check('S87', 'and the confirmation says it is going to happen',
+    /go onto the Recycle sheet first/.test(del),
+    'a delete that quietly writes somewhere else is a surprise');
+
+  check('S87', 'somebody already on that sheet is not written twice',
+    /hlxNamesAlreadyOnTab\("Recycle"\)/.test(del));
+  check('S87', 'and a sheet it cannot write to asks before deleting anyway',
+    /Delete them anyway/.test(del),
+    'refusing outright strands somebody who just wants a record gone, and a silent ' +
+    'miss is a bundle of lights nobody knows to take apart');
+}
+
+
+{
   const wh = extractFn(admin, 'whRecycleGroups');
   check('S87', 'the warehouse recycle queue is still there', !!wh);
 
@@ -16758,6 +16801,32 @@ suite('Suite 87. The Recycle sheet IS the warehouse recycle queue');
     check('S87', 'somebody flagged with no lights recorded is on both',
       rec({needsLightRecycle: true, lightsDescription: ''}) === true,
       'the warehouse says exactly this in its own comment, and the sheet has to agree');
+    /* ⭐ AND ON RECYCLE, HAVING NO CUSTOMER IS THE END OF THE STORY. Owner,
+       2026-08-20: "yes people in recycle should not exist as a customer."
+       They say no, the flag goes on, they appear in the warehouse queue and on this
+       sheet, the lights come back into stock, and then the customer record goes. What
+       is left is the row, which is the RECORD that it happened. So an unmatched name
+       there is expected, and reporting it every run sends somebody looking for a fault
+       that is the system working. */
+    const recTab = b.t.filter(x => x.tab === 'Recycle')[0] || {};
+    check('S87', 'Recycle is marked as a sheet where the customer is meant to be gone',
+      recTab.goneIsNormal === true,
+      'this is what stops the sync remarking on it, and it is a property of THAT ' +
+      'sheet rather than a special case buried in the tidier');
+    check('S87', 'and the other sheets are NOT marked that way',
+      b.t.filter(x => x.tab !== 'Recycle').every(x => !x.goneIsNormal),
+      'on Yes or Color Changes a name with no customer is worth a word: nobody is ' +
+      'confirmed or changing colours after they stop being a customer');
+
+    const pruneSrc = extractFn(admin, 'hlxPruneStateTabs');
+    check('S87', 'the tidier keeps quiet where being gone is normal',
+      /if\(!tab\.goneIsNormal\) strangers\.push/.test(pruneSrc));
+    check('S87', 'and still never removes the row',
+      /if\(!matches\.length\)\{[\s\S]{0,220}continue;/.test(pruneSrc) &&
+      !/if\(!matches\.length\)\{[\s\S]{0,220}doomed\.push/.test(pruneSrc),
+      'quiet is not the same as deleted, and this is the row that IS the record ' +
+      'that a recycle happened');
+
     check('S87', 'and having lights is not by itself a recycle',
       rec({lightsDescription: 'Red, Green'}) !== true,
       'that is a build, not a recycle');
