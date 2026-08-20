@@ -16359,6 +16359,160 @@ if (!JSDOM) {
  * These RUN the filter over made-up customers rather than matching the source.
  * A filter that reads a field nobody writes greps perfectly and finds nobody.
  * ------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+ * Suite 74. The workbook writer, actually run
+ *
+ * Owner: "it should not redownload the excel and edit it though it should update
+ * that exact file". So admin.html contains a small zip writer, and until now
+ * nothing executed it — only hlxRowXml was covered. A writer that is only read
+ * has already shipped one bug that reading could not find: single-quoted XML
+ * attributes, valid XML that our own reader could not see, which made the verify
+ * step refuse every write and looked like a permissions problem.
+ *
+ * ⚠ THIS BUILDS ITS OWN WORKBOOK. It never opens the owner’s master sheet: a test
+ * that writes to real customer data is a test nobody can safely re-run.
+ * ------------------------------------------------------------------------- */
+pendingAsync.push((async () => {
+  suite('Suite 74. The workbook writer, actually run');
+
+  const NEED = ['hlxCrc32', 'hlxDeflateRaw', 'hlxInflateRaw', 'hlxUnzip', 'hlxUnzipAll',
+               'hlxZip', 'hlxRowXml', 'hlxColName', 'hlxColNum', 'hlxSharedStrings',
+               'hlxReadSheet', 'hlxWorkbookRows', 'hlxWorkbookSharedStrings',
+               'hlxSheetPartFor', 'hlxNamesAlreadyOnTab', 'hlxAppendRowsToSheet',
+               'dupNormName', 'hlxXmlText'];
+  /* extractFn DROPS THE `async` KEYWORD, and this file already warns about that
+     trap elsewhere. Most of the writer is async, so lifting it with extractFn
+     produces a body full of bare `await` and the whole suite dies at parse time
+     as one confusing 'an async suite crashed'. This keeps the keyword. */
+  const lift = (n) => {
+    /* No regex: a backslash does not survive every route into this file, and an
+       escape that quietly degrades turns into a runtime SyntaxError that reads
+       as 'an async suite crashed' with no clue which suite. */
+    let st = admin.indexOf('async function ' + n + '(');
+    if (st < 0) st = admin.indexOf('function ' + n + '(');
+    if (st < 0) return '';
+    let i = admin.indexOf('{', st), d = 0;
+    for (; i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(st, i + 1); }
+    }
+    return '';
+  };
+  const missing = NEED.filter(n => !lift(n));
+  check('S74', 'every piece of the writer is still in admin.html', !missing.length,
+    'missing: ' + missing.join(', ') + ' — renamed or removed; update this suite rather ' +
+    'than deleting it, or the writer goes back to being untested');
+
+  if (missing.length) return;
+
+  /* The file on "disk". A fake File System Access handle over a variable. */
+  let disk = null, writes = 0, permissionAsked = 0;
+  const handle = {
+    getFile: async () => new Blob([disk]),
+    queryPermission: async () => { permissionAsked++; return 'granted'; },
+    createWritable: async () => ({
+      write: async (d) => { disk = new Uint8Array(d); writes++; },
+      close: async () => {}
+    })
+  };
+
+  const box = {};
+  new Function('hlxSheetHandleLoad',
+    'let HLX_CRC_TABLE = null;' + NEED.map(lift).join('') +
+    'this.append = hlxAppendRowsToSheet; this.onTab = hlxNamesAlreadyOnTab;' +
+    'this.rows = hlxWorkbookRows; this.zip = hlxZip; this.unzipAll = hlxUnzipAll;' +
+    'this.partFor = hlxSheetPartFor; this.norm = dupNormName;'
+  ).call(box, async () => handle);
+
+  /* A workbook with two tabs, built with the SHIPPED zip writer so the test cannot
+     pass against a file only some other library could produce. Sheet order is
+     deliberately NOT tab order: in the real book Recycle is sheet8 while Sheet1 is
+     sheet2, so a writer that guesses by position writes into the wrong tab. */
+  const enc = new TextEncoder();
+  const sheetXml = (rows) => enc.encode('<worksheet><sheetData>' + rows + '</sheetData></worksheet>');
+  const cell = (ref, text) => '<c r="' + ref + '" t="inlineStr"><is><t>' + text + '</t></is></c>';
+  const build = () => box.zip([
+    {name: 'xl/workbook.xml', data: enc.encode(
+      '<workbook><sheets>' +
+      '<sheet name="Customers" sheetId="1" r:id="rId9"/>' +
+      '<sheet name="Recycle" sheetId="2" r:id="rId4"/>' +
+      '</sheets></workbook>')},
+    {name: 'xl/_rels/workbook.xml.rels', data: enc.encode(
+      '<Relationships>' +
+      '<Relationship Id="rId9" Target="worksheets/sheet1.xml"/>' +
+      '<Relationship Id="rId4" Target="worksheets/sheet2.xml"/>' +
+      '</Relationships>')},
+    {name: 'xl/worksheets/sheet1.xml', data: sheetXml(
+      '<row r="1">' + cell('A1', 'Name') + cell('B1', 'Address') + '</row>' +
+      '<row r="2">' + cell('A2', 'Ada Real') + cell('B2', '1 Elm') + '</row>')},
+    {name: 'xl/worksheets/sheet2.xml', data: sheetXml(
+      '<row r="1">' + cell('A1', 'Name') + '</row>')}
+  ]);
+
+  disk = await build();
+  const before = await box.rows(new Blob([disk]));
+  check('S74', 'the writer can build a workbook its own reader reads back',
+    before.length === 2 && before[1][0] === 'Ada Real',
+    'this is the round trip that single-quoted attributes broke: the bytes were ' +
+    'valid XML and Excel opened them, and our reader saw no rows at all');
+
+  /* ---- appending to a named tab ---- */
+  const res = await box.append([['Bea Fake']], 'Recycle');
+  check('S74', 'a row is appended to the tab that was named', res && res.written === 1);
+  check('S74', 'and the bytes were actually written', writes === 1);
+  check('S74', 'write permission is asked for separately from read', permissionAsked >= 1,
+    'the comparison only ever needed read, so the first write is the first time ' +
+    'Chrome is asked — skipping the ask fails with a DOMException the office cannot act on');
+
+  const after = await box.rows(new Blob([disk]));
+  check('S74', 'THE CUSTOMER LIST IS UNTOUCHED when the row went to a side tab',
+    after.length === before.length && after[1][0] === 'Ada Real',
+    'this is the check that decides whether a Recycle write is allowed at all: ' +
+    'expecting sheet1 to GROW would refuse every legitimate tab write');
+
+  const onTab = await box.onTab('Recycle');
+  check('S74', 'and the new name can be found on that tab afterwards',
+    !!onTab && !!onTab[box.norm('Bea Fake')],
+    'hlxNamesAlreadyOnTab is the only thing stopping a customer being appended ' +
+    'again on every run; a reader that cannot see what the writer just wrote ' +
+    'means the tab grows without limit');
+  check('S74', 'the name is stored under the sorted key, not the typed one',
+    !onTab['bea fake'] && !!onTab[box.norm('Fake Bea')],
+    'dupNormName sorts the words, so "Fake, Bea" and "Bea Fake" are the same ' +
+    'person — which is the whole point on a sheet written surname-first');
+
+  /* ---- the row goes to the first FREE row, not row 1 ---- */
+  const parts = await box.unzipAll(disk.buffer ? disk.buffer.slice(disk.byteOffset, disk.byteOffset + disk.byteLength) : disk);
+  const recycleXml = new TextDecoder().decode(box.partFor(parts, 'Recycle').data);
+  check('S74', 'it lands on the first free row, and the heading is left alone',
+    /<row r="2"/.test(recycleXml) && /<row r="1"[^>]*>[\s\S]{0,200}?Name/.test(recycleXml),
+    'owner: "recycle should go to the recycle tab in excel first row possible"');
+  check('S74', 'and it went to the Recycle tab, NOT the first sheet in the file',
+    recycleXml.indexOf('Bea Fake') !== -1,
+    'a tab name is not a filename — workbook.xml points at a relationship id and ' +
+    'the rels file turns that into sheetN.xml. Here Recycle is sheet2 while it is ' +
+    'listed second, and Customers is sheet1 while listed first, so position and ' +
+    'name disagree exactly as they do in the real book');
+
+  /* ---- the guards ---- */
+  const writesBefore = writes;
+  let threw = '';
+  try { await box.append([['Nobody']], 'No Such Tab'); } catch (e) { threw = e.message || ''; }
+  check('S74', 'a tab that does not exist refuses, and names the tab', /no tab called/i.test(threw),
+    'got: ' + threw);
+  check('S74', 'and nothing was written when it refused', writes === writesBefore,
+    'a half-written workbook is worse than no write at all');
+
+  const none = await box.append([], 'Recycle');
+  check('S74', 'nothing to write writes nothing', none && none.written === 0 && writes === writesBefore);
+
+  /* Every write must survive being read back by the same reader. */
+  const final = await box.rows(new Blob([disk]));
+  check('S74', 'the workbook still reads after everything above',
+    final.length === 2 && final[0][0] === 'Name',
+    'the verify-before-write step is what makes this safe on a real file, and it ' +
+    'is only worth anything if the reader is the one the rest of the app uses');
+})());
 suite('Suite 73. Finding the houses still on soft lights');
 
 {
