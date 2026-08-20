@@ -17630,11 +17630,17 @@ async function hlxUpdateCustomerInfo(statusEl){
     else if(pruned && pruned.removed && pruned.removed.length){
       done.push(pruned.removed.length + " taken off a sheet they no longer belong on");
     }
-    /* ⭐ SAY WHO. A count tells the office there is a problem and nothing about
-       what to do next; every one of these is one line long and there are never many. */
+    /* ⭐ A ROW NOBODY CAN MATCH IS NOT A FAILURE, it is somebody working by hand.
+       Owner, 2026-08-20, when this was reported under "Could not do": "i put liz frome
+       there i want her there."
+       Quite right. These sheets are hers, not this program’s, and a name typed onto one
+       is a decision " + M + " it just cannot be traced back to a customer record, which is a
+       different thing from being wrong. Reported as information, never as a problem, and
+       named so she can see at a glance that it is the row she meant.
+       ⚠ AND STILL NEVER DELETED. That rule has not changed; only the wording has. */
     if(pruned && pruned.strangers && pruned.strangers.length){
       const shown = pruned.strangers.slice(0, 5).join(", ");
-      failed.push("left alone, no customer of that name: " + shown +
+      done.push("left as they are (added by hand, no customer record): " + shown +
         (pruned.strangers.length > 5 ? " and " + (pruned.strangers.length - 5) + " more" : ""));
     }
     if(pruned && pruned.blocked && pruned.blocked.length){
