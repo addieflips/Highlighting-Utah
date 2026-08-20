@@ -15122,6 +15122,36 @@ suite('Suite 66. The master sheet choice is remembered for every computer');
 suite('Suite 69. A customer as a row of the master sheet');
 {
   const admin = read("admin.html");
+  /* ⭐ THE ROW IS WRITTEN WITH DOUBLE-QUOTED ATTRIBUTES, and it is not cosmetic.
+     Single quotes are valid XML and Excel reads them happily — but hlxReadSheet
+     matches r="..." with double quotes, so a row written with single ones is
+     invisible to our OWN reader. The verify step then sees no new row and refuses to
+     write, every time, for ever: it would have failed safe and never worked.
+     Found by executing the shipped writer against the real workbook, not by reading
+     it — the code looked right. */
+  {
+    const src = extractFn(admin, "hlxRowXml");
+    check('S69', 'hlxRowXml exists', !!src);
+    if(src){
+      const sb = {};
+      new Function(extractFn(admin, "hlxColName") + src + "this.f = hlxRowXml;").call(sb);
+      const x = sb.f(1058, ["479", "Oslund Rachel"]);
+      check('S69', 'the row is written with double-quoted attributes',
+        x.indexOf(String.fromCharCode(60,114,111,119,32,114,61,34)) === 0 &&
+        x.indexOf(String.fromCharCode(39)) < 0,
+        'our own reader matches double quotes, so single ones make the new row invisible ' +
+        'to the verify step and nothing is ever written — got ' + x.slice(0, 60));
+      check('S69', 'and the cell references are built from the column letter and the row',
+        /r="A1058"/.test(x) && /r="B1058"/.test(x),
+        'a wrong reference puts the value in another column, or another row');
+      check('S69', 'and a blank writes no cell at all',
+        sb.f(9, ["", "x"]).indexOf("A9") < 0,
+        'an empty cell is an absent cell in this format; writing one is how a blank becomes a value');
+    }
+  }
+}
+{
+  const admin = read("admin.html");
   const hdrM = admin.match(/const RB_SHEET_HEADERS = \[[\s\S]*?\];/);
   check('S69', 'the sheet column order is written down', !!hdrM);
   const rowSrc = extractFn(admin, "rbCustomerToSheetRow");
@@ -15271,13 +15301,51 @@ suite('Suite 67. Conflicts come first, are labelled MANUAL, and are never pre-ti
      ticked — but only where the keeper is known, which is the record the sheet row
      already found. Somebody who genuinely left the sheet still has no box, because
      there is nothing to fold them into. That is the line the checks below hold. */
-  check('S67', 'a row with no known keeper still cannot be ticked',
-    /Nothing is deleted here/.test(admin) &&
-    /\(o\.keeperId && o\.id !== o\.keeperId\)/.test(admin),
-    'without a keeper a delete is a guess about which of two records is the real one');
-  check('S67', 'and a spare is never ticked for you',
-    !/class="rb-spare-pick"[^>]{0,120}checked/.test(admin),
-    'every other row here is reversible by editing a field back; this one is not');
+  /* ⭐ CHANGED 2026-08-19. Owner: "she needs to be added to excel though", then
+     "we dont need a button ... theres only one sync button because anything I dont
+     want synced will be manually fixed."
+     A row with no keeper IS ticked now — but for the opposite action. The keeper is
+     what decides which: with one, the record is folded in and DELETED; without one,
+     it is WRITTEN into her sheet. That distinction is the whole safety of it, and a
+     row with no keeper is still never deleted. */
+  check('S67', 'the keeper decides which of the two things happens',
+    /\(o\.keeperId && o\.id !== o\.keeperId\)/.test(admin) &&
+    /class="rb-spare-pick"/.test(admin) && /class="rb-toexcel-pick"/.test(admin),
+    'deleting a record and adding a row to the sheet are opposites; the keeper is what tells them apart');
+  check('S67', 'and only the one with a keeper is ever deleted',
+    (extractFn(admin, "rbWireDiffButtons") || "").indexOf("rb-spare-pick") > 0 &&
+    !/rb-toexcel-pick[\s\S]{0,400}deleteDoc/.test(admin),
+    'a customer who is simply missing from the sheet must never be removed from the website');
+  /* ⚠ BOTH KINDS COME TICKED, on her instruction: "anything I dont want synced will
+     be manually fixed." So the check is no longer that they are unticked — it is that
+     both are offered and both are visible before anything is pressed. */
+  check('S67', 'both kinds arrive ticked, so one press does the work',
+    /class="rb-spare-pick"[^>]{0,160}checked/.test(admin.replace(/\r?\n/g, " ")) &&
+    /class="rb-toexcel-pick"[^>]{0,160}checked/.test(admin.replace(/\r?\n/g, " ")),
+    'she asked for one button and no chasing');
+  /* ⭐ AND THE ONE BUTTON REALLY WRITES TO THE SHEET. Owner: "theres only one sync
+     button because anything I dont want synced will be manually fixed." A tick that
+     nothing acts on is worse than no tick — it looks done. */
+  {
+    const sync = extractFn(admin, "rbWireDiffButtons") || "";
+    check('S67', 'the Sync button writes the ticked customers into the sheet',
+      /await hlxAppendRowsToSheet\(/.test(sync) && /rb-toexcel-pick/.test(sync),
+      'a tick nothing acts on looks done and is not');
+    /* ⚠ LAST, deliberately: everything before it writes to the website and can be
+       undone by editing a record; this writes to her master workbook. */
+    check('S67', 'and does it after the website work, not before',
+      sync.indexOf("hlxAppendRowsToSheet") > sync.indexOf("deleteDoc"),
+      'if anything earlier fails, the sheet should not already have been touched');
+    /* ⚠ AND A FAILURE THERE DOES NOT FAIL THE WHOLE SYNC. The website work landed. */
+    check('S67', 'and a sheet failure is reported, not thrown',
+      /catch\(err\){ sheetErr =/.test(sync) &&
+      /Nothing was written to your sheet/.test(admin),
+      'losing the whole sync report because the workbook was open in Excel is the wrong trade');
+  }
+  check('S67', 'and each says what it will do before it is pressed',
+    /Ticked: this copy goes/.test(admin) &&
+    /written into the first open row of your sheet/.test(admin),
+    'automatic is fine; unexplained is not — one of these deletes a record and one writes to her master file');
 
   /* ---- the ordering ---- */
   check('S67', 'a conflict outranks every gap, whatever the field',

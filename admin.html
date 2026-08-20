@@ -16359,13 +16359,19 @@ function hlxColName(n){
   return s;
 }
 function hlxRowXml(rowNum, values){
-  let x = "<row r=" + "'" + rowNum + "'" + ">";
+  /* ⚠ DOUBLE-QUOTED ATTRIBUTES, and it matters. Single quotes are valid XML and
+     Excel reads them happily — but hlxReadSheet matches r="..." with double quotes,
+     so a row written with single ones is invisible to our OWN reader. The verify
+     step then sees no new row and refuses to write, every time, for ever. Caught by
+     running the shipped writer end to end rather than trusting it. */
+  const q = String.fromCharCode(34);
+  let x = "<row r=" + q + rowNum + q + ">";
   values.forEach(function(v, i){
     if(v === "" || v == null) return;
     const t = String(v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    x += "<c r=" + "'" + hlxColName(i) + rowNum + "'" +
-      " t=" + "'" + "inlineStr" + "'" +
-      "><is><t xml:space=" + "'" + "preserve" + "'" + ">" + t + "</t></is></c>";
+    x += "<c r=" + q + hlxColName(i) + rowNum + q +
+      " t=" + q + "inlineStr" + q + "><is><t xml:space=" + q + "preserve" + q + ">" +
+      t + "</t></is></c>";
   });
   return x + "</row>";
 }
@@ -17276,6 +17282,13 @@ function rbRenderLedger(found){
       /* Only worth saying when it is NOT already labelled a duplicate — there the
          badge and the row number have said it, and the sheet address is on the right
          already. Kept for the other case, where "no street" is the whole finding. */
+      /* ⭐ AND SAY WHAT THE TICK WILL DO. Owner asked for Rachel Oslund — on the
+         website, nowhere in the sheet by name, number or address — to be written into
+         it: "all her information needs to be put into excel". */
+      if(!o.onSheetRow){
+        right = '<span style="color:var(--slate); font-style:italic;">— not on your sheet —</span>' +
+          '<div style="color:var(--slate); font-size:11.5px; margin-top:2px;">Ticked: they are written into the first open row of your sheet, all seventeen columns. Nobody is ever deleted for being missing from it — if they have really left, mark them <strong>Maybe Next Year</strong> on their record instead.</div>';
+      }
       if(o.stray && !o.onSheetRow){
         left += '<div style="color:var(--ember); font-size:11.5px; margin-top:2px;">No street on this <strong>website record</strong>, so no row on your sheet can reach it.</div>';
       }
@@ -17286,8 +17299,16 @@ function rbRenderLedger(found){
          ⚠ NEVER ticked by default. Everything else in this list is reversible by
          editing a field back; this one is not. */
       box = (o.keeperId && o.id !== o.keeperId)
-        ? '<input type="checkbox" class="rb-spare-pick" data-spare="' + esc(o.id) + '" data-keeper="' + esc(o.keeperId) + '">'
-        : '<span title="Nothing is deleted here" style="color:var(--slate);">&mdash;</span>';
+        /* ⭐ BOTH DIRECTIONS, ONE BUTTON. Owner, 2026-08-19: "we dont need a button,
+           we should make it so theres only one sync button because anything I dont
+           want synced will be manually fixed."
+           A duplicate has a KEEPER and is folded in and removed. Somebody the sheet
+           has genuinely never heard of has none, and is written into it instead.
+           ⚠ The keeper is the whole difference between deleting a record and adding a
+           row, so a row without one is never deleted. Both come ticked, because her
+           rule is that exceptions get fixed by hand rather than chased with buttons. */
+        ? '<input type="checkbox" class="rb-spare-pick" data-spare="' + esc(o.id) + '" data-keeper="' + esc(o.keeperId) + '" checked>'
+        : '<input type="checkbox" class="rb-toexcel-pick" data-cust="' + esc(o.id) + '" checked>';
     }
     html += '<tr style="border-bottom:1px solid var(--line);">' +
       '<td style="padding:5px 6px 5px 0; vertical-align:top;">' + box + '</td>' +
@@ -17517,6 +17538,28 @@ function rbWireDiffButtons(report, statusEl){
       } catch(err){ foldFailed++; }
     }
     if(folded) logActivity('Folded ' + folded + ' spare customer record(s) into the record the sheet found', 'customers', '');
+
+    /* ⭐ AND THE OTHER DIRECTION, ON THE SAME PRESS. Owner: "theres only one sync
+       button because anything I dont want synced will be manually fixed."
+       ⚠ LAST, deliberately. Everything above writes to the website and can be
+       undone by editing a record; this writes to her master workbook. If anything
+       earlier fails, the sheet has not been touched yet.
+       ⚠ A failure here never fails the whole sync — the website work already
+       landed, and saying so is more use than an exception. */
+    const toExcel = Array.prototype.slice.call(document.querySelectorAll('.rb-toexcel-pick'))
+      .filter(function(p){ return p.checked; })
+      .map(function(p){ return p.getAttribute('data-cust'); })
+      .map(function(id){ return jobAddresses.find(function(c){ return c.id === id; }); })
+      .filter(Boolean);
+    let toSheet = 0, sheetErr = '';
+    if(toExcel.length){
+      statusEl.textContent = 'Writing ' + toExcel.length + ' customer(s) into your sheet\u2026';
+      try{
+        const res = await hlxAppendRowsToSheet(toExcel.map(function(c){ return rbCustomerToSheetRow(c.data || {}); }));
+        toSheet = res.written || 0;
+        if(toSheet) logActivity('Wrote ' + toSheet + ' customer(s) into the master sheet', 'customers', '');
+      } catch(err){ sheetErr = (err && err.message) || 'unknown error'; }
+    }
     rbPendingDiffs = null;
     logActivity('Synced ' + fields + ' field(s) from the master sheet onto ' + done + ' customer(s)', 'customers', '');
     report.innerHTML = '<div style="border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--paper); font-size:13px;">' +
@@ -17528,6 +17571,8 @@ function rbWireDiffButtons(report, statusEl){
       fields + ' field(s) synced across ' + done + ' customer(s)' + (failed ? ', ' + failed + ' failed' : '') +
       (folded ? ', ' + folded + ' spare copy(ies) folded in and removed' : '') +
       (foldFailed ? ', ' + foldFailed + ' spare copy(ies) could not be folded' : '') +
+      (toSheet ? ', ' + toSheet + ' written into your sheet' : '') +
+      (sheetErr ? '. Nothing was written to your sheet: ' + esc(sheetErr) : '') +
       '. Nothing that was blank on the sheet was written, and no invoice was created or touched — run Bulk Update if anybody new needs billing. ' +
       'Press Compare again to check.</div>';
     statusEl.textContent = '';
