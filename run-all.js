@@ -15184,6 +15184,58 @@ suite('Suite 66. The master sheet choice is remembered for every computer');
 suite('Suite 69. A customer as a row of the master sheet');
 {
   const admin = read("admin.html");
+  /* ⭐ A TAB NAME IS NOT A FILENAME. Owner, 2026-08-19: "recycle should go to the
+     recycle tab in excel first row possible, color change same thing but to the color
+     change tab and maybe next years should be moved to the contact 2027 tab".
+
+     ⚠ THE PART ORDER MEANS NOTHING. Checked against her real workbook: the tab named
+     "2025" is sheet1.xml, "Sheet1" is sheet2.xml, Recycle is sheet8 and Contact 2027
+     is sheet9. Anything that guessed by position would write customers into somebody
+     else’s tab. workbook.xml gives a relationship id and the rels file turns that
+     into the filename — both hops are required. */
+  {
+    const src = extractFn(admin, "hlxSheetPartFor");
+    check('S69', 'hlxSheetPartFor exists', !!src);
+    if(src){
+      const sb = {};
+      new Function(src + "this.f = hlxSheetPartFor;").call(sb);
+      const enc = function(t){ return {data: new TextEncoder().encode(t)}; };
+      const entries = [
+        Object.assign({name: "xl/workbook.xml"}, enc(
+          '<sheets><sheet name="2025" r:id="rId1"/><sheet name="Recycle" r:id="rId8"/>' +
+          '<sheet name="Contact 2027" r:id="rId9"/></sheets>')),
+        Object.assign({name: "xl/_rels/workbook.xml.rels"}, enc(
+          '<Relationship Id="rId8" Target="worksheets/sheet8.xml"/>' +
+          '<Relationship Id="rId1" Target="worksheets/sheet1.xml"/>' +
+          '<Relationship Id="rId9" Target="worksheets/sheet9.xml"/>')),
+        {name: "xl/worksheets/sheet1.xml", data: new Uint8Array()},
+        {name: "xl/worksheets/sheet8.xml", data: new Uint8Array()},
+        {name: "xl/worksheets/sheet9.xml", data: new Uint8Array()}
+      ];
+      check('S69', 'a tab is found through the relationship, not by position',
+        (sb.f(entries, "Recycle") || {}).name === "xl/worksheets/sheet8.xml" &&
+        (sb.f(entries, "Contact 2027") || {}).name === "xl/worksheets/sheet9.xml" &&
+        (sb.f(entries, "2025") || {}).name === "xl/worksheets/sheet1.xml",
+        'in her real book the tab order and the part order genuinely disagree');
+      check('S69', 'and the tab name is matched however it is capitalised',
+        (sb.f(entries, "recycle") || {}).name === "xl/worksheets/sheet8.xml" &&
+        (sb.f(entries, " RECYCLE ") || {}).name === "xl/worksheets/sheet8.xml",
+        'a tab typed in a different case is the same tab');
+      /* ⚠ AND AN UNKNOWN TAB IS NULL, NOT A GUESS. Falling back to the first sheet
+         would write a recycled customer into the customer list. */
+      check('S69', 'and a tab that does not exist is refused rather than guessed',
+        sb.f(entries, "No Such Tab") === null,
+        'falling back to the first sheet would put a recycled customer in the customer list');
+    }
+  }
+  /* ⚠ AND WHEN ROWS GO TO ANOTHER TAB, THE CUSTOMER LIST MUST NOT GROW. Verifying
+     against the first sheet either way would refuse every write to Recycle. */
+  check('S69', 'writing to a tab expects the customer list to stay the same size',
+    /const expected = tabName \? beforeCount : beforeCount \+ rows\.length;/.test(admin),
+    'the check has to know which sheet it is checking');
+}
+{
+  const admin = read("admin.html");
   /* ⭐ THE ROW IS WRITTEN WITH DOUBLE-QUOTED ATTRIBUTES, and it is not cosmetic.
      Single quotes are valid XML and Excel reads them happily — but hlxReadSheet
      matches r="..." with double quotes, so a row written with single ones is

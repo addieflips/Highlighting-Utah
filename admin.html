@@ -16518,7 +16518,43 @@ function hlxRowXml(rowNum, values){
    Returns {written, rowsBefore, rowsAfter} or throws with something the office can
    act on. Nothing is written unless the rebuilt bytes parse back correctly first —
    see the three decisions above hlxCrc32. */
-async function hlxAppendRowsToSheet(rows){
+/* ⭐ WHICH FILE INSIDE THE WORKBOOK IS THAT TAB. Owner, 2026-08-19: "recycle should
+   go to the recycle tab in excel first row possible, color change same thing but to
+   the color change tab and maybe next years should be moved to the contact 2027 tab
+   first blank row."
+
+   A tab name is not a filename. workbook.xml lists the tabs and points at a
+   relationship id; xl/_rels/workbook.xml.rels turns that into worksheets/sheetN.xml.
+   ⚠ THE ORDER OF THE PARTS MEANS NOTHING — in her book "Recycle" is sheet8.xml and
+   "Contact 2027" is sheet9.xml, but Sheet1 is sheet2.xml and the 2025 tab is
+   sheet1.xml. Guessing by position would write customers into the wrong tab. */
+function hlxSheetPartFor(entries, tabName){
+  const find = function(n){ return entries.filter(function(e){ return e.name === n; })[0]; };
+  const wbE = find("xl/workbook.xml"), relE = find("xl/_rels/workbook.xml.rels");
+  if(!wbE || !relE) return null;
+  const dec = new TextDecoder();
+  const wb = dec.decode(wbE.data), rel = dec.decode(relE.data);
+  const want = String(tabName || "").trim().toLowerCase();
+  let rid = "";
+  wb.replace(/<sheet[^>]*>/g, function(tag){
+    const nm = (tag.match(/name="([^"]*)"/) || [])[1];
+    const id = (tag.match(/r:id="([^"]*)"/) || [])[1];
+    if(nm && id && nm.trim().toLowerCase() === want) rid = id;
+    return tag;
+  });
+  if(!rid) return null;
+  let target = "";
+  rel.replace(/<Relationship[^>]*>/g, function(tag){
+    const id = (tag.match(/Id="([^"]*)"/) || [])[1];
+    const t = (tag.match(/Target="([^"]*)"/) || [])[1];
+    if(id === rid && t) target = t;
+    return tag;
+  });
+  if(!target) return null;
+  const full = "xl/" + target.replace(/^\/*/, "").replace(/^xl\//, "");
+  return find(full) || null;
+}
+async function hlxAppendRowsToSheet(rows, tabName){
   if(!rows || !rows.length) return {written: 0};
   const handle = await hlxSheetHandleLoad();
   if(!handle) throw new Error("No sheet is connected. Press \u201cUse my master sheet\u201d first.");
@@ -16543,8 +16579,16 @@ async function hlxAppendRowsToSheet(rows){
   const beforeHead = (before[0] || []).map(function(v){ return String(v == null ? "" : v).trim(); }).join("|");
 
   const entries = await hlxUnzipAll(buf);
-  const sheet = entries.filter(function(e){ return /^xl\/worksheets\/sheet1\.xml$/.test(e.name); })[0];
-  if(!sheet) throw new Error("That workbook has no first sheet to write to.");
+  /* Named tab, or the customer list when nobody says otherwise. */
+  const sheet = tabName
+    ? hlxSheetPartFor(entries, tabName)
+    : entries.filter(function(e){ return /^xl\/worksheets\/sheet1\.xml$/.test(e.name); })[0];
+  if(!sheet){
+    throw new Error(tabName
+      ? ("Your workbook has no tab called \u201c" + tabName + "\u201d, so nothing was written. " +
+         "Add the tab, or tell me what it is called.")
+      : "That workbook has no first sheet to write to.");
+  }
   const dec = new TextDecoder(), enc = new TextEncoder();
   let xml = dec.decode(sheet.data);
   if(xml.indexOf("</sheetData>") < 0) throw new Error("That sheet is not in a shape I can add a row to.");
@@ -16566,12 +16610,28 @@ async function hlxAppendRowsToSheet(rows){
   try{ check = await hlxWorkbookRows(new Blob([rebuilt])); }
   catch(err){ throw new Error("Built a workbook that could not be read back, so nothing was written. (" + (err && err.message) + ")"); }
   const afterHead = (check[0] || []).map(function(v){ return String(v == null ? "" : v).trim(); }).join("|");
-  if(check.length !== beforeCount + rows.length){
-    throw new Error("The rebuilt sheet came back with " + check.length + " rows, expected " +
-      (beforeCount + rows.length) + " \u2014 nothing was written.");
+  /* ⚠ hlxWorkbookRows reads the FIRST sheet, which is the customer list. When the
+     rows went to another tab that is exactly the right thing to check: the customer
+     list must come back UNTOUCHED. Expecting it to grow would be checking the wrong
+     sheet and would refuse every write to Recycle or Contact 2027. */
+  const expected = tabName ? beforeCount : beforeCount + rows.length;
+  if(check.length !== expected){
+    throw new Error("The customer list came back with " + check.length + " rows, expected " +
+      expected + " \u2014 nothing was written.");
   }
   if(afterHead !== beforeHead){
-    throw new Error("The rebuilt sheet lost its heading row, so nothing was written.");
+    throw new Error("The rebuilt workbook lost its heading row, so nothing was written.");
+  }
+  /* And when it DID go to another tab, that tab has to have grown. */
+  if(tabName){
+    const back = await hlxUnzipAll(rebuilt.buffer ? rebuilt.buffer : rebuilt);
+    const part = hlxSheetPartFor(back, tabName);
+    if(!part) throw new Error("The rebuilt workbook lost the \u201c" + tabName + "\u201d tab, so nothing was written.");
+    let n = 0;
+    new TextDecoder().decode(part.data).replace(/<row[\s>]/g, function(m){ n++; return m; });
+    if(n < rows.length){
+      throw new Error("The \u201c" + tabName + "\u201d tab did not take the new row(s), so nothing was written.");
+    }
   }
 
   const w = await handle.createWritable();
