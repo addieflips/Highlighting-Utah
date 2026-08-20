@@ -345,7 +345,15 @@ const RB_COLOR_ALIAS = (function(){
   const end = admin.indexOf('};', at);
   const body = admin.slice(admin.indexOf('{', at), end + 1);
   const out = {};
-  body.replace(/'([^']+)'\s*:\s*'([^']+)'/g, function(_, k, v){ out[k] = v; return ''; });
+  /* ⚠ A VALUE MAY BE A LIST. "white" maps to BOTH warm and pure, because nobody
+     knows which was meant. A parser that only understands string values drops that
+     key silently, and then the suite is testing an alias table the app does not
+     have — which is exactly what happened when the key was added. */
+  body.replace(/'([^']+)'\s*:\s*\[([^\]]+)\]/g, function(_, k, list){
+    out[k] = list.split(',').map(function(v){ return v.trim().replace(/^'/, '').replace(/'$/, ''); });
+    return '';
+  });
+  body.replace(/'([^']+)'\s*:\s*'([^']+)'/g, function(_, k, v){ if(!(k in out)) out[k] = v; return ''; });
   return out;
 })();
 /* Health Check's "customer with no number" row reads the town off the record.
@@ -9192,9 +9200,16 @@ suite('Suite 36. Pasting the whole sheet');
     }
   }
 
-  check('S36', '"Up Plug" is not guessed into a real field',
-    !/'up plug'/.test(admin),
-    'it reads like Yes/No but 99 of its cells are "?"; mapping it would write that to 99 customers');
+  /* ⭐ SETTLED 2026-08-19: "up plug should be read and then put into the website in
+     the what outlets spot". It is the column that says WHICH outlet, so it fills the
+     note the crew reads and ticks the flag the office filters on.
+     ⚠ TWO FIELDS, NOT ONE. Writing the words into the Yes/No flag would leave the
+     crew a "Yes" and no outlet. */
+    check('S60', '"Up Plug" fills the outlet note and ticks the flag',
+      /\{area:'rbUpPlugArea'/.test(admin) &&
+      /specificOutletNotes: String\(upPlugRaw\[i\]/.test(admin) &&
+      /specificOutlet: String\(upPlugRaw\[i\] \|\| ''\)\.trim\(\) \? 'Yes' : ''/.test(admin),
+      'the column that says which outlet has to reach the crew, not just be counted');
 
   {
     const at = admin.indexOf('function rbNormalizeFeet(');
@@ -14185,17 +14200,32 @@ suite('Suite 60. The colours as the office actually writes them');
       sb.n('4red').join('') === 'Red' && sb.n('2 green').join('') === 'Green',
       'got ' + JSON.stringify(sb.n('4red')) + ' and ' + JSON.stringify(sb.n('2 green')));
 
-    /* ⚠ THE HALF THAT MATTERS MORE: never guess. */
-    check('S60', '"white" is left alone — pure or warm is a real difference',
-      sb.n('white').join('') === 'white',
-      'got "' + sb.n('white').join('') + '". 22 mentions, and the two are different products — ' +
-      'passing it through is how it stays visible as something a person has to decide');
-    check('S60', '"w" is left alone — warm or white',
-      sb.n('w').join('') === 'w');
-    check('S60', '"soft" is left alone — usually warm white, but that is an assumption',
-      sb.n('soft').join('') === 'soft');
-    check('S60', '"p" is left alone — pure, pink or purple',
-      sb.n('p').join('') === 'p');
+    /* ⭐ SETTLED 2026-08-19, after weeks of deliberately passing it through. It was
+       left alone precisely so a person would decide, and she did: "white lets just say
+       is put warm and pure because we really dont know". Both, rather than a guess at
+       one — the honest answer to 22 mentions nobody can now reconstruct. Checked just
+       below, with the other three she settled the same day. */
+    /* ⭐ SETTLED 2026-08-19. These three sat unmapped for weeks because a wrong guess
+     writes the wrong lights onto a house, and the owner ruled on all of them:
+     "p is pure", "w is warm white", and for soft, "soft is a color we dont use
+     anymore so we should have them under color: soft(recycled) so then we can find
+     them later cause we need to switch their lights". */
+    check('S60', '"w" is warm white and "p" is pure',
+      sb.n('w').join('|') === 'Warm White' && sb.n('p').join('|') === 'Pure White',
+      'got w=' + JSON.stringify(sb.n('w')) + ' p=' + JSON.stringify(sb.n('p')));
+    /* ⚠ SOFT IS KEPT, NOT TRANSLATED. It is stock they no longer use, so the point is
+       to be able to FIND those houses later and swap the lights — turning it into
+       Warm White would hide exactly the customers she needs to see. */
+    check('S60', '"soft" is kept under its own name so those houses can be found',
+      sb.n('soft').join('|') === 'soft(recycled)' &&
+      sb.n('soft white').join('|') === 'soft(recycled)',
+      'got ' + JSON.stringify(sb.n('soft')));
+    /* ⚠ "white" MEANS BOTH, and is the reason an alias may be a list. Owner: "white
+       lets just say is put warm and pure because we really dont know". Guessing one
+       would be a claim nobody can support. */
+    check('S60', '"white" becomes warm AND pure, because nobody knows which',
+      sb.n('white').join('|') === 'Warm White|Pure White',
+      'got ' + JSON.stringify(sb.n('white')));
     check('S60', 'and free text is never turned into a colour',
       sb.n('berry peas').join('') === 'berry peas' &&
       sb.n('add 60 bulbs').join('|').indexOf('Red') === -1,

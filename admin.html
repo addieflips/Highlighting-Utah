@@ -1588,6 +1588,15 @@
                 <textarea id="rbEavesArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="Yes&#10;No&#10;(blank = leave as is)"></textarea>
                 <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">Type Yes or No (y/n also works). Blank leaves it unchanged.</p>
               </div>
+              <!-- ⭐ UP PLUG. Owner, 2026-08-19: "up plug should be read and then put
+                   into the website in the what outlets spot". It is the column that
+                   says WHICH outlet to use, so it lands in Specific Outlet rather
+                   than being a yes/no of its own. -->
+              <div class="form-row">
+                <label>Up Plug / which outlet (optional) <span class="bulk-count" id="rbCountUpPlug">0 rows</span></label>
+                <textarea id="rbUpPlugArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="the one by the garage&#10;round the back&#10;(blank = leave as is)"></textarea>
+                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">Whatever they said about which outlet to use. Anything here ticks Specific Outlet and becomes the note the crew reads. Blank leaves it unchanged.</p>
+              </div>
               <div class="form-row">
                 <label>Measured Feet (optional) <span class="bulk-count" id="rbCountFeet">0 rows</span></label>
                 <textarea id="rbFeetArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="230&#10;490&#10;(blank = leave as is)"></textarea>
@@ -15436,12 +15445,13 @@ function rbCol(id, off){
   if(!el) return [];
   return el.value.split('\n').slice(off || 0).map(function(s){ return s.trim(); });
 }
-const rbAreaIds = ['rbNamesArea','rbPhonesArea','rbEmailsArea','rbStreetsArea','rbCitiesArea','rbStatesArea','rbZipsArea','rbDatesArea','rbColorsArea','rbAmountsArea','rbInstallPrefArea','rbCustNumbersArea','rbWireArea','rbTimerArea','rbEavesArea','rbDifficultyArea','rbFeetArea','rbNotesArea'];
+const rbAreaIds = ['rbNamesArea','rbPhonesArea','rbEmailsArea','rbStreetsArea','rbCitiesArea','rbStatesArea','rbZipsArea','rbDatesArea','rbColorsArea','rbAmountsArea','rbInstallPrefArea','rbCustNumbersArea','rbWireArea','rbTimerArea','rbEavesArea','rbUpPlugArea','rbDifficultyArea','rbFeetArea','rbNotesArea'];
 const rbCountIds = {
   rbNamesArea:'rbCountNames', rbPhonesArea:'rbCountPhones', rbEmailsArea:'rbCountEmails',
   rbStreetsArea:'rbCountStreets', rbCitiesArea:'rbCountCities', rbStatesArea:'rbCountStates', rbZipsArea:'rbCountZips', rbDatesArea:'rbCountDates',
   rbColorsArea:'rbCountColors', rbAmountsArea:'rbCountAmounts', rbInstallPrefArea:'rbCountInstallPref', rbCustNumbersArea:'rbCountCustNumbers',
   rbWireArea:'rbCountWire', rbTimerArea:'rbCountTimer', rbEavesArea:'rbCountEaves',
+  rbUpPlugArea:'rbCountUpPlug',
   rbDifficultyArea:'rbCountDifficulty', rbFeetArea:'rbCountFeet', rbNotesArea:'rbCountNotes'
 };
 
@@ -15526,6 +15536,9 @@ const RB_SHEET_COLUMNS = [
      reading the real values. If it does mean Use Eaves, add it here; until
      somebody says so it is reported as left alone. */
   {area:'rbEavesArea',       label:'Use Eaves',     aliases:['eaves','use eaves']},
+  /* ⭐ Owner: "up plug should be read and then put into the website in the what
+     outlets spot". Her sheet writes it "Up Plug". */
+  {area:'rbUpPlugArea',      label:'Up Plug',       aliases:['up plug','upplug','outlet','which outlet','plug']},
   {area:'rbAmountsArea',     label:'Payment Amount',aliases:['$$','$','price','amount','payment amount','total','cost']},
   {area:'rbInstallPrefArea', label:'Install Month', aliases:['pref date','preferred date','install month','install preference','preference','pref']},
   {area:'rbFeetArea',        label:'Measured Feet', aliases:['# feet','feet','measured feet','ft','footage']},
@@ -15861,7 +15874,26 @@ const RB_COLOR_ALIASES = {
   'purple':'Purple', 'purp':'Purple',
   'o':'Orange', 'orange':'Orange',
   'pink':'Pink', 'pk':'Pink',
-  'multi':'Multi', 'multicolor':'Multi', 'multicolour':'Multi', 'multi color':'Multi'
+  'multi':'Multi', 'multicolor':'Multi', 'multicolour':'Multi', 'multi color':'Multi',
+  /* ⭐ THE FOUR THE OFFICE HAD TO RULE ON. These sat unmapped for weeks because a
+     wrong guess writes the wrong lights onto a house; the owner settled them all on
+     2026-08-19.
+
+       p     "p is pure"
+       w     "w is warm white"
+       soft  "soft is a color we dont use anymore so we should have them under
+             color: soft(recycled) so then we can find them later cause we need to
+             switch their lights" — so it is NOT dropped and NOT guessed at. It is
+             kept under its own name, which is what makes those houses findable.
+       white "lets just say is put warm and pure because we really dont know" — the
+             only honest answer, and the reason an alias may be a LIST.
+
+     ⚠ soft(recycled) is deliberately not one of the tickable colours. It is a flag
+     that these lights are the old stock and have to be swapped, not a colour
+     anybody should be able to choose for a new house. */
+  'p':'Pure White', 'w':'Warm White',
+  'soft':'soft(recycled)', 'soft white':'soft(recycled)',
+  'white':['Warm White', 'Pure White']
 };
 function rbNormalizeColors(raw){
   if(!raw) return [];
@@ -15881,7 +15913,17 @@ function rbNormalizeColors(raw){
       return RB_COLOR_ALIASES[key] ||
              (RB_LIGHT_COLOR_OPTIONS.find(function(opt){ return opt.toLowerCase() === key; })) ||
              c;
-    });
+    })
+    /* ⚠ ONE WORD CAN MEAN TWO COLOURS. "white" is warm AND pure, because nobody
+       knows which was meant — so an alias may be a list and the list is flattened
+       here. Everything else still maps one to one. */
+    .reduce(function(out, v){ return out.concat(v); }, [])
+    /* ⚠ NO DEDUPE HERE, and that was a real mistake for about ten minutes. "pure/pure"
+       is TWO entries on purpose: rbDetectColorsAndPattern reads the repetition to work
+       out that the string is an alternating pattern rather than a plain set, and it
+       does its own deduping for the colour list. Removing duplicates at this level
+       silently turns every pattern into a set. */
+    ;
 }
 /* ⭐ "3 SIDES" IS A FACT ABOUT THE HOUSE, NOT A SENTENCE.
    Owner, 2026-08-18: "when notes says something like 3 sides then instead of
@@ -17453,6 +17495,7 @@ async function rbApplyTickedAdds(statusEl){
   const dates = colOf('rbDatesArea'), colorsRaw = colOf('rbColorsArea');
   const installPrefRaw = colOf('rbInstallPrefArea'), wireRaw = colOf('rbWireArea');
   const timerRaw = colOf('rbTimerArea'), eavesRaw = colOf('rbEavesArea');
+  const upPlugRaw = colOf('rbUpPlugArea');
   const difficultyRaw = colOf('rbDifficultyArea'), feetRaw = colOf('rbFeetArea');
   const notesRaw = colOf('rbNotesArea');
   const amountsRaw = colOf('rbAmountsArea');
@@ -17481,6 +17524,15 @@ async function rbApplyTickedAdds(statusEl){
         wireColor: rbNormalizeWire(wireRaw[i] || '') || '',
         outletTimer: rbNormalizeYesNo(timerRaw[i] || '') || '',
         useEaves: rbNormalizeYesNo(eavesRaw[i] || '') || '',
+        /* ⭐ UP PLUG GOES TO THE OUTLET FIELDS. Owner, 2026-08-19: "up plug should be
+           read and then put into the website in the what outlets spot".
+           ⚠ TWO FIELDS, NOT ONE. specificOutlet is the Yes/No the office filters on and
+           specificOutletNotes is what the crew actually reads at the door — writing the
+           words into the flag would leave the crew a "Yes" and no outlet. And a blank
+           column says nothing, so it must not tick the flag to No.
+           Blank is left alone entirely, the same as every other column here. */
+        specificOutlet: String(upPlugRaw[i] || '').trim() ? 'Yes' : '',
+        specificOutletNotes: String(upPlugRaw[i] || '').trim(),
         portalToken: generatePortalToken(),
         lat: coords.lat, lng: coords.lng, needsGeocode: coords.lat === null,
         scheduled: false,
