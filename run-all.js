@@ -18079,6 +18079,73 @@ pendingAsync.push((async () => {
     'listed second, and Customers is sheet1 while listed first, so position and ' +
     'name disagree exactly as they do in the real book');
 
+  /* ---- a sheet full of empty rows, which is what hers really is ---- */
+  {
+    /* ⭐ THE YES SHEET IN THE REAL WORKBOOK HOLDS 9,697 ROW ELEMENTS AND NO DATA —
+       empty rows Excel keeps for formatting. Appending after the highest row NUMBER put
+       three customers on rows 9698-9700, and the owner reported exactly what that looks
+       like: "it says yes was updated but the yes sheet is still blank." It was not
+       blank. They were ten thousand rows down.
+
+       This fixture is that sheet in miniature: a heading, then empty rows 2-6. */
+    /* ⚠ AND THE EMPTY ROWS ARE NOT STRUCTURALLY EMPTY. Every row of her real Yes
+       sheet from 2 to 9697 carries ONE cell in column R: a leftover TRUE/FALSE
+       checkbox, t="b" with a 0 in it. The sheet looks blank and is not, so a
+       has-any-value test called all 9,696 of them used and went to the bottom
+       anyway. That stray cell is reproduced here, or this fixture proves nothing. */
+    const emptyRows = '<row r="1">' + cell('A1', 'Name') + '</row>' +
+      [2,3,4,5,6].map(n => '<row r="' + n + '" spans="1:18"><c r="R' + n + '" s="180" t="b"><v>0</v></c></row>').join('');
+    const bytes = await box.zip([
+      {name: 'xl/workbook.xml', data: enc.encode('<workbook><sheets>' +
+        '<sheet name="Customers" r:id="rId9"/><sheet name="Yes" r:id="rId4"/>' +
+        '</sheets></workbook>')},
+      {name: 'xl/_rels/workbook.xml.rels', data: enc.encode('<Relationships>' +
+        '<Relationship Id="rId9" Target="worksheets/sheet1.xml"/>' +
+        '<Relationship Id="rId4" Target="worksheets/sheet2.xml"/>' +
+        '</Relationships>')},
+      {name: 'xl/worksheets/sheet1.xml', data: sheetXml(
+        '<row r="1">' + cell('A1', 'Name') + '</row>' +
+        '<row r="2">' + cell('A2', 'Ada Real') + '</row>')},
+      {name: 'xl/worksheets/sheet2.xml', data: enc.encode(
+        '<worksheet><sheetData>' + emptyRows + '</sheetData></worksheet>')}
+    ]);
+    disk = bytes;
+    writes = 0;
+    await box.append([['Bea Fake']], 'Yes');
+    const parts2 = await box.unzipAll(disk.buffer ? disk.buffer.slice(disk.byteOffset, disk.byteOffset + disk.byteLength) : disk);
+    const yesXml = new TextDecoder().decode(box.partFor(parts2, 'Yes').data);
+
+    const at = (yesXml.match(/<row[^>]*r="(\d+)"[^>]*>(?:(?!<\/row>)[\s\S])*Bea Fake/) || [])[1];
+    check('S74', 'a row lands on the first BLANK row, not after the last one',
+      at === '2',
+      'landed on row ' + at + '. The owner asked for "first row possible" and "first ' +
+      'blank row"; counting from the highest row NUMBER is a different thing, and on ' +
+      'her real Yes sheet it meant row 9698');
+
+    /* ⚠ AND THE PLACEHOLDER IS REPLACED, NOT DUPLICATED. Those empty rows exist in
+       the XML, so a second element numbered 2 gives the sheet two row 2s and Excel
+       refuses to open it. */
+    const twos = (yesXml.match(/<row[^>]*r="2"/g) || []).length;
+    check('S74', 'and the empty row it replaced is gone, not left beside it',
+      twos === 1,
+      'found ' + twos + ' rows numbered 2 — a duplicate row number is a workbook ' +
+      'Excel will not open');
+    check('S74', 'the heading is still row 1',
+      /<row[^>]*r="1"[^>]*>(?:(?!<\/row>)[\s\S])*Name/.test(yesXml));
+
+    /* Two at once fill the next two blanks, in order. */
+    writes = 0;
+    await box.append([['Cal Two'], ['Dot Three']], 'Yes');
+    const parts3 = await box.unzipAll(disk.buffer ? disk.buffer.slice(disk.byteOffset, disk.byteOffset + disk.byteLength) : disk);
+    const yes3 = new TextDecoder().decode(box.partFor(parts3, 'Yes').data);
+    const rowOf = (who) => (yes3.match(new RegExp('<row[^>]*r="(\\d+)"[^>]*>(?:(?!</row>)[\\s\\S])*' + who)) || [])[1];
+    check('S74', 'and the next ones fill the blanks after it, in order',
+      rowOf('Cal Two') === '3' && rowOf('Dot Three') === '4',
+      'got ' + rowOf('Cal Two') + ' and ' + rowOf('Dot Three'));
+    check('S74', 'without disturbing the one already written',
+      rowOf('Bea Fake') === '2');
+  }
+
   /* ---- the guards ---- */
   const writesBefore = writes;
   let threw = '';
