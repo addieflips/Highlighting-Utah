@@ -17526,9 +17526,35 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
        DELIBERATE answer. Flipping it to yes because a price was accepted puts
        somebody back on a route they cancelled, and leaves needsLightRecycle set
        behind them — the record then says two opposite things at once. */
-    check('S70', 'but never overwrites an answer they already gave',
-      /const currentRsvp[\s\S]{0,200}if \(!currentRsvp\)/.test(seasonBlock),
-      'an explicit "no" or "back next year" must outrank one inferred from a price');
+    /* ⚠ THE GUARD THAT MATTERS, AND IT IS RUN RATHER THAN MATCHED. This was a
+       regex for the literal `if (!currentRsvp)`, which broke the moment a third
+       do-not-overwrite case was added — and a test that fails when correct code grows
+       gets loosened rather than read. The condition itself is lifted and evaluated. */
+    {
+      const cond = (seasonBlock.match(/if \((![\s\S]*?currentRsvp[^)]*)\)/) || [])[1];
+      check('S70', 'the season guard is still one readable condition', !!cond,
+        'if this stops being a single if, test the new shape rather than deleting this');
+      if (cond) {
+        const may = new Function('raw',
+          "const currentRsvp = String(raw || '').trim().toLowerCase();" +
+          'return !!(' + cond + ');');
+
+        check('S70', 'but never overwrites an answer they already gave',
+          may('no') === false && may('backnextyear') === false && may('yes') === false,
+          'an explicit "no" or "back next year" must outrank one inferred from a ' +
+          'price: flipping it puts somebody back on a route they cancelled, with ' +
+          'needsLightRecycle still set behind them');
+        check('S70', 'a customer nobody has asked yet IS marked',
+          may('') === true && may(null) === true && may('   ') === true);
+        check('S70', 'and so is one who was asked and has not replied',
+          may('unanswered') === true && may('Unanswered') === true,
+          'unanswered is the absence of an answer, not an answer. Every customer is ' +
+          'moved to it right before an RSVP round, so a blank-only guard would stop ' +
+          'marking ANYONE from the first reset onwards — and the symptom would be ' +
+          'the complaint this code was written to fix: members chased to confirm a ' +
+          'season they had just paid to join');
+      }
+    }
 
     check('S70', 'and only ever for somebody who is already a customer',
       /if \(action === 'approve' && memberRef\)/.test(seasonBlock),
