@@ -17378,9 +17378,11 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
       'is always truthy, and EVERY approver is called an existing member');
     if (matchSrc && normSrc) {
       /* One phone, two houses. This is the real shape from the book. */
+      /* Ids on the fixture, because the matcher now returns WHICH record — the
+         caller needs that to mark them in for the season. */
       const BOOK = [
-        { phoneDigits: '8015550111', emailLower: 'dad@x.com', address: '12 Oak Street' },
-        { phoneDigits: '8015550111', emailLower: 'kid@x.com', address: '99 Elm Avenue' }
+        { id: 'dad', phoneDigits: '8015550111', emailLower: 'dad@x.com', address: '12 Oak Street' },
+        { id: 'kid', phoneDigits: '8015550111', emailLower: 'kid@x.com', address: '99 Elm Avenue' }
       ];
       const db = {
         collection: function () {
@@ -17392,7 +17394,7 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
                     get: function () {
                       return Promise.resolve({
                         docs: BOOK.filter(function (r) { return r[field] === value; })
-                          .map(function (r) { return { data: function () { return r; } }; })
+                          .map(function (r) { return { id: r.id, data: function () { return r; } }; })
                       });
                     }
                   };
@@ -17414,12 +17416,12 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
       pendingAsync.push((async function () {
         /* The child's brand-new house, quoted on the parent's phone. */
         check('S70', 'a new house on a shared phone is NOT called an existing member',
-          (await sb.match({ phone: '(801) 555-0111', address: '5 New Road' })) === false,
+          (await sb.match({ phone: '(801) 555-0111', address: '5 New Road' })) === null,
           'this is the household case — 14 of 17 shared numbers in the real book ' +
           'are a parent and a child at two different addresses');
         /* The parent themselves. */
         check('S70', 'the same phone AT THE SAME ADDRESS is an existing member',
-          (await sb.match({ phone: '801-555-0111', address: '12 Oak Street.' })) === true,
+          ((await sb.match({ phone: '801-555-0111', address: '12 Oak Street.' })) || {}).id === 'dad',
           'punctuation and case must not stop a real member matching');
         /* ⚠ A REAL LIMIT, ASSERTED SO IT IS VISIBLE RATHER THAN SURPRISING.
            The normaliser folds case, punctuation and spacing — it does NOT
@@ -17429,20 +17431,20 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
            customer record still sees the details form. Widening it is a
            change to BOTH copies at once, and to this line. */
         check('S70', 'a differently-WORDED street does not match, and that is admin’s rule too',
-          (await sb.match({ phone: '8015550111', address: '12 Oak St' })) === false,
+          (await sb.match({ phone: '8015550111', address: '12 Oak St' })) === null,
           'if this starts passing, admin.html and the server have diverged — ' +
           'quoteAlreadyACustomer does not do abbreviations either');
         check('S70', 'and the child matches at THEIR address, not the parent’s',
-          (await sb.match({ phone: '8015550111', address: '99 Elm Avenue' })) === true,
+          ((await sb.match({ phone: '8015550111', address: '99 Elm Avenue' })) || {}).id === 'kid',
           'the candidate list must not stop at the first record behind a shared phone');
         check('S70', 'an email match still needs the address to agree',
-          (await sb.match({ email: 'dad@x.com', address: '77 Somewhere Else' })) === false,
+          (await sb.match({ email: 'dad@x.com', address: '77 Somewhere Else' })) === null,
           'contact alone is never enough, whichever contact it is');
         check('S70', 'and matches when it does',
-          (await sb.match({ email: 'DAD@X.com ', address: ' 12 oak street ' })) === true,
+          ((await sb.match({ email: 'DAD@X.com ', address: ' 12 oak street ' })) || {}).id === 'dad',
           'case and stray spaces are normalised on both sides');
         check('S70', 'a quote with no address is never a member',
-          (await sb.match({ phone: '8015550111', address: '' })) === false,
+          (await sb.match({ phone: '8015550111', address: '' })) === null,
           'an empty address would otherwise match every record with an empty one');
       })());
 
@@ -17508,6 +17510,44 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
     /quoteAlreadyACustomer/.test(respond),
     'a quote whose convert-write failed leaves a real member being asked for ' +
     'install details we already hold; admin already flags that card');
+
+  /* ---- approving is saying yes to the season -------------------------
+     A returning member who approved their re-quote had agreed to the price,
+     but rsvpStatus stayed blank — so they still read as "pending" and got
+     chased by an RSVP email asking them to confirm a season they had just
+     confirmed. */
+  {
+    const seasonBlock = respond.slice(respond.indexOf('APPROVING IS SAYING YES TO THE SEASON'));
+    check('S70', 'approving marks an existing member in for the season',
+      /rsvpStatus: 'yes'/.test(seasonBlock),
+      'without it they stay RSVP-pending and get chased by the RSVP email');
+
+    /* ⚠ THE GUARD THAT MATTERS. A recorded "no" or "back next year" is a
+       DELIBERATE answer. Flipping it to yes because a price was accepted puts
+       somebody back on a route they cancelled, and leaves needsLightRecycle set
+       behind them — the record then says two opposite things at once. */
+    check('S70', 'but never overwrites an answer they already gave',
+      /const currentRsvp[\s\S]{0,200}if \(!currentRsvp\)/.test(seasonBlock),
+      'an explicit "no" or "back next year" must outrank one inferred from a price');
+
+    check('S70', 'and only ever for somebody who is already a customer',
+      /if \(action === 'approve' && memberRef\)/.test(seasonBlock),
+      'a new lead has no season to be in yet — they join when the office converts them');
+
+    check('S70', 'a failed write never fails the approval',
+      /catch \(err\)[\s\S]{0,220}marking approver as in for the season failed/.test(seasonBlock),
+      'the price is already accepted; throwing here makes them ring up about it');
+
+    /* The matcher has to name WHICH customer or there is nobody to mark. */
+    check('S70', 'the matcher returns the record, not just a yes/no',
+      /return \{ id: doc\.id, data: doc\.data\(\) \};/.test(respond) ||
+      /return \{ id: doc\.id/.test(read('functions/index.js')),
+      'a bare boolean answers "is this a member" but not "which one"');
+    check('S70', 'and it returns null, never false, when there is no match',
+      !/if \(!wanted\) return false;/.test(read('functions/index.js')),
+      'mixing null and false in one return type is how a caller ends up ' +
+      'testing the wrong thing');
+  }
 
   /* ---- the page asks the question, in that order ---------------------- */
   const handle = extractFn(idx, 'handleQuoteLink');

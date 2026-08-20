@@ -1466,7 +1466,9 @@ function quoteMatchAddressServer(a) {
    the whole book on every approval. */
 async function quoteMatchesExistingCustomer(quoteData) {
   const wanted = quoteMatchAddressServer(quoteData.address);
-  if (!wanted) return false;
+  /* Record-or-null throughout: a stray `false` reads as "definitely not a
+     member", and callers now test the RECORD. */
+  if (!wanted) return null;
   const phone = digitsOnly(quoteData.phone);
   const email = String(quoteData.email || '').trim().toLowerCase();
 
@@ -1479,7 +1481,7 @@ async function quoteMatchesExistingCustomer(quoteData) {
     queries.push(db.collection('jobAddresses').where('emailLower', '==', email).limit(20).get());
     queries.push(db.collection('jobAddresses').where('email2Lower', '==', email).limit(20).get());
   }
-  if (!queries.length) return false;
+  if (!queries.length) return null;
 
   const snaps = await Promise.all(queries.map(q => q.catch(err => {
     /* A missing index must never decide that somebody is not a member - that
@@ -1490,10 +1492,14 @@ async function quoteMatchesExistingCustomer(quoteData) {
   })));
   for (const snap of snaps) {
     for (const doc of snap.docs) {
-      if (quoteMatchAddressServer(doc.data().address) === wanted) return true;
+      /* Returns the RECORD, not a bare true: the caller also needs to know
+         WHICH customer, so it can mark them as in for the season. */
+      if (quoteMatchAddressServer(doc.data().address) === wanted) {
+        return { id: doc.id, data: doc.data() };
+      }
     }
   }
-  return false;
+  return null;
 }
 
 /* --- quoteRespond ---------------------------------------------------------
@@ -1599,14 +1605,21 @@ exports.quoteRespond = onCall({ cors: true }, async (request) => {
    * and still rate limited.
    * ---------------------------------------------------------------------- */
   let alreadyMember = false;
+  /* The record itself when we know WHICH customer — needed to mark them in for
+     the season below. Null is normal: a converted quote can say "this became a
+     customer" without saying who. */
+  let memberRef = null;
   if (action === 'approve') {
     try {
-      if (quoteData.convertedToCustomerAt) {
+      const linkedId = quoteData.convertedToCustomerId || quoteData.existingCustomerId || '';
+      if (linkedId) {
+        const cSnap = await db.collection('jobAddresses').doc(String(linkedId)).get();
+        if (cSnap.exists) { memberRef = { id: cSnap.id, data: cSnap.data() }; }
+      }
+      if (memberRef) {
         alreadyMember = true;
-      } else if (quoteData.existingCustomerId) {
-        const cSnap = await db.collection('jobAddresses')
-          .doc(String(quoteData.existingCustomerId)).get();
-        alreadyMember = cSnap.exists;
+      } else if (quoteData.convertedToCustomerAt) {
+        alreadyMember = true;
       } else {
         /* ⚠ THE TWO MARKS ABOVE ARE NOT RELIABLE ON REAL DATA, which is why
            this third test exists. Both writes that set convertedToCustomerAt
@@ -1631,8 +1644,16 @@ exports.quoteRespond = onCall({ cors: true }, async (request) => {
            of your customers?" oracle for anyone who can submit the quote
            form. A member only ever gets a link after pricing, so it costs
            nothing real. */
-        alreadyMember = typeof quoteData.quotedPrice === 'number' &&
-          await quoteMatchesExistingCustomer(quoteData);
+        if (typeof quoteData.quotedPrice === 'number') {
+          memberRef = await quoteMatchesExistingCustomer(quoteData);
+          alreadyMember = !!memberRef;
+        }
+      }
+      /* The address match can still name the customer even when one of the
+         explicit marks already answered the question — worth doing, because
+         without a record we cannot mark them in for the season. */
+      if (alreadyMember && !memberRef && typeof quoteData.quotedPrice === 'number') {
+        memberRef = await quoteMatchesExistingCustomer(quoteData);
       }
     } catch (err) {
       /* Never let this sink the approval - it is already recorded above. A
@@ -1640,6 +1661,37 @@ exports.quoteRespond = onCall({ cors: true }, async (request) => {
          customer whose approval failed has to ring the office. */
       console.error('[HU] existing-member check failed:', err);
       alreadyMember = false;
+    }
+  }
+
+  /* ⭐ APPROVING IS SAYING YES TO THE SEASON. A returning member who approved
+     their re-quote had agreed to the price, but rsvpStatus stayed blank — so
+     they still read as "pending" and got chased by an RSVP email asking them to
+     confirm a season they had just confirmed. Owner asked for that to stop.
+
+     ⚠ ONLY WHEN IT IS BLANK. A recorded "no" or "back next year" is a
+     deliberate answer, and quietly flipping it to yes would put somebody back
+     on a route they had cancelled — and leave needsLightRecycle set behind
+     them, so the record would say two opposite things at once. An explicit
+     answer always outranks one inferred from a price.
+
+     ⚠ AND ONLY FOR SOMEBODY WHO IS ALREADY A CUSTOMER. A new lead has no
+     season to be in yet; they become one when the office converts them.
+
+     ⚠ Best-effort, like every other write in this function: the approval is
+     already recorded, and failing it here would make the customer ring up
+     about a price they successfully accepted. */
+  if (action === 'approve' && memberRef) {
+    const currentRsvp = String((memberRef.data || {}).rsvpStatus || '').trim();
+    if (!currentRsvp) {
+      try {
+        await db.collection('jobAddresses').doc(memberRef.id).update({
+          rsvpStatus: 'yes',
+          rsvpRespondedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+      } catch (err) {
+        console.error('[HU] marking approver as in for the season failed:', err);
+      }
     }
   }
 
