@@ -15256,6 +15256,7 @@ suite('Suite 69. A customer as a row of the master sheet');
      Every test passed the whole time; reading the column is what caught it. */
   {
     const src = [extractFn(admin, "rbSidesFromNote"), extractFn(admin, "rbGateCodeFromText"),
+                 extractFn(admin, "rbRowSaysPrepaid"),
                  extractFn(admin, "rbMiscParse")].join("\n");
     const sb = {};
     new Function(src + "this.m = rbMiscParse;").call(sb);
@@ -15339,8 +15340,11 @@ suite('Suite 69. A customer as a row of the master sheet');
   check('S69', 'and both apply the gate code, the bill-to and prepaid',
     (admin.match(/\.gateCode = gate/g) || []).length === 4 &&
     (admin.match(/\.billToName = misc\.billToName;/g) || []).length === 3 &&
-    (admin.match(/\.prepaid = true;/g) || []).length === 3,
-    'update, add-during-import, and add-the-missing-ones are three write sites and all three matter');
+    (admin.match(/\.prepaid = true;/g) || []).length === 4,
+    'update, add-during-import, and add-the-missing-ones are three write sites and all ' +
+    'three matter. The fourth is rbMiscParse claiming a cell that says paid, so it ' +
+    'stops being filed as a note as well — if that count drops back to three, ask ' +
+    'WHICH one went, because each is a different way into the same field');
   /* ⭐ SOFT IS PICKABLE, BUT ONLY BY THE OFFICE. Owner, 2026-08-19: "yes no new houses
      can get soft you can only see that as even an option in the admin portal." */
   check('S69', 'soft(recycled) can be ticked in the admin forms',
@@ -15464,15 +15468,81 @@ suite('Suite 69. A customer as a row of the master sheet');
       sb.g("#0754") === "0754" && sb.g("6736#") === "6736",
       'owner: "make sure you format it in many formats so it doesnt flag if its not ' +
       'exactly Gate Code"');
-    check('S69', 'but a number with nothing saying what it is stays put',
-      sb.g("51500") === "" && sb.g("leave gate open, 3 sides") === "" &&
-      sb.g("Find using 905 S 330 W") === "",
-      'a price on a crew card as a gate code is worse than a Misc cell nobody read');
+    /* ⭐ A CELL THAT IS ONLY A NUMBER IS NOW A GATE CODE (changed 2026-08-20).
+       This check used to assert the opposite, on the reasoning that "51500" could be
+       a price. Asked what the two bare numbers on her sheet were, the owner said
+       "assume its gate codes", so the reasoning was wrong about her data and the
+       check is restated rather than deleted — the boundary still matters. */
+    check('S69', 'a cell that is nothing but a number is a gate code',
+      sb.g("51500") === "51500" && sb.g("6321") === "6321",
+      'owner: "assume its gate codes"');
+    check('S69', 'but a number INSIDE a sentence is still left alone',
+      sb.g("Find using 905 S 330 W") === "" && sb.g("leave gate open, 3 sides") === "" &&
+      sb.g("Raise to $800-gutter guard") === "",
+      'the whole-cell rule is the whole safety margin: a house number or a price ' +
+      'printed on a crew card as a gate code sends somebody to a keypad that ' +
+      'rejects them, and "leave gate open" is an instruction, not a code');
+    check('S69', 'and a bare 3 is a side count, not a code',
+      sb.g("3") === "" && sb.g("12") === "",
+      'the three-digit floor is what keeps rbSidesFromNote and this reader apart');
 
+    /* ⭐ THE WORD PAID IS ENOUGH, AND IT IS A TAG NOT A NOTE (changed 2026-08-20).
+       Owner, shown four cells reading "paid", "Paid" and "paid 2025": "we are using
+       this as a test right now so youre right they havent paid for 2026 but we still
+       want them to change to paid, and we dont want it in notes we want their tag to
+       change, if it says paid anywhere they should just be marked as paid for this
+       year." The season in the cell is deliberately NOT read. */
+    {
+      const pp = {};
+      new Function(extractFn(admin, 'rbRowSaysPrepaid') + 'this.f = rbRowSaysPrepaid;').call(pp);
+
+      check('S69', 'a cell that just says paid marks them paid',
+        pp.f(['paid']) === true && pp.f(['Paid']) === true && pp.f(['paid 2025']) === true,
+        'these are the four real cells on her sheet; before this they became notes ' +
+        'and the customer went on showing as owing');
+      check('S69', 'and prepaid still does', pp.f(['prepaid']) === true &&
+        pp.f(['Pre-Paid']) === true && pp.f(['PRE PAID']) === true);
+      check('S69', 'it is found in ANY column',
+        pp.f(['', '', 'paid', '']) === true,
+        'owner: "prepaid can be in any column", and "if it says paid anywhere"');
+
+      /* ⚠ THE ONE DIRECTION THIS MUST NOT BE WRONG IN. Marking somebody paid who
+         is not writes off money the business is owed, and nobody chases an invoice
+         that says settled. */
+      check('S69', 'unpaid is NOT paid',
+        pp.f(['unpaid']) === false && pp.f(['UNPAID']) === false,
+        'the word boundary does that one on its own, which is worth a test because ' +
+        'it is the accident a looser pattern makes first');
+      check('S69', 'not paid, non-paid and un paid are not paid either',
+        pp.f(['not paid']) === false && pp.f(['not prepaid']) === false &&
+        pp.f(['non-paid']) === false && pp.f(['un paid']) === false);
+      check('S69', 'a question mark is somebody thinking aloud',
+        pp.f(['paid?']) === false && pp.f(['prepaid ?']) === false);
+      check('S69', 'and the future tense is the opposite of paid',
+        pp.f(['to be paid']) === false && pp.f(['needs to be paid']) === false &&
+        pp.f(['will be paid']) === false && pp.f(['has not paid']) === false,
+        'every one of these says the money has NOT arrived; reading them as money ' +
+        'received is the expensive way to be wrong');
+      check('S69', 'and an empty sheet marks nobody',
+        pp.f([]) === false && pp.f(['', null, undefined]) === false);
+    }
+
+    /* And the Misc reader has to CLAIM it, or it lands in the notes as well. */
+    check('S69', 'a Misc cell that says paid is claimed, not filed as prose',
+      sb.m('paid 2025').prepaid === true && sb.m('paid 2025').leftover === '' &&
+      sb.m('Paid').prepaid === true && sb.m('Paid').leftover === '',
+      'owner: "we dont want it in notes we want their tag to change"');
+    check('S69', 'and one that does not is still a note',
+      sb.m('referral discount').prepaid === false &&
+      sb.m('referral discount').leftover === 'referral discount');
     /* ⭐ AND EVERYTHING ELSE BECOMES A NOTE. */
+    /* ⚠ "paid 2025" USED TO BE ONE OF THESE, and is not any more (2026-08-20):
+       owner, "we dont want it in notes we want their tag to change". The rest of the
+       rule is unchanged, so the check keeps its other two real examples. */
     check('S69', 'anything she did not name is kept as a note',
-      sb.m("paid 2025").leftover === "paid 2025" && sb.m("remap").leftover === "remap" &&
-      sb.m("venmo request tomfry13").leftover === "venmo request tomfry13",
+      sb.m("remap").leftover === "remap" &&
+      sb.m("venmo request tomfry13").leftover === "venmo request tomfry13" &&
+      sb.m("referral discount").leftover === "referral discount",
       'somebody wrote it down for a reason; Notes is where a human can read it');
     check('S69', 'and something that WAS understood is not also left as a note',
       sb.m("mail bill").leftover === "" && sb.m("3 sides").leftover === "" &&
@@ -15486,10 +15556,24 @@ suite('Suite 69. A customer as a row of the master sheet');
       'owner: "prepaid can be in any column"');
     /* ⚠ AND THE WORD HAS TO MEAN IT. Reading a question as money received is the wrong
        way to be wrong. */
+    /* ⭐ "paid" ON ITS OWN IS NOW A PAYMENT (changed 2026-08-20). It was excluded
+       here as too weak a word; the owner overruled that: "if it says paid anywhere
+       they should just be marked as paid for this year". A doubt still is not. */
     check('S69', 'but a doubt is not a payment',
       sb.p(["not prepaid"]) === false && sb.p(["prepaid?"]) === false &&
-      sb.p(["paid"]) === false,
+      sb.p(["paid?"]) === false && sb.p(["unpaid"]) === false &&
+      sb.p(["needs to be paid"]) === false,
       'somebody thinking aloud is not somebody who has paid');
+    check('S69', 'and a bare paid IS one',
+      sb.p(["paid"]) === true && sb.p(["Paid"]) === true && sb.p(["paid 2025"]) === true);
+
+    /* ⚠ THE WORD BOUNDARY IS NOT DECORATION. Misc and Notes carry street names and
+       surnames, and a substring match turns any word ENDING in those four letters into
+       a settled invoice. A red-check found nothing else distinguishes the two, because
+       the not/un guards already cover "unpaid" - this is the case that does. */
+    check('S69', 'and paid inside a longer word is not a payment',
+      sb.p(["Paidley Lane"]) === false && sb.p(["see Paiden about it"]) === false,
+      'a street name is not a receipt');
 
     /* ⭐ AN OUTLET INSTRUCTION IN NOTES. Owner: "sometimes they give plug or outlet
        information in notes and if they do that should go to the outlet preference". */
@@ -15515,10 +15599,45 @@ suite('Suite 69. A customer as a row of the master sheet');
   /* ⚠ THE FLAGS ARE THE APP’S OWN. I first wrote needsRecycle and
      colorChangeRequested and neither exists — the same mistake as the invented test
      row. needsLightRecycle and needsLightBuild are the real ones. */
-  check('S69', 'the three tabs read flags that actually exist',
-    /holds: function\(d\){ return !!d\.needsLightRecycle; }/.test(admin) && /holds: function\(d\){ return !!d\.needsLightBuild; }/.test(admin) &&
-    /d\.maybeNextYear \|\| d\.rsvpStatus === "maybe_next_year"/.test(admin),
-    'a flag nobody sets is a tab that stays empty for ever');
+  /* ⚠ THIS USED TO MATCH THE SOURCE, AND SAID SO IN ITS OWN TITLE while asserting
+     the one flag that does NOT exist: rsvpStatus "maybe_next_year" is the QUOTE
+     field (approvalStatus), and nothing has ever set it on a customer. A source
+     match cannot tell a real field name from an invented one — it only proves the
+     text is still there. These RUN the predicates against records shaped the way
+     the real writers write them. */
+  {
+    const tabsSrc = admin.match(/const HLX_STATE_TABS = \[[\s\S]*?\n\];/);
+    check('S69', 'the tab table is still there to run', !!tabsSrc);
+    if (tabsSrc) {
+      const b = {};
+      new Function(tabsSrc[0] + 'this.t = HLX_STATE_TABS;').call(b);
+      const holds = (tab, d) => b.t.filter(x => x.tab === tab).map(x => x.holds(d))[0];
+
+      check('S69', 'Recycle reads the flag the warehouse actually sets',
+        holds('Recycle', { needsLightRecycle: true }) === true &&
+        holds('Recycle', { needsRecycle: true }) !== true,
+        'a flag nobody sets is a tab that stays empty for ever');
+      check('S69', 'Color Changes reads needsLightBuild',
+        holds('Color Changes', { needsLightBuild: true }) === true,
+        'a colour change IS a fresh build, which is why that is the flag');
+
+      /* The two ways somebody becomes a Contact 2027, taken from the two
+         functions that write them. */
+      check('S69', 'Contact 2027 catches the office button (flag + status)',
+        holds('Contact 2027', { maybeNextYear: true, rsvpStatus: 'backnextyear' }) === true);
+      check('S69', 'AND the customer who answered through the RSVP link',
+        holds('Contact 2027', { rsvpStatus: 'backnextyear' }) === true,
+        'portalRsvp writes the STATUS ALONE — only the office button writes the flag ' +
+        'too, so a customer who answered for themselves reached neither half of the ' +
+        'old test and never arrived on the tab');
+      check('S69', 'and the value it reads is the one the server writes',
+        /rsvpStatus: 'backnextyear'/.test(fnsSrc),
+        'if the server ever renames it, this tab silently empties');
+      check('S69', 'somebody still in the season is NOT on it',
+        holds('Contact 2027', { rsvpStatus: 'yes' }) !== true &&
+        holds('Contact 2027', {}) !== true);
+    }
+  }
   check('S69', 'and each goes to its own tab',
     /tab: "Recycle"/.test(admin) && /tab: "Color Changes"/.test(admin) &&
     /tab: "Contact 2027"/.test(admin),
@@ -16462,7 +16581,10 @@ pendingAsync.push((async () => {
       { id: 'r', data: { name: 'Rae Recycle', needsLightRecycle: true } },
       { id: 'c', data: { name: 'Cal Colour', needsLightBuild: true } },
       { id: 'm', data: { name: 'Mae Maybe', maybeNextYear: true } },
-      { id: 'm2', data: { name: 'Moe Maybe', rsvpStatus: 'maybe_next_year' } },
+      /* ⚠ 'backnextyear' is the value the RSVP link really writes. This fixture said
+         'maybe_next_year' for a day, copied from the code under test rather than from
+         the writer, so it agreed with the bug and passed. */
+      { id: 'm2', data: { name: 'Moe Maybe', rsvpStatus: 'backnextyear' } },
       { id: 'o', data: { name: 'Ola Ordinary' } }
     ];
     const r = await press(book, {});

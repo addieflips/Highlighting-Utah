@@ -16095,16 +16095,26 @@ function rbRowSaysPrepaid(values){
   return (values || []).some(function(v){
     const t = String(v == null ? "" : v).trim().toLowerCase();
     if(!t) return false;
-    /* ⚠ THE WORD HAS TO MEAN IT. "not prepaid" and "prepaid?" are somebody thinking
-       aloud, and reading either as money received is the wrong way to be wrong. */
-    if(/\b(not|non|un)[\s-]*pre[\s-]*paid\b/.test(t)) return false;
-    if(/pre[\s-]*paid\s*\?/.test(t)) return false;
-    return /\bpre[\s-]*paid\b/.test(t);
+    /* ⭐ "PAID" IS ENOUGH, not only "prepaid" (changed 2026-08-20). Owner, shown
+       four cells reading "paid", "Paid" and "paid 2025": "we are using this as a test
+       right now so youre right they havent paid for 2026 but we still want them to
+       change to paid... if it says paid anywhere they should just be marked as paid
+       for this year." The season in the cell is deliberately NOT read.
+       ⚠ THE WORD STILL HAS TO MEAN IT, and this is the one direction that must not
+       be wrong: marking somebody paid who is not writes off money the business is
+       owed, and nobody chases an invoice that says settled. "unpaid" fails the word
+       boundary by itself; the rest are named. */
+    if(/\b(not|non|un)[\s-]*(pre[\s-]*)?paid\b/.test(t)) return false;
+    if(/(pre[\s-]*)?paid\s*\?/.test(t)) return false;
+    /* "to be paid", "needs to be paid", "will be paid", "has not paid" — every one of
+       these says the money has NOT arrived. */
+    if(/\b(to|be|will|would|should|must|need|needs|needed|not|never|hasn|havent|haven)\b[^.]{0,14}\bpaid\b/.test(t)) return false;
+    return /\b(pre[\s-]*)?paid\b/.test(t);
   });
 }
 function rbMiscParse(raw){
   const text = String(raw == null ? "" : raw).trim();
-  const out = {billToName: "", billToEmail: "", mailBill: false, textBill: false, gateCode: "", sides: 0, leftover: "", used: false};
+  const out = {billToName: "", billToEmail: "", mailBill: false, textBill: false, gateCode: "", sides: 0, prepaid: false, leftover: "", used: false};
   if(!text) return out;
   const low = text.toLowerCase();
 
@@ -16160,6 +16170,15 @@ function rbMiscParse(raw){
   /* And the side count, through the same reader the Notes column uses. */
   const sides = rbSidesFromNote(text);
   if(sides){ out.sides = sides; out.used = true; }
+
+  /* ⭐ A CELL THAT SAYS PAID IS A TAG, NOT A NOTE (added 2026-08-20). Owner: "we
+     dont want it in notes we want their tag to change." It used to fall through to
+     leftover, so "paid 2025" arrived as a line of prose nobody acts on while the
+     customer went on showing as owing. Claimed through the SAME reader the import
+     runs over every column, so Misc cannot disagree with the rest about what paid
+     means. */
+  if(rbRowSaysPrepaid([text])){ out.prepaid = true; out.used = true; }
+
   if(!out.used) out.leftover = text;
   return out;
 }
@@ -16198,14 +16217,20 @@ function rbGateCodeFromText(raw){
      that." On the real sheet alone: "JAN GATE CODE 851409", "Gate Code 6321",
      "gate #5225", "code #0624", "Gate:code: 123456". The word, any punctuation or
      none, then the digits.
-     ⚠ A MARKER IS STILL REQUIRED. Bare digits are left alone — "51500" in Misc could
-     be a price or a footage, and putting it on a crew card as a gate code is worse
-     than leaving it where a person can read it. */
+     ⭐ AND A CELL THAT IS NOTHING BUT A NUMBER IS ONE TOO (changed 2026-08-20).
+     This used to require a marker, reasoning that "51500" could be a price or a
+     footage and that a wrong number on a crew card is worse than a note nobody
+     reads. Asked directly what the two bare numbers on her sheet were meant to be,
+     the owner said: "assume its gate codes".
+     ⚠ ONLY when the WHOLE cell is digits. A number inside a sentence is a price, a
+     year or a house number far more often than it is a code. The 3-digit floor is
+     what keeps a bare "3" out — that is a side count and rbSidesFromNote owns it. */
   const m = text.match(/(?:gate|gatecode|code)\b[^0-9]{0,20}(\d{3,})/i);
   if(m) return m[1];
   /* A number wearing a # and nothing else: "#2015", "6736#". */
   const h = text.match(/^#\s*(\d{3,})$|^(\d{3,})\s*#$/);
   if(h) return h[1] || h[2];
+  if(/^[0-9]{3,}$/.test(text)) return text;
   return "";
 }
 function rbSidesFromNote(raw){
@@ -16802,7 +16827,14 @@ const HLX_STATE_TABS = [
   {tab: "Color Changes", label: "colour changes",
    holds: function(d){ return !!d.needsLightBuild; }},
   {tab: "Contact 2027", label: "maybe next year",
-   holds: function(d){ return !!d.maybeNextYear || d.rsvpStatus === "maybe_next_year"; }}
+   /* ⚠ THE STATUS IS "backnextyear". "maybe_next_year" was written here and NOTHING
+      sets it on a customer — that is the QUOTE field (approvalStatus). A customer who
+      answered Back Next Year through the RSVP link gets the status but NOT the
+      maybeNextYear flag: portalRsvp writes the status alone, and only the office
+      button writes both. So those people matched neither half of this test and never
+      reached the tab. Both are read now — the flag is what the office sets and sees,
+      the status is what the customer answered. */
+   holds: function(d){ return !!d.maybeNextYear || String(d.rsvpStatus || "").toLowerCase() === "backnextyear"; }}
 ];
 async function hlxNamesAlreadyOnTab(tabName){
   const handle = await hlxSheetHandleLoad();
