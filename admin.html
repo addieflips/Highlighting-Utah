@@ -33441,10 +33441,16 @@ function renderSeasonBar(){
   if(sn){
     if(stale.length){
       sn.style.display = '';
+      /* ⚠ IT NO LONGER BLAMES AN OLD BUILD. It said "built before the current
+         rules", which sent the office to press Recalculate everything — and the
+         warning came straight back, because the timing sweep was making these days
+         minutes after the rebuild, not the builder making them months ago. Naming the
+         wrong cause is worse than naming none: it costs a rebuild every time, and it
+         teaches the office that the button does not work. */
       sn.innerHTML = '\u26A0 ' + stale.length + ' day' + (stale.length === 1 ? '' : 's') +
-        ' ' + (stale.length === 1 ? 'was' : 'were') + ' built before the current rules and ' +
-        (stale.length === 1 ? 'carries' : 'carry') + ' too many towns ' +
-        '(a crew does its own town plus at most one other). Press <b>Recalculate everything</b> to lay them out again \u2014 it can be undone. ' +
+        ' ' + (stale.length === 1 ? 'carries' : 'carry') + ' more towns than a crew can drive ' +
+        '(each crew does its own town plus at most one other, so ' + maxTownsPerDay() + ' is the most for one day). ' +
+        'Press <b>Recalculate everything</b> to lay them out again \u2014 it can be undone. ' +
         'First one: <b>' + stale[0].date + '</b> \u2014 ' + stale[0].towns.join(', ') + '.';
     } else sn.style.display = 'none';
   }
@@ -34234,9 +34240,24 @@ const SCHEDULE_SYNC_FIELDS = [
    "Rebuild days" is for, and that has an undo.
 
    ⚠ A house already ticked DONE is history and is never moved. */
+/* How many towns one DATE may legitimately hold. Each crew does its own town plus
+   at most one other, so it follows the crew count rather than a hard-coded four —
+   set the office to one crew a day and the answer becomes two. */
+function maxTownsPerDay(){
+  const crews = (typeof CREWS_PER_DAY === 'number' && CREWS_PER_DAY > 0) ? CREWS_PER_DAY : 2;
+  return crews * 2;
+}
+function dayTownCount(day){
+  const seen = {};
+  ((day && day.houses) || []).forEach(function(h){
+    const c = extractCleanCity(h.city);
+    if(c) seen[c] = true;
+  });
+  return Object.keys(seen).length;
+}
 function enforceInstallTiming(){
-  const moved = [], stuck = [];
-  if(typeof SEASON === 'undefined' || !SEASON.length) return {moved: moved, stuck: stuck};
+  const moved = [], stuck = [], crowded = [];
+  if(typeof SEASON === 'undefined' || !SEASON.length) return {moved: moved, stuck: stuck, crowded: crowded};
   const startStr = isoOf(seasonStartDate());
   const dayStr = function(d){ const dt = dayDate(d); return dt ? isoOf(dt) : null; };
   const installs = SEASON.filter(function(d){ return !d.isFixRoute && !d.isTakedown && dayStr(d); })
@@ -34258,7 +34279,32 @@ function enforceInstallTiming(){
       const sameTown = room.filter(function(t){
         return (t.houses || []).some(function(x){ return extractCleanCity(x.city) === town; });
       })[0];
-      const target = sameTown || room[0];
+      /* ⭐ AND FAILING THAT, A DAY THAT CAN AFFORD A NEW TOWN (added 2026-08-20).
+         Owner: "4 days were built before the current rules and carry too many towns...
+         why is this here, everything should recalculate to the new rules".
+
+         They were not built that way. The BUILDER cannot make a day like that: it
+         gives each crew its own town plus at most one borrowed, so two crews can only
+         ever produce four. THIS is what made them. The fallback was sameTown ||
+         room[0] — the earliest day with a free slot, with no regard at all for the
+         towns already on it — so a legal four-town day quietly became five.
+
+         And because this sweep runs on the five-minute customer sync, LONG AFTER the
+         rebuild, pressing Recalculate everything fixed it and the next sync broke it
+         again. That is why the warning kept coming back on its own.
+
+         Preferring a day that is under the limit costs nothing: the house still lands
+         on the earliest day it is allowed on that has room, just not on one already
+         carrying as many towns as a crew can drive. */
+      const roomy = room.filter(function(t){ return dayTownCount(t) < maxTownsPerDay(); })[0];
+      /* ⚠ AND IF NOTHING CAN, IT STILL GOES SOMEWHERE AND SAYS SO. Leaving the
+         house where it is means a customer hung in a month they ruled out, which is
+         worse than a crowded day — but it must not happen silently, or the warning
+         at the top of the tab becomes a mystery all over again. */
+      const target = sameTown || roomy || room[0];
+      if(target && !sameTown && !roomy){
+        crowded.push({name: h.name || '(no name)', town: town, date: dayStr(target)});
+      }
       if(!target){
         stuck.push({name: h.name || '(no name)', pref: h.pref || '', notBefore: from});
         return;
@@ -34268,7 +34314,7 @@ function enforceInstallTiming(){
       moved.push({name: h.name || '(no name)', pref: h.pref || '', fromDate: here, toDate: dayStr(target)});
     });
   });
-  return {moved: moved, stuck: stuck};
+  return {moved: moved, stuck: stuck, crowded: crowded};
 }
 /* A saved plan built before the one-other-town rule can hold a crew-day full of
    towns. Counted and reported rather than rearranged: re-flowing the season is
@@ -34284,9 +34330,11 @@ function crewDaysOverTownLimit(){
       if(t) towns[t] = true;
     });
     const n = Object.keys(towns).length;
-    /* Two crews, each allowed its own town plus one other, so four is the most
-       a WORKING DAY can legitimately hold. */
-    if(n > 4) over.push({date: dayDate(d) ? isoOf(dayDate(d)) : '?', towns: Object.keys(towns)});
+    /* Each crew is allowed its own town plus one other, so twice the crew count is
+       the most a WORKING DAY can legitimately hold. Shared with the timing sweep,
+       which has to know the same number so it stops creating the very days this
+       exists to report. */
+    if(n > maxTownsPerDay()) over.push({date: dayDate(d) ? isoOf(dayDate(d)) : '?', towns: Object.keys(towns)});
   });
   return over;
 }

@@ -10831,6 +10831,10 @@ suite('Suite 46. Nobody is hung before the month they asked for');
       const sb = {};
       new Function('SEASON', 'isoOf', 'seasonStartDate', 'dayDate', 'houseAllowedFrom',
         'extractCleanCity', 'maxStopsPerWorkingDay',
+        /* ⚠ LIFTED, NOT STUBBED (2026-08-20). The sweep now asks how many towns a
+           day already holds before it moves anybody onto it, and a stub of that is a
+           stub of the fix itself. CREWS_PER_DAY is left to its own fallback of two. */
+        fn('dayTownCount') + fn('maxTownsPerDay') +
         src + 'this.run = enforceInstallTiming;'
       ).call(sb, SEASON,
         (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'),
@@ -10942,6 +10946,10 @@ suite('Suite 46. Nobody is hung before the month they asked for');
     if (src2) {
       const sb = {};
       new Function('SEASON', 'dayDate', 'isoOf', 'extractCleanCity',
+        /* ⚠ THE LIMIT IS LIFTED TOO. It used to be the number 4 written into this
+           function; sharing it with the timing sweep is the point of the change, so a
+           stub here would test a constant that no longer exists. */
+        fn('maxTownsPerDay') +
         src2 + 'this.run = crewDaysOverTownLimit;'
       ).call(sb, [
         { _date: new Date(2026, 9, 1), houses: [
@@ -17227,6 +17235,168 @@ suite('Suite 97. The New Members tab, and two buttons, are gone');
   check('S97', 'the New members COUNT stays on the stats bar',
     /'New members',newHouses\(\)\.length/.test(admin),
     'removing the tab is not a reason to stop counting them');
+}
+/* ---------------------------------------------------------------------------
+ * Suite 98. The timing sweep is what was making the crowded days
+ *
+ * Owner, 2026-08-20, reading the warning at the top of Schedule: "4 days were built
+ * before the current rules and carry too many towns... why is this here, everything
+ * should recalculate to the new rules unless its within 48 hours and no days are
+ * within 48 hours yet."
+ *
+ * She was right and the warning was wrong. The BUILDER cannot make a day like that:
+ * planNewCrewDays gives each crew its own town plus at most one borrowed, so two
+ * crews produce four towns at the most. enforceInstallTiming made them, hours later.
+ * It moves a house that is sitting on a day earlier than it is allowed on, and its
+ * fallback was `sameTown || room[0]` — the earliest day with a free slot, with no
+ * regard at all for the towns already on it.
+ *
+ * It runs on the five-minute customer sync, so Recalculate everything laid the
+ * season out correctly and the next sync undid it. That is the whole reason the
+ * warning kept coming back, and why pressing the button looked like it did nothing.
+ * ------------------------------------------------------------------------- */
+suite('Suite 98. The timing sweep is what was making the crowded days');
+
+{
+  const lim = extractFn(admin, 'maxTownsPerDay');
+  check('S98', 'the town limit is a function, not a number typed twice', !!lim);
+
+  if (lim) {
+    const at = (n) => new Function('CREWS_PER_DAY', lim + 'return maxTownsPerDay();')(n);
+    check('S98', 'two crews may hold four towns between them', at(2) === 4);
+    /* ⚠ ONE CREW A DAY IS A SETTING THE OFFICE CAN PICK (the Scheduling panel
+       writes CREWS_PER_DAY). A hard-coded four would let a single crew wander four
+       towns and never say a word about it. */
+    check('S98', 'and one crew may hold two', at(1) === 2,
+      'got ' + at(1) + ' — one crew, its own town plus one other');
+    check('S98', 'a missing setting falls back to two crews', at(undefined) === 4);
+    /* ⚠ TOWNS, NOT HOUSES. Every fixture below happens to put one house in each
+       town, so a version of this that returned the house count passed the lot of them
+       — and would then refuse to send anybody to a quiet day that already had five
+       houses in ONE town, which is the emptiest kind of day there is. */
+    const tc = new Function('day',
+      'const extractCleanCity = function(c){ return String(c == null ? "" : c).trim(); };' +
+      extractFn(admin, 'dayTownCount') + 'return dayTownCount(day);');
+    check('S98', 'a day is measured in towns, not houses',
+      tc({houses: [{city: 'Orem'}, {city: 'Orem'}, {city: 'Orem'}, {city: 'Lehi'}]}) === 2,
+      'got ' + tc({houses: [{city: 'Orem'}, {city: 'Orem'}, {city: 'Orem'}, {city: 'Lehi'}]}) +
+      ' — five houses in one town is one town, and a perfectly good day to add to');
+    check('S98', 'and a blank town is not counted as one',
+      tc({houses: [{city: 'Orem'}, {city: ''}, {city: '  '}]}) === 1,
+      'an imported row with no town would otherwise inflate every day it sits on');
+
+
+    check('S98', 'the warning counts against that same limit',
+      /maxTownsPerDay\(\)/.test(extractFn(admin, 'crewDaysOverTownLimit')),
+      'it used to test n > 4 with the number written out, so changing the crew ' +
+      'count moved the builder and left the check behind');
+  }
+
+  /* ---- the sweep itself, run for real ---- */
+  const src = extractFn(admin, 'enforceInstallTiming');
+  check('S98', 'the timing sweep is there to run', !!src);
+
+  if (src && lim) {
+    const run = function (season) {
+      return new Function('SEASON',
+        'const CREWS_PER_DAY = 2;' +
+        'const isoOf = function(d){ return d; };' +
+        'const seasonStartDate = function(){ return "2026-10-10"; };' +
+        'const dayDate = function(d){ return d.date; };' +
+        'const maxStopsPerWorkingDay = function(){ return 40; };' +
+        'const houseAllowedFrom = function(h){ return h.from || null; };' +
+        'const extractCleanCity = function(c){ return String(c == null ? "" : c).trim(); };' +
+        extractFn(admin, 'dayTownCount') + lim + src +
+        'return {report: enforceInstallTiming(), season: SEASON};')(season);
+    };
+    const H = (name, city, from) => ({name: name, city: city, from: from || null});
+    const townsOn = (d) => Array.from(new Set(d.houses.map(h => h.city)));
+    const dayNamed = (out, date) => out.season.filter(d => d.date === date)[0];
+
+    /* Her day, as reported: four Salt Lake towns, which is legal for two crews, and
+       a Payson house sitting too early somewhere else. */
+    const full = ['Murray', 'Midvale', 'Holladay', 'Cottonwood Hts']
+      .map((c, i) => H('SL' + i, c));
+    const out = run([
+      {date: '2026-10-15', houses: [H('Early', 'Payson', '2026-10-27')]},
+      {date: '2026-10-27', houses: full},
+      {date: '2026-10-28', houses: [H('E', 'Orem')]}
+    ]);
+
+    check('S98', 'the house still moves off the day it is not allowed on',
+      dayNamed(out, '2026-10-15').houses.length === 0,
+      'the timing rule is the point of the sweep and must survive the fix');
+    check('S98', 'but it does not land on the day that is already full of towns',
+      townsOn(dayNamed(out, '2026-10-27')).length === 4,
+      'got ' + townsOn(dayNamed(out, '2026-10-27')).join(', ') + ' — this is the ' +
+      'exact day she reported: four legal towns plus strays the sweep dropped on it');
+    check('S98', 'it lands on a day that can afford a new town',
+      townsOn(dayNamed(out, '2026-10-28')).indexOf('Payson') !== -1);
+    check('S98', 'and never earlier than it is allowed',
+      out.report.moved.length === 1 && out.report.moved[0].toDate >= '2026-10-27',
+      'moving somebody to honour a town rule, into a month they ruled out, would be ' +
+      'trading one wrong answer for a worse one');
+
+    /* ⚠ AND THE WHOLE POINT: after the sweep, nothing is over the limit. This is
+       the check that would have caught the original bug — every other assertion
+       here is about one house. */
+    check('S98', 'no day is left over the limit',
+      out.season.every(d => townsOn(d).length <= 4),
+      'the warning at the top of the tab reads exactly this, and it was coming back ' +
+      'five minutes after every rebuild');
+
+    /* ⭐ A DAY ALREADY WORKING THE TOWN STILL WINS. That rule was there before and
+       is the better answer: the crew is going to Payson anyway. Preferring merely
+       'emptier' over 'already there' would send a second crew to the same town on a
+       different day, which is the thing the whole town system exists to stop. */
+    const pref = run([
+      {date: '2026-10-15', houses: [H('Early', 'Payson', '2026-10-27')]},
+      {date: '2026-10-27', houses: [H('P', 'Payson'), H('S', 'Santaquin')]},
+      {date: '2026-10-28', houses: []}
+    ]);
+    check('S98', 'a day already working that town beats an emptier one',
+      dayNamed(pref, '2026-10-27').houses.length === 3,
+      'the crew is driving to Payson that day already');
+
+    /* ⚠ WHEN EVERY DAY IS FULL OF TOWNS IT STILL MOVES, AND SAYS SO. Leaving the
+       house is a customer hung in a month they ruled out. Moving it silently is how
+       this bug stayed invisible for so long. */
+    const tight = run([
+      {date: '2026-10-15', houses: [H('Early', 'Payson', '2026-10-27')]},
+      {date: '2026-10-27', houses: full}
+    ]);
+    check('S98', 'with nowhere under the limit it still honours the timing',
+      dayNamed(tight, '2026-10-15').houses.length === 0 &&
+      dayNamed(tight, '2026-10-27').houses.length === 5,
+      'a wrong month is worse than a crowded day');
+    check('S98', 'and it reports the day it had to crowd',
+      tight.report.crowded.length === 1 &&
+      tight.report.crowded[0].date === '2026-10-27' &&
+      tight.report.crowded[0].town === 'Payson',
+      'otherwise the warning at the top of the tab is a mystery with no author');
+    check('S98', 'the ordinary case reports nothing crowded',
+      out.report.crowded.length === 0 && pref.report.crowded.length === 0,
+      'a report that always fires is a report nobody reads');
+
+    check('S98', 'a house with nowhere later at all is reported as stuck, not moved',
+      (function(){
+        const r = run([{date: '2026-10-15', houses: [H('Early', 'Payson', '2026-12-01')]}]);
+        return r.report.stuck.length === 1 && r.report.moved.length === 0;
+      })(),
+      'inventing a day for them is worse than saying there is not one');
+  }
+  /* The message the office actually reads, not the whole file — the sentence still
+     appears further down as a quotation of what she was shown. */
+  const note = admin.slice(admin.indexOf('sn.innerHTML ='),
+    admin.indexOf('sn.innerHTML =') + 900);
+  check('S98', 'the warning no longer says the days were built that way',
+    note.indexOf('built before the current rules') === -1,
+    'they were not: the builder cannot make one. Naming the wrong cause costs a ' +
+    'rebuild every time and teaches the office that the button does not work');
+  check('S98', 'and it still names the day and its towns',
+    note.indexOf('stale[0].date') !== -1 && note.indexOf('stale[0].towns.join') !== -1 &&
+    note.indexOf('Recalculate everything') !== -1,
+    'a count with no example is not something anybody can act on');
 }
 /* ---------------------------------------------------------------------------
  * Suite 92. A day inside 48 hours is printed, and printed is finished
