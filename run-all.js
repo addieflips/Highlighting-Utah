@@ -16956,6 +16956,279 @@ suite('Suite 93. Two crews, two towns, twenty each');
   }
 }
 /* ---------------------------------------------------------------------------
+ * Suite 95. The pool never offers a number somebody is holding
+ *
+ * Owner, 2026-08-20: "rachel oslund is number 479 but still in customer numbers
+ * is this Available — Regular".
+ *
+ * A number enters the pool when a customer is removed and leaves it when it is
+ * handed out. It can also leave WITHOUT the pool being told — typed onto a record
+ * by hand, or assigned by an import — and the entry is then a lie. Two bins end
+ * up wearing the same label.
+ * ------------------------------------------------------------------------- */
+suite('Suite 95. The pool never offers a number somebody is holding');
+
+{
+  const src = extractFn(admin, 'cnFreePool');
+  check('S95', 'the free-pool rule is there to run', !!src);
+
+  if (src) {
+    const build = function (pool, customers) {
+      return new Function('availableCustomerNumbers', 'jobAddresses',
+        extractFn(admin, 'cnNumberIsHeld') + extractFn(admin, 'cnHighestAssigned') +
+        src + extractFn(admin, 'cnShadowedPool') + extractFn(admin, 'cnNextAvailable') +
+        'return {free: cnFreePool, shadowed: cnShadowedPool, next: cnNextAvailable};')
+        (pool, customers);
+    };
+    const p = (id, type) => ({id: id, data: {type: type}});
+    const c = (name, num) => ({id: 'c' + name, data: {name: name, customerNumber: num}});
+
+    /* Her book, in miniature: 376 was genuinely released, 479 was not — Rachel
+       Oslund still holds it. */
+    const pool = [p('376', 'regular'), p('479', 'regular'), p('5012', 'double')];
+    const book = [c('Rachel Oslund', '479'), c('Somebody Else', '812')];
+    const api = build(pool, book);
+    const ids = (list) => list.map(x => x.id).join(',');
+
+    check('S95', 'a number a customer holds is not offered as free',
+      ids(api.free('regular')) === '376',
+      'got ' + ids(api.free('regular')) + ' — 479 is on a customer record, so the ' +
+      'pool entry beside it is a second bin with the same label');
+    check('S95', 'and it is reported as shadowed rather than vanishing',
+      ids(api.shadowed('regular')) === '479',
+      '\'479 has disappeared\' is a bug report; \'479 is held by a customer\' is an answer');
+    check('S95', 'the next number assigned skips it too',
+      api.next('regular').number === '376' && api.next('regular').fromPool === true);
+
+    /* ⚠ THE LIST AND THE NEXT-ASSIGNED LINE MUST READ THE SAME RULE. They did not,
+       which is the entire bug: cnNextAvailable filtered, the list beside it did not,
+       and the two sat on screen contradicting each other. */
+    check('S95', 'the panel reads that same rule rather than its own',
+      /cnFreePool\('regular'\)/.test(extractFn(admin, 'renderCustomerNumbersPanel')) &&
+      /cnFreePool\('double'\)/.test(extractFn(admin, 'renderCustomerNumbersPanel')),
+      'a second filter written separately is how these came apart the first time');
+    check('S95', 'and it names the shadowed ones on screen',
+      /cnShadowedPool/.test(extractFn(admin, 'renderCustomerNumbersPanel')),
+      'a number quietly missing from the list is the next bug report');
+
+    /* ⚠ IT FAILS SAFE WHILE THE PAGE IS STILL LOADING. jobAddresses arrives on its
+       own listener. Before it lands nothing looks held, so the pool shows in full:
+       offering a number that is taken is a real mistake, holding one back for a
+       moment costs the next number up. */
+    const loading = build(pool, []);
+    check('S95', 'with the customer list still empty nothing is hidden',
+      ids(loading.free('regular')) === '376,479' && loading.shadowed('regular').length === 0,
+      'and it must fail in that direction, not the other one');
+
+    /* ⚠ EVERY POOLED NUMBER HELD = FALL BACK TO A NEW ONE. Returning nothing, or
+       returning a held number because the list came back empty, both hand out a
+       label somebody already has. */
+    const allHeld = build([p('479', 'regular')], [c('Rachel Oslund', '479'), c('Top', '900')]);
+    check('S95', 'a pool with nothing genuinely free falls back to a new number',
+      allHeld.next('regular').number === '901' && allHeld.next('regular').fromPool === false,
+      'got ' + allHeld.next('regular').number + ' — one past the highest in the book');
+
+    check('S95', 'regular and double numbers do not leak into each other',
+      ids(api.free('double')) === '5012' && ids(api.free('regular')).indexOf('5012') === -1);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Suite 96. A customer the plan has never heard of joins it
+ *
+ * Owner, 2026-08-20: "rachel oslund is a new customer but when i click recalculate
+ * everything rachel oslund is not put into the schedule, the list of customers needs
+ * to be synced to both of these."
+ *
+ * The plan came from a CSV and holds its own copy of every house. Every sync before
+ * this one walks SEASON and corrects houses that are already there, so a customer
+ * added afterwards had nothing to correct and no way in. Replacing the imported file
+ * was the only route, and that throws away every tick and pin.
+ * ------------------------------------------------------------------------- */
+suite('Suite 96. A customer the plan has never heard of joins it');
+
+{
+  const src = extractFn(admin, 'customersMissingFromSeason');
+  check('S96', 'the finder is there to run', !!src);
+
+  if (src) {
+    const run = new Function('SEASON', 'jobAddresses', 'custById',
+      'const customerForHouse = function(h){ return h.who ? (custById[h.who] || null) : null; };' +
+      'const isOutForSeason = function(d){ return !!(d.maybeNextYear || d.needsLightRecycle); };' +
+      extractFn(admin, 'seasonCustomerIds') + src +
+      'return customersMissingFromSeason().map(function(x){ return x.id; });');
+
+    const cust = (id, extra) => ({id: id, data: Object.assign({name: id}, extra || {})});
+    const book = [cust('rachel'), cust('onaday'), cust('maybe', {maybeNextYear: true}),
+                  cust('saidno', {needsLightRecycle: true}), cust('takedownonly')];
+    const byId = {};
+    book.forEach(c => { byId[c.id] = c; });
+
+    const season = [
+      {houses: [{who: 'onaday'}]},
+      {houses: [{who: 'takedownonly', isTakedown: true}]}
+    ];
+    const got = run(season, book, byId);
+
+    check('S96', 'a customer with no house anywhere is picked up',
+      got.indexOf('rachel') !== -1,
+      'this is the whole report: she exists in All Customers and nowhere on the plan');
+    check('S96', 'somebody already on a day is left alone',
+      got.indexOf('onaday') === -1,
+      'adding them again is a second day for one house');
+
+    /* ⚠ OUT-FOR-THE-SEASON IS NOT RE-DECIDED HERE. isOutForSeason is the one
+       definition the route generator and the nightly fill already share; a second
+       opinion living in the schedule is how those two start disagreeing about who is
+       coming. */
+    check('S96', 'Maybe Next Year is not dragged back in', got.indexOf('maybe') === -1);
+    check('S96', 'nor is somebody whose lights are queued for recycling',
+      got.indexOf('saidno') === -1,
+      'by the time a crew arrived there would be nothing left to hang');
+    check('S96', 'and it asks isOutForSeason rather than reading rsvpStatus itself',
+      /isOutForSeason\(/.test(src) && src.indexOf('rsvpStatus') === -1,
+      'two definitions of \'in for the season\' is two answers');
+
+    /* ⚠ A TAKEDOWN IS NOT AN INSTALL. Both takedowns and fixes are copies made
+       from an install house, so somebody holding only a takedown still needs hanging.
+       Counting one as \'already scheduled\' loses them for the season. */
+    check('S96', 'a takedown does not count as being on the plan',
+      got.indexOf('takedownonly') !== -1,
+      'they would never be hung, and nothing would say why');
+
+    /* ⚠ ALREADY-HERE MEANS ANYWHERE IN SEASON, not just the days being rebuilt.
+       A house on a day inside the 48-hour lock, or on one already worked, is still
+       that customer's house — and the crew already has it on paper. */
+    check('S96', 'a house on a locked or finished day still counts as scheduled',
+      run([{locked: true, houses: [{who: 'rachel'}]}], book, byId).indexOf('rachel') === -1,
+      'the rebuild skips those days, so matching only the movable pile hands out a ' +
+      'second day for a house the crew is already driving to');
+    /* ⚠ AND BEFORE IT EXISTS AT ALL, not merely while it is empty. The plan
+       module loads on its own and jobAddresses is declared elsewhere on the page, so
+       an early rebuild reads it as undefined and .length throws — which takes the
+       whole rebuild down, not just this step. An empty array alone does not exercise
+       that: forEach over nothing adds nobody whether the guard is there or not. */
+    check('S96', 'and with the customer list not loaded yet it does not throw',
+      (function(){ try { return run(season, undefined, {}).length === 0; }
+                   catch(err){ return false; } })(),
+      'a rebuild pressed while the page is still waking up must do nothing, not die');
+
+    check('S96', 'with no customer list loaded it adds nobody',
+      run(season, [], {}).length === 0,
+      'a rebuild against a half-loaded page must not invent a season');
+  }
+
+  /* ---- the house it builds ---- */
+  const mk = extractFn(admin, 'houseFromCustomer');
+  check('S96', 'the house builder is there to run', !!mk);
+
+  if (mk) {
+    const build = new Function('item', 'SCHEDULE_SYNC_FIELDS', mk + 'return houseFromCustomer(item);');
+    const fields = [{key: 'city', read: d => d.city}, {key: 'name', read: d => d.name},
+                    {key: 'pref', read: d => d.installPreference}];
+    const h = build({id: 'abc123', data: {name: 'Rachel Oslund', city: 'Lehi',
+      customerNumber: '479', housePrice: 530, installPreference: 'October', zip: '84043'}}, fields);
+
+    check('S96', 'it carries the name, town and timing across',
+      h.name === 'Rachel Oslund' && h.city === 'Lehi' && h.pref === 'October');
+    check('S96', 'the customer number becomes the link back',
+      h.cu === '479',
+      'customerForHouse matches on cu first; without it the house is an orphan and ' +
+      'the next rebuild adds her all over again');
+    check('S96', 'and the price comes across as a number',
+      h.price === 530, 'the revenue total on the stats bar reads this');
+    check('S96', 'it starts not-done', h.done === false);
+
+    /* ⭐ THE ID IS DERIVED FROM THE CUSTOMER, NEVER A COUNTER. Rebuilds run over
+       and over. A counter would hand the same person a fresh id each time, so the
+       house that was ticked off on Tuesday stops being the house on the plan on
+       Wednesday. */
+    const again = build({id: 'abc123', data: {name: 'Rachel Oslund'}}, fields);
+    check('S96', 'the same customer builds the same house id twice running',
+      h.id === again.id && String(h.id).indexOf('abc123') !== -1,
+      'got ' + h.id + ' then ' + again.id + ' — a fresh id every rebuild loses the ticks');
+    check('S96', 'and that id cannot collide with an imported row',
+      /[^0-9]/.test(String(h.id)),
+      'the CSV importer hands out plain 0, 1, 2 and findHouse compares as strings');
+
+    /* ⚠ A BLANK ON THE CUSTOMER MUST NOT LAND AS THE WORD \'undefined\'. */
+    const bare = build({id: 'z', data: {}}, fields);
+    check('S96', 'a half-filled customer still builds a usable house',
+      bare.name === '' && bare.city === '' && bare.cu === '' && bare.price === '',
+      'every one of these prints on a crew sheet');
+
+    check('S96', 'it fills the house through the shared field list',
+      /SCHEDULE_SYNC_FIELDS/.test(mk),
+      'a field added for the sync then reaches new arrivals too, instead of them ' +
+      'quietly carrying less than everybody else');
+  }
+
+  /* ---- and the rebuild actually calls it ---- */
+  const rb = extractFn(admin, 'rebuildSeasonDays');
+  check('S96', 'rebuilding pulls the missing customers in',
+    /customersMissingFromSeason\(\)/.test(rb) && /movable\.push\(h\)/.test(rb),
+    'owner: "when i click recalculate everything rachel oslund is not put into the ' +
+    'schedule" — so it has to happen inside the rebuild, not on a separate button');
+
+  /* ⚠ BEFORE THE NOTHING-TO-DO CHECK, NOT AFTER. A season whose only outstanding
+     work is one brand-new customer would otherwise report "every house is done" and
+     stop, which is exactly the silence she reported. */
+  check('S96', 'and pulls them in before deciding there is nothing to rebuild',
+    rb.indexOf('customersMissingFromSeason') < rb.indexOf('if(!movable.length)'),
+    'otherwise the one press that was meant to fix it says there is nothing to do');
+  check('S96', 'the rebuild reports how many it added',
+    /joined:joined\.length/.test(rb),
+    '"it rebuilt" and "it rebuilt AND picked up two people" are different news');
+  check('S96', 'and the button says so out loud',
+    /r\.joined[^;]{0,90}new customer/.test(admin),
+    'this is the answer to "why is Rachel not in the schedule", so it has to be ' +
+    'on screen rather than in a console nobody opens');
+}
+
+/* ---------------------------------------------------------------------------
+ * Suite 97. The New Members tab, and two buttons, are gone
+ *
+ * Owner, 2026-08-20: "because we just want it to be in sync we shouldnt need the new
+ * members tab in schedule anymore", and earlier: "we have to many buttons here...
+ * get rid of the button that says reload saved because we dont need that and replace
+ * imported file I dont even know what that does".
+ * ------------------------------------------------------------------------- */
+suite('Suite 97. The New Members tab, and two buttons, are gone');
+
+{
+  check('S97', 'the New Members tab button is gone',
+    admin.indexOf('data-tab=\\\\\"members') === -1);
+  check('S97', 'and so is its pane', admin.indexOf('pane-members') === -1 &&
+    admin.indexOf('membersPane') === -1);
+  check('S97', 'nothing is left trying to draw it',
+    admin.indexOf('renderMembers') === -1,
+    'a render call to a pane that no longer exists throws on the first tab switch');
+
+  /* ⭐ THE ONE THAT WOULD HAVE TAKEN THE WHOLE TAB DOWN. syncTabs walks a list of
+     pane ids and sets .hidden on each. Removing the pane from the markup while
+     leaving 'members' in that list is getElementById returning null, a TypeError on
+     load, and a blank Schedule tab — with nothing on screen to say why. */
+  const st = extractFn(admin, 'syncTabs');
+  check('S97', 'syncTabs no longer reaches for a pane that is not there',
+    !!st && st.indexOf('members') === -1,
+    'this throws on load and blanks the whole tab, it does not degrade quietly');
+  check('S97', 'and it still hides the panes that DO exist',
+    /schedule/.test(st) && /fixes/.test(st) && /takedowns/.test(st),
+    'trimming the list too far leaves two panes on screen at once');
+
+  check('S97', 'Reload saved is gone', admin.indexOf('resetBtn') === -1);
+  check('S97', 'Replace imported file is gone', admin.indexOf('replaceBtn') === -1);
+  check('S97', 'and Recalculate everything is still the one button that is left',
+    admin.indexOf('recalcBtn') !== -1 && admin.indexOf('undoRebuildBtn') !== -1,
+    'one press to recalculate and one to undo it');
+
+  /* The count is not the tab. It is one number on the stats bar and still worth a
+     glance, so it stays. */
+  check('S97', 'the New members COUNT stays on the stats bar',
+    /'New members',newHouses\(\)\.length/.test(admin),
+    'removing the tab is not a reason to stop counting them');
+}
+/* ---------------------------------------------------------------------------
  * Suite 92. A day inside 48 hours is printed, and printed is finished
  *
  * Owner, 2026-08-20: "not recalculate houses within two days cause weve already
