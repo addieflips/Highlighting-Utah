@@ -1138,6 +1138,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
       <span class="nav-label">Health Check</span> <span class="nav-badge" id="badgeHealth" style="display:none;"></span>
     <span class="nav-pin-icon" data-pinpanel="healthcheck" data-pinlabel="Health Check" title="Pin to Favorites"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l1 6 3 2v2H5v-2l3-2z"/></svg></span></button>
+    <button class="nav-item" data-panel="formpreview" title="">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h4"/></svg>
+      <span class="nav-label">Form Preview</span>
+    <span class="nav-pin-icon" data-pinpanel="formpreview" data-pinlabel="Form Preview" title="Pin to Favorites"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l1 6 3 2v2H5v-2l3-2z"/></svg></span></button>
     </div>
     </div>
     <div class="nav-section" data-section="automation">
@@ -1289,7 +1293,6 @@
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
             <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Which Sides Of The House?</label>
             <div class="pill-check-row" id="addCustHouseSides">
-              <label class="pill-check"><input type="radio" name="addcust-sides" class="addcust-side-pick" value=""> Not recorded</label>
               <label class="pill-check"><input type="radio" name="addcust-sides" class="addcust-side-pick" value="1"> 1 side</label>
               <label class="pill-check"><input type="radio" name="addcust-sides" class="addcust-side-pick" value="2"> 2 sides</label>
               <label class="pill-check"><input type="radio" name="addcust-sides" class="addcust-side-pick" value="3"> 3 sides</label>
@@ -1904,13 +1907,12 @@
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
             <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Which Sides Of The House?</label>
             <div class="pill-check-row" id="editCustHouseSides">
-              <label class="pill-check"><input type="radio" name="editcust-sides" class="editcust-side-pick" value=""> Not recorded</label>
               <label class="pill-check"><input type="radio" name="editcust-sides" class="editcust-side-pick" value="1"> 1 side</label>
               <label class="pill-check"><input type="radio" name="editcust-sides" class="editcust-side-pick" value="2"> 2 sides</label>
               <label class="pill-check"><input type="radio" name="editcust-sides" class="editcust-side-pick" value="3"> 3 sides</label>
               <label class="pill-check"><input type="radio" name="editcust-sides" class="editcust-side-pick" value="4"> 4 sides</label>
             </div>
-            <p style="font-size:11.5px; color:var(--slate); margin:6px 0 0;">Leave all four blank if it has never been asked &mdash; blank means &ldquo;not recorded&rdquo;, not &ldquo;front only&rdquo;.</p>
+            <p style="font-size:11.5px; color:var(--slate); margin:6px 0 0;">A house nobody has been asked about counts as one side.</p>
           </div>
           <div class="form-row" style="max-width:180px;"><label>Wire Color</label>
             <select id="editCustWireColor">
@@ -2048,6 +2050,32 @@
         <div id="activityToday" style="font-size:12.5px; color:var(--slate);">Loading…</div>
       </div>
       <div id="hcResults"></div>
+    </div>
+    <!-- ⭐ SEE THE FORM WITHOUT MAKING A CUSTOMER. Owner, 2026-08-20: "in the admin
+         page make a tab where I can view the detail form so I can know what it looks
+         like without creating a new customer."
+         It is an IFRAME of the real page, not a copy of it. A second copy of that form
+         would start drifting the first time somebody edited one of them, and then this
+         screen would be confidently showing something no customer has ever seen.
+         ⚠ NOTHING CAN BE CREATED FROM HERE. The form refuses to submit without a
+         quote token: it says to ring the office and returns before writing anything. So
+         the preview is safe to poke at, which is the point of having one. -->
+    <div class="panel" id="panel-formpreview">
+      <div class="panel-head"><div><h2>Form Preview</h2><p>The details form as a customer sees it. This is the live page, not a mock-up &mdash; nothing here can create a customer.</p></div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button type="button" class="btn btn-outline btn-sm" id="formPreviewReload">Reload</button>
+          <a class="btn btn-outline btn-sm" id="formPreviewOpen" href="/#/quote-details" target="_blank" rel="noopener">Open in a new tab</a>
+        </div>
+      </div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
+        <button type="button" class="btn btn-gold btn-sm form-preview-pick" data-src="/#/quote-details">New customer details</button>
+        <button type="button" class="btn btn-outline btn-sm form-preview-pick" data-src="/#/quote">Quote request form</button>
+        <button type="button" class="btn btn-outline btn-sm form-preview-pick" data-src="/#/payment">Member portal</button>
+      </div>
+      <div style="border:1px solid var(--line); border-radius:12px; overflow:hidden; background:var(--paper);">
+        <iframe id="formPreviewFrame" title="Customer form preview" style="width:100%; height:78vh; border:0; display:block; background:#fff;"></iframe>
+      </div>
+      <p style="font-size:12px; color:var(--slate); margin:8px 0 0;">Loads the same pages your customers get. If it looks empty, the site has not finished deploying &mdash; press Reload.</p>
     </div>
     <div class="panel" id="panel-importcenter">
       <div class="panel-head"><div><h2>Import Center</h2><p>For getting data from an Excel file into the app.</p></div></div>
@@ -16991,8 +17019,18 @@ function hlxRowXml(rowNum, values){
 const HLX_STATE_TABS = [
   {tab: "Recycle", label: "recycling",
    holds: function(d){ return !!d.needsLightRecycle; }},
+  /* ⭐ A COLOUR CHANGE IS NOT THE SAME AS A BUILD (fixed 2026-08-20). The owner,
+     shown twelve people this tab had just written to her sheet: "we dont have anyone
+     in color change yet so I dont know what you mean."
+     She was right. This read needsLightBuild, which is the WAREHOUSE queue: adding a
+     customer sets it (`needsLightBuild: !!lightsDescription`), so does rejoining after
+     a recycle, and so does an actual colour change. Every ordinary new customer with
+     lights on file matched, and twelve of them were sent to a tab meant for people who
+     changed their minds.
+     lightsChangedAt is set ONLY where colours that already existed became different
+     ones — first-time colours are not a change — so the tab now means what it says. */
   {tab: "Color Changes", label: "colour changes",
-   holds: function(d){ return !!d.needsLightBuild; }},
+   holds: function(d){ return !!d.lightsChangedAt; }},
   /* ⭐ CONFIRMED GOES TO THE YES SHEET, NOT THE 2025 ONE (added 2026-08-20). Owner:
      "we dont need to map confirmed in excel either that will be done in the website but
      everyone who is confirmed after we RSVP will need to go to the Yes tab in excel not
@@ -24589,6 +24627,39 @@ document.getElementById('editCustDeleteBtn').addEventListener('click', async fun
    the invoice, re-syncs saved route stops and queues the warehouse " + M + " a second copy of
    that call is the copy that quietly falls behind. Delegating also means the top Save
    inherits the disabled state while a save is running, so it cannot start a second one. */
+/* ⭐ THE PREVIEW LOADS ON DEMAND, not on page load. An iframe with a src sitting in
+   the markup fetches the whole customer site every time anybody opens admin, whichever
+   panel they were actually going to. It is pointed at something the first time this
+   panel is opened and not before. */
+function formPreviewShow(src){
+  const frame = document.getElementById('formPreviewFrame');
+  if(!frame) return;
+  frame.src = src || '/#/quote-details';
+  const open = document.getElementById('formPreviewOpen');
+  if(open) open.href = frame.src;
+  document.querySelectorAll('.form-preview-pick').forEach(function(b){
+    const on = b.dataset.src === frame.src.replace(location.origin, '');
+    b.classList.toggle('btn-gold', on);
+    b.classList.toggle('btn-outline', !on);
+  });
+}
+document.querySelectorAll('.form-preview-pick').forEach(function(b){
+  b.addEventListener('click', function(){ formPreviewShow(b.dataset.src); });
+});
+document.getElementById('formPreviewReload')?.addEventListener('click', function(){
+  const frame = document.getElementById('formPreviewFrame');
+  if(frame && frame.src){
+    /* Re-assigning the same src does not always refetch a hash URL, so it goes
+       through blank first. */
+    const was = frame.src;
+    frame.src = 'about:blank';
+    setTimeout(function(){ frame.src = was; }, 30);
+  } else { formPreviewShow(); }
+});
+document.querySelector('.nav-item[data-panel="formpreview"]')?.addEventListener('click', function(){
+  const frame = document.getElementById('formPreviewFrame');
+  if(frame && !frame.src) formPreviewShow();
+});
 document.getElementById('editCustTopSave')?.addEventListener('click', function(){
   const real = document.getElementById('editCustSaveBtn');
   if(real && !real.disabled) real.click();
@@ -24752,6 +24823,12 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     addrUpdates.chargeNewMemberFee = newChargeNewMemberFee;
     addrUpdates.referralCount = newReferralCount;
     const oldLightsForBuild = item.data.lightsDescription || '';
+    /* ⭐ AND WHETHER IT WAS A CHANGE, which is a different question from whether the
+       warehouse has work to do. Colours recorded for the FIRST time are not a colour
+       change, so this needs the old value to have been something. */
+    if(oldLightsForBuild && newLightsDescription && newLightsDescription !== oldLightsForBuild){
+      addrUpdates.lightsChangedAt = serverTimestamp();
+    }
     addrUpdates.needsLightBuild = newLightsDescription ? (newLightsDescription !== oldLightsForBuild ? true : !!item.data.needsLightBuild) : false;
     /* "They said no" is a lasting fact; "their lights need pulling back into
        stock" is a job that gets finished. This used to be re-derived from the
