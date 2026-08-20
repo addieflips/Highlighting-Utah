@@ -5555,6 +5555,21 @@ const RSVP_ANSWER_WORDS = {
  * on the owner's own machine. If a real payer covers more than this, check a
  * sent email actually arrives whole before raising it. */
 const RSVP_HOUSE_BUTTON_LIMIT = 6;
+/* The three answers as ONE ROW, laid out by a table.
+   ⚠ A table, not inline-blocks with margins: inline-blocks wrap wherever the
+   client decides, so on a narrow phone "No" dropped onto its own line under
+   the other two and the row stopped reading as one choice. A single <tr> keeps
+   them side by side in Outlook and Gmail alike, which have no flexbox between
+   them. Centred as a group so the bar is balanced under a left-aligned
+   address. */
+function rsvpButtonRow(buttons, btnStyle){
+  return '<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;"><tr>' +
+    buttons.map(function(b){
+      return '<td style="padding:0 3px;"><a href="' + b.href + '" style="' + btnStyle +
+        ' background:' + b.bg + '; color:' + b.fg + ';">' + b.label + '</a></td>';
+    }).join('') +
+  '</tr></table>';
+}
 async function rsvpHousesEmailBlock(phone){
   const houses = billedHousesForContact(phone);
   if(houses.length < 2) return '';
@@ -5565,7 +5580,10 @@ async function rsvpHousesEmailBlock(phone){
   if(!token) return '';
   const payBase = 'https://highlightingutah.com/#/payment?token=' + token;
   const homeBase = 'https://highlightingutah.com/#/?token=' + token;
-  const btnStyle = 'display:inline-block; padding:9px 16px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:13.5px; margin:0 6px 0 0;';
+  /* ⚠ nowrap, and no margin. The buttons are laid out by a table below, so a
+     margin here would fight the cell padding, and a wrapped label would break
+     the one-line row the owner asked for. */
+  const btnStyle = 'display:inline-block; padding:9px 13px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:13px; white-space:nowrap;';
   const compact = houses.length > RSVP_HOUSE_BUTTON_LIMIT;
   /* ⭐ ONE CARD PER PROPERTY, WITH ITS BUTTONS JOINED TO IT.
      A flat list separated by hairlines put every address and every Yes/No in
@@ -5594,9 +5612,17 @@ async function rsvpHousesEmailBlock(phone){
       ? '<span style="font-size:13.5px; font-weight:bold; color:#1E3B2C;">' + esc(RSVP_ANSWER_WORDS[answered]) + '</span>' +
         '<span style="font-size:13px; color:#6E6858;"> &middot; </span>' +
         '<a href="' + payBase + q + '" style="font-size:13px; color:#2E6B3E; font-weight:bold;">Change</a>'
-      : '<a href="' + payBase + q + '&rsvp=yes" style="' + btnStyle + ' background:#2E6B3E; color:#ffffff;">Yes</a>' +
-        '<a href="' + payBase + q + '&rsvp=no" style="' + btnStyle + ' background:#8A8F9C; color:#ffffff;">No</a>' +
-        (compact ? '' : '<a href="' + homeBase + q + '&rsvp=back" style="' + btnStyle + ' background:#D89F3D; color:#1E3B2C;">Back Next Year</a>');
+      : rsvpButtonRow([
+          { href: payBase + q + '&rsvp=yes', bg: '#2E6B3E', fg: '#ffffff', label: 'Yes' }
+        ].concat(compact ? [] : [
+          /* ⭐ BACK NEXT YEAR SITS IN THE MIDDLE (owner, 2026-08-20). The two
+             answers that decide this season are the outer two, so neither of
+             them is the one a thumb lands on by accident, and the middle is the
+             hardest place to hit without meaning it. */
+          { href: homeBase + q + '&rsvp=back', bg: '#D89F3D', fg: '#1E3B2C', label: 'Back Next Year' }
+        ]).concat([
+          { href: payBase + q + '&rsvp=no', bg: '#8A8F9C', fg: '#ffffff', label: 'No' }
+        ]), btnStyle);
     return '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 12px;">' +
       '<tr><td style="background:#FFFFFF; border:1px solid #D8E0CB; border-radius:10px; padding:0;">' +
         '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">' +

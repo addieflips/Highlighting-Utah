@@ -17132,8 +17132,13 @@ pendingAsync.push((async () => {
     const d = c > -1 ? admin.indexOf(';', c) + 1 : -1;
     return (b > -1 ? admin.slice(a, b) : '') + '\n' + (d > -1 ? admin.slice(c, d) : '');
   })();
+  /* ⚠ EVERY HELPER THE LIFTED CODE CALLS HAS TO BE IN THIS LIST. rsvpButtonRow
+     was added to rsvpHousesEmailBlock and left out of here once — the sandbox
+     died with ReferenceError, which reads as a broken suite rather than a
+     missing name. CLAUDE.md §3 records the same trap costing an afternoon. */
   const names = ['billingGroupsByPayer', 'billedHousesFor', 'billedHousesForContact',
-                 'rsvpHousesEmailBlock', 'rsvpHousesPlainText', 'etTemplateHasRsvpHouses'];
+                 'rsvpButtonRow', 'rsvpHousesEmailBlock', 'rsvpHousesPlainText',
+                 'etTemplateHasRsvpHouses'];
   const parts = names.map(n => lift79(admin, n));
   check('S79', 'the per-house RSVP email pieces are all in admin.html',
     parts.every(Boolean) && /RSVP_ANSWER_WORDS/.test(constsSrc) &&
@@ -17250,6 +17255,36 @@ pendingAsync.push((async () => {
       'exactly the mistake the card exists to prevent — and it would look perfectly fine');
     /* Document order, not a search for words in a string: DOCUMENT_POSITION_FOLLOWING
        says the link really comes after the address, which is the claim. */
+    /* ⭐ Owner, 2026-08-20: "I want back next year in the middle and in a line."
+       Both halves are asserted from the PARSED card, because both are things a
+       whole-block search cannot see — the links are all present in any order,
+       and in any number of rows. */
+    check('S79', '⭐ the answers read Yes, Back Next Year, No — in that order',
+      cards.length === 3 && cards.slice(0, 2).every(function (c) {
+        return Array.from(c.querySelectorAll('a[href]'))
+          .map(a => (a.getAttribute('href').match(/rsvp=(\w+)/) || [])[1])
+          .filter(Boolean).join(',') === 'yes,back,no';
+      }),
+      'the two answers that decide this season are the outer two, so neither is the one a ' +
+      'thumb lands on by accident — the middle is the hardest place to hit without meaning it');
+    /* ⚠ THREE CELLS, ONE ROW — not merely "one row". Loose inline-block links
+       all sit inside the SAME footer <td>, so a check that only counted rows
+       passed happily on the wrapping layout this replaced. It is the separate
+       <td>s that hold them side by side. Found by sabotage, not by review. */
+    check('S79', '⭐ and all three sit on ONE line — a cell each, in one row',
+      cards.slice(0, 2).every(function (c) {
+        const links = Array.from(c.querySelectorAll('a[href]'));
+        const tds = links.map(a => a.closest('td'));
+        return links.length === 3 && new Set(tds).size === 3 &&
+               new Set(tds.map(td => td.closest('tr'))).size === 1;
+      }),
+      'inline-blocks wrap wherever the client decides, so on a narrow phone "No" dropped onto ' +
+      'its own line and the row stopped reading as one choice — a <tr> is what holds them ' +
+      'together in Outlook and Gmail, neither of which has flexbox');
+    check('S79', 'and the labels cannot wrap inside their own buttons',
+      /white-space:nowrap/.test(dana),
+      'a two-line "Back Next Year" makes the middle button twice the height of its neighbours ' +
+      'and the row stops looking like a row');
     check('S79', 'and the address is inside the card, above its own buttons',
       cards.length === 3 && cards.every(function (c) {
         const addr = c.querySelector('div');
