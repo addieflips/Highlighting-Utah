@@ -16690,6 +16690,114 @@ if (!JSDOM) {
  * the first time somebody edited one of them, and this screen would then be
  * confidently showing something no customer has ever seen.
  * ------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+ * Suite 85. Nobody is left off the sheet, and who counts as confirmed
+ *
+ * Owner, 2026-08-20: "it says customer info is updated but rachel oslund doesnt
+ * exist in the excel." The button only ever wrote to the SIDE tabs and then said it
+ * had updated the sheet. Somebody on the website and on none of those tabs was
+ * never written anywhere.
+ *
+ * And: "new hangs color changes and requotes should be automatically updated into
+ * the yes sheet because obviously they are confirmed."
+ * ------------------------------------------------------------------------- */
+suite('Suite 85. Nobody is left off the sheet, and who counts as confirmed');
+
+{
+  /* ---- who is confirmed ---- */
+  const tabsSrc = admin.match(/const HLX_STATE_TABS = \[[\s\S]*?\n\];/);
+  check('S85', 'the tab table is there to run', !!tabsSrc);
+  if (tabsSrc) {
+    const b = {};
+    new Function(tabsSrc[0] + 'this.t = HLX_STATE_TABS;').call(b);
+    const yes = (b.t.filter(x => x.tab === 'Yes')[0] || {}).holds;
+    check('S85', 'there is a Yes tab', typeof yes === 'function');
+
+    if (typeof yes === 'function') {
+      check('S85', 'a new hang is confirmed without being asked',
+        yes({ chargeNewMemberFee: true }) === true,
+        'they have just paid to join — nobody is going to email them asking whether ' +
+        'they meant it');
+      check('S85', 'so is a colour change',
+        yes({ lightsChangedAt: { seconds: 1 } }) === true);
+      check('S85', 'and so is an applied re-quote',
+        yes({ requoteAppliedAt: { seconds: 1 } }) === true,
+        'they agreed a new price, which is confirming by doing');
+      check('S85', 'and an answered RSVP still is',
+        yes({ rsvpStatus: 'yes', rsvpRespondedAt: { seconds: 1 } }) === true);
+
+      /* ⚠ THE FIELD HAS TO BE ONE SOMETHING ACTUALLY WRITES. requotedAt exists and
+         lives on the QUOTE document, so reading it here would be a branch that looks
+         right and can never run — which is the mistake this repo has made twice. */
+      check('S85', 'the re-quote mark is written onto the CUSTOMER',
+        /addrUpdates\.requoteAppliedAt = serverTimestamp\(\);/.test(admin),
+        'requotedAt is a field on the quote, not the customer');
+      const save = sectionFrom(admin, admin.indexOf("document.getElementById('editCustSaveBtn').addEventListener"));
+      check('S85', 'and set BEFORE the customer record is written',
+        save.indexOf('requoteAppliedAt') <
+          save.indexOf("updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates)"),
+        'the block that closes the quote runs AFTER that write, so anything added to ' +
+        'addrUpdates down there is never saved');
+
+      /* ⚠ AN ANSWERED NO OUTRANKS ALL OF IT. Those four are inferred from an action;
+         a no is somebody saying the words. */
+      check('S85', 'somebody who said no is NOT confirmed, whatever else they did',
+        yes({ chargeNewMemberFee: true, rsvpStatus: 'no' }) === false &&
+        yes({ lightsChangedAt: { seconds: 1 }, rsvpStatus: 'backnextyear' }) === false,
+        'book a colour change, then tell us you are out for the season — landing on ' +
+        'the Yes sheet gets a crew sent to an empty house');
+      check('S85', 'and neither is a Maybe Next Year',
+        yes({ chargeNewMemberFee: true, maybeNextYear: true }) === false);
+      check('S85', 'an ASSUMED yes with no responded date is still not enough',
+        yes({ rsvpStatus: 'yes' }) === false,
+        'converting a quote writes that at creation; on the status alone the first ' +
+        'press emptied most of the customer list onto this sheet');
+      check('S85', 'and an ordinary returning customer is not on it',
+        yes({}) === false && yes({ rsvpStatus: 'unanswered' }) === false);
+    }
+  }
+
+  /* ---- and nobody is left off the sheet ---- */
+  const upd = sectionFrom(admin, admin.indexOf('async function hlxUpdateCustomerInfo('));
+  check('S85', 'the one button also adds customers who are not on the sheet',
+    /await hlxAddMissingCustomersToSheet\(\)/.test(upd),
+    'this is the Rachel Oslund report: it wrote to the side tabs and said it had ' +
+    'updated the sheet, while somebody on none of those tabs was never written');
+  check('S85', 'and says how many it added',
+    /added to the customer list/.test(upd));
+
+  const addSrc = extractFn(admin, 'hlxAddMissingCustomersToSheet');
+  check('S85', 'the missing-customer writer exists', !!addSrc);
+  if (addSrc) {
+    check('S85', 'it matches with the SAME keys used the other way round',
+      /hlxRowIdentityKeys\(row, outCol\)/.test(addSrc) &&
+      /rbCustomerToSheetRow\(d\)/.test(addSrc),
+      'the customer is turned into a sheet row and run through the same rule, so ' +
+      '\"already there\" cannot mean two different things depending on direction');
+
+    /* ⚠ THE GUARDS ARE THE WHOLE THING. This appends to the live customer list, so
+       a broken comparison would duplicate the entire book in one press. */
+    check('S85', 'it refuses on an empty sheet',
+      /if\(rows\.length < 2\) return \{refused/.test(addSrc));
+    check('S85', 'it refuses a workbook with no Name column',
+      /if\(col\["Name"\] == null\) return \{refused/.test(addSrc));
+    check('S85', 'and it refuses when too much of the book looks missing',
+      /HLX_ADD_MAX_SHARE/.test(addSrc) && /too many to be true/.test(addSrc),
+      'every customer looking absent is a matching problem, not nine hundred new ' +
+      'customers, and the difference is a duplicated master list');
+    check('S85', 'a customer with no name is never written',
+      /if\(!String\(d\.name \|\| ""\)\.trim\(\)\) return;/.test(addSrc),
+      'the same rule the comparison already applies in the other direction');
+    check('S85', 'two records of one person do not both get written in a pass',
+      /keys\.forEach\(function\(k\)\{ claimed\[k\] = true; \}\);[\s\S]{0,200}missing\.push/.test(addSrc),
+      'the book has duplicate customers; claiming as it goes stops one press ' +
+      'putting the same person on the sheet twice');
+    check('S85', 'a big backlog is spread out and the remainder is COUNTED',
+      /HLX_ADD_PER_RUN/.test(addSrc) && /left: Math\.max\(0/.test(addSrc),
+      'a silent cap reads as \"everybody is on there now\"');
+  }
+}
+
 suite('Suite 84. Seeing the customer form without making a customer');
 
 {
@@ -17508,7 +17616,9 @@ pendingAsync.push((async () => {
     const box = {};
     new Function(
       'jobAddresses', 'hlxSheetSupported', 'hlxSheetHandleLoad', 'hlxNamesAlreadyOnTab',
-      'hlxAppendRowsToSheet', 'rbCustomerToSheetRow', 'rbResolveBillTo', 'rbSettlePrepaid',
+      /* ORDER MATTERS: these names line up one-for-one with the values below. */
+      'hlxAppendRowsToSheet', 'rbCustomerToSheetRow', 'hlxAddMissingCustomersToSheet',
+      'rbResolveBillTo', 'rbSettlePrepaid',
       'logActivity',
       lift76('dupNormName') +
       admin.match(/const HLX_STATE_TABS = \[[\s\S]*?\n\];/)[0] +
@@ -17523,8 +17633,15 @@ pendingAsync.push((async () => {
         return { written: rows.length };
       },
       (d) => [d.name],
+      /* The missing-customer step is exercised on its own in Suite 85; here it is a
+         stub so these checks stay about the ORCHESTRATION. */
+      async () => (opts.addMissing || {added: 0, left: 0}),
       async () => (opts.billTo || { linked: 0, notOurs: 0, ambiguous: 0, failed: 0 }),
       async () => (opts.prepaid || { settled: 0, already: 0, failed: 0 }),
+      /* Slot order must match the NAMES list above exactly. The missing-customer step
+         is exercised on its own in Suite 85; here it is a stub so these checks stay
+         about the ORCHESTRATION. */
+      async () => (opts.addMissing || {added: 0, left: 0}),
       () => {});
     const statusEl = { textContent: '' };
     return box.f(statusEl).then(() => ({ sent: sent, status: statusEl.textContent, box: box }));
