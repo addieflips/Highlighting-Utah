@@ -760,6 +760,38 @@ const RETIRED_CHECKLIST_TERMS = [
   const seedEnd = seedSrc.indexOf('\n];', seedStart) + 3;
   const TEST_SEED = new Function(seedSrc.slice(seedStart, seedEnd) + '; return TEST_SEED;')();
 
+  /* ⚠ EVERY ROW IS A COMPLETE ROW, CHECKED BEFORE ANYTHING READS ONE.
+
+     Resolving a merge conflict between two seed rows can eat the comma
+     between them, and `[...]\n[...]` is NOT a syntax error — it reads as an
+     index expression, so the list quietly holds ONE UNDEFINED ELEMENT while
+     `node --check` passes happily. Nearly shipped on 2026-08-19 doing exactly
+     that, when two sessions both added a row numbered 201.
+
+     Everything below indexes rows (row[0], row[3]), so without this the run
+     died at the retired-terms loop with a raw TypeError and NO failure list —
+     a crash, not a FAIL. The build did stop, which is the important half, but
+     a stack trace pointing at run-all.js tells you nothing about the seed
+     being the thing that is broken. Name it instead. */
+  const SEED_ROWS = TEST_SEED.filter(function (r) { return Array.isArray(r); });
+  {
+    const holes = TEST_SEED
+      .map(function (row, i) { return { at: i + 1, row: row }; })
+      .filter(function (e) { return !Array.isArray(e.row) || e.row.length !== 9; });
+    check('logic', 'every checklist row is a complete 9-field row',
+      holes.length === 0,
+      holes.length
+        ? ('seed row ' + holes.map(function (e) { return e.at; }).join(', ') +
+           ' is not a 9-field array — usually a comma lost between two rows, ' +
+           'which parses as an index expression and leaves a hole')
+        : undefined);
+    const unnumbered = SEED_ROWS.filter(function (r) { return typeof r[0] !== 'number'; });
+    check('logic', 'every checklist row carries a number',
+      unnumbered.length === 0,
+      'the checklist syncs into Firestore keyed on that number — a row without ' +
+      'one cannot be created, updated or pruned');
+  }
+
   /* The move itself, guarded from both ends. Inlining it again silently undoes
      the saving; failing to import it silently stops the checklist syncing, and
      the caller swallows that error (see runProjectTestSync in admin.html). */
@@ -789,7 +821,7 @@ const RETIRED_CHECKLIST_TERMS = [
     /catch\s*\(\s*err\s*\)\s*\{[^}]*could not load js\/test-seed\.js/.test(admin),
     'the dynamic import has no catch — if js/test-seed.js 404s the checklist stops syncing and says nothing');
   for (const [term, why] of RETIRED_CHECKLIST_TERMS) {
-    const hits = TEST_SEED.filter(row => (row[3] + ' ' + row[4]).toLowerCase().includes(term));
+    const hits = SEED_ROWS.filter(row => (row[3] + ' ' + row[4]).toLowerCase().includes(term));
     check('logic', 'checklist wording: no test still says "' + term + '"',
       hits.length === 0,
       hits.length ? ('#' + hits.map(r => r[0]).join(', #') + ' — ' + why) : undefined);
@@ -799,7 +831,7 @@ const RETIRED_CHECKLIST_TERMS = [
      owner has already scored disappears. It happened once, when two sessions
      each added a test numbered 193 and both were kept in a merge. */
   {
-    const ids = TEST_SEED.map(row => row[0]);
+    const ids = SEED_ROWS.map(row => row[0]);
     const dupes = [...new Set(ids.filter((id, i) => ids.indexOf(id) !== i))];
     check('logic', 'every checklist test has its own id',
       dupes.length === 0,
@@ -14247,15 +14279,34 @@ suite('Suite 61. Reading the master sheet where it lives');
     const end = admin.indexOf('/* ⭐ FOUR WAYS TO RECOGNISE THE SAME PERSON', at);
     const block = at > 0 && end > at ? admin.slice(at, end) : '';
     check('S61', 'the sheet code was found', !!block);
-    check('S61', 'it never writes a file, and never offers one to save',
-      !/showSaveFilePicker|createWritable|URL\.createObjectURL|download=/.test(block),
-      '"make sure it never redownloads the file" — this is that, asserted');
+    /* ⭐ CHANGED 2026-08-19. She asked for writing: "all her information needs to be
+       put into excel ... it should not redownload the excel and edit it though it
+       should update that exact file."
+       So createWritable is now allowed — that IS updating that exact file, through
+       the handle she picked. What stays forbidden is every route that would make a
+       SECOND copy: a save dialog, a blob URL, a download link. That was the actual
+       worry behind "never redownloads the file", and it is untouched. */
+    check('S61', 'it never downloads the workbook or offers a copy to save',
+      !/showSaveFilePicker|URL\.createObjectURL|download=/.test(block),
+      'a second copy is the thing she did not want; writing the original is what she asked for');
+    check('S61', 'and it writes only through the handle she picked',
+      !/createWritable/.test(block) || /handle\.createWritable\(\)/.test(admin),
+      'writing anywhere but the connected file is how a second sheet appears');
     check('S61', 'and it never fetches the workbook from anywhere',
       !/fetch\(|XMLHttpRequest|api\.onedrive|graph\.microsoft/.test(block),
       'the whole point is that the file is already on this computer');
-    check('S61', 'it asks only for READ permission',
-      /mode: "read"/.test(block) && !/mode: "readwrite"/.test(block),
-      'read-only is what makes it impossible for this to damage the sheet');
+    /* ⚠ READ AND WRITE ARE STILL ASKED FOR SEPARATELY, and reading still asks for
+       read alone. The comparison runs constantly and never needs write; asking for
+       write there would hand a permanent write grant to a screen that only looks. */
+    check('S61', 'reading the sheet still asks for read alone',
+      /mode: "read"/.test(block),
+      'the comparison only looks — it has no business holding a write grant');
+    /* ⚠ And write is asked for at the moment of writing, in its own function. */
+    check('S61', 'and write is asked for separately, where the writing happens',
+      /mode: "readwrite"/.test(admin) &&
+      /async function hlxAppendRowsToSheet/.test(admin) &&
+      (extractFn(admin, "hlxAppendRowsToSheet") || "").indexOf('mode: "readwrite"') > 0,
+      'a write grant belongs to the thing that writes, not to the thing that reads');
     check('S61', 'the handle is remembered, so the file is picked once per computer',
       /indexedDB\.open\(HLX_SHEET_DB/.test(block) && /store\.put\(handle, HLX_SHEET_KEY\)/.test(block));
     check('S61', 'and only the parts it actually reads are inflated',
@@ -15103,6 +15154,36 @@ suite('Suite 66. The master sheet choice is remembered for every computer');
 suite('Suite 69. A customer as a row of the master sheet');
 {
   const admin = read("admin.html");
+  /* ⭐ THE ROW IS WRITTEN WITH DOUBLE-QUOTED ATTRIBUTES, and it is not cosmetic.
+     Single quotes are valid XML and Excel reads them happily — but hlxReadSheet
+     matches r="..." with double quotes, so a row written with single ones is
+     invisible to our OWN reader. The verify step then sees no new row and refuses to
+     write, every time, for ever: it would have failed safe and never worked.
+     Found by executing the shipped writer against the real workbook, not by reading
+     it — the code looked right. */
+  {
+    const src = extractFn(admin, "hlxRowXml");
+    check('S69', 'hlxRowXml exists', !!src);
+    if(src){
+      const sb = {};
+      new Function(extractFn(admin, "hlxColName") + src + "this.f = hlxRowXml;").call(sb);
+      const x = sb.f(1058, ["479", "Oslund Rachel"]);
+      check('S69', 'the row is written with double-quoted attributes',
+        x.indexOf(String.fromCharCode(60,114,111,119,32,114,61,34)) === 0 &&
+        x.indexOf(String.fromCharCode(39)) < 0,
+        'our own reader matches double quotes, so single ones make the new row invisible ' +
+        'to the verify step and nothing is ever written — got ' + x.slice(0, 60));
+      check('S69', 'and the cell references are built from the column letter and the row',
+        /r="A1058"/.test(x) && /r="B1058"/.test(x),
+        'a wrong reference puts the value in another column, or another row');
+      check('S69', 'and a blank writes no cell at all',
+        sb.f(9, ["", "x"]).indexOf("A9") < 0,
+        'an empty cell is an absent cell in this format; writing one is how a blank becomes a value');
+    }
+  }
+}
+{
+  const admin = read("admin.html");
   const hdrM = admin.match(/const RB_SHEET_HEADERS = \[[\s\S]*?\];/);
   check('S69', 'the sheet column order is written down', !!hdrM);
   const rowSrc = extractFn(admin, "rbCustomerToSheetRow");
@@ -15252,13 +15333,51 @@ suite('Suite 67. Conflicts come first, are labelled MANUAL, and are never pre-ti
      ticked — but only where the keeper is known, which is the record the sheet row
      already found. Somebody who genuinely left the sheet still has no box, because
      there is nothing to fold them into. That is the line the checks below hold. */
-  check('S67', 'a row with no known keeper still cannot be ticked',
-    /Nothing is deleted here/.test(admin) &&
-    /\(o\.keeperId && o\.id !== o\.keeperId\)/.test(admin),
-    'without a keeper a delete is a guess about which of two records is the real one');
-  check('S67', 'and a spare is never ticked for you',
-    !/class="rb-spare-pick"[^>]{0,120}checked/.test(admin),
-    'every other row here is reversible by editing a field back; this one is not');
+  /* ⭐ CHANGED 2026-08-19. Owner: "she needs to be added to excel though", then
+     "we dont need a button ... theres only one sync button because anything I dont
+     want synced will be manually fixed."
+     A row with no keeper IS ticked now — but for the opposite action. The keeper is
+     what decides which: with one, the record is folded in and DELETED; without one,
+     it is WRITTEN into her sheet. That distinction is the whole safety of it, and a
+     row with no keeper is still never deleted. */
+  check('S67', 'the keeper decides which of the two things happens',
+    /\(o\.keeperId && o\.id !== o\.keeperId\)/.test(admin) &&
+    /class="rb-spare-pick"/.test(admin) && /class="rb-toexcel-pick"/.test(admin),
+    'deleting a record and adding a row to the sheet are opposites; the keeper is what tells them apart');
+  check('S67', 'and only the one with a keeper is ever deleted',
+    (extractFn(admin, "rbWireDiffButtons") || "").indexOf("rb-spare-pick") > 0 &&
+    !/rb-toexcel-pick[\s\S]{0,400}deleteDoc/.test(admin),
+    'a customer who is simply missing from the sheet must never be removed from the website');
+  /* ⚠ BOTH KINDS COME TICKED, on her instruction: "anything I dont want synced will
+     be manually fixed." So the check is no longer that they are unticked — it is that
+     both are offered and both are visible before anything is pressed. */
+  check('S67', 'both kinds arrive ticked, so one press does the work',
+    /class="rb-spare-pick"[^>]{0,160}checked/.test(admin.replace(/\r?\n/g, " ")) &&
+    /class="rb-toexcel-pick"[^>]{0,160}checked/.test(admin.replace(/\r?\n/g, " ")),
+    'she asked for one button and no chasing');
+  /* ⭐ AND THE ONE BUTTON REALLY WRITES TO THE SHEET. Owner: "theres only one sync
+     button because anything I dont want synced will be manually fixed." A tick that
+     nothing acts on is worse than no tick — it looks done. */
+  {
+    const sync = extractFn(admin, "rbWireDiffButtons") || "";
+    check('S67', 'the Sync button writes the ticked customers into the sheet',
+      /await hlxAppendRowsToSheet\(/.test(sync) && /rb-toexcel-pick/.test(sync),
+      'a tick nothing acts on looks done and is not');
+    /* ⚠ LAST, deliberately: everything before it writes to the website and can be
+       undone by editing a record; this writes to her master workbook. */
+    check('S67', 'and does it after the website work, not before',
+      sync.indexOf("hlxAppendRowsToSheet") > sync.indexOf("deleteDoc"),
+      'if anything earlier fails, the sheet should not already have been touched');
+    /* ⚠ AND A FAILURE THERE DOES NOT FAIL THE WHOLE SYNC. The website work landed. */
+    check('S67', 'and a sheet failure is reported, not thrown',
+      /catch\(err\){ sheetErr =/.test(sync) &&
+      /Nothing was written to your sheet/.test(admin),
+      'losing the whole sync report because the workbook was open in Excel is the wrong trade');
+  }
+  check('S67', 'and each says what it will do before it is pressed',
+    /Ticked: this copy goes/.test(admin) &&
+    /written into the first open row of your sheet/.test(admin),
+    'automatic is fine; unexplained is not — one of these deletes a record and one writes to her master file');
 
   /* ---- the ordering ---- */
   check('S67', 'a conflict outranks every gap, whatever the field',
@@ -15820,30 +15939,139 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
     'convertedToCustomerAt is the owner’s "once they are created"; ' +
     'existingCustomerId is a re-quote against a live record');
 
-  /* ⚠ THE TRAP THIS EXISTS TO STOP. Looking the quote’s phone up in
-     jobAddresses is the obvious implementation and it is wrong: 17 numbers in
-     the real book are shared and 14 of those are two genuinely different
-     houses. A new house quoted against a parent’s phone would be told it is
-     already a member and would never be asked for its install details. */
-  /* ⚠ CRLF-SAFE, and it has to be. functions/index.js is CRLF, so the bare newline
-     here matched nothing, memberBlock came back empty, and the check failed against
-     code that was correct all along — quoteRespond uses convertedToCustomerAt and
-     existingCustomerId exactly as intended and never joins on a phone. Section 7 of
-     CLAUDE.md names this precise trap and it still caught main out. A check that
-     cannot find its target must fail loudly, and this one did, which is the only
-     reason anybody noticed. */
-  const memberBlock = (respond.match(/let alreadyMember = false;[\s\S]*?\r?\n  }\r?\n/) || [''])[0];
-  check('S70', 'the existing-member check never joins on the phone number',
-    !!memberBlock && !/findByPhone|findByEmail|phoneDigits/.test(memberBlock),
-    'a shared phone is a household here, not one customer — a phone join ' +
-    'silently skips the details form for a brand-new house');
+  /* ⚠ THEIR CRLF FIX LANDED ON A CHECK THAT NO LONGER EXISTS, and the lesson
+     is kept rather than the line. The other session made the old memberBlock
+     regex CRLF-safe because main went red on it — their diagnosis was right and
+     the fix was right. That regex check is gone now: it asserted the matcher
+     never touches a phone, which stopped being true when the matcher started
+     using address PLUS phone. What replaced it RUNS the matcher, so there is no
+     newline to get wrong. Measured here: this checkout is pure LF and theirs is
+     CRLF, which is exactly why no regex in this suite may assume either — every
+     one below uses \r?\n or avoids newlines entirely. */
+  /* ⚠ THE TRAP THIS EXISTS TO STOP, and it is RUN rather than grepped.
+
+     Matching a quote to a customer on CONTACT ALONE is the obvious
+     implementation and it is wrong here: 17 phone numbers in the real book are
+     shared, and 14 of those are two genuinely different houses (a parent
+     paying for a child's place). A brand-new house quoted against a parent's
+     phone would be told it was already a member and would never be asked for
+     its install details at all. The ADDRESS is what keeps them apart.
+
+     An earlier version of this check was a regex over the source. It went on
+     passing after the matcher was rewritten, because the `else` branch added
+     to the code broke the window the regex was slicing — it was reading a
+     truncated block and finding nothing, which looks exactly like success.
+     That is the third time in this repo a text-only check has been green over
+     code it was not actually looking at. So this builds the two houses and
+     asks the real function. */
+  {
+    const matchSrc = extractFn(fns, 'quoteMatchesExistingCustomer');
+    const normSrc = extractFn(fns, 'quoteMatchAddressServer');
+    check('S70', 'the existing-customer matcher exists', !!matchSrc && !!normSrc);
+    check('S70', 'and it is async in the real file',
+      /async function quoteMatchesExistingCustomer\(/.test(fns),
+      'it awaits Firestore — if it stops being async it returns a promise that ' +
+      'is always truthy, and EVERY approver is called an existing member');
+    if (matchSrc && normSrc) {
+      /* One phone, two houses. This is the real shape from the book. */
+      const BOOK = [
+        { phoneDigits: '8015550111', emailLower: 'dad@x.com', address: '12 Oak Street' },
+        { phoneDigits: '8015550111', emailLower: 'kid@x.com', address: '99 Elm Avenue' }
+      ];
+      const db = {
+        collection: function () {
+          return {
+            where: function (field, _op, value) {
+              return {
+                limit: function () {
+                  return {
+                    get: function () {
+                      return Promise.resolve({
+                        docs: BOOK.filter(function (r) { return r[field] === value; })
+                          .map(function (r) { return { data: function () { return r; } }; })
+                      });
+                    }
+                  };
+                }
+              };
+            }
+          };
+        }
+      };
+      const sb = {};
+      new Function('db', 'digitsOnly', 'console',
+        /* ⚠ extractFn matches on "function NAME(" and so LOSES the async
+           keyword. CLAUDE.md records this suite being caught by it twice; this
+           was the third. Put it back, and assert it really is async against the
+           whole file rather than the extracted body. */
+        normSrc + 'async ' + matchSrc + 'this.match = quoteMatchesExistingCustomer;'
+      ).call(sb, db, function (v) { return String(v == null ? '' : v).replace(/\D/g, ''); }, console);
+
+      pendingAsync.push((async function () {
+        /* The child's brand-new house, quoted on the parent's phone. */
+        check('S70', 'a new house on a shared phone is NOT called an existing member',
+          (await sb.match({ phone: '(801) 555-0111', address: '5 New Road' })) === false,
+          'this is the household case — 14 of 17 shared numbers in the real book ' +
+          'are a parent and a child at two different addresses');
+        /* The parent themselves. */
+        check('S70', 'the same phone AT THE SAME ADDRESS is an existing member',
+          (await sb.match({ phone: '801-555-0111', address: '12 Oak Street.' })) === true,
+          'punctuation and case must not stop a real member matching');
+        /* ⚠ A REAL LIMIT, ASSERTED SO IT IS VISIBLE RATHER THAN SURPRISING.
+           The normaliser folds case, punctuation and spacing — it does NOT
+           know that "St." means "Street". admin.html's own badge has always
+           behaved this way, so the office card and this agree; but it does
+           mean a member whose quote spells the street differently from their
+           customer record still sees the details form. Widening it is a
+           change to BOTH copies at once, and to this line. */
+        check('S70', 'a differently-WORDED street does not match, and that is admin’s rule too',
+          (await sb.match({ phone: '8015550111', address: '12 Oak St' })) === false,
+          'if this starts passing, admin.html and the server have diverged — ' +
+          'quoteAlreadyACustomer does not do abbreviations either');
+        check('S70', 'and the child matches at THEIR address, not the parent’s',
+          (await sb.match({ phone: '8015550111', address: '99 Elm Avenue' })) === true,
+          'the candidate list must not stop at the first record behind a shared phone');
+        check('S70', 'an email match still needs the address to agree',
+          (await sb.match({ email: 'dad@x.com', address: '77 Somewhere Else' })) === false,
+          'contact alone is never enough, whichever contact it is');
+        check('S70', 'and matches when it does',
+          (await sb.match({ email: 'DAD@X.com ', address: ' 12 oak street ' })) === true,
+          'case and stray spaces are normalised on both sides');
+        check('S70', 'a quote with no address is never a member',
+          (await sb.match({ phone: '8015550111', address: '' })) === false,
+          'an empty address would otherwise match every record with an empty one');
+      })());
+
+      /* ⚠ A SECOND COPY OF A RULE THAT ALREADY LIVES IN admin.html. That is
+         the duplicated-maths problem money-parity.test.js exists for, so the
+         two are asserted identical here rather than trusted to stay in step. */
+      const adminNorm = extractFn(admin, 'quoteMatchAddress');
+      check('S70', 'admin.html still has quoteMatchAddress', !!adminNorm);
+      if (adminNorm) {
+        const a = {}, b = {};
+        new Function(adminNorm + 'this.f = quoteMatchAddress;').call(a);
+        new Function(normSrc + 'this.f = quoteMatchAddressServer;').call(b);
+        const SAMPLES = ['12 Oak St.', ' 12  oak   street ', '#4, 9 Elm Ave', '', null,
+                         'A.B.C, 1 Road', '  ', '1234 W 500 S #12'];
+        const differ = SAMPLES.filter(function (x) { return a.f(x) !== b.f(x); });
+        check('S70', 'the office and the server normalise an address identically',
+          differ.length === 0,
+          'they disagree on: ' + JSON.stringify(differ) + ' — the office would ' +
+          'call somebody an existing customer and the customer\'s page would not');
+      }
+    }
+  }
 
   /* ⚠ A quoteToken is generated in the visitor’s own browser, so anybody able
      to submit the public quote form knows one. Handing back a portalToken is
      the account takeover closed in portalLookup on 2026-08-14. */
+  /* Scoped to the WHOLE of quoteRespond, not a sub-slice: a sub-slice is what
+     stopped matching when the code grew an else branch a few checks above.
+     ⚠ COMMENTS STRIPPED. The rule is written down in the code, right where it
+     applies, so a plain search finds its own explanation and reports the
+     explanation as the violation. */
   check('S70', 'and it never hands back a portal credential',
-    !/portalToken/.test(memberBlock || '') &&
-    !/portalToken/.test((respond.match(/return \{[\s\S]*?\n  \};/) || [''])[0]),
+    !/portalToken/.test(stripComments(respond)),
     'the quote token would become a customer session — the exact hole ' +
     'closed in portalLookup on 2026-08-14');
 
@@ -15914,12 +16142,26 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
            decide whether they are already signed in on this device. */
         { url: 'https://highlightingutah.com/' });
       const doc = dom.window.document;
-      const sb = { opened: [] };
-      new Function('document', 'window', 'localStorage',
-        'function setQuoteConfirmSub(h){ document.getElementById("quoteLinkConfirmSub").innerHTML = h || ""; }' +
-        offerSrc + openSrc +
-        'this.offer = offerMemberChangeChoice; this.open = openPortalFromQuote;'
-      ).call(sb, doc, dom.window, dom.window.localStorage);
+      const sb = { opened: [], loggedInWith: null };
+      /* ⚠ MODULE-LEVEL STATE HAS TO BE DECLARED HERE. openPortalFromQuote reads
+         quoteLinkPortalToken (the router sets it from the &p= on the link) and
+         calls savePortalLogin / loadPortalByToken. A lifted function whose
+         globals are missing throws a ReferenceError, which scores as an
+         ordinary FAIL and reads as the feature being broken. */
+      const mkSandbox = function (d, w, portalToken) {
+        const box = { loggedInWith: null };
+        new Function('document', 'window', 'localStorage', 'sb',
+          'var quoteLinkPortalToken = ' + JSON.stringify(portalToken || null) + ';' +
+          'function savePortalLogin(t){ try{ localStorage.setItem("huPortalToken", t); }catch(e){} }' +
+          'function loadPortalByToken(t){ sb.loggedInWith = t; }' +
+          'function setQuoteConfirmSub(h){ document.getElementById("quoteLinkConfirmSub").innerHTML = h || ""; }' +
+          offerSrc + openSrc +
+          'this.offer = offerMemberChangeChoice; this.open = openPortalFromQuote;'
+        ).call(box, d, w, w.localStorage, box);
+        return box;
+      };
+      const sbNoToken = mkSandbox(doc, dom.window, null);
+      sb.offer = sbNoToken.offer; sb.open = sbNoToken.open;
 
       sb.offer('sam@example.com');
       const msg = () => doc.getElementById('quoteLinkConfirmMsg').textContent;
@@ -15960,12 +16202,197 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
         doc.getElementById('lookupPhone').value === 'sam@example.com',
         'they still type their last name — that check and its rate limit are ' +
         'what a quote token must never be allowed to skip');
+      /* ⭐ The member's own portal token, carried in the quote email we sent to
+         the address on file, lets them in with no typing at all. */
+      {
+        const dom2 = new JSDOM(
+          '<div id="quoteLinkConfirm"></div><div id="quoteLinkConfirmMsg"></div>' +
+          '<div id="quoteLinkConfirmSub"></div><div id="quoteLinkConfirmActions"></div>' +
+          '<div id="quoteDetailFormWrap"></div><div id="quoteDetailSuccess"></div>' +
+          '<input id="lookupPhone"><input id="lookupLastName">',
+          { url: 'https://highlightingutah.com/' });
+        const withToken = mkSandbox(dom2.window.document, dom2.window, 'PORTALTOKEN123');
+        withToken.open('sam@example.com');
+        check('S70', 'a portal token in the email logs them straight in',
+          withToken.loggedInWith === 'PORTALTOKEN123',
+          'this is the whole point of putting it in the link — no second sign-in');
+        check('S70', 'and it never asks them to type anything',
+          dom2.window.document.getElementById('lookupPhone').value === '',
+          'falling through to the sign-in box means the token was ignored');
+      }
       check('S70', 'the site chrome comes back on the way out',
         !/quote-minimal/.test(doc.body.className),
         'navigate() clears rsvp-minimal but not quote-minimal, so the portal ' +
         'would render with no header and no footer');
     }
   }
+}
+
+
+  /* ---- WHOSE portal link goes in the quote email --------------------
+     ⚠ THE MOST DANGEROUS MISTAKE AVAILABLE IN THIS WHOLE FEATURE. The quote
+     email for an existing member carries their own portal token so approving
+     can let them in. A portal token IS a login. Match it on the phone alone
+     and a PARENT'S login is posted into their CHILD'S quote email — handing
+     one customer a working session on another customer's account, with their
+     address, gate code and invoice in it. 17 numbers in the real book are
+     shared and 14 of those are exactly that shape.
+
+     This check exists because a sabotage that made the match phone-only was
+     NOT caught by anything else in the suite. */
+  {
+    const admSrc = read('admin.html');
+    const parts = ['quoteMatchAddress', 'quoteCustomerKeys', 'quoteExistingCustomer']
+      .map(n => extractFn(admSrc, n));
+    check('S70', 'quoteExistingCustomer and its helpers exist', parts.every(Boolean));
+    if (parts.every(Boolean)) {
+      const BOOK = [
+        { id: 'dad', data: { name: 'Dad', address: '12 Oak Street', phone: '(801) 555-0111',
+                             email: 'dad@x.com', portalToken: 'DAD-TOKEN' } },
+        { id: 'kid', data: { name: 'Kid', address: '99 Elm Avenue', phone: '801-555-0111',
+                             email: 'kid@x.com', portalToken: 'KID-TOKEN' } }
+      ];
+      const box = {};
+      new Function('jobAddresses',
+        'let quoteCustKeyCache = null, quoteCustKeyCacheFor = null;' +
+        parts.join('\n') + 'this.find = quoteExistingCustomer;'
+      ).call(box, BOOK);
+
+      const got = q => { const c = box.find(q); return c && c.data ? c.data.portalToken : null; };
+
+      check('S70', 'the parent’s quote gets the PARENT’S portal link',
+        got({ address: '12 Oak Street', phone: '8015550111' }) === 'DAD-TOKEN');
+      check('S70', 'and the child’s quote gets the CHILD’S, on the very same phone',
+        got({ address: '99 Elm Avenue', phone: '8015550111' }) === 'KID-TOKEN',
+        'matching on the phone alone hands the parent a login to the child’s ' +
+        'account, or the other way round — this is the leak the address prevents');
+      check('S70', 'a brand-new house on that shared phone gets NO portal link',
+        got({ address: '5 New Road', phone: '8015550111' }) === null,
+        'a new lead has no portal — anything returned here would be somebody else’s');
+      check('S70', 'an address with no matching contact gets none either',
+        got({ address: '12 Oak Street', phone: '8019999999' }) === null,
+        'the address alone is not proof — a landlord and tenant share one');
+      check('S70', 'and a quote with no address gets none',
+        got({ phone: '8015550111' }) === null,
+        'no address means no way to tell the two houses apart, so refuse');
+    }
+  }
+
+  /* ⚠ EVERY quote-email builder must carry the portal token, not just one.
+     CLAUDE.md records that the big "View Your Quote" button is the link most
+     customers actually press — the coloured buttons in the body are the minority
+     path. Wiring only the body button would have looked right in a test and
+     done nothing for most people. */
+  {
+    const admSrc2 = read('admin.html');
+    const builders = admSrc2.split("button_url: 'https://highlightingutah.com/#/quote-details?token='");
+    check('S70', 'every "View Your Quote" builder adds the portal token',
+      builders.length > 1 && builders.slice(1).every(b => /^[^\n]*quotePortalParam\(/.test(b)),
+      'a quote-email link that omits it sends a member to the sign-in box ' +
+      'instead of into their portal');
+    check('S70', 'and they all go through the ONE helper',
+      (admSrc2.match(/quotePortalParam\(/g) || []).length >= 4,
+      'a second inline copy of the rule is one that drifts');
+  }
+
+  /* ---- the OTHER way in: approving from inside the portal ------------
+     ⚠ THIS IS THE ONE THAT WAS ACTUALLY BROKEN. The portal's own Approve
+     button ended with `window.location.hash = '/quote-details'` — the
+     new-customer install-details page — and it went there with NO ?token= on
+     the end. handleQuoteLink only runs when the router sees a token, so the
+     whole member flow above was bypassed and the form simply rendered. A
+     member testing from their portal saw the form no matter what the email
+     route did. */
+  {
+    /* Its own read: this block sits outside the Suite 70 scope where `idx`
+       was declared. */
+    const idxSrc = read('index.html');
+    const portalApprove = sectionFrom(idxSrc, idxSrc.indexOf("document.getElementById('quoteApproveBtn')"));
+    check('S70', 'the portal approve handler is still there', !!portalApprove);
+    if (portalApprove) {
+      const atMember = portalApprove.indexOf('res.alreadyMember');
+      const atForm = portalApprove.indexOf("hash = '/quote-details'");
+      check('S70', 'a member approving in the portal is NOT sent to the form',
+        atMember !== -1 && atForm !== -1 && atMember < atForm,
+        'the member branch has to come first, or the redirect fires for everyone ' +
+        'and the install-details form appears inside their own portal');
+      check('S70', 'and they are shown that it was approved',
+        /quoteApprovedMsg/.test(portalApprove),
+        'the card just vanishing looks like the button did nothing');
+      /* ⚠ The other half of the owner's rule: somebody who is NOT yet a
+         customer still needs that form — it is the only place their colours,
+         wire and timer are collected. */
+      check('S70', 'but a not-yet-converted customer still gets the form',
+        atForm !== -1 && /return;/.test(portalApprove.slice(atMember, atForm)),
+        'the member branch must RETURN, leaving the redirect reachable for ' +
+        'everyone else — deleting it would lose new customers’ install details');
+    }
+  }
+
+suite('Suite 72. An RSVP never goes to somebody who has never had lights');
+{
+  /* Owner, 2026-08-19: "lets just tick new members for now that have come in so
+     they don't get an RSVP but any new people should automatically get ticked
+     and we shouldn't have to do anything."
+
+     "Will you be getting lights hung AGAIN this year?" is nonsense to a
+     first-year customer, and invites a "no" from somebody who was never asked a
+     sensible question. */
+  const adm = read('admin.html');
+
+  /* ⚠ THE SEPARATE RSVP SENDER IS DEAD UI AND MUST NOT BE MISTAKEN FOR THE REAL
+     ONE. admin.html carries rsvpRenderRecipientList, rsvpPopulateMemberSelect
+     and a send handler, and NONE of their markup exists — every one of those ids
+     is in KNOWN_MISSING_IDS above, so the functions return at their first line.
+     Reading that code and concluding "the RSVP sender has no filters" is a
+     mistake that was actually made in this repo on 2026-08-19. The real send is
+     an ordinary template through Automation Emails, which has the full filter
+     set. This check pins that, so if the markup is ever built the assumption
+     gets re-examined instead of silently going stale. */
+  check('S72', 'the separate RSVP sender UI still does not exist',
+    !/id="rsvp/.test(adm),
+    'if this markup has been built, the RSVP email no longer goes only through ' +
+    'Automation Emails and the audience rule below needs applying there too');
+
+  const isRsvpSrc = extractFn(adm, 'etTemplateIsRsvp');
+  check('S72', 'etTemplateIsRsvp exists', !!isRsvpSrc);
+  if (isRsvpSrc) {
+    const box = {};
+    new Function(isRsvpSrc + 'this.f = etTemplateIsRsvp;').call(box);
+    check('S72', 'a template with RSVP buttons is recognised',
+      box.f({ data: { body: 'Hi {{name}}\n{{rsvp_yes_button}}{{rsvp_no_button}}' } }) === true);
+    check('S72', 'so is one recognised only by its folder',
+      box.f({ data: { body: 'plain words', folderName: 'RSVP' } }) === true,
+      'the office can write their own RSVP wording without the button tokens');
+    check('S72', 'and an ordinary email is NOT',
+      box.f({ data: { body: 'Your invoice is ready {{price}}', folderName: 'Billing' } }) === false,
+      'over-matching would quietly drop new customers off every send, which is ' +
+      'the opposite failure and harder to notice');
+    check('S72', 'a quote email is not mistaken for an RSVP',
+      box.f({ data: { body: '{{quote_yes_button}}' } }) === false,
+      'a quote absolutely does go to somebody who has never had lights');
+    check('S72', 'and nothing at all is safe',
+      box.f(null) === false && box.f({}) === false);
+  }
+
+  /* The wiring: choosing the template is what sets the audience. */
+  const handler = sectionFrom(adm, adm.indexOf("document.getElementById('etSendTemplateSelect').addEventListener('change'"));
+  check('S72', 'choosing an RSVP template sets the audience to Returning',
+    /etTemplateIsRsvp\(t\)[\s\S]{0,200}etFilterNew = 'returning'/.test(handler),
+    'without this the office has to remember, which is exactly what was asked ' +
+    'not to be necessary');
+  check('S72', 'and it redraws the list so Select All cannot reach them',
+    /etRenderRecipientList\(\)/.test(handler),
+    'a stale list still holds the new customers as tickable rows');
+  check('S72', 'the office picking their own value turns the default off',
+    /etFilterNew = v; etRsvpAudienceAutoSet = false;/.test(adm),
+    'otherwise the explanation keeps claiming credit for their choice');
+  check('S72', 'it is a DEFAULT, not a lock',
+    !/etFilterNew.*disabled|disabled.*etFilterNew/.test(adm),
+    'an RSVP that really is meant for everybody must stay one click away');
+  check('S72', 'and the screen says it happened',
+    /New customers are left out automatically/.test(adm),
+    'automatic is fine, invisible is not');
 }
 
 

@@ -4611,17 +4611,21 @@ let quoteCustKeyCache = null, quoteCustKeyCacheFor = null;
 function quoteCustomerKeys(){
   const list = (typeof jobAddresses !== 'undefined' && jobAddresses) ? jobAddresses : [];
   if(quoteCustKeyCacheFor === list && quoteCustKeyCache) return quoteCustKeyCache;
-  const keys = new Set();
+  /* A Map, not a Set. `.has()` behaves identically so quoteAlreadyACustomer is
+     unchanged, but `.get()` also hands back WHICH customer matched — which is
+     what quoteExistingCustomer below needs to find their portal token. Two
+     copies of this matching rule is exactly what we are avoiding. */
+  const keys = new Map();
   list.forEach(function(c){
     const d = (c && c.data) ? c.data : c;
     if(!d) return;
     const addr = quoteMatchAddress(d.address);
     if(!addr) return;
     const phone = String(d.phone || '').replace(/\D/g, '');
-    if(phone) keys.add(addr + '|p' + phone);
+    if(phone) keys.set(addr + '|p' + phone, c);
     [d.email, d.email2].forEach(function(e){
       const em = String(e || '').trim().toLowerCase();
-      if(em) keys.add(addr + '|e' + em);
+      if(em) keys.set(addr + '|e' + em, c);
     });
   });
   quoteCustKeyCache = keys;
@@ -4638,6 +4642,40 @@ function quoteAlreadyACustomer(d){
   if(phone && keys.has(addr + '|p' + phone)) return true;
   const em = String(d.email || '').trim().toLowerCase();
   return !!(em && keys.has(addr + '|e' + em));
+}
+/* WHICH customer this quote belongs to, by the same rule — used to put their
+   own portal link in a quote email so approving can let them straight in.
+
+   ⚠ ADDRESS PLUS CONTACT, NEVER CONTACT ALONE, and here the reason is sharper
+   than anywhere else: a portal link IS a login. 17 phone numbers in the real
+   book are shared and 14 of those are a parent and a child at two different
+   houses. Matching on the phone alone would post the PARENT'S portal link into
+   the CHILD'S quote email — handing one customer a working login to another
+   customer's account, with their address, gate code and invoice in it.
+
+   ⚠ Unlike quoteAlreadyACustomer this does NOT exclude a re-quote: a re-quote
+   is raised against a live member and they are exactly who should be let in. */
+/* The `&p=` for a quote link: the member's OWN portal token, or nothing at all
+   for a new lead. Every quote-email builder goes through this, so the big
+   "View Your Quote" button and the coloured Approve button in the body cannot
+   drift apart — and CLAUDE.md notes the big button is the one most customers
+   actually press, so it is the one that matters most.
+   Safety argument lives on quoteExistingCustomer: address PLUS contact. */
+function quotePortalParam(d){
+  const c = quoteExistingCustomer(d);
+  const t = c && c.data ? c.data.portalToken : '';
+  return t ? ('&p=' + encodeURIComponent(t)) : '';
+}
+function quoteExistingCustomer(d){
+  if(!d) return null;
+  const addr = quoteMatchAddress(d.address);
+  if(!addr) return null;
+  const keys = quoteCustomerKeys();
+  const phone = String(d.phone || '').replace(/\D/g, '');
+  if(phone && keys.has(addr + '|p' + phone)) return keys.get(addr + '|p' + phone);
+  const em = String(d.email || '').trim().toLowerCase();
+  if(em && keys.has(addr + '|e' + em)) return keys.get(addr + '|e' + em);
+  return null;
 }
 function quoteAwaitsCustomer(d){
   if(typeof d.quotedPrice !== 'number') return false;
@@ -5498,7 +5536,24 @@ async function resolveLinkTokens(text, phone, amount, opts){
     const quote = quotesCache.find(q => (q.data.phone||'').replace(/\D/g,'') === phoneDigits);
     if(quote && quote.data.quoteToken){
       const quoteToken = quote.data.quoteToken;
-      const approveUrl = 'https://highlightingutah.com/#/quote-details?token='+quoteToken+'&action=approve';
+      /* ⭐ AN EXISTING MEMBER'S QUOTE EMAIL ALSO CARRIES THEIR OWN PORTAL LINK,
+         so pressing Approve can let them straight in instead of asking them to
+         sign in again. This is how the RSVP email has always worked.
+
+         ⚠ THE TOKEN GOES IN THE EMAIL, IT IS NEVER HANDED BACK BY THE SERVER.
+         That distinction is the whole security argument. A quoteToken is
+         generated in the visitor's own browser, so anybody who can submit the
+         public quote form knows one; turning it into a portal session is the
+         account takeover closed in portalLookup on 2026-08-14. A portal token
+         posted into an email we send to the address ON FILE is different —
+         receiving it already proves who they are.
+
+         ⚠ And matched on ADDRESS PLUS CONTACT (quoteExistingCustomer), never
+         the phone alone, or a parent's portal link lands in their child's quote
+         email. A new lead has no customer record, so they simply get no `p` and
+         nothing changes for them. */
+      const qPortal = quotePortalParam(quote.data);
+      const approveUrl = 'https://highlightingutah.com/#/quote-details?token='+quoteToken+qPortal+'&action=approve';
       const declineUrl = 'https://highlightingutah.com/#/quote-details?token='+quoteToken+'&action=decline';
       const maybeUrl = 'https://highlightingutah.com/#/quote-details?token='+quoteToken+'&action=maybe_next_year';
       const btnStyleQuote = 'display:inline-block; padding:11px 18px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:14px; margin:6px 4px;';
@@ -6828,7 +6883,7 @@ async function nudgeEveryoneShown(){
       html = applyQuotePhotoBlock(html, quotePhotoList(d), true);
       await emailjs.send(cfg.serviceId, cfg.templateId, {
         to_email: String(d.email || '').trim(), to_name: d.name || '', subject: 'Just checking in on your quote', message: html,
-        button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || ''),
+        button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || '') + quotePortalParam(d),
         button_label: 'View Your Quote'
       });
       await updateDoc(doc(db,'quotes', item.id), {
@@ -8625,7 +8680,7 @@ function renderQuoteRows(filtered){
       emailjs.init(cfg.publicKey);
       await emailjs.send(cfg.serviceId, cfg.templateId, {
         to_email: String(d.email || '').trim(), to_name: d.name || '', subject: built.subject, message: built.html,
-        button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || ''),
+        button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || '') + quotePortalParam(d),
         button_label: 'View Your Quote'
       });
       await updateDoc(doc(db,'quotes', id), {
@@ -8759,7 +8814,7 @@ function renderQuoteRows(filtered){
         emailjs.init(cfg.publicKey);
         await emailjs.send(cfg.serviceId, cfg.templateId, {
           to_email: String(d.email || '').trim(), to_name: d.name || '', subject: subject, message: html,
-          button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || ''),
+          button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || '') + quotePortalParam(d),
           button_label: 'View Your Quote'
         });
         if(kind === 'nudge'){
@@ -10101,6 +10156,27 @@ function audienceOrderedLastYear(d){
 }
 // First-year customer, read off the same flag the invoice/new-member logic uses.
 function audienceIsNew(d){ return !!(d && d.chargeNewMemberFee === true); }
+/* ⭐ AN RSVP EMAIL MUST NOT GO TO SOMEBODY WHO HAS NEVER HAD LIGHTS. Owner,
+   2026-08-19: "lets just tick new members for now that have come in so they
+   don't get an RSVP but any new people should automatically get ticked and we
+   shouldn't have to do anything."
+
+   "Will you be getting lights hung AGAIN this year?" is nonsense to a customer
+   who has not had them once, and it invites a "no" from somebody who was never
+   asked a sensible question. So choosing an RSVP template sets the New vs
+   returning filter to Returning by itself — new customers are not in the list
+   at all, which means Select All cannot reach them either.
+
+   ⚠ It is a DEFAULT, not a lock: the dropdown still works, so an RSVP that
+   really is meant for everybody is one click away. Automatic is fine, invisible
+   is not — the recipient count line says it happened. */
+function etTemplateIsRsvp(t){
+  const d = (t && t.data) ? t.data : t;
+  if(!d) return false;
+  const body = String(d.body || '');
+  if(/\{\{rsvp_(yes|no|back)_(button|link)\}\}/.test(body)) return true;
+  return String(d.folderName || '').trim().toLowerCase() === 'rsvp';
+}
 // 'elsewhere' billed to someone else | 'multi' pays for several houses | 'own'
 function audienceBillingGroup(d){
   if((((d && d.billToPhone) || '').replace(/\D/g,''))) return 'elsewhere';
@@ -10159,6 +10235,9 @@ let etFilterRsvp = 'all';
 let etFilterPaidLast = 'all';
 let etFilterOrderedLast = 'all';
 let etFilterNew = 'all';
+/* True only while the RSVP default above is what set the filter, so the count
+   line can explain itself without claiming credit for the office's own choice. */
+let etRsvpAudienceAutoSet = false;
 let etFilterGroup = 'all';
 let etFilterOutlet = 'all';
 let etFilterInstalled = 'all';
@@ -10202,6 +10281,9 @@ function etRenderRecipientList(){
   if(countEl){
     let msg = members.length + ' member' + (members.length===1?'':'s') + ' match' + (members.length===1?'es':'') + ' these filters.';
     if(lastYearMissing) msg += ' — Note: no saved snapshot from last season yet, so the "last year" filters can\'t match anyone until Start New Season saves one.';
+    if(etRsvpAudienceAutoSet && etFilterNew === 'returning'){
+      msg += ' — New customers are left out automatically, because an RSVP asks whether they want lights AGAIN. Change "New vs returning" above to include them.';
+    }
     countEl.textContent = msg;
   }
   if(!members.length){ list.innerHTML = '<div class="empty-note">No members match this search and these filters.</div>'; return; }
@@ -10221,7 +10303,22 @@ function etRenderRecipientList(){
     return '<label style="display:flex; align-items:center; gap:8px; padding:5px 0; font-size:13.5px;"><input type="checkbox" class="et-recipient-cb" value="'+m.id+'" '+checked+' style="width:auto;">'+esc(m.data.name||'(no name)')+badges+' <span style="color:var(--slate); font-size:12px;">'+esc(m.data.email||'')+'</span></label>';
   }).join('');
 }
-document.getElementById('etSendTemplateSelect').addEventListener('change', etUpdatePreview);
+/* Choosing the template is the deliberate act, so it is the moment to set the
+   audience. Runs BEFORE the preview so the recipient list and the preview agree
+   about who is being written to. */
+document.getElementById('etSendTemplateSelect').addEventListener('change', function(){
+  const t = emailTemplates.find(x => x.id === this.value);
+  if(etTemplateIsRsvp(t) && etFilterNew !== 'returning'){
+    etFilterNew = 'returning';
+    const sel = document.getElementById('etFilterNew');
+    if(sel) sel.value = 'returning';
+    etRsvpAudienceAutoSet = true;
+    if(typeof etRenderRecipientList === 'function') etRenderRecipientList();
+  } else if(!etTemplateIsRsvp(t)){
+    etRsvpAudienceAutoSet = false;
+  }
+  etUpdatePreview();
+});
 document.getElementById('etPreviewMemberSelect').addEventListener('change', etUpdatePreview);
 /* Business contact details for the printed invoice header. Populated by
    loadSettings() from siteContent/main; the fallbacks are the same defaults
@@ -10515,7 +10612,7 @@ document.getElementById('etRecipientSearch').addEventListener('input', function(
   ['etFilterRsvp',        v => { etFilterRsvp = v; }],
   ['etFilterPaidLast',    v => { etFilterPaidLast = v; }],
   ['etFilterOrderedLast', v => { etFilterOrderedLast = v; }],
-  ['etFilterNew',         v => { etFilterNew = v; }],
+  ['etFilterNew',         v => { etFilterNew = v; etRsvpAudienceAutoSet = false; }],
   ['etFilterGroup',       v => { etFilterGroup = v; }],
   ['etFilterOutlet',      v => { etFilterOutlet = v; }],
   ['etFilterInstalled',   v => { etFilterInstalled = v; }]
@@ -16232,6 +16329,218 @@ function hlxReadSheet(xml, ss){
   for(let i = 0; i < rows.length; i++) if(!rows[i]) rows[i] = [];
   return rows;
 }
+/* ⭐ WRITING BACK INTO THE SAME WORKBOOK.
+   Owner, 2026-08-19: "all her information needs to be put into excel", "I want new
+   quotes to be able to have their info put into the first open row in excel, and
+   include all the info", and then the constraint that shapes all of it: "it should
+   not redownload the excel and edit it though it should update that exact file".
+
+   So: the same file handle, reopened for writing, bytes replaced in place. No copy,
+   no download, no second file to go stale.
+
+   THREE DECISIONS MAKE THIS SAFE RATHER THAN HOPEFUL, and each was arrived at by
+   getting it wrong first in a Node rehearsal against the real workbook:
+
+     1. INLINE STRINGS. A new cell carries its own text (t="inlineStr") instead of an
+        index into sharedStrings.xml. Editing that shared table is how a naive
+        appender corrupts every OTHER row in the book.
+     2. DEFLATE, NOT STORE. Storing turned a 352KB workbook into 2.3MB. This file
+        syncs to OneDrive from several computers; it must not balloon.
+     3. VERIFY BEFORE WRITING. The rebuilt bytes are parsed back with the SAME reader
+        the rest of the app uses, and must come back with exactly the rows expected
+        and unchanged headers. If they do not, nothing is written at all.
+
+   ⚠ ROWS ARE ONLY EVER APPENDED. Nothing already in the sheet is edited or moved.
+   ⚠ The permission is asked for at the moment of writing, from a real click, because
+   the browser grants read and write separately and read is all the comparison needs. */
+let HLX_CRC_TABLE = null;
+function hlxCrc32(u8){
+  if(!HLX_CRC_TABLE){
+    HLX_CRC_TABLE = new Int32Array(256);
+    for(let n = 0; n < 256; n++){
+      let c = n;
+      for(let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      HLX_CRC_TABLE[n] = c;
+    }
+  }
+  let c = -1;
+  for(let i = 0; i < u8.length; i++) c = HLX_CRC_TABLE[(c ^ u8[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ -1) >>> 0;
+}
+async function hlxDeflateRaw(u8){
+  const st = new Blob([u8]).stream().pipeThrough(new CompressionStream("deflate-raw"));
+  return new Uint8Array(await new Response(st).arrayBuffer());
+}
+/* Every entry, inflated and kept — hlxUnzip throws away what it does not read, which
+   is right for reading and useless for rebuilding. */
+async function hlxUnzipAll(buf){
+  const view = new DataView(buf);
+  const u8 = new Uint8Array(buf);
+  let eocd = -1;
+  for(let i = u8.length - 22; i >= 0; i--){ if(view.getUint32(i, true) === 0x06054b50){ eocd = i; break; } }
+  if(eocd < 0) throw new Error("That file is not a .xlsx workbook.");
+  const n = view.getUint16(eocd + 10, true);
+  let off = view.getUint32(eocd + 16, true);
+  if(off === 0xffffffff || n === 0xffff) throw new Error("Cannot rewrite this workbook (zip64).");
+  const dec = new TextDecoder();
+  const out = [];
+  for(let i = 0; i < n; i++){
+    if(view.getUint32(off, true) !== 0x02014b50) throw new Error("Cannot read this workbook.");
+    const nameLen = view.getUint16(off + 28, true);
+    const extraLen = view.getUint16(off + 30, true);
+    const cmtLen = view.getUint16(off + 32, true);
+    const lho = view.getUint32(off + 42, true);
+    const name = dec.decode(u8.subarray(off + 46, off + 46 + nameLen));
+    const method = view.getUint16(off + 10, true);
+    const csize = view.getUint32(off + 20, true);
+    const lnameLen = view.getUint16(lho + 26, true);
+    const lextraLen = view.getUint16(lho + 28, true);
+    const dataStart = lho + 30 + lnameLen + lextraLen;
+    const raw = u8.subarray(dataStart, dataStart + csize);
+    out.push({name: name, data: method === 0 ? raw.slice() : await hlxInflateRaw(raw)});
+    off += 46 + nameLen + extraLen + cmtLen;
+  }
+  return out;
+}
+async function hlxZip(entries){
+  const enc = new TextEncoder();
+  const locals = [], centrals = [];
+  let offset = 0;
+  for(let i = 0; i < entries.length; i++){
+    const e = entries[i];
+    const name = enc.encode(e.name);
+    const data = e.data;
+    const crc = hlxCrc32(data);
+    const packed = await hlxDeflateRaw(data);
+    const store = packed.length >= data.length;
+    const body = store ? data : packed;
+    const lh = new DataView(new ArrayBuffer(30));
+    lh.setUint32(0, 0x04034b50, true);
+    lh.setUint16(4, 20, true);
+    lh.setUint16(8, store ? 0 : 8, true);
+    lh.setUint32(14, crc, true);
+    lh.setUint32(18, body.length, true);
+    lh.setUint32(22, data.length, true);
+    lh.setUint16(26, name.length, true);
+    locals.push(new Uint8Array(lh.buffer), name, body);
+    const ch = new DataView(new ArrayBuffer(46));
+    ch.setUint32(0, 0x02014b50, true);
+    ch.setUint16(4, 20, true); ch.setUint16(6, 20, true);
+    ch.setUint16(10, store ? 0 : 8, true);
+    ch.setUint32(16, crc, true);
+    ch.setUint32(20, body.length, true);
+    ch.setUint32(24, data.length, true);
+    ch.setUint16(28, name.length, true);
+    ch.setUint32(42, offset, true);
+    centrals.push(new Uint8Array(ch.buffer), name);
+    offset += 30 + name.length + body.length;
+  }
+  const eocd = new DataView(new ArrayBuffer(22));
+  const centralLen = centrals.reduce(function(a, b){ return a + b.length; }, 0);
+  eocd.setUint32(0, 0x06054b50, true);
+  eocd.setUint16(8, entries.length, true);
+  eocd.setUint16(10, entries.length, true);
+  eocd.setUint32(12, centralLen, true);
+  eocd.setUint32(16, offset, true);
+  const parts = locals.concat(centrals, [new Uint8Array(eocd.buffer)]);
+  const total = parts.reduce(function(a, b){ return a + b.length; }, 0);
+  const outBuf = new Uint8Array(total);
+  let p = 0;
+  parts.forEach(function(part){ outBuf.set(part, p); p += part.length; });
+  return outBuf;
+}
+function hlxColName(n){
+  let s = "";
+  n = n + 1;
+  while(n > 0){ const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); }
+  return s;
+}
+function hlxRowXml(rowNum, values){
+  /* ⚠ DOUBLE-QUOTED ATTRIBUTES, and it matters. Single quotes are valid XML and
+     Excel reads them happily — but hlxReadSheet matches r="..." with double quotes,
+     so a row written with single ones is invisible to our OWN reader. The verify
+     step then sees no new row and refuses to write, every time, for ever. Caught by
+     running the shipped writer end to end rather than trusting it. */
+  const q = String.fromCharCode(34);
+  let x = "<row r=" + q + rowNum + q + ">";
+  values.forEach(function(v, i){
+    if(v === "" || v == null) return;
+    const t = String(v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    x += "<c r=" + q + hlxColName(i) + rowNum + q +
+      " t=" + q + "inlineStr" + q + "><is><t xml:space=" + q + "preserve" + q + ">" +
+      t + "</t></is></c>";
+  });
+  return x + "</row>";
+}
+/* ⭐ APPEND ROWS TO THE CONNECTED WORKBOOK, IN PLACE.
+   Returns {written, rowsBefore, rowsAfter} or throws with something the office can
+   act on. Nothing is written unless the rebuilt bytes parse back correctly first —
+   see the three decisions above hlxCrc32. */
+async function hlxAppendRowsToSheet(rows){
+  if(!rows || !rows.length) return {written: 0};
+  const handle = await hlxSheetHandleLoad();
+  if(!handle) throw new Error("No sheet is connected. Press \u201cUse my master sheet\u201d first.");
+  /* ⚠ READ AND WRITE ARE GRANTED SEPARATELY. The comparison only ever needed read,
+     so this is the first time write is asked for, and it has to come from a click. */
+  let state = "granted";
+  if(handle.queryPermission) state = await handle.queryPermission({mode: "readwrite"});
+  if(state !== "granted" && handle.requestPermission){
+    state = await handle.requestPermission({mode: "readwrite"});
+  }
+  if(state !== "granted"){
+    throw new Error("Chrome would not let me write to the file. Press the button again and " +
+      "choose Allow \u2014 read and write are asked for separately, so allowing it to be read " +
+      "earlier does not cover this.");
+  }
+  const file = await handle.getFile();
+  const buf = await file.arrayBuffer();
+
+  /* What is in there now, so the check afterwards has something to compare against. */
+  const before = await hlxWorkbookRows(new Blob([buf]));
+  const beforeCount = before.length;
+  const beforeHead = (before[0] || []).map(function(v){ return String(v == null ? "" : v).trim(); }).join("|");
+
+  const entries = await hlxUnzipAll(buf);
+  const sheet = entries.filter(function(e){ return /^xl\/worksheets\/sheet1\.xml$/.test(e.name); })[0];
+  if(!sheet) throw new Error("That workbook has no first sheet to write to.");
+  const dec = new TextDecoder(), enc = new TextEncoder();
+  let xml = dec.decode(sheet.data);
+  if(xml.indexOf("</sheetData>") < 0) throw new Error("That sheet is not in a shape I can add a row to.");
+  /* The first open row is the one after the highest row that exists — read off the
+     sheet itself rather than counted, because a sheet can have gaps. */
+  let maxRow = 0;
+  xml.replace(/<row[^>]*\sr="(\d+)"/g, function(m, num){ maxRow = Math.max(maxRow, Number(num)); return m; });
+  let inject = "";
+  rows.forEach(function(vals, i){ inject += hlxRowXml(maxRow + 1 + i, vals); });
+  xml = xml.replace("</sheetData>", inject + "</sheetData>");
+  sheet.data = enc.encode(xml);
+  const rebuilt = await hlxZip(entries);
+
+  /* ⭐ VERIFY BEFORE WRITING. This is the whole safety story: the new bytes are read
+     back with the same reader the rest of the app uses, and must come back with
+     exactly the rows expected and the headers untouched. A workbook that does not
+     parse never reaches the disk. */
+  let check;
+  try{ check = await hlxWorkbookRows(new Blob([rebuilt])); }
+  catch(err){ throw new Error("Built a workbook that could not be read back, so nothing was written. (" + (err && err.message) + ")"); }
+  const afterHead = (check[0] || []).map(function(v){ return String(v == null ? "" : v).trim(); }).join("|");
+  if(check.length !== beforeCount + rows.length){
+    throw new Error("The rebuilt sheet came back with " + check.length + " rows, expected " +
+      (beforeCount + rows.length) + " \u2014 nothing was written.");
+  }
+  if(afterHead !== beforeHead){
+    throw new Error("The rebuilt sheet lost its heading row, so nothing was written.");
+  }
+
+  const w = await handle.createWritable();
+  await w.write(rebuilt);
+  await w.close();
+  return {written: rows.length, rowsBefore: beforeCount - 1, rowsAfter: check.length - 1, firstRow: maxRow + 1};
+}
+/* One customer, straight into the first open row. */
+async function hlxAddCustomerToSheet(d){
+  return hlxAppendRowsToSheet([rbCustomerToSheetRow(d)]);
+}
 async function hlxWorkbookRows(file){
   const z = await hlxUnzip(await file.arrayBuffer());
   const dec = new TextDecoder();
@@ -17070,6 +17379,13 @@ function rbRenderLedger(found){
       /* Only worth saying when it is NOT already labelled a duplicate — there the
          badge and the row number have said it, and the sheet address is on the right
          already. Kept for the other case, where "no street" is the whole finding. */
+      /* ⭐ AND SAY WHAT THE TICK WILL DO. Owner asked for Rachel Oslund — on the
+         website, nowhere in the sheet by name, number or address — to be written into
+         it: "all her information needs to be put into excel". */
+      if(!o.onSheetRow){
+        right = '<span style="color:var(--slate); font-style:italic;">— not on your sheet —</span>' +
+          '<div style="color:var(--slate); font-size:11.5px; margin-top:2px;">Ticked: they are written into the first open row of your sheet, all seventeen columns. Nobody is ever deleted for being missing from it — if they have really left, mark them <strong>Maybe Next Year</strong> on their record instead.</div>';
+      }
       if(o.stray && !o.onSheetRow){
         left += '<div style="color:var(--ember); font-size:11.5px; margin-top:2px;">No street on this <strong>website record</strong>, so no row on your sheet can reach it.</div>';
       }
@@ -17080,8 +17396,16 @@ function rbRenderLedger(found){
          ⚠ NEVER ticked by default. Everything else in this list is reversible by
          editing a field back; this one is not. */
       box = (o.keeperId && o.id !== o.keeperId)
-        ? '<input type="checkbox" class="rb-spare-pick" data-spare="' + esc(o.id) + '" data-keeper="' + esc(o.keeperId) + '">'
-        : '<span title="Nothing is deleted here" style="color:var(--slate);">&mdash;</span>';
+        /* ⭐ BOTH DIRECTIONS, ONE BUTTON. Owner, 2026-08-19: "we dont need a button,
+           we should make it so theres only one sync button because anything I dont
+           want synced will be manually fixed."
+           A duplicate has a KEEPER and is folded in and removed. Somebody the sheet
+           has genuinely never heard of has none, and is written into it instead.
+           ⚠ The keeper is the whole difference between deleting a record and adding a
+           row, so a row without one is never deleted. Both come ticked, because her
+           rule is that exceptions get fixed by hand rather than chased with buttons. */
+        ? '<input type="checkbox" class="rb-spare-pick" data-spare="' + esc(o.id) + '" data-keeper="' + esc(o.keeperId) + '" checked>'
+        : '<input type="checkbox" class="rb-toexcel-pick" data-cust="' + esc(o.id) + '" checked>';
     }
     html += '<tr style="border-bottom:1px solid var(--line);">' +
       '<td style="padding:5px 6px 5px 0; vertical-align:top;">' + box + '</td>' +
@@ -17311,6 +17635,28 @@ function rbWireDiffButtons(report, statusEl){
       } catch(err){ foldFailed++; }
     }
     if(folded) logActivity('Folded ' + folded + ' spare customer record(s) into the record the sheet found', 'customers', '');
+
+    /* ⭐ AND THE OTHER DIRECTION, ON THE SAME PRESS. Owner: "theres only one sync
+       button because anything I dont want synced will be manually fixed."
+       ⚠ LAST, deliberately. Everything above writes to the website and can be
+       undone by editing a record; this writes to her master workbook. If anything
+       earlier fails, the sheet has not been touched yet.
+       ⚠ A failure here never fails the whole sync — the website work already
+       landed, and saying so is more use than an exception. */
+    const toExcel = Array.prototype.slice.call(document.querySelectorAll('.rb-toexcel-pick'))
+      .filter(function(p){ return p.checked; })
+      .map(function(p){ return p.getAttribute('data-cust'); })
+      .map(function(id){ return jobAddresses.find(function(c){ return c.id === id; }); })
+      .filter(Boolean);
+    let toSheet = 0, sheetErr = '';
+    if(toExcel.length){
+      statusEl.textContent = 'Writing ' + toExcel.length + ' customer(s) into your sheet\u2026';
+      try{
+        const res = await hlxAppendRowsToSheet(toExcel.map(function(c){ return rbCustomerToSheetRow(c.data || {}); }));
+        toSheet = res.written || 0;
+        if(toSheet) logActivity('Wrote ' + toSheet + ' customer(s) into the master sheet', 'customers', '');
+      } catch(err){ sheetErr = (err && err.message) || 'unknown error'; }
+    }
     rbPendingDiffs = null;
     logActivity('Synced ' + fields + ' field(s) from the master sheet onto ' + done + ' customer(s)', 'customers', '');
     report.innerHTML = '<div style="border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--paper); font-size:13px;">' +
@@ -17322,6 +17668,8 @@ function rbWireDiffButtons(report, statusEl){
       fields + ' field(s) synced across ' + done + ' customer(s)' + (failed ? ', ' + failed + ' failed' : '') +
       (folded ? ', ' + folded + ' spare copy(ies) folded in and removed' : '') +
       (foldFailed ? ', ' + foldFailed + ' spare copy(ies) could not be folded' : '') +
+      (toSheet ? ', ' + toSheet + ' written into your sheet' : '') +
+      (sheetErr ? '. Nothing was written to your sheet: ' + esc(sheetErr) : '') +
       '. Nothing that was blank on the sheet was written, and no invoice was created or touched — run Bulk Update if anybody new needs billing. ' +
       'Press Compare again to check.</div>';
     statusEl.textContent = '';
