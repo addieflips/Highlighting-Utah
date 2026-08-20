@@ -16825,6 +16825,137 @@ pendingAsync.push((async () => {
  * fine; the link to it is stale, and it is one press to fix.
  * ------------------------------------------------------------------------- */
 /* ---------------------------------------------------------------------------
+ * Suite 93. Two crews, two towns, twenty each
+ *
+ * Owner, 2026-08-20: "each crew should have 40 houses but for some reason one crew
+ * gets 1-19 and the other crew get 20-40 the problem with that is one of those
+ * lists are 19 houses and the other is 21."
+ *
+ * The builder does make two crew-days of twenty. The schedule merges them into one
+ * flat forty and re-derives the split by TOWN, which is right until a crew-day
+ * topped itself up from the neighbouring town: that borrowed house belongs to crew
+ * one and sits in crew two's town, so town-splitting hands it to crew two.
+ * ------------------------------------------------------------------------- */
+suite('Suite 93. Two crews, two towns, twenty each');
+
+{
+  const src = extractFn(admin, 'dayCrewHouses');
+  check('S93', 'the crew split is there to run', !!src);
+
+  /* ⚠ AND crewHousesFor HAS TO USE IT. Reverting that one line to the old
+     town filter passed every check in this suite, because they all call
+     dayCrewHouses directly while the screen calls crewHousesFor. */
+  check('S93', 'the crew sheet reads the evened split, not the raw towns',
+    extractFn(admin, 'crewHousesFor').indexOf('dayCrewHouses(day)[i]') !== -1,
+    'the printed sheet is what the office actually acts on');
+
+  /* ⚠ THE FALLBACK IS A REAL PATH, not decoration. crewCap reads
+     MAX_STOPS_PER_ROUTE, and if a refactor ever moves that constant out from under
+     it the cap silently becomes whatever the fallback says. Twenty is the crew day;
+     a larger number would quietly stop the hand-back from ever firing, and the
+     nineteen-and-twenty-one sheets would come back with nothing to show why. */
+  const capFn = new Function(extractFn(admin, 'crewCap') + 'return crewCap();');
+  check('S93', 'with the constant missing the cap is still twenty',
+    capFn() === 20,
+    'got ' + capFn() + ' — the fallback has to be the crew day, not a number that ' +
+    'lets a sheet grow without complaint');
+  if (src) {
+    /* crewTownsFor and the little helpers are stubbed, so this exercises the
+       rebalance itself rather than the whole schedule module. */
+    const run = new Function('day', 'townsByCrew', 'MAX_STOPS_PER_ROUTE',
+      'const cityOf = function(h){ return (h.city || "").trim(); };' +
+      'const sameCity = function(a, b){ return String(a).trim().toLowerCase() === ' +
+      '  String(b).trim().toLowerCase(); };' +
+      'const crewTownsFor = function(i){ return townsByCrew[i] || []; };' +
+      extractFn(admin, 'crewCap') + src + 'return dayCrewHouses(day);');
+
+    const house = (n, city) => ({id: 'h' + n, city: city});
+    const dayOf = (a, b) => ({houses: a.concat(b)});
+    const sizes = (out) => out.map(x => x.length).join('/');
+
+    /* ---- the real shape of her complaint ---- */
+    const lehi = [], herriman = [];
+    for (let i = 0; i < 19; i++) lehi.push(house('L' + i, 'Lehi'));
+    for (let i = 0; i < 21; i++) herriman.push(house('H' + i, 'Herriman'));
+    const day = dayOf(lehi, herriman);
+    const towns = {0: ['Lehi'], 1: ['Herriman']};
+
+    check('S93', 'a 19/21 day comes out 20/20',
+      sizes(run(day, towns, 20)) === '20/20',
+      'that twenty-first house was borrowed by crew one to fill its day; splitting ' +
+      'by town alone hands it back to crew two');
+    check('S93', 'and nobody is lost or invented',
+      run(day, towns, 20).reduce((n, x) => n + x.length, 0) === 40);
+    check('S93', 'the houses moved are the ones from the LONGER pile',
+      run(day, towns, 20)[0].filter(h => h.city === 'Herriman').length === 1,
+      'exactly one comes across, and it is the last stop of a nearest-neighbour ' +
+      'run, which is the cheapest one to hand over');
+
+    /* ---- and it leaves an already-even day alone ---- */
+    const even = dayOf(
+      Array.from({length: 20}, (_, i) => house('L' + i, 'Lehi')),
+      Array.from({length: 20}, (_, i) => house('H' + i, 'Herriman')));
+    check('S93', 'a day that is already even is untouched',
+      sizes(run(even, towns, 20)) === '20/20' &&
+      run(even, towns, 20)[0].every(h => h.city === 'Lehi'),
+      'no house crosses towns for no reason');
+
+    /* ⚠ AND IT NEVER PUSHES A CREW OVER THE CAP. */
+    const big = dayOf(
+      Array.from({length: 30}, (_, i) => house('L' + i, 'Lehi')),
+      Array.from({length: 4}, (_, i) => house('H' + i, 'Herriman')));
+    const bigOut = run(big, towns, 20);
+    /* ⚠ THIRTY AND FOUR STAYS TWENTY AND FOURTEEN, not seventeen and seventeen.
+       The first version of this levelled ANY gap, so a day like that came out even
+       by dragging thirteen houses over a town line — the opposite of "two crews,
+       two towns". The only move worth making is the one that gets a crew off a
+       sheet it cannot work, so it stops the moment the big pile is down to the cap
+       and leaves the rest of the gap alone. Nineteen and twenty-one is exactly that
+       case, and it is the one the owner actually reported. */
+    check('S93', 'a lopsided day is evened only as far as the cap allows',
+      sizes(bigOut) === '20/14',
+      'got ' + sizes(bigOut) + ' — the over-cap crew comes down to twenty and it ' +
+      'stops there; levelling the rest would send a crew into the other crew' +
+      String.fromCharCode(8217) + 's town');
+    check('S93', 'and still nobody is lost',
+      bigOut.reduce((n, x) => n + x.length, 0) === 34);
+
+    /* ⚠ AND IT NEVER PUSHES THE OTHER CREW OVER. A day of twenty-five and
+       nineteen is already more than two sheets can hold, so somebody is over the
+       cap whatever we do. The guard makes it the crew that was ALREADY over: it
+       stops handing houses across once the receiving crew reaches twenty, giving
+       twenty-four and twenty. Without it the loop keeps swapping the overflow back
+       and forth — twenty-one and twenty-three — so a crew that was fine at
+       nineteen ends up over the cap too, and five extra houses changed towns to get
+       there. A red-check that deleted the guard passed every other check here. */
+    const tight = dayOf(
+      Array.from({length: 25}, (_, i) => house('L' + i, 'Lehi')),
+      Array.from({length: 19}, (_, i) => house('H' + i, 'Herriman')));
+    const tightOut = run(tight, towns, 20);
+    check('S93', 'and a crew already at the cap is never handed more',
+      sizes(tightOut) === '24/20',
+      'got ' + sizes(tightOut) + ' — on an overloaded day the crew that was ' +
+      'already over stays the one that is over');
+
+    /* ⚠ A HOUSE IN NEITHER CREW'S TOWN STAYS IN NEITHER. */
+    const stray = dayOf(
+      Array.from({length: 5}, (_, i) => house('L' + i, 'Lehi')),
+      [house('X1', 'Nowhere'), house('X2', 'Nowhere')]);
+    const strayOut = run(stray, towns, 20);
+    check('S93', 'a house in a town neither crew works is left unassigned',
+      strayOut.reduce((n, x) => n + x.length, 0) === 5,
+      'it has to stay visible as nobody' + String.fromCharCode(8217) + 's, rather than being ' +
+      'quietly absorbed onto a sheet');
+
+    /* ⚠ ONE CREW ONLY: nothing to hand anything to. */
+    const solo = run(dayOf(Array.from({length: 25}, (_, i) => house('L' + i, 'Lehi')), []),
+      {0: ['Lehi'], 1: []}, 20);
+    check('S93', 'with one crew on the day, nothing is moved',
+      solo[0].length === 25 && solo[1].length === 0,
+      'there is no second sheet to put them on');
+  }
+}
+/* ---------------------------------------------------------------------------
  * Suite 92. A day inside 48 hours is printed, and printed is finished
  *
  * Owner, 2026-08-20: "not recalculate houses within two days cause weve already

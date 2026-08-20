@@ -33109,10 +33109,62 @@ function crewCityFor(i,day){
   return t.length?t.join(' · '):'';
 }
 function sameCity(a,b){return (''+a).trim().toLowerCase()===(''+b).trim().toLowerCase();}
+/* ---------- the two crew sheets ----------
+   ⭐ TWENTY AND TWENTY, NOT NINETEEN AND TWENTY-ONE (added 2026-08-20). Owner:
+   "each crew should have 40 houses but for some reason one crew gets 1-19 and the
+   other crew get 20-40 the problem with that is one of those lists are 19 houses
+   and the other is 21" — then, asked which rule she meant: "we want two crews
+   two towns 20 for each 1-20 and 21-40".
+
+   Splitting purely by town is what produces that. A crew whose own town cannot
+   fill its day borrows from the other one, and the borrowed houses land on the
+   BORROWING crew’s sheet, so the pair comes out nineteen and twenty-one.
+
+   ⚠ IT IS A HAND-BACK, NOT A LEVELLER. The only move worth making is the one
+   that gets a crew off a sheet it cannot work, so it stops the moment the big pile
+   is down to the cap, and it never hands houses to a crew already at the cap. A day
+   of thirty and four therefore stays twenty and fourteen: levelling it to seventeen
+   and seventeen would drag thirteen houses over a town line, which is the opposite
+   of one crew one town. Nineteen and twenty-one is the case she reported, and it is
+   one house. Taken from the END of the longer list, which is the last stop of a
+   nearest-neighbour run and so the cheapest one to hand over.
+
+   ⚠ NOTHING IS INVENTED AND NOTHING IS DROPPED. It only ever redistributes what
+   the towns already handed out, and a house in neither crew’s town stays in
+   neither — unassignedHousesFor still has to be able to see it. */
+function crewCap(){
+  return (typeof MAX_STOPS_PER_ROUTE === 'number' && MAX_STOPS_PER_ROUTE > 0)
+    ? MAX_STOPS_PER_ROUTE : 20;
+}
+function dayCrewHouses(day){
+  const out=[[],[]];
+  if(!day||!day.houses) return out;
+  [0,1].forEach(function(i){
+    const towns=crewTownsFor(i,day);
+    out[i]=towns.length
+      ? day.houses.filter(h=>towns.some(function(t){return sameCity(cityOf(h),t);}))
+      : [];
+  });
+  const cap=crewCap();
+  let guard=0;
+  while(guard++ < 100){
+    const big=out[0].length>=out[1].length?0:1;
+    const small=big===0?1:0;
+    if(out[big].length<=cap) break;
+    if(out[small].length>=cap) break;
+    if(!crewTownsFor(small,day).length) break;   /* nobody to hand it to */
+    out[small].push(out[big].pop());
+  }
+  return out;
+}
+/* ⚠ THE SHEET READS THE EVENED SPLIT. Everything that prints, counts or orders a
+   crew’s day comes through here, so the hand-back happens here rather than at print
+   time — otherwise the panel, the printed sheet and the route generator disagree
+   about which crew a borrowed house belongs to, which is the same class of bug as
+   the empty crew sheet fixed alongside this. */
 function crewHousesFor(i,day){
-  const towns=crewTownsFor(i,day);
-  if(!day||!towns.length) return [];
-  return day.houses.filter(h=>towns.some(function(t){return sameCity(cityOf(h),t);}));
+  if(!day) return [];
+  return dayCrewHouses(day)[i]||[];
 }
 /* ---------- what did not get done ----------
    On a normal day nearly everything gets finished, so ticking off the ones
