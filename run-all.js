@@ -16651,6 +16651,56 @@ if (!JSDOM) {
  * never the workbook — which is the drift the whole comparison exists to clean up.
  * A grep for the function name found it defined once and used nowhere.
  * ------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+ * Suite 82. Save and close stay on screen
+ *
+ * Owner: "add a x and a save button as a frozen pane at the top of edit customers
+ * so you can easily close/save it." The form is long enough that both buttons sit
+ * far below the fold.
+ * ------------------------------------------------------------------------- */
+suite('Suite 82. Save and close stay on screen');
+
+{
+  check('S82', 'the bar exists at the top of the popup',
+    /class="editcust-topbar"/.test(admin) &&
+    /id="editCustTopSave"/.test(admin) && /id="editCustTopClose"/.test(admin));
+  check('S82', 'and it is STICKY, not fixed',
+    /\.editcust-topbar\{[^}]*position:sticky/.test(admin),
+    "the popup is the thing that scrolls, so fixed would pin the bar to the window " +
+    "and leave it floating over the page behind it");
+  check('S82', 'it sits above the form as it scrolls past',
+    /\.editcust-topbar\{[^}]*z-index:[1-9]/.test(admin) &&
+    /\.editcust-topbar\{[^}]*background:#fff/.test(admin),
+    "a transparent bar lets the form scroll through it and reads as a glitch");
+
+  /* ⚠ IT PRESSES THE REAL BUTTONS. Saving re-derives the bin count, warns about
+     the number series, rebuilds the invoice, re-syncs route stops and queues the
+     warehouse. A second copy of that is the copy that falls behind. */
+  {
+    /* No regex across the handler body: an escape that does not survive the
+       route into this file degrades into something that matches nothing, and the
+       check then fails against correct code. Slice and look. */
+    const topSave = admin.slice(admin.indexOf("getElementById('editCustTopSave')"));
+    const body = topSave.slice(0, topSave.indexOf('});') + 3);
+    check('S82', 'Save delegates to the real Save button',
+      body.indexOf("getElementById('editCustSaveBtn')") !== -1 &&
+      body.indexOf('real.click()') !== -1,
+      'a duplicated save path is one that quietly stops matching the real one');
+  }
+  check('S82', 'and it will not start a second save while one is running',
+    /if\(real && !real.disabled\) real.click\(\);/.test(admin),
+    "the real button disables itself mid-save; the top one has to respect that");
+  {
+    const topClose = admin.slice(admin.indexOf("getElementById('editCustTopClose')"));
+    const body = topClose.slice(0, topClose.indexOf('});') + 3);
+    check('S82', 'the X closes without saving, through the real Cancel',
+      body.indexOf("getElementById('editCustCancelBtn')") !== -1 &&
+      body.indexOf('real.click()') !== -1,
+      'Cancel also clears editCustomerId and leaves an open re-quote alone — an X ' +
+      'that only hid the overlay would leave the form half-open in memory');
+  }
+}
+
 suite('Suite 81. A new customer reaches the sheet');
 
 {
