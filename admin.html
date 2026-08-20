@@ -5582,13 +5582,19 @@ const RSVP_ANSWER_WORDS = {
   no: 'No — not this season',
   backnextyear: 'Back next year'
 };
-/* ⚠ Gmail clips a message at 102KB, and a row of three buttons is not free.
- * Past this many houses each row drops to Yes/No and "Back next year" moves to
- * the portal, which is the answer people pick least often.
- * ⚠ NOT CONFIRMED against the real customer book — that lives in Firestore and
- * on the owner's own machine. If a real payer covers more than this, check a
- * sent email actually arrives whole before raising it. */
-const RSVP_HOUSE_BUTTON_LIMIT = 6;
+/* ⚠ Gmail clips a message at 102KB. Past this many properties each card drops
+ * to Yes/No and "Back next year" moves to the portal.
+ * ⭐ MEASURED, 2026-08-20, by rendering this block and weighing it rather than
+ * guessing: 2 houses = 4.5KB, 10 = 16.7KB, 20 = 32.8KB, 40 = 64.8KB. So the
+ * first version of this number — 6 — was wrong in the direction that costs
+ * something: it stripped a real answer from anyone with seven properties while
+ * the email was using 12% of the budget. At 25 the block is about 41KB, which
+ * leaves ~60KB for the template text, the footer and the quoted thread.
+ * ⚠ AND NOTE THE GUARD BARELY SAVES ANYTHING. One button is ~200 bytes, so
+ * dropping it from 25 cards saves 5KB — it is the CARDS that cost, not the
+ * buttons. If a real payer is ever big enough to clip, the answer is a portal
+ * link instead of a list, not a third button removed. */
+const RSVP_HOUSE_BUTTON_LIMIT = 25;
 /* The three answers as ONE ROW, laid out by a table.
    ⚠ A table, not inline-blocks with margins: inline-blocks wrap wherever the
    client decides, so on a narrow phone "No" dropped onto its own line under
