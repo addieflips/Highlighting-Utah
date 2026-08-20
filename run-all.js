@@ -15639,7 +15639,7 @@ suite('Suite 69. A customer as a row of the master sheet');
     }
   }
   check('S69', 'and each goes to its own tab',
-    /tab: "Recycle"/.test(admin) && /tab: "Color Changes"/.test(admin) &&
+    /tab: "Recycle"/.test(admin) && /tab: "Color Changes"/.test(admin) && /tab: "Yes"/.test(admin) &&
     /tab: "Contact 2027"/.test(admin),
     'the owner named all three by name');
 
@@ -16517,6 +16517,232 @@ if (!JSDOM) {
  * matches nobody, reports "nothing new to send", and looks like a working button
  * for ever. These checks run holds() against records using the real names.
  * ------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+ * Suite 77. The customer list is not one sheet
+ *
+ * Owner, 2026-08-20: "in the excel 2025 it syncs to customers but if they are in
+ * color change or contact 2027 it wont detect them and so information wont go back
+ * and forth between website in excel, if they are located in both the 2025 sheet
+ * and contact 2027 then dont add a second customer but we need to make sure that
+ * they are still synced as well".
+ *
+ * These build a workbook with the shipped zip writer and run the shipped reader
+ * over it. The identity rule is the sharp edge: too loose and a real customer is
+ * silently swallowed as a duplicate, which is what happened on the real file.
+ * ------------------------------------------------------------------------- */
+pendingAsync.push((async () => {
+  suite('Suite 77. The customer list is not one sheet');
+
+  const lift77 = (n) => {
+    let st = admin.indexOf('async function ' + n + '(');
+    if (st < 0) st = admin.indexOf('function ' + n + '(');
+    if (st < 0) return '';
+    let i = admin.indexOf('{', st), d = 0;
+    for (; i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(st, i + 1); }
+    }
+    return '';
+  };
+  const NEED = ['hlxCrc32', 'hlxDeflateRaw', 'hlxInflateRaw', 'hlxUnzip', 'hlxUnzipAll',
+               'hlxZip', 'hlxXmlText', 'hlxColNum', 'hlxColName', 'hlxSharedStrings',
+               'hlxReadSheet', 'hlxWorkbookSharedStrings', 'hlxSheetPartFor',
+               'dupNormName', 'normalizeStreetForMatch', 'hlxRowIdentityKeys',
+               'hlxWorkbookRowsAllSheets', 'hlxWorkbookRows'];
+  const gone = NEED.filter(n => !lift77(n));
+  check('S77', 'the whole-workbook reader is still there', !gone.length,
+    'missing: ' + gone.join(', '));
+  if (gone.length) return;
+
+  const box = {};
+  new Function('let HLX_CRC_TABLE = null;' +
+    admin.match(/const HLX_SYNC_SHEETS = \[[^\]]*\];/)[0] +
+    NEED.map(lift77).join('') +
+    'this.all = hlxWorkbookRowsAllSheets; this.one = hlxWorkbookRows;' +
+    'this.zip = hlxZip; this.sheets = HLX_SYNC_SHEETS; this.keys = hlxRowIdentityKeys;'
+  ).call(box);
+
+  check('S77', 'it reads the sheets the owner named',
+    box.sheets.join('|') === 'Yes|Color Changes|Recycle|Contact 2027',
+    'these are the tab names in her workbook, matched exactly');
+
+  /* ⚠ AND THE COMPARISON HAS TO CALL IT. A red-check put hlxWorkbookRows back in
+     hlxLoadConnectedSheet and every test above still passed, because they all call
+     the reader directly. The reader being right is worth nothing if the screen that
+     needs it is still reading one sheet. */
+  const loader = sectionFrom(admin, admin.indexOf('async function hlxLoadConnectedSheet('));
+  check('S77', 'the comparison loads the WHOLE workbook',
+    /hlxWorkbookRowsAllSheets\(file\)/.test(loader) &&
+    !/=\s*await hlxWorkbookRows\(file\)/.test(loader),
+    'this is the one wire between the new reader and the screen that uses it');
+
+  const enc = new TextEncoder();
+  const HDR = ['CU #', 'Name', 'Address', 'City', 'Zip', 'Phone'];
+  const cell = (col, row, text) => '<c r="' + col + row + '" t="inlineStr"><is><t>' +
+    String(text) + '</t></is></c>';
+  const COLS = ['A', 'B', 'C', 'D', 'E', 'F'];
+  const sheet = (rows) => enc.encode('<worksheet><sheetData>' + rows.map((vals, i) =>
+    '<row r="' + (i + 1) + '">' + vals.map((v, c) => v === '' ? '' :
+      cell(COLS[c], i + 1, v)).join('') + '</row>').join('') + '</sheetData></worksheet>');
+
+  /* Tab order deliberately does not match file order, as in the real book. */
+  const build = (main, side) => box.zip([
+    {name: 'xl/workbook.xml', data: enc.encode('<workbook><sheets>' +
+      '<sheet name="2025" r:id="rIdA"/><sheet name="Contact 2027" r:id="rIdB"/>' +
+      '</sheets></workbook>')},
+    {name: 'xl/_rels/workbook.xml.rels', data: enc.encode('<Relationships>' +
+      '<Relationship Id="rIdA" Target="worksheets/sheet1.xml"/>' +
+      '<Relationship Id="rIdB" Target="worksheets/sheet2.xml"/>' +
+      '</Relationships>')},
+    {name: 'xl/worksheets/sheet1.xml', data: sheet([HDR].concat(main))},
+    {name: 'xl/worksheets/sheet2.xml', data: sheet([HDR].concat(side))}
+  ]);
+  const asFile = (bytes) => ({ arrayBuffer: async () => bytes.buffer.slice(
+    bytes.byteOffset, bytes.byteOffset + bytes.byteLength) });
+  const namesOf = (rows) => rows.slice(1).map(r => String(r[1] || '').trim()).filter(Boolean);
+
+  /* ---- somebody who is ONLY on the side sheet ---- */
+  {
+    const bytes = await build(
+      [['1001', 'Ada Main', '1 Elm', 'Lehi', '84043', '8015550001']],
+      [['1002', 'Bea Moved', '2 Oak', 'Lehi', '84043', '8015550002']]);
+    const one = await box.one(asFile(bytes));
+    const all = await box.all(asFile(bytes));
+    check('S77', 'reading one sheet misses the customer who was moved',
+      namesOf(one).join() === 'Ada Main',
+      'this is the old behaviour, kept as the thing being fixed');
+    check('S77', 'reading the workbook finds them',
+      namesOf(all.rows).join() === 'Ada Main,Bea Moved' && all.added === 1,
+      'a customer moved to Contact 2027 looked to the comparison like somebody who ' +
+      'had left the business, and it offered to add them back as new');
+    check('S77', 'and it says which sheet they came off',
+      all.fromSheets['Contact 2027'] === 1,
+      'a row count that grew with no explanation reads as a miscount');
+  }
+
+  /* ---- somebody on BOTH sheets ---- */
+  {
+    const both = ['1001', 'Ada Main', '1 Elm', 'Lehi', '84043', '8015550001'];
+    const bytes = await build([both], [both]);
+    const all = await box.all(asFile(bytes));
+    check('S77', 'somebody on both sheets is ONE customer',
+      namesOf(all.rows).join() === 'Ada Main' && all.added === 0,
+      'owner: "if they are located in both the 2025 sheet and contact 2027 then ' +
+      'dont add a second customer"');
+  }
+
+  /* ---- and the trap that caught the first version ---- */
+  {
+    /* Liz Frome was on the Recycle sheet holding #5012, which Staci Cosby also
+       holds on the 2025 sheet. Keying on the number alone read Liz as somebody
+       already in the list and dropped her - she was the ONLY named row on any
+       side sheet, so the merge reported a confident nothing-to-do.
+       The owner has since deleted that row, so the workbook no longer proves
+       this. The fixture does, which is the point of having one. */
+    const bytes = await build(
+      [['5012', 'Cosby Staci', '1 Elm', 'Lehi', '84043', '8015550001']],
+      [['5012', 'Frome Liz', '', '', '', '']]);
+    const all = await box.all(asFile(bytes));
+    check('S77', 'TWO PEOPLE SHARING A CUSTOMER NUMBER ARE STILL TWO PEOPLE',
+      namesOf(all.rows).join() === 'Cosby Staci,Frome Liz' && all.added === 1,
+      'a number collision that swallows a row deletes a customer where nobody can ' +
+      'see it; two copies of one person is a mess somebody can actually notice. ' +
+      'This exact pair is in the live workbook and Health Check reports it');
+    check('S77', 'and the number still matches when the name agrees',
+      box.keys(['5012', 'Cosby Staci', '', '', '', ''], {'CU #': 0, 'Name': 1, 'Address': 2, 'Phone': 5})
+        .some(k => k.indexOf('5012') !== -1),
+      'the number is not thrown away, it is just never trusted on its own');
+  }
+
+  /* ---- the same person, recognised without a number ---- */
+  {
+    const bytes = await build(
+      [['', 'Ada Main', '1 Elm', 'Lehi', '84043', '8015550001']],
+      [['', 'Ada Main', '', '', '', '8015550001']]);
+    const all = await box.all(asFile(bytes));
+    check('S77', 'a name with a phone is enough to be the same person',
+      all.added === 0);
+
+    const b2 = await build(
+      [['', 'Ada Main', '1 Elm', 'Lehi', '84043', '']],
+      [['', 'Ada Main', '1 Elm', '', '', '']]);
+    const a2 = await box.all(asFile(b2));
+    check('S77', 'so is a name with a street', a2.added === 0);
+
+    const b3 = await build(
+      [['', 'Ada Main', '1 Elm', 'Lehi', '84043', '8015550001']],
+      [['', 'Ada Main', '', '', '', '']]);
+    const a3 = await box.all(asFile(b3));
+    check('S77', 'and a name with nothing else does not arrive twice',
+      a3.added === 0,
+      'the side sheets are where somebody was MOVED to, so a bare name on one is ' +
+      'far more likely to be the person already in the list than a new customer');
+
+    /* ⚠ UNLESS TWO PEOPLE ANSWER TO THAT NAME. Six names on the real 2025 sheet
+       belong to two different rows. */
+    const b4 = await build(
+      [['', 'Ada Main', '1 Elm', 'Lehi', '84043', '8015550001'],
+       ['', 'Ada Main', '9 Oak', 'Lehi', '84043', '8015559999']],
+      [['', 'Ada Main', '', '', '', '']]);
+    const a4 = await box.all(asFile(b4));
+    check('S77', 'an ambiguous bare name is kept, not guessed at',
+      a4.added === 1,
+      'this file already says two candidates is no match. Dropping the row would ' +
+      'delete a customer to tidy a list; keeping it puts the question in front of ' +
+      'somebody who can answer it');
+  }
+
+  /* ---- the side sheet with its columns in a different order ---- */
+  {
+    /* ⚠ THE FIXTURES ABOVE ALL PUT THE COLUMNS IN THE SAME ORDER ON BOTH SHEETS,
+       so lining up by position and lining up by header name gave the same answer and
+       a red-check swapping one for the other changed nothing. They line up today in
+       the real book too — which is exactly why this needs a test rather than a
+       glance: one column inserted into one sheet shifts every value one place and
+       nothing complains. Here Name and Phone are swapped on the side sheet. */
+    const SIDE_HDR = ['CU #', 'Phone', 'Address', 'City', 'Zip', 'Name'];
+    const bytes = await box.zip([
+      {name: 'xl/workbook.xml', data: enc.encode('<workbook><sheets>' +
+        '<sheet name="2025" r:id="rIdA"/><sheet name="Contact 2027" r:id="rIdB"/>' +
+        '</sheets></workbook>')},
+      {name: 'xl/_rels/workbook.xml.rels', data: enc.encode('<Relationships>' +
+        '<Relationship Id="rIdA" Target="worksheets/sheet1.xml"/>' +
+        '<Relationship Id="rIdB" Target="worksheets/sheet2.xml"/>' +
+        '</Relationships>')},
+      {name: 'xl/worksheets/sheet1.xml', data: sheet([HDR,
+        ['1001', 'Ada Main', '1 Elm', 'Lehi', '84043', '8015550001']])},
+      {name: 'xl/worksheets/sheet2.xml', data: sheet([SIDE_HDR,
+        ['1002', '8015550002', '2 Oak', 'Lehi', '84043', 'Bea Moved']])}
+    ]);
+    const all = await box.all(asFile(bytes));
+    check('S77', 'a side sheet whose columns are in a different order still lines up',
+      namesOf(all.rows).join() === 'Ada Main,Bea Moved',
+      'read by position, this row arrives with a phone number in the Name column');
+    const bea = all.rows.filter(r => String(r[1] || '').trim() === 'Bea Moved')[0] || [];
+    check('S77', 'and every one of her values lands in the right column',
+      String(bea[0]) === '1002' && String(bea[2]) === '2 Oak' &&
+      String(bea[5]) === '8015550002',
+      'the name being right is not proof the rest of the row is');
+  }
+
+  /* ---- the empty and the odd ---- */
+  {
+    const bytes = await build(
+      [['1001', 'Ada Main', '1 Elm', 'Lehi', '84043', '8015550001']],
+      [['', '', '', '', '', ''], ['', '', '', '', '', '8015559999']]);
+    const all = await box.all(asFile(bytes));
+    check('S77', 'a nameless row on a side sheet is not a customer',
+      all.added === 0 && namesOf(all.rows).join() === 'Ada Main',
+      'the bottom of these sheets is a call list of bare phone numbers, and the ' +
+      'same rule already applies on the main one');
+
+    const b2 = await build([['1001', 'Ada Main', '1 Elm', 'Lehi', '84043', '8015550001']], []);
+    const a2 = await box.all(asFile(b2));
+    check('S77', 'a side sheet holding only a heading is skipped quietly',
+      a2.added === 0 && namesOf(a2.rows).join() === 'Ada Main',
+      'three of the four are empty today; that must not read as an error');
+  }
+})());
 pendingAsync.push((async () => {
   suite('Suite 76. The Update customer info button, actually pressed');
 
@@ -16605,7 +16831,7 @@ pendingAsync.push((async () => {
       !r.sent.some(x => x.rows.some(row => row[0] === 'Ola Ordinary')),
       'these tabs are work lists; padding them wastes somebody' + '’' + 's day');
     check('S76', 'the tab spelling matches the workbook, American and all',
-      r.box.tabs.map(t => t.tab).join('|') === 'Recycle|Color Changes|Contact 2027',
+      r.box.tabs.map(t => t.tab).join('|') === 'Recycle|Color Changes|Yes|Contact 2027',
       'a tab name is matched exactly, so "Colour Changes" writes nothing at all');
   }
 
@@ -17527,10 +17753,22 @@ suite('Suite 72. An RSVP never goes to somebody who has never had lights');
      an ordinary template through Automation Emails, which has the full filter
      set. This check pins that, so if the markup is ever built the assumption
      gets re-examined instead of silently going stale. */
-  check('S72', 'the separate RSVP sender UI still does not exist',
-    !/id="rsvp/.test(adm),
-    'if this markup has been built, the RSVP email no longer goes only through ' +
-    'Automation Emails and the audience rule below needs applying there too');
+  /* ⚠ NAMED, NOT MATCHED ON A PREFIX. This was `!/id="rsvp/`, which fails the
+     moment ANY new control is given an rsvp-ish name — and one was: the Start a new
+     RSVP round button, which is live markup for a different job entirely. Listing the
+     dead sender's own ids keeps the check about the thing it is about. */
+  const DEAD_RSVP_IDS = ['rsvpRecipientList', 'rsvpRecipientSearch', 'rsvpSelectAllBtn',
+                         'rsvpSelectNoneBtn', 'rsvpPreviewMemberSelect', 'rsvpPreviewBox',
+                         'rsvpEmailTemplate', 'rsvpEmailStatus', 'rsvpIncludePortal',
+                         'rsvpIncludeMessages'];
+  const built = DEAD_RSVP_IDS.filter(id => adm.indexOf('id="' + id + '"') !== -1);
+  check('S72', 'the separate RSVP sender UI still does not exist', !built.length,
+    'built: ' + built.join(', ') + ' — if this markup exists, the RSVP email no longer ' +
+    'goes only through Automation Emails and the audience rule below needs applying there too');
+  check('S72', 'and its functions are still reading ids that are not there',
+    DEAD_RSVP_IDS.every(id => adm.indexOf(id) !== -1),
+    'if the functions themselves are gone this check is guarding nothing and should ' +
+    'be deleted rather than left passing vacuously');
 
   const isRsvpSrc = extractFn(adm, 'etTemplateIsRsvp');
   check('S72', 'etTemplateIsRsvp exists', !!isRsvpSrc);
