@@ -14960,6 +14960,37 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
       gateCode: gateCode, specificOutlet: specificOutlet, specificOutletNotes: specificOutletNotes,
       customerNumber: customerNumber, installPreference: installPreference
     });
+    /* ⭐ AND STRAIGHT ONTO THE SHEET. Owner: "I want new quotes to be able to have
+       their info put into the first open row in excel, and include all the info."
+       hlxAddCustomerToSheet was written for exactly this and then never called by
+       anything — it sat as dead code while new customers reached the website and
+       never the workbook, which is the drift the whole comparison exists to clean up.
+
+       ⚠ BEST EFFORT, AND IT SAYS SO WHEN IT FAILS. The customer is already saved by
+       this point. A workbook that is not connected on this machine, or a write
+       permission Chrome will not grant without a fresh click, must not undo that —
+       but it must not pass silently either, or the office believes the sheet is up to
+       date when it is not. Everything it could not write is still found by the
+       comparison and the one sync button.
+
+       ⚠ NEW CUSTOMERS GO TO THE 2025 SHEET, not the Yes one. The Yes sheet is for
+       people who have ANSWERED an RSVP; nobody has asked this one anything yet. */
+    try{
+      const sheetRes = await hlxAddCustomerToSheet({
+        name: name, address: fullAddress, city: city, zip: zip, phone: phone,
+        email: email, notes: custNotes, wireColor: wireColor,
+        lightsDescription: lightsDescription, lightColors: selectedColors,
+        outletTimer: outletTimer, housePrice: price, measuredFeet: measuredFeet,
+        customerNumber: customerNumber, installPreference: installPreference,
+        gateCode: gateCode, houseSides: selectedSides, useEaves: useEaves,
+        billToPhone: billToPhone
+      });
+      if(sheetRes && sheetRes.written) toast(name + " added to the master sheet, row " + sheetRes.firstRow + ".");
+    } catch(err){
+      toast("Customer saved, but NOT written to the master sheet " + String.fromCharCode(8212) + " " +
+        ((err && err.message) || "the sheet is not connected on this computer") +
+        " They will show up in the sheet comparison until it is done.");
+    }
     document.getElementById('routeStreetInput').value = '';
     document.getElementById('routeCityInput').value = '';
     document.getElementById('routeZipInput').value = '';
@@ -14985,7 +15016,9 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
     document.getElementById('addCustPropertyLabel').value = '';
     document.getElementById('addCustPhone2').value = '';
     document.getElementById('addCustEmail2').value = '';
-    document.querySelectorAll('.addcust-side-pick').forEach(function(rb){ rb.checked = (rb.value === ''); const w = rb.closest('.pill-check'); if(w) w.classList.toggle('checked', rb.checked); });
+    /* Back to the default rather than to nothing: one side is what an unrecorded
+       house counts as, so the form should show what it is about to save. */
+    document.querySelectorAll('.addcust-side-pick').forEach(function(rb){ rb.checked = (String(rb.value) === String(HOUSE_SIDES_DEFAULT)); const w = rb.closest('.pill-check'); if(w) w.classList.toggle('checked', rb.checked); });
     document.querySelectorAll('.addcust-color-check').forEach(function(cb){ cb.checked = false; cb.closest('.pill-check').classList.remove('checked'); });
     document.getElementById('addCustWireColor').value = 'White';
     document.getElementById('addCustInstallPref').value = 'Normal Schedule';

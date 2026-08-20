@@ -16617,6 +16617,68 @@ if (!JSDOM) {
  * Two opposite rules, and which one applies depends on whether a sensible default
  * exists. Every house has a front. Nobody can guess whether you want a timer.
  * ------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+ * Suite 81. A new customer reaches the sheet
+ *
+ * Owner: "I want new quotes to be able to have their info put into the first open
+ * row in excel, and include all the info."
+ *
+ * ⚠ hlxAddCustomerToSheet was written for exactly that and then called by
+ * NOTHING. It sat as dead code while every new customer reached the website and
+ * never the workbook — which is the drift the whole comparison exists to clean up.
+ * A grep for the function name found it defined once and used nowhere.
+ * ------------------------------------------------------------------------- */
+suite('Suite 81. A new customer reaches the sheet');
+
+{
+  /* ⚠ COUNTING THE NAME IS NOT ENOUGH: the comment beside the call says the word
+     too, so a red-check that removed the call still passed. It has to be an actual
+     awaited CALL. */
+  check('S81', 'adding a customer writes them to the sheet',
+    /await hlxAddCustomerToSheet\(/.test(admin),
+    'defined once and never called is the state this was found in');
+
+  const save = sectionFrom(admin, admin.indexOf('const newAddrRef = await addDoc'));
+  check('S81', 'and it happens AFTER the customer is saved',
+    /await hlxAddCustomerToSheet\(/.test(save),
+    'the customer record is the thing that must survive; the sheet is a copy of it');
+
+  /* ⚠ EVERY FIELD NAME HAS TO EXIST IN THAT SCOPE. A typo here throws a
+     ReferenceError, the try/catch swallows it, and the office is told the sheet is
+     not connected — for ever, on every customer. Three of these were wrong on the
+     first pass: notes, lightColors and houseSides are called custNotes,
+     selectedColors and selectedSides in that function. */
+  {
+    const call = save.slice(save.indexOf('hlxAddCustomerToSheet'));
+    const args = call.slice(0, call.indexOf('});'));
+    const used = (args.match(/:\s*([A-Za-z_$][A-Za-z0-9_$]*)/g) || [])
+      .map(x => x.replace(/^:\s*/, ''));
+    const before = admin.slice(0, admin.indexOf('const newAddrRef = await addDoc'));
+    const missing = used.filter(v =>
+      !new RegExp('(const|let|var)\\s+' + v + '\\s*=').test(before));
+    check('S81', 'every value it passes is a variable that exists',
+      !missing.length,
+      'not declared anywhere above: ' + missing.join(', ') + '. A ReferenceError here ' +
+      'is caught by the surrounding try and reported as a sheet problem, so it would ' +
+      'never be written and never look broken');
+  }
+
+  check('S81', 'a sheet failure never loses the customer',
+    /catch\(err\)\{[\s\S]{0,400}NOT written to the master sheet/.test(save),
+    'the record is already saved by then — rolling it back over a workbook that ' +
+    'is not connected on this computer would be the worse failure by far');
+  /* ⚠ THE STRING EXISTING PROVES NOTHING. A red-check that put the toast behind
+     if(0) left the words in the file and passed. The catch block has to CALL it. */
+  check('S81', 'and it does not pass silently either',
+    /catch\(err\)\{\s*toast\(\"Customer saved, but NOT/.test(admin),
+    'the office believing the sheet is up to date when it is not is how the two ' +
+    'lists drifted apart in the first place');
+  check('S81', 'a new customer goes to the customer list, not the Yes sheet',
+    /return hlxAppendRowsToSheet\(\[rbCustomerToSheetRow\(d\)\]\);/.test(admin),
+    'no tab name means the first sheet — the Yes sheet is for people who have ' +
+    'ANSWERED an RSVP, and nobody has asked this one anything yet');
+}
+
 suite('Suite 80. A blank is a blank, and a default is a default');
 
 {
