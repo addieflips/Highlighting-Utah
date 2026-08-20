@@ -17683,6 +17683,27 @@ function rbCustomerToSheetRow(d){
   const num = function(v){ return Number(v) > 0 ? String(Number(v)) : ''; };
   const lights = String(c.lightsDescription || '').trim() ||
     (Array.isArray(c.lightColors) ? c.lightColors.join('/') : '');
+  /* ⭐ UP PLUG IS THE EAVES YES/NO ON THE WAY OUT TOO (fixed 2026-08-20, found in
+     the owner's real workbook minutes after the first live sync).
+     The READ side was corrected the day before " + M + " Up Plug holds only yes / no / ? / y
+     and fills useEaves " + M + " but the WRITE side still put the which-outlet instruction
+     there. So Rachel Oslund went onto the Color Changes tab with "On the north side of
+     the porch there is an outlet up on the wave..." sitting in a Yes/No column, and the
+     next import would have read it back as neither.
+     ⚠ A FIX IN ONE DIRECTION IS HALF A FIX. The two sides of a column have to agree
+     about what it means, and only one of them was checked. */
+  const eaves = String(c.useEaves || '').trim();
+  /* And WHICH outlet belongs in Notes, which is where the office writes it and where
+     rbOutletFromNote reads it from — eleven real ones on the sheet today.
+     ⚠ NOT APPENDED TWICE. For an imported customer the instruction came OUT of the
+     Notes column in the first place, so it is only added when it is not already there.
+     A round trip that keeps growing the cell is its own kind of corruption. */
+  const outletNote = (String(c.specificOutlet || '').trim() === 'Yes')
+    ? String(c.specificOutletNotes || '').trim() : '';
+  const baseNotes = String(c.notes || '').trim();
+  const notesOut = (outletNote && baseNotes.toLowerCase().indexOf(outletNote.toLowerCase()) === -1)
+    ? (baseNotes ? baseNotes + ' — ' + outletNote : outletNote)
+    : baseNotes;
   return [
     String(c.customerNumber == null ? '' : c.customerNumber).trim(),
     rbNameForSheet(c.name),
@@ -17691,13 +17712,11 @@ function rbCustomerToSheetRow(d){
     String(c.zip || '').trim(),
     String(c.phone || '').replace(/\D/g, ''),
     String(c.email || '').trim(),
-    String(c.notes || '').trim(),
+    notesOut,
     String(c.wireColor || '').trim(),
     lights,
     String(c.outletTimer || '').trim(),
-    /* Only when they said WHICH outlet. */
-    (String(c.specificOutlet || '').trim() === 'Yes')
-      ? String(c.specificOutletNotes || '').trim() : '',
+    eaves,                    /* Up Plug = use the eaves outlet, Yes or No */
     '',                       /* Misc — kept for past customers, never written */
     num(c.housePrice),          /* standard price only, no fees */
     '',                       /* Set Up Fee — stays on the website */

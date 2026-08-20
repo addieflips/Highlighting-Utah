@@ -15848,15 +15848,38 @@ suite('Suite 69. A customer as a row of the master sheet');
       col("Set Up Fee") === "",
       'the website is where a fee is decided');
 
-    /* ⭐ "up plug is outlet prefrence ... only use if they said which outlet to use" */
-    check('S69', 'Up Plug carries the outlet they named',
-      col("Up Plug") === "the one by the garage",
-      'specificOutlet is a Yes/No flag and the words are in specificOutletNotes — ' +
-      'writing the flag puts "Yes" in a column meant to say WHICH outlet');
-    /* ⚠ AND ONLY THEN. A note left behind a No must not leak into the sheet. */
-    check('S69', 'and stays empty when they did not name one',
-      sb.row(Object.assign({}, cust, { specificOutlet: "No" }))[sb.hdr.indexOf("Up Plug")] === "" &&
-      sb.row(Object.assign({}, cust, { specificOutlet: "" }))[sb.hdr.indexOf("Up Plug")] === "",
+    /* ⭐ UP PLUG IS THE EAVES YES/NO ON THE WAY OUT TOO (changed 2026-08-20).
+       The read side was corrected the day before; this side was not, and it was found
+       in the owner's real workbook minutes after the first live sync " + DASH + " Rachel Oslund
+       sat on the Color Changes tab with a sentence about her porch ceiling in a Yes/No
+       column. A fix in one direction is half a fix: both sides of a column have to
+       agree about what it means. */
+    check('S69', 'Up Plug carries the EAVES answer, not the outlet instruction',
+      sb.row(Object.assign({}, cust, { useEaves: "Yes" }))[sb.hdr.indexOf("Up Plug")] === "Yes" &&
+      sb.row(Object.assign({}, cust, { useEaves: "No" }))[sb.hdr.indexOf("Up Plug")] === "No",
+      'the real column holds 112 yes, 98 "?", 61 no and 3 y, and nothing else');
+    check('S69', 'an unanswered eaves question writes nothing',
+      sb.row(Object.assign({}, cust, { useEaves: "" }))[sb.hdr.indexOf("Up Plug")] === "" &&
+      col("Up Plug") === "",
+      'a yes/no nobody answered stays blank, on the sheet as everywhere else');
+    /* ⚠ AND THE INSTRUCTION GOES TO NOTES, which is where the office writes it and
+       where rbOutletFromNote reads it back from. */
+    check('S69', 'and WHICH outlet goes into Notes instead',
+      /the one by the garage/.test(col("Notes")),
+      'it is a sentence for a person to read, and Notes is the column for those');
+    check('S69', 'without losing the note that was already there',
+      /ladder round the back/.test(col("Notes")));
+    check('S69', 'and without adding it twice on a round trip',
+      (function(){
+        const already = Object.assign({}, cust, { notes: "ladder round the back " + String.fromCharCode(8212) + " the one by the garage" });
+        const out = sb.row(already)[sb.hdr.indexOf("Notes")];
+        return (out.match(/the one by the garage/g) || []).length === 1;
+      })(),
+      'the instruction came OUT of Notes on import, so appending it blindly makes ' +
+      'the cell grow a copy of itself every single sync');
+    check('S69', 'a note left behind a No never leaks into the sheet',
+      !/garage/.test(sb.row(Object.assign({}, cust, { specificOutlet: "No" }))[sb.hdr.indexOf("Notes")]) &&
+      sb.row(Object.assign({}, cust, { specificOutlet: "No" }))[sb.hdr.indexOf("Up Plug")] === "",
       '"only use if they said which outlet to use"');
 
     /* ⭐ "misc not going to be needed ... we just need it for past customers" */
@@ -15875,7 +15898,7 @@ suite('Suite 69. A customer as a row of the master sheet');
     check('S69', 'the rest land in their own columns',
       col("CU #") === "479" && col("Address") === "594 N 150 E" &&
       col("City") === "American Fork" && col("Zip") === "84003" &&
-      col("Phone") === "8015550479" && col("Notes") === "ladder round the back" &&
+      col("Phone") === "8015550479" && /ladder round the back/.test(col("Notes")) &&
       col("Wire") === "W" && col("Timer") === "Yes" &&
       col("Pref Date") === "November" && col("# Feet") === "210",
       'got ' + JSON.stringify(r));
