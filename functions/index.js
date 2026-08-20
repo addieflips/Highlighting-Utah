@@ -864,10 +864,20 @@ function houseBillingRow(id, d) {
     housePrice: Number(d.housePrice) || 0,
     scheduledDate: d.scheduledDate || null,
     completed: !!d.completed,
-    removalDone: !!d.removalDone
+    removalDone: !!d.removalDone,
+    /* Needed so the portal can show each house's CURRENT answer and offer to
+       change it, rather than three live buttons on a house already answered. */
+    rsvpStatus: String(d.rsvpStatus || '')
   };
 }
-async function billedHousesByIds(ids) {
+/* ⚠ THE MONEY LIST AND THE RSVP LIST ARE NOT THE SAME LIST. A house that said
+ * no is out of the bill and must never be NAMED beside a total it is not part
+ * of — that is what withCancelled=false protects, and it is every existing
+ * caller's behaviour, unchanged. But a payer has to be able to CHANGE a no, and
+ * a house they cannot see is a house they have to ring the office about. So the
+ * RSVP control asks for the cancelled ones too, and shows them as declined
+ * rather than folding them into a total. */
+async function billedHousesByIds(ids, withCancelled) {
   const wanted = (Array.isArray(ids) ? ids : []).filter(Boolean);
   if (!wanted.length) return [];
   const refs = wanted.map(function (id) { return db.collection('jobAddresses').doc(id); });
@@ -876,16 +886,60 @@ async function billedHousesByIds(ids) {
   snaps.forEach(function (s) {
     if (!s.exists) return;                       // deleted since the bill was built
     const d = s.data() || {};
-    if (String(d.rsvpStatus || '') === 'no') return;
+    if (!withCancelled && String(d.rsvpStatus || '') === 'no') return;
     out.push(houseBillingRow(s.id, d));
   });
   return out;
 }
-async function billedHousesByKey(key, selfId, selfData) {
+/* ⭐ WHICH HOUSES ONE PORTAL TOKEN MAY ANSWER FOR.
+ *
+ * A token belongs to ONE jobAddresses record, so portalRsvp could only ever
+ * mark that record — a payer on a four-house bill who clicked Yes confirmed
+ * their own house and left the other three pending, and could not decline for a
+ * dependent house by email at all. This decides what per-house answering may
+ * touch, and it IS the security boundary: a token is a bearer credential, so
+ * without it one valid token could RSVP for any house in the database.
+ *
+ * ⚠ IT READS THE LIVE RECORD, and that is the whole design. An earlier version
+ * built a candidate list first, from the invoice's billedHouseIds plus a
+ * billToPhone query, and then checked membership. That list is written by
+ * syncPayerInvoice and can be a moment stale, so it was a grant with an
+ * expiry nobody was tracking — and it cost an invoice read and a query per
+ * call to reach the same answer this reaches from the document already in
+ * hand. Sabotaging the list changed no outcome, which is how it was found.
+ *
+ * ⚠ BOTH HALVES OF THE GROUP, and neither by the forbidden query. A house with
+ * billToPhone set joins that payer's bill; a house with NO billToPhone whose own
+ * key matches is already on that invoice with no field set anywhere. The second
+ * clause below is that half, answered from the house's own record — resolving it
+ * with where('phone','==',digits) is the query that quietly duplicated the whole
+ * customer book once.
+ *
+ * ⚠ ONLY A PAYER MAY ANSWER FOR ANYBODY ELSE. holderKey is empty for a
+ * token-holder who is themselves billed to somebody else, so a tenant can
+ * answer for their own house and nothing else. Deriving it as
+ * `billToPhone || ownKey` instead — which is how the BILL is keyed — would let
+ * one tenant cancel the season for every other tenant on their landlord's bill.
+ */
+function payerKeyForAnswering(holderData) {
+  /* Not invoiceKeyFor(d) || billToPhone: a holder with a billToPhone is a
+     dependant, not a payer, and gets no authority over anybody else. */
+  return digitsOnly((holderData && holderData.billToPhone) || '')
+    ? ''
+    : invoiceKeyFor(holderData || {});
+}
+function houseBelongsToPayer(d, holderKey, holderId, houseId) {
+  if (houseId === holderId) return true;                       // their own record
+  if (!holderKey) return false;                                // a dependant answers for nobody
+  const billTo = digitsOnly((d && d.billToPhone) || '');
+  if (billTo) return billTo === holderKey;
+  return invoiceKeyFor(d || {}) === holderKey;
+}
+async function billedHousesByKey(key, selfId, selfData, withCancelled) {
   const out = [];
   const seen = {};
   const add = function (id, d) {
-    if (seen[id] || String(d.rsvpStatus || '') === 'no') return;
+    if (seen[id] || (!withCancelled && String(d.rsvpStatus || '') === 'no')) return;
     seen[id] = true;
     out.push(houseBillingRow(id, d));
   };
@@ -987,14 +1041,18 @@ exports.portalLookup = onCall({ cors: true }, async (request) => {
    * for two children — see houseBillingRow.
    */
   let houses = [];
+  let rsvpHouses = [];
   try {
     const billKey = digitsOnly(match.data.billToPhone) || invoiceKeyFor(match.data);
-    // The payer's own house first, then anything billed to them.
-    houses = await billedHousesByKey(billKey, match.id, match.data);
+    /* Fetched ONCE with the cancelled houses included, then filtered — two
+       calls would double the reads to answer the same question twice. */
+    rsvpHouses = await billedHousesByKey(billKey, match.id, match.data, true);
+    houses = rsvpHouses.filter(function (h) { return h.rsvpStatus !== 'no'; });
   } catch (err) {
     // A failed sibling lookup must never stop somebody reaching their account.
     console.error('[HU] multi-house lookup failed', err);
     houses = [];
+    rsvpHouses = [];
   }
 
   return {
@@ -1006,7 +1064,15 @@ exports.portalLookup = onCall({ cors: true }, async (request) => {
     record: sanitizeRecord(match.data),
     // Only sent when there is genuinely more than one — the ordinary
     // single-house customer sees no change at all.
-    houses: houses.length > 1 ? houses : []
+    houses: houses.length > 1 ? houses : [],
+    /* The same group INCLUDING anyone who said no, so the portal can offer to
+       change that answer. Gated on the whole group's size, not the billed
+       half: a payer with two houses who declined one still has two to answer
+       for. */
+    /* ⚠ Only for a PAYER. A token-holder billed to somebody else may answer for
+       their own house and nothing more (see payerKeyForAnswering), so offering
+       them per-house buttons would be offering buttons that are refused. */
+    rsvpHouses: (payerKeyForAnswering(match.data) && rsvpHouses.length > 1) ? rsvpHouses : []
   };
 });
 
@@ -1317,7 +1383,22 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
 });
 
 /* --- portalRsvp -----------------------------------------------------------
- * Input: { token, response }  where response = 'yes' | 'no' | 'backnextyear'
+ * Input: { token, response, houseId? }  response = 'yes' | 'no' | 'backnextyear'
+ *
+ * ⭐ houseId IS OPTIONAL AND ADDITIVE. Left out, this behaves exactly as it
+ * always has and marks the token-holder's own record — so every RSVP email
+ * already sitting in somebody's inbox, and the portal's own three buttons, keep
+ * working unchanged. Passed, it answers for ONE house on the token-holder's
+ * bill, which is what a payer covering several houses needs: they used to
+ * confirm their own house and leave the rest pending, and could not decline for
+ * a dependent house by email at all.
+ *
+ * ⚠ houseBelongsToPayer IS THE SECURITY BOUNDARY. A token is a bearer
+ * credential; without that check one valid token could RSVP for any house in
+ * the database. It is applied before anything is written, and a token-holder
+ * who is themselves billed to somebody else may answer only for their own
+ * house — otherwise one tenant could cancel the season for every other tenant
+ * on their landlord's bill.
  *
  * The recycle flag is decided here, on the server, so it can't drift:
  * ONLY a flat "no" marks lights for recycling. "backnextyear" never does.
@@ -1335,6 +1416,7 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
   const body = request.data || {};
   const token = body.token ? String(body.token).trim() : '';
   const response = String(body.response || '').toLowerCase();
+  const houseId = body.houseId ? String(body.houseId).trim() : '';
 
   if (!token) throw new HttpsError('invalid-argument', 'Missing portal token.');
   if (['yes', 'no', 'backnextyear'].indexOf(response) === -1) {
@@ -1344,7 +1426,24 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
   const match = await findByToken(token);
   if (!match) throw new HttpsError('not-found', 'Account not found.');
 
-  const oldData = match.data || {};
+  /* Who is being answered for. With no houseId that is the token-holder and
+     everything below is untouched. With one, it is a house on their bill —
+     checked against the live record, never against the id alone. */
+  let target = match;
+  if (houseId && houseId !== match.id) {
+    const holderKey = payerKeyForAnswering(match.data);
+    const houseSnap = await db.collection('jobAddresses').doc(houseId).get();
+    if (!houseSnap.exists) throw new HttpsError('not-found', 'That house was not found.');
+    /* ⚠ Decided on the record as it is NOW, so a house that has since moved onto
+       somebody else's bill is refused even though it was on this one when the
+       email went out. */
+    if (!houseBelongsToPayer(houseSnap.data(), holderKey, match.id, houseId)) {
+      throw new HttpsError('permission-denied', 'That house is not on your bill.');
+    }
+    target = { id: houseId, data: houseSnap.data() };
+  }
+
+  const oldData = target.data || {};
   const wasNo = String(oldData.rsvpStatus || '').toLowerCase() === 'no';
   /* Flag still true = the recycle is queued but not done, nothing was pulled,
      so clearing it is all that is needed and nothing has to be rebuilt. */
@@ -1361,7 +1460,7 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
   // see contactIndexFields. Without this a customer who edits their own phone
   // or email through the portal drops back to the full-collection scan.
   Object.assign(updates, contactIndexFields(updates));
-  await db.collection('jobAddresses').doc(match.id).update(updates);
+  await db.collection('jobAddresses').doc(target.id).update(updates);
 
   /* No customer number is assigned here on purpose. Taking one from the pool
      programmatically could collide with one the office has just written on a
@@ -1394,10 +1493,13 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
      through the RSVP link fell through the gap entirely. */
   let removedFrom = 0;
   if (response === 'no' || response === 'backnextyear') {
-    removedFrom = await removeCustomerFromUpcomingRoutes(match.id);
+    removedFrom = await removeCustomerFromUpcomingRoutes(target.id);
   }
 
   return { ok: true, rsvpStatus: response,
+           /* Which house this actually landed on, so the page updates the right
+              row rather than assuming it was the signed-in one. */
+           houseId: target.id,
            rejoinedAfterRecycle: rejoinedAfterRecycle,
            removedFromRoutes: removedFrom };
 });
@@ -2033,18 +2135,36 @@ exports.portalInvoice = onCall({ cors: true }, async (request) => {
    * billedHouseIds existed. A failure here never denies anybody their invoice:
    * an empty list just hides one box. */
   let houses = [];
+  let rsvpHouses = [];
   try {
-    houses = Array.isArray(data.billedHouseIds) && data.billedHouseIds.length
-      ? await billedHousesByIds(data.billedHouseIds)
-      : await billedHousesByKey(key, '', null);
+    /* ⚠ billedHouseIds holds only the houses the TOTAL was summed from, so a
+       house that said no is NOT in it — asking for the cancelled ones there
+       cannot produce them. The billToPhone half is unioned in for exactly that
+       reason, so a payer can still change a no. A house grouped only by a
+       shared key and already declined stays out of reach here; resolving that
+       would need where('phone','==',digits), which is the query that quietly
+       duplicated the whole customer book once. */
+    const byIds = Array.isArray(data.billedHouseIds) && data.billedHouseIds.length
+      ? await billedHousesByIds(data.billedHouseIds, true) : [];
+    const byKey = await billedHousesByKey(key, '', null, true);
+    const seenHouse = {};
+    rsvpHouses = byIds.concat(byKey).filter(function (h) {
+      if (seenHouse[h.id]) return false;
+      seenHouse[h.id] = true;
+      return true;
+    });
+    houses = rsvpHouses.filter(function (h) { return h.rsvpStatus !== 'no'; });
   } catch (err) {
     console.error('[HU] billed-house lookup failed', err);
     houses = [];
+    rsvpHouses = [];
   }
 
   // Only sent when there is genuinely more than one — a single-house customer
   // sees no change at all.
-  return { found: true, record, houses: houses.length > 1 ? houses : [] };
+  return { found: true, record,
+           houses: houses.length > 1 ? houses : [],
+           rsvpHouses: rsvpHouses.length > 1 ? rsvpHouses : [] };
 });
 
 /* ---------------------------------------------------------------------------

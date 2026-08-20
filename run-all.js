@@ -2921,10 +2921,31 @@ suite('10f. Portal sign-in reads, and multi-property customers');
     'portalLookup and portalInvoice both name the houses on a bill — two copies of that ' +
     'grouping drift, and then the list stops agreeing with the total printed under it');
   check('multi-house', 'portalLookup returns every house on the bill',
-    /houses = await billedHousesByKey\(billKey, match\.id, match\.data\)/.test(fns),
+    /await billedHousesByKey\(billKey, match\.id, match\.data, true\)/.test(fns),
     'the portal stopped at the first match and the rest were invisible');
+  /* ⚠ THE MONEY LIST AND THE RSVP LIST ARE DIFFERENT LISTS, resolved from ONE
+     fetch. A house that said no is out of the bill and must never be named
+     beside a total it is not part of — but a payer has to be able to change
+     that no, and a house they cannot see is a house they have to ring the
+     office about. So both endpoints ask for the cancelled houses and then
+     filter the money list back out of the answer. */
+  check('multi-house', 'the cancelled houses are fetched once and filtered out of the money list',
+    (fns.match(/rsvpHouses\.filter\(function \(h\) \{ return h\.rsvpStatus !== 'no'; \}\)/g) || []).length === 2,
+    'filtering is what keeps a declined house out of the total; fetching it separately would ' +
+    'double the reads to answer the same question twice, and BOTH endpoints have to do it');
+  check('multi-house', 'and the RSVP list is only sent when the group is really bigger than one',
+    (fnsSrc.match(/rsvpHouses\.length > 1\)? \? rsvpHouses : \[\]/g) || []).length === 2,
+    'a single-house customer gets no per-house control at all — three buttons per house, for ' +
+    'one house, is the single control with extra steps');
+  /* ⚠ AND ONLY A PAYER IS OFFERED IT. A token-holder billed to somebody else is
+     a dependant: payerKeyForAnswering gives them no authority over anybody, so
+     per-house buttons would be buttons the server refuses. */
+  check('multi-house', 'and only a payer is offered per-house buttons at all',
+    /payerKeyForAnswering\(match\.data\) && rsvpHouses\.length > 1/.test(fnsSrc),
+    'one tenant must never be able to cancel the season for the other tenants on their ' +
+    'landlord’s bill');
   check('multi-house', 'the BILL names its own houses, not only the sign-in',
-    /await billedHousesByIds\(data\.billedHouseIds\)/.test(fns),
+    /await billedHousesByIds\(data\.billedHouseIds, true\)/.test(fns),
     'only the token link and the email sign-in go through portalLookup — the ordinary ' +
     'phone-and-surname sign-in calls the invoice straight away, so for most customers the ' +
     'list was fetched by nobody and the panel could never appear');
@@ -3499,8 +3520,19 @@ suite('12. Season prep — customer portal (§3)');
     !/\}\)\.catch\(function\(\)\{\s*document\.getElementById\('lookupEmpty'\)/.test(idx.replace(/\r/g,'')),
     'that is what threw the useful message away');
   check('season', 'a signed-in customer can RSVP without the email',
-    /data-portalrsvp/.test(idx) && /callPortalFn\('portalRsvp', \{token: token, response: answer\}\)/.test(idx),
+    /data-portalrsvp/.test(idx) &&
+    /var payload = \{token: token, response: answer\};/.test(idx) &&
+    /callPortalFn\('portalRsvp', payload\)/.test(idx),
     'portalRsvp was only ever reachable from the emailed link');
+  /* ⚠ AND THE HOUSE IS ONLY EVER ADDED WHEN THERE IS ONE. The ordinary
+     single-house control has no data-portalrsvphouse, so the payload is
+     byte-for-byte what it always was and portalRsvp takes its unchanged path —
+     which is what keeps every RSVP email already sitting in an inbox working. */
+  check('season', 'the per-house id is added only when the button carries one',
+    /if\(houseId\) payload\.houseId = houseId;/.test(idx) &&
+    /var houseId = btn\.dataset\.portalrsvphouse \|\| '';/.test(idx),
+    'sending houseId unconditionally would send an empty string on the ordinary control, and ' +
+    'the server would have to guess what that meant');
   check('season', 'saying no this season asks first',
     /answer === 'no' && !window\.confirm/.test(idx),
     'that answer starts recycling their lights');
@@ -4338,8 +4370,18 @@ if (!JSDOM) {
       'renamed or removed — update this test rather than deleting it');
     check('rsvp-routes', 'portalRsvp removes the customer from upcoming routes on "no" or "back next year"',
       /response === 'no' \|\| response === 'backnextyear'/.test(prSrc) &&
-      /removeCustomerFromUpcomingRoutes\(match\.id\)/.test(prSrc),
+      /removeCustomerFromUpcomingRoutes\(target\.id\)/.test(prSrc),
       'a customer who declines or asks for next year by email link would still show up on the crew\'s route');
+    /* ⚠ AND IT SWEEPS THE HOUSE THAT WAS ANSWERED FOR, not the token-holder.
+       portalRsvp now takes an optional houseId so a payer can decline for ONE
+       house on their bill; sweeping match.id there would strike the payer's own
+       house off the route while leaving the declined one on it — two wrong
+       answers from one click, and neither visible until a crew turns up. */
+    check('rsvp-routes', 'and it sweeps the house that was answered for, not the token-holder',
+      !/removeCustomerFromUpcomingRoutes\(match\.id\)/.test(prSrc) &&
+      /\.doc\(target\.id\)\.update\(updates\)/.test(prSrc),
+      'the write and the route sweep have to land on the same record, or a per-house "no" ' +
+      'cancels the wrong house');
 
     // Same gap, admin side: setting RSVP to No from the Edit Customer dropdown
     // (not just the Maybe Next Year toggle) must sweep routes too.
@@ -16793,6 +16835,504 @@ pendingAsync.push((async () => {
       api.record.writes.some(x => x.col === 'invoices' && x.id === '8015552222' &&
         x.data.install === 0),
       'money that was actually collected has to stay somewhere it can be seen');
+  }
+})());
+
+/* ---------------------------------------------------------------------------
+ * Suite 78. Answering RSVP one house at a time
+ *
+ * A portal token belongs to ONE jobAddresses record, so portalRsvp could only
+ * ever mark that record. A payer on a four-house bill who clicked Yes confirmed
+ * their own house and left the other three pending, and could not decline for a
+ * dependent house by email at all. That matters beyond tidiness: rsvpStatus
+ * 'no' drives needsLightRecycle, removal from upcoming routes, and exclusion
+ * from the bill.
+ *
+ * ⚠ THE PERMISSION CHECK IS THE WHOLE SUITE. A token is a bearer credential —
+ * anyone holding one can call this. Without the group check, one valid token
+ * could RSVP for any house in the database, so these RUN portalRsvp against a
+ * fake Firestore rather than reading it: a regex cannot tell whether a throw is
+ * reachable, and "the check is present" is a weaker claim than "the write did
+ * not happen".
+ *
+ * Nothing here touches Firestore. The whole database is an object literal.
+ * ------------------------------------------------------------------------- */
+pendingAsync.push((async () => {
+  suite('Suite 78. Answering RSVP one house at a time');
+
+  /* Lift the callable and run it. onCall wraps an ordinary async function, so
+     the wrapper is peeled off rather than stubbed — what runs is the shipped
+     body, line for line. */
+  function liftCallable(name) {
+    const st = fnsSrc.indexOf('exports.' + name + ' = onCall(');
+    if (st < 0) return '';
+    const bodyAt = fnsSrc.indexOf('async (request) => {', st);
+    if (bodyAt < 0) return '';
+    let i = fnsSrc.indexOf('{', bodyAt + 'async (request) => '.length - 1), d = 0;
+    for (; i < fnsSrc.length; i++) {
+      if (fnsSrc[i] === '{') d++;
+      else if (fnsSrc[i] === '}') {
+        d--;
+        if (!d) return 'const ' + name + ' = async (request) => ' + fnsSrc.slice(bodyAt + 'async (request) => '.length, i + 1) + ';';
+      }
+    }
+    return '';
+  }
+  const rsvpSrc = liftCallable('portalRsvp');
+  /* ⚠ NOT extractFn. It searches for "function NAME(" and finds that INSIDE
+     "async function NAME(", so it slices from the f and silently drops the
+     async — leaving a body full of bare `await`, which is a parse error that
+     kills the whole suite as one unattributable crash with no failure list.
+     CLAUDE.md §5 records this happening three times; it happened here too, on
+     the first run of this suite. Try the async spelling first. */
+  const lift78 = (n) => {
+    let st = fnsSrc.indexOf('async function ' + n + '(');
+    if (st < 0) st = fnsSrc.indexOf('function ' + n + '(');
+    if (st < 0) return '';
+    let i = fnsSrc.indexOf('{', st), d = 0;
+    for (; i < fnsSrc.length; i++) {
+      if (fnsSrc[i] === '{') d++;
+      else if (fnsSrc[i] === '}') { d--; if (!d) return fnsSrc.slice(st, i + 1); }
+    }
+    return '';
+  };
+  const answerableSrc = lift78('payerKeyForAnswering');
+  const belongsSrc = lift78('houseBelongsToPayer');
+  check('S78', 'portalRsvp and its permission check are still liftable',
+    !!rsvpSrc && !!answerableSrc && !!belongsSrc,
+    'renamed or reshaped — update this suite rather than deleting it, the permission check ' +
+    'below is the only thing standing between one token and every house in the database');
+  if (!rsvpSrc || !answerableSrc || !belongsSrc) return;
+
+  /* Dana holds the token. Kyle is billed to her. Ivy shares Dana's phone with no
+     billToPhone at all — the half a billToPhone-only scan cannot see, reachable
+     only through the invoice's own billedHouseIds. Zed is a stranger. Moved was
+     on Dana's bill when the invoice was built and has since gone to somebody
+     else, which is what makes billedHouseIds a stale grant if it is trusted
+     alone. */
+  function makeDb() {
+    const jobs = {
+      dana: { name: 'Dana Pratt', phone: '8015550111', portalToken: 'tok-dana' },
+      kyle: { name: 'Kyle Pratt', phone: '8015552222', billToPhone: '8015550111', portalToken: 'tok-kyle' },
+      /* Kyle holds a token of his own and is billed to Dana. He is a DEPENDANT,
+         not a payer — he may answer for himself and for nobody else. */
+      ivy: { name: 'Ivy Nunez', phone: '8015550111' },
+      zed: { name: 'Zed Stranger', phone: '8015559999' },
+      moved: { name: 'Moved Away', phone: '8015558888', billToPhone: '8015557777' },
+      gone: { name: 'Declined Deb', phone: '8015556666', billToPhone: '8015550111', rsvpStatus: 'no' }
+    };
+    const invoices = {
+      '8015550111': { billedHouseIds: ['dana', 'kyle', 'ivy', 'moved'] }
+    };
+    const rec = { updates: [], messages: [], sweeps: [] };
+    const db = {
+      collection: function (col) {
+        return {
+          doc: function (id) {
+            return {
+              get: async function () {
+                const store = col === 'invoices' ? invoices : jobs;
+                return { exists: !!store[id], id: id, data: () => store[id] };
+              },
+              update: async function (u) {
+                rec.updates.push({ col: col, id: id, data: u });
+                Object.assign(jobs[id] || {}, u);
+              }
+            };
+          },
+          where: function (field, _op, val) {
+            return { get: async function () {
+              const hits = Object.keys(jobs)
+                .filter(k => String(jobs[k][field] || '') === val)
+                .map(k => ({ id: k, data: () => jobs[k] }));
+              return { forEach: f => hits.forEach(f), empty: !hits.length, docs: hits };
+            } };
+          },
+          add: async function (m) { rec.messages.push(m); }
+        };
+      }
+    };
+    return { db: db, jobs: jobs, rec: rec };
+  }
+
+  function run(world) {
+    return new Function(
+      'db', 'HttpsError', 'admin', 'findByToken', 'contactIndexFields',
+      'removeCustomerFromUpcomingRoutes', 'digitsOnly', 'invoiceKeyFor', 'console', 'REC',
+      answerableSrc + '\n' + belongsSrc + '\n' + rsvpSrc + '\nreturn portalRsvp;'
+    )(
+      world.db,
+      function (code, msg) { const e = new Error(msg); e.code = code; return e; },
+      { firestore: { FieldValue: { serverTimestamp: () => 'NOW' } } },
+      async function (t) {
+        const id = Object.keys(world.jobs).find(k => world.jobs[k].portalToken === t);
+        return id ? { id: id, data: world.jobs[id] } : null;
+      },
+      () => ({}),
+      async function (id) { world.rec.sweeps.push(id); return 1; },
+      v => String(v || '').replace(/\D/g, ''),
+      d => String((d && d.phone) || '').replace(/\D/g, '') ||
+           String((d && d.email) || '').toLowerCase().trim(),
+      { error: () => {}, log: () => {} },
+      world.rec
+    );
+  }
+
+  // ---- the old shape still works ------------------------------------------
+  {
+    const w = makeDb();
+    const res = await run(w)({ data: { token: 'tok-dana', response: 'yes' } }).catch(() => null);
+    check('S78', 'with no houseId it marks the token-holder, exactly as before',
+      !!res && res.ok === true && w.rec.updates.length === 1 &&
+      w.rec.updates[0].id === 'dana' && w.rec.updates[0].data.rsvpStatus === 'yes',
+      'every RSVP email already sitting in an inbox, and the portal’s own three buttons, send ' +
+      'no houseId — if that path changed, all of them break at once');
+  }
+
+  // ---- one house at a time -------------------------------------------------
+  {
+    const w = makeDb();
+    const res = await run(w)({ data: { token: 'tok-dana', response: 'yes', houseId: 'kyle' } })
+      .catch(() => null);
+    check('S78', 'a per-house yes marks that house and leaves the others alone',
+      !!res && res.ok === true && res.houseId === 'kyle' &&
+      w.rec.updates.length === 1 && w.rec.updates[0].id === 'kyle' &&
+      w.jobs.dana.rsvpStatus === undefined && w.jobs.ivy.rsvpStatus === undefined,
+      'this is the entire bug: the payer used to confirm their own house and leave the rest ' +
+      'pending, with nothing on any screen saying so');
+  }
+  {
+    const w = makeDb();
+    await run(w)({ data: { token: 'tok-dana', response: 'no', houseId: 'kyle' } }).catch(() => null);
+    check('S78', 'a per-house no flags THAT house for recycling and pulls IT off the routes',
+      w.jobs.kyle.needsLightRecycle === true &&
+      w.rec.sweeps.length === 1 && w.rec.sweeps[0] === 'kyle',
+      'sweeping the token-holder instead would strike the payer’s own house off the crew’s ' +
+      'route while leaving the declined one on it — two wrong answers from one click, and ' +
+      'neither visible until a crew turns up at the wrong house');
+  }
+
+  // ---- ⚠ the permission boundary -------------------------------------------
+  {
+    const w = makeDb();
+    let err = null;
+    try { await run(w)({ data: { token: 'tok-dana', response: 'no', houseId: 'zed' } }); }
+    catch (e) { err = e; }
+    check('S78', '⚠ a house on nobody’s bill is refused, and nothing is written',
+      !!err && err.code === 'permission-denied' &&
+      w.rec.updates.length === 0 && w.rec.sweeps.length === 0,
+      'a token is a bearer credential — without this one valid token can cancel the season ' +
+      'for any customer in the database');
+  }
+  {
+    const w = makeDb();
+    let err = null;
+    try { await run(w)({ data: { token: 'tok-dana', response: 'no', houseId: 'moved' } }); }
+    catch (e) { err = e; }
+    check('S78', '⚠ and so is a house that has since moved to somebody else’s bill',
+      !!err && err.code === 'permission-denied' && w.rec.updates.length === 0,
+      'billedHouseIds is written by syncPayerInvoice and can be a moment stale, so it is a ' +
+      'candidate list, not a grant — the live record decides');
+  }
+  {
+    const w = makeDb();
+    let err = null;
+    try { await run(w)({ data: { token: 'nope', response: 'yes', houseId: 'kyle' } }); }
+    catch (e) { err = e; }
+    check('S78', 'and an unknown token gets nowhere near the group at all',
+      !!err && err.code === 'not-found' && w.rec.updates.length === 0,
+      'the house check runs after the token is resolved, so a bad token must fail first');
+  }
+
+  // ---- ⚠ a dependant has no authority over anybody else ---------------------
+  {
+    const w = makeDb();
+    let err = null;
+    try { await run(w)({ data: { token: 'tok-kyle', response: 'no', houseId: 'gone' } }); }
+    catch (e) { err = e; }
+    check('S78', '⚠ a tenant cannot answer for the other houses on their landlord’s bill',
+      !!err && err.code === 'permission-denied' && w.rec.updates.length === 0,
+      'the obvious holderKey is `billToPhone || ownKey`, because that is how the BILL is ' +
+      'keyed — and with it one tenant can cancel the season for every other tenant on their ' +
+      'landlord’s bill. A payer answers for their group; a dependant answers for themselves');
+    const w2 = makeDb();
+    const own = await run(w2)({ data: { token: 'tok-kyle', response: 'yes', houseId: 'kyle' } })
+      .catch(() => null);
+    check('S78', 'but they can still answer for their own house',
+      !!own && own.ok === true && w2.jobs.kyle.rsvpStatus === 'yes',
+      'locking a dependant out of their own answer would be a worse bug than the one above');
+  }
+
+  // ---- both halves of the group --------------------------------------------
+  {
+    const w = makeDb();
+    /* ⚠ Caught, not left to throw. A refusal here is a FAILURE of this check,
+       and an uncaught one takes the whole async suite down as a single
+       "an async suite crashed" with no failure list — which reads as a broken
+       suite rather than a broken rule. */
+    const res = await run(w)({ data: { token: 'tok-dana', response: 'yes', houseId: 'ivy' } })
+      .catch(() => null);
+    check('S78', 'a house sharing the payer’s phone with NO billToPhone is still answerable',
+      !!res && res.ok === true && w.jobs.ivy.rsvpStatus === 'yes',
+      'that is the second half of the group — reading only billToPhone loses it, and ' +
+      'resolving it with where("phone","==",digits) is the query that duplicated the whole ' +
+      'customer book once, so it comes from the invoice’s own billedHouseIds instead');
+  }
+  {
+    const w = makeDb();
+    const res = await run(w)({ data: { token: 'tok-dana', response: 'yes', houseId: 'gone' } })
+      .catch(() => null);
+    check('S78', 'a house that already said no can still be answered for again',
+      !!res && res.ok === true && w.jobs.gone.rsvpStatus === 'yes',
+      'somebody has to be able to change their mind — a declined house nobody can reach is a ' +
+      'phone call to the office, which is the thing this replaces');
+    check('S78', 'and changing a no back to yes still queues the rebuild',
+      w.jobs.gone.needsLightBuild === true && w.rec.messages.length === 1,
+      'their lights were recycled and their number went back to the pool, so they need both ' +
+      'again — and the office has to be told, because no number is assigned automatically');
+  }
+})());
+
+/* ---------------------------------------------------------------------------
+ * Suite 79. The per-house RSVP email, and the control that matches it
+ *
+ * {{rsvp_houses_block}} gives every house on a bill its own Yes/No, and the
+ * portal grows the same rows so an answer can be changed without the email.
+ *
+ * ⚠ THESE RUN THE RENDERERS. On 2026-08-19 a correct message was built and then
+ * overwritten by a default one line below it; every text-matching check passed
+ * and only the two that ran the renderer failed (CLAUDE.md §5). A grep proves
+ * the words exist, which is a weaker claim than "somebody can see them" — and
+ * for an email, "somebody can press it" is weaker still, so the links are read
+ * back out of the HTML rather than assumed.
+ * ------------------------------------------------------------------------- */
+pendingAsync.push((async () => {
+  suite('Suite 79. The per-house RSVP email');
+
+  const lift79 = (src, n) => {
+    let st = src.indexOf('async function ' + n + '(');
+    if (st < 0) st = src.indexOf('function ' + n + '(');
+    if (st < 0) return '';
+    let i = src.indexOf('{', st), d = 0;
+    for (; i < src.length; i++) {
+      if (src[i] === '{') d++;
+      else if (src[i] === '}') { d--; if (!d) return src.slice(st, i + 1); }
+    }
+    return '';
+  };
+  /* ⚠ MODULE-LEVEL STATE HAS TO BE LIFTED TOO. lift79 takes functions; the
+     answer words and the button limit are plain consts beside them, and a
+     sandbox missing one dies with a ReferenceError that reads as a broken
+     suite. Sliced from the file rather than retyped, so the test cannot hold a
+     different limit than the code does. */
+  const constsSrc = (function () {
+    const a = admin.indexOf('const RSVP_ANSWER_WORDS = {');
+    const b = a > -1 ? admin.indexOf('};', a) + 2 : -1;
+    const c = admin.indexOf('const RSVP_HOUSE_BUTTON_LIMIT =');
+    const d = c > -1 ? admin.indexOf(';', c) + 1 : -1;
+    return (b > -1 ? admin.slice(a, b) : '') + '\n' + (d > -1 ? admin.slice(c, d) : '');
+  })();
+  const names = ['billingGroupsByPayer', 'billedHousesFor', 'billedHousesForContact',
+                 'rsvpHousesEmailBlock', 'rsvpHousesPlainText', 'etTemplateHasRsvpHouses'];
+  const parts = names.map(n => lift79(admin, n));
+  check('S79', 'the per-house RSVP email pieces are all in admin.html',
+    parts.every(Boolean) && /RSVP_ANSWER_WORDS/.test(constsSrc) &&
+    /RSVP_HOUSE_BUTTON_LIMIT/.test(constsSrc),
+    'renamed or removed — update this suite rather than deleting it');
+  if (!parts.every(Boolean)) return;
+  const idx79 = read('index.html');
+
+  /* Dana pays for her own house, Kyle's and the cabin. Sam is on her bill and
+     said no. Solo pays for himself alone. Kyle is a dependant. */
+  const book = [
+    { id: 'h1', data: { name: 'Dana Pratt', address: '1 Elm', phone: '8015550111', housePrice: 400 } },
+    { id: 'h2', data: { name: 'Kyle Pratt', address: '2 Oak', phone: '8015552222', billToPhone: '8015550111', housePrice: 350 } },
+    { id: 'h3', data: { name: 'Sam Pratt', address: '3 Ash', phone: '8015553333', billToPhone: '8015550111', housePrice: 300, rsvpStatus: 'no' } },
+    { id: 'h4', data: { name: 'Cabin Pratt', address: '4 Fir', phone: '8015554444', billToPhone: '8015550111', housePrice: 250, propertyLabel: 'Cabin', rsvpStatus: 'yes' } },
+    { id: 'h6', data: { name: 'Solo Jones', address: '9 Vine', phone: '8015556666', housePrice: 200 } }
+  ];
+  const box = {};
+  new Function('jobAddresses', 'custInvoiceKey', 'esc', 'fmtMoney', 'getOrCreatePortalToken',
+    constsSrc + '\n' + parts.join('\n') +
+    '\nthis.block = rsvpHousesEmailBlock; this.plain = rsvpHousesPlainText;' +
+    '\nthis.isHousesTemplate = etTemplateHasRsvpHouses;' +
+    '\nthis.limit = RSVP_HOUSE_BUTTON_LIMIT;'
+  ).call(box,
+    book,
+    d => String((d && d.phone) || '').replace(/\D/g, '') ||
+         String((d && d.email) || '').toLowerCase().trim(),
+    t => String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'),
+    n => '$' + Number(n || 0).toFixed(0),
+    async () => 'TOK123');
+
+  const dana = await box.block('8015550111');
+
+  // ---- who gets it ---------------------------------------------------------
+  check('S79', 'a one-house customer gets no per-house block at all',
+    (await box.block('8015556666')) === '',
+    'three buttons per house, for one house, is the single control with extra steps');
+  check('S79', 'and a house billed to somebody else is never sent the group',
+    (await box.block('8015552222')) === '',
+    'Kyle pays for nothing — sending him the group would name a landlord’s other tenants, and ' +
+    'their prices, to a person who is not paying for any of them');
+
+  // ---- what is in it -------------------------------------------------------
+  check('S79', 'every house on the bill gets its own row',
+    dana.indexOf('1 Elm') !== -1 && dana.indexOf('2 Oak') !== -1 && dana.indexOf('4 Fir') !== -1,
+    'one set of buttons could only ever answer for one house — that is the bug');
+  check('S79', 'the cancelled house is not offered, exactly as it is not billed',
+    dana.indexOf('3 Ash') === -1 && dana.indexOf('Sam Pratt') === -1,
+    'the same rule as the total: one list, one set of houses');
+  check('S79', 'rows carry the NAME as well as the address',
+    dana.indexOf('Dana Pratt') !== -1 && dana.indexOf('Kyle Pratt') !== -1,
+    'two streets do not tell a parent which of their children is on the bill, and that is the ' +
+    'whole question this answers');
+  check('S79', 'and the property label, so the cabin is not mistaken for the house',
+    dana.indexOf('Cabin') !== -1,
+    'an address on a phone screen is not enough to tell one property from another');
+
+  // ---- ⚠ the links actually carry the house --------------------------------
+  const hrefs = (dana.match(/href="[^"]*"/g) || []).map(h => h.slice(6, -1));
+  check('S79', '⚠ every button names the house it answers for',
+    hrefs.length > 0 && hrefs.every(h => h.indexOf('house=') !== -1),
+    'without &house= the link marks the token-holder — which is the bug this exists to fix, ' +
+    'silently and with a button that looks like it worked');
+  check('S79', 'and carries the portal token, or it authorises nothing',
+    hrefs.every(h => h.indexOf('token=TOK123') !== -1),
+    'a link with no token lands on a sign-in page and the answer is lost');
+  check('S79', 'yes and no go to the payment page, back-next-year to the home one',
+    hrefs.some(h => /#\/payment\?token=TOK123&house=h2&rsvp=yes$/.test(h)) &&
+    hrefs.some(h => /#\/payment\?token=TOK123&house=h2&rsvp=no$/.test(h)) &&
+    hrefs.some(h => /#\/\?token=TOK123&house=h2&rsvp=back$/.test(h)),
+    'those are the three routes index.html actually reads — a back-next-year link pointed at ' +
+    '/payment does nothing at all');
+  check('S79', 'no house is offered a link belonging to another house',
+    hrefs.filter(h => h.indexOf('house=h1') !== -1).length === 3 &&
+    hrefs.filter(h => h.indexOf('house=h2') !== -1).length === 3,
+    'one row wired to another row’s id answers for the wrong house every time');
+
+  // ---- ⚠ an answered house is not one tap from being flipped ---------------
+  check('S79', '⚠ a house that already answered shows the answer and a Change link',
+    dana.indexOf('Yes — lights this year') !== -1 &&
+    hrefs.filter(h => h.indexOf('house=h4') !== -1).length === 1,
+    'RSVP emails get resent — nobody should be one stray tap away from flipping a house they ' +
+    'have already answered for, so the answered row carries ONE link, not three buttons');
+  check('S79', 'and that Change link goes to the portal, not to an answer',
+    hrefs.filter(h => h.indexOf('house=h4') !== -1)[0].indexOf('rsvp=') === -1,
+    'a "Change" that changes something before you have read it is not a change link');
+
+  // ---- the size guard ------------------------------------------------------
+  check('S79', 'the button limit is a named constant, not a number typed in twice',
+    typeof box.limit === 'number' && box.limit >= 2 &&
+    /RSVP_HOUSE_BUTTON_LIMIT/.test(admin),
+    'Gmail clips at 102KB, so this is a real limit — and one written in two places drifts');
+  {
+    const many = [];
+    for (let i = 0; i < box.limit + 2; i++) {
+      many.push({ id: 'm' + i, data: { name: 'House ' + i, address: i + ' Long Road',
+        phone: i === 0 ? '8019990000' : ('80199900' + (10 + i)),
+        billToPhone: i === 0 ? '' : '8019990000', housePrice: 100 } });
+    }
+    const big = {};
+    new Function('jobAddresses', 'custInvoiceKey', 'esc', 'fmtMoney', 'getOrCreatePortalToken',
+      constsSrc + '\n' + parts.join('\n') + '\nthis.block = rsvpHousesEmailBlock;'
+    ).call(big, many,
+      d => String((d && d.phone) || '').replace(/\D/g, ''),
+      t => String(t == null ? '' : t),
+      n => '$' + Number(n || 0).toFixed(0),
+      async () => 'TOK123');
+    const wide = await big.block('8019990000');
+    check('S79', 'past the limit each row drops to Yes/No and says where the third answer went',
+      wide.indexOf('rsvp=back') === -1 && /open your portal/i.test(wide) &&
+      wide.indexOf('rsvp=yes') !== -1,
+      'a clipped email loses the buttons at the bottom silently — and dropping an option ' +
+      'without saying so leaves somebody unable to give the answer they wanted');
+  }
+
+  // ---- the preview shows the same thing ------------------------------------
+  const plain = box.plain('8015550111');
+  check('S79', 'the plain-text preview names the same houses as the email',
+    plain.indexOf('1 Elm') !== -1 && plain.indexOf('2 Oak') !== -1 &&
+    plain.indexOf('3 Ash') === -1 && box.plain('8015556666') === '',
+    'the office signs off on the preview — if it differs from the send, the sign-off is worthless');
+  check('S79', 'and shows an answered house as answered there too',
+    /Yes — lights this year \[Change\]/.test(plain),
+    'a preview that shows three live buttons where the email shows one link is not the email');
+
+  // ---- ⚠ the audience default must not over-match ---------------------------
+  check('S79', 'a template carrying the per-house block is recognised',
+    box.isHousesTemplate({ body: 'hi {{rsvp_houses_block}}' }) === true &&
+    box.isHousesTemplate({ data: { body: 'hi {{rsvp_houses_list}}' } }) === true,
+    'choosing it is what aims the audience at people paying for several houses');
+  check('S79', '⚠ but an ordinary RSVP template is NOT',
+    box.isHousesTemplate({ body: 'hi {{rsvp_yes_button}}{{rsvp_no_button}}' }) === false &&
+    box.isHousesTemplate({ body: 'hi {{name}}' }) === false &&
+    box.isHousesTemplate({ folderName: 'RSVP', body: 'hi' }) === false &&
+    box.isHousesTemplate(null) === false,
+    'matching on the folder or the word RSVP would quietly narrow every ordinary RSVP send to ' +
+    'group payers only — the opposite failure, and far harder to notice than an over-wide one');
+  check('S79', 'and it is a DEFAULT, not a lock, that says it happened',
+    /etHousesAudienceAutoSet = true/.test(admin) &&
+    /etFilterGroup = v; etHousesAudienceAutoSet = false/.test(admin) &&
+    /Narrowed to people paying for several houses automatically/.test(admin),
+    'automatic is fine and invisible is not — the dropdown still works and the recipient count ' +
+    'line takes the blame');
+  check('S79', 'and it warns that the filter can legitimately match nobody pre-season',
+    /only written once invoices are built/.test(admin),
+    'audienceBillingGroup reads billedHouseIds off the INVOICE, which syncPayerInvoice writes — ' +
+    'so before invoices exist this filter matches nobody, and an empty list reads as broken');
+
+  // ---- the portal grows the same rows --------------------------------------
+  if (!JSDOM) {
+    note('jsdom not installed — skipping the portal per-house RSVP render');
+  } else {
+    const renderSrc = lift79(idx79, 'renderPortalRsvp');
+    const labelSrc = lift79(idx79, 'portalRsvpLabel');
+    check('S79', 'the portal RSVP renderer is findable', !!renderSrc && !!labelSrc,
+      'renamed or removed — update this suite rather than deleting it');
+    if (renderSrc && labelSrc) {
+      const dom = new JSDOM('<div id="portalRsvpBlock">' +
+        '<div id="portalRsvpSingle"><p id="portalRsvpCurrent"></p>' +
+        '<button data-portalrsvp="yes"></button><button data-portalrsvp="no"></button></div>' +
+        '<div id="portalRsvpHouses" style="display:none;"></div></div>');
+      const paint = new Function('document', 'escapeHtmlPortal', 'currentJobAddressData',
+        'currentLookupRecord',
+        /* portalHouses is the MONEY list and lives beside portalRsvpHouses in the
+           page. Declared here so a renderer reaching for the wrong one fails as
+           a wrong-list FAIL rather than a ReferenceError that takes the suite
+           down with no failure list. */
+        'var portalRsvpHouses = []; var portalHouses = [];\n' + labelSrc + '\n' + renderSrc + '\n'  +
+        'return function(list){ portalRsvpHouses = list || []; renderPortalRsvp();' +
+        ' return { houses: document.getElementById("portalRsvpHouses"),' +
+        '          single: document.getElementById("portalRsvpSingle") }; };'
+      )(dom.window.document, t => String(t == null ? '' : t), { rsvpStatus: 'yes' }, null);
+
+      const one = paint([{ id: 'h1', name: 'Dana Pratt', address: '1 Elm' }]);
+      check('S79', 'a single-house customer keeps the control they always had',
+        one.single.style.display !== 'none' && one.houses.style.display === 'none',
+        'that is nearly every customer — a per-house list of one is the same control with ' +
+        'extra steps');
+      const many2 = paint([
+        { id: 'h1', name: 'Dana Pratt', address: '1 Elm', rsvpStatus: '' },
+        { id: 'h2', name: 'Kyle Pratt', address: '2 Oak', rsvpStatus: 'no' }
+      ]);
+      check('S79', 'a payer with several houses gets a row each instead',
+        many2.single.style.display === 'none' && many2.houses.style.display === 'block' &&
+        many2.houses.querySelectorAll('[data-portalrsvphouse="h1"]').length === 3 &&
+        many2.houses.querySelectorAll('[data-portalrsvphouse="h2"]').length === 3,
+        'three answers per house, and each button has to name its own house or it answers for ' +
+        'the signed-in record');
+      check('S79', '⚠ a house that said no is shown so the answer can be changed',
+        many2.houses.innerHTML.indexOf('Kyle Pratt') !== -1 &&
+        /not having lights this season/.test(many2.houses.innerHTML),
+        'a declined house nobody can reach is a phone call to the office, which is the thing ' +
+        'this replaces — and it is why the portal asks for rsvpHouses rather than the money list');
+      const already = many2.houses.querySelector('[data-portalrsvphouse="h2"][data-portalrsvp="no"]');
+      const other = many2.houses.querySelector('[data-portalrsvphouse="h2"][data-portalrsvp="yes"]');
+      check('S79', 'and the answer a house already gave is not offered again',
+        !!already && !!other && already.disabled === true && other.disabled === false,
+        'pressing the answer you already gave should do nothing, and look like it does nothing');
+    }
   }
 })());
 

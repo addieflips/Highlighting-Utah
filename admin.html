@@ -5527,6 +5527,99 @@ function billedHousesPlainText(phone){
            (r.price > 0 ? ' — ' + fmtMoney(r.price) : '');
   }).join('\n') + '\n';
 }
+/* ---- {{rsvp_houses_block}} — one RSVP row PER HOUSE -------------------------
+ * A payer covering several houses got ONE set of Yes/No buttons, and those
+ * buttons carry their portal token, which belongs to one record — so pressing
+ * Yes confirmed their own house and left the rest pending, and there was no way
+ * at all to decline for a dependent house by email. This block gives each house
+ * its own answer, using the same list {{houses_block}} names.
+ *
+ * ⚠ THE HOUSES COME FROM billedHousesForContact, exactly like {{houses_block}}.
+ * That is the group syncPayerInvoice sums, so the houses offered are always the
+ * ones the total was made of; a second way of deciding the group would
+ * eventually offer a house the bill does not cover.
+ * ⚠ AND SO IT IS ONLY EVER SENT TO THE PAYER, and only when there is more than
+ * one house — both rules are already inside that helper. A house billed to
+ * somebody else pays for nothing, and sending it the group would name a
+ * landlord's other tenants to a person paying for none of them.
+ */
+const RSVP_ANSWER_WORDS = {
+  yes: 'Yes — lights this year',
+  no: 'No — not this season',
+  backnextyear: 'Back next year'
+};
+/* ⚠ Gmail clips a message at 102KB, and a row of three buttons is not free.
+ * Past this many houses each row drops to Yes/No and "Back next year" moves to
+ * the portal, which is the answer people pick least often.
+ * ⚠ NOT CONFIRMED against the real customer book — that lives in Firestore and
+ * on the owner's own machine. If a real payer covers more than this, check a
+ * sent email actually arrives whole before raising it. */
+const RSVP_HOUSE_BUTTON_LIMIT = 6;
+async function rsvpHousesEmailBlock(phone){
+  const houses = billedHousesForContact(phone);
+  if(houses.length < 2) return '';
+  const token = await getOrCreatePortalToken(phone);
+  /* Without a token every link here is dead, and a row of buttons that does
+     nothing is worse than no block — the ordinary RSVP buttons are in the same
+     state and at least say so. */
+  if(!token) return '';
+  const payBase = 'https://highlightingutah.com/#/payment?token=' + token;
+  const homeBase = 'https://highlightingutah.com/#/?token=' + token;
+  const btnStyle = 'display:inline-block; padding:9px 15px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:13.5px; margin:5px 4px 0 0;';
+  const compact = houses.length > RSVP_HOUSE_BUTTON_LIMIT;
+  const rows = houses.map(function(h){
+    const d = h.data || {};
+    const q = '&house=' + encodeURIComponent(h.id);
+    const price = Number(d.housePrice) || 0;
+    /* ⚠ NAMES, not only addresses. Two streets do not tell a parent which of
+       their children is on the bill — that is the whole question this answers. */
+    const sub = [d.name || '', d.propertyLabel || '', price > 0 ? fmtMoney(price) : '']
+      .filter(Boolean).map(function(v){ return esc(v); }).join(' &middot; ');
+    const answered = String(d.rsvpStatus || '');
+    /* ⚠ AN ANSWERED HOUSE SHOWS THE ANSWER AND ONE "Change" LINK, not three
+       buttons. RSVP emails get resent; nobody should be one stray tap away from
+       flipping a house they already declined. */
+    const controls = (answered && RSVP_ANSWER_WORDS[answered])
+      ? '<div style="padding-top:6px; font-size:13px; color:#1E3B2C;"><strong>' + esc(RSVP_ANSWER_WORDS[answered]) + '</strong>' +
+        ' &middot; <a href="' + payBase + q + '" style="color:#2E6B3E;">Change</a></div>'
+      : '<div>' +
+          '<a href="' + payBase + q + '&rsvp=yes" style="' + btnStyle + ' background:#2E6B3E; color:#ffffff;">Yes</a>' +
+          '<a href="' + payBase + q + '&rsvp=no" style="' + btnStyle + ' background:#8A8F9C; color:#ffffff;">No</a>' +
+          (compact ? '' : '<a href="' + homeBase + q + '&rsvp=back" style="' + btnStyle + ' background:#D89F3D; color:#1E3B2C;">Back Next Year</a>') +
+        '</div>';
+    return '<div style="padding:11px 0; border-bottom:1px solid #DDE3D2;">' +
+      '<div style="font-size:14px; font-weight:bold; color:#1E3B2C;">' + esc(d.address || d.name || 'this property') + '</div>' +
+      (sub ? '<div style="font-size:12.5px; color:#6E6858;">' + sub + '</div>' : '') +
+      controls +
+    '</div>';
+  }).join('');
+  /* A table with inline styles, like every other email block here: Outlook
+     ignores nearly all CSS, so a styled div arrives unstyled. */
+  return '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:14px 0;">' +
+    '<tr><td style="background:#F1F5EB; border-radius:10px; padding:16px 18px; font-family:Arial,sans-serif;">' +
+      '<div style="font-size:11px; letter-spacing:1.2px; text-transform:uppercase; color:#6E6858; font-weight:bold;">Answer for each property</div>' +
+      '<div style="font-size:12.5px; color:#6E6858; padding:4px 0 2px;">You are paying for ' + houses.length + ' properties this year. Tell us about each one — they do not have to be the same.</div>' +
+      rows +
+      (compact ? '<div style="font-size:12.5px; color:#6E6858; padding-top:8px;">To say <strong>back next year</strong> for any of these, open your portal.</div>' : '') +
+    '</td></tr></table>';
+}
+/* The same thing as plain text, for a preview box that shows textContent. */
+function rsvpHousesPlainText(phone){
+  const houses = billedHousesForContact(phone);
+  if(houses.length < 2) return '';
+  return '\n\nANSWER FOR EACH PROPERTY\n' + houses.map(function(h){
+    const d = h.data || {};
+    const answered = String(d.rsvpStatus || '');
+    const price = Number(d.housePrice) || 0;
+    return '  ' + (d.address || d.name || 'this property') +
+      ([d.name || '', d.propertyLabel || '', price > 0 ? fmtMoney(price) : ''].filter(Boolean).length
+        ? ' (' + [d.name || '', d.propertyLabel || '', price > 0 ? fmtMoney(price) : ''].filter(Boolean).join(' · ') + ')'
+        : '') + '\n' +
+      '    ' + ((answered && RSVP_ANSWER_WORDS[answered])
+        ? RSVP_ANSWER_WORDS[answered] + ' [Change]'
+        : '[Yes] [No]' + (houses.length > RSVP_HOUSE_BUTTON_LIMIT ? '' : ' [Back Next Year]'));
+  }).join('\n') + '\n';
+}
 async function resolveLinkTokens(text, phone, amount, opts){
   opts = opts || {};
   let out = text;
@@ -5618,6 +5711,13 @@ async function resolveLinkTokens(text, phone, amount, opts){
     out = out.split('{{rsvp_yes_button}}').join('<a href="'+rsvpYesUrl+'" style="'+btnStyle+' background:#2E6B3E; color:#ffffff;">Yes</a>');
     out = out.split('{{rsvp_no_button}}').join('<a href="'+rsvpNoUrl+'" style="'+btnStyle+' background:#8A8F9C; color:#ffffff;">No</a>');
     out = out.split('{{rsvp_back_button}}').join('<a href="'+rsvpBackUrl+'" style="'+btnStyle+' background:#D89F3D; color:#1E3B2C;">Back Next Year</a>');
+  }
+  /* Its own block, not folded into the one above: a template may carry the
+     per-house list WITHOUT the single Yes/No buttons, and that is the normal
+     case for a payer covering several houses. */
+  if(out.indexOf('{{rsvp_houses_block}}') !== -1 || out.indexOf('{{rsvp_houses_list}}') !== -1){
+    out = out.split('{{rsvp_houses_block}}').join(await rsvpHousesEmailBlock(phone));
+    out = out.split('{{rsvp_houses_list}}').join(rsvpHousesPlainText(phone).trim());
   }
   if(out.indexOf('{{quote_yes_button}}') !== -1 || out.indexOf('{{quote_decline_button}}') !== -1 || out.indexOf('{{quote_maybe_button}}') !== -1){
     const phoneDigits = (phone||'').replace(/\D/g,'');
@@ -6416,6 +6516,8 @@ function rsvpUpdatePreview(){
     .replace(/\{\{rsvp_yes_button\}\}/g, '[Yes button]')
     .replace(/\{\{rsvp_back_button\}\}/g, '[Back Next Year button]')
     .replace(/\{\{rsvp_no_button\}\}/g, '[No button]')
+    .replace(/\{\{rsvp_houses_block\}\}/g, rsvpHousesPlainText(member.data.phone).trim())
+    .replace(/\{\{rsvp_houses_list\}\}/g, rsvpHousesPlainText(member.data.phone).trim())
     + (rsvpTemplateHasHouses(template) ? '' : houses);
 }
 function rsvpRenderRecipientList(){
@@ -10262,6 +10364,19 @@ function audienceIsNew(d){ return !!(d && d.chargeNewMemberFee === true); }
    ⚠ It is a DEFAULT, not a lock: the dropdown still works, so an RSVP that
    really is meant for everybody is one click away. Automatic is fine, invisible
    is not — the recipient count line says it happened. */
+/* ⭐ Does this template give each house on a bill its own answer? Only a payer
+   covering several houses has anything to do with that — a per-house row sent
+   to somebody with one house is a paragraph and no information — so choosing
+   such a template aims the audience at group payers by itself.
+   ⚠ Keyed on the TOKEN, not on the folder or the word RSVP. Matching more
+   widely would quietly narrow the audience of ordinary RSVP sends to group
+   payers only, which is the opposite failure and far harder to notice. */
+function etTemplateHasRsvpHouses(t){
+  const d = (t && t.data) ? t.data : t;
+  if(!d) return false;
+  const body = String(d.body || '');
+  return body.indexOf('{{rsvp_houses_block}}') !== -1 || body.indexOf('{{rsvp_houses_list}}') !== -1;
+}
 function etTemplateIsRsvp(t){
   const d = (t && t.data) ? t.data : t;
   if(!d) return false;
@@ -10354,6 +10469,8 @@ let etFilterNew = 'all';
 /* True only while the RSVP default above is what set the filter, so the count
    line can explain itself without claiming credit for the office's own choice. */
 let etRsvpAudienceAutoSet = false;
+/* The same, for the per-house RSVP block picking "pays for several houses". */
+let etHousesAudienceAutoSet = false;
 let etFilterGroup = 'all';
 let etFilterOutlet = 'all';
 let etFilterInstalled = 'all';
@@ -10400,6 +10517,16 @@ function etRenderRecipientList(){
     if(etRsvpAudienceAutoSet && etFilterNew === 'returning'){
       msg += ' — New customers are left out automatically, because an RSVP asks whether they want lights AGAIN. Change "New vs returning" above to include them.';
     }
+    if(etHousesAudienceAutoSet && etFilterGroup === 'multi'){
+      msg += ' — Narrowed to people paying for several houses automatically, because this template gives every house its own Yes/No. Change "Billing group" above to include everyone.';
+    }
+    /* ⚠ audienceBillingGroup reads billedHouseIds off the INVOICE, and that is
+       only written by syncPayerInvoice — so pre-season, with most invoices not
+       built yet, this filter can legitimately match nobody. Saying so beats an
+       empty list that reads as a broken filter. */
+    if(etFilterGroup === 'multi' && !members.length){
+      msg += ' — Nobody matches yet. This filter reads each invoice\'s list of houses, which is only written once invoices are built, so early in the season it can be empty even when the bills exist.';
+    }
     countEl.textContent = msg;
   }
   if(!members.length){ list.innerHTML = '<div class="empty-note">No members match this search and these filters.</div>'; return; }
@@ -10432,6 +10559,18 @@ document.getElementById('etSendTemplateSelect').addEventListener('change', funct
     if(typeof etRenderRecipientList === 'function') etRenderRecipientList();
   } else if(!etTemplateIsRsvp(t)){
     etRsvpAudienceAutoSet = false;
+  }
+  /* Same shape as the rule above, and the same limits: a DEFAULT, not a lock —
+     the dropdown still works — and the recipient count line says it happened,
+     because automatic is fine and invisible is not. */
+  if(etTemplateHasRsvpHouses(t) && etFilterGroup !== 'multi'){
+    etFilterGroup = 'multi';
+    const gsel = document.getElementById('etFilterGroup');
+    if(gsel) gsel.value = 'multi';
+    etHousesAudienceAutoSet = true;
+    if(typeof etRenderRecipientList === 'function') etRenderRecipientList();
+  } else if(!etTemplateHasRsvpHouses(t)){
+    etHousesAudienceAutoSet = false;
   }
   etUpdatePreview();
 });
@@ -10729,7 +10868,9 @@ document.getElementById('etRecipientSearch').addEventListener('input', function(
   ['etFilterPaidLast',    v => { etFilterPaidLast = v; }],
   ['etFilterOrderedLast', v => { etFilterOrderedLast = v; }],
   ['etFilterNew',         v => { etFilterNew = v; etRsvpAudienceAutoSet = false; }],
-  ['etFilterGroup',       v => { etFilterGroup = v; }],
+  /* Choosing it by hand clears the credit, so the count line stops claiming
+     an automatic narrowing the office actually did itself. */
+  ['etFilterGroup',       v => { etFilterGroup = v; etHousesAudienceAutoSet = false; }],
   ['etFilterOutlet',      v => { etFilterOutlet = v; }],
   ['etFilterInstalled',   v => { etFilterInstalled = v; }]
 ].forEach(function(pair){
@@ -10880,7 +11021,9 @@ const IC_CODES = {
     {token:'{{rsvp_no_link}}', label:'RSVP No (plain URL)'},
     {token:'{{rsvp_no_button}}', label:'RSVP No (button)'},
     {token:'{{rsvp_back_link}}', label:'RSVP Back Next Year (plain URL)'},
-    {token:'{{rsvp_back_button}}', label:'RSVP Back Next Year (button)'}
+    {token:'{{rsvp_back_button}}', label:'RSVP Back Next Year (button)'},
+    {token:'{{rsvp_houses_block}}', label:'Yes/No for EACH house on this bill (for a payer with several)'},
+    {token:'{{rsvp_houses_list}}', label:'The same per-house list as plain text'}
   ],
   quote: [
     {token:'{{name}}', label:'Customer name'},

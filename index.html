@@ -1676,12 +1676,18 @@
                    to do something the app already supports. -->
               <div id="portalRsvpBlock" style="margin-bottom:20px; padding-bottom:18px; border-bottom:1px solid var(--line);">
                 <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:4px;">Are you having lights this season?</label>
-                <p class="form-note" id="portalRsvpCurrent" style="margin:0 0 10px;"></p>
-                <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                  <button type="button" class="btn btn-outline-dark btn-sm" data-portalrsvp="yes">Yes, I&rsquo;m in</button>
-                  <button type="button" class="btn btn-outline-dark btn-sm" data-portalrsvp="backnextyear">Back next year</button>
-                  <button type="button" class="btn btn-outline-dark btn-sm" data-portalrsvp="no">Not this season</button>
+                <!-- The ordinary customer's control, unchanged. Hidden only for a
+                     payer whose bill covers more than one house, who gets a row per
+                     house below instead — one answer could never speak for four. -->
+                <div id="portalRsvpSingle">
+                  <p class="form-note" id="portalRsvpCurrent" style="margin:0 0 10px;"></p>
+                  <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                    <button type="button" class="btn btn-outline-dark btn-sm" data-portalrsvp="yes">Yes, I&rsquo;m in</button>
+                    <button type="button" class="btn btn-outline-dark btn-sm" data-portalrsvp="backnextyear">Back next year</button>
+                    <button type="button" class="btn btn-outline-dark btn-sm" data-portalrsvp="no">Not this season</button>
+                  </div>
                 </div>
+                <div id="portalRsvpHouses" style="display:none;"></div>
                 <p class="form-note" id="portalRsvpStatus" role="status" aria-live="polite" style="margin:10px 0 0;"></p>
               </div>
               <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:8px;">Wire Color</label>
@@ -2158,9 +2164,13 @@ function navigate(){
     var rsvp = params.get('rsvp');
     var contactParam = params.get('c');
     var lastNameParam = params.get('ln');
+    /* ⭐ Which house this link is answering for. Absent on every RSVP email
+       already in somebody's inbox, and absent from the portal's own buttons, so
+       leaving it out is the ordinary path and behaves exactly as before. */
+    var houseParam = params.get('house');
     if(token && (rsvp === 'yes' || rsvp === 'no') && typeof handleRsvpLink === 'function'){
       document.body.classList.add('quote-minimal');
-      handleRsvpLink(token, rsvp);
+      handleRsvpLink(token, rsvp, houseParam);
     } else if(token && typeof loadPortalByToken === 'function'){
       loadPortalByToken(token);
     } else if(contactParam && lastNameParam && typeof performSignInLookup === 'function'){
@@ -2174,7 +2184,7 @@ function navigate(){
     var backRsvp = homeParams.get('rsvp');
     if(backToken && backRsvp === 'back' && typeof handleBackNextYear === 'function'){
       document.body.classList.add('quote-minimal');
-      handleBackNextYear(backToken);
+      handleBackNextYear(backToken, homeParams.get('house'));
     }
   } else if(hash === '/quote-details' && queryString){
     var quoteParams = new URLSearchParams(queryString);
@@ -3244,6 +3254,10 @@ function renderCustomerInvoicePage(raw, opts){
        no-bill-yet record below carries no houses, and blanking the list there
        would throw away what portalLookup already found. */
     if(Array.isArray(res.houses)) portalHouses = res.houses;
+    /* ⚠ The RSVP list is NOT the money list: it includes anyone who said no, so
+       that answer can be changed here. The money box still uses portalHouses,
+       which excludes them, or the rows would not add up to the total. */
+    if(Array.isArray(res.rsvpHouses)) portalRsvpHouses = res.rsvpHouses;
     renderPortalHouses();
     renderLastPaymentNote(record);
     renderScheduleStrip(currentJobAddressData || currentLookupRecord);
@@ -3461,19 +3475,56 @@ function renderLastPaymentNote(record){
  * or answered "no" in October and changed their mind in November, had to ring
  * the office so a person could do something the app already does. Three
  * buttons on the Changes tab, using the same callable and the same token. */
+var portalRsvpHouses = [];
 function portalRsvpLabel(status){
   if(status === 'yes') return "You're confirmed for this season. 🎄";
   if(status === 'no') return "You've told us you're not having lights this season.";
   if(status === 'backnextyear') return "You've told us you'll be back next year.";
   return "You haven't told us yet.";
 }
+/* ⭐ ONE ANSWER PER HOUSE when the bill covers several.
+ *
+ * A payer covering four houses had ONE set of buttons, and portalRsvp writes to
+ * the record the token belongs to — so pressing Yes confirmed their own house
+ * and left the other three pending, and there was no way at all to decline for
+ * a dependent house. Each house gets its own row now.
+ *
+ * ⚠ The single control is left exactly as it was for everybody else. That is
+ * the overwhelming majority of customers, and three buttons per house for one
+ * house is the same control with extra steps. */
 function renderPortalRsvp(){
   var block = document.getElementById('portalRsvpBlock');
   if(!block) return;
   var rec = currentJobAddressData || currentLookupRecord || {};
+  var perHouse = document.getElementById('portalRsvpHouses');
+  var single = document.getElementById('portalRsvpSingle');
+  var multi = portalRsvpHouses && portalRsvpHouses.length > 1;
+  if(single) single.style.display = multi ? 'none' : 'block';
+  if(perHouse) perHouse.style.display = multi ? 'block' : 'none';
+  if(multi && perHouse){
+    perHouse.innerHTML = portalRsvpHouses.map(function(h){
+      var answer = String(h.rsvpStatus || '');
+      var label = h.propertyLabel ? ' <span style="opacity:.75;">(' + escapeHtmlPortal(h.propertyLabel) + ')</span>' : '';
+      return '<div style="padding:10px 0; border-top:1px solid var(--line);">' +
+        '<div style="font-weight:600;">' + escapeHtmlPortal(h.name || 'Name not on file') + label + '</div>' +
+        '<div style="opacity:.8; font-size:13px;">' + escapeHtmlPortal(h.address || 'address on file') + '</div>' +
+        '<p class="form-note" style="margin:4px 0 6px;">' + escapeHtmlPortal(portalRsvpLabel(answer)) + '</p>' +
+        '<div style="display:flex; gap:8px; flex-wrap:wrap;">' +
+          ['yes', 'backnextyear', 'no'].map(function(a){
+            var words = a === 'yes' ? 'Yes, I&rsquo;m in' : (a === 'no' ? 'Not this season' : 'Back next year');
+            var isCurrent = a === answer;
+            return '<button type="button" class="btn btn-outline-dark btn-sm" data-portalrsvp="' + a + '"' +
+              ' data-portalrsvphouse="' + escapeHtmlPortal(h.id) + '"' +
+              (isCurrent ? ' disabled style="opacity:.5;"' : '') + '>' + words + '</button>';
+          }).join('') +
+        '</div>' +
+      '</div>';
+    }).join('');
+    return;
+  }
   var cur = document.getElementById('portalRsvpCurrent');
   if(cur) cur.textContent = portalRsvpLabel(String(rec.rsvpStatus || ''));
-  block.querySelectorAll('[data-portalrsvp]').forEach(function(btn){
+  block.querySelectorAll('#portalRsvpSingle [data-portalrsvp]').forEach(function(btn){
     var isCurrent = btn.dataset.portalrsvp === String(rec.rsvpStatus || '');
     btn.disabled = isCurrent;
     btn.style.opacity = isCurrent ? '.5' : '';
@@ -3483,23 +3534,41 @@ document.addEventListener('click', function(e){
   var btn = e.target.closest && e.target.closest('[data-portalrsvp]');
   if(!btn) return;
   var answer = btn.dataset.portalrsvp;
+  /* Absent on the ordinary single control, so the call is byte-for-byte what it
+     always was and portalRsvp takes its unchanged path. */
+  var houseId = btn.dataset.portalrsvphouse || '';
   var statusEl = document.getElementById('portalRsvpStatus');
   /* Saying "not this season" starts the recycling of their lights, so it is
      worth one question rather than one mis-tap. */
-  if(answer === 'no' && !window.confirm("This tells us you're not having lights this season. Are you sure?")) return;
+  if(answer === 'no' && !window.confirm(houseId
+      ? "This tells us this property is not having lights this season. Are you sure?"
+      : "This tells us you're not having lights this season. Are you sure?")) return;
   var token = getActivePortalToken();
   if(!token){
     if(statusEl) statusEl.textContent = "Please sign in again first, or call us at (801) 901-0011.";
     return;
   }
   if(statusEl) statusEl.textContent = 'Saving…';
-  callPortalFn('portalRsvp', {token: token, response: answer}).then(function(res){
+  var payload = {token: token, response: answer};
+  if(houseId) payload.houseId = houseId;
+  callPortalFn('portalRsvp', payload).then(function(res){
     if(!res || !res.ok){
       if(statusEl) statusEl.textContent = "That didn't save — please call or text us at (801) 901-0011.";
       return;
     }
-    if(currentJobAddressData) currentJobAddressData.rsvpStatus = answer;
-    if(currentLookupRecord) currentLookupRecord.rsvpStatus = answer;
+    /* ⚠ Update the row that was actually answered for. Writing the answer onto
+       the signed-in record when a DIFFERENT house was answered would show the
+       payer their own house flipping while the one they pressed sat unchanged —
+       and the next repaint would put it back. */
+    var answeredId = (res && res.houseId) || houseId;
+    if(answeredId){
+      portalRsvpHouses.forEach(function(h){ if(h.id === answeredId) h.rsvpStatus = answer; });
+      portalHouses.forEach(function(h){ if(h.id === answeredId) h.rsvpStatus = answer; });
+    }
+    if(!houseId){
+      if(currentJobAddressData) currentJobAddressData.rsvpStatus = answer;
+      if(currentLookupRecord) currentLookupRecord.rsvpStatus = answer;
+    }
     renderPortalRsvp();
     renderScheduleStrip(currentJobAddressData || currentLookupRecord);
     if(statusEl) statusEl.textContent = 'Saved — thank you!';
@@ -3716,6 +3785,7 @@ function loadPortalByToken(token, extraOpts){
        quote token as a portal login leaves it to be replayed on the next visit
        against an account it was never entitled to. */
     portalHouses = (res && res.houses) || [];
+    portalRsvpHouses = (res && res.rsvpHouses) || [];
     if(res.isQuote){
       if(lookupFormWrap) lookupFormWrap.style.display = 'none';
       var quotePhone = String((res.record && res.record.phone) || '').replace(/\D/g,'');
@@ -3747,7 +3817,7 @@ function loadPortalByToken(token, extraOpts){
   });
 }
 
-function handleRsvpLink(token, rsvpValue){
+function handleRsvpLink(token, rsvpValue, houseId){
   var lookupFormWrap = document.getElementById('lookupFormWrap');
   var confirmCard = document.getElementById('rsvpConfirmCard');
   var confirmMsg = document.getElementById('rsvpConfirmMsg');
@@ -3763,7 +3833,11 @@ function handleRsvpLink(token, rsvpValue){
   // The RSVP is recorded on the server FIRST, before any UI is shown, so a
   // "No" is saved even if the customer closes the page immediately after.
   savePortalLogin(token);
-  callPortalFn('portalRsvp', {token: token, response: rsvpValue === 'yes' ? 'yes' : 'no'}).then(function(res){
+  var rsvpPayload = {token: token, response: rsvpValue === 'yes' ? 'yes' : 'no'};
+  /* Only sent when the link carried one, so a link without it reaches exactly
+     the code path it always did. */
+  if(houseId) rsvpPayload.houseId = String(houseId);
+  callPortalFn('portalRsvp', rsvpPayload).then(function(res){
     if(!res || !res.ok){
       if(confirmCard) confirmCard.style.display = 'none';
       document.getElementById('lookupEmpty').style.display = 'block';
@@ -3829,13 +3903,15 @@ function handleRsvpLink(token, rsvpValue){
     document.getElementById('lookupEmpty').style.display = 'block';
   });
 }
-function handleBackNextYear(token){
+function handleBackNextYear(token, houseId){
   var wrap = document.getElementById('backNextYearConfirm');
   var msg = document.getElementById('backNextYearConfirmMsg');
   if(wrap) wrap.style.display = 'block';
   if(msg) msg.textContent = 'One moment\u2026';
   // "Back Next Year" gets its own status and never triggers light recycling.
-  callPortalFn('portalRsvp', {token: token, response: 'backnextyear'}).then(function(res){
+  var backPayload = {token: token, response: 'backnextyear'};
+  if(houseId) backPayload.houseId = String(houseId);
+  callPortalFn('portalRsvp', backPayload).then(function(res){
     if(!res || !res.ok){
       if(msg) msg.textContent = "We couldn't find your account \u2014 please call or text us at (801) 901-0011 and we'll help you out.";
       return;
