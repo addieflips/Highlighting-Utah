@@ -17468,6 +17468,127 @@ async function hlxAddMissingCustomersToSheet(){
           left: Math.max(0, missing.length - batch.length),
           names: batch.map(function(m){ return m.name; })};
 }
+/* ⭐ AND TAKE OFF THE PEOPLE WHO NO LONGER BELONG. Owner, 2026-08-20: "when it
+   syncs that should include deleting things that dont belong."
+
+   The four state sheets are DERIVED lists — who is recycling, who changed colours,
+   who is confirmed, who to contact in 2027. A row for somebody who has since answered
+   differently is not history, it is a wrong answer that somebody will act on. Twelve
+   people reached Color Changes through a bug in this file and there was no way to get
+   them off except by hand.
+
+   ⚠ IT ONLY REMOVES A ROW IT UNDERSTANDS. A name is taken off when it matches a
+   customer who no longer qualifies for that sheet. A name matching NOBODY is left
+   exactly where it is and reported instead — that is either somebody typed in by hand
+   or a customer we failed to match, and deleting what we do not understand is how a
+   sync eats a list somebody spent an afternoon on.
+
+   ⚠ AND NEVER THE CUSTOMER LIST. Sheet one is the record, not a derived view.
+   A customer missing from the website might be deleted, or might be a matching
+   failure, and the two look identical from here. Strays there are counted and named,
+   and the office decides. Deleting customer data at scale is the owner’s decision to
+   make, never a side effect of pressing sync. */
+const HLX_PRUNE_MAX_SHARE = 0.5;
+function hlxRowNameAt(el, nameCol, ss){
+  const cells = el.match(/<c[\s][^>]*>[\s\S]*?<\/c>|<c[\s][^>]*\/>/g) || [];
+  for(let i = 0; i < cells.length; i++){
+    const c = cells[i];
+    const ref = (c.match(/\sr="([A-Z]+)\d+"/) || [])[1];
+    if(!ref || hlxColNum(ref) !== nameCol) continue;
+    const t = (c.match(/t="([^"]+)"/) || [])[1];
+    if(t === "inlineStr"){
+      const m = c.match(/<t[^>]*>([\s\S]*?)<\/t>/);
+      return m ? hlxXmlText(m[1]) : "";
+    }
+    const v = (c.match(/<v>([\s\S]*?)<\/v>/) || [])[1];
+    if(v == null) return "";
+    return t === "s" ? String(ss[Number(v)] == null ? "" : ss[Number(v)]) : String(v);
+  }
+  return "";
+}
+async function hlxPruneStateTabs(){
+  const handle = await hlxSheetHandleLoad();
+  if(!handle) return null;
+  if(!Array.isArray(jobAddresses) || !jobAddresses.length) return null;
+  let state = "granted";
+  if(handle.queryPermission) state = await handle.queryPermission({mode: "readwrite"});
+  if(state !== "granted" && handle.requestPermission){
+    state = await handle.requestPermission({mode: "readwrite"});
+  }
+  if(state !== "granted") return {refused: "Chrome would not let me write to the file"};
+
+  const file = await handle.getFile();
+  const buf = await file.arrayBuffer();
+  const before = await hlxWorkbookRows(new Blob([buf]));
+  const beforeCount = before.length;
+  const beforeHead = (before[0] || []).map(function(v){ return String(v == null ? "" : v).trim(); }).join("|");
+
+  const entries = await hlxUnzipAll(buf);
+  const ss = await hlxWorkbookSharedStrings(entries);
+  const dec = new TextDecoder(), enc = new TextEncoder();
+  const removed = [], strangers = [];
+  let touched = false;
+
+  for(let t = 0; t < HLX_STATE_TABS.length; t++){
+    const tab = HLX_STATE_TABS[t];
+    const part = hlxSheetPartFor(entries, tab.tab);
+    if(!part) continue;
+    let xml = dec.decode(part.data);
+    const els = xml.match(/<row[\s>][\s\S]*?<\/row>|<row[^>]*\/>/g) || [];
+    if(els.length < 2) continue;
+
+    /* The Name column is read off this sheet’s own heading, never assumed. */
+    const headRows = hlxReadSheet(xml, ss);
+    const head = (headRows[0] || []).map(function(v){ return String(v == null ? "" : v).trim(); });
+    const nameCol = head.indexOf("Name");
+    if(nameCol < 0) continue;
+
+    const doomed = [];
+    for(let i = 1; i < els.length; i++){
+      const el = els[i];
+      const who = String(hlxRowNameAt(el, nameCol, ss) || "").trim();
+      if(!who) continue;                       /* a blank row is not a person */
+      const key = dupNormName(who);
+      const matches = jobAddresses.filter(function(c){
+        return dupNormName((c.data || {}).name) === key;
+      });
+      if(!matches.length){ strangers.push(tab.tab + ": " + who); continue; }
+      if(matches.some(function(c){ return tab.holds(c.data || {}); })) continue;
+      doomed.push({el: el, who: who});
+    }
+    if(!doomed.length) continue;
+
+    const dataRows = els.length - 1;
+    if(doomed.length > Math.ceil(dataRows * HLX_PRUNE_MAX_SHARE)){
+      strangers.push(tab.tab + ": " + doomed.length + " of " + dataRows +
+        " look wrong, which is too many to be true \u2014 nothing removed from that sheet");
+      continue;
+    }
+    doomed.forEach(function(d){
+      xml = xml.replace(d.el, "");
+      removed.push(tab.tab + ": " + d.who);
+    });
+    part.data = enc.encode(xml);
+    touched = true;
+  }
+
+  if(!touched) return {removed: [], strangers: strangers};
+
+  const rebuilt = await hlxZip(entries);
+  /* The same verify the appender does: the customer list must come back untouched,
+     heading and all, or nothing is written. */
+  let check;
+  try{ check = await hlxWorkbookRows(new Blob([rebuilt])); }
+  catch(err){ return {refused: "the rebuilt workbook could not be read back, so nothing was written"}; }
+  const afterHead = (check[0] || []).map(function(v){ return String(v == null ? "" : v).trim(); }).join("|");
+  if(check.length !== beforeCount || afterHead !== beforeHead){
+    return {refused: "the customer list changed while tidying the other sheets, so nothing was written"};
+  }
+  const w = await handle.createWritable();
+  await w.write(rebuilt);
+  await w.close();
+  return {removed: removed, strangers: strangers};
+}
 async function hlxUpdateCustomerInfo(statusEl){
   const say = function(t){ if(statusEl) statusEl.textContent = t; };
   if(!hlxSheetSupported()){
@@ -17494,6 +17615,21 @@ async function hlxUpdateCustomerInfo(statusEl){
       if(res.written) done.push(res.written + " to " + t.tab);
     } catch(err){ failed.push(t.tab + " (" + ((err && err.message) || "failed") + ")"); }
   }
+  /* ⭐ TAKE OFF WHOEVER NO LONGER BELONGS, before adding anybody. A sheet that is
+     tidied first has room at the top, so the new rows land where somebody will see
+     them rather than below a block of stale ones. */
+  try{
+    say("Tidying the sheets" + String.fromCharCode(8230));
+    const pruned = await hlxPruneStateTabs();
+    if(pruned && pruned.refused){ failed.push(pruned.refused); }
+    else if(pruned && pruned.removed && pruned.removed.length){
+      done.push(pruned.removed.length + " taken off a sheet they no longer belong on");
+    }
+    if(pruned && pruned.strangers && pruned.strangers.length){
+      failed.push(pruned.strangers.length + " row(s) left alone \u2014 no customer of that name");
+    }
+  } catch(err){ failed.push("tidying (" + ((err && err.message) || "failed") + ")"); }
+
   /* ⭐ AND ANYBODY MISSING FROM THE CUSTOMER LIST ENTIRELY. This is the half that
      was absent when the owner reported "it says customer info is updated but rachel
      oslund doesnt exist in the excel". */

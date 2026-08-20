@@ -16701,6 +16701,189 @@ if (!JSDOM) {
  * And: "new hangs color changes and requotes should be automatically updated into
  * the yes sheet because obviously they are confirmed."
  * ------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+ * Suite 86. The sync takes people off sheets they no longer belong on
+ *
+ * Owner, 2026-08-20: "when it syncs that should include deleting things that dont
+ * belong."
+ *
+ * The four state sheets are DERIVED lists. A row for somebody who has since
+ * answered differently is not history, it is a wrong answer somebody will act on:
+ * twelve people reached Color Changes through a bug in this file and there was no
+ * way to get them off except by hand.
+ *
+ * ⚠ This is the one direction that cannot be undone, so the checks are as much
+ * about what it REFUSES to touch.
+ * ------------------------------------------------------------------------- */
+pendingAsync.push((async () => {
+  suite('Suite 86. The sync takes people off sheets they no longer belong on');
+
+  const lift86 = (n) => {
+    let st = admin.indexOf('async function ' + n + '(');
+    if (st < 0) st = admin.indexOf('function ' + n + '(');
+    if (st < 0) return '';
+    let i = admin.indexOf('{', st), d = 0;
+    for (; i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(st, i + 1); }
+    }
+    return '';
+  };
+  const NEED = ['hlxCrc32', 'hlxDeflateRaw', 'hlxInflateRaw', 'hlxUnzip', 'hlxUnzipAll',
+               'hlxZip', 'hlxRowXml', 'hlxColName', 'hlxColNum', 'hlxXmlText',
+               'hlxSharedStrings', 'hlxReadSheet', 'hlxWorkbookSharedStrings',
+               'hlxSheetPartFor', 'hlxWorkbookRows', 'dupNormName',
+               'hlxRowNameAt', 'hlxPruneStateTabs'];
+  const gone = NEED.filter(n => !lift86(n));
+  check('S86', 'the tidier is still there', !gone.length, 'missing: ' + gone.join(', '));
+  if (gone.length) return;
+
+  const enc = new TextEncoder();
+  const HDR = ['CU #', 'Name'];
+  const cell = (ref, text) => '<c r="' + ref + '" t="inlineStr"><is><t>' + text + '</t></is></c>';
+  const sheet = (rows) => enc.encode('<worksheet><sheetData>' + rows.map((vals, i) =>
+    '<row r="' + (i + 1) + '">' + cell('A' + (i + 1), vals[0]) + cell('B' + (i + 1), vals[1]) +
+    '</row>').join('') + '</sheetData></worksheet>');
+
+  async function prune(customers, colorRows, opts) {
+    opts = opts || {};
+    let disk = null, writes = 0;
+    const box = {};
+    const handle = {
+      getFile: async () => new Blob([disk]),
+      queryPermission: async () => (opts.permission || 'granted'),
+      requestPermission: async () => (opts.permission || 'granted'),
+      createWritable: async () => ({
+        write: async (d) => { disk = new Uint8Array(d); writes++; },
+        close: async () => {}
+      })
+    };
+    new Function('hlxSheetHandleLoad', 'jobAddresses', 'HLX_STATE_TABS',
+      'let HLX_CRC_TABLE = null; const HLX_PRUNE_MAX_SHARE = ' + (opts.share || 0.5) + ';' +
+      NEED.map(lift86).join('') +
+      'this.prune = hlxPruneStateTabs; this.zip = hlxZip; this.unzipAll = hlxUnzipAll;' +
+      'this.partFor = hlxSheetPartFor; this.rows = hlxWorkbookRows;'
+    ).call(box, async () => handle, customers, [
+      {tab: 'Color Changes', label: 'colour changes',
+       holds: function(d){ return !!d.lightsChangedAt; }}
+    ]);
+
+    disk = await box.zip([
+      {name: 'xl/workbook.xml', data: enc.encode('<workbook><sheets>' +
+        '<sheet name="2025" r:id="rA"/><sheet name="Color Changes" r:id="rB"/>' +
+        '</sheets></workbook>')},
+      {name: 'xl/_rels/workbook.xml.rels', data: enc.encode('<Relationships>' +
+        '<Relationship Id="rA" Target="worksheets/sheet1.xml"/>' +
+        '<Relationship Id="rB" Target="worksheets/sheet2.xml"/>' +
+        '</Relationships>')},
+      {name: 'xl/worksheets/sheet1.xml', data: sheet([HDR, ['1', 'Ada Real']])},
+      {name: 'xl/worksheets/sheet2.xml', data: sheet([HDR].concat(colorRows))}
+    ]);
+
+    const res = await box.prune();
+    const parts = await box.unzipAll(disk.buffer ? disk.buffer.slice(disk.byteOffset, disk.byteOffset + disk.byteLength) : disk);
+    const xml = new TextDecoder().decode(box.partFor(parts, 'Color Changes').data);
+    const main = await box.rows(new Blob([disk]));
+    return {res: res, xml: xml, writes: writes, main: main};
+  }
+
+  const cust = (name, changed) => ({id: name, data: changed
+    ? {name: name, lightsChangedAt: {seconds: 1}} : {name: name}});
+
+  /* ---- somebody who no longer qualifies comes off ---- */
+  {
+    const r = await prune(
+      [cust('Stays Put', true), cust('Moved On', false)],
+      [['10', 'Stays Put'], ['11', 'Moved On']]);
+    check('S86', 'a customer who no longer qualifies is taken off the sheet',
+      !/Moved On/.test(r.xml) && (r.res.removed || []).length === 1,
+      'this is the twelve-people-in-Color-Changes case: there was no way to get ' +
+      'them off except by hand');
+    check('S86', 'and one who still qualifies is left alone',
+      /Stays Put/.test(r.xml));
+    check('S86', 'the heading survives', /CU #/.test(r.xml) && /<row[^>]*r="1"/.test(r.xml));
+    check('S86', 'and the customer list is untouched',
+      r.main.length === 2 && String(r.main[1][1]) === 'Ada Real',
+      'sheet one is the record, not a derived view');
+  }
+
+  /* ---- a name it does not recognise is LEFT, and reported ---- */
+  {
+    /* ⚠ WITH A BLANK ROW IN THE MIDDLE. Every one of these sheets has them, and a
+       row with no name is not a person who stopped qualifying — deleting them is
+       churn at best and a lost formatting row at worst. */
+    const r = await prune(
+      [cust('Stays Put', true)],
+      [['10', 'Stays Put'], ['', ''], ['12', 'Typed By Hand']]);
+    check('S86', 'a blank row is not treated as somebody who no longer belongs',
+      (r.res.removed || []).length === 0 &&
+      !(r.res.strangers || []).some(x => /:\s*$/.test(x)),
+      'a row with no name in it is not a person');
+    check('S86', 'a name matching no customer is left exactly where it is',
+      /Typed By Hand/.test(r.xml),
+      'that is either somebody typed in by hand or a customer we failed to match, ' +
+      'and deleting what we do not understand is how a sync eats a list somebody ' +
+      'spent an afternoon on');
+    check('S86', 'and is reported instead',
+      (r.res.strangers || []).some(x => /Typed By Hand/.test(x)));
+    check('S86', 'and nothing is written when there is nothing to remove',
+      r.writes === 0,
+      'a rewrite of a 300KB workbook that changes nothing is still a rewrite');
+  }
+
+  /* ---- and it refuses when it would gut the sheet ---- */
+  {
+    const r = await prune(
+      [cust('One', false), cust('Two', false), cust('Three', false), cust('Four', true)],
+      [['1', 'One'], ['2', 'Two'], ['3', 'Three'], ['4', 'Four']]);
+    check('S86', 'it refuses when most of a sheet looks wrong',
+      /One/.test(r.xml) && /Two/.test(r.xml) && /Three/.test(r.xml) &&
+      (r.res.removed || []).length === 0,
+      'three quarters of a sheet being wrong is a broken predicate, not three ' +
+      'quarters of the list having changed their minds');
+    check('S86', 'and says so rather than going quiet',
+      (r.res.strangers || []).some(x => /too many to be true/.test(x)));
+  }
+
+  /* ---- it is actually wired into the one button ---- */
+  {
+    const upd = sectionFrom(admin, admin.indexOf('async function hlxUpdateCustomerInfo('));
+    check('S86', 'the sync calls the tidier',
+      /await hlxPruneStateTabs\(\)/.test(upd),
+      'owner: "when it syncs that should include deleting things that dont belong"');
+    check('S86', 'and tidies BEFORE it adds anybody',
+      upd.indexOf('hlxPruneStateTabs') < upd.indexOf('hlxAddMissingCustomersToSheet'),
+      'a sheet tidied first has room at the top, so new rows land where somebody ' +
+      'will see them rather than under a block of stale ones');
+
+    /* ⚠ THE VERIFY IS STRUCTURAL, and says so. There is no fixture that makes
+       pruning a side sheet corrupt the customer list — that is the point of the
+       guard — so this pins that the check is still there rather than proving it
+       fires. A red-check removing it passes every behaviour test in this suite. */
+    const pruneSrc = lift86('hlxPruneStateTabs');
+    check('S86', 'nothing is written unless the customer list came back identical',
+      /check\.length !== beforeCount \|\| afterHead !== beforeHead/.test(pruneSrc) &&
+      /return \{refused/.test(pruneSrc),
+      'this is the same guard the appender has, and the reason a bad rebuild never ' +
+      'reaches the disk');
+  }
+
+  /* ---- the guards ---- */
+  {
+    const r = await prune([], [['10', 'Stays Put']]);
+    check('S86', 'an empty customer list removes nothing at all',
+      r.res === null && r.writes === 0,
+      'before the customers land every row on every sheet looks wrong, and this ' +
+      'one DELETES');
+  }
+  {
+    const r = await prune([cust('Stays Put', true)], [['10', 'Gone Away']],
+      {permission: 'denied'});
+    check('S86', 'and no write permission means no deleting either',
+      !!(r.res && r.res.refused) && r.writes === 0);
+  }
+})());
+
 suite('Suite 85. Nobody is left off the sheet, and who counts as confirmed');
 
 {
@@ -17617,7 +17800,7 @@ pendingAsync.push((async () => {
     new Function(
       'jobAddresses', 'hlxSheetSupported', 'hlxSheetHandleLoad', 'hlxNamesAlreadyOnTab',
       /* ORDER MATTERS: these names line up one-for-one with the values below. */
-      'hlxAppendRowsToSheet', 'rbCustomerToSheetRow', 'hlxAddMissingCustomersToSheet',
+      'hlxAppendRowsToSheet', 'rbCustomerToSheetRow', 'hlxAddMissingCustomersToSheet', 'hlxPruneStateTabs',
       'rbResolveBillTo', 'rbSettlePrepaid',
       'logActivity',
       lift76('dupNormName') +
@@ -17636,12 +17819,11 @@ pendingAsync.push((async () => {
       /* The missing-customer step is exercised on its own in Suite 85; here it is a
          stub so these checks stay about the ORCHESTRATION. */
       async () => (opts.addMissing || {added: 0, left: 0}),
+      /* Pruning is exercised on its own in Suite 86; a stub here keeps these
+         checks about the ORCHESTRATION. */
+      async () => (opts.pruned || {removed: [], strangers: []}),
       async () => (opts.billTo || { linked: 0, notOurs: 0, ambiguous: 0, failed: 0 }),
       async () => (opts.prepaid || { settled: 0, already: 0, failed: 0 }),
-      /* Slot order must match the NAMES list above exactly. The missing-customer step
-         is exercised on its own in Suite 85; here it is a stub so these checks stay
-         about the ORCHESTRATION. */
-      async () => (opts.addMissing || {added: 0, left: 0}),
       () => {});
     const statusEl = { textContent: '' };
     return box.f(statusEl).then(() => ({ sent: sent, status: statusEl.textContent, box: box }));
