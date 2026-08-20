@@ -16372,6 +16372,218 @@ if (!JSDOM) {
  * ⚠ THIS BUILDS ITS OWN WORKBOOK. It never opens the owner’s master sheet: a test
  * that writes to real customer data is a test nobody can safely re-run.
  * ------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+ * Suite 75. Who pays, and who has already paid — both actually run
+ *
+ * These two are the sharp end of the sheet sync: one writes billToPhone onto a
+ * customer, the other writes a DEPOSIT onto an invoice. Until now both were
+ * covered by a grep for the word `async`, which cannot tell whether the money
+ * lands on the right invoice or on anybody at all.
+ *
+ * Nothing here touches Firestore. updateDoc is a recorder, so the checks are
+ * about what WOULD be written and, just as much, what would not.
+ * ------------------------------------------------------------------------- */
+pendingAsync.push((async () => {
+  suite('Suite 75. Who pays, and who has already paid');
+
+  /* — custInvoiceKey and computeInvoiceStatus are NOT in admin.html. They live in
+     js/money.js, which admin.html imports, so they are lifted from there and not
+     restated: the invoice key decides which invoice the money lands on, and a
+     second copy of that rule in a test is a copy that can quietly disagree with
+     the one doing the writing. `export` is stripped so the body can be evaluated. */
+  const lift75 = (n) => {
+    for (const src of [admin, money]) {
+      let st = src.indexOf('async function ' + n + '(');
+      if (st < 0) st = src.indexOf('function ' + n + '(');
+      if (st < 0) continue;
+      let i = src.indexOf('{', st), d = 0;
+      for (; i < src.length; i++) {
+        if (src[i] === '{') d++;
+        else if (src[i] === '}') { d--; if (!d) return src.slice(st, i + 1); }
+      }
+    }
+    return '';
+  };
+  const NEED = ['rbResolveBillTo', 'rbSettlePrepaid', 'dupNormName',
+               'custInvoiceKey', 'computeInvoiceStatus', 'centsOf'];
+  const gone = NEED.filter(n => !lift75(n));
+  check('S75', 'both sheet-sync writers are still in admin.html', !gone.length,
+    'missing: ' + gone.join(', '));
+  if (gone.length) return;
+
+  /* One place to build the sandbox, so each case starts clean. */
+  function run75(book, invoices) {
+    const wrote = [];
+    const box = {};
+    new Function('jobAddresses', 'allInvoicesCache', 'updateDoc', 'doc', 'db',
+      'logActivity', 'serverTimestamp',
+      NEED.map(lift75).join('') +
+      'this.billTo = rbResolveBillTo; this.prepaid = rbSettlePrepaid;'
+    ).call(box, book, invoices,
+      async (ref, patch) => { wrote.push({ ref: ref, patch: patch }); },
+      (db, col, id) => (col + '/' + id), {},
+      () => {}, () => 'STAMP');
+    return { box: box, wrote: wrote };
+  }
+
+  /* ---- who pays ---- */
+  {
+    /* Ada is billed to an EMAIL (the real sheet says "cc bill to
+       Jennalesa@gmail.com"). Bea is billed to a name. Cleo names somebody who is
+       not a customer. Dot names somebody two records answer to. */
+    const book = [
+      { id: 'ada', data: { name: 'Ada Payer', billToEmail: 'pays@example.com' } },
+      { id: 'bea', data: { name: 'Bea Payee', billToName: 'Cole Payer' } },
+      { id: 'cleo', data: { name: 'Cleo Payee', billToName: 'Nobody At All' } },
+      { id: 'dot', data: { name: 'Dot Payee', billToName: 'Twin Person' } },
+      { id: 'p1', data: { name: 'Emm Payer', email: 'PAYS@example.com', phone: '801-555-0111' } },
+      { id: 'p2', data: { name: 'Cole Payer', phone: '8015550222' } },
+      { id: 't1', data: { name: 'Twin Person', phone: '8015550333' } },
+      { id: 't2', data: { name: 'Twin Person', phone: '8015550444' } }
+    ];
+    const r = run75(book, []);
+    const out = await r.box.billTo(null);
+
+    check('S75', 'a payer named by EMAIL is linked, even under a different name',
+      out.linked === 2 && r.wrote.some(w => w.ref === 'jobAddresses/ada' &&
+        w.patch.billToPhone === '8015550111'),
+      'the sheet writes "cc bill to <address>" and the payer record is filed under ' +
+      'a person name — matching on the name would never find them, and an address ' +
+      'is exact where a name is a guess');
+    check('S75', 'and the email match ignores case and spacing',
+      r.wrote.some(w => w.ref === 'jobAddresses/ada'),
+      'the sheet is typed by hand; PAYS@ and pays@ are one person');
+    check('S75', 'a payer named by NAME is linked too',
+      r.wrote.some(w => w.ref === 'jobAddresses/bea' &&
+        w.patch.billToPhone === '8015550222'));
+    check('S75', 'a payer who is not a customer is COUNTED, never invented',
+      out.notOurs === 1 && !r.wrote.some(w => w.ref === 'jobAddresses/cleo'),
+      'owner: "first we check if the person we bill to is even a customer of ours" — ')
+    check('S75', 'and two people of that name is left for a human',
+      out.ambiguous === 1 && !r.wrote.some(w => w.ref === 'jobAddresses/dot'),
+      'guessing which of two people pays the bill sends the invoice to the wrong ' +
+      'house, and nobody finds out until somebody is chased for money they do not owe');
+    check('S75', 'nothing else was written', r.wrote.length === 2);
+    check('S75', 'the phone is stored as digits only',
+      r.wrote.every(w => /^[0-9]+$/.test(w.patch.billToPhone)),
+      'billToPhone is the JOIN — "801-555-0111" and "8015550111" have to be the ' +
+      'same key or the who-pays-for-whom screen shows two separate bills');
+  }
+
+  {
+    /* A payer with no phone cannot be the join, and a customer must never be 
+       linked to themselves. */
+    const book = [
+      { id: 'x', data: { name: 'Solo Person', billToName: 'Solo Person' } },
+      { id: 'y', data: { name: 'Faye Payee', billToName: 'No Phone Payer' } },
+      { id: 'z', data: { name: 'No Phone Payer', email: 'z@example.com' } }
+    ];
+    const r = run75(book, []);
+    const out = await r.box.billTo(null);
+    check('S75', 'nobody is linked to themselves',
+      !r.wrote.some(w => w.ref === 'jobAddresses/x'),
+      'a self-link makes a customer their own payer, which is one bill pointing at itself');
+    check('S75', 'and a payer with no phone is not used as the join',
+      !r.wrote.some(w => w.ref === 'jobAddresses/y') && out.notOurs === 2,
+      'billToPhone IS the join; writing a blank one silently merges every ' +
+      'phone-less customer into a single bill');
+  }
+
+  {
+    /* Already linked = already done. Re-running the sync must be free. */
+    const book = [
+      { id: 'done', data: { name: 'Gil Payee', billToName: 'Hal Payer', billToPhone: '8015559999' } },
+      { id: 'hal', data: { name: 'Hal Payer', phone: '8015559999' } }
+    ];
+    const r = run75(book, []);
+    const out = await r.box.billTo(null);
+    check('S75', 'a customer already linked is left alone',
+      r.wrote.length === 0 && out.linked === 0,
+      'the sync is meant to be run again and again; re-writing what is already ' +
+      'right burns quota and buries the rows that did change');
+  }
+
+  /* ---- who has already paid ---- */
+  {
+    const book = [
+      { id: 'pp', data: { name: 'Ivy Prepaid', phone: '8015551000', prepaid: true } }
+    ];
+    const key = (function () {
+      const b = {};
+      new Function(lift75('custInvoiceKey') + 'this.f = custInvoiceKey;').call(b);
+      return b.f(book[0].data);
+    })();
+    check('S75', 'the prepaid customer has an invoice key to settle against', !!key);
+
+    const invoices = [{ id: key, data: { install: 400, removal: 100, deposit: 0 } }];
+    const r = run75(book, invoices);
+    const out = await r.box.prepaid(null);
+    const w = r.wrote[0];
+    check('S75', 'a prepaid customer is marked paid in full',
+      out.settled === 1 && w && w.ref === 'invoices/' + key && w.patch.deposit === 500,
+      'owner: "in customers it says if they are paid or unpaid, change their tag to paid"');
+    check('S75', 'the deposit covers install AND removal, not just the install',
+      !!w && w.patch.deposit === 500,
+      'settling only part of it leaves them showing a balance they have already paid, ' +
+      'and the office chases them for it');
+    check('S75', 'the status is recomputed rather than typed in',
+      !!w && w.patch.status === 'Paid in Full',
+      'a hard-coded string drifts from computeInvoiceStatus the first time the ' +
+      'rules change, and then the tag and the numbers disagree');
+    check('S75', 'and it says WHY the money is there',
+      !!w && Array.isArray(w.patch.depositNotes) && w.patch.depositNotes.length === 1 &&
+      /prepaid/i.test(w.patch.depositNotes[0].reason || ''),
+      'a deposit with no note is indistinguishable from a payment somebody took, ' +
+      'and there is no way back to why it was recorded');
+  }
+
+  {
+    /* Twice must be free, and a note already there must survive. */
+    const book = [{ id: 'pp', data: { name: 'Jo Prepaid', phone: '8015552000', prepaid: true } }];
+    const b = {};
+    new Function(lift75('custInvoiceKey') + 'this.f = custInvoiceKey;').call(b);
+    const key = b.f(book[0].data);
+    const invoices = [{ id: key, data: { install: 300, removal: 0, deposit: 300,
+      depositNotes: [{ amount: 300, reason: 'Card, at the door' }] } }];
+    const r = run75(book, invoices);
+    const out = await r.box.prepaid(null);
+    check('S75', 'somebody already paid is not paid again',
+      out.already === 1 && r.wrote.length === 0,
+      'a second deposit on top of a full one reads as an overpayment and a refund owed');
+
+    const part = [{ id: key, data: { install: 300, removal: 0, deposit: 100,
+      depositNotes: [{ amount: 100, reason: 'Card, at the door' }] } }];
+    const r2 = run75(book, part);
+    await r2.box.prepaid(null);
+    check('S75', 'a part payment is topped up, and the earlier note is kept',
+      r2.wrote.length === 1 && r2.wrote[0].patch.deposit === 300 &&
+      r2.wrote[0].patch.depositNotes.length === 2 &&
+      r2.wrote[0].patch.depositNotes[0].reason === 'Card, at the door',
+      'overwriting the notes loses the record of a payment somebody actually took');
+    check('S75', 'and the top-up note records only the DIFFERENCE',
+      r2.wrote.length === 1 && r2.wrote[0].patch.depositNotes[1].amount === 200,
+      'writing the full 300 there would say they paid 400 across two lines');
+  }
+
+  {
+    /* No invoice is a FAILURE, not a quiet skip. */
+    const book = [{ id: 'pp', data: { name: 'Kit Prepaid', phone: '8015553000', prepaid: true } }];
+    const r = run75(book, []);
+    const out = await r.box.prepaid(null);
+    check('S75', 'a prepaid customer with no invoice is reported, not skipped',
+      out.failed === 1 && r.wrote.length === 0,
+      'they paid; if nothing can record it the office has to know, because a ' +
+      'silent skip means they get chased for the whole amount');
+
+    const notPrepaid = [{ id: 'q', data: { name: 'Lee Ordinary', phone: '8015554000' } }];
+    const r2 = run75(notPrepaid, []);
+    const out2 = await r2.box.prepaid(null);
+    check('S75', 'and a customer who never prepaid is never touched',
+      out2.settled === 0 && out2.failed === 0 && r2.wrote.length === 0,
+      'the flag is the ONLY thing that may mark an invoice paid — anything looser ' +
+      'writes off money the business is owed');
+  }
+})());
 pendingAsync.push((async () => {
   suite('Suite 74. The workbook writer, actually run');
 
