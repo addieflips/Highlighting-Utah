@@ -1970,7 +1970,12 @@
             <input type="text" id="editCustNumber" inputmode="numeric" placeholder="e.g. 479 &mdash; blank for none">
           </div>
           <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">The permanent bin number. Changing it here puts the old number back in the available pool and takes the new one out, so the pool stays right. A number somebody else already holds is refused &mdash; that would leave two bins wearing one label. 5000 and above is the double-bin series; the bin count itself is the box above and is not set for you.</p>
-          <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin-top:12px; margin-bottom:16px;"><input type="checkbox" id="editCustWantsMailed" style="width:auto;"> Also wants their invoice mailed (postal mail)</label>
+          <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin-top:12px;"><input type="checkbox" id="editCustWantsMailed" style="width:auto;"> Also wants their invoice mailed (postal mail)</label>
+          <!-- ⭐ Owner, 2026-08-19: "we need to save text or email or mail bill ... we
+               by default email bill so you dont need to worry about that, but if it says
+               text or mail that needs to be synced". Mail already had a box; text did
+               not, so a preference the sheet sets could not be seen or corrected. -->
+          <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin-top:8px; margin-bottom:16px;"><input type="checkbox" id="editCustWantsTexted" style="width:auto;"> Also wants their invoice texted</label>
           <div id="editCustCarryoverWrap" style="display:none; border-top:1px solid var(--line); margin:16px 0; padding-top:16px;"></div>
           <div style="display:flex; gap:10px; margin-top:16px;">
             <button type="button" class="btn btn-outline" id="editCustCancelBtn" style="flex:1;">Cancel</button>
@@ -4787,6 +4792,34 @@ function propLabelChip(d){
 /* The customer number, shown beside the name. This is the number painted on
    their bins, so it is what the warehouse and the crew say out loud — it just
    was not visible anywhere in All Customers, nor matched by the search box. */
+/* ⭐ WHAT THE SHEET SET THAT NOTHING SHOWED. Three fields now arrive from the master
+   sheet and had nowhere to appear, which means nobody could check them or spot one
+   that was read wrong:
+
+     prepaid            they have already paid — the invoice is settled by the sync,
+                        but the reason it says Paid was invisible
+     wantsTextedInvoice they asked for the bill by text
+     billToName         a payer named in Misc who is NOT one of our customers, so the
+                        real bill-to link could not be made. That one is worth seeing
+                        precisely because nothing else will ever act on it.
+
+   ⚠ A RESOLVED BILL-TO IS NOT SHOWN HERE. It already reads "Billed to …" in the
+     invoice column, and the same fact twice in one row is how a row stops being read. */
+function custSheetChips(d){
+  const c = d || {};
+  const chip = function(text, bg, fg){
+    return ' <span style="background:' + bg + '; color:' + fg + '; font-size:10px; ' +
+      'font-weight:700; padding:1px 6px; border-radius:4px; white-space:nowrap;">' + esc(text) + '</span>';
+  };
+  let out = '';
+  if(c.prepaid) out += chip('PREPAID', '#E8F3EC', '#2E6B3E');
+  if(c.wantsTextedInvoice) out += chip('TEXT BILL', '#EEF1FF', '#33397a');
+  /* Only the UNRESOLVED one — see the note above. */
+  if(c.billToName && !String(c.billToPhone || '').trim()){
+    out += chip('BILL TO ' + c.billToName, '#FFF8E9', '#5a4300');
+  }
+  return out;
+}
 function custNumChip(d){
   const n = (d && d.customerNumber ? String(d.customerNumber).trim() : '');
   return n ? ' <span style="display:inline-block; background:var(--snow); color:var(--slate); border:1px solid var(--line); border-radius:999px; padding:1px 8px; font-size:11px; font-weight:600; vertical-align:middle;">#' + esc(n) + '</span>' : '';
@@ -23687,7 +23720,7 @@ function renderAllCustomersTable(){
          but it was neither shown here nor searchable, which meant the one
          identifier staff actually say out loud could not be used to find
          anybody. */
-      '<td style="padding:8px 10px;"><strong>'+esc(r.d.name||'(no name)')+'</strong>'+custNumChip(r.d)+binBadge+'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.address||'')+'</span>'+propLabelChip(r.d)+(r.d.phone?'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.phone)+'</span>':'')+'</td>'+
+      '<td style="padding:8px 10px;"><strong>'+esc(r.d.name||'(no name)')+'</strong>'+custNumChip(r.d)+binBadge+custSheetChips(r.d)+'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.address||'')+'</span>'+propLabelChip(r.d)+(r.d.phone?'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.phone)+'</span>':'')+'</td>'+
       '<td style="padding:8px 10px; font-size:12.5px;">'+esc(r.enrolled||'—')+'</td>'+
       '<td style="padding:8px 10px;">'+routeCell+'</td>'+
       '<td style="padding:8px 10px; font-size:12.5px;">'+esc(timingLabel)+'</td>'+
@@ -23879,6 +23912,7 @@ function openEditCustomerModal(id){
   updateEditCustFeeSummary();
   setEditCustExpanded(editCustExpandedPref());
   document.getElementById('editCustWantsMailed').checked = !!d.wantsMailedInvoice;
+  document.getElementById('editCustWantsTexted').checked = !!d.wantsTextedInvoice;
   // Lights, house areas, install timing, notes and photo — all edited here now.
   const parsedLights = parseCustLights(d.lightsDescription || '');
   const custColors = (d.lightColors && d.lightColors.length) ? d.lightColors : parsedLights.colors;
@@ -24131,6 +24165,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const newDiscountReason = document.getElementById('editCustDiscountReason').value.trim();
   const newInvoiceNotes = document.getElementById('editCustInvoiceNotes').value.trim();
   const newWantsMailed = document.getElementById('editCustWantsMailed').checked;
+  const newWantsTexted = document.getElementById('editCustWantsTexted').checked;
   const newColors = Array.from(document.querySelectorAll('.editcust-color-check:checked')).map(el => el.value);
   const newHouseSides = houseSideCount((document.querySelector('.editcust-side-pick:checked') || {}).value);
   const newLightsDescription = compileLightsDescription(newColors.join(', '), '');
@@ -24174,7 +24209,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   statusEl.textContent = 'Saving…';
   try{
     const newNoTexts = document.getElementById('editCustNoTexts').checked;
-    const addrUpdates = {smsOptedOut: newNoTexts, name: newName, propertyLabel: newPropertyLabel, phone: newPhone, phone2: newPhone2, email: newEmail, email2: newEmail2, address: newAddress, city: newCity, customerNumber: newCustNumber, rsvpStatus: newRsvp, housePrice: newHousePrice, measuredFeet: newMeasuredFeet, wireColor: newWireColor, billToPhone: newBillTo, gateCode: newGateCode, outletTimer: newOutletTimer, useEaves: newUseEaves, specificOutlet: newSpecificOutlet, specificOutletNotes: newSpecificOutletNotes, numberOfBins: newBins, wantsMailedInvoice: newWantsMailed, houseSides: newHouseSides, layoutMapUrl: editCustLayoutMapUrl, earliestInstallDate: newEarliestInstallStr ? new Date(newEarliestInstallStr + 'T00:00:00') : null};
+    const addrUpdates = {smsOptedOut: newNoTexts, name: newName, propertyLabel: newPropertyLabel, phone: newPhone, phone2: newPhone2, email: newEmail, email2: newEmail2, address: newAddress, city: newCity, customerNumber: newCustNumber, rsvpStatus: newRsvp, housePrice: newHousePrice, measuredFeet: newMeasuredFeet, wireColor: newWireColor, billToPhone: newBillTo, gateCode: newGateCode, outletTimer: newOutletTimer, useEaves: newUseEaves, specificOutlet: newSpecificOutlet, specificOutletNotes: newSpecificOutletNotes, numberOfBins: newBins, wantsMailedInvoice: newWantsMailed, wantsTextedInvoice: newWantsTexted, houseSides: newHouseSides, layoutMapUrl: editCustLayoutMapUrl, earliestInstallDate: newEarliestInstallStr ? new Date(newEarliestInstallStr + 'T00:00:00') : null};
     /* Stamped on every customer save. Without these two the concurrent-edit
        check above has nothing to compare — a customer record carried no
        updatedAt at all, so "has anyone touched this since I opened it?" was
