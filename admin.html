@@ -1258,6 +1258,8 @@
                 <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Orange"> Orange</label>
                 <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Pink"> Pink</label>
                 <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="Multi"> Multi</label>
+              <!-- Admin-only, same reason as Edit Customer above. -->
+              <label class="pill-check"><input type="checkbox" class="addcust-color-check" value="soft(recycled)"> soft (recycled &mdash; needs switching)</label>
               </div>
             </div>
           </div>
@@ -1842,6 +1844,16 @@
               <label class="pill-check"><input type="checkbox" class="editcust-color-check" value="Orange"> Orange</label>
               <label class="pill-check"><input type="checkbox" class="editcust-color-check" value="Pink"> Pink</label>
               <label class="pill-check"><input type="checkbox" class="editcust-color-check" value="Multi"> Multi</label>
+              <!-- ⭐ SOFT IS OLD STOCK, AND IS ADMIN-ONLY. Owner, 2026-08-19: "soft is a
+                   color we dont use anymore so we should have them under color:
+                   soft(recycled) so then we can find them later cause we need to switch
+                   their lights", and asked whether it should be pickable: "yes no new
+                   houses can get soft you can only see that as even an option in the
+                   admin portal."
+                   ⚠ DELIBERATELY NOT on the quote form or the member portal. A customer
+                   must not be able to choose lights that no longer exist; the office
+                   needs it only to see and clear the ones who still have them. -->
+              <label class="pill-check"><input type="checkbox" class="editcust-color-check" value="soft(recycled)"> soft (recycled &mdash; needs switching)</label>
             </div>
           </div>
           <!-- ⭐ WHICH SIDES OF THE HOUSE. Owner, 2026-08-18: a note reading
@@ -19374,6 +19386,13 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
   const difficultyRaw = alignBulkRows(rbCol('rbDifficultyArea', hoff), anchor.length);
   const feetRaw = alignBulkRows(rbCol('rbFeetArea', hoff), anchor.length);
   const notesRaw = alignBulkRows(rbCol('rbNotesArea', hoff), anchor.length);
+   /* ⭐ MISC AND UP PLUG ON THE MAIN IMPORT TOO. Everything the owner asked for on
+     2026-08-19 — the gate code, the bill-to, prepaid, mail/text bill, the side count
+     and the leftover joining the note — was wired into the "add the ones missing from
+      the website" tool and NOT into this one, which is the tool she actually runs over
+     the whole book. So none of it reached the 962 customers who already exist. */
+  const miscRaw = alignBulkRows(rbCol('rbMiscArea', hoff), anchor.length);
+  const upPlugRaw = alignBulkRows(rbCol('rbUpPlugArea', hoff), anchor.length);
   const checks = [
     ['Name', names],
     ['Phone Number', phones], ['Email', emails], ['City', cities], ['State', states], ['Zip Code', zips], ['Date Added', dates],
@@ -19556,7 +19575,21 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
         /* A count of sides is a fact about the house — ticked, not written
            into Notes where nothing can read it. See rbSidesFromNote. */
         const notesSides = rbSidesFromNote(notesRawVal);
-        const notesVal = (notesSides || rbNotesLooksLikeColors(notesRawVal)) ? '' : notesRawVal;
+        const notesRest = (notesSides || rbNotesLooksLikeColors(notesRawVal)) ? '' : notesRawVal;
+        const misc = rbMiscParse(miscRaw[i]);
+        /* A gate code can be in either column; Misc wins, because it is nearer to being
+           the column for it than a note is. */
+        const gateFromSheet = misc.gateCode || rbGateCodeFromText(notesRawVal);
+        /* ⚠ THE LEFTOVER JOINS THE NOTE rather than replacing it. Both columns can
+           carry something worth reading. */
+        const noteBits = [notesRest, misc.leftover].filter(Boolean);
+        const notesVal = noteBits.join(' \u2014 ');
+        const sideCount = misc.sides || notesSides;
+        /* An outlet instruction can be in Up Plug or buried in a note. Up Plug wins:
+           it is the column meant for it. */
+        const outletFromSheet = String(upPlugRaw[i] || '').trim() || rbOutletFromNote(notesRawVal);
+        const prepaidRow = rbRowSaysPrepaid([miscRaw[i], notesRawVal, dates[i],
+                                             installPrefRaw[i], amounts[i]]);
     const amountTypedIn = amounts[i] || '';
     const price = amountTypedIn ? Number(amountTypedIn.replace(/[,$]/g,'')) : null;
     // Already validated above (format, in-batch duplicates, and against every
@@ -19703,7 +19736,18 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
           updates.numberOfBins = cnBinsForFeet(Number(feetVal));
         }
         if(notesVal) updates.notes = notesVal;
-        if(notesSides) updates.houseSides = notesSides;
+        if(sideCount) updates.houseSides = sideCount;
+        if(gateFromSheet) updates.gateCode = gateFromSheet;
+        if(outletFromSheet){
+          updates.specificOutlet = 'Yes';
+          updates.specificOutletNotes = outletFromSheet;
+        }
+        /* ⚠ EMAIL IS THE DEFAULT AND IS NEVER WRITTEN. Only the two exceptions are
+           recorded, so a blank Misc is not a decision about everybody else. */
+        if(misc.mailBill) updates.wantsMailedInvoice = true;
+        if(misc.textBill) updates.wantsTextedInvoice = true;
+        if(misc.billToName) updates.billToName = misc.billToName;
+        if(prepaidRow) updates.prepaid = true;
         if(bulkFieldsMatch(updates, existing.data)){
           /* Counted, not silent. "Nothing changed" and "it did not run" look
              identical afterwards, and the difference matters. */
@@ -19735,7 +19779,16 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
           newDoc.numberOfBins = cnBinsForFeet(Number(feetVal));
         }
         if(notesVal) newDoc.notes = notesVal;
-        if(notesSides) newDoc.houseSides = notesSides;
+        if(sideCount) newDoc.houseSides = sideCount;
+        if(gateFromSheet) newDoc.gateCode = gateFromSheet;
+        if(outletFromSheet){
+          newDoc.specificOutlet = 'Yes';
+          newDoc.specificOutletNotes = outletFromSheet;
+        }
+        if(misc.mailBill) newDoc.wantsMailedInvoice = true;
+        if(misc.textBill) newDoc.wantsTextedInvoice = true;
+        if(misc.billToName) newDoc.billToName = misc.billToName;
+        if(prepaidRow) newDoc.prepaid = true;
         /* Claimed as well. The local jobAddresses cache does not hold this
            record until the Firestore listener catches up, so a later row for
            the same house would not FIND it and would add a second copy — which

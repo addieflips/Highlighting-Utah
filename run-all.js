@@ -14270,8 +14270,8 @@ suite('Suite 60. The colours as the office actually writes them');
        line exists passed with one of them gutted. Widened 2026-08-18 when a
        side-count started being lifted out of Notes the same way. */
     check('S60', 'both import branches drop a colours-only note rather than writing it',
-      (admin.match(/const notesVal = \(notesSides \|\| rbNotesLooksLikeColors\(notesRawVal\)\) \? '' : notesRawVal;/g) || []).length === 2,
-      'found ' + (admin.match(/const notesVal = \(notesSides \|\| rbNotesLooksLikeColors\(notesRawVal\)\) \? '' : notesRawVal;/g) || []).length +
+      (admin.match(/= \(notesSides \|\| rbNotesLooksLikeColors\(notesRawVal\)\) \? '' : notesRawVal;/g) || []).length === 2,
+      'found ' + (admin.match(/= \(notesSides \|\| rbNotesLooksLikeColors\(notesRawVal\)\) \? '' : notesRawVal;/g) || []).length +
       ' of 2 — an unguarded branch writes "red/green/pure" onto the crew card as an instruction');
     check('S60', 'and the comparison reads Notes the same way',
       /return rbNotesLooksLikeColors\(v\) \? '' : v;/.test(admin),
@@ -14614,15 +14614,15 @@ suite('Suite 62. Which sides of the house');
     (admin.match(/const notesSides = rbSidesFromNote\(notesRawVal\);/g) || []).length === 2,
     'both branches, or a customer added gets the sentence and one updated gets the ticks');
   check('S62', 'a note that IS a side-count is not also written as a note',
-    /const notesVal = \(notesSides \|\| rbNotesLooksLikeColors\(notesRawVal\)\) \? '' : notesRawVal;/.test(admin),
+    /= \(notesSides \|\| rbNotesLooksLikeColors\(notesRawVal\)\) \? '' : notesRawVal;/.test(admin),
     'leaving it in Notes as well is how the crew ends up reading the same thing twice');
   check('S62', 'and it is written to the customer, on every path',
     /* ⚠ The add-the-missing-ones path takes it from EITHER column now — Misc says
        "3 sides" as often as Notes does, and Misc wins because it is the column meant
        for it. The other two paths still read Notes alone. */
-    /if\(notesSides\) updates\.houseSides = notesSides;/.test(admin) &&
-    /if\(notesSides\) newDoc\.houseSides = notesSides;/.test(admin) &&
-    /const sideCount = misc\.sides \|\| notesSides;/.test(admin) &&
+    /if\(sideCount\) updates\.houseSides = sideCount;/.test(admin) &&
+    /if\(sideCount\) newDoc\.houseSides = sideCount;/.test(admin) &&
+    (admin.match(/const sideCount = misc\.sides \|\| notesSides;/g) || []).length === 2 &&
     /if\(sideCount\) doc2\.houseSides = sideCount;/.test(admin),
     'update, add, and the add-the-missing-ones tool');
 
@@ -15234,6 +15234,41 @@ suite('Suite 66. The master sheet choice is remembered for every computer');
    that were not obvious.
    ============================================================================= */
 suite('Suite 69. A customer as a row of the master sheet');
+{
+  const admin = read("admin.html");
+  /* ⭐ THE MAIN IMPORT READS MISC TOO, and for a while it did not. Everything the owner
+     asked for on 2026-08-19 — the gate code, bill-to, prepaid, mail/text bill, the side
+     count, the leftover joining the note — went into the "add the ones missing from the
+     website" tool and NOT into Bulk Update, which is the tool she actually runs over the
+     whole book. So none of it reached the 962 customers who already exist, and every
+     other check passed the whole time because the OTHER path had it all.
+     ⚠ That is why these check the count, not the presence: one of two is the bug. */
+  check('S69', 'both import paths read the Misc column',
+    (admin.match(/rbMiscParse\(miscRaw\[i\]\)/g) || []).length === 2 &&
+    /alignBulkRows\(rbCol\('rbMiscArea', hoff\)/.test(admin),
+    'the tool she actually runs over the whole book was the one left out');
+  check('S69', 'and both apply the gate code, the bill-to and prepaid',
+    (admin.match(/\.gateCode = gate/g) || []).length === 4 &&
+    (admin.match(/\.billToName = misc\.billToName;/g) || []).length === 3 &&
+    (admin.match(/\.prepaid = true;/g) || []).length === 3,
+    'update, add-during-import, and add-the-missing-ones are three write sites and all three matter');
+  /* ⭐ SOFT IS PICKABLE, BUT ONLY BY THE OFFICE. Owner, 2026-08-19: "yes no new houses
+     can get soft you can only see that as even an option in the admin portal." */
+  check('S69', 'soft(recycled) can be ticked in the admin forms',
+    (admin.match(/value="soft\(recycled\)"/g) || []).length === 2,
+    'the office needs to see and clear the houses that still have it');
+  /* ⚠ AND NOWHERE A CUSTOMER CAN REACH. A customer choosing lights that no longer
+     exist is an order nobody can fill. */
+  check('S69', 'and never on the quote form or the member portal',
+    read("index.html").indexOf("soft(recycled)") < 0,
+    'no new houses can get soft');
+  check('S69', 'and an outlet instruction reaches both',
+    /* ⚠ Counted by the CALL, not the argument name: the two paths hold the note in
+       differently-named variables, and pinning the check to one of them would go green
+       the moment the other was renamed. */
+    (admin.match(/rbOutletFromNote\(/g) || []).length === 4,
+    'a note is where an outlet ends up when there was nowhere else to put it');
+}
 {
   const admin = read("admin.html");
   const fns = read("functions/index.js");
