@@ -26958,6 +26958,59 @@ function planNewCrewDays(waiting, taken, opts){
              (a.from < b.from ? -1 : (a.from > b.from ? 1 : 0));
     });
   });
+  /* ⭐ KEEP A FEW FLEXIBLE PEOPLE BACK FOR A TOWN'S LATE OPENERS (added 2026-08-20).
+     Owner, reading the tail of her season: "Fri Nov 20, 3 left, Provo... Tue Dec 1, 4
+     left... these days did not get filled up to 15 when they shouldve because thats the
+     ideal number for one crew days and we want one crews not one mans when possible";
+     "you can use pref date any or blank for that"; and, deciding the trade: "filling
+     days that were orignally one mans up to 15 so we can make it one crew is a higher
+     priority than doing people who said any early".
+
+     A town of forty-three where three said November has forty allowed in October. Those
+     forty make two clean days of twenty, and the three open afterwards with nobody left
+     in that town to share with — one person, one morning, for three houses.
+
+     ⚠ SPLITTING DAY BY DAY CANNOT FIX THIS, and the first attempt proved it. Holding
+     the last October day down to twelve leaves eight for the day after, the near-empty
+     rescue quite correctly sweeps those eight back into the twelve, and the three
+     November houses are on their own again. The reservation has to happen BEFORE any
+     day is laid out, which is here.
+
+     So the least urgent flexible people in that town have their opening date moved to
+     the day the late group opens. Nothing downstream needs to know: they are simply not
+     eligible until then, the split and the rescue both behave normally, and the town
+     comes out fourteen, fourteen and fifteen instead of twenty, twenty and three.
+
+     ⚠ ONLY EVER THE FLEXIBLE ONES. Anybody with a deadline, a named day, or a more
+     urgent tier is left where they are — holding an October customer back to keep a
+     November one company is robbing one to pay the other, and she ranked this ABOVE
+     doing Any people early, not above doing anybody at all early.
+
+     ⚠ AND IT NEVER LEAVES A STUB BEHIND EITHER. If moving the ones we want would
+     drop what remains into one-man territory, the rest go too and the town simply works
+     one later day. */
+  const ONE_CREW_IDEAL = 15;
+  const oneManCap = (typeof ONE_MAN_MAX_HOUSES === 'number') ? ONE_MAN_MAX_HOUSES : 8;
+  Object.keys(byCity).forEach(function(c){
+    const q = byCity[c];
+    const opens = [];
+    q.forEach(function(w){ if(opens.indexOf(w.from) === -1) opens.push(w.from); });
+    if(opens.length < 2) return;
+    opens.sort();
+    const lastOpen = opens[opens.length - 1];
+    const late = q.filter(function(w){ return w.from === lastOpen; });
+    if(!late.length || late.length > oneManCap) return;   // nothing stranded
+    /* Least urgent first, so an October house is never the one held back. */
+    const spare = q.filter(function(w){
+      return w.from !== lastOpen && !w.until && !w.named;
+    }).sort(function(a, b){ return b.priority - a.priority; });
+    if(!spare.length) return;
+    let move = Math.min(ONE_CREW_IDEAL - late.length, spare.length);
+    if(move <= 0) return;
+    const leftBehind = spare.length - move;
+    if(leftBehind > 0 && leftBehind <= oneManCap) move = spare.length;
+    spare.slice(0, move).forEach(function(w){ w.from = lastOpen; });
+  });
   const centres = townCentres(byCity);
   const dateOf = function(ds){ return new Date(ds.slice(0,4), Number(ds.slice(5,7)) - 1, ds.slice(8,10)); };
   /* How many are allowed today, and how urgent the most urgent of them is.
@@ -27056,13 +27109,50 @@ function planNewCrewDays(waiting, taken, opts){
            fill anything today, so it must not count towards the split — counting it
            would shrink today's day for houses that are not allowed on it. */
         const eligible = [];
-        for(let i = 0; i < queue.length; i++) if(queue[i].from <= ds) eligible.push(i);
+        let later = 0;
+        for(let i = 0; i < queue.length; i++){
+          if(queue[i].from <= ds) eligible.push(i); else later++;
+        }
         const oneMan = (typeof ONE_MAN_MAX_HOUSES === 'number') ? ONE_MAN_MAX_HOUSES : 8;
         let want = cap;
-        if(eligible.length > cap && (eligible.length - cap) <= oneMan){
-          want = Math.ceil(eligible.length / 2);
+        /* ⭐ COUNT THE ONES THAT OPEN LATER TOO (changed 2026-08-20). Owner, looking
+           at the tail of her season: "Fri Nov 20, 3 left, Provo... Tue Dec 1, 4 left...
+           these days did not get filled up to 15 when they shouldve because thats the
+           ideal number for one crew days and we want one crews not one mans when
+           possible", and "you can use pref date any or blank for that".
+
+           ⚠ THE FIRST VERSION OF THIS COUNTED ONLY WHAT WAS ELIGIBLE TODAY, and that
+           is why her tail was still full of threes and fours. A town with forty-three
+           houses where three of them said November has forty allowed in October: the
+           split saw forty, saw no stub coming, filled two clean days of twenty — and
+           the three November houses opened afterwards with nobody left in that town to
+           share a day with. Nothing was wrong with the arithmetic; it was looking at
+           the wrong number.
+
+           So the ones still waiting for their month count towards the total. They are
+           not taken today — they cannot be, they are not allowed out yet — but they
+           are the reason to hold a few flexible people back. Twenty allowed plus three
+           waiting becomes twelve today and eleven on the day the three open, instead of
+           twenty and then three on their own.
+
+           ⚠ AND THE ONES HELD BACK ARE THE FLEXIBLE ONES WITHOUT ANYBODY PICKING
+           THEM. Owner: "you can use pref date any or blank for that." The queue is
+           sorted by priority, so slicing from the front takes the urgent ones and
+           whoever is left is whoever minded least. */
+        /* ⚠ COUNTED ON WHAT IS ALLOWED OUT TODAY, and only that. Counting the ones
+           still waiting for their month was tried and made things worse: with twelve
+           people reserved for a November group the total read forty, no stub looked
+           likely, October filled to twenty and left eight — a one-man day created
+           while preventing one. Keeping a town’s late openers company is the
+           reservation’s job, up where byCity is built, and it happens before any
+           day exists. */
+        const total = eligible.length;
+        if(total > cap && (total - cap) <= oneMan){
+          want = Math.ceil(total / 2);
         }
-        const take = eligible.slice(0, want);
+        /* Never hand today less than it can actually give: if the hold-back would empty
+           today to make room for tomorrow, there is nothing gained. */
+        const take = eligible.slice(0, Math.max(1, Math.min(want, eligible.length)));
         if(!take.length) break;
         const ids = take.map(function(i){ return queue[i].id; });
         for(let i = take.length - 1; i >= 0; i--) queue.splice(take[i], 1);
