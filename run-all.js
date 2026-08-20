@@ -17678,6 +17678,7 @@ suite('Suite 99. One man installs');
       'const personName = function(n){ return n; };' +
       'const extractCleanCity = function(c){ return String(c == null ? "" : c).trim(); };' +
       'const dayOptions = function(){ return ""; };' +
+      extractFn(admin, 'oneCrewMaxHouses') +
       /* ⚠ BUILT ONCE, CALLED THREE TIMES. Rebuilding it per call gives a fresh
          function object each time, so a cache hung off it never survives — and a
          red-check that froze the list sailed straight through this. */

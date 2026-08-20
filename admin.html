@@ -33810,8 +33810,10 @@ function renderOneMan(){
   const days = oneManDays();
   const cap = oneManMaxHouses();
   const lead = '<h3>\ud83e\uddcd One man installs</h3>' +
-    '<div class="traynote">Days holding ' + cap + ' houses or fewer \u2014 half a crew\u2019s ' +
-    'day, so one installer can take them alone. This list works itself out every time ' +
+    '<div class="traynote">Days holding ' + cap + ' houses or fewer — small enough ' +
+    'for one installer on their own. ' + (cap + 1) + ' to ' + oneCrewMaxHouses() + ' is a <b>one crew</b> ' +
+    'day, and those are fine — they are marked on the day list rather than listed ' +
+    'here. This list works itself out every time ' +
     'the tab is drawn, so a day that fills up drops off it and a day that empties ' +
     'joins it. Nothing here needs ticking.</div>';
   if(!days.length){
