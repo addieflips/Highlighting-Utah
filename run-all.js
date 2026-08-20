@@ -16841,8 +16841,14 @@ pendingAsync.push((async () => {
       (r.res.removed || []).length === 0,
       'three quarters of a sheet being wrong is a broken predicate, not three ' +
       'quarters of the list having changed their minds');
+    /* ⚠ REPORTED AS A REFUSAL, NOT AS AN UNKNOWN NAME. Lumping the two
+       together is what produced "2 row(s) left alone — no customer of that
+       name" when one of the two was twelve people the guard had declined to
+       touch. A message naming the wrong cause is worse than no message. */
     check('S86', 'and says so rather than going quiet',
-      (r.res.strangers || []).some(x => /too many to be true/.test(x)));
+      (r.res.blocked || []).some(x => /too many for me to remove/.test(x)) &&
+      !(r.res.strangers || []).some(x => /too many/.test(x)),
+      'a guard declining to act is not a name nobody recognises');
   }
 
   /* ---- it is actually wired into the one button ---- */
@@ -17899,6 +17905,26 @@ pendingAsync.push((async () => {
       /match more than one customer/.test(r.status),
       'an ambiguous bill-to needs a human; a silent skip leaves an invoice ' +
       'pointing at nobody and nothing on screen to say so');
+  }
+
+  /* ---- and it says WHICH rows, not how many ---- */
+  {
+    /* ⭐ THE REPORT THE OWNER ACTUALLY GOT BACK was "2 row(s) left alone — no
+       customer of that name", which named the wrong cause for one of the two and gave
+       her nothing to act on for either. */
+    const r = await press([], {}, {pruned: {removed: [], 
+      strangers: ['Recycle: Frome Liz'],
+      blocked: ['Color Changes: 12 of 13 rows look wrong, which is too many for me to remove on my own']}});
+    check('S82', 'a row left alone is named, not counted',
+      /Frome Liz/.test(r.status),
+      "got: " + r.status + " — a count says there is a problem and nothing about " +
+      "what to do next, and there are never many of these");
+    check('S82', 'and a sheet the guard would not touch says so separately',
+      /too many for me to remove/.test(r.status) &&
+      !/no customer of that name: Color Changes/.test(r.status),
+      "got: " + r.status + " — a guard declining to act is not a name nobody " +
+      "recognises, and reporting it as one sends somebody looking for a customer " +
+      "who is not the problem");
   }
 
   /* ---- one failure never stops the rest ---- */
