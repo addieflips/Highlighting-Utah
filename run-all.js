@@ -16736,6 +16736,111 @@ pendingAsync.push((async () => {
  * somebody edits one of them, and the drift is silent — the sheet simply stops
  * matching what the warehouse shows, and nothing says so.
  * ------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+ * Suite 88. A removed customer still exists, in the archive
+ *
+ * Owner, 2026-08-20: "the customer record should only exist in archive and recycle
+ * after i click delete customer."
+ *
+ * Removing somebody used to destroy the record outright — address, phones, colours,
+ * what they had paid, all of it. The Recycle sheet row carries what fits in
+ * seventeen columns; the archive carries the whole thing.
+ * ------------------------------------------------------------------------- */
+suite('Suite 88. A removed customer still exists, in the archive');
+
+{
+  const rules = read('firestore.rules');
+  const rm = extractFn(admin, 'hlxRemoveCustomerToRecycle');
+  check('S88', 'the removal path exists', !!rm);
+
+  /* ⚠ REACHABLE, not merely present. A red-check putting if(0) in front of the
+     write left every word of it in the file and passed. */
+  check('S88', 'the archive write is not behind a dead condition',
+    /\n  await setDoc\(doc\(db, .archivedCustomers./.test(rm),
+    'text being present is not the same as text that runs');
+  check('S88', 'the whole record is written to the archive',
+    /setDoc\(doc\(db, 'archivedCustomers', item\.id\)/.test(rm) &&
+    /customer: d,/.test(rm),
+    'the whole record, not a summary — a summary is a decision about what mattered, ' +
+    'taken by somebody who is not the one who will need it');
+
+  /* ⚠ ORDER IS THE WHOLE THING. Archiving after the delete is archiving nothing. */
+  check('S88', 'and it is archived BEFORE anything is deleted',
+    rm.indexOf("'archivedCustomers'") < rm.indexOf('deleteDoc'),
+    'afterwards there is no record left to copy');
+  check('S88', 'a failed archive stops the removal',
+    rm.indexOf("'archivedCustomers'") < rm.indexOf("deleteDoc(doc(db,'jobAddresses'") &&
+    !/try{[\s\S]{0,200}archivedCustomers[\s\S]{0,200}catch/.test(rm),
+    'a customer still on file is a nuisance; a customer gone with no copy anywhere ' +
+    'cannot be got back, so this one is deliberately NOT best-effort');
+
+  check('S88', 'it records when, who and why',
+    /archivedAt: serverTimestamp\(\)/.test(rm) && /archivedBy:/.test(rm) &&
+    /reason:/.test(rm),
+    'six months on, \"why is this person in here\" is the only question anybody asks');
+  check('S88', 'and the customer number they held',
+    /customerNumberWas:/.test(rm),
+    'the number goes back into the pool on removal, so the record would otherwise ' +
+    'lose the one thing that ties them to a bin in the warehouse');
+
+  /* ⚠ A COLLECTION WITH NO RULE IS A WRITE THAT IS DENIED. */
+  check('S88', 'the archive is declared in the security rules',
+    /match \/archivedCustomers\/{id}/.test(rules),
+    'Firestore denies a write to a collection nothing matches, and the removal would ' +
+    'fail at the first step');
+  check('S88', 'and it is staff-only, never public',
+    /match \/archivedCustomers\/{id}[^}]*request\.auth != null/.test(rules) &&
+    !/match \/archivedCustomers\/{id}[^}]*allow read: if true/.test(rules),
+    'it holds the same thing jobAddresses holds — names, addresses, phone numbers ' +
+    'of real people — and is protected the same way');
+
+  /* ---- and it can be read, or it is just a slower delete ---- */
+  check('S88', 'there is somewhere to look at it',
+    /data-panel="archive"/.test(admin) && /id="panel-archive"/.test(admin),
+    'an archive nobody can open is a delete that takes longer');
+  check('S88', 'with a search box',
+    /id="archSearch"/.test(admin),
+    'owner: \"still have a spot you can search through it\"');
+
+  /* ---- alphabetical, and it stays that way ---- */
+  const renderSrc = extractFn(admin, 'archRender');
+  check('S88', 'the archive renderer exists', !!renderSrc);
+  if (renderSrc) {
+    const run = new Function('rows', 'term',
+      'let list = {innerHTML: \'\'};' +
+      'const esc = function(v){ return String(v == null ? \'\' : v); };' +
+      'const fmtDate = function(){ return \'\'; };' +
+      'const document = {getElementById: function(id){' +
+      '  return id === \'archList\' ? list : {value: term}; }};' +
+      'const archCache = rows;' +
+      renderSrc + 'archRender(); return list.innerHTML;');
+
+    const who = (name) => ({id: name, data: {customer: {name: name}}});
+    const html = run([who('Zimmer Lauren'), who('Adams Sadee'), who('Morris Kay')], '');
+    const order = ['Adams Sadee', 'Morris Kay', 'Zimmer Lauren']
+      .map(n => html.indexOf(n));
+    check('S88', 'the archive lists alphabetically',
+      order[0] > -1 && order[0] < order[1] && order[1] < order[2],
+      'owner: \"archive should be organized alphabetically\"');
+
+    const narrowed = run([who('Zimmer Lauren'), who('Adams Sadee'), who('Morris Kay')], 'm');
+    check('S88', 'and stays alphabetical once the search narrows it',
+      narrowed.indexOf('Morris Kay') < narrowed.indexOf('Zimmer Lauren'),
+      'a list that reorders itself while you type is worse than one that never sorted');
+
+    /* ⚠ BOTH WAYS ROUND. With two records the comparator only ever reaches ONE of
+       its two blank branches, so a red-check breaking the other one passed. Which
+       branch runs depends on the order they arrive in, and that is not something a
+       test should be silently relying on. */
+    [[who(''), who('Adams Sadee')], [who('Adams Sadee'), who('')]].forEach(function(pair, i){
+      const out = run(pair, '');
+      check('S88', 'a record with no name goes last, not first (' + (i ? 'blank second' : 'blank first') + ')',
+        out.indexOf('Adams Sadee') < out.indexOf('(no name)'),
+        'the odd one out is not the thing to scroll past to reach everybody else');
+    });
+  }
+}
+
 suite('Suite 87. The Recycle sheet IS the warehouse recycle queue');
 
 {
