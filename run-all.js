@@ -17556,6 +17556,153 @@ suite('Suite 98. The timing sweep is what was making the crowded days');
     'a count with no example is not something anybody can act on');
 }
 /* ---------------------------------------------------------------------------
+ * Suite 99. One man installs
+ *
+ * Owner, 2026-08-20: "if putting 4 towns in a day make it so we end up with like 4
+ * houses a day stretched across 4 days list those as one man installs", and: "create
+ * a tab for one man installs... it should be in sync so as the season goes if we get
+ * more one man installs or get less then its in sync and it gets rid of them in that
+ * tab or adds them."
+ *
+ * Refusing to crowd a day has a price, and this is it: a handful of houses in a town
+ * nobody else is going to. That is not a failure to hide — it is a day that wants one
+ * installer rather than a crew.
+ * ------------------------------------------------------------------------- */
+suite('Suite 99. One man installs');
+
+{
+  const capSrc = extractFn(admin, 'oneManMaxHouses');
+  const isSrc = extractFn(admin, 'isOneManDay');
+  check('S99', 'the rule is there to run', !!capSrc && !!isSrc);
+
+  if (capSrc && isSrc) {
+    const cap = (n) => new Function('MAX_STOPS_PER_ROUTE', capSrc + 'return oneManMaxHouses();')(n);
+    /* ⚠ DERIVED, NOT TYPED. Half of one crew's day. Writing 10 into the source
+       would quietly stop meaning 'half a crew' the moment the crew size changed. */
+    check('S99', 'a one man day is half a crew day', cap(20) === 10,
+      'got ' + cap(20) + ' — a crew is twenty stops, so one person is ten');
+    check('S99', 'and it follows the crew size rather than a typed number',
+      cap(30) === 15 && cap(8) === 4,
+      'got ' + cap(30) + ' and ' + cap(8));
+    check('S99', 'a missing crew size still gives a sane answer', cap(undefined) === 10);
+
+    const is = (day) => new Function('day', 'MAX_STOPS_PER_ROUTE',
+      capSrc + isSrc + 'return isOneManDay(day);')(day, 20);
+    const houses = (n) => ({houses: Array.from({length: n}, (_, i) => ({id: i}))});
+
+    check('S99', 'ten houses is one man', is(houses(10)) === true);
+    check('S99', 'eleven is not', is(houses(11)) === false,
+      'the boundary is the whole point of the number');
+    check('S99', 'four houses certainly is', is(houses(4)) === true,
+      'owner: "we end up with like 4 houses a day stretched across 4 days"');
+
+    /* ⚠ AN EMPTY DAY IS NOT A ONE MAN INSTALL, IT IS AN EMPTY DAY. Listing it puts
+       a job on the board that has nobody to do and no address to drive to. */
+    check('S99', 'an empty day is not listed', is(houses(0)) === false,
+      'there is nothing for one man to install');
+
+    /* ⚠ TAKEDOWNS AND FIXER ROUTES ARE NOT INSTALLS. A fixer route is already one
+       person in one van by design, so calling it a one man INSTALL is noise on a tab
+       that exists to show something the office has to act on. */
+    check('S99', 'a takedown day is not a one man install',
+      is(Object.assign(houses(3), {isTakedown: true})) === false);
+    check('S99', 'nor is a fixer route',
+      is(Object.assign(houses(3), {isFixRoute: true})) === false,
+      'that is already one person in one van');
+    check('S99', 'and nothing at all is not a day', is(null) === false);
+  }
+
+  /* ---- the tab ---- */
+  check('S99', 'the tab is on the bar', /data-tab=..oneman/.test(admin));
+  check('S99', 'and it has a pane to draw into',
+    admin.indexOf('pane-oneman') !== -1 && admin.indexOf('oneManPane') !== -1);
+
+  /* ⭐ THE CRASH THIS EXACT MISTAKE ALREADY CAUSED ONCE. syncTabs walks a list of
+     pane ids and sets .hidden on each. Adding a pane without adding its name to that
+     list leaves the pane permanently visible UNDERNEATH whichever tab is showing;
+     removing one without trimming the list throws on load and blanks the tab. */
+  const st = extractFn(admin, 'syncTabs');
+  check('S99', 'syncTabs knows about the new pane', !!st && st.indexOf('oneman') !== -1,
+    'without this the pane never hides and sits under the Scheduling tab');
+  check('S99', 'and still knows about the old ones',
+    /schedule/.test(st) && /fixes/.test(st) && /takedowns/.test(st));
+
+  const ra = sectionFrom(admin, 'function renderActive(', 40);
+  check('S99', 'switching to it draws it',
+    admin.indexOf("activeTab==='oneman'){renderOneMan()") !== -1,
+    'a tab that draws nothing looks like a broken tab');
+
+  /* ⭐ IN SYNC BECAUSE IT IS NEVER STORED. Owner: "as the season goes if we get
+     more one man installs or get less then its in sync and it gets rid of them in that
+     tab or adds them." It asks oneManDays() at draw time. A stored flag would be right
+     on the day it was written and wrong every day after. */
+  const rom = extractFn(admin, 'renderOneMan');
+  /* ⭐ RUN TWICE, WITH THE SEASON CHANGED IN BETWEEN. Owner: "it should be in sync
+     so as the season goes if we get more one man installs or get less then its in sync
+     and it gets rid of them in that tab or adds them."
+
+     ⚠ A SOURCE CHECK FOR oneManDays() IS NOT ENOUGH — a red-check that wrapped the
+     call in a cache kept the call, kept the check green, and froze the tab on whatever
+     it happened to show first. The only way to know it restates itself is to make the
+     season change underneath it and look at what it draws. */
+  const drawn = (function () {
+    const box = {innerHTML: ''};
+    let season = [];
+    const ref = {days: []};
+    const run = new Function('box', 'seasonRef',
+      'const RT = {getElementById: function(){ return box; }};' +
+      'const oneManDays = function(){ return seasonRef.days; };' +
+      'const oneManMaxHouses = function(){ return 10; };' +
+      'const dayDate = function(d){ return d.date; };' +
+      'const dlabel = function(d){ return {wd: "Tue", full: d}; };' +
+      'const esc = function(x){ return String(x == null ? "" : x); };' +
+      'const personName = function(n){ return n; };' +
+      'const extractCleanCity = function(c){ return String(c == null ? "" : c).trim(); };' +
+      'const dayOptions = function(){ return ""; };' +
+      /* ⚠ BUILT ONCE, CALLED THREE TIMES. Rebuilding it per call gives a fresh
+         function object each time, so a cache hung off it never survives — and a
+         red-check that froze the list sailed straight through this. */
+      extractFn(admin, 'renderOneMan') +
+      'return function(){ renderOneMan(); return box.innerHTML; };')(box, ref);
+    const day = (id, n, town) => ({id: id, date: '2026-10-2' + id,
+      houses: Array.from({length: n}, (_, k) => ({id: id + '-' + k, name: 'P' + k,
+        city: town, address: '1 St'}))});
+    ref.days = [day(1, 4, 'Payson')];
+    const first = run();
+    ref.days = [day(1, 4, 'Payson'), day(2, 3, 'Levan')];
+    const grown = run();
+    ref.days = [];
+    const gone = run();
+    return {first: first, grown: grown, gone: gone};
+  })();
+
+  check('S99', 'a new one man day appears on the next draw',
+    drawn.grown.indexOf('Levan') !== -1 && drawn.first.indexOf('Levan') === -1,
+    'the season gained a thin day and the tab has to have gained it too');
+  check('S99', 'and a day that stops being one drops off',
+    drawn.gone.indexOf('Payson') === -1,
+    'owner: "it gets rid of them in that tab or adds them"');
+  check('S99', 'with none left it says so rather than showing an empty box',
+    /Nothing is a one man install/.test(drawn.gone),
+    'a blank panel reads as broken');
+  check('S99', 'and it counts what it is showing',
+    /2 days/.test(drawn.grown) && /7 houses/.test(drawn.grown),
+    'got neither count in: ' + drawn.grown.slice(0, 120));
+  check('S99', 'nothing stores a one-man flag on a day',
+    admin.indexOf('isOneMan =') === -1 && admin.indexOf('oneMan:') === -1,
+    'the moment it is written down it starts going stale');
+
+  /* ⚠ THE RESCHEDULE CONTROL HAS TO BE ONE THAT WORKS. The change handler reads
+     data-move as a HOUSE id and calls moveHouse. A day-level select renders perfectly
+     and does nothing whatsoever when used, which is worse than not offering one. */
+  check('S99', 'each house can be rescheduled with the control that exists',
+    rom.indexOf('data-move=') !== -1 && rom.indexOf("+ h.id +") !== -1,
+    'the handler moves a house; there is no such thing as moving a day here');
+  check('S99', 'and it says how many and where they are',
+    /house/.test(rom) && /towns\.join/.test(rom),
+    'a date on its own does not tell the office whether it is worth a van');
+}
+/* ---------------------------------------------------------------------------
  * Suite 92. A day inside 48 hours is printed, and printed is finished
  *
  * Owner, 2026-08-20: "not recalculate houses within two days cause weve already
