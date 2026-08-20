@@ -16658,6 +16658,108 @@ if (!JSDOM) {
  * so you can easily close/save it." The form is long enough that both buttons sit
  * far below the fold.
  * ------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+ * Suite 83. Whose name goes on a shared bill
+ *
+ * Reported by the owner, 2026-08-20: an invoice covering four Anderson houses was
+ * addressed to "Brit / Dani Anderson" when Heather Anderson is the one who pays.
+ * "I edited brit/danis page so that might be why but it should still show heather
+ * as the payer."
+ *
+ * Exactly why. Four Anderson houses share 8013721805 in the real book — Heather
+ * (#14), Brit / Dani (#20), Loren (#27), Ryan (#972) — and the payer was picked
+ * with .find(), so the bill was addressed to whichever arrived first. Editing any
+ * one of them reorders the list and the name silently changes. Seventeen numbers
+ * in that book are shared.
+ * ------------------------------------------------------------------------- */
+suite('Suite 83. Whose name goes on a shared bill');
+
+{
+  const src = extractFn(admin, 'syncPayerInvoice');
+  check('S83', 'syncPayerInvoice is still there', !!src);
+
+  /* The choosing is lifted out and run on its own: the rest of that function talks
+     to Firestore, and the bug was entirely in which record it picked. */
+  const at = src.indexOf('const payerCandidates =');
+  const blk = at < 0 ? '' : src.slice(at, src.indexOf('// Keep the $30', at));
+  check('S83', 'the payer-choosing block was found to run', !!blk);
+
+  if (blk) {
+    const pick = new Function('linked', 'key', 'existing', 'custInvoiceKey', 'dupNormName',
+      blk + 'return payerHouse;');
+    const K = '8013721805';
+    const ck = (d) => String((d && d.phone) || '').replace(/[^0-9]/g, '');
+    const norm = (v) => String(v == null ? '' : v).toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ').split(' ').filter(Boolean).sort().join('');
+
+    /* The four real Andersons, in the order that produced the wrong answer. */
+    const andersons = [
+      {id: 'britdani', data: {name: 'Anderson Brit / Dani', phone: K, customerNumber: '20'}},
+      {id: 'heather',  data: {name: 'Anderson Heather',     phone: K, customerNumber: '14'}},
+      {id: 'loren',    data: {name: 'Anderson Loren',       phone: K, customerNumber: '27'}},
+      {id: 'ryan',     data: {name: 'Anderson Ryan',        phone: K, customerNumber: '972'}}
+    ];
+    const who = (list, existing) => (pick(list, K, existing || {}, ck, norm) || {}).id;
+
+    check('S83', 'the four Andersons name Heather, who pays',
+      who(andersons, {}) === 'heather',
+      'the lowest customer number is the longest-standing account');
+    check('S83', 'and editing a sibling does not change it',
+      who(andersons.slice().reverse(), {}) === 'heather',
+      'this is the actual complaint: the list reordered and the bill changed name');
+
+    /* ⚠ AND THE NAME SITTING ON THE INVOICE DOES NOT GET A VOTE. The first version
+       of this preferred it, on the reasoning that somebody had chosen it. Nobody had:
+       there is no screen anywhere that sets an invoice name, it has always been
+       derived — so the value there right now is the one this bug put there, and
+       preferring it would have kept Brit / Dani for ever while calling that respect
+       for a decision. A red-check caught it, because the fixture could not tell the
+       two rules apart until one was written that could. */
+    check('S83', 'a wrong name already on the invoice is CORRECTED, not preserved',
+      who(andersons, {name: 'Anderson Brit / Dani'}) === 'heather',
+      'this is the owner\u2019s live invoice: it says Brit / Dani today, and the whole ' +
+      'point is that the next sync makes it say Heather');
+
+    check('S83', 'with no invoice yet, the longest-standing account is chosen',
+      who(andersons, {}) === 'heather',
+      'the lowest customer number is the oldest account and the likeliest payer');
+    check('S83', 'and that answer does not depend on the order either',
+      who(andersons.slice().reverse(), {}) === 'heather' &&
+      who([andersons[2], andersons[0], andersons[3], andersons[1]], {}) === 'heather',
+      'the point is less which rule than that the same houses always give the same ' +
+      'answer, whatever order they arrive in');
+
+    check('S83', 'and so is a name belonging to nobody in the group',
+      who(andersons, {name: 'Somebody Else Entirely'}) === 'heather',
+      'a payer who has been deleted must not freeze the bill on a name nobody holds');
+
+    /* Nothing about the ordinary case changes. */
+    const solo = [{id: 'a', data: {name: 'Solo Payer', phone: K, customerNumber: '500'}}];
+    check('S83', 'one house on the bill still names that house',
+      who(solo, {}) === 'a');
+    check('S83', 'and a house billed elsewhere is never the payer',
+      who([{id: 'billed', data: {name: 'Billed Away', phone: K, billToPhone: '8015559999'}},
+           {id: 'real',   data: {name: 'Real Payer',  phone: K, customerNumber: '900'}}], {}) === 'real',
+      'billToPhone means somebody else pays for them, which is the whole signal');
+
+    /* ⚠ AND WHEN NOBODY HAS A NUMBER AT ALL. A red-check that removed the id
+       tie-break passed, because every fixture above had numbers to sort on. Two
+       records with neither would fall back on arrival order, which is the bug. */
+    {
+      const noNums = [{id: 'zeta', data: {name: 'Zeta House', phone: K}},
+                      {id: 'alpha', data: {name: 'Alpha House', phone: K}}];
+      check('S83', 'two payers with no customer number still give one stable answer',
+        who(noNums, {}) === 'alpha' && who(noNums.slice().reverse(), {}) === 'alpha',
+        'without the id tie-break this is whatever order Firestore handed them over ' +
+        'in, which is the whole bug wearing a different hat');
+    }
+
+    check('S83', 'and nobody eligible returns nothing rather than guessing',
+      who([{id: 'x', data: {name: 'Away', phone: K, billToPhone: '8015559999'}}], {}) === undefined,
+      'the caller falls back to the name already on the invoice');
+  }
+}
+
 suite('Suite 82. Save and close stay on screen');
 
 {
