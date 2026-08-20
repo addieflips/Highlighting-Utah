@@ -533,6 +533,26 @@
   /* Expanded state — same three-across feel as the Add Customer form, so the
      two screens read as the same form with the same section order. */
   .editcust-popup.expanded{ max-width:1020px; max-height:92vh; }
+  /* ⭐ SAVE AND CLOSE STAY ON SCREEN. Owner, 2026-08-20: "add a x and a save button
+     as a frozen pane at the top of edit customers so you can easily close/save it."
+     The form is long enough that both buttons live far below the fold, so changing one
+     field near the top meant scrolling the whole way down to keep it.
+     ⚠ STICKY, NOT FIXED. The POPUP is what scrolls (overflow-y:auto above), so the
+     bar pins to the top of that box; fixed would pin it to the window and leave it
+     floating over the page behind. The negative margins bleed it across the popup's
+     own padding so nothing scrolls through the gap at the edges. */
+  .editcust-topbar{
+    position:sticky; top:-26px; z-index:6;
+    margin:-26px -28px 14px; padding:14px 28px 12px;
+    background:#fff; border-bottom:1px solid var(--line);
+    border-radius:16px 16px 0 0;
+    display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  }
+  .editcust-topbar h3{ flex:1; min-width:150px; }
+  .editcust-topbar .btn{ white-space:nowrap; }
+  #editCustTopClose{
+    font-size:20px; line-height:1; padding:4px 12px; font-weight:700;
+  }
   .ec-grid{ display:grid; grid-template-columns:1fr; gap:0 14px; }
   .editcust-popup.expanded .ec-grid{ grid-template-columns:1fr 1fr 1fr; }
   @media (max-width:900px){
@@ -1771,9 +1791,11 @@
           <!-- Header: title on the left, size toggle on the right. The popup
                opens compact; Expand widens it and switches the grids to the
                same three-column layout the Add Customer form uses. -->
-          <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin:0 0 4px;">
+          <div class="editcust-topbar">
             <h3 style="margin:0; font-family:'Fraunces',serif; font-size:19px;">Edit Customer Info</h3>
             <button type="button" class="btn btn-outline btn-sm" id="editCustSizeToggle" title="Expand to the full form">&#9633; Expand</button>
+            <button type="button" class="btn btn-gold btn-sm" id="editCustTopSave" title="Save Changes">Save</button>
+            <button type="button" class="btn btn-outline btn-sm" id="editCustTopClose" title="Close without saving" aria-label="Close without saving">&times;</button>
           </div>
           <p style="margin:0 0 16px; font-size:13px; color:var(--slate);">Everything about this house is edited here. Only the amount is set on Invoices, and only the house rating is set on Routes.</p>
           <!-- ===================== CUSTOMER INFO ===================== -->
@@ -24531,6 +24553,19 @@ document.getElementById('editCustDeleteBtn').addEventListener('click', async fun
   } catch(err){
     statusEl.textContent = 'Could not delete \u2014 try again.';
   }
+});
+/* ⭐ THE TOP BAR PRESSES THE REAL BUTTONS rather than repeating what they do.
+   Saving a customer re-derives the bin count, warns about the number series, rebuilds
+   the invoice, re-syncs saved route stops and queues the warehouse " + M + " a second copy of
+   that call is the copy that quietly falls behind. Delegating also means the top Save
+   inherits the disabled state while a save is running, so it cannot start a second one. */
+document.getElementById('editCustTopSave')?.addEventListener('click', function(){
+  const real = document.getElementById('editCustSaveBtn');
+  if(real && !real.disabled) real.click();
+});
+document.getElementById('editCustTopClose')?.addEventListener('click', function(){
+  const real = document.getElementById('editCustCancelBtn');
+  if(real) real.click();
 });
 document.getElementById('editCustCancelBtn').addEventListener('click', function(){
   document.getElementById('editCustOverlay').style.display = 'none';
