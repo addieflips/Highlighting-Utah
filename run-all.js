@@ -17277,10 +17277,75 @@ pendingAsync.push((async () => {
     /Narrowed to people paying for several houses automatically/.test(admin),
     'automatic is fine and invisible is not — the dropdown still works and the recipient count ' +
     'line takes the blame');
-  check('S79', 'and it warns that the filter can legitimately match nobody pre-season',
-    /only written once invoices are built/.test(admin),
-    'audienceBillingGroup reads billedHouseIds off the INVOICE, which syncPayerInvoice writes — ' +
-    'so before invoices exist this filter matches nobody, and an empty list reads as broken');
+  /* ⭐ THE AUDIENCE FILTER HAS TO WORK BEFORE INVOICES EXIST.
+     audienceBillingGroup used to answer "does this person pay for several
+     houses?" from the invoice's billedHouseIds — a field only syncPayerInvoice
+     writes. Pre-season that field is missing everywhere, so the filter matched
+     NOBODY at exactly the time of year an RSVP send goes out, and it disagreed
+     with the Customers tab and the portal, which group from the customer
+     records. These RUN it against a book with NO invoices at all, which is the
+     state that used to break it. */
+  {
+    const abgSrc = lift79(admin, 'audienceBillingGroup');
+    const idxSrc = lift79(admin, 'rebuildCustomerIndexes');
+    check('S79', 'the audience helper and the index that feeds it are both liftable',
+      !!abgSrc && !!idxSrc, 'renamed or removed — update this suite rather than deleting it');
+    if (abgSrc && idxSrc) {
+      /* Dana pays for her own house and Kyle's. Ivy and the cabin share ONE
+         phone with nothing set anywhere. Sam is on Dana's bill but said no, so
+         he is not billed and must not make anybody look like a group payer.
+         Solo pays for himself. NOTHING here has an invoice. */
+      const abgBook = [
+        { id: 'h1', data: { name: 'Dana Pratt', phone: '8015550111' } },
+        { id: 'h2', data: { name: 'Kyle Pratt', phone: '8015552222', billToPhone: '8015550111' } },
+        { id: 'h3', data: { name: 'Sam Pratt', phone: '8015553333', billToPhone: '8015557777', rsvpStatus: 'no' } },
+        { id: 'h4', data: { name: 'Ivy Nunez', phone: '8015554444' } },
+        { id: 'h5', data: { name: 'Ivy Cabin', phone: '8015554444' } },
+        { id: 'h6', data: { name: 'Solo Jones', phone: '8015556666' } },
+        { id: 'h7', data: { name: 'Lone Landlord', phone: '8015557777' } }
+      ];
+      const abg = {};
+      new Function('jobAddresses', 'custInvoiceKey', 'custAddrKey', 'allInvoicesCache',
+        'let custByPhoneDigits = new Map(); let custByNumber = new Map();' +
+        'let custByAddrKey = new Map(); let billGroupSizeByKey = new Map();\n' +
+        idxSrc + '\n' + abgSrc + '\n' +
+        'rebuildCustomerIndexes();\n' +
+        'this.of = audienceBillingGroup; this.sizes = billGroupSizeByKey;'
+      ).call(abg, abgBook,
+        d => String((d && d.phone) || '').replace(/\D/g, '') ||
+             String((d && d.email) || '').toLowerCase().trim(),
+        () => '',
+        []);
+
+      check('S79', '⭐ a payer of several houses is found with NO invoices in existence',
+        abg.of(abgBook[0].data) === 'multi',
+        'this is the whole bug: billedHouseIds is written by syncPayerInvoice, so before ' +
+        'invoices are built the filter matched nobody — and that is when the RSVP goes out');
+      check('S79', 'and two houses on one phone count as one bill of two',
+        abg.of(abgBook[3].data) === 'multi' && abg.of(abgBook[4].data) === 'multi',
+        'that half has no billToPhone set anywhere — a scan for the field swears they are ' +
+        'separate while the invoice already bills them together');
+      check('S79', 'a customer paying only for their own house is not swept in',
+        abg.of(abgBook[5].data) === 'own',
+        'sending "here are all your properties" to somebody with one property is noise');
+      check('S79', 'a house billed to somebody else reads as elsewhere, not as a payer',
+        abg.of(abgBook[1].data) === 'elsewhere',
+        'they pay for nothing — the per-house list would name a landlord’s other tenants');
+      check('S79', '⚠ and a house that said no does not make its payer a group payer',
+        abg.of(abgBook[6].data) === 'own',
+        'Sam is not billed this season, so the landlord’s bill covers one house — counting ' +
+        'him would offer a per-house email listing a house that is not on the bill');
+      check('S79', 'the count is an O(1) lookup, not a scan of the invoice cache per member',
+        !/allInvoicesCache\.find/.test(abgSrc) && /billGroupSizeByKey/.test(abgSrc),
+        'this runs once per member on every recipient repaint — the old one was ~967 x ~967 ' +
+        'string comparisons, which is most of a locked-up screen');
+    }
+  }
+  check('S79', 'and the send is one email per BILL, not one per house',
+    /if\(etFilterGroup === 'multi'\)\{\s*\r?\n\s*const seenBill = new Set\(\);/.test(admin) &&
+    /One email per bill, not one per house/.test(admin),
+    'two houses under one phone are both payers of the same bill, so the same person was sent ' +
+    'the same list of their own two houses twice');
 
   // ---- the portal grows the same rows --------------------------------------
   if (!JSDOM) {

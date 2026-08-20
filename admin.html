@@ -10387,9 +10387,14 @@ function etTemplateIsRsvp(t){
 // 'elsewhere' billed to someone else | 'multi' pays for several houses | 'own'
 function audienceBillingGroup(d){
   if((((d && d.billToPhone) || '').replace(/\D/g,''))) return 'elsewhere';
-  const inv = allInvoicesCache.find(i => i.id === custInvoiceKey(d || {}));
-  if(inv && Array.isArray(inv.data.billedHouseIds) && inv.data.billedHouseIds.length > 1) return 'multi';
-  return 'own';
+  /* ⚠ Answered from the CUSTOMER records (billGroupSizeByKey), not from the
+     invoice. Reading billedHouseIds made this filter depend on invoices having
+     been built, so it matched nobody for most of the season — and it disagreed
+     with the Customers tab, the portal and the {{houses_block}} email, which
+     all group from jobAddresses. One rule, one answer. */
+  const key = custInvoiceKey(d || {});
+  if(!key) return 'own';
+  return (billGroupSizeByKey.get(key) || 0) > 1 ? 'multi' : 'own';
 }
 /* ---- Who is paying for whom ------------------------------------------------
    One invoice can cover several houses: a parent paying for a child, a landlord
@@ -10503,6 +10508,22 @@ function etRenderRecipientList(){
   else if(etFilterNew === 'returning') members = members.filter(m => !audienceIsNew(m.data));
   // Billing group
   if(etFilterGroup !== 'all') members = members.filter(m => audienceBillingGroup(m.data) === etFilterGroup);
+  /* ⭐ ONE EMAIL PER BILL, not one per house. Two houses under one phone with no
+     billToPhone set are BOTH payers of the same bill, so both matched 'multi'
+     and the same person was sent the same list of their own two houses twice.
+     The per-house block names the whole bill, so the second copy adds nothing
+     and reads as a mistake. Only under 'multi': every other audience is a list
+     of houses and should stay one row per house. */
+  if(etFilterGroup === 'multi'){
+    const seenBill = new Set();
+    members = members.filter(function(m){
+      const k = custInvoiceKey(m.data || {});
+      if(!k) return true;
+      if(seenBill.has(k)) return false;
+      seenBill.add(k);
+      return true;
+    });
+  }
   // Outlet timer
   if(etFilterOutlet === 'yes') members = members.filter(m => m.data.outletTimer === 'Yes');
   else if(etFilterOutlet === 'no') members = members.filter(m => m.data.outletTimer !== 'Yes');
@@ -10520,12 +10541,13 @@ function etRenderRecipientList(){
     if(etHousesAudienceAutoSet && etFilterGroup === 'multi'){
       msg += ' — Narrowed to people paying for several houses automatically, because this template gives every house its own Yes/No. Change "Billing group" above to include everyone.';
     }
-    /* ⚠ audienceBillingGroup reads billedHouseIds off the INVOICE, and that is
-       only written by syncPayerInvoice — so pre-season, with most invoices not
-       built yet, this filter can legitimately match nobody. Saying so beats an
-       empty list that reads as a broken filter. */
-    if(etFilterGroup === 'multi' && !members.length){
-      msg += ' — Nobody matches yet. This filter reads each invoice\'s list of houses, which is only written once invoices are built, so early in the season it can be empty even when the bills exist.';
+    /* One row per BILL under this filter, so the count is bills and not houses —
+       said out loud, because "12 members" against a list of 12 names that each
+       cover three houses is the sort of number somebody checks twice. */
+    if(etFilterGroup === 'multi'){
+      msg += members.length
+        ? ' — One email per bill, not one per house: each of these covers more than one property.'
+        : ' — Nobody is being billed for more than one house right now, so this list is empty.';
     }
     countEl.textContent = msg;
   }
@@ -11741,10 +11763,19 @@ function loadInvoices(){
 let custByPhoneDigits = new Map();
 let custByNumber = new Map();
 let custByAddrKey = new Map();
+/* ⭐ HOW MANY HOUSES ARE ON EACH BILL — bill key -> count.
+   Built here, from the CUSTOMER records, by the same rule billingGroupsByPayer
+   uses. audienceBillingGroup used to answer this from the invoice's
+   billedHouseIds, which only syncPayerInvoice writes: before invoices are built
+   that field is missing everywhere, so "Pays for several houses" matched NOBODY
+   — at exactly the time of year the RSVP send goes out. It also scanned the
+   whole invoice cache once per member, which is ~967 x ~967 on a repaint. */
+let billGroupSizeByKey = new Map();
 function rebuildCustomerIndexes(){
   custByPhoneDigits = new Map();
   custByNumber = new Map();
   custByAddrKey = new Map();
+  billGroupSizeByKey = new Map();
   jobAddresses.forEach(function(a){
     const d = (a && a.data) || {};
     const digits = ((d.phone) || '').replace(/\D/g,'');
@@ -11756,6 +11787,15 @@ function rebuildCustomerIndexes(){
     if(num && !custByNumber.has(num)) custByNumber.set(num, a);
     const ak = custAddrKey(d.address, d.city);
     if(ak && !custByAddrKey.has(ak)) custByAddrKey.set(ak, a);
+    /* ⚠ BOTH HALVES of the group, and the cancelled houses left out — the same
+       two rules billingGroupsByPayer applies. A house with billToPhone joins
+       that payer's bill; a house without one keys off its own invoice key, so
+       two records under one phone are already one bill with no field set
+       anywhere. A house that said no is not billed and is not counted. */
+    if(String(d.rsvpStatus||'') !== 'no'){
+      const bk = String(d.billToPhone||'').replace(/\D/g,'') || custInvoiceKey(d);
+      if(bk) billGroupSizeByKey.set(bk, (billGroupSizeByKey.get(bk) || 0) + 1);
+    }
   });
 }
 /* House number + street + town, punctuation and casing thrown away, so
