@@ -9213,16 +9213,27 @@ suite('Suite 36. Pasting the whole sheet');
      note the crew reads and ticks the flag the office filters on.
      ⚠ TWO FIELDS, NOT ONE. Writing the words into the Yes/No flag would leave the
      crew a "Yes" and no outlet. */
-    /* ⭐ EITHER COLUMN CAN CARRY IT. Owner, 2026-08-19: "up plug is about preference
-       on using outlet in eaves, but sometimes they give plug or outlet information in
-       notes and if they do that should go to the outlet preference we already have set
-       up in all customers."
-       ⚠ UP PLUG WINS where both say something — it is the column meant for it, and a
-       note is where things end up when there was nowhere else to put them. */
-    check('S60', '"Up Plug" fills the outlet note and ticks the flag',
+    /* ⭐ UP PLUG IS THE EAVES YES/NO, and finding that out cost a bug. Owner: "up plug
+       is about preference on using outlet in eaves". A dry run over the real sheet
+       settled it: the column holds 112 "yes", 98 "?", 61 "no" and 3 "y" — FOUR distinct
+       values, none of them a description.
+
+       ⚠ THE FIRST VERSION WAS WRONG TWICE. It wrote the word "yes" into the note the
+       crew reads, and set Specific Outlet to Yes for anything non-blank — backwards for
+       the 61 who said NO, and inventing an answer for the 98 who wrote "?". Every test
+       passed. Reading the column is what caught it.
+
+       ⚠ "?" IS NOT A NO. rbNormalizeYesNo returns blank for it and blank leaves the
+       record alone, which is the honest answer to a question mark. */
+    check('S60', '"Up Plug" answers the eaves question, not the which-outlet one',
       /\{area:'rbUpPlugArea'/.test(admin) &&
-      /specificOutletNotes: String\(upPlugRaw\[i\] \|\| ''\)\.trim\(\) \|\| rbOutletFromNote\(notesRaw\[i\]\)/.test(admin),
-      'the column that says which outlet has to reach the crew, not just be counted');
+      /useEaves: rbNormalizeYesNo\(upPlugRaw\[i\]/.test(admin) &&
+      /const eavesFromSheet = rbNormalizeYesNo\(upPlugRaw\[i\]/.test(admin),
+      'writing yes/no into the crew’s outlet note gives them a note that says "yes"');
+    check('S60', 'and WHICH outlet only ever comes from a note',
+      /specificOutlet: rbOutletFromNote\(notesRaw\[i\]\) \? 'Yes' : ''/.test(admin) &&
+      /const outletFromSheet = rbOutletFromNote\(notesRawVal\);/.test(admin),
+      'that is the only place in the sheet a real instruction appears');
     check('S60', 'and an outlet instruction in the Notes column counts too',
       /function rbOutletFromNote\(raw\)\{/.test(admin) &&
       /if\(!\/\\b\(outlet\|plug\|eave\)\/i\.test\(text\)\) return "";/.test(admin),
@@ -15236,6 +15247,39 @@ suite('Suite 66. The master sheet choice is remembered for every computer');
 suite('Suite 69. A customer as a row of the master sheet');
 {
   const admin = read("admin.html");
+  /* ⭐ THE OFFICE WRITES THESE THE WAY PEOPLE TALK, and a dry run over all 960 rows is
+     what showed it. Three real cells were being filed as leftover notes because the
+     patterns were too tight:
+       "text the bill"                   a word sits between
+       "cc bill to Jenna@…"              a prefix comes first
+       and the payer there is an EMAIL, not a name.
+     Every test passed the whole time; reading the column is what caught it. */
+  {
+    const src = [extractFn(admin, "rbSidesFromNote"), extractFn(admin, "rbGateCodeFromText"),
+                 extractFn(admin, "rbMiscParse")].join("\n");
+    const sb = {};
+    new Function(src + "this.m = rbMiscParse;").call(sb);
+    check('S69', 'a word between does not hide the preference',
+      sb.m("text the bill").textBill === true && sb.m("mail the bill").mailBill === true &&
+      sb.m("text bill").textBill === true,
+      'the office writes it the way people talk');
+    check('S69', 'and a prefix does not hide the payer',
+      sb.m("cc bill to Jennalesa@gmail.com").billToEmail === "jennalesa@gmail.com" &&
+      sb.m("bill steve laycock").billToName === "steve laycock",
+      'an anchored pattern could not see past the cc');
+    /* ⚠ AN EMAIL IS KEPT SEPARATELY, not squeezed into the name field where a
+       name-matcher would never find it. */
+    check('S69', 'an email payer is kept as an email',
+      sb.m("cc bill to Jennalesa@gmail.com").billToName === "",
+      'a name-matcher would never find an address, and the match would silently fail');
+  }
+  /* ⚠ AND THE RESOLVER PREFERS THE EMAIL. It is exact where a name is a guess. */
+  check('S69', 'the resolver matches on the email when there is one',
+    /if\(wantEmail\) return String\(\(x\.data \|\| \{\}\)\.email/.test(admin),
+    'an exact key beats a name every time');
+}
+{
+  const admin = read("admin.html");
   /* ⭐ WHAT THE SHEET SETS HAS TO BE VISIBLE. Three fields now arrive from the master
      sheet and had nowhere to appear: prepaid, wants-texted, and a bill-to name whose
      payer is NOT one of our customers. A value nobody can see is a value nobody can
@@ -15366,7 +15410,9 @@ suite('Suite 69. A customer as a row of the master sheet');
     'that is money going to the wrong house');
   /* ⚠ AND NOT TO THEMSELVES. */
   check('S69', 'and never joins a customer to their own invoice',
-    /x\.id !== c\.id/.test(admin),
+    /* The guard moved to its own line when an email became a second way to match — it
+       is the FIRST thing the filter does now, before either key is looked at. */
+    /if\(x\.id === c\.id\) return false;/.test(admin),
     'an invoice pointing at itself is a loop nobody notices until it is billed');
   /* ⚠ IF THE PAYER IS NOT OURS, NOTHING HAPPENS. Owner: "if they arent it doesnt
      matter ... that means were already using whoever it is information already." */
