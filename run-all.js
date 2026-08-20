@@ -16383,6 +16383,181 @@ if (!JSDOM) {
  * Nothing here touches Firestore. updateDoc is a recorder, so the checks are
  * about what WOULD be written and, just as much, what would not.
  * ------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+ * Suite 76. The Update customer info button, actually pressed
+ *
+ * Owner: "we wont want this in bulk updates rather just update customer info
+ * button somewhere you can see on every page of the admin page", and "theres only
+ * one sync button because anything I dont want synced will be manually fixed".
+ * So ONE press has to do everything the sheet implies: three tabs, the bill-to
+ * links and the prepaid settling.
+ *
+ * ⚠ THE FIELD NAMES ARE THE POINT. `needsRecycle` and `colorChangeRequested` were
+ * written into this repo once and neither exists — the real flags are
+ * needsLightRecycle and needsLightBuild. A predicate reading a field nobody sets
+ * matches nobody, reports "nothing new to send", and looks like a working button
+ * for ever. These checks run holds() against records using the real names.
+ * ------------------------------------------------------------------------- */
+pendingAsync.push((async () => {
+  suite('Suite 76. The Update customer info button, actually pressed');
+
+  const lift76 = (n) => {
+    let st = admin.indexOf('async function ' + n + '(');
+    if (st < 0) st = admin.indexOf('function ' + n + '(');
+    if (st < 0) return '';
+    let i = admin.indexOf('{', st), d = 0;
+    for (; i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(st, i + 1); }
+    }
+    return '';
+  };
+
+  check('S76', 'the button is in the sidebar, so it is on every page',
+    /<div class="sidebar-footer">[\s\S]{0,900}?id="updateCustInfoBtn"/.test(admin),
+    'the sidebar is the only thing on screen whichever panel is open — a button ' +
+    'inside Bulk Updates is a place you go on purpose, not a thing you press when ' +
+    'you notice something');
+  check('S76', 'and pressing it cannot start a second run on top of the first',
+    /updateCustInfoBtn"\)\?\.addEventListener\("click", onceAtATime\(/.test(admin),
+    'two overlapping runs both read the file, both append, and the second write ' +
+    'throws away the first');
+
+  const orch = lift76('hlxUpdateCustomerInfo');
+  check('S76', 'the handler is still there to run', !!orch);
+  if (!orch) return;
+
+  /* Every collaborator is a stub that RECORDS. Nothing reads or writes a file. */
+  function press(book, alreadyOnTab, opts) {
+    opts = opts || {};
+    const sent = [], said = [];
+    const box = {};
+    new Function(
+      'jobAddresses', 'hlxSheetSupported', 'hlxSheetHandleLoad', 'hlxNamesAlreadyOnTab',
+      'hlxAppendRowsToSheet', 'rbCustomerToSheetRow', 'rbResolveBillTo', 'rbSettlePrepaid',
+      'logActivity',
+      lift76('dupNormName') +
+      admin.match(/const HLX_STATE_TABS = \[[\s\S]*?\n\];/)[0] +
+      orch + 'this.f = hlxUpdateCustomerInfo; this.tabs = HLX_STATE_TABS;'
+    ).call(box, book,
+      () => opts.supported !== false,
+      async () => (opts.connected === false ? null : {}),
+      async (tab) => (opts.noTab === tab ? null : (alreadyOnTab[tab] || {})),
+      async (rows, tab) => {
+        if (opts.tabThrows === tab) throw new Error('the tab is locked');
+        sent.push({ tab: tab, rows: rows });
+        return { written: rows.length };
+      },
+      (d) => [d.name],
+      async () => (opts.billTo || { linked: 0, notOurs: 0, ambiguous: 0, failed: 0 }),
+      async () => (opts.prepaid || { settled: 0, already: 0, failed: 0 }),
+      () => {});
+    const statusEl = { textContent: '' };
+    return box.f(statusEl).then(() => ({ sent: sent, status: statusEl.textContent, box: box }));
+  }
+
+  /* ---- the three tabs, with the REAL field names ---- */
+  {
+    const book = [
+      { id: 'r', data: { name: 'Rae Recycle', needsLightRecycle: true } },
+      { id: 'c', data: { name: 'Cal Colour', needsLightBuild: true } },
+      { id: 'm', data: { name: 'Mae Maybe', maybeNextYear: true } },
+      { id: 'm2', data: { name: 'Moe Maybe', rsvpStatus: 'maybe_next_year' } },
+      { id: 'o', data: { name: 'Ola Ordinary' } }
+    ];
+    const r = await press(book, {});
+    const to = (t) => (r.sent.filter(x => x.tab === t)[0] || { rows: [] }).rows.map(x => x[0]);
+
+    check('S76', 'a customer needing a recycle goes to the Recycle tab',
+      to('Recycle').join() === 'Rae Recycle',
+      'the flag is needsLightRecycle — a predicate on an invented name matches ' +
+      'nobody and reports success for ever');
+    check('S76', 'a colour change goes to the Color Changes tab',
+      to('Color Changes').join() === 'Cal Colour',
+      'and that flag is needsLightBuild, because a colour change IS a fresh build');
+    check('S76', 'BOTH ways of saying maybe-next-year go to Contact 2027',
+      to('Contact 2027').join() === 'Mae Maybe,Moe Maybe',
+      'the flag and the RSVP answer mean the same thing to the office, and only ' +
+      'reading one of them silently loses half of them');
+    check('S76', 'and an ordinary customer goes nowhere',
+      !r.sent.some(x => x.rows.some(row => row[0] === 'Ola Ordinary')),
+      'these tabs are work lists; padding them wastes somebody' + '’' + 's day');
+    check('S76', 'the tab spelling matches the workbook, American and all',
+      r.box.tabs.map(t => t.tab).join('|') === 'Recycle|Color Changes|Contact 2027',
+      'a tab name is matched exactly, so "Colour Changes" writes nothing at all');
+  }
+
+  /* ---- nobody is written twice ---- */
+  {
+    const book = [
+      { id: 'r', data: { name: 'Rae Recycle', needsLightRecycle: true } },
+      { id: 'r2', data: { name: 'Sid Second', needsLightRecycle: true } }
+    ];
+    const b = {};
+    new Function(lift76('dupNormName') + 'this.f = dupNormName;').call(b);
+    const already = { Recycle: {} };
+    already.Recycle[b.f('Rae Recycle')] = true;
+    const r = await press(book, already);
+    const rows = (r.sent.filter(x => x.tab === 'Recycle')[0] || { rows: [] }).rows;
+    check('S76', 'somebody already on the tab is not sent again',
+      rows.length === 1 && rows[0][0] === 'Sid Second',
+      'the button is meant to be pressed whenever you notice something, so every ' +
+      'press must be safe — otherwise the tab grows a copy of the same person each time');
+  }
+
+  /* ---- one press does everything ---- */
+  {
+    const r = await press([], {}, { billTo: { linked: 3, ambiguous: 1, notOurs: 0, failed: 0 },
+                                    prepaid: { settled: 2, already: 0, failed: 0 } });
+    check('S76', 'the same press joins people to who pays for them',
+      /3 joined to who pays/.test(r.status));
+    check('S76', 'and marks the prepaid as paid',
+      /2 prepaid marked paid/.test(r.status),
+      'owner: "theres only one sync button because anything I dont want synced ' +
+      'will be manually fixed"');
+    check('S76', 'and says what it could NOT do',
+      /match more than one customer/.test(r.status),
+      'an ambiguous bill-to needs a human; a silent skip leaves an invoice ' +
+      'pointing at nobody and nothing on screen to say so');
+  }
+
+  /* ---- one failure never stops the rest ---- */
+  {
+    const book = [
+      { id: 'r', data: { name: 'Rae Recycle', needsLightRecycle: true } },
+      { id: 'c', data: { name: 'Cal Colour', needsLightBuild: true } }
+    ];
+    const r = await press(book, {}, { tabThrows: 'Recycle' });
+    check('S76', 'a tab that will not take a row does not stop the others',
+      r.sent.some(x => x.tab === 'Color Changes'),
+      'three tabs behind one button means one locked tab must not cost the other two');
+    check('S76', 'and the failure is named, with the reason',
+      /Recycle \(the tab is locked\)/.test(r.status), r.status);
+
+    const r2 = await press(book, {}, { noTab: 'Recycle' });
+    check('S76', 'a missing tab says which one is missing',
+      /Recycle \(no such tab\)/.test(r2.status), r2.status);
+  }
+
+  /* ---- and the two ways it cannot run at all ---- */
+  {
+    const r = await press([], {}, { supported: false });
+    check('S76', 'a browser that cannot write says so, and names the ones that can',
+      /Chrome or Edge/.test(r.status),
+      'File System Access is Chromium-only; "nothing happened" in Safari is not an answer');
+    check('S76', 'and nothing is attempted', r.sent.length === 0);
+
+    const r2 = await press([], {}, { connected: false });
+    check('S76', 'no sheet connected says where to connect it',
+      /Bulk Updates/.test(r2.status),
+      'the permission is per-device, so this is the message a new computer sees');
+
+    const r3 = await press([], {});
+    check('S76', 'and nothing to do says so rather than looking broken',
+      /Nothing new to send/.test(r3.status),
+      'a button that does nothing visible gets pressed again and again');
+  }
+})());
 pendingAsync.push((async () => {
   suite('Suite 75. Who pays, and who has already paid');
 
