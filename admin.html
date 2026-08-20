@@ -17526,7 +17526,7 @@ async function hlxPruneStateTabs(){
   const entries = await hlxUnzipAll(buf);
   const ss = await hlxWorkbookSharedStrings(entries);
   const dec = new TextDecoder(), enc = new TextEncoder();
-  const removed = [], strangers = [];
+  const removed = [], strangers = [], blocked = [];
   let touched = false;
 
   for(let t = 0; t < HLX_STATE_TABS.length; t++){
@@ -17560,8 +17560,13 @@ async function hlxPruneStateTabs(){
 
     const dataRows = els.length - 1;
     if(doomed.length > Math.ceil(dataRows * HLX_PRUNE_MAX_SHARE)){
-      strangers.push(tab.tab + ": " + doomed.length + " of " + dataRows +
-        " look wrong, which is too many to be true \u2014 nothing removed from that sheet");
+      /* ⚠ NOT A STRANGER. This is the guard declining to act, which is a different
+         thing from a name nobody recognises, and lumping them together produced the
+         report the owner got back: "2 row(s) left alone — no customer of that name",
+         when one of the two was twelve people the guard had refused to touch. A
+         message that names the wrong cause is worse than no message. */
+      blocked.push(tab.tab + ": " + doomed.length + " of " + dataRows +
+        " rows look wrong, which is too many for me to remove on my own");
       continue;
     }
     doomed.forEach(function(d){
@@ -17572,7 +17577,7 @@ async function hlxPruneStateTabs(){
     touched = true;
   }
 
-  if(!touched) return {removed: [], strangers: strangers};
+  if(!touched) return {removed: [], strangers: strangers, blocked: blocked};
 
   const rebuilt = await hlxZip(entries);
   /* The same verify the appender does: the customer list must come back untouched,
@@ -17587,7 +17592,7 @@ async function hlxPruneStateTabs(){
   const w = await handle.createWritable();
   await w.write(rebuilt);
   await w.close();
-  return {removed: removed, strangers: strangers};
+  return {removed: removed, strangers: strangers, blocked: blocked};
 }
 async function hlxUpdateCustomerInfo(statusEl){
   const say = function(t){ if(statusEl) statusEl.textContent = t; };
@@ -17625,8 +17630,16 @@ async function hlxUpdateCustomerInfo(statusEl){
     else if(pruned && pruned.removed && pruned.removed.length){
       done.push(pruned.removed.length + " taken off a sheet they no longer belong on");
     }
+    /* ⭐ SAY WHO. A count tells the office there is a problem and nothing about
+       what to do next; every one of these is one line long and there are never many. */
     if(pruned && pruned.strangers && pruned.strangers.length){
-      failed.push(pruned.strangers.length + " row(s) left alone \u2014 no customer of that name");
+      const shown = pruned.strangers.slice(0, 5).join(", ");
+      failed.push("left alone, no customer of that name: " + shown +
+        (pruned.strangers.length > 5 ? " and " + (pruned.strangers.length - 5) + " more" : ""));
+    }
+    if(pruned && pruned.blocked && pruned.blocked.length){
+      failed.push(pruned.blocked.join("; ") +
+        " \u2014 check the sheet, then take them off by hand if that is right");
     }
   } catch(err){ failed.push("tidying (" + ((err && err.message) || "failed") + ")"); }
 
