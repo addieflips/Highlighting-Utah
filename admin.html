@@ -17736,7 +17736,15 @@ async function hlxAddCustomerToSheet(d){
    ⚠ THE 2025 SHEET WINS ON CONTENT. It is the one being kept up to date; the side
    sheets are where somebody was moved TO. So the first copy seen is the one kept and
    the later one is dropped, rather than the other way round. */
-const HLX_SYNC_SHEETS = ["Yes", "Color Changes", "Recycle", "Contact 2027"];
+/* ⭐ WHICH SHEETS HOLD CUSTOMERS. Owner, 2026-08-20, shown Liz Frome offered as
+   somebody to add to the website: "liz frome should only exist in recycle not in all
+   customers."
+   ⚠ RECYCLE IS NOT ON THIS LIST, deliberately. Everywhere else in this file a
+   Recycle row means somebody who STOPPED being a customer — "people in recycle should
+   not exist as a customer" — so reading those rows as customer data and offering to
+   create them is undoing the removal, one press at a time. Yes, Color Changes and
+   Contact 2027 all hold people who ARE still customers, so they belong here. */
+const HLX_SYNC_SHEETS = ["Yes", "Color Changes", "Contact 2027"];
 function hlxRowIdentityKeys(row, col){
   const keys = [];
   const val = function(name){
@@ -18274,7 +18282,28 @@ function rbCollectMissingCustomers(){
                             read:function(i){
                               const v = txt(notesRaw, i);
                               return rbNotesLooksLikeColors(v) ? '' : v;
-                            }, same:plain}
+                            },
+                            /* ⭐ AND NEITHER IS THE OUTLET INSTRUCTION. Owner, shown
+                               Rachel Oslund reported as a Notes difference: the sheet held
+                               "On the north side of the porch there is an outlet up on the
+                               wave..." and the website appeared to hold nothing.
+                               It holds it in specificOutletNotes, which is where that
+                               sentence belongs. The SHEET has no column for it, so
+                               rbCustomerToSheetRow writes it into Notes on the way out —
+                               and then the comparison read it back and called it a change.
+                               A round trip that reports itself as a difference asks the
+                               office to fix something that is already right, for ever.
+                               ⚠ Compared against what we WOULD WRITE, not the raw field. */
+                            same:function(sheetVal, siteVal, cust){
+                              if(plain(sheetVal, siteVal)) return true;
+                              const d = (cust && cust.data) || {};
+                              const note = (String(d.specificOutlet || '').trim() === 'Yes')
+                                ? String(d.specificOutletNotes || '').trim() : '';
+                              if(!note) return false;
+                              const base = String(siteVal == null ? '' : siteVal).trim();
+                              const joined = base ? (base + ' — ' + note) : note;
+                              return plain(sheetVal, joined);
+                            }}
   ];
   const len = Math.max(streets.length, phones.length, namesRaw.length, nums.length);
   const rows = [], skipped = [], diffs = [], sheetOnly = [];
@@ -18345,7 +18374,9 @@ function rbCollectMissingCustomers(){
         const theirs = f.read(i);
         if(theirs === null || theirs === undefined || String(theirs).trim() === '') return;
         const mine = d[f.key];
-        if(f.same(mine, theirs)) return;
+        /* hit is passed so a field can compare against what we WOULD WRITE rather than
+           the raw value — see the Notes rule. */
+        if(f.same(mine, theirs, hit)) return;
         diffs.push({id: hit.id, row: i + 1, who: (d.name || who || street),
                     /* How this row found its customer, so a match made on a
                        weaker key than the address is visible before it is
@@ -33843,7 +33874,7 @@ function syncHousesFromCustomers(){
         const theirs = f.read(d);
         if(theirs === undefined || theirs === null || ('' + theirs).trim() === '') return;   // blank never wipes
         const mine = h[f.key];
-        const same = f.same ? f.same(mine, theirs) : (('' + (mine == null ? '' : mine)).trim() === ('' + theirs).trim());
+        const same = f.same ? f.same(mine, theirs, cust) : (('' + (mine == null ? '' : mine)).trim() === ('' + theirs).trim());
         if(same) return;
         changed.push({name: h.name || '(no name)', field: f.label,
                       from: (mine == null || ('' + mine).trim() === '') ? '(blank)' : ('' + mine), to: '' + theirs});

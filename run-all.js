@@ -16746,6 +16746,65 @@ pendingAsync.push((async () => {
  * what they had paid, all of it. The Recycle sheet row carries what fits in
  * seventeen columns; the archive carries the whole thing.
  * ------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+ * Suite 89. The outlet instruction is not a difference
+ *
+ * Owner, 2026-08-20, reading the comparison: Rachel Oslund reported under Notes
+ * with the sheet holding "On the north side of the porch there is an outlet up on
+ * the wave where the porch ceiling ends" and the website apparently holding nothing.
+ *
+ * The website holds it, in specificOutletNotes, which is where that sentence
+ * belongs. The SHEET has no column for it, so rbCustomerToSheetRow writes it into
+ * Notes on the way out — and then the comparison read it back and called it a
+ * change. A round trip that reports itself as a difference asks the office to fix
+ * something that is already right, every single time.
+ * ------------------------------------------------------------------------- */
+suite('Suite 89. The outlet instruction is not a difference');
+
+{
+  /* The Notes rule is a closure inside rbCollectMissingCustomers, so its `same` is
+     lifted out and run on its own. */
+  const src = extractFn(admin, 'rbCollectMissingCustomers');
+  const at = src.indexOf('same:function(sheetVal, siteVal, cust)');
+  const body = at < 0 ? '' : src.slice(at + 'same:'.length, src.indexOf('}}', at) + 1);
+  check('S89', 'the Notes rule was found to run', !!body);
+
+  if (body) {
+    const same = new Function('plain', 'return (' + body + ');')(
+      function(a, b){ return String(a == null ? '' : a).trim() === String(b == null ? '' : b).trim(); });
+
+    const NOTE = 'use lower outlet by door w/ timer';
+    const rachel = {data: {specificOutlet: 'Yes', specificOutletNotes: NOTE}};
+
+    check('S89', 'the sheet holding the outlet instruction is NOT a difference',
+      same(NOTE, '', rachel) === true,
+      'the website holds it in specificOutletNotes; the sheet has nowhere else to ' +
+      'put it, so this is the same fact written in the two shapes each side has');
+    check('S89', 'and neither is a real note with the instruction appended',
+      same('ladder round the back — ' + NOTE, 'ladder round the back', rachel) === true,
+      'that is exactly what rbCustomerToSheetRow writes, so it has to read back clean');
+
+    /* ⚠ AND A REAL DIFFERENCE IS STILL A DIFFERENCE. */
+    check('S89', 'a genuinely different note still reports',
+      same('park on the street', '', rachel) === false,
+      'the whole point of the comparison is finding these');
+    check('S89', 'and so does one where the site has something else entirely',
+      same('ladder round the back', 'gate is round the side', rachel) === false);
+    check('S89', 'a customer with no outlet instruction is unaffected',
+      same('something', '', {data: {}}) === false &&
+      same('same', 'same', {data: {}}) === true);
+    check('S89', 'and an instruction sitting behind a No does not excuse a difference',
+      same(NOTE, '', {data: {specificOutlet: 'No', specificOutletNotes: NOTE}}) === false,
+      'we never write that one to the sheet, so if it is there it came from somewhere else');
+  }
+
+  /* ⚠ AND THE CUSTOMER HAS TO REACH THE RULE. same() took two arguments; a third
+     that is always undefined would make this quietly do nothing. */
+  check('S89', 'the comparison passes the customer to the field rule',
+    (admin.match(/f\.same\(mine, theirs, (hit|cust)\)/g) || []).length === 2,
+    'both call sites, or one of them silently keeps reporting the false difference');
+}
+
 suite('Suite 88. A removed customer still exists, in the archive');
 
 {
@@ -17836,9 +17895,19 @@ pendingAsync.push((async () => {
     'this.zip = hlxZip; this.sheets = HLX_SYNC_SHEETS; this.keys = hlxRowIdentityKeys;'
   ).call(box);
 
-  check('S77', 'it reads the sheets the owner named',
-    box.sheets.join('|') === 'Yes|Color Changes|Recycle|Contact 2027',
+  /* ⭐ RECYCLE IS DELIBERATELY NOT HERE (changed 2026-08-20). Owner, shown Liz
+     Frome offered as somebody to add to the website: "liz frome should only exist
+     in recycle not in all customers." A Recycle row is somebody who STOPPED being
+     a customer, so reading those rows as customer data and offering to create them
+     undoes the removal one press at a time. The other three hold people who ARE
+     still customers. */
+  check('S77', 'it reads the sheets that hold customers',
+    box.sheets.join('|') === 'Yes|Color Changes|Contact 2027',
     'these are the tab names in her workbook, matched exactly');
+  check('S77', 'and NOT the Recycle sheet',
+    box.sheets.indexOf('Recycle') === -1,
+    'those people were removed on purpose; offering to add them back is the ' +
+    'comparison arguing with the delete button');
 
   /* ⚠ AND THE COMPARISON HAS TO CALL IT. A red-check put hlxWorkbookRows back in
      hlxLoadConnectedSheet and every test above still passed, because they all call
