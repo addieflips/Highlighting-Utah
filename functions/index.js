@@ -1771,11 +1771,18 @@ exports.quoteRespond = onCall({ cors: true }, async (request) => {
      they still read as "pending" and got chased by an RSVP email asking them to
      confirm a season they had just confirmed. Owner asked for that to stop.
 
-     ⚠ ONLY WHEN IT IS BLANK. A recorded "no" or "back next year" is a
+     ⚠ ONLY WHEN NOBODY HAS ANSWERED. A recorded “no” or “back next year” is a
      deliberate answer, and quietly flipping it to yes would put somebody back
      on a route they had cancelled — and leave needsLightRecycle set behind
      them, so the record would say two opposite things at once. An explicit
      answer always outranks one inferred from a price.
+
+     ⭐ “UNANSWERED” COUNTS AS NOBODY HAVING ANSWERED (added 2026-08-20, when that
+     status arrived). It is not a reply — it means we asked and they have not got
+     back to us, and right before an RSVP round every single customer is moved to
+     it. A blank-only test would therefore have stopped marking ANYONE from the
+     first reset onwards, and the symptom would be the exact complaint this code
+     was written to fix: members chased for a season they had just paid to join.
 
      ⚠ AND ONLY FOR SOMEBODY WHO IS ALREADY A CUSTOMER. A new lead has no
      season to be in yet; they become one when the office converts them.
@@ -1784,8 +1791,8 @@ exports.quoteRespond = onCall({ cors: true }, async (request) => {
      already recorded, and failing it here would make the customer ring up
      about a price they successfully accepted. */
   if (action === 'approve' && memberRef) {
-    const currentRsvp = String((memberRef.data || {}).rsvpStatus || '').trim();
-    if (!currentRsvp) {
+    const currentRsvp = String((memberRef.data || {}).rsvpStatus || '').trim().toLowerCase();
+    if (!currentRsvp || currentRsvp === 'unanswered') {
       try {
         await db.collection('jobAddresses').doc(memberRef.id).update({
           rsvpStatus: 'yes',

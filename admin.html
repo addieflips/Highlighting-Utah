@@ -1819,7 +1819,17 @@
           <div class="ec-grid">
             <div class="form-row"><label>RSVP Status</label>
               <select id="editCustRsvp">
-                <option value="">Pending (no response yet)</option>
+                <!-- ⭐ UNANSWERED IS NOT THE SAME AS PENDING. Owner, 2026-08-20:
+                     "right now there is a tag for maybe next year, and another for
+                     confirmed, add a third for unanswered."
+                     Blank means nobody has ever asked them — a record just created.
+                     Unanswered means we DID ask, this season, and they have not
+                     replied. Keeping them apart is the whole point: after a reset,
+                     everybody is explicitly unanswered instead of carrying last
+                     year’s Yes, which is what makes a stale Yes impossible to
+                     mistake for this year’s. -->
+                <option value="">Pending (never asked)</option>
+                <option value="unanswered">Unanswered (asked, no reply yet)</option>
                 <option value="yes">Yes &mdash; Hanging Lights</option>
                 <option value="no">No &mdash; Skip This Year</option>
                 <option value="backnextyear">Back Next Year</option>
@@ -2490,6 +2500,25 @@
       <!-- INVENTORY -->
       <!-- RSVP RESPONSES -->
       <div class="route-tab-panel" id="dashtab-rsvpresponses">
+        <!-- ⭐ START A NEW ROUND. Owner, 2026-08-20: "right before we RSVP we need to
+             move everyone to unanswered", and "no one should have that tag yet cause we
+             still need to test." So the button exists and has never been pressed.
+             It lives HERE, beside the RSVP counts, because that is the screen somebody
+             is already looking at when they are about to send. -->
+        <div style="border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:14px; background:var(--paper);">
+          <div style="font-weight:700; font-size:13.5px; margin-bottom:4px;">Start a new RSVP round</div>
+          <div style="font-size:12px; color:var(--slate); margin-bottom:8px;">
+            Moves <strong>everybody</strong> to Unanswered so last year&rsquo;s Yes cannot be
+            mistaken for this year&rsquo;s. Press it once, right before the RSVP goes out.
+            Maybe Next Year and the warehouse&rsquo;s recycle queue are left exactly as they are
+            &mdash; those are facts about lights, not answers to a question.
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+            <input type="text" id="rsvpResetConfirmInput" placeholder="Type RESET to unlock" style="padding:9px 11px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:13px;">
+            <button id="rsvpResetBtn" class="secondary" disabled style="opacity:.4;">Move everyone to Unanswered</button>
+            <span class="who" id="rsvpResetStatus"></span>
+          </div>
+        </div>
         <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px;" id="dashRsvpStatCards"></div>
         <div class="form-grid-3" style="margin-bottom:12px; gap:8px;">
           <div class="form-row" style="margin:0;"><label style="font-size:11.5px;">Search by Name</label><input type="text" id="dashRsvpSearch" placeholder="Search by name..." style="padding:10px 12px; border-radius:10px; border:1px solid var(--line); background:var(--snow); font-size:13.5px;"></div>
@@ -2549,6 +2578,11 @@
               <button type="button" class="btn btn-gold btn-sm" id="applyInvFilterBtn" style="width:100%; margin-top:10px;">Apply</button>
             </div>
             <span id="invFilterSummary" style="font-size:12.5px; color:var(--slate);"></span>
+            <!-- ⚠ ARCHIVED = the customer is gone, the money is not. These are invoices
+                 with nobody left to bill: deleted, or their phone changed. Nothing is
+                 ever deleted, because that would destroy a payment record - they are
+                 just out of the way. Every figure on them still counts everywhere else. -->
+            <label style="display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--slate);"><input type="checkbox" id="invShowArchived"> Show archived (no customer)</label>
           </div>
           <div class="row-list" id="invoicesList"><div class="empty-note">Loading…</div></div>
         </div>
@@ -2844,7 +2878,7 @@
                 <option value="yes">Yes</option>
                 <option value="no">No</option>
                 <option value="backnextyear">Back Next Year</option>
-                <option value="pending">Pending</option>
+                <option value="pending">Not answered yet (incl. Unanswered)</option>
               </select>
             </div>
             <div class="form-row" style="margin:0;"><label style="font-size:11.5px;">Billing group</label>
@@ -10515,6 +10549,15 @@ function billingGroupKeyLabel(key){
 let etFilterGateCode = 'all';
 let etFilterPayment = 'all';
 let etFilterRsvp = 'all';
+/* ⭐ HAS THIS CUSTOMER ANSWERED? Blank means nobody has asked them; "unanswered"
+   means we asked and they have not replied. Neither is an answer, and both belong in
+   the audience for a chase. Kept in one function because the same question is asked
+   in more than one place and the copy that gets missed is the one that silently
+   sends to nobody. */
+function etRsvpAnswered(d){
+  const t = String((d || {}).rsvpStatus || '').trim().toLowerCase();
+  return !!t && t !== 'unanswered';
+}
 let etFilterPaidLast = 'all';
 let etFilterOrderedLast = 'all';
 let etFilterNew = 'all';
@@ -10543,7 +10586,14 @@ function etRenderRecipientList(){
   if(etFilterRsvp === 'yes') members = members.filter(m => m.data.rsvpStatus === 'yes');
   else if(etFilterRsvp === 'no') members = members.filter(m => m.data.rsvpStatus === 'no');
   else if(etFilterRsvp === 'backnextyear') members = members.filter(m => m.data.rsvpStatus === 'backnextyear');
-  else if(etFilterRsvp === 'pending') members = members.filter(m => !m.data.rsvpStatus);
+  /* ⚠ NOBODY ANSWERED YET = BLANK **OR** UNANSWERED (fixed 2026-08-20, the same day
+     the third status arrived and before either had been used in anger).
+     This read `!rsvpStatus` alone. "Move everyone to Unanswered" is pressed RIGHT
+     BEFORE the RSVP goes out, and after it nobody is blank — so choosing Pending as
+     the audience would have matched ZERO people and the RSVP would have gone to
+     nobody at all, on the one send where the whole list needs it.
+     A send to nobody looks exactly like a send that worked. */
+  else if(etFilterRsvp === 'pending') members = members.filter(m => !etRsvpAnswered(m.data));
   // Paid last year (from last season's saved snapshot)
   if(etFilterPaidLast === 'paid') members = members.filter(m => audiencePaidLastYear(m.data) === 'paid');
   else if(etFilterPaidLast === 'unpaid') members = members.filter(m => audiencePaidLastYear(m.data) === 'unpaid');
@@ -12059,7 +12109,13 @@ function renderInvoicesList(){
      past. Clicking filters the list down to just those. */
   renderReceiptErrorBanner();
   if(!allInvoicesCache.length){ list.innerHTML = '<div class="empty-note">No invoices yet.</div>'; return; }
-  let filtered = allInvoicesCache;
+  /* ⚠ ARCHIVED ONES ARE HIDDEN, NOT GONE. They still sit in allInvoicesCache, so
+     every keyed lookup and every money total behaves exactly as before — this is a
+     view filter and nothing more. Ticking the box brings them back. */
+  const showArch = document.getElementById("invShowArchived");
+  let filtered = (showArch && showArch.checked)
+    ? allInvoicesCache
+    : allInvoicesCache.filter(function(item){ return !(item.data || {}).archived; });
   if(invoiceSearchTerm){
     const t = invoiceSearchTerm.toLowerCase();
     filtered = filtered.filter(item => (item.data.name||'').toLowerCase().indexOf(t) !== -1);
@@ -12079,7 +12135,7 @@ function renderInvoicesList(){
     const rsvp = custRsvpStatusForPhone(d.phone || item.id);
     const rsvpPill = rsvp === 'yes' ? ' <span class="status-pill" style="background:#E6F2EA; color:#2E6B3E;">RSVP: Yes</span>'
       : rsvp === 'no' ? ' <span class="status-pill" style="background:#FDECEA; color:#E0574B;">RSVP: No</span>'
-      : ' <span class="status-pill" style="background:var(--paper); color:var(--slate);">RSVP: Pending</span>';
+      : ' <span class="status-pill" style="background:var(--paper); color:var(--slate);">RSVP: ' + rsvpStatusLabel(rsvp) + '</span>';
     const billedHouses = (d.billedHouseIds||[]).map(function(hid){
       const h = jobAddresses.find(a => a.id === hid);
       if(!h) return '';
@@ -16358,16 +16414,26 @@ function rbRowSaysPrepaid(values){
   return (values || []).some(function(v){
     const t = String(v == null ? "" : v).trim().toLowerCase();
     if(!t) return false;
-    /* ⚠ THE WORD HAS TO MEAN IT. "not prepaid" and "prepaid?" are somebody thinking
-       aloud, and reading either as money received is the wrong way to be wrong. */
-    if(/\b(not|non|un)[\s-]*pre[\s-]*paid\b/.test(t)) return false;
-    if(/pre[\s-]*paid\s*\?/.test(t)) return false;
-    return /\bpre[\s-]*paid\b/.test(t);
+    /* ⭐ "PAID" IS ENOUGH, not only "prepaid" (changed 2026-08-20). Owner, shown
+       four cells reading "paid", "Paid" and "paid 2025": "we are using this as a test
+       right now so youre right they havent paid for 2026 but we still want them to
+       change to paid... if it says paid anywhere they should just be marked as paid
+       for this year." The season in the cell is deliberately NOT read.
+       ⚠ THE WORD STILL HAS TO MEAN IT, and this is the one direction that must not
+       be wrong: marking somebody paid who is not writes off money the business is
+       owed, and nobody chases an invoice that says settled. "unpaid" fails the word
+       boundary by itself; the rest are named. */
+    if(/\b(not|non|un)[\s-]*(pre[\s-]*)?paid\b/.test(t)) return false;
+    if(/(pre[\s-]*)?paid\s*\?/.test(t)) return false;
+    /* "to be paid", "needs to be paid", "will be paid", "has not paid" — every one of
+       these says the money has NOT arrived. */
+    if(/\b(to|be|will|would|should|must|need|needs|needed|not|never|hasn|havent|haven)\b[^.]{0,14}\bpaid\b/.test(t)) return false;
+    return /\b(pre[\s-]*)?paid\b/.test(t);
   });
 }
 function rbMiscParse(raw){
   const text = String(raw == null ? "" : raw).trim();
-  const out = {billToName: "", billToEmail: "", mailBill: false, textBill: false, gateCode: "", sides: 0, leftover: "", used: false};
+  const out = {billToName: "", billToEmail: "", mailBill: false, textBill: false, gateCode: "", sides: 0, prepaid: false, leftover: "", used: false};
   if(!text) return out;
   const low = text.toLowerCase();
 
@@ -16423,6 +16489,15 @@ function rbMiscParse(raw){
   /* And the side count, through the same reader the Notes column uses. */
   const sides = rbSidesFromNote(text);
   if(sides){ out.sides = sides; out.used = true; }
+
+  /* ⭐ A CELL THAT SAYS PAID IS A TAG, NOT A NOTE (added 2026-08-20). Owner: "we
+     dont want it in notes we want their tag to change." It used to fall through to
+     leftover, so "paid 2025" arrived as a line of prose nobody acts on while the
+     customer went on showing as owing. Claimed through the SAME reader the import
+     runs over every column, so Misc cannot disagree with the rest about what paid
+     means. */
+  if(rbRowSaysPrepaid([text])){ out.prepaid = true; out.used = true; }
+
   if(!out.used) out.leftover = text;
   return out;
 }
@@ -16461,14 +16536,20 @@ function rbGateCodeFromText(raw){
      that." On the real sheet alone: "JAN GATE CODE 851409", "Gate Code 6321",
      "gate #5225", "code #0624", "Gate:code: 123456". The word, any punctuation or
      none, then the digits.
-     ⚠ A MARKER IS STILL REQUIRED. Bare digits are left alone — "51500" in Misc could
-     be a price or a footage, and putting it on a crew card as a gate code is worse
-     than leaving it where a person can read it. */
+     ⭐ AND A CELL THAT IS NOTHING BUT A NUMBER IS ONE TOO (changed 2026-08-20).
+     This used to require a marker, reasoning that "51500" could be a price or a
+     footage and that a wrong number on a crew card is worse than a note nobody
+     reads. Asked directly what the two bare numbers on her sheet were meant to be,
+     the owner said: "assume its gate codes".
+     ⚠ ONLY when the WHOLE cell is digits. A number inside a sentence is a price, a
+     year or a house number far more often than it is a code. The 3-digit floor is
+     what keeps a bare "3" out — that is a side count and rbSidesFromNote owns it. */
   const m = text.match(/(?:gate|gatecode|code)\b[^0-9]{0,20}(\d{3,})/i);
   if(m) return m[1];
   /* A number wearing a # and nothing else: "#2015", "6736#". */
   const h = text.match(/^#\s*(\d{3,})$|^(\d{3,})\s*#$/);
   if(h) return h[1] || h[2];
+  if(/^[0-9]{3,}$/.test(text)) return text;
   return "";
 }
 function rbSidesFromNote(raw){
@@ -17064,8 +17145,34 @@ const HLX_STATE_TABS = [
    holds: function(d){ return !!d.needsLightRecycle; }},
   {tab: "Color Changes", label: "colour changes",
    holds: function(d){ return !!d.needsLightBuild; }},
+  /* ⭐ CONFIRMED GOES TO THE YES SHEET, NOT THE 2025 ONE (added 2026-08-20). Owner:
+     "we dont need to map confirmed in excel either that will be done in the website but
+     everyone who is confirmed after we RSVP will need to go to the Yes tab in excel not
+     the 2025 one." So Confirmed is not a COLUMN anywhere - it is a sheet, exactly like
+     Recycle and Contact 2027, and this is the list the office works from once the
+     answers are in.
+     ⚠ It reads rsvpStatus "yes", which is what both writers really set: portalRsvp
+     from the RSVP link and the office dropdown. Nobody has that answer yet on purpose -
+     everybody is being moved to Unanswered first. */
+  {tab: "Yes", label: "confirmed",
+   /* ⚠ ANSWERED YES, NOT ASSUMED YES. Owner: "everyone who is confirmed AFTER we
+      RSVP will need to go to the Yes tab." Converting a quote writes rsvpStatus "yes"
+      at creation with no rsvpRespondedAt — the office knows they want lights, but
+      nobody has asked them about THIS season yet. On the status alone, the first
+      press of Update customer info would have emptied most of the customer list into
+      the Yes sheet before a single RSVP had been sent.
+      rsvpRespondedAt is the difference, and every route that takes a real answer
+      stamps it. The reset clears it, so a new round starts with the sheet quiet. */
+   holds: function(d){ return String(d.rsvpStatus || "").toLowerCase() === "yes" && !!d.rsvpRespondedAt; }},
   {tab: "Contact 2027", label: "maybe next year",
-   holds: function(d){ return !!d.maybeNextYear || d.rsvpStatus === "maybe_next_year"; }}
+   /* ⚠ THE STATUS IS "backnextyear". "maybe_next_year" was written here and NOTHING
+      sets it on a customer — that is the QUOTE field (approvalStatus). A customer who
+      answered Back Next Year through the RSVP link gets the status but NOT the
+      maybeNextYear flag: portalRsvp writes the status alone, and only the office
+      button writes both. So those people matched neither half of this test and never
+      reached the tab. Both are read now — the flag is what the office sets and sees,
+      the status is what the customer answered. */
+   holds: function(d){ return !!d.maybeNextYear || String(d.rsvpStatus || "").toLowerCase() === "backnextyear"; }}
 ];
 async function hlxNamesAlreadyOnTab(tabName){
   const handle = await hlxSheetHandleLoad();
@@ -17377,6 +17484,133 @@ document.getElementById("updateCustInfoBtn")?.addEventListener("click", onceAtAT
 async function hlxAddCustomerToSheet(d){
   return hlxAppendRowsToSheet([rbCustomerToSheetRow(d)]);
 }
+/* ⭐ THE CUSTOMER LIST IS NOT ONE SHEET. Owner, 2026-08-20:
+     "in the excel 2025 it syncs to customers but if they are in color change or
+      contact 2027 it wont detect them and so information wont go back and forth
+      between website and excel, if they are located in both the 2025 sheet and
+      contact 2027 then dont add a second customer but we need to make sure that
+      they are still synced as well"
+
+   The comparison read sheet one and nothing else, so a customer who had been moved
+   to Contact 2027 or Color Changes looked to it like somebody who had left the
+   business. It would offer to ADD them back as a new customer, and any change to
+   their details never travelled in either direction.
+
+   Every one of those sheets carries the SAME columns as the 2025 one — checked
+   against the real workbook, all four line up header for header — so they are read
+   with the same reader and stacked, not parsed a second way.
+
+   ⚠ A PERSON ON TWO SHEETS IS ONE PERSON. "dont add a second customer." A row
+   from a side sheet is dropped when the same person is already in the list, matched
+   the way the rest of this file matches people: customer number, then name with a
+   phone, then name with a street. They are still SYNCED — they are in the list, once.
+
+   ⚠ THE 2025 SHEET WINS ON CONTENT. It is the one being kept up to date; the side
+   sheets are where somebody was moved TO. So the first copy seen is the one kept and
+   the later one is dropped, rather than the other way round. */
+const HLX_SYNC_SHEETS = ["Yes", "Color Changes", "Recycle", "Contact 2027"];
+function hlxRowIdentityKeys(row, col){
+  const keys = [];
+  const val = function(name){
+    const i = col[name];
+    return i == null ? "" : String(row[i] == null ? "" : row[i]).trim();
+  };
+  const nm = dupNormName(val("Name"));
+  const num = val("CU #").replace(/[^0-9]/g, "");
+  const phone = val("Phone").replace(/[^0-9]/g, "");
+  const street = typeof normalizeStreetForMatch === "function"
+    ? normalizeStreetForMatch(val("Address"))
+    : val("Address").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  /* ⚠ THE NUMBER NEVER STANDS ALONE, and this file already knew it: “A NUMBER
+     NEVER OUTRANKS A NAME THAT DISAGREES”, a few hundred lines down. It was written
+     as a key on its own here anyway, with a comment arguing that both rows come out
+     of the same workbook so the office controls the numbers.
+     The real workbook disagreed inside a minute. Liz Frome WAS on the Recycle sheet
+     holding #5012, which Staci Cosby also holds on the 2025 sheet — a clash Health
+     Check has reported for days. So Liz was read as somebody already in the list and
+     dropped: the exact person this whole change exists to stop losing.
+     Requiring the NAME to agree too costs nothing. Two spellings of one person with
+     the same number arrive twice, which somebody can see and merge. A number
+     collision deletes a customer silently, which nobody can see at all. */
+  if(num && nm) keys.push("n:" + nm + ":" + num);
+  if(nm && phone) keys.push("p:" + nm + ":" + phone);
+  if(nm && street) keys.push("s:" + nm + ":" + street);
+  /* A name with neither a phone nor a street still has to be recognisable, or the
+     same person sitting on two sheets with only a name arrives twice. */
+  if(nm && !phone && !street && !num) keys.push("b:" + nm);
+  return keys;
+}
+async function hlxWorkbookRowsAllSheets(file){
+  const buf = await file.arrayBuffer();
+  const entries = await hlxUnzipAll(buf);
+  const ss = await hlxWorkbookSharedStrings(entries);
+  const dec = new TextDecoder();
+  const main = entries.filter(function(e){ return /^xl\/worksheets\/sheet1\.xml$/.test(e.name); })[0];
+  if(!main) throw new Error("That workbook has no readable sheet.");
+  const rows = hlxReadSheet(dec.decode(main.data), ss);
+  if(!rows.length) return {rows: rows, added: 0, fromSheets: {}};
+
+  const header = (rows[0] || []).map(function(v){ return String(v == null ? "" : v).trim(); });
+  const col = {};
+  header.forEach(function(h, i){ if(h && col[h] == null) col[h] = i; });
+  if(col["Name"] == null) return {rows: rows, added: 0, fromSheets: {}};
+
+  const claimed = {};
+  /* ⭐ AND HOW MANY PEOPLE ANSWER TO EACH NAME. A side sheet row often carries a
+     name and nothing else — somebody was MOVED there, and only the name got typed.
+     That name almost always belongs to a person already in the list, so matching on
+     it is what keeps them from arriving twice.
+     ⚠ ONLY WHEN THE NAME IS UNIQUE. Six names on the real 2025 sheet belong to two
+     different rows. Where a name is ambiguous this file has one answer already, a
+     few hundred lines down: "Two candidates is not a weaker match, it is no match".
+     So an ambiguous bare name is KEPT and shows up in the comparison, where a person
+     decides. Dropping it would delete a customer to tidy a list. */
+  const nameCount = {};
+  for(let i = 1; i < rows.length; i++){
+    hlxRowIdentityKeys(rows[i] || [], col).forEach(function(k){ claimed[k] = true; });
+    const nm = dupNormName(String((rows[i] || [])[col["Name"]] || ""));
+    if(nm) nameCount[nm] = (nameCount[nm] || 0) + 1;
+  }
+
+  const fromSheets = {};
+  let added = 0;
+  for(let t = 0; t < HLX_SYNC_SHEETS.length; t++){
+    const tab = HLX_SYNC_SHEETS[t];
+    const part = hlxSheetPartFor(entries, tab);
+    if(!part) continue;
+    const side = hlxReadSheet(dec.decode(part.data), ss);
+    if(side.length < 2) continue;
+    /* Line the side sheet up by HEADER NAME, never by position. They happen to
+       match today; a column inserted into one of them tomorrow would otherwise
+       shift every value one place to the left, silently. */
+    const sideHeader = (side[0] || []).map(function(v){ return String(v == null ? "" : v).trim(); });
+    const sideCol = {};
+    sideHeader.forEach(function(h, i){ if(h && sideCol[h] == null) sideCol[h] = i; });
+    if(sideCol["Name"] == null) continue;
+    fromSheets[tab] = 0;
+    for(let r = 1; r < side.length; r++){
+      const sr = side[r] || [];
+      if(!String(sr[sideCol["Name"]] == null ? "" : sr[sideCol["Name"]]).trim()) continue;
+      /* Rebuild the row in the MAIN sheet’s column order. */
+      const out = [];
+      header.forEach(function(h, i){
+        const j = sideCol[h];
+        out[i] = (j == null) ? "" : sr[j];
+      });
+      const keys = hlxRowIdentityKeys(out, col);
+      if(keys.some(function(k){ return claimed[k]; })) continue;
+      /* Nothing but a name to go on: one person of that name in the list means it is
+         them; two means nobody can say which, so they stay visible. */
+      const bare = keys.length === 1 && keys[0].indexOf("b:") === 0;
+      if(bare && nameCount[keys[0].slice(2)] === 1) continue;
+      keys.forEach(function(k){ claimed[k] = true; });
+      rows.push(out);
+      fromSheets[tab]++;
+      added++;
+    }
+  }
+  return {rows: rows, added: added, fromSheets: fromSheets};
+}
 async function hlxWorkbookRows(file){
   const z = await hlxUnzip(await file.arrayBuffer());
   const dec = new TextDecoder();
@@ -17467,7 +17701,10 @@ async function hlxLoadConnectedSheet(ask){
   const state = await hlxSheetPermission(handle, !!ask);
   if(state !== "granted") return {rows: 0, reason: "permission", name: handle.name || ""};
   const file = await handle.getFile();
-  const rows = await hlxWorkbookRows(file);
+  /* ⚠ EVERY SHEET, not just the first. A customer moved to Contact 2027 is still a
+     customer, and reading one sheet made them look like somebody who had left. */
+  const all = await hlxWorkbookRowsAllSheets(file);
+  const rows = all.rows;
   const box = document.getElementById("rbSheetArea");
   if(box){
     box.value = hlxRowsToTsv(rows);
@@ -17485,7 +17722,10 @@ async function hlxLoadConnectedSheet(ask){
     return !!(el && el.value && el.value.split("\n").filter(function(l){ return l.trim(); }).length);
   };
   const usable = filled("rbNamesArea") && (filled("rbStreetsArea") || filled("rbPhonesArea"));
-  return {rows: rows.length, name: handle.name || "", when: file.lastModified || 0, usable: usable};
+  /* Say where the extra rows came from. "962 rows" when the sheet has 940 reads as a
+     miscount unless it also says 22 of them were on the side sheets. */
+  return {rows: rows.length, name: handle.name || "", when: file.lastModified || 0,
+          usable: usable, added: all.added, fromSheets: all.fromSheets};
 }
 /* ⭐ FOUR WAYS TO RECOGNISE THE SAME PERSON, STRONGEST FIRST.
    Owner, 2026-08-18, reading a list of customers the comparison said were not
@@ -22278,6 +22518,18 @@ let dashRsvpFilter = 'all';
 let dashRsvpSearchTerm = '';
 let dashRsvpFilterGateCode = 'all';
 let dashRsvpFilterPayment = 'all';
+/* ⭐ ONE PLACE DECIDES WHAT AN RSVP TAG IS CALLED. Three screens spelled this out
+   by hand, so adding a fourth status meant finding all three — and the one that was
+   missed would show the new tag as "Pending", which is the status it exists to be
+   distinguished from. */
+function rsvpStatusLabel(v){
+  const t = String(v == null ? '' : v).toLowerCase();
+  if(t === 'yes') return 'Yes';
+  if(t === 'no') return 'No';
+  if(t === 'backnextyear') return 'Back Next Year';
+  if(t === 'unanswered') return 'Unanswered';
+  return 'Pending';
+}
 function renderDashRsvpPanel(){
   const cardsEl = document.getElementById('dashRsvpStatCards');
   const listEl = document.getElementById('dashRsvpList');
@@ -22286,11 +22538,16 @@ function renderDashRsvpPanel(){
   const yesList = withPhoneOrName.filter(a => a.data.rsvpStatus === 'yes');
   const noList = withPhoneOrName.filter(a => a.data.rsvpStatus === 'no');
   const backList = withPhoneOrName.filter(a => a.data.rsvpStatus === 'backnextyear');
+  const unansweredList = withPhoneOrName.filter(a => a.data.rsvpStatus === 'unanswered');
   const pendingList = withPhoneOrName.filter(a => !a.data.rsvpStatus);
+  /* ⚠ UNANSWERED IS ITS OWN CARD, not folded into Pending. Folding them together
+     hides the number that matters after a send: how many people were ASKED and have
+     not replied. Pending is the ones nobody has asked at all. */
   const cardDefs = [
     {key:'yes', label:'Yes', list:yesList, color:'#2E6B3E'},
     {key:'no', label:'No', list:noList, color:'#9A2A1F'},
     {key:'backnextyear', label:'Back Next Year', list:backList, color:'#8a6d1f'},
+    {key:'unanswered', label:'Unanswered', list:unansweredList, color:'#8a6d1f'},
     {key:'pending', label:'Pending', list:pendingList, color:'#5b6472'}
   ];
   cardsEl.innerHTML = cardDefs.map(function(c){
@@ -22321,7 +22578,7 @@ function renderDashRsvpPanel(){
   }
   listEl.innerHTML = activeList.map(function(item){
     const d = item.data;
-    const statusLabel = d.rsvpStatus === 'yes' ? 'Yes' : (d.rsvpStatus === 'no' ? 'No' : (d.rsvpStatus === 'backnextyear' ? 'Back Next Year' : 'Pending'));
+    const statusLabel = rsvpStatusLabel(d.rsvpStatus);
     const statusColor = d.rsvpStatus === 'yes' ? '#2E6B3E' : (d.rsvpStatus === 'no' ? '#9A2A1F' : (d.rsvpStatus === 'backnextyear' ? '#8a6d1f' : '#5b6472'));
     const respondedLine = d.rsvpRespondedAt ? '<div class="rtext">Responded '+fmtDate(d.rsvpRespondedAt)+'</div>' : '';
     const payStatus = getLiveInvoiceStatus(d.phone);
@@ -23580,6 +23837,56 @@ function findAddressMatchByTown(street, phone, city, zip){
     return true;
   });
 }
+/* ⭐ MOVE EVERYBODY TO UNANSWERED. Owner: "right before we RSVP we need to move
+   everyone to unanswered."
+   ⚠ IT TOUCHES THE ANSWER AND NOTHING ELSE. needsLightRecycle is the warehouse
+   queue — if somebody said no last year their lights really were taken apart, and
+   clearing that flag would tell the warehouse to un-do work it has already done.
+   maybeNextYear is the Contact 2027 list and is a decision, not a reply. Both survive
+   a reset, which is also why resetting cannot accidentally drag somebody who is out
+   of the season back into it: isOutForSeason reads the FLAG, not the answer.
+   ⚠ TYPE-TO-UNLOCK, like every other mass write here. It overwrites an answer a
+   customer gave, which cannot be got back by pressing it again. */
+document.getElementById('rsvpResetConfirmInput')?.addEventListener('input', function(){
+  const btn = document.getElementById('rsvpResetBtn');
+  const unlocked = this.value === 'RESET';
+  btn.disabled = !unlocked;
+  btn.style.opacity = unlocked ? '1' : '.4';
+});
+document.getElementById('rsvpResetBtn')?.addEventListener('click', async function(){
+  const statusEl = document.getElementById('rsvpResetStatus');
+  const who = (jobAddresses || []).filter(function(a){
+    return String((a.data || {}).rsvpStatus || '') !== 'unanswered';
+  });
+  if(!who.length){ statusEl.textContent = 'Everybody is already Unanswered.'; return; }
+  /* Say what is about to be thrown away, in the words on the cards above. */
+  const tally = {};
+  who.forEach(function(a){
+    const k = rsvpStatusLabel((a.data || {}).rsvpStatus);
+    tally[k] = (tally[k] || 0) + 1;
+  });
+  const lines = Object.keys(tally).map(function(k){ return '  ' + tally[k] + ' ' + k; }).join('\n');
+  if(!confirm('Move ' + who.length + ' customer(s) to Unanswered?\n\n' + lines +
+    '\n\nTheir answers from last season are overwritten and cannot be got back. ' +
+    'Maybe Next Year and the recycle queue are left alone.')) return;
+  let done = 0, failed = 0;
+  for(const item of who){
+    statusEl.textContent = 'Moving ' + (done + failed + 1) + ' of ' + who.length + '…';
+    try{
+      await updateDoc(doc(db, 'jobAddresses', item.id), {
+        rsvpStatus: 'unanswered', rsvpRespondedAt: null });
+      item.data.rsvpStatus = 'unanswered';
+      item.data.rsvpRespondedAt = null;
+      done++;
+    } catch(err){ failed++; }
+  }
+  if(done) logActivity('Started a new RSVP round: ' + done + ' customer(s) moved to Unanswered', 'customers', '');
+  statusEl.textContent = done + ' moved to Unanswered' + (failed ? ', ' + failed + ' could not be' : '') + '.';
+  document.getElementById('rsvpResetConfirmInput').value = '';
+  document.getElementById('rsvpResetBtn').disabled = true;
+  document.getElementById('rsvpResetBtn').style.opacity = '.4';
+  try{ renderDashRsvpPanel(); } catch(err){}
+});
 document.getElementById('deleteAllConfirmInput').addEventListener('input', function(){
   const btn = document.getElementById('deleteAllAddressesBtn');
   const unlocked = this.value === 'DELETE';
@@ -23894,7 +24201,11 @@ function allCustRowHtml(r){
        replaces "Billed to X" — under X's own header, saying it again is noise. */
     const childInvCell = '<span style="color:var(--slate); font-size:12px;">'+
       (r.groupIsPayerHouse ? 'Own house' : 'On this bill')+' &middot; <strong style="color:var(--ink);">'+esc(fmtMoney(Number(r.d.housePrice)||0))+'</strong></span>';
-    const rsvpLabel = r.d.rsvpStatus === 'yes' ? 'RSVP: Yes' : (r.d.rsvpStatus === 'no' ? 'RSVP: No' : (r.d.rsvpStatus === 'backnextyear' ? 'RSVP: Back Next Year' : 'RSVP: Pending'));
+    /* Their wording, kept: rsvpStatusLabel knows about "Unanswered", which this
+       inline ternary did not — it would have shown an unanswered house as
+       Pending, which is a different thing and is what the other session's work
+       exists to separate. Ported across when the row renderer was extracted. */
+    const rsvpLabel = 'RSVP: ' + rsvpStatusLabel(r.d.rsvpStatus);
     const rsvpColor = r.d.rsvpStatus === 'yes' ? '#2E6B3E' : (r.d.rsvpStatus === 'no' ? '#E0574B' : (r.d.rsvpStatus === 'backnextyear' ? '#D89F3D' : 'var(--slate)'));
     /* The date sits directly under the route status it explains — "Scheduled"
        on its own never said what day. Put in the EXISTING Route cell rather
@@ -24650,6 +24961,17 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        A pending recycle is still cancelled if they move off no — nothing was
        pulled yet — which is the behaviour that has always been there. */
     const oldRsvpForRecycle = String(item.data.rsvpStatus || '').toLowerCase();
+    /* ⭐ AN ANSWER TAKEN OVER THE PHONE IS STILL AN ANSWER, AND IT HAPPENED TODAY.
+       Every other way of answering stamps rsvpRespondedAt — the RSVP link, the
+       office' + "'" + 's Maybe Next Year button, approving a quote — but the plain
+       dropdown never did, so somebody rung up and marked Yes by hand showed no
+       Responded date on the Schedule and could not be told apart from a customer
+       who was ASSUMED yes when their quote was converted.
+       That distinction is what the Yes sheet leans on, so it has to be true. */
+    if(newRsvp !== oldRsvpForRecycle){
+      const realAnswer = !!newRsvp && newRsvp !== 'unanswered';
+      addrUpdates.rsvpRespondedAt = realAnswer ? serverTimestamp() : null;
+    }
     if(newRsvp === 'no' && oldRsvpForRecycle !== 'no'){
       addrUpdates.needsLightRecycle = true;
     } else if(newRsvp !== 'no' && oldRsvpForRecycle === 'no' && item.data.needsLightRecycle){
@@ -31263,12 +31585,133 @@ async function renderActivityToday(){
     el.textContent = 'Could not load the activity log.';
   }
 }
+/* ⭐ INVOICES KEEP THEMSELVES IN STEP WITH THE CUSTOMER LIST (added 2026-08-20).
+   Owner: "invoices should be in sync with all customers meaning they automatically
+   get created and archived and anything else."
+
+   Every one of these was already FOUND by the health check and already had a fix
+   button; the office just had to notice the badge and press it. A customer with a
+   price and no invoice is money simply not collected, and nobody presses a button
+   they have not seen.
+
+   ⚠ ONLY THE FIXES THE HEALTH CHECK ITSELF CALLS SAFE. Each of these rebuilds
+   from data already on file and destroys nothing: create the missing invoice, pull a
+   drifted total back to the house prices, recompute a status that disagrees with its
+   own numbers. Everything else in that panel still waits for a human.
+
+   ⚠ AN ORPHAN IS ARCHIVED, NEVER DELETED. The health check says why, and it is
+   still true: "deleting an invoice can destroy a payment record". Archiving is a
+   MARKER, not a money operation — the document keeps every figure it had, stays in
+   allInvoicesCache, and goes on being found by key and counted in every total. All
+   that changes is that it drops out of the working list. So a customer who comes
+   back to the same phone number finds their invoice exactly as they left it, and it
+   un-archives itself on the next pass.
+
+   ⚠ AND IT REFUSES TO RUN ON A HALF-LOADED BOOK. If the customers have not
+   arrived yet, every invoice looks like an orphan. hcCachesReady() is the same guard
+   the health check uses, and the empty-list test is a second one, because the cost
+   of being wrong here is archiving the entire ledger in one pass. */
+const INV_AUTOSYNC_PER_RUN = 25;
+let invAutoSyncBusy = false;
+async function invoiceAutoSync(){
+  if(invAutoSyncBusy) return null;
+  if(!hcCachesReady()) return null;
+  if(!Array.isArray(jobAddresses) || !jobAddresses.length) return null;
+  if(!Array.isArray(allInvoicesCache)) return null;
+  invAutoSyncBusy = true;
+  const out = {created: 0, resynced: 0, restatused: 0, archived: 0, restored: 0, left: 0, failed: 0};
+  try{
+    const groups = hcInvoiceGroups();
+    const invById = {};
+    allInvoicesCache.forEach(function(i){ invById[i.id] = i; });
+
+    /* Payers who need their invoice built or brought back into line. */
+    const needSync = [];
+    Object.keys(groups).forEach(function(payer){
+      const inv = invById[payer];
+      const priced = groups[payer].some(function(c){ return (Number((c.data || {}).housePrice) || 0) > 0; });
+      if(!inv){ if(priced) needSync.push({payer: payer, why: "created"}); return; }
+      const d = inv.data || {};
+      const houses = groups[payer].reduce(function(t, c){ return t + (Number((c.data || {}).housePrice) || 0); }, 0);
+      /* The new-member fee is a real charge on top of the houses, so it is added
+         back before comparing " + M + " otherwise every customer who paid it reads as
+         drifted, for ever. */
+      const fee = Number(d.newMemberFeeApplied ? 30 : 0);
+      if(houses > 0 && Math.round((Number(d.install) || 0) * 100) !== Math.round((houses + fee) * 100)){
+        needSync.push({payer: payer, why: "resynced"});
+      }
+    });
+
+    for(let i = 0; i < needSync.length && i < INV_AUTOSYNC_PER_RUN; i++){
+      try{
+        await syncPayerInvoice(needSync[i].payer);
+        if(needSync[i].why === "created") out.created++; else out.resynced++;
+      } catch(err){ out.failed++; }
+    }
+    /* ⚠ NO SILENT CAP. A first run on a book that has drifted for weeks could be
+       hundreds of writes; it is spread over the ten-minute passes instead. What is
+       left over is COUNTED and said out loud, because a number that stops going down
+       is the only way anybody would know it had stalled. */
+    out.left = Math.max(0, needSync.length - INV_AUTOSYNC_PER_RUN);
+
+    /* A status that disagrees with its own figures. */
+    for(const inv of allInvoicesCache){
+      const d = inv.data || {};
+      if(d.archived) continue;
+      const live = computeInvoiceStatus(d.install, d.removal, d.deposit, d.credits, d.changeFees);
+      if(d.status && d.status !== live){
+        try{ await updateDoc(doc(db, "invoices", inv.id), {status: live}); d.status = live; out.restatused++; }
+        catch(err){ out.failed++; }
+      }
+    }
+
+    /* Orphans out of the working list, and anybody who came back into it. */
+    for(const inv of allInvoicesCache){
+      const d = inv.data || {};
+      const hasCustomer = !!groups[inv.id];
+      if(!hasCustomer && !d.archived){
+        try{
+          await updateDoc(doc(db, "invoices", inv.id), {archived: true, archivedAt: serverTimestamp()});
+          d.archived = true;
+          out.archived++;
+        } catch(err){ out.failed++; }
+      } else if(hasCustomer && d.archived){
+        try{
+          await updateDoc(doc(db, "invoices", inv.id), {archived: false, archivedAt: null});
+          d.archived = false;
+          out.restored++;
+        } catch(err){ out.failed++; }
+      }
+    }
+
+    if(out.created || out.archived || out.restored){
+      const bits = [];
+      if(out.created) bits.push(out.created + " invoice(s) created");
+      if(out.archived) bits.push(out.archived + " archived (no customer)");
+      if(out.restored) bits.push(out.restored + " brought back");
+      logActivity("Invoices kept in step: " + bits.join(", "), "invoices", "");
+    }
+  } catch(err){
+    console.error("[HU] invoice auto-sync failed", err);
+  } finally {
+    invAutoSyncBusy = false;
+  }
+  return out;
+}
 function runHealthCheckAuto(){
   if(!hcCachesReady()) return;
   try{
     hcLastChecks = hcRunChecks();
     hcRender();          // this is what writes the sidebar badge
     renderActivityToday().catch(function(){});
+    /* Behind the check that just found the problems, and never in front of it:
+       the sync leans on hcInvoiceGroups, and a failure here must not stop the badge
+       being written. */
+    invoiceAutoSync().then(function(r){
+      if(r && (r.created || r.resynced || r.archived || r.restored)){
+        try{ hcLastChecks = hcRunChecks(); hcRender(); } catch(err){}
+      }
+    }).catch(function(){});
   } catch(err){
     // Never let a background check break the page it is running behind.
     console.error('[HU] automatic health check failed', err);
@@ -31287,6 +31730,9 @@ function startHealthCheckAuto(){
   if(btn) btn.addEventListener('click', runHealthCheck);
   const hide = document.getElementById('hcHideClean');
   if(hide) hide.addEventListener('change', hcRender);
+  /* The archived toggle only changes what is drawn, so it redraws and nothing else. */
+  const sa = document.getElementById('invShowArchived');
+  if(sa) sa.addEventListener('change', function(){ try{ renderInvoicesList(); }catch(e){} });
 })();
 /* ---------------- PROJECT: TEST CHECKLIST ----------------
    Three tabs, three collections:
