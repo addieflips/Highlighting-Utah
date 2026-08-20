@@ -8934,8 +8934,16 @@ suite('Suite 36. Pasting the whole sheet');
     check('S36', 'the unnamed spacer column is not treated as a heading',
       !m.mapped.some(x => !x.heading) && m.ignored.every(h => !!String(h).trim()));
 
+    /* ⚠ Misc and Up Plug LEFT this list on 2026-08-19 when the owner said what they
+       hold: Up Plug is the outlet preference, and Misc carries bill-to, a gate code, a
+       side count and how the bill travels. The rest are still deliberately unread — a
+       column nobody has explained is safer ignored than guessed at, and being NAMED is
+       what got these two explained in the first place. */
     check('S36', 'columns with nowhere to go are reported, not silently dropped',
-      ['Misc','Set Up Fee','Yes','Recycle','2027','Color Changes'].every(h => m.ignored.includes(h)),
+      ['Set Up Fee','Yes','Recycle','2027','Color Changes'].every(h => m.ignored.includes(h)),
+      'ignored: ' + m.ignored.join(', '));
+    check('S36', 'and the two she explained are no longer ignored',
+      !m.ignored.includes('Misc') && !m.ignored.includes('Up Plug'),
       'ignored: ' + m.ignored.join(', '));
 
     check('S36', 'every mapped area is a real box on the page',
@@ -9205,11 +9213,20 @@ suite('Suite 36. Pasting the whole sheet');
      note the crew reads and ticks the flag the office filters on.
      ⚠ TWO FIELDS, NOT ONE. Writing the words into the Yes/No flag would leave the
      crew a "Yes" and no outlet. */
+    /* ⭐ EITHER COLUMN CAN CARRY IT. Owner, 2026-08-19: "up plug is about preference
+       on using outlet in eaves, but sometimes they give plug or outlet information in
+       notes and if they do that should go to the outlet preference we already have set
+       up in all customers."
+       ⚠ UP PLUG WINS where both say something — it is the column meant for it, and a
+       note is where things end up when there was nowhere else to put them. */
     check('S60', '"Up Plug" fills the outlet note and ticks the flag',
       /\{area:'rbUpPlugArea'/.test(admin) &&
-      /specificOutletNotes: String\(upPlugRaw\[i\]/.test(admin) &&
-      /specificOutlet: String\(upPlugRaw\[i\] \|\| ''\)\.trim\(\) \? 'Yes' : ''/.test(admin),
+      /specificOutletNotes: String\(upPlugRaw\[i\] \|\| ''\)\.trim\(\) \|\| rbOutletFromNote\(notesRaw\[i\]\)/.test(admin),
       'the column that says which outlet has to reach the crew, not just be counted');
+    check('S60', 'and an outlet instruction in the Notes column counts too',
+      /function rbOutletFromNote\(raw\)\{/.test(admin) &&
+      /if\(!\/\\b\(outlet\|plug\|eave\)\/i\.test\(text\)\) return "";/.test(admin),
+      'that is where it ends up when there is nowhere else to put it');
 
   {
     const at = admin.indexOf('function rbNormalizeFeet(');
@@ -14547,39 +14564,48 @@ suite('Suite 62. Which sides of the house');
       const sb = {};
       new Function("const RB_SIDE_ORDER = ['front','right','left','back'];" + src +
         'this.f = rbSidesFromNote;').call(sb);
-      const f = function(v){ const r = sb.f(v); return r === null ? null : r.join(','); };
+      /* ⚠ A COUNT NOW, not a list of names. Owner, 2026-08-19: "we need it to say 1,
+         2, 3, or 4 sides of the house so then it can just be connected and we dont have
+         to guess if its the left or right side." This function WAS that guess: her
+         sheet said "2 sides" and it answered "front and right", which she never wrote
+         anywhere. 0 now means what null meant — nothing was recorded. */
+      const f = function(v){ return sb.f(v); };
 
       /* ⭐ THE OWNER'S OWN EXAMPLE, and the commonest note on the sheet. */
-      check('S62', '"3 sides" is front, right and left',
-        f('3 sides') === 'front,right,left', 'got ' + f('3 sides'));
-      check('S62', 'and the count runs from the front round',
-        f('1 side') === 'front' && f('2 sides') === 'front,right' &&
-        f('4 sides') === 'front,right,left,back',
+      /* ⭐ THE OWNER’S OWN WORDING, and the commonest note on the sheet. */
+      check('S62', '"3 sides" is three', f('3 sides') === 3, 'got ' + f('3 sides'));
+      check('S62', 'and one, two and four read as themselves',
+        f('1 side') === 1 && f('2 sides') === 2 && f('4 sides') === 4,
         JSON.stringify([f('1 side'), f('2 sides'), f('4 sides')]));
+      /* ⚠ "front and side" and "front and back" are BOTH two, and that is the whole
+         argument for counting: they are two sides of lights either way, and which two
+         was never recorded anywhere. */
       check('S62', '"front and side" is two, however it is punctuated',
-        f('front and side') === 'front,right' && f('Front & Side') === 'front,right' &&
-        f('front + sides') === 'front,right');
+        f('front and side') === 2 && f('Front & Side') === 2 && f('front + sides') === 2);
       check('S62', 'and the other ways of saying it',
-        f('front') === 'front' && f('front and back') === 'front,back' &&
-        f('all 4 sides') === 'front,right,left,back' && f('all sides') === 'front,right,left,back');
+        f('front') === 1 && f('front and back') === 2 &&
+        f('all 4 sides') === 4 && f('all sides') === 4);
       check('S62', 'case and spacing make no difference',
-        f('  3 SIDES  ') === 'front,right,left');
+        f('  3 SIDES  ') === 3);
 
       /* ⚠ THE HALF THAT MATTERS MORE. Null means the note is KEPT and nothing
          is ticked — guessing here puts three sides on a house that may have
          one, and the crew hangs lights nobody asked for. */
+      /* ⚠ THE HALF THAT MATTERS MORE. 0 means the note is KEPT and no count is
+         recorded — guessing here puts three sides on a house that may have one, and
+         the crew hangs lights nobody asked for. */
       check('S62', 'an instruction that merely mentions sides is left as a note',
-        f('map other 3 sides') === null && f('add 2 sides') === null &&
-        f('remove patio lights in back') === null,
+        f('map other 3 sides') === 0 && f('add 2 sides') === 0 &&
+        f('remove patio lights in back') === 0,
         'got ' + JSON.stringify([f('map other 3 sides'), f('add 2 sides')]) +
         ' — "map other 3 sides" is about the map, not about what gets lit');
       check('S62', 'a real note is never mistaken for a count',
-        f('DO NOT ADD TIMER') === null && f('gate code 1234') === null &&
-        f('Warm w/ berry peaks (3 green on each side of peak)') === null);
+        f('DO NOT ADD TIMER') === 0 && f('gate code 1234') === 0 &&
+        f('Warm w/ berry peaks (3 green on each side of peak)') === 0);
       check('S62', 'a count nobody could mean is refused',
-        f('5 sides') === null && f('0 sides') === null);
+        f('5 sides') === 0 && f('0 sides') === 0);
       check('S62', 'and a blank is not a count',
-        f('') === null && f('   ') === null && f(null) === null);
+        f('') === 0 && f('   ') === 0 && f(null) === 0);
     }
   }
 
@@ -14591,9 +14617,13 @@ suite('Suite 62. Which sides of the house');
     /const notesVal = \(notesSides \|\| rbNotesLooksLikeColors\(notesRawVal\)\) \? '' : notesRawVal;/.test(admin),
     'leaving it in Notes as well is how the crew ends up reading the same thing twice');
   check('S62', 'and it is written to the customer, on every path',
+    /* ⚠ The add-the-missing-ones path takes it from EITHER column now — Misc says
+       "3 sides" as often as Notes does, and Misc wins because it is the column meant
+       for it. The other two paths still read Notes alone. */
     /if\(notesSides\) updates\.houseSides = notesSides;/.test(admin) &&
     /if\(notesSides\) newDoc\.houseSides = notesSides;/.test(admin) &&
-    /if\(notesSides\) doc2\.houseSides = notesSides;/.test(admin),
+    /const sideCount = misc\.sides \|\| notesSides;/.test(admin) &&
+    /if\(sideCount\) doc2\.houseSides = sideCount;/.test(admin),
     'update, add, and the add-the-missing-ones tool');
 
   /* ---- ⭐ the field exists in all three places, with ONE set of words ---- */
@@ -14605,46 +14635,56 @@ suite('Suite 62. Which sides of the house');
     check('S62', 'and the quote form asks the customer directly',
       index.indexOf('id="quoteSidesRow"') > 0 && /name="house_sides"/.test(index));
 
-    /* ⚠ ONE SET OF WORDS. The quote photos already call them Front of house /
-       Right side / Left side / Back; a second vocabulary for the same four
-       things is how "the right side" comes to mean two different walls. */
-    ['front', 'right', 'left', 'back'].forEach(function(k){
-      check('S62', 'the "' + k + '" value is the same on all three forms',
-        admin.indexOf('class="editcust-side-check" value="' + k + '"') > 0 &&
-        admin.indexOf('class="addcust-side-check" value="' + k + '"') > 0 &&
-        index.indexOf('name="house_sides" value="' + k + '"') > 0);
+    /* ⭐ ONE COUNT, THE SAME ON ALL THREE FORMS. Owner, 2026-08-19: "in the website
+       its called front left right and back side, we need it to say 1, 2, 3, or 4 sides
+       of the house so then it can just be connected and we dont have to guess if its
+       the left or right side." */
+    [1, 2, 3, 4].forEach(function(n){
+      check('S62', '"' + n + ' sides" is offered on all three forms',
+        admin.indexOf('class="editcust-side-pick" value="' + n + '"') > 0 &&
+        admin.indexOf('class="addcust-side-pick" value="' + n + '"') > 0 &&
+        index.indexOf('name="house_sides" value="' + n + '"') > 0);
     });
-    check('S62', 'and they use the same words the quote photos already use',
+    /* ⚠ AND THE PHOTO LABELS ARE UNTOUCHED, deliberately. You photograph the front of
+       a house; you do not photograph "side 2". Sides-of-lights is a count and
+       sides-for-photos is four named walls, and they are different questions. */
+    check('S62', 'the photo labels still name the four walls',
       /QUOTE_SIDE_ORDER = \['front', 'right', 'left', 'back'\]/.test(index) &&
-      /Front of house/.test(admin) && /Right side/.test(admin),
-      'a second vocabulary for the same four walls is how a crew hangs the wrong one');
+      /Front of house/.test(index),
+      'a photo of the front is a photo of the front whatever the light count is');
   }
 
   /* ---- it survives the round trip ---- */
-  check('S62', 'Edit Customer loads what was saved',
-    /const custSides = Array\.isArray\(d\.houseSides\) \? d\.houseSides : \[\];/.test(admin));
-  check('S62', 'and saves what is ticked',
-    /const newHouseSides = Array\.from\(document\.querySelectorAll\('\.editcust-side-check:checked'\)\)/.test(admin) &&
+  /* ⚠ THE OLD SHAPE STILL READS. Every customer saved before 2026-08-19 holds an
+     ARRAY of side names, and three names is three sides — the same fact said the old
+     way. Coming back as "not recorded" would blank 962 records that have an answer. */
+  check('S62', 'a record saved the old way still reads as a count',
+    /function houseSideCount\(v\)\{/.test(admin) &&
+    /if\(Array\.isArray\(v\)\) return Math\.min\(4, v\.filter\(Boolean\)\.length\);/.test(admin),
+    'an array of three names is three sides');
+  check('S62', 'Edit Customer loads it and saves it',
+    /const n = houseSideCount\(d\.houseSides\);/.test(admin) &&
+    /const newHouseSides = houseSideCount\(\(document\.querySelector\('\.editcust-side-pick:checked'\)/.test(admin) &&
     /houseSides: newHouseSides,/.test(admin));
-  check('S62', 'Add Customer saves what is ticked',
-    /const selectedSides = Array\.from\(document\.querySelectorAll\('\.addcust-side-check:checked'\)\)/.test(admin) &&
+  check('S62', 'Add Customer saves it too',
+    /const selectedSides = houseSideCount\(\(document\.querySelector\('\.addcust-side-pick:checked'\)/.test(admin) &&
     /houseSides: selectedSides,/.test(admin));
   /* ⭐ THE POINT OF ASKING ON THE QUOTE AT ALL. */
-  check('S62', 'a quote carries its sides through to the customer',
-    /const quoteSides = Array\.isArray\(d\.houseSides\) \? d\.houseSides : \[\];/.test(admin) &&
-    /\.addcust-side-check/.test(admin),
+  check('S62', 'a quote carries its count through to the customer',
+    /\.addcust-side-pick/.test(admin),
     'both convert paths go through this form, so this one fill covers them');
   {
     const index = read('index.html');
     check('S62', 'and the quote actually stores it',
-      /houseSides: fd\.getAll\('house_sides'\),/.test(index),
-      '⚠ getAll, not get — a checkbox group is a list, and get() keeps only the first one ticked');
+      /houseSides: portalSideCount\(fd\.get\('house_sides'\)\),/.test(index),
+      '⚠ get, not getAll — it is one radio group now, and getAll would store a list of one');
   }
-  /* ⚠ Blank means "never asked", not "front only". */
-  check('S62', 'nothing is ticked by default',
-    !/class="editcust-side-check" value="front" checked/.test(admin) &&
-    !/class="addcust-side-check" value="front" checked/.test(admin),
-    'defaulting to front would put a made-up answer on 962 records that were never asked');
+  /* ⚠ Blank means "never asked", not "one side". Defaulting to a number would put a
+     made-up answer on 962 records nobody has ever asked. */
+  check('S62', 'nothing is picked by default',
+    !/class="editcust-side-pick" value="1" checked/.test(admin) &&
+    !/class="addcust-side-pick" value="1" checked/.test(admin),
+    'a count nobody gave is not a count');
 }
 
 
@@ -14674,11 +14714,14 @@ suite('Suite 63. Changing your sides in the Member Portal');
   check('S63', 'the portal has a Sides tab and panel',
     index.indexOf('id="tabPanel-sides"') > 0 &&
     /data-tab="sides"/.test(index));
-  check('S63', 'with the same four names as everywhere else',
-    ['front', 'right', 'left', 'back'].every(function(k){
-      return index.indexOf('class="portal-side-check" value="' + k + '"') > 0;
+  /* ⭐ A COUNT, the same question the office and the quote form now ask. Owner,
+     2026-08-19: "we need it to say 1, 2, 3, or 4 sides of the house so then it can
+     just be connected and we dont have to guess if its the left or right side." */
+  check('S63', 'the portal asks for a count, one to four',
+    [1, 2, 3, 4].every(function(n){
+      return index.indexOf('class="portal-side-pick" value="' + n + '"') > 0;
     }),
-    'a second vocabulary for the same four walls is how a crew hangs the wrong one');
+    'the member and the office have to be answering the same question');
   check('S63', 'and it is filled in from the record on load',
     /try\{ portalRenderSides\(\); \}catch\(err\)\{\}/.test(index),
     'an empty set of boxes reads as "we are lighting none of it"');
@@ -14728,11 +14771,20 @@ suite('Suite 63. Changing your sides in the Member Portal');
     const body = at > 0 && end > at ? fns.slice(at, end) : '';
     check('S63', 'the sides branch was found', !!body);
     /* ⚠ THIS ARRIVES FROM A BROWSER. */
-    check('S63', 'what the browser sends is reduced to the four known sides',
-      /const KNOWN = \['front', 'right', 'left', 'back'\];/.test(body) &&
-      /if \(wanted\.indexOf\(k\) !== -1\) clean\.push\(k\);/.test(body) &&
-      /updates\.houseSides = clean;/.test(body),
+    /* ⚠ STILL VALIDATED SERVER-SIDE, and for the same reason: this arrives from a
+       browser. A count is NARROWER than a list of keys, not looser — anything that is
+       not 1 to 4 becomes 0, which reads as "not recorded". */
+    check('S63', 'what the browser sends is reduced to a count of one to four',
+      /const asCount = function \(v\) \{/.test(body) &&
+      /return \(n >= 1 && n <= 4\) \? n : 0;/.test(body) &&
+      /updates\.houseSides = asCount\(updates\.houseSides\);/.test(body),
       'free text from a browser would end up printed on a crew card');
+    /* ⚠ AND THE OLD SHAPE STILL COUNTS. A member saved before today holds an array of
+       names; rejecting it would tell somebody with a full record that nothing is on
+       file. */
+    check('S63', 'and a record saved the old way still counts',
+      /if \(Array\.isArray\(v\)\) return Math\.min\(4, v\.filter\(Boolean\)\.length\);/.test(body),
+      'three names is three sides — the same fact said the old way');
     /* ⚠ RETIRED 2026-08-18, the same day it was added. Owner: "we shouldnt need
        a flag that says needs requote the customer should just appear in the
        requote section." The quote the portal opens IS the record of it; a
@@ -14743,15 +14795,15 @@ suite('Suite 63. Changing your sides in the Member Portal');
       'the quote is the record — a flag beside it is a second truth to maintain');
     /* ⚠ Only on a real change — otherwise every portal visit flags them. */
     check('S63', 'a save that changes nothing does not flag anyone',
-      /if \(clean\.slice\(\)\.sort\(\)\.join\(','\) !== before\) \{/.test(body),
+      /if \(updates\.houseSides !== before\) \{/.test(body),
       'flagging on every save would fill the office list with people who changed nothing');
-    /* ⚠ BOTH sides sorted, or the comparison is order-sensitive on one of them
-       and every visit looks like a change. Testing for one .sort() passed with
-       the other removed. */
-    check('S63', 'and the order they ticked the boxes in is not a change',
-      /oldData\.houseSides\.slice\(\)\.sort\(\)\.join\(','\)/.test(body) &&
-      /clean\.slice\(\)\.sort\(\)\.join\(','\)/.test(body),
-      'front,right and right,front are the same house');
+    /* ⚠ AND BOTH SIDES OF THAT COMPARISON GO THROUGH THE SAME READER. The old note
+       here was about sorting two lists; a count needs no sorting, but it does need the
+       stored value read the same way as the incoming one — otherwise a member whose
+       record holds ["front","right"] looks like a change to 2 on every single visit. */
+    check('S63', 'and a record saved the old way is not read as a change',
+      /const before = asCount\(oldData\.houseSides\);/.test(body),
+      'two names and the number 2 are the same answer, and must compare equal');
   }
 
   /* ---- the colour half, which already existed and was left alone ---- */
@@ -15182,6 +15234,87 @@ suite('Suite 66. The master sheet choice is remembered for every computer');
    that were not obvious.
    ============================================================================= */
 suite('Suite 69. A customer as a row of the master sheet');
+{
+  const admin = read("admin.html");
+  /* ⭐ THE MISC COLUMN HOLDS FIVE DIFFERENT THINGS, and the owner named every one of
+     them on 2026-08-19: bill-to, a side count, a gate code, how the bill travels, and
+     "if the misc column says anything I havent mentioned that should be put in notes
+     section of the all customers".
+     Read off her real sheet, Misc is filled on 35 rows and genuinely says all of it. */
+  {
+    const src = [extractFn(admin, "rbSidesFromNote"), extractFn(admin, "rbGateCodeFromText"),
+                 extractFn(admin, "rbMiscParse"), extractFn(admin, "rbRowSaysPrepaid"),
+                 extractFn(admin, "rbOutletFromNote")].join("\n");
+    check('S69', 'the Misc readers exist', src.indexOf('function rbMiscParse') >= 0);
+    const sb = {};
+    new Function(src + "this.m = rbMiscParse; this.g = rbGateCodeFromText; this.p = rbRowSaysPrepaid; this.o = rbOutletFromNote;").call(sb);
+
+    /* ⭐ HER REAL VALUES, not invented ones. */
+    check('S69', 'a bill-to name is picked out however it is written',
+      sb.m("Bill to Kelly Brown (Highland)").billToName === "Kelly Brown" &&
+      sb.m("bill steve laycock").billToName === "steve laycock" &&
+      sb.m("Send bill to Raul Pelagio").billToName === "Raul Pelagio",
+      'the town in brackets is a hint for a person, not part of the name');
+    check('S69', 'and how the bill travels is read, with email left as the default',
+      sb.m("mail bill").mailBill === true && sb.m("text bill").textBill === true &&
+      sb.m("bill steve laycock").mailBill === false,
+      'owner: "we by default email bill so you dont need to worry about that" — so only ' +
+      'the two exceptions are ever written');
+    /* ⚠ AND THE DEFAULT IS NEVER OVERWRITTEN. Writing false when Misc says nothing
+       would turn every blank cell into "do not text", which is a decision she never
+       made about 925 customers. */
+    check('S69', 'a blank Misc leaves the default alone',
+      /if\(misc\.textBill\) doc2\.wantsTextedInvoice = true;/.test(admin) &&
+      /if\(misc\.mailBill\) doc2\.wantsMailedInvoice = true;/.test(admin),
+      'only the exceptions are written; email stays the default by not being mentioned');
+
+    /* ⚠ A GATE CODE NEEDS A MARKER. Owner asked for many formats; bare digits are still
+       left alone, because "51500" could be a price or a footage and putting it on a
+       crew card as a gate code is worse than leaving it where a person can read it. */
+    check('S69', 'a gate code is read in every shape the sheet uses',
+      sb.g("JAN GATE CODE 851409") === "851409" && sb.g("Gate Code 6321") === "6321" &&
+      sb.g("Gate:code: 123456") === "123456" && sb.g("gate #5225") === "5225" &&
+      sb.g("GATE-CODE-9911") === "9911" && sb.g("the gate is 1234") === "1234" &&
+      sb.g("#0754") === "0754" && sb.g("6736#") === "6736",
+      'owner: "make sure you format it in many formats so it doesnt flag if its not ' +
+      'exactly Gate Code"');
+    check('S69', 'but a number with nothing saying what it is stays put',
+      sb.g("51500") === "" && sb.g("leave gate open, 3 sides") === "" &&
+      sb.g("Find using 905 S 330 W") === "",
+      'a price on a crew card as a gate code is worse than a Misc cell nobody read');
+
+    /* ⭐ AND EVERYTHING ELSE BECOMES A NOTE. */
+    check('S69', 'anything she did not name is kept as a note',
+      sb.m("paid 2025").leftover === "paid 2025" && sb.m("remap").leftover === "remap" &&
+      sb.m("venmo request tomfry13").leftover === "venmo request tomfry13",
+      'somebody wrote it down for a reason; Notes is where a human can read it');
+    check('S69', 'and something that WAS understood is not also left as a note',
+      sb.m("mail bill").leftover === "" && sb.m("3 sides").leftover === "" &&
+      sb.m("gate #5225").leftover === "" && sb.m("bill steve laycock").leftover === "",
+      'a setting arriving as a note as well is the same fact in two places');
+
+    /* ⭐ PREPAID CAN BE IN ANY COLUMN, so it is looked for across the whole row. */
+    check('S69', 'prepaid is found wherever it is written',
+      sb.p(["prepaid"]) === true && sb.p(["x", "y", "Prepaid 2026"]) === true &&
+      sb.p(["pre paid"]) === true,
+      'owner: "prepaid can be in any column"');
+    /* ⚠ AND THE WORD HAS TO MEAN IT. Reading a question as money received is the wrong
+       way to be wrong. */
+    check('S69', 'but a doubt is not a payment',
+      sb.p(["not prepaid"]) === false && sb.p(["prepaid?"]) === false &&
+      sb.p(["paid"]) === false,
+      'somebody thinking aloud is not somebody who has paid');
+
+    /* ⭐ AN OUTLET INSTRUCTION IN NOTES. Owner: "sometimes they give plug or outlet
+       information in notes and if they do that should go to the outlet preference". */
+    check('S69', 'an outlet instruction in the Notes column is carried across whole',
+      sb.o("Use the outlet by the garage, not the porch") === "Use the outlet by the garage, not the porch",
+      'handing the crew only the half a regex liked is worse than handing them nothing');
+    check('S69', 'and a gate code or a side count is not mistaken for one',
+      sb.o("Gate Code 6321") === "" && sb.o("3 sides") === "",
+      'they are different fields and each has its own reader');
+  }
+}
 {
   const admin = read("admin.html");
   /* ⭐ THE BUTTON ON EVERY PAGE. Owner, 2026-08-19: "we wont want this in bulk updates

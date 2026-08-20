@@ -1064,20 +1064,31 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
      the four keys the app knows; anything else is dropped rather than stored.
      A free-text array here would end up on a crew card. */
   if (section === 'sides') {
-    const KNOWN = ['front', 'right', 'left', 'back'];
-    const wanted = Array.isArray(updates.houseSides) ? updates.houseSides : [];
-    const clean = [];
-    KNOWN.forEach(function (k) {
-      if (wanted.indexOf(k) !== -1) clean.push(k);
-    });
-    updates.houseSides = clean;
+    /* ⭐ A COUNT, NOT FOUR NAMES. Owner, 2026-08-19: "we need it to say 1, 2, 3, or 4
+       sides of the house so then it can just be connected and we dont have to guess if
+       its the left or right side." Her sheet has said "2 sides" for years; asking the
+       member WHICH two invented a fact nobody ever recorded.
+
+       ⚠ STILL VALIDATED SERVER-SIDE, and for the same reason as before: this arrives
+       from a browser. A count is narrower than a list of keys, not looser — anything
+       that is not 1 to 4 becomes 0, which reads as "not recorded".
+
+       ⚠ THE OLD SHAPE STILL COUNTS. Members saved before today hold an array of side
+       names, and three names is three sides. Rejecting it would tell a member with a
+       full record that nothing is on file. */
+    const asCount = function (v) {
+      if (Array.isArray(v)) return Math.min(4, v.filter(Boolean).length);
+      const n = Number(String(v == null ? '' : v).replace(/[^0-9]/g, ''));
+      return (n >= 1 && n <= 4) ? n : 0;
+    };
+    updates.houseSides = asCount(updates.houseSides);
     /* ⚠ NO "needs re-quote" FLAG. Owner, 2026-08-18: "we shouldnt need a flag
        that says needs requote the customer should just appear in the requote
        section." The quote the portal opens IS the record of it — a second flag
        saying the same thing is a second thing to keep in step, and the one that
        goes stale is the one nobody is looking at. */
-    const before = Array.isArray(oldData.houseSides) ? oldData.houseSides.slice().sort().join(',') : '';
-    if (clean.slice().sort().join(',') !== before) {
+    const before = asCount(oldData.houseSides);
+    if (updates.houseSides !== before) {
       updates.seasonStatus = 'needs_changes';
     }
   }
