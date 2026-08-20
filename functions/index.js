@@ -1123,6 +1123,14 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
       updates.needsLightBuild = false;      // colours cleared — nothing to build
     } else if (changed) {
       updates.needsLightBuild = true;       // genuinely different pattern
+      /* ⭐ AND IT IS A COLOUR CHANGE, which is not the same fact. needsLightBuild is
+         the WAREHOUSE queue and a brand-new customer sets it too, so the Color Changes
+         sheet cannot read it - it swept up twelve ordinary new customers. This marks
+         the people who HAD colours and picked different ones. Colours recorded for the
+         first time are not a change. */
+      if (oldData.lightsDescription) {
+        updates.lightsChangedAt = admin.firestore.FieldValue.serverTimestamp();
+      }
     }
     // Unchanged? Leave the flag alone. Opening the Lights tab and pressing Save
     // must not re-queue a house Dad has already built.

@@ -15682,9 +15682,17 @@ suite('Suite 69. A customer as a row of the master sheet');
         holds('Recycle', { needsLightRecycle: true }) === true &&
         holds('Recycle', { needsRecycle: true }) !== true,
         'a flag nobody sets is a tab that stays empty for ever');
-      check('S69', 'Color Changes reads needsLightBuild',
-        holds('Color Changes', { needsLightBuild: true }) === true,
-        'a colour change IS a fresh build, which is why that is the flag');
+      /* ⭐ A COLOUR CHANGE IS NOT THE SAME AS A BUILD (changed 2026-08-20).
+         This read needsLightBuild, which is the WAREHOUSE queue — adding a customer
+         sets it, rejoining after a recycle sets it, and so does an actual colour
+         change. The owner, shown twelve people the tab had just written to her real
+         sheet: "we dont have anyone in color change yet so I dont know what you
+         mean." Every ordinary new customer with lights on file was matching. */
+      check('S69', 'Color Changes reads a real colour change, not the build queue',
+        holds('Color Changes', { lightsChangedAt: {seconds: 1} }) === true &&
+        holds('Color Changes', { needsLightBuild: true }) !== true,
+        'a brand-new customer with lights recorded has a build to do and has ' +
+        'changed nothing — they are not a colour change');
 
       /* The two ways somebody becomes a Contact 2027, taken from the two
          functions that write them. */
@@ -16672,6 +16680,68 @@ if (!JSDOM) {
  * one of them reorders the list and the name silently changes. Seventeen numbers
  * in that book are shared.
  * ------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+ * Suite 84. Seeing the customer form without making a customer
+ *
+ * Owner, 2026-08-20: "in the admin page make a tab where I can view the detail form
+ * so I can know what it looks like without creating a new customer."
+ *
+ * It is an iframe of the real page rather than a copy. A second copy would drift
+ * the first time somebody edited one of them, and this screen would then be
+ * confidently showing something no customer has ever seen.
+ * ------------------------------------------------------------------------- */
+suite('Suite 84. Seeing the customer form without making a customer');
+
+{
+  const idx = read('index.html');
+
+  check('S84', 'there is a Form Preview tab',
+    /data-panel="formpreview"/.test(admin) && /id="panel-formpreview"/.test(admin));
+  check('S84', 'it shows the real page, not a copy of the form',
+    /id="formPreviewFrame"/.test(admin) && !/qdSpecificPatternToggle/.test(admin),
+    'a second copy of that form drifts the first time either one is edited, and ' +
+    'then this screen shows something no customer has ever seen');
+
+  /* ⚠ EVERY ROUTE IT LINKS TO HAS TO BE A REAL ONE. index.html falls back to the
+     HOME page for an unknown hash rather than erroring, so a typo shows a page that
+     looks fine and is the wrong one entirely. /#/portal was in the first version of
+     this panel and is not a route — the button would have shown the home page under
+     the label "Member portal sign-in". */
+  {
+    const routes = (idx.match(/var routes = \[([^\]]*)\]/) || [])[1] || '';
+    const known = routes.split(',').map(x => x.trim().replace(/^'|'$/g, '')).filter(Boolean);
+    check('S84', 'the router still declares its routes in one list', known.length > 3, routes);
+    const linked = (admin.match(/data-src="\/#([^"]*)"/g) || [])
+      .map(x => x.replace(/^data-src="\/#/, '').replace(/"$/, ''));
+    check('S84', 'the preview offers at least the details form', linked.length >= 1);
+    const bogus = linked.filter(r => known.indexOf(r) === -1);
+    check('S84', 'and every page it offers is a route the site actually has',
+      !bogus.length,
+      'not in index.html: ' + bogus.join(', ') + ' — an unknown hash silently renders ' +
+      'the home page, so this fails as a wrong answer rather than as an error');
+    check('S84', 'the details form is one of them',
+      linked.indexOf('/quote-details') !== -1,
+      'that is the form the owner asked to be able to look at');
+  }
+
+  /* ⚠ AND NOTHING CAN BE CREATED FROM IT. This is what makes a live page safe to
+     put on an admin screen: the form refuses without a quote token. */
+  {
+    const sub = idx.slice(idx.indexOf("quoteDetailFormEl.addEventListener('submit'"));
+    check('S84', 'the real form refuses to submit without a token',
+      /if\(!quoteDetailQuoteId && !quoteDetailToken\)\{[\s\S]{0,120}return;/.test(sub),
+      'if this guard ever goes, the preview stops being a preview and starts being ' +
+      'a way to create half-finished customers by accident');
+  }
+
+  /* ⚠ AND IT DOES NOT LOAD THE WHOLE CUSTOMER SITE FOR EVERYBODY. An iframe with a
+     src in the markup fetches on every admin page load, whichever panel was wanted. */
+  check('S84', 'the frame has no src until the tab is opened',
+    !/id="formPreviewFrame"[^>]*src=/.test(admin) &&
+    /formPreviewShow\(/.test(admin),
+    'admin is opened all day long and almost never to look at this');
+}
+
 suite('Suite 83. Whose name goes on a shared bill');
 
 {
@@ -17464,7 +17534,9 @@ pendingAsync.push((async () => {
   {
     const book = [
       { id: 'r', data: { name: 'Rae Recycle', needsLightRecycle: true } },
-      { id: 'c', data: { name: 'Cal Colour', needsLightBuild: true } },
+      /* ⚠ lightsChangedAt, not needsLightBuild: the second is the warehouse
+         queue, and every new customer with lights recorded has it. */
+      { id: 'c', data: { name: 'Cal Colour', lightsChangedAt: { seconds: 1 } } },
       { id: 'm', data: { name: 'Mae Maybe', maybeNextYear: true } },
       /* ⚠ 'backnextyear' is the value the RSVP link really writes. This fixture said
          'maybe_next_year' for a day, copied from the code under test rather than from
@@ -17481,7 +17553,9 @@ pendingAsync.push((async () => {
       'nobody and reports success for ever');
     check('S76', 'a colour change goes to the Color Changes tab',
       to('Color Changes').join() === 'Cal Colour',
-      'and that flag is needsLightBuild, because a colour change IS a fresh build');
+      'keyed on lightsChangedAt — needsLightBuild would drag in every new ' +
+      'customer who has lights recorded, which is how twelve of them reached ' +
+      'the real sheet');
     check('S76', 'BOTH ways of saying maybe-next-year go to Contact 2027',
       to('Contact 2027').join() === 'Mae Maybe,Moe Maybe',
       'the flag and the RSVP answer mean the same thing to the office, and only ' +
@@ -17532,7 +17606,7 @@ pendingAsync.push((async () => {
   {
     const book = [
       { id: 'r', data: { name: 'Rae Recycle', needsLightRecycle: true } },
-      { id: 'c', data: { name: 'Cal Colour', needsLightBuild: true } }
+      { id: 'c', data: { name: 'Cal Colour', lightsChangedAt: { seconds: 1 } } }
     ];
     const r = await press(book, {}, { tabThrows: 'Recycle' });
     check('S76', 'a tab that will not take a row does not stop the others',
