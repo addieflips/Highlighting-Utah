@@ -27216,6 +27216,55 @@ function fillDays(days, custData, pool, allowedOn, maxPerDay, budget){
    list put the cancelled customers straight back on the day they had just been
    taken off. The working set below is the fix, and it means one write per route
    instead of two. */
+/* ⭐ A DAY INSIDE 48 HOURS IS PRINTED, AND PRINTED IS FINISHED. Owner, 2026-08-20:
+   "not recalculate houses within two days cause weve already printed those houses so
+   it needs to keep track of the time US mountain time to make sure if a day is within
+   48 hours it is unchangable."
+
+   Nothing stopped a rebuild moving houses off a day the crew already has on paper. The
+   crew drives to an address that is no longer on anybody’s list, and the customer
+   whose name moved never finds out.
+
+   ⚠ MOUNTAIN TIME, NOT THE BROWSER’S. A laptop on a trip, or one whose clock is
+   wrong, must not decide whether the crew’s morning is still editable. The season is
+   run from Utah, so the question "is that day within 48 hours" is asked in Utah time,
+   the same way todayStrInDenver already does it on the server.
+
+   ⚠ AND IT IS MEASURED TO THE DAY'S START. A day is locked once it BEGINS less than
+   48 hours from now: the crew is loading the truck the night before, so the useful
+   moment is when the day starts, not when it ends. */
+const ROUTE_LOCK_HOURS = 48;
+function mtnNowParts(){
+  /* en-CA gives YYYY-MM-DD, which sorts and compares as a plain string. */
+  const f = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Denver',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false });
+  const got = {};
+  f.formatToParts(new Date()).forEach(function(p){ got[p.type] = p.value; });
+  /* Midnight comes back as 24 in some builds; the day has already rolled by then. */
+  const hour = Number(got.hour) % 24;
+  return {
+    date: got.year + "-" + got.month + "-" + got.day,
+    hour: hour,
+    minute: Number(got.minute)
+  };
+}
+/* Hours from now until that date STARTS, in Mountain time. Negative once it has begun. */
+function hoursUntilDayStarts(dateStr, nowParts){
+  const now = nowParts || mtnNowParts();
+  const a = Date.UTC(Number(now.date.slice(0,4)), Number(now.date.slice(5,7)) - 1, Number(now.date.slice(8,10)));
+  const b = Date.UTC(Number(String(dateStr).slice(0,4)), Number(String(dateStr).slice(5,7)) - 1, Number(String(dateStr).slice(8,10)));
+  if(isNaN(a) || isNaN(b)) return Infinity;
+  const daysAhead = Math.round((b - a) / 86400000);
+  /* Whole days between, less how far into today it already is. Doing it this way
+     never touches a UTC offset, so it cannot be an hour out over a clock change. */
+  return (daysAhead * 24) - (now.hour + (now.minute / 60));
+}
+function routeDayIsLocked(dateStr, nowParts){
+  if(!dateStr) return false;
+  return hoursUntilDayStarts(dateStr, nowParts) < ROUTE_LOCK_HOURS;
+}
 async function reconcileUpcomingRoutes(){
   const report = {refreshed: 0, moved: [], freed: [], dropped: [], capped: [], over: [],
                   filled: [], pulled: [], moreToDo: false, built: [], retired: [], overByHand: [],
@@ -27224,7 +27273,15 @@ async function reconcileUpcomingRoutes(){
   /* Retired FIRST, and excluded from this pass, so nothing below builds on a
      day that is about to be taken apart. Their houses come free and get
      re-spread by the fill and the builder in this same sweep. */
-  const allRoutes = upcomingInstallRoutes();
+  /* ⭐ A DAY INSIDE 48 HOURS IS OFF LIMITS. Owner: "not recalculate houses within
+     two days cause weve already printed those houses." Filtered HERE, before anything
+     reasons about them, so every later step — retiring a thin day, evicting a stop that
+     does not match its town, topping a day up — skips them without each needing its own
+     guard. One place to get right, and one place to look when a locked day moves. */
+  const allRoutesRaw = upcomingInstallRoutes();
+  const lockedRoutes = allRoutesRaw.filter(function(r){ return routeDayIsLocked(r.date); });
+  const allRoutes = allRoutesRaw.filter(function(r){ return !routeDayIsLocked(r.date); });
+  report.lockedDays = lockedRoutes.length;
   const surplus = surplusCrewDays(allRoutes, CREWS_PER_DAY);
   const retiring = {};
   surplus.retire.forEach(function(r){ retiring[r.id] = true; });
