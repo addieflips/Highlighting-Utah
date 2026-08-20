@@ -755,6 +755,7 @@ const RETIRED_CHECKLIST_TERMS = [
   ['get approval link', 'renamed to Send Email on 2026-08-08'],
   ['copy quote email', 'renamed to Show Quote Email Again on 2026-08-08 (Send Email now shows the email on the first click)'],
   ['replace photo', 'quote cards hold several photos now, so the button reads Add More Photos (2026-08-13)'],
+  ['who pays for whom', 'the Customers tab of that name was folded into All Customers on 2026-08-20 \u2014 a bill covering several houses is a header row there now, with its houses nested under it'],
 ];
 {
   /* MOVED 2026-08-14: the seed lives in js/test-seed.js now, not inline in
@@ -15296,7 +15297,7 @@ suite('Suite 69. A customer as a row of the master sheet');
          is the exact shape of a bug that shipped earlier today — the message was correct
          and a later assignment threw it away. */
       check('S69', 'the chips are drawn on the customer row',
-        /\+custNumChip\(r\.d\)\+binBadge\+custSheetChips\(r\.d\)/.test(admin),
+        /\+\s*custNumChip\(r\.d\)\+binBadge\+custSheetChips\(r\.d\)/.test(admin),
         'a chip nothing renders is a chip nobody sees');
       check('S69', 'prepaid and text-bill show on the row',
         /PREPAID/.test(sb.f({prepaid: true})) &&
@@ -16158,7 +16159,8 @@ suite('Suite 69. Who pays for whom');
   const billingSrc = ['billingGroupsByPayer', 'billedHousesFor', 'billingGroupPayer',
                       'billedHousesForContact', 'billedHousesRows', 'billedHousesEmailBlock',
                       'billedHousesPlainText', 'rsvpTemplateHasHouses',
-                      'billingGroupRows', 'billingGroupMatches', 'renderBillingGroups']
+                      'billingGroupRows', 'billingGroupMatches',
+                      'billingGroupPayerOnFile', 'billingGroupKeyLabel']
     .map(n => extractFn(admin, n));
   check('who-pays', 'the who-pays helpers are all still in admin.html',
     billingSrc.every(Boolean),
@@ -16179,14 +16181,14 @@ suite('Suite 69. Who pays for whom');
     ];
     const bg = {};
     new Function('jobAddresses', 'custInvoiceKey', 'esc', 'fmtMoney', 'invoiceById',
-      'balanceDueAmount', 'computeInvoiceStatus', 'document', 'let billingGroupSearchTerm = "";\n' +
+      'balanceDueAmount', 'computeInvoiceStatus', 'document', 'custByPhoneDigits', 'fmtPhone',
       billingSrc.join('\n') + '\n' +
       'this.groups = billingGroupsByPayer; this.forCust = billedHousesFor;' +
       'this.payerOf = billingGroupPayer; this.forContact = billedHousesForContact;' +
       'this.block = billedHousesEmailBlock; this.plain = billedHousesPlainText;' +
       'this.hasToken = rsvpTemplateHasHouses; this.rows = billingGroupRows;' +
       'this.matches = billingGroupMatches;' +
-      'this.render = function(term){ billingGroupSearchTerm = term || ""; renderBillingGroups(); };'
+      'this.payerOnFile = billingGroupPayerOnFile; this.keyLabel = billingGroupKeyLabel;'
     ).call(bg,
       book,
       d => String((d && d.phone) || '').replace(/\D/g, '') || String((d && d.email) || '').toLowerCase().trim(),
@@ -16195,7 +16197,9 @@ suite('Suite 69. Who pays for whom');
       new Map(),
       () => 0,
       () => 'Unpaid',
-      null);
+      null,
+      new Map([['8015550111', book[0]]]),
+      p => String(p));
 
     // ---- the grouping itself -------------------------------------------
     const groups = bg.groups();
@@ -16263,15 +16267,41 @@ suite('Suite 69. Who pays for whom');
       'a preview that omits it signs off on an email nobody has read');
 
     // ---- the office screen -----------------------------------------------
-    check('who-pays', 'the Who Pays for Whom tab exists and is wired',
-      /data-custtab="billing"/.test(admin) && /id="custtab-billing"/.test(admin) &&
-      /if\(tabName === 'billing'\) renderBillingGroups\(\);/.test(admin),
-      'a panel nothing switches to is a panel nobody can open');
+    /* ⭐ THE TAB IS GONE AND THE ANSWER MOVED INTO ALL CUSTOMERS. A bill covering
+       several houses is now a header row with its houses nested under it, so the
+       office reads "who is on this bill" in the list they already work from
+       rather than in a second screen that had to be remembered. These assert the
+       removal directly: a tab button pointing at a panel that no longer exists is
+       a button that does nothing, and a leftover panel is dead weight. */
+    check('who-pays', 'the separate Who Pays for Whom tab is gone',
+      !/data-custtab="billing"/.test(admin) && !/id="custtab-billing"/.test(admin) &&
+      !/renderBillingGroups/.test(admin) && !/billingGroupList/.test(admin),
+      'a tab button whose panel was deleted is a button that does nothing at all');
+    check('who-pays', 'and All Customers carries the grouping instead',
+      /data-billgroup="/.test(admin) && /data-billchild="/.test(admin) &&
+      /const expandedBillGroups = new Set\(\)/.test(admin),
+      'the header has to be findable by the toggle, and the children by their key');
     check('who-pays', 'it redraws when a customer changes',
-      /billingGroups: 'addcustomer'/.test(admin) &&
-      /safeRender\('billingGroups'/.test(admin),
-      'a bill-to change has to reach it, or the office reads yesterday’s groups while the ' +
-      'customer’s portal already shows today’s');
+      /allCustomersTable: 'addcustomer'/.test(admin) &&
+      /safeRender\('allCustomersTable'/.test(admin) &&
+      !/billingGroups: 'addcustomer'/.test(admin) && !/safeRender\('billingGroups'/.test(admin),
+      'a bill-to change has to reach the table, or the office reads yesterday’s groups while ' +
+      'the customer’s portal already shows today’s — and the retired label must not linger ' +
+      'in RENDER_PANEL, where Suite 38 would find it pointing at a render that is gone');
+    check('who-pays', 'the bill-groups export survived the move, name and all',
+      /function allCustExportBillGroups\(\)/.test(admin) &&
+      /'Who Pays for Whom'/.test(admin) && /who-pays-for-whom-'\+toDateStr/.test(admin) &&
+      /data-allcustexport="groups"/.test(admin),
+      'a file saved last week and one saved today have to still match, so the sheet name and ' +
+      'the filename are deliberately unchanged');
+    /* ⚠ A saved tab order still names "billing" on any machine where the tabs
+       have been dragged. The order is replayed by looking each name UP, so a name
+       matching nothing is skipped and the bar is not left a button short — but
+       only because of that guard, which is what this pins down. */
+    check('who-pays', 'a saved tab order naming the deleted tab is skipped, not obeyed',
+      /if\(el\) container\.appendChild\(el\);/.test(admin),
+      'without the if(el) a stale name would reorder the wrong thing, and the Customers tab ' +
+      'bar would come back wrong on exactly the machines that had customised it');
     check('who-pays', 'a tab added after somebody saved a tab order goes to the END',
       /if\(savedOrder\.indexOf\(el\.dataset\[dataAttr\]\) === -1\) container\.appendChild\(el\)/.test(admin),
       'every saved tab is appended after it otherwise, so the brand-new tab silently lands ' +
@@ -16295,58 +16325,476 @@ suite('Suite 69. Who pays for whom');
 }
 
 if (!JSDOM) {
-  note('jsdom not installed — skipping the Who Pays for Whom render run');
+  note('jsdom not installed — skipping the All Customers bill-grouping render run');
 } else {
-  const renderSrc = ['billingGroupsByPayer', 'billingGroupPayer', 'billingGroupRows',
-                     'billingGroupMatches', 'renderBillingGroups'].map(n => extractFn(admin, n));
+  /* ⚠ THIS RUNS THE REAL TABLE. The office screen for "who pays for whom" is no
+     longer a panel of its own — it is All Customers, with a bill drawn as a
+     header row and its houses nested underneath. Every check below therefore
+     RENDERS and reads the HTML that comes out, rather than matching the source.
+     That is not a style preference: on 2026-08-19 a correct duplicate message
+     was built and then overwritten by a default one line further down, every
+     text-matching check passed, and the only two that failed were the two that
+     ran the renderer (CLAUDE.md §5). A grep proves the words exist, which is a
+     weaker claim than "somebody can see them". */
+  const renderSrc = ['billingGroupsByPayer', 'billingGroupPayer', 'billingGroupPayerOnFile',
+                     'billingGroupKeyLabel', 'billingGroupRows', 'billingGroupMatches',
+                     'allCustGroupHeaderHtml', 'allCustRowHtml', 'renderAllCustomersTable']
+    .map(n => extractFn(admin, n));
   if (!renderSrc.every(Boolean)) {
-    check('who-pays', 'the Who Pays for Whom renderer is findable', false,
-      'renamed or removed — update this suite rather than deleting it');
+    check('who-pays', 'the All Customers bill-grouping renderer is findable', false,
+      'one of the grouping functions was renamed or removed — update this suite rather than ' +
+      'deleting it');
   } else {
-    const dom = new JSDOM('<p id="billingGroupCount"></p><div id="billingGroupList"></div>');
+    const dom = new JSDOM(
+      '<input id="allCustSearchInput" value="">' +
+      ['City', 'Difficulty', 'InvStatus', 'Route', 'Map', 'Lights', 'Pin', 'Billing']
+        .map(n => '<input id="allCustFilter' + n + '" value="all">').join('') +
+      '<input id="allCustFilterDateStart" value=""><input id="allCustFilterDateEnd" value="">' +
+      '<p id="allCustCount"></p><table><tbody id="allCustTableBody"></tbody></table>');
+
+    /* Dana pays for her own house and Kyle's; Sam is on her bill but said no.
+       Ivy and Ivy's cabin share ONE phone with no billToPhone anywhere — already
+       one invoice, and the half a billToPhone-only scan cannot see. Solo pays for
+       himself alone. Rita sat the season out but still pays for two tenants — the
+       case that used to render as "no customer record" while she sat in the
+       customer list. Nobody at all is on file for 8015558888, which is the real
+       version of that: a Bill To Phone the office typed wrong. */
     const book = [
       { id: 'h1', data: { name: 'Dana Pratt', address: '1 Elm', phone: '8015550111', housePrice: 400, customerNumber: '1201' } },
       { id: 'h2', data: { name: 'Kyle Pratt', address: '2 Oak', phone: '8015552222', billToPhone: '8015550111', housePrice: 350 } },
-      { id: 'h3', data: { name: 'Solo Jones', address: '9 Vine', phone: '8015556666', housePrice: 200 } }
+      { id: 'h3', data: { name: 'Sam Pratt', address: '3 Ash', phone: '8015553333', billToPhone: '8015550111', housePrice: 300, rsvpStatus: 'no' } },
+      { id: 'h4', data: { name: 'Ivy Nunez', address: '4 Fir', phone: '8015554444', housePrice: 500 } },
+      { id: 'h5', data: { name: 'Ivy Nunez', address: '5 Pine', phone: '8015554444', propertyLabel: 'Cabin', housePrice: 250 } },
+      { id: 'h6', data: { name: 'Solo Jones', address: '9 Vine', phone: '8015556666', housePrice: 200 } },
+      { id: 'h7', data: { name: 'Rita Vance', address: '7 Bay', phone: '8015557777', housePrice: 0, rsvpStatus: 'no' } },
+      { id: 'h8', data: { name: 'Tenant One', address: '8 Bay', phone: '8015558001', billToPhone: '8015557777', housePrice: 150 } },
+      { id: 'h9', data: { name: 'Tenant Two', address: '9 Bay', phone: '8015558002', billToPhone: '8015557777', housePrice: 175 } },
+      { id: 'g1', data: { name: 'Ghost One', address: '1 Mist', phone: '8015559001', billToPhone: '8015558888', housePrice: 100 } },
+      { id: 'g2', data: { name: 'Ghost Two', address: '2 Mist', phone: '8015559002', billToPhone: '8015558888', housePrice: 120 } }
     ];
-    const paint = new Function('jobAddresses', 'custInvoiceKey', 'esc', 'fmtMoney', 'fmtPhone',
-      'invoiceById', 'balanceDueAmount', 'computeInvoiceStatus', 'document', 'openEditCustomerModal',
-      'let billingGroupSearchTerm = "";\n' + renderSrc.join('\n') +
-      '\nreturn function(term){ billingGroupSearchTerm = term || ""; renderBillingGroups();' +
-      ' return { list: document.getElementById("billingGroupList"),' +
-      '          count: document.getElementById("billingGroupCount") }; };'
-    )(book,
-      d => String((d && d.phone) || '').replace(/\D/g, ''),
+    const byPhone = new Map();
+    book.forEach(a => { if (!byPhone.has(a.data.phone)) byPhone.set(a.data.phone, a); });
+    const key = d => String((d && d.phone) || '').replace(/\D/g, '') ||
+                     String((d && d.email) || '').toLowerCase().trim();
+
+    const box = {};
+    new Function(
+      'jobAddresses', 'custInvoiceKey', 'esc', 'fmtMoney', 'fmtPhone', 'invoiceById',
+      'balanceDueAmount', 'computeInvoiceStatus', 'statusClass', 'document',
+      'custByPhoneDigits', 'audienceBillingGroup', 'allCustInvoiceFor', 'hcHasMapPin',
+      'memberExportDateAdded', 'allCustRouteStatus', 'extractCleanCity',
+      'populateAllCustFilterCities', 'nextVisitChip', 'normInstallPref', 'isKnownInstallPref',
+      'custNumChip', 'custSheetChips', 'propLabelChip', 'editIcon',
+      'let allCustSortCol = "name"; let allCustSortDir = 1;\n' +
+      'const expandedBillGroups = new Set();\n' +
+      renderSrc.join('\n') + '\n' +
+      'this.expanded = expandedBillGroups;\n' +
+      'this.paint = function(opts){\n' +
+      '  opts = opts || {};\n' +
+      '  document.getElementById("allCustSearchInput").value = opts.term || "";\n' +
+      '  document.getElementById("allCustFilterBilling").value = opts.billing || "all";\n' +
+      '  renderAllCustomersTable();\n' +
+      '  const body = document.getElementById("allCustTableBody");\n' +
+      '  return { html: body.innerHTML, body: body,\n' +
+      '           count: document.getElementById("allCustCount").textContent };\n' +
+      '};'
+    ).call(box,
+      book, key,
       t => String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;'),
       n => '$' + Number(n || 0).toFixed(0),
       p => String(p),
       new Map(),
       () => 0,
       () => 'Unpaid',
+      () => 'pill',
       dom.window.document,
-      () => {});
+      byPhone,
+      d => (String((d && d.billToPhone) || '').replace(/\D/g, '') ? 'elsewhere' : 'own'),
+      () => null,          // allCustInvoiceFor — nobody has an invoice in this fixture
+      () => true, () => '2026-01-01', () => 'Unscheduled', c => String(c || ''),
+      () => {}, () => '', p => String(p || ''), () => true,
+      () => '', () => '', () => '', () => '');
 
-    const out = paint('');
-    check('who-pays', 'the office screen names the payer and everyone on their bill',
-      out.list.innerHTML.indexOf('Dana Pratt') !== -1 &&
-      out.list.innerHTML.indexOf('Kyle Pratt') !== -1,
-      'this is the screen somebody is looking at while the customer reads the same list ' +
-      'on their own portal');
-    check('who-pays', 'a customer paying only for themselves is not listed',
-      out.list.innerHTML.indexOf('Solo Jones') === -1,
-      'otherwise this is just the customer list with extra steps');
-    check('who-pays', 'it says how many bills and how many houses',
-      /1 bill covering 2 houses/.test(out.count.textContent),
-      'the count is what tells the office whether the tab is worth opening');
-    check('who-pays', 'a search that matches nobody says so instead of going blank',
-      /No bill matches that search/.test(paint('zzzz').list.innerHTML),
-      'an empty panel reads as "the feature is broken"');
-    check('who-pays', 'searching the person being paid FOR finds the bill',
-      paint('kyle').list.innerHTML.indexOf('Dana Pratt') !== -1,
-      'that is the name the office is given on the phone');
+    const out = box.paint();
+
+    // ---- the shape of the table ------------------------------------------
+    check('who-pays', 'a bill covering several houses is drawn as a header',
+      /data-billgroup="8015550111"/.test(out.html) &&
+      out.html.indexOf('Dana Pratt’s bill') !== -1,
+      'this is the whole point of folding the tab in — the office reads the bill in the list ' +
+      'they already work from');
+    check('who-pays', 'and every house on it is nested underneath, the payer included',
+      (out.html.match(/data-billchild="8015550111"/g) || []).length === 2,
+      'the payer is a CHILD, not the parent row: the child prices have to visibly sum to the ' +
+      'invoice total, and a bill whose payer is nobody on file still needs a header');
+    check('who-pays', 'a customer paying only for their own house is a plain row',
+      out.html.indexOf('Solo Jones') !== -1 &&
+      !/data-billchild="8015556666"/.test(out.html),
+      'a chevron on every row would be noise on ~960 of them');
+    check('who-pays', 'a house that said no is not nested under anybody',
+      out.html.indexOf('Sam Pratt') !== -1 &&
+      (out.html.match(/data-billchild="8015550111"/g) || []).length === 2,
+      'they are not billed this season, so naming them under a total that excludes them ' +
+      'prints a list that does not add up');
+    check('who-pays', 'the two houses sharing one phone are grouped with no field set',
+      /data-billgroup="8015554444"/.test(out.html) &&
+      (out.html.match(/data-billchild="8015554444"/g) || []).length === 2,
+      'custInvoiceKey already files them under one invoice — a billToPhone-only scan swears ' +
+      'they are separate while the customer’s own portal lists them together');
+
+    // ---- the money adds up -------------------------------------------------
+    check('who-pays', 'the header total is the sum of the houses shown under it',
+      out.html.indexOf('$750 bill') !== -1,
+      'Dana 400 + Kyle 350. Sam said no and is in neither the list nor the total');
+    check('who-pays', 'and each child shows the one figure that total is made of',
+      out.html.indexOf('Own house') !== -1 && out.html.indexOf('On this bill') !== -1,
+      'a child repeating the whole-bill status reads as several bills rather than one');
+
+    // ---- collapsed by default, and it stays where it was -------------------
+    check('who-pays', 'bills start collapsed',
+      /data-billchild="8015550111"[^>]*display:none/.test(out.html),
+      'opening All Customers to a screen of nested rows would be worse than the flat list');
+    box.expanded.add('8015550111');
+    const opened = box.paint();
+    check('who-pays', 'an opened bill draws its houses visible',
+      !/data-billchild="8015550111"[^>]*display:none/.test(opened.html) &&
+      /data-billchild="8015554444"[^>]*display:none/.test(opened.html),
+      'and only that one — opening a bill must not open every other bill with it');
+    check('who-pays', 'and the open state survives a filter change and a repaint',
+      !/data-billchild="8015550111"[^>]*display:none/.test(box.paint({ term: '' }).html),
+      'a live Firestore change repaints this table from scratch; losing the open bill every ' +
+      'time somebody edits any customer makes the chevron useless');
+    box.expanded.delete('8015550111');
+
+    // ---- ⭐ the payer who sat the season out --------------------------------
+    check('who-pays', 'a payer who RSVP’d no is named, not called missing',
+      /data-billgroup="8015557777"/.test(out.html) &&
+      out.html.indexOf('Rita Vance’s bill') !== -1 &&
+      !/no customer record[^<]*8015557777/.test(out.html),
+      'billingGroupsByPayer drops a cancelled house from its own group, so billingGroupPayer ' +
+      'finds nobody and the bill used to read "no customer record" — about somebody sitting ' +
+      'right there in the customer list');
+    check('who-pays', 'and the header says why she is not in her own list',
+      /not taking lights this season/.test(out.html),
+      'otherwise the office counts two houses under a three-house phone number and goes looking ' +
+      'for the missing one');
+    check('who-pays', 'a bill-to belonging to nobody still reads as no customer record',
+      /data-billgroup="8015558888"/.test(out.html) &&
+      /no customer record/.test(out.html),
+      'that one is real and worth saying out loud — the office typed a phone number that ' +
+      'belongs to nobody, so those houses are billed to a person who cannot sign in');
+
+    // ---- search and the Billing filter -------------------------------------
+    const kyle = box.paint({ term: 'kyle' });
+    check('who-pays', 'searching the person being paid FOR brings up the whole bill',
+      kyle.html.indexOf('Dana Pratt') !== -1 && kyle.html.indexOf('Kyle Pratt') !== -1 &&
+      /data-billgroup="8015550111"/.test(kyle.html),
+      'that is the name the office is given on the phone, and showing Kyle alone answers a ' +
+      'different question than the one being asked');
+    check('who-pays', 'and it does not drag in unrelated bills',
+      kyle.html.indexOf('Ivy Nunez') === -1 && kyle.html.indexOf('Solo Jones') === -1,
+      'a search that matches everybody is a search nobody uses');
+    const nopayer = box.paint({ billing: 'nopayer' });
+    check('who-pays', 'the Payer-not-on-file filter finds the typo, and only the typo',
+      nopayer.html.indexOf('Ghost One') !== -1 && nopayer.html.indexOf('Ghost Two') !== -1 &&
+      nopayer.html.indexOf('Tenant One') === -1 && nopayer.html.indexOf('Dana Pratt') === -1,
+      'Rita is on file and merely sitting the season out — sweeping her in here is the same ' +
+      'wrong answer the header fix exists to stop, and it is the whole difference between ' +
+      '"payer not on file" and "payer said no"');
+    const elsewhere = box.paint({ billing: 'elsewhere' });
+    check('who-pays', 'and On-someone-elses-bill uses the audience helper the emails use',
+      /data-editcust="h2"/.test(elsewhere.html) && !/data-editcust="h1"/.test(elsewhere.html),
+      'audienceBillingGroup is what the Automation Emails audience filter reads — two answers ' +
+      'to "who is billed elsewhere" would eventually disagree');
+    check('who-pays', 'a filter that leaves one house of a bill drops the header',
+      !/data-billgroup="8015550111"/.test(elsewhere.html),
+      'a header over a single child claims a bill covers one house, and its total would not ' +
+      'match the one row under it');
+
+    // ---- the actions -------------------------------------------------------
+    check('who-pays', 'a nested house is offered Bill separately',
+      /data-custbillsplit="h2"/.test(out.html),
+      'taking one house off a shared bill was only possible by editing the customer and ' +
+      'knowing which field to blank');
+    check('who-pays', 'and a plain row is offered the reverse instead',
+      /data-custbilljoin="h6"/.test(out.html) && !/data-custbillsplit="h6"/.test(out.html),
+      'offering both on every row means reading the row to work out which of the two does nothing');
+    check('who-pays', 'the table still has exactly eight columns on every kind of row',
+      (function () {
+        const trs = Array.from(out.body.querySelectorAll('tr'));
+        return trs.length > 0 && trs.every(tr => tr.querySelectorAll('td').length === 8);
+      })(),
+      'the responsive rules are written as td:nth-child(2) and td:nth-child(4), so a header ' +
+      'with a colspan — or a ninth column — silently relabels two others on a phone');
   }
 }
 
+/* ---------------------------------------------------------------------------
+ * Suite 77. Moving a house on and off somebody's bill, actually run
+ *
+ * Two new buttons in All Customers do the thing the office previously did by
+ * opening Edit Customer and knowing which field to blank. Both write money.
+ *
+ * ⚠ THE REFUSALS ARE THE FEATURE. Each of the three is a case where the obvious
+ * write silently does NOTHING or does the wrong thing — a house grouped only by
+ * a shared phone has no field to clear and its "own" invoice would BE the
+ * payer's invoice, overwritten; a house at no price clears its bill-to and then
+ * creates no invoice, because every invoice-create path here is guarded above
+ * zero; a house with neither phone nor email has nothing to file an invoice
+ * under at all. A silent no-op on a money screen is the worst of the three
+ * outcomes, so these check that nothing is written, not just that a message
+ * appears.
+ *
+ * ⚠ AND THE LIGHT-CHANGE FEE. Moving a house ONTO a bill deletes its own
+ * invoice; a fee sitting on that invoice is not part of install or removal, so
+ * it has to be carried across explicitly or it is billed to nobody, ever. That
+ * is a bug the edit-customer path already had once and fixed — this path calls
+ * the same shape rather than a second copy of it.
+ *
+ * Nothing here touches Firestore: every writer is a recorder.
+ * ------------------------------------------------------------------------- */
+pendingAsync.push((async () => {
+  suite('Suite 77. Moving a house on and off a bill');
+
+  /* ⚠ extractFn searches for "function NAME(" and so slices from the f of
+     `function`, dropping the `async` in front of it — leaving a body full of
+     bare `await`, which is a parse error that kills the whole suite with no
+     clue which function it was (CLAUDE.md §5). Try the async spelling first. */
+  const lift77 = (n) => {
+    let st = admin.indexOf('async function ' + n + '(');
+    if (st < 0) st = admin.indexOf('function ' + n + '(');
+    if (st < 0) return '';
+    let i = admin.indexOf('{', st), d = 0;
+    for (; i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(st, i + 1); }
+    }
+    return '';
+  };
+
+  const splitSrc = lift77('billSplitHouse');
+  const joinSrc = lift77('billJoinApply');
+  check('S77', 'both billing actions are still in admin.html',
+    !!splitSrc && !!joinSrc,
+    'renamed or removed — update this suite rather than deleting it');
+  if (!splitSrc || !joinSrc) return;
+
+  /* One harness for both. Every writer records instead of writing, and the
+     confirm box always says yes, so what is being measured is what the code
+     WOULD do to real data. */
+  function harness(book, invoices, answers) {
+    const w = { writes: [], deletes: [], syncs: [], alerts: [], toasts: [], confirms: [] };
+    const invById = new Map(invoices.map(i => [i.id, i]));
+    const byPhone = new Map();
+    book.forEach(a => { if (!byPhone.has(a.data.phone)) byPhone.set(a.data.phone, a); });
+    const api = new Function(
+      'jobAddresses', 'custInvoiceKey', 'invoiceById', 'custByPhoneDigits', 'fmtMoney',
+      'fmtPhone', 'esc', 'computeInvoiceStatus', 'billingGroupsByPayer', 'billingGroupKeyLabel',
+      'alert', 'confirm', 'toast', 'renderAllCustomersTable', 'paymentLedgerUser',
+      'db', 'doc', 'setDoc', 'updateDoc', 'deleteDoc', 'getDoc', 'serverTimestamp',
+      'document', 'syncPayerInvoice',
+      'let billJoinHouseId = null;\n' + splitSrc + '\n' + joinSrc + '\n' +
+      'return { split: billSplitHouse,\n' +
+      '         join: function(houseId, payerId){ billJoinHouseId = houseId; return billJoinApply(payerId); } };'
+    )(
+      book,
+      d => String((d && d.phone) || '').replace(/\D/g, '') ||
+           String((d && d.email) || '').toLowerCase().trim(),
+      invById, byPhone,
+      n => '$' + Number(n || 0).toFixed(0),
+      p => String(p),
+      t => String(t == null ? '' : t),
+      () => 'Unpaid',
+      /* the real grouping rule, small enough to restate honestly here */
+      function () {
+        const g = new Map();
+        book.forEach(function (a) {
+          const d = a.data || {};
+          if (String(d.rsvpStatus || '') === 'no') return;
+          const k = String(d.billToPhone || '').replace(/\D/g, '') ||
+                    String(d.phone || '').replace(/\D/g, '');
+          if (!k) return;
+          if (!g.has(k)) g.set(k, []);
+          g.get(k).push(a);
+        });
+        return g;
+      },
+      k => String(k),
+      m => { w.alerts.push(String(m)); },
+      m => { w.confirms.push(String(m)); return answers !== false; },
+      m => { w.toasts.push(String(m)); },
+      () => {}, () => 'tester',
+      {},
+      (_db, col, id) => ({ col: col, id: id }),
+      async (ref, data) => { w.writes.push({ how: 'set', col: ref.col, id: ref.id, data: data }); },
+      async (ref, data) => { w.writes.push({ how: 'update', col: ref.col, id: ref.id, data: data }); },
+      async (ref) => { w.deletes.push(ref.col + '/' + ref.id); },
+      async (ref) => {
+        const hit = invById.get(ref.id);
+        return { exists: () => !!hit, data: () => (hit ? hit.data : {}) };
+      },
+      () => 'NOW',
+      { getElementById: () => ({ textContent: '', value: '', style: {} }) },
+      /* ⚠ syncPayerInvoice is a free variable inside both lifted bodies. Left
+         unbound it throws ReferenceError and the whole suite dies as one
+         unattributable crash; recorded, it also proves the rebuild was asked
+         for rather than done by arithmetic here. */
+      async (k) => { w.syncs.push(String(k)); }
+    );
+    api.record = w;
+    return api;
+  }
+
+  /* Dana pays for her own house and Kyle's. Ivy and Ivy's cabin share ONE phone
+     with nothing set anywhere. Nomad has neither phone nor email. Freebie is on
+     Dana's bill at no price. */
+  const book = () => ([
+    { id: 'h1', data: { name: 'Dana Pratt', phone: '8015550111', housePrice: 400 } },
+    { id: 'h2', data: { name: 'Kyle Pratt', phone: '8015552222', billToPhone: '8015550111', housePrice: 350 } },
+    { id: 'h4', data: { name: 'Ivy Nunez', phone: '8015554444', housePrice: 500 } },
+    { id: 'h5', data: { name: 'Ivy Cabin', phone: '8015554444', housePrice: 250 } },
+    { id: 'h6', data: { name: 'Freebie Ann', phone: '8015556666', billToPhone: '8015550111', housePrice: 0 } },
+    { id: 'h7', data: { name: 'Nomad Ray', phone: '', email: '', billToPhone: '8015550111', housePrice: 275 } }
+  ]);
+  const invoices = () => ([
+    { id: '8015550111', data: { name: 'Dana Pratt', install: 750, removal: 0, deposit: 200, billedHouseIds: ['h1', 'h2'] } },
+    { id: '8015552222', data: { name: 'Kyle Pratt', install: 350, removal: 0, deposit: 0, changeFees: 30,
+                                changeFeeNotes: [{ amount: 30, reason: 'Late colour change' }] } }
+  ]);
+
+  // ---- refusal 1: grouped only by a shared phone --------------------------
+  {
+    const api = harness(book(), invoices());
+    await api.split('h5');
+    check('S77', 'a house grouped only by a shared phone is refused, and nothing is written',
+      /share a phone number with/.test(api.record.alerts.join(' ')) &&
+      api.record.writes.length === 0 && api.record.deletes.length === 0,
+      'there is no billToPhone to clear, and the invoice doc is NAMED after the key — so its ' +
+      '"own" invoice would be the payer’s invoice, overwritten');
+    check('S77', 'and it names an actual other house on the bill',
+      /Ivy Nunez/.test(api.record.alerts.join(' ')),
+      '"you share a phone with another customer" leaves the office searching for who');
+  }
+
+  // ---- refusal 2: no price ------------------------------------------------
+  {
+    const api = harness(book(), invoices());
+    await api.split('h6');
+    check('S77', 'a house with no price is refused before anything moves',
+      /Set a house price/.test(api.record.alerts.join(' ')) &&
+      api.record.writes.length === 0,
+      'every invoice-create path here is guarded above zero, so this would clear the bill-to ' +
+      'and then create no invoice at all — the house billed to nobody, silently');
+  }
+
+  // ---- refusal 3: nothing to file an invoice under ------------------------
+  {
+    const api = harness(book(), invoices());
+    await api.split('h7');
+    check('S77', 'a house with no phone and no email is refused',
+      /no phone number and no email/.test(api.record.alerts.join(' ')) &&
+      api.record.writes.length === 0,
+      'custInvoiceKey returns empty, so there is no name to file an invoice under under any ' +
+      'scheme — and the write would land on a document called ""');
+  }
+
+  // ---- the deposit warning ------------------------------------------------
+  {
+    const api = harness(book(), invoices());
+    await api.split('h2');
+    const asked = api.record.confirms.join(' ');
+    check('S77', 'a split says the payer’s money does not follow the house',
+      /has paid \$200 toward this bill/.test(asked) && /does not follow/.test(asked),
+      'the deposit stays on the payer’s invoice — if some of it was meant for this house ' +
+      'somebody has to move a credit, and they can only do that if they are told');
+    check('S77', 'and it shows the before and after, and where the new invoice lands',
+      /\$750/.test(asked) && /\$400/.test(asked) && /Filed under: 8015552222/.test(asked),
+      'confirming a money change you cannot see the shape of is not confirming anything');
+  }
+
+  // ---- the split itself ---------------------------------------------------
+  {
+    const api = harness(book(), invoices());
+    await api.split('h2');
+    const cleared = api.record.writes.filter(x => x.col === 'jobAddresses' && x.id === 'h2');
+    check('S77', 'the split clears the bill-to and nothing else about the house',
+      cleared.length === 1 && cleared[0].data.billToPhone === '' &&
+      cleared[0].data.housePrice === undefined,
+      'the house price is what the new invoice is FOR — a split that also blanked it would ' +
+      'produce a customer with no bill anywhere');
+    const made = api.record.writes.filter(x => x.col === 'invoices' && x.id === '8015552222');
+    check('S77', 'and files a new invoice under the house’s own key, for its own price',
+      made.length === 1 && made[0].data.install === 350 && made[0].data.priceReviewed === true,
+      'filed under the payer’s key it would overwrite the payer; at the wrong amount it ' +
+      'would bill the house for the whole group');
+    check('S77', 'the payer is rebuilt by syncPayerInvoice, not by arithmetic here',
+      /await syncPayerInvoice\(oldBillTo\)/.test(splitSrc) &&
+      !/install:\s*oldInstall\s*-/.test(splitSrc),
+      'the payer’s install is the SUM of their houses plus any $30 member fee — subtracting ' +
+      'one number from it is a second copy of that rule, waiting to disagree with the nightly run');
+  }
+
+  // ---- refusing at the confirm box writes nothing --------------------------
+  {
+    const api = harness(book(), invoices(), false);
+    await api.split('h2');
+    check('S77', 'saying no at the confirm box writes nothing at all',
+      api.record.writes.length === 0 && api.record.deletes.length === 0,
+      'a confirm box that has already done the thing is not a confirm box');
+  }
+
+  // ---- joining a bill, and the fee that must travel ------------------------
+  {
+    const api = harness(book(), invoices());
+    await api.join('h2', 'h4');                    // put Kyle on Ivy's bill
+    check('S77', 'joining writes the payer’s KEY into billToPhone',
+      api.record.writes.some(x => x.col === 'jobAddresses' && x.id === 'h2' &&
+        x.data.billToPhone === '8015554444'),
+      'billToPhone is the field, but the key can be an email for a customer with no phone — ' +
+      'and the key is what syncPayerInvoice resolves and what the invoice doc is named after');
+    check('S77', 'the house’s own invoice is removed so it is not billed twice',
+      api.record.deletes.indexOf('invoices/8015552222') !== -1,
+      'leaving it standing bills the same house on two invoices, and the nightly run emails both');
+    const fee = api.record.writes.filter(x => x.col === 'invoices' && x.id === '8015554444' &&
+      x.data.changeFees !== undefined);
+    check('S77', '⭐ and its light-change fee is carried onto the new payer',
+      fee.length === 1 && fee[0].data.changeFees === 30 &&
+      Array.isArray(fee[0].data.changeFeeNotes) && fee[0].data.changeFeeNotes.length === 1,
+      'a fee is not part of install or removal, so deleting the old invoice drops it and it is ' +
+      'never billed to anybody — the exact bug the edit-customer path had once');
+    check('S77', 'and the fee is folded on AFTER the payer is resynced',
+      joinSrc.indexOf('await syncPayerInvoice(newBillTo)') <
+      joinSrc.indexOf('changeFees: combinedFees'),
+      'the other order writes the fee and then has syncPayerInvoice overwrite it');
+  }
+
+  // ---- a group invoice is not somebody else's to delete --------------------
+  {
+    const api = harness(book(), invoices());
+    await api.join('h1', 'h4');                    // Dana herself joins Ivy's bill
+    check('S77', 'a multi-house group invoice is never deleted OR zeroed by a join',
+      api.record.deletes.indexOf('invoices/8015550111') === -1 &&
+      !api.record.writes.some(x => x.col === 'invoices' && x.id === '8015550111' &&
+        x.data.install === 0),
+      'that invoice belongs to a real payer and covers houses that are not this one — deleting ' +
+      'it takes Kyle’s bill down with it, and zeroing it is the same loss with the document ' +
+      'left standing. ⚠ Checking only for the delete let the guard be removed with no test ' +
+      'noticing, because a group invoice carrying a deposit takes the zeroing branch instead.');
+  }
+
+  // ---- an invoice carrying a payment is zeroed, never deleted --------------
+  {
+    const invs = invoices();
+    invs[1].data.deposit = 120;
+    const api = harness(book(), invs);
+    await api.join('h2', 'h4');
+    check('S77', 'an invoice carrying a real payment is zeroed rather than deleted',
+      api.record.deletes.indexOf('invoices/8015552222') === -1 &&
+      api.record.writes.some(x => x.col === 'invoices' && x.id === '8015552222' &&
+        x.data.install === 0),
+      'money that was actually collected has to stay somewhere it can be seen');
+  }
+})());
 
 /* ---------------------------------------------------------------------------
  * Suite 73. Finding the houses still on soft lights

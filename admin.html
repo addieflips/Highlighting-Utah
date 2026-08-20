@@ -1183,7 +1183,6 @@
       <div class="route-tabs" id="custSectionTabs" style="margin-bottom:20px;">
         <button class="route-tab-btn active" data-custtab="add" draggable="true">Add a Customer</button>
         <button class="route-tab-btn" data-custtab="all" draggable="true">All Customers</button>
-        <button class="route-tab-btn" data-custtab="billing" draggable="true">Who Pays for Whom</button>
         <button class="route-tab-btn" data-custtab="bulk" draggable="true">Bulk Updates</button>
         <button class="route-tab-btn" data-custtab="danger" draggable="true">Danger Zone</button>
       </div>
@@ -1417,33 +1416,6 @@
       </div>
       </div>
       
-      <!-- ⭐ WHO PAYS FOR WHOM.
-           One invoice can cover several houses — a parent paying for a child, a
-           landlord paying for tenants, a cabin as well as a house. Every other
-           screen in the app is arranged by HOUSE, so the only way to answer "who
-           is on this person's bill" was to search the phone number and read the
-           results. This is that answer, laid out per payer, with the same group
-           syncPayerInvoice sums so the houses listed always add up to the
-           amount charged. The customer now sees the same list in their portal
-           and on the RSVP email, so this is what the office is looking at when
-           somebody rings up about it. -->
-      <div class="route-tab-panel" id="custtab-billing">
-        <div class="card">
-          <h3 style="margin:0 0 6px;">Who Pays for Whom</h3>
-          <p style="font-size:13px; color:var(--slate); margin:0 0 14px;">
-            Every bill that covers more than one house. The customer sees this same list in their portal and on their RSVP email.
-            A house is on somebody else&rsquo;s bill when its <strong>Bill To Phone</strong> is filled in, or when two houses share one phone number.
-            Houses that said No for this season are not billed and are not listed.
-          </p>
-          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:14px;">
-            <input type="text" id="billingGroupSearch" placeholder="Search by payer, house, phone, or address..." style="flex:1; min-width:220px; padding:10px 14px; border-radius:10px; border:1px solid var(--line); background:var(--snow); font-size:14px;">
-            <button type="button" class="btn btn-outline btn-sm" id="billingGroupExportBtn">Export to Excel</button>
-          </div>
-          <p id="billingGroupCount" style="font-size:12.5px; color:var(--slate); margin:0 0 10px;"></p>
-          <div id="billingGroupList"></div>
-        </div>
-      </div>
-
       <div class="route-tab-panel" id="custtab-bulk">
 <!-- Fill in a missing town from the map pin. Not a nice-to-have: every
      scheduling decision in this app is made per town, so a customer whose town
@@ -1711,7 +1683,16 @@
           <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:14px;">
             <input type="text" id="allCustSearchInput" placeholder="Search by name, phone, email, or address..." style="flex:1; min-width:220px; padding:10px 14px; border-radius:10px; border:1px solid var(--line); background:var(--snow); font-size:14px;">
             <button type="button" class="btn btn-outline btn-sm" id="allCustFilterToggle">Filters &#9662;</button>
-            <button type="button" class="btn btn-outline btn-sm" id="allCustExportBtn">Export to Excel</button>
+            <!-- Two sheets from one button. "Bill groups" is the sheet the Who Pays
+                 for Whom tab used to export; it keeps its old sheet name and filename so
+                 files the office has already saved stay consistent with new ones. -->
+            <div style="position:relative;">
+              <button type="button" class="btn btn-outline btn-sm" id="allCustExportBtn">Export to Excel &#9662;</button>
+              <div id="allCustExportMenu" style="display:none; position:absolute; right:0; top:100%; margin-top:4px; background:var(--snow); border:1px solid var(--line); border-radius:10px; box-shadow:0 8px 24px rgba(30,59,44,.14); z-index:25; min-width:200px; overflow:hidden;">
+                <button type="button" data-allcustexport="customers" style="display:block; width:100%; text-align:left; padding:10px 14px; background:none; border:0; font-size:13.5px; color:var(--ink); cursor:pointer;">Customers</button>
+                <button type="button" data-allcustexport="groups" style="display:block; width:100%; text-align:left; padding:10px 14px; background:none; border:0; border-top:1px solid var(--line); font-size:13.5px; color:var(--ink); cursor:pointer;">Bill groups</button>
+              </div>
+            </div>
           </div>
           <div id="allCustFilterPanel" style="display:none; background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:14px; margin-bottom:14px;">
             <div class="form-grid-3">
@@ -1734,6 +1715,18 @@
                    and told staff to "search Needs Pin in the customer list" — a search
                    that did not exist anywhere. This is it. -->
               <div class="form-row"><label>Map Pin</label><select id="allCustFilterPin"><option value="all">Any</option><option value="none">Needs Pin (can't be routed)</option><option value="has">Has a Pin</option></select></div>
+              <!-- Who pays for whom, as a filter rather than as its own tab. "Payer
+                   not on file" is the case the old Who Pays for Whom tab showed as a
+                   red warning row: a Bill To Phone was typed that belongs to nobody, so
+                   those houses are billed to somebody who cannot sign in and will never
+                   be emailed. Health Check reports the same thing. -->
+              <div class="form-row"><label>Billing</label><select id="allCustFilterBilling">
+                <option value="all">Any</option>
+                <option value="elsewhere">On someone else&rsquo;s bill</option>
+                <option value="multi">Pays for several houses</option>
+                <option value="nopayer">Payer not on file</option>
+                <option value="pendingrsvp">Pending RSVP</option>
+              </select></div>
               <div class="form-row"><label>Enrolled</label>
                 <div style="display:flex; gap:6px;">
                   <input type="date" id="allCustFilterDateStart" style="flex:1;">
@@ -1763,6 +1756,22 @@
               </thead>
               <tbody id="allCustTableBody"></tbody>
             </table>
+          </div>
+        </div>
+      </div>
+      <!-- Putting a house on somebody else's bill. A searchable list rather than a
+           typed phone number: the office knows the payer by NAME, and a mistyped
+           phone silently creates a bill nobody can sign in to — the exact "payer not
+           on file" case the Billing filter exists to find afterwards. -->
+      <div class="editcust-popup-overlay" id="billJoinOverlay">
+        <div class="editcust-popup" style="max-width:540px;">
+          <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:19px;">Put on someone else&rsquo;s bill</h3>
+          <p id="billJoinWho" style="font-size:13px; color:var(--slate); margin:0 0 12px;"></p>
+          <input type="text" id="billJoinSearch" placeholder="Search by name or phone..." style="width:100%; padding:10px 14px; border-radius:10px; border:1px solid var(--line); background:var(--snow); font-size:14px; margin-bottom:10px;">
+          <div id="billJoinList" style="max-height:320px; overflow:auto; border:1px solid var(--line); border-radius:10px;"></div>
+          <p id="billJoinStatus" style="font-size:12.5px; color:var(--slate); margin:10px 0 0;"></p>
+          <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:12px;">
+            <button type="button" class="btn btn-outline btn-sm" id="billJoinCancel">Cancel</button>
           </div>
         </div>
       </div>
@@ -10311,6 +10320,30 @@ function billingGroupPayer(key, houses){
     const d = h.data || {};
     return !String(d.billToPhone||'').replace(/\D/g,'') && custInvoiceKey(d) === key;
   }) || null;
+}
+/* ⭐ A PAYER WHO SAT THE SEASON OUT IS STILL ON FILE.
+   billingGroupsByPayer drops any house that RSVP'd 'no', so a payer who is not
+   taking lights themselves but still pays for other houses is missing from
+   their OWN group — billingGroupPayer finds nobody and the bill used to render
+   as "no customer record", which is simply untrue: they are sitting right there
+   in the customer list. Only when nothing on file matches the key at all is it
+   the real case, the office having typed a Bill To Phone that belongs to
+   nobody, which Health Check reports too.
+   ⚠ custByPhoneDigits is keyed on PHONE DIGITS, so an email-keyed payer (a
+   customer with no phone) is not in it and a lookup there alone would call a
+   real customer missing. Fall back to the customer book for those. */
+function billingGroupPayerOnFile(key){
+  const k = String(key||'').trim();
+  if(!k) return null;
+  if(/^\d+$/.test(k)) return custByPhoneDigits.get(k) || null;
+  return (jobAddresses||[]).find(function(a){ return custInvoiceKey(a.data||{}) === k; }) || null;
+}
+/* A group key is a phone when the payer has one and their lowercased email when
+   they do not (custInvoiceKey), so it cannot go through fmtPhone blindly —
+   that would print an email address with brackets and dashes through it. */
+function billingGroupKeyLabel(key){
+  const k = String(key||'').trim();
+  return /^\d+$/.test(k) ? fmtPhone(k) : k;
 }
 let etFilterGateCode = 'all';
 let etFilterPayment = 'all';
@@ -21222,7 +21255,6 @@ const RENDER_PANEL = {
   invRecipients: 'automation',
   invPreview: 'automation',
   allCustomersTable: 'addcustomer',
-  billingGroups: 'addcustomer',
   scheduleSync: 'schedule'
 };
 const pendingRenders = new Map();   // label -> the function to run when its panel opens
@@ -21291,10 +21323,6 @@ function renderJobAddressPanels(){
        from - a saved edit only appeared after retyping the search or switching
        tabs. It renders from jobAddresses, which has just been rebuilt above. */
     safeRender('allCustomersTable', typeof renderAllCustomersTable === 'function' ? renderAllCustomersTable : null);
-    /* Who Pays for Whom reads the same jobAddresses list, so a bill-to change
-       has to redraw it or the office is looking at yesterday's groups while the
-       customer's portal already shows today's. */
-    safeRender('billingGroups', typeof renderBillingGroups === 'function' ? renderBillingGroups : null);
     /* The Schedule tab keeps its own copy of every house, so a customer edit
        has to be pulled across or the plan quietly works from stale towns and
        stale timings. Goes through safeRender so it follows the same rule as
@@ -23428,7 +23456,6 @@ setupDraggableTabBar('custSectionTabs', 'custtab', 'huCustTabOrder', function(ta
     });
   });
   if(tabName === 'all') renderAllCustomersTable();
-  if(tabName === 'billing') renderBillingGroups();
 });
 function loadHouseMapsIdSet(){
   /* House Maps was retired. Dad's scanned hand-drawn layout now lives directly on
@@ -23536,7 +23563,6 @@ function allCustRouteStatus(d){
    sharing one phone with no billToPhone set are already on one invoice, and a
    billToPhone-only scan would swear they were separate — while the customer's
    own portal, which reads the invoice, listed them together. */
-let billingGroupSearchTerm = '';
 function billingGroupRows(){
   const groups = billingGroupsByPayer();
   const out = [];
@@ -23569,95 +23595,139 @@ function billingGroupMatches(g, term){
   })).join(' ').toLowerCase();
   return hay.indexOf(term) !== -1;
 }
-function renderBillingGroups(){
-  const list = document.getElementById('billingGroupList');
-  const countEl = document.getElementById('billingGroupCount');
-  if(!list) return;
-  const all = billingGroupRows();
-  const term = billingGroupSearchTerm.toLowerCase();
-  const shown = all.filter(function(g){ return billingGroupMatches(g, term); });
-  if(countEl){
-    const houseTotal = all.reduce(function(s,g){ return s + g.houses.length; }, 0);
-    countEl.textContent = all.length
-      ? (all.length + ' bill' + (all.length === 1 ? '' : 's') + ' covering ' + houseTotal + ' houses' +
-         (term ? ' — ' + shown.length + ' matching your search' : ''))
-      : 'Nobody is being billed for more than one house right now.';
-  }
-  if(!shown.length){
-    list.innerHTML = '<div class="empty-note">' +
-      (all.length ? 'No bill matches that search.' : 'Every customer is paying for their own house only. Fill in a customer&rsquo;s <strong>Bill To Phone</strong> to put their house on somebody else&rsquo;s bill.') +
-      '</div>';
-    return;
-  }
-  list.innerHTML = shown.map(function(g){
-    const balance = g.inv ? balanceDueAmount(g.inv.data) : null;
-    const status = g.inv
-      ? computeInvoiceStatus(g.inv.data.install, g.inv.data.removal, g.inv.data.deposit, g.inv.data.credits, g.inv.data.changeFees)
-      : 'No invoice yet';
-    /* ⚠ A group whose key matches no customer record is real and worth saying
-       out loud: the office typed a Bill To Phone that belongs to nobody, so
-       these houses are billed to a person who cannot sign in and will never be
-       emailed. Health Check reports it too; this is where it is obvious. */
-    const payerLine = g.payer
-      ? '<strong>' + esc(g.payerName || '(no name)') + '</strong>' +
-        '<span style="color:var(--slate); font-size:12.5px;"> &middot; ' + esc(fmtPhone(g.key)) + '</span>'
-      : '<strong style="color:var(--ember);">' + esc(g.payerName || fmtPhone(g.key)) + ' &mdash; no customer record</strong>' +
-        '<span style="color:var(--slate); font-size:12.5px;"> &middot; billed to ' + esc(fmtPhone(g.key)) + ', which is nobody on file</span>';
-    return '<div style="border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin-bottom:12px; background:var(--snow);">' +
-      '<div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:baseline; margin-bottom:8px;">' +
-        '<div>' + payerLine + '</div>' +
-        '<div style="font-size:12.5px; color:var(--slate);">' + esc(status) +
-          (balance === null ? '' : ' &middot; ' + esc(fmtMoney(balance)) + ' due') + '</div>' +
-      '</div>' +
-      '<div style="font-size:12.5px; color:var(--slate); margin-bottom:6px;">Paying for ' + g.houses.length + ' houses &mdash; ' + esc(fmtMoney(g.priceTotal)) + ' of installation</div>' +
-      g.houses.map(function(h){
-        const d = h.data || {};
-        const isPayer = g.payer && g.payer.id === h.id;
-        return '<div style="display:flex; justify-content:space-between; gap:10px; padding:6px 0; border-top:1px solid var(--line); font-size:13px;">' +
-          '<div>' +
-            '<button type="button" data-billinghouse="' + esc(h.id) + '" style="font-weight:600; background:none; border:0; padding:0; color:var(--dusk); cursor:pointer; font-size:13px; text-align:left;">' + esc(d.name || '(no name)') + '</button>' +
-            (isPayer ? ' <span style="font-size:11.5px; color:var(--slate);">(pays the bill)</span>' : '') +
-            (d.propertyLabel ? ' <span style="font-size:11.5px; color:var(--slate);">(' + esc(d.propertyLabel) + ')</span>' : '') +
-            '<div style="color:var(--slate); font-size:12.5px;">' + esc(d.address || 'no address on file') +
-              (d.customerNumber ? ' &middot; #' + esc(d.customerNumber) : '') + '</div>' +
-          '</div>' +
-          '<div style="white-space:nowrap; font-weight:600;">' + esc(fmtMoney(Number(d.housePrice)||0)) + '</div>' +
-        '</div>';
-      }).join('') +
-    '</div>';
-  }).join('');
-  list.querySelectorAll('[data-billinghouse]').forEach(function(btn){
-    btn.addEventListener('click', function(){ openEditCustomerModal(btn.dataset.billinghouse); });
-  });
+/* Which bills are open. Module-level and NOT stored per render, so the state
+   survives a filter change, a sort, and a live Firestore repaint — all three
+   rebuild the table from scratch. */
+const expandedBillGroups = new Set();
+/* The bill header. Stays inside the existing EIGHT columns: the responsive
+   rules for this table are written as td:nth-child(2) and td:nth-child(4), so
+   a ninth column — or a colspan — would silently relabel two others on a
+   phone. Columns 2,3,4,6,7,8 are simply left empty. */
+function allCustGroupHeaderHtml(h){
+  const status = h.inv
+    ? computeInvoiceStatus(h.inv.data.install, h.inv.data.removal, h.inv.data.deposit, h.inv.data.credits, h.inv.data.changeFees)
+    : '';
+  const money = h.inv
+    ? '<span class="status-pill '+statusClass(status)+'">'+esc(status)+'</span>'+
+      '<br><span style="font-size:11.5px; color:var(--slate);">'+esc(fmtMoney(h.priceTotal))+' bill &middot; '+esc(fmtMoney(balanceDueAmount(h.inv.data)))+' due</span>'
+    : '<span style="color:var(--slate); font-size:12px;">No invoice yet</span>'+
+      '<br><span style="font-size:11.5px; color:var(--slate);">'+esc(fmtMoney(h.priceTotal))+' bill</span>';
+  const nameHtml = h.payerMissing
+    ? '<strong style="color:var(--ember);">'+esc(h.payerName)+' &mdash; no customer record</strong>'
+    : '<strong>'+esc(h.payerName)+'&rsquo;s bill</strong>';
+  /* ⚠ The count says how many are being SHOWN when a filter is hiding some, so
+     nobody reads a bill total against a short list of houses and concludes the
+     figures do not add up. Unfiltered — which is the default view — the two are
+     the same number and it just reads "4 houses". */
+  const sub = (h.shownCount === h.houseCount
+      ? h.houseCount + ' house' + (h.houseCount === 1 ? '' : 's')
+      : h.shownCount + ' of ' + h.houseCount + ' houses shown')+
+    ' &middot; '+esc(billingGroupKeyLabel(h.key))+
+    (h.payerNote ? ' &middot; <span style="color:var(--gold-dim);">'+esc(h.payerNote)+'</span>' : '');
+  return '<tr data-billgroup="'+esc(h.key)+'" style="background:var(--paper); border-bottom:1px solid var(--line); cursor:pointer;">'+
+    '<td style="padding:8px 10px;">'+
+      '<span class="billgroup-chev" style="display:inline-block; width:14px; color:var(--slate);">'+(h.open ? '&#9662;' : '&#9656;')+'</span> '+
+      nameHtml+
+      '<div style="font-size:12px; color:var(--slate); padding-left:18px;">'+sub+'</div>'+
+    '</td>'+
+    '<td style="padding:8px 10px;"></td>'+
+    '<td style="padding:8px 10px;"></td>'+
+    '<td style="padding:8px 10px;"></td>'+
+    '<td style="padding:8px 10px;">'+money+'</td>'+
+    '<td style="padding:8px 10px;"></td>'+
+    '<td style="padding:8px 10px;"></td>'+
+    '<td style="padding:8px 10px;"></td>'+
+  '</tr>';
 }
-document.getElementById('billingGroupSearch')?.addEventListener('input', function(){
-  billingGroupSearchTerm = this.value.trim();
-  renderBillingGroups();
-});
-document.getElementById('billingGroupExportBtn')?.addEventListener('click', function(){
-  const rows = [];
-  billingGroupRows().forEach(function(g){
-    g.houses.forEach(function(h){
-      const d = h.data || {};
-      rows.push({
-        'Pays the Bill': g.payerName || '(no customer record)',
-        'Payer Phone': fmtPhone(g.key),
-        'House': d.name || '',
-        'Address': d.address || '',
-        'Customer #': d.customerNumber || '',
-        'House Price': Number(d.housePrice) || 0,
-        'Houses on This Bill': g.houses.length,
-        'Bill Total (installs)': g.priceTotal,
-        'Balance Due': g.inv ? balanceDueAmount(g.inv.data) : ''
-      });
-    });
-  });
-  if(!rows.length){ alert('Nobody is being billed for more than one house right now, so there is nothing to export.'); return; }
-  const ws = XLSX.utils.json_to_sheet(rows);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Who Pays for Whom');
-  XLSX.writeFile(wb, 'who-pays-for-whom-'+toDateStr(new Date())+'.xlsx');
-});
+/* ONE row renderer for All Customers, used for a plain row and for a house
+   nested under a bill header alike. Extracted from renderAllCustomersTable so
+   the two can never drift: a child row differs from a plain one in exactly two
+   cells (the indent in column 1 and the Invoice cell in column 5) and is
+   otherwise the same markup, the same buttons and the same data attributes. */
+function allCustRowHtml(r){
+    const isChild = r.groupRole === 'child';
+    /* Only look this up when there IS a bill-to. This used to run for every
+       row whether or not the field was set — and when it was empty it compared
+       against '', so it scanned the whole customer list only to match whoever
+       happened to have no phone number. ~967 rows x ~967 customers, every
+       repaint, for a field that is blank on nearly all of them. */
+    const billToDigits = (r.d.billToPhone||'').replace(/\D/g,'');
+    const billedElsewhere = billToDigits ? custByPhoneDigits.get(billToDigits) : null;
+    const invCell = r.inv
+      ? '<span class="status-pill '+statusClass(r.invStatus)+'">'+r.invStatus+'</span><br><span style="font-size:11.5px; color:var(--slate);">'+(r.invStatus==='Partial Payment' ? 'Paid '+fmtMoney(r.inv.data.deposit||0)+' &middot; Bal '+fmtMoney(balanceDueAmount(r.inv.data)) : fmtMoney((r.inv.data.install||0)+(r.inv.data.removal||0)))+'</span>'
+      : (r.d.billToPhone ? '<span style="color:var(--slate); font-size:12px;">Billed to '+esc((billedElsewhere && billedElsewhere.data.name) || r.d.billToPhone)+'</span>' : '<span style="color:var(--slate); font-size:12px;">No invoice</span>');
+    /* A house sitting under a bill header does not repeat the bill's status:
+       the whole-bill pill is on the header directly above it, and repeating it
+       on every child reads as several bills rather than one. What belongs on
+       the child is the one figure the header total is made of, so the rows
+       visibly add up to the amount printed beside the header. This also
+       replaces "Billed to X" — under X's own header, saying it again is noise. */
+    const childInvCell = '<span style="color:var(--slate); font-size:12px;">'+
+      (r.groupIsPayerHouse ? 'Own house' : 'On this bill')+' &middot; <strong style="color:var(--ink);">'+esc(fmtMoney(Number(r.d.housePrice)||0))+'</strong></span>';
+    const rsvpLabel = r.d.rsvpStatus === 'yes' ? 'RSVP: Yes' : (r.d.rsvpStatus === 'no' ? 'RSVP: No' : (r.d.rsvpStatus === 'backnextyear' ? 'RSVP: Back Next Year' : 'RSVP: Pending'));
+    const rsvpColor = r.d.rsvpStatus === 'yes' ? '#2E6B3E' : (r.d.rsvpStatus === 'no' ? '#E0574B' : (r.d.rsvpStatus === 'backnextyear' ? '#D89F3D' : 'var(--slate)'));
+    /* The date sits directly under the route status it explains — "Scheduled"
+       on its own never said what day. Put in the EXISTING Route cell rather
+       than a new column on purpose: the responsive rules for this table are
+       written as td:nth-child(2) and td:nth-child(4), so an extra column would
+       silently relabel two others on a phone. */
+    const visitChip = nextVisitChip(r.d);
+    const routeCell = '<span class="status-pill diff-'+(r.d.difficulty||'Unrated')+'">'+(r.d.difficulty||'Unrated')+'</span><br><span style="font-size:11.5px; color:var(--slate);">'+r.routeStatus+'</span>'+(visitChip ? '<br>'+visitChip : '')+'<br><span style="font-size:11px; color:'+rsvpColor+'; font-weight:600;">'+rsvpLabel+'</span>';
+    /* Shows the normalised MEANING, not the raw shorthand. A row reading "NOV"
+       while the scheduler treats it as November is how nobody notices that 190
+       customers were being read as having no preference at all. Anything the
+       app does not recognise is called out rather than shown as if it were
+       understood. */
+    const timingPref = normInstallPref(r.d.installPreference);
+    const timingUnknown = String(r.d.installPreference || '').trim() && !isKnownInstallPref(r.d.installPreference);
+    const timingLabel = (timingPref === 'November - Before Thanksgiving' ? 'November — Before Thanksgiving'
+      : (timingPref === 'Normal Schedule' || !timingPref ? 'Any' : timingPref)) +
+      (timingUnknown ? ' ⚠ not recognised' : '');
+    const mapCell = r.hasMap ? '<a class="btn btn-outline btn-sm" href="'+esc(r.d.layoutMapUrl)+'" target="_blank" rel="noopener">View Map</a>' : '<span style="color:var(--slate); font-size:12px;">No map yet</span>';
+    const binBadge = (r.d.numberOfBins && r.d.numberOfBins > 1) ? ' <span style="display:inline-block; background:#EAF1FA; color:#2B5C8A; border:1px solid #C3D8EC; border-radius:999px; padding:1px 8px; font-size:11px; font-weight:600; vertical-align:middle;">'+r.d.numberOfBins+' bins</span>' : '';
+    /* Everyone carries one of these two, so the column answers "is this person
+       in for this season?" at a glance rather than only flagging the exceptions
+       - a blank cell used to be ambiguous between "confirmed" and "nobody has
+       looked at this yet". Confirmed is the default because that is what being
+       in All Customers has always meant; the RSVP email will set it properly
+       once it is wired up. The button flips them the other way. */
+    const maybeCell = r.d.maybeNextYear
+      ? '<span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">Maybe Next Year</span>'+
+        '<br><button type="button" class="btn btn-outline btn-sm" data-seasontoggle="'+r.item.id+'" data-to="confirmed" style="margin-top:4px; font-size:11px;">Confirm</button>'
+      : '<span class="status-pill" style="background:#E6F2EA; color:#2E6B3E; font-weight:700;">Confirmed</span>'+
+        '<br><button type="button" class="btn btn-outline btn-sm" data-seasontoggle="'+r.item.id+'" data-to="maybe" style="margin-top:4px; font-size:11px;">Maybe next year</button>';
+    /* A collapsed child is rendered and HIDDEN rather than left out. Toggling
+       then flips one style on rows that already exist — no rebuild of ~967 rows
+       on every chevron, and the scroll position stays where the office left it. */
+    const trAttrs = (isChild ? ' data-billchild="'+esc(r.groupKey)+'"' : '')+
+      ' style="'+(isChild && !r.groupOpen ? 'display:none; ' : '')+'border-bottom:1px solid var(--line);"';
+    return '<tr'+trAttrs+'>'+
+      /* The customer number is the number painted on their bins in the
+         warehouse, so it is how the crew and the warehouse refer to people —
+         but it was neither shown here nor searchable, which meant the one
+         identifier staff actually say out loud could not be used to find
+         anybody. */
+      '<td style="padding:8px 10px'+(isChild ? '; padding-left:26px; border-left:2px solid var(--dusk-2)' : '')+';"><strong>'+esc(r.d.name||'(no name)')+'</strong>'+
+        (isChild && r.groupIsPayerHouse ? ' <span style="font-size:11.5px; color:var(--slate);">(pays the bill)</span>' : '')+
+        custNumChip(r.d)+binBadge+custSheetChips(r.d)+'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.address||'')+'</span>'+propLabelChip(r.d)+(r.d.phone?'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.phone)+'</span>':'')+'</td>'+
+      '<td style="padding:8px 10px; font-size:12.5px;">'+esc(r.enrolled||'—')+'</td>'+
+      '<td style="padding:8px 10px;">'+routeCell+'</td>'+
+      '<td style="padding:8px 10px; font-size:12.5px;">'+esc(timingLabel)+'</td>'+
+      '<td style="padding:8px 10px;">'+(isChild ? childInvCell : invCell)+'</td>'+
+      '<td style="padding:8px 10px;">'+maybeCell+'</td>'+
+      '<td style="padding:8px 10px;">'+mapCell+'</td>'+
+      /* One billing action per row, and only the one that applies: a house
+         already on somebody's bill can be taken off it, and a house paying for
+         itself can be put on one. Offering both on every row would mean reading
+         the row to work out which of the two does nothing. */
+      '<td style="padding:8px 10px;"><button type="button" class="icon-btn" data-editcust="'+r.item.id+'" title="Edit Personal Info">'+editIcon()+'</button>'+
+        (isChild
+          ? '<br><button type="button" class="btn btn-outline btn-sm" data-custbillsplit="'+r.item.id+'" style="margin-top:4px; font-size:11px; white-space:nowrap;">Bill separately</button>'
+          : '<br><button type="button" class="btn btn-outline btn-sm" data-custbilljoin="'+r.item.id+'" style="margin-top:4px; font-size:11px; white-space:nowrap;">Bill to someone else</button>')+
+      '</td>'+
+    '</tr>';
+
+}
 function renderAllCustomersTable(){
   const body = document.getElementById('allCustTableBody');
   if(!body) return;
@@ -23671,6 +23741,8 @@ function renderAllCustomersTable(){
   const lightsEl = document.getElementById('allCustFilterLights');
   const lightsFilter = lightsEl ? lightsEl.value : 'all';
   const pinFilter = document.getElementById('allCustFilterPin').value;
+  const billingEl = document.getElementById('allCustFilterBilling');
+  const billingFilter = billingEl ? billingEl.value : 'all';
   const dateStart = document.getElementById('allCustFilterDateStart').value;
   const dateEnd = document.getElementById('allCustFilterDateEnd').value;
   let rows = jobAddresses.map(function(item){
@@ -23686,16 +23758,38 @@ function renderAllCustomersTable(){
     const enrolled = memberExportDateAdded(d);
     return {item, d, inv, invStatus, hasMap, hasPin, enrolled, routeStatus: allCustRouteStatus(d)};
   });
+  /* Computed ONCE and reused by the search, the Billing filter and the
+     grouping pass below — each of these walks the whole customer list. */
+  const allBillGroups = billingGroupRows();
+  const billGroupByKey = new Map();
+  allBillGroups.forEach(function(g){ billGroupByKey.set(g.key, g); });
+  /* Which bill a house is on, by the same rule billingGroupsByPayer uses: a
+     house that said no is not billed this season and is on nobody's bill. */
+  function billKeyOfRow(r){
+    if(String(r.d.rsvpStatus||'') === 'no') return '';
+    const k = String(r.d.billToPhone||'').replace(/\D/g,'') || custInvoiceKey(r.d);
+    return billGroupByKey.has(k) ? k : '';
+  }
   if(term){
     const phoneDigits = term.replace(/\D/g,'');
     // "#1044" and "1044" both find customer number 1044. Matched exactly, not
     // as a substring, so searching 104 does not also drag in 1044 and 5104.
     const numTerm = term.replace(/^#/,'').trim();
+    /* Searching a payer has to surface the whole bill, not just the payer's own
+       house — the question being asked is "who am I billing here". Uses
+       billingGroupMatches, the matcher the Who Pays for Whom tab used, rather
+       than a second one written alongside it that could disagree. It matches on
+       the payer, the key, and every house on the bill, so finding any one house
+       brings its bill up whole and the child prices still add up. */
+    const billMatchKeys = new Set();
+    allBillGroups.forEach(function(g){ if(billingGroupMatches(g, term)) billMatchKeys.add(g.key); });
     rows = rows.filter(function(r){
-      return (r.d.name||'').toLowerCase().indexOf(term)!==-1 ||
+      if((r.d.name||'').toLowerCase().indexOf(term)!==-1 ||
         (!!phoneDigits && (r.d.phone||'').indexOf(phoneDigits)!==-1) ||
         (!!numTerm && String(r.d.customerNumber||'') === numTerm) ||
-        (r.d.email||'').toLowerCase().indexOf(term)!==-1 || (r.d.address||'').toLowerCase().indexOf(term)!==-1;
+        (r.d.email||'').toLowerCase().indexOf(term)!==-1 || (r.d.address||'').toLowerCase().indexOf(term)!==-1) return true;
+      const k = billKeyOfRow(r);
+      return !!k && billMatchKeys.has(k);
     });
   }
   if(cityFilter !== 'all') rows = rows.filter(r => extractCleanCity(r.d.city) === cityFilter);
@@ -23731,6 +23825,23 @@ function renderAllCustomersTable(){
   }
   if(dateStart) rows = rows.filter(r => r.enrolled && r.enrolled >= dateStart);
   if(dateEnd) rows = rows.filter(r => r.enrolled && r.enrolled <= dateEnd);
+  /* ⚠ "Payer not on file" is the GENUINE case only — a Bill To Phone that
+     matches nobody in the customer book. A payer who is on file but RSVP'd 'no'
+     also makes billingGroupPayer return null (they are dropped from their own
+     group), and calling them missing is exactly the wrong answer the header
+     fix above exists to stop. billingGroupPayerOnFile separates the two. */
+  if(billingFilter === 'elsewhere' || billingFilter === 'multi'){
+    rows = rows.filter(r => audienceBillingGroup(r.d) === billingFilter);
+  } else if(billingFilter === 'nopayer'){
+    rows = rows.filter(function(r){
+      const k = billKeyOfRow(r);
+      if(!k) return false;
+      const g = billGroupByKey.get(k);
+      return !g.payer && !billingGroupPayerOnFile(k);
+    });
+  } else if(billingFilter === 'pendingrsvp'){
+    rows = rows.filter(r => !r.d.rsvpStatus || r.d.rsvpStatus === 'pending');
+  }
   rows.sort(function(a,b){
     let av, bv;
     if(allCustSortCol === 'enrolled'){ av = a.enrolled||''; bv = b.enrolled||''; }
@@ -23741,64 +23852,61 @@ function renderAllCustomersTable(){
   });
   document.getElementById('allCustCount').textContent = rows.length + ' customer' + (rows.length===1?'':'s') + ' shown.';
   if(!rows.length){ body.innerHTML = '<tr><td colspan="8" style="padding:16px; color:var(--slate);">No customers match this view.</td></tr>'; return; }
+  /* ---- bill grouping ------------------------------------------------------
+     A bill covering more than one house becomes a header with every house on it
+     nested underneath — INCLUDING the payer's own house, rather than promoting
+     the payer to the parent row. Three reasons that way round: the child prices
+     have to visibly sum to the invoice total, a group whose payer is nobody on
+     file still needs a header, and a payer who RSVP'd 'no' has no record inside
+     the group to promote in the first place.
+
+     Groups are built from the rows that SURVIVED the filters — a group whose
+     houses are all filtered out disappears, and one down to a single surviving
+     house renders as a plain row with no header over it. The header itself
+     still describes the WHOLE bill (its status, its balance, its total all come
+     from the invoice and from every house on it); printing a total that quietly
+     left out the hidden houses would not add up to what the customer is
+     charged. The subline says how many are being shown instead. */
+  const billSurvivors = new Map();
+  rows.forEach(function(r){
+    const k = billKeyOfRow(r);
+    if(!k) return;
+    if(!billSurvivors.has(k)) billSurvivors.set(k, []);
+    billSurvivors.get(k).push(r);
+  });
+  const billGrouped = new Set();
+  const billOrdered = [];
+  allBillGroups.forEach(function(g){
+    const kids = billSurvivors.get(g.key) || [];
+    if(kids.length < 2) return;              // never a header over a single child
+    const onFile = g.payer || billingGroupPayerOnFile(g.key);
+    const open = expandedBillGroups.has(g.key);
+    billOrdered.push({
+      kind: 'header', key: g.key, open: open,
+      payerName: (onFile && onFile.data.name) || g.payerName || billingGroupKeyLabel(g.key),
+      payerNote: (!g.payer && onFile && String(onFile.data.rsvpStatus||'') === 'no')
+        ? 'payer is not taking lights this season' : '',
+      payerMissing: !g.payer && !onFile,
+      houseCount: g.houses.length, shownCount: kids.length,
+      priceTotal: g.priceTotal, inv: g.inv
+    });
+    kids.forEach(function(r){
+      r.groupRole = 'child'; r.groupKey = g.key; r.groupOpen = open;
+      r.groupIsPayerHouse = !!(g.payer && g.payer.id === r.item.id);
+      billGrouped.add(r);
+      billOrdered.push(r);
+    });
+  });
+  /* Grouped bills first, then everyone else in the active sort — the office
+     sees the complicated cases at the top rather than hunting for them. */
+  rows.forEach(function(r){
+    if(billGrouped.has(r)) return;
+    r.groupRole = 'none'; r.groupKey = ''; r.groupOpen = false; r.groupIsPayerHouse = false;
+    billOrdered.push(r);
+  });
+  rows = billOrdered;
   body.innerHTML = rows.map(function(r){
-    /* Only look this up when there IS a bill-to. This used to run for every
-       row whether or not the field was set — and when it was empty it compared
-       against '', so it scanned the whole customer list only to match whoever
-       happened to have no phone number. ~967 rows x ~967 customers, every
-       repaint, for a field that is blank on nearly all of them. */
-    const billToDigits = (r.d.billToPhone||'').replace(/\D/g,'');
-    const billedElsewhere = billToDigits ? custByPhoneDigits.get(billToDigits) : null;
-    const invCell = r.inv
-      ? '<span class="status-pill '+statusClass(r.invStatus)+'">'+r.invStatus+'</span><br><span style="font-size:11.5px; color:var(--slate);">'+(r.invStatus==='Partial Payment' ? 'Paid '+fmtMoney(r.inv.data.deposit||0)+' &middot; Bal '+fmtMoney(balanceDueAmount(r.inv.data)) : fmtMoney((r.inv.data.install||0)+(r.inv.data.removal||0)))+'</span>'
-      : (r.d.billToPhone ? '<span style="color:var(--slate); font-size:12px;">Billed to '+esc((billedElsewhere && billedElsewhere.data.name) || r.d.billToPhone)+'</span>' : '<span style="color:var(--slate); font-size:12px;">No invoice</span>');
-    const rsvpLabel = r.d.rsvpStatus === 'yes' ? 'RSVP: Yes' : (r.d.rsvpStatus === 'no' ? 'RSVP: No' : (r.d.rsvpStatus === 'backnextyear' ? 'RSVP: Back Next Year' : 'RSVP: Pending'));
-    const rsvpColor = r.d.rsvpStatus === 'yes' ? '#2E6B3E' : (r.d.rsvpStatus === 'no' ? '#E0574B' : (r.d.rsvpStatus === 'backnextyear' ? '#D89F3D' : 'var(--slate)'));
-    /* The date sits directly under the route status it explains — "Scheduled"
-       on its own never said what day. Put in the EXISTING Route cell rather
-       than a new column on purpose: the responsive rules for this table are
-       written as td:nth-child(2) and td:nth-child(4), so an extra column would
-       silently relabel two others on a phone. */
-    const visitChip = nextVisitChip(r.d);
-    const routeCell = '<span class="status-pill diff-'+(r.d.difficulty||'Unrated')+'">'+(r.d.difficulty||'Unrated')+'</span><br><span style="font-size:11.5px; color:var(--slate);">'+r.routeStatus+'</span>'+(visitChip ? '<br>'+visitChip : '')+'<br><span style="font-size:11px; color:'+rsvpColor+'; font-weight:600;">'+rsvpLabel+'</span>';
-    /* Shows the normalised MEANING, not the raw shorthand. A row reading "NOV"
-       while the scheduler treats it as November is how nobody notices that 190
-       customers were being read as having no preference at all. Anything the
-       app does not recognise is called out rather than shown as if it were
-       understood. */
-    const timingPref = normInstallPref(r.d.installPreference);
-    const timingUnknown = String(r.d.installPreference || '').trim() && !isKnownInstallPref(r.d.installPreference);
-    const timingLabel = (timingPref === 'November - Before Thanksgiving' ? 'November — Before Thanksgiving'
-      : (timingPref === 'Normal Schedule' || !timingPref ? 'Any' : timingPref)) +
-      (timingUnknown ? ' ⚠ not recognised' : '');
-    const mapCell = r.hasMap ? '<a class="btn btn-outline btn-sm" href="'+esc(r.d.layoutMapUrl)+'" target="_blank" rel="noopener">View Map</a>' : '<span style="color:var(--slate); font-size:12px;">No map yet</span>';
-    const binBadge = (r.d.numberOfBins && r.d.numberOfBins > 1) ? ' <span style="display:inline-block; background:#EAF1FA; color:#2B5C8A; border:1px solid #C3D8EC; border-radius:999px; padding:1px 8px; font-size:11px; font-weight:600; vertical-align:middle;">'+r.d.numberOfBins+' bins</span>' : '';
-    /* Everyone carries one of these two, so the column answers "is this person
-       in for this season?" at a glance rather than only flagging the exceptions
-       - a blank cell used to be ambiguous between "confirmed" and "nobody has
-       looked at this yet". Confirmed is the default because that is what being
-       in All Customers has always meant; the RSVP email will set it properly
-       once it is wired up. The button flips them the other way. */
-    const maybeCell = r.d.maybeNextYear
-      ? '<span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">Maybe Next Year</span>'+
-        '<br><button type="button" class="btn btn-outline btn-sm" data-seasontoggle="'+r.item.id+'" data-to="confirmed" style="margin-top:4px; font-size:11px;">Confirm</button>'
-      : '<span class="status-pill" style="background:#E6F2EA; color:#2E6B3E; font-weight:700;">Confirmed</span>'+
-        '<br><button type="button" class="btn btn-outline btn-sm" data-seasontoggle="'+r.item.id+'" data-to="maybe" style="margin-top:4px; font-size:11px;">Maybe next year</button>';
-    return '<tr style="border-bottom:1px solid var(--line);">'+
-      /* The customer number is the number painted on their bins in the
-         warehouse, so it is how the crew and the warehouse refer to people —
-         but it was neither shown here nor searchable, which meant the one
-         identifier staff actually say out loud could not be used to find
-         anybody. */
-      '<td style="padding:8px 10px;"><strong>'+esc(r.d.name||'(no name)')+'</strong>'+custNumChip(r.d)+binBadge+custSheetChips(r.d)+'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.address||'')+'</span>'+propLabelChip(r.d)+(r.d.phone?'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.phone)+'</span>':'')+'</td>'+
-      '<td style="padding:8px 10px; font-size:12.5px;">'+esc(r.enrolled||'—')+'</td>'+
-      '<td style="padding:8px 10px;">'+routeCell+'</td>'+
-      '<td style="padding:8px 10px; font-size:12.5px;">'+esc(timingLabel)+'</td>'+
-      '<td style="padding:8px 10px;">'+invCell+'</td>'+
-      '<td style="padding:8px 10px;">'+maybeCell+'</td>'+
-      '<td style="padding:8px 10px;">'+mapCell+'</td>'+
-      '<td style="padding:8px 10px;"><button type="button" class="icon-btn" data-editcust="'+r.item.id+'" title="Edit Personal Info">'+editIcon()+'</button></td>'+
-    '</tr>';
+    return r.kind === 'header' ? allCustGroupHeaderHtml(r) : allCustRowHtml(r);
   }).join('');
   body.querySelectorAll('[data-editcust]').forEach(function(btn){
     btn.addEventListener('click', function(){
@@ -24669,7 +24777,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
 });
 /* The dropdowns repaint immediately — one click, one render. Only the typed
    search waits for a pause, because that is the one that fires per letter. */
-['allCustFilterCity','allCustFilterDifficulty','allCustFilterInvStatus','allCustFilterRoute','allCustFilterMap','allCustFilterPin','allCustFilterDateStart','allCustFilterDateEnd'].forEach(function(id){
+['allCustFilterCity','allCustFilterDifficulty','allCustFilterInvStatus','allCustFilterRoute','allCustFilterMap','allCustFilterPin','allCustFilterLights','allCustFilterBilling','allCustFilterDateStart','allCustFilterDateEnd'].forEach(function(id){
   const el = document.getElementById(id);
   if(el) el.addEventListener('input', renderAllCustomersTable);
 });
@@ -24681,12 +24789,262 @@ document.getElementById('allCustFilterToggle').addEventListener('click', functio
   const panel = document.getElementById('allCustFilterPanel');
   panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
 });
+/* ---- Bill separately -------------------------------------------------------
+   Takes one house off a payer's bill and gives it its own invoice. Three
+   refusals come FIRST, because each one is a case where the obvious write
+   quietly does nothing or does the wrong thing, and a silent no-op on a money
+   screen is worse than a sentence saying why.
+
+   ⚠ It calls syncPayerInvoice rather than adjusting the payer's total by hand:
+   the payer's install is the SUM of their houses plus any $30 member fee, and
+   subtracting one number from it is a second copy of that rule waiting to
+   disagree with the nightly run. */
+async function billSplitHouse(houseId){
+  const cust = jobAddresses.find(a => a.id === houseId);
+  if(!cust) return;
+  const d = cust.data || {};
+  const who = d.name || 'This customer';
+  const oldBillTo = String(d.billToPhone||'').replace(/\D/g,'');
+  const ownKey = custInvoiceKey(d);
+  /* 1 — nothing to clear. Either no billToPhone is set (the house is on this
+     bill purely because it SHARES a key with the payer), or it is set to the
+     house's own key — and an invoice doc is named after that key, so "their
+     own invoice" would be the payer's invoice, overwritten. */
+  if(!oldBillTo || ownKey === oldBillTo){
+    const mates = (billingGroupsByPayer().get(ownKey) || []).filter(h => h.id !== houseId);
+    const mateName = (mates[0] && mates[0].data.name) || 'another customer';
+    alert(who + ' is on this bill because they share a phone number with ' + mateName + '.\n\n' +
+      'To bill them separately they need their own phone number or email address.');
+    return;
+  }
+  const price = Number(d.housePrice) || 0;
+  /* 2 — every invoice-create path in this app is guarded on a price above zero,
+     so a split at zero would clear the bill-to and then create nothing at all. */
+  if(price <= 0){
+    alert('Set a house price for ' + who + ' before billing them separately, or no invoice gets created.');
+    return;
+  }
+  /* 3 — an invoice is filed under a phone, or a lowercased email when there is
+     no phone. With neither there is no name to file it under under any scheme. */
+  if(!ownKey){
+    alert(who + ' has no phone number and no email address, so there is nothing to file an invoice under.\n\n' +
+      'Add one of those first, then bill them separately.');
+    return;
+  }
+  const payerRec = custByPhoneDigits.get(oldBillTo);
+  const payerName = (payerRec && payerRec.data.name) || billingGroupKeyLabel(oldBillTo);
+  const payerInv = (typeof invoiceById !== 'undefined' && invoiceById.get) ? invoiceById.get(oldBillTo) : null;
+  const oldInstall = payerInv ? (Number(payerInv.data.install)||0) : 0;
+  let msg = 'Give ' + who + ' their own invoice?\n\n' +
+    payerName + "'s bill: " + fmtMoney(oldInstall) + '  →  ' + fmtMoney(Math.max(0, oldInstall - price)) + '\n' +
+    who + "'s new invoice: " + fmtMoney(price) + '\n' +
+    'Filed under: ' + billingGroupKeyLabel(ownKey);
+  const deposit = payerInv ? (Number(payerInv.data.deposit)||0) : 0;
+  /* ⚠ Money already collected does NOT follow the house. Said out loud only
+     when there is some, because a warning on every split is a warning nobody
+     reads by the third time. */
+  if(deposit > 0){
+    msg += '\n\n' + payerName + ' has paid ' + fmtMoney(deposit) + ' toward this bill. That payment stays on ' +
+      'their invoice — it does not follow ' + who + '. If some of it was meant for this house, move a ' +
+      'credit from the Invoices tab afterward.';
+  }
+  if(!confirm(msg)) return;
+  try{
+    await updateDoc(doc(db,'jobAddresses', houseId), {
+      billToPhone: '', updatedAt: serverTimestamp(), lastEditedBy: paymentLedgerUser()
+    });
+    /* The payer is rebuilt BEFORE the new invoice is written. Either order
+       leaves the house billed twice for an instant; this one leaves it billed
+       to nobody instead, which no automatic job acts on. */
+    await syncPayerInvoice(oldBillTo);
+    await setDoc(doc(db,'invoices', ownKey), {
+      name: d.name || '', phone: d.phone || '', email: d.email || '',
+      install: price, removal: 0, deposit: 0,
+      status: computeInvoiceStatus(price, 0, 0), priceReviewed: true, updatedAt: serverTimestamp()
+    }, {merge:true});
+    toast(who + ' now has their own invoice for ' + fmtMoney(price) + '.');
+    renderAllCustomersTable();
+  } catch(err){
+    alert('That did not save — nothing has been changed. Try again, or check the Invoices tab.');
+  }
+}
+/* ---- Put a house on somebody else's bill -----------------------------------
+   The reverse. Mirrors the edit-customer save path rather than inventing a
+   second one, INCLUDING the two things that path learned the hard way: a
+   multi-house group invoice is left alone (it belongs to a real payer), and an
+   outstanding light-change fee is carried onto the new payer's invoice
+   explicitly — zeroing or deleting the old invoice drops it otherwise and it is
+   never billed to anybody. */
+let billJoinHouseId = null;
+function billJoinCandidates(term){
+  const t = String(term||'').trim().toLowerCase();
+  const digits = t.replace(/\D/g,'');
+  return (jobAddresses||[])
+    .filter(function(a){
+      if(a.id === billJoinHouseId) return false;                       // nobody pays their own bill twice
+      const d = a.data || {};
+      if(String(d.billToPhone||'').replace(/\D/g,'')) return false;    // they are on somebody else's bill themselves
+      if(!custInvoiceKey(d)) return false;                             // no key, no invoice to join
+      if(!t) return true;
+      return (d.name||'').toLowerCase().indexOf(t) !== -1 ||
+             (!!digits && String(d.phone||'').replace(/\D/g,'').indexOf(digits) !== -1);
+    })
+    .slice(0, 60);
+}
+function billJoinRenderList(){
+  const list = document.getElementById('billJoinList');
+  if(!list) return;
+  const found = billJoinCandidates(document.getElementById('billJoinSearch').value);
+  if(!found.length){
+    list.innerHTML = '<div style="padding:14px; font-size:13px; color:var(--slate);">Nobody matches that. A payer needs a phone number or an email address of their own.</div>';
+    return;
+  }
+  list.innerHTML = found.map(function(a){
+    const d = a.data || {};
+    return '<button type="button" data-billjoinpick="'+esc(a.id)+'" style="display:block; width:100%; text-align:left; padding:9px 12px; background:none; border:0; border-bottom:1px solid var(--line); cursor:pointer; font-size:13px; color:var(--ink);">'+
+      '<strong>'+esc(d.name||'(no name)')+'</strong>'+
+      '<div style="font-size:12px; color:var(--slate);">'+esc(d.phone || d.email || '')+(d.address ? ' &middot; '+esc(d.address) : '')+'</div>'+
+    '</button>';
+  }).join('');
+}
+function openBillJoinPicker(houseId){
+  const cust = jobAddresses.find(a => a.id === houseId);
+  if(!cust) return;
+  billJoinHouseId = houseId;
+  document.getElementById('billJoinWho').textContent =
+    'Whose bill should ' + (cust.data.name || 'this house') + ' go on? Their house price moves onto that person’s invoice.';
+  document.getElementById('billJoinSearch').value = '';
+  document.getElementById('billJoinStatus').textContent = '';
+  billJoinRenderList();
+  document.getElementById('billJoinOverlay').style.display = 'flex';
+}
+async function billJoinApply(payerId){
+  const house = jobAddresses.find(a => a.id === billJoinHouseId);
+  const payer = jobAddresses.find(a => a.id === payerId);
+  if(!house || !payer) return;
+  const d = house.data || {};
+  const who = d.name || 'This customer';
+  const newBillTo = custInvoiceKey(payer.data || {});
+  const payerName = payer.data.name || billingGroupKeyLabel(newBillTo);
+  const oldKey = custInvoiceKey(d);
+  const price = Number(d.housePrice) || 0;
+  if(!newBillTo){
+    document.getElementById('billJoinStatus').textContent = payerName + ' has no phone number or email address, so no invoice can be filed under them.';
+    return;
+  }
+  /* ⚠ billToPhone is the field, but the KEY can be an email for a customer with
+     no phone — and that is what syncPayerInvoice resolves and what the invoice
+     doc is named after, so it is the value that has to be stored. */
+  if(!confirm('Put ' + who + ' on ' + payerName + "'s bill?\n\n" +
+      who + "'s " + fmtMoney(price) + ' moves onto ' + payerName + "'s invoice.\n" +
+      'They stay two separate customers with their own portals — only the bill is shared.')) return;
+  const statusEl = document.getElementById('billJoinStatus');
+  statusEl.textContent = 'Saving…';
+  try{
+    let migratingFeeNotes = null;
+    const ownInv = (typeof invoiceById !== 'undefined' && invoiceById.get) ? invoiceById.get(oldKey) : null;
+    if(ownInv){
+      /* A multi-house group invoice belongs to a real payer — this house is not
+         the only thing on it, so it must not be zeroed or deleted. */
+      const isGroupInv = Array.isArray(ownInv.data.billedHouseIds) && ownInv.data.billedHouseIds.length > 1;
+      if(!isGroupInv && ownInv.id === oldKey){
+        const movingFee = Number(ownInv.data.changeFees) || 0;
+        if(movingFee > 0){
+          migratingFeeNotes = Array.isArray(ownInv.data.changeFeeNotes) && ownInv.data.changeFeeNotes.length
+            ? ownInv.data.changeFeeNotes
+            : [{amount: movingFee, reason: 'Light change fee (moved when bill-to changed)', date: new Date().toISOString()}];
+        }
+        /* An invoice carrying a real payment is zeroed, never deleted — the
+           money that was collected has to stay somewhere. */
+        if(Number(ownInv.data.deposit) > 0){
+          await updateDoc(doc(db,'invoices', ownInv.id), {
+            install: 0, removal: 0, changeFees: 0, changeFeeNotes: [],
+            status: computeInvoiceStatus(0, 0, ownInv.data.deposit || 0, ownInv.data.credits || 0, 0),
+            updatedAt: serverTimestamp()
+          });
+        } else {
+          await deleteDoc(doc(db,'invoices', ownInv.id));
+        }
+      }
+    }
+    await updateDoc(doc(db,'jobAddresses', billJoinHouseId), {
+      billToPhone: newBillTo, updatedAt: serverTimestamp(), lastEditedBy: paymentLedgerUser()
+    });
+    await syncPayerInvoice(newBillTo);
+    /* The fee is folded on AFTER the resync, so it lands on top of the fresh
+       install rather than being overwritten by it. setDoc+merge, not updateDoc:
+       syncPayerInvoice deliberately writes nothing when every house on a bill
+       sat the season out, so the doc may not exist yet. */
+    if(migratingFeeNotes){
+      const payerSnap = await getDoc(doc(db,'invoices', newBillTo));
+      const payerData = payerSnap.exists() ? payerSnap.data() : {};
+      const combinedFeeNotes = (Array.isArray(payerData.changeFeeNotes) ? payerData.changeFeeNotes : []).concat(migratingFeeNotes);
+      const combinedFees = combinedFeeNotes.reduce(function(sum, f){ return sum + (Number(f.amount) || 0); }, 0);
+      await setDoc(doc(db,'invoices', newBillTo), {
+        changeFees: combinedFees, changeFeeNotes: combinedFeeNotes,
+        status: computeInvoiceStatus(payerData.install || 0, payerData.removal || 0, payerData.deposit || 0, payerData.credits || 0, combinedFees),
+        updatedAt: serverTimestamp()
+      }, {merge:true});
+    }
+    document.getElementById('billJoinOverlay').style.display = 'none';
+    billJoinHouseId = null;
+    toast(who + ' is now on ' + payerName + "'s bill.");
+    renderAllCustomersTable();
+  } catch(err){
+    statusEl.textContent = 'That did not save — try again, or check the Invoices tab.';
+  }
+}
+document.getElementById('billJoinSearch')?.addEventListener('input', billJoinRenderList);
+document.getElementById('billJoinCancel')?.addEventListener('click', function(){
+  document.getElementById('billJoinOverlay').style.display = 'none';
+  billJoinHouseId = null;
+});
+document.getElementById('billJoinList')?.addEventListener('click', function(e){
+  const btn = e.target.closest && e.target.closest('[data-billjoinpick]');
+  if(btn) billJoinApply(btn.dataset.billjoinpick);
+});
+/* Both billing actions, delegated once — the table is rebuilt on every filter
+   keystroke and per-row listeners would be re-attached ~967 times with it. */
+document.getElementById('allCustTableBody')?.addEventListener('click', function(e){
+  const split = e.target.closest && e.target.closest('[data-custbillsplit]');
+  if(split){ e.stopPropagation(); billSplitHouse(split.dataset.custbillsplit); return; }
+  const join = e.target.closest && e.target.closest('[data-custbilljoin]');
+  if(join){ e.stopPropagation(); openBillJoinPicker(join.dataset.custbilljoin); }
+});
+/* Expand / collapse a bill. Delegated ONCE on the table body, and it flips the
+   display on rows that are already on screen rather than re-rendering: a full
+   rebuild of ~967 rows on every chevron is slow and throws the scroll position
+   away, and the office is usually part-way down the list when they press it.
+   ⚠ Matched by reading data-billchild rather than through an attribute
+   SELECTOR: a group key can be a lowercased email address, and building a
+   selector out of one is an escaping problem with no upside. */
+document.getElementById('allCustTableBody')?.addEventListener('click', function(e){
+  const head = e.target.closest && e.target.closest('[data-billgroup]');
+  if(!head) return;
+  const key = head.dataset.billgroup;
+  const open = !expandedBillGroups.has(key);
+  if(open) expandedBillGroups.add(key); else expandedBillGroups.delete(key);
+  const chev = head.querySelector('.billgroup-chev');
+  if(chev) chev.innerHTML = open ? '&#9662;' : '&#9656;';
+  this.querySelectorAll('[data-billchild]').forEach(function(tr){
+    if(tr.dataset.billchild === key) tr.style.display = open ? '' : 'none';
+  });
+});
 document.getElementById('allCustFilterClear').addEventListener('click', function(){
   document.getElementById('allCustFilterCity').value = 'all';
   document.getElementById('allCustFilterDifficulty').value = 'all';
   document.getElementById('allCustFilterInvStatus').value = 'all';
   document.getElementById('allCustFilterRoute').value = 'all';
   document.getElementById('allCustFilterMap').value = 'all';
+  /* Pin and Lights were never cleared here — Clear Filters left two filters
+     silently on, and the count line then disagreed with what the panel showed.
+     Billing is added with them rather than beside a half-working button. */
+  const pinClear = document.getElementById('allCustFilterPin');
+  if(pinClear) pinClear.value = 'all';
+  const lightsClear = document.getElementById('allCustFilterLights');
+  if(lightsClear) lightsClear.value = 'all';
+  const billingClear = document.getElementById('allCustFilterBilling');
+  if(billingClear) billingClear.value = 'all';
   document.getElementById('allCustFilterDateStart').value = '';
   document.getElementById('allCustFilterDateEnd').value = '';
   document.getElementById('allCustSearchInput').value = '';
@@ -24700,7 +25058,10 @@ document.querySelectorAll('#allCustTable [data-sortcol]').forEach(function(th){
     renderAllCustomersTable();
   });
 });
-document.getElementById('allCustExportBtn').addEventListener('click', function(){
+/* Two sheets, one button. The bill-groups sheet is the one the Who Pays for
+   Whom tab used to produce — moved here verbatim, keeping its sheet name and
+   its filename so a file saved last week and one saved today still match. */
+function allCustExportCustomers(){
   const rows = jobAddresses.map(function(item){
     const d = item.data;
     const inv = allCustInvoiceFor(item);
@@ -24717,6 +25078,46 @@ document.getElementById('allCustExportBtn').addEventListener('click', function()
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'All Customers');
   XLSX.writeFile(wb, 'all-customers-'+toDateStr(new Date())+'.xlsx');
+}
+function allCustExportBillGroups(){
+  const rows = [];
+  billingGroupRows().forEach(function(g){
+    g.houses.forEach(function(h){
+      const d = h.data || {};
+      rows.push({
+        'Pays the Bill': g.payerName || '(no customer record)',
+        'Payer Phone': fmtPhone(g.key),
+        'House': d.name || '',
+        'Address': d.address || '',
+        'Customer #': d.customerNumber || '',
+        'House Price': Number(d.housePrice) || 0,
+        'Houses on This Bill': g.houses.length,
+        'Bill Total (installs)': g.priceTotal,
+        'Balance Due': g.inv ? balanceDueAmount(g.inv.data) : ''
+      });
+    });
+  });
+  if(!rows.length){ alert('Nobody is being billed for more than one house right now, so there is nothing to export.'); return; }
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Who Pays for Whom');
+  XLSX.writeFile(wb, 'who-pays-for-whom-'+toDateStr(new Date())+'.xlsx');
+}
+document.getElementById('allCustExportBtn').addEventListener('click', function(e){
+  e.stopPropagation();                       // or the document handler below shuts it again
+  const menu = document.getElementById('allCustExportMenu');
+  if(menu) menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+});
+/* One document-level handler both picks an item and closes the menu on a click
+   anywhere else, so the menu can never be left open over the table. */
+document.addEventListener('click', function(e){
+  const menu = document.getElementById('allCustExportMenu');
+  if(!menu || menu.style.display === 'none') return;
+  const item = e.target.closest && e.target.closest('[data-allcustexport]');
+  menu.style.display = 'none';
+  if(!item) return;
+  if(item.dataset.allcustexport === 'groups') allCustExportBillGroups();
+  else allCustExportCustomers();
 });
 function twoOptImprove(ordered, startPoint){
   if(ordered.length < 4) return ordered;
