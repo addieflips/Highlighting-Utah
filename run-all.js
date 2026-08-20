@@ -16348,6 +16348,85 @@ if (!JSDOM) {
 }
 
 
+/* ---------------------------------------------------------------------------
+ * Suite 73. Finding the houses still on soft lights
+ *
+ * Owner, 2026-08-19, on why soft is kept under its own name instead of being
+ * translated into a real colour: "so then we can find them later cause we need
+ * to switch their lights". Keeping the label only pays off if something can
+ * search on it. On the real sheet that is twelve houses.
+ *
+ * These RUN the filter over made-up customers rather than matching the source.
+ * A filter that reads a field nobody writes greps perfectly and finds nobody.
+ * ------------------------------------------------------------------------- */
+suite('Suite 73. Finding the houses still on soft lights');
+
+{
+  const render = sectionFrom(admin, admin.indexOf('function renderAllCustomersTable()'));
+  check('soft-find', 'the Lights filter is wired into the All Customers table',
+    /const lightsFilter = lightsEl/.test(render) && /lightsEl.value/.test(render) &&
+    /allCustFilterLights/.test(admin),
+    'the control has to be read where the rows are filtered, not just exist in the page');
+
+  /* Pull the filter itself out and run it. */
+  const at = render.indexOf("if(lightsFilter === 'soft')");
+  const block = at < 0 ? '' : render.slice(at, render.indexOf('if(dateStart)', at));
+  check('soft-find', 'the filter block was found to run',  !!block);
+
+  if (block) {
+    const run = new Function('rows', 'lightsFilter', 'let out = rows;' +
+      block.replace(/\brows\b/g, 'out') + 'return out;');
+
+    /* Every way soft can be recorded, plus the ways it must NOT match. */
+    const book = [
+      { d: { name: 'Soft in the list',   lightColors: ['soft(recycled)', 'Red'], lightsDescription: '' } },
+      { d: { name: 'Soft capitalised',   lightColors: ['Soft(Recycled)'],        lightsDescription: '' } },
+      { d: { name: 'Soft in a pattern',  lightColors: [],  lightsDescription: 'soft(recycled), Red, soft(recycled)' } },
+      { d: { name: 'Warm white only',    lightColors: ['Warm White'],            lightsDescription: '' } },
+      { d: { name: 'Nothing recorded',   lightColors: [],                        lightsDescription: '' } },
+      { d: { name: 'No fields at all' } }
+    ];
+    const names = f => run(book, f).map(r => r.d.name);
+
+    check('soft-find', 'a customer on soft is found',
+      names('soft').indexOf('Soft in the list') !== -1);
+    check('soft-find', 'and so is one whose case differs',
+      names('soft').indexOf('Soft capitalised') !== -1,
+      'a colour typed by hand in the portal and one that came off the sheet have to land in the same list');
+    check('soft-find', 'and one where soft is only in the alternating pattern',
+      names('soft').indexOf('Soft in a pattern') !== -1,
+      'rbDetectColorsAndPattern moves a repeated colour OUT of lightColors and into lightsDescription, so checking only the list would miss every alternating house');
+    check('soft-find', 'a warm-white house is NOT dragged in',
+      names('soft').indexOf('Warm white only') === -1,
+      'the list is a work order — padding it wastes somebody’s afternoon');
+    check('soft-find', 'and neither is a customer with no colours at all',
+      names('soft').indexOf('Nothing recorded') === -1);
+
+    check('soft-find', 'the no-colours filter finds the blank ones',
+      names('none').indexOf('Nothing recorded') !== -1 &&
+      names('none').indexOf('No fields at all') !== -1,
+      'a missing field and an empty one are the same gap to whoever has to ring them');
+    check('soft-find', 'and leaves the ones that do have colours alone',
+      names('none').indexOf('Warm white only') === -1 &&
+      names('none').indexOf('Soft in the list') === -1);
+
+    /* The one a red-check caught: an alternating house has an EMPTY lightColors
+       because rbDetectColorsAndPattern moves repeated colours into the pattern
+       instead. Counting only the list calls that house undecorated. */
+    check('soft-find', 'a house whose colours are only in the pattern is NOT called blank',
+      names('none').indexOf('Soft in a pattern') === -1,
+      'it would show up on a chase-them-for-colours list they already answered');
+
+    check('soft-find', 'Any leaves every customer in place',
+      run(book, 'all').length === book.length,
+      'the default must never hide anybody');
+    check('soft-find', 'and a missing field never throws',
+      (function(){ try { run(book, 'soft'); run(book, 'none'); return true; }
+                   catch(e){ return false; } })(),
+      'an old customer record predates both fields');
+  }
+}
+
 suite('Suite 70. An existing member is asked what is changing, not handed the new-customer form');
 {
   /* Owner, 2026-08-19: "I need the members that already exist not to go to the

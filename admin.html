@@ -1722,6 +1722,13 @@
             <div class="form-grid-3">
               <div class="form-row"><label>Route Status</label><select id="allCustFilterRoute"><option value="all">Any</option><option value="scheduled">Scheduled</option><option value="unscheduled">Unscheduled</option><option value="completed">Install Complete</option><option value="needsfix">Needs Fix</option></select></div>
               <div class="form-row"><label>House Map</label><select id="allCustFilterMap"><option value="all">Any</option><option value="has">Has a Map</option><option value="none">No Map Yet</option></select></div>
+              <!-- ⭐ FINDING THE OLD STOCK. Owner, 2026-08-19, on why soft is kept under
+                   its own name rather than translated: "so then we can find them later
+                   cause we need to switch their lights". Keeping the name only helps if
+                   something can actually search on it — on the real sheet that is twelve
+                   customers, which is a list somebody can work through in an afternoon
+                   and nobody could find by scrolling. -->
+              <div class="form-row"><label>Lights</label><select id="allCustFilterLights"><option value="all">Any</option><option value="soft">On soft (needs switching)</option><option value="none">No colours recorded</option></select></div>
               <!-- Without a pin a customer cannot be routed and does not appear on the
                    map at all. The bulk import has always flagged these (needsGeocode)
                    and told staff to "search Needs Pin in the customer list" — a search
@@ -23661,6 +23668,8 @@ function renderAllCustomersTable(){
   const invFilter = document.getElementById('allCustFilterInvStatus').value;
   const routeFilter = document.getElementById('allCustFilterRoute').value;
   const mapFilter = document.getElementById('allCustFilterMap').value;
+  const lightsEl = document.getElementById('allCustFilterLights');
+  const lightsFilter = lightsEl ? lightsEl.value : 'all';
   const pinFilter = document.getElementById('allCustFilterPin').value;
   const dateStart = document.getElementById('allCustFilterDateStart').value;
   const dateEnd = document.getElementById('allCustFilterDateEnd').value;
@@ -23701,6 +23710,25 @@ function renderAllCustomersTable(){
   }
   if(mapFilter !== 'all') rows = rows.filter(r => mapFilter === 'has' ? r.hasMap : !r.hasMap);
   if(pinFilter !== 'all') rows = rows.filter(r => pinFilter === 'has' ? r.hasPin : !r.hasPin);
+  /* ⭐ Owner: soft is kept under its own name "so then we can find them later cause we
+     need to switch their lights". This is the finding.
+     ⚠ Matched case-insensitively on the stored value, because a colour that came in
+     from the sheet and one ticked by hand must land in the same list. */
+  if(lightsFilter === 'soft'){
+    rows = rows.filter(function(r){
+      const cols = (r.d && Array.isArray(r.d.lightColors)) ? r.d.lightColors : [];
+      const desc = String((r.d && r.d.lightsDescription) || '');
+      /* Any spelling of soft counts. The label written by the importer is
+         soft(recycled), but a colour typed by hand in the portal will not be,
+         and both houses need the same visit. */
+      return cols.some(function(c){ return /soft/i.test(String(c)); }) || /soft/i.test(desc);
+    });
+  } else if(lightsFilter === 'none'){
+    rows = rows.filter(function(r){
+      const cols = (r.d && Array.isArray(r.d.lightColors)) ? r.d.lightColors : [];
+      return !cols.length && !String((r.d && r.d.lightsDescription) || '').trim();
+    });
+  }
   if(dateStart) rows = rows.filter(r => r.enrolled && r.enrolled >= dateStart);
   if(dateEnd) rows = rows.filter(r => r.enrolled && r.enrolled <= dateEnd);
   rows.sort(function(a,b){
