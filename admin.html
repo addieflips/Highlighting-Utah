@@ -5565,9 +5565,20 @@ async function rsvpHousesEmailBlock(phone){
   if(!token) return '';
   const payBase = 'https://highlightingutah.com/#/payment?token=' + token;
   const homeBase = 'https://highlightingutah.com/#/?token=' + token;
-  const btnStyle = 'display:inline-block; padding:9px 15px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:13.5px; margin:5px 4px 0 0;';
+  const btnStyle = 'display:inline-block; padding:9px 16px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:13.5px; margin:0 6px 0 0;';
   const compact = houses.length > RSVP_HOUSE_BUTTON_LIMIT;
-  const rows = houses.map(function(h){
+  /* ⭐ ONE CARD PER PROPERTY, WITH ITS BUTTONS JOINED TO IT.
+     A flat list separated by hairlines put every address and every Yes/No in
+     one column, and on a phone the buttons for one house sit directly above
+     the next house's address — so the thing nearest a button is the WRONG
+     house. Each property is now a bordered white card and its answers are an
+     attached footer band inside that same card, sharing its border, so what a
+     button belongs to is settled by the box around it rather than by spacing.
+     ⚠ Built as nested TABLES with inline styles, like every other email block
+     here: Outlook ignores nearly all CSS, and a card made of divs arrives as
+     an unstyled run of text. border-radius is ignored there too — the card
+     degrades to square corners, which is fine, rather than falling apart. */
+  const cards = houses.map(function(h){
     const d = h.data || {};
     const q = '&house=' + encodeURIComponent(h.id);
     const price = Number(d.housePrice) || 0;
@@ -5579,28 +5590,38 @@ async function rsvpHousesEmailBlock(phone){
     /* ⚠ AN ANSWERED HOUSE SHOWS THE ANSWER AND ONE "Change" LINK, not three
        buttons. RSVP emails get resent; nobody should be one stray tap away from
        flipping a house they already declined. */
-    const controls = (answered && RSVP_ANSWER_WORDS[answered])
-      ? '<div style="padding-top:6px; font-size:13px; color:#1E3B2C;"><strong>' + esc(RSVP_ANSWER_WORDS[answered]) + '</strong>' +
-        ' &middot; <a href="' + payBase + q + '" style="color:#2E6B3E;">Change</a></div>'
-      : '<div>' +
-          '<a href="' + payBase + q + '&rsvp=yes" style="' + btnStyle + ' background:#2E6B3E; color:#ffffff;">Yes</a>' +
-          '<a href="' + payBase + q + '&rsvp=no" style="' + btnStyle + ' background:#8A8F9C; color:#ffffff;">No</a>' +
-          (compact ? '' : '<a href="' + homeBase + q + '&rsvp=back" style="' + btnStyle + ' background:#D89F3D; color:#1E3B2C;">Back Next Year</a>') +
-        '</div>';
-    return '<div style="padding:11px 0; border-bottom:1px solid #DDE3D2;">' +
-      '<div style="font-size:14px; font-weight:bold; color:#1E3B2C;">' + esc(d.address || d.name || 'this property') + '</div>' +
-      (sub ? '<div style="font-size:12.5px; color:#6E6858;">' + sub + '</div>' : '') +
-      controls +
-    '</div>';
+    const footer = (answered && RSVP_ANSWER_WORDS[answered])
+      ? '<span style="font-size:13.5px; font-weight:bold; color:#1E3B2C;">' + esc(RSVP_ANSWER_WORDS[answered]) + '</span>' +
+        '<span style="font-size:13px; color:#6E6858;"> &middot; </span>' +
+        '<a href="' + payBase + q + '" style="font-size:13px; color:#2E6B3E; font-weight:bold;">Change</a>'
+      : '<a href="' + payBase + q + '&rsvp=yes" style="' + btnStyle + ' background:#2E6B3E; color:#ffffff;">Yes</a>' +
+        '<a href="' + payBase + q + '&rsvp=no" style="' + btnStyle + ' background:#8A8F9C; color:#ffffff;">No</a>' +
+        (compact ? '' : '<a href="' + homeBase + q + '&rsvp=back" style="' + btnStyle + ' background:#D89F3D; color:#1E3B2C;">Back Next Year</a>');
+    return '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 12px;">' +
+      '<tr><td style="background:#FFFFFF; border:1px solid #D8E0CB; border-radius:10px; padding:0;">' +
+        '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">' +
+          /* The address is the card's title, so what the buttons below belong
+             to is the first thing read. */
+          '<tr><td style="padding:14px 16px 12px; font-family:Arial,sans-serif;">' +
+            '<div style="font-size:15px; font-weight:bold; color:#1E3B2C; line-height:1.3;">' + esc(d.address || d.name || 'this property') + '</div>' +
+            (sub ? '<div style="font-size:12.5px; color:#6E6858; padding-top:3px;">' + sub + '</div>' : '') +
+          '</td></tr>' +
+          /* The attached answer bar. Same card, its own band. */
+          /* Rounded to match the card it sits in — a square band inside a rounded
+             border shows two stray corners. Ignored by Outlook along with the
+             card's own radius, so both go square together and still line up. */
+          '<tr><td style="background:#F4F7EE; border-top:1px solid #E3E8DA; border-radius:0 0 9px 9px; padding:11px 16px; font-family:Arial,sans-serif;">' +
+            footer +
+          '</td></tr>' +
+        '</table>' +
+      '</td></tr></table>';
   }).join('');
-  /* A table with inline styles, like every other email block here: Outlook
-     ignores nearly all CSS, so a styled div arrives unstyled. */
   return '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:14px 0;">' +
-    '<tr><td style="background:#F1F5EB; border-radius:10px; padding:16px 18px; font-family:Arial,sans-serif;">' +
+    '<tr><td style="background:#F1F5EB; border-radius:10px; padding:16px 14px 6px; font-family:Arial,sans-serif;">' +
       '<div style="font-size:11px; letter-spacing:1.2px; text-transform:uppercase; color:#6E6858; font-weight:bold;">Answer for each property</div>' +
-      '<div style="font-size:12.5px; color:#6E6858; padding:4px 0 2px;">You are paying for ' + houses.length + ' properties this year. Tell us about each one — they do not have to be the same.</div>' +
-      rows +
-      (compact ? '<div style="font-size:12.5px; color:#6E6858; padding-top:8px;">To say <strong>back next year</strong> for any of these, open your portal.</div>' : '') +
+      '<div style="font-size:12.5px; color:#6E6858; padding:4px 0 12px;">You are paying for ' + houses.length + ' properties this year. Tell us about each one &mdash; they do not have to be the same.</div>' +
+      cards +
+      (compact ? '<div style="font-size:12.5px; color:#6E6858; padding:2px 0 10px;">To say <strong>back next year</strong> for any of these, open your portal.</div>' : '') +
     '</td></tr></table>';
 }
 /* The same thing as plain text, for a preview box that shows textContent. */

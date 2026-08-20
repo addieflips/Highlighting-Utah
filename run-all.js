@@ -17221,6 +17221,53 @@ pendingAsync.push((async () => {
     hrefs.filter(h => h.indexOf('house=h4') !== -1)[0].indexOf('rsvp=') === -1,
     'a "Change" that changes something before you have read it is not a change link');
 
+  // ---- ⚠ each property is a CARD, with its own buttons inside it -----------
+  /* Owner: "the addresses could come up kind of as cards and the RSVP buttons
+     could be sort of connected". The reason it matters is not decoration: in a
+     flat list the buttons for one house sit directly above the NEXT house's
+     address, so on a phone the thing nearest a button is the wrong house. The
+     card is what settles which address a button belongs to.
+     ⚠ PARSED, not grepped. Every link is present either way, so a search over
+     the whole block passes just as happily on a flat list — the claim here is
+     about what is INSIDE each box, which only a parse can answer. */
+  if (!JSDOM) {
+    note('jsdom not installed — skipping the RSVP card structure check');
+  } else {
+    const cardDoc = new JSDOM('<div id="w">' + dana + '</div>').window.document;
+    const cards = Array.from(cardDoc.querySelectorAll('td'))
+      .filter(td => /border:1px solid/.test(td.getAttribute('style') || ''));
+    check('S79', '⭐ every property is its own card, not a row in a list',
+      cards.length === 3,
+      'a hairline between rows is not a boundary on a phone — the box is');
+    check('S79', '⚠ and each card holds ONLY its own address and its own buttons',
+      cards.length === 3 && cards.every(function (c) {
+        const ids = Array.from(c.querySelectorAll('a[href]'))
+          .map(a => (a.getAttribute('href').match(/house=([^&]+)/) || [])[1])
+          .filter(Boolean);
+        return ids.length > 0 && new Set(ids).size === 1;
+      }),
+      'two houses sharing a card, or a button landing outside the card its address is in, is ' +
+      'exactly the mistake the card exists to prevent — and it would look perfectly fine');
+    /* Document order, not a search for words in a string: DOCUMENT_POSITION_FOLLOWING
+       says the link really comes after the address, which is the claim. */
+    check('S79', 'and the address is inside the card, above its own buttons',
+      cards.length === 3 && cards.every(function (c) {
+        const addr = c.querySelector('div');
+        const link = c.querySelector('a[href]');
+        return !!addr && !!link && (addr.compareDocumentPosition(link) & 4) !== 0;
+      }),
+      'the buttons answer for the address above them — reversed, the card reads as answering ' +
+      'for whatever came before it');
+  }
+  check('S79', 'the buttons sit in an attached band, sharing the card border',
+    /border-top:1px solid #E3E8DA; border-radius:0 0 9px 9px/.test(dana),
+    'a band with its own gap reads as a separate thing again; the shared border is what ' +
+    '"connected" means here');
+  check('S79', 'and the card is built from tables with inline styles',
+    !/display:\s*flex/.test(dana) && /cellpadding="0"/.test(dana),
+    'Outlook ignores nearly all CSS and has no flexbox — a card made of styled divs arrives ' +
+    'as an unstyled run of text, which is worse than the list it replaced');
+
   // ---- the size guard ------------------------------------------------------
   check('S79', 'the button limit is a named constant, not a number typed in twice',
     typeof box.limit === 'number' && box.limit >= 2 &&
