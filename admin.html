@@ -17180,13 +17180,70 @@ async function hlxAppendRowsToSheet(rows, tabName){
   const dec = new TextDecoder(), enc = new TextEncoder();
   let xml = dec.decode(sheet.data);
   if(xml.indexOf("</sheetData>") < 0) throw new Error("That sheet is not in a shape I can add a row to.");
-  /* The first open row is the one after the highest row that exists — read off the
-     sheet itself rather than counted, because a sheet can have gaps. */
-  let maxRow = 0;
-  xml.replace(/<row[^>]*\sr="(\d+)"/g, function(m, num){ maxRow = Math.max(maxRow, Number(num)); return m; });
+  /* ⭐ THE FIRST BLANK ROW, NOT THE ROW AFTER THE LAST ONE. Owner asked for "first
+     row possible" and "first blank row" from the start; this counted from the highest
+     row NUMBER instead, which is a different thing entirely.
+
+     Her Yes sheet holds 9,697 row elements and no data " + M + " empty rows Excel keeps for
+     formatting. Three customers were appended to rows 9698, 9699 and 9700, which is
+     exactly what she saw: "it says yes was updated but the yes sheet is still blank."
+     It was not blank. They were ten thousand rows down.
+
+     ⚠ AN EXISTING EMPTY ROW IS REPLACED, NOT DUPLICATED. Those rows exist in the
+     XML, so writing a second element with the same r= would give the sheet two rows
+     numbered 5 and Excel would refuse to open it. Where the blank row already exists
+     the element is swapped; only past the end is anything appended. */
+  const rowByNum = {};
+  (xml.match(/<row[\s>][\s\S]*?<\/row>|<row[^>]*\/>/g) || []).forEach(function(el){
+    const n = Number((el.match(/\sr="(\d+)"/) || [])[1]);
+    if(n) rowByNum[n] = el;
+  });
+  const nums = Object.keys(rowByNum).map(Number);
+  const maxRow = nums.length ? Math.max.apply(null, nums) : 0;
+  /* ⚠ USED MEANS USED IN THE COLUMNS WE WRITE, and nothing further right.
+     Every row of her Yes sheet from 2 to 9697 carries one cell in column R: a
+     leftover TRUE/FALSE checkbox, `t="b"` with a 0 or a 1 in it. The sheet looks
+     empty and structurally is not, so "any value at all" called all 9,696 of them
+     used and sent the write to the bottom again.
+     The customer row is ’width’ columns wide; anything past that is somebody’s
+     own column and none of our business. */
+  const width = Math.max(1, (rows[0] || []).length);
+  const hasContent = function(el){
+    if(!el) return false;
+    const cells = el.match(/<c[\s][^>]*>[\s\S]*?<\/c>|<c[\s][^>]*\/>/g) || [];
+    for(let i = 0; i < cells.length; i++){
+      const c = cells[i];
+      const ref = (c.match(/\sr="([A-Z]+)\d+"/) || [])[1];
+      if(!ref) continue;
+      if(hlxColNum(ref) >= width) continue;   /* a column further right than we write */
+      if(/<t[^>]*>[^<]/.test(c) || /<v>[^<]/.test(c)) return true;
+    }
+    return false;
+  };
+  /* ⚠ THE HEADER IS ROW ONE OR THERE ISN'T ONE. The first version looked for the
+     first row holding anything and called that the header. On her real Yes sheet that
+     was row 9698 — the sheet is entirely empty apart from three customers appended at
+     the bottom by this very bug, so it read our own mistake as the heading and went to
+     9701. A header is at the top or it is not a header. */
+  let next = hasContent(rowByNum[1]) ? 2 : 1;
+  const takeFreeRow = function(){
+    while(rowByNum[next] && hasContent(rowByNum[next])) next++;
+    return next++;
+  };
   let inject = "";
-  rows.forEach(function(vals, i){ inject += hlxRowXml(maxRow + 1 + i, vals); });
-  xml = xml.replace("</sheetData>", inject + "</sheetData>");
+  rows.forEach(function(vals){
+    const at = takeFreeRow();
+    const built = hlxRowXml(at, vals);
+    if(rowByNum[at]){
+      /* Swap the empty placeholder in place so the row number stays unique. */
+      xml = xml.replace(rowByNum[at], built);
+      rowByNum[at] = built;
+    } else {
+      inject += built;
+      rowByNum[at] = built;
+    }
+  });
+  if(inject) xml = xml.replace("</sheetData>", inject + "</sheetData>");
   sheet.data = enc.encode(xml);
   const rebuilt = await hlxZip(entries);
 
