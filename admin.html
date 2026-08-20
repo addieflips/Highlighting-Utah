@@ -5892,8 +5892,12 @@ async function loadSchedulingSettings(){
     const snap = await getDoc(doc(db,'settings','scheduling'));
     const n = snap.exists() ? Number(snap.data().crewsPerDay) : 2;
     CREWS_PER_DAY = (n === 1) ? 1 : 2;
-    NEARBY_TOWN_LIST = (snap.exists() && snap.data().nearbyTowns) || {};
-  } catch(err){ CREWS_PER_DAY = 2; NEARBY_TOWN_LIST = {}; }
+    /* An empty list is not a decision, it is a blank — and a blank meant every pair
+       fell through to the tape measure. The built-in list stands in until the office
+       types its own. */
+    const typed = snap.exists() && snap.data().nearbyTowns;
+    NEARBY_TOWN_LIST = (typed && Object.keys(typed).length) ? typed : DEFAULT_NEARBY_TOWNS;
+  } catch(err){ CREWS_PER_DAY = 2; NEARBY_TOWN_LIST = DEFAULT_NEARBY_TOWNS; }
   const nt = document.getElementById('nearbyTownsInput');
   /* Only when it is not being typed in — reloading under the cursor would take
      somebody's half-finished line away mid-word. */
@@ -26637,6 +26641,71 @@ function surplusCrewDays(routes, crews){
    crew." So this is only ever a TOP-UP: a full twenty in one town always wins,
    and a town is only borrowed from once its own town has nothing left to give. */
 const NEARBY_TOWN_MILES = 8;
+/* ⭐ WHICH TOWNS ARE ACTUALLY CLOSE (added 2026-08-20). Owner: "right now you have
+   too many cities marked as close to each other, we dont want every city bordering each
+   other we want citys that are actually close so what I will say is no one city can
+   have more than two cities listed, as for example lehi would be saratoga and american
+   fork... sometimes it might be hard to figure that out because you have really small
+   cities that need to have a listed neighbor too but the city already has two big
+   cities next to it, so in those cases they can have 3 neighbors."
+
+   ⚠ THERE WAS NO LIST AT ALL. The settings doc was empty, so every pairing fell
+   through to the tape measure — anything inside eight miles counted as close, which
+   on the Wasatch Front is most of the valley. That is the "too many cities" she is
+   describing, and it is why a crew could be handed towns that merely happen to be
+   within eight miles rather than ones you would actually work together.
+
+   TWO EACH, and the pairs run in a CHAIN rather than a mesh: Lehi to American Fork to
+   Pleasant Grove to Lindon to Orem, and so on down the freeway. A chain is what "one
+   dominant city plus the one next door" looks like when it is written out.
+
+   ⚠ IT IS SYMMETRIC ON PURPOSE. townsAreNeighbours accepts a pairing named from
+   EITHER side, so a one-sided entry would work while making the counts below a lie.
+   Both directions are written out so the two-per-city rule can actually be checked.
+
+   THE ONE EXCEPTION, which is exactly the case she described: Vineyard is small and
+   sits between Orem and Provo, and both of those already have their two. Rather than
+   leave Vineyard unable to share a crew with anybody, OREM CARRIES A THIRD. It is the
+   only three in the list.
+
+   Two towns keep a single neighbour because there is genuinely only one: Eagle Mountain
+   (Saratoga Springs) and Levan. Levan is a lone customer twenty-odd miles south of
+   Santaquin — far, but the alternative is a day with one house on it.
+
+   ⚠ THIS IS A DEFAULT, NOT A LOCK. Anything typed into Scheduling settings replaces
+   it wholesale. Add towns here as the book grows, and keep both directions. */
+const DEFAULT_NEARBY_TOWNS = {
+  'Lehi': ['Saratoga Springs', 'American Fork'],
+  'Saratoga Springs': ['Lehi', 'Eagle Mountain'],
+  'Eagle Mountain': ['Saratoga Springs'],
+  'American Fork': ['Lehi', 'Pleasant Grove'],
+  'Pleasant Grove': ['American Fork', 'Lindon'],
+  'Lindon': ['Pleasant Grove', 'Orem'],
+  'Orem': ['Lindon', 'Provo', 'Vineyard'],
+  'Vineyard': ['Orem'],
+  'Provo': ['Orem', 'Springville'],
+  'Springville': ['Provo', 'Mapleton'],
+  'Mapleton': ['Springville', 'Spanish Fork'],
+  'Spanish Fork': ['Mapleton', 'Salem'],
+  'Salem': ['Spanish Fork', 'Payson'],
+  'Payson': ['Salem', 'Santaquin'],
+  'Santaquin': ['Payson', 'Levan'],
+  'Levan': ['Santaquin'],
+  'Highland': ['Alpine', 'Cedar Hills'],
+  'Alpine': ['Highland', 'Cedar Hills'],
+  'Cedar Hills': ['Highland', 'Alpine'],
+  'Draper': ['Bluffdale', 'Sandy'],
+  'Bluffdale': ['Draper', 'Riverton'],
+  'Riverton': ['Bluffdale', 'Herriman'],
+  'Herriman': ['Riverton', 'South Jordan'],
+  'South Jordan': ['Herriman', 'West Jordan'],
+  'West Jordan': ['South Jordan', 'Midvale'],
+  'Midvale': ['West Jordan', 'Murray'],
+  'Murray': ['Midvale', 'Holladay'],
+  'Holladay': ['Murray', 'Cottonwood Hts'],
+  'Cottonwood Hts': ['Holladay', 'Sandy'],
+  'Sandy': ['Cottonwood Hts', 'Draper']
+};
 /* The middle of a town, from the houses actually waiting in it. Good enough to
    tell a neighbouring town from one across the valley, which is all it is for.
    A town whose houses have no map pin yet gets no centre and is simply never

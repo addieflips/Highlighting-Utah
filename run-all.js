@@ -6836,11 +6836,16 @@ check('build', 'two crews is the default when the setting has never been saved',
   /CREWS_PER_DAY = \(n === 1\) \? 1 : 2;/.test(admin) &&
   /catch\(err\)\{ CREWS_PER_DAY = 2;/.test(admin),
   'a missing or unreadable setting must not silently halve the season');
-/* The catch resets the nearby-town list too — it is read from the same
-   document, and leaving a previous read standing after a failed one would pair
-   towns off a list nobody can see. */
-check('build', 'a failed settings read also clears the nearby-town list',
-  /catch\(err\)\{ CREWS_PER_DAY = 2; NEARBY_TOWN_LIST = \{\}; \}/.test(admin));
+/* ⭐ A FAILED READ FALLS BACK TO THE BUILT-IN LIST, NOT TO NOTHING (changed
+   2026-08-20). The original rule still holds — a previous read must not be left
+   standing, or towns get paired off a list nobody can see. But resetting to {} is not
+   neutral either: an empty list means every pair falls through to the eight-mile tape
+   measure, which on the Wasatch Front is most of the valley. The built-in default is
+   visible, checked below, and the honest thing to fall back to. */
+check('build', 'a failed settings read falls back to the built-in nearby-town list',
+  /catch\(err\){ CREWS_PER_DAY = 2; NEARBY_TOWN_LIST = DEFAULT_NEARBY_TOWNS; }/.test(admin),
+  'leaving the last read standing pairs towns off a list nobody can see; resetting ' +
+  'to empty pairs them off a tape measure instead');
 check('build', 'the setting is loaded BEFORE the sweep starts',
   admin.indexOf('loadSchedulingSettings()') < admin.indexOf('startReconcileAuto();'),
   'building a season on the default two while one is saved means building it ' +
@@ -18056,6 +18061,100 @@ suite('Suite 101. One dominant city a crew, and a neighbour if it must');
     /crews \* MAX_TOWNS_PER_CREW/.test(extractFn(admin, 'maxTownsPerDay')),
     'four on a day is fine when it is two crews holding two each, and four split ' +
     'three and one is not — a day-level number cannot tell those apart');
+}
+/* ---------------------------------------------------------------------------
+ * Suite 102. Which towns are actually close
+ *
+ * Owner, 2026-08-20: "right now you have too many cities marked as close to each
+ * other, we dont want every city bordering each other we want citys that are actually
+ * close so what I will say is no one city can have more than two cities listed, as for
+ * example lehi would be saratoga and american fork... sometimes it might be hard to
+ * figure that out because you have really small cities that need to have a listed
+ * neighbor too but the city already has two big cities next to it, so in those cases
+ * they can have 3 neighbors."
+ *
+ * ⚠ THERE WAS NO LIST AT ALL. The settings document was empty, so every pairing
+ * fell through to the eight-mile tape measure — which on the Wasatch Front is most of
+ * the valley. That is the "too many cities" being described.
+ * ------------------------------------------------------------------------- */
+suite('Suite 102. Which towns are actually close');
+
+{
+  const at = admin.indexOf('const DEFAULT_NEARBY_TOWNS = {');
+  check('S102', 'the built-in neighbour list is there', at !== -1);
+
+  if (at !== -1) {
+    const LIST = eval('(' + admin.slice(admin.indexOf('{', at),
+      admin.indexOf(String.fromCharCode(10) + '};', at) + 2) + ')');
+    const towns = Object.keys(LIST);
+
+    check('S102', 'it covers the towns the book works in', towns.length >= 25,
+      'got ' + towns.length + ' — a town missing from the list can never share a crew');
+
+    /* ⭐ TWO EACH. This is the rule, stated as a number. */
+    const over = towns.filter(t => LIST[t].length > 2);
+    const way = towns.filter(t => LIST[t].length > 3);
+    check('S102', 'no town is allowed more than three neighbours',
+      way.length === 0,
+      'got ' + JSON.stringify(way.map(t => t + ':' + LIST[t].length)));
+
+    /* ⚠ AND THREE IS THE EXCEPTION, NOT A SECOND ALLOWANCE. "in those cases they
+       can have 3" is about a small town that would otherwise be stranded, not a
+       licence to round everything up. One is a considered exception; a handful is the
+       old mesh creeping back in. */
+    check('S102', 'and at most one town carries a third',
+      over.length <= 1,
+      'got ' + JSON.stringify(over.map(t => t + ': ' + LIST[t].join(', '))) + ' — ' +
+      'three is for a small town with nowhere else to go, not a rounding-up');
+
+    /* Her own example, written out. If this ever fails the list has drifted from what
+       she actually asked for, whatever the counts say. */
+    check('S102', 'Lehi is Saratoga Springs and American Fork',
+      LIST['Lehi'] && LIST['Lehi'].length === 2 &&
+      LIST['Lehi'].indexOf('Saratoga Springs') !== -1 &&
+      LIST['Lehi'].indexOf('American Fork') !== -1,
+      'got ' + JSON.stringify(LIST['Lehi']) + ' — owner: "lehi would be saratoga ' +
+      'and american fork"');
+
+    /* ⚠ SYMMETRY IS LOAD-BEARING. townsAreNeighbours accepts a pairing named from
+       EITHER side, so a one-sided entry still works — and quietly makes the counts
+       above a lie, because the town on the receiving end is carrying a neighbour it
+       never listed. */
+    const oneSided = [];
+    towns.forEach(a2 => (LIST[a2] || []).forEach(b => {
+      if (!LIST[b] || LIST[b].indexOf(a2) === -1) oneSided.push(a2 + ' -> ' + b);
+    }));
+    check('S102', 'every pairing is written from both sides',
+      oneSided.length === 0,
+      'got ' + JSON.stringify(oneSided) + ' — a one-sided entry works, and makes ' +
+      'the two-per-town count untrue for the town on the other end');
+
+    check('S102', 'nothing names a town that is not in the list',
+      towns.every(t => LIST[t].every(n => !!LIST[n])),
+      'a neighbour with no entry of its own cannot be counted or checked');
+    check('S102', 'and nothing is its own neighbour',
+      towns.every(t => LIST[t].every(n => n !== t)));
+    check('S102', 'no town is listed twice by the same town',
+      towns.every(t => new Set(LIST[t]).size === LIST[t].length));
+
+    /* Every town has SOMEBODY, or it can never be a second town on anyone's day and
+       is stuck with days of its own. One neighbour is fine where there genuinely is
+       only one; none is a gap worth seeing. */
+    check('S102', 'every town has at least one neighbour',
+      towns.every(t => LIST[t].length >= 1),
+      'got ' + JSON.stringify(towns.filter(t => !LIST[t].length)) + ' with none — ' +
+      'a town with no neighbour can only ever have days of its own');
+  }
+
+  /* ---- and it is actually used ---- */
+  check('S102', 'an empty settings list falls back to the built-in one',
+    admin.indexOf("Object.keys(typed).length) ? typed : DEFAULT_NEARBY_TOWNS") !== -1,
+    'the settings document being blank is not a decision, and treating it as one is ' +
+    'what sent every pairing to the tape measure');
+  check('S102', 'but anything the office types replaces it wholesale',
+    admin.indexOf('typed && Object.keys(typed).length') !== -1,
+    'a business that has always worked two towns together said so once and should ' +
+    'be believed over anything shipped in the page');
 }
 /* ---------------------------------------------------------------------------
  * Suite 92. A day inside 48 hours is printed, and printed is finished
