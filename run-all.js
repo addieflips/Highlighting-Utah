@@ -11106,33 +11106,188 @@ suite('Suite 46. Nobody is hung before the month they asked for');
     }
   }
 
-  /* ---- the saved-plan warning ---- */
+  /* ---- the saved-plan warning ----
+
+     ⭐ IT ASKS THE CREW, NOT THE DAY (changed 2026-08-20). Owner: "the rule isnt one
+     day can have 4 citys its one crew can have 1 dominant city with some flakes in
+     another city." A day-level count cannot express that — four towns split three and
+     one passes it while one crew drives three cities — and once dayCrewTowns started
+     capping a crew at two and leaving the surplus UNASSIGNED, a day whose houses span
+     six towns became a legal outcome that the old check flagged anyway, sending the
+     office to a Recalculate that could not clear it.
+
+     ⚠ SO THE SIX-TOWN DAY IS NOW THE NEGATIVE CASE, and it is run through the REAL
+     splitter rather than a stub: stubbing it here would be testing this suite's idea
+     of the rule instead of the one the panel and the printed sheet read. */
   {
     const src2 = fn('crewDaysOverTownLimit');
+    const townsSrc = fn('dayCrewTowns');
+    const nearSrc = fn('townsAreNeighbours');
     check('S46', 'crewDaysOverTownLimit exists', !!src2);
-    if (src2) {
+    check('S46', 'and the crew splitter it now reads is there too', !!townsSrc && !!nearSrc);
+    const iso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') +
+      '-' + String(d.getDate()).padStart(2, '0');
+    /* ⚠ THE LIMIT IS LIFTED, NEVER TYPED. It used to be the number 4 written into the
+       function; the whole point of the change is that one constant governs the builder,
+       the sweep and this warning together. */
+    const PERCREW = 'const MAX_TOWNS_PER_CREW=' +
+      (admin.match(/const MAX_TOWNS_PER_CREW = (\d+);/) || [])[1] + ';';
+
+    if (src2 && townsSrc && nearSrc) {
+      /* Coordinates live on the customer record, exactly as the live page reads them. */
+      const H = (city, lat) => ({ city: city, _cust: { lat: lat, lng: -111.85 } });
+      const many = (n, city, lat) => Array.from({ length: n }, () => H(city, lat));
+      const runReal = (SEASON) => {
+        const sb = {};
+        new Function('SEASON', 'dayDate', 'isoOf', 'extractCleanCity',
+          PERCREW + 'const NEARBY_TOWN_MILES = 8; const NEARBY_TOWN_LIST = {};' +
+          'const CREWS = [{name:"A",city:""},{name:"B",city:""}];' +
+          'const cityOf = function(h){ return (h.city || "").trim(); };' +
+          'const sameCity = function(a, b){ return String(a).trim().toLowerCase() === ' +
+          '  String(b).trim().toLowerCase(); };' +
+          'const customerForHouse = function(h){ return h._cust ? {data: h._cust} : null; };' +
+          fn('haversine') + nearSrc + townsSrc + fn('maxTownsPerDay') +
+          src2 + 'this.run = crewDaysOverTownLimit;'
+        ).call(sb, SEASON, (d) => d._date, iso, (c) => ('' + (c || '')).split(',')[0].trim());
+        return sb.run();
+      };
+
+      /* Her 27 October: six towns on one date. The splitter gives each crew two and
+         leaves the rest unassigned, which is the rule working, not breaking it. */
+      const six = many(6, 'Lehi', 40.39).concat(
+        many(5, 'Alpine', 40.45), many(4, 'Highland', 40.42), many(4, 'Draper', 40.52),
+        many(3, 'Payson', 40.04), many(2, 'Santaquin', 39.97));
+      const real = runReal([
+        { _date: new Date(2026, 9, 1), houses: six },
+        { _date: new Date(2026, 9, 2), houses: many(3, 'Lehi', 40.39).concat(many(2, 'Alpine', 40.45)) }
+      ]);
+      check('S46', 'a six-town day the crews split legally is NOT flagged',
+        real.length === 0,
+        'got ' + JSON.stringify(real) + ' — this is the false alarm that survived every ' +
+        'Recalculate, because a rebuild cannot remove a town the houses are actually in');
+
+      /* And the check itself still catches the thing it is FOR. A crew holding three
+         towns cannot come out of the real splitter any more, so it is fed in directly —
+         if this ever fires on live data something upstream is broken. */
+      const sb2 = {};
+      new Function('SEASON', 'dayDate', 'isoOf', 'extractCleanCity', 'dayCrewTowns',
+        PERCREW + fn('maxTownsPerDay') + src2 + 'this.run = crewDaysOverTownLimit;'
+      ).call(sb2, [
+        { _date: new Date(2026, 9, 1), houses: [] },
+        { _date: new Date(2026, 9, 2), houses: [] }
+      ], (d) => d._date, iso, (c) => ('' + (c || '')).split(',')[0].trim(),
+        (d) => iso(d._date) === '2026-10-01'
+          ? [['Lehi', 'Draper', 'American Fork'], ['Alpine']]
+          : [['Lehi'], ['Alpine']]);
+      const forced = sb2.run();
+      check('S46', 'a crew put in three towns is spotted',
+        forced.length === 1 && forced[0].date === '2026-10-01',
+        JSON.stringify(forced));
+      check('S46', 'and it names that crew’s towns, not the whole day’s',
+        forced.length === 1 && forced[0].towns.join(',') === 'Lehi,Draper,American Fork',
+        JSON.stringify(forced) + ' — the office has to know WHICH crew to look at');
+      check('S46', 'a legitimate one-town-each day is not flagged',
+        !forced.some(o => o.date === '2026-10-02'),
+        'two crews, each its own town plus at most one other');
+    }
+  }
+
+  /* ---- and the price of the mandatory neighbour rule, said out loud ----
+
+     ⭐ Owner, 2026-08-20: "the second city being a neighboring city is mandatory not a
+     priority." A house in a town neither crew may drive to stays on the plan and on
+     NOBODY's sheet. That was only ever visible on the one day it sat on. */
+  {
+    const spareSrc = fn('crewLeftoverStops');
+    check('S46', 'crewLeftoverStops exists', !!spareSrc);
+    if (spareSrc) {
       const sb = {};
-      new Function('SEASON', 'dayDate', 'isoOf', 'extractCleanCity',
-        /* ⚠ THE LIMIT IS LIFTED TOO. It used to be the number 4 written into this
-           function; sharing it with the timing sweep is the point of the change, so a
-           stub here would test a constant that no longer exists. */
-        'const MAX_TOWNS_PER_CREW=' + (admin.match(/const MAX_TOWNS_PER_CREW = (\d+);/)||[])[1] + ';' + fn('maxTownsPerDay') +
-        src2 + 'this.run = crewDaysOverTownLimit;'
+      const iso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') +
+        '-' + String(d.getDate()).padStart(2, '0');
+      new Function('SEASON', 'dayDate', 'isoOf', 'extractCleanCity', 'unassignedHousesFor',
+        spareSrc + 'this.run = crewLeftoverStops;'
       ).call(sb, [
-        { _date: new Date(2026, 9, 1), houses: [
-          { city: 'Lehi' }, { city: 'Draper' }, { city: 'American Fork' },
-          { city: 'Highland' }, { city: 'Herriman' }, { city: 'Alpine' } ] },
-        { _date: new Date(2026, 9, 2), houses: [{ city: 'Lehi' }, { city: 'Draper' }] }
-      ], (d) => d._date,
-        (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'),
-        (c) => ('' + (c || '')).split(',')[0].trim());
-      const over = sb.run();
-      check('S46', 'a saved day carrying too many towns is spotted',
-        over.length === 1 && over[0].date === '2026-10-01',
-        JSON.stringify(over));
-      check('S46', 'a legitimate two-crew two-town day is not flagged',
-        !over.some(o => o.date === '2026-10-02'),
-        'two crews, each its own town plus at most one other, is four towns at most');
+        { _date: new Date(2026, 9, 1), houses: [], _left: [{ city: 'Payson' }, { city: 'Santaquin' }, { city: 'Payson' }] },
+        { _date: new Date(2026, 9, 2), houses: [], _left: [] },
+        { _date: new Date(2026, 9, 3), isTakedown: true, houses: [], _left: [{ city: 'Levan' }] },
+        { _date: new Date(2026, 9, 5), isFixRoute: true, houses: [], _left: [{ city: 'Levan' }] }
+      ], (d) => d._date, iso, (c) => ('' + (c || '')).split(',')[0].trim(),
+        (d) => d._left || []);
+      const spare = sb.run();
+      check('S46', 'stops in a town neither crew works are reported',
+        spare.length === 1 && spare[0].date === '2026-10-01' && spare[0].n === 3,
+        JSON.stringify(spare));
+      check('S46', 'and named by town, once each',
+        spare.length === 1 && spare[0].towns.slice().sort().join(',') === 'Payson,Santaquin',
+        JSON.stringify(spare) + ' — three stops in two towns is two towns');
+      /* ⚠ A TAKEDOWN AND A FIXER ROUTE ARE NOT CREW DAYS. A fixer route is one person
+         in one van by design, so every stop on it would read as unassigned and the
+         banner would shout on a season where nothing at all is wrong. */
+      check('S46', 'takedowns and fixer routes are left out of it',
+        !spare.some(o => o.date === '2026-10-03' || o.date === '2026-10-05'),
+        JSON.stringify(spare));
+      check('S46', 'a day where both crews cover everything says nothing',
+        !spare.some(o => o.date === '2026-10-02'), JSON.stringify(spare));
+    }
+  }
+
+  /* ---- and it RUNS the season bar, because a message in the source is not a
+     message on the screen ----
+
+     ⚠ This repo has been caught three times by a check that matched the wording of a
+     message the renderer could never actually print — most recently a default cell
+     assignment sitting AFTER the two blocks that filled it, so a duplicate the code
+     had correctly found rendered as "— nothing —". The words were all present and
+     every text check passed. So this one drives renderSeasonBar against a fake DOM
+     and reads the HTML that comes out. */
+  {
+    const barSrc = fn('renderSeasonBar');
+    check('S46', 'renderSeasonBar is there to run', !!barSrc);
+    if (barSrc) {
+      const drawBar = (stale, spare) => {
+        const node = () => ({ style: {}, innerHTML: '', value: '' });
+        const nodes = { startDate: node(), shiftRead: node(), wkNote: node(), staleNote: node() };
+        const day = { _date: new Date(2026, 9, 1), houses: [] };
+        new Function('RT', 'SEASON', 'crewDaysOverTownLimit', 'crewLeftoverStops',
+          'const installDays = function(){ return [{_date: new Date(2026,9,1)}]; };' +
+          'const isoOf = function(d){ return "2026-10-01"; };' +
+          'const addDays = function(d){ return d; };' +
+          'const BASE_START = new Date(2026,9,1); const globalDelta = 0;' +
+          'const dlabel = function(){ return {wd: "Thu", full: "Oct 1"}; };' +
+          'const isWeekend = function(){ return false; };' +
+          'const desired = function(d){ return d; };' +
+          'const maxTownsPerDay = function(){ return 4; };' +
+          barSrc + 'renderSeasonBar();'
+        )({ getElementById: (id) => nodes[id] }, [day],
+          () => stale, () => spare);
+        return nodes.staleNote;
+      };
+
+      const leftover = drawBar([], [{ date: '2026-10-27', n: 3, towns: ['Payson', 'Santaquin'] }]);
+      check('S46', 'the leftover-stops warning really reaches the screen',
+        leftover.style.display === '' && /Payson/.test(leftover.innerHTML) &&
+        /3 stops/.test(leftover.innerHTML),
+        JSON.stringify({ display: leftover.style.display, html: leftover.innerHTML }));
+      /* ⚠ IT MUST NOT ASK FOR A REBUILD. That is the whole failure being fixed: a
+         Recalculate cannot remove a town the houses are actually in, and a banner that
+         asks for one teaches the office that the button does not work. */
+      check('S46', 'and it names the lever that works, not Recalculate',
+        /Nearby towns/.test(leftover.innerHTML) &&
+        !/Recalculate/.test(leftover.innerHTML),
+        leftover.innerHTML);
+
+      const broken = drawBar([{ date: '2026-10-27', towns: ['Lehi', 'Draper', 'Alpine'] }],
+        [{ date: '2026-10-27', n: 3, towns: ['Payson'] }]);
+      check('S46', 'a crew over the cap outranks the leftover note',
+        /more towns than it can drive/.test(broken.innerHTML) &&
+        /Recalculate everything/.test(broken.innerHTML),
+        broken.innerHTML + ' — a broken split is the bigger fault and the rebuild is ' +
+        'the right first move for it');
+
+      const quiet = drawBar([], []);
+      check('S46', 'and a season with nothing wrong shows no banner at all',
+        quiet.style.display === 'none',
+        JSON.stringify({ display: quiet.style.display, html: quiet.innerHTML }));
     }
   }
 
@@ -17459,10 +17614,22 @@ suite('Suite 98. The timing sweep is what was making the crowded days');
       'an imported row with no town would otherwise inflate every day it sits on');
 
 
-    check('S98', 'the warning counts against that same limit',
-      /maxTownsPerDay\(\)/.test(extractFn(admin, 'crewDaysOverTownLimit')),
-      'it used to test n > 4 with the number written out, so changing the crew ' +
-      'count moved the builder and left the check behind');
+    /* ⭐ THE WARNING MEASURES THE CREW NOW (changed 2026-08-20). dayTownCount is still
+       the timing sweep's ruler and is tested above; the banner is not a day count any
+       more, because the rule is not about days. Owner: "one crew can go in a max of 2
+       cities." */
+    {
+      const warn = extractFn(admin, 'crewDaysOverTownLimit');
+      check('S98', 'the warning reads the crew split, not the day',
+        /dayCrewTowns/.test(warn) && /MAX_TOWNS_PER_CREW/.test(warn),
+        'a day-level count cannot express the rule — four towns split three and one ' +
+        'passes it while one crew drives three cities');
+      check('S98', 'and it no longer counts the towns on the day itself',
+        !/maxTownsPerDay\(\)/.test(warn) && !/extractCleanCity\(h\.city\)/.test(warn),
+        'dayCrewTowns leaves surplus towns unassigned on purpose, so a day counting ' +
+        'five towns is legal — flagging it sent the office to a Recalculate that ' +
+        'could not clear it, which is how the 27 October warning kept coming back');
+    }
   }
 
   /* ---- the sweep itself, run for real ---- */

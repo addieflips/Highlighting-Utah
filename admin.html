@@ -33566,6 +33566,7 @@ function renderSeasonBar(){
      were the ones built before it, and nothing said so. The check existed and
      was never shown, which is the same as not having it. */
   const stale = (typeof crewDaysOverTownLimit === 'function') ? crewDaysOverTownLimit() : [];
+  const spare = (typeof crewLeftoverStops === 'function') ? crewLeftoverStops() : [];
   const sn = RT.getElementById('staleNote');
   if(sn){
     if(stale.length){
@@ -33575,12 +33576,31 @@ function renderSeasonBar(){
          warning came straight back, because the timing sweep was making these days
          minutes after the rebuild, not the builder making them months ago. Naming the
          wrong cause is worse than naming none: it costs a rebuild every time, and it
-         teaches the office that the button does not work. */
+         teaches the office that the button does not work.
+
+         This half is now a genuine alarm rather than a routine notice. dayCrewTowns
+         caps a crew at two towns, so a crew holding three means something is broken,
+         and laying the season out again really is the right first move. */
       sn.innerHTML = '\u26A0 ' + stale.length + ' day' + (stale.length === 1 ? '' : 's') +
-        ' ' + (stale.length === 1 ? 'carries' : 'carry') + ' more towns than a crew can drive ' +
-        '(each crew does its own town plus at most one other, so ' + maxTownsPerDay() + ' is the most for one day). ' +
+        ' put a crew in more towns than it can drive ' +
+        '(each crew does its own town plus at most one other). ' +
         'Press <b>Recalculate everything</b> to lay them out again \u2014 it can be undone. ' +
         'First one: <b>' + stale[0].date + '</b> \u2014 ' + stale[0].towns.join(', ') + '.';
+    } else if(spare.length){
+      /* ⭐ THE COST OF "MANDATORY", SAID OUT LOUD. Owner, 2026-08-20: "the second
+         city being a neighboring city is mandatory not a priority." These stops are on
+         the plan and on nobody's sheet, and until now the only way to find one was to
+         open the exact day it sits on. Counted in STOPS rather than days, because one
+         stop nobody drives to is one house that does not get its lights. */
+      const stops = spare.reduce(function(a, d){ return a + d.n; }, 0);
+      sn.style.display = '';
+      sn.innerHTML = '\u26A0 ' + stops + ' stop' + (stops === 1 ? '' : 's') + ' on ' +
+        spare.length + ' day' + (spare.length === 1 ? '' : 's') +
+        ' sit in a town neither crew is driving to, so ' + (stops === 1 ? 'it is' : 'they are') +
+        ' on neither crew sheet. A crew works its own town plus one <b>nearby</b> one, so ' +
+        'either pair those towns up under <b>Nearby towns</b> in Scheduling settings, or move ' +
+        (stops === 1 ? 'it' : 'them') + ' to another day. ' +
+        'First: <b>' + spare[0].date + '</b> \u2014 ' + spare[0].towns.join(', ') + '.';
     } else sn.style.display = 'none';
   }
 }
@@ -34658,24 +34678,58 @@ function daySoloCrew(day){
   const i = day && day.soloCrew;
   return (i === 1 || i === '1') ? 1 : 0;
 }
+/* ⭐ THE WARNING NOW MEASURES THE CREW, BECAUSE THE RULE IS ABOUT THE CREW.
+   Owner, 2026-08-20: "the rule isnt one day can have 4 citys its one crew can have
+   1 dominant city with some flakes in another city."
+
+   ⚠ THIS COUNTED THE DAY, and the comment in dayCrewTowns says in as many words why
+   that cannot work: four towns split three-and-one passes any "no more than four on
+   a day" test while one crew drives three cities. Worse, once the crew rule landed
+   this could only ever cry wolf. dayCrewTowns caps a crew at two towns and leaves
+   the surplus UNASSIGNED on purpose, so a day whose houses span five towns is now a
+   legal, intended outcome — and this fired on it, told the office to press
+   Recalculate everything, and came straight back, because a rebuild cannot remove a
+   town the houses are actually in. That is the "its still there" loop of 27 October,
+   rebuilt in a new shape.
+
+   ⚠ NAMING THE WRONG CURE IS THE FAILURE, not the false alarm. A banner asking for a
+   button press that cannot work teaches the office that the button does not work. */
 function crewDaysOverTownLimit(){
   const over = [];
   if(typeof SEASON === 'undefined') return over;
   SEASON.forEach(function(d){
     if(d.isFixRoute || d.isTakedown) return;
-    const towns = {};
-    (d.houses || []).forEach(function(h){
-      const t = extractCleanCity(h.city);
-      if(t) towns[t] = true;
-    });
-    const n = Object.keys(towns).length;
-    /* Each crew is allowed its own town plus one other, so twice the crew count is
-       the most a WORKING DAY can legitimately hold. Shared with the timing sweep,
-       which has to know the same number so it stops creating the very days this
-       exists to report. */
-    if(n > maxTownsPerDay()) over.push({date: dayDate(d) ? isoOf(dayDate(d)) : '?', towns: Object.keys(towns)});
+    /* Asked of the same function the panel, the printed sheet and the route generator
+       all read, so the warning cannot disagree with what is on the screen beside it. */
+    const crews = (typeof dayCrewTowns === 'function') ? dayCrewTowns(d) : [];
+    const bad = (crews || []).filter(function(t){ return (t || []).length > MAX_TOWNS_PER_CREW; })[0];
+    if(bad) over.push({date: dayDate(d) ? isoOf(dayDate(d)) : '?', towns: bad});
   });
   return over;
+}
+/* ⭐ WHAT THE MANDATORY NEIGHBOUR RULE ACTUALLY LEAVES BEHIND.
+   Owner, 2026-08-20: "the second city being a neighboring city is mandatory not a
+   priority." Mandatory has a price and this is it — a house in a town neither crew
+   may drive to sits on the plan, counts in the day's total, and is on NOBODY's sheet.
+   dayCrewTowns refuses to hide those and unassignedHousesFor already reports them,
+   but only on the one day somebody happens to have open. Stops that never get hung
+   are worth a line on the season bar.
+
+   ⚠ THE CURE IS NOT A REBUILD, so it does not ask for one. The lever is the office's
+   own nearby-towns list in Scheduling settings, or moving those stops to another day
+   — both of them hers to pull, which is the whole reason for saying it out loud. */
+function crewLeftoverStops(){
+  const out = [];
+  if(typeof SEASON === 'undefined') return out;
+  SEASON.forEach(function(d){
+    if(d.isFixRoute || d.isTakedown) return;
+    const left = (typeof unassignedHousesFor === 'function') ? unassignedHousesFor(d) : [];
+    if(!left.length) return;
+    const towns = {};
+    left.forEach(function(h){ const t = extractCleanCity(h.city); if(t) towns[t] = true; });
+    out.push({date: dayDate(d) ? isoOf(dayDate(d)) : '?', n: left.length, towns: Object.keys(towns)});
+  });
+  return out;
 }
 function syncHousesFromCustomers(){
   const changed = [];
