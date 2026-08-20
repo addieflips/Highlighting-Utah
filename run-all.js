@@ -16775,6 +16775,65 @@ pendingAsync.push((async () => {
  * exists for. "Nothing needs to be recycled right now" while their lights sat in a
  * van.
  * ------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+ * Suite 91. A stale sheet connection says so, once
+ *
+ * What the owner actually got back from one press:
+ *
+ *   Nothing written. Could not do: Recycle (A requested file or directory could not
+ *   be found at the time an operation was processed.), Color Changes (same), Yes
+ *   (same), Contact 2027 (same), tidying (same), adding missing customers (same)
+ *
+ * Six copies of a raw Windows message that names a condition instead of an action.
+ * The browser holds a HANDLE to the workbook, not a path, and a handle survives the
+ * file being edited but not the file being REPLACED — which is what a OneDrive
+ * conflict, a restore from the web, or any delete-and-rewrite does. The sheet is
+ * fine; the link to it is stale, and it is one press to fix.
+ * ------------------------------------------------------------------------- */
+suite('Suite 91. A stale sheet connection says so, once');
+
+{
+  const box = {};
+  new Function(extractFn(admin, 'hlxIsStaleHandle') + extractFn(admin, 'hlxHandleError') +
+    'this.is = hlxIsStaleHandle; this.say = hlxHandleError;').call(box);
+  check('S91', 'the helpers exist', typeof box.is === 'function' && typeof box.say === 'function');
+
+  const WIN = 'A requested file or directory could not be found at the time an operation was processed.';
+  check('S91', 'the real Windows message is recognised',
+    box.is({message: WIN}) === true,
+    'this is the exact string the office was shown six times');
+  check('S91', 'and so is the DOMException name it arrives with',
+    box.is({name: 'NotFoundError'}) === true,
+    'Chrome raises NotFoundError for a handle whose file has gone');
+  check('S91', 'an unrelated failure is NOT dressed up as a stale link',
+    box.is({message: 'That sheet is not in a shape I can add a row to.'}) === false &&
+    box.is({}) === false,
+    'telling somebody to reconnect when that is not the problem wastes the one ' +
+    'action they trust');
+
+  check('S91', 'the message names the press that fixes it',
+    /Use my master sheet/.test(box.say({name: 'NotFoundError'})),
+    'an error naming a Windows condition is one somebody brings to me instead of ' +
+    'fixing in four seconds');
+  check('S91', 'and says the file was replaced, not lost',
+    /replaced/.test(box.say({name: 'NotFoundError'})),
+    'the sheet is fine — being told a file could not be found reads as data loss');
+  check('S91', 'an ordinary error still comes through as itself',
+    box.say({message: 'the tab is locked'}) === 'the tab is locked');
+
+  /* ---- and it is said ONCE, not once per step ---- */
+  const upd = sectionFrom(admin, admin.indexOf('async function hlxUpdateCustomerInfo('));
+  check('S91', 'every step reports through the same helper',
+    (upd.match(/hlxHandleError\(err/g) || []).length >= 5,
+    'six steps touch the same workbook, so all six fail together');
+  check('S91', 'and one cause is collapsed into one sentence',
+    /failed\.every[\s\S]{0,120}gone stale/.test(upd) &&
+    /if\(allSame\){/.test(upd) &&
+    /Nothing was written/.test(upd),
+    'the same sentence six times over is harder to read than once, and buries ' +
+    'the one thing to do about it');
+}
+
 suite('Suite 90. The Recycle queue reads the archive, not just the book');
 
 {
@@ -18214,7 +18273,10 @@ pendingAsync.push((async () => {
       'hlxAppendRowsToSheet', 'rbCustomerToSheetRow', 'hlxAddMissingCustomersToSheet', 'hlxPruneStateTabs',
       'rbResolveBillTo', 'rbSettlePrepaid',
       'logActivity',
-      lift76('dupNormName') +
+      /* The orchestrator names a stale sheet connection in plain words now, so the
+       sandbox needs that helper too. */
+    lift76('hlxIsStaleHandle') + lift76('hlxHandleError') +
+    lift76('dupNormName') +
       admin.match(/const HLX_STATE_TABS = \[[\s\S]*?\n\];/)[0] +
       orch + 'this.f = hlxUpdateCustomerInfo; this.tabs = HLX_STATE_TABS;'
     ).call(box, book,

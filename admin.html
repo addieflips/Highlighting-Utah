@@ -17170,6 +17170,37 @@ function hlxSheetPartFor(entries, tabName){
   const full = "xl/" + target.replace(/^\/*/, "").replace(/^xl\//, "");
   return find(full) || null;
 }
+/* ⭐ A CONNECTION THAT POINTS AT A FILE THAT IS NOT THERE ANY MORE. Owner,
+   2026-08-20, after every step of one sync failed: "Could not do: Recycle (A requested
+   file or directory could not be found at the time an operation was processed), Color
+   Changes (same), Yes (same), Contact 2027 (same), tidying (same), adding missing
+   customers (same)."
+
+   Six copies of a raw Windows message that tells the office nothing. The browser holds
+   a HANDLE to the workbook, not a path, and a handle survives the file being edited but
+   NOT the file being replaced — which is exactly what a OneDrive conflict resolution,
+   a restore from the web, or anything that deletes and rewrites the file does. The
+   sheet is fine; the connection to it is stale.
+
+   ⚠ IT IS ONE PRESS TO FIX and the message has to say which press. An error that
+   names a Windows condition instead of the action is an error somebody brings to me
+   instead of fixing in four seconds. */
+function hlxIsStaleHandle(err){
+  const name = String((err && err.name) || "");
+  const msg = String((err && err.message) || "");
+  return name === "NotFoundError" ||
+    /* One pattern, not two overlapping ones: the second matched every string the
+       first did, so neither was load-bearing and a red-check removing either passed. */
+    /could not be found at the time an operation was processed/i.test(msg);
+}
+function hlxHandleError(err, what){
+  if(hlxIsStaleHandle(err)){
+    return "the link to your master sheet has gone stale " + String.fromCharCode(8212) +
+      " the file was replaced since you connected it. Bulk Updates " +
+      String.fromCharCode(8250) + " Use my master sheet, pick it again, then press this once more.";
+  }
+  return (err && err.message) || what || "failed";
+}
 async function hlxAppendRowsToSheet(rows, tabName){
   if(!rows || !rows.length) return {written: 0};
   const handle = await hlxSheetHandleLoad();
@@ -17650,7 +17681,7 @@ async function hlxUpdateCustomerInfo(statusEl){
       const res = await hlxAppendRowsToSheet(
         who.map(function(c){ return rbCustomerToSheetRow(c.data || {}); }), t.tab);
       if(res.written) done.push(res.written + " to " + t.tab);
-    } catch(err){ failed.push(t.tab + " (" + ((err && err.message) || "failed") + ")"); }
+    } catch(err){ failed.push(t.tab + " (" + hlxHandleError(err) + ")"); }
   }
   /* ⭐ TAKE OFF WHOEVER NO LONGER BELONGS, before adding anybody. A sheet that is
      tidied first has room at the top, so the new rows land where somebody will see
@@ -17679,7 +17710,7 @@ async function hlxUpdateCustomerInfo(statusEl){
       failed.push(pruned.blocked.join("; ") +
         " \u2014 check the sheet, then take them off by hand if that is right");
     }
-  } catch(err){ failed.push("tidying (" + ((err && err.message) || "failed") + ")"); }
+  } catch(err){ failed.push("tidying (" + hlxHandleError(err) + ")"); }
 
   /* ⭐ AND ANYBODY MISSING FROM THE CUSTOMER LIST ENTIRELY. This is the half that
      was absent when the owner reported "it says customer info is updated but rachel
@@ -17692,7 +17723,7 @@ async function hlxUpdateCustomerInfo(statusEl){
       done.push(add.added + " added to the customer list");
       if(add.left) failed.push(add.left + " more still to add \u2014 press again");
     }
-  } catch(err){ failed.push("adding missing customers (" + ((err && err.message) || "failed") + ")"); }
+  } catch(err){ failed.push("adding missing customers (" + hlxHandleError(err) + ")"); }
 
   /* ⭐ THE SAME PRESS DOES THE TWO THINGS THE SHEET IMPLIES. Owner: "theres only one
      sync button because anything I dont want synced will be manually fixed." */
@@ -17700,12 +17731,21 @@ async function hlxUpdateCustomerInfo(statusEl){
     const bt = await rbResolveBillTo(statusEl);
     if(bt.linked) done.push(bt.linked + " joined to who pays for them");
     if(bt.ambiguous) failed.push(bt.ambiguous + " bill-to name(s) match more than one customer");
-  } catch(err){ failed.push("bill-to (" + ((err && err.message) || "failed") + ")"); }
+  } catch(err){ failed.push("bill-to (" + hlxHandleError(err) + ")"); }
   try{
     const pp = await rbSettlePrepaid(statusEl);
     if(pp.settled) done.push(pp.settled + " prepaid marked paid");
-  } catch(err){ failed.push("prepaid (" + ((err && err.message) || "failed") + ")"); }
+  } catch(err){ failed.push("prepaid (" + hlxHandleError(err) + ")"); }
   if(done.length) logActivity("Updated the sheet: " + done.join(", "), "customers", "");
+  /* ⚠ ONE CAUSE, ONE SENTENCE. Every step touches the same workbook, so a stale
+     connection fails all six and the office got the same Windows message six times over.
+     When they all say the same thing, say it once. */
+  const allSame = failed.length > 1 &&
+    failed.every(function(f){ return f.indexOf("gone stale") !== -1; });
+  if(allSame){
+    say("Nothing was written " + String.fromCharCode(8212) + " " + hlxHandleError({name: "NotFoundError"}));
+    return;
+  }
   say(!done.length && !failed.length
     ? "Nothing new to send \u2014 everybody is already on their tab."
     : (done.join(", ") || "Nothing written") + (failed.length ? ". Could not do: " + failed.join(", ") : "."));
