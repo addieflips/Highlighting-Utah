@@ -10156,6 +10156,27 @@ function audienceOrderedLastYear(d){
 }
 // First-year customer, read off the same flag the invoice/new-member logic uses.
 function audienceIsNew(d){ return !!(d && d.chargeNewMemberFee === true); }
+/* ⭐ AN RSVP EMAIL MUST NOT GO TO SOMEBODY WHO HAS NEVER HAD LIGHTS. Owner,
+   2026-08-19: "lets just tick new members for now that have come in so they
+   don't get an RSVP but any new people should automatically get ticked and we
+   shouldn't have to do anything."
+
+   "Will you be getting lights hung AGAIN this year?" is nonsense to a customer
+   who has not had them once, and it invites a "no" from somebody who was never
+   asked a sensible question. So choosing an RSVP template sets the New vs
+   returning filter to Returning by itself — new customers are not in the list
+   at all, which means Select All cannot reach them either.
+
+   ⚠ It is a DEFAULT, not a lock: the dropdown still works, so an RSVP that
+   really is meant for everybody is one click away. Automatic is fine, invisible
+   is not — the recipient count line says it happened. */
+function etTemplateIsRsvp(t){
+  const d = (t && t.data) ? t.data : t;
+  if(!d) return false;
+  const body = String(d.body || '');
+  if(/\{\{rsvp_(yes|no|back)_(button|link)\}\}/.test(body)) return true;
+  return String(d.folderName || '').trim().toLowerCase() === 'rsvp';
+}
 // 'elsewhere' billed to someone else | 'multi' pays for several houses | 'own'
 function audienceBillingGroup(d){
   if((((d && d.billToPhone) || '').replace(/\D/g,''))) return 'elsewhere';
@@ -10214,6 +10235,9 @@ let etFilterRsvp = 'all';
 let etFilterPaidLast = 'all';
 let etFilterOrderedLast = 'all';
 let etFilterNew = 'all';
+/* True only while the RSVP default above is what set the filter, so the count
+   line can explain itself without claiming credit for the office's own choice. */
+let etRsvpAudienceAutoSet = false;
 let etFilterGroup = 'all';
 let etFilterOutlet = 'all';
 let etFilterInstalled = 'all';
@@ -10257,6 +10281,9 @@ function etRenderRecipientList(){
   if(countEl){
     let msg = members.length + ' member' + (members.length===1?'':'s') + ' match' + (members.length===1?'es':'') + ' these filters.';
     if(lastYearMissing) msg += ' — Note: no saved snapshot from last season yet, so the "last year" filters can\'t match anyone until Start New Season saves one.';
+    if(etRsvpAudienceAutoSet && etFilterNew === 'returning'){
+      msg += ' — New customers are left out automatically, because an RSVP asks whether they want lights AGAIN. Change "New vs returning" above to include them.';
+    }
     countEl.textContent = msg;
   }
   if(!members.length){ list.innerHTML = '<div class="empty-note">No members match this search and these filters.</div>'; return; }
@@ -10276,7 +10303,22 @@ function etRenderRecipientList(){
     return '<label style="display:flex; align-items:center; gap:8px; padding:5px 0; font-size:13.5px;"><input type="checkbox" class="et-recipient-cb" value="'+m.id+'" '+checked+' style="width:auto;">'+esc(m.data.name||'(no name)')+badges+' <span style="color:var(--slate); font-size:12px;">'+esc(m.data.email||'')+'</span></label>';
   }).join('');
 }
-document.getElementById('etSendTemplateSelect').addEventListener('change', etUpdatePreview);
+/* Choosing the template is the deliberate act, so it is the moment to set the
+   audience. Runs BEFORE the preview so the recipient list and the preview agree
+   about who is being written to. */
+document.getElementById('etSendTemplateSelect').addEventListener('change', function(){
+  const t = emailTemplates.find(x => x.id === this.value);
+  if(etTemplateIsRsvp(t) && etFilterNew !== 'returning'){
+    etFilterNew = 'returning';
+    const sel = document.getElementById('etFilterNew');
+    if(sel) sel.value = 'returning';
+    etRsvpAudienceAutoSet = true;
+    if(typeof etRenderRecipientList === 'function') etRenderRecipientList();
+  } else if(!etTemplateIsRsvp(t)){
+    etRsvpAudienceAutoSet = false;
+  }
+  etUpdatePreview();
+});
 document.getElementById('etPreviewMemberSelect').addEventListener('change', etUpdatePreview);
 /* Business contact details for the printed invoice header. Populated by
    loadSettings() from siteContent/main; the fallbacks are the same defaults
@@ -10570,7 +10612,7 @@ document.getElementById('etRecipientSearch').addEventListener('input', function(
   ['etFilterRsvp',        v => { etFilterRsvp = v; }],
   ['etFilterPaidLast',    v => { etFilterPaidLast = v; }],
   ['etFilterOrderedLast', v => { etFilterOrderedLast = v; }],
-  ['etFilterNew',         v => { etFilterNew = v; }],
+  ['etFilterNew',         v => { etFilterNew = v; etRsvpAudienceAutoSet = false; }],
   ['etFilterGroup',       v => { etFilterGroup = v; }],
   ['etFilterOutlet',      v => { etFilterOutlet = v; }],
   ['etFilterInstalled',   v => { etFilterInstalled = v; }]

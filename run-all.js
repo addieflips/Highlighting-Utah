@@ -16242,6 +16242,73 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
     }
   }
 
+suite('Suite 72. An RSVP never goes to somebody who has never had lights');
+{
+  /* Owner, 2026-08-19: "lets just tick new members for now that have come in so
+     they don't get an RSVP but any new people should automatically get ticked
+     and we shouldn't have to do anything."
+
+     "Will you be getting lights hung AGAIN this year?" is nonsense to a
+     first-year customer, and invites a "no" from somebody who was never asked a
+     sensible question. */
+  const adm = read('admin.html');
+
+  /* ⚠ THE SEPARATE RSVP SENDER IS DEAD UI AND MUST NOT BE MISTAKEN FOR THE REAL
+     ONE. admin.html carries rsvpRenderRecipientList, rsvpPopulateMemberSelect
+     and a send handler, and NONE of their markup exists — every one of those ids
+     is in KNOWN_MISSING_IDS above, so the functions return at their first line.
+     Reading that code and concluding "the RSVP sender has no filters" is a
+     mistake that was actually made in this repo on 2026-08-19. The real send is
+     an ordinary template through Automation Emails, which has the full filter
+     set. This check pins that, so if the markup is ever built the assumption
+     gets re-examined instead of silently going stale. */
+  check('S72', 'the separate RSVP sender UI still does not exist',
+    !/id="rsvp/.test(adm),
+    'if this markup has been built, the RSVP email no longer goes only through ' +
+    'Automation Emails and the audience rule below needs applying there too');
+
+  const isRsvpSrc = extractFn(adm, 'etTemplateIsRsvp');
+  check('S72', 'etTemplateIsRsvp exists', !!isRsvpSrc);
+  if (isRsvpSrc) {
+    const box = {};
+    new Function(isRsvpSrc + 'this.f = etTemplateIsRsvp;').call(box);
+    check('S72', 'a template with RSVP buttons is recognised',
+      box.f({ data: { body: 'Hi {{name}}\n{{rsvp_yes_button}}{{rsvp_no_button}}' } }) === true);
+    check('S72', 'so is one recognised only by its folder',
+      box.f({ data: { body: 'plain words', folderName: 'RSVP' } }) === true,
+      'the office can write their own RSVP wording without the button tokens');
+    check('S72', 'and an ordinary email is NOT',
+      box.f({ data: { body: 'Your invoice is ready {{price}}', folderName: 'Billing' } }) === false,
+      'over-matching would quietly drop new customers off every send, which is ' +
+      'the opposite failure and harder to notice');
+    check('S72', 'a quote email is not mistaken for an RSVP',
+      box.f({ data: { body: '{{quote_yes_button}}' } }) === false,
+      'a quote absolutely does go to somebody who has never had lights');
+    check('S72', 'and nothing at all is safe',
+      box.f(null) === false && box.f({}) === false);
+  }
+
+  /* The wiring: choosing the template is what sets the audience. */
+  const handler = sectionFrom(adm, adm.indexOf("document.getElementById('etSendTemplateSelect').addEventListener('change'"));
+  check('S72', 'choosing an RSVP template sets the audience to Returning',
+    /etTemplateIsRsvp\(t\)[\s\S]{0,200}etFilterNew = 'returning'/.test(handler),
+    'without this the office has to remember, which is exactly what was asked ' +
+    'not to be necessary');
+  check('S72', 'and it redraws the list so Select All cannot reach them',
+    /etRenderRecipientList\(\)/.test(handler),
+    'a stale list still holds the new customers as tickable rows');
+  check('S72', 'the office picking their own value turns the default off',
+    /etFilterNew = v; etRsvpAudienceAutoSet = false;/.test(adm),
+    'otherwise the explanation keeps claiming credit for their choice');
+  check('S72', 'it is a DEFAULT, not a lock',
+    !/etFilterNew.*disabled|disabled.*etFilterNew/.test(adm),
+    'an RSVP that really is meant for everybody must stay one click away');
+  check('S72', 'and the screen says it happened',
+    /New customers are left out automatically/.test(adm),
+    'automatic is fine, invisible is not');
+}
+
+
 suite('Suite 71. A reconcile note that cannot be saved still leaves a record');
 {
   /* ⚠ RESTORED 2026-08-19 after a paste-over from a stale read dropped it (the
