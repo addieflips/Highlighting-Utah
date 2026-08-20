@@ -1979,11 +1979,22 @@ exports.publicQuoteLookup = onCall({ cors: true }, async (request) => {
  *
  * Output: { serviceId, notifyTemplateId, publicKey }
  * ------------------------------------------------------------------------- */
+/* ⚠ `features` IS A DEPLOY MARKER, and its absence is the signal.
+ * The per-house RSVP links carry &house=, which an older portalRsvp ignores —
+ * it would mark the PAYER'S OWN house for every property the customer clicks,
+ * silently and wrongly. admin.html asks here before it will build those links,
+ * so a backend that predates this change simply has no `features` key, the
+ * check reads false, and the send is refused. Fail closed: anything that goes
+ * wrong with this call also reads as "not ready".
+ * ⚠ Add a flag here in the same commit as the feature it describes, never
+ * ahead of it — a marker that arrives early is worse than none at all. */
 exports.publicConfig = onCall({ cors: true }, async (request) => {
+  const FEATURES = { perHouseRsvp: true };
   const snap = await db.collection('settings').doc('emailjs').get();
-  if (!snap.exists) return { configured: false };
+  if (!snap.exists) return { configured: false, features: FEATURES };
   const data = snap.data() || {};
   return {
+    features: FEATURES,
     configured: !!(data.serviceId && data.notifyTemplateId && data.publicKey),
     serviceId: data.serviceId || '',
     notifyTemplateId: data.notifyTemplateId || '',

@@ -5561,6 +5561,38 @@ function billedHousesPlainText(phone){
            (r.price > 0 ? ' — ' + fmtMoney(r.price) : '');
   }).join('\n') + '\n';
 }
+/* ⚠ IS THE BACKEND READY FOR PER-HOUSE ANSWERS?
+ *
+ * The per-house links carry &house=, and a portalRsvp deployed before that was
+ * added IGNORES it — so every property a customer clicks would mark the PAYER'S
+ * OWN house instead. Silently, and wrongly, on real customers. The website and
+ * the Cloud Functions are separate deploys (Netlify publishes the HTML, a
+ * GitHub workflow deploys the functions), so they CAN be out of step: normally
+ * for a minute or two after one push, and indefinitely if the functions deploy
+ * fails while the HTML ships fine.
+ *
+ * publicConfig now advertises `features.perHouseRsvp`. An older backend has no
+ * such key, so this reads false and the send is refused.
+ * ⚠ FAIL CLOSED: a network error, a missing function, a malformed answer — all
+ * of them mean "not ready". The only thing that lets an email out is an
+ * explicit yes.
+ * ⚠ Only a TRUE is cached. Caching a false would keep refusing for the rest of
+ * the session after a deploy that has since landed. */
+let perHouseRsvpConfirmed = false;
+function perHouseRsvpReady(){
+  if(perHouseRsvpConfirmed) return Promise.resolve(true);
+  return httpsCallable(fbFunctions, 'publicConfig')()
+    .then(function(res){
+      const ok = !!(res && res.data && res.data.features && res.data.features.perHouseRsvp);
+      if(ok) perHouseRsvpConfirmed = true;
+      return ok;
+    })
+    .catch(function(){ return false; });
+}
+const PER_HOUSE_RSVP_NOT_READY =
+  'The per-property Yes/No buttons need the Cloud Functions update, and it is not live yet. ' +
+  'Sending now would mark the payer\u2019s OWN house every time they answer for one of their ' +
+  'other properties. Check the deploy finished (GitHub \u2192 Actions), then try again.';
 /* ---- {{rsvp_houses_block}} — one RSVP row PER HOUSE -------------------------
  * A payer covering several houses got ONE set of Yes/No buttons, and those
  * buttons carry their portal token, which belongs to one record — so pressing
@@ -5613,6 +5645,12 @@ function rsvpButtonRow(buttons, btnStyle){
 async function rsvpHousesEmailBlock(phone){
   const houses = billedHousesForContact(phone);
   if(houses.length < 2) return '';
+  /* ⚠ THE HARD BLOCK, and it is here rather than on the send buttons because
+     this is the ONE place per-house links are built. A guard added to each
+     sender is a guard somebody forgets to add to the next one; a refusal here
+     cannot be routed around. The buttons check first as well, so the ordinary
+     path gets a readable message instead of an exception. */
+  if(!(await perHouseRsvpReady())) throw new Error(PER_HOUSE_RSVP_NOT_READY);
   const token = await getOrCreatePortalToken(phone);
   /* Without a token every link here is dead, and a row of buttons that does
      nothing is worse than no block — the ordinary RSVP buttons are in the same
@@ -10199,6 +10237,12 @@ document.getElementById('etSendConfirmBtn').addEventListener('click', async func
   const phones = Array.from(checked).map(cb => cb.dataset.sendto);
   const template = window.etSendingTemplate;
   const statusEl = document.getElementById('etSendStatus');
+  /* The other live sender. Same check, for the same reason — a guard on one of
+     two send buttons is a guard on neither. */
+  if(etTemplateHasRsvpHouses(template) && !(await perHouseRsvpReady())){
+    statusEl.textContent = PER_HOUSE_RSVP_NOT_READY;
+    return;
+  }
   /* This used to reference bare `emailjsServiceId` / `emailjsTemplateId`, which
      were never declared anywhere. The browser turns any element id into a
      global, so those names silently resolved to the INPUT BOXES rather than the
@@ -11030,6 +11074,13 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
   const publicKey = document.getElementById('emailjsPublicKey').value.trim();
   if(!serviceId || !templateJsId || !publicKey){ statusEl.textContent = 'Set up EmailJS (Email Setup card above) first.'; return; }
   if(!window.emailjs){ statusEl.textContent = 'Email service failed to load — check your connection.'; return; }
+  /* Checked BEFORE the confirm box, so nobody is asked to approve a send that
+     is about to be refused. rsvpHousesEmailBlock refuses too — that one is the
+     block; this one is the explanation. */
+  if(etTemplateHasRsvpHouses(template) && !(await perHouseRsvpReady())){
+    statusEl.textContent = PER_HOUSE_RSVP_NOT_READY;
+    return;
+  }
   if(!confirm('Send "'+template.data.name+'" to '+selectedIds.length+' member(s) now?')) return;
   emailjs.init(publicKey);
   let sent = 0, failed = 0;

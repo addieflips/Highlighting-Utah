@@ -17386,21 +17386,45 @@ pendingAsync.push((async () => {
     { id: 'h4', data: { name: 'Cabin Pratt', address: '4 Fir', phone: '8015554444', billToPhone: '8015550111', housePrice: 250, propertyLabel: 'Cabin', rsvpStatus: 'yes' } },
     { id: 'h6', data: { name: 'Solo Jones', address: '9 Vine', phone: '8015556666', housePrice: 200 } }
   ];
-  const box = {};
-  new Function('jobAddresses', 'custInvoiceKey', 'esc', 'fmtMoney', 'getOrCreatePortalToken',
-    constsSrc + '\n' + parts.join('\n') +
-    '\nthis.block = rsvpHousesEmailBlock; this.plain = rsvpHousesPlainText;' +
-    '\nthis.isHousesTemplate = etTemplateHasRsvpHouses;' +
-    '\nthis.limit = RSVP_HOUSE_BUTTON_LIMIT;'
-  ).call(box,
-    book,
-    d => String((d && d.phone) || '').replace(/\D/g, '') ||
-         String((d && d.email) || '').toLowerCase().trim(),
-    t => String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'),
-    n => '$' + Number(n || 0).toFixed(0),
-    async () => 'TOK123');
+  /* ⚠ perHouseRsvpReady is supplied as a PARAM, not lifted: lifting it would
+     drag httpsCallable and fbFunctions into the sandbox to no purpose. It is
+     NOT stubbed away — the refusing side is exercised on its own below, so both
+     branches are tested rather than one being assumed. */
+  function makeBox(ready) {
+    const b = {};
+    new Function('jobAddresses', 'custInvoiceKey', 'esc', 'fmtMoney', 'getOrCreatePortalToken',
+      'perHouseRsvpReady', 'PER_HOUSE_RSVP_NOT_READY',
+      constsSrc + '\n' + parts.join('\n') +
+      '\nthis.block = rsvpHousesEmailBlock; this.plain = rsvpHousesPlainText;' +
+      '\nthis.isHousesTemplate = etTemplateHasRsvpHouses;' +
+      '\nthis.limit = RSVP_HOUSE_BUTTON_LIMIT;'
+    ).call(b,
+      book,
+      d => String((d && d.phone) || '').replace(/\D/g, '') ||
+           String((d && d.email) || '').toLowerCase().trim(),
+      t => String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'),
+      n => '$' + Number(n || 0).toFixed(0),
+      async () => 'TOK123',
+      async () => ready,
+      'the Cloud Functions update is not live yet');
+    return b;
+  }
+  const box = makeBox(true);
 
-  const dana = await box.block('8015550111');
+  /* ⚠ A missing helper must FAIL, not crash. This sandbox has been short a name
+     four times in one session — each time it died with a bare ReferenceError
+     BEFORE the summary printed, so `npm test` exited non-zero with no failure
+     list at all, which reads as "the suite is broken" rather than "one name is
+     missing". Caught, it names the identifier. */
+  let dana = '';
+  try { dana = await box.block('8015550111'); }
+  catch (e) {
+    check('S79', 'the RSVP email block runs with everything it depends on', false,
+      String(e.message) + ' — add it to the lift list or pass it as a param; the sandbox only ' +
+      'has what this suite gives it');
+    return;
+  }
+  check('S79', 'the RSVP email block runs with everything it depends on', true);
 
   // ---- who gets it ---------------------------------------------------------
   check('S79', 'a one-house customer gets no per-house block at all',
@@ -17545,14 +17569,19 @@ pendingAsync.push((async () => {
         phone: i === 0 ? '8019990000' : ('80199900' + (10 + i)),
         billToPhone: i === 0 ? '' : '8019990000', housePrice: 100 } });
     }
+    /* Same sandbox shape as makeBox above — a different fixture, not a
+       different set of dependencies. */
     const big = {};
     new Function('jobAddresses', 'custInvoiceKey', 'esc', 'fmtMoney', 'getOrCreatePortalToken',
+      'perHouseRsvpReady', 'PER_HOUSE_RSVP_NOT_READY',
       constsSrc + '\n' + parts.join('\n') + '\nthis.block = rsvpHousesEmailBlock;'
     ).call(big, many,
       d => String((d && d.phone) || '').replace(/\D/g, ''),
       t => String(t == null ? '' : t),
       n => '$' + Number(n || 0).toFixed(0),
-      async () => 'TOK123');
+      async () => 'TOK123',
+      async () => true,
+      'not live yet');
     const wide = await big.block('8019990000');
     check('S79', 'past the limit each row drops to Yes/No and says where the third answer went',
       wide.indexOf('rsvp=back') === -1 && /open your portal/i.test(wide) &&
@@ -17570,6 +17599,62 @@ pendingAsync.push((async () => {
   check('S79', 'and shows an answered house as answered there too',
     /Yes — lights this year \[Change\]/.test(plain),
     'a preview that shows three live buttons where the email shows one link is not the email');
+
+  // ---- ⚠ the deploy guard: no links that the backend cannot honour ---------
+  /* The website and the Cloud Functions are SEPARATE deploys — Netlify
+     publishes the HTML, a GitHub workflow deploys the functions — so they can
+     be out of step, briefly after any push and indefinitely if the functions
+     deploy fails while the HTML ships fine. A portalRsvp from before this work
+     IGNORES &house= and marks the PAYER'S OWN house for every property the
+     customer clicks: silently, wrongly, on real customers. So the links are not
+     built at all unless the backend says it understands them. */
+  {
+    const refusing = makeBox(false);
+    let threw = null, out = null;
+    try { out = await refusing.block('8015550111'); } catch (e) { threw = e; }
+    check('S79', '⭐ no per-house links are produced when the backend is not ready',
+      !!threw && !out,
+      'this is the one failure that is invisible from both ends — the office sees a sent email ' +
+      'and the customer sees buttons, and every one of them marks the wrong house');
+    check('S79', 'and the refusal says what to do about it',
+      !!threw && /not live yet/.test(String(threw.message)),
+      '"something went wrong" sends somebody looking in the wrong place; this one names the ' +
+      'deploy');
+    check('S79', 'the guard sits at the ONE place the links are built',
+      /if\(!\(await perHouseRsvpReady\(\)\)\) throw new Error\(PER_HOUSE_RSVP_NOT_READY\);/.test(admin),
+      'a guard added to each sender is a guard somebody forgets to add to the next one — inside ' +
+      'rsvpHousesEmailBlock it cannot be routed around');
+    check('S79', 'and BOTH live send buttons check first, so the message is readable',
+      (admin.match(/etTemplateHasRsvpHouses\(template\) && !\(await perHouseRsvpReady\(\)\)/g) || []).length === 2,
+      'the throw is the block; these are the explanation — a guard on one of two send buttons ' +
+      'is a guard on neither');
+    /* ⚠ SCOPED TO THE PROBE'S OWN BODY. `catch(function(){ return false; })`
+       appears twice in admin.html, so a file-wide search still matched after
+       this one was flipped to fail OPEN — the check passed on the sabotage it
+       exists to catch. Found by sabotage; the lesson is CLAUDE.md's, that a
+       guard shared by two functions must be checked inside the one it belongs
+       to. */
+    const probeSrc = lift79(admin, 'perHouseRsvpReady');
+    check('S79', '⚠ the probe fails CLOSED',
+      !!probeSrc &&
+      /\.catch\(function\(\)\{ return false; \}\)/.test(probeSrc) &&
+      /if\(ok\) perHouseRsvpConfirmed = true;/.test(probeSrc) &&
+      !/perHouseRsvpConfirmed = ok/.test(probeSrc),
+      'a network blip, a missing function or a malformed answer all have to read as "not ' +
+      'ready" — and only a TRUE may be cached, or a deploy that lands mid-session keeps being ' +
+      'refused until somebody reloads');
+    check('S79', 'and the backend advertises it in the same commit as the feature',
+      /features: FEATURES/.test(fnsSrc) && /perHouseRsvp: true/.test(fnsSrc),
+      'a marker that arrives ahead of the thing it describes is worse than none at all');
+  }
+  /* The other half: an email already sitting in an inbox cannot be recalled, so
+     the PORTAL checks too. Only a portalRsvp that understands per-house answers
+     echoes houseId back; no echo means the write landed somewhere else. */
+  check('S79', '⚠ and the portal refuses to claim success if the answer went elsewhere',
+    /if\(houseId && !\(res && res\.houseId\)\)\{/.test(read('index.html')) &&
+    /didn't save to the right property/.test(read('index.html')),
+    'the admin guard cannot reach mail that has already gone out — this is what catches those, ' +
+    'and telling the customer is what gets the office told');
 
   // ---- ⚠ the audience default must not over-match ---------------------------
   check('S79', 'a template carrying the per-house block is recognised',

@@ -3556,6 +3556,16 @@ document.addEventListener('click', function(e){
       if(statusEl) statusEl.textContent = "That didn't save — please call or text us at (801) 901-0011.";
       return;
     }
+    /* ⚠ DID IT LAND ON THE HOUSE WE ASKED FOR? Only a portalRsvp that
+       understands per-house answers echoes houseId back. An older one ignores
+       the field and marks the SIGNED-IN record instead — so if we sent a house
+       and got no echo, the answer went somewhere else and saying "Saved" would
+       be a lie. Catches anything already sitting in an inbox, which the admin
+       side cannot. */
+    if(houseId && !(res && res.houseId)){
+      if(statusEl) statusEl.textContent = "That didn't save to the right property — please call or text us at (801) 901-0011 and we'll set it right.";
+      return;
+    }
     /* ⚠ Update the row that was actually answered for. Writing the answer onto
        the signed-in record when a DIFFERENT house was answered would show the
        payer their own house flipping while the one they pressed sat unchanged —
