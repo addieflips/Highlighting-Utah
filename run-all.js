@@ -16824,6 +16824,95 @@ pendingAsync.push((async () => {
  * conflict, a restore from the web, or any delete-and-rewrite does. The sheet is
  * fine; the link to it is stale, and it is one press to fix.
  * ------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+ * Suite 92. A day inside 48 hours is printed, and printed is finished
+ *
+ * Owner, 2026-08-20: "not recalculate houses within two days cause weve already
+ * printed those houses so it needs to keep track of the time US mountain time to
+ * make sure if a day is within 48 hours it is unchangable."
+ *
+ * Nothing stopped a rebuild moving houses off a day the crew already had on paper.
+ * The crew drives to an address nobody has on a list, and the customer whose name
+ * moved never finds out.
+ * ------------------------------------------------------------------------- */
+suite('Suite 92. A day inside 48 hours is printed, and printed is finished');
+
+{
+  const box = {};
+  new Function('const ROUTE_LOCK_HOURS = 48;' +
+    extractFn(admin, 'mtnNowParts') + extractFn(admin, 'hoursUntilDayStarts') +
+    extractFn(admin, 'routeDayIsLocked') +
+    'this.now = mtnNowParts; this.hours = hoursUntilDayStarts; this.locked = routeDayIsLocked;'
+  ).call(box);
+  check('S92', 'the lock helpers exist',
+    typeof box.locked === 'function' && typeof box.hours === 'function');
+
+  /* A fixed pretend 'now' so these never depend on when the suite runs. */
+  const at = (date, hour, minute) => ({date: date, hour: hour, minute: minute || 0});
+  const NOON = at('2026-10-15', 12, 0);
+
+  check('S92', 'today is locked', box.locked('2026-10-15', NOON) === true);
+  check('S92', 'and tomorrow is', box.locked('2026-10-16', NOON) === true,
+    'it starts 12 hours from now');
+  check('S92', 'the day after tomorrow is locked at noon',
+    box.locked('2026-10-17', NOON) === true,
+    'it starts in 36 hours, which is inside the window');
+  check('S92', 'and the day after THAT is not',
+    box.locked('2026-10-18', NOON) === false,
+    'it starts in 60 hours, so there is still time to move somebody');
+
+  /* ⚠ THE BOUNDARY MOVES WITH THE CLOCK, which is the whole point of measuring
+     hours rather than counting dates. */
+  check('S92', 'late at night, the third day out is still open',
+    box.locked('2026-10-18', at('2026-10-15', 23, 0)) === false,
+    'at 11pm it starts 49 hours away');
+  /* ⚠ THE BOUNDARY IS AT THE DAY-AFTER-TOMORROW, and it is worth being exact:
+     that day starts exactly 48 hours from midnight, so it is open only in the
+     first instant of today and locked from then on. My first go at this test
+     asserted a flip on the THIRD day out, which never happens — it is 71 hours
+     away at 1am and 60 at noon. The test was wrong, not the rule. */
+  check('S92', 'the day after tomorrow is open at the stroke of midnight',
+    box.locked('2026-10-17', at('2026-10-15', 0, 0)) === false,
+    'exactly 48 hours away is not INSIDE 48 hours');
+  check('S92', 'and locked half an hour later',
+    box.locked('2026-10-17', at('2026-10-15', 0, 30)) === true,
+    'this is what measuring hours buys over counting dates');
+  check('S92', 'the hours are counted to the START of the day',
+    Math.round(box.hours('2026-10-17', NOON)) === 36,
+    'the crew loads the truck the night before, so what matters is when the day ' +
+    'begins, not when it ends');
+
+  check('S92', 'a day already gone is locked',
+    box.locked('2026-10-14', NOON) === true && box.hours('2026-10-14', NOON) < 0);
+  check('S92', 'and nothing sensible is unlocked by accident',
+    box.locked('', NOON) === false && box.locked(null, NOON) === false &&
+    box.locked('not a date', NOON) === false,
+    'a missing date must not read as urgent — that would freeze the whole season');
+
+  /* ⚠ MOUNTAIN TIME, NOT THE BROWSER'S. */
+  check('S92', 'now is read in Mountain time',
+    extractFn(admin, 'mtnNowParts').indexOf('America/Denver') !== -1,
+    'a laptop on a trip, or with a wrong clock, must not decide whether the ' +
+    'crew' + String.fromCharCode(8217) + 's morning is still editable');
+  check('S92', 'and as a sortable YYYY-MM-DD',
+    /en-CA/.test(extractFn(admin, 'mtnNowParts')),
+    'the rest of this file compares dates as plain strings');
+  check('S92', 'midnight coming back as 24 is handled',
+    /% 24/.test(extractFn(admin, 'mtnNowParts')),
+    'some builds format midnight as 24, which would put the clock a day out');
+
+  /* ---- and the sweep actually honours it ---- */
+  const rec = sectionFrom(admin, admin.indexOf('async function reconcileUpcomingRoutes()'));
+  check('S92', 'the sweep drops locked days before it reasons about them',
+    rec.indexOf('!routeDayIsLocked(r.date)') !== -1 &&
+    rec.indexOf('allRoutesRaw.filter') !== -1,
+    'filtered at one choke point, so retiring a thin day, evicting a stop and ' +
+    'topping a day up all skip them without each needing its own guard');
+  check('S92', 'and says how many it left alone',
+    /report\.lockedDays/.test(rec),
+    'a sweep that quietly does less than usual looks like a sweep that failed');
+}
+
 suite('Suite 91. A stale sheet connection says so, once');
 
 {
