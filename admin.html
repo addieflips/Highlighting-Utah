@@ -4611,17 +4611,21 @@ let quoteCustKeyCache = null, quoteCustKeyCacheFor = null;
 function quoteCustomerKeys(){
   const list = (typeof jobAddresses !== 'undefined' && jobAddresses) ? jobAddresses : [];
   if(quoteCustKeyCacheFor === list && quoteCustKeyCache) return quoteCustKeyCache;
-  const keys = new Set();
+  /* A Map, not a Set. `.has()` behaves identically so quoteAlreadyACustomer is
+     unchanged, but `.get()` also hands back WHICH customer matched — which is
+     what quoteExistingCustomer below needs to find their portal token. Two
+     copies of this matching rule is exactly what we are avoiding. */
+  const keys = new Map();
   list.forEach(function(c){
     const d = (c && c.data) ? c.data : c;
     if(!d) return;
     const addr = quoteMatchAddress(d.address);
     if(!addr) return;
     const phone = String(d.phone || '').replace(/\D/g, '');
-    if(phone) keys.add(addr + '|p' + phone);
+    if(phone) keys.set(addr + '|p' + phone, c);
     [d.email, d.email2].forEach(function(e){
       const em = String(e || '').trim().toLowerCase();
-      if(em) keys.add(addr + '|e' + em);
+      if(em) keys.set(addr + '|e' + em, c);
     });
   });
   quoteCustKeyCache = keys;
@@ -4638,6 +4642,40 @@ function quoteAlreadyACustomer(d){
   if(phone && keys.has(addr + '|p' + phone)) return true;
   const em = String(d.email || '').trim().toLowerCase();
   return !!(em && keys.has(addr + '|e' + em));
+}
+/* WHICH customer this quote belongs to, by the same rule — used to put their
+   own portal link in a quote email so approving can let them straight in.
+
+   ⚠ ADDRESS PLUS CONTACT, NEVER CONTACT ALONE, and here the reason is sharper
+   than anywhere else: a portal link IS a login. 17 phone numbers in the real
+   book are shared and 14 of those are a parent and a child at two different
+   houses. Matching on the phone alone would post the PARENT'S portal link into
+   the CHILD'S quote email — handing one customer a working login to another
+   customer's account, with their address, gate code and invoice in it.
+
+   ⚠ Unlike quoteAlreadyACustomer this does NOT exclude a re-quote: a re-quote
+   is raised against a live member and they are exactly who should be let in. */
+/* The `&p=` for a quote link: the member's OWN portal token, or nothing at all
+   for a new lead. Every quote-email builder goes through this, so the big
+   "View Your Quote" button and the coloured Approve button in the body cannot
+   drift apart — and CLAUDE.md notes the big button is the one most customers
+   actually press, so it is the one that matters most.
+   Safety argument lives on quoteExistingCustomer: address PLUS contact. */
+function quotePortalParam(d){
+  const c = quoteExistingCustomer(d);
+  const t = c && c.data ? c.data.portalToken : '';
+  return t ? ('&p=' + encodeURIComponent(t)) : '';
+}
+function quoteExistingCustomer(d){
+  if(!d) return null;
+  const addr = quoteMatchAddress(d.address);
+  if(!addr) return null;
+  const keys = quoteCustomerKeys();
+  const phone = String(d.phone || '').replace(/\D/g, '');
+  if(phone && keys.has(addr + '|p' + phone)) return keys.get(addr + '|p' + phone);
+  const em = String(d.email || '').trim().toLowerCase();
+  if(em && keys.has(addr + '|e' + em)) return keys.get(addr + '|e' + em);
+  return null;
 }
 function quoteAwaitsCustomer(d){
   if(typeof d.quotedPrice !== 'number') return false;
@@ -5498,7 +5536,24 @@ async function resolveLinkTokens(text, phone, amount, opts){
     const quote = quotesCache.find(q => (q.data.phone||'').replace(/\D/g,'') === phoneDigits);
     if(quote && quote.data.quoteToken){
       const quoteToken = quote.data.quoteToken;
-      const approveUrl = 'https://highlightingutah.com/#/quote-details?token='+quoteToken+'&action=approve';
+      /* ⭐ AN EXISTING MEMBER'S QUOTE EMAIL ALSO CARRIES THEIR OWN PORTAL LINK,
+         so pressing Approve can let them straight in instead of asking them to
+         sign in again. This is how the RSVP email has always worked.
+
+         ⚠ THE TOKEN GOES IN THE EMAIL, IT IS NEVER HANDED BACK BY THE SERVER.
+         That distinction is the whole security argument. A quoteToken is
+         generated in the visitor's own browser, so anybody who can submit the
+         public quote form knows one; turning it into a portal session is the
+         account takeover closed in portalLookup on 2026-08-14. A portal token
+         posted into an email we send to the address ON FILE is different —
+         receiving it already proves who they are.
+
+         ⚠ And matched on ADDRESS PLUS CONTACT (quoteExistingCustomer), never
+         the phone alone, or a parent's portal link lands in their child's quote
+         email. A new lead has no customer record, so they simply get no `p` and
+         nothing changes for them. */
+      const qPortal = quotePortalParam(quote.data);
+      const approveUrl = 'https://highlightingutah.com/#/quote-details?token='+quoteToken+qPortal+'&action=approve';
       const declineUrl = 'https://highlightingutah.com/#/quote-details?token='+quoteToken+'&action=decline';
       const maybeUrl = 'https://highlightingutah.com/#/quote-details?token='+quoteToken+'&action=maybe_next_year';
       const btnStyleQuote = 'display:inline-block; padding:11px 18px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:14px; margin:6px 4px;';
@@ -6828,7 +6883,7 @@ async function nudgeEveryoneShown(){
       html = applyQuotePhotoBlock(html, quotePhotoList(d), true);
       await emailjs.send(cfg.serviceId, cfg.templateId, {
         to_email: String(d.email || '').trim(), to_name: d.name || '', subject: 'Just checking in on your quote', message: html,
-        button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || ''),
+        button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || '') + quotePortalParam(d),
         button_label: 'View Your Quote'
       });
       await updateDoc(doc(db,'quotes', item.id), {
@@ -8625,7 +8680,7 @@ function renderQuoteRows(filtered){
       emailjs.init(cfg.publicKey);
       await emailjs.send(cfg.serviceId, cfg.templateId, {
         to_email: String(d.email || '').trim(), to_name: d.name || '', subject: built.subject, message: built.html,
-        button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || ''),
+        button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || '') + quotePortalParam(d),
         button_label: 'View Your Quote'
       });
       await updateDoc(doc(db,'quotes', id), {
@@ -8759,7 +8814,7 @@ function renderQuoteRows(filtered){
         emailjs.init(cfg.publicKey);
         await emailjs.send(cfg.serviceId, cfg.templateId, {
           to_email: String(d.email || '').trim(), to_name: d.name || '', subject: subject, message: html,
-          button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || ''),
+          button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || '') + quotePortalParam(d),
           button_label: 'View Your Quote'
         });
         if(kind === 'nudge'){
@@ -10101,6 +10156,27 @@ function audienceOrderedLastYear(d){
 }
 // First-year customer, read off the same flag the invoice/new-member logic uses.
 function audienceIsNew(d){ return !!(d && d.chargeNewMemberFee === true); }
+/* ⭐ AN RSVP EMAIL MUST NOT GO TO SOMEBODY WHO HAS NEVER HAD LIGHTS. Owner,
+   2026-08-19: "lets just tick new members for now that have come in so they
+   don't get an RSVP but any new people should automatically get ticked and we
+   shouldn't have to do anything."
+
+   "Will you be getting lights hung AGAIN this year?" is nonsense to a customer
+   who has not had them once, and it invites a "no" from somebody who was never
+   asked a sensible question. So choosing an RSVP template sets the New vs
+   returning filter to Returning by itself — new customers are not in the list
+   at all, which means Select All cannot reach them either.
+
+   ⚠ It is a DEFAULT, not a lock: the dropdown still works, so an RSVP that
+   really is meant for everybody is one click away. Automatic is fine, invisible
+   is not — the recipient count line says it happened. */
+function etTemplateIsRsvp(t){
+  const d = (t && t.data) ? t.data : t;
+  if(!d) return false;
+  const body = String(d.body || '');
+  if(/\{\{rsvp_(yes|no|back)_(button|link)\}\}/.test(body)) return true;
+  return String(d.folderName || '').trim().toLowerCase() === 'rsvp';
+}
 // 'elsewhere' billed to someone else | 'multi' pays for several houses | 'own'
 function audienceBillingGroup(d){
   if((((d && d.billToPhone) || '').replace(/\D/g,''))) return 'elsewhere';
@@ -10159,6 +10235,9 @@ let etFilterRsvp = 'all';
 let etFilterPaidLast = 'all';
 let etFilterOrderedLast = 'all';
 let etFilterNew = 'all';
+/* True only while the RSVP default above is what set the filter, so the count
+   line can explain itself without claiming credit for the office's own choice. */
+let etRsvpAudienceAutoSet = false;
 let etFilterGroup = 'all';
 let etFilterOutlet = 'all';
 let etFilterInstalled = 'all';
@@ -10202,6 +10281,9 @@ function etRenderRecipientList(){
   if(countEl){
     let msg = members.length + ' member' + (members.length===1?'':'s') + ' match' + (members.length===1?'es':'') + ' these filters.';
     if(lastYearMissing) msg += ' — Note: no saved snapshot from last season yet, so the "last year" filters can\'t match anyone until Start New Season saves one.';
+    if(etRsvpAudienceAutoSet && etFilterNew === 'returning'){
+      msg += ' — New customers are left out automatically, because an RSVP asks whether they want lights AGAIN. Change "New vs returning" above to include them.';
+    }
     countEl.textContent = msg;
   }
   if(!members.length){ list.innerHTML = '<div class="empty-note">No members match this search and these filters.</div>'; return; }
@@ -10221,7 +10303,22 @@ function etRenderRecipientList(){
     return '<label style="display:flex; align-items:center; gap:8px; padding:5px 0; font-size:13.5px;"><input type="checkbox" class="et-recipient-cb" value="'+m.id+'" '+checked+' style="width:auto;">'+esc(m.data.name||'(no name)')+badges+' <span style="color:var(--slate); font-size:12px;">'+esc(m.data.email||'')+'</span></label>';
   }).join('');
 }
-document.getElementById('etSendTemplateSelect').addEventListener('change', etUpdatePreview);
+/* Choosing the template is the deliberate act, so it is the moment to set the
+   audience. Runs BEFORE the preview so the recipient list and the preview agree
+   about who is being written to. */
+document.getElementById('etSendTemplateSelect').addEventListener('change', function(){
+  const t = emailTemplates.find(x => x.id === this.value);
+  if(etTemplateIsRsvp(t) && etFilterNew !== 'returning'){
+    etFilterNew = 'returning';
+    const sel = document.getElementById('etFilterNew');
+    if(sel) sel.value = 'returning';
+    etRsvpAudienceAutoSet = true;
+    if(typeof etRenderRecipientList === 'function') etRenderRecipientList();
+  } else if(!etTemplateIsRsvp(t)){
+    etRsvpAudienceAutoSet = false;
+  }
+  etUpdatePreview();
+});
 document.getElementById('etPreviewMemberSelect').addEventListener('change', etUpdatePreview);
 /* Business contact details for the printed invoice header. Populated by
    loadSettings() from siteContent/main; the fallbacks are the same defaults
@@ -10515,7 +10612,7 @@ document.getElementById('etRecipientSearch').addEventListener('input', function(
   ['etFilterRsvp',        v => { etFilterRsvp = v; }],
   ['etFilterPaidLast',    v => { etFilterPaidLast = v; }],
   ['etFilterOrderedLast', v => { etFilterOrderedLast = v; }],
-  ['etFilterNew',         v => { etFilterNew = v; }],
+  ['etFilterNew',         v => { etFilterNew = v; etRsvpAudienceAutoSet = false; }],
   ['etFilterGroup',       v => { etFilterGroup = v; }],
   ['etFilterOutlet',      v => { etFilterOutlet = v; }],
   ['etFilterInstalled',   v => { etFilterInstalled = v; }]

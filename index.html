@@ -2176,6 +2176,10 @@ function navigate(){
     var quoteParams = new URLSearchParams(queryString);
     var quoteToken = quoteParams.get('token');
     var quoteAction = quoteParams.get('action');
+    /* An existing member's quote email also carries their own portal token, so
+       "Yes, I'd like to make a change" can let them straight in. Absent for a
+       new lead, who has no portal to go to. */
+    quoteLinkPortalToken = quoteParams.get('p') || null;
     /* A TOKEN IS ENOUGH. This used to also require an action, and any link
        without one silently did nothing — which was most of the links customers
        actually get. The coloured buttons inside the email body carry
@@ -3764,6 +3768,11 @@ function handleRsvpLink(token, rsvpValue){
     if(rsvpValue === 'yes'){
       confirmMsg.textContent = "You're confirmed for this season! \uD83C\uDF84 Do you want to make any changes?";
       if(openPortalBtn){
+        /* Labels set explicitly in BOTH branches. The "no" branch below reuses
+           these same two buttons with different wording, so leaving either to
+           the markup default means whichever branch ran second wins. */
+        openPortalBtn.textContent = 'Yes, Take Me to My Portal';
+        if(noChangesBtn) noChangesBtn.textContent = "No, I'm All Set";
         openPortalBtn.style.display = 'inline-flex';
         openPortalBtn.onclick = function(){
           document.body.classList.remove('rsvp-minimal');
@@ -3780,9 +3789,36 @@ function handleRsvpLink(token, rsvpValue){
         };
       }
     } else {
-      document.body.classList.remove('rsvp-minimal');
-      if(confirmCard) confirmCard.style.display = 'none';
-      loadPortalByToken(token, {bypassDeactivation: true, activateTab: 'cancel'});
+      /* ⭐ SAY WHY THEY ARE HERE BEFORE PUTTING THEM THERE (owner, 2026-08-19:
+         "keep the Cancel tab, but put a message in front of it first so they
+         know why they've landed there"). A "no" used to drop them STRAIGHT into
+         the portal on the Cancel tab: they pressed one button in an email and
+         found themselves inside an account page with a reason box, with nothing
+         saying what had happened.
+
+         ⚠ THE "NO" IS ALREADY SAVED by this point — portalRsvp ran above — so
+         closing the page here loses nothing. That is exactly why it is safe to
+         stop and speak to them first, and why the reason box is offered rather
+         than demanded. */
+      confirmMsg.textContent = "Thanks for letting us know \u2014 we'll be sorry to miss you this year.";
+      if(openPortalBtn){
+        openPortalBtn.textContent = 'Tell us why (optional)';
+        openPortalBtn.style.display = 'inline-flex';
+        openPortalBtn.onclick = function(){
+          document.body.classList.remove('rsvp-minimal');
+          if(confirmCard) confirmCard.style.display = 'none';
+          loadPortalByToken(token, {bypassDeactivation: true, activateTab: 'cancel'});
+        };
+      }
+      if(noChangesBtn){
+        noChangesBtn.textContent = "That's all, thanks";
+        noChangesBtn.style.display = 'inline-flex';
+        noChangesBtn.onclick = function(){
+          if(openPortalBtn) openPortalBtn.style.display = 'none';
+          noChangesBtn.style.display = 'none';
+          confirmMsg.innerHTML = "All done \u2014 we've got it.<br>If you change your mind, just give us a call and we'll get you back on the list.";
+        };
+      }
     }
   }).catch(function(){
     if(confirmCard) confirmCard.style.display = 'none';
@@ -3893,6 +3929,7 @@ function offerQuoteChoice(token){
    Deliberately the same two-button shape the RSVP link already uses
    (handleRsvpLink's "Do you want to make any changes?"), so a member who
    arrives from either email is asked the same question the same way. */
+var quoteLinkPortalToken = null;
 function offerMemberChangeChoice(contactHint){
   var confirmWrap = document.getElementById('quoteLinkConfirm');
   var confirmMsg = document.getElementById('quoteLinkConfirmMsg');
@@ -3944,6 +3981,15 @@ function openPortalFromQuote(contactHint){
      stays hidden unless this takes it off. */
   document.body.classList.remove('quote-minimal');
   window.location.hash = '/payment';
+  /* Their own portal token, posted into the email we sent to the address on
+     file — so this is a login they already hold, not one minted from the quote
+     token in their URL. Preferred over anything saved on the device because it
+     is definitely THIS member. */
+  if(quoteLinkPortalToken && typeof loadPortalByToken === 'function'){
+    savePortalLogin(quoteLinkPortalToken);
+    loadPortalByToken(quoteLinkPortalToken);
+    return;
+  }
   var savedToken = null, savedCreds = null;
   try{ savedToken = localStorage.getItem('huPortalToken'); } catch(e){}
   try{
@@ -5016,6 +5062,31 @@ document.getElementById('quoteApproveBtn').addEventListener('click', async funct
       customer_email: currentQuoteData.email || '', topic: 'Quote Approved',
       message: 'Approved quote of ' + fmt(currentQuoteData.quotedPrice) + ' for ' + (currentQuoteData.address || 'their address') + '.'
     });
+    /* ⭐ A MEMBER APPROVING FROM INSIDE THEIR OWN PORTAL IS ALREADY WHERE THEY
+       NEED TO BE. Owner, 2026-08-19: "if they approve in there member portal
+       they should not have the 2 steps just will log them into there member
+       portal and they will be updated to approve."
+
+       This used to send EVERYONE to /quote-details — the NEW-CUSTOMER install
+       details form — and it went there with NO ?token= on the end, so the
+       quote-link handler never ran and nothing downstream could intervene.
+       That is why the form kept appearing however the member arrived.
+
+       The two-step question belongs to the EMAIL route, where we cannot know
+       whether they are signed in. In here we do know, so there is nothing to
+       ask: mark it approved and leave them in their portal. */
+    if(res.alreadyMember){
+      var reviewCard = document.getElementById('quoteReviewCard');
+      if(reviewCard) reviewCard.classList.remove('show');
+      var approvedMsg = document.getElementById('quoteApprovedMsg');
+      if(approvedMsg) approvedMsg.style.display = '';
+      statusEl.textContent = '';
+      return;
+    }
+    /* Not converted to a customer yet, so this is the ONE place their light
+       colours, wire and timer get collected. Owner, 2026-08-19: "new members
+       that have not been converted to a costumer yet should still be given the
+       form". */
     quoteDetailQuoteId = currentQuoteId;
     quoteDetailToken = (currentQuoteData && currentQuoteData.quoteToken) || quoteDetailToken || null;
     window.location.hash = '/quote-details';

@@ -1424,6 +1424,52 @@ async function pullCustomerFromSeason(customerId) {
   return await removeCustomerFromUpcomingRoutes(customerId);
 }
 
+/* Same normalisation as quoteMatchAddress in admin.html. Kept deliberately
+   trivial and asserted identical by run-all.js, because this is a second copy
+   of a rule that lives in two places and those drift (see money-parity). */
+function quoteMatchAddressServer(a) {
+  return String(a == null ? '' : a).toLowerCase().replace(/[.,#]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/* Does this quote's address AND contact already belong to a customer?
+   Mirrors quoteAlreadyACustomer in admin.html so the office's card and the
+   customer's page cannot disagree about who is already a member.
+
+   Candidates come from the INDEXED contact fields, then the address is
+   compared - rather than scanning jobAddresses, which would be a full read of
+   the whole book on every approval. */
+async function quoteMatchesExistingCustomer(quoteData) {
+  const wanted = quoteMatchAddressServer(quoteData.address);
+  if (!wanted) return false;
+  const phone = digitsOnly(quoteData.phone);
+  const email = String(quoteData.email || '').trim().toLowerCase();
+
+  const queries = [];
+  /* NOT limit(1): a shared phone has several records behind it and the one we
+     want may not be first. Taking only the first is how the parent gets
+     returned for the child's quote and the address check then wrongly fails. */
+  if (phone) queries.push(db.collection('jobAddresses').where('phoneDigits', '==', phone).limit(20).get());
+  if (email) {
+    queries.push(db.collection('jobAddresses').where('emailLower', '==', email).limit(20).get());
+    queries.push(db.collection('jobAddresses').where('email2Lower', '==', email).limit(20).get());
+  }
+  if (!queries.length) return false;
+
+  const snaps = await Promise.all(queries.map(q => q.catch(err => {
+    /* A missing index must never decide that somebody is not a member - that
+       silently sends a real member back to the details form. Skip the query,
+       keep the others. */
+    console.error('[HU] existing-customer lookup failed:', err);
+    return { docs: [] };
+  })));
+  for (const snap of snaps) {
+    for (const doc of snap.docs) {
+      if (quoteMatchAddressServer(doc.data().address) === wanted) return true;
+    }
+  }
+  return false;
+}
+
 /* --- quoteRespond ---------------------------------------------------------
  * Input: { quoteToken, action }  where action = 'approve' | 'decline' | 'maybe_next_year'
  *
@@ -1535,6 +1581,32 @@ exports.quoteRespond = onCall({ cors: true }, async (request) => {
         const cSnap = await db.collection('jobAddresses')
           .doc(String(quoteData.existingCustomerId)).get();
         alreadyMember = cSnap.exists;
+      } else {
+        /* ⚠ THE TWO MARKS ABOVE ARE NOT RELIABLE ON REAL DATA, which is why
+           this third test exists. Both writes that set convertedToCustomerAt
+           are best-effort - the customer is already created by the time they
+           run, so admin.html catches a failure and toasts rather than rolling
+           the save back. admin.html says so itself, and stopped depending on
+           that write for its own "Already a customer" badge for the same
+           reason. A member whose card never closed was still being handed the
+           install-details form.
+
+           So this mirrors quoteAlreadyACustomer: ADDRESS plus phone-or-email.
+           ⚠ THE ADDRESS HALF IS NOT DECORATION - it is the whole safety
+           argument. 17 phone numbers in the real book are shared and 14 of
+           those are two genuinely different houses (a parent paying for a
+           child's place). Matching on contact alone would tell a brand-new
+           house it was already a member and never ask for its details. The
+           address is what keeps those two apart.
+
+           ⚠ AND ONLY ON A QUOTE THE OFFICE HAS PRICED. firestore.rules stops
+           a public create from setting quotedPrice, so pricing is proof staff
+           touched it. Without that gate this is a free "is this address one
+           of your customers?" oracle for anyone who can submit the quote
+           form. A member only ever gets a link after pricing, so it costs
+           nothing real. */
+        alreadyMember = typeof quoteData.quotedPrice === 'number' &&
+          await quoteMatchesExistingCustomer(quoteData);
       }
     } catch (err) {
       /* Never let this sink the approval - it is already recorded above. A
