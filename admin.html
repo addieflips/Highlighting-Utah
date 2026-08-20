@@ -16896,6 +16896,98 @@ async function hlxAppendRowsToSheet(rows, tabName){
    ⚠ ONE TAB FAILING DOES NOT STOP THE OTHERS, and every outcome is reported. A tab
    she has not made yet should not cost her the two that worked.
    ⚠ It writes to her workbook, so it says what it did rather than going quiet. */
+/* ⭐ A PREPAID CUSTOMER READS AS PAID. Owner: "in customers it says if they are paid
+   or unpaid, change their tag to paid."
+
+   The tag is computeInvoiceStatus, which is arithmetic over the invoice — so the only
+   honest way to make it say Paid is to record the payment. The deposit is set to
+   exactly what is owed at that moment, no more.
+
+   ⚠ A NOTE SAYS WHERE THE MONEY CAME FROM. A payment appearing with no explanation
+   is the kind of thing that gets unpicked months later by somebody who cannot tell it
+   from a mistake.
+   ⚠ NEVER TWICE, and never downwards. If the deposit already covers the bill this
+   does nothing — pressing the button again must not move money, and a customer who
+   part-paid by card must not have that overwritten by a spreadsheet word.
+   ⚠ AND IT ONLY EVER SETTLES. It cannot reduce a deposit or mark anybody unpaid. */
+/* ⭐ A NAME IN THE MISC COLUMN BECOMES A REAL BILL-TO. Owner, 2026-08-19: "if misc
+   says bill to ... first we check if the person we bill to is even a customer of
+   ours, if they arent it doesnt matter", and asked what that should mean: "yes they
+   should have one member portal and on invoice but still remain two seperate
+   customers."
+
+   billToPhone already does exactly that and has for a long time — the house pays
+   through somebody else’s invoice and signs in on their portal, while staying its own
+   customer record with its own number, route and lights. So the only work here is
+   turning a NAME into that link.
+
+   ⚠ IF THE PAYER IS NOT A CUSTOMER, NOTHING HAPPENS, and that is her rule: "we dont
+   need to worry about it if we dont even do the person we bill to cause that means
+   were already using whoever it is information already." The name stays on the record
+   where a person can read it.
+
+   ⚠ ONE MATCH ONLY. Two customers of that name is not a weaker answer, it is no
+   answer — picking one would send somebody else’s bill to the wrong house, and that
+   is money. Reported, never guessed.
+
+   ⚠ AND NEVER TO THEMSELVES. "bill to" naming the customer’s own name would point an
+   invoice at itself; matched on the normalised name, which reads Last First and First
+   Last as the same person, so a sheet-order name cannot slip past. */
+async function rbResolveBillTo(statusEl){
+  const waiting = jobAddresses.filter(function(c){
+    const d = c.data || {};
+    return d.billToName && !String(d.billToPhone || '').trim();
+  });
+  let linked = 0, notOurs = 0, ambiguous = 0, failed = 0;
+  for(let i = 0; i < waiting.length; i++){
+    const c = waiting[i];
+    const want = dupNormName((c.data || {}).billToName);
+    const hits = jobAddresses.filter(function(x){
+      return x.id !== c.id && dupNormName((x.data || {}).name) === want &&
+             String((x.data || {}).phone || '').replace(/\D/g, '');
+    });
+    if(!hits.length){ notOurs++; continue; }
+    if(hits.length > 1){ ambiguous++; continue; }
+    try{
+      await updateDoc(doc(db, 'jobAddresses', c.id), {
+        billToPhone: String((hits[0].data || {}).phone || '').replace(/\D/g, '')
+      });
+      linked++;
+    } catch(err){ failed++; }
+  }
+  if(linked) logActivity('Linked ' + linked + ' customer(s) to the person who pays for them', 'customers', '');
+  return {linked: linked, notOurs: notOurs, ambiguous: ambiguous, failed: failed};
+}
+async function rbSettlePrepaid(statusEl){
+  const who = jobAddresses.filter(function(c){ return (c.data || {}).prepaid === true; });
+  let settled = 0, already = 0, failed = 0;
+  for(let i = 0; i < who.length; i++){
+    const c = who[i];
+    try{
+      const key = custInvoiceKey(c.data || {});
+      if(!key){ failed++; continue; }
+      const inv = allInvoicesCache.find(function(x){ return x.id === key; });
+      if(!inv){ failed++; continue; }
+      const d = inv.data || {};
+      const owed = (Number(d.install) || 0) + (Number(d.removal) || 0) +
+                   (Number(d.changeFees) || 0) - (Number(d.credits) || 0);
+      const paid = Number(d.deposit) || 0;
+      if(owed <= 0 || paid >= owed){ already++; continue; }
+      await updateDoc(doc(db, 'invoices', key), {
+        deposit: owed,
+        depositNotes: (Array.isArray(d.depositNotes) ? d.depositNotes : []).concat([{
+          amount: owed - paid, reason: 'Prepaid — recorded from the master sheet',
+          date: new Date().toISOString()
+        }]),
+        status: computeInvoiceStatus(d.install, d.removal, owed, d.credits, d.changeFees),
+        updatedAt: serverTimestamp()
+      });
+      settled++;
+    } catch(err){ failed++; }
+  }
+  if(settled) logActivity('Marked ' + settled + ' prepaid customer(s) as paid', 'invoices', '');
+  return {settled: settled, already: already, failed: failed};
+}
 async function hlxUpdateCustomerInfo(statusEl){
   const say = function(t){ if(statusEl) statusEl.textContent = t; };
   if(!hlxSheetSupported()){
@@ -16922,6 +17014,17 @@ async function hlxUpdateCustomerInfo(statusEl){
       if(res.written) done.push(res.written + " to " + t.tab);
     } catch(err){ failed.push(t.tab + " (" + ((err && err.message) || "failed") + ")"); }
   }
+  /* ⭐ THE SAME PRESS DOES THE TWO THINGS THE SHEET IMPLIES. Owner: "theres only one
+     sync button because anything I dont want synced will be manually fixed." */
+  try{
+    const bt = await rbResolveBillTo(statusEl);
+    if(bt.linked) done.push(bt.linked + " joined to who pays for them");
+    if(bt.ambiguous) failed.push(bt.ambiguous + " bill-to name(s) match more than one customer");
+  } catch(err){ failed.push("bill-to (" + ((err && err.message) || "failed") + ")"); }
+  try{
+    const pp = await rbSettlePrepaid(statusEl);
+    if(pp.settled) done.push(pp.settled + " prepaid marked paid");
+  } catch(err){ failed.push("prepaid (" + ((err && err.message) || "failed") + ")"); }
   if(done.length) logActivity("Updated the sheet: " + done.join(", "), "customers", "");
   say(!done.length && !failed.length
     ? "Nothing new to send \u2014 everybody is already on their tab."
@@ -17946,6 +18049,18 @@ async function rbApplyTickedAdds(statusEl){
          Matching a name to a customer needs the whole book in hand, which is the
          comparison’s job, not this loop’s. */
       if(misc.billToName) doc2.billToName = misc.billToName;
+      /* ⭐ PREPAID. Owner, 2026-08-19: "some people have prepaid and we dont have a
+         column for that so if they have prepaid we need to put it into the website that
+         they are already paid but prepaid can be in any column", then, shown the
+         Paid/Unpaid column in All Customers: "change their tag to paid".
+
+         The flag goes on the record here. The tag itself reads off the INVOICE, so
+         settling it is a separate step done at sync time — see rbSettlePrepaid. That
+         separation is deliberate: adding a customer is not a payment, and this loop
+         creates no invoice at all. */
+      if(rbRowSaysPrepaid([miscRaw[i], notesRawVal, dates[i], installPrefRaw[i], amountsRaw[i]])){
+        doc2.prepaid = true;
+      }
       if(r.pairedSite){
         /* ⭐ UPDATE, DON'T ADD. Owner, 2026-08-18: "I want it to update the
            customer not add a new one."

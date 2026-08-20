@@ -1168,16 +1168,31 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
         // A real change to a non-empty pattern is the only thing that can charge.
         if (changed && updates.lightsDescription) {
           if (!withinFreeWindow) {
-            const newFees = (Number(inv.changeFees) || 0) + FEE;
-            invWrite.changeFees = newFees;
-            invWrite.changeFeeNotes = (Array.isArray(inv.changeFeeNotes) ? inv.changeFeeNotes : [])
-              .concat([{ amount: FEE, reason: 'Light color change', date: new Date().toISOString() }]);
+            /* ⭐ A COLOUR CHANGE MAKES THEM A NEW CUSTOMER. Owner, 2026-08-19: "get rid
+               of color change fee and just make it new customer fee", and, asked whether
+               that should include going out first: "Its fine they can be treated as a
+               new customer do it."
+
+               So no separate light-change fee is written any more. chargeNewMemberFee
+               is set instead; the nightly run adds the new-member fee ONCE, guarded by
+               newMemberFeeApplied, and Routes shows the New Hang badge — which also puts
+               them at the head of the install queue, because a rebuilt house is a house
+               that has to be built.
+
+               ⚠ THIS REPLACES THE FEE, IT DOES NOT ADD TO IT. Writing changeFees here
+               as well would charge $30 twice for one change, which is the exact bug the
+               transaction around this block exists to prevent.
+
+               ⚠ THE TIMESTAMP STAYS, and is now purely the change-window marker. The
+               48-hour lock below reads it to keep a customer off an install route while
+               their pattern may still move; that has nothing to do with the fee and
+               removing it would let a crew hang lights that are about to change. */
+            updates.chargeNewMemberFee = true;
             invWrite.lastLightChangeFeeAt = admin.firestore.Timestamp.fromMillis(nowMs);
-            invWrite.status = computeInvoiceStatusServer(inv.install, inv.removal, inv.deposit, inv.credits, newFees);
             invWrite.updatedAt = admin.firestore.FieldValue.serverTimestamp();
-            lightFeeInfo = { feeCharged: true, amount: FEE, freeWindowEndsAt: nowMs + WINDOW_MS };
+            lightFeeInfo = { feeCharged: true, amount: FEE, asNewCustomer: true, freeWindowEndsAt: nowMs + WINDOW_MS };
           } else {
-            // Still inside the paid 48-hour window — change is free.
+            // Still inside the 48-hour window — this change is free.
             lightFeeInfo = { feeCharged: false, amount: 0, freeWindowEndsAt: lastAt + WINDOW_MS };
           }
         }
