@@ -2864,7 +2864,7 @@
                 <option value="yes">Yes</option>
                 <option value="no">No</option>
                 <option value="backnextyear">Back Next Year</option>
-                <option value="pending">Pending</option>
+                <option value="pending">Not answered yet (incl. Unanswered)</option>
               </select>
             </div>
             <div class="form-row" style="margin:0;"><label style="font-size:11.5px;">Billing group</label>
@@ -10344,6 +10344,15 @@ function billingGroupPayer(key, houses){
 let etFilterGateCode = 'all';
 let etFilterPayment = 'all';
 let etFilterRsvp = 'all';
+/* ⭐ HAS THIS CUSTOMER ANSWERED? Blank means nobody has asked them; "unanswered"
+   means we asked and they have not replied. Neither is an answer, and both belong in
+   the audience for a chase. Kept in one function because the same question is asked
+   in more than one place and the copy that gets missed is the one that silently
+   sends to nobody. */
+function etRsvpAnswered(d){
+  const t = String((d || {}).rsvpStatus || '').trim().toLowerCase();
+  return !!t && t !== 'unanswered';
+}
 let etFilterPaidLast = 'all';
 let etFilterOrderedLast = 'all';
 let etFilterNew = 'all';
@@ -10370,7 +10379,14 @@ function etRenderRecipientList(){
   if(etFilterRsvp === 'yes') members = members.filter(m => m.data.rsvpStatus === 'yes');
   else if(etFilterRsvp === 'no') members = members.filter(m => m.data.rsvpStatus === 'no');
   else if(etFilterRsvp === 'backnextyear') members = members.filter(m => m.data.rsvpStatus === 'backnextyear');
-  else if(etFilterRsvp === 'pending') members = members.filter(m => !m.data.rsvpStatus);
+  /* ⚠ NOBODY ANSWERED YET = BLANK **OR** UNANSWERED (fixed 2026-08-20, the same day
+     the third status arrived and before either had been used in anger).
+     This read `!rsvpStatus` alone. "Move everyone to Unanswered" is pressed RIGHT
+     BEFORE the RSVP goes out, and after it nobody is blank — so choosing Pending as
+     the audience would have matched ZERO people and the RSVP would have gone to
+     nobody at all, on the one send where the whole list needs it.
+     A send to nobody looks exactly like a send that worked. */
+  else if(etFilterRsvp === 'pending') members = members.filter(m => !etRsvpAnswered(m.data));
   // Paid last year (from last season's saved snapshot)
   if(etFilterPaidLast === 'paid') members = members.filter(m => audiencePaidLastYear(m.data) === 'paid');
   else if(etFilterPaidLast === 'unpaid') members = members.filter(m => audiencePaidLastYear(m.data) === 'unpaid');
@@ -16865,7 +16881,15 @@ const HLX_STATE_TABS = [
      from the RSVP link and the office dropdown. Nobody has that answer yet on purpose -
      everybody is being moved to Unanswered first. */
   {tab: "Yes", label: "confirmed",
-   holds: function(d){ return String(d.rsvpStatus || "").toLowerCase() === "yes"; }},
+   /* ⚠ ANSWERED YES, NOT ASSUMED YES. Owner: "everyone who is confirmed AFTER we
+      RSVP will need to go to the Yes tab." Converting a quote writes rsvpStatus "yes"
+      at creation with no rsvpRespondedAt — the office knows they want lights, but
+      nobody has asked them about THIS season yet. On the status alone, the first
+      press of Update customer info would have emptied most of the customer list into
+      the Yes sheet before a single RSVP had been sent.
+      rsvpRespondedAt is the difference, and every route that takes a real answer
+      stamps it. The reset clears it, so a new round starts with the sheet quiet. */
+   holds: function(d){ return String(d.rsvpStatus || "").toLowerCase() === "yes" && !!d.rsvpRespondedAt; }},
   {tab: "Contact 2027", label: "maybe next year",
    /* ⚠ THE STATUS IS "backnextyear". "maybe_next_year" was written here and NOTHING
       sets it on a customer — that is the QUOTE field (approvalStatus). A customer who
@@ -24584,6 +24608,17 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        A pending recycle is still cancelled if they move off no — nothing was
        pulled yet — which is the behaviour that has always been there. */
     const oldRsvpForRecycle = String(item.data.rsvpStatus || '').toLowerCase();
+    /* ⭐ AN ANSWER TAKEN OVER THE PHONE IS STILL AN ANSWER, AND IT HAPPENED TODAY.
+       Every other way of answering stamps rsvpRespondedAt — the RSVP link, the
+       office' + "'" + 's Maybe Next Year button, approving a quote — but the plain
+       dropdown never did, so somebody rung up and marked Yes by hand showed no
+       Responded date on the Schedule and could not be told apart from a customer
+       who was ASSUMED yes when their quote was converted.
+       That distinction is what the Yes sheet leans on, so it has to be true. */
+    if(newRsvp !== oldRsvpForRecycle){
+      const realAnswer = !!newRsvp && newRsvp !== 'unanswered';
+      addrUpdates.rsvpRespondedAt = realAnswer ? serverTimestamp() : null;
+    }
     if(newRsvp === 'no' && oldRsvpForRecycle !== 'no'){
       addrUpdates.needsLightRecycle = true;
     } else if(newRsvp !== 'no' && oldRsvpForRecycle === 'no' && item.data.needsLightRecycle){

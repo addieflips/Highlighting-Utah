@@ -2005,7 +2005,11 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
 
   function runSave(record, newRsvp) {
     const addrUpdates = {};
-    new Function('item', 'newRsvp', 'addrUpdates', src)({ data: record }, newRsvp, addrUpdates);
+    /* ⚠ The block stamps rsvpRespondedAt now, so the sandbox has to offer a clock.
+       A recognisable sentinel rather than a real date: these checks care THAT a time
+       was written, and a real one would make them depend on when they ran. */
+    new Function('item', 'newRsvp', 'addrUpdates', 'serverTimestamp', src)(
+      { data: record }, newRsvp, addrUpdates, function(){ return 'STAMPED'; });
     return addrUpdates;
   }
 
@@ -16530,6 +16534,96 @@ if (!JSDOM) {
  * over it. The identity rule is the sharp edge: too loose and a real customer is
  * silently swallowed as a duplicate, which is what happened on the real file.
  * ------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+ * Suite 78. What the third RSVP status breaks if nobody looks
+ *
+ * Adding "unanswered" is not just a new label. Two pieces of working code asked
+ * "has this customer answered?" by testing for BLANK, and every customer is moved
+ * to unanswered right before an RSVP round — so from the first reset onwards both
+ * would have quietly answered no-one.
+ *
+ * Neither had been run yet when this was written. Both failures are silent: a
+ * send to nobody looks exactly like a send that worked.
+ * ------------------------------------------------------------------------- */
+suite('Suite 78. What the third RSVP status breaks if nobody looks');
+
+{
+  /* ---- the audience for the RSVP itself ---- */
+  const box = {};
+  new Function(extractFn(admin, 'etRsvpAnswered') + 'this.f = etRsvpAnswered;').call(box);
+  check('S78', 'etRsvpAnswered exists', typeof box.f === 'function',
+    'the audience filter and the counts both ask this question');
+
+  check('S78', 'somebody nobody has asked has not answered',
+    box.f({}) === false && box.f({rsvpStatus: ''}) === false);
+  check('S78', 'and NEITHER has somebody sitting on Unanswered',
+    box.f({rsvpStatus: 'unanswered'}) === false &&
+    box.f({rsvpStatus: 'Unanswered'}) === false,
+    'this is the one that matters: after "move everyone to unanswered" nobody is ' +
+    'blank, so a blank-only audience is EMPTY on the one send that needs the whole ' +
+    'list — and a send to nobody looks exactly like a send that worked');
+  check('S78', 'a real answer counts as answered',
+    box.f({rsvpStatus: 'yes'}) === true && box.f({rsvpStatus: 'no'}) === true &&
+    box.f({rsvpStatus: 'backnextyear'}) === true,
+    'chasing somebody who already told you is how a customer decides you are not ' +
+    'listening');
+
+  const aud = sectionFrom(admin, admin.indexOf('  if(etFilterRsvp === '));
+  check('S78', 'and the Automation Emails audience uses it',
+    /etFilterRsvp === 'pending'\) members = members.filter\(m => !etRsvpAnswered/.test(aud),
+    'the function being right is worth nothing if the filter still tests for blank');
+}
+
+{
+  /* ---- the Yes sheet ---- */
+  const tabsSrc = admin.match(/const HLX_STATE_TABS = \[[\s\S]*?\n\];/);
+  check('S78', 'the tab table is there to run', !!tabsSrc);
+  if (tabsSrc) {
+    const b = {};
+    new Function(tabsSrc[0] + 'this.t = HLX_STATE_TABS;').call(b);
+    const yes = (b.t.filter(x => x.tab === 'Yes')[0] || {}).holds;
+    check('S78', 'there is a Yes tab to send confirmed customers to', typeof yes === 'function',
+      'owner: "everyone who is confirmed after we RSVP will need to go to the Yes ' +
+      'tab in excel not the 2025 one"');
+    if (typeof yes === 'function') {
+      check('S78', 'somebody who answered yes goes to the Yes sheet',
+        yes({rsvpStatus: 'yes', rsvpRespondedAt: {seconds: 1}}) === true);
+      check('S78', 'but an ASSUMED yes from converting a quote does NOT',
+        yes({rsvpStatus: 'yes'}) === false,
+        'converting a quote writes rsvpStatus "yes" at creation with no responded ' +
+        'date — the office knows they want lights, but nobody has asked them about ' +
+        'THIS season. On the status alone the first press of Update customer info ' +
+        'would have emptied most of the customer list onto the Yes sheet before a ' +
+        'single RSVP had gone out');
+      check('S78', 'and neither does anyone else',
+        yes({rsvpStatus: 'unanswered', rsvpRespondedAt: {seconds: 1}}) === false &&
+        yes({rsvpStatus: 'no', rsvpRespondedAt: {seconds: 1}}) === false &&
+        yes({}) === false);
+    }
+  }
+}
+
+{
+  /* ---- and the office dropdown has to stamp the date the sheet leans on ---- */
+  const start = admin.indexOf("const oldRsvpForRecycle = String(item.data.rsvpStatus");
+  /* sectionFrom, not a fixed window: this suite has its own rule against those,
+     and it is right - a slice of N characters silently stops covering the end of
+     the block the moment somebody adds a line to it. */
+  const blk = sectionFrom(admin, start);
+  check('S78', 'the edit-customer RSVP block is findable', !!blk);
+  if (blk) {
+    check('S78', 'an answer taken over the phone is dated like any other',
+      /addrUpdates\.rsvpRespondedAt = realAnswer \? serverTimestamp\(\) : null;/.test(blk),
+      'every OTHER route stamps it — the RSVP link, Maybe Next Year, approving a ' +
+      'quote — so a customer who rang up and was marked Yes by hand showed no ' +
+      'Responded date, and could not be told apart from an assumed yes. The Yes ' +
+      'sheet leans on exactly that difference');
+    check('S78', 'and clearing the answer clears the date with it',
+      /const realAnswer = !!newRsvp && newRsvp !== 'unanswered';/.test(blk),
+      'a responded date left behind on somebody moved back to Unanswered would put ' +
+      'them on the Yes sheet with no answer at all');
+  }
+}
 pendingAsync.push((async () => {
   suite('Suite 77. The customer list is not one sheet');
 
