@@ -1043,10 +1043,19 @@ exports.portalLookup = onCall({ cors: true }, async (request) => {
   let houses = [];
   let rsvpHouses = [];
   try {
-    const billKey = digitsOnly(match.data.billToPhone) || invoiceKeyFor(match.data);
+    /* ⚠ ONLY A PAYER IS SHOWN THE GROUP. billKey used to be
+       `billToPhone || ownKey`, which is how the BILL is keyed — so for a
+       TENANT it resolved to the LANDLORD's key and their portal listed every
+       other tenant on that bill by name, address and price. They pay for none
+       of it. admin.html has always applied this rule to the email
+       (billedHousesForContact returns nothing for a house with a billToPhone
+       set); the portal was the one surface that did not, and it is the same
+       list of the same people. A dependant sees their own house and no box,
+       which is what they had before the panel existed. */
+    const billKey = payerKeyForAnswering(match.data);
     /* Fetched ONCE with the cancelled houses included, then filtered — two
        calls would double the reads to answer the same question twice. */
-    rsvpHouses = await billedHousesByKey(billKey, match.id, match.data, true);
+    rsvpHouses = billKey ? await billedHousesByKey(billKey, match.id, match.data, true) : [];
     houses = rsvpHouses.filter(function (h) { return h.rsvpStatus !== 'no'; });
   } catch (err) {
     // A failed sibling lookup must never stop somebody reaching their account.

@@ -2948,6 +2948,23 @@ suite('10f. Portal sign-in reads, and multi-property customers');
     /payerKeyForAnswering\(match\.data\) && rsvpHouses\.length > 1/.test(fnsSrc),
     'one tenant must never be able to cancel the season for the other tenants on their ' +
     'landlord’s bill');
+  /* ⭐ A TENANT IS NOT SHOWN THE LANDLORD'S OTHER TENANTS.
+     billKey was `billToPhone || ownKey` — how the BILL is keyed — so for a
+     house billed to somebody else it resolved to the PAYER's key and the
+     tenant's own portal listed every other house on that bill by name, address
+     and price. They pay for none of it. admin.html has applied this rule to the
+     email all along (billedHousesForContact returns nothing for a house with a
+     billToPhone set); the portal was the one surface that did not. */
+  check('multi-house', '⚠ only a payer is shown who a bill covers',
+    /const billKey = payerKeyForAnswering\(match\.data\);/.test(fnsSrc) &&
+    /rsvpHouses = billKey \? await billedHousesByKey/.test(fnsSrc) &&
+    !/const billKey = digitsOnly\(match\.data\.billToPhone\) \|\| invoiceKeyFor/.test(fnsSrc),
+    'a tenant seeing their landlord’s other tenants, and their prices, is the exact thing the ' +
+    'email block is careful never to do — the portal is the same list of the same people');
+  check('multi-house', 'and payerKeyForAnswering is what decides it, in all three places',
+    (fnsSrc.match(/payerKeyForAnswering\(/g) || []).length >= 4,
+    'defined once and read by the RSVP permission check, the per-house control and the house ' +
+    'list — three answers to "is this person the payer" would eventually disagree');
   check('multi-house', 'the BILL names its own houses, not only the sign-in',
     /await billedHousesByIds\(data\.billedHouseIds, true\)/.test(fns),
     'only the token link and the email sign-in go through portalLookup — the ordinary ' +
@@ -16763,8 +16780,13 @@ pendingAsync.push((async () => {
   /* One harness for both. Every writer records instead of writing, and the
      confirm box always says yes, so what is being measured is what the code
      WOULD do to real data. */
-  function harness(book, invoices, answers) {
-    const w = { writes: [], deletes: [], syncs: [], alerts: [], toasts: [], confirms: [] };
+  function harness(book, invoices, answers, fail) {
+    fail = fail || {};
+    /* `ops` records EVERY write in order across collections. The separate lists
+       cannot answer "did the house go onto the new bill before its own invoice
+       was taken away", and that ordering is the whole safety argument of the
+       join — get it backwards and a failure leaves a house billed nowhere. */
+    const w = { writes: [], deletes: [], syncs: [], alerts: [], toasts: [], confirms: [], ops: [] };
     const invById = new Map(invoices.map(i => [i.id, i]));
     const byPhone = new Map();
     book.forEach(a => { if (!byPhone.has(a.data.phone)) byPhone.set(a.data.phone, a); });
@@ -16807,9 +16829,21 @@ pendingAsync.push((async () => {
       () => {}, () => 'tester',
       {},
       (_db, col, id) => ({ col: col, id: id }),
-      async (ref, data) => { w.writes.push({ how: 'set', col: ref.col, id: ref.id, data: data }); },
-      async (ref, data) => { w.writes.push({ how: 'update', col: ref.col, id: ref.id, data: data }); },
-      async (ref) => { w.deletes.push(ref.col + '/' + ref.id); },
+      async (ref, data) => {
+        if (fail.set) throw new Error('set failed');
+        w.ops.push('set ' + ref.col + '/' + ref.id);
+        w.writes.push({ how: 'set', col: ref.col, id: ref.id, data: data });
+      },
+      async (ref, data) => {
+        if (fail.update) throw new Error('update failed');
+        w.ops.push('update ' + ref.col + '/' + ref.id);
+        w.writes.push({ how: 'update', col: ref.col, id: ref.id, data: data });
+      },
+      async (ref) => {
+        if (fail.del) throw new Error('delete failed');
+        w.ops.push('delete ' + ref.col + '/' + ref.id);
+        w.deletes.push(ref.col + '/' + ref.id);
+      },
       async (ref) => {
         const hit = invById.get(ref.id);
         return { exists: () => !!hit, data: () => (hit ? hit.data : {}) };
@@ -16820,7 +16854,11 @@ pendingAsync.push((async () => {
          unbound it throws ReferenceError and the whole suite dies as one
          unattributable crash; recorded, it also proves the rebuild was asked
          for rather than done by arithmetic here. */
-      async (k) => { w.syncs.push(String(k)); }
+      async (k) => {
+        if (fail.sync) throw new Error('syncPayerInvoice: no houses resolved for invoice key ' + k);
+        w.ops.push('sync ' + k);
+        w.syncs.push(String(k));
+      }
     );
     api.record = w;
     return api;
@@ -16961,6 +16999,59 @@ pendingAsync.push((async () => {
       'it takes Kyle’s bill down with it, and zeroing it is the same loss with the document ' +
       'left standing. ⚠ Checking only for the delete let the guard be removed with no test ' +
       'noticing, because a group invoice carrying a deposit takes the zeroing branch instead.');
+  }
+
+  // ---- ⚠ a half-finished move must never leave a house billed NOWHERE -------
+  /* All three of these were real defects in the first version of these actions,
+     found by re-reading the write order rather than by any test — which is why
+     they have tests now. */
+  {
+    const api = harness(book(), invoices());
+    await api.join('h2', 'h4');
+    const ops = api.record.ops;
+    check('S77', '⭐ the house joins the new bill BEFORE its own invoice is taken away',
+      ops.indexOf('update jobAddresses/h2') > -1 &&
+      ops.indexOf('delete invoices/8015552222') > -1 &&
+      ops.indexOf('update jobAddresses/h2') < ops.indexOf('delete invoices/8015552222'),
+      'the other order deletes the only invoice first, so a failure on either of the next two ' +
+      'steps leaves the house with no invoice AND on nobody\'s bill — unbilled for the season, ' +
+      'invisibly, while the box says "that did not save"');
+  }
+  {
+    /* The payer rebuild fails. The house is already off the old bill by then, so
+       the run must CONTINUE and still give it its own invoice. */
+    const api = harness(book(), invoices(), true, { sync: true });
+    await api.split('h2');
+    check('S77', '⚠ a failed payer rebuild does not cost the split house its invoice',
+      api.record.writes.some(x => x.col === 'invoices' && x.id === '8015552222' && x.data.install === 350),
+      'syncPayerInvoice throws on purpose for an email-keyed payer with no houses left, and one ' +
+      'try/catch round the lot used to abandon the run there — bill-to already cleared, no ' +
+      'invoice written, house billed to nobody');
+    check('S77', 'and it says so instead of claiming nothing changed',
+      /could not be rebuilt/.test(api.record.alerts.join(' ')) &&
+      !/nothing has been changed/.test(api.record.alerts.join(' ')),
+      '"nothing has been changed" after the bill-to has already been cleared sends somebody ' +
+      'looking for a problem that is not the one they have');
+  }
+  {
+    /* The very first write fails. Nothing has happened, and that IS the message. */
+    const api = harness(book(), invoices(), true, { update: true });
+    await api.split('h2');
+    check('S77', 'but a failure on the FIRST write really does mean nothing changed',
+      api.record.writes.length === 0 && api.record.deletes.length === 0 &&
+      /nothing has been changed/.test(api.record.alerts.join(' ')),
+      'the honest message depends on where it stopped — that is the whole point of catching ' +
+      'each write separately');
+  }
+  {
+    /* Ivy and Ivy's cabin share a phone, so they key to the SAME invoice doc. */
+    const api = harness(book(), invoices());
+    await api.join('h5', 'h4');
+    check('S77', '⚠ moving a house onto a bill it already shares is refused, not performed',
+      api.record.writes.length === 0 && api.record.deletes.length === 0,
+      'their invoice IS the same document, so this would set billToPhone to the house\'s own key ' +
+      'and then delete the very invoice syncPayerInvoice had just rebuilt — taking the payer\'s ' +
+      'whole bill with it');
   }
 
   // ---- an invoice carrying a payment is zeroed, never deleted --------------

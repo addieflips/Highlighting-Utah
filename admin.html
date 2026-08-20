@@ -25401,23 +25401,43 @@ async function billSplitHouse(houseId){
       'credit from the Invoices tab afterward.';
   }
   if(!confirm(msg)) return;
+  /* ⚠ EACH WRITE IS CAUGHT ON ITS OWN, and the message says what actually
+     happened. One try/catch around the lot reported "nothing has been changed"
+     after the bill-to had ALREADY been cleared — so a failure half way through
+     left the house billed to nobody, with no invoice anywhere, while the office
+     was told to try again. syncPayerInvoice throws deliberately (it refuses to
+     rebuild an email-keyed invoice from an empty group), so that is not a
+     theoretical path. */
   try{
     await updateDoc(doc(db,'jobAddresses', houseId), {
       billToPhone: '', updatedAt: serverTimestamp(), lastEditedBy: paymentLedgerUser()
     });
-    /* The payer is rebuilt BEFORE the new invoice is written. Either order
-       leaves the house billed twice for an instant; this one leaves it billed
-       to nobody instead, which no automatic job acts on. */
-    await syncPayerInvoice(oldBillTo);
+  } catch(err){
+    alert('That did not save — nothing has been changed. Try again, or check the Invoices tab.');
+    return;
+  }
+  /* From here the house IS off the payer's bill, so the run continues even if a
+     step fails: giving it its own invoice is the half that must not be skipped. */
+  let payerFailed = false;
+  try{ await syncPayerInvoice(oldBillTo); } catch(err){ payerFailed = true; }
+  try{
     await setDoc(doc(db,'invoices', ownKey), {
       name: d.name || '', phone: d.phone || '', email: d.email || '',
       install: price, removal: 0, deposit: 0,
       status: computeInvoiceStatus(price, 0, 0), priceReviewed: true, updatedAt: serverTimestamp()
     }, {merge:true});
-    toast(who + ' now has their own invoice for ' + fmtMoney(price) + '.');
-    renderAllCustomersTable();
   } catch(err){
-    alert('That did not save — nothing has been changed. Try again, or check the Invoices tab.');
+    renderAllCustomersTable();
+    alert(who + ' has been taken off ' + payerName + "'s bill, but their own invoice could not be " +
+      'created — so they are currently billed to nobody. Open the Invoices tab and add an invoice ' +
+      'for ' + fmtMoney(price) + ', or put them back on the bill.');
+    return;
+  }
+  toast(who + ' now has their own invoice for ' + fmtMoney(price) + '.');
+  renderAllCustomersTable();
+  if(payerFailed){
+    alert(who + ' is split off correctly, but ' + payerName + "'s invoice could not be rebuilt " +
+      'automatically. Open the Invoices tab and check their total still matches the houses on it.');
   }
 }
 /* ---- Put a house on somebody else's bill -----------------------------------
@@ -25491,43 +25511,72 @@ async function billJoinApply(payerId){
       who + "'s " + fmtMoney(price) + ' moves onto ' + payerName + "'s invoice.\n" +
       'They stay two separate customers with their own portals — only the bill is shared.')) return;
   const statusEl = document.getElementById('billJoinStatus');
-  statusEl.textContent = 'Saving…';
+  /* ⚠ THEY ALREADY SHARE ONE BILL. When the house and the payer key to the same
+     phone, the invoice doc IS the same document — so "moving" the house onto
+     that bill would set billToPhone to its own key and then delete the very
+     invoice syncPayerInvoice had just rebuilt, taking the payer's bill with it.
+     There is nothing to do here, and saying so beats doing it. */
+  if(oldKey === newBillTo){
+    statusEl.textContent = who + ' and ' + payerName + ' already share one bill \u2014 they key to the ' +
+      'same phone number, so one invoice already covers both.';
+    return;
+  }
+  statusEl.textContent = 'Saving\u2026';
+  /* Everything the old invoice carries is read BEFORE anything is written. */
+  const ownInv = (typeof invoiceById !== 'undefined' && invoiceById.get) ? invoiceById.get(oldKey) : null;
+  /* A multi-house group invoice belongs to a real payer — this house is not the
+     only thing on it, so it must never be zeroed or deleted. */
+  const isGroupInv = !!(ownInv && Array.isArray(ownInv.data.billedHouseIds) && ownInv.data.billedHouseIds.length > 1);
+  const clearOldInvoice = !!(ownInv && !isGroupInv && ownInv.id === oldKey);
+  const movingFee = clearOldInvoice ? (Number(ownInv.data.changeFees) || 0) : 0;
+  const migratingFeeNotes = movingFee > 0
+    ? (Array.isArray(ownInv.data.changeFeeNotes) && ownInv.data.changeFeeNotes.length
+        ? ownInv.data.changeFeeNotes
+        : [{amount: movingFee, reason: 'Light change fee (moved when bill-to changed)', date: new Date().toISOString()}])
+    : null;
+
+  /* ⚠ ORDER IS THE SAFETY ARGUMENT, and it was wrong the first time. The old
+     invoice used to be deleted FIRST — so a failure on either of the next two
+     steps left the house with no invoice AND on nobody's bill, silently
+     unbilled for the season, while the box said "that did not save". The house
+     is now put ON the new bill before its own invoice is taken away: a failure
+     part way leaves it billed TWICE, which is visible on both screens and one
+     click to undo. Double is recoverable; nothing is invisible. */
   try{
-    let migratingFeeNotes = null;
-    const ownInv = (typeof invoiceById !== 'undefined' && invoiceById.get) ? invoiceById.get(oldKey) : null;
-    if(ownInv){
-      /* A multi-house group invoice belongs to a real payer — this house is not
-         the only thing on it, so it must not be zeroed or deleted. */
-      const isGroupInv = Array.isArray(ownInv.data.billedHouseIds) && ownInv.data.billedHouseIds.length > 1;
-      if(!isGroupInv && ownInv.id === oldKey){
-        const movingFee = Number(ownInv.data.changeFees) || 0;
-        if(movingFee > 0){
-          migratingFeeNotes = Array.isArray(ownInv.data.changeFeeNotes) && ownInv.data.changeFeeNotes.length
-            ? ownInv.data.changeFeeNotes
-            : [{amount: movingFee, reason: 'Light change fee (moved when bill-to changed)', date: new Date().toISOString()}];
-        }
-        /* An invoice carrying a real payment is zeroed, never deleted — the
-           money that was collected has to stay somewhere. */
-        if(Number(ownInv.data.deposit) > 0){
-          await updateDoc(doc(db,'invoices', ownInv.id), {
-            install: 0, removal: 0, changeFees: 0, changeFeeNotes: [],
-            status: computeInvoiceStatus(0, 0, ownInv.data.deposit || 0, ownInv.data.credits || 0, 0),
-            updatedAt: serverTimestamp()
-          });
-        } else {
-          await deleteDoc(doc(db,'invoices', ownInv.id));
-        }
-      }
-    }
     await updateDoc(doc(db,'jobAddresses', billJoinHouseId), {
       billToPhone: newBillTo, updatedAt: serverTimestamp(), lastEditedBy: paymentLedgerUser()
     });
-    await syncPayerInvoice(newBillTo);
-    /* The fee is folded on AFTER the resync, so it lands on top of the fresh
-       install rather than being overwritten by it. setDoc+merge, not updateDoc:
-       syncPayerInvoice deliberately writes nothing when every house on a bill
-       sat the season out, so the doc may not exist yet. */
-    if(migratingFeeNotes){
+  } catch(err){
+    statusEl.textContent = 'That did not save \u2014 nothing has been changed. Try again.';
+    return;
+  }
+  const problems = [];
+  try{ await syncPayerInvoice(newBillTo); }
+  catch(err){ problems.push(payerName + "'s invoice could not be rebuilt \u2014 open Invoices and check their total."); }
+  if(clearOldInvoice){
+    try{
+      /* An invoice carrying a real payment is zeroed, never deleted — the money
+         that was collected has to stay somewhere it can be seen. */
+      if(Number(ownInv.data.deposit) > 0){
+        await updateDoc(doc(db,'invoices', ownInv.id), {
+          install: 0, removal: 0, changeFees: 0, changeFeeNotes: [],
+          status: computeInvoiceStatus(0, 0, ownInv.data.deposit || 0, ownInv.data.credits || 0, 0),
+          updatedAt: serverTimestamp()
+        });
+      } else {
+        await deleteDoc(doc(db,'invoices', ownInv.id));
+      }
+    } catch(err){
+      problems.push(who + ' still has an invoice of their own as well, so they are on two bills \u2014 ' +
+        'clear it from the Invoices tab.');
+    }
+  }
+  /* The fee is folded on AFTER the resync, so it lands on top of the fresh
+     install rather than being overwritten by it. setDoc+merge, not updateDoc:
+     syncPayerInvoice deliberately writes nothing when every house on a bill sat
+     the season out, so the doc may not exist yet. */
+  if(migratingFeeNotes){
+    try{
       const payerSnap = await getDoc(doc(db,'invoices', newBillTo));
       const payerData = payerSnap.exists() ? payerSnap.data() : {};
       const combinedFeeNotes = (Array.isArray(payerData.changeFeeNotes) ? payerData.changeFeeNotes : []).concat(migratingFeeNotes);
@@ -25537,14 +25586,18 @@ async function billJoinApply(payerId){
         status: computeInvoiceStatus(payerData.install || 0, payerData.removal || 0, payerData.deposit || 0, payerData.credits || 0, combinedFees),
         updatedAt: serverTimestamp()
       }, {merge:true});
+    } catch(err){
+      problems.push('A light-change fee of ' + fmtMoney(movingFee) + ' did not move across \u2014 add it to ' +
+        payerName + "'s invoice by hand.");
     }
-    document.getElementById('billJoinOverlay').style.display = 'none';
-    billJoinHouseId = null;
-    toast(who + ' is now on ' + payerName + "'s bill.");
-    renderAllCustomersTable();
-  } catch(err){
-    statusEl.textContent = 'That did not save — try again, or check the Invoices tab.';
   }
+  document.getElementById('billJoinOverlay').style.display = 'none';
+  billJoinHouseId = null;
+  toast(who + ' is now on ' + payerName + "'s bill.");
+  renderAllCustomersTable();
+  /* Said out loud rather than swallowed: every one of these leaves real money
+     in the wrong place, and none of them is visible without being told. */
+  if(problems.length) alert(who + ' was moved onto the bill, but:\n\n\u2022 ' + problems.join('\n\u2022 '));
 }
 document.getElementById('billJoinSearch')?.addEventListener('input', billJoinRenderList);
 document.getElementById('billJoinCancel')?.addEventListener('click', function(){
