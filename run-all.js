@@ -17576,23 +17576,42 @@ suite('Suite 99. One man installs');
   check('S99', 'the rule is there to run', !!capSrc && !!isSrc);
 
   if (capSrc && isSrc) {
-    const cap = (n) => new Function('MAX_STOPS_PER_ROUTE', capSrc + 'return oneManMaxHouses();')(n);
-    /* ⚠ DERIVED, NOT TYPED. Half of one crew's day. Writing 10 into the source
-       would quietly stop meaning 'half a crew' the moment the crew size changed. */
-    check('S99', 'a one man day is half a crew day', cap(20) === 10,
-      'got ' + cap(20) + ' — a crew is twenty stops, so one person is ten');
-    check('S99', 'and it follows the crew size rather than a typed number',
-      cap(30) === 15 && cap(8) === 4,
-      'got ' + cap(30) + ' and ' + cap(8));
-    check('S99', 'a missing crew size still gives a sane answer', cap(undefined) === 10);
+    /* ⚠ THE CONSTANT HAS TO BE LIFTED WITH THE FUNCTION. oneManMaxHouses now just
+       returns ONE_MAN_MAX_HOUSES, so lifting the function alone throws — and a suite
+       that throws takes every check after it down with it. */
+    const CONST = 'const ONE_MAN_MAX_HOUSES = ' +
+      (admin.match(/const ONE_MAN_MAX_HOUSES = (\d+);/) || [])[1] + ';';
+    const cap = () => new Function(CONST + capSrc + 'return oneManMaxHouses();')();
+    const crewCapFn = (n) => new Function('MAX_STOPS_PER_ROUTE',
+      CONST + capSrc + extractFn(admin, 'oneCrewMaxHouses') + 'return oneCrewMaxHouses();')(n);
+
+    /* ⭐ EIGHT IS HERS, AND IS NOT A FORMULA. Owner, 2026-08-20: "any days with
+       under 20 houses but over 8 should be one crew." This shipped hours earlier as
+       half a crew-day, which made it ten and called two perfectly good one-crew days
+       one-man days. A red-check that turns it back into Math.round(crew / 2) has to
+       fail here, which is why the number is asserted flat. */
+    check('S99', 'one man is eight houses or fewer', cap() === 8,
+      'got ' + cap() + ' — her number, not half a crew');
+
+    /* The UPPER edge IS derived: "under 20" means under a crew's day. */
+    check('S99', 'one crew runs to nineteen', crewCapFn(20) === 19,
+      'got ' + crewCapFn(20) + ' — one under a full crew day');
+    check('S99', 'and that edge follows the crew size',
+      crewCapFn(30) === 29,
+      'got ' + crewCapFn(30));
+    check('S99', 'a missing crew size still gives a sane answer', crewCapFn(undefined) === 19);
+    check('S99', 'and the two never cross over',
+      crewCapFn(4) > cap(),
+      'a tiny crew setting must not make the one-crew ceiling lower than the one-man ' +
+      'floor, or a day would be both at once');
 
     const is = (day) => new Function('day', 'MAX_STOPS_PER_ROUTE',
-      capSrc + isSrc + 'return isOneManDay(day);')(day, 20);
+      CONST + capSrc + isSrc + 'return isOneManDay(day);')(day, 20);
     const houses = (n) => ({houses: Array.from({length: n}, (_, i) => ({id: i}))});
 
-    check('S99', 'ten houses is one man', is(houses(10)) === true);
-    check('S99', 'eleven is not', is(houses(11)) === false,
-      'the boundary is the whole point of the number');
+    check('S99', 'eight houses is one man', is(houses(8)) === true);
+    check('S99', 'nine is not — nine is a one crew day, and those are fine', is(houses(9)) === false,
+      'owner: "one crews are fine what we want to minimize the most is one man days"');
     check('S99', 'four houses certainly is', is(houses(4)) === true,
       'owner: "we end up with like 4 houses a day stretched across 4 days"');
 
@@ -17701,6 +17720,152 @@ suite('Suite 99. One man installs');
   check('S99', 'and it says how many and where they are',
     /house/.test(rom) && /towns\.join/.test(rom),
     'a date on its own does not tell the office whether it is worth a van');
+}
+/* ---------------------------------------------------------------------------
+ * Suite 100. One crew days, and who works them
+ *
+ * Owner, 2026-08-20: "any days with under 20 houses but over 8 should be one crew and
+ * one crews are fine what we want to minimize the most is one man days we would
+ * rather one crew", then: "on one crew days you should be able to pick which crew."
+ *
+ * Three sizes of day, not two. Eight or fewer is one man and is the thing to have
+ * least of; nine to nineteen is one crew and is fine; twenty or more is two crews.
+ * ------------------------------------------------------------------------- */
+suite('Suite 100. One crew days, and who works them');
+
+{
+  const CONST = 'const ONE_MAN_MAX_HOUSES = ' +
+    (admin.match(/const ONE_MAN_MAX_HOUSES = (\d+);/) || [])[1] + ';';
+  const countSrc = extractFn(admin, 'dayCrewCount');
+  check('S100', 'the crew-count rule is there to run', !!countSrc);
+
+  if (countSrc) {
+    const crews = (day, townsByCrew) => new Function('day', 'MAX_STOPS_PER_ROUTE', 'townsByCrew',
+      'const extractCleanCity = function(c){ return String(c == null ? "" : c).trim(); };' +
+      'const cityOf = function(h){ return (h.city || "").trim(); };' +
+      'const sameCity = function(a, b){ return String(a).trim().toLowerCase() === ' +
+      '  String(b).trim().toLowerCase(); };' +
+      'const crewTownsFor = function(i){ return (townsByCrew || {})[i] || []; };' +
+      extractFn(admin, 'dayAssignedHouses') +
+      CONST + extractFn(admin, 'dayTownCount') + extractFn(admin, 'oneManMaxHouses') +
+      extractFn(admin, 'oneCrewMaxHouses') + countSrc + 'return dayCrewCount(day);')(day, 20, townsByCrew);
+    const day = (n, towns) => ({houses: Array.from({length: n}, (_, k) => ({
+      id: k, city: (towns || ['Lehi'])[k % (towns || ['Lehi']).length]}))});
+
+    /* The crews' towns have to be handed in: the rule reads the work they are
+       actually holding, not every house that happens to sit on the date. */
+    const solo = {0: ['Lehi'], 1: []};
+    check('S100', 'twenty houses is two crews', crews(day(20), solo) === 2);
+    check('S100', 'nineteen is one', crews(day(19), solo) === 1,
+      'owner: "any days with under 20 houses but over 8 should be one crew"');
+    check('S100', 'nine is one', crews(day(9), solo) === 1);
+    check('S100', 'and so is a one man day — one person is not two crews',
+      crews(day(4), solo) === 1,
+      'the difference between one man and one crew is who is rostered, not how many ' +
+      'sheets come out of the printer');
+
+    /* ⭐ SIZE ALONE IS NOT THE QUESTION. A crew is its own town plus at most one
+       other, so a light day spread over THREE towns still needs two crews however few
+       houses are on it. Merging it would hand one crew exactly the sheet the town rule
+       exists to prevent, and would undo the fix that came before this. */
+    check('S100', 'a light day over three towns still needs two crews',
+      crews(day(12, ['Lehi', 'Orem', 'Provo']), {0: ['Lehi', 'Orem'], 1: ['Provo']}) === 2,
+      'got one — one crew cannot legally drive three towns');
+    check('S100', 'but a light day over two towns is one crew',
+      crews(day(12, ['Lehi', 'Orem']), {0: ['Lehi'], 1: ['Orem']}) === 1);
+
+    check('S100', 'a fixer route is never asked to be two crews',
+      crews(Object.assign(day(30), {isFixRoute: true}), solo) === 1,
+      'one fixer, one van');
+  }
+
+  /* ---- one crew means ONE sheet ---- */
+  const splitSrc = extractFn(admin, 'dayCrewHouses');
+  check('S100', 'the crew split is there to run', !!splitSrc);
+
+  if (splitSrc && countSrc) {
+    const split = (day, towns) => new Function('day', 'townsByCrew', 'MAX_STOPS_PER_ROUTE',
+      'const cityOf = function(h){ return (h.city || "").trim(); };' +
+      'const sameCity = function(a, b){ return String(a).trim().toLowerCase() === ' +
+      '  String(b).trim().toLowerCase(); };' +
+      'const crewTownsFor = function(i){ return townsByCrew[i] || []; };' +
+      'const extractCleanCity = function(c){ return String(c == null ? "" : c).trim(); };' +
+      CONST + extractFn(admin, 'dayTownCount') + extractFn(admin, 'oneManMaxHouses') +
+      extractFn(admin, 'oneCrewMaxHouses') + extractFn(admin, 'dayAssignedHouses') +
+      countSrc + extractFn(admin, 'daySoloCrew') +
+      extractFn(admin, 'crewCap') + splitSrc + 'return dayCrewHouses(day);')(day, towns, 20);
+
+    const mk = (n, city) => Array.from({length: n}, (_, k) => ({id: city + k, city: city}));
+    const towns = {0: ['Lehi'], 1: ['Orem']};
+    const light = {houses: mk(7, 'Lehi').concat(mk(5, 'Orem'))};
+    const out = split(light, towns);
+
+    check('S100', 'a twelve-house day comes out as one sheet, not two of six',
+      out[0].length === 12 && out[1].length === 0,
+      'got ' + out[0].length + '/' + out[1].length + ' — sending two crews out for a ' +
+      'day one of them could do is the waste she is describing');
+    check('S100', 'and nobody is lost doing it',
+      out[0].concat(out[1]).length === 12);
+
+    /* ⭐ AND THE OFFICE PICKS WHO. Owner: "on one crew days you should be able to
+       pick which crew." */
+    const picked = split({houses: light.houses, soloCrew: 1}, towns);
+    check('S100', 'the day goes to the crew the office picked',
+      picked[1].length === 12 && picked[0].length === 0,
+      'got ' + picked[0].length + '/' + picked[1].length);
+    check('S100', 'and crew one is the default when nobody has picked',
+      out[0].length === 12,
+      'a day with no choice made still has to print for somebody');
+
+    /* ⚠ A HOUSE IN NEITHER CREW’S TOWN IS STILL IN NEITHER. unassignedHousesFor
+       has to keep being able to see it; sweeping it onto the solo sheet would hide a
+       stop nobody has agreed to drive to. */
+    const stray = split({houses: light.houses.concat(mk(1, 'Levan'))}, towns);
+    check('S100', 'a house in neither town is not swept onto the one sheet',
+      stray[0].length === 12 && stray[1].length === 0,
+      'got ' + stray[0].length + ' — it must stay visible as unassigned');
+
+    /* A full day is untouched by any of this. */
+    const full = split({houses: mk(20, 'Lehi').concat(mk(20, 'Orem'))}, towns);
+    check('S100', 'a forty-house day is still two crews of twenty',
+      full[0].length === 20 && full[1].length === 20);
+  }
+
+  /* ---- the choice survives a reload ---- */
+  const ser = extractFn(admin, 'serialize');
+  const hyd = extractFn(admin, 'hydrate');
+  check('S100', 'the chosen crew is saved with the day',
+    /soloCrew:d\.soloCrew/.test(ser),
+    'that list of day fields is explicit, so anything missing from it silently does ' +
+    'not survive a reload');
+  check('S100', 'and read back when the plan loads',
+    /soloCrew:d\.soloCrew/.test(hyd),
+    'saved and never read is the same as not saved');
+
+  /* ---- the rescue only saves one-man days now ---- */
+  const plan = admin.slice(admin.indexOf('function planNewCrewDays(waiting, taken, opts)'),
+                           admin.indexOf('/* Top every day up to the cap.'));
+  check('S100', 'a wasted morning means a one man day, not a quiet one',
+    /wastedDay = o\.wastedDay == null/.test(plan) && /ONE_MAN_MAX_HOUSES/.test(plan),
+    'it was 12, so days of nine, ten and eleven — perfectly good one-crew days — ' +
+    'were taken apart and their houses posted to crews further away than the ' +
+    'borrowing rule allows');
+  check('S100', 'and the old flat twelve is gone',
+    plan.indexOf('wastedDay == null ? 12') === -1);
+
+  /* ---- the picker ---- */
+  const bar = extractFn(admin, 'renderCrewBar');
+  check('S100', 'the picker is offered on a one-crew day',
+    /dayCrewCount\(day\) === 1/.test(bar) && /data-solocrew/.test(bar),
+    'and only there: a chooser on a two-crew day is a control that does nothing');
+  check('S100', 'and choosing actually writes it to the day',
+    /dataset\.solocrew/.test(admin) && /soloCrew = /.test(admin),
+    'a select that renders and does nothing is worse than not offering one');
+  check('S100', 'the day list says which days are which',
+    /1 MAN/.test(extractFn(admin, 'renderDayList')) &&
+    /1 CREW/.test(extractFn(admin, 'renderDayList')),
+    'a one-man day and a two-crew day look identical in a list of dates, and the ' +
+    'difference is who has to be rostered');
 }
 /* ---------------------------------------------------------------------------
  * Suite 92. A day inside 48 hours is printed, and printed is finished
