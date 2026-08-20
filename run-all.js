@@ -345,7 +345,15 @@ const RB_COLOR_ALIAS = (function(){
   const end = admin.indexOf('};', at);
   const body = admin.slice(admin.indexOf('{', at), end + 1);
   const out = {};
-  body.replace(/'([^']+)'\s*:\s*'([^']+)'/g, function(_, k, v){ out[k] = v; return ''; });
+  /* ⚠ A VALUE MAY BE A LIST. "white" maps to BOTH warm and pure, because nobody
+     knows which was meant. A parser that only understands string values drops that
+     key silently, and then the suite is testing an alias table the app does not
+     have — which is exactly what happened when the key was added. */
+  body.replace(/'([^']+)'\s*:\s*\[([^\]]+)\]/g, function(_, k, list){
+    out[k] = list.split(',').map(function(v){ return v.trim().replace(/^'/, '').replace(/'$/, ''); });
+    return '';
+  });
+  body.replace(/'([^']+)'\s*:\s*'([^']+)'/g, function(_, k, v){ if(!(k in out)) out[k] = v; return ''; });
   return out;
 })();
 /* Health Check's "customer with no number" row reads the town off the record.
@@ -8926,8 +8934,16 @@ suite('Suite 36. Pasting the whole sheet');
     check('S36', 'the unnamed spacer column is not treated as a heading',
       !m.mapped.some(x => !x.heading) && m.ignored.every(h => !!String(h).trim()));
 
+    /* ⚠ Misc and Up Plug LEFT this list on 2026-08-19 when the owner said what they
+       hold: Up Plug is the outlet preference, and Misc carries bill-to, a gate code, a
+       side count and how the bill travels. The rest are still deliberately unread — a
+       column nobody has explained is safer ignored than guessed at, and being NAMED is
+       what got these two explained in the first place. */
     check('S36', 'columns with nowhere to go are reported, not silently dropped',
-      ['Misc','Set Up Fee','Yes','Recycle','2027','Color Changes'].every(h => m.ignored.includes(h)),
+      ['Set Up Fee','Yes','Recycle','2027','Color Changes'].every(h => m.ignored.includes(h)),
+      'ignored: ' + m.ignored.join(', '));
+    check('S36', 'and the two she explained are no longer ignored',
+      !m.ignored.includes('Misc') && !m.ignored.includes('Up Plug'),
       'ignored: ' + m.ignored.join(', '));
 
     check('S36', 'every mapped area is a real box on the page',
@@ -9192,9 +9208,36 @@ suite('Suite 36. Pasting the whole sheet');
     }
   }
 
-  check('S36', '"Up Plug" is not guessed into a real field',
-    !/'up plug'/.test(admin),
-    'it reads like Yes/No but 99 of its cells are "?"; mapping it would write that to 99 customers');
+  /* ⭐ SETTLED 2026-08-19: "up plug should be read and then put into the website in
+     the what outlets spot". It is the column that says WHICH outlet, so it fills the
+     note the crew reads and ticks the flag the office filters on.
+     ⚠ TWO FIELDS, NOT ONE. Writing the words into the Yes/No flag would leave the
+     crew a "Yes" and no outlet. */
+    /* ⭐ UP PLUG IS THE EAVES YES/NO, and finding that out cost a bug. Owner: "up plug
+       is about preference on using outlet in eaves". A dry run over the real sheet
+       settled it: the column holds 112 "yes", 98 "?", 61 "no" and 3 "y" — FOUR distinct
+       values, none of them a description.
+
+       ⚠ THE FIRST VERSION WAS WRONG TWICE. It wrote the word "yes" into the note the
+       crew reads, and set Specific Outlet to Yes for anything non-blank — backwards for
+       the 61 who said NO, and inventing an answer for the 98 who wrote "?". Every test
+       passed. Reading the column is what caught it.
+
+       ⚠ "?" IS NOT A NO. rbNormalizeYesNo returns blank for it and blank leaves the
+       record alone, which is the honest answer to a question mark. */
+    check('S60', '"Up Plug" answers the eaves question, not the which-outlet one',
+      /\{area:'rbUpPlugArea'/.test(admin) &&
+      /useEaves: rbNormalizeYesNo\(upPlugRaw\[i\]/.test(admin) &&
+      /const eavesFromSheet = rbNormalizeYesNo\(upPlugRaw\[i\]/.test(admin),
+      'writing yes/no into the crew’s outlet note gives them a note that says "yes"');
+    check('S60', 'and WHICH outlet only ever comes from a note',
+      /specificOutlet: rbOutletFromNote\(notesRaw\[i\]\) \? 'Yes' : ''/.test(admin) &&
+      /const outletFromSheet = rbOutletFromNote\(notesRawVal\);/.test(admin),
+      'that is the only place in the sheet a real instruction appears');
+    check('S60', 'and an outlet instruction in the Notes column counts too',
+      /function rbOutletFromNote\(raw\)\{/.test(admin) &&
+      /if\(!\/\\b\(outlet\|plug\|eave\)\/i\.test\(text\)\) return "";/.test(admin),
+      'that is where it ends up when there is nowhere else to put it');
 
   {
     const at = admin.indexOf('function rbNormalizeFeet(');
@@ -14185,17 +14228,32 @@ suite('Suite 60. The colours as the office actually writes them');
       sb.n('4red').join('') === 'Red' && sb.n('2 green').join('') === 'Green',
       'got ' + JSON.stringify(sb.n('4red')) + ' and ' + JSON.stringify(sb.n('2 green')));
 
-    /* ⚠ THE HALF THAT MATTERS MORE: never guess. */
-    check('S60', '"white" is left alone — pure or warm is a real difference',
-      sb.n('white').join('') === 'white',
-      'got "' + sb.n('white').join('') + '". 22 mentions, and the two are different products — ' +
-      'passing it through is how it stays visible as something a person has to decide');
-    check('S60', '"w" is left alone — warm or white',
-      sb.n('w').join('') === 'w');
-    check('S60', '"soft" is left alone — usually warm white, but that is an assumption',
-      sb.n('soft').join('') === 'soft');
-    check('S60', '"p" is left alone — pure, pink or purple',
-      sb.n('p').join('') === 'p');
+    /* ⭐ SETTLED 2026-08-19, after weeks of deliberately passing it through. It was
+       left alone precisely so a person would decide, and she did: "white lets just say
+       is put warm and pure because we really dont know". Both, rather than a guess at
+       one — the honest answer to 22 mentions nobody can now reconstruct. Checked just
+       below, with the other three she settled the same day. */
+    /* ⭐ SETTLED 2026-08-19. These three sat unmapped for weeks because a wrong guess
+     writes the wrong lights onto a house, and the owner ruled on all of them:
+     "p is pure", "w is warm white", and for soft, "soft is a color we dont use
+     anymore so we should have them under color: soft(recycled) so then we can find
+     them later cause we need to switch their lights". */
+    check('S60', '"w" is warm white and "p" is pure',
+      sb.n('w').join('|') === 'Warm White' && sb.n('p').join('|') === 'Pure White',
+      'got w=' + JSON.stringify(sb.n('w')) + ' p=' + JSON.stringify(sb.n('p')));
+    /* ⚠ SOFT IS KEPT, NOT TRANSLATED. It is stock they no longer use, so the point is
+       to be able to FIND those houses later and swap the lights — turning it into
+       Warm White would hide exactly the customers she needs to see. */
+    check('S60', '"soft" is kept under its own name so those houses can be found',
+      sb.n('soft').join('|') === 'soft(recycled)' &&
+      sb.n('soft white').join('|') === 'soft(recycled)',
+      'got ' + JSON.stringify(sb.n('soft')));
+    /* ⚠ "white" MEANS BOTH, and is the reason an alias may be a list. Owner: "white
+       lets just say is put warm and pure because we really dont know". Guessing one
+       would be a claim nobody can support. */
+    check('S60', '"white" becomes warm AND pure, because nobody knows which',
+      sb.n('white').join('|') === 'Warm White|Pure White',
+      'got ' + JSON.stringify(sb.n('white')));
     check('S60', 'and free text is never turned into a colour',
       sb.n('berry peas').join('') === 'berry peas' &&
       sb.n('add 60 bulbs').join('|').indexOf('Red') === -1,
@@ -14223,8 +14281,8 @@ suite('Suite 60. The colours as the office actually writes them');
        line exists passed with one of them gutted. Widened 2026-08-18 when a
        side-count started being lifted out of Notes the same way. */
     check('S60', 'both import branches drop a colours-only note rather than writing it',
-      (admin.match(/const notesVal = \(notesSides \|\| rbNotesLooksLikeColors\(notesRawVal\)\) \? '' : notesRawVal;/g) || []).length === 2,
-      'found ' + (admin.match(/const notesVal = \(notesSides \|\| rbNotesLooksLikeColors\(notesRawVal\)\) \? '' : notesRawVal;/g) || []).length +
+      (admin.match(/= \(notesSides \|\| rbNotesLooksLikeColors\(notesRawVal\)\) \? '' : notesRawVal;/g) || []).length === 2,
+      'found ' + (admin.match(/= \(notesSides \|\| rbNotesLooksLikeColors\(notesRawVal\)\) \? '' : notesRawVal;/g) || []).length +
       ' of 2 — an unguarded branch writes "red/green/pure" onto the crew card as an instruction');
     check('S60', 'and the comparison reads Notes the same way',
       /return rbNotesLooksLikeColors\(v\) \? '' : v;/.test(admin),
@@ -14279,15 +14337,34 @@ suite('Suite 61. Reading the master sheet where it lives');
     const end = admin.indexOf('/* ⭐ FOUR WAYS TO RECOGNISE THE SAME PERSON', at);
     const block = at > 0 && end > at ? admin.slice(at, end) : '';
     check('S61', 'the sheet code was found', !!block);
-    check('S61', 'it never writes a file, and never offers one to save',
-      !/showSaveFilePicker|createWritable|URL\.createObjectURL|download=/.test(block),
-      '"make sure it never redownloads the file" — this is that, asserted');
+    /* ⭐ CHANGED 2026-08-19. She asked for writing: "all her information needs to be
+       put into excel ... it should not redownload the excel and edit it though it
+       should update that exact file."
+       So createWritable is now allowed — that IS updating that exact file, through
+       the handle she picked. What stays forbidden is every route that would make a
+       SECOND copy: a save dialog, a blob URL, a download link. That was the actual
+       worry behind "never redownloads the file", and it is untouched. */
+    check('S61', 'it never downloads the workbook or offers a copy to save',
+      !/showSaveFilePicker|URL\.createObjectURL|download=/.test(block),
+      'a second copy is the thing she did not want; writing the original is what she asked for');
+    check('S61', 'and it writes only through the handle she picked',
+      !/createWritable/.test(block) || /handle\.createWritable\(\)/.test(admin),
+      'writing anywhere but the connected file is how a second sheet appears');
     check('S61', 'and it never fetches the workbook from anywhere',
       !/fetch\(|XMLHttpRequest|api\.onedrive|graph\.microsoft/.test(block),
       'the whole point is that the file is already on this computer');
-    check('S61', 'it asks only for READ permission',
-      /mode: "read"/.test(block) && !/mode: "readwrite"/.test(block),
-      'read-only is what makes it impossible for this to damage the sheet');
+    /* ⚠ READ AND WRITE ARE STILL ASKED FOR SEPARATELY, and reading still asks for
+       read alone. The comparison runs constantly and never needs write; asking for
+       write there would hand a permanent write grant to a screen that only looks. */
+    check('S61', 'reading the sheet still asks for read alone',
+      /mode: "read"/.test(block),
+      'the comparison only looks — it has no business holding a write grant');
+    /* ⚠ And write is asked for at the moment of writing, in its own function. */
+    check('S61', 'and write is asked for separately, where the writing happens',
+      /mode: "readwrite"/.test(admin) &&
+      /async function hlxAppendRowsToSheet/.test(admin) &&
+      (extractFn(admin, "hlxAppendRowsToSheet") || "").indexOf('mode: "readwrite"') > 0,
+      'a write grant belongs to the thing that writes, not to the thing that reads');
     check('S61', 'the handle is remembered, so the file is picked once per computer',
       /indexedDB\.open\(HLX_SHEET_DB/.test(block) && /store\.put\(handle, HLX_SHEET_KEY\)/.test(block));
     check('S61', 'and only the parts it actually reads are inflated',
@@ -14498,39 +14575,48 @@ suite('Suite 62. Which sides of the house');
       const sb = {};
       new Function("const RB_SIDE_ORDER = ['front','right','left','back'];" + src +
         'this.f = rbSidesFromNote;').call(sb);
-      const f = function(v){ const r = sb.f(v); return r === null ? null : r.join(','); };
+      /* ⚠ A COUNT NOW, not a list of names. Owner, 2026-08-19: "we need it to say 1,
+         2, 3, or 4 sides of the house so then it can just be connected and we dont have
+         to guess if its the left or right side." This function WAS that guess: her
+         sheet said "2 sides" and it answered "front and right", which she never wrote
+         anywhere. 0 now means what null meant — nothing was recorded. */
+      const f = function(v){ return sb.f(v); };
 
       /* ⭐ THE OWNER'S OWN EXAMPLE, and the commonest note on the sheet. */
-      check('S62', '"3 sides" is front, right and left',
-        f('3 sides') === 'front,right,left', 'got ' + f('3 sides'));
-      check('S62', 'and the count runs from the front round',
-        f('1 side') === 'front' && f('2 sides') === 'front,right' &&
-        f('4 sides') === 'front,right,left,back',
+      /* ⭐ THE OWNER’S OWN WORDING, and the commonest note on the sheet. */
+      check('S62', '"3 sides" is three', f('3 sides') === 3, 'got ' + f('3 sides'));
+      check('S62', 'and one, two and four read as themselves',
+        f('1 side') === 1 && f('2 sides') === 2 && f('4 sides') === 4,
         JSON.stringify([f('1 side'), f('2 sides'), f('4 sides')]));
+      /* ⚠ "front and side" and "front and back" are BOTH two, and that is the whole
+         argument for counting: they are two sides of lights either way, and which two
+         was never recorded anywhere. */
       check('S62', '"front and side" is two, however it is punctuated',
-        f('front and side') === 'front,right' && f('Front & Side') === 'front,right' &&
-        f('front + sides') === 'front,right');
+        f('front and side') === 2 && f('Front & Side') === 2 && f('front + sides') === 2);
       check('S62', 'and the other ways of saying it',
-        f('front') === 'front' && f('front and back') === 'front,back' &&
-        f('all 4 sides') === 'front,right,left,back' && f('all sides') === 'front,right,left,back');
+        f('front') === 1 && f('front and back') === 2 &&
+        f('all 4 sides') === 4 && f('all sides') === 4);
       check('S62', 'case and spacing make no difference',
-        f('  3 SIDES  ') === 'front,right,left');
+        f('  3 SIDES  ') === 3);
 
       /* ⚠ THE HALF THAT MATTERS MORE. Null means the note is KEPT and nothing
          is ticked — guessing here puts three sides on a house that may have
          one, and the crew hangs lights nobody asked for. */
+      /* ⚠ THE HALF THAT MATTERS MORE. 0 means the note is KEPT and no count is
+         recorded — guessing here puts three sides on a house that may have one, and
+         the crew hangs lights nobody asked for. */
       check('S62', 'an instruction that merely mentions sides is left as a note',
-        f('map other 3 sides') === null && f('add 2 sides') === null &&
-        f('remove patio lights in back') === null,
+        f('map other 3 sides') === 0 && f('add 2 sides') === 0 &&
+        f('remove patio lights in back') === 0,
         'got ' + JSON.stringify([f('map other 3 sides'), f('add 2 sides')]) +
         ' — "map other 3 sides" is about the map, not about what gets lit');
       check('S62', 'a real note is never mistaken for a count',
-        f('DO NOT ADD TIMER') === null && f('gate code 1234') === null &&
-        f('Warm w/ berry peaks (3 green on each side of peak)') === null);
+        f('DO NOT ADD TIMER') === 0 && f('gate code 1234') === 0 &&
+        f('Warm w/ berry peaks (3 green on each side of peak)') === 0);
       check('S62', 'a count nobody could mean is refused',
-        f('5 sides') === null && f('0 sides') === null);
+        f('5 sides') === 0 && f('0 sides') === 0);
       check('S62', 'and a blank is not a count',
-        f('') === null && f('   ') === null && f(null) === null);
+        f('') === 0 && f('   ') === 0 && f(null) === 0);
     }
   }
 
@@ -14539,12 +14625,16 @@ suite('Suite 62. Which sides of the house');
     (admin.match(/const notesSides = rbSidesFromNote\(notesRawVal\);/g) || []).length === 2,
     'both branches, or a customer added gets the sentence and one updated gets the ticks');
   check('S62', 'a note that IS a side-count is not also written as a note',
-    /const notesVal = \(notesSides \|\| rbNotesLooksLikeColors\(notesRawVal\)\) \? '' : notesRawVal;/.test(admin),
+    /= \(notesSides \|\| rbNotesLooksLikeColors\(notesRawVal\)\) \? '' : notesRawVal;/.test(admin),
     'leaving it in Notes as well is how the crew ends up reading the same thing twice');
   check('S62', 'and it is written to the customer, on every path',
-    /if\(notesSides\) updates\.houseSides = notesSides;/.test(admin) &&
-    /if\(notesSides\) newDoc\.houseSides = notesSides;/.test(admin) &&
-    /if\(notesSides\) doc2\.houseSides = notesSides;/.test(admin),
+    /* ⚠ The add-the-missing-ones path takes it from EITHER column now — Misc says
+       "3 sides" as often as Notes does, and Misc wins because it is the column meant
+       for it. The other two paths still read Notes alone. */
+    /if\(sideCount\) updates\.houseSides = sideCount;/.test(admin) &&
+    /if\(sideCount\) newDoc\.houseSides = sideCount;/.test(admin) &&
+    (admin.match(/const sideCount = misc\.sides \|\| notesSides;/g) || []).length === 2 &&
+    /if\(sideCount\) doc2\.houseSides = sideCount;/.test(admin),
     'update, add, and the add-the-missing-ones tool');
 
   /* ---- ⭐ the field exists in all three places, with ONE set of words ---- */
@@ -14556,46 +14646,56 @@ suite('Suite 62. Which sides of the house');
     check('S62', 'and the quote form asks the customer directly',
       index.indexOf('id="quoteSidesRow"') > 0 && /name="house_sides"/.test(index));
 
-    /* ⚠ ONE SET OF WORDS. The quote photos already call them Front of house /
-       Right side / Left side / Back; a second vocabulary for the same four
-       things is how "the right side" comes to mean two different walls. */
-    ['front', 'right', 'left', 'back'].forEach(function(k){
-      check('S62', 'the "' + k + '" value is the same on all three forms',
-        admin.indexOf('class="editcust-side-check" value="' + k + '"') > 0 &&
-        admin.indexOf('class="addcust-side-check" value="' + k + '"') > 0 &&
-        index.indexOf('name="house_sides" value="' + k + '"') > 0);
+    /* ⭐ ONE COUNT, THE SAME ON ALL THREE FORMS. Owner, 2026-08-19: "in the website
+       its called front left right and back side, we need it to say 1, 2, 3, or 4 sides
+       of the house so then it can just be connected and we dont have to guess if its
+       the left or right side." */
+    [1, 2, 3, 4].forEach(function(n){
+      check('S62', '"' + n + ' sides" is offered on all three forms',
+        admin.indexOf('class="editcust-side-pick" value="' + n + '"') > 0 &&
+        admin.indexOf('class="addcust-side-pick" value="' + n + '"') > 0 &&
+        index.indexOf('name="house_sides" value="' + n + '"') > 0);
     });
-    check('S62', 'and they use the same words the quote photos already use',
+    /* ⚠ AND THE PHOTO LABELS ARE UNTOUCHED, deliberately. You photograph the front of
+       a house; you do not photograph "side 2". Sides-of-lights is a count and
+       sides-for-photos is four named walls, and they are different questions. */
+    check('S62', 'the photo labels still name the four walls',
       /QUOTE_SIDE_ORDER = \['front', 'right', 'left', 'back'\]/.test(index) &&
-      /Front of house/.test(admin) && /Right side/.test(admin),
-      'a second vocabulary for the same four walls is how a crew hangs the wrong one');
+      /Front of house/.test(index),
+      'a photo of the front is a photo of the front whatever the light count is');
   }
 
   /* ---- it survives the round trip ---- */
-  check('S62', 'Edit Customer loads what was saved',
-    /const custSides = Array\.isArray\(d\.houseSides\) \? d\.houseSides : \[\];/.test(admin));
-  check('S62', 'and saves what is ticked',
-    /const newHouseSides = Array\.from\(document\.querySelectorAll\('\.editcust-side-check:checked'\)\)/.test(admin) &&
+  /* ⚠ THE OLD SHAPE STILL READS. Every customer saved before 2026-08-19 holds an
+     ARRAY of side names, and three names is three sides — the same fact said the old
+     way. Coming back as "not recorded" would blank 962 records that have an answer. */
+  check('S62', 'a record saved the old way still reads as a count',
+    /function houseSideCount\(v\)\{/.test(admin) &&
+    /if\(Array\.isArray\(v\)\) return Math\.min\(4, v\.filter\(Boolean\)\.length\);/.test(admin),
+    'an array of three names is three sides');
+  check('S62', 'Edit Customer loads it and saves it',
+    /const n = houseSideCount\(d\.houseSides\);/.test(admin) &&
+    /const newHouseSides = houseSideCount\(\(document\.querySelector\('\.editcust-side-pick:checked'\)/.test(admin) &&
     /houseSides: newHouseSides,/.test(admin));
-  check('S62', 'Add Customer saves what is ticked',
-    /const selectedSides = Array\.from\(document\.querySelectorAll\('\.addcust-side-check:checked'\)\)/.test(admin) &&
+  check('S62', 'Add Customer saves it too',
+    /const selectedSides = houseSideCount\(\(document\.querySelector\('\.addcust-side-pick:checked'\)/.test(admin) &&
     /houseSides: selectedSides,/.test(admin));
   /* ⭐ THE POINT OF ASKING ON THE QUOTE AT ALL. */
-  check('S62', 'a quote carries its sides through to the customer',
-    /const quoteSides = Array\.isArray\(d\.houseSides\) \? d\.houseSides : \[\];/.test(admin) &&
-    /\.addcust-side-check/.test(admin),
+  check('S62', 'a quote carries its count through to the customer',
+    /\.addcust-side-pick/.test(admin),
     'both convert paths go through this form, so this one fill covers them');
   {
     const index = read('index.html');
     check('S62', 'and the quote actually stores it',
-      /houseSides: fd\.getAll\('house_sides'\),/.test(index),
-      '⚠ getAll, not get — a checkbox group is a list, and get() keeps only the first one ticked');
+      /houseSides: portalSideCount\(fd\.get\('house_sides'\)\),/.test(index),
+      '⚠ get, not getAll — it is one radio group now, and getAll would store a list of one');
   }
-  /* ⚠ Blank means "never asked", not "front only". */
-  check('S62', 'nothing is ticked by default',
-    !/class="editcust-side-check" value="front" checked/.test(admin) &&
-    !/class="addcust-side-check" value="front" checked/.test(admin),
-    'defaulting to front would put a made-up answer on 962 records that were never asked');
+  /* ⚠ Blank means "never asked", not "one side". Defaulting to a number would put a
+     made-up answer on 962 records nobody has ever asked. */
+  check('S62', 'nothing is picked by default',
+    !/class="editcust-side-pick" value="1" checked/.test(admin) &&
+    !/class="addcust-side-pick" value="1" checked/.test(admin),
+    'a count nobody gave is not a count');
 }
 
 
@@ -14625,11 +14725,14 @@ suite('Suite 63. Changing your sides in the Member Portal');
   check('S63', 'the portal has a Sides tab and panel',
     index.indexOf('id="tabPanel-sides"') > 0 &&
     /data-tab="sides"/.test(index));
-  check('S63', 'with the same four names as everywhere else',
-    ['front', 'right', 'left', 'back'].every(function(k){
-      return index.indexOf('class="portal-side-check" value="' + k + '"') > 0;
+  /* ⭐ A COUNT, the same question the office and the quote form now ask. Owner,
+     2026-08-19: "we need it to say 1, 2, 3, or 4 sides of the house so then it can
+     just be connected and we dont have to guess if its the left or right side." */
+  check('S63', 'the portal asks for a count, one to four',
+    [1, 2, 3, 4].every(function(n){
+      return index.indexOf('class="portal-side-pick" value="' + n + '"') > 0;
     }),
-    'a second vocabulary for the same four walls is how a crew hangs the wrong one');
+    'the member and the office have to be answering the same question');
   check('S63', 'and it is filled in from the record on load',
     /try\{ portalRenderSides\(\); \}catch\(err\)\{\}/.test(index),
     'an empty set of boxes reads as "we are lighting none of it"');
@@ -14679,11 +14782,20 @@ suite('Suite 63. Changing your sides in the Member Portal');
     const body = at > 0 && end > at ? fns.slice(at, end) : '';
     check('S63', 'the sides branch was found', !!body);
     /* ⚠ THIS ARRIVES FROM A BROWSER. */
-    check('S63', 'what the browser sends is reduced to the four known sides',
-      /const KNOWN = \['front', 'right', 'left', 'back'\];/.test(body) &&
-      /if \(wanted\.indexOf\(k\) !== -1\) clean\.push\(k\);/.test(body) &&
-      /updates\.houseSides = clean;/.test(body),
+    /* ⚠ STILL VALIDATED SERVER-SIDE, and for the same reason: this arrives from a
+       browser. A count is NARROWER than a list of keys, not looser — anything that is
+       not 1 to 4 becomes 0, which reads as "not recorded". */
+    check('S63', 'what the browser sends is reduced to a count of one to four',
+      /const asCount = function \(v\) \{/.test(body) &&
+      /return \(n >= 1 && n <= 4\) \? n : 0;/.test(body) &&
+      /updates\.houseSides = asCount\(updates\.houseSides\);/.test(body),
       'free text from a browser would end up printed on a crew card');
+    /* ⚠ AND THE OLD SHAPE STILL COUNTS. A member saved before today holds an array of
+       names; rejecting it would tell somebody with a full record that nothing is on
+       file. */
+    check('S63', 'and a record saved the old way still counts',
+      /if \(Array\.isArray\(v\)\) return Math\.min\(4, v\.filter\(Boolean\)\.length\);/.test(body),
+      'three names is three sides — the same fact said the old way');
     /* ⚠ RETIRED 2026-08-18, the same day it was added. Owner: "we shouldnt need
        a flag that says needs requote the customer should just appear in the
        requote section." The quote the portal opens IS the record of it; a
@@ -14694,15 +14806,15 @@ suite('Suite 63. Changing your sides in the Member Portal');
       'the quote is the record — a flag beside it is a second truth to maintain');
     /* ⚠ Only on a real change — otherwise every portal visit flags them. */
     check('S63', 'a save that changes nothing does not flag anyone',
-      /if \(clean\.slice\(\)\.sort\(\)\.join\(','\) !== before\) \{/.test(body),
+      /if \(updates\.houseSides !== before\) \{/.test(body),
       'flagging on every save would fill the office list with people who changed nothing');
-    /* ⚠ BOTH sides sorted, or the comparison is order-sensitive on one of them
-       and every visit looks like a change. Testing for one .sort() passed with
-       the other removed. */
-    check('S63', 'and the order they ticked the boxes in is not a change',
-      /oldData\.houseSides\.slice\(\)\.sort\(\)\.join\(','\)/.test(body) &&
-      /clean\.slice\(\)\.sort\(\)\.join\(','\)/.test(body),
-      'front,right and right,front are the same house');
+    /* ⚠ AND BOTH SIDES OF THAT COMPARISON GO THROUGH THE SAME READER. The old note
+       here was about sorting two lists; a count needs no sorting, but it does need the
+       stored value read the same way as the incoming one — otherwise a member whose
+       record holds ["front","right"] looks like a change to 2 on every single visit. */
+    check('S63', 'and a record saved the old way is not read as a change',
+      /const before = asCount\(oldData\.houseSides\);/.test(body),
+      'two names and the number 2 are the same answer, and must compare equal');
   }
 
   /* ---- the colour half, which already existed and was left alone ---- */
@@ -15135,6 +15247,379 @@ suite('Suite 66. The master sheet choice is remembered for every computer');
 suite('Suite 69. A customer as a row of the master sheet');
 {
   const admin = read("admin.html");
+  /* ⭐ THE OFFICE WRITES THESE THE WAY PEOPLE TALK, and a dry run over all 960 rows is
+     what showed it. Three real cells were being filed as leftover notes because the
+     patterns were too tight:
+       "text the bill"                   a word sits between
+       "cc bill to Jenna@…"              a prefix comes first
+       and the payer there is an EMAIL, not a name.
+     Every test passed the whole time; reading the column is what caught it. */
+  {
+    const src = [extractFn(admin, "rbSidesFromNote"), extractFn(admin, "rbGateCodeFromText"),
+                 extractFn(admin, "rbMiscParse")].join("\n");
+    const sb = {};
+    new Function(src + "this.m = rbMiscParse;").call(sb);
+    check('S69', 'a word between does not hide the preference',
+      sb.m("text the bill").textBill === true && sb.m("mail the bill").mailBill === true &&
+      sb.m("text bill").textBill === true,
+      'the office writes it the way people talk');
+    check('S69', 'and a prefix does not hide the payer',
+      sb.m("cc bill to Jennalesa@gmail.com").billToEmail === "jennalesa@gmail.com" &&
+      sb.m("bill steve laycock").billToName === "steve laycock",
+      'an anchored pattern could not see past the cc');
+    /* ⚠ AN EMAIL IS KEPT SEPARATELY, not squeezed into the name field where a
+       name-matcher would never find it. */
+    check('S69', 'an email payer is kept as an email',
+      sb.m("cc bill to Jennalesa@gmail.com").billToName === "",
+      'a name-matcher would never find an address, and the match would silently fail');
+  }
+  /* ⚠ AND THE RESOLVER PREFERS THE EMAIL. It is exact where a name is a guess. */
+  check('S69', 'the resolver matches on the email when there is one',
+    /if\(wantEmail\) return String\(\(x\.data \|\| \{\}\)\.email/.test(admin),
+    'an exact key beats a name every time');
+}
+{
+  const admin = read("admin.html");
+  /* ⭐ WHAT THE SHEET SETS HAS TO BE VISIBLE. Three fields now arrive from the master
+     sheet and had nowhere to appear: prepaid, wants-texted, and a bill-to name whose
+     payer is NOT one of our customers. A value nobody can see is a value nobody can
+     check, and the whole point of reading Misc is that she can correct what it got
+     wrong. */
+  {
+    const src = extractFn(admin, "custSheetChips");
+    check('S69', 'custSheetChips exists', !!src);
+    if(src){
+      const sb = {};
+      new Function("const esc = function(v){ return String(v == null ? '' : v); };" +
+        src + "this.f = custSheetChips;").call(sb);
+      /* ⚠ AND THE CHIPS ACTUALLY REACH THE ROW. Building them and never rendering them
+         is the exact shape of a bug that shipped earlier today — the message was correct
+         and a later assignment threw it away. */
+      check('S69', 'the chips are drawn on the customer row',
+        /\+custNumChip\(r\.d\)\+binBadge\+custSheetChips\(r\.d\)/.test(admin),
+        'a chip nothing renders is a chip nobody sees');
+      check('S69', 'prepaid and text-bill show on the row',
+        /PREPAID/.test(sb.f({prepaid: true})) &&
+        /TEXT BILL/.test(sb.f({wantsTextedInvoice: true})) &&
+        sb.f({}) === "",
+        'a value nobody can see is a value nobody can check');
+      /* ⚠ ONLY THE UNRESOLVED BILL-TO. A resolved one already reads "Billed to …" in
+         the invoice column, and the same fact twice in one row is how a row stops being
+         read. The unresolved one is worth showing precisely because nothing else will
+         ever act on it. */
+      check('S69', 'a bill-to that could not be linked is shown',
+        /BILL TO Kelly Brown/.test(sb.f({billToName: "Kelly Brown"})),
+        'the payer is not one of our customers, so nothing else will ever mention it');
+      check('S69', 'and a resolved one is not shown twice',
+        sb.f({billToName: "Kelly Brown", billToPhone: "8015550001"}) === "",
+        'the invoice column already says Billed to');
+    }
+  }
+  /* ⚠ AND THE TEXT PREFERENCE IS EDITABLE, not just readable. The sheet can set it
+     wrong, and there was no box to correct it with. */
+  check('S69', 'the office can set the text-bill preference by hand',
+    /id="editCustWantsTexted"/.test(admin) &&
+    /wantsTextedInvoice: newWantsTexted,/.test(admin) &&
+    /getElementById\('editCustWantsTexted'\)\.checked = !!d\.wantsTextedInvoice;/.test(admin),
+    'read, write and load — a box that saves but never loads shows blank on every open');
+}
+{
+  const admin = read("admin.html");
+  /* ⭐ THE MAIN IMPORT READS MISC TOO, and for a while it did not. Everything the owner
+     asked for on 2026-08-19 — the gate code, bill-to, prepaid, mail/text bill, the side
+     count, the leftover joining the note — went into the "add the ones missing from the
+     website" tool and NOT into Bulk Update, which is the tool she actually runs over the
+     whole book. So none of it reached the 962 customers who already exist, and every
+     other check passed the whole time because the OTHER path had it all.
+     ⚠ That is why these check the count, not the presence: one of two is the bug. */
+  check('S69', 'both import paths read the Misc column',
+    (admin.match(/rbMiscParse\(miscRaw\[i\]\)/g) || []).length === 2 &&
+    /alignBulkRows\(rbCol\('rbMiscArea', hoff\)/.test(admin),
+    'the tool she actually runs over the whole book was the one left out');
+  check('S69', 'and both apply the gate code, the bill-to and prepaid',
+    (admin.match(/\.gateCode = gate/g) || []).length === 4 &&
+    (admin.match(/\.billToName = misc\.billToName;/g) || []).length === 3 &&
+    (admin.match(/\.prepaid = true;/g) || []).length === 3,
+    'update, add-during-import, and add-the-missing-ones are three write sites and all three matter');
+  /* ⭐ SOFT IS PICKABLE, BUT ONLY BY THE OFFICE. Owner, 2026-08-19: "yes no new houses
+     can get soft you can only see that as even an option in the admin portal." */
+  check('S69', 'soft(recycled) can be ticked in the admin forms',
+    (admin.match(/value="soft\(recycled\)"/g) || []).length === 2,
+    'the office needs to see and clear the houses that still have it');
+  /* ⚠ AND NOWHERE A CUSTOMER CAN REACH. A customer choosing lights that no longer
+     exist is an order nobody can fill. */
+  check('S69', 'and never on the quote form or the member portal',
+    read("index.html").indexOf("soft(recycled)") < 0,
+    'no new houses can get soft');
+  check('S69', 'and an outlet instruction reaches both',
+    /* ⚠ Counted by the CALL, not the argument name: the two paths hold the note in
+       differently-named variables, and pinning the check to one of them would go green
+       the moment the other was renamed. */
+    (admin.match(/rbOutletFromNote\(/g) || []).length === 4,
+    'a note is where an outlet ends up when there was nowhere else to put it');
+}
+{
+  const admin = read("admin.html");
+  const fns = read("functions/index.js");
+
+  /* ⭐ A COLOUR CHANGE IS A NEW CUSTOMER NOW. Owner, 2026-08-19: "get rid of color
+     change fee and just make it new customer fee", then, asked whether that should
+     include going out first: "Its fine they can be treated as a new customer do it." */
+  check('S69', 'a colour change charges the new-customer fee, not its own',
+    /updates\.chargeNewMemberFee = true;/.test(fns) &&
+    !/reason: .Light color change./.test(fns),
+    'two fees for one change is the money bug the transaction around it exists to prevent');
+  /* ⚠ AND IT MUST NOT ALSO WRITE changeFees. That would charge thirty dollars twice. */
+  check('S69', 'and does not also add a change fee',
+    !/invWrite\.changeFees = newFees;/.test(fns),
+    'this replaces the fee, it does not add to it');
+  /* ⚠ THE 48-HOUR ROUTE LOCK SURVIVES. It has nothing to do with the fee: it keeps a
+     customer off an install route while their pattern may still move, and losing it
+     would let a crew hang lights that are about to change. */
+  check('S69', 'and the route lock is untouched',
+    /jobAddrLightUpdate\.lightsLockedUntil/.test(fns) &&
+    /lightsChangedAfterAssign = true/.test(fns),
+    'the lock is about the crew, not about money');
+
+  /* ⭐ PREPAID READS AS PAID. Owner, shown the Paid/Unpaid column: "change their tag
+     to paid." The tag is arithmetic over the invoice, so the only honest way is to
+     record the payment. */
+  check('S69', 'a prepaid customer has their invoice settled',
+    /async function rbSettlePrepaid\(/.test(admin) &&
+    /deposit: owed,/.test(admin),
+    'the tag is computeInvoiceStatus — nothing else makes it say Paid');
+  /* ⚠ NEVER TWICE, AND NEVER DOWNWARDS. Pressing the button again must not move money,
+     and somebody who part-paid by card must not have it overwritten by a spreadsheet
+     word. */
+  check('S69', 'and it never pays twice or reduces what was paid',
+    /if\(owed <= 0 \|\| paid >= owed\){ already\+\+; continue; }/.test(admin),
+    'a second press must be a no-op, not a second payment');
+  check('S69', 'and the payment says where it came from',
+    /Prepaid \u2014 recorded from the master sheet/.test(admin),
+    'money appearing with no explanation gets unpicked months later by somebody who cannot tell it from a mistake');
+
+  /* ⭐ BILL-TO. Owner: "yes they should have one member portal and on invoice but still
+     remain two seperate customers" — which is exactly what billToPhone already does. */
+  check('S69', 'a bill-to name is turned into the existing bill-to link',
+    /async function rbResolveBillTo\(/.test(admin) && /billToPhone: String\(/.test(admin),
+    'billToPhone already gives one invoice and one portal while both stay their own customer');
+  /* ⚠ ONE MATCH ONLY. Two customers of that name is not a weaker answer, it is no
+     answer — picking one sends somebody else’s bill to the wrong house. */
+  check('S69', 'and a name matching two customers is reported, not guessed',
+    /if\(hits\.length > 1\){ ambiguous\+\+; continue; }/.test(admin),
+    'that is money going to the wrong house');
+  /* ⚠ AND NOT TO THEMSELVES. */
+  check('S69', 'and never joins a customer to their own invoice',
+    /* The guard moved to its own line when an email became a second way to match — it
+       is the FIRST thing the filter does now, before either key is looked at. */
+    /if\(x\.id === c\.id\) return false;/.test(admin),
+    'an invoice pointing at itself is a loop nobody notices until it is billed');
+  /* ⚠ IF THE PAYER IS NOT OURS, NOTHING HAPPENS. Owner: "if they arent it doesnt
+     matter ... that means were already using whoever it is information already." */
+  check('S69', 'and a payer who is not a customer is left alone',
+    /if\(!hits\.length\){ notOurs\+\+; continue; }/.test(admin),
+    'the name stays on the record where a person can read it');
+}
+{
+  const admin = read("admin.html");
+  /* ⭐ THE MISC COLUMN HOLDS FIVE DIFFERENT THINGS, and the owner named every one of
+     them on 2026-08-19: bill-to, a side count, a gate code, how the bill travels, and
+     "if the misc column says anything I havent mentioned that should be put in notes
+     section of the all customers".
+     Read off her real sheet, Misc is filled on 35 rows and genuinely says all of it. */
+  {
+    const src = [extractFn(admin, "rbSidesFromNote"), extractFn(admin, "rbGateCodeFromText"),
+                 extractFn(admin, "rbMiscParse"), extractFn(admin, "rbRowSaysPrepaid"),
+                 extractFn(admin, "rbOutletFromNote")].join("\n");
+    check('S69', 'the Misc readers exist', src.indexOf('function rbMiscParse') >= 0);
+    const sb = {};
+    new Function(src + "this.m = rbMiscParse; this.g = rbGateCodeFromText; this.p = rbRowSaysPrepaid; this.o = rbOutletFromNote;").call(sb);
+
+    /* ⭐ HER REAL VALUES, not invented ones. */
+    check('S69', 'a bill-to name is picked out however it is written',
+      sb.m("Bill to Kelly Brown (Highland)").billToName === "Kelly Brown" &&
+      sb.m("bill steve laycock").billToName === "steve laycock" &&
+      sb.m("Send bill to Raul Pelagio").billToName === "Raul Pelagio",
+      'the town in brackets is a hint for a person, not part of the name');
+    check('S69', 'and how the bill travels is read, with email left as the default',
+      sb.m("mail bill").mailBill === true && sb.m("text bill").textBill === true &&
+      sb.m("bill steve laycock").mailBill === false,
+      'owner: "we by default email bill so you dont need to worry about that" — so only ' +
+      'the two exceptions are ever written');
+    /* ⚠ AND THE DEFAULT IS NEVER OVERWRITTEN. Writing false when Misc says nothing
+       would turn every blank cell into "do not text", which is a decision she never
+       made about 925 customers. */
+    check('S69', 'a blank Misc leaves the default alone',
+      /if\(misc\.textBill\) doc2\.wantsTextedInvoice = true;/.test(admin) &&
+      /if\(misc\.mailBill\) doc2\.wantsMailedInvoice = true;/.test(admin),
+      'only the exceptions are written; email stays the default by not being mentioned');
+
+    /* ⚠ A GATE CODE NEEDS A MARKER. Owner asked for many formats; bare digits are still
+       left alone, because "51500" could be a price or a footage and putting it on a
+       crew card as a gate code is worse than leaving it where a person can read it. */
+    check('S69', 'a gate code is read in every shape the sheet uses',
+      sb.g("JAN GATE CODE 851409") === "851409" && sb.g("Gate Code 6321") === "6321" &&
+      sb.g("Gate:code: 123456") === "123456" && sb.g("gate #5225") === "5225" &&
+      sb.g("GATE-CODE-9911") === "9911" && sb.g("the gate is 1234") === "1234" &&
+      sb.g("#0754") === "0754" && sb.g("6736#") === "6736",
+      'owner: "make sure you format it in many formats so it doesnt flag if its not ' +
+      'exactly Gate Code"');
+    check('S69', 'but a number with nothing saying what it is stays put',
+      sb.g("51500") === "" && sb.g("leave gate open, 3 sides") === "" &&
+      sb.g("Find using 905 S 330 W") === "",
+      'a price on a crew card as a gate code is worse than a Misc cell nobody read');
+
+    /* ⭐ AND EVERYTHING ELSE BECOMES A NOTE. */
+    check('S69', 'anything she did not name is kept as a note',
+      sb.m("paid 2025").leftover === "paid 2025" && sb.m("remap").leftover === "remap" &&
+      sb.m("venmo request tomfry13").leftover === "venmo request tomfry13",
+      'somebody wrote it down for a reason; Notes is where a human can read it');
+    check('S69', 'and something that WAS understood is not also left as a note',
+      sb.m("mail bill").leftover === "" && sb.m("3 sides").leftover === "" &&
+      sb.m("gate #5225").leftover === "" && sb.m("bill steve laycock").leftover === "",
+      'a setting arriving as a note as well is the same fact in two places');
+
+    /* ⭐ PREPAID CAN BE IN ANY COLUMN, so it is looked for across the whole row. */
+    check('S69', 'prepaid is found wherever it is written',
+      sb.p(["prepaid"]) === true && sb.p(["x", "y", "Prepaid 2026"]) === true &&
+      sb.p(["pre paid"]) === true,
+      'owner: "prepaid can be in any column"');
+    /* ⚠ AND THE WORD HAS TO MEAN IT. Reading a question as money received is the wrong
+       way to be wrong. */
+    check('S69', 'but a doubt is not a payment',
+      sb.p(["not prepaid"]) === false && sb.p(["prepaid?"]) === false &&
+      sb.p(["paid"]) === false,
+      'somebody thinking aloud is not somebody who has paid');
+
+    /* ⭐ AN OUTLET INSTRUCTION IN NOTES. Owner: "sometimes they give plug or outlet
+       information in notes and if they do that should go to the outlet preference". */
+    check('S69', 'an outlet instruction in the Notes column is carried across whole',
+      sb.o("Use the outlet by the garage, not the porch") === "Use the outlet by the garage, not the porch",
+      'handing the crew only the half a regex liked is worse than handing them nothing');
+    check('S69', 'and a gate code or a side count is not mistaken for one',
+      sb.o("Gate Code 6321") === "" && sb.o("3 sides") === "",
+      'they are different fields and each has its own reader');
+  }
+}
+{
+  const admin = read("admin.html");
+  /* ⭐ THE BUTTON ON EVERY PAGE. Owner, 2026-08-19: "we wont want this in bulk updates
+     rather just update customer info button somewhere you can see on every page of the
+     admin page." The sidebar is the only thing on screen whichever panel is open. */
+  check('S69', 'the button lives in the sidebar, so it is on every panel',
+    /id="updateCustInfoBtn"/.test(admin) &&
+    admin.indexOf('id="updateCustInfoBtn"') > admin.indexOf('class="sidebar-footer"') &&
+    admin.indexOf('id="updateCustInfoBtn"') < admin.indexOf('<div class="main">'),
+    'in a panel it would be a place you have to go to, which is what Bulk Updates already was');
+
+  /* ⚠ THE FLAGS ARE THE APP’S OWN. I first wrote needsRecycle and
+     colorChangeRequested and neither exists — the same mistake as the invented test
+     row. needsLightRecycle and needsLightBuild are the real ones. */
+  check('S69', 'the three tabs read flags that actually exist',
+    /holds: function\(d\){ return !!d\.needsLightRecycle; }/.test(admin) && /holds: function\(d\){ return !!d\.needsLightBuild; }/.test(admin) &&
+    /d\.maybeNextYear \|\| d\.rsvpStatus === "maybe_next_year"/.test(admin),
+    'a flag nobody sets is a tab that stays empty for ever');
+  check('S69', 'and each goes to its own tab',
+    /tab: "Recycle"/.test(admin) && /tab: "Color Changes"/.test(admin) &&
+    /tab: "Contact 2027"/.test(admin),
+    'the owner named all three by name');
+
+  /* ⚠ PRESSED TWICE MUST NOT DOUBLE THE TAB. It is a button somebody presses again
+     when the first press looked slow. */
+  check('S69', 'anybody already on the tab is skipped',
+    /const already = await hlxNamesAlreadyOnTab\(t\.tab\)/.test(admin) &&
+    /\.filter\(function\(c\){ return !already\[dupNormName/.test(admin),
+    'without this the second press writes everybody again');
+  /* ⚠ ONE TAB FAILING MUST NOT COST HER THE OTHERS. */
+  check('S69', 'a tab that fails does not stop the rest',
+    /} catch\(err\){ failed\.push\(t\.tab/.test(admin) &&
+    /Could not do: /.test(admin),
+    'a tab she has not made yet should not lose her the two that worked');
+}
+{
+  const admin = read("admin.html");
+  /* ⭐ A TAB NAME IS NOT A FILENAME. Owner, 2026-08-19: "recycle should go to the
+     recycle tab in excel first row possible, color change same thing but to the color
+     change tab and maybe next years should be moved to the contact 2027 tab".
+
+     ⚠ THE PART ORDER MEANS NOTHING. Checked against her real workbook: the tab named
+     "2025" is sheet1.xml, "Sheet1" is sheet2.xml, Recycle is sheet8 and Contact 2027
+     is sheet9. Anything that guessed by position would write customers into somebody
+     else’s tab. workbook.xml gives a relationship id and the rels file turns that
+     into the filename — both hops are required. */
+  {
+    const src = extractFn(admin, "hlxSheetPartFor");
+    check('S69', 'hlxSheetPartFor exists', !!src);
+    if(src){
+      const sb = {};
+      new Function(src + "this.f = hlxSheetPartFor;").call(sb);
+      const enc = function(t){ return {data: new TextEncoder().encode(t)}; };
+      const entries = [
+        Object.assign({name: "xl/workbook.xml"}, enc(
+          '<sheets><sheet name="2025" r:id="rId1"/><sheet name="Recycle" r:id="rId8"/>' +
+          '<sheet name="Contact 2027" r:id="rId9"/></sheets>')),
+        Object.assign({name: "xl/_rels/workbook.xml.rels"}, enc(
+          '<Relationship Id="rId8" Target="worksheets/sheet8.xml"/>' +
+          '<Relationship Id="rId1" Target="worksheets/sheet1.xml"/>' +
+          '<Relationship Id="rId9" Target="worksheets/sheet9.xml"/>')),
+        {name: "xl/worksheets/sheet1.xml", data: new Uint8Array()},
+        {name: "xl/worksheets/sheet8.xml", data: new Uint8Array()},
+        {name: "xl/worksheets/sheet9.xml", data: new Uint8Array()}
+      ];
+      check('S69', 'a tab is found through the relationship, not by position',
+        (sb.f(entries, "Recycle") || {}).name === "xl/worksheets/sheet8.xml" &&
+        (sb.f(entries, "Contact 2027") || {}).name === "xl/worksheets/sheet9.xml" &&
+        (sb.f(entries, "2025") || {}).name === "xl/worksheets/sheet1.xml",
+        'in her real book the tab order and the part order genuinely disagree');
+      check('S69', 'and the tab name is matched however it is capitalised',
+        (sb.f(entries, "recycle") || {}).name === "xl/worksheets/sheet8.xml" &&
+        (sb.f(entries, " RECYCLE ") || {}).name === "xl/worksheets/sheet8.xml",
+        'a tab typed in a different case is the same tab');
+      /* ⚠ AND AN UNKNOWN TAB IS NULL, NOT A GUESS. Falling back to the first sheet
+         would write a recycled customer into the customer list. */
+      check('S69', 'and a tab that does not exist is refused rather than guessed',
+        sb.f(entries, "No Such Tab") === null,
+        'falling back to the first sheet would put a recycled customer in the customer list');
+    }
+  }
+  /* ⚠ AND WHEN ROWS GO TO ANOTHER TAB, THE CUSTOMER LIST MUST NOT GROW. Verifying
+     against the first sheet either way would refuse every write to Recycle. */
+  check('S69', 'writing to a tab expects the customer list to stay the same size',
+    /const expected = tabName \? beforeCount : beforeCount \+ rows\.length;/.test(admin),
+    'the check has to know which sheet it is checking');
+}
+{
+  const admin = read("admin.html");
+  /* ⭐ THE ROW IS WRITTEN WITH DOUBLE-QUOTED ATTRIBUTES, and it is not cosmetic.
+     Single quotes are valid XML and Excel reads them happily — but hlxReadSheet
+     matches r="..." with double quotes, so a row written with single ones is
+     invisible to our OWN reader. The verify step then sees no new row and refuses to
+     write, every time, for ever: it would have failed safe and never worked.
+     Found by executing the shipped writer against the real workbook, not by reading
+     it — the code looked right. */
+  {
+    const src = extractFn(admin, "hlxRowXml");
+    check('S69', 'hlxRowXml exists', !!src);
+    if(src){
+      const sb = {};
+      new Function(extractFn(admin, "hlxColName") + src + "this.f = hlxRowXml;").call(sb);
+      const x = sb.f(1058, ["479", "Oslund Rachel"]);
+      check('S69', 'the row is written with double-quoted attributes',
+        x.indexOf(String.fromCharCode(60,114,111,119,32,114,61,34)) === 0 &&
+        x.indexOf(String.fromCharCode(39)) < 0,
+        'our own reader matches double quotes, so single ones make the new row invisible ' +
+        'to the verify step and nothing is ever written — got ' + x.slice(0, 60));
+      check('S69', 'and the cell references are built from the column letter and the row',
+        /r="A1058"/.test(x) && /r="B1058"/.test(x),
+        'a wrong reference puts the value in another column, or another row');
+      check('S69', 'and a blank writes no cell at all',
+        sb.f(9, ["", "x"]).indexOf("A9") < 0,
+        'an empty cell is an absent cell in this format; writing one is how a blank becomes a value');
+    }
+  }
+}
+{
+  const admin = read("admin.html");
   const hdrM = admin.match(/const RB_SHEET_HEADERS = \[[\s\S]*?\];/);
   check('S69', 'the sheet column order is written down', !!hdrM);
   const rowSrc = extractFn(admin, "rbCustomerToSheetRow");
@@ -15284,13 +15769,51 @@ suite('Suite 67. Conflicts come first, are labelled MANUAL, and are never pre-ti
      ticked — but only where the keeper is known, which is the record the sheet row
      already found. Somebody who genuinely left the sheet still has no box, because
      there is nothing to fold them into. That is the line the checks below hold. */
-  check('S67', 'a row with no known keeper still cannot be ticked',
-    /Nothing is deleted here/.test(admin) &&
-    /\(o\.keeperId && o\.id !== o\.keeperId\)/.test(admin),
-    'without a keeper a delete is a guess about which of two records is the real one');
-  check('S67', 'and a spare is never ticked for you',
-    !/class="rb-spare-pick"[^>]{0,120}checked/.test(admin),
-    'every other row here is reversible by editing a field back; this one is not');
+  /* ⭐ CHANGED 2026-08-19. Owner: "she needs to be added to excel though", then
+     "we dont need a button ... theres only one sync button because anything I dont
+     want synced will be manually fixed."
+     A row with no keeper IS ticked now — but for the opposite action. The keeper is
+     what decides which: with one, the record is folded in and DELETED; without one,
+     it is WRITTEN into her sheet. That distinction is the whole safety of it, and a
+     row with no keeper is still never deleted. */
+  check('S67', 'the keeper decides which of the two things happens',
+    /\(o\.keeperId && o\.id !== o\.keeperId\)/.test(admin) &&
+    /class="rb-spare-pick"/.test(admin) && /class="rb-toexcel-pick"/.test(admin),
+    'deleting a record and adding a row to the sheet are opposites; the keeper is what tells them apart');
+  check('S67', 'and only the one with a keeper is ever deleted',
+    (extractFn(admin, "rbWireDiffButtons") || "").indexOf("rb-spare-pick") > 0 &&
+    !/rb-toexcel-pick[\s\S]{0,400}deleteDoc/.test(admin),
+    'a customer who is simply missing from the sheet must never be removed from the website');
+  /* ⚠ BOTH KINDS COME TICKED, on her instruction: "anything I dont want synced will
+     be manually fixed." So the check is no longer that they are unticked — it is that
+     both are offered and both are visible before anything is pressed. */
+  check('S67', 'both kinds arrive ticked, so one press does the work',
+    /class="rb-spare-pick"[^>]{0,160}checked/.test(admin.replace(/\r?\n/g, " ")) &&
+    /class="rb-toexcel-pick"[^>]{0,160}checked/.test(admin.replace(/\r?\n/g, " ")),
+    'she asked for one button and no chasing');
+  /* ⭐ AND THE ONE BUTTON REALLY WRITES TO THE SHEET. Owner: "theres only one sync
+     button because anything I dont want synced will be manually fixed." A tick that
+     nothing acts on is worse than no tick — it looks done. */
+  {
+    const sync = extractFn(admin, "rbWireDiffButtons") || "";
+    check('S67', 'the Sync button writes the ticked customers into the sheet',
+      /await hlxAppendRowsToSheet\(/.test(sync) && /rb-toexcel-pick/.test(sync),
+      'a tick nothing acts on looks done and is not');
+    /* ⚠ LAST, deliberately: everything before it writes to the website and can be
+       undone by editing a record; this writes to her master workbook. */
+    check('S67', 'and does it after the website work, not before',
+      sync.indexOf("hlxAppendRowsToSheet") > sync.indexOf("deleteDoc"),
+      'if anything earlier fails, the sheet should not already have been touched');
+    /* ⚠ AND A FAILURE THERE DOES NOT FAIL THE WHOLE SYNC. The website work landed. */
+    check('S67', 'and a sheet failure is reported, not thrown',
+      /catch\(err\){ sheetErr =/.test(sync) &&
+      /Nothing was written to your sheet/.test(admin),
+      'losing the whole sync report because the workbook was open in Excel is the wrong trade');
+  }
+  check('S67', 'and each says what it will do before it is pressed',
+    /Ticked: this copy goes/.test(admin) &&
+    /written into the first open row of your sheet/.test(admin),
+    'automatic is fine; unexplained is not — one of these deletes a record and one writes to her master file');
 
   /* ---- the ordering ---- */
   check('S67', 'a conflict outranks every gap, whatever the field',
@@ -15824,6 +16347,626 @@ if (!JSDOM) {
   }
 }
 
+
+/* ---------------------------------------------------------------------------
+ * Suite 73. Finding the houses still on soft lights
+ *
+ * Owner, 2026-08-19, on why soft is kept under its own name instead of being
+ * translated into a real colour: "so then we can find them later cause we need
+ * to switch their lights". Keeping the label only pays off if something can
+ * search on it. On the real sheet that is twelve houses.
+ *
+ * These RUN the filter over made-up customers rather than matching the source.
+ * A filter that reads a field nobody writes greps perfectly and finds nobody.
+ * ------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+ * Suite 74. The workbook writer, actually run
+ *
+ * Owner: "it should not redownload the excel and edit it though it should update
+ * that exact file". So admin.html contains a small zip writer, and until now
+ * nothing executed it — only hlxRowXml was covered. A writer that is only read
+ * has already shipped one bug that reading could not find: single-quoted XML
+ * attributes, valid XML that our own reader could not see, which made the verify
+ * step refuse every write and looked like a permissions problem.
+ *
+ * ⚠ THIS BUILDS ITS OWN WORKBOOK. It never opens the owner’s master sheet: a test
+ * that writes to real customer data is a test nobody can safely re-run.
+ * ------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+ * Suite 75. Who pays, and who has already paid — both actually run
+ *
+ * These two are the sharp end of the sheet sync: one writes billToPhone onto a
+ * customer, the other writes a DEPOSIT onto an invoice. Until now both were
+ * covered by a grep for the word `async`, which cannot tell whether the money
+ * lands on the right invoice or on anybody at all.
+ *
+ * Nothing here touches Firestore. updateDoc is a recorder, so the checks are
+ * about what WOULD be written and, just as much, what would not.
+ * ------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+ * Suite 76. The Update customer info button, actually pressed
+ *
+ * Owner: "we wont want this in bulk updates rather just update customer info
+ * button somewhere you can see on every page of the admin page", and "theres only
+ * one sync button because anything I dont want synced will be manually fixed".
+ * So ONE press has to do everything the sheet implies: three tabs, the bill-to
+ * links and the prepaid settling.
+ *
+ * ⚠ THE FIELD NAMES ARE THE POINT. `needsRecycle` and `colorChangeRequested` were
+ * written into this repo once and neither exists — the real flags are
+ * needsLightRecycle and needsLightBuild. A predicate reading a field nobody sets
+ * matches nobody, reports "nothing new to send", and looks like a working button
+ * for ever. These checks run holds() against records using the real names.
+ * ------------------------------------------------------------------------- */
+pendingAsync.push((async () => {
+  suite('Suite 76. The Update customer info button, actually pressed');
+
+  const lift76 = (n) => {
+    let st = admin.indexOf('async function ' + n + '(');
+    if (st < 0) st = admin.indexOf('function ' + n + '(');
+    if (st < 0) return '';
+    let i = admin.indexOf('{', st), d = 0;
+    for (; i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(st, i + 1); }
+    }
+    return '';
+  };
+
+  check('S76', 'the button is in the sidebar, so it is on every page',
+    /<div class="sidebar-footer">[\s\S]{0,900}?id="updateCustInfoBtn"/.test(admin),
+    'the sidebar is the only thing on screen whichever panel is open — a button ' +
+    'inside Bulk Updates is a place you go on purpose, not a thing you press when ' +
+    'you notice something');
+  check('S76', 'and pressing it cannot start a second run on top of the first',
+    /updateCustInfoBtn"\)\?\.addEventListener\("click", onceAtATime\(/.test(admin),
+    'two overlapping runs both read the file, both append, and the second write ' +
+    'throws away the first');
+
+  const orch = lift76('hlxUpdateCustomerInfo');
+  check('S76', 'the handler is still there to run', !!orch);
+  if (!orch) return;
+
+  /* Every collaborator is a stub that RECORDS. Nothing reads or writes a file. */
+  function press(book, alreadyOnTab, opts) {
+    opts = opts || {};
+    const sent = [], said = [];
+    const box = {};
+    new Function(
+      'jobAddresses', 'hlxSheetSupported', 'hlxSheetHandleLoad', 'hlxNamesAlreadyOnTab',
+      'hlxAppendRowsToSheet', 'rbCustomerToSheetRow', 'rbResolveBillTo', 'rbSettlePrepaid',
+      'logActivity',
+      lift76('dupNormName') +
+      admin.match(/const HLX_STATE_TABS = \[[\s\S]*?\n\];/)[0] +
+      orch + 'this.f = hlxUpdateCustomerInfo; this.tabs = HLX_STATE_TABS;'
+    ).call(box, book,
+      () => opts.supported !== false,
+      async () => (opts.connected === false ? null : {}),
+      async (tab) => (opts.noTab === tab ? null : (alreadyOnTab[tab] || {})),
+      async (rows, tab) => {
+        if (opts.tabThrows === tab) throw new Error('the tab is locked');
+        sent.push({ tab: tab, rows: rows });
+        return { written: rows.length };
+      },
+      (d) => [d.name],
+      async () => (opts.billTo || { linked: 0, notOurs: 0, ambiguous: 0, failed: 0 }),
+      async () => (opts.prepaid || { settled: 0, already: 0, failed: 0 }),
+      () => {});
+    const statusEl = { textContent: '' };
+    return box.f(statusEl).then(() => ({ sent: sent, status: statusEl.textContent, box: box }));
+  }
+
+  /* ---- the three tabs, with the REAL field names ---- */
+  {
+    const book = [
+      { id: 'r', data: { name: 'Rae Recycle', needsLightRecycle: true } },
+      { id: 'c', data: { name: 'Cal Colour', needsLightBuild: true } },
+      { id: 'm', data: { name: 'Mae Maybe', maybeNextYear: true } },
+      { id: 'm2', data: { name: 'Moe Maybe', rsvpStatus: 'maybe_next_year' } },
+      { id: 'o', data: { name: 'Ola Ordinary' } }
+    ];
+    const r = await press(book, {});
+    const to = (t) => (r.sent.filter(x => x.tab === t)[0] || { rows: [] }).rows.map(x => x[0]);
+
+    check('S76', 'a customer needing a recycle goes to the Recycle tab',
+      to('Recycle').join() === 'Rae Recycle',
+      'the flag is needsLightRecycle — a predicate on an invented name matches ' +
+      'nobody and reports success for ever');
+    check('S76', 'a colour change goes to the Color Changes tab',
+      to('Color Changes').join() === 'Cal Colour',
+      'and that flag is needsLightBuild, because a colour change IS a fresh build');
+    check('S76', 'BOTH ways of saying maybe-next-year go to Contact 2027',
+      to('Contact 2027').join() === 'Mae Maybe,Moe Maybe',
+      'the flag and the RSVP answer mean the same thing to the office, and only ' +
+      'reading one of them silently loses half of them');
+    check('S76', 'and an ordinary customer goes nowhere',
+      !r.sent.some(x => x.rows.some(row => row[0] === 'Ola Ordinary')),
+      'these tabs are work lists; padding them wastes somebody' + '’' + 's day');
+    check('S76', 'the tab spelling matches the workbook, American and all',
+      r.box.tabs.map(t => t.tab).join('|') === 'Recycle|Color Changes|Contact 2027',
+      'a tab name is matched exactly, so "Colour Changes" writes nothing at all');
+  }
+
+  /* ---- nobody is written twice ---- */
+  {
+    const book = [
+      { id: 'r', data: { name: 'Rae Recycle', needsLightRecycle: true } },
+      { id: 'r2', data: { name: 'Sid Second', needsLightRecycle: true } }
+    ];
+    const b = {};
+    new Function(lift76('dupNormName') + 'this.f = dupNormName;').call(b);
+    const already = { Recycle: {} };
+    already.Recycle[b.f('Rae Recycle')] = true;
+    const r = await press(book, already);
+    const rows = (r.sent.filter(x => x.tab === 'Recycle')[0] || { rows: [] }).rows;
+    check('S76', 'somebody already on the tab is not sent again',
+      rows.length === 1 && rows[0][0] === 'Sid Second',
+      'the button is meant to be pressed whenever you notice something, so every ' +
+      'press must be safe — otherwise the tab grows a copy of the same person each time');
+  }
+
+  /* ---- one press does everything ---- */
+  {
+    const r = await press([], {}, { billTo: { linked: 3, ambiguous: 1, notOurs: 0, failed: 0 },
+                                    prepaid: { settled: 2, already: 0, failed: 0 } });
+    check('S76', 'the same press joins people to who pays for them',
+      /3 joined to who pays/.test(r.status));
+    check('S76', 'and marks the prepaid as paid',
+      /2 prepaid marked paid/.test(r.status),
+      'owner: "theres only one sync button because anything I dont want synced ' +
+      'will be manually fixed"');
+    check('S76', 'and says what it could NOT do',
+      /match more than one customer/.test(r.status),
+      'an ambiguous bill-to needs a human; a silent skip leaves an invoice ' +
+      'pointing at nobody and nothing on screen to say so');
+  }
+
+  /* ---- one failure never stops the rest ---- */
+  {
+    const book = [
+      { id: 'r', data: { name: 'Rae Recycle', needsLightRecycle: true } },
+      { id: 'c', data: { name: 'Cal Colour', needsLightBuild: true } }
+    ];
+    const r = await press(book, {}, { tabThrows: 'Recycle' });
+    check('S76', 'a tab that will not take a row does not stop the others',
+      r.sent.some(x => x.tab === 'Color Changes'),
+      'three tabs behind one button means one locked tab must not cost the other two');
+    check('S76', 'and the failure is named, with the reason',
+      /Recycle \(the tab is locked\)/.test(r.status), r.status);
+
+    const r2 = await press(book, {}, { noTab: 'Recycle' });
+    check('S76', 'a missing tab says which one is missing',
+      /Recycle \(no such tab\)/.test(r2.status), r2.status);
+  }
+
+  /* ---- and the two ways it cannot run at all ---- */
+  {
+    const r = await press([], {}, { supported: false });
+    check('S76', 'a browser that cannot write says so, and names the ones that can',
+      /Chrome or Edge/.test(r.status),
+      'File System Access is Chromium-only; "nothing happened" in Safari is not an answer');
+    check('S76', 'and nothing is attempted', r.sent.length === 0);
+
+    const r2 = await press([], {}, { connected: false });
+    check('S76', 'no sheet connected says where to connect it',
+      /Bulk Updates/.test(r2.status),
+      'the permission is per-device, so this is the message a new computer sees');
+
+    const r3 = await press([], {});
+    check('S76', 'and nothing to do says so rather than looking broken',
+      /Nothing new to send/.test(r3.status),
+      'a button that does nothing visible gets pressed again and again');
+  }
+})());
+pendingAsync.push((async () => {
+  suite('Suite 75. Who pays, and who has already paid');
+
+  /* — custInvoiceKey and computeInvoiceStatus are NOT in admin.html. They live in
+     js/money.js, which admin.html imports, so they are lifted from there and not
+     restated: the invoice key decides which invoice the money lands on, and a
+     second copy of that rule in a test is a copy that can quietly disagree with
+     the one doing the writing. `export` is stripped so the body can be evaluated. */
+  const lift75 = (n) => {
+    for (const src of [admin, money]) {
+      let st = src.indexOf('async function ' + n + '(');
+      if (st < 0) st = src.indexOf('function ' + n + '(');
+      if (st < 0) continue;
+      let i = src.indexOf('{', st), d = 0;
+      for (; i < src.length; i++) {
+        if (src[i] === '{') d++;
+        else if (src[i] === '}') { d--; if (!d) return src.slice(st, i + 1); }
+      }
+    }
+    return '';
+  };
+  const NEED = ['rbResolveBillTo', 'rbSettlePrepaid', 'dupNormName',
+               'custInvoiceKey', 'computeInvoiceStatus', 'centsOf'];
+  const gone = NEED.filter(n => !lift75(n));
+  check('S75', 'both sheet-sync writers are still in admin.html', !gone.length,
+    'missing: ' + gone.join(', '));
+  if (gone.length) return;
+
+  /* One place to build the sandbox, so each case starts clean. */
+  function run75(book, invoices) {
+    const wrote = [];
+    const box = {};
+    new Function('jobAddresses', 'allInvoicesCache', 'updateDoc', 'doc', 'db',
+      'logActivity', 'serverTimestamp',
+      NEED.map(lift75).join('') +
+      'this.billTo = rbResolveBillTo; this.prepaid = rbSettlePrepaid;'
+    ).call(box, book, invoices,
+      async (ref, patch) => { wrote.push({ ref: ref, patch: patch }); },
+      (db, col, id) => (col + '/' + id), {},
+      () => {}, () => 'STAMP');
+    return { box: box, wrote: wrote };
+  }
+
+  /* ---- who pays ---- */
+  {
+    /* Ada is billed to an EMAIL (the real sheet says "cc bill to
+       Jennalesa@gmail.com"). Bea is billed to a name. Cleo names somebody who is
+       not a customer. Dot names somebody two records answer to. */
+    const book = [
+      { id: 'ada', data: { name: 'Ada Payer', billToEmail: 'pays@example.com' } },
+      { id: 'bea', data: { name: 'Bea Payee', billToName: 'Cole Payer' } },
+      { id: 'cleo', data: { name: 'Cleo Payee', billToName: 'Nobody At All' } },
+      { id: 'dot', data: { name: 'Dot Payee', billToName: 'Twin Person' } },
+      { id: 'p1', data: { name: 'Emm Payer', email: 'PAYS@example.com', phone: '801-555-0111' } },
+      { id: 'p2', data: { name: 'Cole Payer', phone: '8015550222' } },
+      { id: 't1', data: { name: 'Twin Person', phone: '8015550333' } },
+      { id: 't2', data: { name: 'Twin Person', phone: '8015550444' } }
+    ];
+    const r = run75(book, []);
+    const out = await r.box.billTo(null);
+
+    check('S75', 'a payer named by EMAIL is linked, even under a different name',
+      out.linked === 2 && r.wrote.some(w => w.ref === 'jobAddresses/ada' &&
+        w.patch.billToPhone === '8015550111'),
+      'the sheet writes "cc bill to <address>" and the payer record is filed under ' +
+      'a person name — matching on the name would never find them, and an address ' +
+      'is exact where a name is a guess');
+    check('S75', 'and the email match ignores case and spacing',
+      r.wrote.some(w => w.ref === 'jobAddresses/ada'),
+      'the sheet is typed by hand; PAYS@ and pays@ are one person');
+    check('S75', 'a payer named by NAME is linked too',
+      r.wrote.some(w => w.ref === 'jobAddresses/bea' &&
+        w.patch.billToPhone === '8015550222'));
+    check('S75', 'a payer who is not a customer is COUNTED, never invented',
+      out.notOurs === 1 && !r.wrote.some(w => w.ref === 'jobAddresses/cleo'),
+      'owner: "first we check if the person we bill to is even a customer of ours" — ')
+    check('S75', 'and two people of that name is left for a human',
+      out.ambiguous === 1 && !r.wrote.some(w => w.ref === 'jobAddresses/dot'),
+      'guessing which of two people pays the bill sends the invoice to the wrong ' +
+      'house, and nobody finds out until somebody is chased for money they do not owe');
+    check('S75', 'nothing else was written', r.wrote.length === 2);
+    check('S75', 'the phone is stored as digits only',
+      r.wrote.every(w => /^[0-9]+$/.test(w.patch.billToPhone)),
+      'billToPhone is the JOIN — "801-555-0111" and "8015550111" have to be the ' +
+      'same key or the who-pays-for-whom screen shows two separate bills');
+  }
+
+  {
+    /* A payer with no phone cannot be the join, and a customer must never be 
+       linked to themselves. */
+    const book = [
+      { id: 'x', data: { name: 'Solo Person', billToName: 'Solo Person' } },
+      { id: 'y', data: { name: 'Faye Payee', billToName: 'No Phone Payer' } },
+      { id: 'z', data: { name: 'No Phone Payer', email: 'z@example.com' } }
+    ];
+    const r = run75(book, []);
+    const out = await r.box.billTo(null);
+    check('S75', 'nobody is linked to themselves',
+      !r.wrote.some(w => w.ref === 'jobAddresses/x'),
+      'a self-link makes a customer their own payer, which is one bill pointing at itself');
+    check('S75', 'and a payer with no phone is not used as the join',
+      !r.wrote.some(w => w.ref === 'jobAddresses/y') && out.notOurs === 2,
+      'billToPhone IS the join; writing a blank one silently merges every ' +
+      'phone-less customer into a single bill');
+  }
+
+  {
+    /* Already linked = already done. Re-running the sync must be free. */
+    const book = [
+      { id: 'done', data: { name: 'Gil Payee', billToName: 'Hal Payer', billToPhone: '8015559999' } },
+      { id: 'hal', data: { name: 'Hal Payer', phone: '8015559999' } }
+    ];
+    const r = run75(book, []);
+    const out = await r.box.billTo(null);
+    check('S75', 'a customer already linked is left alone',
+      r.wrote.length === 0 && out.linked === 0,
+      'the sync is meant to be run again and again; re-writing what is already ' +
+      'right burns quota and buries the rows that did change');
+  }
+
+  /* ---- who has already paid ---- */
+  {
+    const book = [
+      { id: 'pp', data: { name: 'Ivy Prepaid', phone: '8015551000', prepaid: true } }
+    ];
+    const key = (function () {
+      const b = {};
+      new Function(lift75('custInvoiceKey') + 'this.f = custInvoiceKey;').call(b);
+      return b.f(book[0].data);
+    })();
+    check('S75', 'the prepaid customer has an invoice key to settle against', !!key);
+
+    const invoices = [{ id: key, data: { install: 400, removal: 100, deposit: 0 } }];
+    const r = run75(book, invoices);
+    const out = await r.box.prepaid(null);
+    const w = r.wrote[0];
+    check('S75', 'a prepaid customer is marked paid in full',
+      out.settled === 1 && w && w.ref === 'invoices/' + key && w.patch.deposit === 500,
+      'owner: "in customers it says if they are paid or unpaid, change their tag to paid"');
+    check('S75', 'the deposit covers install AND removal, not just the install',
+      !!w && w.patch.deposit === 500,
+      'settling only part of it leaves them showing a balance they have already paid, ' +
+      'and the office chases them for it');
+    check('S75', 'the status is recomputed rather than typed in',
+      !!w && w.patch.status === 'Paid in Full',
+      'a hard-coded string drifts from computeInvoiceStatus the first time the ' +
+      'rules change, and then the tag and the numbers disagree');
+    check('S75', 'and it says WHY the money is there',
+      !!w && Array.isArray(w.patch.depositNotes) && w.patch.depositNotes.length === 1 &&
+      /prepaid/i.test(w.patch.depositNotes[0].reason || ''),
+      'a deposit with no note is indistinguishable from a payment somebody took, ' +
+      'and there is no way back to why it was recorded');
+  }
+
+  {
+    /* Twice must be free, and a note already there must survive. */
+    const book = [{ id: 'pp', data: { name: 'Jo Prepaid', phone: '8015552000', prepaid: true } }];
+    const b = {};
+    new Function(lift75('custInvoiceKey') + 'this.f = custInvoiceKey;').call(b);
+    const key = b.f(book[0].data);
+    const invoices = [{ id: key, data: { install: 300, removal: 0, deposit: 300,
+      depositNotes: [{ amount: 300, reason: 'Card, at the door' }] } }];
+    const r = run75(book, invoices);
+    const out = await r.box.prepaid(null);
+    check('S75', 'somebody already paid is not paid again',
+      out.already === 1 && r.wrote.length === 0,
+      'a second deposit on top of a full one reads as an overpayment and a refund owed');
+
+    const part = [{ id: key, data: { install: 300, removal: 0, deposit: 100,
+      depositNotes: [{ amount: 100, reason: 'Card, at the door' }] } }];
+    const r2 = run75(book, part);
+    await r2.box.prepaid(null);
+    check('S75', 'a part payment is topped up, and the earlier note is kept',
+      r2.wrote.length === 1 && r2.wrote[0].patch.deposit === 300 &&
+      r2.wrote[0].patch.depositNotes.length === 2 &&
+      r2.wrote[0].patch.depositNotes[0].reason === 'Card, at the door',
+      'overwriting the notes loses the record of a payment somebody actually took');
+    check('S75', 'and the top-up note records only the DIFFERENCE',
+      r2.wrote.length === 1 && r2.wrote[0].patch.depositNotes[1].amount === 200,
+      'writing the full 300 there would say they paid 400 across two lines');
+  }
+
+  {
+    /* No invoice is a FAILURE, not a quiet skip. */
+    const book = [{ id: 'pp', data: { name: 'Kit Prepaid', phone: '8015553000', prepaid: true } }];
+    const r = run75(book, []);
+    const out = await r.box.prepaid(null);
+    check('S75', 'a prepaid customer with no invoice is reported, not skipped',
+      out.failed === 1 && r.wrote.length === 0,
+      'they paid; if nothing can record it the office has to know, because a ' +
+      'silent skip means they get chased for the whole amount');
+
+    const notPrepaid = [{ id: 'q', data: { name: 'Lee Ordinary', phone: '8015554000' } }];
+    const r2 = run75(notPrepaid, []);
+    const out2 = await r2.box.prepaid(null);
+    check('S75', 'and a customer who never prepaid is never touched',
+      out2.settled === 0 && out2.failed === 0 && r2.wrote.length === 0,
+      'the flag is the ONLY thing that may mark an invoice paid — anything looser ' +
+      'writes off money the business is owed');
+  }
+})());
+pendingAsync.push((async () => {
+  suite('Suite 74. The workbook writer, actually run');
+
+  const NEED = ['hlxCrc32', 'hlxDeflateRaw', 'hlxInflateRaw', 'hlxUnzip', 'hlxUnzipAll',
+               'hlxZip', 'hlxRowXml', 'hlxColName', 'hlxColNum', 'hlxSharedStrings',
+               'hlxReadSheet', 'hlxWorkbookRows', 'hlxWorkbookSharedStrings',
+               'hlxSheetPartFor', 'hlxNamesAlreadyOnTab', 'hlxAppendRowsToSheet',
+               'dupNormName', 'hlxXmlText'];
+  /* extractFn DROPS THE `async` KEYWORD, and this file already warns about that
+     trap elsewhere. Most of the writer is async, so lifting it with extractFn
+     produces a body full of bare `await` and the whole suite dies at parse time
+     as one confusing 'an async suite crashed'. This keeps the keyword. */
+  const lift = (n) => {
+    /* No regex: a backslash does not survive every route into this file, and an
+       escape that quietly degrades turns into a runtime SyntaxError that reads
+       as 'an async suite crashed' with no clue which suite. */
+    let st = admin.indexOf('async function ' + n + '(');
+    if (st < 0) st = admin.indexOf('function ' + n + '(');
+    if (st < 0) return '';
+    let i = admin.indexOf('{', st), d = 0;
+    for (; i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(st, i + 1); }
+    }
+    return '';
+  };
+  const missing = NEED.filter(n => !lift(n));
+  check('S74', 'every piece of the writer is still in admin.html', !missing.length,
+    'missing: ' + missing.join(', ') + ' — renamed or removed; update this suite rather ' +
+    'than deleting it, or the writer goes back to being untested');
+
+  if (missing.length) return;
+
+  /* The file on "disk". A fake File System Access handle over a variable. */
+  let disk = null, writes = 0, permissionAsked = 0;
+  const handle = {
+    getFile: async () => new Blob([disk]),
+    queryPermission: async () => { permissionAsked++; return 'granted'; },
+    createWritable: async () => ({
+      write: async (d) => { disk = new Uint8Array(d); writes++; },
+      close: async () => {}
+    })
+  };
+
+  const box = {};
+  new Function('hlxSheetHandleLoad',
+    'let HLX_CRC_TABLE = null;' + NEED.map(lift).join('') +
+    'this.append = hlxAppendRowsToSheet; this.onTab = hlxNamesAlreadyOnTab;' +
+    'this.rows = hlxWorkbookRows; this.zip = hlxZip; this.unzipAll = hlxUnzipAll;' +
+    'this.partFor = hlxSheetPartFor; this.norm = dupNormName;'
+  ).call(box, async () => handle);
+
+  /* A workbook with two tabs, built with the SHIPPED zip writer so the test cannot
+     pass against a file only some other library could produce. Sheet order is
+     deliberately NOT tab order: in the real book Recycle is sheet8 while Sheet1 is
+     sheet2, so a writer that guesses by position writes into the wrong tab. */
+  const enc = new TextEncoder();
+  const sheetXml = (rows) => enc.encode('<worksheet><sheetData>' + rows + '</sheetData></worksheet>');
+  const cell = (ref, text) => '<c r="' + ref + '" t="inlineStr"><is><t>' + text + '</t></is></c>';
+  const build = () => box.zip([
+    {name: 'xl/workbook.xml', data: enc.encode(
+      '<workbook><sheets>' +
+      '<sheet name="Customers" sheetId="1" r:id="rId9"/>' +
+      '<sheet name="Recycle" sheetId="2" r:id="rId4"/>' +
+      '</sheets></workbook>')},
+    {name: 'xl/_rels/workbook.xml.rels', data: enc.encode(
+      '<Relationships>' +
+      '<Relationship Id="rId9" Target="worksheets/sheet1.xml"/>' +
+      '<Relationship Id="rId4" Target="worksheets/sheet2.xml"/>' +
+      '</Relationships>')},
+    {name: 'xl/worksheets/sheet1.xml', data: sheetXml(
+      '<row r="1">' + cell('A1', 'Name') + cell('B1', 'Address') + '</row>' +
+      '<row r="2">' + cell('A2', 'Ada Real') + cell('B2', '1 Elm') + '</row>')},
+    {name: 'xl/worksheets/sheet2.xml', data: sheetXml(
+      '<row r="1">' + cell('A1', 'Name') + '</row>')}
+  ]);
+
+  disk = await build();
+  const before = await box.rows(new Blob([disk]));
+  check('S74', 'the writer can build a workbook its own reader reads back',
+    before.length === 2 && before[1][0] === 'Ada Real',
+    'this is the round trip that single-quoted attributes broke: the bytes were ' +
+    'valid XML and Excel opened them, and our reader saw no rows at all');
+
+  /* ---- appending to a named tab ---- */
+  const res = await box.append([['Bea Fake']], 'Recycle');
+  check('S74', 'a row is appended to the tab that was named', res && res.written === 1);
+  check('S74', 'and the bytes were actually written', writes === 1);
+  check('S74', 'write permission is asked for separately from read', permissionAsked >= 1,
+    'the comparison only ever needed read, so the first write is the first time ' +
+    'Chrome is asked — skipping the ask fails with a DOMException the office cannot act on');
+
+  const after = await box.rows(new Blob([disk]));
+  check('S74', 'THE CUSTOMER LIST IS UNTOUCHED when the row went to a side tab',
+    after.length === before.length && after[1][0] === 'Ada Real',
+    'this is the check that decides whether a Recycle write is allowed at all: ' +
+    'expecting sheet1 to GROW would refuse every legitimate tab write');
+
+  const onTab = await box.onTab('Recycle');
+  check('S74', 'and the new name can be found on that tab afterwards',
+    !!onTab && !!onTab[box.norm('Bea Fake')],
+    'hlxNamesAlreadyOnTab is the only thing stopping a customer being appended ' +
+    'again on every run; a reader that cannot see what the writer just wrote ' +
+    'means the tab grows without limit');
+  check('S74', 'the name is stored under the sorted key, not the typed one',
+    !onTab['bea fake'] && !!onTab[box.norm('Fake Bea')],
+    'dupNormName sorts the words, so "Fake, Bea" and "Bea Fake" are the same ' +
+    'person — which is the whole point on a sheet written surname-first');
+
+  /* ---- the row goes to the first FREE row, not row 1 ---- */
+  const parts = await box.unzipAll(disk.buffer ? disk.buffer.slice(disk.byteOffset, disk.byteOffset + disk.byteLength) : disk);
+  const recycleXml = new TextDecoder().decode(box.partFor(parts, 'Recycle').data);
+  check('S74', 'it lands on the first free row, and the heading is left alone',
+    /<row r="2"/.test(recycleXml) && /<row r="1"[^>]*>[\s\S]{0,200}?Name/.test(recycleXml),
+    'owner: "recycle should go to the recycle tab in excel first row possible"');
+  check('S74', 'and it went to the Recycle tab, NOT the first sheet in the file',
+    recycleXml.indexOf('Bea Fake') !== -1,
+    'a tab name is not a filename — workbook.xml points at a relationship id and ' +
+    'the rels file turns that into sheetN.xml. Here Recycle is sheet2 while it is ' +
+    'listed second, and Customers is sheet1 while listed first, so position and ' +
+    'name disagree exactly as they do in the real book');
+
+  /* ---- the guards ---- */
+  const writesBefore = writes;
+  let threw = '';
+  try { await box.append([['Nobody']], 'No Such Tab'); } catch (e) { threw = e.message || ''; }
+  check('S74', 'a tab that does not exist refuses, and names the tab', /no tab called/i.test(threw),
+    'got: ' + threw);
+  check('S74', 'and nothing was written when it refused', writes === writesBefore,
+    'a half-written workbook is worse than no write at all');
+
+  const none = await box.append([], 'Recycle');
+  check('S74', 'nothing to write writes nothing', none && none.written === 0 && writes === writesBefore);
+
+  /* Every write must survive being read back by the same reader. */
+  const final = await box.rows(new Blob([disk]));
+  check('S74', 'the workbook still reads after everything above',
+    final.length === 2 && final[0][0] === 'Name',
+    'the verify-before-write step is what makes this safe on a real file, and it ' +
+    'is only worth anything if the reader is the one the rest of the app uses');
+})());
+suite('Suite 73. Finding the houses still on soft lights');
+
+{
+  const render = sectionFrom(admin, admin.indexOf('function renderAllCustomersTable()'));
+  check('soft-find', 'the Lights filter is wired into the All Customers table',
+    /const lightsFilter = lightsEl/.test(render) && /lightsEl.value/.test(render) &&
+    /allCustFilterLights/.test(admin),
+    'the control has to be read where the rows are filtered, not just exist in the page');
+
+  /* Pull the filter itself out and run it. */
+  const at = render.indexOf("if(lightsFilter === 'soft')");
+  const block = at < 0 ? '' : render.slice(at, render.indexOf('if(dateStart)', at));
+  check('soft-find', 'the filter block was found to run',  !!block);
+
+  if (block) {
+    const run = new Function('rows', 'lightsFilter', 'let out = rows;' +
+      block.replace(/\brows\b/g, 'out') + 'return out;');
+
+    /* Every way soft can be recorded, plus the ways it must NOT match. */
+    const book = [
+      { d: { name: 'Soft in the list',   lightColors: ['soft(recycled)', 'Red'], lightsDescription: '' } },
+      { d: { name: 'Soft capitalised',   lightColors: ['Soft(Recycled)'],        lightsDescription: '' } },
+      { d: { name: 'Soft in a pattern',  lightColors: [],  lightsDescription: 'soft(recycled), Red, soft(recycled)' } },
+      { d: { name: 'Warm white only',    lightColors: ['Warm White'],            lightsDescription: '' } },
+      { d: { name: 'Nothing recorded',   lightColors: [],                        lightsDescription: '' } },
+      { d: { name: 'No fields at all' } }
+    ];
+    const names = f => run(book, f).map(r => r.d.name);
+
+    check('soft-find', 'a customer on soft is found',
+      names('soft').indexOf('Soft in the list') !== -1);
+    check('soft-find', 'and so is one whose case differs',
+      names('soft').indexOf('Soft capitalised') !== -1,
+      'a colour typed by hand in the portal and one that came off the sheet have to land in the same list');
+    check('soft-find', 'and one where soft is only in the alternating pattern',
+      names('soft').indexOf('Soft in a pattern') !== -1,
+      'rbDetectColorsAndPattern moves a repeated colour OUT of lightColors and into lightsDescription, so checking only the list would miss every alternating house');
+    check('soft-find', 'a warm-white house is NOT dragged in',
+      names('soft').indexOf('Warm white only') === -1,
+      'the list is a work order — padding it wastes somebody’s afternoon');
+    check('soft-find', 'and neither is a customer with no colours at all',
+      names('soft').indexOf('Nothing recorded') === -1);
+
+    check('soft-find', 'the no-colours filter finds the blank ones',
+      names('none').indexOf('Nothing recorded') !== -1 &&
+      names('none').indexOf('No fields at all') !== -1,
+      'a missing field and an empty one are the same gap to whoever has to ring them');
+    check('soft-find', 'and leaves the ones that do have colours alone',
+      names('none').indexOf('Warm white only') === -1 &&
+      names('none').indexOf('Soft in the list') === -1);
+
+    /* The one a red-check caught: an alternating house has an EMPTY lightColors
+       because rbDetectColorsAndPattern moves repeated colours into the pattern
+       instead. Counting only the list calls that house undecorated. */
+    check('soft-find', 'a house whose colours are only in the pattern is NOT called blank',
+      names('none').indexOf('Soft in a pattern') === -1,
+      'it would show up on a chase-them-for-colours list they already answered');
+
+    check('soft-find', 'Any leaves every customer in place',
+      run(book, 'all').length === book.length,
+      'the default must never hide anybody');
+    check('soft-find', 'and a missing field never throws',
+      (function(){ try { run(book, 'soft'); run(book, 'none'); return true; }
+                   catch(e){ return false; } })(),
+      'an old customer record predates both fields');
+  }
+}
 
 suite('Suite 70. An existing member is asked what is changing, not handed the new-customer form');
 {

@@ -1064,20 +1064,31 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
      the four keys the app knows; anything else is dropped rather than stored.
      A free-text array here would end up on a crew card. */
   if (section === 'sides') {
-    const KNOWN = ['front', 'right', 'left', 'back'];
-    const wanted = Array.isArray(updates.houseSides) ? updates.houseSides : [];
-    const clean = [];
-    KNOWN.forEach(function (k) {
-      if (wanted.indexOf(k) !== -1) clean.push(k);
-    });
-    updates.houseSides = clean;
+    /* ⭐ A COUNT, NOT FOUR NAMES. Owner, 2026-08-19: "we need it to say 1, 2, 3, or 4
+       sides of the house so then it can just be connected and we dont have to guess if
+       its the left or right side." Her sheet has said "2 sides" for years; asking the
+       member WHICH two invented a fact nobody ever recorded.
+
+       ⚠ STILL VALIDATED SERVER-SIDE, and for the same reason as before: this arrives
+       from a browser. A count is narrower than a list of keys, not looser — anything
+       that is not 1 to 4 becomes 0, which reads as "not recorded".
+
+       ⚠ THE OLD SHAPE STILL COUNTS. Members saved before today hold an array of side
+       names, and three names is three sides. Rejecting it would tell a member with a
+       full record that nothing is on file. */
+    const asCount = function (v) {
+      if (Array.isArray(v)) return Math.min(4, v.filter(Boolean).length);
+      const n = Number(String(v == null ? '' : v).replace(/[^0-9]/g, ''));
+      return (n >= 1 && n <= 4) ? n : 0;
+    };
+    updates.houseSides = asCount(updates.houseSides);
     /* ⚠ NO "needs re-quote" FLAG. Owner, 2026-08-18: "we shouldnt need a flag
        that says needs requote the customer should just appear in the requote
        section." The quote the portal opens IS the record of it — a second flag
        saying the same thing is a second thing to keep in step, and the one that
        goes stale is the one nobody is looking at. */
-    const before = Array.isArray(oldData.houseSides) ? oldData.houseSides.slice().sort().join(',') : '';
-    if (clean.slice().sort().join(',') !== before) {
+    const before = asCount(oldData.houseSides);
+    if (updates.houseSides !== before) {
       updates.seasonStatus = 'needs_changes';
     }
   }
@@ -1157,16 +1168,31 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
         // A real change to a non-empty pattern is the only thing that can charge.
         if (changed && updates.lightsDescription) {
           if (!withinFreeWindow) {
-            const newFees = (Number(inv.changeFees) || 0) + FEE;
-            invWrite.changeFees = newFees;
-            invWrite.changeFeeNotes = (Array.isArray(inv.changeFeeNotes) ? inv.changeFeeNotes : [])
-              .concat([{ amount: FEE, reason: 'Light color change', date: new Date().toISOString() }]);
+            /* ⭐ A COLOUR CHANGE MAKES THEM A NEW CUSTOMER. Owner, 2026-08-19: "get rid
+               of color change fee and just make it new customer fee", and, asked whether
+               that should include going out first: "Its fine they can be treated as a
+               new customer do it."
+
+               So no separate light-change fee is written any more. chargeNewMemberFee
+               is set instead; the nightly run adds the new-member fee ONCE, guarded by
+               newMemberFeeApplied, and Routes shows the New Hang badge — which also puts
+               them at the head of the install queue, because a rebuilt house is a house
+               that has to be built.
+
+               ⚠ THIS REPLACES THE FEE, IT DOES NOT ADD TO IT. Writing changeFees here
+               as well would charge $30 twice for one change, which is the exact bug the
+               transaction around this block exists to prevent.
+
+               ⚠ THE TIMESTAMP STAYS, and is now purely the change-window marker. The
+               48-hour lock below reads it to keep a customer off an install route while
+               their pattern may still move; that has nothing to do with the fee and
+               removing it would let a crew hang lights that are about to change. */
+            updates.chargeNewMemberFee = true;
             invWrite.lastLightChangeFeeAt = admin.firestore.Timestamp.fromMillis(nowMs);
-            invWrite.status = computeInvoiceStatusServer(inv.install, inv.removal, inv.deposit, inv.credits, newFees);
             invWrite.updatedAt = admin.firestore.FieldValue.serverTimestamp();
-            lightFeeInfo = { feeCharged: true, amount: FEE, freeWindowEndsAt: nowMs + WINDOW_MS };
+            lightFeeInfo = { feeCharged: true, amount: FEE, asNewCustomer: true, freeWindowEndsAt: nowMs + WINDOW_MS };
           } else {
-            // Still inside the paid 48-hour window — change is free.
+            // Still inside the 48-hour window — this change is free.
             lightFeeInfo = { feeCharged: false, amount: 0, freeWindowEndsAt: lastAt + WINDOW_MS };
           }
         }
