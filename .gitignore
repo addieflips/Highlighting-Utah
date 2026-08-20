@@ -20,3 +20,6 @@ results.txt
 # Playwright's record of the last run. Regenerated every time, and it showed up
 # as a change on every single test run until it was ignored.
 .last-run.json
+
+# Worktrees other sessions create here are not part of the repo.
+.claude/worktrees/
