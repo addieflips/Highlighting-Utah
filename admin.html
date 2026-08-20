@@ -21900,17 +21900,30 @@ function renderWarehouseRecycleQueue(){
       e.stopPropagation();
       const custId = btn.dataset.whrecycledone;
       const item = jobAddresses.find(a => a.id === custId);
+      if(!item) return;
+      /* ⭐ RECYCLED MEANS THEY ARE NOT A CUSTOMER ANY MORE. Owner, 2026-08-20: "yes
+         people in recycle should not exist as a customer", and "I dont want to have to
+         delete customers after they get recycled that would be a lot".
+         This used to clear the flag and hand the number back, leaving the record behind
+         " + M + " so every recycled customer became a deletion to do by hand later, one at a
+         time, and the ones nobody got round to sat in the book looking active.
+         The same path the Delete button uses, so the invoice, the number, the route
+         stop and the Recycle sheet are all handled the one way. */
+      const d = item.data || {};
+      if(!confirm('Mark ' + (d.name || 'this customer') + ' recycled?' +
+        '\n\nTheir lights are back in stock, so they stop being a customer: the row goes ' +
+        'onto the Recycle sheet and the record is removed.' +
+        (d.customerNumber ? ' Number #' + d.customerNumber + ' goes back into the pool.' : '') +
+        '\n\nThis cannot be undone.')) return;
       try{
-        const num = item && item.data.customerNumber;
-        // The number has to come OFF the customer as it goes into the pool,
-        // otherwise it gets handed to someone new while this record still
-        // claims it and two bins end up wearing the same label.
-        await updateDoc(doc(db,'jobAddresses', custId), num ? {needsLightRecycle:false, customerNumber:''} : {needsLightRecycle:false});
-        if(num){
-          const type = parseInt(num,10) >= 5000 ? 'double' : 'regular';
-          await setDoc(doc(db,'availableCustomerNumbers', String(num)), {type: type, releasedAt: serverTimestamp(), releasedFrom: (item.data.name || '')});
+        const out = await hlxRemoveCustomerToRecycle(item, {});
+        if(out.removed){
+          toast((d.name || 'They') + ' recycled and removed' +
+            (out.number ? ', number #' + out.number + ' back in the pool' : '') + '.');
         }
-      } catch(err){}
+      } catch(err){
+        toast('Could not finish that one \u2014 try again.');
+      }
     });
   });
 }
@@ -24908,6 +24921,65 @@ document.getElementById('editCustLayoutMapFile').addEventListener('change', asyn
   }
   renderEditCustLayoutMapThumb();
 });
+/* ⭐ ONE WAY TO REMOVE A CUSTOMER, whoever asks for it. Owner, 2026-08-20: "I dont
+   want to have to delete customers after they get recycled that would be a lot I would
+   rather them be deleted so then they go to recycle."
+
+   Two places end a customer now " + M + " the Delete button on their record, and Mark Recycled
+   in the warehouse " + M + " and they have to do exactly the same things or one of them leaves
+   a mess: money already collected banked to the archive, the invoice removed, the
+   customer number returned to the pool, any upcoming route stop swept, and the row
+   written to the Recycle sheet FIRST so the instruction outlives the record.
+
+   ⚠ THE SHEET WRITE COMES BEFORE THE DELETE, always. Afterwards there is nothing
+   left to build the row from. */
+async function hlxRemoveCustomerToRecycle(item, opts){
+  const o = opts || {};
+  const d = (item && item.data) || {};
+  const num = String(d.customerNumber || "");
+  const say = function(t){ if(o.say) o.say(t); };
+
+  /* ⚠ BEST EFFORT ON THE SHEET, AND IT ASKS. A workbook that is not connected on
+     this computer must not strand somebody who just wants a record gone, but a silent
+     miss is a bundle of lights nobody knows to take apart. */
+  let wroteSheet = false;
+  try{
+    say("Adding them to the Recycle sheet…");
+    const already = await hlxNamesAlreadyOnTab("Recycle");
+    const key = dupNormName(d.name);
+    if(already && already[key]) wroteSheet = true;
+    else {
+      const res = await hlxAppendRowsToSheet([rbCustomerToSheetRow(d)], "Recycle");
+      wroteSheet = !!(res && res.written);
+    }
+  } catch(err){
+    if(!confirm("They could not be added to the Recycle sheet " + String.fromCharCode(8212) + " " +
+      ((err && err.message) || "the sheet is not connected on this computer") +
+      "\n\nRemove them anyway? Nothing will be left saying their lights need pulling apart.")){
+      return {removed: false, reason: "stopped at the Recycle sheet"};
+    }
+  }
+
+  say("Removing them…");
+  const custKey = custInvoiceKey(d);
+  if(custKey){
+    const invSnap = await getDoc(doc(db,'invoices',custKey));
+    if(invSnap.exists()){
+      const paidAmount = Number(invSnap.data().deposit) || 0;
+      if(paidAmount > 0){
+        await setDoc(doc(db,'settings','financeArchive'), {archivedRevenue: increment(paidAmount)}, {merge:true});
+      }
+      await deleteDoc(doc(db,'invoices',custKey));
+    }
+  }
+  if(num){
+    await setDoc(doc(db,'availableCustomerNumbers', num), {type: parseInt(num,10) >= 5000 ? 'double' : 'regular', releasedAt: serverTimestamp(), releasedFrom: (d.name || '')});
+  }
+  await removeCustomerFromUpcomingRoutes(item.id);
+  await deleteDoc(doc(db,'jobAddresses', item.id));
+  logActivity('Removed ' + (d.name || item.id) + ' to Recycle' + (num ? ', number #' + num + ' back in the pool' : ''), 'customers', item.id);
+  return {removed: true, wroteSheet: wroteSheet, number: num};
+}
 document.getElementById('editCustDeleteBtn').addEventListener('click', async function(){
   if(!editCustomerId) return;
   const item = jobAddresses.find(function(it){ return it.id === editCustomerId; });
@@ -24931,60 +25003,16 @@ document.getElementById('editCustDeleteBtn').addEventListener('click', async fun
      anybody remembered to tick the box first. Reading needsLightRecycle here would
      have caught only the ones who answered no through the RSVP and missed every
      customer the office removes by hand, which is most of them. */
-  const recycleFirst = true;
-  if(!confirm('Delete ' + (d.name || 'this customer') + ' at ' + (d.street || d.address || '') + '?\n\nThis removes them and their invoice permanently.' + (num ? ' Number #' + num + ' goes back into the available pool.' : '') + '\n\nThey go onto the Recycle sheet first, so their lights get pulled back into stock.' + carryWarn + '\n\nThis cannot be undone.')) return;
   const statusEl = document.getElementById('editCustStatus');
-  statusEl.textContent = 'Deleting\u2026';
-  /* ⚠ BEST EFFORT, AND BEFORE THE DELETE. If the sheet is not connected on this
-     computer the customer is still deleted " + M + " refusing would strand somebody who just
-     wants a record gone " + M + " but it says so, because a silent miss here is a bundle of
-     lights nobody knows to take apart. Already-on-the-sheet is not written twice. */
-  if(recycleFirst){
-    try{
-      statusEl.textContent = 'Adding them to the Recycle sheet\u2026';
-      const already = await hlxNamesAlreadyOnTab("Recycle");
-      const key = dupNormName(d.name);
-      if(!already || !already[key]){
-        await hlxAppendRowsToSheet([rbCustomerToSheetRow(d)], "Recycle");
-      }
-    } catch(err){
-      if(!confirm("They could not be added to the Recycle sheet " + String.fromCharCode(8212) + " " +
-        ((err && err.message) || "the sheet is not connected on this computer") +
-        "\n\nDelete them anyway? Nothing will be left saying their lights need pulling apart.")){
-        statusEl.textContent = 'Not deleted.';
-        return;
-      }
-    }
-  }
-  statusEl.textContent = 'Deleting\u2026';
   try{
-    // Same cleanup the delete-all path does, so a single delete doesn't leave orphans.
-    const custKey = custInvoiceKey(d);
-    if(custKey){
-      const invSnap = await getDoc(doc(db,'invoices',custKey));
-      if(invSnap.exists()){
-        const paidAmount = Number(invSnap.data().deposit)||0;
-        if(paidAmount > 0){
-          await setDoc(doc(db,'settings','financeArchive'), {archivedRevenue: increment(paidAmount)}, {merge:true});
-        }
-        await deleteDoc(doc(db,'invoices',custKey));
-      }
-    }
-    if(num){
-      await setDoc(doc(db,'availableCustomerNumbers', num), {type: parseInt(num,10) >= 5000 ? 'double' : 'regular', releasedAt: serverTimestamp()});
-    }
-    /* A deleted customer whose stop was already built into a route left a
-       phantom stop behind — the crew's Mark Done had nothing to update
-       against and failed with no feedback. Same sweep the RSVP/cancel/Maybe
-       Next Year paths already do. */
-    await removeCustomerFromUpcomingRoutes(item.id);
-    await deleteDoc(doc(db,'jobAddresses', item.id));
-    logActivity('Deleted customer ' + (d.name || item.id) + (num ? ' and returned number #' + num + ' to the pool' : ''), 'customers', item.id);
-    editCustomerId = null;
+    const out = await hlxRemoveCustomerToRecycle(item, {say: function(t){ statusEl.textContent = t; }});
+    if(!out.removed){ statusEl.textContent = 'Not removed \u2014 ' + out.reason + '.'; return; }
     document.getElementById('editCustOverlay').style.display = 'none';
-    toast((d.name || 'Customer') + ' deleted' + (num ? ' \u2014 #' + num + ' is available again' : ''));
+    editCustomerId = null;
+    statusEl.textContent = '';
+    toast((d.name || 'That customer') + ' removed' + (out.wroteSheet ? ' and added to the Recycle sheet' : '') + '.');
   } catch(err){
-    statusEl.textContent = 'Could not delete \u2014 try again.';
+    statusEl.textContent = 'Could not remove \u2014 try again.';
   }
 });
 /* ⭐ THE TOP BAR PRESSES THE REAL BUTTONS rather than repeating what they do.

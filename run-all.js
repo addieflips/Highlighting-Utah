@@ -4579,11 +4579,20 @@ if (!JSDOM) {
 (function () {
   const singleStart = admin.indexOf("editCustDeleteBtn').addEventListener('click'");
   const singleSrc = singleStart > -1 ? sectionFrom(admin, singleStart) : '';
+  /* ⚠ THE REMOVAL LIVES IN ONE FUNCTION NOW. Two places end a customer —
+     the Delete button and Mark Recycled in the warehouse — and they have to do
+     the same things or one of them leaves a mess. These follow the logic to
+     hlxRemoveCustomerToRecycle and check that both routes actually call it. */
+  const removeSrc = extractFn(admin, 'hlxRemoveCustomerToRecycle');
   check('delete-cleanup', 'Delete This Customer handler found in admin.html', singleStart > -1,
     'renamed or removed — update this test rather than deleting it');
-  check('delete-cleanup', 'deleting a single customer sweeps them off upcoming routes',
-    /removeCustomerFromUpcomingRoutes\(item\.id\)/.test(singleSrc) &&
-    singleSrc.indexOf('removeCustomerFromUpcomingRoutes(item.id)') < singleSrc.indexOf("deleteDoc(doc(db,'jobAddresses', item.id))"),
+  check('delete-cleanup', 'the one removal path exists', !!removeSrc);
+  check('delete-cleanup', 'and the Delete button uses it',
+    /await hlxRemoveCustomerToRecycle\(item,/.test(singleSrc),
+    'a second copy of this is the copy that stops matching the other');
+  check('delete-cleanup', 'removing a customer sweeps them off upcoming routes',
+    /removeCustomerFromUpcomingRoutes\(item\.id\)/.test(removeSrc) &&
+    removeSrc.indexOf('removeCustomerFromUpcomingRoutes(item.id)') < removeSrc.indexOf("deleteDoc(doc(db,'jobAddresses', item.id))"),
     'a deleted customer left a phantom stop on any route already built — the crew\'s Mark Done had nothing to update and failed silently');
 
   const allStart = admin.indexOf("deleteAllAddressesBtn').addEventListener('click'");
@@ -16738,37 +16747,54 @@ suite('Suite 87. The Recycle sheet IS the warehouse recycle queue');
      takes it with them: they disappear from the warehouse queue, which is built from
      customers, and from every future write to the sheet. The lights then sit in a van
      with nothing anywhere saying to pull them apart. */
+  /* ⚠ ONE PATH, TWO DOORS. The removal used to live inside the Delete handler; it
+     is a shared function now, because Mark Recycled has to do exactly the same things.
+     These check the path itself, then that both doors go through it. */
+  const rm = extractFn(admin, 'hlxRemoveCustomerToRecycle');
   const del = sectionFrom(admin, admin.indexOf("document.getElementById('editCustDeleteBtn').addEventListener"));
+  const whDone = sectionFrom(admin, admin.indexOf("list.querySelectorAll('[data-whrecycledone]')"));
+  check('S87', 'the one removal path exists', !!rm);
   check('S87', 'the delete handler is findable', !!del);
+  check('S87', 'and the Mark Recycled handler is too', !!whDone);
 
-  check('S87', 'deleting a customer writes them to the Recycle sheet',
-    /hlxAppendRowsToSheet\(\[rbCustomerToSheetRow\(d\)\], "Recycle"\)/.test(del),
+  check('S87', 'removing a customer writes them to the Recycle sheet',
+    /hlxAppendRowsToSheet\(\[rbCustomerToSheetRow\(d\)\], "Recycle"\)/.test(rm),
     'once the record is gone that row IS the whole record of it, which is exactly ' +
     'what Frome Liz is');
-  /* ⚠ AND THE BLOCK HAS TO BE REACHABLE. A red-check wrapping it in if(false)
-     left every word of it in the file and passed, because these read the source. */
-  check('S87', 'and the write is not behind a dead condition',
-    /if\(recycleFirst\){/.test(del) && /const recycleFirst = true;/.test(del),
-    'text being present is not the same as text that runs');
   check('S87', 'and BEFORE the record is deleted, not after',
-    del.indexOf('hlxAppendRowsToSheet') < del.indexOf('deleteDoc'),
+    rm.indexOf('hlxAppendRowsToSheet') < rm.indexOf('deleteDoc'),
     'afterwards there is nothing left to build the row from');
-
-  /* ⚠ EVERYBODY, not only the ones already flagged. */
-  check('S87', 'it does not wait for needsLightRecycle to be set',
-    /const recycleFirst = true;/.test(del),
-    'reading the flag here catches only the people who answered no through the RSVP ' +
-    'and misses every customer the office removes by hand, which is most of them');
-  check('S87', 'and the confirmation says it is going to happen',
-    /go onto the Recycle sheet first/.test(del),
-    'a delete that quietly writes somewhere else is a surprise');
-
   check('S87', 'somebody already on that sheet is not written twice',
-    /hlxNamesAlreadyOnTab\("Recycle"\)/.test(del));
-  check('S87', 'and a sheet it cannot write to asks before deleting anyway',
-    /Delete them anyway/.test(del),
+    /hlxNamesAlreadyOnTab\("Recycle"\)/.test(rm));
+  check('S87', 'a sheet it cannot write to asks before removing anyway',
+    /Remove them anyway/.test(rm),
     'refusing outright strands somebody who just wants a record gone, and a silent ' +
     'miss is a bundle of lights nobody knows to take apart');
+
+  /* ⭐ AND RECYCLED MEANS THEY STOP BEING A CUSTOMER. Owner: "I dont want to have to
+     delete customers after they get recycled that would be a lot I would rather them be
+     deleted so then they go to recycle." Mark Recycled used to clear the flag and hand
+     the number back, leaving the record behind — so every recycled customer became a
+     deletion to do by hand later, one at a time, and the ones nobody got round to sat in
+     the book looking active. */
+  check('S87', 'Mark Recycled removes the customer through the same path',
+    /await hlxRemoveCustomerToRecycle\(item, {}\)/.test(whDone),
+    'it used to updateDoc the flag off and stop there');
+  check('S87', 'and it no longer just clears the flag and walks away',
+    !/needsLightRecycle:false/.test(whDone),
+    'leaving the record is what made the deleting a chore in the first place');
+  check('S87', 'and it asks first, because this cannot be undone',
+    /confirm\(/.test(whDone) && /cannot be undone/.test(whDone));
+
+  check('S87', 'both doors go through the one path',
+    /await hlxRemoveCustomerToRecycle\(item/.test(del) &&
+    /await hlxRemoveCustomerToRecycle\(item/.test(whDone),
+    'two copies of a removal is how one of them quietly stops archiving the money ' +
+    'or sweeping the route stop');
+  check('S87', 'and the money, the number and the route stop are all handled there',
+    /archivedRevenue/.test(rm) && /availableCustomerNumbers/.test(rm) &&
+    /removeCustomerFromUpcomingRoutes/.test(rm),
+    'these are the four things a removal has to do, and they are now done once');
 }
 
 
