@@ -1076,10 +1076,18 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
        ⚠ THE OLD SHAPE STILL COUNTS. Members saved before today hold an array of side
        names, and three names is three sides. Rejecting it would tell a member with a
        full record that nothing is on file. */
+    /* ⭐ ONE SIDE IS THE DEFAULT. The same floor as houseSideCount in admin.html
+       and portalSideCount in index.html, and it MUST match them: this value is one
+       half of `updates.houseSides !== before`, which raises a re-quote. A default on
+       one side of that and a zero on the other sends a re-quote to every customer
+       whose sides were never written down, for a change nobody made. */
     const asCount = function (v) {
-      if (Array.isArray(v)) return Math.min(4, v.filter(Boolean).length);
+      if (Array.isArray(v)) {
+        const listed = Math.min(4, v.filter(Boolean).length);
+        return listed || 1;
+      }
       const n = Number(String(v == null ? '' : v).replace(/[^0-9]/g, ''));
-      return (n >= 1 && n <= 4) ? n : 0;
+      return (n >= 1 && n <= 4) ? n : 1;
     };
     updates.houseSides = asCount(updates.houseSides);
     /* ⚠ NO "needs re-quote" FLAG. Owner, 2026-08-18: "we shouldnt need a flag

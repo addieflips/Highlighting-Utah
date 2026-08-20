@@ -14673,10 +14673,45 @@ suite('Suite 62. Which sides of the house');
   /* ⚠ THE OLD SHAPE STILL READS. Every customer saved before 2026-08-19 holds an
      ARRAY of side names, and three names is three sides — the same fact said the old
      way. Coming back as "not recorded" would blank 962 records that have an answer. */
-  check('S62', 'a record saved the old way still reads as a count',
-    /function houseSideCount\(v\)\{/.test(admin) &&
-    /if\(Array\.isArray\(v\)\) return Math\.min\(4, v\.filter\(Boolean\)\.length\);/.test(admin),
-    'an array of three names is three sides');
+  /* ⚠ RUN, NOT MATCHED. This asserted the literal body of houseSideCount, so it
+     went red the day the unrecorded default changed — a behaviour test would not
+     have, because the behaviour it describes never changed. */
+  {
+    const sb62 = {};
+    new Function(extractFn(admin, 'houseSideCount') + extractFn(admin, 'houseSideWords') +
+      'const HOUSE_SIDES_DEFAULT = 1;' +
+      'this.n = houseSideCount; this.w = houseSideWords;').call(sb62);
+    check('S62', 'a record saved the old way still reads as a count',
+      sb62.n(['front', 'left', 'back']) === 3 && sb62.n(['front']) === 1,
+      'an array of three names is three sides — every customer saved before ' +
+      '2026-08-19 holds one, and blanking them would empty 962 records that ' +
+      'have an answer');
+    check('S62', 'a count reads as itself, and nothing silly gets through',
+      sb62.n(2) === 2 && sb62.n('3 sides') === 3 && sb62.n(9) === 1 && sb62.n('lots') === 1);
+
+    /* ⭐ ONE IS THE DEFAULT WHEN NOTHING WAS RECORDED. Owner, 2026-08-20: "if
+       anything is not recoreded just put it on default dont create a thing for it or
+       type it or anything, for example how many sides of the house? not recorded,
+       default: 1." */
+    check('S62', 'a house with nothing recorded is one side, not a phrase',
+      sb62.n('') === 1 && sb62.n(null) === 1 && sb62.n(undefined) === 1 &&
+      sb62.n([]) === 1 && sb62.n(0) === 1,
+      'every house has a front, and "not recorded" on a crew card is something ' +
+      'nobody can act on');
+    check('S62', 'and the words say so too',
+      sb62.w('') === '1 side' && sb62.w(2) === '2 sides' &&
+      sb62.w(['front','back']) === '2 sides' && !/not recorded/.test(sb62.w(null)),
+      'the phrase this replaced sent the office back to ask a question that has ' +
+      'a sensible answer');
+
+    /* ⚠ AND THE OLD PHRASE IS GONE FROM THE SOURCE, not just unreachable. With the
+       count floored at 1 the not-recorded branch can never run, so a red-check that
+       puts it back changes nothing and passes — dead code that would start lying
+       again the moment somebody lowers the floor. */
+    check('S62', 'and the phrase is not left lying in the function',
+      !/not recorded/.test(extractFn(admin, 'houseSideWords')),
+      'a branch that cannot run today is a trap for whoever changes the floor');
+  }
   check('S62', 'Edit Customer loads it and saves it',
     /const n = houseSideCount\(d\.houseSides\);/.test(admin) &&
     /const newHouseSides = houseSideCount\(\(document\.querySelector\('\.editcust-side-pick:checked'\)/.test(admin) &&
@@ -14789,17 +14824,43 @@ suite('Suite 63. Changing your sides in the Member Portal');
     /* ⚠ STILL VALIDATED SERVER-SIDE, and for the same reason: this arrives from a
        browser. A count is NARROWER than a list of keys, not looser — anything that is
        not 1 to 4 becomes 0, which reads as "not recorded". */
-    check('S63', 'what the browser sends is reduced to a count of one to four',
-      /const asCount = function \(v\) \{/.test(body) &&
-      /return \(n >= 1 && n <= 4\) \? n : 0;/.test(body) &&
+    /* ⚠ RUN, NOT MATCHED — and this one has to agree EXACTLY with the two copies
+       in the browser, because it is one half of `updates.houseSides !== before`, which
+       raises a re-quote. A default here and a zero there sends a re-quote to every
+       customer whose sides were never written down. */
+    const asCountSrc = (body.match(/const asCount = function[\s\S]*?\n    };/) || [])[0];
+    check('S63', 'the server counter is there to run', !!asCountSrc);
+    check('S63', 'the browser value is still handed through it',
       /updates\.houseSides = asCount\(updates\.houseSides\);/.test(body),
       'free text from a browser would end up printed on a crew card');
+    if (asCountSrc) {
+      const sv = {};
+      new Function(asCountSrc + 'this.f = asCount;').call(sv);
+      const ad = {};
+      new Function(extractFn(admin, 'houseSideCount') + 'const HOUSE_SIDES_DEFAULT = 1;' +
+        'this.f = houseSideCount;').call(ad);
+      check('S63', 'what the browser sends is reduced to a count of one to four',
+        sv.f('2') === 2 && sv.f(4) === 4 && sv.f(9) === 1 && sv.f('anything') === 1);
+      check('S63', 'and the THREE counters agree on every case',
+        ['', null, undefined, 0, 2, 9, 'lots', '3 sides'].every(v => sv.f(v) === ad.f(v)) &&
+        sv.f([]) === ad.f([]) && sv.f(['a','b']) === ad.f(['a','b']),
+        'admin, the portal and the server each keep their own copy, and this is ' +
+        'the comparison that raises a re-quote — if they disagree about an ' +
+        'unrecorded house, everybody gets one for a change nobody made');
+    }
     /* ⚠ AND THE OLD SHAPE STILL COUNTS. A member saved before today holds an array of
        names; rejecting it would tell somebody with a full record that nothing is on
        file. */
-    check('S63', 'and a record saved the old way still counts',
-      /if \(Array\.isArray\(v\)\) return Math\.min\(4, v\.filter\(Boolean\)\.length\);/.test(body),
-      'three names is three sides — the same fact said the old way');
+    if (asCountSrc) {
+      const sv2 = {};
+      new Function(asCountSrc + 'this.f = asCount;').call(sv2);
+      check('S63', 'and a record saved the old way still counts',
+        sv2.f(['front', 'left', 'back']) === 3 && sv2.f(['front']) === 1,
+        'three names is three sides — the same fact said the old way');
+      check('S63', 'while an EMPTY old record falls to the default, not to zero',
+        sv2.f([]) === 1,
+        'an empty array is a house nobody recorded, which is the default case');
+    }
     /* ⚠ RETIRED 2026-08-18, the same day it was added. Owner: "we shouldnt need
        a flag that says needs requote the customer should just appear in the
        requote section." The quote the portal opens IS the record of it; a
@@ -16545,6 +16606,50 @@ if (!JSDOM) {
  * Neither had been run yet when this was written. Both failures are silent: a
  * send to nobody looks exactly like a send that worked.
  * ------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+ * Suite 80. A blank is a blank, and a default is a default
+ *
+ * Owner, 2026-08-20: "if anything is not recoreded just put it on default dont
+ * create a thing for it or type it or anything, for example how many sides of the
+ * house? not recorded, default: 1", then: "yes and no questions dont have a
+ * default answer though just leave those blank if unanswered."
+ *
+ * Two opposite rules, and which one applies depends on whether a sensible default
+ * exists. Every house has a front. Nobody can guess whether you want a timer.
+ * ------------------------------------------------------------------------- */
+suite('Suite 80. A blank is a blank, and a default is a default');
+
+{
+  const idx = read("index.html");
+
+  /* ---- nothing answers a yes/no on the customer’s behalf ---- */
+  const PREANSWERED = (idx.match(/<input type="radio"[^>]*checked[^>]*>/g) || []);
+  check('S80', 'no yes/no question comes pre-answered on the quote form',
+    !PREANSWERED.length,
+    "found: " + PREANSWERED.join(" ") + " — all four of these were ticked on No, so a " +
+    "customer who never read the question was recorded as having said no to it. Once " +
+    "that is on the record it cannot be told apart from a real answer");
+
+  check('S80', 'and an unanswered one is stored blank, not as a No',
+    /outletTimer: fd.get\(.outlet_timer.\) \|\| ..,/.test(idx) &&
+    /specificOutlet: fd.get\(.specific_outlet.\) \|\| ..,/.test(idx) &&
+    !/fd.get\(.outlet_timer.\) \|\| .No./.test(idx),
+    'owner: yes and no questions dont have a default answer though just leave ' +
+    'those blank if unanswered');
+  check('S80', 'and reading one back does not invent an answer either',
+    !/loadedOutletTimer = addrDoc.outletTimer === .Yes. \? .Yes. : .No.;/.test(idx),
+    "coercing a blank to No on load writes it back as No the moment they save " +
+    "anything else on that form");
+
+  /* ---- and nothing PRINTS an answer nobody gave ---- */
+  check('S80', 'the office card shows the timer only when it was answered',
+    !/Timer: <strong>.\+\(d.outletTimer === .Yes. \? .Yes. : .No.\)/.test(admin),
+    "printing No for a blank is the same invention, one step later — and it is the " +
+    "step somebody reads and believes");
+  check('S80', 'and so does the crew card',
+    !/Timer: .\+\(hd.outletTimer === .Yes. \? .Yes. : .No.\)/.test(admin));
+}
+
 suite('Suite 78. What the third RSVP status breaks if nobody looks');
 
 {

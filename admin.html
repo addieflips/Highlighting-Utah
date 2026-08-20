@@ -8247,7 +8247,7 @@ function renderQuoteRows(filtered){
             '</div>'
           : '')+
         '<div class="rtext">Prefers: '+esc(d.contactMethod)+
-          (formDone ? ' &middot; Timer: <strong>'+(d.outletTimer === 'Yes' ? 'Yes' : 'No')+'</strong>' : '')+
+          (formDone && d.outletTimer ? ' &middot; Timer: <strong>'+esc(d.outletTimer)+'</strong>' : '')+
           (formDone && d.wireColor ? ' &middot; Wire: <strong>'+esc(d.wireColor)+'</strong>' : '')+'</div>'+
         // ---- Why this is a re-quote --------------------------------------
         ((quoteStage(d) === 'new' && d.existingCustomerId && d.changed) ? (
@@ -16101,14 +16101,31 @@ const RB_SIDE_ORDER = ['front', 'right', 'left', 'back'];
    ⚠ THIS IS NOT THE PHOTO LABELS. A photo of the front of the house is still a
    photo of the front — QUOTE_SIDE_LABELS in index.html is a different thing and is
    deliberately untouched. You photograph the front; you do not photograph "side 2". */
+/* ⭐ ONE SIDE IS THE DEFAULT, NOT A GUESS TO BE RECORDED (changed 2026-08-20).
+   Owner: "if anything is not recoreded just put it on default dont create a thing for
+   it or type it or anything, for example how many sides of the house? not recorded,
+   default: 1."
+   Every house has a front. Answering "not recorded" put a phrase on a crew card that
+   nobody can act on, and left the office deciding the same question by hand over and
+   over. One is the smallest true answer and the one that is right most often.
+
+   ⚠ THE DEFAULT LIVES IN THE COUNT, in all THREE copies of it: this one, the
+   member portal, and the server. Applying it in only one place would make an
+   unrecorded house read as 0 on one side of a comparison and 1 on the other, and
+   `updates.houseSides !== before` raises a RE-QUOTE " + M + " so every customer whose sides
+   were never written down would have been sent one for a change nobody made. */
+const HOUSE_SIDES_DEFAULT = 1;
 function houseSideCount(v){
-  if(Array.isArray(v)) return Math.min(4, v.filter(Boolean).length);
+  if(Array.isArray(v)){
+    const listed = Math.min(4, v.filter(Boolean).length);
+    return listed || HOUSE_SIDES_DEFAULT;
+  }
   const n = Number(String(v == null ? '' : v).replace(/[^0-9]/g, ''));
-  return (n >= 1 && n <= 4) ? n : 0;
+  return (n >= 1 && n <= 4) ? n : HOUSE_SIDES_DEFAULT;
 }
 function houseSideWords(v){
   const n = houseSideCount(v);
-  return n ? (n + ' side' + (n === 1 ? '' : 's')) : 'not recorded';
+  return n + ' side' + (n === 1 ? '' : 's');
 }
 /* ⚠ RETURNS A COUNT NOW, not a list of side names. Owner, 2026-08-19: "we need it
    to say 1, 2, 3, or 4 sides of the house so then it can just be connected and we
@@ -27412,7 +27429,7 @@ function renderRouteOrderedList(ordered){
       (hd.notes ? '<div style="font-size:12.5px; color:var(--slate); margin-top:2px;">&#128221; '+esc(hd.notes)+'</div>' : '')+
       (hd.specificOutlet === 'Yes' && hd.specificOutletNotes ? '<div style="font-size:12.5px; color:#4338CA; margin-top:2px;">&#128268; Outlet: '+esc(hd.specificOutletNotes)+'</div>' : '')+
       (hd.lightsDescription ? '<div style="font-size:12.5px; color:var(--dusk); font-weight:600; margin-top:2px;">&#127875; Light Colors: '+esc(hd.lightsDescription)+'</div>' : '')+
-      '<div style="font-size:12.5px; color:var(--slate); margin-top:2px;">Wire: '+esc(hd.wireColor || 'White')+' &middot; Timer: '+(hd.outletTimer === 'Yes' ? 'Yes' : 'No')+(hd.useEaves ? ' &middot; Eaves: '+esc(hd.useEaves) : '')+'</div>'+
+      '<div style="font-size:12.5px; color:var(--slate); margin-top:2px;">Wire: '+esc(hd.wireColor || 'White')+(hd.outletTimer ? ' &middot; Timer: '+esc(hd.outletTimer) : '')+(hd.useEaves ? ' &middot; Eaves: '+esc(hd.useEaves) : '')+'</div>'+
       (hd.oneTimeNote ? '<div style="font-size:12.5px; color:var(--ember); margin-top:2px;">&#128221; (this visit only) '+esc(hd.oneTimeNote)+'</div>' : '')+
       (needsFix && (hd.fixNote || hd.fixPhotoUrl) ? (
         '<div style="background:#FDECEA; border:1px solid #f0b3ac; border-radius:8px; padding:10px 12px; margin-top:8px;">'+
