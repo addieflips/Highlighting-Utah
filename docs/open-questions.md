@@ -284,7 +284,7 @@ Resulting map change:
 
 ---
 
-## Q-008 · intent · open · 2026-08-21
+## Q-008 · intent · answered · 2026-08-21
 On a health-check notice in the System inbox, what does **Deny** mean?
 
 Design agreed in conversation 2026-08-21: instead of findings sitting silently in
@@ -308,12 +308,34 @@ policy decision about money and customer data, so it is Addie's.
 
 Blocks: the approve/deny mechanism, and therefore the exception model for all
 twelve judgement-call checks.
-Answer:
-Resulting map change:
+
+**Answer (Addie, 2026-08-21): (2) — not until the data changes. AND the denial is
+PER MEMBER: "I should be able to choose what member I'm denying for and approve
+for all other members if we run into that situation."**
+
+⚠ THE PER-MEMBER HALF CONTRADICTS HOW I SAID THE NOTICE HAD TO BE BUILT, and her
+version is the right one. Q-009 argued that a notice must be
+one-per-check-with-counts rather than one-per-finding, because `messages` refuses
+any create over 5,000 characters. That is still true — but I had assumed the
+DECISION lived on the notice, and if it did, per-member granularity would be
+impossible for any check with more than a handful of rows.
+
+So the decision must NOT live on the message document. The notice is the
+delivery surface — an alert that says what was found and how many — and the
+decision is recorded per finding, keyed by `check id + member id + fingerprint`.
+That keeps the 5,000-character cap entirely out of the decision path, and makes
+per-member denial work for a check with fifty rows as easily as one with two.
+
+Deny one row, and the rest stay approved. A denied row comes back on its own the
+moment its fingerprint changes, which is what "not until the data changes" buys.
+
+**Resulting map change:** P-002 rewritten to the decided design. A new
+`healthCheckDecisions` collection (or equivalent) keyed on check + member +
+fingerprint is now part of phase 5's walker, not a bolt-on to the panel.
 
 ---
 
-## Q-009 · intent · open · 2026-08-21
+## Q-009 · intent · answered · 2026-08-21
 Which health checks should raise a System notice at all?
 
 Not all nineteen, or the inbox becomes the thing nobody reads — which is the
@@ -339,5 +361,35 @@ one-per-finding, and it has to be trimmed with what did not fit **counted**
 rather than cut.
 
 Blocks: how many notices the inbox gets on day one.
-Answer:
-Resulting map change:
+
+**Answer (Addie, 2026-08-21): all of them notify. "I want to be able to approve
+or deny it. But after approve it can auto write."**
+
+So approve/deny is defined, and is no longer the ambiguous pair I warned about:
+
+- **Approve** = this finding is real. Where the check has an auto-fix (six of
+  them), approving RUNS it — no second button, no separate trip to the panel.
+  Where it does not (the other twelve), approving means it stays open as real
+  work and surfaces on the record itself (R-012).
+- **Deny** = this one is fine. Records an exception, per member, scoped to the
+  fingerprint, per Q-008.
+
+⚠ THIS PROMOTES THE NOTICE INTO A WRITE PATH, and tier 2 now applies to it. One
+click on a notice reading "43 invoices have drifted totals" is 43 money writes.
+That is a bulk operation by any reading, so R-006 and R-007 attach:
+
+- the notice must STATE WHAT APPROVING WILL WRITE, with counts and totals, before
+  it is approved — the notice is the preview R-006 requires, so it has to
+  actually contain the preview;
+- R-007's blast-radius cap applies: refuse, and ask for an override, when the
+  count is far above the usual run;
+- R-008: what it actually wrote gets logged, diffable against what the notice
+  said it would write.
+
+Deferring the auto-write until approval is a genuine safety improvement over
+today, where six fixes are one unguarded button press in the panel with no
+preview and no record. It is only an improvement if the preview is real.
+
+**Resulting map change:** P-002 rewritten. The six auto-fixes move from
+"button in the panel" to "runs on approval, from a notice that previewed it",
+and pick up R-006/R-007/R-008 on the way.

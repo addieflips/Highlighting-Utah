@@ -154,25 +154,32 @@ Screenshot baselines cover that ground, and each automated test is maintenance f
 
 Not active. Do not follow until moved into the numbered set above.
 
-### P-002 · proposed 2026-08-21
-Rule: A health-check finding that needs a judgement call is DELIVERED as a
-      System notice with approve/deny, not left sitting in a panel. Denying is
-      how an exception is made, and a denial is scoped to the finding it
-      excused — never to the customer — so it lapses when the data changes.
-Why: the panel has no way to express an exception at all today. The only
-      exceptions that exist are hard-coded category rules inside
-      hcSharedPhoneGroups. So a standing finding either nags forever or gets
-      scrolled past, which is R-013's failure exactly.
-Would have caught: nothing yet — this is new capability, not a past incident.
-      The precedent that it is modelled on is the "Light Color Change" System
-      notice, which already carries a Send to Warehouse button and records
-      addedToWarehouseAt when it is actioned.
-Might wrongly block: a per-customer denial is the obvious implementation and is
-      the dangerous one — deny sharedPhone for one household and a later, wrong
-      house joining that number is never reported. Scoping to a fingerprint is
-      what costs the extra work.
+### P-002 · proposed 2026-08-21 · revised 2026-08-21 after Q-008 / Q-009
+Rule: Every health-check finding is DELIVERED as a System notice carrying its own
+      preview, and is approved or denied there rather than sitting in a panel.
+      Approve means the finding is real — and where the check has an auto-fix,
+      approving RUNS it. Deny means this one is fine: it records an exception
+      PER MEMBER, scoped to a fingerprint of the finding, so it lapses on its own
+      when that member's data changes. The decision is stored per
+      check+member+fingerprint, never on the notice.
+Why: the panel has no way to express an exception at all today — the only ones
+      that exist are hard-coded category rules inside hcSharedPhoneGroups — so a
+      standing finding either nags forever or gets scrolled past, which is
+      R-013's failure exactly. And six fixes currently run from an unguarded
+      button press with no preview and no record of what they wrote.
+Would have caught: nothing yet — new capability, not a past incident. Modelled on
+      the "Light Color Change" System notice, which already carries a Send to
+      Warehouse button and records addedToWarehouseAt when actioned.
+Might wrongly block: approving now WRITES, so a notice covering many members is a
+      bulk operation from one click. That is why the preview is part of the rule
+      and not a nicety — R-006, R-007 and R-008 all attach to the notice. Storing
+      the decision on the message document would be the cheap implementation and
+      is unbuildable: `messages` refuses any create over 5,000 characters, so a
+      check with fifty rows could never offer per-member denial.
 Enforcement: code
-Tier: 3
+Tier: 2 — it writes, and R-006 governs anything that writes in bulk.
+       (Proposed at tier 3; raised on Q-009's answer, which turned the notice
+       from a report into a write path.)
 
 ### P-001 · proposed 2026-08-21
 Rule: A rule that asserts a safety property must be verified against the code
@@ -203,5 +210,6 @@ Every change to this file gets a line. Never silently edit a rule.
 | 2026-08-21 | Replaced R-015, and marked it TARGET | The rule asserted a guard that does not exist. It claimed money is computed in exactly two parity-tested places; `money-parity.test.js` compares only the invoice STATUS string and the invoice KEY, never the AMOUNT OWED. The amount is hand-inlined at ~12 sites across `admin.html`, `functions/index.js` and `index.html` — including the PayPal charge and the member portal. Reviewing a change against the old wording would have passed a fourth implementation as safe. See `docs/open-questions.md` Q-001. |
 | 2026-08-21 | Corrected R-015's own Status paragraph | The rule shipped hours earlier carrying the same "zero callers" error as the amendment below it. Left standing it would be a false fact inside a rule people read to decide things — which is what P-001, proposed the same day, exists to stop. The wording is otherwise Addie's, unchanged; only the factual clause moved. |
 | 2026-08-21 | Corrected the R-015 amendment above | It first said `balanceDueAmount()` "has zero callers". It has 12, all in `admin.html`. The error was a malformed grep that was not re-checked before being written down — which is exactly what P-001 exists to prevent, on the same day P-001 was proposed. The rule change itself stands: the helper is used properly in admin, and the defect is that `functions/index.js` and `index.html` have no equivalent at all. |
+| 2026-08-21 | Revised P-002, and raised it from tier 3 to tier 2 | Q-008 and Q-009 answered. Two changes. Denial is PER MEMBER, so the decision cannot live on the notice — `messages` caps at 5,000 characters and a check with fifty rows could never offer per-member choice; it is keyed on check+member+fingerprint instead. And approving now RUNS the auto-fix, which turns a notice into a bulk write path: one click on "43 invoices have drifted" is 43 money writes, so R-006's preview, R-007's blast-radius cap and R-008's log all attach, and the rule moves to the irreversibility tier where those live. |
 | 2026-08-21 | Proposed P-002 | Design agreed in conversation: health-check findings that need a judgement call should arrive in the System inbox to be approved or denied, rather than accumulating in a panel with no way to express an exception. Two intent questions have to be answered before it can be built — what Deny means over time (Q-008) and which checks may notify at all (Q-009). |
 | 2026-08-21 | Proposed P-001 | R-015 and R-009 both shipped as statements of fact about guards that were never in place. A rule asserting a safety property should be checked against the code when written, and marked TARGET when the property is still aspirational. |
