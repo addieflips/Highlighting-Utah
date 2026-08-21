@@ -20929,6 +20929,23 @@ suite('Suite 116. Deleting the test records');
         new RegExp("collection\\(db,'" + col + "'\\)").test(src),
         'a sweep that misses a collection leaves a test customer on a sheet');
     });
+    /* ⭐ AND THE INBOX (2026-08-21). A test customer walked through the real flow leaves
+       messages behind — a Light Colour Change from the portal, an RSVP note — and none of
+       them carries isTestRecord, because the portal wrote them and knows nothing about
+       tests. Left there they are junk in the one list the office reads every morning. */
+    check('S116', 'it looks in the Inbox too',
+      /collection\(db,'messages'\)/.test(src),
+      'the portal writes messages that nothing stamps as a test');
+    check('S116', 'and deletes what it finds there',
+      /'messages', found\.messages/.test(extractFn(admin, 'testSweepDelete')),
+      'finding them and leaving them is worse than not looking');
+
+    /* ⚠ AND THE REPORT USES THE WORDS ON THE SCREEN IT IS ABOUT. Owner, reading "Would
+       delete: 1 invoice" with two Test rows on the recycle queue in front of her: "it
+       fails to see it needs to delete a recycle." */
+    check('S116', 'the report calls them entries on the recycle list',
+      /entry on the recycle list/.test(extractFn(admin, 'testSweepSummary')),
+      '"2 archived records" is not obviously the two rows on the Recycle screen');
     check('S116', 'and at the season plan, which is one document not a collection',
       /doc\(db,'routeSchedule','plan'\)/.test(src),
       'owner asked for the schedule by name');
@@ -21037,6 +21054,59 @@ suite('Suite 116. Deleting the test records');
       'telling somebody where they are not is half an answer');
   }
 
+  /* ⭐ RUN OVER A MIXED INBOX AND A MIXED RECYCLE LIST. Owner, 2026-08-21, reading
+     "Would delete: 1 invoice" with two Test rows on the recycle queue in front of her:
+     "it fails to see it needs to delete a recycle."
+
+     ⚠ CHECKS THAT THE COLLECTION IS MENTIONED PASSED THE WHOLE TIME IT WAS BROKEN, and
+     so did checks that the report has a line for it. Both of these run the real thing
+     and read what comes out. */
+  {
+    const AsyncFn = Object.getPrototypeOf(async function(){}).constructor;
+    const both = new AsyncFn('getDocs', 'collection', 'getDoc', 'doc', 'db', 'console',
+      'TEST_PHONE',
+      extractFn(admin, 'isTestRecordData') + 'async ' + extractFn(admin, 'testSweepFind') +
+      extractFn(admin, 'testSweepSummary') +
+      'const r = await testSweepFind(); return {r: r, text: testSweepSummary(r)};');
+    const snap = (rows) => ({forEach: (f) => rows.forEach(r => f({id: r.id, data: () => r.data}))});
+    /* Her actual screen: two Test rows on the recycle list, one invoice, and an Inbox
+       holding one message from the test customer and one from a real one. */
+    const world = {
+      archivedCustomers: [
+        {id: 'a1', data: {customer: {name: 'Test', phone: '3853912235', isTestRecord: true}}},
+        {id: 'a2', data: {customer: {name: 'Test', phone: '3853912235', isTestRecord: true}}}],
+      invoices: [{id: '3853912235', data: {name: 'Test', phone: '3853912235'}}],
+      messages: [
+        {id: 'm1', data: {name: 'Test', phone: '3853912235', topic: 'Light Color Change'}},
+        {id: 'm2', data: {name: 'Ashley Wray', phone: '8016160714', topic: 'Light Color Change'}}]
+    };
+    pendingAsync.push(both(
+      async function(q){ return snap(world[q.col] || []); },
+      function(db, col){ return {col: col}; },
+      async function(){ return {exists: function(){ return false; }}; },
+      function(db, c, i){ return {col: c, id: i}; }, {},
+      {error: function(){}, log: function(){}}, '3853912235'
+    ).then(function(o){
+      check('S116', 'the test customer\u2019s message is found in the Inbox',
+        o.r.messages.length === 1 && o.r.messages[0].id === 'm1',
+        'the portal writes these and knows nothing about tests, so nothing stamps them');
+      /* ⚠ AND A REAL CUSTOMER'S MESSAGE IS NOT. It is somebody asking for something,
+         and deleting one loses a request nobody else has a copy of. */
+      check('S116', 'and a real customer\u2019s message is left alone',
+        o.r.messages.every(function(m){ return m.data.name === 'Test'; }),
+        'the phone alone is not enough, and the name alone is certainly not');
+      check('S116', 'both recycle-list rows are found',
+        o.r.archived.length === 2);
+      /* ⚠ AND THE REPORT SAYS ALL OF IT, in the words on the screen it is about. */
+      check('S116', 'the report names the recycle list and the Inbox, not just the invoice',
+        /entries on the recycle list/.test(o.text) &&
+        /message in the Inbox/.test(o.text) && /invoice/.test(o.text),
+        'got \u201c' + o.text + '\u201d \u2014 she read \u201c1 invoice\u201d with two Test rows ' +
+        'on the recycle queue in front of her');
+      check('S116', 'and counts them properly rather than saying nothing',
+        /2 entries on the recycle list/.test(o.text) && /1 message in the Inbox/.test(o.text));
+    }));
+  }
   /* ---- and what it does with them ---------------------------------------- */
   {
     const del = extractFn(admin, 'testSweepDelete');

@@ -7521,7 +7521,7 @@ document.getElementById('qTmplSaveBtn')?.addEventListener('click', async functio
    subscribed to — archivedCustomers and warehouseExtras are not always among them. */
 async function testSweepFind(){
   const found = {customers: [], quotes: [], invoices: [], archived: [], extras: [],
-                 routeStops: [], planHouses: [], numbers: []};
+                 messages: [], routeStops: [], planHouses: [], numbers: []};
   const custSnap = await getDocs(collection(db,'jobAddresses'));
   custSnap.forEach(function(docSnap){
     const d = docSnap.data();
@@ -7569,6 +7569,20 @@ async function testSweepFind(){
     const raw = docSnap.data() || {};
     const cust = raw.customer || raw;
     if(isTestRecordData(cust)) found.archived.push({id: docSnap.id, data: cust});
+  });
+
+  /* ⭐ AND THE INBOX. A test customer walked through the real flow leaves messages
+     behind — a Light Colour Change from the portal, an RSVP note — and none of them
+     carries isTestRecord, because the portal wrote them and knows nothing about tests.
+     Left there they are junk in the one list the office reads every morning.
+
+     ⚠ MATCHED ON IDENTITY, WHICH FOR A MESSAGE MEANS THE PHONE AND THE NAME TOGETHER.
+     A real customer's message is somebody asking for something, and deleting one loses a
+     request nobody else has a copy of. */
+  const msgSnap = await getDocs(collection(db,'messages'));
+  msgSnap.forEach(function(docSnap){
+    const d = docSnap.data() || {};
+    if(isTestRecordData(d)) found.messages.push({id: docSnap.id, data: d});
   });
 
   /* Warehouse: an extra raised against a test customer, and anything stamped itself. */
@@ -7651,7 +7665,8 @@ async function testSweepDelete(found){
       await setDoc(doc(db,'routeSchedule','plan'), p.plan);
     });
   }
-  const wipe = [['warehouseExtras', found.extras], ['invoices', found.invoices],
+  const wipe = [['warehouseExtras', found.extras], ['messages', found.messages],
+                ['invoices', found.invoices],
                 ['quotes', found.quotes], ['archivedCustomers', found.archived],
                 ['jobAddresses', found.customers]];
   for(const pair of wipe){
@@ -7670,7 +7685,14 @@ function testSweepSummary(f){
   add(f.customers.length, 'customer', 'customers');
   add(f.quotes.length, 'quote', 'quotes');
   add(f.invoices.length, 'invoice', 'invoices');
-  add(f.archived.length, 'archived record', 'archived records');
+  /* ⚠ NAMED AS THE LIST SHE IS LOOKING AT. Owner, 2026-08-21, reading "Would delete: 1
+     invoice" with two Test rows on the recycle queue in front of her: "it fails to see
+     it needs to delete a recycle." It was in fact failing to see them at all (see the
+     nested-archive fix), but even once found, "2 archived records" would not obviously
+     be the two rows on the Recycle screen. A report has to use the words on the screen
+     it is about. */
+  add(f.archived.length, 'entry on the recycle list', 'entries on the recycle list');
+  add(f.messages.length, 'message in the Inbox', 'messages in the Inbox');
   add(f.extras.length, 'warehouse item', 'warehouse items');
   add(f.routeStops.reduce(function(n, r){ return n + r.went; }, 0), 'route stop', 'route stops');
   add(f.planHouses.reduce(function(n, p){ return n + p.count; }, 0), 'day on the schedule', 'stops on the schedule');
