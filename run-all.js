@@ -28781,6 +28781,241 @@ suite('Suite 130. Nothing a customer\'s answer sets off may fail silently');
     'the badge is what makes somebody open the tab in the first place');
 }
 // A check that scores after this summary is a check that cannot fail the build.
+
+suite('126. Measure Roof — sky view and Street View are one set of points');
+{
+  /* ⚠ THIS SUITE RUNS THE MATHS, it does not read it. Every earlier version of
+     a check on this feature matched source text and passed while the two views
+     were on scales 0.25% apart — see the earth-model note in rmFeetBetween.
+     CLAUDE.md §5: a message that is in the source is not a message on screen,
+     and a number that is in the source is not a number that was computed. */
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+  const NAMES = ['rmMetresPerDeg', 'rmToLocal', 'rmToWorld', 'rmFeetBetween',
+                 'rmFovDeg', 'rmBasis', 'rmRay', 'rmGroundHit', 'rmWallHit',
+                 'rmSvProject', 'rmMercator', 'rmPointOnStatic'];
+  const missing = NAMES.filter(n => !pick(n));
+  if (missing.length) {
+    check('S126', 'the Measure Roof maths is findable', false,
+      'missing: ' + missing.join(', ') + ' — renamed or removed; update this test rather than deleting it');
+  } else {
+    /* rmOrigin is module state the lifted functions close over, so it is
+       declared in the sandbox rather than stubbed — a stub would make the
+       frame untestable while reporting green. */
+    const prelude = 'let rmOrigin = {lat: 40.2969, lng: -111.6946};' + LF_ +
+      'const RM_M_TO_FT = 3.280839895;' + LF_ +
+      'const RM_CAM_HEIGHT_M = 2.5;' + LF_ +
+      'const rmRad = d => d * Math.PI / 180;' + LF_;
+    const api = new Function(prelude + NAMES.map(pick).join(LF_) + LF_ +
+      'return {rmToLocal, rmToWorld, rmFeetBetween, rmRay, rmGroundHit, rmWallHit,' +
+      ' rmSvProject, rmFovDeg, rmMetresPerDeg, rmPointOnStatic};')();
+
+    const near = (a, b, tol) => Math.abs(a - b) <= tol;
+    const M_TO_FT = 3.280839895;
+
+    /* ---- one earth model ------------------------------------------------
+       ⚠ THE REGRESSION THIS EXISTS FOR. The frame places points with the
+       ELLIPSOID (85,023 m per degree of longitude at this latitude) and
+       rmFeetBetween once measured them with a haversine on a SPHERE (84,832).
+       Ten metres came back as 32.73 ft instead of 32.81 — 0.25%, three inches
+       per hundred feet, and only ever in the direction that made a wall
+       measured from the street disagree with the same wall traced from above.
+       Nothing on screen would have said a word. */
+    const origin = api.rmToWorld({e: 0, n: 0, u: 0});
+    const tenEast = api.rmToWorld({e: 10, n: 0, u: 0});
+    check('S126', 'ten metres east measures ten metres, not 0.25% short',
+      near(api.rmFeetBetween(origin, tenEast), 10 * M_TO_FT, 0.01),
+      'got ' + api.rmFeetBetween(origin, tenEast).toFixed(4) + ' ft, expected ' + (10 * M_TO_FT).toFixed(4) +
+      ' — the frame and the ruler are on different earths again');
+    const tenNorth = api.rmToWorld({e: 0, n: 10, u: 0});
+    check('S126', 'and ten metres north measures the same as ten east',
+      near(api.rmFeetBetween(origin, tenNorth), api.rmFeetBetween(origin, tenEast), 0.001),
+      'a frame that is not square makes a diagonal wall measure differently from a straight one');
+
+    /* ---- height is part of the distance -------------------------------- */
+    const tenUpAndOut = api.rmToWorld({e: 10, n: 0, u: 6});
+    check('S126', 'a run that rises is measured as the hypotenuse, not the flat run',
+      near(api.rmFeetBetween(origin, tenUpAndOut), Math.hypot(10, 6) * M_TO_FT, 0.01),
+      'a sloping peak measured as its flat run is short by exactly the thing Street View was added to see');
+    check('S126', 'a pure rise is not zero',
+      near(api.rmFeetBetween(origin, api.rmToWorld({e: 0, n: 0, u: 6})), 6 * M_TO_FT, 0.01),
+      'two points one above the other must not measure as the same place');
+
+    /* ---- the frame round-trips ------------------------------------------ */
+    const rt = api.rmToWorld(api.rmToLocal(40.29712, -111.69488, 5.4));
+    check('S126', 'world to local and back is the same place',
+      near(rt.lat, 40.29712, 1e-11) && near(rt.lng, -111.69488, 1e-11) && near(rt.h, 5.4, 1e-11),
+      'a point drifts every time it crosses between the views');
+
+    /* ---- Street View: pixel to ray -------------------------------------- */
+    const W = 1000, H = 600, POV = {heading: 0, pitch: 0, zoom: 1};
+    check('S126', 'zoom 1 is 90 degrees across', near(api.rmFovDeg(1), 90, 1e-9));
+    const centre = api.rmRay(W / 2, H / 2, W, H, POV);
+    check('S126', 'a click dead centre points exactly where the camera faces',
+      near(centre.n, 1, 1e-9) && near(centre.e, 0, 1e-9) && near(centre.u, 0, 1e-9));
+    const right45 = api.rmRay(W / 2 + 500, H / 2, W, H, POV);
+    check('S126', '500 px right at 90 degrees across is exactly 45 degrees round',
+      near(Math.atan2(right45.e, right45.n) * 180 / Math.PI, 45, 1e-6),
+      'the lens model is wrong, so every street measurement is wrong with it');
+
+    /* ---- the ground, which is what pins the wall ------------------------ */
+    const cam = {e: 0, n: -12, u: 2.5};   /* camera across the street, on the road */
+    const down45 = api.rmRay(W / 2, H / 2 + 500, W, H, POV);
+    const hit = api.rmGroundHit(down45, cam);
+    check('S126', '45 degrees down lands one camera-height out',
+      hit && near(hit.n - cam.n, 2.5, 1e-6) && near(hit.u, 0, 1e-9),
+      'the ground plane is the only thing giving a photograph any depth at all');
+    check('S126', 'a ray at the horizon is refused rather than landing at infinity',
+      api.rmGroundHit(centre, cam) === null,
+      'a horizon click must not silently produce a point miles away');
+    check('S126', 'and a ray above the horizon is refused too',
+      api.rmGroundHit(api.rmRay(W / 2, H / 2 - 300, W, H, POV), cam) === null);
+    /* ⚠ THE CASE THE HORIZON GUARD ACTUALLY EXISTS FOR, and the one a naive
+       sabotage misses: a ray at EXACTLY the horizon is already caught by the
+       t<=0 guard below it, so removing the horizon test looks harmless. A ray
+       a hair BELOW the horizon is not - it divides by almost nothing and lands
+       a couple of billion metres away, with a positive t, sailing through both
+       guards. That is a wall pinned on the far side of the planet. */
+    const grazing = api.rmGroundHit({e: 0, n: Math.sqrt(1 - 1e-18), u: -1e-9}, cam);
+    check('S126', 'a ray grazing just under the horizon is refused, not landed billions of metres away',
+      grazing === null,
+      grazing ? 'came back ' + Math.round(Math.hypot(grazing.e, grazing.n - cam.n) / 1000) +
+                ' km from the camera' : '');
+
+    /* ---- the wall, and the round trip that proves the views agree ------- */
+    const gL = api.rmGroundHit(api.rmRay(W / 2 - 300, H / 2 + 180, W, H, POV), cam);
+    const gR = api.rmGroundHit(api.rmRay(W / 2 + 300, H / 2 + 180, W, H, POV), cam);
+    const de = gR.e - gL.e, dn = gR.n - gL.n, len = Math.hypot(de, dn);
+    const nrm = {e: dn / len, n: -de / len};
+    const plane = {a: gL, b: gR, normal: nrm, d: nrm.e * gL.e + nrm.n * gL.n, lengthM: len};
+    const eave = api.rmWallHit(api.rmRay(W / 2, H / 2 - 220, W, H, POV), cam, plane);
+    check('S126', 'a click above the wall line lands on the wall',
+      !!eave && near(nrm.e * eave.e + nrm.n * eave.n, plane.d, 1e-9),
+      'without this a Street View click has nothing to land on and no length can exist');
+    check('S126', 'and it is above the ground, not on it',
+      eave && eave.u > 1, 'an eave that comes back at ground level is the plane maths collapsing');
+
+    /* ⚠ THIS IS THE WHOLE CLAIM OF THE FEATURE. A point marked in one view is
+       a place in the world, so projecting it back must return the pixel that
+       was clicked. If this drifts, the two views are two drawings again. */
+    const back = api.rmSvProject(api.rmToWorld(eave), W, H, POV, cam);
+    check('S126', 'a Street View point projects back to the exact pixel clicked',
+      back && near(back.x, W / 2, 1e-5) && near(back.y, H / 2 - 220, 1e-5),
+      'got ' + (back ? Math.round(back.x) + ',' + Math.round(back.y) : 'null') +
+      ' — a point marked in Street View no longer lands where it was put');
+
+    /* A point that exists only as lat/lng/height — the sky-view case — must
+       appear in Street View at the right place. This is the other direction of
+       the same claim, and it is the one a sky-view click actually exercises. */
+    const skyMarked = {lat: api.rmToWorld(eave).lat, lng: api.rmToWorld(eave).lng, h: eave.u};
+    const inStreet = api.rmSvProject(skyMarked, W, H, POV, cam);
+    check('S126', 'a point marked on the sky view shows up in Street View',
+      inStreet && near(inStreet.x, W / 2, 1e-5) && near(inStreet.y, H / 2 - 220, 1e-5),
+      'marking a corner from above does not appear on the photograph');
+
+    /* ---- turning your head must not move the house --------------------- */
+    const TURNED = {heading: 31, pitch: -7, zoom: 2};
+    const moved = api.rmSvProject(api.rmToWorld(eave), W, H, TURNED, cam);
+    check('S126', 'looking elsewhere moves the point on screen',
+      moved && Math.abs(moved.x - back.x) > 5,
+      'the overlay is painted in screen coordinates and is not following the view');
+    const eaveWorld = api.rmToWorld(eave);
+    const eave2 = api.rmToWorld(eave);
+    check('S126', 'but the measurement itself is unchanged by where you look',
+      near(api.rmFeetBetween(eaveWorld, api.rmToWorld({e: eave.e + 3, n: eave.n, u: eave.u})),
+           3 * M_TO_FT, 0.01),
+      'a length that depends on the point of view is not a length');
+
+    /* ---- a point behind the camera is dropped, not drawn wrong ---------- */
+    check('S126', 'a point behind the camera is refused rather than mirrored in front',
+      api.rmSvProject(api.rmToWorld({e: 0, n: cam.n - 5, u: 0}), W, H, POV, cam) === null,
+      'a house behind you drawn in front of you is worse than not drawn');
+
+    /* ---- the captured picture puts the lines where they were drawn ------ */
+    const centreOfShot = api.rmPointOnStatic({lat: 40.2969, lng: -111.6946},
+      {lat: 40.2969, lng: -111.6946}, 20, 640, 400, 2);
+    check('S126', 'the map centre lands dead centre of the captured picture',
+      near(centreOfShot.x, 640, 1e-6) && near(centreOfShot.y, 400, 1e-6),
+      'the traced lines will be burned into the wrong part of the image');
+  }
+
+  /* ---- the pricing multiplier ------------------------------------------
+     ⚠ The doubling is a business rule, not a measurement. It has to be a
+     named constant so the number can be found and changed, and BOTH figures
+     have to reach the screen — a total twice the size of the line just drawn,
+     with no working shown, reads as a bug in the measuring. */
+  const mult = admin.match(/const RM_FEET_MULTIPLIER = (\d+)/);
+  check('S126', 'the doubling is a named constant, not a bare 2 in the sum',
+    !!mult, 'RM_FEET_MULTIPLIER is gone — the rule is now buried where nobody will find it');
+  check('S126', 'and it is set to 2', mult && mult[1] === '2',
+    'changed deliberately? update this check in the same commit');
+  /* ⚠ sectionFrom takes an INDEX, not a string. Handed a string it coerces to
+     0 and slices from the top of the file — which still contains enough words
+     to make a loose check pass. Two of these three were doing exactly that. */
+  const useFeet = sectionFrom(admin, admin.indexOf("document.getElementById('rmUseFeetBtn').addEventListener"));
+  check('S126', 'Estimated Feet is saved as the measured run times that constant',
+    /RM_FEET_MULTIPLIER/.test(useFeet) && /estimatedFeet:\s*feet/.test(useFeet),
+    'the button either stopped doubling or started doubling somewhere else');
+  check('S126', 'and it reports the measured figure alongside the doubled one',
+    /measured/.test(useFeet),
+    'a number twice the size of the traced line, with no working, reads as a fault');
+
+  /* ---- the button actually does something ------------------------------
+     Owner's standing request: "just make sure that if i click a button the
+     function that is supposed to happen actually does." */
+  check('S126', 'the quote card carries a Measure Roof button',
+    /data-measureroof="'\+item\.id\+'/.test(admin),
+    'the button is gone from the card, so nothing can open the tool');
+  const wiring = sectionFrom(admin, admin.indexOf("list.querySelectorAll('[data-measureroof]')"));
+  check('S126', 'and it is wired to a function that exists',
+    /openRoofMeasure\(btn\.dataset\.measureroof\)/.test(wiring) && !!extractFn(admin, 'openRoofMeasure'),
+    'a button with no handler, or a handler calling something that is not there');
+
+  /* ---- two keys, and the one that works wins ---------------------------
+     ⚠ THE BUG THIS EXISTS FOR. admin.html carries TWO Google keys in
+     different Cloud projects: the map's, on the Maps script tag, and
+     Firebase's own. On 2026-08-21 the static-image APIs were switched on for
+     the Firebase one and not the map one, so capture kept refusing while the
+     map rendered perfectly six inches above the error. Trying only one key
+     makes that unfixable from here. */
+  const keysFn = extractFn(admin, 'rmMapsKeys');
+  check('S126', 'both Google keys on the page are collected, not just the map one',
+    !!keysFn && /script\[src\*="maps\.googleapis/.test(keysFn) && /firebaseConfig/.test(keysFn),
+    'only one key is looked at, so a permission on the other is unreachable');
+  const fetchFn = extractFn(admin, 'rmFetchStatic');
+  check('S126', 'a refused key falls through to the next one',
+    !!fetchFn && /for\s*\(let i = 0; i < keys\.length/.test(fetchFn),
+    'the first refusal ends it, and the key that would have worked is never tried');
+  check('S126', 'but only a permission refusal is retried, not a 404',
+    !!fetchFn && /not authorized\|not enabled/.test(fetchFn) && /break/.test(fetchFn),
+    'retrying every failure on every key just makes a missing photo slower to report');
+  check('S126', 'and the key that worked is remembered for the next capture',
+    !!fetchFn && /rmGoodKey = keys\[i\]/.test(fetchFn),
+    'every capture pays for the refusal again');
+  const failMsg = extractFn(admin, 'rmStaticFailMessage');
+  check('S126', 'and the refusal message says there is more than one key',
+    !!failMsg && /more than one key/.test(failMsg) && /different Google Cloud projects/.test(failMsg),
+    'a message naming "the key" sends somebody to fix the one they can see — which is the trap that cost a round of this');
+
+  /* ---- the freeze, which is the control complaint this was built for ---- */
+  const setDrawing = extractFn(admin, 'rmSetDrawing');
+  check('S126', 'starting a line freezes the sky view',
+    !!setDrawing && /rmMap\.setOptions\(\{draggable: !skyLock/.test(setDrawing),
+    'the map can pan under a half-drawn line again');
+  check('S126', 'and freezes Street View',
+    !!setDrawing && /rmPano\.setOptions\(/.test(setDrawing) && /stLock/.test(setDrawing),
+    'the panorama can swing away mid-trace again — the exact thing that was reported');
+
+  /* ---- placed points stay editable ------------------------------------- */
+  const dot = extractFn(admin, 'rmDot');
+  check('S126', 'a placed point can be dragged afterwards',
+    !!dot && /draggable:\s*true/.test(dot),
+    'a corner put slightly wrong means starting the line again');
+  check('S126', 'and dragging it moves the world point, so both views follow',
+    !!dot && /run\.path\[idx\]\.lat/.test(dot) && /rmPaintStreet\(\)/.test(dot),
+    'dragging on the sky view would move the line there and leave Street View behind');
+}
+
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));
