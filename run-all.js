@@ -25534,9 +25534,16 @@ suite('122. Out of the yard and back, and a picture of it');
     home.indexOf('custByAddrKey') < home.indexOf('estimatedPinFromAddress'),
     'same rule as everywhere else: measured beats calculated');
   const ord = sectionFrom(admin, admin.indexOf('function orderHousesForDriving(list)'));
+  /* ⚠ THE YARD IS BOTH ENDS ON BOTH PATHS. Since Suite 124 the day may be
+     ordered in two passes when somebody lives out on their own, and the SECOND
+     pass is the one that has to finish at the yard — checking only the simple
+     path would go green while every day with an outlier ended in the wrong place. */
   check('S122', 'every crew route is ordered yard-to-yard',
-    /reorderFlatStops\(houses\.map\(houseStopPoint\), home, home\)/.test(ord),
+    /reorderFlatStops\(points, home, home\)/.test(ord),
     'both legs, or the day still ends wherever the last cluster happened to be');
+  check('S122', 'and the far-houses pass finishes at the yard too',
+    /reorderFlatStops\(split\.out,[\s\S]{0,120}home\);/.test(ord),
+    'owner: "still remembering 209 s 850 w is the end point"');
 
   /* ---- the picture ---- */
   const pic = sectionFrom(admin, admin.indexOf('function routePictureHTML(day)'));
@@ -25806,6 +25813,149 @@ suite('123. The two crew maps, actually rendered');
       global.document = savedDoc;
       global.window = savedWin;
     }
+  }
+}
+
+/*
+ * Suite 124. The house out on its own goes last, on the way home.
+ *
+ * Owner, 2026-08-21: "if there are people that are a little furthur out than
+ * everyone else than they fall at the end of the route while still remembering
+ * 209 s 850 w is the end point ... we dont want a long drive in the middle of
+ * the day we would rather that be at the end of the day on their way back home."
+ *
+ * ⚠ THIS IS DELIBERATELY NOT THE SHORTEST ROUTE. The orderer minimises total
+ * miles and is perfectly happy to nip out to the far house at eleven in the
+ * morning and come back into the cluster afterwards — same mileage, much worse
+ * day. Measured on the fixture below: the far house moves from stop 10 of 17 to
+ * last, the worst mid-day leg falls from 5.6 to 0.3 miles, and the whole day
+ * costs 1.1 miles more. That trade is the feature, so a check that only asserted
+ * "the route got shorter" would be asserting the opposite of what was asked for.
+ *
+ * ⚠ AND IT MUST REFUSE far more often than it fires. "Further out than everyone
+ * else" needs an everyone else; a day that is simply spread out has no outlier
+ * and splitting it would invent a two-part route out of one ordinary one. Most
+ * of what is checked below is the refusals.
+ */
+suite('124. The house out on its own goes last, on the way home');
+{
+  const crewStart = admin.indexOf('function cityOf(h)');
+  const crewEnd = admin.indexOf('/* ---------- build from imported rows', crewStart);
+  const geoStart = admin.indexOf('function twoOptImprove(');
+  const geoEnd = admin.indexOf('function nearestNeighborOrder(', geoStart);
+  if (crewStart === -1 || crewEnd < crewStart || geoStart === -1) {
+    check('S124', 'the route orderer is findable', false,
+      'renamed or removed — update this test rather than deleting it');
+  } else {
+    const LF_ = String.fromCharCode(10);
+    const HOME = { lat: 40.3866, lng: -111.8616 };        // 209 S 850 W, Lehi
+    global.dayDate = d => d._date;
+    global.isoOf = () => '2026-11-03';
+    global.dlabel = () => ({ wd: 'Mon', full: 'Nov 3' });
+    global.esc = s => String(s == null ? '' : s);
+    global.customerForHouse = h => (h && h._cust) ? { data: h._cust } : null;
+    global.estimatedPinFromAddress = () => HOME;          // so routeHomePoint answers
+
+    const api = eval(extractFn(admin, 'haversine') + LF_ + admin.slice(geoStart, geoEnd) +
+      LF_ + admin.slice(crewStart, crewEnd) + LF_ +
+      ';({order: orderHousesForDriving, plain: reorderFlatStops, hav: haversine,' +
+      '  split: outlyingStops, point: houseStopPoint, centre: stopsCentre,' +
+      '  setCrews(l){ CREWS = normalizeCrews(l); }})');
+
+    const mk = (name, lat, lng) => ({ name, city: 'Lehi', _cust: { lat, lng } });
+    /* ⚠ THE FIXTURE HAS TO MAKE THE SHORTEST TOUR PUT THE FAR HOUSE IN THE MIDDLE,
+       or the check passes whether the code does anything or not. Sixteen houses
+       along one street with the odd one out five miles north of the MIDDLE of it
+       does that: the cheapest detour is exactly halfway along. A far house off
+       one END is visited last by the plain orderer anyway, and the first version
+       of this fixture had precisely that flaw and proved nothing. */
+    const street = [];
+    for (let i = 0; i < 16; i++) street.push(mk('near' + i, 40.400, -111.900 + i * 0.0055));
+    const far = mk('FAR', 40.475, -111.860);
+    const day = street.concat([far]);
+
+    const legs = order => {
+      const out = [];
+      let prev = HOME;
+      order.forEach(h => { out.push(api.hav(prev.lat, prev.lng, h._cust.lat, h._cust.lng)); prev = h._cust; });
+      out.push(api.hav(prev.lat, prev.lng, HOME.lat, HOME.lng));
+      return out;
+    };
+    const worstMiddle = order => {
+      const L = legs(order).slice(1, -2);          // neither the drive out nor the drive home
+      return L.length ? Math.max.apply(null, L) : 0;
+    };
+    const total = order => legs(order).reduce((a, b) => a + b, 0);
+
+    const plain = api.plain(day.map(api.point), HOME, HOME).map(s => s.ref);
+    const held = api.order(day.slice());
+
+    check('S124', 'the plain shortest tour really does bury the far house mid-day',
+      plain.indexOf(far) > 2 && plain.indexOf(far) < plain.length - 2,
+      'the fixture proves nothing unless it does — got position ' + plain.indexOf(far));
+    check('S124', 'and the far house is now the last stop of the day',
+      held[held.length - 1] === far,
+      'got ' + held.map(h => h.name).join(',').slice(-40));
+    check('S124', 'the long drive is off the middle of the day',
+      worstMiddle(held) < worstMiddle(plain) / 2,
+      'worst mid-day leg ' + worstMiddle(plain).toFixed(1) + ' mi -> ' +
+        worstMiddle(held).toFixed(1) + ' mi');
+    /* ⚠ AND THE PRICE IS NAMED. It IS longer, on purpose. If this ever grows past
+       a mile or two on a fixture like this, the split has gone wrong rather than
+       the trade having changed. */
+    check('S124', 'and it costs a mile or so, not a detour of its own',
+      total(held) > total(plain) && total(held) - total(plain) < 3,
+      'cost ' + (total(held) - total(plain)).toFixed(1) + ' mi');
+    check('S124', 'nothing is dropped or visited twice by splitting the day',
+      held.length === day.length && day.every(h => held.indexOf(h) > -1) &&
+      new Set(held).size === held.length);
+
+    /* ---- the refusals ---- */
+    const spread = [];
+    for (let i = 0; i < 12; i++) spread.push(mk('s' + i, 40.30 + i * 0.02, -111.80 + i * 0.02));
+    check('S124', 'a day that is simply spread out has no outlier at all',
+      api.split(spread.map(api.point)).out.length === 0,
+      'that is the shape of the day, not a house out on its own');
+    const half = street.slice(0, 8).concat([
+      mk('f1', 40.475, -111.860), mk('f2', 40.478, -111.858), mk('f3', 40.472, -111.864),
+      mk('f4', 40.470, -111.866), mk('f5', 40.476, -111.862)]);
+    check('S124', 'and neither does a day that is half-and-half',
+      api.split(half.map(api.point)).out.length === 0,
+      'more than a third being "far" means there are two clusters, not one and a stray');
+    check('S124', 'a tiny day is left alone',
+      api.split(street.slice(0, 3).map(api.point)).out.length === 0,
+      'three stops have no "everyone else" to be further out than');
+    /* ⚠ THE FIXTURE HAS TO BE GENUINELY TIGHT or it tests nothing. On the street
+       above the median spread is already about a mile, so the factor alone puts the
+       cut near 2.75 miles and a half-mile house is never flagged either way — the
+       first version of this check was vacuous for exactly that reason. Sixteen
+       houses inside a fifth of a mile puts the factor-only cut at ~0.1 miles, so
+       ONLY the mileage floor keeps the half-mile house out of it. */
+    const culdesac = [];
+    for (let i = 0; i < 16; i++) culdesac.push(mk('c' + i, 40.4000 + i * 0.0002, -111.8600));
+    check('S124', 'a house half a mile out of a very tight day is not an outlier',
+      api.split(culdesac.concat([mk('n', 40.4072, -111.8600)]).map(api.point)).out.length === 0,
+      'the factor alone would flag it; the mileage floor is what stops that');
+
+    /* ⚠ THE CENTRE IS A MEDIAN, NOT A MEAN, and it matters: a mean is dragged
+       towards the very house being looked for, which then makes its neighbours
+       look far too. */
+    const pulled = street.concat([mk('miles', 41.9, -111.86)]);
+    const c = api.centre(pulled.map(api.point));
+    check('S124', 'one house far away does not drag the middle of the day towards it',
+      Math.abs(c.lat - 40.400) < 0.01,
+      'centre came out at ' + c.lat.toFixed(3) + ' — a mean would sit near 40.49');
+    check('S124', 'and only that house is called far, not half the street with it',
+      api.split(pulled.map(api.point)).out.length === 1);
+
+    /* A house with no position cannot be near or far; it stays after even the
+       far ones, which is where the owner asked for it. */
+    const withBare = day.concat([{ name: 'no pin', city: 'Lehi' }]);
+    const ordered = api.order(withBare);
+    check('S124', 'a house with no position at all is still the very last',
+      ordered[ordered.length - 1].name === 'no pin' &&
+      ordered[ordered.length - 2] === far,
+      'got ' + ordered.slice(-2).map(h => h.name).join(' then '));
   }
 }
 

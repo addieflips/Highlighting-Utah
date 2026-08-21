@@ -36064,13 +36064,90 @@ function routeHomePoint(){
     ? estimatedPinFromAddress(ROUTE_HOME_ADDRESS, ROUTE_HOME_CITY) : null;
   return est ? {lat: est.lat, lng: est.lng} : null;
 }
+/* ⭐ THE ONE THAT LIVES OUT ON ITS OWN GOES LAST, ON THE WAY HOME (added 2026-08-21).
+   Owner: "if there are people that are a little furthur out than everyone else
+   than they fall at the end of the route while still remembering 209 s 850 w is
+   the end point ... we dont want a long drive in the middle of the day we would
+   rather that be at the end of the day on their way back home."
+
+   ⚠ THIS IS DELIBERATELY NOT THE SHORTEST ROUTE, and that is the point. The
+   orderer minimises TOTAL miles, and the shortest tour is perfectly happy to
+   drive out to the far house at eleven in the morning and back into the cluster
+   afterwards. Same mileage, much worse day: the crew loses an hour in the middle
+   with twelve houses still to do, and every remaining stop is behind schedule.
+   Put the same leg at the end and it is the drive home they were making anyway.
+
+   So the day is split in two and ordered in two passes:
+     the cluster, from the yard, finishing on the side nearest the far houses;
+     then the far houses, ending at the yard.
+
+   ⚠ IT REFUSES TO FIRE ON A DAY THAT IS SIMPLY SPREAD OUT. "Further out than
+   everyone else" only means anything when there IS an everyone else, so if more
+   than a third of the day would be called far, nothing is — that is not an
+   outlier, that is the shape of the day, and splitting it would invent a
+   two-part route out of one ordinary one. */
+const OUTLIER_MIN_MILES = 2.5;    /* below this it is not "a long drive" at all */
+const OUTLIER_FACTOR = 2.5;       /* ...and it must be this much worse than normal */
+const OUTLIER_MAX_SHARE = 1 / 3;  /* more than this and the day is just spread out */
+
+function stopHasPin(p){
+  return !!p && typeof p.lat === 'number' && typeof p.lng === 'number' &&
+         isFinite(p.lat) && isFinite(p.lng);
+}
+/* The middle of the day, taken as the MEDIAN of each axis rather than the mean.
+   A mean is dragged towards the very houses we are trying to find, so a single
+   house forty miles out moves the "centre" a mile and a half towards itself and
+   starts making its neighbours look far too. */
+function stopsCentre(points){
+  const mid = function(a){ const s = a.slice().sort(function(x, y){ return x - y; });
+                           return s[Math.floor(s.length / 2)]; };
+  return {lat: mid(points.map(function(p){ return p.lat; })),
+          lng: mid(points.map(function(p){ return p.lng; }))};
+}
+function outlyingStops(points){
+  const none = {core: points, out: []};
+  if(points.length < 4) return none;
+  const c = stopsCentre(points);
+  const far = points.map(function(p){ return haversine(c.lat, c.lng, p.lat, p.lng); });
+  const sorted = far.slice().sort(function(a, b){ return a - b; });
+  const median = sorted[Math.floor(sorted.length / 2)];
+  /* Both tests have to pass. The factor alone calls a house half a mile out of a
+     very tight day an outlier; the mileage alone splits every rural day in two. */
+  const cut = Math.max(OUTLIER_MIN_MILES, median * OUTLIER_FACTOR);
+  const core = [], out = [];
+  points.forEach(function(p, i){ (far[i] > cut ? out : core).push(p); });
+  if(!out.length || !core.length) return none;
+  if(out.length > points.length * OUTLIER_MAX_SHARE) return none;
+  return {core: core, out: out};
+}
 function orderHousesForDriving(list){
   const houses=(list||[]).slice();
   if(houses.length<2) return houses;
   if(typeof reorderFlatStops!=='function') return houses;
   let ordered;
   const home=(typeof routeHomePoint==='function') ? routeHomePoint() : null;
-  try{ ordered=reorderFlatStops(houses.map(houseStopPoint), home, home); }
+  try{
+    const points = houses.map(houseStopPoint);
+    /* Held back explicitly rather than left to reorderFlatStops, which would put
+       them on the end of whichever of the two passes ran last — i.e. in the
+       middle of the day. A house with no position at all belongs at the very
+       end, after even the far ones. */
+    const pinned = points.filter(stopHasPin);
+    const bare = points.filter(function(p){ return !stopHasPin(p); });
+    const split = outlyingStops(pinned);
+    if(!split.out.length){
+      ordered = reorderFlatStops(points, home, home);
+    } else {
+      /* The cluster is aimed at the far houses so it finishes on that side,
+         rather than finishing wherever and then crossing back over itself. */
+      const toward = stopsCentre(split.out);
+      const core = reorderFlatStops(split.core, home, toward);
+      const last = core.length ? core[core.length - 1] : null;
+      const tail = reorderFlatStops(split.out,
+        last ? {lat: last.lat, lng: last.lng} : home, home);
+      ordered = core.concat(tail, bare);
+    }
+  }
   catch(err){ console.error('Route order failed:', err); return houses; }
   const out=[], seen=new Set();
   (ordered||[]).forEach(function(s){
