@@ -31,11 +31,11 @@ eight, and `audit()` with it.
 
 | # | Option | Field | Price? | Quote | Conf | Cust | Crew | Pull | Route | Sched | Inv |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | Measured feet | `measuredFeet` | **YES** | ✓ | ⚠ §5 | ✓ | – | ✓ | – | – | ✓ |
+| 1 | Measured feet | `measuredFeet` | **YES** | ✓ | **✓ new** | ✓ | – | ✓ | – | – | ✓ |
 | 2 | Light colours / pattern | `lightsDescription`, `lightColors` | no | ✓ | ✓ | ✓ | – | ✓ | – | – | – |
 | 3 | Wire colour | `wireColor` | no | ✓ | ✓ | ✓ | – | ✓ | – | – | – |
 | 4 | Timer | `outletTimer` | no | ✓ | ✓ | ✓ | ✓ | ✓ | – | – | – |
-| 5 | Plugs / eaves | `useEaves` | no | ✓ | ⚠ §5 | ✓ | ✓ | – | – | – | – |
+| 5 | Plugs / eaves | `useEaves` | no | ✓ | **cond. ⚠ §5** | ✓ | ✓ | – | – | – | – |
 | 6 | Which outlet | `specificOutlet`, `specificOutletNotes` | no | ✓ | ✓ | ✓ | **✓ new** | – | – | – | – |
 | 7 | Gate code | `gateCode` | no | ✓ | ✓ | ✓ | **✓ new** | – | – | – | – |
 | 8 | Sides of the house | `houseSides` | no¹ | ✓ | ✓ | ✓ | **✓ new** | – | **✓ new** | **✓ new** | – |
@@ -81,36 +81,53 @@ portal renders — so it can be `code`-enforced rather than remembered.
 
 ---
 
-## 5. Two things still needed
+## 5. Settled, and one wrinkle left
 
-**① R-004 vs the confirmation list — a real conflict, tier 1, `code`-enforced.**
+**① R-004 upheld — the confirmation carries a price/footage line.**
+Addie, 2026-08-21: *"lets do put a price/footage line on the confirmation."*
+So R-004 stands as written, `measuredFeet` gains `confirmation`, and `audit()`
+passes. No amendment needed. The customer sees the footage and the charge before
+the truck arrives, which is the whole of R-004's reasoning.
 
-Addie's confirmation list is: light colours, wire colour, which outlet, gate code,
-sides, install timing, and timer. It contains **no price and no footage.**
+**② Plugs / eaves goes on — but only when they said no. This collides with R-002.**
+Addie: *"We can put eaves on there if they said no to eaves."*
 
-R-004 says *"Anything the customer pays for must appear on the confirmation text"*,
-and it is enforced by `audit()` — an option with `affectsPrice` and no
-`confirmation` consumer **fails the build**. Measured feet is the only thing that
-affects price. So the list as given makes `audit()` refuse on day one of Phase 1.
+The intent is clear and sensible: "yes, use the eaves" is the ordinary case and
+printing it for everyone is noise; "no" is the exception the crew has to respect.
 
-Two ways out, and it is Addie's call which:
+⚠ But R-002 is tier 1 and says an option with no value renders `none`, **never an
+omitted line** — because silence and "they didn't want it" must not look alike.
+Hiding the line for anyone who is not a "no" makes three different states
+identical on the page, and the real data says that matters here. The Up Plug
+column on the master sheet holds **112 yes, 98 "?", 61 no, 3 y** — so roughly
+*ninety-eight customers have never actually answered this question.* Under a
+show-only-if-no rule, those 98 look exactly like the 112 who said yes, and the
+one surface that could have got them to answer says nothing.
 
-- **add a price/footage line to the confirmation** — keeps R-004 as written, and
-  the customer sees what they are being charged before the truck arrives; or
-- **amend R-004** to "anything the customer pays for must be shown *before* they
-  are billed", on the grounds that the quote already showed them the price and the
-  confirmation is about *what we are installing*, not what it costs.
+CLAUDE.md already settled the same point for the importer: *"'?' is not a no:
+blank leaves the record alone, which is the honest answer to a question mark."*
 
-Both are defensible. The second is probably what she means — but R-004 is tier 1
-and guessing at a tier-1 rule is exactly what this system exists to prevent.
+**Proposal — gives Addie what she asked for without losing the 98:**
 
-**② Plugs / eaves is missing from the confirmation list.** Rows 2, 3, 4, 6, 7, 8
-and 9 were named; `useEaves` was not. It is a customer preference like the
-others, so this is likely an oversight rather than a decision — unless "which
-outlet" is meant to cover it, in which case the two should probably be one
-option rather than two.
+| Their answer | Confirmation line |
+|---|---|
+| No | `Plugs / eaves: no — we will not use the eaves outlet` |
+| Blank / "?" | `Plugs / eaves: not answered — tell us in your portal` |
+| Yes | *omitted* |
 
----
+Only a clear **yes** is hidden, and a yes is the case where absence is genuinely
+unambiguous, because it is the default we would act on anyway.
+
+⚠ This still needs an **explicit R-002 exception logged**, because one option is
+now conditionally omitted where the rule says never. It also means `consumers`
+cannot stay a flat list for this row alone: the option declares `confirmation`
+(so R-003 and R-004 still see it) and carries a `confirmationWhen` predicate the
+renderer consults. `audit()` is unaffected.
+
+**Needs Addie: is the middle row right?** If she wants a strict
+show-only-when-no, that is her call and R-002 gets the exception either way —
+but the 98 unanswered stay unanswered, and nothing else in the system is going
+to ask them.
 
 ## 6. Answered
 
