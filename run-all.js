@@ -21118,6 +21118,33 @@ suite('Suite 116. Deleting the test records');
     })());
   }
 
+  /* ⭐ A CLOSED HEADING NAMES ITS HOUSES WHILE THE LIST IS SHORT. Owner, twice: "i clicked
+     build ashley wray but shes not here", then "they still arent appearing in the build
+     section of warehouse."
+
+     ⚠ BOTH TIMES THE RECORD WAS RIGHT AND THE SCREEN WAS THE PROBLEM. A house joining an
+     existing colour group only moves a heading from "4 houses" to "5 houses", so the one
+     question anybody asks this tab — is that customer on here — could not be answered
+     without opening every group in turn. */
+  {
+    const render = extractFn(admin, 'renderWarehouseQueue');
+    check('S116', 'a build group names its houses on the closed heading',
+      /g\.houses\.map\(function\(h\)\{ return h\.data\.name/.test(render),
+      'names are what she is looking for, so they go on the outside');
+    /* ⚠ ONLY WHILE IT IS SHORT ENOUGH TO READ. Past a handful this is a wall of text
+       above a list of the same names, which is worse than the count it replaced. */
+    check('S116', 'and only while the group is short enough to read',
+      /g\.houses\.length <= WH_GROUP_NAMES_MAX/.test(render),
+      'a paragraph of names above the same names is worse than a count');
+    check('S116', 'and the ceiling is named once, not typed into the render',
+      /const WH_GROUP_NAMES_MAX = \d+;/.test(admin),
+      'a number written into a render is a number nobody can find to change');
+    check('S116', 'and an empty group names nobody',
+      /g\.houses\.length && g\.houses\.length <= WH_GROUP_NAMES_MAX/.test(render),
+      'a buffer-stock group has no houses at all, and an empty line under its heading ' +
+      'reads as a house with no name');
+  }
+
   /* ⭐ SOMEBODY WHO MOVED IS ON BOTH LISTS, AND EACH ONE SAYS SO. Owner, 2026-08-21,
      having applied a re-quote with "recycle their old set and build the new one": "it
      only went to recycle make sure it also goes to build."
