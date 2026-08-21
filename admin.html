@@ -26995,6 +26995,38 @@ function planNewCrewDays(waiting, taken, opts){
     return {n: n, urg: urg};
   };
   const allowedCount = function(city, ds){ return allowedStats(city, ds).n; };
+  /* ⭐ HOW BIG A CREW-DAY THIS TOWN CAN ACTUALLY MAKE TODAY (added 2026-08-20).
+     Owner: "we want to fill up everyday to 40 so then the days with less than 40 fall
+     at the end, it should only not be like that if enough people requested a later
+     date."
+
+     ⚠ HOUSES WAITING IS NOT THE SAME AS A DAY'S WORTH. The crews were sent to the
+     two BIGGEST towns, which is right until a town runs low: twelve left in one town
+     with both its neighbours already worked makes a crew-day of twelve, while a town of
+     ten sitting next to a neighbour with thirty would have made twenty. The office then
+     sees a short day in the middle of October and a full one in November, which is
+     exactly backwards.
+
+     So the question asked of each town is what it can PRODUCE: its own allowed houses
+     plus what one available neighbour could lend, capped at a crew-day. One neighbour,
+     because that is all the borrowing rule allows a crew to visit.
+
+     ⚠ EARLY IN THE SEASON THIS CHANGES NOTHING. Every big town already answers
+     "twenty", they all tie, and the tie is broken on houses waiting exactly as before.
+     It only decides anything once towns start running out, which is where the short
+     days were appearing. */
+  const fillableCount = function(city, ds){
+    const own = allowedStats(city, ds).n;
+    if(own >= cap) return cap;
+    const used = townsUsedOn(ds);
+    let best = 0;
+    nearbyTowns(city, centres).forEach(function(other){
+      if(other === city || used.indexOf(other) !== -1) return;
+      const n = allowedCount(other, ds);
+      if(n > best) best = n;
+    });
+    return Math.min(cap, own + best);
+  };
   const out = [];
   let made = 0;
   let dt = nextWorkingDay(dateOf(floor));
@@ -27045,37 +27077,21 @@ function planNewCrewDays(waiting, taken, opts){
           if(townsUsedOn(ds).indexOf(c) !== -1) return;   // the other crew is already there
           const st = allowedStats(c, ds);
           if(!st.n) return;
+          const fits = fillableCount(c, ds);
+          /* Urgency first, always. Then the town that fills the day best, and only
+             then the one with most houses waiting. */
           if(!pick || st.urg < pick.urg ||
-             (st.urg === pick.urg && (st.n > pick.n || (st.n === pick.n && c < pick.city)))){
-            pick = {city: c, n: st.n, urg: st.urg};
+             (st.urg === pick.urg && (fits > pick.fits ||
+               (fits === pick.fits && (st.n > pick.n ||
+                 (st.n === pick.n && c < pick.city)))))){
+            pick = {city: c, n: st.n, urg: st.urg, fits: fits};
           }
         });
         if(!pick) break;
         const city = pick.city;
         const queue = byCity[city];
-        /* ⭐ TWO SHORT DAYS BEAT A FULL ONE AND A STUB (added 2026-08-20). Owner:
-           "we want to prioritze 1 crew over one man crew so at the begining of the
-           season try to fill up the days that would be 1 mans with a few people who said
-           Any or blank and preffered date and try to fill them up to 12-15 even if that
-           means not every day is at 40 before that."
-
-           Filling to the cap and moving on is what MAKES one-man days: a town with
-           twenty-eight waiting gives twenty today and eight tomorrow, and the eight is
-           a morning for one person. Fourteen and fourteen is two proper crew days for
-           the same houses and the same number of mornings.
-
-           Only when the leftover would actually be a one-man day. A remainder of twelve
-           is a one-crew day and those are fine — she is explicit that one crew is the
-           thing to aim for, not fullness.
-
-           ⚠ THE PEOPLE HELD BACK ARE THE FLEXIBLE ONES, and that falls out of the
-           sort above rather than being chosen here: the queue is priority-ordered, so
-           whoever is left for the second day is whoever minded least. That is "fill
-           them up with a few people who said Any or blank", from the other end.
-
-           ⚠ ELIGIBLE, NOT WAITING. A house whose named day has not arrived cannot
-           fill anything today, so it must not count towards the split — counting it
-           would shrink today's day for houses that are not allowed on it. */
+        /* The queue is priority-ordered, so taking from the front takes the most
+           urgent and leaves whoever minded least for another day. */
         /* Only the houses allowed out today. A named day that has not arrived cannot
            be taken, however much room the crew has. */
         const eligible = [];
@@ -34692,14 +34708,15 @@ function maxTownsPerDay(){
   const crews = (typeof CREWS_PER_DAY === 'number' && CREWS_PER_DAY > 0) ? CREWS_PER_DAY : 2;
   return crews * MAX_TOWNS_PER_CREW;
 }
-function dayTownCount(day){
+function dayTownList(day){
   const seen = {};
   ((day && day.houses) || []).forEach(function(h){
     const c = extractCleanCity(h.city);
     if(c) seen[c] = true;
   });
-  return Object.keys(seen).length;
+  return Object.keys(seen);
 }
+function dayTownCount(day){ return dayTownList(day).length; }
 function enforceInstallTiming(){
   const moved = [], stuck = [];
   if(typeof SEASON === 'undefined' || !SEASON.length) return {moved: moved, stuck: stuck};
@@ -34846,7 +34863,17 @@ function dayCrewCount(day){
      towns still needs two crews however few houses are on it. Size alone is not the
      question, and merging it would hand one crew the very sheet the town rule exists
      to prevent. */
-  return dayTownCount({houses: held}) <= 2 ? 1 : 2;
+  const towns = dayTownList({houses: held});
+  if(towns.length <= 1) return 1;
+  if(towns.length > 2) return 2;
+  /* ⭐ AND THE TWO HAVE TO BE NEIGHBOURS (fixed 2026-08-20). Counting them was not
+     enough, and the owner caught it: 18 November came out badged ONE CREW holding
+     Draper and Springville — two towns forty miles apart, on one sheet, for thirteen
+     houses. Two is the right ceiling and it was the wrong test; "one dominant city with
+     some flakes in another" has always meant a town you are already driving past.
+     Two crews, one town each, is the correct answer for a pair like that — even though
+     thirteen houses would fit on one sheet. */
+  return townsAreNeighbours(towns[0], towns[1], day) ? 1 : 2;
 }
 function isOneCrewDay(day){
   return dayCrewCount(day) === 1 && !isOneManDay(day) && ((day && day.houses) || []).length > 0;

@@ -6755,6 +6755,46 @@ suite('22. Building the crew-days the season needs');
       /ONE_MAN_MAX_HOUSES/.test(admin.slice(start, end)),
       'this is the mechanism she is relying on to turn one-man days into crews');
 
+    /* ⭐ THE CREW GOES WHERE A FULL DAY IS, NOT WHERE THE MOST HOUSES ARE (added
+       2026-08-20). Owner: "we want to fill up everyday to 40 so then the days with less
+       than 40 fall at the end, it should only not be like that if enough people
+       requested a later date", and "we dont want one man crews until the end of the
+       season."
+
+       ⚠ HOUSES WAITING IS NOT A DAY'S WORTH. The crews were sent to the two BIGGEST
+       towns, which is right until a town runs low. Twelve left somewhere with no
+       neighbour free makes a crew-day of twelve; ten next door to a town holding thirty
+       makes twenty. Going by houses waiting picks the twelve, and the office sees a
+       short day in the middle of October and a full one in November — backwards.
+
+       ⚠ ONE CREW ON THE DAY, or this proves nothing: with two, both towns get
+       worked on the same date whichever is picked first, and the sabotage survives. */
+    const far = (n, city, lat) => Array.from({ length: n }, (_, k) => ({
+      id: city + '-' + k, city: city, priority: 2, from: '2026-10-01', named: false,
+      stop: { lat: lat, lng: -111.85 } }));
+
+    const choice = api.plan(
+      far(12, 'Lonely', 41.90).concat(far(10, 'Paired', 40.39), far(30, 'BigNeighbour', 40.41)),
+      {}, { floorDate: '2026-10-01', crews: 1 });
+    check('build', 'the first day is a full crew-day, not the biggest town',
+      choice[0].ids.length === 20,
+      'got ' + choice[0].ids.length + ' — Lonely has twelve and nobody to borrow from; ' +
+      'Paired has ten and a neighbour holding thirty, so it is the one that makes a day');
+    check('build', 'and the short town is still worked, just later',
+      choice.reduce((n, d) => n + d.ids.length, 0) === 52,
+      'picking the fuller town must never mean abandoning the emptier one');
+    check('build', 'the short day falls at the end',
+      choice[choice.length - 1].ids.length < choice[0].ids.length,
+      'got ' + choice.map(d => d.ids.length).join() + ' — owner: "the days with less ' +
+      'than 40 fall at the end"');
+
+    /* ⚠ AND A TOWN THE OTHER CREW IS ALREADY IN CANNOT BE COUNTED ON. Two crews are
+       never in the same town on one date, so a neighbour that is already taken lends
+       nothing and must not make a town look fillable. */
+    check('build', 'a neighbour the other crew has taken does not count as fillable',
+      admin.indexOf("if(other === city || used.indexOf(other) !== -1) return;") !== -1,
+      'otherwise the crew is sent to a town on the promise of houses it cannot have');
+
     /* ⚠ A TOWN THAT FITS IN ONE DAY IS LEFT ALONE. There is no stub to avoid, and
        halving it would invent a second morning out of nothing. */
     check('build', 'a town of 20 is one full day, not two of ten',
@@ -11136,7 +11176,7 @@ suite('Suite 46. Nobody is hung before the month they asked for');
         /* ⚠ LIFTED, NOT STUBBED (2026-08-20). The sweep now asks how many towns a
            day already holds before it moves anybody onto it, and a stub of that is a
            stub of the fix itself. CREWS_PER_DAY is left to its own fallback of two. */
-        'const MAX_TOWNS_PER_CREW=' + (admin.match(/const MAX_TOWNS_PER_CREW = (\d+);/)||[])[1] + ';' + fn('dayTownCount') + fn('maxTownsPerDay') +
+        'const MAX_TOWNS_PER_CREW=' + (admin.match(/const MAX_TOWNS_PER_CREW = (\d+);/)||[])[1] + ';' + fn('dayTownList') + fn('dayTownCount') + fn('maxTownsPerDay') +
         src + 'this.run = enforceInstallTiming;'
       ).call(sb, SEASON,
         (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'),
@@ -17584,7 +17624,7 @@ suite('Suite 98. The timing sweep is what was making the crowded days');
        houses in ONE town, which is the emptiest kind of day there is. */
     const tc = new Function('day',
       'const extractCleanCity = function(c){ return String(c == null ? "" : c).trim(); };' +
-      extractFn(admin, 'dayTownCount') + 'return dayTownCount(day);');
+      extractFn(admin, 'dayTownList') + extractFn(admin, 'dayTownCount') + 'return dayTownCount(day);');
     check('S98', 'a day is measured in towns, not houses',
       tc({houses: [{city: 'Orem'}, {city: 'Orem'}, {city: 'Orem'}, {city: 'Lehi'}]}) === 2,
       'got ' + tc({houses: [{city: 'Orem'}, {city: 'Orem'}, {city: 'Orem'}, {city: 'Lehi'}]}) +
@@ -17614,7 +17654,7 @@ suite('Suite 98. The timing sweep is what was making the crowded days');
         'const maxStopsPerWorkingDay = function(){ return 40; };' +
         'const houseAllowedFrom = function(h){ return h.from || null; };' +
         'const extractCleanCity = function(c){ return String(c == null ? "" : c).trim(); };' +
-        extractFn(admin, 'dayTownCount') + lim + src +
+        extractFn(admin, 'dayTownList') + extractFn(admin, 'dayTownCount') + lim + src +
         'return {report: enforceInstallTiming(), season: SEASON};')(season);
     };
     const H = (name, city, from) => ({name: name, city: city, from: from || null});
@@ -17901,7 +17941,12 @@ suite('Suite 100. One crew days, and who works them');
       '  String(b).trim().toLowerCase(); };' +
       'const crewTownsFor = function(i){ return (townsByCrew || {})[i] || []; };' +
       extractFn(admin, 'dayAssignedHouses') +
-      CONST + extractFn(admin, 'dayTownCount') + extractFn(admin, 'oneManMaxHouses') +
+      CONST + extractFn(admin, 'dayTownList') + extractFn(admin, 'dayTownCount') + extractFn(admin, 'oneManMaxHouses') +
+      /* ⚠ dayCrewCount NOW ASKS WHETHER THE TWO TOWNS ARE NEIGHBOURS, not just how
+         many there are, so the neighbour test and its constant come with it. */
+      'const MAX_TOWNS_PER_CREW = 2;' + 'const NEARBY_TOWN_MILES = 8;' +
+      'const NEARBY_TOWN_LIST = {Lehi: ["Orem"], Orem: ["Lehi"]};' +
+      extractFn(admin, 'haversine') + extractFn(admin, 'townsAreNeighbours') +
       extractFn(admin, 'oneCrewMaxHouses') + countSrc + 'return dayCrewCount(day);')(day, 20, townsByCrew);
     const day = (n, towns) => ({houses: Array.from({length: n}, (_, k) => ({
       id: k, city: (towns || ['Lehi'])[k % (towns || ['Lehi']).length]}))});
@@ -17925,8 +17970,20 @@ suite('Suite 100. One crew days, and who works them');
     check('S100', 'a light day over three towns still needs two crews',
       crews(day(12, ['Lehi', 'Orem', 'Provo']), {0: ['Lehi', 'Orem'], 1: ['Provo']}) === 2,
       'got one — one crew cannot legally drive three towns');
-    check('S100', 'but a light day over two towns is one crew',
+    /* ⭐ AND THE TWO HAVE TO BE NEIGHBOURS, not merely two (fixed 2026-08-20). The
+       owner caught this on the live book: 18 November came out badged ONE CREW holding
+       Draper and Springville — forty miles apart, thirteen houses, one sheet. Two is
+       the right ceiling and counting was the wrong test.
+
+       ⚠ SO A FIXTURE HERE NEEDS TOWNS THAT REALLY ARE NEIGHBOURS. This sandbox has
+       no customer coordinates to measure between, so the pairing comes from the
+       office's list, exactly as it does live. */
+    check('S100', 'a light day over two NEIGHBOURING towns is one crew',
       crews(day(12, ['Lehi', 'Orem']), {0: ['Lehi'], 1: ['Orem']}) === 1);
+    check('S100', 'but two towns that are not neighbours are two crews',
+      crews(day(12, ['Lehi', 'Provo']), {0: ['Lehi'], 1: ['Provo']}) === 2,
+      'thirteen houses would fit on one sheet, and that sheet would send a crew ' +
+      'forty miles down the freeway in the middle of its round');
 
     check('S100', 'a fixer route is never asked to be two crews',
       crews(Object.assign(day(30), {isFixRoute: true}), solo) === 1,
@@ -17939,12 +17996,17 @@ suite('Suite 100. One crew days, and who works them');
 
   if (splitSrc && countSrc) {
     const split = (day, towns) => new Function('day', 'townsByCrew', 'MAX_STOPS_PER_ROUTE',
+      /* ⚠ dayCrewHouses reaches dayCrewCount, which now asks whether a day's two
+         towns are NEIGHBOURS rather than merely counting them. */
+      'const MAX_TOWNS_PER_CREW = 2;' + 'const NEARBY_TOWN_MILES = 8;' +
+      'const NEARBY_TOWN_LIST = {Lehi: ["Orem"], Orem: ["Lehi"]};' +
+      extractFn(admin, 'haversine') + extractFn(admin, 'townsAreNeighbours') +
       'const cityOf = function(h){ return (h.city || "").trim(); };' +
       'const sameCity = function(a, b){ return String(a).trim().toLowerCase() === ' +
       '  String(b).trim().toLowerCase(); };' +
       'const crewTownsFor = function(i){ return townsByCrew[i] || []; };' +
       'const extractCleanCity = function(c){ return String(c == null ? "" : c).trim(); };' +
-      CONST + extractFn(admin, 'dayTownCount') + extractFn(admin, 'oneManMaxHouses') +
+      CONST + extractFn(admin, 'dayTownList') + extractFn(admin, 'dayTownCount') + extractFn(admin, 'oneManMaxHouses') +
       extractFn(admin, 'oneCrewMaxHouses') + extractFn(admin, 'dayAssignedHouses') +
       countSrc + extractFn(admin, 'daySoloCrew') +
       extractFn(admin, 'crewCap') + splitSrc + 'return dayCrewHouses(day);')(day, towns, 20);
