@@ -21118,6 +21118,43 @@ suite('Suite 116. Deleting the test records');
     })());
   }
 
+  /* ⭐ SOMEBODY WHO MOVED IS ON BOTH LISTS, AND EACH ONE SAYS SO. Owner, 2026-08-21,
+     having applied a re-quote with "recycle their old set and build the new one": "it
+     only went to recycle make sure it also goes to build."
+
+     ⚠ IT DID GO TO BOTH — running the real save handler with that choice parked writes
+     needsLightRecycle AND needsLightBuild in one go, and Suite 118 holds that. What she
+     could not SEE is the second half: the recycle queue is a flat list of names, the
+     build queue is five collapsed headings, and a customer joining an existing colour
+     group just moves a count from 4 to 5. Two lists that never mentioned each other,
+     for a job that is on both. */
+  {
+    const chip = new Function('d', 'otherList',
+      extractFn(admin, 'whAlsoOnChip') + 'return whAlsoOnChip(d, otherList);');
+    check('S116', 'a recycle row says when the same house is queued to build',
+      /also queued to build/.test(chip({needsLightBuild: true}, 'build')),
+      'she pressed one button, got both, and could only see one of them');
+    check('S116', 'and a build row says the old set is coming back',
+      /old set also coming back/.test(chip({needsLightRecycle: true}, 'recycle')));
+    /* ⚠ AND NOTHING IS SAID WHEN IT IS NOT TRUE. A chip on every row is a chip nobody
+       reads, and here it would be a claim about work nobody queued. */
+    check('S116', 'and says nothing when the other list is not holding them',
+      chip({needsLightRecycle: true}, 'build') === '' &&
+      chip({needsLightBuild: true}, 'recycle') === '' &&
+      chip({}, 'build') === '' && chip({}, 'recycle') === '');
+    check('S116', 'and it is read off the record, not decided again',
+      /dd\.needsLightBuild/.test(extractFn(admin, 'whAlsoOnChip')) &&
+      /dd\.needsLightRecycle/.test(extractFn(admin, 'whAlsoOnChip')),
+      'both flags are on the customer, so this is a fact rather than a second opinion');
+
+    /* All three rows that can carry it. */
+    check('S116', 'the recycle row shows it',
+      /whAlsoOnChip\(d, 'build'\)/.test(extractFn(admin, 'renderWarehouseRecycleQueue')));
+    check('S116', 'and both build rows show the other side',
+      (extractFn(admin, 'renderWarehouseQueue').match(/whAlsoOnChip\(h\.data, 'recycle'\)/g) || []).length === 2,
+      'the ordinary build row AND the waiting-on-colours row');
+  }
+
   /* ⭐ AND THE BUILD TAB CAN BE ASKED ABOUT ONE HOUSE. Owner, 2026-08-21, having pressed
      Build Them A New Set: "i clicked build ashley wray but shes not here." The list is
      five collapsed headings, so "she is not here" and "she is here, inside the third

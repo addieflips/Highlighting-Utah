@@ -23402,7 +23402,7 @@ function renderWarehouseRecycleQueue(){
     html += '<div style="display:flex; justify-content:space-between; align-items:center; padding:7px 0; gap:10px;">'+
       '<span style="font-size:13.5px;">'+
         '<strong style="font-variant-numeric:tabular-nums;">'+esc(binNum || 'no number')+'</strong>'+
-        ' &mdash; '+esc(d.name||'(no name)')+propLabelChip(d)+
+        ' &mdash; '+esc(d.name||'(no name)')+propLabelChip(d)+whAlsoOnChip(d, 'build')+
         /* Said out loud, because somebody reading the customer record will see a
            different number and think the list is wrong. */
         (whBinNumberMoved(d)
@@ -24758,6 +24758,29 @@ function whBuildQueueGroups(){
    is the Waiting block. Reported by asking the REAL grouping (whBuildQueueGroups), never
    by a second copy of its rules — a second copy is how a screen starts confidently
    contradicting the list beside it. */
+/* ⭐ SOMEBODY WHO MOVED IS ON BOTH LISTS, AND EACH ONE SHOULD SAY SO. Owner,
+   2026-08-21, having applied a re-quote with "recycle their old set and build the new
+   one": "it only went to recycle make sure it also goes to build."
+
+   ⚠ IT DID GO TO BOTH. Running the real save handler with that choice parked writes
+   needsLightRecycle AND needsLightBuild in one go, and it still does. What she could not
+   see is the second half: the recycle queue is a flat list of names, the build queue is
+   five collapsed headings, and a customer joining an existing colour group just moves a
+   count from 4 to 5. Two lists that never mention each other, for a job that is on both.
+
+   ⚠ READ OFF THE RECORD, NOT WORKED OUT AGAIN. Both flags are on the customer, so
+   this is a statement of fact rather than a second opinion about what should happen. */
+function whAlsoOnChip(d, otherList){
+  const dd = d || {};
+  const on = otherList === 'build' ? !!dd.needsLightBuild : !!dd.needsLightRecycle;
+  if(!on) return '';
+  const words = otherList === 'build'
+    ? 'also queued to build'
+    : 'old set also coming back';
+  return ' <span style="display:inline-block; background:#EEF1FF; color:#33397a; ' +
+    'border:1px solid #C7CEF5; border-radius:999px; padding:1px 8px; font-size:11px; ' +
+    'font-weight:600; vertical-align:middle;">' + words + '</span>';
+}
 function whHouseBuildStatus(item){
   const d = (item && item.data) || {};
   const built = whBuildQueueGroups();
@@ -24766,14 +24789,15 @@ function whHouseBuildStatus(item){
     const key = built.keys[i];
     const g = built.groups[key];
     if((g.houses || []).some(function(h){ return h.id === id; })){
-      return {state: 'building', where: g.title || key};
+      return {state: 'building', where: g.title || key,
+              alsoRecycling: !!d.needsLightRecycle};
     }
     if((g.extras || []).some(function(e){ return e.data && e.data.customerId === id; })){
       return {state: 'extra', where: g.title || key};
     }
   }
   if((built.blocked || []).some(function(h){ return h.id === id; })){
-    return {state: 'blocked'};
+    return {state: 'blocked', alsoRecycling: !!d.needsLightRecycle};
   }
   if(d.maybeNextYear) return {state: 'nextyear'};
   if(!d.needsLightBuild) return {state: 'notqueued'};
@@ -24782,9 +24806,10 @@ function whHouseBuildStatus(item){
 /* One sentence per state, and each one says what to do about it. */
 function whBuildStatusText(name, st){
   const who = name || 'That customer';
-  if(st.state === 'building') return who + ' IS on the build list \u2014 under \u201c' + st.where + '\u201d. Open that heading to see them.';
+  const also = st.alsoRecycling ? ' Their old set is on the recycle list as well.' : '';
+  if(st.state === 'building') return who + ' IS on the build list \u2014 under \u201c' + st.where + '\u201d. Open that heading to see them.' + also;
   if(st.state === 'extra') return who + ' is on the list as an extra request \u2014 under \u201c' + st.where + '\u201d.';
-  if(st.state === 'blocked') return who + ' is queued to build but has NO LIGHT COLOURS on file, so they are in \u201cWaiting on light colours\u201d at the top. Add their colours and they join a build group.';
+  if(st.state === 'blocked') return who + ' is queued to build but has NO LIGHT COLOURS on file, so they are in \u201cWaiting on light colours\u201d at the top. Add their colours and they join a build group.' + also;
   if(st.state === 'nextyear') return who + ' is marked Back Next Year, so nothing is being built for them this season.';
   if(st.state === 'notqueued') return who + ' is NOT on the build list \u2014 nothing has queued a build for them. Open their record and press \u201cBuild Them A New Set\u201d.';
   return who + ' is queued to build but is not showing in any group. That should not happen \u2014 tell somebody.';
@@ -24807,7 +24832,7 @@ function renderWarehouseQueue(){
       '<div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--line);">'+
         blocked.map(function(h){
           return '<div style="display:flex; justify-content:space-between; align-items:flex-start; padding:8px 0; gap:10px;">'+
-            '<span style="font-size:13.5px;">'+esc(h.data.name||'(no name)')+' &mdash; '+esc(h.data.address||'')+propLabelChip(h.data)+
+            '<span style="font-size:13.5px;">'+esc(h.data.name||'(no name)')+' &mdash; '+esc(h.data.address||'')+propLabelChip(h.data)+whAlsoOnChip(h.data, 'recycle')+
               '<span style="display:block; font-size:12px; color:var(--ember); margin-top:2px;">No light colours on file</span>'+
               '<span style="display:block; margin-top:4px; line-height:1.9;">'+whHouseFactsHtml(h.data)+'</span>'+
             '</span>'+
@@ -24883,7 +24908,7 @@ function renderWarehouseQueue(){
             : need.feet + ' ft = ' + need.bundles + ' bundle' + (need.bundles===1?'':'s') + (need.estimated ? ' (estimated from price)' : '');
           const houseNotes = (h.data.notes ? String(h.data.notes).trim() : '');
           return '<div style="display:flex; justify-content:space-between; align-items:flex-start; padding:8px 0; gap:10px;">'+
-            '<span style="font-size:13.5px;">'+esc(h.data.name||'(no name)')+' &mdash; '+esc(h.data.address||'')+propLabelChip(h.data)+
+            '<span style="font-size:13.5px;">'+esc(h.data.name||'(no name)')+' &mdash; '+esc(h.data.address||'')+propLabelChip(h.data)+whAlsoOnChip(h.data, 'recycle')+
               '<span style="display:block; font-size:12px; color:'+(need.unknown?'var(--ember)':'var(--slate)')+'; margin-top:2px;">'+esc(needTxt)+'</span>'+
               '<span style="display:block; margin-top:4px; line-height:1.9;">'+whHouseFactsHtml(h.data)+'</span>'+
               /* ⚠ A BADGE, NOT A LINE OF TEXT. It sits with the Timer and wire chips, which
