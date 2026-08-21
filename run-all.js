@@ -5519,6 +5519,14 @@ check('leftovers', 'the panel closes itself once nothing is left',
     global.renderLeftovers = () => {};
     global.renderAll = () => {};
     global.toast = m => { global._toast = m; };
+    /* ⭐ A SPY, NOT A NO-OP (added 2026-08-21, Job 2). applyLeftoverPicks is the
+       office saying which houses the crew MISSED, so it writes both directions —
+       done for the ones they did, not-done for the ones they did not. That has to
+       reach the customer now, or a house the crew never got to stays ticked and is
+       invoiced tonight. Recording the calls lets the checks below read what it
+       actually did rather than trusting that it called something. */
+    global._ticks = [];
+    global.planTickCustomer = (h, done) => { global._ticks.push({ id: h.id, done: done }); };
     const api = eval(admin.slice(areaStart, areaEnd) + '\n' +
       admin.slice(stateStart, stateEnd) +
       '\n;({open: openLeftovers, apply: applyLeftoverPicks,' +
@@ -5553,12 +5561,30 @@ check('leftovers', 'the panel closes itself once nothing is left',
     SEASON = [ day(fresh()) ];
     api.open('d1');
     api.pick(2);
+    /* ⚠ CLEARED IMMEDIATELY BEFORE THE PRESS this block is about. Earlier applies in
+       this same suite have already recorded ticks, and counting those as well makes
+       the assertions below pass or fail for reasons that have nothing to do with
+       this fixture. */
+    global._ticks = [];
     api.apply('d1');
     check('leftovers', 'Continue marks the ticked house not done and every other one done',
       SEASON[0].houses.map(h => h.name + (h.done ? ':done' : ':miss')).join() === 'A:done,B:miss,C:done',
       'a tick on this step means NOT finished — the opposite of the tick boxes on the day itself');
     check('leftovers', 'and hands over to the two ways out',
       api.mode() === 'ask');
+    /* ⭐ AND IT REACHES THE CUSTOMER, BOTH WAYS (2026-08-21, Job 2). Before today
+       this wrote the plan and nothing else, so a house the crew missed stayed
+       whatever it was on the customer record — and the nightly run bills on that. */
+    check('leftovers', 'Continue marks the customers too, not just the plan',
+      global._ticks.length === 3,
+      'the plan flag is not what the nightly run bills on');
+    check('leftovers', 'the two the crew did are marked done',
+      global._ticks.filter(t => t.done).map(t => t.id).sort().join() === '1,3');
+    /* ⚠ THE OTHER DIRECTION IS THE ONE THAT COSTS MONEY. A one-way version leaves a
+       house ticked that the crew never reached, and it is invoiced that night. */
+    check('leftovers', 'and the one they missed is marked NOT done',
+      global._ticks.filter(t => !t.done).map(t => t.id).join() === '2',
+      'a house the crew never reached must not stay ticked, or it is billed tonight');
 
     global._toast = '';
     SEASON = [ day(fresh()) ];
@@ -26850,6 +26876,320 @@ suite('125. The schedule keeps off Thanksgiving, not just off weekends');
   check('S125', 'and the note explaining moved days names the holiday',
     /isThanksgiving\(desired\(d\)\)/.test(bar) && /Thanksgiving/.test(bar),
     'a day that moved off Thanksgiving moved for a different reason than a weekend');
+}
+
+
+/* ---------------------------------------------------------------------------
+ * Suite 126. One place a job is marked done
+ *
+ * Owner, 2026-08-21: "Schedules should mark routes as complete automatically.
+ * However that does not mean takedown is done." Asked whether ticking one stop or
+ * finishing a day should do it: ticking ONE stop marks that customer complete.
+ *
+ * ⚠ WHAT THIS PROTECTS. Ticking a house in Schedule set `done` on the plan document
+ * and nothing else — the tab's own footer said so. The nightly run bills on
+ * `completed` on the CUSTOMER, so with the crew portal out of use this season,
+ * working the season off Schedule billed nobody at all.
+ *
+ * Everything below RUNS the function and reads the write that came out. A check that
+ * the call exists survives the result being dropped on the floor.
+ * ------------------------------------------------------------------------- */
+suite('Suite 126. One place a job is marked done');
+
+{
+  const admin = read('admin.html');
+
+  const kindsSrc = admin.slice(admin.indexOf('const HLX_DONE_KINDS = {'),
+                               admin.indexOf('async function hlxMarkJobDone('));
+  const markSrc = extractFn(admin, 'hlxMarkJobDone');
+  check('S126', 'the shared done-function and its field table are findable',
+    !!kindsSrc && !!markSrc,
+    'renamed or removed — update this suite rather than deleting it');
+  check('S126', 'and it is async in the real file',
+    /async function hlxMarkJobDone\(/.test(admin),
+    'extractFn drops the async keyword, so the body alone cannot prove this');
+
+  if (kindsSrc && markSrc) {
+    /* Run it against a fake Firestore and keep what it wrote. */
+    const runMark = function (kind, done, opts) {
+      const writes = [];
+      const logs = [];
+      const fn = new (Object.getPrototypeOf(async function () {}).constructor)(
+        'updateDoc', 'doc', 'db', 'serverTimestamp', 'logActivity', 'console', 'writes', 'logs',
+        kindsSrc + 'async ' + markSrc +
+        ';return hlxMarkJobDone(' + JSON.stringify(opts && opts.target || { id: 'c1' }) +
+        ', ' + JSON.stringify(kind) + ', ' + JSON.stringify(done) + ', {});')
+        ;
+      return fn(
+        async (ref, payload) => {
+          if (opts && opts.breakWrite) throw new Error('Missing or insufficient permissions.');
+          writes.push({ col: ref.col, id: ref.id, payload: payload });
+        },
+        (db, col, id) => ({ col: col, id: id }), {},
+        () => 'NOW',
+        async (what, area, refId) => { logs.push({ what, area, refId }); },
+        { error: () => {} }, writes, logs)
+        .then(res => ({ res: res, writes: writes, logs: logs }));
+    };
+
+    pendingAsync.push((async function () {
+      const inst = await runMark('install', true);
+      const p = (inst.writes[0] || {}).payload || {};
+      check('S126', 'marking an install done writes completed and the timestamp',
+        p.completed === true && p.completedAt === 'NOW');
+      /* ⚠ THE ONE-OFF NOTE IS CLEARED. It is the "say this to them once" note the
+         route editor and the crew portal both clear on completion; carrying it over
+         repeats a one-off instruction next season. */
+      check('S126', 'and clears the one-time note',
+        p.oneTimeNote === '',
+        'a one-off instruction that survives is repeated next season');
+      /* ⭐ THE INDEPENDENCE RULE, BOTH DIRECTIONS. This is the whole reason the kinds
+         are split, and the customer-row dropdown used to break it. */
+      check('S126', 'and NEVER touches the takedown',
+        !('removalDone' in p) && !('removalDoneAt' in p),
+        'owner: "that does not mean takedown is done"');
+
+      const take = await runMark('takedown', true);
+      const tp = (take.writes[0] || {}).payload || {};
+      check('S126', 'marking a takedown done writes removalDone and the timestamp',
+        tp.removalDone === true && tp.removalDoneAt === 'NOW');
+      check('S126', 'and NEVER touches the install',
+        !('completed' in tp) && !('completedAt' in tp) && !('oneTimeNote' in tp),
+        'a house whose lights came down has not un-had them hung');
+
+      const undo = await runMark('install', false);
+      const up = (undo.writes[0] || {}).payload || {};
+      check('S126', 'unticking an install clears it and its timestamp',
+        up.completed === false && up.completedAt === null);
+      check('S126', 'and still leaves the takedown alone',
+        !('removalDone' in up),
+        'this is the exact pairing the customer-row dropdown used to break');
+
+      const undoTake = await runMark('takedown', false);
+      const utp = (undoTake.writes[0] || {}).payload || {};
+      check('S126', 'unticking a takedown clears it and leaves the install alone',
+        utp.removalDone === false && utp.removalDoneAt === null && !('completed' in utp));
+
+      const fix = await runMark('fix', true);
+      const fp = (fix.writes[0] || {}).payload || {};
+      check('S126', 'marking a fix done clears the flag, the marker and the note',
+        fp.needsFix === false && fp.fixScheduled === false && fp.fixNote === '',
+        'clearing needsFix is also what releases the nightly billing HOLD on that ' +
+        'payer\'s whole group');
+      /* ⚠ JOB 4 OWNS THE PHOTO. Destroying a Cloudinary asset with no undo behind it
+         is not something to slip into this job. */
+      check('S126', 'and deliberately leaves the fix photo for Job 4',
+        !('fixPhotoUrl' in fp),
+        'park-then-destroy has not been built or decided — do not destroy an asset ' +
+        'with no undo behind it');
+
+      /* ⚠ THE HOUSE PHOTO. It prints on the new-hang crew sheets, so losing one is
+         discovered on paper. Its own check, on every kind. */
+      check('S126', 'no kind ever touches the house photo',
+        [p, tp, up, utp, fp].every(x =>
+          !('housePhotos' in x) && !('housePhotoUrl' in x) &&
+          !('housePhotoOriginal' in x) && !('housePhotoMarkup' in x)),
+        'the house photo is what prints on the crew sheet — losing it shows up on paper');
+
+      check('S126', 'an unknown kind writes nothing at all',
+        (await runMark('nonsense', true)).writes.length === 0,
+        'a typo in a caller must not quietly write a half-record');
+
+      /* ⚠ IT NEVER THROWS. Every caller is a click handler that has other things to
+         finish; a rejected promise there loses the rest of the handler silently.
+
+         ⚠ THE REJECTION IS CAUGHT HERE ON PURPOSE. Letting it escape makes the whole
+         async suite die as "an async suite crashed", which fails the build but names
+         nothing — a red-check that removed the catch went red on a DIFFERENT check
+         and left this one looking untested. */
+      const broke = await runMark('install', true, { breakWrite: true })
+        .catch(() => ({ res: { ok: false, threw: true }, writes: [], logs: [] }));
+      check('S126', 'a refused write is reported, not thrown',
+        broke.res.ok === false && !broke.res.threw && !!broke.res.why,
+        'a throw inside a click handler loses whatever the handler was doing next');
+
+      check('S126', 'and a successful mark is written to the activity log',
+        inst.logs.length === 1 && inst.logs[0].refId === 'c1',
+        'two people in one admin panel: "who marked this done" has no other answer');
+      check('S126', 'while a refused one logs nothing',
+        broke.logs.length === 0,
+        'a log line for a write that did not happen is worse than none');
+    })());
+  }
+
+  /* ---- which customer a plan house is ---- */
+  const resolveSrc = extractFn(admin, 'hlxResolvePlanHouse');
+  check('S126', 'the plan-house resolver is findable', !!resolveSrc);
+  if (resolveSrc) {
+    const BOOK = [
+      { id: 'abc123', data: { name: 'Real Customer', customerNumber: '479' } },
+      { id: 'zzz999', data: { name: 'Reused Number', customerNumber: '479' } }
+    ];
+    const resolve = new Function('jobAddresses', 'customerForHouse',
+      resolveSrc + ';return hlxResolvePlanHouse;')(
+      BOOK,
+      /* the imported-CSV fallback: number, then phone */
+      (h) => BOOK.find(a => String(a.data.customerNumber) === String(h.cu)) || null);
+
+    check('S126', 'a synced house resolves by its document id',
+      (resolve({ id: 'cust-abc123', cu: '479' }) || {}).id === 'abc123',
+      'houseFromCustomer builds cust-<id>; that is exact and everything else is a guess');
+    /* ⚠ THE REUSED-NUMBER TRAP. Numbers go back to the pool on a recycle and are
+       handed out again, so the number must never override an id that is present. */
+    check('S126', 'and the id wins over a customer number that now belongs to somebody else',
+      (resolve({ id: 'cust-zzz999', cu: '479' }) || {}).id === 'zzz999',
+      'a stale row holding #479 must not mark a different household complete');
+    check('S126', 'an imported row with no id falls back to the number',
+      (resolve({ id: '17', cu: '479' }) || {}).id === 'abc123',
+      'CSV rows have their own ids and no link — the number is all there is');
+    /* ⚠ A DELETED CUSTOMER IS AN ANSWER, NOT A REASON TO GUESS. */
+    check('S126', 'a cust- id nobody matches resolves to nothing, it does not fall through',
+      resolve({ id: 'cust-gone', cu: '479' }) === null,
+      'falling through to the number here would mark a different customer complete');
+    check('S126', 'a row matching nothing at all reports nothing',
+      resolve({ id: '17', cu: '0000' }) === null,
+      'a tick that wrote nothing looks identical to one that worked — the caller has ' +
+      'to be able to say so');
+    /* ⭐ TAKEDOWN ROWS CARRY THE INSTALL HOUSE'S ID. seedTakedowns copies name,
+       address and number off the install house; without srcId every takedown tick
+       depended on the reused-number guess. */
+    check('S126', 'a takedown copy resolves by the house it was copied from',
+      (resolve({ id: 't3', srcId: 'cust-zzz999', cu: '479' }) || {}).id === 'zzz999',
+      'a takedown must resolve exactly the way its install does');
+    check('S126', 'and seedTakedowns actually puts that id on the copy',
+      /srcId:h\.id/.test(admin),
+      'the resolver can only use it if the copy carries it');
+  }
+
+  /* ---- the five doors all go through the one function ---- */
+  {
+    const doorFor = (needle, endNeedle) => {
+      const a = admin.indexOf(needle);
+      if (a === -1) return '';
+      const b = endNeedle ? admin.indexOf(endNeedle, a) : a + 900;
+      return admin.slice(a, b === -1 ? a + 900 : b);
+    };
+    /* ⚠ SCOPED TO EACH HANDLER. A bare search for the function name stays green when
+       one call site is deleted, because the other four still match. */
+    const doors = [
+      ['the Schedule tick', doorFor("t.type==='checkbox'&&t.dataset.id!=null", 'return;}'), 'planTickCustomer'],
+      ['Schedule All done', doorFor('if(t.dataset.allbtn)', 'return;}'), 'planTickCustomer'],
+      ['the leftover flow', extractFn(admin, 'applyLeftoverPicks'), 'planTickCustomer'],
+      ['the Routes stop', doorFor("listEl.querySelectorAll('[data-togglecomplete]')", 'renderTextOutSection'), 'hlxMarkJobDone'],
+      ['the customer row', doorFor("container.querySelectorAll('.status-apply')", 'edithousedetails'), 'HLX_DONE_KINDS']
+    ];
+    doors.forEach(([name, src, needs]) => {
+      check('S126', name + ' goes through the shared rule',
+        !!src && src.indexOf(needs) !== -1,
+        'a private copy of what "done" means is the copy that stops matching the others');
+    });
+
+    /* ⭐ THE TWO CONFIRMS, RUN RATHER THAN READ (2026-08-21). The first version of
+       these matched `confirm(` and the word "invoiced" in the source — and a
+       red-check that disabled the whole guard with `if(false && ...)` left every one
+       of those words standing, so the checks stayed green while a whole day could be
+       billed with no warning. The branches are lifted out and executed against fake
+       controls, and what is asserted is whether the dialog was ASKED and whether the
+       write happened after it was refused. */
+    /* ⚠ INCLUDES THE TERMINATOR, unlike doorFor. These two slices are EXECUTED, so
+       stopping just before the closing `return;}` leaves the `if` unclosed and the
+       whole suite dies on a SyntaxError rather than reporting anything. */
+    const branchFor = (needle, endNeedle) => {
+      const a = admin.indexOf(needle);
+      if (a === -1) return '';
+      const b = admin.indexOf(endNeedle, a);
+      return b === -1 ? '' : admin.slice(a, b + endNeedle.length);
+    };
+    const allBtn = branchFor('if(t.dataset.allbtn)', 'renderAll();return;}');
+    /* ⚠ STARTS AT `if(`, not at the condition. Slicing from the condition alone
+       begins the source mid-expression and the compile fails on the stray `)`. */
+    const oneTick = branchFor("if(t.type==='checkbox'&&t.dataset.id!=null)", 'renderAll();}return;}');
+
+    const runBranch = function (src, ctx) {
+      const asked = [];
+      const ticked = [];
+      const env = Object.assign({
+        confirm: (m) => { asked.push(m); return ctx.answer !== false; },
+        planTickCustomer: (h, done) => ticked.push({ id: h.id, done: done }),
+        planAlreadyBilled: () => !!ctx.billed,
+        renderAll: () => {},
+        findHouse: (id) => ctx.house ? { house: ctx.house } : null,
+        getDay: () => ctx.day
+      }, ctx.extra || {});
+      const names = Object.keys(env);
+      new Function('t', ...names, 'function __b(){ ' + src + ' } __b();')(
+        ctx.t, ...names.map(n => env[n]));
+      return { asked: asked, ticked: ticked };
+    };
+
+    if (allBtn && oneTick) {
+      const day = { id: 'd1', houses: [{ id: 1, done: false }, { id: 2, done: false }] };
+      const allYes = runBranch(allBtn, { t: { dataset: { allbtn: 'd1' } }, day: day });
+      check('S126', 'All done confirms and says they will be invoiced tonight',
+        allYes.asked.length === 1 && /invoiced/i.test(allYes.asked[0]) &&
+        /\b2\b/.test(allYes.asked[0]),
+        'one press can bill forty people — that is the intent, and it is new');
+      check('S126', 'and marks them once it is agreed to',
+        allYes.ticked.length === 2 && allYes.ticked.every(x => x.done === true));
+
+      const day2 = { id: 'd1', houses: [{ id: 1, done: false }, { id: 2, done: false }] };
+      const allNo = runBranch(allBtn, { t: { dataset: { allbtn: 'd1' } }, day: day2, answer: false });
+      check('S126', 'and cancelling it writes nothing at all',
+        allNo.ticked.length === 0 && day2.houses.every(h => h.done === false),
+        'a confirm whose answer is ignored is worse than no confirm');
+
+      /* The single tick is deliberately silent — the office is looking straight at
+         the one house, and a dialog per tick is noise. */
+      const one = runBranch(oneTick, { t: { type: 'checkbox', checked: true, dataset: { id: '1' } },
+        house: { id: 1, name: 'A', done: false } });
+      check('S126', 'the single tick stays silent and marks the customer',
+        one.asked.length === 0 && one.ticked.length === 1 && one.ticked[0].done === true,
+        'a dialog on every tick is what makes people stop reading dialogs');
+
+      /* ⚠ UNTICKING CANNOT UN-SEND. invoiceEmailSent is only cleared by Start New
+         Season, so without a warning the screen and their inbox quietly disagree. */
+      const untickBilled = runBranch(oneTick, {
+        t: { type: 'checkbox', checked: false, dataset: { id: '1' } },
+        house: { id: 1, name: 'A', done: true }, billed: true, answer: false });
+      check('S126', 'unticking a billed house warns first',
+        untickBilled.asked.length === 1 && /invoice/i.test(untickBilled.asked[0]),
+        'unticking cannot un-send an invoice that has already gone');
+      check('S126', 'and refusing that warning leaves them ticked and unwritten',
+        untickBilled.ticked.length === 0,
+        'the warning has to be able to stop the change, or it is decoration');
+      const untickPlain = runBranch(oneTick, {
+        t: { type: 'checkbox', checked: false, dataset: { id: '1' } },
+        house: { id: 1, name: 'A', done: true }, billed: false });
+      check('S126', 'while unticking an unbilled house asks nothing',
+        untickPlain.asked.length === 0 && untickPlain.ticked.length === 1,
+        'most unticks are an ordinary correction and must not be interrogated');
+    }
+
+    /* ⭐ INSTALL AND TAKEDOWN ARE INDEPENDENT ON THE CUSTOMER ROW TOO. */
+    const row = doorFor("container.querySelectorAll('.status-apply')", 'edithousedetails');
+    /* ⚠ COMMENTS STRIPPED. The old expression is quoted in two comments — one over
+       the handler and one over hlxMarkJobDone — precisely where somebody would be
+       tempted to put it back, so a plain search finds the warning and reports it as
+       the violation it is warning about. */
+    check('S126', 'the customer row no longer nests removal under completed',
+      !/removalDone: completed \? removalDone : false/.test(stripComments(admin)),
+      'unticking Install Complete used to silently clear the removal as well');
+    /* ⚠ SCOPED TO THAT ONE LABEL. A file-wide search for "disabled" matches dozens of
+       unrelated controls, and the first version of this used a regex that did not
+       match the real markup at all — so a red-check that put the greying-out back
+       sailed through it. This slices the removalDone label and asks whether anything
+       in it can disable the box. */
+    const rmLabel = (function () {
+      const a = admin.indexOf('data-field="removalDone"');
+      if (a === -1) return '';
+      const b = admin.indexOf('Removal Done</label>', a);
+      return b === -1 ? '' : admin.slice(a, b);
+    })();
+    check('S126', 'the removal checkbox markup was found', !!rmLabel);
+    check('S126', 'and the removal box is not greyed out when the install is unticked',
+      !!rmLabel && rmLabel.indexOf('disabled') === -1,
+      'greying it out was the visible half of the same wrong assumption');
+  }
 }
 
 // A check that scores after this summary is a check that cannot fail the build.

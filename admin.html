@@ -22761,7 +22761,11 @@ function buildAddressRowHtml(item){
               '<div class="filter-dropdown-group">'+
                 '<label><input type="checkbox" class="status-check" data-field="needsFix" data-rowid="'+item.id+'"'+(needsFix?' checked':'')+'> Needs Fix</label>'+
                 '<label><input type="checkbox" class="status-check" data-field="completed" data-rowid="'+item.id+'"'+(completed?' checked':'')+'> Done</label>'+
-                '<label><input type="checkbox" class="status-check" data-field="removalDone" data-rowid="'+item.id+'"'+(d.removalDone?' checked':'')+(!completed?' disabled':'')+'> Removal Done</label>'+
+                /* ⚠ NOT disabled when the install is unticked. A takedown is its own
+                   job — see the handler below and hlxMarkJobDone. Greying this out
+                   was the visible half of the same nesting that silently cleared
+                   removalDone on save. */
+                '<label><input type="checkbox" class="status-check" data-field="removalDone" data-rowid="'+item.id+'"'+(d.removalDone?' checked':'')+'> Removal Done</label>'+
               '</div>'+
               '<button type="button" class="btn btn-gold btn-sm status-apply" data-id="'+item.id+'" style="width:100%; margin-top:10px;">Apply</button>'+
             '</div>'+
@@ -22844,13 +22848,13 @@ function attachAddressRowHandlers(container){
       if(!wasOpen) dropdown.classList.add('open');
     });
   });
-  container.querySelectorAll('.status-check[data-field="completed"]').forEach(function(cb){
-    cb.addEventListener('change', function(){
-      const removalCb = document.querySelector('.status-check[data-field="removalDone"][data-rowid="'+cb.dataset.rowid+'"]');
-      removalCb.disabled = !cb.checked;
-      if(!cb.checked) removalCb.checked = false;
-    });
-  });
+  /* ⭐ REMOVAL IS NO LONGER NESTED UNDER INSTALL (2026-08-21, Job 2). Unticking
+     Install Complete used to DISABLE the removal box and clear it, which is the
+     same "they are linked" assumption the save handler carried — and it is wrong:
+     a takedown is its own job, and a house whose install was ticked by mistake has
+     not un-had its lights taken down. Owner: "that does not mean takedown is done."
+     Left as an empty hook rather than deleted, so the intent is visible to whoever
+     next wonders where the nesting went. */
   container.querySelectorAll('.status-apply').forEach(function(btn){
     btn.addEventListener('click', function(){
       const id = btn.dataset.id;
@@ -22860,11 +22864,24 @@ function attachAddressRowHandlers(container){
       const item = jobAddresses.find(a => a.id === id);
       const wasCompleted = item ? !!item.data.completed : false;
       const wasRemoved = item ? !!item.data.removalDone : false;
-      const updates = { needsFix: needsFix, completed: completed, removalDone: completed ? removalDone : false };
-      if(completed && !wasCompleted){ updates.completedAt = serverTimestamp(); updates.oneTimeNote = ''; }
-      if(!completed && wasCompleted) updates.completedAt = null;
-      if(completed && removalDone && !wasRemoved) updates.removalDoneAt = serverTimestamp();
-      if(!removalDone && wasRemoved) updates.removalDoneAt = null;
+      /* ⭐ INSTALL AND TAKEDOWN ARE INDEPENDENT (fixed 2026-08-21, Job 2). This line
+         used to read `removalDone: completed ? removalDone : false`, so unticking
+         Install Complete here silently cleared the removal as well — one screen
+         treating the two as linked while Schedule and Routes do not. Owner:
+         "Schedules should mark routes as complete automatically. However that does
+         not mean takedown is done."
+
+         ⚠ THE FIELD SETS COME FROM THE SHARED RULE so this row, the Routes stop and
+         the Schedule tick cannot drift; only the three answers on this dropdown are
+         combined here, because this is the one door that sets all three at once. */
+      const updates = Object.assign({},
+        (completed !== wasCompleted)
+          ? HLX_DONE_KINDS.install[completed ? 'on' : 'off'](serverTimestamp())
+          : {completed: completed},
+        (removalDone !== wasRemoved)
+          ? HLX_DONE_KINDS.takedown[removalDone ? 'on' : 'off'](serverTimestamp())
+          : {removalDone: removalDone},
+        {needsFix: needsFix});
       if(!needsFix && item && item.data.needsFix){ updates.fixNote = ''; updates.fixPhotoUrl = ''; }
       updateDoc(doc(db,'jobAddresses',id), updates).then(function(){
         document.getElementById('statusdrop-'+id).classList.remove('open');
@@ -27057,6 +27074,92 @@ document.getElementById('editCustLayoutMapFile').addEventListener('change', asyn
 
    ⚠ THE SHEET WRITE COMES BEFORE THE DELETE, always. Afterwards there is nothing
    left to build the row from. */
+/* ⭐ THE ONE PLACE A JOB IS MARKED DONE (added 2026-08-21, Job 2).
+ *
+ * Owner: "Schedules should mark routes as complete automatically. However that does
+ * not mean takedown is done", and, asked which she meant: ticking ONE stop marks
+ * that customer complete.
+ *
+ * ⚠ WHAT THIS FIXES. Ticking a house in the Schedule tab set `done` on the plan
+ * document and NOTHING else — the tab's own footer says so: "This page only writes
+ * its own schedule; it does not touch customers, the crew's routes, or billing."
+ * The nightly run bills on `completed` on the CUSTOMER. With the crew portal out of
+ * use this season, working the season off Schedule therefore billed nobody at all.
+ *
+ * ⚠ THE THREE KINDS ARE INDEPENDENT, and that is the whole point of splitting them.
+ * Marking an install done must never touch the takedown, and marking a takedown done
+ * must never touch the install. The customer-row dropdown used to write
+ * `removalDone: completed ? removalDone : false`, so unticking Install Complete
+ * there silently cleared the removal too — one screen treating them as linked while
+ * Schedule would not. They are independent everywhere now.
+ *
+ *   install   done -> completed, completedAt, oneTimeNote cleared
+ *             undone -> completed false, completedAt null
+ *   takedown  done -> removalDone, removalDoneAt
+ *             undone -> removalDone false, removalDoneAt null
+ *   fix       done -> needsFix false, fixScheduled false, fixNote cleared
+ *
+ * ⚠ oneTimeNote IS CLEARED ON A COMPLETED INSTALL, and must stay cleared. It is the
+ * "say this to them once" note the route editor and the crew portal both read and
+ * clear on completion; carrying it into next season repeats a one-off instruction.
+ *
+ * ⚠ THE FIX KIND DOES NOT RETIRE THE FIX PHOTO YET. That is Job 4 (park-then-destroy),
+ * which has not been built and needs a decision first. Marking a fix done here clears
+ * the flag, the schedule marker and the note, and deliberately leaves fixPhotoUrl
+ * alone rather than destroying an asset with no undo behind it.
+ *
+ * ⚠ AND IT NEVER TOUCHES THE HOUSE PHOTO. housePhotos / housePhotoUrl /
+ * housePhotoOriginal / housePhotoMarkup are what print on the new-hang crew sheets,
+ * so losing one shows up on paper rather than on screen. There is a test whose only
+ * job is to fail if any of this writes them.
+ *
+ * Returns {ok, id, fields, why}. Never throws — a caller in a click handler must be
+ * able to report a failure without losing the rest of what it was doing. */
+const HLX_DONE_KINDS = {
+  install: {
+    on:  function (ts) { return {completed: true, completedAt: ts, oneTimeNote: ''}; },
+    off: function ()   { return {completed: false, completedAt: null}; }
+  },
+  takedown: {
+    on:  function (ts) { return {removalDone: true, removalDoneAt: ts}; },
+    off: function ()   { return {removalDone: false, removalDoneAt: null}; }
+  },
+  fix: {
+    /* Clearing needsFix is what takes them off the fix list, off the fix routes and
+       out of the nightly run's billing HOLD — a fix raised on a completed house stops
+       that payer's WHOLE group being invoiced, so this is a money-releasing write as
+       much as a tidy-up. */
+    on:  function (ts) { return {needsFix: false, fixScheduled: false, fixNote: '',
+                                 fixDoneAt: ts}; },
+    off: function ()   { return {needsFix: true}; }
+  }
+};
+async function hlxMarkJobDone(target, kind, done, opts) {
+  const o = opts || {};
+  const spec = HLX_DONE_KINDS[kind];
+  if (!spec) return {ok: false, why: 'Unknown kind of job: ' + kind};
+  /* Accept a customer item, or a bare id. A plan house is NOT accepted on purpose —
+     resolving one is its own decision with its own failure mode, so callers do that
+     first (hlxResolvePlanHouse) and hand the answer in. */
+  const id = (target && target.id) ? target.id : String(target || '');
+  if (!id) return {ok: false, why: 'No customer to mark.'};
+  const fields = done ? spec.on(serverTimestamp()) : spec.off();
+  try {
+    await updateDoc(doc(db, 'jobAddresses', id), fields);
+  } catch (err) {
+    console.error('[HU] hlxMarkJobDone failed for ' + id, err);
+    return {ok: false, id: id, why: (err && err.message) || 'The write was refused.'};
+  }
+  /* Best-effort, and last. With the crew portal out of use everything is done by two
+     people in one admin panel, so "who marked this done and when" has no other
+     answer — but losing the log line must never cost the write that already landed. */
+  try {
+    const who = (o.source ? (' from ' + o.source) : '');
+    await logActivity((o.name || 'A customer') + ' — ' + kind + ' marked ' +
+      (done ? 'done' : 'not done') + who, 'routes', id);
+  } catch (e) { /* the console line above is the record */ }
+  return {ok: true, id: id, fields: fields};
+}
 async function hlxRemoveCustomerToRecycle(item, opts){
   const o = opts || {};
   const d = (item && item.data) || {};
@@ -31288,10 +31391,14 @@ function renderRouteOrderedList(ordered){
   listEl.querySelectorAll('[data-togglecomplete]').forEach(function(btn){
     btn.addEventListener('click', function(){
       const current = btn.dataset.current === '1';
-      const updates = {completed: !current};
-      updates.completedAt = current ? null : serverTimestamp();
-      if(!current) updates.oneTimeNote = '';
-      updateDoc(doc(db,'jobAddresses',btn.dataset.togglecomplete), updates).then(function(){ renderRouteOrderedList(currentRouteStops); });
+      /* ⭐ THROUGH THE SHARED RULE (2026-08-21, Job 2). This used to build the same
+         three fields by hand; a second copy of what "done" means is the copy that
+         stops matching the Schedule tab and the customer row. */
+      hlxMarkJobDone(btn.dataset.togglecomplete, 'install', !current, {source: 'Routes'})
+        .then(function(res){
+          if(!res.ok) toast('Could not mark that done — ' + res.why);
+          renderRouteOrderedList(currentRouteStops);
+        });
     });
   });
 }
@@ -35836,7 +35943,7 @@ function attachDeleteHandlers(container){
   const host=document.getElementById("scheduleHost"); if(!host||host.shadowRoot) return;
   const RT=host.attachShadow({mode:"open"});
   const STYLE="\n:host{--green:#0f5132;--green-l:#1a7a4c;--red:#b02a37;--gold:#c99a2e;--bg:#eef1ef;--card:#fff;\n--ink:#1c2621;--muted:#6b776f;--line:#e2e8e4;--done:#dff3e6;--sel:#0f5132;\n--shadow:0 1px 3px rgba(20,40,30,.06),0 6px 20px rgba(20,40,30,.07);}\n*{box-sizing:border-box}\n.rdwrap{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Inter,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink);line-height:1.4;-webkit-font-smoothing:antialiased}\n.wrap{max-width:1400px;margin:0 auto;padding:0 18px 60px}\nheader.top{background:linear-gradient(120deg,#0f5132,#1a7a4c 60%,#14663f);color:#fff;padding:26px 0 24px;border-bottom:4px solid var(--gold)}\n.top .wrap{padding-bottom:0}\n.lights{display:flex;gap:6px;margin-bottom:8px}\n.lights i{width:10px;height:10px;border-radius:50%;box-shadow:0 0 8px currentColor}\n.lights i:nth-child(1){background:#ff5a5a;color:#ff5a5a}.lights i:nth-child(2){background:#ffd35a;color:#ffd35a}.lights i:nth-child(3){background:#5affa0;color:#5affa0}.lights i:nth-child(4){background:#5ab8ff;color:#5ab8ff}.lights i:nth-child(5){background:#e07bff;color:#e07bff}\nh1{font-size:24px;margin:0;font-weight:750;letter-spacing:-.01em}\n.sub{color:#d5e8dd;font-size:13.5px;margin-top:3px}\n.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin:-42px 0 16px;position:relative}\n.stat{background:var(--card);border-radius:13px;padding:14px 16px;box-shadow:var(--shadow);border:1px solid var(--line)}\n.stat .n{font-size:23px;font-weight:780;color:var(--green);letter-spacing:-.02em}\n.stat .l{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:2px;font-weight:650}\n.obar{height:9px;border-radius:6px;background:#e0e6e2;overflow:hidden;margin-top:9px}\n.obar>i{display:block;height:100%;background:linear-gradient(90deg,var(--green-l),var(--gold));transition:width .4s}\n.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:4px 0 16px}\n.search{flex:1;min-width:200px;position:relative}\n.search input{width:100%;padding:11px 13px 11px 38px;border:1px solid var(--line);border-radius:11px;font-size:15px;background:var(--card);box-shadow:var(--shadow);outline:none}\n.search input:focus{border-color:var(--green-l)}\n.search svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);opacity:.45}\n.btn{padding:11px 15px;border-radius:11px;font-size:14px;font-weight:650;border:1px solid var(--green-l);background:var(--green-l);color:#fff;cursor:pointer;box-shadow:var(--shadow)}\n.btn:hover{background:var(--green)}.btn.ghost{background:var(--card);color:var(--green-l)}\n.layout{display:grid;grid-template-columns:270px 1fr;gap:18px;align-items:start}\n.daylist{background:var(--card);border-radius:14px;box-shadow:var(--shadow);border:1px solid var(--line);overflow:hidden;max-height:78vh;overflow-y:auto;position:sticky;top:14px}\n.daylist h3{margin:0;padding:13px 15px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--card);z-index:1}\n.day{padding:11px 15px;border-bottom:1px solid var(--line);cursor:pointer;display:flex;flex-direction:column;gap:5px;transition:background .12s}\n.day:hover{background:#f4f8f5}\n.day.sel{background:var(--green);color:#fff}\n.day.sel .dmeta,.day.sel .dbar{color:#d5e8dd}\n.day.sel .dbar{background:rgba(255,255,255,.25)}\n.drow{display:flex;justify-content:space-between;align-items:baseline;gap:8px}\n.dname{font-weight:700;font-size:14.5px}\n.dcount{font-size:12px;font-weight:650;opacity:.85}\n.dmeta{font-size:12px;color:var(--muted);display:flex;justify-content:space-between}\n.dbar{height:5px;border-radius:4px;background:#e0e6e2;overflow:hidden}\n.dbar>i{display:block;height:100%;background:linear-gradient(90deg,var(--green-l),var(--gold))}\n.day.sel .dbar>i{background:#ffd98a}\n.check-badge{display:inline-block;width:15px;height:15px;border-radius:50%;background:var(--gold);color:#fff;font-size:10px;text-align:center;line-height:15px;margin-left:5px}\n.panel{background:var(--card);border-radius:14px;box-shadow:var(--shadow);border:1px solid var(--line);overflow:hidden}\n.phead{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;align-items:center;gap:12px}\n.phead .t{font-size:19px;font-weight:750}\n.phead .meta{font-size:13px;color:var(--muted);font-weight:600}\n.phead .prog{flex:1;min-width:120px}\n.phead .obar{margin-top:5px}\n.crewtag{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;background:#eef2f0;color:#48564e;padding:3px 9px;border-radius:999px}\n.stop{display:flex;gap:12px;padding:13px 16px;border-top:1px solid var(--line);align-items:flex-start}\n.stop:hover{background:#f7faf8}\n.stop.done{background:var(--done)}\n.stop.done .snm{text-decoration:line-through;color:var(--muted)}\n.seq{flex:none;width:30px;height:30px;border-radius:9px;background:var(--green);color:#fff;font-weight:750;font-size:13px;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}\n.stop.done .seq{background:var(--gold)}\n.chk{flex:none;margin-top:4px}\ninput[type=checkbox]{width:20px;height:20px;accent-color:var(--green-l);cursor:pointer;margin:0}\n.sbody{flex:1;min-width:0}\n.snm{font-weight:700;font-size:15px}\n.saddr{font-size:13.5px;margin-top:2px}\n.saddr a{color:var(--green-l);text-decoration:none}.saddr a:hover{text-decoration:underline}\n.sline{font-size:12.5px;color:var(--muted);margin-top:3px;display:flex;flex-wrap:wrap;gap:4px 12px}\n.sline a{color:var(--green-l);text-decoration:none}\n.sdetail{font-size:12.5px;color:#5a6b60;margin-top:4px;background:#f2f6f3;border-radius:7px;padding:5px 9px;display:inline-block}\n.stop.done .sdetail{background:rgba(255,255,255,.5)}\n.sprice{flex:none;text-align:right;font-weight:750;color:var(--green);font-variant-numeric:tabular-nums;white-space:nowrap;font-size:15px}\n.tag{display:inline-block;padding:1px 7px;border-radius:999px;font-size:11px;font-weight:650;background:#eef2f0;color:#48564e}\n.tag.oct{background:#fdeede;color:#9a5b16}.tag.nov{background:#e4eefc;color:#25548f}.tag.any{background:#e8f4ec;color:#2b6b45}.tag.thx{background:#f6e6f2;color:#8a3070}.tag.dec{background:#e7f0ff;color:#2a4d8f}\n.searchres .daygrp{border-top:1px solid var(--line)}\n.daygrp-h{padding:8px 16px;background:#f4f8f5;font-size:12px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.04em}\nfooter{margin-top:16px;font-size:12px;color:var(--muted);text-align:center;line-height:1.6}\n@media(max-width:820px){.layout{grid-template-columns:1fr}.daylist{position:static;max-height:none;display:flex;overflow-x:auto;flex-wrap:nowrap}.daylist h3{display:none}.day{min-width:150px;border-bottom:none;border-right:1px solid var(--line)}}\n\n\n/* ---- app additions ---- */\n.mockbadge{display:inline-block;background:var(--gold);color:#fff;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;margin-left:8px;vertical-align:middle;letter-spacing:.03em}\n.stat.remain .n{color:var(--gold)}\n.tabs{display:flex;gap:7px;margin:0 0 16px;flex-wrap:wrap}\n.tab{padding:11px 18px;border-radius:11px;font-size:14.5px;font-weight:700;border:1px solid var(--line);background:var(--card);color:var(--muted);cursor:pointer;box-shadow:var(--shadow)}\n.tab.active{background:var(--green);color:#fff;border-color:var(--green)}\n.tabpane[hidden]{display:none}\n.seasonbar{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);padding:12px 15px;margin:0 0 14px;display:flex;flex-wrap:wrap;align-items:center;gap:14px}\n.seasonbar .fld{display:flex;flex-direction:column;gap:3px}\n.seasonbar label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700}\n.seasonbar input[type=date]{padding:8px 10px;border:1px solid var(--line);border-radius:9px;font-size:14px;background:#fff}\n.seasonbar .read{font-size:13px;color:var(--muted);font-weight:600}\n.seasonbar .read b{color:var(--green)}\n.wknote{width:100%;font-size:12px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:7px 11px}\n.mini{padding:7px 11px;border-radius:9px;font-size:12.5px;font-weight:650;border:1px solid var(--line);background:#fff;color:var(--green);cursor:pointer}\n.mini:hover{background:#f4f8f5}\n.mini.warn{border-color:#e7c9cd;color:var(--red)}.mini.warn:hover{background:#fbeef0}\n.daycontrols{display:flex;gap:8px;flex-wrap:wrap;width:100%;align-items:center}\n.moveday{font-size:11.5px;border:1px solid var(--line);border-radius:7px;padding:4px 7px;background:#fff;color:#48564e;max-width:250px}\ninput.pin{padding:5px 7px;border:1px solid var(--line);border-radius:7px;font-size:12px;background:#fff}\n.qbtn{font-size:11px;font-weight:700;border-radius:7px;padding:3px 8px;cursor:pointer;border:1px solid}\n.qbtn.oct{border-color:#f0d5b6;background:#fdeede;color:#9a5b16}\n.qbtn.nov{border-color:#c5d8f4;background:#e4eefc;color:#25548f}\n.qbtn:hover{filter:brightness(.96)}\n.sctl{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px}\n.sctl .lbl{font-size:11px;color:var(--muted);font-weight:650}\n.darea{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.day.sel .darea{color:#cfe6d8}\n.pinbadge{display:inline-block;background:#e4eefc;color:#25548f;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px}\n.weekguide{border-top:1px solid var(--line);background:#fbfdfc}\n.wgh{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;padding:9px 16px 2px}\n.wgrow{display:flex;gap:8px;overflow-x:auto;padding:4px 16px 12px}\n.wchip{flex:none;min-width:118px;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:#fff}\n.wchip.here{border-color:var(--green-l);background:#eaf4ee}\n.wchip .wd{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase}\n.wchip .wc{font-size:13.5px;font-weight:750;color:var(--green);margin-top:1px}\n.wchip .wa{font-size:11.5px;color:#48564e;margin-top:3px;line-height:1.3}\n.wchip .wn{font-size:11px;color:var(--muted);margin-top:4px}\n.tray{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);margin:0 0 14px;overflow:hidden}\n.tray h3{margin:0;padding:12px 15px;font-size:13px;font-weight:750;color:var(--green);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;cursor:pointer}\n.tray h3.fix{color:var(--red)}\n.tray h3 .cnt{background:var(--green-l);color:#fff;font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px}\n.tray h3.fix .cnt{background:var(--red)}\n.tray h3 .chev{margin-left:auto;color:var(--muted);font-size:12px}\n.traynote{font-size:12px;color:var(--muted);padding:8px 15px 2px}\n.grouph{font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding:10px 15px 2px}\n.newrow{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:11px 15px;border-top:1px solid var(--line)}\n.newrow .who{font-weight:700;font-size:14px;min-width:140px}\n.newrow .meta{font-size:12.5px;color:var(--muted)}\n.newrow .auto{font-size:12px;color:#2b6b45;font-weight:650}\n.newrow .acts{margin-left:auto;display:flex;gap:7px;align-items:center;flex-wrap:wrap}\n.newbadge{display:inline-block;background:#fbeecd;color:#8a5a12;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.fixbadge{display:inline-block;background:#f7dfe1;color:#a12a35;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.stop.isnew{box-shadow:inset 3px 0 0 var(--gold)}\n.stop.isfix{box-shadow:inset 3px 0 0 var(--red)}\n.stop.istake{box-shadow:inset 3px 0 0 #6b776f}\n.day.fixroute{background:#fdf3f4}\n.day.fixroute.sel{background:#8f2530;color:#fff}\n.day.fixroute.sel .darea,.day.fixroute.sel .dmeta{color:#f3d6d9}\n.day.fixroute.sel .dbar{background:rgba(255,255,255,.25)}\n.frb{display:inline-block;background:#f7dfe1;color:#a12a35;font-size:9.5px;font-weight:800;padding:1px 5px;border-radius:5px;margin-left:6px;vertical-align:middle}\n.day.fixroute.sel .frb{background:#fff;color:#8f2530}\n.buildfix{margin:8px 15px}\n.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;padding:11px 18px;border-radius:11px;font-size:13.5px;font-weight:600;box-shadow:0 8px 30px rgba(0,0,0,.25);opacity:0;pointer-events:none;transition:.25s;z-index:50;max-width:90vw;text-align:center}\n.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}\n.emptyday{padding:20px 16px;color:var(--muted);font-size:13.5px;text-align:center}\n#gate{position:fixed;inset:0;background:linear-gradient(120deg,#0f5132,#14663f);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px}\n#gate .card{background:#fff;border-radius:16px;padding:26px;max-width:360px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3)}\n#gate h2{margin:0 0 4px;color:var(--green);font-size:20px}\n#gate p{margin:0 0 16px;color:var(--muted);font-size:13.5px}\n#gate input{width:100%;padding:11px;border:1px solid var(--line);border-radius:10px;font-size:15px;margin-bottom:10px}\n#gate .err{color:var(--red);font-size:13px;min-height:18px}\n#importBox{max-width:560px;margin:34px auto;background:#fff;border:1px solid var(--line);border-radius:14px;padding:26px;box-shadow:var(--shadow);text-align:center}\n#importBox h2{color:var(--green);margin:0 0 6px}\n#importBox p{color:var(--muted);font-size:13.5px;margin:0 0 16px}\n#importBox .err{color:var(--red);font-size:13px;margin-top:10px;min-height:18px}\n.topbar{display:flex;align-items:center;gap:12px;margin-top:6px}\n.savenote{font-size:12.5px;color:#d5e8dd;font-weight:600}\n.linkbtn{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;padding:6px 12px;border-radius:9px;font-size:12.5px;font-weight:650;cursor:pointer}\n.hide{display:none!important}\n.lmodal{position:fixed;inset:0;background:rgba(18,30,24,.55);display:flex;align-items:center;justify-content:center;padding:18px;z-index:60}\n.lmodal .card{background:#fff;border-radius:16px;max-width:620px;width:100%;max-height:86vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);padding:22px}\n.lmodal h2{margin:0 0 4px;color:var(--green);font-size:19px}\n.lmodal .lead{margin:0 0 14px;color:var(--muted);font-size:13.5px}\n.lmodal .lrow{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;padding:9px 0;border-top:1px solid var(--line);font-size:13.5px}\n.lmodal .lrow .who{font-weight:700;min-width:130px}\n.lmodal .lrow .meta{color:var(--muted);font-size:12.5px}\n.lmodal .lrow .acts{margin-left:auto}\n.lmodal .pickrow{cursor:pointer;gap:8px 10px}\n.lmodal .pickrow:hover{background:#f7faf8}\n.lmodal .pickrow input[type=checkbox]{flex:none}\n.lmodal .choices{display:flex;flex-direction:column;gap:10px;margin:16px 0 6px}\n.lmodal .choice{text-align:left;padding:13px 15px;border:1px solid var(--line);border-radius:12px;background:#fff;cursor:pointer;font-size:14px;font-weight:650;color:var(--ink)}\n.lmodal .choice:hover{background:#f4f8f5;border-color:var(--green-l)}\n.lmodal .choice small{display:block;font-weight:500;color:var(--muted);font-size:12.5px;margin-top:3px}\n.lmodal .warn{font-size:12.5px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:8px 11px;margin-top:12px}\n.lmodal .foot{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}\n.crewbar{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);padding:11px 15px;margin:0 0 14px}\n.crewbar .ch{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;margin-bottom:7px}\n.crewrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:6px}\n.crewrow input.cn{padding:7px 10px;border:1px solid var(--line);border-radius:9px;font-size:13.5px;background:#fff;min-width:150px;font-weight:700;color:var(--ink)}\n.crewrow select.cc{padding:7px 10px;border:1px solid var(--line);border-radius:9px;font-size:13px;background:#fff;max-width:230px}\n.crewrow .note{font-size:12px;color:var(--muted)}\n.crewbar .warn{font-size:12px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:6px 10px;margin-top:9px}\n.routehead{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px;padding:10px 16px;background:#eaf4ee;border-top:2px solid var(--green-l);font-size:12.5px;font-weight:800;color:var(--green);text-transform:uppercase;letter-spacing:.04em}\n.routehead span{font-weight:600;color:#48564e;text-transform:none;letter-spacing:0;font-size:12px}\n.routehead.spare{background:#fdf5e7;border-top-color:var(--gold);color:#9a5b16}\n";
-  const MARKUP="<div class=\"rdwrap\"><div class=\"wrap\"><div style=\"text-align:right;font-size:12px;color:var(--muted);margin:0 2px 6px;font-weight:600\" id=\"saveNote\"></div><div id=\"importBox\" class=\"hide\">\n    <h2>Import your route plan</h2>\n    <p>Choose your route CSV (export from your Excel, or the “Export progress CSV” from the old dashboard). Your data is saved to your private Firebase — it is never stored in this page.</p>\n    <input type=\"file\" id=\"importFile\" accept=\".csv,text/csv\">\n    <div class=\"err\" id=\"importErr\"></div>\n    <button class=\"mini\" id=\"importCancel\" style=\"margin-top:12px;display:none\">Cancel — keep the plan I have</button>\n  </div>\n\n  <div id=\"dashboard\" class=\"hide\">\n    <div class=\"stats\" id=\"stats\"></div>\n    <div class=\"tabs\">\n      <button class=\"tab active\" data-tab=\"schedule\">📅 Scheduling</button>\n      <button class=\"tab\" data-tab=\"fixes\">🔧 Fixes</button>\n      <button class=\"tab\" data-tab=\"oneman\">\ud83e\uddcd One Man Installs</button>\n      <button class=\"tab\" data-tab=\"printing\">\ud83d\udda8 Printing</button>\n      <button class=\"tab\" data-tab=\"takedowns\">📦 Takedowns</button>\n    </div>\n\n    <div class=\"crewbar\" id=\"crewBar\"></div>\n\n    <div class=\"tabpane\" id=\"pane-schedule\">\n      <div class=\"seasonbar\">\n        <div class=\"fld\"><label for=\"startDate\">Season start</label><input type=\"date\" id=\"startDate\"></div>\n        <div class=\"read\" id=\"shiftRead\"></div>\n        <button class=\"mini\" id=\"recalcBtn\" style=\"margin-left:auto\">⚙ Recalculate everything</button><button class=\"mini\" id=\"undoRebuildBtn\" style=\"display:none\">↶ Undo</button>\n        <div class=\"read\" id=\"importedAtRead\" style=\"font-weight:600\"></div>\n        <div class=\"wknote\" id=\"wkNote\"></div>\n        <div class=\"wknote\" id=\"staleNote\" style=\"display:none\"></div>\n      </div>\n      <div class=\"toolbar\">\n        <div class=\"search\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"11\" cy=\"11\" r=\"7\"></circle><path d=\"M21 21l-4.3-4.3\"></path></svg>\n          <input id=\"q\" placeholder=\"Search name, address, city, phone…\" autocomplete=\"off\">\n        </div>\n        <button class=\"btn ghost\" id=\"clearBtn\" style=\"display:none\">Clear</button>\n        <button class=\"btn\" id=\"csvBtn\">Export CSV</button><button class=\"btn ghost\" id=\"printPlanBtn\">Print Whole Plan</button>\n      </div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Days · left · area</h3><div id=\"days\"></div></div><div class=\"panel\" id=\"panel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-fixes\" hidden>\n      <div class=\"tray\" id=\"fixtray\"></div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Fixer routes</h3><div id=\"fixDays\"></div></div><div class=\"panel\" id=\"fixPanel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-oneman\" hidden><div class=\"tray\" id=\"oneManPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-printing\" hidden><div class=\"tray\" id=\"printPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-takedowns\" hidden>\n      <div class=\"seasonbar\"><div class=\"fld\"><label for=\"takeStart\">Takedown start</label><input type=\"date\" id=\"takeStart\"></div><div class=\"read\" id=\"takeRead\"></div></div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Takedown days · left · area</h3><div id=\"takeDays\"></div></div><div class=\"panel\" id=\"takePanel\"></div></div>\n    </div>\n\n    <footer>\n      Live — saves to your private Firebase (routeSchedule), synced across your devices. This page only writes its own schedule; it does not touch customers, the crew’s routes, or billing.<br>\n      Weekends are skipped automatically; use “Force exact date” to place a route on a weekend.\n    </footer>\n  </div></div><div class=\"lmodal hide\" id=\"leftoverModal\"></div><div class=\"toast\" id=\"toast\"></div></div>";
+  const MARKUP="<div class=\"rdwrap\"><div class=\"wrap\"><div style=\"text-align:right;font-size:12px;color:var(--muted);margin:0 2px 6px;font-weight:600\" id=\"saveNote\"></div><div id=\"importBox\" class=\"hide\">\n    <h2>Import your route plan</h2>\n    <p>Choose your route CSV (export from your Excel, or the “Export progress CSV” from the old dashboard). Your data is saved to your private Firebase — it is never stored in this page.</p>\n    <input type=\"file\" id=\"importFile\" accept=\".csv,text/csv\">\n    <div class=\"err\" id=\"importErr\"></div>\n    <button class=\"mini\" id=\"importCancel\" style=\"margin-top:12px;display:none\">Cancel — keep the plan I have</button>\n  </div>\n\n  <div id=\"dashboard\" class=\"hide\">\n    <div class=\"stats\" id=\"stats\"></div>\n    <div class=\"tabs\">\n      <button class=\"tab active\" data-tab=\"schedule\">📅 Scheduling</button>\n      <button class=\"tab\" data-tab=\"fixes\">🔧 Fixes</button>\n      <button class=\"tab\" data-tab=\"oneman\">\ud83e\uddcd One Man Installs</button>\n      <button class=\"tab\" data-tab=\"printing\">\ud83d\udda8 Printing</button>\n      <button class=\"tab\" data-tab=\"takedowns\">📦 Takedowns</button>\n    </div>\n\n    <div class=\"crewbar\" id=\"crewBar\"></div>\n\n    <div class=\"tabpane\" id=\"pane-schedule\">\n      <div class=\"seasonbar\">\n        <div class=\"fld\"><label for=\"startDate\">Season start</label><input type=\"date\" id=\"startDate\"></div>\n        <div class=\"read\" id=\"shiftRead\"></div>\n        <button class=\"mini\" id=\"recalcBtn\" style=\"margin-left:auto\">⚙ Recalculate everything</button><button class=\"mini\" id=\"undoRebuildBtn\" style=\"display:none\">↶ Undo</button>\n        <div class=\"read\" id=\"importedAtRead\" style=\"font-weight:600\"></div>\n        <div class=\"wknote\" id=\"wkNote\"></div>\n        <div class=\"wknote\" id=\"staleNote\" style=\"display:none\"></div>\n      </div>\n      <div class=\"toolbar\">\n        <div class=\"search\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"11\" cy=\"11\" r=\"7\"></circle><path d=\"M21 21l-4.3-4.3\"></path></svg>\n          <input id=\"q\" placeholder=\"Search name, address, city, phone…\" autocomplete=\"off\">\n        </div>\n        <button class=\"btn ghost\" id=\"clearBtn\" style=\"display:none\">Clear</button>\n        <button class=\"btn\" id=\"csvBtn\">Export CSV</button><button class=\"btn ghost\" id=\"printPlanBtn\">Print Whole Plan</button>\n      </div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Days · left · area</h3><div id=\"days\"></div></div><div class=\"panel\" id=\"panel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-fixes\" hidden>\n      <div class=\"tray\" id=\"fixtray\"></div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Fixer routes</h3><div id=\"fixDays\"></div></div><div class=\"panel\" id=\"fixPanel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-oneman\" hidden><div class=\"tray\" id=\"oneManPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-printing\" hidden><div class=\"tray\" id=\"printPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-takedowns\" hidden>\n      <div class=\"seasonbar\"><div class=\"fld\"><label for=\"takeStart\">Takedown start</label><input type=\"date\" id=\"takeStart\"></div><div class=\"read\" id=\"takeRead\"></div></div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Takedown days · left · area</h3><div id=\"takeDays\"></div></div><div class=\"panel\" id=\"takePanel\"></div></div>\n    </div>\n\n    <footer>\n      Live — saves to your private Firebase (routeSchedule), synced across your devices. Ticking a house here marks that customer complete, and anyone whose whole job is finished is invoiced automatically that night.<br>\n      Weekends are skipped automatically; use “Force exact date” to place a route on a weekend.\n    </footer>\n  </div></div><div class=\"lmodal hide\" id=\"leftoverModal\"></div><div class=\"toast\" id=\"toast\"></div></div>";
   RT.innerHTML="<style>"+STYLE+"</style>"+MARKUP;
 const PLAN_REF=()=>doc(db,'routeSchedule','plan');
 /* ISO date of the CSV import this plan was built from — see serialize(). */
@@ -36542,7 +36649,13 @@ function buildSeason(data){
 function mdToDate(md){const[m,d]=(''+md).split('-').map(Number);return new Date(2026,m-1,d);}
 function seedTakedowns(){
   const inst=SEASON.filter(d=>!d.isFixRoute&&!d.isTakedown);let k=0;
-  inst.forEach((d,i)=>{const houses=d.houses.filter(h=>!h.isFix).map(h=>({id:'t'+(k++),name:h.name,address:h.address,city:h.city,zip:h.zip,phone:h.phone,cu:h.cu,price:0,details:'Takedown / removal',isTakedown:true,done:false}));
+  /* ⭐ srcId CARRIES THE INSTALL HOUSE'S ID ONTO THE COPY (added 2026-08-21, Job 2).
+     A takedown row is a copy made from an install house and used to keep name,
+     address, city, zip, phone and cu and nothing else — so ticking a takedown had
+     no id to resolve and fell back to matching on customer number, which is reused
+     after a recycle and can land on a different household. Fixed at the source here
+     rather than guessed at the other end; see hlxResolvePlanHouse. */
+  inst.forEach((d,i)=>{const houses=d.houses.filter(h=>!h.isFix).map(h=>({id:'t'+(k++),srcId:h.id,name:h.name,address:h.address,city:h.city,zip:h.zip,phone:h.phone,cu:h.cu,price:0,details:'Takedown / removal',isTakedown:true,done:false}));
     SEASON.push({id:'td'+i,isTakedown:true,base:i,cascade:0,pin:null,houses:houses});});
 }
 /* ---------- area matching / fixes / signups (available for phase 2 wiring) ---------- */
@@ -37134,7 +37247,18 @@ function closeLeftovers(){leftoverFor=null;renderLeftovers();}
    something on this step that they had marked done earlier. */
 function applyLeftoverPicks(dayId){
   const day=getDay(dayId); if(!day) return;
-  day.houses.forEach(function(h){ h.done=!leftoverPicked.has(String(h.id)); });
+  /* ⚠ THIS WRITES BOTH DIRECTIONS ON PURPOSE, and must keep doing so: the office is
+     saying which houses the crew MISSED, so the ones they did are marked done and the
+     ones they did not are marked back to not-done. A one-way version silently leaves
+     a house ticked that the crew never reached — and it would then be invoiced. */
+  day.houses.forEach(function(h){ h.done=!leftoverPicked.has(String(h.id));
+    /* ⚠ UNCONDITIONAL, not "only when the plan flag moved". The office is stating the
+       final truth for this day, and the customer record may have been changed from
+       Routes or the customer row since the plan was last touched — so a house whose
+       PLAN flag happens to be unchanged can still need the customer put right. A
+       change-guard here looked like a cheap saving and silently left exactly those
+       houses out of step. It is at most one write per house on one day. */
+    planTickCustomer(h,h.done); });
   const missed=day.houses.filter(h=>!h.done).length;
   leftoverMode='ask';
   renderAll();
@@ -37712,6 +37836,88 @@ function customerForHouse(h){
    ⚠ A BLANK ON THE CUSTOMER NEVER WIPES WHAT THE PLAN HAS. Same rule the bulk
    importer follows: only a real value overwrites, so a half-filled record
    cannot quietly empty a card the crew relies on. */
+/* ⭐ WHICH CUSTOMER A PLAN HOUSE IS (added 2026-08-21, Job 2). This is the part of
+   marking a job done that is most likely to go quietly wrong, so it answers in ONE
+   place and says plainly when it cannot.
+
+   ⚠ THE DOCUMENT ID FIRST, ALWAYS. A house the customer sync pulled in carries the
+   real id inside its own: houseFromCustomer builds 'cust-' + item.id. That is exact.
+   Everything else is a guess.
+
+   ⚠ A CUSTOMER NUMBER IS NOT A STABLE KEY. Numbers go back to
+   availableCustomerNumbers when somebody is recycled and are handed out again, so a
+   stale plan row holding #479 can resolve to a completely different household — and
+   marking THEM complete bills the wrong person. The number is only ever the fallback,
+   for rows that came from the imported CSV and have no id to use.
+
+   ⚠ A TAKEDOWN ROW USED TO CARRY NO ID AT ALL. seedTakedowns copies name, address,
+   city, zip, phone and cu off the install house and nothing else, so every takedown
+   tick depended on the number-then-phone guess above. It now carries srcId — the id
+   of the install house it was copied from — so a takedown resolves exactly the way
+   its install does. Rows in a plan saved before today have no srcId and still fall
+   through to the guess, which is why that path is kept rather than replaced.
+
+   Returns the customer item, or null. A null is NOT an error to swallow: the caller
+   has to say so on the row, because a tick that wrote nothing looks identical on
+   screen to one that worked. */
+function hlxResolvePlanHouse(h){
+  if(!h) return null;
+  const list = (typeof jobAddresses !== 'undefined' && jobAddresses) ? jobAddresses : [];
+  /* A takedown copy points at the install house it was made from; that id is itself
+     either a 'cust-' id or an imported one, so resolve it the same way. */
+  const rawId = String((h.srcId != null && h.srcId !== '') ? h.srcId : (h.id == null ? '' : h.id));
+  if(rawId.indexOf('cust-') === 0){
+    const docId = rawId.slice(5);
+    const hit = list.find(function(a){ return a.id === docId; });
+    /* A 'cust-' id that no longer matches anybody means the customer was deleted
+       since the plan was built. That is a real answer — say nothing rather than
+       falling through to the number, which could land on somebody else entirely. */
+    return hit || null;
+  }
+  return (typeof customerForHouse === 'function') ? customerForHouse(h) : null;
+}
+/* ⭐ TICKING A STOP MARKS THAT CUSTOMER (added 2026-08-21, Job 2). Owner:
+   "Schedules should mark routes as complete automatically", and, asked whether that
+   meant per stop or per day: ticking ONE stop marks that customer complete.
+
+   ⚠ THE PLAN FLAG IS STILL WRITTEN AS WELL, for now. That is two copies of one fact
+   and Job 3 is what removes the stored one by deriving it from the customer. Until
+   then the plan flag is what every counter, the crew split, the near-empty-day
+   rescue, One Man Installs, the printed sheets and the CSV all read, so dropping it
+   here would blank all of them.
+
+   ⚠ WHICH KIND MATTERS. A takedown row and a fix row are different jobs on the same
+   house, and marking one must never touch the other — see hlxMarkJobDone. */
+function planHouseKind(h){
+  if(!h) return 'install';
+  if(h.isFix) return 'fix';
+  if(h.isTakedown) return 'takedown';
+  return 'install';
+}
+/* Has this house's bill already gone out? Read from the CUSTOMER, never from the plan
+   — the plan has no idea what has been invoiced. Used only to warn before an untick;
+   a house nothing can be resolved for reads as not-billed, which is the safe way round
+   (a warning nobody needed costs a click, a missing one costs a contradiction). */
+function planAlreadyBilled(h){
+  const cust = hlxResolvePlanHouse(h);
+  return !!(cust && cust.data && cust.data.invoiceEmailSent);
+}
+/* Marks the customer behind a plan house, and SAYS SO when there is nobody behind it.
+   A tick that wrote nothing looks exactly like one that worked, which is how a house
+   gets driven to and never billed. */
+function planTickCustomer(h, done){
+  const cust = hlxResolvePlanHouse(h);
+  if(!cust){
+    toast((h && h.name ? h.name : 'That stop') + ' is not linked to a customer, so ' +
+          'only the schedule was ticked — nothing was billed. Press Recalculate ' +
+          'everything to link them up.');
+    return;
+  }
+  hlxMarkJobDone(cust, planHouseKind(h), done, {name: cust.data && cust.data.name, source: 'Schedule'})
+    .then(function(res){
+      if(!res.ok) toast('Ticked here, but the customer could not be updated — ' + res.why);
+    });
+}
 function prefKey(p){
   const u = ('' + (p || '')).trim().toUpperCase();
   if(!u) return 'any';
@@ -38246,7 +38452,17 @@ RT.addEventListener('change',e=>{const t=e.target;
     renderAll();toast(crewName(i)+' → '+(t.value||'Auto by day'));return;}
   if(t.id==='startDate'){if(t.value){globalDelta=daysBetween(new Date(t.value+'T00:00:00'),BASE_START);renderAll();toast(globalDelta===0?'Back to original dates':'Season shifted '+(globalDelta>0?'+':'')+globalDelta+' days');}return;}
   if(t.id==='takeStart'){if(t.value){takeDelta=daysBetween(new Date(t.value+'T00:00:00'),TAKE_BASE_START);renderAll();toast('Takedowns shifted');}return;}
-  if(t.type==='checkbox'&&t.dataset.id!=null){const f=findHouse(t.dataset.id);if(f){f.house.done=t.checked;renderAll();}return;}
+  if(t.type==='checkbox'&&t.dataset.id!=null){const f=findHouse(t.dataset.id);if(f){
+    /* ⚠ WARN BEFORE UNTICKING A HOUSE THAT HAS ALREADY BEEN BILLED. Unticking cannot
+       un-send an invoice — invoiceEmailSent is only ever cleared by Start New Season —
+       so without this the screen and the customer's inbox quietly disagree. */
+    if(!t.checked && planAlreadyBilled(f.house) &&
+       !confirm((f.house.name||'That customer')+' has already been invoiced for this.\n\n'+
+                'Unticking marks them not done again, but it cannot un-send the invoice '+
+                'they have already been sent.\n\nUntick anyway?')){ t.checked = true; return; }
+    f.house.done=t.checked;
+    planTickCustomer(f.house, t.checked);
+    renderAll();}return;}
   if(t.dataset.print){
     const what = t.dataset.print;
     if(what === 'today'){ printToday(); return; }
@@ -38400,7 +38616,16 @@ RT.addEventListener('click',e=>{const t=e.target;
   const printDayEl=t.dataset.printday?t:t.closest('[data-printday]');
   if(printDayEl){printDaySheet(printDayEl.dataset.printday);return;}
   const dayEl=t.closest('.day');if(dayEl){const L=dayEl.dataset.list;if(L==='fix')selFix=dayEl.dataset.day;else if(L==='take')selTake=dayEl.dataset.day;else selSchedule=dayEl.dataset.day;renderActive();return;}
-  if(t.dataset.allbtn){const d=getDay(t.dataset.allbtn);const all=d.houses.length&&d.houses.every(x=>x.done);d.houses.forEach(x=>x.done=!all);renderAll();return;}
+  if(t.dataset.allbtn){const d=getDay(t.dataset.allbtn);const all=d.houses.length&&d.houses.every(x=>x.done);
+    /* ⭐ ASK ONCE, AND SAY WHAT IT COSTS. The individual tick stays silent — it is one
+       house and the office is looking straight at it — but All done can mark forty
+       customers complete in one press, and every one of them is invoiced that night.
+       That is the intended behaviour and it is new, so it is said out loud rather
+       than discovered from the customers' inboxes. */
+    if(!all && d.houses.length &&
+       !confirm('Mark all '+d.houses.length+' house'+(d.houses.length===1?'':'s')+' on this day as done?\n\n'+
+                'Anyone whose whole job is finished will be invoiced automatically tonight.')) return;
+    d.houses.forEach(x=>{x.done=!all;planTickCustomer(x,!all);});renderAll();return;}
   if(t.dataset.pull){cascade(t.dataset.pull,-1);return;}
   if(t.dataset.push){cascade(t.dataset.push,1);return;}
   if(t.dataset.skip){cascade(t.dataset.skip,1,'Day off — pushed later');return;}
