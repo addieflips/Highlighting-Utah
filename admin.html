@@ -22360,6 +22360,33 @@ function whWatchArchivedPending(){
     });
   } catch(err){ console.error("[HU] archived recycle watch failed", err); }
 }
+/* ⭐ THE NUMBER THAT IS PHYSICALLY ON THE BIN. Owner, 2026-08-21, looking at Ashley
+   Wray in the recycle queue: "as you can see this shows the updated cusotmer number not
+   the old one, we need the old one in the recycle section because thats how they find
+   it."
+
+   ⚠ A CUSTOMER NUMBER CAN MOVE AFTER THE BIN IS ALREADY LABELLED. Ashley re-measured
+   at 300 ft, which is two bins, so she moved from #894 to the 5000-series and the
+   record now says #5051. The bin sitting on the shelf with her old set in it still says
+   ’894’, because nobody has been to it. Sending somebody to find #5051 sends them to a
+   bin that does not exist.
+
+   ⚠ AND THE FIRST LABEL IS THE ONE THAT COUNTS. If the number moves twice before the
+   set comes back, the bin still wears the original — so binLabelNumber is written
+   once and not overwritten, and it is cleared when the set actually comes back (Mark
+   Recycled) or when a new one is built under the current number (Mark Done). */
+function whBinNumberFor(d){
+  const dd = d || {};
+  return String(dd.binLabelNumber || dd.customerNumber || '').trim();
+}
+/* True when the bin they are looking for is not the number on the record, which is the
+   case worth saying out loud on both the screen and the paper. */
+function whBinNumberMoved(d){
+  const dd = d || {};
+  const label = String(dd.binLabelNumber || '').trim();
+  const now = String(dd.customerNumber || '').trim();
+  return !!(label && now && label !== now);
+}
 function whRecycleGroups(){
   const groups = {};
   jobAddresses.forEach(function(item){
@@ -22386,39 +22413,52 @@ function whRecycleGroups(){
   keys.sort(function(a,b){ return groups[b].length - groups[a].length; });
   return {groups: groups, keys: keys};
 }
+/* ⭐ RECYCLING IS A NUMBER AND A NAME. Owner, 2026-08-21: "they dont need to know the
+   color here they just need the customer number and name."
+
+   ⚠ THIS USED TO BE GROUPED BY PATTERN AND WIRE, the same as the build queue, and it
+   reads as though it were one — "Warm White — White wire, Need 1". Nobody is making
+   anything here. They are walking to a shelf, finding the bin with a number on it and
+   bringing it back, and the colour inside is not how they find it. One flat list,
+   ordered by name, with the bin number beside it.
+
+   ⚠ AND THE NUMBER SHOWN IS THE ONE ON THE BIN, NOT THE ONE ON THE RECORD — see
+   whBinNumberFor. Ashley moved from #894 to #5051 when her footage changed; her bin
+   still says 894. */
 function renderWarehouseRecycleQueue(){
   const list = document.getElementById('warehouseRecycleQueueList');
   if(!list) return;
   const built = whRecycleGroups();
-  const groups = built.groups;
-  const keys = built.keys;
-  if(!keys.length){ list.innerHTML = '<div class="empty-note">Nothing needs to be recycled right now.</div>'; return; }
-  let html = '';
-  keys.forEach(function(pattern, gi){
-    const houses = groups[pattern];
-    const listId = 'whrecycle-' + gi;
-    html += '<div class="row-item" style="display:block;">'+
-      '<div style="display:flex; justify-content:space-between; align-items:center; gap:10px; cursor:pointer;" data-whrecycletoggle="'+listId+'">'+
-        '<div><strong style="font-size:15px;">'+esc(pattern)+'</strong><div style="font-size:12.5px; color:var(--slate);">Need '+houses.length+'</div></div>'+
-        whToggleBtn('whrecycletoggle', listId, 'Show '+houses.length+' house'+(houses.length===1?'':'s'))+
-      '</div>'+
-      '<div id="'+listId+'" style="display:none; margin-top:12px; padding-top:12px; border-top:1px solid var(--line);">'+
-        houses.map(function(h){
-          return '<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; gap:10px;">'+
-            /* The number is what comes off them and goes back in the pool, so it
-               is the one fact worth having on screen before pressing the button. */
-            '<span style="font-size:13.5px;">'+esc(h.data.name||'(no name)')+' &mdash; '+esc(h.data.address||'')+propLabelChip(h.data)+custNumChip(h.data)+'</span>'+
-            /* Same Edit as the Build tab — a house in here by mistake is fixed
-               by changing their RSVP on their own record, not from this list. */
-            '<span style="display:flex; gap:6px; flex:0 0 auto;">'+
-              '<button type="button" class="btn btn-outline btn-sm" data-wheditcust="'+h.id+'">Edit</button>'+
-              '<button type="button" class="btn btn-outline btn-sm" data-whrecycledone="'+h.id+'">Mark Recycled</button>'+
-            '</span>'+
-          '</div>';
-        }).join('')+
-      '</div>'+
+  const houses = [];
+  built.keys.forEach(function(k){ (built.groups[k] || []).forEach(function(h){ houses.push(h); }); });
+  houses.sort(function(a, b){
+    return String((a.data||{}).name||'').localeCompare(String((b.data||{}).name||''));
+  });
+  if(!houses.length){ list.innerHTML = '<div class="empty-note">Nothing needs to be recycled right now.</div>'; return; }
+  let html = '<div class="row-item" style="display:block;">'+
+    '<div><strong style="font-size:15px;">'+houses.length+' to pull back into stock</strong>'+
+      '<div style="font-size:12.5px; color:var(--slate);">Find the bin by its number and bring it in.</div></div>'+
+    '<div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--line);">';
+  houses.forEach(function(h){
+    const d = h.data || {};
+    const binNum = whBinNumberFor(d);
+    html += '<div style="display:flex; justify-content:space-between; align-items:center; padding:7px 0; gap:10px;">'+
+      '<span style="font-size:13.5px;">'+
+        '<strong style="font-variant-numeric:tabular-nums;">'+esc(binNum || 'no number')+'</strong>'+
+        ' &mdash; '+esc(d.name||'(no name)')+propLabelChip(d)+
+        /* Said out loud, because somebody reading the customer record will see a
+           different number and think the list is wrong. */
+        (whBinNumberMoved(d)
+          ? '<span style="display:block; font-size:12px; color:#8A6100;">Bin is labelled '+esc(binNum)+' &mdash; their record now says #'+esc(String(d.customerNumber||''))+'</span>'
+          : '')+
+      '</span>'+
+      '<span style="display:flex; gap:6px; flex:0 0 auto;">'+
+        '<button type="button" class="btn btn-outline btn-sm" data-wheditcust="'+h.id+'">Edit</button>'+
+        '<button type="button" class="btn btn-outline btn-sm" data-whrecycledone="'+h.id+'">Mark Recycled</button>'+
+      '</span>'+
     '</div>';
   });
+  html += '</div></div>';
   list.innerHTML = html;
   list.querySelectorAll('[data-whrecycletoggle]').forEach(function(el){
     el.addEventListener('click', function(e){
@@ -22478,6 +22518,9 @@ function renderWarehouseRecycleQueue(){
         try{
           await updateDoc(doc(db,'jobAddresses', custId), {
             needsLightRecycle: false, recycleKeepingCustomer: false,
+            /* The set is back and the bin is empty, so its old label means nothing
+               now. See whBinNumberFor. */
+            binLabelNumber: null,
             lightsRecycledAt: serverTimestamp() });
           toast((d.name || 'They') + ' recycled \u2014 still a customer.');
           logActivity('Recycled the old lights for ' + (d.name || custId) +
@@ -23875,8 +23918,11 @@ function renderWarehouseQueue(){
       /* ⚠ AND IT IS NO LONGER A TOP-UP. The extra bundle is in their bin, so the bin
          now holds their full footage. Leaving buildTopUpFromFeet set would make every
          future build for this house read as "they already have 180 ft" for ever. */
+      /* A new bin has been made up under the number they hold now, so the old label
+         is gone with the old set. See whBinNumberFor. */
       updateDoc(doc(db,'jobAddresses', btn.dataset.whdonehouse),
-        {needsLightBuild:false, buildTopUpFromFeet:null}).catch(function(){});
+        {needsLightBuild:false, buildTopUpFromFeet:null, binLabelNumber:null})
+        .catch(function(){});
     });
   });
   /* Opens the ordinary Edit Customer popup, which is the one place these
@@ -23931,7 +23977,8 @@ function renderWarehouseQueue(){
       for(const h of g.houses){
         if(remaining <= 0) break;
         // Same clear as the single Mark Done above - see the note there.
-        await updateDoc(doc(db,'jobAddresses', h.id), {needsLightBuild:false, buildTopUpFromFeet:null});
+        await updateDoc(doc(db,'jobAddresses', h.id),
+          {needsLightBuild:false, buildTopUpFromFeet:null, binLabelNumber:null});
         remaining--;
       }
       for(const ex of g.extras){
@@ -24337,14 +24384,17 @@ function whSheetRowsForRecycle(){
         address: d.address || '',
         // The number is the whole point of recycling a house — it comes off
         // them and goes back in the pool — so it gets its own column here too.
-        bin: d.customerNumber || '',
+        bin: whBinNumberFor(d),
         feet: '',
         bundles: '',
         timer: '',
-        notes: (d.notes ? String(d.notes).trim() : '')
+        notes: (whBinNumberMoved(d)
+          ? ('bin says ' + whBinNumberFor(d) + ', record says #' + String(d.customerNumber || ''))
+          : (d.notes ? String(d.notes).trim() : ''))
       });
     });
   });
+  rows.sort(function(x, y){ return String(x.what).localeCompare(String(y.what)); });
   return {rows: rows, columns: WH_RECYCLE_COLUMNS, groupCount: built.keys.length};
 }
 /* ⭐ NUMBERED ON THE LEFT, BLANK COLUMN ON THE RIGHT — THE SAME AS EVERY OTHER
@@ -24465,11 +24515,14 @@ const WH_BUILD_COLUMNS = [
   {key:'putInto', label:'When built, put into'},
   {key:'notes', label:'Notes'}
 ];
+/* ⚠ NO PATTERN COLUMN. Owner: "they dont need to know the color here they just need
+   the customer number and name." Nobody builds anything off this sheet — they find a
+   bin by its number and bring it in. The number is the one ON THE BIN (whBinNumberFor),
+   which is not always the one on the record. */
 const WH_RECYCLE_COLUMNS = [
-  {key:'group', label:'Pattern & Wire'},
+  {key:'bin', label:'Bin # to find', num:true},
   {key:'what', label:'Customer'},
   {key:'address', label:'Address'},
-  {key:'bin', label:'Bin # to reclaim', num:true},
   {key:'notes', label:'Notes'}
 ];
 /* Guarded like wireWhCancelEditExtra above — the warehouse render tests eval
@@ -26315,8 +26368,31 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
           ' \u2014 but they hold #' + existingNum + ', ' + (isDoubleNum ? 'a 5000-series (2 bin)' : 'a regular (1 bin)') + ' number.\n\n' +
           'Their bin in the warehouse is labelled #' + existingNum + '. Moving them to #' + suggested + ' means relabelling it.\n\n' +
           'OK = move them to #' + suggested + '\nCancel = keep #' + existingNum;
-        if(confirm(msg)){
+        /* ⭐ CONVERTING A RE-QUOTE MOVES THE NUMBER BY ITSELF. Owner, 2026-08-21: "what
+           I want is when I click convert to customer, if the number changes that happens
+           automatically so I dont have to manaully change the number, but before that
+           happens they put it in recycle while it still has the old number."
+
+           ⚠ THE PROMPT EXISTED FOR ONE REASON AND THAT REASON IS NOW HANDLED. It said
+           "their bin in the warehouse is physically labelled with this number, so a
+           change is flagged rather than made silently" — and the danger was that moving
+           the number left the warehouse hunting for a bin that does not exist.
+           binLabelNumber records what the bin actually says and the recycle queue sends
+           them to THAT, so the change is no longer silent, it is just no longer a
+           question. Said in a toast rather than a dialog.
+
+           ⚠ AND ONLY ON A CONVERSION. An ordinary edit that happens to change the
+           footage is not somebody working through a re-quote, and moving a live
+           customer's number underneath them without asking is a different thing. That
+           still asks. */
+        const autoMove = !!requoteBeingConverted;
+        if(autoMove || confirm(msg)){
           addrUpdates.customerNumber = suggested;
+          if(autoMove){
+            toast('#' + existingNum + ' \u2192 #' + suggested + ' \u2014 ' + newMeasuredFeet +
+              ' ft needs ' + binsForFeet + ' bins. The recycle list still says #' +
+              existingNum + ', which is what their bin is labelled.');
+          }
           addrUpdates.numberOfBins = binsForFeet;
           /* ⚠ AND THE POOL BOOKKEEPING CANNOT BE ALLOWED TO LOSE THE SAVE. These two
              writes run BEFORE the customer is written and the first was unguarded, so
@@ -26351,6 +26427,14 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        ⚠ AND NOT requotedAt, which already exists and lives on the QUOTE document.
        A tab reading customer data would never see it: a branch that looks right and
        can never run. */
+    /* ⭐ REMEMBER WHAT THE BIN SAYS BEFORE THE NUMBER MOVES. See whBinNumberFor: the
+       bin on the shelf keeps its old label until somebody physically goes to it, and
+       the recycle queue is how they are sent to find it. Written once — if the number
+       moves again before the set comes back, the bin still wears the first one. */
+    if(oldCustNumber && addrUpdates.customerNumber !== oldCustNumber &&
+       !String(d.binLabelNumber || '').trim()){
+      addrUpdates.binLabelNumber = oldCustNumber;
+    }
     if(requoteBeingConverted) addrUpdates.requoteAppliedAt = serverTimestamp();
     await updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates);
     /* Pool bookkeeping, after the record is safely written. Each half is
@@ -36354,7 +36438,9 @@ function printRecycleList(){
   const rows = [];
   const add = function(d){
     if(!d) return;
-    rows.push({number: d.customerNumber || '', name: d.name || ''});
+    /* The number on the BIN, not the one on the record — see whBinNumberFor. */
+    rows.push({number: (typeof whBinNumberFor === 'function')
+      ? whBinNumberFor(d) : (d.customerNumber || ''), name: d.name || ''});
   };
   if(typeof jobAddresses !== 'undefined'){
     jobAddresses.forEach(function(a){
