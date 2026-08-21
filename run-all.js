@@ -18517,6 +18517,9 @@ suite('Suite 104. The Printing tab');
     admin.indexOf('printDaySheet(') !== -1);
 
   /* ---- the columns she asked for, list by list ---- */
+  const cssAt = admin.indexOf('const PRINT_SHEET_CSS =');
+  const css = cssAt === -1 ? '' : admin.slice(cssAt,
+    admin.indexOf('function schedOpenPrintPages(', cssAt));
   const colsAt = admin.indexOf('const PRINT_COLUMNS = {');
   check('S104', 'the column definitions are there', colsAt !== -1);
 
@@ -18538,8 +18541,12 @@ suite('Suite 104. The Printing tab');
     check('S104', 'the daily warehouse list is only number and name',
       keys('warehouse') === 'number,name',
       'got ' + keys('warehouse') + ' — it is a pull list, not a spec sheet');
-    check('S104', 'the crew list carries what the van needs',
-      keys('crew') === 'number,name,address,city,eaves,notes',
+    /* ⭐ TIMER SITS BEFORE NOTES. Owner: "i forgot to include on everything crew
+       related printing it need to include timer(yes/no), that should come before
+       notes." Notes is the wide free-text column and anything after it is lost against
+       a wall of writing, so the POSITION is asserted, not just the presence. */
+    check('S104', 'the crew list carries what the van needs, timer before notes',
+      keys('crew') === 'number,name,address,city,eaves,timer,notes',
       'got ' + keys('crew'));
   }
 
@@ -18550,6 +18557,9 @@ suite('Suite 104. The Printing tab');
   if (tableSrc && colsAt !== -1) {
     const table = (rows, cols) => new Function('rows', 'columns',
       'const esc = function(x){ return String(x == null ? "" : x); };' +
+      /* ⚠ printTableHtml SIZES THE SHEET BY ROW COUNT NOW, so the helper that
+         decides that comes with it — without it every print throws. */
+      extractFn(admin, 'printDensityClass') +
       tableSrc + 'return printTableHtml(rows, columns);')(rows, cols);
     const cols = [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'}];
     const html = table([{number: '101', name: 'A'}, {number: '102', name: 'B'},
@@ -18579,6 +18589,47 @@ suite('Suite 104. The Printing tab');
     check('S104', 'a zero is printed, not swallowed as blank',
       /<td>0<\/td>/.test(table([{number: 0, name: 'A'}], cols)),
       'nought feet is a fact; an empty cell is a question');
+
+    /* ⭐ THE SHEET SIZES ITSELF TO HOW MANY STOPS ARE ON IT. Owner: "make sure to
+       scale it so 20 customers can fit", then "actually make sure the system already
+       scales it for however many customers there are."
+
+       A crew day is twenty houses and at the ordinary size that is already the whole
+       page, so a day that runs long spilled a stop or two onto a second sheet. A crew
+       reads down one page and stops; the ones on the back get missed. */
+    const dens = (n) => new Function('n',
+      extractFn(admin, 'printDensityClass') + 'return printDensityClass(n);')(n);
+
+    check('S104', 'a full crew day of twenty stays the readable size',
+      dens(20) === '',
+      'twenty is the ordinary case and must not be shrunk for nothing');
+    check('S104', 'twenty-one starts tightening',
+      dens(21) === ' tight',
+      'got ' + JSON.stringify(dens(21)) + ' — one stop over is where a page runs out');
+    check('S104', 'and a very long list tightens again',
+      dens(29) === ' tighter' && dens(80) === ' tighter',
+      'a warehouse build list can run to eighty houses');
+    check('S104', 'an empty or nonsense count is treated as small',
+      dens(0) === '' && dens(undefined) === '' && dens(null) === '',
+      'a sheet with nothing on it must not come out at nine point');
+
+    /* ⚠ IT STEPS, IT DOES NOT SHRINK SMOOTHLY, and nine point is the floor. A
+       continuous scale gives every sheet its own size and nobody can say in advance
+       what any of them will be; below nine point it is not a sheet anybody can read in
+       a van in December. */
+    check('S104', 'there are three sizes and no more',
+      new Set([dens(1), dens(20), dens(21), dens(28), dens(29), dens(200)]).size === 3,
+      'three named steps can be read, argued with and tested');
+    check('S104', 'and the stylesheet actually defines both tightenings',
+      /table\.tight th,table\.tight td\{/.test(css) &&
+      /table\.tighter th,table\.tighter td\{/.test(css) &&
+      /font-size:9px/.test(css),
+      'a class nothing styles is a class that does nothing');
+
+    check('S104', 'the table carries the size class it was given',
+      /class="sheet tight"/.test(table(
+        Array.from({length: 25}, (_, k) => ({number: k, name: 'x'})), cols)),
+      'worked out in one place and applied in one place');
   }
 
   /* ---- new hang, for the photos ---- */
@@ -18624,9 +18675,6 @@ suite('Suite 104. The Printing tab');
   /* ⭐ THE SIZING RULES, WHICH ARE ABOUT INK AND EYESIGHT. Owner: "make sure its
      never to big because that will use a lot of ink oor to small because then they
      wont be able to read it, and make sure it goes the long way with the paper." */
-  const cssAt = admin.indexOf('const PRINT_SHEET_CSS =');
-  const css = cssAt === -1 ? '' : admin.slice(cssAt,
-    admin.indexOf('function schedOpenPrintPages(', cssAt));
   check('S104', 'the picture is an inch and a half tall', /height:1\.5in/.test(css),
     'the size she asked for, written once');
   /* ⭐ A FIXED LANDSCAPE BOX, NOT width:auto. Owner asked for a draft of Ashley
@@ -18845,6 +18893,7 @@ suite('Suite 104. The Printing tab');
       'const schedOpenPrintPages = function(t, pages){ out.push({title: t, pages: pages}); };' +
       extractFn(admin, 'printYesNo') + extractFn(admin, 'printCustData') +
       extractFn(admin, 'printIsNewHang') + extractFn(admin, 'printCrewPhotos') +
+      extractFn(admin, 'printDensityClass') +
       extractFn(admin, 'printPhotosHtml') + extractFn(admin, 'printTableHtml') +
       extractFn(admin, 'printCrewDayList') + extractFn(admin, 'printCrewSheetPage') +
       extractFn(admin, 'printDayLabel') +
@@ -18858,10 +18907,12 @@ suite('Suite 104. The Printing tab');
   };
 
   const aDay = {_date: new Date(2026, 9, 12), houses: [
-    {crew: 0, id: 'h1', cust: {customerNumber: '11', name: 'A', street: '1 St', useEaves: true}},
+    {crew: 0, id: 'h1', cust: {customerNumber: '11', name: 'A', street: '1 St',
+      useEaves: true, outletTimer: 'Yes', notes: 'gate 4321'}},
     {crew: 0, id: 'h2', cust: {customerNumber: '12', name: 'B', street: '2 St'}},
-    {crew: 1, id: 'h3', cust: {customerNumber: '21', name: 'C', street: '3 St'}}],
-    spare: [{id: 'h4', city: 'Levan', cust: {customerNumber: '31', name: 'D'}}]};
+    {crew: 1, id: 'h3', cust: {customerNumber: '21', name: 'C', street: '3 St', outletTimer: 'Yes'}}],
+    spare: [{id: 'h4', city: 'Levan', cust: {customerNumber: '31', name: 'D',
+      outletTimer: 'Yes'}}]};
 
   const crewOut = runSheet('crew', aDay);
   const crewBody = ((crewOut[0] || {}).pages || [{}])[0].body || '';
@@ -18876,11 +18927,20 @@ suite('Suite 104. The Printing tab');
   check('S104', 'and it prints only that crew',
     crewBody.indexOf('>21<') !== -1 && crewBody.indexOf('>11<') === -1,
     'crew two got crew one' + String.fromCharCode(8217) + 's houses');
+  /* ⚠ THE COLUMN EXISTING IS NOT THE VALUE BEING READ. A red-check that deleted
+     the timer from the row builder left the header standing and every cell blank, and
+     the column-order check stayed green. */
+  check('S104', 'and the timer column is actually filled in',
+    /<th>Timer<\/th>/.test(crewBody) && /<td>Yes<\/td>/.test(crewBody),
+    'got a Timer header with nothing under it');
+  check('S104', 'and it sits before the notes',
+    crewBody.indexOf('<th>Timer</th>') < crewBody.indexOf('<th>Notes</th>'),
+    'anything after Notes is lost against a wall of writing');
 
   const dayOut = runSheet('day', aDay);
   const dayBody = ((dayOut[0] || {}).pages || [{}])[0].body || '';
   check('S104', 'the whole-day sheet is split into a block per crew',
-    (dayBody.split('<table>').length - 1) >= 2,
+    (dayBody.split('<table').length - 1) >= 2,
     'this is the sheet that gets cut in half, so each half has to stand on its own');
   check('S104', 'each block starts its numbering at one',
     (dayBody.split('<td class=' + JSON.stringify('num') + '>1</td>').length - 1) >= 2,
@@ -18889,6 +18949,30 @@ suite('Suite 104. The Printing tab');
     dayBody.indexOf('>31<') !== -1,
     'it is already reported on screen as nobody' + String.fromCharCode(8217) + 's; a sheet that drops it ' +
     'silently is how it gets missed on the road');
+  /* ⚠ THAT BLOCK BUILDS ITS OWN ROWS BY HAND, so it drifts from the crew builder
+     silently: a column added to one and not the other prints a header with nothing
+     under it, only on the houses nobody is holding a sheet for. */
+  check('S104', 'and that block is filled in the same as the crew blocks',
+    (function () {
+      const at = dayBody.indexOf('In neither crew');
+      const blk = at === -1 ? '' : dayBody.slice(at);
+      return /<td>Yes<\/td>/.test(blk);
+    })(),
+    'scoped to that block on purpose — counting Yes across the whole sheet is ' +
+    'satisfied by a crew row and proves nothing about this one');
+
+  /* ⭐ AND THE WHOLE-DAY SHEET CARRIES THE PHOTOS TOO. Owner, having printed this
+     exact sheet for 16 November: "ashley wray is on this day but it isnt showing her
+     house here", and "i should be seeing a picture of her house because she is a new
+     hang."
+
+     ⚠ THE PHOTOS WENT ONTO THE INDIVIDUAL CREW SHEET AND THIS ONE WAS LEFT WITHOUT
+     THEM — and this is the sheet that gets cut in half and handed out, so it is the
+     one the crew is most likely to be holding. Half a job looks exactly like a working
+     job until somebody prints the other sheet. */
+  check('S104', 'the whole-day sheet puts each crew’s new hangs under their own block',
+    /printPhotosHtml\(printCrewPhotos\(day,i\)\)/.test(extractFn(admin, 'printDaySheet')),
+    'the half they are handed has to carry the houses on it');
 
 
   /* ---- the tab is wired up ---- */

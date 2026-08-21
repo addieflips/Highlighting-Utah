@@ -24006,7 +24006,43 @@ function whSheetRowsForRecycle(){
    box moves to the right where it is now the same blank column the crew and warehouse
    sheets from the Printing tab already have. Two sheets that look different are two
    sheets somebody has to learn twice. */
+/* ⚠ DECLARED OUT HERE, NOT IN THE SCHEDULE WIDGET (2026-08-20). The warehouse
+   sheets are drawn by the main page and the crew sheets by the widget, and the widget
+   can see out here while the main page cannot see in. Written inside it, the warehouse
+   build list threw on every print. Same trap as prefSpecificDate, same week. */
+/* ⭐ THE SHEET SIZES ITSELF TO HOW MANY STOPS ARE ON IT (added 2026-08-20). Owner:
+   "make sure to scale it so 20 customers can fit", then: "actually make sure the system
+   already scales it for however many customers there are."
+
+   A crew day is twenty houses and at the ordinary size that is already the whole page,
+   so a day that runs long — a doubled-up town, a crew picking up what another did not
+   finish — used to spill one or two stops onto a second sheet. A crew reads down one
+   page and stops; the ones on the back are the ones that get missed.
+
+   The arithmetic, so the numbers below are not magic. A landscape page at 10mm margins
+   leaves about 7.4 inches, near enough 710px. The heading and the printed-on line take
+   about 55, and a crew sheet's photos take about 190 more, leaving roughly 465px of
+   table. At the ordinary 11px with 4px padding a row is about 22px, so twenty rows plus
+   a header is 460 — which fits, and twenty-one does not.
+
+   ⚠ IT STEPS, IT DOES NOT SHRINK SMOOTHLY. Three sizes with named thresholds can be
+   read, argued with and tested; a continuous scale gives every sheet its own font size
+   and nobody can say what any of them will be. Nine point is the floor — below that it
+   is not a sheet anybody can read in a van in December.
+
+   ⚠ AND IT COUNTS ROWS, NOT HOUSES. The same builder draws the warehouse and recycle
+   lists, which can be far longer than any crew day, and they get the same treatment for
+   the same reason. */
+function printDensityClass(n){
+  const rows = Number(n) || 0;
+  if(rows > 28) return ' tighter';
+  if(rows > 20) return ' tight';
+  return '';
+}
 function whSheetTable(rows, columns){
+  /* Same stepping as the crew sheets — see printDensityClass. A build list can run to
+     eighty houses, so this one needs it more than they do. */
+  const dense = (typeof printDensityClass === 'function') ? printDensityClass(rows.length) : '';
   const head = '<tr>'+'<th class="num">#</th>'+columns.map(function(c){
     return '<th'+(c.num ? ' class="num"' : '')+'>'+esc(c.label)+'</th>';
   }).join('')+'<th class="blank"></th></tr>';
@@ -24025,7 +24061,7 @@ function whSheetTable(rows, columns){
       '<td class="blank"></td>'+
     '</tr>';
   }).join('');
-  return '<table><thead>'+head+'</thead><tbody>'+body+'</tbody></table>';
+  return '<table class=\"sheet'+dense+'\"><thead>'+head+'</thead><tbody>'+body+'</tbody></table>';
 }
 function whOpenPrintWindow(title, summaryLine, tableHtml, emptyNote){
   const today = new Date().toLocaleDateString('en-US', {weekday:'long', month:'long', day:'numeric', year:'numeric'});
@@ -35672,9 +35708,20 @@ function printDaySheet(dayId){
   (typeof CREWS !== 'undefined' ? CREWS : [0,1]).forEach(function(c,i){
     const mine=printCrewDayList(day,i);
     if(!mine.length) return;
+    /* ⭐ AND THE NEW HANGS' PHOTOS, under their own crew's half (added 2026-08-20).
+       Owner, having printed this very sheet for 16 November: "ashley wray is on this day
+       but it isnt showing her house here", and "i should be seeing a picture of her
+       house because she is a new hang."
+
+       ⚠ SHE WAS RIGHT AND I HAD ONLY DONE HALF THE JOB. The photos were added to the
+       individual crew sheet and this one was left without them — and this is the sheet
+       that gets cut in half and handed out, so it is the one the crew is most likely to
+       be holding. Under the crew's own block, so the half they are given carries the
+       houses on it. */
     blocks.push('<h2>'+esc(crewName(i))+' — '+esc(crewCityFor(i,day)||'no city set')+
       ' · '+mine.length+' stop'+(mine.length===1?'':'s')+'</h2>'+
-      printTableHtml(mine,PRINT_COLUMNS.crew));
+      printTableHtml(mine,PRINT_COLUMNS.crew)+
+      printPhotosHtml(printCrewPhotos(day,i)));
   });
   const spare=(typeof unassignedHousesFor==='function')?unassignedHousesFor(day):[];
   if(spare.length){
@@ -35682,7 +35729,8 @@ function printDaySheet(dayId){
       const cd=printCustData(h);
       return {number:cd.customerNumber||h.cu||'', name:cd.name||h.name||'',
               address:cd.street||h.address||'', city:h.city||cd.city||'',
-              eaves:printYesNo(cd.useEaves), notes:cd.notes||h.details||''};
+              eaves:printYesNo(cd.useEaves), timer:printYesNo(cd.outletTimer),
+              notes:cd.notes||h.details||''};
     });
     blocks.push('<h2>In neither crew’s city — '+sr.length+'</h2>'+
       printTableHtml(sr,PRINT_COLUMNS.crew));
@@ -35817,9 +35865,15 @@ const PRINT_COLUMNS = {
               {k: 'lights', label: 'Light color'}, {k: 'wire', label: 'Wire color'},
               {k: 'timer', label: 'Timer'}, {k: 'feet', label: 'Feet'}],
   warehouse: [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'}],
+  /* ⭐ TIMER SITS BEFORE NOTES ON EVERY CREW SHEET (added 2026-08-20). Owner: "i
+     forgot to include on everything crew related printing it need to include
+     timer(yes/no), that should come before notes." Notes is the wide free-text column
+     and anything put after it gets lost against a wall of writing, which is why the
+     position is part of the instruction rather than a detail. */
   crew:      [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'},
               {k: 'address', label: 'Address'}, {k: 'city', label: 'City'},
-              {k: 'eaves', label: 'Plugs / eaves'}, {k: 'notes', label: 'Notes'}]
+              {k: 'eaves', label: 'Plugs / eaves'}, {k: 'timer', label: 'Timer'},
+              {k: 'notes', label: 'Notes'}]
 };
 /* ⭐ THE PEOPLE ALREADY REMOVED ARE MOST OF THIS LIST. Owner, 2026-08-20: "people in
    recycle should not exist as a customer" and "they are removed as a customer and then
@@ -35889,10 +35943,12 @@ function printCrewDayList(day, i){
     const d = printCustData(h);
     return {number: d.customerNumber || h.cu || '', name: d.name || h.name || '',
             address: d.street || h.address || '', city: h.city || d.city || '',
-            eaves: printYesNo(d.useEaves), notes: d.notes || h.details || ''};
+            eaves: printYesNo(d.useEaves), timer: printYesNo(d.outletTimer),
+            notes: d.notes || h.details || ''};
   });
 }
 /* ---------- the paper ---------- */
+
 function printTableHtml(rows, columns){
   if(!rows || !rows.length) return '';
   const head = '<tr><th class="num">#</th>' +
@@ -35905,7 +35961,8 @@ function printTableHtml(rows, columns){
         return '<td>' + esc(v === 0 ? '0' : (v || '')) + '</td>';
       }).join('') + '<td class="blank"></td></tr>';
   }).join('');
-  return '<table><thead>' + head + '</thead><tbody>' + body + '</tbody></table>';
+  return '<table class="sheet' + printDensityClass(rows.length) + '">' +
+    '<thead>' + head + '</thead><tbody>' + body + '</tbody></table>';
 }
 /* ⭐ THE NEW HANGS' PHOTOS GO UNDER THE CREW SHEET. Owner: "when we print the crews
    list it should grab the picture of any new hangs on the list and put the picture on
@@ -35965,6 +36022,10 @@ const PRINT_SHEET_CSS =
   '.sub{font-size:12px;color:#555;margin-bottom:12px;}' +
   'table{width:100%;border-collapse:collapse;}' +
   'th,td{border:1px solid #999;padding:4px 6px;font-size:11px;text-align:left;vertical-align:top;}' +
+  /* Twenty-one stops and up, then twenty-nine and up. See printDensityClass. */
+  'table.tight th,table.tight td{padding:2px 5px;font-size:10px;}' +
+  'table.tighter th,table.tighter td{padding:1px 4px;font-size:9px;}' +
+  'table.tight th,table.tighter th{font-size:9px;}' +
   'th{background:#eee;font-size:10.5px;text-transform:uppercase;letter-spacing:.03em;}' +
   'td.num,th.num{text-align:right;width:26px;}' +
   'th.blank,td.blank{width:22%;}' +
