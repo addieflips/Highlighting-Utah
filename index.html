@@ -4454,7 +4454,27 @@ async function saveLightsPattern(){
      anything. Without it the dialog warned about $30 even on a change that was
      still free — and the note shown straight after saving then contradicted it
      ("No new charge — you're still within your free 48-hour window"). */
-  var stillInFreeWindow = !!(currentLookupRecord && currentLookupRecord.lightChangeFreeUntil &&
+  /* ⭐ THE CUSTOMER'S OWN WINDOW COMES FIRST (2026-08-21). lightsLockedUntil is
+     the one field that says when the current free window ends — opened by
+     becoming a customer as well as by a charged change — so it is the same fact
+     the server decides on, and the dialog and the save can no longer disagree.
+
+     ⚠ THE INVOICE-DERIVED VALUE IS KEPT AS THE FALLBACK, not dropped. It is
+     stamped only when a fee is actually charged, so it cannot see a brand-new
+     customer's window at all — but a record written before lightsLockedUntil
+     existed still has it, and warning somebody about a fee they do not owe is
+     better than the reverse. */
+  var lockedUntilMs = (function(){
+    var t = currentLookupRecord && currentLookupRecord.lightsLockedUntil;
+    if(!t) return 0;
+    if(typeof t.toMillis === 'function') return t.toMillis();
+    if(typeof t.seconds === 'number') return t.seconds * 1000;
+    if(typeof t._seconds === 'number') return t._seconds * 1000;
+    var n = new Date(t).getTime();
+    return isNaN(n) ? 0 : n;
+  })();
+  var stillInFreeWindow = !!(lockedUntilMs && Date.now() < lockedUntilMs) ||
+    !!(currentLookupRecord && currentLookupRecord.lightChangeFreeUntil &&
     Date.now() < currentLookupRecord.lightChangeFreeUntil);
 
   /* Confirm before a real change. Two separate reasons to stop and ask, and
@@ -4527,7 +4547,17 @@ function showLightsFeeNote(info){
   var untilText = '';
   try{ untilText = until ? until.toLocaleString([], {weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}) : ''; }
   catch(e){ untilText = until ? until.toString() : ''; }
-  if(info.feeCharged){
+  if(info.feeCharged && info.chargedToNextSeason){
+    /* ⭐ THEIR BILL HAS ALREADY GONE OUT, so this $30 cannot appear on it —
+       nothing re-opens a sent invoice. Owner: "if invoice has already been sent
+       out ... than the 30 dollars will be charged for next season."
+
+       ⚠ SAYING "added to your balance" HERE WOULD BE A LIE they can check in
+       thirty seconds: they open their invoice, the total has not moved, and now
+       they do not trust the number either. */
+    box.style.background = '#FDECEA'; box.style.border = '1px solid #f0b3ac'; box.style.color = '#9F1239';
+    box.innerHTML = 'A <strong>$30 light-change fee</strong> applies. Your invoice for this season has already been sent, so this will be added to <strong>next season’s bill</strong> rather than your current balance. You can keep adjusting your lights <strong>free until ' + untilText + '</strong> &mdash; after that, another change adds a new $30 fee.';
+  } else if(info.feeCharged){
     box.style.background = '#FDECEA'; box.style.border = '1px solid #f0b3ac'; box.style.color = '#9F1239';
     box.innerHTML = 'A <strong>$30 light-change fee</strong> was added to your balance. You can keep adjusting your lights <strong>free until ' + untilText + '</strong> &mdash; after that, another change adds a new $30 fee.';
   } else {

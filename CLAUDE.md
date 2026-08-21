@@ -1,33 +1,151 @@
-CLAUDE.md — Highlighting Utah operating manual for Claude Code
+# Operating protocol
 
-⚠ 2026-08-21 — THE TWO SESSIONS NEARLY DELETED EACH OTHER. A whole-file push of admin.html landed on main carrying the re-quote install form, and six commits of the other session went missing from it without anyone meaning that; pushing over it would have taken the install form back out the same way. Both survived only because the merge was done BY HAND, function by function.
-  - ⚠ AND `git merge-file` GOT IT WRONG ON THIS FILE. Given base/ours/theirs it produced only 3 conflicts and looked clean — but it split a function in half at a conflict boundary and dropped a closing brace, so admin.html would not have parsed at all. §0 says merge this file, never paste it: add that an automatic 3-way merge is not trustworthy here either. After ANY merge of admin.html: run `node verify-syntax.js`, scan the brace depth, and grep for the landmark functions of BOTH sides before committing.
-  - ⚠ NOTHING WAS CHECKING THE OTHER SESSION'S WORK, so nothing would have said a word if it had gone. Suite 119 guards it now. If you add a feature, add the check that says it is still there — that check is what protects it from the next merge, whoever does it.
-You are Claude Code working on the Highlighting Utah app (a Christmas-light business). This file is your standing brief. It loads automatically from the repo root. It was written after a full read-through and audit of main on 2026-08-07, updated 2026-08-08 after the P0-P3 work queue, and corrected 2026-08-13 (see §1 — the deploy instructions were wrong) — trust the code over this file where they disagree, and update this file when structure changes.
-Owner: Addie (non-coder). Prefers plain-English explanations, full working files, and no surprises with money or customer data. When something is ambiguous or risky, do the safe reversible thing and leave a note; escalate only real blockers.
-0. Rules of engagement (always)
-Pull first — and again right before you write. git pull origin main before touching anything. main is the source of truth. Netlify auto-deploys main.
-⭐ RESTATED AS A STANDING RULE, 2026-08-19: "dont paste anything into github because I have another session going, instead, assess everything in the admin and merge what you are doing with what the other session is doing." Same rule as the one below, said again after it had already cost her work once that day (see the named-day recovery in §2). Two things follow that are easy to skip:
-  - "Paste into GitHub" includes the GitHub **API/web** file-write path — `create_or_update_file`, `push_files`, editing a file in the browser. Every one of those uploads a WHOLE FILE built from a read that is already stale. Use git with targeted edits, or a real merge, and nothing else.
-  - "Assess everything in the admin" is not a formality. READ what is on disk now before deciding what to write, and expect a feature you are about to build to be half-there already — the portal's own multi-house panel was, and the useful work turned out to be finishing it rather than writing it.
-⭐ MERGE, NEVER PASTE, AND NEVER ASSUME THE FILE STOOD STILL (owner's instruction, 2026-08-15: "when changing code merge with code because i have multiple sessions going so dont think nothings changed in admin in the time it took you to think"). Several sessions and people work this repo at once. A read of admin.html goes stale DURING your turn — a long think or a slow test run is enough. So:
-  - git fetch immediately before your first edit AND immediately before pushing, not once at the start of the task. On 2026-08-15 main gained a commit in the middle of one small change.
-  - Check git status too, not just the remote. Another session's work often sits UNCOMMITTED in this checkout. If the tree is dirty with work that is not yours, do NOT switch branches here (it aborts, or worse, moves the file under a live session) — do the job in a `git worktree add` elsewhere and push that branch to main from there. Their checkout is never touched. Run the gates in the worktree with NODE_PATH pointing at this checkout's node_modules.
-  - ⭐ `git branch --show-current` IMMEDIATELY BEFORE `git add`, every time — not once at the start of the task (owner's instruction, 2026-08-15). The branch moves under you: another session commits, switches branch, or merges main into their own branch while you are thinking, testing, or waiting on a deploy. Checking at the start proves nothing about the state five minutes later. If the branch is not one you own, do the work in a worktree and push from there. Over one afternoon this checkout sat on `tab/routes`, then `tab/customers`, without this session doing anything to move it.
-  - Own your branch, and clean it up. Work on a `claude/...` branch you created, push it to main, then DELETE it (`git branch -d`, and `git worktree remove` first if it has one). One-off `claude/...` branches are disposable; the standing `tab/...` branches above are NOT yours and are never deleted. There are ~26 stale `claude/...` branches in this repo from earlier sessions that were never cleaned up — do not add to them.
-  - Targeted Edit/string-replacement or a real git merge only. Never Write a fresh copy of admin.html and never regenerate it wholesale: a paste built from a stale read silently destroys whatever landed in between, and at 1.5MB the loss is invisible in review. Targeted edits conflict loudly, which is what you want.
-  - If a script must rewrite part of a file, anchor it on exact surrounding text and assert it matched, rather than rebuilding the file.
-⭐ BRANCH AND WAIT — NEVER MERGE TO MAIN ON YOUR OWN (owner's instruction, 2026-08-19): "save everything in a seperate branch and only merge it with the admin when I tell you to, when I do that delete the branch you created for this and also assess all the changes in the admin because I have another session going so we need to merge your branch with the admin that doesnt break anything."
-  1. Work on a `claude/...` branch and push THE BRANCH. Netlify publishes main, so a branch changes nothing live — that is the point.
-  2. Do NOT merge to main. Wait to be told, every time. Report "pushed to branch X, say the word and I'll merge" rather than announcing a deploy.
-  3. When told: FIRST read what has changed in `admin.html` on main since the branch started — another session is working in that file — then merge so nothing of theirs breaks. On a genuine tie their version wins; keep only what is strictly additive and say which half was dropped.
-  4. Delete the branch afterwards.
-  ⚠ This supersedes the older "push to main freely" line in §5. The reason is concrete: on 2026-08-19 the other session pasted admin.html over a stale read and two commits vanished. Auto-merging puts your work in the path of that, and theirs in the path of yours.
-Verify before you commit. Run the verification gates in §3. Never commit a file that fails them.
-Never break money or delete customer data. Invoice math, prices, payments, customer numbers, and Firestore data are sacred. Changes here get extra verification and a written explanation.
-Money/portal changes ship as ONE push. If a change spans the website and Cloud Functions (or Firestore rules), deploy them together (see §5). A half-deploy means the nightly automation, PayPal, or the customer portal disagree with what the office sees.
-Don't rewrite or delete working features unless the task says so. Before assuming something is dead code, check every read/write site — a field that looks orphaned from one angle can be a live feature entered from another (see §9, frontPhotoUrl).
-Small, explained commits. One logical change per commit, message in plain English.
+Read this every session. It is short on purpose. The numbered domain rules live in
+`docs/RULES.md` — read that before any change that touches data, options, money,
+or a destructive operation.
+
+---
+
+## The one-line version
+
+**Never guess, never silently choose, never leave a field unconnected.**
+When two rules disagree, or a rule is missing, stop and ask.
+
+---
+
+## 1. Before finishing any change
+
+Check it against `docs/RULES.md`, `docs/data-map.md`, and `js/options.js`.
+
+If the change adds or modifies a field, option, collection, or state, verify all three:
+
+1. something **writes** it
+2. something **reads** it
+3. it is **declared** — in the option registry if customer-facing, in the map otherwise
+
+If any of the three is missing, stop and ask.
+
+**A field in the code but not in the map is an error, not a detail.**
+
+---
+
+## 2. Precedence — when rules collide
+
+Rules will eventually contradict each other. Resolve in this order, highest first:
+
+| | Tier | Beats everything below it |
+|---|---|---|
+| 1 | **Customer correctness** | Nobody gets something they didn't order, or misses something they did |
+| 2 | **Irreversibility** | Nothing destructive runs without a preview and a confirmation |
+| 3 | **Data integrity** | No orphans, no dead ends, no silent drift |
+| 4 | **Consistency** | One source of truth, generated not hand-written |
+| 5 | **Convenience** | Everything else |
+
+**Two rules in the same tier that contradict: STOP AND ASK.** Do not pick one.
+Do not pick the newer one, the more specific one, or the one that's easier.
+A same-tier contradiction means the rulebook is wrong, and only Addie can fix it.
+
+When it happens, say exactly this much:
+
+```
+RULE CONFLICT — R-004 vs R-011
+  R-004 says business constants live in exactly one file.
+  R-011 says generation beats verification.
+  Here, generating the pricing table would duplicate the constants.
+  Both are tier 4. Which wins here, and should the rulebook record the exception?
+```
+
+Then wait. The answer becomes an amendment to `docs/RULES.md`.
+
+---
+
+## 3. When to ask
+
+**Ask when:**
+
+- a new field has no consumer, or a new record type has no parent
+- a state transition has no exit
+- a form saves something the map doesn't know about
+- two rules contradict (section 2)
+- the change touches **Start New Season, the payment ledger, or nightly billing**
+- a customer-facing option would reach fewer than all six destinations
+- you're about to do something no rule covers and the wrong choice would be expensive
+
+**Don't ask about:** styling, copy, layout, or anything with no data path.
+**Don't ask what you can read.** If the code answers it, read the code.
+
+**How to ask:** one consolidated batch at the end of a change, not three
+interruptions mid-work. Every question cites the rule, map, or registry entry
+it comes from — *"the map says an approved quote produces a customer, and this
+path doesn't"* — never generic prompting.
+
+---
+
+## 4. Never guess
+
+If it can't be resolved from the code, append it to `docs/open-questions.md`.
+
+- **intent** — only Addie can answer (business rules, policy, what *should* happen)
+- **factual** — resolvable by reading code, so resolve it; it should never reach her
+
+**An unanswered `intent` question on a customer-facing data path blocks the change.**
+Do not ship around it. Do not pick a default and note it. The whole point of this
+system is that guessing is how holes get made.
+
+Every answer becomes a map, registry, or rule entry — so it's never asked twice.
+
+---
+
+## 5. Proposing new rules
+
+This is expected work, not an interruption. Propose a rule when:
+
+- **the same decision gets made three times** the same way — that's a rule nobody wrote down
+- **a near-miss happens** — something almost shipped wrong, and a rule would have caught it
+- **an answered question generalizes** — Addie's answer applies beyond the case that prompted it
+- **you find yourself wanting to ask** something a rule could have answered
+
+Format, appended to the `## Proposed` section of `docs/RULES.md`:
+
+```
+### P-00X · proposed 2026-08-21
+Rule: <one sentence, testable, in the imperative>
+Why: <what prompted it — the actual incident or repetition>
+Would have caught: <the specific failure>
+Might wrongly block: <the honest cost — every rule has one>
+Enforcement: code | hook | read
+Tier: 1–5
+```
+
+Proposed rules are **not active.** Do not follow them until Addie moves them into
+the numbered set. If she rejects one, it stays in the file marked rejected with
+the reason, so it doesn't get re-proposed.
+
+Do not propose more than three at a time. A flood gets ignored, which is worse
+than proposing nothing.
+
+---
+
+## 6. Rule promotion
+
+Every rule declares how it's enforced:
+
+- **code** — a test or audit fails. Cannot be forgotten.
+- **hook** — a hook checks it on stop. Reliable.
+- **read** — Claude must read and honor it. **Drifts.**
+
+**A `read` rule that gets violated twice must be promoted to `code` or `hook`.**
+Note the second violation, propose the promotion, and say what would enforce it.
+
+Text alone is not enforcement. It's a reminder that decays over a long session.
+
+---
+
+## 7. Amendments
+
+Any change to `docs/RULES.md` — new rule, exception, reorder, retirement — gets
+logged at the bottom of that file with the date and the reason. Never silently
+edit a rule. The history is what makes the rulebook trustworthy.Small, explained commits. One logical change per commit, message in plain English.
 Work on the branch for the area you are touching. There is a standing branch per part of the admin portal (created 2026-08-13), so parallel work — the owner's and her sister's included — doesn't pile onto one file:
   tab/customers   Add a Customer, All Customers, Bulk Updates, Danger Zone
   tab/quotes      Quote Requests: pricing, Send Email, convert, nudges, quote email settings
@@ -53,7 +171,7 @@ admin.html	Office dashboard (~1.5MB; two inline scripts — a plain one and a <s
 js/test-seed.js	The Project To-Do checklist's 108 manual tests (TEST_SEED) — trimmed from 210 on 2026-08-17 to only what a human/live environment must verify (see §0); moved out of admin.html on 2026-08-14. Loaded by a dynamic import() inside runProjectTestSync, so it is fetched only when the checklist syncs (right after login), never blocks the dashboard rendering, and is cached separately from the page — an admin.html change no longer re-sends 217KB of test list. ⚠ A failed fetch is caught and reported on screen; do not remove that catch, because the only caller swallows errors and the checklist would silently stop syncing.
 ⚠ The Nudge quote email has FOUR senders and two renderers. The quote card, the "Nudge everyone shown" bulk button and Automation Emails → Preview & Send all render it in the browser through `applyQuotePhotoBlock` in admin.html; the nightly automatic nudge renders it on the server, inline in `runQuoteNudgeBatch` in functions/index.js. Both place `{{photo}}` where the template asks for it. Change one and change the other in the same push — Suite 33 of run-all.js runs both against the real shipped Nudge body and fails if they disagree. Until 2026-08-17 the bulk button and Automation Emails skipped the browser renderer entirely and mailed customers a literal "{{photo}}".
 ⭐ ONE set of approve/maybe/decline buttons, however many photos (owner's instruction, 2026-08-17: "just one approved, Maybe later, Decline"). Both renderers used to repeat the three buttons on the far side of a stack of two or more photos, so "Approve" was never far down a phone — `repeatQuoteButtonsServer` on the server and a matching block in admin.html. The owner read it as a mistake and both are gone. Do NOT reintroduce it as a fix for a long email: it was deliberate once and was deliberately removed. Suite 33 fails if a second set comes back on either side.
-js/money.js	The invoice and bin rules, pulled out of admin.html so they can be unit-tested (computeInvoiceStatus, statusClass, enrollmentYearOf, custInvoiceKey, cnBinsForFeet, fmtMoney, CN_DOUBLE_BIN_FEET). Imported by admin.html's module script — native browser modules, still no build step. ⚠ functions/index.js keeps its own copy of the invoice maths for the nightly run: change a rule in one and change it in the other, in the same push.
+js/money.js	The invoice and bin rules, pulled out of admin.html so they can be unit-tested (computeInvoiceStatus, statusClass, enrollmentYearOf, custInvoiceKey, cnBinsForFeet, fmtMoney, CN_DOUBLE_BIN_FEET). Imported by admin.html's module script — native browser modules, still no build step. ⚠ functions/index.js keeps its own copy of the invoice maths for the nightly run: change a rule in one and change it in the other, in the same push. The SAME applies to `applyLightChange` / `applyLightChangeServer` (the colour-change fee, the 48-hour window and where the $30 lands), added 2026-08-21 — `money-parity.test.js` runs both copies of BOTH rules side by side and fails the build the moment they disagree.
 employee.html	Crew/Warehouse Portal
 functions/index.js	Cloud Functions (Firebase v2, Blaze). Node 22 runtime, firebase-functions 7.x, firebase-admin 13.x as of 2026-08-13. ⚠ Do NOT bump firebase-admin to 14 as a routine update: 14 removes the namespaced API (admin.firestore, admin.auth are undefined there) and this file uses it in ~30 places, including admin.firestore.FieldValue.increment on deposits and tips in the PayPal capture path. That migration to the modular API is its own job with its own testing. Keep engines.node in functions/package.json matching node-version in .github/workflows/deploy-functions.yml.
 firestore.rules / firestore.indexes.json	DB security + indexes
@@ -225,7 +343,26 @@ A crew-day is one town, PLUS nearby towns when it cannot fill itself (changed 20
   - ⚠ AND ONLY WHEN THERE IS MORE THAN ONE, everywhere. "This bill covers 1 property" is a paragraph and no information.
   - ⚠ DO NOT ADD `where('phone','==',digits)` TO THE SERVER FALLBACK. Stored phones are not all digits-only — the office types "(801) 555-0123" and the import keeps it. That is the same mistake that quietly duplicated the whole book once (see §5). `billedHousesByIds` avoids the question entirely.
   - Suite 5 §5.9 and Suite 69 of run-all.js cover it, and both RUN the code rather than matching text — the panel is rendered against a fake DOM and the grouping is executed against a fixture. Red-checked with six sabotages.
-The Schedule tab is NOT the crew's routes, and does not read customer records (clarified 2026-08-16). `#scheduleHost` is a shadow-DOM planner saving to `routeSchedule`; the crew's days are `scheduledRoutes`, built by the reconcile sweep. `buildSeason` groups houses by the date column of an imported CSV, so the plan mirrors the spreadsheet and a crew-day rule change does NOT move its days. Two consequences worth knowing before promising the owner anything:
+⭐ THE SCHEDULE TAB NOW MARKS CUSTOMERS COMPLETE, AND SO CAN TRIGGER BILLING (changed 2026-08-21, Job 2). Owner: "Schedules should mark routes as complete automatically. However that does not mean takedown is done", and, asked whether that meant one stop or a whole day: ticking ONE stop marks that customer complete.
+  - ⚠ IT USED TO BILL NOBODY. Ticking a house set `done` on the plan document and nothing else — the tab's own footer said so in as many words. The nightly run bills on `completed` on the CUSTOMER, so with the crew portal out of use this season, working the season off Schedule invoiced no one at all. That footer has been corrected; it now says what the tick actually does.
+  - ⭐ `hlxMarkJobDone(target, kind, done, opts)` IS THE ONLY WAY A JOB IS MARKED DONE. Five doors call it: the Schedule tick, Schedule All done, the leftover flow, Mark Done on a Routes stop, and the customer-row dropdown. A second copy of what "done" means is the copy that stops matching the others — which is exactly what the dropdown was.
+  - ⭐ INSTALL, TAKEDOWN AND FIX ARE INDEPENDENT EVERYWHERE. Nothing may nest one under another. The customer-row dropdown wrote `removalDone: completed ? removalDone : false`, so unticking Install Complete silently cleared the removal too, and greyed the Removal box out whenever the install was unticked. Both are gone.
+  - ⚠ THE DOCUMENT ID DECIDES WHICH CUSTOMER, never the customer number. `houseFromCustomer` builds `cust-<id>`; `hlxResolvePlanHouse` reads it and only falls back to number-then-phone for imported CSV rows that have no id. A customer number goes back to the pool on a recycle and is handed out again, so a stale plan row holding #479 can resolve to a different household — and marking THEM complete bills the wrong person. A `cust-` id that matches nobody returns null rather than falling through to the number.
+  - ⚠ TAKEDOWN ROWS NOW CARRY `srcId`. `seedTakedowns` copies name, address and number off the install house, so every takedown tick used to depend on that same reused-number guess. Fixed at the source rather than guessed at the other end. Houses round-trip through serialize/hydrate wholesale (`Object.assign({},h)`), so it survives a reload without being named in a list — unlike DAY fields, which are explicit.
+  - ⚠ THE PLAN'S OWN `done` FLAG IS STILL WRITTEN AS WELL. That is two copies of one fact, and Job 3 is what removes the stored one by deriving it. Until then every counter, the crew split, the near-empty-day rescue, One Man Installs, the printed sheets and the CSV all read the plan flag, so dropping it now would blank all of them.
+  - ⚠ `applyLeftoverPicks` WRITES BOTH DIRECTIONS, UNCONDITIONALLY. The office is stating the day's final truth, so houses the crew missed are marked NOT done as well. A change-guard ("only write when the plan flag moved") looks like a cheap saving and silently leaves out exactly the houses that were changed from Routes or the customer row since — and a house left ticked that the crew never reached is invoiced that night.
+  - ⚠ ALL DONE ASKS ONCE AND NAMES THE COUNT; the single tick is silent. Unticking a house whose invoice has already gone warns first, because unticking cannot un-send it — `invoiceEmailSent` is only ever cleared by Start New Season.
+  - ⚠ THE FIX KIND DOES NOT TOUCH THE FIX PHOTO. That is Job 4 (park-then-destroy), undecided and unbuilt; destroying a Cloudinary asset with no undo behind it is not something to slip in here. And nothing in any kind touches the HOUSE photo, which prints on the new-hang crew sheets — its own check exists for that.
+  ⭐ AND WHETHER A HOUSE IS DONE IS THE CUSTOMER'S ANSWER, NOT THE PLAN'S (Job 3, 2026-08-21). Job 2 left TWO copies of one fact — the plan's `done` flag and the customer record — and they disagree the first time somebody uses the other screen: mark a house complete from Routes or the customer row and Schedule still showed it outstanding, counted it in "left", put it back in the movable pile and printed it on a crew sheet.
+    - `derivedDoneFor(h)` reads three DIFFERENT fields, because they are three different questions: install → `completed`, takedown → `removalDone`, fix → `!needsFix`. ⚠ A fixture for this must make those fields DISAGREE for the house being checked — the first version had a fix row whose customer was both `completed` and not `needsFix`, so swapping the fix rule for the install rule gave the identical answer and the check stayed green.
+    - ⚠ THE STORED FLAG IS THE FALLBACK, NOT THE SOURCE, and returning `false` instead of `null` for "nobody behind it" would blank an imported season: an imported CSV row never matched anybody, so most of the plan has nothing to derive from. It also means the screen is untouched while `jobAddresses` is still loading, rather than showing every house as not done for a second after login.
+    - ⚠ REFRESHED ONCE PER RENDER, AND THE TWO DOZEN READERS ARE LEFT ALONE. `refreshDerivedDone()` runs at the top of `renderAll` — before `renderStats` counts what is left and before `scheduleSave` writes the plan back — so the crew split, the 20/20 hand-back, the near-empty-day rescue, One Man Installs, `unfinishedOn`, the leftover flow, the progress bar, the CSV and every print sheet keep reading `h.done` and know nothing about any of it. Rewriting two dozen call sites would have been the same behaviour with two dozen chances to miss one.
+    - ⚠ THE SAVED VALUE IS A CACHE, NOT A SECOND SOURCE. `renderAll` ends in `scheduleSave`, so the plan keeps a mirror of the customer's answer — overwritten from the customer before every read, and recomputed on the first render after a reload. What it buys is a sane fallback for a house that later stops resolving.
+    - ⚠ A TICK MIRRORS INTO THE LOCAL `jobAddresses` CACHE BEFORE THE WRITE IS AWAITED. The Firestore write is asynchronous and the tick is now derived, so without the mirror `renderAll` re-derives from the stale cache and the tick visibly springs back — and the office presses it again, putting two writes in flight. Same optimistic mirror the rest of admin already does, and it must be BY KIND or ticking a takedown looks like it did nothing.
+    - ⚠ AND IT NEEDS AN ID INDEX. This runs once per house per render; resolving `cust-<id>` with a `.find()` over ~1,000 customers is ~955,000 string comparisons a render — the exact shape that once locked the screen up on every keystroke. `custById` joins the other customer indexes in `rebuildCustomerIndexes`.
+    - Suite 127. Seven sabotages red-checked, one of which caught the vacuous fix-kind fixture above, and one of the suite's own arithmetic checks caught me assuming a missing `needsFix` reads as not-done when `!undefined` is true.
+  - Suite 126, plus the leftover suite. Eighteen sabotages red-checked, and three of my own checks were caught being vacuous by that process: two matched `confirm(` in the source and stayed green when the whole guard was disabled with `if(false && …)`, and one used a regex that never matched the real markup. All three are behavioural or precisely scoped now.
+The Schedule tab is NOT the crew's routes (clarified 2026-08-16; it does now read and write customer records — see above). `#scheduleHost` is a shadow-DOM planner saving to `routeSchedule`; the crew's days are `scheduledRoutes`, built by the reconcile sweep. `buildSeason` groups houses by the date column of an imported CSV, so the plan mirrors the spreadsheet and a crew-day rule change does NOT move its days. Two consequences worth knowing before promising the owner anything:
   - It kept its own copy of every house, so a town corrected in All Customers never reached it. ⭐ WIDENED 2026-08-17 (owner: "the schedule should check for changes in all customers periodically to update for changes"): `syncHousesFromCustomers` now pulls town, **install timing**, name, address, phone and notes across, driven three ways — on any customer change (via `safeRender('scheduleSync')`, so it follows the panel-deferral rule), when the Schedule tab is opened, and on a 5-minute timer as the backstop for a tab left open all day. ⚠ A BLANK on the customer never wipes what the plan holds, and timings are compared by MEANING (`prefKey`) not spelling — "OCT" and "October" are the same thing, and treating them as different would rewrite every house on every tick and toast at the office for ever. It matches on customer number then phone, NEVER on address: `custByAddrKey` is keyed on address AND town, and the town is the field known to be wrong, so it would miss exactly the houses it exists to find.
   - ⭐ AND IT ADDS PEOPLE IT HAS NEVER HEARD OF (added 2026-08-20). Owner: "rachel oslund is a new customer but when i click recalculate everything rachel oslund is not put into the schedule, the list of customers needs to be synced to both of these." Every sync above WALKS SEASON and corrects houses that are already there, so a customer added in All Customers after the import had nothing to correct and literally no way onto a day — the only route in was Replace imported file, which throws away every tick and pin. `customersMissingFromSeason` finds them, `houseFromCustomer` builds the house, and `rebuildSeasonDays` pushes them into the movable pile.
     - ⚠ IN-FOR-THE-SEASON IS NOT RE-DECIDED THERE. It asks `isOutForSeason`, the one definition the route generator and the nightly fill already share. A second opinion living in the schedule is how those two start disagreeing about who is coming.
@@ -237,7 +374,7 @@ The Schedule tab is NOT the crew's routes, and does not read customer records (c
     - ⚠ THE PER-DAY BUTTONS IN SCHEDULING STAY. Owner: "in schedule we want to keep the feature where we can print individual days and I can print any day in schedule so keep that their." `printDaySheet` and `printCrewSheet` are untouched; this tab is the morning routine, not a replacement. A check exists whose only job is to fail if they are removed.
     - ⚠ PRINT TODAY USES TWO DIFFERENT DATES ON PURPOSE, and it is the thing most easily got wrong: the crews get the NEXT working day, the warehouse gets the one AFTER, because the warehouse builds ahead of the van. And "tomorrow" means the next day the crews actually work, not tomorrow’s date — printed on a Friday the crews’ next day is Monday, and asking for Saturday hands the office three blank sheets. Asserted by RUNNING printToday with the page builders stubbed: a source check for `printWarehouseDay()` passes while the page is built from the crew’s day, because the call is still there on the line above doing nothing.
     - ⚠ EVERY LIST IS NUMBERED FROM 1 AND ENDS IN A BLANK COLUMN, and both live in `printTableHtml` so no list can forget. Crew two restarts at 1 — their sheet is their day, not a filtered copy of crew one’s numbering. Columns per list are fixed by `PRINT_COLUMNS` and each one is asserted by name.
-    - ⭐ A REQUOTE IS A NEW HANG, A COLOUR CHANGE IS NOT (for the photos). ⚠ THE ORDER OF THE TWO LINES IN `printIsNewHang` IS THE WHOLE RULE: a colour change SETS `chargeNewMemberFee` (there is no separate colour-change fee any more, 2026-08-19), so testing the fee first calls every colour change a new hang and prints a photo of a house the crew has hung before.
+    - ⭐ A REQUOTE IS A NEW HANG, A COLOUR CHANGE IS NOT (for the photos). THE ORDER OF THE TWO LINES IN `printIsNewHang` — `lightsChangedAt` tested BEFORE `chargeNewMemberFee` — was the whole rule while a colour change set `chargeNewMemberFee` (2026-08-19 to 2026-08-21). ⚠ SINCE 2026-08-21 A COLOUR CHANGE NO LONGER SETS THAT FLAG (see the fee entry below), so the ordering is now harmless rather than load-bearing. IT IS KEPT ANYWAY, deliberately, and so is the check that asserts it: every customer whose colours were changed through the portal between those two dates still CARRIES `chargeNewMemberFee` from the old model, and testing the fee first would print a photo of a house the crew has already hung for every one of them. Do not "tidy" the order away.
     - Photo sizing is about ink and eyesight: `height:1.5in`, `width:auto`, `max-width:3.5in`, on a landscape page — a tall crop of a wide house is mostly sky and driveway. Captions sit UNDER the picture and nothing is absolutely positioned, which is exactly how a caption ends up printed across somebody’s garage. A new hang with no photo on file is skipped rather than shown as a broken frame.
     - ⚠ ADDING A PANE MEANS ADDING IT TO `syncTabs` (see the One Man Installs entry below — same trap, twice). Twenty-three sabotages red-checked; two passed at first because they matched a string that also appears elsewhere in the same block, so both are behavioural now.
   - ⭐ THE NEW MEMBERS TAB IS GONE (removed 2026-08-20). Owner: "because we just want it to be in sync we shouldnt need the new members tab in schedule anymore." It answered "did this new customer make it onto a day", which was a real question only while the plan could learn about somebody through a re-import. ⚠ `syncTabs` WALKS A LIST OF PANE IDS AND SETS `.hidden` ON EACH: taking the pane out of the markup while leaving `members` in that list is `getElementById` returning null, a TypeError on load, and a blank Schedule tab with nothing on screen to say why. The New members COUNT stays on the stats bar. Suite 97.
@@ -400,7 +537,27 @@ What genuinely cannot be automated is now very short, and none of it is process 
     - ⚠ `houseSideCount` STILL READS THE OLD ARRAYS. Every existing customer holds something like `['front','left']`, so the count is `filter(Boolean).length` capped at 4 and history keeps working without a migration. `houseSideWords` renders it for the crew.
     - ⚠ CHANGING SIDES STILL RAISES A RE-QUOTE and the server route is untouched: `section === 'sides'` compares counts (`asCount`) and the 48-hour lock still holds.
   ⭐ ONE BILL, TWO CUSTOMERS (added 2026-08-19). Owner, on a Misc that says bill somebody else: "first we check if the person we bill to is even a customer of ours", and "yes they should have one member portal and on invoice but still remain two seperate customers". `rbResolveBillTo` looks the payer up by EMAIL first and then by name; a payer who is not a customer is left as a note rather than invented. `billToPhone` is what joins them, so the who-pays-for-whom screen and `custInvoiceKey` already do the rest.
-  ⭐ THERE IS NO COLOUR-CHANGE FEE ANY MORE (changed 2026-08-19). Owner: "get rid of color change fee and just make it new customer fee", confirmed "Its fine they can be treated as a new customer do it". A colour change sets `chargeNewMemberFee` instead of writing `changeFees` — which also puts them in the new-hang priority tier, because a colour change IS a fresh build.
+  ⭐ THE COLOUR-CHANGE FEE IS BACK, AS ITS OWN LINE, AND IT STACKS (changed 2026-08-21). Owner: "new member fee and change light fees are seperate but should get charged seperetly for this so if new member changes lights again after 48 hours of being a new member than they should get charged for light change and new member fee which would put them at 6[0] dollars. So new member should not be assigned on routes within 48 hours."
+    - ⚠ THIS REVERSES THE 2026-08-19 DECISION, which said the opposite ("get rid of color change fee and just make it new customer fee") and which this line used to record as settled. A colour change writes `changeFees` + a `changeFeeNotes` entry again and does NOT set `chargeNewMemberFee`. The two $30 fees are separate: a new member who changes colours outside their window pays both, $60.
+    - ⚠ AND THE FEE WAS NEVER ACTUALLY BEING CHARGED under the old model — that is what prompted the rewrite. `portalSave` ended with `updates.chargeNewMemberFee = true`, and `updates` is written to Firestore SIXTY-THREE LINES EARLIER, so the flag landed on an object nobody saved again; it is not in `PORTAL_READ_FIELDS` either, so it never reached the browser. Every colour change a member made in their own portal charged nothing for two days while the portal told them in red that $30 had been added to their balance. Every check passed throughout, because they all read the source as text and the text was there.
+    - ⭐ ONE RULE, TWO COPIES, ASSERTED IDENTICAL. `applyLightChange` in js/money.js and `applyLightChangeServer` in functions/index.js. Change one, change the other, ship them in the SAME push — `money-parity.test.js` runs both over ~1,100 combinations and fails the build if they ever disagree, exactly as it does for `computeInvoiceStatus`. It also asserts the answers are RIGHT, not merely equal: two copies wrong in the same way agree perfectly.
+    - ⭐ THE FREE WINDOW AND THE ROUTE LOCK ARE THE SAME 48 HOURS, and one field says so: `lightsLockedUntil` on the CUSTOMER. Owner: "48 hours will be from when they become a costumer and we won't schedule them within that 48 hours so they can change there lights again if they choose", and "if an old costumer or a new costumer outside the 48 hour window changes lights than they should not be scheduled for another 48 hours." Two events open a window: BECOMING a customer, and a charged change. A change inside a window is free and does NOT extend it — a window that renews on every free save never closes and they are never scheduled at all.
+    - ⚠ THE WINDOW MOVED OFF THE INVOICE. It used to be `lastLightChangeFeeAt` on the invoice document, which cannot work now: a brand new customer's window has to exist before any invoice does. `lastLightChangeFeeAt` is still stamped, because `portalInvoice` hands it to the portal as `lightChangeFreeUntil`, but it no longer decides anything. `lightsLockedUntil` is in `PORTAL_READ_FIELDS` so the portal can warn correctly BEFORE a save.
+    - ⚠ ONLY ADD CUSTOMER OPENS A WINDOW ON JOINING. Six places create a `jobAddresses` document; the other five — Bulk Updates, the sheet sync, Invoice Bulk Update and the two test-record builders — must never set it. Importing the existing book of ~960 customers is not 960 people joining: locking them all takes the WHOLE season out of the scheduler for two days, and it looks like the scheduler being broken rather than a flag being set. Suite 117 counts the writes, matched on the VALUE rather than one syntax — the first version counted only the object-literal form and a red-check that added an assignment-style one to the bulk importer sailed straight through it.
+    - ⭐ WHERE THE $30 LANDS DEPENDS ON WHETHER THE BILL HAS GONE. Owner: "if invoice has already been sent out but they change there lights after invoice is sent out than the 30 dollars will be charged for next season but if invoice hasn't been sent out than it will be charged on there current invoice." Not sent (`invoiceEmailSent` false) → `changeFees` on the current invoice. Already sent → `carryoverCharge` + `carryoverChargeNotes` on the CUSTOMER, collected by `runInvoiceBatch` next season.
+    - ⚠ IT HAS TO BE ON THE CUSTOMER, NOT THE INVOICE. Start New Season zeroes `changeFees`, `changeFeeNotes` and `lastLightChangeFeeAt` on every invoice, so a charge parked there is DELETED rather than carried; it touches only `completed` / `invoiceEmailSent` / `scheduled` / `scheduledDate` / `assignedCrew` on the customer, which is exactly why `carryoverCredit` already lives there. This is that same mechanism pointing the other way. ⚠ And `runInvoiceBatch` sums it across the whole payer GROUP, not off the payer alone — the person who changed their colours is often not the person who pays.
+    - ⚠ THIS IS ALSO WHY NOTHING HAS TO RE-OPEN A SENT BILL (known hole F). `invoiceEmailSent` is only ever cleared by Start New Season, so a fee added to an already-sent invoice would sit there and never be posted to anybody. Sending it to next season is the answer that reaches the customer.
+    - ⭐ THE OFFICE IS ASKED, NOT CHARGED SILENTLY. `askLightChangeFee` is a popup, not a `confirm()`, because there are THREE answers: charge, change without charging, and cancel. Waiving is for the office correcting its own typo and must be available AT THE POINT OF SAVING — nobody goes back to undo a fee later, so "waive it afterwards" means "charge them by mistake". ⚠ WAIVING STILL SETS THE WINDOW AND STILL RAISES THE NOTE: the lock is about the crew, not about money. ⚠ Cancel saves NOTHING at all, not even the rest of the form, which is why the popup runs before any write.
+    - ⚠ A FIRST-TIME COLOUR IS NOT A CHANGE. Both the old and the new value must be non-empty. Getting this wrong charges somebody for filling their own colours in and sweeps every new customer onto the Color Changes sheet — which has happened once already, with twelve people. The old server code tested only that the value DIFFERED, so it charged them.
+    - ⚠ THE BROWSER HAS NO TRANSACTION. `portalSave` wraps the decision in `db.runTransaction` so a double submit cannot add $30 twice; Edit Customer has no equivalent and two people are in admin every day, so the invoice is re-read immediately before the fee is written. That write is LAST in the handler, after `syncPayerInvoice`, which rebuilds the invoice from the houses — a fee written before it is overwritten.
+    - Suites 108 (office, run against a fake DOM and fake Firestore) and 117 (server, run against a fake Firestore), plus money-parity. Twenty-five sabotages red-checked across the three.
+  ⭐ WHO IS A NEW MEMBER: BY QUOTE, NOT BY DATE, NOT BY BULK — AND IT EXPIRES (settled 2026-08-21). Owner: "since this is new and bulk report runs all the time we should not do new members by dates right now. We should do it by who become a costumer through quotes and not through bulk", then: "if someone came from quotes this year but we are in 2027 than they are no longer a new costumer."
+    - ⚠ THE $30 JOIN FEE WAS BEING CHARGED EVERY SINGLE SEASON, and this is the fix that matters. It is one-time, guarded within a season by `newMemberFeeApplied` on the invoice — which Start New Season deliberately sets back to false. But NOTHING anywhere cleared `chargeNewMemberFee` on the customer (a search of admin.html and functions/index.js for a write of false or null returned zero hits), so the guard was released every year while the flag stayed true and the nightly run charged the join fee again the night their lights went back up. Start New Season now clears it, in the SAME write as the rest of the customer reset — a separate write can fail on its own and leave the guard released with the flag set, which is the overcharge back in a shape nobody would look for twice.
+    - NOT BY DATE, and that was already true: `looksLikeNewMember` reads `chargeNewMemberFee` and nothing else. The old enrollment-year guess said "new member" for essentially the whole book after a bulk import — ~945 people, one $30 fee each. A check exists whose only job is to fail if `createdAt` returns to that decision.
+    - NOT BY BULK, and that was already true too: only TWO places write the flag, the Add Customer box and the Edit Customer box, both a person ticking something. No importer writes it. Now COUNTED, scoped to the bulk region — a file-wide search finds the two checkboxes and every reader, so it would pass with an importer writing it.
+    - BY QUOTE: `quoteChargesSetupFee(d)` — the office's own `chargeSetupFee` answer if they gave one, else "charge it unless this is a re-quote against an existing customer". ⚠ It tests `!== undefined` rather than truthiness in BOTH directions: read as a plain boolean it would silently re-charge every quote the office had deliberately UNticked. ⚠ It was FOUR copies of that expression (showAddCustomerFromQuote, the quote card checkbox, the card renderer, the automatic path) — four copies of a rule about $30 is three chances for the card to promise one thing and the invoice to do another.
+    - ⚠ AND THE CLEANUP I FLAGGED WAS NOT NEEDED. Customers were thought to be carrying `chargeNewMemberFee` wrongly from the 2026-08-19 colour-change model; they are not. That write never reached Firestore (see the entry above), so the bug that lost the money also prevented the contamination. Do not go looking for records to clean.
+    - Suite 10a and the `logic` suite. Eight sabotages red-checked, two of which caught MY OWN checks being vacuous: the dry-run check searched for a word that survived the sabotage, and the "same write" check used a proximity window that a genuinely separate write still satisfied. Both are behavioural or structural now.
   ⭐ SOFT LIGHTS KEEP THEIR OWN NAME SO THEY CAN BE FOUND (added 2026-08-19). Owner: "so then we can find them later cause we need to switch their lights", and "no new houses can get soft you can only see that as even an option in the admin portal". `p` is pure, `w` is warm white, a bare `white` means BOTH, and `soft` becomes `soft(recycled)`. All Customers has a Lights filter: "On soft (needs switching)" is the work order (twelve houses on the real sheet) and "No colours recorded" is who still has to be asked. Keeping the label without a way to search it is a label, not a list.
     - ⚠ COLOURS LIVE IN TWO FIELDS AND BOTH MUST BE READ. `rbDetectColorsAndPattern` moves a REPEATED colour out of `lightColors` and into `lightsDescription`, because a repeat means an alternating pattern where the order matters — so an alternating soft house has an EMPTY colour list. Reading only the list misses them, and the same mistake calls them undecorated on the no-colours filter. A red-check caught that second half.
     - ⚠ AND THE ALIAS TABLE HAS TO SUPPORT A LIST. `white` maps to two colours; a parser that only read single values dropped it silently, so the tests were checking a table the app did not have.
