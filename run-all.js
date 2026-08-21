@@ -27274,6 +27274,231 @@ suite('Suite 126. One place a job is marked done');
   }
 }
 
+
+/* ---------------------------------------------------------------------------
+ * Suite 127. Whether a house is done is the customer's answer (Job 3)
+ *
+ * Job 2 made ticking a house write `completed` to the customer. That left TWO
+ * copies of one fact — the plan's own `done` flag and the customer record — and
+ * they disagree the first time somebody uses the other screen: mark a house
+ * complete from Routes or the customer row, and Schedule still showed it
+ * outstanding, counted it in "left", put it back in the movable pile and printed
+ * it on a crew sheet.
+ *
+ * ⚠ THE REGRESSION IS THE POINT OF THIS SUITE. Two dozen callers read h.done —
+ * the crew split, the hand-back that makes the sheets 20/20, the near-empty-day
+ * rescue, One Man Installs, unfinishedOn, the leftover flow, the day progress
+ * bar, the CSV and every print sheet. None of them was touched; the value is
+ * refreshed before they read it. What has to be proved is that they all still
+ * behave exactly as they did.
+ * ------------------------------------------------------------------------- */
+suite('Suite 127. Whether a house is done is the customer\'s answer');
+
+{
+  const admin = read('admin.html');
+  const derivedSrc = extractFn(admin, 'derivedDoneFor');
+  const refreshSrc = extractFn(admin, 'refreshDerivedDone');
+  const kindSrc = extractFn(admin, 'planHouseKind');
+  check('S127', 'the derivation and the per-render refresh are findable',
+    !!derivedSrc && !!refreshSrc && !!kindSrc,
+    'renamed or removed — update this suite rather than deleting it');
+
+  if (derivedSrc && refreshSrc && kindSrc) {
+    /* One place builds the sandbox, so every check below runs the real code
+       against a resolver we control. `looks` counts resolutions so the
+       once-per-render claim can be asserted rather than assumed. */
+    const build = function (book) {
+      const looks = { n: 0 };
+      const env = new Function('SEASON', 'BOOK', 'looks',
+        kindSrc + derivedSrc + refreshSrc +
+        'function hlxResolvePlanHouse(h){ looks.n++; ' +
+        '  const id = String((h.srcId != null && h.srcId !== "") ? h.srcId : h.id);' +
+        '  if(id.indexOf("cust-") === 0){ const k = id.slice(5);' +
+        '    return BOOK[k] ? {id: k, data: BOOK[k]} : null; }' +
+        '  return null; }' +
+        ';return {refresh: refreshDerivedDone, derived: derivedDoneFor, looks: looks};');
+      return env;
+    };
+
+    const season = () => ([{
+      id: 'd1', houses: [
+        { id: 'cust-a', done: false },
+        { id: 'cust-b', done: true },
+        { id: 'imported-9', cu: '77', done: true },     // nobody behind it
+        { id: 'cust-t', srcId: 'cust-a', isTakedown: true, done: false },
+        { id: 'cust-f', srcId: 'cust-b', isFix: true, done: false }
+      ]
+    }]);
+
+    /* ---- 1. the customer's answer wins, in both directions ---- */
+    {
+      const S = season();
+      const BOOK = {
+        a: { completed: true,  removalDone: false, needsFix: false },
+        b: { completed: false, removalDone: false, needsFix: true }
+      };
+      const api = build(BOOK)(S, BOOK, { n: 0 });
+      api.refresh();
+      const byId = (id) => S[0].houses.find(h => h.id === id);
+      check('S127', 'a house completed on another screen reads as done in Schedule',
+        byId('cust-a').done === true,
+        'marking it complete from Routes or the customer row used to leave Schedule ' +
+        'still counting it as outstanding');
+      check('S127', 'and one un-completed there reads as NOT done',
+        byId('cust-b').done === false,
+        'the correction has to travel both ways or the plan drifts the other way');
+    }
+
+    /* ---- 2. the three kinds read three different fields ---- */
+    {
+      const S = season();
+      /* ⚠ EACH FIELD IS SET SO THAT READING THE WRONG ONE GIVES THE WRONG ANSWER.
+         A fixture where completed/removalDone/needsFix happen to agree would pass
+         against a derivation that read the same field for all three kinds. */
+      const BOOK = {
+        a: { completed: false, removalDone: true,  needsFix: false },
+        /* ⚠ needsFix:true WITH completed:true, and that pairing is the whole check.
+           The first version had needsFix:false here, so `!needsFix` and `completed`
+           both came out true — a sabotage swapping the fix rule for the install one
+           gave the identical answer and the check stayed green. The two fields must
+           DISAGREE for the fix row's customer or this proves nothing. */
+        b: { completed: true,  removalDone: false, needsFix: true }
+      };
+      const api = build(BOOK)(S, BOOK, { n: 0 });
+      api.refresh();
+      const byId = (id) => S[0].houses.find(h => h.id === id);
+      check('S127', 'an install reads completed',
+        byId('cust-a').done === false && byId('cust-b').done === true);
+      check('S127', 'a takedown reads removalDone, not completed',
+        byId('cust-t').done === true,
+        'its source customer has completed:false and removalDone:true — reading ' +
+        'completed here would say not done');
+      check('S127', 'and a fix reads needsFix, inverted',
+        byId('cust-f').done === false,
+        'its source customer has completed:true but still needsFix — a fix is done ' +
+        'when the house no longer needs one, so this must read NOT done');
+    }
+
+    /* ---- 3. a house with nobody behind it keeps the plan's own flag ---- */
+    {
+      const S = season();
+      const api = build({})(S, {}, { n: 0 });
+      api.refresh();
+      const byId = (id) => S[0].houses.find(h => h.id === id);
+      /* ⚠ THE WHOLE IMPORTED PLAN DEPENDS ON THIS. An imported CSV row never
+         matched anybody, so there is nothing to derive from. Returning false for
+         those instead of null would un-tick every one of them on the next render —
+         on an imported plan, that is most of the season's progress. */
+      check('S127', 'an unmatched imported row keeps its stored flag',
+        byId('imported-9').done === true,
+        'returning false for "nobody behind it" would blank an imported season');
+      check('S127', 'and so does every house while the customer list is still loading',
+        byId('cust-a').done === false && byId('cust-b').done === true,
+        'before jobAddresses arrives nothing resolves — the screen must be exactly ' +
+        'what it was, not blanked for the second between login and the first snapshot');
+      check('S127', 'derivedDoneFor says "no answer" rather than "not done"',
+        api.derived({ id: 'cust-nobody' }) === null,
+        'null and false are different answers and only one of them is safe');
+    }
+
+    /* ---- 4. resolved once per render, not once per read ---- */
+    {
+      const S = season();
+      const BOOK = { a: { completed: true }, b: { completed: false } };
+      const looks = { n: 0 };
+      const api = build(BOOK)(S, BOOK, looks);
+      api.looks.n = 0;
+      api.refresh();
+      /* Five houses, five resolutions. A dozen readers each asking for themselves
+         would be a lookup per house PER READER — the shape that once locked the
+         screen up on every keystroke, which is why custById exists. */
+      check('S127', 'one resolution per house per render, not one per reader',
+        api.looks.n === 5,
+        'resolved ' + api.looks.n + ' times for 5 houses — a lookup per house per ' +
+        'caller is what the customer indexes exist to prevent');
+    }
+
+    /* ---- 5. THE REGRESSION. Everything that reads h.done still behaves. ---- */
+    {
+      /* The readers are unchanged code, so what has to be proved is that the value
+         they read is the same one they would have read before. Two fixtures: one
+         where the customer agrees with the stored flag (the ordinary case — output
+         must be byte-identical), and one where nobody resolves (the imported case —
+         output must be byte-identical too). */
+      const shape = (S) => S[0].houses.map(h => h.id + ':' + (h.done ? 'done' : 'left')).join(',');
+
+      const agreeing = season();
+      const before = shape(agreeing);
+      const BOOK = {
+        a: { completed: false, removalDone: false, needsFix: true },
+        b: { completed: true,  removalDone: false, needsFix: true }
+      };
+      build(BOOK)(agreeing, BOOK, { n: 0 }).refresh();
+      check('S127', 'a plan already agreeing with the customers is left untouched',
+        shape(agreeing) === before,
+        'the ordinary case must produce exactly what it produced before: ' +
+        before + '  ->  ' + shape(agreeing));
+
+      const orphaned = season();
+      const beforeOrphan = shape(orphaned);
+      build({})(orphaned, {}, { n: 0 }).refresh();
+      check('S127', 'and an imported plan nobody resolves is left untouched too',
+        shape(orphaned) === beforeOrphan,
+        'every counter, the crew split and the printed sheets read this — an ' +
+        'imported season must look exactly as it did');
+
+      /* ⚠ A MISSING FIELD IS NOT ALWAYS "NOT DONE", and this check caught me
+         getting that wrong. A fix is done when needsFix is FALSY, so a customer
+         with no needsFix at all reads as done — the inverse of the other two
+         kinds. That is correct (a house nobody has flagged does not need a fix),
+         but it means an absent field flips a fix row and not an install row. */
+      check('S127', 'the refresh reports how many it actually changed',
+        (function () {
+          const S = season();
+          const B = { a: { completed: true }, b: { completed: true } };
+          return build(B)(S, B, { n: 0 }).refresh() === 2;
+        })(),
+        'cust-a moves false->true, and the fix row moves false->true because its ' +
+        'customer has no needsFix; cust-b is already true and the takedown has no ' +
+        'removalDone, so neither moves');
+    }
+  }
+
+  /* ---- wired into the one render entry point, before anything reads ---- */
+  {
+    const ra = extractFn(admin, 'renderAll');
+    check('S127', 'renderAll refreshes before it counts, draws or saves',
+      !!ra && /refreshDerivedDone\(\)\s*;\s*computeDates\(\)/.test(ra),
+      'renderStats counts what is left and scheduleSave writes the plan back — ' +
+      'refreshing after either is refreshing too late');
+    /* ⚠ THE OPTIMISTIC MIRROR. The Firestore write is asynchronous and the tick is
+       now DERIVED, so without this renderAll re-derives from the stale cache and the
+       tick visibly springs back — and the office presses it again. */
+    const tick = extractFn(admin, 'planTickCustomer');
+    check('S127', 'a tick mirrors into the local customer cache before awaiting',
+      !!tick && /cust\.data\.completed = done/.test(tick) &&
+      /cust\.data\.removalDone = done/.test(tick) &&
+      /cust\.data\.needsFix = !done/.test(tick),
+      'the panel repaints from the cache, not from Firestore — without the mirror ' +
+      'the tick springs back and gets pressed twice');
+    /* ⚠ AND THE MIRROR HAS TO COVER ALL THREE KINDS, or ticking a takedown looks
+       like it did nothing. */
+    check('S127', 'and the mirror is by kind, not always completed',
+      !!tick && tick.indexOf("kind === 'takedown'") !== -1 &&
+      tick.indexOf("kind === 'fix'") !== -1,
+      'mirroring completed for a takedown tick shows the wrong row changing');
+  }
+
+  /* ---- the id index that keeps this cheap ---- */
+  check('S127', 'customers are indexed by document id',
+    /custById\.set\(a\.id, a\)/.test(admin) && /let custById = new Map\(\)/.test(admin),
+    'this runs once per house per render; a .find() over ~1,000 customers is the ' +
+    'lock-up the other customer indexes were built to stop');
+  check('S127', 'and the resolver uses it',
+    /custById\.has\(docId\)/.test(admin),
+    'an index nothing reads is just memory');
+}
+
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));

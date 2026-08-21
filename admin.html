@@ -13081,12 +13081,21 @@ function loadInvoices(){
 let custByPhoneDigits = new Map();
 let custByNumber = new Map();
 let custByAddrKey = new Map();
+/* ⭐ BY DOCUMENT ID (added 2026-08-21, Job 3). The Schedule tab re-derives every
+   house's done state from its customer on every render, and a house the sync pulled
+   in carries the real id inside its own ('cust-<id>'). Resolving that with a
+   .find() over jobAddresses is a linear scan PER HOUSE — on the real book that is
+   ~955 houses × ~1,000 customers on every single render, which is precisely the
+   "better part of a million string comparisons" this index was built to stop. */
+let custById = new Map();
 function rebuildCustomerIndexes(){
   custByPhoneDigits = new Map();
   custByNumber = new Map();
   custByAddrKey = new Map();
+  custById = new Map();
   jobAddresses.forEach(function(a){
     const d = (a && a.data) || {};
+    if(a && a.id) custById.set(a.id, a);
     const digits = ((d.phone) || '').replace(/\D/g,'');
     // First match wins, exactly as Array.find did — two customers sharing a
     // phone is a known, separately tracked gap, and this must not change which
@@ -37475,7 +37484,11 @@ function renderCrewBar(){
   }
   bar.innerHTML=h;
 }
-function renderAll(){computeDates();renderStats();renderActive();renderImportedAt();if(loaded)scheduleSave();}
+/* ⚠ refreshDerivedDone FIRST, before anything counts or draws. Every reader below
+   asks h.done, and Job 3 makes that the CUSTOMER's answer rather than the plan's —
+   so it has to be brought up to date before renderStats counts what is left,
+   renderActive draws the ticks, and scheduleSave writes the plan back. */
+function renderAll(){refreshDerivedDone();computeDates();renderStats();renderActive();renderImportedAt();if(loaded)scheduleSave();}
 /* Say out loud that this plan is a SNAPSHOT of a CSV, and how old it is.
    Nothing on this tab distinguished a plan built this morning from one built
    from a months-old export — it just looked like the schedule. */
@@ -37896,7 +37909,12 @@ function hlxResolvePlanHouse(h){
   const rawId = String((h.srcId != null && h.srcId !== '') ? h.srcId : (h.id == null ? '' : h.id));
   if(rawId.indexOf('cust-') === 0){
     const docId = rawId.slice(5);
-    const hit = list.find(function(a){ return a.id === docId; });
+    /* The index when it is there, a scan only as a fallback — this is called once
+       per house per render, so a linear scan here is a lock-up on the real book.
+       See custById in rebuildCustomerIndexes. */
+    const hit = (typeof custById !== 'undefined' && custById.has(docId))
+      ? custById.get(docId)
+      : list.find(function(a){ return a.id === docId; });
     /* A 'cust-' id that no longer matches anybody means the customer was deleted
        since the plan was built. That is a real answer — say nothing rather than
        falling through to the number, which could land on somebody else entirely. */
@@ -37930,6 +37948,70 @@ function planAlreadyBilled(h){
   const cust = hlxResolvePlanHouse(h);
   return !!(cust && cust.data && cust.data.invoiceEmailSent);
 }
+/* ⭐ WHETHER A HOUSE IS DONE IS THE CUSTOMER'S ANSWER, NOT THE PLAN'S
+   (added 2026-08-21, Job 3).
+
+   Job 2 made ticking a house write `completed` to the customer. That left TWO
+   copies of one fact — the plan's own `done` flag and the customer record — and
+   they disagree the first time somebody uses the other screen: mark a house
+   complete from Routes or the customer row, and Schedule still showed it
+   outstanding, counted it in "left", put it back in the movable pile and printed
+   it on a crew sheet.
+
+   The customer is the source. The three kinds read three different fields, and
+   they are genuinely different questions:
+       install   completed
+       takedown  removalDone
+       fix       !needsFix
+
+   ⚠ THE STORED FLAG IS THE FALLBACK, NOT THE SOURCE. A house with no customer
+   behind it — an imported CSV row that never matched anybody — has nothing to
+   derive from, so it keeps whatever the plan says. Returning `false` for those
+   instead would silently un-tick every unmatched house on the next render, which
+   on an imported plan is most of them.
+
+   ⚠ AND IT FAILS SAFE WHILE THE CUSTOMER LIST IS STILL LOADING. Before
+   jobAddresses arrives every house resolves to nobody, so every house keeps its
+   stored flag and the screen is exactly what it was. A version that treated
+   "not found yet" as "not done" would blank a whole season's progress for the
+   second between login and the first snapshot. */
+function derivedDoneFor(h){
+  const cust = hlxResolvePlanHouse(h);
+  const d = cust && cust.data;
+  if(!d) return null;                       // nobody behind it — keep the stored flag
+  const kind = planHouseKind(h);
+  if(kind === 'takedown') return !!d.removalDone;
+  if(kind === 'fix') return !d.needsFix;
+  return !!d.completed;
+}
+/* Resolved ONCE PER RENDER, not once per read. A dozen callers ask h.done — the
+   crew split, the hand-back that makes the sheets 20/20, the near-empty-day
+   rescue, One Man Installs, unfinishedOn, the leftover flow, the day progress
+   bar, the CSV and every print sheet. Asking the customer list from each of them
+   would be a lookup per house per caller.
+
+   ⚠ SO THE READERS ARE LEFT ALONE. They still read h.done and know nothing about
+   any of this; the value is simply refreshed from the customer before anything
+   reads it. Rewriting two dozen call sites to call a resolver would have been the
+   same behaviour with two dozen chances to miss one.
+
+   ⚠ THE REFRESHED VALUE DOES GET SAVED, and that is fine: renderAll ends in
+   scheduleSave, so the plan keeps a mirror of the customer's answer. That is a
+   CACHE, not a second source — it is overwritten from the customer before every
+   read, and on reload the first render recomputes it before anything looks. What
+   it buys is a sane fallback for a house that later stops resolving. */
+function refreshDerivedDone(){
+  if(typeof SEASON === 'undefined' || !SEASON) return 0;
+  let changed = 0;
+  SEASON.forEach(function(day){
+    (day.houses || []).forEach(function(h){
+      const v = derivedDoneFor(h);
+      if(v === null) return;
+      if(!!h.done !== v){ h.done = v; changed++; }
+    });
+  });
+  return changed;
+}
 /* Marks the customer behind a plan house, and SAYS SO when there is nobody behind it.
    A tick that wrote nothing looks exactly like one that worked, which is how a house
    gets driven to and never billed. */
@@ -37941,7 +38023,23 @@ function planTickCustomer(h, done){
           'everything to link them up.');
     return;
   }
-  hlxMarkJobDone(cust, planHouseKind(h), done, {name: cust.data && cust.data.name, source: 'Schedule'})
+  const kind = planHouseKind(h);
+  /* ⚠ MIRROR IT INTO THE LOCAL CACHE FIRST, before the write is awaited. Since
+     Job 3 the tick is DERIVED from the customer at render time, and the Firestore
+     write is asynchronous — so renderAll() runs while jobAddresses still holds the
+     old value, re-derives from it, and the tick visibly springs back. The office
+     presses it again, and now two writes are in flight.
+
+     This is the same optimistic mirror the rest of admin already does for exactly
+     this reason: the panel repaints from the cache, not from Firestore. If the
+     write then fails, the toast below says so and the next snapshot puts the cache
+     right. */
+  if(cust.data){
+    if(kind === 'takedown') cust.data.removalDone = done;
+    else if(kind === 'fix') cust.data.needsFix = !done;
+    else cust.data.completed = done;
+  }
+  hlxMarkJobDone(cust, kind, done, {name: cust.data && cust.data.name, source: 'Schedule'})
     .then(function(res){
       if(!res.ok) toast('Ticked here, but the customer could not be updated — ' + res.why);
     });
