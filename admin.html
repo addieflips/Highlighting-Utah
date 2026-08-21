@@ -8197,14 +8197,27 @@ function requoteLightsToCarry(quote, cust){
 async function buildTestPerson(){
   const fields = {
     name: 'Test', phone: '3853912235', email: 'highlightingutah@gmail.com',
-    address: '125 TEST ST (not a real house), Lehi, UT 84043',
-    street: '125 TEST ST (not a real house)', city: 'Lehi',
+    /* Same address as the test quote — see TEST_QUOTE_BASE for why it is a real one. */
+    address: '209 S 850 W, Lehi, UT 84043',
+    street: '209 S 850 W', city: 'Lehi',
     housePrice: 250, measuredFeet: 125,
     lightColors: ['Warm White'], lightsDescription: 'Warm White', wireColor: 'White',
     rsvpStatus: 'yes', numberOfBins: 1, needsLightBuild: true,
     customerNumber: '', scheduled: false, isTestRecord: true,
     createdAt: serverTimestamp()
   };
+  /* ⚠ AND IT NEEDS A PIN. Routing reads lat/lng, not the address text, so a test
+     person without one is unroutable — which is the half of the system most worth
+     testing on a fake customer. Guarded: a geocode failure must not stop the record
+     being made, and Health Check already reports a customer with needsGeocode set. */
+  try{
+    const coords = await geocodeAddress(fields.address);
+    fields.lat = coords.lat;
+    fields.lng = coords.lng;
+  }catch(err){
+    fields.needsGeocode = true;
+    console.error('Test person could not be geocoded:', err);
+  }
   const ref = await addDoc(collection(db,'jobAddresses'), fields);
   return ref.id;
 }
@@ -8586,8 +8599,20 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
    driven to. */
 const TEST_QUOTE_BASE = {
   name: 'Test', phone: '3853912235', email: 'highlightingutah@gmail.com',
-  address: '125 TEST ST (not a real house), Lehi, UT 84043',
-  street: '125 TEST ST (not a real house)', city: 'Lehi',
+  /* ⭐ A REAL ADDRESS. Owner, 2026-08-21: "also test customers should be at 209 S 850 W
+     Lehi Utah."
+
+     ⚠ THIS REPLACES A DELIBERATELY FAKE ONE, and the trade is worth writing down. The
+     fake address could never be routed, scheduled or mapped, which is most of what a
+     test record is FOR — it would have failed to geocode and then behaved differently
+     from every real customer at exactly the moment somebody was testing routing. A real
+     address behaves like the real thing.
+
+     ⚠ SO THE NAME AND THE FLAG ARE NOW THE ONLY THINGS MARKING IT. They still are: every
+     one is called Test and carries isTestRecord. It can reach a crew sheet now, so
+     delete them when you are done rather than leaving them in the book. */
+  address: '209 S 850 W, Lehi, UT 84043',
+  street: '209 S 850 W', city: 'Lehi',
   estimatedFeet: 125, lightColors: ['Warm White'], lightsDescription: 'Warm White',
   wireColor: 'White', isTestRecord: true
 };

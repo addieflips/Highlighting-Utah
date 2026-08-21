@@ -20289,12 +20289,15 @@ suite('Suite 115. A price change asks');
     const build = extractFn(admin, 'buildTestPerson');
     check('S115', 'the test person builder exists', !!build);
     const fields = new Function('addDoc', 'collection', 'db', 'serverTimestamp',
+      'geocodeAddress', 'console',
       /* extractFn slices from `function`, dropping the `async` in front of it, so the
          body's await lands in a plain function and new Function throws on it. */
       'async ' + build + 'return buildTestPerson();');
     let written = null;
-    pendingAsync.push(fields(async function(c, f){ written = f; return {id: 'test1'}; },      function(){ return {}; }, {}, function(){ return 'NOW'; })
-      .then(function(){
+    pendingAsync.push(fields(async function(c, f){ written = f; return {id: 'test1'}; },
+      function(){ return {}; }, {}, function(){ return 'NOW'; },
+      async function(){ return {lat: 40, lng: -111}; }, {error: function(){}})
+      .then(async function(){
         check('S115', 'the test person carries the details she gave',
           written.name === 'Test' && written.phone === '3853912235' &&
           written.email === 'highlightingutah@gmail.com' &&
@@ -20303,9 +20306,32 @@ suite('Suite 115. A price change asks');
         check('S115', 'and is a FINISHED customer, so the price edit can be tried on them',
           written.rsvpStatus === 'yes' && written.needsLightBuild === true,
           'a half-made record does not exercise what she is testing');
-        check('S115', 'and is marked as a test, and obviously not a house',
-          written.isTestRecord === true && /not a real house/i.test(written.address),
-          'a test row that cannot be told from a customer is a customer');
+        check('S115', 'and is marked as a test',
+          written.isTestRecord === true && written.name === 'Test',
+          'the address is a real one now (see Suite 113), so the flag and the name ' +
+          'are the whole of what marks it');
+        check('S115', 'and sits at the address she gave',
+          /209 S 850 W/.test(written.address) && written.city === 'Lehi');
+        /* ⚠ AND IT GETS A PIN, or it cannot be routed — which is the half of the system
+           most worth trying on a fake customer. */
+        check('S115', 'and is pinned on the map, so it can be routed',
+          written.lat === 40 && written.lng === -111,
+          'routing reads lat/lng, not the address text');
+        /* ⚠ AND A GEOCODE FAILURE MUST NOT STOP THE RECORD BEING MADE. Half a test
+           person is worse than none: it looks like the button is broken. */
+        let flagged = null, threw = null;
+        /* Caught here so a rethrow fails this check cleanly instead of killing the
+           whole async suite — a crash is a red run, but an unreadable one. */
+        try{
+          await fields(async function(c, f){ flagged = f; return {id: 't2'}; },
+            function(){ return {}; }, {}, function(){ return 'NOW'; },
+            async function(){ throw new Error('over quota'); }, {error: function(){}});
+        }catch(e){ threw = e; }
+        check('S115', 'a geocode failure still creates them, flagged for a pin',
+          !threw && !!flagged && flagged.needsGeocode === true && flagged.name === 'Test',
+          threw ? ('it threw instead: ' + threw.message + ' — half a test person is worse ' +
+            'than none, it looks like the button is broken')
+            : 'Health Check already reports a customer with needsGeocode set');
         check('S115', 'and takes no customer number from the pool',
           written.customerNumber === '',
           'handing a real bin label to a record somebody is about to delete is how a ' +
@@ -20379,9 +20405,22 @@ suite('Suite 113. Build Test Customer');
   check('S113', 'every test record is marked as one',
     stages.every(function(st){ return fields(st, base).isTestRecord === true; }),
     'a test row that cannot be told from a customer is a customer');
-  check('S113', 'and the address says out loud that it is not a house',
-    /not a real house/i.test(base.address),
-    'a plausible address gets routed, printed and driven to');
+  /* ⭐ A REAL ADDRESS, ON PURPOSE. Owner, 2026-08-21: "also test customers should be at
+     209 S 850 W Lehi Utah." This replaced a deliberately fake one, and the trade is
+     worth having written down: the fake address could never be geocoded, so it could
+     never be routed, scheduled or mapped — which is most of what a test record is FOR,
+     and it would have behaved differently from a real customer at exactly the moment
+     somebody was testing routing.
+
+     ⚠ SO THE NAME AND THE FLAG ARE NOW THE ONLY THINGS MARKING IT, and they have to
+     hold. A test row that reaches a crew sheet with nothing saying so is a wasted
+     journey. */
+  check('S113', 'the test address is the real one she gave',
+    /209 S 850 W/.test(base.address) && /Lehi/.test(base.address),
+    'a fake address cannot be routed, which is half of what it would be tested for');
+  check('S113', 'and the name still marks it, since the address no longer does',
+    base.name === 'Test',
+    'with a real address this is the only thing on a printed sheet that says test');
 
   /* ---- and the button is there, and wired ---------------------------------- */
   check('S113', 'the button is on the quotes tab',
