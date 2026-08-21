@@ -8111,9 +8111,27 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
   const ed = existingItem.data || {};
   const who = ed.name || d.name || ('this customer');
   const oldPrice = Number(ed.housePrice || 0);
-  const newPrice = typeof d.quotedPrice === 'number' ? d.quotedPrice : null;
   const oldFeet = Number(ed.measuredFeet || 0);
   const newFeet = Number(d.estimatedFeet || 0);
+  /* ⭐ AND IT CAN BE PRICED FROM HERE. Owner, 2026-08-20, on Ashley Wray's re-quote:
+     "it says its not priced, and it doesnt let me fix the issue from here so theres no
+     way I can convert customer in this situation."
+
+     ⚠ THE SAME QUOTE CONVERTS FINE AS A NEW CUSTOMER AND DEAD-ENDS AS A RE-QUOTE.
+     showAddCustomerFromQuote has always fallen back to the feet estimate when no price
+     was saved (see pricedFrom there); this popup read quotedPrice alone, so 300 ft at
+     the per-foot rate — a price the office is looking at on the card, in the box, in
+     black and white — counted as no price at all. Two paths, two answers, one quote.
+
+     ⚠ AND THE BOX ON THE CARD SHOWS A NUMBER IT HAS NOT SAVED. The price box starts
+     on a suggestion worked out from the footage, but nothing writes it until the office
+     clicks out of the box. So the card reads "not priced yet" with 600 sitting in the
+     price field, which is a straight contradiction, and she reasonably believed it was
+     priced. Said out loud on the card now, and the popup no longer depends on it:
+     whatever is in the box HERE is what gets used, and it is saved on the way through. */
+  const savedPrice = typeof d.quotedPrice === 'number' ? d.quotedPrice : null;
+  const feetPrice = (newFeet && perFootRate) ? Math.round(newFeet * perFootRate) : null;
+  const newPrice = savedPrice !== null ? savedPrice : feetPrice;
   const oldBins = oldFeet ? cnBinsForFeet(oldFeet) : 0;
   const newBins = newFeet ? cnBinsForFeet(newFeet) : 0;
   const num = String(ed.customerNumber || '').trim();
@@ -8128,9 +8146,13 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
     '<h3 style="color:var(--dusk);">Update '+esc(who)+'</h3>'+
     '<p>They are already a customer'+(num ? ' on <strong>#'+esc(num)+'</strong>' : '')+', so this updates the record they already have. It does <strong>not</strong> add a second copy of them, and they keep their number, their invoice and their place on any route.</p>'+
     '<div style="background:var(--paper); border-radius:10px; padding:10px 13px; font-size:13px; line-height:1.6;">'+
-      (newPrice !== null
-        ? '<div>Price <strong>'+fmtMoney(oldPrice)+'</strong> &rarr; <strong>'+fmtMoney(newPrice)+'</strong></div>'
-        : '<div style="color:var(--ember);">This re-quote has no price on it yet.</div>')+
+      '<div>Price <strong>'+fmtMoney(oldPrice)+'</strong> &rarr; <strong id="requotePriceEcho">'+(newPrice !== null ? fmtMoney(newPrice) : 'not set') +'</strong></div>'+
+      (savedPrice === null && feetPrice !== null
+        ? '<div style="color:#8A6100; font-size:12px;">Worked out from '+newFeet+' ft at '+fmtMoney(perFootRate)+'/ft. Nothing was saved on the re-quote, so check it.</div>'
+        : '')+
+      (newPrice === null
+        ? '<div style="color:var(--ember); font-size:12px;">This re-quote has no price on it and no footage to work one out from — type it in below.</div>'
+        : '')+
       (newFeet
         ? '<div>Feet <strong>'+(oldFeet || 'not recorded')+'</strong> &rarr; <strong>'+newFeet+' ft</strong>'+
             (newBins ? ' &middot; '+newBins+' bin'+(newBins === 1 ? '' : 's') : '')+'</div>'
@@ -8140,8 +8162,15 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
       ? (num && newFeet ? '<p style="font-size:12.5px; color:var(--slate);">Under '+CN_DOUBLE_BIN_FEET+' ft either way, so #'+esc(num)+' still fits and nothing else has to change.</p>' : '')
       : '<p style="font-size:12.5px; color:var(--ember); background:#FDECEA; border:1px solid #F3C8C2; border-radius:9px; padding:8px 11px;">'+
           '<strong>#'+esc(num)+' no longer matches the footage.</strong> '+newFeet+' ft is '+newBins+' bin'+(newBins === 1 ? '' : 's')+', which uses '+(newBins >= 2 ? 'a 5000-series' : 'a regular')+' number. Everything else is held \u2014 the form will ask about the number when you save.</p>')+
+    /* One box, always editable, always pre-filled with the best answer available.
+       The old popup was a summary with nothing to type into, which is exactly why
+       there was no way out of it when the summary said something was missing. */
+    '<div class="form-row" style="margin-top:12px; max-width:220px;">'+
+      '<label style="font-size:11.5px;">Price to use ($)</label>'+
+      '<input type="number" id="requotePriceInput" min="0" step="1" value="'+(newPrice !== null ? newPrice : '')+'" placeholder="e.g. 600">'+
+    '</div>'+
     '<div style="display:flex; flex-direction:column; gap:9px; margin-top:14px;">'+
-      '<button type="button" class="btn btn-gold" id="applyRequoteBtn" style="text-align:left;">Open their record with the new price'+
+      '<button type="button" class="btn btn-gold" id="applyRequoteBtn" style="text-align:left;">Open their record with this price'+
         '<span style="display:block; font-weight:500; font-size:12px; opacity:.85; margin-top:2px;">Check it over, then press Save Changes. The re-quote closes itself.</span></button>'+
       '<button type="button" class="btn btn-outline" id="applyRequoteCancelBtn" style="text-align:center; color:var(--slate);">Cancel</button>'+
     '</div>'+
@@ -8150,15 +8179,48 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
   function close(){ overlay.remove(); }
   overlay.addEventListener('click', function(e){ if(e.target === overlay) close(); });
   document.getElementById('applyRequoteCancelBtn').addEventListener('click', close);
-  document.getElementById('applyRequoteBtn').addEventListener('click', function(){
+  const priceBox = document.getElementById('requotePriceInput');
+  const goBtn = document.getElementById('applyRequoteBtn');
+  const echo = document.getElementById('requotePriceEcho');
+  /* A price the form cannot use must not be walked past. Blank or negative
+     disables the button and says so, rather than opening the record and leaving
+     the old price in place under a button that promised a new one. */
+  function typedPrice(){
+    const raw = String(priceBox.value).trim();
+    if(raw === '') return null;
+    const n = Number(raw);
+    return (isFinite(n) && n >= 0) ? n : null;
+  }
+  function refreshGo(){
+    const p = typedPrice();
+    goBtn.disabled = (p === null);
+    goBtn.style.opacity = (p === null) ? '.55' : '';
+    goBtn.style.cursor = (p === null) ? 'not-allowed' : '';
+    if(echo) echo.textContent = (p === null) ? 'not set' : fmtMoney(p);
+  }
+  priceBox.addEventListener('input', refreshGo);
+  refreshGo();
+  goBtn.addEventListener('click', function(){
+    const price = typedPrice();
+    if(price === null){ toast('Type a price first \u2014 it can be 0, but it cannot be blank.'); return; }
+    /* Write it back onto the re-quote as well. The quote is what the approval page
+       and the quote email read, so leaving it unpriced while the customer record says
+       $600 is the two-answers problem again, one screen further along. Fire and
+       forget: the customer record is what this step is for, and a failed write here
+       must not stop her opening it. */
+    if(price !== savedPrice){
+      updateDoc(doc(db,'quotes',quoteId), {quotedPrice: price}).catch(function(){
+        toast('Saved the price on the customer, but not back onto the re-quote \u2014 check your connection.');
+      });
+    }
     close();
     openEditCustomerModal(existingItem.id);
     /* AFTER the modal fills itself from the record, or the record would write
        straight back over the two fields this whole step exists to change. */
-    if(newPrice !== null) document.getElementById('editCustHousePrice').value = newPrice;
+    document.getElementById('editCustHousePrice').value = price;
     if(newFeet) document.getElementById('editCustFeet').value = newFeet;
     requoteBeingConverted = quoteId;
-    toast('New price filled in for '+(who)+' \u2014 check it over and press Save Changes.');
+    toast(fmtMoney(price)+' filled in for '+(who)+' \u2014 check it over and press Save Changes.');
   });
 }
 /* The popup that asks which way. */
@@ -8463,7 +8525,12 @@ function renderQuoteRows(filtered){
             '<div class="form-row" style="margin-top:8px; max-width:220px;"><label style="font-size:11.5px;">Quoted Price ($) &mdash; what you\'ll ask them to approve</label><input type="number" class="quotePriceInput" data-id="'+item.id+'" min="0" step="1" value="'+(d.quotedPrice != null ? d.quotedPrice : (d.requoteFrom && Number(d.requoteFrom.price) ? Number(d.requoteFrom.price) : (d.estimatedFeet && perFootRate ? Math.round(d.estimatedFeet*perFootRate) : '')))+'" placeholder="e.g. 450"></div>'+
             /* On a re-quote the box starts on the old number, so she is adding
                to a price she can see rather than working one out from nothing. */
-            ((d.quotedPrice == null && d.requoteFrom && Number(d.requoteFrom.price)) ? '<div class="rtext" style="color:var(--slate); margin-top:-4px;">Starts on their last price ('+fmtMoney(Number(d.requoteFrom.price))+') &mdash; type over it with the new one.</div>' : '')+
+            ((d.quotedPrice == null && d.requoteFrom && Number(d.requoteFrom.price)) ? '<div class="rtext" style="color:var(--slate); margin-top:-4px;">Starts on their last price ('+fmtMoney(Number(d.requoteFrom.price))+') &mdash; type over it with the new one. <strong>Not saved until you click out of the box.</strong></div>' : '')+
+            /* ⚠ AND SAY SO WHEN THE BOX IS SHOWING A SUGGESTION IT HAS NOT SAVED. The
+               header two lines up reads "not priced yet" while a number sits in the
+               price field, which is a straight contradiction, and the owner read the
+               number and believed the quote was priced. */
+            ((d.quotedPrice == null && !(d.requoteFrom && Number(d.requoteFrom.price)) && d.estimatedFeet && perFootRate) ? '<div class="rtext" style="color:#8A6100; margin-top:-4px;">Suggested from '+d.estimatedFeet+' ft. <strong>Not saved until you click out of the box.</strong></div>' : '')+
             /* Defaults on for a brand-new quote and off for a re-quote (an
                existing customer already paid this once) - but only until she
                actually sets it herself, at which point d.chargeSetupFee wins. */
@@ -8473,7 +8540,7 @@ function renderQuoteRows(filtered){
             '<button type="button" class="btn btn-outline btn-sm" data-copyquoteemail="'+item.id+'" style="margin-left:6px;">Preview first</button>'+
             (d.phone && !d.smsOptedOut ? '<button type="button" class="btn btn-outline btn-sm" data-textquote="'+item.id+'" style="margin-left:6px;">Send as text instead</button>' : '')+
             ((typeof d.quotedPrice !== 'number' || d.quotedPrice <= 0)
-              ? '<div class="rtext" style="margin-top:6px; color:var(--ember); font-weight:600;">Needs a price before it can be sent.</div>'
+              ? '<div class="rtext" style="margin-top:6px; color:var(--ember); font-weight:600;">Needs a price before it can be sent &mdash; click out of the price box above to save it.</div>'
               : (!d.frontPhotoUrl
                   ? '<div class="rtext" style="margin-top:6px; color:#8A6100; font-weight:600;">No photo yet \u2014 you can still send, but it will ask first.</div>'
                   : ''))+

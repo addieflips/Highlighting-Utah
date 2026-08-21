@@ -19268,6 +19268,206 @@ suite('Suite 106. Moving house, and withdrawing a re-quote');
  * The crew drives to an address nobody has on a list, and the customer whose name
  * moved never finds out.
  * ------------------------------------------------------------------------- */
+/* ⭐ SUITE 109. PRICING A RE-QUOTE FROM THE POPUP THAT REFUSES IT. Owner, on Ashley
+   Wray's re-quote, 2026-08-20: "it says its not priced, and it doesnt let me fix the
+   issue from here so theres no way I can convert customer in this situation."
+
+   Two things had to be true at once for that dead end. The price box on the quote card
+   starts on a number worked out from the footage but SAVES NOTHING until the office
+   clicks out of it — so the header says "not priced yet" with 600 sitting in the box.
+   And this popup read the saved price alone, while showAddCustomerFromQuote has always
+   fallen back to the feet estimate. Same quote, two paths, two answers: convert as a
+   new customer and it prices itself, convert as a re-quote and it refuses.
+
+   These run the real function against a small fake DOM rather than reading it as text,
+   because what broke was what it DID with the numbers, and a regex cannot see that. */
+suite('Suite 107. Pricing a re-quote from the popup');
+
+{
+  const src = extractFn(admin, 'showApplyRequoteChoice');
+  check('S107', 'showApplyRequoteChoice is still there', !!src);
+
+  /* A DOM small enough to read. Elements are created from the ids the popup's own
+     markup declares, and an input keeps the value that markup gave it — so the
+     pre-filled price under test is the one the page really renders. */
+  function makeDom(){
+    const byId = {};
+    function el(id){
+      if(byId[id]) return byId[id];
+      byId[id] = {
+        id: id, value: '', textContent: '', disabled: false, style: {}, _h: {},
+        addEventListener: function(t, f){ (this._h[t] = this._h[t] || []).push(f); },
+        fire: function(t){ (this._h[t] || []).forEach(function(f){ f({}); }); },
+        remove: function(){ byId[id] = null; delete byId[id]; }
+      };
+      return byId[id];
+    }
+    let lastHtml = '';
+    const overlay = {
+      className: '', _h: {},
+      addEventListener: function(t, f){ (this._h[t] = this._h[t] || []).push(f); },
+      remove: function(){},
+      set innerHTML(v){
+        lastHtml = v;
+        /* Declare every id the markup mentions, and give inputs their value= */
+        const re = /id="([a-zA-Z0-9_-]+)"([^>]*)/g;
+        let m;
+        while((m = re.exec(v))){
+          const e = el(m[1]);
+          const val = /value="([^"]*)"/.exec(m[2]);
+          if(val) e.value = val[1];
+        }
+      },
+      get innerHTML(){ return lastHtml; }
+    };
+    const document = {
+      createElement: function(){ return overlay; },
+      body: {appendChild: function(){}},
+      getElementById: function(id){ return el(id); }
+    };
+    return {document: document, el: el, overlay: overlay, html: function(){ return lastHtml; }};
+  }
+
+  function run(quote, customer, rate){
+    const dom = makeDom();
+    const writes = [];
+    const toasts = [];
+    let opened = null;
+    const ctx = {
+      document: dom.document,
+      esc: (x) => String(x == null ? '' : x),
+      fmtMoney: (n) => '$' + Number(n || 0).toFixed(2),
+      cnBinsForFeet: (f) => (Number(f) >= 260 ? 2 : 1),
+      CN_DOUBLE_BIN_FEET: 260,
+      perFootRate: rate,
+      openEditCustomerModal: (id) => { opened = id; },
+      toast: (t) => toasts.push(t),
+      updateDoc: (ref, payload) => { writes.push(payload); return {catch: function(){}}; },
+      doc: (a, b, c) => ({path: b + '/' + c}),
+      db: {},
+      requoteBeingConverted: null
+    };
+    const names = Object.keys(ctx);
+    const fn = new Function(...names, src + ';return showApplyRequoteChoice;')(...names.map(n => ctx[n]));
+    fn('q1', quote, customer);
+    return {dom: dom, writes: writes, toasts: toasts, opened: () => opened,
+            html: dom.html, el: dom.el};
+  }
+
+  const ashley = {id: 'c894', data: {name: 'Ashley Wray', customerNumber: '894',
+                                     housePrice: 400, measuredFeet: 0}};
+
+  /* ⭐ HER ACTUAL CASE: 300 ft, no saved price, a $2/ft rate. */
+  {
+    const r = run({name: 'Ashley Wray', estimatedFeet: 300}, ashley, 2);
+    check('S107', 'a re-quote with footage and no saved price is priced from the footage',
+      r.el('requotePriceInput').value === '600',
+      'the same quote converts at $600 on the new-customer path, and refused here');
+    check('S107', 'and the button is live, not a dead end',
+      r.el('applyRequoteBtn').disabled === false,
+      'this is the whole complaint: nothing on the popup could fix what it objected to');
+    check('S107', 'it says where the number came from and that it was never saved',
+      /Worked out from 300 ft/.test(r.html()) && /Nothing was saved on the re-quote/.test(r.html()),
+      'a price that appeared by itself has to say so, or it reads as one somebody agreed');
+
+    r.el('applyRequoteBtn').fire('click');
+    check('S107', 'pressing it fills the customer form with that price',
+      r.el('editCustHousePrice').value === 600 && r.opened() === 'c894',
+      'the button says "open their record with this price" and has to mean it');
+    check('S107', 'and the new footage as well',
+      r.el('editCustFeet').value === 300);
+    check('S107', 'and writes the price back onto the re-quote',
+      r.writes.length === 1 && r.writes[0].quotedPrice === 600,
+      'the approval page and the quote email read the quote, so leaving it unpriced ' +
+      'while the customer record says $600 is the same two-answers problem one screen on');
+  }
+
+  /* ⚠ A PRICE THE OFFICE TYPES OVER THE SUGGESTION IS THE ONE THAT COUNTS. */
+  {
+    const r = run({name: 'Ashley Wray', estimatedFeet: 300}, ashley, 2);
+    r.el('requotePriceInput').value = '725';
+    r.el('requotePriceInput').fire('input');
+    check('S107', 'the summary line follows what is typed',
+      r.el('requotePriceEcho').textContent === '$725.00',
+      'the figure at the top of the popup must not disagree with the box below it');
+    r.el('applyRequoteBtn').fire('click');
+    check('S107', 'and the typed price is what is used',
+      r.el('editCustHousePrice').value === 725 && r.writes[0].quotedPrice === 725);
+  }
+
+  /* ⚠ AND A BLANK BOX STOPS, rather than opening the record under a button that
+     promised a new price and quietly leaving the old one in place. */
+  {
+    const r = run({name: 'Ashley Wray'}, ashley, 2);
+    check('S107', 'no footage and no price leaves the box empty',
+      r.el('requotePriceInput').value === '');
+    check('S107', 'the button is held until something is typed',
+      r.el('applyRequoteBtn').disabled === true,
+      'opening the record with nothing filled in is how the old price survives a re-quote');
+    check('S107', 'and it says so instead of just refusing',
+      /no footage to work one out from/.test(r.html()));
+    r.el('applyRequoteBtn').fire('click');
+    check('S107', 'and pressing it anyway changes nothing',
+      r.opened() === null && r.writes.length === 0 &&
+      r.toasts.some(t => /Type a price first/.test(t)),
+      'a disabled button can still be reached by a keyboard, so the handler checks too');
+    r.el('requotePriceInput').value = '480';
+    r.el('requotePriceInput').fire('input');
+    check('S107', 'typing one releases it',
+      r.el('applyRequoteBtn').disabled === false);
+  }
+
+  /* ⚠ A COMPED $0 RE-QUOTE IS A PRICE, NOT A BLANK. The same trap the new-customer
+     path documents: > 0 treats nothing and free as the same thing. */
+  {
+    const r = run({name: 'Free One', quotedPrice: 0}, ashley, 2);
+    check('S107', 'a $0 re-quote is a price and goes straight through',
+      r.el('requotePriceInput').value === '0' && r.el('applyRequoteBtn').disabled === false);
+    r.el('applyRequoteBtn').fire('click');
+    check('S107', 'and it is not re-saved, because nothing about it changed',
+      r.el('editCustHousePrice').value === 0 && r.writes.length === 0,
+      'writing a price the customer already approved back over itself is noise at best');
+  }
+
+  /* A saved price still wins over anything the footage suggests — that is the price
+     the customer was actually shown. */
+  {
+    const r = run({name: 'Priced', quotedPrice: 815, estimatedFeet: 300}, ashley, 2);
+    check('S107', 'a saved price beats the feet estimate',
+      r.el('requotePriceInput').value === '815' &&
+      !/Worked out from/.test(r.html()),
+      'recalculating from feet could quietly bill them something they never agreed to');
+    r.el('applyRequoteBtn').fire('click');
+    check('S107', 'and it is not written back over itself',
+      r.writes.length === 0);
+  }
+
+  /* No per-foot rate set anywhere: there is nothing to suggest, so it asks. */
+  {
+    const r = run({name: 'No Rate', estimatedFeet: 300}, ashley, 0);
+    check('S107', 'no per-foot rate means no invented suggestion',
+      r.el('requotePriceInput').value === '' &&
+      r.el('applyRequoteBtn').disabled === true,
+      'a rate of zero would price a 300 ft house at nothing');
+  }
+
+  /* ---- and the card that started it says what it is showing ---------------- */
+  /* ⚠ SCOPED TO THE BRANCH, because the phrase sits on TWO of them — the one that
+     starts on their last price and the one that suggests from the footage. A bare
+     search for it passed with the footage line deleted, which is the case the owner
+     was actually looking at. Caught by a red-check, not by reading it. */
+  check('S107', 'the price box on the quote card admits it has saved nothing yet',
+    /Suggested from '\+d\.estimatedFeet\+' ft\. <strong>Not saved until you click out of the box\.<\/strong>/.test(admin),
+    'the header says "not priced yet" with a number in the box, which is what the ' +
+    'owner read and reasonably believed');
+  check('S107', 'and so does the one that starts on their last price',
+    /Starts on their last price[\s\S]{0,160}Not saved until you click out of the box/.test(admin),
+    'both branches put a number in the box that nothing has written yet');
+  check('S107', 'and the red line under it names the fix',
+    /Needs a price before it can be sent &mdash; click out of the price box above/.test(admin),
+    'telling somebody what is wrong without telling them what to do is the dead end again');
+}
+
 suite('Suite 92. A day inside 48 hours is printed, and printed is finished');
 
 {
