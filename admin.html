@@ -8732,8 +8732,22 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
   const movedHouse = statedKind
     ? (statedKind === 'address')
     : !!(quoteAddr && custAddr && quoteAddr !== custAddr);
-  const topUpFeet = (oldFeet > 0 && newFeet > oldFeet) ? (newFeet - oldFeet) : 0;
-  const canTopUp = topUpFeet > 0;
+  /* ⭐ BUILD ONLY THE ADD-ON, AND THE FOOTAGE IS TYPED IN. Owner, 2026-08-21, looking at
+     a popup showing only Nothing and Recycle: "we also want there to be one thats build
+     the add on so dont build the whole thing again but build however many feet the
+     addition was", then: "just have it make you type how many feet instead of
+     calculating."
+
+     ⚠ IT USED TO BE OFFERED ONLY WHEN THE SUM CAME OUT — a known old footage AND a
+     bigger new one. So the commonest case of all, somebody adding a side to a house whose
+     feet were never recorded, was refused the one answer that fits it, and the office was
+     left choosing between rebuilding the whole house and doing nothing.
+
+     ⚠ AND IT NO LONGER GUESSES. The difference between two footages is only the size of
+     the addition if BOTH were measured the same way and neither was ever corrected — and
+     a pre-filled number is one nobody re-reads, so a wrong one goes to the warehouse
+     unnoticed. The office knows what was added; it is one number, and typing it is
+     quicker than checking a sum. */
   /* ⭐ A PRICE-ONLY RE-QUOTE ASKS THE WAREHOUSE FOR NOTHING. The house is unchanged, so
      building a new set or pulling the old one back would both be work nobody wants done.
      Offered as the selected answer rather than forced, because the office may have
@@ -8819,7 +8833,9 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
           (priceOnly ? ' <span style="color:var(--slate);">This re-quote was raised as a price change, so this is the one.</span>' : '')+'</span>'+
       '</label>'+
       '<label style="display:flex; gap:8px; align-items:flex-start; font-size:12.5px; cursor:pointer; padding:6px 0;">'+
-        '<input type="radio" name="requoteBuild" value="recycle" id="requoteBuildRecycle"'+((priceOnly || (canTopUp && !movedHouse)) ? '' : ' checked')+' style="width:auto; margin-top:3px;">'+
+        /* The default whenever the house itself changed. A price-only re-quote picks
+           Nothing above; the add-on is never a default because its footage is typed. */
+        '<input type="radio" name="requoteBuild" value="recycle" id="requoteBuildRecycle"'+(priceOnly ? '' : ' checked')+' style="width:auto; margin-top:3px;">'+
         '<span><strong>Recycle their old set and build the new one.</strong> Their old lights come back into stock and a full '+(newFeet ? newFeet+' ft' : 'new')+' set is made up.'+
           (movedHouse
             ? (statedKind === 'address'
@@ -8829,18 +8845,17 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
               ? ' <span style="color:var(--slate);">Raised as an addition to the same house.</span>'
               : ''))+'</span>'+
       '</label>'+
-      (canTopUp
-        ? '<label style="display:flex; gap:8px; align-items:flex-start; font-size:12.5px; cursor:pointer; padding:6px 0;">'+
-            '<input type="radio" name="requoteBuild" value="topup" id="requoteBuildTopUp"'+((!priceOnly && canTopUp && !movedHouse) ? ' checked' : '')+' style="width:auto; margin-top:3px;">'+
-            '<span><strong>Build only what they do not already have &mdash; '+topUpFeet+' ft.</strong> '+oldFeet+' ft stays in their bin and '+topUpFeet+' ft is added to it. The build sheet says whose bin it goes in.</span>'+
-          '</label>'
-        : '<div style="font-size:12px; color:var(--slate); padding:6px 0;">'+
-            (!oldFeet
-              ? 'There is no footage on their record, so there is nothing to work a difference out from &mdash; the whole set has to be built.'
-              : (!newFeet
-                ? 'The re-quote has no new footage on it, so there is nothing extra to build.'
-                : 'The new footage is not more than the ' + oldFeet + ' ft they already have, so there is nothing extra to build.'))+
-          '</div>')+
+      '<label style="display:flex; gap:8px; align-items:flex-start; font-size:12.5px; cursor:pointer; padding:6px 0;">'+
+        /* ⚠ NEVER PRE-SELECTED, because its box starts empty: selecting it for her and
+           then refusing the button until she fills the box in is a worse start than
+           letting her pick it when she has the number. */
+        '<input type="radio" name="requoteBuild" value="topup" id="requoteBuildTopUp" style="width:auto; margin-top:3px;">'+
+        '<span><strong>Build only the add-on.</strong> Their old set stays in its bin and only the extra is made up. The build sheet says whose bin it goes in.'+
+          '<span style="display:block; margin-top:5px;">How many feet is the addition? '+
+            '<input type="number" id="requoteTopUpFeet" min="1" step="1" placeholder="e.g. 40" '+
+            'style="width:80px; padding:3px 6px; font-size:12px; text-align:right; border:1px solid var(--line); border-radius:6px;"> ft</span>'+
+        '</span>'+
+      '</label>'+
     '</div>'+
     /* One box, always editable, always pre-filled with the best answer available.
        The old popup was a summary with nothing to type into, which is exactly why
@@ -8906,7 +8921,33 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
     const topUpEl = document.getElementById('requoteBuildTopUp');
     const noneEl = document.getElementById('requoteBuildNone');
     const wantsNothing = !!(noneEl && noneEl.checked);
-    const wantsTopUp = !wantsNothing && !!(canTopUp && topUpEl && topUpEl.checked);
+    const wantsTopUp = !wantsNothing && !!(topUpEl && topUpEl.checked);
+    /* ⚠ THE ADD-ON IS WHATEVER IS IN THE BOX, not the suggestion it was pre-filled with.
+       An office that types over a wrong sum and then watches the wrong sum get used has
+       been given a box that does nothing. */
+    const addOnEl = document.getElementById('requoteTopUpFeet');
+    const addOn = Math.round(Number(addOnEl && addOnEl.value) || 0);
+    /* What the record will hold once this is saved — the new footage if the re-quote
+       carries one, otherwise what they already had. */
+    const totalFeet = newFeet || oldFeet;
+    if(wantsTopUp){
+      if(!(addOn > 0)){
+        toast('Type how many feet the addition is, or choose one of the other two.');
+        if(addOnEl) addOnEl.focus();
+        return;
+      }
+      /* ⚠ AND IT HAS TO LEAVE SOMETHING IN THE BIN. An add-on as big as the whole house
+         is a full build wearing the wrong label, and storing it would tell the warehouse
+         somebody already holds zero feet. Said plainly rather than silently corrected. */
+      if(!(totalFeet > addOn)){
+        toast(totalFeet
+          ? ('An addition of '+addOn+' ft does not leave anything in their bin \u2014 '+totalFeet+
+             ' ft is the whole house. Use \u201crecycle and build new\u201d for that.')
+          : 'There is no footage on this re-quote to add to \u2014 put the new total in the Feet box on their record first.');
+        if(addOnEl) addOnEl.focus();
+        return;
+      }
+    }
     close();
     openEditCustomerModal(existingItem.id);
     /* AFTER the modal fills itself from the record, or the record would write
@@ -8958,10 +8999,13 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
     /* And whatever they told us themselves. Nothing is written until Save Changes,
        same as the price and the feet above. */
     applyRequoteFormAnswers(d);
+    /* ⚠ STILL STORED AS WHAT THEY ALREADY HAVE, not as the addition — see
+       houseBundleNeed. Working back to it from the typed add-on keeps the one field and
+       the one subtraction, so correcting the footage later still corrects the build. */
     requoteBuildChoice = wantsNothing
       ? {mode: 'none'}
       : (wantsTopUp
-        ? {mode: 'topup', haveFeet: oldFeet, extraFeet: topUpFeet}
+        ? {mode: 'topup', haveFeet: totalFeet - addOn, extraFeet: addOn}
         : {mode: 'recycle'});
     requoteBeingConverted = quoteId;
     /* ⭐ AND THE SAVE BUTTON SAYS WHAT PRESSING IT FINISHES. "Save Changes" on a form
@@ -8976,7 +9020,7 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
     }
     toast(fmtMoney(price)+' filled in for '+(who)+' \u2014 '+
       (wantsNothing ? 'nothing for the warehouse'
-        : (wantsTopUp ? ('warehouse will build the extra '+topUpFeet+' ft') : 'old set recycles, new one gets built'))+
+        : (wantsTopUp ? ('warehouse will build the '+addOn+' ft add-on') : 'old set recycles, new one gets built'))+
       (carry ? ', colours brought over from the quote' : '')+
       '. Press Save Changes.');
     /* ⚠ AND IF THERE ARE STILL NO COLOURS ANYWHERE, SAY IT NOW rather than letting the

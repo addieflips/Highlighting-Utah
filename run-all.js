@@ -19379,6 +19379,10 @@ suite('Suite 107. Pricing a re-quote from the popup');
         options: [],
         addEventListener: function(t, f){ (this._h[t] = this._h[t] || []).push(f); },
         fire: function(t){ (this._h[t] || []).forEach(function(f){ f({}); }); },
+        /* A refusal puts the cursor back in the box it is complaining about. A stub
+           without this throws where the page would not, which hides the refusal being
+           tested behind a crash. */
+        focus: function(){ this.focused = true; },
         remove: function(){ byId[id] = null; delete byId[id]; }
       };
       return byId[id];
@@ -19636,23 +19640,74 @@ suite('Suite 107. Pricing a re-quote from the popup');
                                      address: '12 Same St, Lehi, UT'}};
     const r = run({name: 'Grew Bigger', estimatedFeet: 300, quotedPrice: 600,
                    address: '12 Same St, Lehi, UT'}, grew, 2);
-    check('S107', 'more feet at the same house offers building only the difference',
-      /Build only what they do not already have/.test(r.html()) &&
-      /120 ft/.test(r.html()),
-      '300 less the 180 already in their bin is 120, which is the whole request');
-    check('S107', 'and that is the one already selected',
-      r.el('requoteBuildTopUp').checked === true &&
-      r.el('requoteBuildRecycle').checked === false,
-      'same address and more feet is exactly what topping up is for');
+    /* ⭐ THE ADD-ON FOOTAGE IS TYPED, NEVER WORKED OUT. Owner, 2026-08-21: "just have it
+       make you type how many feet instead of calculating." The difference between two
+       footages is only the size of the addition if both were measured the same way and
+       neither has been corrected since — and a pre-filled number is one nobody
+       re-reads, so a wrong one reaches the warehouse unnoticed. */
+    check('S107', 'the add-on is offered with an EMPTY box',
+      /Build only the add-on/.test(r.html()) &&
+      r.el('requoteTopUpFeet').value === '',
+      'a figure that appeared by itself is one nobody checks');
+    check('S107', 'and is never the pre-picked answer, because its box is blank',
+      r.el('requoteBuildTopUp').checked === false &&
+      r.el('requoteBuildRecycle').checked === true,
+      'picking it for her and then refusing the button is a worse start than letting ' +
+      'her pick it when she has the number');
 
+    /* ⚠ AND PICKING IT WITHOUT A FIGURE IS REFUSED, not quietly turned into something
+       else. A blank box that silently becomes a full rebuild is the worst of both. */
     r.el('requoteBuildTopUp').checked = true;
+    r.el('requoteBuildRecycle').checked = false;
     r.el('applyRequoteBtn').fire('click');
-    check('S107', 'pressing Open actually parks the top-up for the save',
-      !!r.choice() && r.choice().mode === 'topup' &&
-      r.choice().haveFeet === 180 && r.choice().extraFeet === 120,
+    check('S107', 'the add-on with no footage typed is refused',
+      r.choice() === null && r.opened() === null &&
+      r.toasts.some(function(t){ return /Type how many feet/.test(t); }),
+      'nothing is parked, nothing is opened, and it says what is missing');
+    check('S107', 'and it puts the cursor in the box it is complaining about',
+      r.el('requoteTopUpFeet').focused === true);
+
+    r.el('requoteTopUpFeet').value = '120';
+    r.el('applyRequoteBtn').fire('click');
+    check('S107', 'and with a figure it parks the add-on for the save',
+      !!r.choice() && r.choice().mode === 'topup' && r.choice().extraFeet === 120,
       'the button has to do the thing, not just look like it offers it');
+    /* ⚠ STORED AS WHAT THEY ALREADY HAVE — see houseBundleNeed. 300 on the re-quote
+       less a 120 ft addition means 180 stays in the bin. */
+    check('S107', 'worked back to what stays in their bin',
+      r.choice().haveFeet === 180,
+      'one field and one subtraction, so correcting the footage later still corrects ' +
+      'the build');
     check('S107', 'and the re-quote is still marked as being converted',
       r.converting() === 'q1');
+  }
+
+  /* ⚠ AND AN ADD-ON AS BIG AS THE HOUSE IS A FULL REBUILD WEARING THE WRONG LABEL.
+     Storing it would tell the warehouse somebody already holds zero feet, so the bundle
+     would be right by accident and the bin note would be nonsense. Said plainly rather
+     than silently corrected. */
+  {
+    const grew = {id: 'c500', data: {name: 'Grew Bigger', customerNumber: '500',
+                                     housePrice: 400, measuredFeet: 180,
+                                     address: '12 Same St, Lehi, UT'}};
+    const r = run({name: 'Grew Bigger', estimatedFeet: 300, quotedPrice: 600,
+                   address: '12 Same St, Lehi, UT'}, grew, 2);
+    r.el('requoteBuildRecycle').checked = false;
+    r.el('requoteBuildTopUp').checked = true;
+    r.el('requoteTopUpFeet').value = '300';
+    r.el('applyRequoteBtn').fire('click');
+    check('S107', 'an add-on the size of the whole house is refused',
+      r.choice() === null && r.opened() === null &&
+      r.toasts.some(function(t){ return /does not leave anything in their bin/.test(t); }),
+      'it would store "they already have 0 ft", which is a full build mislabelled');
+    check('S107', 'and it names the other answer that does fit',
+      r.toasts.some(function(t){ return /recycle and build new/.test(t); }),
+      'refusing without naming the way through is the dead end this popup already had');
+
+    r.el('requoteTopUpFeet').value = '120';
+    r.el('applyRequoteBtn').fire('click');
+    check('S107', 'and a figure that does leave something goes through',
+      !!r.choice() && r.choice().haveFeet === 180);
   }
 
   {
@@ -19676,9 +19731,15 @@ suite('Suite 107. Pricing a re-quote from the popup');
     check('S107', 'no old footage means no top-up offered',
       !/Build only what they do not already have/.test(r.html()),
       'her own words: "for this one it will be recycle old build new"');
-    check('S107', 'and it says WHY, where the second button would have been',
-      /nothing to work a difference out from/.test(r.html()),
-      'a missing option with no explanation is the dead end this popup already had');
+    /* ⭐ IT IS OFFERED EVEN WHEN THE SUM CANNOT BE DONE (changed 2026-08-21). Owner: "we
+       also want there to be one thats build the add on so dont build the whole thing
+       again but build however many feet the addition was." Not being able to WORK OUT the
+       addition is not a reason to refuse to build it; it is a reason to ask how big it
+       is. It is offered, left unselected, and says why it could not be worked out. */
+    check('S107', 'the add-on is offered even with no footage on the record at all',
+      /Build only the add-on/.test(r.html()) &&
+      r.el('requoteTopUpFeet').value === '',
+      'the office was left choosing between rebuilding the whole house and doing nothing');
     r.el('applyRequoteBtn').fire('click');
     check('S107', 'and the only thing it can do is what it does',
       r.choice().mode === 'recycle');
@@ -19690,9 +19751,10 @@ suite('Suite 107. Pricing a re-quote from the popup');
                    address: '12 Same St'},
                   {id: 'c1', data: {name: 'Shrank', customerNumber: '1',
                                     measuredFeet: 180, address: '12 Same St'}}, 2);
-    check('S107', 'fewer feet than they already have offers no top-up',
-      !/Build only what they do not already have/.test(r.html()) &&
-      /not more than the 180 ft they already have/.test(r.html()));
+    check('S107', 'fewer feet than before still offers the add-on, unselected',
+      /Build only the add-on/.test(r.html()) &&
+      r.el('requoteBuildTopUp').checked === false,
+      'somebody can add a side AND have the total corrected downward in one re-quote');
   }
 
   /* ⚠ A NEW ADDRESS MEANS THEY MOVED, and their old set is coming off the old house. */
@@ -19701,8 +19763,8 @@ suite('Suite 107. Pricing a re-quote from the popup');
                    address: '99 New Rd, Lehi, UT'},
                   {id: 'c2', data: {name: 'Moved', customerNumber: '2',
                                     measuredFeet: 180, address: '12 Old St, Lehi, UT'}}, 2);
-    check('S107', 'a move still offers the top-up but does not pick it',
-      /Build only what they do not already have/.test(r.html()) &&
+    check('S107', 'a move still offers the add-on but does not pick it',
+      /Build only the add-on/.test(r.html()) &&
       r.el('requoteBuildTopUp').checked === false &&
       r.el('requoteBuildRecycle').checked === true,
       'the sums allow it and the situation does not; the office can still override');
@@ -20122,8 +20184,12 @@ suite('Suite 107. Pricing a re-quote from the popup');
     const addition = run({name: 'Typo', estimatedFeet: 300, quotedPrice: 600,
                           address: '9991 Red Cedar Lane', requoteKind: 'addition'},
                          movedAddr, 2);
-    check('S114', 'a stated addition tops up, even when the addresses differ',
-      addition.el('requoteBuildTopUp').checked === true,
+    /* ⚠ WHAT THE STATED KIND DECIDES IS THAT THEY DID NOT MOVE — so recycle is not
+       pre-picked as the move case, and the add-on is there to choose. It cannot be
+       pre-picked itself, because its footage is typed (see S107). */
+    check('S114', 'a stated addition does not read as a move, whatever the addresses say',
+      !/almost certainly the one/.test(addition.html()) &&
+      /Build only the add-on/.test(addition.html()),
       'Ln against Lane is a typing difference, not a house move, and the guess ' +
       'could not tell');
     check('S114', 'and says it was raised as an addition',
@@ -20332,15 +20398,17 @@ suite('Suite 107. Pricing a re-quote from the popup');
                                     address: '12 Main St'}};
     const r = run({name: 'Changed Mind', estimatedFeet: 300, quotedPrice: 700,
                    address: '12 Main St', requoteKind: 'price'}, same, 2);
-    check('S118', 'the top-up is still there to pick on a price-only re-quote',
-      /Build only what they do not already have/.test(r.html()) &&
+    check('S118', 'the add-on is still there to pick on a price-only re-quote',
+      /Build only the add-on/.test(r.html()) &&
       r.el('requoteBuildTopUp').checked === false,
       'offered but not selected');
     r.el('requoteBuildNone').checked = false;
     r.el('requoteBuildTopUp').checked = true;
+    /* The footage is typed, never worked out — see S107. */
+    r.el('requoteTopUpFeet').value = '120';
     r.el('applyRequoteBtn').fire('click');
     check('S118', 'and choosing it overrides the price-only default',
-      r.choice().mode === 'topup' && r.choice().extraFeet === 120,
+      !!r.choice() && r.choice().mode === 'topup' && r.choice().extraFeet === 120,
       'Nothing is a default, not a lock');
   }
 
