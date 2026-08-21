@@ -25183,10 +25183,66 @@ function renderEditCustPhotoThumb(d){
       style: 'max-width:220px; margin-bottom:6px;',
       frameStyle: 'border-radius:8px; overflow:hidden; border:1px solid var(--line);'
     })+
-    '<button type="button" class="btn btn-outline btn-sm" id="editCustMarkupBtn" style="margin-top:6px;">Highlight / Mark Up This Photo</button>';
+    '<button type="button" class="btn btn-outline btn-sm" id="editCustMarkupBtn" style="margin-top:6px;">Highlight / Mark Up This Photo</button>'+
+    '<button type="button" class="btn btn-outline btn-sm" id="editCustPhotoDelete" style="margin-top:6px; margin-left:6px; color:var(--ember); border-color:var(--ember);">Delete This Photo</button>';
   const b = document.getElementById('editCustMarkupBtn');
   if(b) b.addEventListener('click', function(){
     openCustomerMarkup(editCustomerId, pcActiveIndex(wrap.querySelector('.pc')));
+  });
+  /* ⭐ A PHOTO COULD BE ADDED AND NEVER TAKEN OFF AGAIN (added 2026-08-20). Owner:
+     "currently there is no way to delete a photo once its added fix that", and "i need
+     to be able to delete them in edit customer." Add Customer has had a Remove button
+     since it was written; the EDIT form never got one, so a wrong photo on an existing
+     customer was permanent — and it is the crew who then drive to the wrong house.
+
+     ⚠ IT DELETES THE ONE BEING LOOKED AT, not the first. The frame is a carousel and
+     the button sits under whichever photo is showing, so anything else is a trap: you
+     look at the bad one, press Delete, and the good one disappears. pcActiveIndex is
+     the same reading Mark Up already uses, so the two buttons always act on the same
+     picture.
+
+     ⚠ THE FILE ITSELF IS LEFT ON CLOUDINARY. Removing it needs a signed API call
+     with credentials this page does not have and should not have. The record no longer
+     points at it, which is what the office and the crew see; an orphaned file costs a
+     little storage and nothing else. Do not "finish" this by putting an upload secret
+     in the browser.
+
+     ⚠ AND IT REBUILDS THE WHOLE FIELD SET through customerPhotoUpdates, rather than
+     splicing housePhotos alone. Photo #1 is MIRRORED onto housePhotoUrl /
+     housePhotoOriginal / housePhotoMarkup for everything that only ever wanted one
+     picture — the portal map, the invoice map, older saved routes. Deleting the first
+     of two and leaving that mirror behind points all of them at a photo the customer
+     no longer has. Deleting the last one clears the mirror, which the same helper
+     already does for an empty list. */
+  const del = document.getElementById('editCustPhotoDelete');
+  if(del) del.addEventListener('click', async function(){
+    if(!editCustomerId) return;
+    const idx = pcActiveIndex(wrap.querySelector('.pc'));
+    const list = customerPhotoList(d);
+    if(!list.length) return;
+    const which = (idx >= 0 && idx < list.length) ? idx : 0;
+    const many = list.length > 1;
+    if(!confirm(many
+        ? ('Delete photo ' + (which + 1) + ' of ' + list.length + ' for ' + (d.name || 'this customer') + '?')
+        : ('Delete the only photo for ' + (d.name || 'this customer') + '?'))) return;
+    const statusEl = document.getElementById('editCustPhotoStatus');
+    const left = list.slice(0, which).concat(list.slice(which + 1));
+    del.disabled = true;
+    try{
+      await updateDoc(doc(db, 'jobAddresses', editCustomerId), customerPhotoUpdates(left));
+      /* Redraw from what was just written rather than waiting for the listener: the
+         overlay does not re-render itself, so without this the deleted photo stays on
+         screen and looks as though nothing happened. */
+      const next = Object.assign({}, d, customerPhotoUpdates(left));
+      renderEditCustPhotoThumb(next);
+      if(statusEl) statusEl.textContent = left.length
+        ? ('Photo deleted \u2014 ' + left.length + ' left.')
+        : 'Photo deleted. There is no photo on file now.';
+      toast('Photo deleted');
+    }catch(err){
+      del.disabled = false;
+      if(statusEl) statusEl.textContent = 'Could not delete that photo: ' + (err && err.message ? err.message : err);
+    }
   });
 }
 document.getElementById('editCustPhotoFile').addEventListener('change', async function(e){
@@ -35587,10 +35643,27 @@ function printLightColor(d){
    chargeNewMemberFee — see the 2026-08-19 note about there being no separate colour
    change fee any more — so testing the fee first would call every colour change a new
    hang and print a photo of a house the crew has hung before. */
-function printIsNewHang(d){
-  if(!d) return false;
-  if(d.lightsChangedAt) return false;
-  return d.chargeNewMemberFee === true || !!d.requoteAppliedAt;
+function printIsNewHang(d, h){
+  if(!d && !h) return false;
+  if(d && d.lightsChangedAt) return false;
+  if(d && (d.chargeNewMemberFee === true || d.requoteAppliedAt)) return true;
+  /* ⭐ AND THE SCHEDULE'S OWN NEW BADGE COUNTS TOO (added 2026-08-20). Owner, asked
+     for a draft sheet: "do it with ashley wrays house because shes a new hang."
+
+     ⚠ HER $30 NEW MEMBER BOX IS NOT TICKED, so the fee alone said she was not one
+     and she would have printed with no photo at all — on the very sheet asked for.
+     The Schedule has badged her NEW all along, because it asks a different question:
+     isNewMemberHouse looks for a CLOSED QUOTE against that house, which is what the
+     Convert-to-Customer flow leaves behind. Two definitions of "new hang" were live in
+     one page and the printing had picked the quieter one.
+
+     Either answer means the same thing on the ground — nobody has hung this house
+     before — so the photo is what the crew needs and the union is the honest rule.
+     The fee box stays first because it is the one the office ticks deliberately. */
+  if(h && typeof isNewMemberHouse === 'function'){
+    try{ if(isNewMemberHouse(h)) return true; }catch(err){ /* no quotes loaded yet */ }
+  }
+  return false;
 }
 function printCustData(h){
   const c = (typeof customerForHouse === 'function') ? customerForHouse(h) : null;
@@ -35716,7 +35789,7 @@ function printCrewPhotos(day, i){
   const out = [];
   mine.forEach(function(h){
     const d = printCustData(h);
-    if(!printIsNewHang(d)) return;
+    if(!printIsNewHang(d, h)) return;
     const photos = ((typeof customerPhotoList === 'function') ? customerPhotoList(d) : [])
       .filter(function(p){ return p && p.url; });
     if(!photos.length) return;
@@ -35763,9 +35836,21 @@ const PRINT_SHEET_CSS =
   '.photos h2{font-size:12px;text-transform:uppercase;letter-spacing:.03em;margin:0 0 6px;}' +
   '.photos figure{display:inline-block;margin:0 10px 10px 0;vertical-align:top;' +
   '  page-break-inside:avoid;}' +
-  '.photos img{display:block;height:1.5in;width:auto;max-width:3.5in;' +
-  '  object-fit:cover;border:1px solid #999;}' +
-  '.photos figcaption{font-size:10px;margin-top:3px;max-width:3.5in;}' +
+  /* ⭐ A FIXED LANDSCAPE BOX, NOT width:auto (fixed 2026-08-20). Owner: "make sure
+     it goes the long way with the paper."
+
+     ⚠ width:auto TAKES ITS SHAPE FROM THE PHOTO, and a phone photo of a house is
+     PORTRAIT — Ashley Wray's real one is 4284 by 5712. At an inch and a half tall that
+     came out barely an inch WIDE: a tall narrow strip, which is the short way with the
+     paper and exactly what she asked to avoid. Every fixture I had used a wide picture,
+     so nothing caught it until it was run against a real customer.
+
+     The box is the crop now: two and a half inches by one and a half, and object-fit
+     cover fills it from the middle of the photo whichever way round the original is.
+     That is her word for it — "cropped to be about an inch and a half long". */
+  '.photos img{display:block;width:2.5in;height:1.5in;object-fit:cover;' +
+  '  border:1px solid #999;background:#f2f2f2;}' +
+  '.photos figcaption{font-size:10px;margin-top:3px;width:2.5in;}' +
   '@page{size:landscape;margin:10mm;}';
 /* One document, several sheets, a page break between each. Print Today is three pieces
    of paper and the office should press print once. */

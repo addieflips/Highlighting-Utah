@@ -18629,11 +18629,27 @@ suite('Suite 104. The Printing tab');
     admin.indexOf('function schedOpenPrintPages(', cssAt));
   check('S104', 'the picture is an inch and a half tall', /height:1\.5in/.test(css),
     'the size she asked for, written once');
-  check('S104', 'it runs along the long edge of the paper',
-    /width:auto/.test(css) && /max-width:3\.5in/.test(css) && /size:landscape/.test(css),
-    'a tall crop of a wide house is mostly sky and driveway');
-  check('S104', 'and it is capped so it cannot eat the ink',
-    /max-width:3\.5in/.test(css),
+  /* ⭐ A FIXED LANDSCAPE BOX, NOT width:auto. Owner asked for a draft of Ashley
+     Wray’s house and her real photo is 4284 by 5712 — PORTRAIT, like any phone
+     picture of a house. With width:auto that came out barely an inch wide at an inch
+     and a half tall: the SHORT way with the paper, which is what she asked to avoid.
+     Every fixture here used a wide picture, so nothing caught it until it met a real
+     customer. The box is the crop now. */
+  /* ⚠ THE COMMENT EXPLAINING WHY width:auto IS WRONG CONTAINS THE WORDS width:auto,
+     so a bare search for them fails on the fix itself. Strip the comments first and
+     ask what the stylesheet actually DECLARES. */
+  const cssDecl = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  check('S104', 'the picture is a fixed landscape box, whatever shape the photo is',
+    /width:2\.5in/.test(cssDecl) && /height:1\.5in/.test(cssDecl) &&
+    cssDecl.indexOf('width:auto') === -1,
+    'width:auto takes its shape from the photo, and a photo of a house is portrait — ' +
+    'Ashley Wray' + String.fromCharCode(39) + 's real one is 4284 by 5712, which came ' +
+    'out an inch wide');
+  check('S104', 'it is cropped rather than squashed',
+    /object-fit:cover/.test(css),
+    'owner: "cropped to be about an inch and a half long"');
+  check('S104', 'and it is small enough not to eat the ink',
+    /width:2.5in/.test(css) && /size:landscape/.test(css),
     'this prints on every crew sheet, every morning, all season');
   check('S104', 'a picture is never split across a page',
     /photos figure\{[^}]*page-break-inside:avoid/.test(css.replace(/\s+/g, '')) ||
@@ -18895,6 +18911,136 @@ suite('Suite 104. The Printing tab');
         .every(k => h.indexOf("what === '" + k + "'") !== -1);
     })(),
     'a button that renders and does nothing is worse than no button');
+}
+/* ---------------------------------------------------------------------------
+ * Suite 105. Taking a photo back off a customer
+ *
+ * Owner, 2026-08-20: "currently there is no way to delete a photo once its added fix
+ * that", and "i need to be able to delete them in edit customer."
+ *
+ * Add Customer has had a Remove button since it was written. The EDIT form never got
+ * one, so a wrong photo on an existing customer was permanent — and it is the crew
+ * who then drive to the wrong house.
+ * ------------------------------------------------------------------------- */
+suite('Suite 105. Taking a photo back off a customer');
+
+{
+  const src = extractFn(admin, 'renderEditCustPhotoThumb');
+  check('S105', 'the edit-customer photo block is there', !!src);
+  check('S105', 'and Add Customer still has its own remove',
+    admin.indexOf('addCustPhotoRemove') !== -1,
+    'this adds the missing half; it does not replace the half that worked');
+
+  if (src) {
+    /* Run the renderer against a fake DOM, press the button, and read what would
+       have been written. A source check cannot tell a button that deletes the photo
+       you are looking at from one that always deletes the first. */
+    const run = (photos, activeIndex, opts) => {
+      const o = opts || {};
+      const state = {written: null, redrawn: 0, confirmed: null, status: '', toasts: []};
+      const els = {};
+      const mk = (id) => (els[id] = els[id] || {id: id, innerHTML: '', textContent: '',
+        style: {}, disabled: false, _click: null,
+        addEventListener: function (ev, fn) { if (ev === 'click') this._click = fn; },
+        querySelector: function () { return {}; }});
+      const cust = {name: 'Ashley Wray', housePhotos: photos};
+      const fn = new Function('state', 'mk', 'cust', 'activeIndex', 'fail',
+        'const document = {getElementById: function(id){ return mk(id); }};' +
+        'const editCustomerId = "cust1";' +
+        'const db = {}; const doc = function(){ return {}; };' +
+        'const updateDoc = async function(ref, payload){ if(fail) throw new Error("nope");' +
+        '  state.written = payload; };' +
+        'const toast = function(t){ state.toasts.push(t); };' +
+        'const confirm = function(msg){ state.confirmed = msg; return !state.declined; };' +
+        'const openCustomerMarkup = function(){};' +
+        'const photoFrameHtml = function(){ return "<div class=\\"pc\\"></div>"; };' +
+        'const pcActiveIndex = function(){ return activeIndex; };' +
+        extractFn(admin, 'customerPhotoList') + extractFn(admin, 'customerPhotoUpdates') +
+        src +
+        'renderEditCustPhotoThumb(cust);' +
+        'return {el: mk("editCustPhotoDelete"), thumb: mk("editCustPhotoThumb"),' +
+        '        status: mk("editCustPhotoStatus")};');
+      const out = fn(state, mk, cust, activeIndex, !!o.fail);
+      state.button = out.el;
+      state.markup = out.thumb.innerHTML;
+      state.status = out.status;
+      state.declined = !!o.decline;
+      return state;
+    };
+
+    const three = [{url: 'a'}, {url: 'b'}, {url: 'c'}];
+
+    const drawn = run(three, 0);
+    check('S105', 'a Delete button is drawn beside Mark Up',
+      /editCustPhotoDelete/.test(drawn.markup) && /editCustMarkupBtn/.test(drawn.markup),
+      'got: ' + drawn.markup.slice(0, 120));
+    check('S105', 'and it is wired to something',
+      typeof drawn.button._click === 'function',
+      'a button that renders and does nothing is worse than no button');
+
+    /* ⭐ IT DELETES THE ONE BEING LOOKED AT. The frame is a carousel and the button
+       sits under whichever photo is showing. Anything else is a trap: you look at the
+       bad one, press Delete, and the good one disappears. */
+    const middle = run(three, 1);
+    await middle.button._click();
+    check('S105', 'the photo on screen is the one deleted, not the first',
+      !!middle.written && middle.written.housePhotos.map(p => p.url).join() === 'a,c',
+      'got ' + (middle.written ? middle.written.housePhotos.map(p => p.url).join() : 'no write') +
+      ' — looking at the second and pressing Delete must not remove the first');
+
+    const last = run(three, 2);
+    await last.button._click();
+    check('S105', 'and the last one behaves the same way',
+      last.written.housePhotos.map(p => p.url).join() === 'a,b');
+
+    /* ⭐ THE MIRROR FIELDS ARE REBUILT, NOT LEFT BEHIND. Photo #1 is copied onto
+       housePhotoUrl for everything that only ever wanted one picture — the portal
+       map, the invoice map, older saved routes. Splicing housePhotos alone points all
+       of them at a photo the customer no longer has. */
+    const first = run(three, 0);
+    await first.button._click();
+    check('S105', 'deleting the first photo moves the mirror onto the new first',
+      first.written.housePhotoUrl === 'b',
+      'got ' + first.written.housePhotoUrl + ' — the portal and invoice maps read this');
+
+    const only = run([{url: 'solo'}], 0);
+    await only.button._click();
+    check('S105', 'deleting the only photo clears the mirror as well',
+      only.written.housePhotos.length === 0 && only.written.housePhotoUrl === '' &&
+      only.written.housePhotoOriginal === '' &&
+      Array.isArray(only.written.housePhotoMarkup) && !only.written.housePhotoMarkup.length,
+      'a cleared list that leaves the url behind shows a deleted photo on the portal');
+
+    /* ⚠ ASKED FIRST, AND THE QUESTION SAYS WHICH ONE. */
+    check('S105', 'it asks before deleting',
+      /Delete photo 2 of 3/.test(middle.confirmed || ''),
+      'got: ' + middle.confirmed);
+    check('S105', 'and says so plainly when it is the only one',
+      /only photo/.test(only.confirmed || ''),
+      'got: ' + only.confirmed);
+
+    const said = run(three, 1, {decline: true});
+    await said.button._click();
+    check('S105', 'saying no writes nothing at all',
+      said.written === null,
+      'a confirm that is asked and ignored is worse than no confirm');
+
+    /* ⚠ AND A FAILED WRITE SAYS SO RATHER THAN LOOKING DONE. */
+    const broke = run(three, 1, {fail: true});
+    await broke.button._click();
+    check('S105', 'a failed delete reports the error and re-enables the button',
+      /Could not delete/.test(broke.status.textContent || '') &&
+      broke.button.disabled === false,
+      'a photo that is still there, with a button that no longer works, is the ' +
+      'worst of both');
+  }
+
+  /* ⚠ THE FILE ITSELF IS DELIBERATELY LEFT ON CLOUDINARY. Removing it needs a signed
+     API call with credentials this page does not have and must not have. The record no
+     longer points at it, which is what the office and the crew see. */
+  check('S105', 'no upload secret was put in the browser to finish the job',
+    admin.indexOf('api_secret') === -1 && admin.indexOf('cloudinary_signature') === -1,
+    'an orphaned file costs a little storage; a key in the page costs the account');
 }
 /* ---------------------------------------------------------------------------
  * Suite 92. A day inside 48 hours is printed, and printed is finished
