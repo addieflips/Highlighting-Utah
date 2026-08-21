@@ -33251,7 +33251,7 @@ function attachDeleteHandlers(container){
   const host=document.getElementById("scheduleHost"); if(!host||host.shadowRoot) return;
   const RT=host.attachShadow({mode:"open"});
   const STYLE="\n:host{--green:#0f5132;--green-l:#1a7a4c;--red:#b02a37;--gold:#c99a2e;--bg:#eef1ef;--card:#fff;\n--ink:#1c2621;--muted:#6b776f;--line:#e2e8e4;--done:#dff3e6;--sel:#0f5132;\n--shadow:0 1px 3px rgba(20,40,30,.06),0 6px 20px rgba(20,40,30,.07);}\n*{box-sizing:border-box}\n.rdwrap{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Inter,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink);line-height:1.4;-webkit-font-smoothing:antialiased}\n.wrap{max-width:1400px;margin:0 auto;padding:0 18px 60px}\nheader.top{background:linear-gradient(120deg,#0f5132,#1a7a4c 60%,#14663f);color:#fff;padding:26px 0 24px;border-bottom:4px solid var(--gold)}\n.top .wrap{padding-bottom:0}\n.lights{display:flex;gap:6px;margin-bottom:8px}\n.lights i{width:10px;height:10px;border-radius:50%;box-shadow:0 0 8px currentColor}\n.lights i:nth-child(1){background:#ff5a5a;color:#ff5a5a}.lights i:nth-child(2){background:#ffd35a;color:#ffd35a}.lights i:nth-child(3){background:#5affa0;color:#5affa0}.lights i:nth-child(4){background:#5ab8ff;color:#5ab8ff}.lights i:nth-child(5){background:#e07bff;color:#e07bff}\nh1{font-size:24px;margin:0;font-weight:750;letter-spacing:-.01em}\n.sub{color:#d5e8dd;font-size:13.5px;margin-top:3px}\n.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin:-42px 0 16px;position:relative}\n.stat{background:var(--card);border-radius:13px;padding:14px 16px;box-shadow:var(--shadow);border:1px solid var(--line)}\n.stat .n{font-size:23px;font-weight:780;color:var(--green);letter-spacing:-.02em}\n.stat .l{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:2px;font-weight:650}\n.obar{height:9px;border-radius:6px;background:#e0e6e2;overflow:hidden;margin-top:9px}\n.obar>i{display:block;height:100%;background:linear-gradient(90deg,var(--green-l),var(--gold));transition:width .4s}\n.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:4px 0 16px}\n.search{flex:1;min-width:200px;position:relative}\n.search input{width:100%;padding:11px 13px 11px 38px;border:1px solid var(--line);border-radius:11px;font-size:15px;background:var(--card);box-shadow:var(--shadow);outline:none}\n.search input:focus{border-color:var(--green-l)}\n.search svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);opacity:.45}\n.btn{padding:11px 15px;border-radius:11px;font-size:14px;font-weight:650;border:1px solid var(--green-l);background:var(--green-l);color:#fff;cursor:pointer;box-shadow:var(--shadow)}\n.btn:hover{background:var(--green)}.btn.ghost{background:var(--card);color:var(--green-l)}\n.layout{display:grid;grid-template-columns:270px 1fr;gap:18px;align-items:start}\n.daylist{background:var(--card);border-radius:14px;box-shadow:var(--shadow);border:1px solid var(--line);overflow:hidden;max-height:78vh;overflow-y:auto;position:sticky;top:14px}\n.daylist h3{margin:0;padding:13px 15px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--card);z-index:1}\n.day{padding:11px 15px;border-bottom:1px solid var(--line);cursor:pointer;display:flex;flex-direction:column;gap:5px;transition:background .12s}\n.day:hover{background:#f4f8f5}\n.day.sel{background:var(--green);color:#fff}\n.day.sel .dmeta,.day.sel .dbar{color:#d5e8dd}\n.day.sel .dbar{background:rgba(255,255,255,.25)}\n.drow{display:flex;justify-content:space-between;align-items:baseline;gap:8px}\n.dname{font-weight:700;font-size:14.5px}\n.dcount{font-size:12px;font-weight:650;opacity:.85}\n.dmeta{font-size:12px;color:var(--muted);display:flex;justify-content:space-between}\n.dbar{height:5px;border-radius:4px;background:#e0e6e2;overflow:hidden}\n.dbar>i{display:block;height:100%;background:linear-gradient(90deg,var(--green-l),var(--gold))}\n.day.sel .dbar>i{background:#ffd98a}\n.check-badge{display:inline-block;width:15px;height:15px;border-radius:50%;background:var(--gold);color:#fff;font-size:10px;text-align:center;line-height:15px;margin-left:5px}\n.panel{background:var(--card);border-radius:14px;box-shadow:var(--shadow);border:1px solid var(--line);overflow:hidden}\n.phead{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;align-items:center;gap:12px}\n.phead .t{font-size:19px;font-weight:750}\n.phead .meta{font-size:13px;color:var(--muted);font-weight:600}\n.phead .prog{flex:1;min-width:120px}\n.phead .obar{margin-top:5px}\n.crewtag{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;background:#eef2f0;color:#48564e;padding:3px 9px;border-radius:999px}\n.stop{display:flex;gap:12px;padding:13px 16px;border-top:1px solid var(--line);align-items:flex-start}\n.stop:hover{background:#f7faf8}\n.stop.done{background:var(--done)}\n.stop.done .snm{text-decoration:line-through;color:var(--muted)}\n.seq{flex:none;width:30px;height:30px;border-radius:9px;background:var(--green);color:#fff;font-weight:750;font-size:13px;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}\n.stop.done .seq{background:var(--gold)}\n.chk{flex:none;margin-top:4px}\ninput[type=checkbox]{width:20px;height:20px;accent-color:var(--green-l);cursor:pointer;margin:0}\n.sbody{flex:1;min-width:0}\n.snm{font-weight:700;font-size:15px}\n.saddr{font-size:13.5px;margin-top:2px}\n.saddr a{color:var(--green-l);text-decoration:none}.saddr a:hover{text-decoration:underline}\n.sline{font-size:12.5px;color:var(--muted);margin-top:3px;display:flex;flex-wrap:wrap;gap:4px 12px}\n.sline a{color:var(--green-l);text-decoration:none}\n.sdetail{font-size:12.5px;color:#5a6b60;margin-top:4px;background:#f2f6f3;border-radius:7px;padding:5px 9px;display:inline-block}\n.stop.done .sdetail{background:rgba(255,255,255,.5)}\n.sprice{flex:none;text-align:right;font-weight:750;color:var(--green);font-variant-numeric:tabular-nums;white-space:nowrap;font-size:15px}\n.tag{display:inline-block;padding:1px 7px;border-radius:999px;font-size:11px;font-weight:650;background:#eef2f0;color:#48564e}\n.tag.oct{background:#fdeede;color:#9a5b16}.tag.nov{background:#e4eefc;color:#25548f}.tag.any{background:#e8f4ec;color:#2b6b45}.tag.thx{background:#f6e6f2;color:#8a3070}.tag.dec{background:#e7f0ff;color:#2a4d8f}\n.searchres .daygrp{border-top:1px solid var(--line)}\n.daygrp-h{padding:8px 16px;background:#f4f8f5;font-size:12px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.04em}\nfooter{margin-top:16px;font-size:12px;color:var(--muted);text-align:center;line-height:1.6}\n@media(max-width:820px){.layout{grid-template-columns:1fr}.daylist{position:static;max-height:none;display:flex;overflow-x:auto;flex-wrap:nowrap}.daylist h3{display:none}.day{min-width:150px;border-bottom:none;border-right:1px solid var(--line)}}\n\n\n/* ---- app additions ---- */\n.mockbadge{display:inline-block;background:var(--gold);color:#fff;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;margin-left:8px;vertical-align:middle;letter-spacing:.03em}\n.stat.remain .n{color:var(--gold)}\n.tabs{display:flex;gap:7px;margin:0 0 16px;flex-wrap:wrap}\n.tab{padding:11px 18px;border-radius:11px;font-size:14.5px;font-weight:700;border:1px solid var(--line);background:var(--card);color:var(--muted);cursor:pointer;box-shadow:var(--shadow)}\n.tab.active{background:var(--green);color:#fff;border-color:var(--green)}\n.tabpane[hidden]{display:none}\n.seasonbar{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);padding:12px 15px;margin:0 0 14px;display:flex;flex-wrap:wrap;align-items:center;gap:14px}\n.seasonbar .fld{display:flex;flex-direction:column;gap:3px}\n.seasonbar label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700}\n.seasonbar input[type=date]{padding:8px 10px;border:1px solid var(--line);border-radius:9px;font-size:14px;background:#fff}\n.seasonbar .read{font-size:13px;color:var(--muted);font-weight:600}\n.seasonbar .read b{color:var(--green)}\n.wknote{width:100%;font-size:12px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:7px 11px}\n.mini{padding:7px 11px;border-radius:9px;font-size:12.5px;font-weight:650;border:1px solid var(--line);background:#fff;color:var(--green);cursor:pointer}\n.mini:hover{background:#f4f8f5}\n.mini.warn{border-color:#e7c9cd;color:var(--red)}.mini.warn:hover{background:#fbeef0}\n.daycontrols{display:flex;gap:8px;flex-wrap:wrap;width:100%;align-items:center}\n.moveday{font-size:11.5px;border:1px solid var(--line);border-radius:7px;padding:4px 7px;background:#fff;color:#48564e;max-width:250px}\ninput.pin{padding:5px 7px;border:1px solid var(--line);border-radius:7px;font-size:12px;background:#fff}\n.qbtn{font-size:11px;font-weight:700;border-radius:7px;padding:3px 8px;cursor:pointer;border:1px solid}\n.qbtn.oct{border-color:#f0d5b6;background:#fdeede;color:#9a5b16}\n.qbtn.nov{border-color:#c5d8f4;background:#e4eefc;color:#25548f}\n.qbtn:hover{filter:brightness(.96)}\n.sctl{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px}\n.sctl .lbl{font-size:11px;color:var(--muted);font-weight:650}\n.darea{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.day.sel .darea{color:#cfe6d8}\n.pinbadge{display:inline-block;background:#e4eefc;color:#25548f;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px}\n.weekguide{border-top:1px solid var(--line);background:#fbfdfc}\n.wgh{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;padding:9px 16px 2px}\n.wgrow{display:flex;gap:8px;overflow-x:auto;padding:4px 16px 12px}\n.wchip{flex:none;min-width:118px;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:#fff}\n.wchip.here{border-color:var(--green-l);background:#eaf4ee}\n.wchip .wd{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase}\n.wchip .wc{font-size:13.5px;font-weight:750;color:var(--green);margin-top:1px}\n.wchip .wa{font-size:11.5px;color:#48564e;margin-top:3px;line-height:1.3}\n.wchip .wn{font-size:11px;color:var(--muted);margin-top:4px}\n.tray{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);margin:0 0 14px;overflow:hidden}\n.tray h3{margin:0;padding:12px 15px;font-size:13px;font-weight:750;color:var(--green);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;cursor:pointer}\n.tray h3.fix{color:var(--red)}\n.tray h3 .cnt{background:var(--green-l);color:#fff;font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px}\n.tray h3.fix .cnt{background:var(--red)}\n.tray h3 .chev{margin-left:auto;color:var(--muted);font-size:12px}\n.traynote{font-size:12px;color:var(--muted);padding:8px 15px 2px}\n.grouph{font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding:10px 15px 2px}\n.newrow{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:11px 15px;border-top:1px solid var(--line)}\n.newrow .who{font-weight:700;font-size:14px;min-width:140px}\n.newrow .meta{font-size:12.5px;color:var(--muted)}\n.newrow .auto{font-size:12px;color:#2b6b45;font-weight:650}\n.newrow .acts{margin-left:auto;display:flex;gap:7px;align-items:center;flex-wrap:wrap}\n.newbadge{display:inline-block;background:#fbeecd;color:#8a5a12;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.fixbadge{display:inline-block;background:#f7dfe1;color:#a12a35;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.stop.isnew{box-shadow:inset 3px 0 0 var(--gold)}\n.stop.isfix{box-shadow:inset 3px 0 0 var(--red)}\n.stop.istake{box-shadow:inset 3px 0 0 #6b776f}\n.day.fixroute{background:#fdf3f4}\n.day.fixroute.sel{background:#8f2530;color:#fff}\n.day.fixroute.sel .darea,.day.fixroute.sel .dmeta{color:#f3d6d9}\n.day.fixroute.sel .dbar{background:rgba(255,255,255,.25)}\n.frb{display:inline-block;background:#f7dfe1;color:#a12a35;font-size:9.5px;font-weight:800;padding:1px 5px;border-radius:5px;margin-left:6px;vertical-align:middle}\n.day.fixroute.sel .frb{background:#fff;color:#8f2530}\n.buildfix{margin:8px 15px}\n.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;padding:11px 18px;border-radius:11px;font-size:13.5px;font-weight:600;box-shadow:0 8px 30px rgba(0,0,0,.25);opacity:0;pointer-events:none;transition:.25s;z-index:50;max-width:90vw;text-align:center}\n.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}\n.emptyday{padding:20px 16px;color:var(--muted);font-size:13.5px;text-align:center}\n#gate{position:fixed;inset:0;background:linear-gradient(120deg,#0f5132,#14663f);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px}\n#gate .card{background:#fff;border-radius:16px;padding:26px;max-width:360px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3)}\n#gate h2{margin:0 0 4px;color:var(--green);font-size:20px}\n#gate p{margin:0 0 16px;color:var(--muted);font-size:13.5px}\n#gate input{width:100%;padding:11px;border:1px solid var(--line);border-radius:10px;font-size:15px;margin-bottom:10px}\n#gate .err{color:var(--red);font-size:13px;min-height:18px}\n#importBox{max-width:560px;margin:34px auto;background:#fff;border:1px solid var(--line);border-radius:14px;padding:26px;box-shadow:var(--shadow);text-align:center}\n#importBox h2{color:var(--green);margin:0 0 6px}\n#importBox p{color:var(--muted);font-size:13.5px;margin:0 0 16px}\n#importBox .err{color:var(--red);font-size:13px;margin-top:10px;min-height:18px}\n.topbar{display:flex;align-items:center;gap:12px;margin-top:6px}\n.savenote{font-size:12.5px;color:#d5e8dd;font-weight:600}\n.linkbtn{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;padding:6px 12px;border-radius:9px;font-size:12.5px;font-weight:650;cursor:pointer}\n.hide{display:none!important}\n.lmodal{position:fixed;inset:0;background:rgba(18,30,24,.55);display:flex;align-items:center;justify-content:center;padding:18px;z-index:60}\n.lmodal .card{background:#fff;border-radius:16px;max-width:620px;width:100%;max-height:86vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);padding:22px}\n.lmodal h2{margin:0 0 4px;color:var(--green);font-size:19px}\n.lmodal .lead{margin:0 0 14px;color:var(--muted);font-size:13.5px}\n.lmodal .lrow{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;padding:9px 0;border-top:1px solid var(--line);font-size:13.5px}\n.lmodal .lrow .who{font-weight:700;min-width:130px}\n.lmodal .lrow .meta{color:var(--muted);font-size:12.5px}\n.lmodal .lrow .acts{margin-left:auto}\n.lmodal .pickrow{cursor:pointer;gap:8px 10px}\n.lmodal .pickrow:hover{background:#f7faf8}\n.lmodal .pickrow input[type=checkbox]{flex:none}\n.lmodal .choices{display:flex;flex-direction:column;gap:10px;margin:16px 0 6px}\n.lmodal .choice{text-align:left;padding:13px 15px;border:1px solid var(--line);border-radius:12px;background:#fff;cursor:pointer;font-size:14px;font-weight:650;color:var(--ink)}\n.lmodal .choice:hover{background:#f4f8f5;border-color:var(--green-l)}\n.lmodal .choice small{display:block;font-weight:500;color:var(--muted);font-size:12.5px;margin-top:3px}\n.lmodal .warn{font-size:12.5px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:8px 11px;margin-top:12px}\n.lmodal .foot{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}\n.crewbar{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);padding:11px 15px;margin:0 0 14px}\n.crewbar .ch{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;margin-bottom:7px}\n.crewrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:6px}\n.crewrow input.cn{padding:7px 10px;border:1px solid var(--line);border-radius:9px;font-size:13.5px;background:#fff;min-width:150px;font-weight:700;color:var(--ink)}\n.crewrow select.cc{padding:7px 10px;border:1px solid var(--line);border-radius:9px;font-size:13px;background:#fff;max-width:230px}\n.crewrow .note{font-size:12px;color:var(--muted)}\n.crewbar .warn{font-size:12px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:6px 10px;margin-top:9px}\n.routehead{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px;padding:10px 16px;background:#eaf4ee;border-top:2px solid var(--green-l);font-size:12.5px;font-weight:800;color:var(--green);text-transform:uppercase;letter-spacing:.04em}\n.routehead span{font-weight:600;color:#48564e;text-transform:none;letter-spacing:0;font-size:12px}\n.routehead.spare{background:#fdf5e7;border-top-color:var(--gold);color:#9a5b16}\n";
-  const MARKUP="<div class=\"rdwrap\"><div class=\"wrap\"><div style=\"text-align:right;font-size:12px;color:var(--muted);margin:0 2px 6px;font-weight:600\" id=\"saveNote\"></div><div id=\"importBox\" class=\"hide\">\n    <h2>Import your route plan</h2>\n    <p>Choose your route CSV (export from your Excel, or the “Export progress CSV” from the old dashboard). Your data is saved to your private Firebase — it is never stored in this page.</p>\n    <input type=\"file\" id=\"importFile\" accept=\".csv,text/csv\">\n    <div class=\"err\" id=\"importErr\"></div>\n    <button class=\"mini\" id=\"importCancel\" style=\"margin-top:12px;display:none\">Cancel — keep the plan I have</button>\n  </div>\n\n  <div id=\"dashboard\" class=\"hide\">\n    <div class=\"stats\" id=\"stats\"></div>\n    <div class=\"tabs\">\n      <button class=\"tab active\" data-tab=\"schedule\">📅 Scheduling</button>\n      <button class=\"tab\" data-tab=\"fixes\">🔧 Fixes</button>\n      <button class=\"tab\" data-tab=\"oneman\">\ud83e\uddcd One Man Installs</button>\n      <button class=\"tab\" data-tab=\"takedowns\">📦 Takedowns</button>\n    </div>\n\n    <div class=\"crewbar\" id=\"crewBar\"></div>\n\n    <div class=\"tabpane\" id=\"pane-schedule\">\n      <div class=\"seasonbar\">\n        <div class=\"fld\"><label for=\"startDate\">Season start</label><input type=\"date\" id=\"startDate\"></div>\n        <div class=\"read\" id=\"shiftRead\"></div>\n        <button class=\"mini\" id=\"recalcBtn\" style=\"margin-left:auto\">⚙ Recalculate everything</button><button class=\"mini\" id=\"undoRebuildBtn\" style=\"display:none\">↶ Undo</button>\n        <div class=\"read\" id=\"importedAtRead\" style=\"font-weight:600\"></div>\n        <div class=\"wknote\" id=\"wkNote\"></div>\n        <div class=\"wknote\" id=\"staleNote\" style=\"display:none\"></div>\n      </div>\n      <div class=\"toolbar\">\n        <div class=\"search\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"11\" cy=\"11\" r=\"7\"></circle><path d=\"M21 21l-4.3-4.3\"></path></svg>\n          <input id=\"q\" placeholder=\"Search name, address, city, phone…\" autocomplete=\"off\">\n        </div>\n        <button class=\"btn ghost\" id=\"clearBtn\" style=\"display:none\">Clear</button>\n        <button class=\"btn\" id=\"csvBtn\">Export CSV</button><button class=\"btn ghost\" id=\"printPlanBtn\">Print Whole Plan</button>\n      </div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Days · left · area</h3><div id=\"days\"></div></div><div class=\"panel\" id=\"panel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-fixes\" hidden>\n      <div class=\"tray\" id=\"fixtray\"></div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Fixer routes</h3><div id=\"fixDays\"></div></div><div class=\"panel\" id=\"fixPanel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-oneman\" hidden><div class=\"tray\" id=\"oneManPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-takedowns\" hidden>\n      <div class=\"seasonbar\"><div class=\"fld\"><label for=\"takeStart\">Takedown start</label><input type=\"date\" id=\"takeStart\"></div><div class=\"read\" id=\"takeRead\"></div></div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Takedown days · left · area</h3><div id=\"takeDays\"></div></div><div class=\"panel\" id=\"takePanel\"></div></div>\n    </div>\n\n    <footer>\n      Live — saves to your private Firebase (routeSchedule), synced across your devices. This page only writes its own schedule; it does not touch customers, the crew’s routes, or billing.<br>\n      Weekends are skipped automatically; use “Force exact date” to place a route on a weekend.\n    </footer>\n  </div></div><div class=\"lmodal hide\" id=\"leftoverModal\"></div><div class=\"toast\" id=\"toast\"></div></div>";
+  const MARKUP="<div class=\"rdwrap\"><div class=\"wrap\"><div style=\"text-align:right;font-size:12px;color:var(--muted);margin:0 2px 6px;font-weight:600\" id=\"saveNote\"></div><div id=\"importBox\" class=\"hide\">\n    <h2>Import your route plan</h2>\n    <p>Choose your route CSV (export from your Excel, or the “Export progress CSV” from the old dashboard). Your data is saved to your private Firebase — it is never stored in this page.</p>\n    <input type=\"file\" id=\"importFile\" accept=\".csv,text/csv\">\n    <div class=\"err\" id=\"importErr\"></div>\n    <button class=\"mini\" id=\"importCancel\" style=\"margin-top:12px;display:none\">Cancel — keep the plan I have</button>\n  </div>\n\n  <div id=\"dashboard\" class=\"hide\">\n    <div class=\"stats\" id=\"stats\"></div>\n    <div class=\"tabs\">\n      <button class=\"tab active\" data-tab=\"schedule\">📅 Scheduling</button>\n      <button class=\"tab\" data-tab=\"fixes\">🔧 Fixes</button>\n      <button class=\"tab\" data-tab=\"oneman\">\ud83e\uddcd One Man Installs</button>\n      <button class=\"tab\" data-tab=\"printing\">\ud83d\udda8 Printing</button>\n      <button class=\"tab\" data-tab=\"takedowns\">📦 Takedowns</button>\n    </div>\n\n    <div class=\"crewbar\" id=\"crewBar\"></div>\n\n    <div class=\"tabpane\" id=\"pane-schedule\">\n      <div class=\"seasonbar\">\n        <div class=\"fld\"><label for=\"startDate\">Season start</label><input type=\"date\" id=\"startDate\"></div>\n        <div class=\"read\" id=\"shiftRead\"></div>\n        <button class=\"mini\" id=\"recalcBtn\" style=\"margin-left:auto\">⚙ Recalculate everything</button><button class=\"mini\" id=\"undoRebuildBtn\" style=\"display:none\">↶ Undo</button>\n        <div class=\"read\" id=\"importedAtRead\" style=\"font-weight:600\"></div>\n        <div class=\"wknote\" id=\"wkNote\"></div>\n        <div class=\"wknote\" id=\"staleNote\" style=\"display:none\"></div>\n      </div>\n      <div class=\"toolbar\">\n        <div class=\"search\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"11\" cy=\"11\" r=\"7\"></circle><path d=\"M21 21l-4.3-4.3\"></path></svg>\n          <input id=\"q\" placeholder=\"Search name, address, city, phone…\" autocomplete=\"off\">\n        </div>\n        <button class=\"btn ghost\" id=\"clearBtn\" style=\"display:none\">Clear</button>\n        <button class=\"btn\" id=\"csvBtn\">Export CSV</button><button class=\"btn ghost\" id=\"printPlanBtn\">Print Whole Plan</button>\n      </div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Days · left · area</h3><div id=\"days\"></div></div><div class=\"panel\" id=\"panel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-fixes\" hidden>\n      <div class=\"tray\" id=\"fixtray\"></div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Fixer routes</h3><div id=\"fixDays\"></div></div><div class=\"panel\" id=\"fixPanel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-oneman\" hidden><div class=\"tray\" id=\"oneManPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-printing\" hidden><div class=\"tray\" id=\"printPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-takedowns\" hidden>\n      <div class=\"seasonbar\"><div class=\"fld\"><label for=\"takeStart\">Takedown start</label><input type=\"date\" id=\"takeStart\"></div><div class=\"read\" id=\"takeRead\"></div></div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Takedown days · left · area</h3><div id=\"takeDays\"></div></div><div class=\"panel\" id=\"takePanel\"></div></div>\n    </div>\n\n    <footer>\n      Live — saves to your private Firebase (routeSchedule), synced across your devices. This page only writes its own schedule; it does not touch customers, the crew’s routes, or billing.<br>\n      Weekends are skipped automatically; use “Force exact date” to place a route on a weekend.\n    </footer>\n  </div></div><div class=\"lmodal hide\" id=\"leftoverModal\"></div><div class=\"toast\" id=\"toast\"></div></div>";
   RT.innerHTML="<style>"+STYLE+"</style>"+MARKUP;
 const PLAN_REF=()=>doc(db,'routeSchedule','plan');
 /* ISO date of the CSV import this plan was built from — see serialize(). */
@@ -34011,6 +34011,7 @@ function renderActive(){
     if(q)renderSearch(q);else{let d=getDay(selSchedule);if(!d||d.isFixRoute||d.isTakedown)d=installDays()[0];selSchedule=d?d.id:null;renderPanelInto('panel',d);}}
   else if(activeTab==='fixes'){renderFixTray();const fr=fixerRoutes();if(!fr.find(d=>d.id===selFix))selFix=fr[0]?fr[0].id:null;renderDayList('fixDays',fr,selFix,'fix');renderPanelInto('fixPanel',getDay(selFix));}
   else if(activeTab==='oneman'){renderOneMan();}
+  else if(activeTab==='printing'){renderPrinting();}
   else{renderTakedownBar();const td=takedownDays();if(!td.find(d=>d.id===selTake))selTake=td[0]?td[0].id:null;renderDayList('takeDays',td,selTake,'take');renderPanelInto('takePanel',getDay(selTake));}
   renderCrewBar();
   renderLeftovers();
@@ -34197,7 +34198,7 @@ function renderOneMan(){
 function renderCrewBar(){
   const bar=RT.getElementById('crewBar'); if(!bar) return;
   /* There is no crew to pick on a day that one person is doing alone. */
-  if(activeTab==='oneman'){bar.style.display='none';return;}
+  if(activeTab==='oneman'||activeTab==='printing'){bar.style.display='none';return;}
   bar.style.display='';
   const day=currentDay();
   const cities=planCities();
@@ -34259,7 +34260,7 @@ function renderImportedAt(){
      changes, so the older it is the further it has drifted from the real list. */
   el.style.color = days > 14 ? 'var(--ember)' : 'var(--muted)';
 }
-function syncTabs(){RT.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===activeTab));['schedule','fixes','oneman','takedowns'].forEach(n=>RT.getElementById('pane-'+n).hidden=(n!==activeTab));}
+function syncTabs(){RT.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===activeTab));['schedule','fixes','oneman','printing','takedowns'].forEach(n=>RT.getElementById('pane-'+n).hidden=(n!==activeTab));}
 function switchTab(name){activeTab=name;syncTabs();renderActive();}
 /* ---------- persistence (Firestore) ---------- */
 function serialize(){
@@ -35159,6 +35160,38 @@ RT.addEventListener('change',e=>{const t=e.target;
   if(t.id==='startDate'){if(t.value){globalDelta=daysBetween(new Date(t.value+'T00:00:00'),BASE_START);renderAll();toast(globalDelta===0?'Back to original dates':'Season shifted '+(globalDelta>0?'+':'')+globalDelta+' days');}return;}
   if(t.id==='takeStart'){if(t.value){takeDelta=daysBetween(new Date(t.value+'T00:00:00'),TAKE_BASE_START);renderAll();toast('Takedowns shifted');}return;}
   if(t.type==='checkbox'&&t.dataset.id!=null){const f=findHouse(t.dataset.id);if(f){f.house.done=t.checked;renderAll();}return;}
+  if(t.dataset.print){
+    const what = t.dataset.print;
+    if(what === 'today'){ printToday(); return; }
+    if(what === 'warehouse'){
+      const d = printWarehouseDay();
+      if(!d){ toast('No day to print for the warehouse'); return; }
+      schedOpenPrintPages('Warehouse', [printWarehousePage(d)]);
+      return;
+    }
+    if(what === 'crew0' || what === 'crew1'){
+      const d = printCrewDay();
+      if(!d){ toast('No day left to print'); return; }
+      schedOpenPrintPages('Crew sheet', [printCrewSheetPage(d, what === 'crew1' ? 1 : 0)]);
+      return;
+    }
+    if(what === 'build'){
+      printOneList('build', 'Needs building', printNeedsBuildList(),
+        printNeedsBuildList().length + ' to make up', 'Nothing needs building.');
+      return;
+    }
+    if(what === 'recycle'){
+      printOneList('recycle', 'Recycles', printRecycleList(),
+        printRecycleList().length + ' to take apart', 'Nothing to recycle.');
+      return;
+    }
+    if(what === 'colors'){
+      printOneList('colors', 'Color changes', printColorChangeList(),
+        printColorChangeList().length + ' changing', 'No color changes.');
+      return;
+    }
+    return;
+  }
   if(t.dataset.solocrew){
     const d=getDay(t.dataset.solocrew);
     if(d){ d.soloCrew = (t.value==='1') ? 1 : 0; computeDates(); renderAll(); scheduleSave();
@@ -35467,7 +35500,340 @@ function printCrewSheet(dayId,crewIndex){
     rows.length?schedSheetTable(rows,SCHED_DAY_COLUMNS,null):'',
     crewName(i)+' has nothing in '+(city||'their city')+' on this day.');
 }
+/* ==================== THE PRINTING TAB ====================
+   ⭐ ONE PLACE FOR THE PAPER (added 2026-08-20). Owner: "now we need to work on what
+   get printed but first we need a spot for it so lets make a tab for printing, a main
+   button for print today, which would be the warehouse list (for two days from now) and
+   both crew lists for tomrrow morning (should be on a seperate page) so it prints 3
+   papers, then we also have print recycles, print ones that need to be built, and then
+   we have print warehouse, and print crew 1, and then print crew 2, and also color
+   changes."
+
+   ⚠ THE PER-DAY BUTTONS IN SCHEDULING STAY. Owner: "in schedule we want to keep the
+   feature where we can print individual days and I can print any day in schedule so
+   keep that their." printDaySheet and printCrewSheet are untouched; this tab is the
+   morning routine, not a replacement for them.
+
+   WHY THE DATES ARE DIFFERENT ON ONE BUTTON: the warehouse is building for the day
+   AFTER the crews' next one, so Print Today hands out tomorrow's two crew sheets and
+   the warehouse list for the day after that. That offset is the whole point of the
+   button and is the thing most easily got wrong.
+
+   ⚠ EVERY LIST IS NUMBERED FROM 1 AND ENDS IN A BLANK COLUMN. Owner: "every single
+   list should be numbered 1- whatever on the left, always starting with 1 even if its
+   crew 2, and also a blank column on the right." Crew two's sheet is THEIR day, not a
+   filtered copy of somebody else's numbering. The blank column is for whatever gets
+   written on it in the van. Both live in printTableHtml so no list can forget. */
+function printYesNo(v){
+  if(v === true) return 'Yes';
+  if(v === false || v == null || v === '') return 'No';
+  const t = ('' + v).trim();
+  if(!t) return 'No';
+  if(/^(n|no|none|false)$/i.test(t)) return 'No';
+  if(/^(y|yes|true)$/i.test(t)) return 'Yes';
+  return t;   // they typed something real, so print it
+}
+function printLightColor(d){
+  const desc = ('' + ((d && d.lightsDescription) || '')).trim();
+  if(desc) return desc;
+  return (Array.isArray(d && d.lightColors) ? d.lightColors.join('/') : '');
+}
+/* ⭐ A REQUOTE COUNTS, A COLOUR CHANGE DOES NOT. Owner: "if they were requoted that
+   counts as a new hang but if they are a color change they do not count as a new hang
+   for this."
+
+   ⚠ AND THE ORDER OF THESE TWO LINES IS THE WHOLE RULE. A colour change SETS
+   chargeNewMemberFee — see the 2026-08-19 note about there being no separate colour
+   change fee any more — so testing the fee first would call every colour change a new
+   hang and print a photo of a house the crew has hung before. */
+function printIsNewHang(d){
+  if(!d) return false;
+  if(d.lightsChangedAt) return false;
+  return d.chargeNewMemberFee === true || !!d.requoteAppliedAt;
+}
+function printCustData(h){
+  const c = (typeof customerForHouse === 'function') ? customerForHouse(h) : null;
+  return (c && c.data) || {};
+}
+/* ---------- the lists ---------- */
+const PRINT_COLUMNS = {
+  recycle:   [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'}],
+  colors:    [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'},
+              {k: 'color', label: 'New color'}],
+  build:     [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'},
+              {k: 'lights', label: 'Light color'}, {k: 'wire', label: 'Wire color'},
+              {k: 'timer', label: 'Timer'}, {k: 'feet', label: 'Feet'}],
+  warehouse: [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'}],
+  crew:      [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'},
+              {k: 'address', label: 'Address'}, {k: 'city', label: 'City'},
+              {k: 'eaves', label: 'Plugs / eaves'}, {k: 'notes', label: 'Notes'}]
+};
+function printRecycleList(){
+  if(typeof jobAddresses === 'undefined') return [];
+  return jobAddresses.filter(function(a){ return a.data && a.data.needsLightRecycle; })
+    .map(function(a){ return {number: a.data.customerNumber || '', name: a.data.name || ''}; })
+    .sort(function(x, y){ return String(x.name).localeCompare(String(y.name)); });
+}
+function printColorChangeList(){
+  if(typeof jobAddresses === 'undefined') return [];
+  return jobAddresses.filter(function(a){ return a.data && a.data.lightsChangedAt; })
+    .map(function(a){
+      return {number: a.data.customerNumber || '', name: a.data.name || '',
+              color: printLightColor(a.data)};
+    })
+    .sort(function(x, y){ return String(x.name).localeCompare(String(y.name)); });
+}
+/* Everything the warehouse has to make up: a first-time hang, or anything the office
+   has flagged as needing building. A colour change needs building too — they are
+   getting different lights — so this one does NOT use printIsNewHang. */
+function printNeedsBuildList(){
+  if(typeof jobAddresses === 'undefined') return [];
+  return jobAddresses.filter(function(a){
+      const d = a.data || {};
+      return d.needsLightBuild || d.chargeNewMemberFee === true || d.requoteAppliedAt;
+    })
+    .map(function(a){
+      const d = a.data || {};
+      return {number: d.customerNumber || '', name: d.name || '',
+              lights: printLightColor(d), wire: d.wireColor || '',
+              timer: printYesNo(d.outletTimer),
+              feet: (d.measuredFeet === 0 || d.measuredFeet) ? d.measuredFeet : ''};
+    })
+    .sort(function(x, y){ return String(x.name).localeCompare(String(y.name)); });
+}
+function printWarehouseDayList(day){
+  return ((day && day.houses) || []).map(function(h){
+    const d = printCustData(h);
+    return {number: d.customerNumber || h.cu || '', name: d.name || h.name || ''};
+  });
+}
+function printCrewDayList(day, i){
+  const mine = (typeof crewHousesFor === 'function') ? crewHousesFor(i, day) : [];
+  return mine.map(function(h){
+    const d = printCustData(h);
+    return {number: d.customerNumber || h.cu || '', name: d.name || h.name || '',
+            address: d.street || h.address || '', city: h.city || d.city || '',
+            eaves: printYesNo(d.useEaves), notes: d.notes || h.details || ''};
+  });
+}
+/* ---------- the paper ---------- */
+function printTableHtml(rows, columns){
+  if(!rows || !rows.length) return '';
+  const head = '<tr><th class="num">#</th>' +
+    columns.map(function(c){ return '<th>' + esc(c.label) + '</th>'; }).join('') +
+    '<th class="blank"></th></tr>';
+  const body = rows.map(function(r, n){
+    return '<tr><td class="num">' + (n + 1) + '</td>' +
+      columns.map(function(c){
+        const v = r[c.k];
+        return '<td>' + esc(v === 0 ? '0' : (v || '')) + '</td>';
+      }).join('') + '<td class="blank"></td></tr>';
+  }).join('');
+  return '<table><thead>' + head + '</thead><tbody>' + body + '</tbody></table>';
+}
+/* ⭐ THE NEW HANGS' PHOTOS GO UNDER THE CREW SHEET. Owner: "when we print the crews
+   list it should grab the picture of any new hangs on the list and put the picture on
+   the bottom cropped to be about an inch and a half long."
+
+   Each one is labelled with the customer number and name, because a photo nobody can
+   match to a line on the sheet is decoration. A new hang with no photo on file is
+   simply not shown — there is nothing to print and a broken image frame is worse than
+   no frame. */
+function printCrewPhotos(day, i){
+  const mine = (typeof crewHousesFor === 'function') ? crewHousesFor(i, day) : [];
+  const out = [];
+  mine.forEach(function(h){
+    const d = printCustData(h);
+    if(!printIsNewHang(d)) return;
+    const photos = (typeof customerPhotoList === 'function') ? customerPhotoList(d) : [];
+    const url = photos && photos[0] && photos[0].url;
+    if(!url) return;
+    out.push({url: url, number: d.customerNumber || h.cu || '', name: d.name || h.name || ''});
+  });
+  return out;
+}
+/* ⭐ THE SHEET IS LANDSCAPE, AND SO ARE THE PHOTOS. Owner: "make sure that the
+   house picture for new hangs never overlaps with words, and also make sure its never
+   to big because that will use a lot of ink oor to small because then they wont be able
+   to read it, and make sure it goes the long way with the paper."
+
+   Height is fixed at the inch and a half she asked for and the width runs along the
+   paper’s long edge, which is what a house actually looks like — a tall crop of a
+   wide house is mostly sky and driveway.
+
+   ⚠ NOTHING OVERLAPS. The photos live in their own block AFTER the table, each in a
+   figure with its caption underneath rather than over the picture, and a figure is
+   never split across a page. Absolute positioning would have been fewer lines and is
+   exactly how a caption ends up printed across somebody’s garage.
+
+   ⚠ AND NOT TOO BIG. One and a half inches by at most three and a half is about a
+   sixth of a landscape page: readable in the van, and four or five of them still leave
+   room for the sheet. Do not let this grow "just a bit" — it is ink on every crew
+   sheet, every morning, all season. */
+const PRINT_SHEET_CSS =
+  'body{font-family:Arial,Helvetica,sans-serif;margin:16px;color:#111;}' +
+  'h1{font-size:17px;margin:0 0 2px;}' +
+  '.sub{font-size:12px;color:#555;margin-bottom:12px;}' +
+  'table{width:100%;border-collapse:collapse;}' +
+  'th,td{border:1px solid #999;padding:4px 6px;font-size:11px;text-align:left;vertical-align:top;}' +
+  'th{background:#eee;font-size:10.5px;text-transform:uppercase;letter-spacing:.03em;}' +
+  'td.num,th.num{text-align:right;width:26px;}' +
+  'th.blank,td.blank{width:22%;}' +
+  'thead{display:table-header-group;}tr{page-break-inside:avoid;}' +
+  '.empty{font-size:13px;color:#555;}' +
+  '.sheet{page-break-after:always;}.sheet:last-child{page-break-after:auto;}' +
+  '.photos{margin-top:14px;page-break-inside:avoid;}' +
+  '.photos h2{font-size:12px;text-transform:uppercase;letter-spacing:.03em;margin:0 0 6px;}' +
+  '.photos figure{display:inline-block;margin:0 10px 10px 0;vertical-align:top;' +
+  '  page-break-inside:avoid;}' +
+  '.photos img{display:block;height:1.5in;width:auto;max-width:3.5in;' +
+  '  object-fit:cover;border:1px solid #999;}' +
+  '.photos figcaption{font-size:10px;margin-top:3px;max-width:3.5in;}' +
+  '@page{size:landscape;margin:10mm;}';
+/* One document, several sheets, a page break between each. Print Today is three pieces
+   of paper and the office should press print once. */
+/* ⭐ WHICH DAY EACH BUTTON MEANS. Owner: "a main button for print today, which
+   would be the warehouse list (for two days from now) and both crew lists for tomrrow
+   morning (should be on a seperate page) so it prints 3 papers."
+
+   ⚠ THE TWO DATES ARE DIFFERENT ON PURPOSE and this is the thing most easily got
+   wrong: the crews are given TOMORROW, the warehouse is given the day after that,
+   because the warehouse is building ahead of the van.
+
+   ⚠ AND "TOMORROW" MEANS THE NEXT DAY THE CREWS ACTUALLY WORK, not tomorrow's date.
+   Printed on a Friday, the crews' next day is Monday; asking for Saturday would hand
+   the office three blank sheets and no explanation. The warehouse day is then the
+   working day after THAT, counted the same way.
+
+   Only install days, and only days still ahead: a takedown day or a fixer route is a
+   different kind of paper, and a day already gone by is history. */
+/* ⭐ THE PANEL SAYS WHICH DAY EACH BUTTON WILL PRINT, before it is pressed. A
+   button called "Print today" that quietly means three different dates is a button
+   nobody trusts the second time. */
+function renderPrinting(){
+  const el = RT.getElementById('printPane');
+  if(!el) return;
+  const crewDay = printCrewDay();
+  const whDay = printWarehouseDay();
+  const names = (typeof CREWS !== 'undefined' ? CREWS : []).map(function(c, i){
+    return (typeof crewName === 'function') ? crewName(i) : ('Crew ' + (i + 1));
+  });
+  const btn = function(id, label, note){
+    return '<div class="newrow"><div><div class="who">' + esc(label) + '</div>' +
+      (note ? '<div class="meta">' + note + '</div>' : '') + '</div>' +
+      '<div class="acts"><button class="btn" data-print="' + id + '">Print</button></div></div>';
+  };
+  const dayNote = function(d, what){
+    return d ? (what + ' <b>' + esc(printDayLabel(d)) + '</b>')
+             : ('<span style="color:var(--red);">no ' + what + ' left in the season</span>');
+  };
+  el.innerHTML =
+    '<h3>\ud83d\udda8 Printing</h3>' +
+    '<div class="traynote">The morning routine is the first button. Printing single ' +
+    'days is still on the Scheduling tab, where it always was.</div>' +
+    btn('today', '\u2b50 Print today \u2014 3 sheets',
+        dayNote(whDay, 'warehouse for') + ' &middot; ' +
+        dayNote(crewDay, 'both crews for')) +
+    btn('warehouse', 'Print warehouse', dayNote(whDay, 'for')) +
+    (names[0] ? btn('crew0', 'Print ' + esc(names[0]), dayNote(crewDay, 'for')) : '') +
+    (names[1] ? btn('crew1', 'Print ' + esc(names[1]), dayNote(crewDay, 'for')) : '') +
+    btn('build', 'Print ones that need to be built',
+        printNeedsBuildList().length + ' waiting') +
+    btn('recycle', 'Print recycles', printRecycleList().length + ' waiting') +
+    btn('colors', 'Print color changes', printColorChangeList().length + ' waiting');
+}
+function printInstallDaysAhead(){
+
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  return ((typeof installDays === 'function') ? installDays() : [])
+    .filter(function(d){ const dt = dayDate(d); return dt && dt >= today; })
+    .sort(function(a, b){ return dayDate(a) - dayDate(b); });
+}
+function printCrewDay(){ return printInstallDaysAhead()[0] || null; }
+function printWarehouseDay(){ return printInstallDaysAhead()[1] || null; }
+function printDayLabel(day){
+  if(!day) return '';
+  const l = dlabel(dayDate(day));
+  return l.wd + ', ' + l.full;
+}
+/* ---------- the buttons ---------- */
+function printOneList(kind, title, rows, summary, empty){
+  schedOpenPrintPages(title, [{title: title, summary: summary,
+    body: printTableHtml(rows, PRINT_COLUMNS[kind]), empty: empty}]);
+}
+function printCrewSheetPage(day, i){
+  const rows = printCrewDayList(day, i);
+  const who = (typeof crewName === 'function') ? crewName(i) : ('Crew ' + (i + 1));
+  const where = (typeof crewCityFor === 'function') ? crewCityFor(i, day) : '';
+  return {
+    title: who + ' — ' + printDayLabel(day),
+    summary: (where || 'no city set') + ' \u00b7 ' + rows.length +
+      ' stop' + (rows.length === 1 ? '' : 's'),
+    /* The photos hang off the bottom of the crew's own sheet, so they travel with the
+       sheet they belong to rather than on a page of their own. */
+    body: rows.length
+      ? (printTableHtml(rows, PRINT_COLUMNS.crew) + printPhotosHtml(printCrewPhotos(day, i)))
+      : '',
+    empty: who + ' has nothing on this day.'
+  };
+}
+function printWarehousePage(day){
+  const rows = printWarehouseDayList(day);
+  return {
+    title: 'Warehouse — ' + printDayLabel(day),
+    summary: rows.length + ' house' + (rows.length === 1 ? '' : 's') + ' to pull',
+    body: printTableHtml(rows, PRINT_COLUMNS.warehouse),
+    empty: 'Nothing on that day.'
+  };
+}
+/* ⭐ THREE PIECES OF PAPER, ONE PRESS. Warehouse for the day after next, then each
+   crew's sheet for the next working day, each on its own page. */
+function printToday(){
+  const crewDay = printCrewDay();
+  const whDay = printWarehouseDay();
+  if(!crewDay && !whDay){ toast('No days left in the season to print'); return; }
+  const pages = [];
+  if(whDay) pages.push(printWarehousePage(whDay));
+  if(crewDay){
+    (typeof CREWS !== 'undefined' ? CREWS : [0, 1]).forEach(function(c, i){
+      pages.push(printCrewSheetPage(crewDay, i));
+    });
+  }
+  schedOpenPrintPages('Print today', pages);
+}
+function schedOpenPrintPages(docTitle, pages){
+
+  const live = (pages || []).filter(Boolean);
+  if(!live.length){ toast('Nothing to print'); return; }
+  const today = new Date().toLocaleDateString('en-US',
+    {weekday: 'long', month: 'long', day: 'numeric', year: 'numeric'});
+  const body = live.map(function(p){
+    return '<div class="sheet"><h1>' + esc(p.title) + '</h1>' +
+      '<div class="sub">Printed ' + esc(today) +
+      (p.summary ? ' &middot; ' + esc(p.summary) : '') + '</div>' +
+      (p.body || '<div class="empty">' + esc(p.empty || 'Nothing to print.') + '</div>') +
+      '</div>';
+  }).join('');
+  const html = '<!doctype html><html><head><meta charset="utf-8"><title>' +
+    esc(docTitle) + '</title><style>' + PRINT_SHEET_CSS + '</style></head><body>' +
+    body + '</body></html>';
+  const w = window.open('', '_blank');
+  if(!w){ toast('Allow pop-ups to print'); return; }
+  w.document.write(html); w.document.close();
+  setTimeout(function(){ w.focus(); w.print(); }, 300);
+}
+function printPhotosHtml(photos){
+
+  if(!photos || !photos.length) return '';
+  return '<div class="photos"><h2>New hangs on this sheet</h2>' +
+    photos.map(function(p){
+      return '<figure><img src="' + esc(p.url) + '" alt="">' +
+        '<figcaption>' + esc((p.number ? '#' + p.number + ' ' : '') + p.name) +
+        '</figcaption></figure>';
+    }).join('') + '</div>';
+}
 function printWholePlan(){
+
   const days=orderedDays();
   const rows=days.reduce(function(a,d){ return a.concat(schedRouteRows(d)); },[]);
   const withHouses=days.filter(d=>d.houses.length).length;

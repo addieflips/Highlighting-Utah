@@ -18476,6 +18476,280 @@ suite('Suite 103. A named day is read everywhere, not just by the season');
     'change the other');
 }
 /* ---------------------------------------------------------------------------
+ * Suite 104. The Printing tab
+ *
+ * Owner, 2026-08-20: "lets make a tab for printing, a main button for print today,
+ * which would be the warehouse list (for two days from now) and both crew lists for
+ * tomrrow morning (should be on a seperate page) so it prints 3 papers, then we also
+ * have print recycles, print ones that need to be built, and then we have print
+ * warehouse, and print crew 1, and then print crew 2, and also color changes."
+ *
+ * And: "every single list should be numbered 1- whatever on the left, always starting
+ * with 1 even if its crew 2, and also a blank column on the right."
+ * ------------------------------------------------------------------------- */
+suite('Suite 104. The Printing tab');
+
+{
+  /* ⚠ THE PER-DAY BUTTONS IN SCHEDULING MUST SURVIVE. Owner: "in schedule we want
+     to keep the feature where we can print individual days and I can print any day in
+     schedule so keep that their." */
+  check('S104', 'printing a single day is still there',
+    !!extractFn(admin, 'printDaySheet') && !!extractFn(admin, 'printCrewSheet'),
+    'the new tab is the morning routine, not a replacement');
+  check('S104', 'and its buttons are still on the Scheduling tab',
+    admin.indexOf('printPlanBtn') !== -1 && admin.indexOf('data-printday') !== -1 ||
+    admin.indexOf('printDaySheet(') !== -1);
+
+  /* ---- the columns she asked for, list by list ---- */
+  const colsAt = admin.indexOf('const PRINT_COLUMNS = {');
+  check('S104', 'the column definitions are there', colsAt !== -1);
+
+  if (colsAt !== -1) {
+    const COLS = eval('(' + admin.slice(admin.indexOf('{', colsAt),
+      admin.indexOf(String.fromCharCode(10) + '};', colsAt) + 2) + ')');
+    const keys = (k) => (COLS[k] || []).map(c => c.k).join(',');
+
+    check('S104', 'recycle is just the name and the number',
+      keys('recycle') === 'number,name',
+      'got ' + keys('recycle'));
+    check('S104', 'color changes carry the new color',
+      keys('colors') === 'number,name,color',
+      'got ' + keys('colors'));
+    check('S104', 'the build list carries everything the warehouse makes up',
+      keys('build') === 'number,name,lights,wire,timer,feet',
+      'got ' + keys('build') + ' — owner: "customer number, name, light color, ' +
+      'wire color, time(yes/no), and feet of the house"');
+    check('S104', 'the daily warehouse list is only number and name',
+      keys('warehouse') === 'number,name',
+      'got ' + keys('warehouse') + ' — it is a pull list, not a spec sheet');
+    check('S104', 'the crew list carries what the van needs',
+      keys('crew') === 'number,name,address,city,eaves,notes',
+      'got ' + keys('crew'));
+  }
+
+  /* ---- numbered from 1, blank column on the right, every single list ---- */
+  const tableSrc = extractFn(admin, 'printTableHtml');
+  check('S104', 'the table builder is there', !!tableSrc);
+
+  if (tableSrc && colsAt !== -1) {
+    const table = (rows, cols) => new Function('rows', 'columns',
+      'const esc = function(x){ return String(x == null ? "" : x); };' +
+      tableSrc + 'return printTableHtml(rows, columns);')(rows, cols);
+    const cols = [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'}];
+    const html = table([{number: '101', name: 'A'}, {number: '102', name: 'B'},
+                        {number: '103', name: 'C'}], cols);
+
+    check('S104', 'rows are numbered from one',
+      /<td class="num">1<\/td>/.test(html) && /<td class="num">3<\/td>/.test(html),
+      'owner: "numbered 1- whatever on the left"');
+    check('S104', 'the number column comes first',
+      html.indexOf('class="num"') < html.indexOf('101'),
+      'on the LEFT');
+    check('S104', 'and there is a blank column on the right',
+      /<td class="blank"><\/td><\/tr>/.test(html) &&
+      /<th class="blank"><\/th><\/tr>/.test(html),
+      'it has to be the LAST cell of each row, and have a header cell so the ' +
+      'columns line up');
+
+    /* ⭐ CREW TWO STARTS AT ONE. Owner: "always starting with 1 even if its crew 2."
+       The numbering is done by the table builder from the row's position, so there is
+       no way for a caller to pass through somebody else's numbering by accident. */
+    check('S104', 'a second sheet numbers from one all over again',
+      /<td class="num">1<\/td>/.test(table([{number: '900', name: 'Z'}], cols)),
+      'their sheet is their day, not a filtered copy of crew one' + String.fromCharCode(8217) + 's');
+    check('S104', 'an empty list prints nothing rather than an empty table',
+      table([], cols) === '',
+      'the caller shows a plain note instead');
+    check('S104', 'a zero is printed, not swallowed as blank',
+      /<td>0<\/td>/.test(table([{number: 0, name: 'A'}], cols)),
+      'nought feet is a fact; an empty cell is a question');
+  }
+
+  /* ---- new hang, for the photos ---- */
+  const nhSrc = extractFn(admin, 'printIsNewHang');
+  check('S104', 'the new-hang rule is there', !!nhSrc);
+
+  if (nhSrc) {
+    const isNew = (d) => new Function('d', nhSrc + 'return printIsNewHang(d);')(d);
+    check('S104', 'a first-time customer is a new hang',
+      isNew({chargeNewMemberFee: true}) === true);
+    check('S104', 'a requote counts as one too',
+      isNew({requoteAppliedAt: '2026-08-01'}) === true,
+      'owner: "if they were requoted that counts as a new hang"');
+
+    /* ⭐ AND A COLOUR CHANGE DOES NOT, EVEN THOUGH IT CARRIES THE FEE. There is no
+       separate colour-change fee any more (2026-08-19), so a colour change sets
+       chargeNewMemberFee — testing the fee first would print a photo of a house the
+       crew has hung before, on every colour change, all season. */
+    check('S104', 'a color change is not a new hang, fee or no fee',
+      isNew({lightsChangedAt: '2026-08-02', chargeNewMemberFee: true}) === false,
+      'owner: "if they are a color change they do not count as a new hang for this"');
+    check('S104', 'and somebody ordinary is not one',
+      isNew({}) === false && isNew(null) === false);
+  }
+
+  /* ---- the photos themselves ---- */
+  const photoSrc = extractFn(admin, 'printPhotosHtml');
+  if (photoSrc) {
+    const ph = (list) => new Function('photos',
+      'const esc = function(x){ return String(x == null ? "" : x); };' +
+      photoSrc + 'return printPhotosHtml(photos);')(list);
+    const one = ph([{url: 'u1', number: '101', name: 'Alice'}]);
+    check('S104', 'a photo is captioned with the number and the name',
+      /#101 Alice/.test(one),
+      'a picture nobody can match to a line on the sheet is decoration');
+    check('S104', 'the caption is under the picture, not over it',
+      one.indexOf('<img') < one.indexOf('figcaption'),
+      'owner: "make sure that the house picture for new hangs never overlaps with words"');
+    check('S104', 'and no photos means no photo block at all',
+      ph([]) === '' && ph(null) === '');
+  }
+
+  /* ⭐ THE SIZING RULES, WHICH ARE ABOUT INK AND EYESIGHT. Owner: "make sure its
+     never to big because that will use a lot of ink oor to small because then they
+     wont be able to read it, and make sure it goes the long way with the paper." */
+  const cssAt = admin.indexOf('const PRINT_SHEET_CSS =');
+  const css = cssAt === -1 ? '' : admin.slice(cssAt,
+    admin.indexOf('function schedOpenPrintPages(', cssAt));
+  check('S104', 'the picture is an inch and a half tall', /height:1\.5in/.test(css),
+    'the size she asked for, written once');
+  check('S104', 'it runs along the long edge of the paper',
+    /width:auto/.test(css) && /max-width:3\.5in/.test(css) && /size:landscape/.test(css),
+    'a tall crop of a wide house is mostly sky and driveway');
+  check('S104', 'and it is capped so it cannot eat the ink',
+    /max-width:3\.5in/.test(css),
+    'this prints on every crew sheet, every morning, all season');
+  check('S104', 'a picture is never split across a page',
+    /photos figure\{[^}]*page-break-inside:avoid/.test(css.replace(/\s+/g, '')) ||
+    /page-break-inside:avoid/.test(css));
+  check('S104', 'and nothing is positioned on top of anything',
+    css.indexOf('position:absolute') === -1,
+    'absolute positioning is exactly how a caption ends up printed across a garage');
+
+  /* ---- which day each button means ---- */
+  const aheadSrc = extractFn(admin, 'printInstallDaysAhead');
+  check('S104', 'the day picker is there', !!aheadSrc);
+
+  if (aheadSrc) {
+    const pick = (days) => new Function('SEASON',
+      'const installDays = function(){ return SEASON.filter(function(d){ ' +
+      '  return !d.isFixRoute && !d.isTakedown; }); };' +
+      'const dayDate = function(d){ return d._date; };' +
+      aheadSrc + extractFn(admin, 'printCrewDay') + extractFn(admin, 'printWarehouseDay') +
+      'return {crew: printCrewDay(), wh: printWarehouseDay()};')(days);
+    const at = (offset, extra) => Object.assign({_date: (function(){
+      const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + offset);
+      return d; })(), houses: []}, extra || {});
+
+    /* ⭐ THE TWO DATES ARE DIFFERENT ON PURPOSE, and this is the thing most easily
+       got wrong: the crews get the next working day, the warehouse gets the one after,
+       because the warehouse builds ahead of the van. */
+    const got = pick([at(-3), at(1), at(2), at(5)]);
+    check('S104', 'the crews get the next day and the warehouse the one after',
+      !!got.crew && !!got.wh && got.wh._date > got.crew._date,
+      'owner: "the warehouse list (for two days from now) and both crew lists for ' +
+      'tomrrow morning"');
+    check('S104', 'and a day already gone by is never picked',
+      !!got.crew && got.crew._date >= (function(){ const d = new Date();
+        d.setHours(0, 0, 0, 0); return d; })(),
+      'yesterday is history');
+
+    /* ⚠ "TOMORROW" MEANS THE NEXT DAY THE CREWS WORK, not tomorrow's date. Printed
+       on a Friday the next day is Monday; asking for Saturday hands the office three
+       blank sheets and no explanation. */
+    const gap = pick([at(4), at(6)]);
+    check('S104', 'a gap in the calendar is stepped over, not printed blank',
+      !!gap.crew && !!gap.wh,
+      'the next TWO days the crews actually work, whatever the dates are');
+
+    check('S104', 'takedowns and fixer routes are not crew sheets',
+      (function(){ const r = pick([at(1, {isTakedown: true}), at(2, {isFixRoute: true}),
+        at(3)]); return !!r.crew && !r.crew.isTakedown && !r.crew.isFixRoute; })(),
+      'different kind of paper');
+    check('S104', 'and with nothing ahead it says so rather than guessing',
+      (function(){ const r = pick([at(-2)]); return !r.crew && !r.wh; })());
+  }
+
+  /* ---- print today is three pieces of paper ---- */
+  const todaySrc = extractFn(admin, 'printToday');
+  check('S104', 'print today builds the warehouse page and both crews',
+    /printWarehousePage/.test(todaySrc) && /printCrewSheetPage/.test(todaySrc) &&
+    /CREWS/.test(todaySrc),
+    'three sheets from one press');
+  /* ⭐ RUN, NOT READ. A source check for printWarehouseDay() passes while the page
+     is built from the crew's day — the call is still there on the line above, doing
+     nothing. A red-check swapping exactly that sailed through. */
+  const todayPages = (function () {
+    const out = [];
+    const at = (offset) => ({ _date: (function () {
+      const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + offset);
+      return d; })(), houses: [] });
+    new Function('SEASON', 'CREWS', 'out',
+      'const installDays = function(){ return SEASON.filter(function(d){ ' +
+      '  return !d.isFixRoute && !d.isTakedown; }); };' +
+      'const dayDate = function(d){ return d._date; };' +
+      'const toast = function(){};' +
+      'const printWarehousePage = function(d){ out.push({kind: "wh", d: d}); return {}; };' +
+      'const printCrewSheetPage = function(d, i){ out.push({kind: "crew" + i, d: d}); ' +
+      '  return {}; };' +
+      'const schedOpenPrintPages = function(){};' +
+      extractFn(admin, 'printInstallDaysAhead') + extractFn(admin, 'printCrewDay') +
+      extractFn(admin, 'printWarehouseDay') + extractFn(admin, 'printToday') +
+      'printToday();')([at(1), at(2), at(9)], [{}, {}], out);
+    return out;
+  })();
+
+  check('S104', 'print today makes exactly three sheets',
+    todayPages.length === 3,
+    'got ' + todayPages.length + ' — owner: "so it prints 3 papers"');
+  check('S104', 'one warehouse sheet and one for each crew',
+    todayPages.filter(p => p.kind === 'wh').length === 1 &&
+    todayPages.filter(p => p.kind === 'crew0').length === 1 &&
+    todayPages.filter(p => p.kind === 'crew1').length === 1,
+    'got ' + todayPages.map(p => p.kind).join(', '));
+  check('S104', 'and the warehouse sheet is for a LATER day than the crews',
+    (function () {
+      const wh = todayPages.filter(p => p.kind === 'wh')[0];
+      const crew = todayPages.filter(p => p.kind === 'crew0')[0];
+      return !!wh && !!crew && wh.d._date > crew.d._date;
+    })(),
+    'if both read the same day the warehouse is a day behind the van all season');
+  check('S104', 'each sheet is its own page',
+    /\.sheet\{page-break-after:always/.test(css),
+    'owner: "should be on a seperate page"');
+
+  /* ---- the crew sheet carries its own photos ---- */
+  const pageSrc = extractFn(admin, 'printCrewSheetPage');
+  check('S104', 'the photos hang off the bottom of the crew sheet',
+    /printPhotosHtml\(printCrewPhotos/.test(pageSrc),
+    'they travel with the sheet they belong to, not on a page of their own');
+  check('S104', 'and only new hangs with a picture on file are shown',
+    /printIsNewHang/.test(extractFn(admin, 'printCrewPhotos')) &&
+    /if\(!url\) return;/.test(extractFn(admin, 'printCrewPhotos')),
+    'a broken image frame is worse than no frame');
+
+  /* ---- the tab is wired up ---- */
+  check('S104', 'the Printing tab is on the bar', /data-tab=..printing/.test(admin));
+  check('S104', 'and it has a pane', admin.indexOf('pane-printing') !== -1);
+  const st = extractFn(admin, 'syncTabs');
+  check('S104', 'syncTabs knows about it',
+    !!st && st.indexOf('printing') !== -1,
+    'a pane missing from that list never hides, and sits under the Scheduling tab');
+  check('S104', 'switching to it draws it',
+    admin.indexOf("activeTab==='printing'){renderPrinting()") !== -1);
+  /* ⚠ MATCHED ON THE COMPARISON, not on the word appearing somewhere. Every one of
+     these strings is also a printOneList argument further down the same block, so
+     searching for the bare word passes even when the branch is gone. */
+  check('S104', 'and every button has a branch that answers it',
+    (function () {
+      const h = admin.slice(admin.indexOf('if(t.dataset.print){'),
+                            admin.indexOf('if(t.dataset.solocrew){'));
+      return ['today', 'warehouse', 'crew0', 'crew1', 'build', 'recycle', 'colors']
+        .every(k => h.indexOf("what === '" + k + "'") !== -1);
+    })(),
+    'a button that renders and does nothing is worse than no button');
+}
+/* ---------------------------------------------------------------------------
  * Suite 92. A day inside 48 hours is printed, and printed is finished
  *
  * Owner, 2026-08-20: "not recalculate houses within two days cause weve already
