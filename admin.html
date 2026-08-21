@@ -24658,12 +24658,16 @@ function whToggleGroup(listId){
    colours: the timer, the wire, and the number that goes on the bin. A house
    with no number cannot be binned or handed to a crew, and a brand-new customer
    has no number yet — so that says so in ember rather than sitting blank. */
-function whHouseFactsHtml(d){
+/* skipNumber is for the build queue, where the customer number is that row's heading.
+   Repeating it three inches lower as a chip reads as a second, possibly different
+   number rather than as the same one twice. */
+function whHouseFactsHtml(d, skipNumber){
   let html = '';
   if(String(d.outletTimer || '').trim() === 'Yes'){
     html += ' <span style="display:inline-block; background:var(--snow); color:var(--slate); border:1px solid var(--line); border-radius:999px; padding:1px 8px; font-size:11px; font-weight:600; vertical-align:middle;">Timer</span>';
   }
   html += ' <span style="display:inline-block; background:var(--snow); color:var(--slate); border:1px solid var(--line); border-radius:999px; padding:1px 8px; font-size:11px; font-weight:600; vertical-align:middle;">'+esc(whWireLabel(d.wireColor))+' wire</span>';
+  if(skipNumber) return html;
   const num = (d.customerNumber ? String(d.customerNumber).trim() : '');
   html += num
     ? custNumChip(d)
@@ -24814,10 +24818,6 @@ function whBuildStatusText(name, st){
   if(st.state === 'notqueued') return who + ' is NOT on the build list \u2014 nothing has queued a build for them. Open their record and press \u201cBuild Them A New Set\u201d.';
   return who + ' is queued to build but is not showing in any group. That should not happen \u2014 tell somebody.';
 }
-/* How many houses a build group will name on its closed heading. Past this it is a wall
-   of text above a list of the same names; the count still says how many, and the lookup
-   box answers it for any size. */
-const WH_GROUP_NAMES_MAX = 6;
 function renderWarehouseQueue(){
   const list = document.getElementById('warehouseQueueList');
   if(!list) return;
@@ -24871,107 +24871,191 @@ function renderWarehouseQueue(){
             '<button type="button" class="btn btn-outline btn-sm" data-wheditcust="'+h.id+'" style="flex:0 0 auto;">Edit</button>'+
           '</div>';
         }).join('')+
-        '<div style="font-size:12px; color:var(--slate); margin-top:8px;">These are already listed in their colour groups below &mdash; marking a house done there covers its timer too.</div>'+
+        '<div style="font-size:12px; color:var(--slate); margin-top:8px;">These are already listed below on their own rows &mdash; marking a house done there covers its timer too.</div>'+
       '</div>'+
     '</div>';
   }
-  keys.forEach(function(pattern, gi){
-    const g = groups[pattern];
-    const extraTotal = g.extras.reduce(function(s,e){ return s+(Number(e.data.quantity)||0); },0);
-    const houseBundles = g.houses.reduce(function(sum,h){ return sum + houseBundleNeed(h.data).bundles; }, 0);
+  /* ⭐ ORGANISED BY THE PERSON, NOT BY THE COLOUR OF THEIR LIGHTS. Owner, 2026-08-21,
+     after finally spotting her test house inside a colour heading: "its working I just
+     didnt see it but I dont like the way this is set up, it should be organized by the
+     customers name and number and then it shows all the details rather than storing
+     customers under light colors."
+
+     ⚠ THE OLD SHAPE ANSWERED THE WRONG QUESTION. Five collapsed headings named after
+     light patterns, with people filed underneath them, answers "how much Warm White do
+     we need" — which is asked once, at the start of a run. The question this tab gets
+     asked all day is "what does this customer need, and is it done", and under colour
+     headings that took opening every heading in turn. So people are the rows now, and
+     everything about a build sits on their row where it can be read at a glance.
+
+     ⚠ THE COLOUR TOTALS ARE NOT LOST, they are just no longer the filing system. They
+     sit in one read-only strip at the top, which is where a number you use once belongs.
+
+     ⚠ AND THIS STILL READS whBuildQueueGroups, so the screen and the printed crew sheet
+     can never disagree about WHO is on the list. This re-projects that one answer into
+     a different order; it does not work the queue out a second time. */
+  const custRows = [];
+  const custRowIndex = {};
+  function whCustRow(item){
+    if(!custRowIndex[item.id]){
+      custRowIndex[item.id] = {item: item, house: false, extras: []};
+      custRows.push(custRowIndex[item.id]);
+    }
+    return custRowIndex[item.id];
+  }
+  /* Buffer stock has nobody's name on it, so it cannot be a customer row. It keeps its
+     own block at the bottom rather than being filed under whichever customer happens to
+     want the same colour — that is how loose stock starts getting built into a bin. */
+  const looseExtras = [];
+  keys.forEach(function(key){
+    const g = groups[key];
+    g.houses.forEach(function(h){ whCustRow(h).house = true; });
+    if(g.linked){
+      const row = whCustRow(g.linked);
+      g.extras.forEach(function(x){ row.extras.push(x); });
+    } else {
+      g.extras.forEach(function(x){ looseExtras.push({key: key, item: x}); });
+    }
+  });
+  /* Number first because that is what is written on the bin, so it is what somebody in
+     the warehouse is holding when they come to this screen. A house with no number yet
+     sorts to the bottom rather than to the top, where a missing value would otherwise
+     put it — it is the one that still needs office work, not the one to start on. */
+  function whRowSortNumber(d){
+    const n = parseInt(String((d || {}).customerNumber || '').replace(/\D/g, ''), 10);
+    return isNaN(n) ? Infinity : n;
+  }
+  custRows.sort(function(a, b){
+    const na = whRowSortNumber(a.item.data), nb = whRowSortNumber(b.item.data);
+    if(na !== nb) return na - nb;
+    return String(a.item.data.name || '').localeCompare(String(b.item.data.name || ''));
+  });
+
+  /* The colour totals, kept as a fact rather than as a filing cabinet. Buffer stock is
+     counted in here too, because the question this answers is "how much do we make in
+     total", and stock coming off the same reel does not care whose bin it ends in. */
+  const colourLines = keys.filter(function(k){ return !groups[k].linked; }).map(function(key){
+    const g = groups[key];
+    const extraTotal = g.extras.reduce(function(s,e){ return s+(Number(e.data.quantity)||0); }, 0);
+    const houseBundles = g.houses.reduce(function(s,h){ return s + houseBundleNeed(h.data).bundles; }, 0);
     const anyUnknown = g.houses.some(function(h){ return houseBundleNeed(h.data).unknown; });
-    const totalBundles = houseBundles + extraTotal;
-    const listId = 'whlist-' + gi;
-    const showLabel = g.houses.length
-      ? 'Show ' + g.houses.length + ' house' + (g.houses.length===1?'':'s')
-      : 'Show ' + g.extras.length + ' item' + (g.extras.length===1?'':'s');
-    /* A member's own request reads as a list of what they asked for. Saying
-       "Build 7 bundles — 0 houses, 7 extra" about one person is technically true
-       and tells Dad nothing about what to pick up. */
-    const heading = g.title || pattern;
-    const subtitle = g.title
-      ? g.extras.map(function(e){
-          const q = Number(e.data.quantity) || 1;
-          const isTimer = (e.data.kind || 'lights') === 'timer';
-          return q + ' ' + (isTimer ? 'timer' : 'bundle') + (q===1?'':'s') + (isTimer ? '' : ' ' + (e.data.pattern || ''));
-        }).join(' · ') + (g.linked && g.linked.data.customerNumber ? ' · bin #' + g.linked.data.customerNumber : ' · no number yet')
-      : 'Build '+totalBundles+' bundle'+(totalBundles===1?'':'s')+' — '+g.houses.length+' house'+(g.houses.length===1?'':'s')+(extraTotal?', '+extraTotal+' extra':'')+(anyUnknown?' · some houses have no feet on file':'');
+    return {key: key, bundles: houseBundles + extraTotal, houses: g.houses.length,
+            extras: extraTotal, unknown: anyUnknown};
+  }).filter(function(l){ return l.bundles > 0; });
+  if(colourLines.length){
+    const grand = colourLines.reduce(function(s,l){ return s + l.bundles; }, 0);
     html += '<div class="row-item" style="display:block;">'+
-      '<div style="display:flex; justify-content:space-between; align-items:center; gap:10px; cursor:pointer;" data-whtoggle="'+listId+'">'+
-        '<div><strong style="font-size:15px;">'+esc(heading)+'</strong><div style="font-size:12.5px; color:var(--slate);">'+esc(subtitle)+'</div>'+
-          /* ⭐ WHO IS IN IT, WITHOUT OPENING IT. Owner, 2026-08-21, twice: "i clicked
-             build ashley wray but shes not here", then "they still arent appearing in the
-             build section of warehouse."
-
-             ⚠ BOTH TIMES THE RECORD WAS RIGHT AND THE SCREEN WAS THE PROBLEM. A house
-             joining an existing colour group only moves a heading from "4 houses" to "5
-             houses" — so the one question anybody asks this tab, "is that customer on
-             here", cannot be answered without opening every group in turn. Names are what
-             she is looking for, so the names go on the outside.
-
-             ⚠ ONLY WHILE THE LIST IS SHORT ENOUGH TO READ. Past a handful this becomes a
-             wall of text above a list of the same names, which is worse than the count it
-             replaced; the count still says how many, and the lookup box above answers it
-             for any size. */
-          ((g.houses.length && g.houses.length <= WH_GROUP_NAMES_MAX)
-            ? '<div style="font-size:12px; color:var(--slate); margin-top:2px;">'+
-                esc(g.houses.map(function(h){ return h.data.name || '(no name)'; }).join(', '))+
-              '</div>'
-            : '')+
-        '</div>'+
-        whToggleBtn('whtoggle', listId, showLabel)+
-      '</div>'+
-      '<div id="'+listId+'" style="display:none; margin-top:12px; padding-top:12px; border-top:1px solid var(--line);">'+
-        g.houses.map(function(h){
-          const need = houseBundleNeed(h.data);
-          const needTxt = need.topUp
-            ? ('build ' + need.feet + ' ft more = ' + need.bundles + ' bundle' + (need.bundles===1?'':'s') +
-               ' \u2014 they already have ' + need.have + ' ft of their ' + need.total + ' ft')
-            : need.unknown
-            ? 'no feet on file \u2014 assuming 1 bundle'
-            : need.feet + ' ft = ' + need.bundles + ' bundle' + (need.bundles===1?'':'s') + (need.estimated ? ' (estimated from price)' : '');
-          const houseNotes = (h.data.notes ? String(h.data.notes).trim() : '');
-          return '<div style="display:flex; justify-content:space-between; align-items:flex-start; padding:8px 0; gap:10px;">'+
-            '<span style="font-size:13.5px;">'+esc(h.data.name||'(no name)')+' &mdash; '+esc(h.data.address||'')+propLabelChip(h.data)+whAlsoOnChip(h.data, 'recycle')+
-              '<span style="display:block; font-size:12px; color:'+(need.unknown?'var(--ember)':'var(--slate)')+'; margin-top:2px;">'+esc(needTxt)+'</span>'+
-              '<span style="display:block; margin-top:4px; line-height:1.9;">'+whHouseFactsHtml(h.data)+'</span>'+
-              /* ⚠ A BADGE, NOT A LINE OF TEXT. It sits with the Timer and wire chips, which
-                 is where somebody building looks, rather than under the address where a
-                 sentence reads as a note about the customer. */
-              (need.topUp
-                ? '<span style="display:block; margin-top:4px;">'+
-                    '<span style="display:inline-block; background:#FFF4DC; color:#8A6100; border:1px solid #E4C77A; border-radius:999px; padding:2px 9px; font-size:11.5px; font-weight:700;">'+
-                      'ADD-ON \u2014 into the bin they already have'+
-                    '</span>'+
-                  '</span>'+
-                  '<span style="display:block; font-size:12px; font-weight:600; color:#8A6100; margin-top:3px;">When built, put into '+esc(whPutIntoLabel(h.data))+'</span>'
-                : '')+
-              /* Notes last, because they are the long bit and the facts above
-                 are what gets read at a glance while building. */
-              (houseNotes ? '<span style="display:block; font-size:12px; color:var(--slate); margin-top:4px; white-space:pre-wrap;">'+esc(houseNotes)+'</span>' : '')+
+      '<div><strong style="font-size:15px;">What to make in total</strong>'+
+        '<div style="font-size:12.5px; color:var(--slate);">'+grand+' bundle'+(grand===1?'':'s')+
+        ' across '+colourLines.length+' colour'+(colourLines.length===1?'':'s')+
+        ' &mdash; the houses themselves are listed below.</div></div>'+
+      '<div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--line);">'+
+        colourLines.map(function(l){
+          return '<div style="display:flex; justify-content:space-between; gap:10px; padding:5px 0; font-size:13.5px;">'+
+            '<span>'+esc(l.key)+
+              (l.unknown ? '<span style="display:block; font-size:12px; color:var(--ember);">some houses have no feet on file</span>' : '')+
             '</span>'+
-            /* Everything on this row — the colours, the wire, the feet, the
-               timer, the bin number — lives on the customer record, so Edit
-               opens that record rather than putting a second form here that
-               could save a different answer. */
-            '<span style="display:flex; gap:6px; flex:0 0 auto;">'+
-              '<button type="button" class="btn btn-outline btn-sm" data-wheditcust="'+h.id+'">Edit</button>'+
-              '<button type="button" class="btn btn-outline btn-sm" data-whdonehouse="'+h.id+'">Mark Done</button>'+
+            '<span style="flex:0 0 auto; font-variant-numeric:tabular-nums; font-weight:600;">'+
+              l.bundles+' bundle'+(l.bundles===1?'':'s')+
+              '<span style="font-weight:400; color:var(--slate);"> &middot; '+l.houses+' house'+(l.houses===1?'':'s')+
+              (l.extras ? ', '+l.extras+' extra' : '')+'</span>'+
             '</span>'+
           '</div>';
         }).join('')+
-        g.extras.map(function(e){
+      '</div>'+
+    '</div>';
+  }
+
+  custRows.forEach(function(row){
+    const h = row.item;
+    const d = h.data;
+    const need = houseBundleNeed(d);
+    const needTxt = need.topUp
+      ? ('build ' + need.feet + ' ft more = ' + need.bundles + ' bundle' + (need.bundles===1?'':'s') +
+         ' \u2014 they already have ' + need.have + ' ft of their ' + need.total + ' ft')
+      : need.unknown
+      ? 'no feet on file \u2014 assuming 1 bundle'
+      : need.feet + ' ft = ' + need.bundles + ' bundle' + (need.bundles===1?'':'s') + (need.estimated ? ' (estimated from price)' : '');
+    const houseNotes = (d.notes ? String(d.notes).trim() : '');
+    html += '<div class="row-item" style="display:block;">'+
+      '<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">'+
+        '<div style="min-width:0;">'+
+          /* ⚠ THE NUMBER IS THE HEADING, not a chip among the others. It is what is
+             written on the bin, so it is what somebody matching this screen to a shelf
+             is reading — and a missing one is the whole reason a build stalls, so it
+             says so in ember instead of leaving a gap. */
+          '<strong style="font-size:15px; font-variant-numeric:tabular-nums;">'+
+            (d.customerNumber
+              ? '#'+esc(String(d.customerNumber).trim())
+              : '<span style="color:var(--ember);">No number yet</span>')+
+          '</strong>'+
+          '<strong style="font-size:15px;"> &mdash; '+esc(d.name||'(no name)')+'</strong>'+
+          propLabelChip(d)+whAlsoOnChip(d, 'recycle')+
+          '<div style="font-size:12.5px; color:var(--slate); margin-top:2px;">'+esc(d.address||'no address')+'</div>'+
+          (row.house
+            ? '<div style="font-size:13px; color:'+(need.unknown?'var(--ember)':'var(--ink)')+'; margin-top:4px;">'+
+                '<strong>'+esc(d.lightsDescription || 'no colours on file')+'</strong> &mdash; '+esc(needTxt)+
+              '</div>'
+            : '')+
+          '<div style="margin-top:4px; line-height:1.9;">'+whHouseFactsHtml(d, true)+'</div>'+
+          /* ⚠ A BADGE, NOT A LINE OF TEXT. It sits with the Timer and wire chips, which
+             is where somebody building looks, rather than under the address where a
+             sentence reads as a note about the customer. */
+          (need.topUp && row.house
+            ? '<div style="margin-top:4px;">'+
+                '<span style="display:inline-block; background:#FFF4DC; color:#8A6100; border:1px solid #E4C77A; border-radius:999px; padding:2px 9px; font-size:11.5px; font-weight:700;">'+
+                  'ADD-ON \u2014 into the bin they already have'+
+                '</span>'+
+              '</div>'+
+              '<div style="font-size:12px; font-weight:600; color:#8A6100; margin-top:3px;">When built, put into '+esc(whPutIntoLabel(d))+'</div>'
+            : '')+
+          (houseNotes ? '<div style="font-size:12px; color:var(--slate); margin-top:4px; white-space:pre-wrap;">'+esc(houseNotes)+'</div>' : '')+
+        '</div>'+
+        /* Everything on this row — the colours, the wire, the feet, the timer, the bin
+           number — lives on the customer record, so Edit opens that record rather than
+           putting a second form here that could save a different answer. */
+        '<span style="display:flex; gap:6px; flex:0 0 auto;">'+
+          '<button type="button" class="btn btn-outline btn-sm" data-wheditcust="'+h.id+'">Edit</button>'+
+          (row.house ? '<button type="button" class="btn btn-outline btn-sm" data-whdonehouse="'+h.id+'">Mark Done</button>' : '')+
+        '</span>'+
+      '</div>'+
+      /* What this person asked for on top of their house, under their own name where it
+         belongs, instead of loose in a colour pile that never said who wanted it. */
+      (row.extras.length
+        ? '<div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--line);">'+
+            '<div style="font-size:12px; color:var(--slate); margin-bottom:4px;">Also asked for:</div>'+
+            row.extras.map(function(e){
+              const isTimer = (e.data.kind || 'lights') === 'timer';
+              const what = isTimer ? 'Timer' : (e.data.pattern || 'Lights');
+              const sub = isTimer ? '' :
+                esc(e.data.pattern || '') + ' &middot; ' +
+                (e.data.wireColor ? esc(e.data.wireColor) + ' wire' : 'wire colour not set');
+              return '<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; gap:10px;">'+
+                '<span style="font-size:13.5px;">'+esc(what)+' &times; '+(e.data.quantity||1)+
+                  (sub ? '<span style="display:block; font-size:12px; color:var(--slate);">'+sub+'</span>' : '')+'</span>'+
+                '<span style="display:flex; gap:6px; flex:0 0 auto;">'+
+                  '<button type="button" class="btn btn-outline btn-sm" data-wheditextra="'+e.id+'">Edit</button>'+
+                  '<button type="button" class="btn btn-outline btn-sm" data-whdoneextra="'+e.id+'">Mark Done</button>'+
+                '</span>'+
+              '</div>';
+            }).join('')+
+          '</div>'
+        : '')+
+    '</div>';
+  });
+
+  /* Loose stock last, because it is the only thing here that is not somebody's job. */
+  if(looseExtras.length){
+    const looseTotal = looseExtras.reduce(function(s,x){ return s+(Number(x.item.data.quantity)||0); }, 0);
+    html += '<div class="row-item" style="display:block;">'+
+      '<div><strong style="font-size:15px;">Extra stock &mdash; not for a customer</strong>'+
+        '<div style="font-size:12.5px; color:var(--slate);">'+looseTotal+' bundle'+(looseTotal===1?'':'s')+
+        ' of buffer stock. Nobody’s name is on these, so they do not go into a bin.</div></div>'+
+      '<div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--line);">'+
+        looseExtras.map(function(x){
+          const e = x.item;
           const isTimer = (e.data.kind || 'lights') === 'timer';
-          /* Inside a member's request the name is already the heading, so the row
-             says WHAT to build. In buffer stock there is no heading name, so the
-             label is the only thing identifying it. */
-          const what = g.title
-            ? (isTimer ? 'Timer' : (e.data.pattern || 'Lights'))
-            : (e.data.label || 'Extra stock');
-          /* A build added by hand used to be add-only: the one button on this
-             row is Mark Done, which deletes it, so a typo — or a wire colour,
-             which the form never asked for — could only be fixed by deleting
-             the whole thing and typing it again. */
+          const what = e.data.label || (isTimer ? 'Timer' : 'Extra stock');
           const sub = isTimer ? '' :
             esc(e.data.pattern || '') + ' &middot; ' +
             (e.data.wireColor ? esc(e.data.wireColor) + ' wire' : 'wire colour not set');
@@ -24985,24 +25069,8 @@ function renderWarehouseQueue(){
           '</div>';
         }).join('')+
       '</div>'+
-      /* ⚠ The heading above this box counts BUNDLES; this box counts HOUSES,
-         and a big house is several bundles. Someone reading "Build 14 bundles"
-         and typing 14 into an unlabelled "# completed" box cleared the entire
-         six-house group. The box now says what it counts, and says how many
-         there are to count. */
-      /* One member's request has its own Mark Done on each line, and a count box
-         saying "0 houses + 2 extra" about a single person only invites the same
-         mistake in a new place. So the bulk box is for real colour groups only. */
-      (g.title ? '' :
-      '<div style="display:flex; gap:8px; align-items:center; margin-top:10px; flex-wrap:wrap;">'+
-        '<label style="font-size:12.5px; color:var(--slate);" for="whdone-'+gi+'">Houses finished'+
-          (extraTotal ? ' (then extras)' : '')+' &mdash; '+g.houses.length+' house'+(g.houses.length===1?'':'s')+
-          (extraTotal ? ' + '+extraTotal+' extra' : '')+' here, <strong>not</strong> the '+totalBundles+' bundle'+(totalBundles===1?'':'s')+' above:</label>'+
-        '<input type="number" id="whdone-'+gi+'" min="0" max="'+(g.houses.length + extraTotal)+'" placeholder="# of houses" class="whcompleteinput" style="width:110px; padding:8px 10px; border-radius:8px; border:1px solid var(--line);">'+
-        '<button type="button" class="btn btn-gold btn-sm" data-whcompletebtn="'+esc(pattern)+'">Mark Completed</button>'+
-      '</div>')+
     '</div>';
-  });
+  }
   list.innerHTML = html;
   /* Both the row and the button carry data-whtoggle, so both get this listener.
      stopPropagation is what keeps a tap on the button from bubbling to the row
@@ -25045,54 +25113,6 @@ function renderWarehouseQueue(){
     btn.addEventListener('click', function(e){
       e.stopPropagation();
       deleteDoc(doc(db,'warehouseExtras', btn.dataset.whdoneextra)).catch(function(){});
-    });
-  });
-  list.querySelectorAll('[data-whcompletebtn]').forEach(function(btn){
-    btn.addEventListener('click', async function(e){
-      e.stopPropagation();
-      const pattern = btn.dataset.whcompletebtn;
-      const row = btn.closest('.row-item');
-      const input = row.querySelector('.whcompleteinput');
-      let remaining = Number(input.value);
-      if(!remaining || remaining <= 0) return;
-      const g = groups[pattern];
-      if(!g) return;
-      /* Clamp, then say exactly who this clears, in the order it will clear
-         them. It used to take any number and work down the list silently — no
-         confirm, no names — so an over-count quietly emptied the group and
-         there was no record of which houses had supposedly been built. */
-      const capacity = g.houses.length + g.extras.reduce(function(s,e){ return s + (Number(e.data.quantity)||0); }, 0);
-      if(remaining > capacity) remaining = capacity;
-      const willClear = g.houses.slice(0, remaining);
-      const extrasToo = Math.max(0, remaining - g.houses.length);
-      if(!confirm(
-        'Mark ' + remaining + ' finished for "' + pattern + '":\n\n' +
-        (willClear.length
-          ? willClear.map(function(h){ return '  • ' + (h.data.name || '(no name)') + ' — ' + (h.data.address || 'no address'); }).join('\n')
-          : '  (no houses — extras only)') +
-        (extrasToo ? '\n\n  ...and ' + extrasToo + ' from extra stock.' : '') +
-        '\n\nThey come off the build list. Continue?'
-      )){
-        return;
-      }
-      for(const h of g.houses){
-        if(remaining <= 0) break;
-        // Same clear as the single Mark Done above - see the note there.
-        await updateDoc(doc(db,'jobAddresses', h.id),
-          {needsLightBuild:false, buildTopUpFromFeet:null, binLabelNumber:null});
-        remaining--;
-      }
-      for(const ex of g.extras){
-        if(remaining <= 0) break;
-        const q = Number(ex.data.quantity)||0;
-        if(q <= remaining){
-          await deleteDoc(doc(db,'warehouseExtras', ex.id));
-          remaining -= q;
-        } else {
-          await updateDoc(doc(db,'warehouseExtras', ex.id), {quantity: q - remaining});
-          remaining = 0;
-        }
-      }
     });
   });
 }

@@ -3295,15 +3295,21 @@ suite('11. Reliability pass');
     'a silent recycle is indistinguishable from no recycle');
 
   // ---- 2.7 Warehouse Mark Completed --------------------------------------
-  check('reliability', 'the warehouse completed box says it counts houses, not bundles',
-    /Houses finished/.test(admin) && /<strong>not<\/strong> the/.test(admin),
-    'the heading counts bundles and the box counted houses, with nothing saying so');
-  check('reliability', 'marking a batch completed lists who it clears first',
-    /Mark ' \+ remaining \+ ' finished for/.test(admin),
-    'it cleared houses in arbitrary order with no confirm and no record of which');
-  check('reliability', 'the completed count cannot exceed what is in the group',
-    /if\(remaining > capacity\) remaining = capacity;/.test(admin),
-    'typing 14 into a 6-house group emptied the group');
+  /* ⭐ THERE IS NO BULK COUNT BOX ANY MORE. It took a number and worked down a colour
+     group clearing houses — the heading counted BUNDLES and the box counted HOUSES, and
+     typing 14 into a six-house group once emptied the group. It survived behind a
+     confirm that listed who it would clear.
+
+     ⚠ IT HAS NO HOME NOW THE LIST IS PEOPLE. Every house is its own row with its own
+     Mark Done, so "how many did you finish" is a question nobody has to answer with a
+     number — they tick the ones they built. Kept as a check rather than deleted so the
+     box cannot quietly come back with the same accident in it. */
+  check('reliability', 'there is no bulk "houses finished" count box in the warehouse',
+    !/Houses finished/.test(admin) && !/whcompletebtn/.test(admin),
+    'a count box that clears houses by number emptied a six-house group once already');
+  check('reliability', 'each house is finished from its own row instead',
+    /data-whdonehouse="/.test(admin) && /\[data-whdonehouse\]/.test(admin),
+    'ticking the ones you built cannot over-count the ones you did not');
 
   // ---- 2.8 Map pins ------------------------------------------------------
   check('reliability', 'All Customers can filter to customers with no map pin',
@@ -4006,47 +4012,83 @@ if (!JSDOM) {
 
     renderWarehouseQueue();
     const list = document.getElementById('warehouseQueueList');
-    const group = list.querySelector('.row-item:last-of-type');
-    const toggle = group.querySelector('button[data-whtoggle]');
-    const body = group.querySelector('[id^="whlist-"]');
 
-    check('warehouse', 'a group row has a real labelled button, not just a chevron',
-      !!toggle && /Show 2 houses/.test(toggle.textContent),
-      'the chevron alone read as decoration, so nobody opened the row and the names were unreachable');
-    check('warehouse', 'the houses start hidden', body.style.display === 'none');
+    /* ⭐ THE BUILD LIST IS PEOPLE NOW, NOT COLOURS. Owner, 2026-08-21, having finally
+       found her test house inside a colour heading: "i dont like the way this is set
+       up, it should be organized by the customers name and number and then it shows
+       all the details rather than storing customers under light colors."
 
-    // THE REGRESSION TEST: press the button the way she would.
-    toggle.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-    check('warehouse', 'pressing the button opens the group',
-      body.style.display === 'block',
-      'the button exists but does nothing — which is the bug all over again');
-    check('warehouse', 'the customer names are on screen once it is open',
-      /Nadia Brooks/.test(body.innerHTML) && /Owen Hale/.test(body.innerHTML),
-      'this is the whole point of the change');
-    check('warehouse', 'the button now says Hide',
-      /Hide/.test(toggle.textContent),
-      'a control that does not change state leaves you guessing whether the tap registered');
+       ⚠ THE OLD SHAPE ANSWERED THE WRONG QUESTION. Headings named after light patterns
+       answer "how much Warm White do we need", which is asked once a run. The question
+       this tab gets all day is "what does this customer need, and is it done" — and
+       under colour headings that meant opening every heading in turn. */
+    check('warehouse', 'both houses are readable without opening anything',
+      /Nadia Brooks/.test(list.innerHTML) && /Owen Hale/.test(list.innerHTML) &&
+      !list.querySelector('[id^="whlist-"]'),
+      'a list you have to expand before you can read it is a list somebody misses');
+    check('warehouse', 'and there is no colour heading left to file people under',
+      !/Show 2 houses/.test(list.innerHTML),
+      'the colour was the filing cabinet; it is a fact on the row now');
 
-    // Bubbling: the row carries the same handler, so a tap that reached both
-    // would toggle twice and look like nothing happened at all.
-    toggle.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-    check('warehouse', 'pressing it again closes the group exactly once',
-      body.style.display === 'none',
-      'a click reaching both the button and the row toggles twice and appears dead');
+    /* ⚠ NUMBER ORDER, because the number is what is written on the bin, so it is what
+       somebody in the warehouse is holding when they come to this screen. */
+    /* Anchored on the Mark Done button rather than on a name: the Timers roll-up
+       names its houses too, so a name match alone picks that block up as a third row. */
+    const rows = Array.from(list.querySelectorAll('.row-item'))
+      .filter(r => !!r.querySelector('[data-whdonehouse]'));
+    check('warehouse', 'there is one row per customer',
+      rows.length === 2,
+      'two people sharing a row is how one of them gets built and the other does not');
+    check('warehouse', 'the numbered house comes first and the un-numbered one last',
+      /Owen Hale/.test(rows[0].innerHTML) && /Nadia Brooks/.test(rows[1].innerHTML),
+      'a blank number sorts to the top on its own, which puts the house that still ' +
+      'needs office work ahead of the one that can actually be built');
 
-    check('warehouse', 'a house that wants a timer says so',
-      /Timer/.test(body.innerHTML),
-      'the timer was only ever visible as anonymous buffer stock');
-    check('warehouse', 'the wire colour is on the house row',
-      /White wire/.test(body.innerHTML));
-    check('warehouse', 'a new customer with no number is flagged in the build list',
-      /needs assigning/.test(body.innerHTML),
+    const owen = rows[0], nadia = rows[1];
+    check('warehouse', 'the number is the heading of the row',
+      /#1421/.test(owen.innerHTML),
+      'it is what is on the bin, so it is what somebody matching shelf to screen reads');
+    /* ⚠ ONCE, NOT TWICE. The facts chips used to carry the number too, and the same
+       number printed twice three inches apart reads as two different numbers. */
+    check('warehouse', 'and it appears exactly once on the row',
+      (owen.innerHTML.match(/1421/g) || []).length === 1,
+      'the same number printed twice reads as a second, possibly different number');
+    check('warehouse', 'a house with no number says so where the number would be',
+      /No number yet/.test(nadia.innerHTML),
       'a bundle with no number on it cannot be binned or handed to a crew');
-    check('warehouse', 'an existing customer shows their number instead',
-      /#1421/.test(body.innerHTML));
+
+    check('warehouse', 'the row carries the address',
+      /18 Frost Ln/.test(nadia.innerHTML));
+    check('warehouse', 'the row carries the light colours',
+      /Warm White/.test(nadia.innerHTML),
+      'the colour did not stop mattering, it stopped being the filing system');
+    check('warehouse', 'the row carries how much to build',
+      /240 ft = 6 bundles/.test(nadia.innerHTML),
+      'this is the number somebody actually works from');
+    check('warehouse', 'the row carries the wire colour',
+      /White wire/.test(nadia.innerHTML));
+    check('warehouse', 'a house that wants a timer says so on its own row',
+      /Timer/.test(nadia.innerHTML),
+      'the timer was only ever visible as anonymous buffer stock');
     check('warehouse', 'the house notes come through',
-      /Steep pitch over the entry/.test(body.innerHTML),
+      /Steep pitch over the entry/.test(nadia.innerHTML),
       'notes sit at the bottom of the row, under the facts');
+    check('warehouse', 'every row can be edited and marked done from where it is read',
+      !!owen.querySelector('[data-wheditcust="h2"]') &&
+      !!owen.querySelector('[data-whdonehouse="h2"]'),
+      'a row you can read but not act on sends you hunting for the customer by hand');
+
+    /* ⚠ THE COLOUR TOTALS ARE NOT LOST, they are just no longer the filing system —
+       they are the one thing here you read once at the start of a run. */
+    check('warehouse', 'the colour totals survive as a read-only strip',
+      /What to make in total/.test(list.innerHTML) &&
+      /11 bundles/.test(list.innerHTML),
+      'somebody still has to know how much Warm White to pull off the reel');
+    check('warehouse', 'and that strip is not something you can mark done',
+      !/data-whcompletebtn/.test(list.innerHTML),
+      'a count box that cleared a whole colour group is exactly the accident that ' +
+      'emptied six houses once already; each house has its own Mark Done now');
+
     check('warehouse', 'timers are rolled up against the houses that asked for one',
       /Timers/.test(list.innerHTML) && /1 house in this build needs a timer/.test(list.innerHTML),
       'without this the count of timers to pull off the shelf is guesswork');
@@ -4125,20 +4167,32 @@ if (!JSDOM) {
     // The Build tab must show a member's two items under ONE heading.
     global.jobAddresses = [
       { id: 'h1', data: { name: 'Nadia Brooks', address: '18 Frost Ln', customerNumber: '',
-          lightsDescription: 'Warm White', wireColor: 'White', measuredFeet: 240 } }
+          lightsDescription: 'Warm White', wireColor: 'White', measuredFeet: 240,
+          needsLightBuild: true } }
     ];
     renderWarehouseQueue();
     const l2 = document.getElementById('warehouseQueueList');
-    check('warehouse', 'a member\'s lights and timer sit under one request heading',
-      /Nadia Brooks — extra request/.test(l2.innerHTML) &&
-      (l2.innerHTML.match(/extra request/g) || []).length === 1,
-      'two headings for one person is exactly the "two different requests" problem');
-    check('warehouse', 'the request heading says what to pick up',
-      /6 bundles Warm White · 1 timer/.test(l2.innerHTML),
+    /* ⭐ NOW IT IS THEIR ROW, NOT A SEPARATE "extra request" HEADING. The list is filed
+       by person, so what somebody asked for on top of their house belongs under their
+       own name — which is also the only place it can be read next to the house it goes
+       with. */
+    check('warehouse', 'a member\'s lights and timer sit on that member\'s own row',
+      /Also asked for/.test(l2.innerHTML) &&
+      (l2.innerHTML.match(/Also asked for/g) || []).length === 1,
+      'two rows for one person is exactly the "two different requests" problem');
+    check('warehouse', 'and that row says what to pick up for them',
+      /Warm White/.test(l2.innerHTML) && /Timer/.test(l2.innerHTML),
       '"0 houses, 7 extra" is true and tells Dad nothing');
     check('warehouse', 'generic buffer stock still gets its own group',
       /buffer stock/.test(l2.innerHTML),
       'stock with no house attached must not be filed under a member');
+    /* ⭐ ONE ROW, EVEN WITH A HOUSE AND A REQUEST. This member is queued for a build
+       AND has asked for extras, which is the only shape that can produce two rows for
+       one person — the exact "two competing requests for the same job" problem the
+       matching above exists to prevent, arriving through the render instead. */
+    check('warehouse', 'a member with both a build and a request gets one row, not two',
+      (l2.innerHTML.match(/Nadia Brooks/g) || []).length === 1,
+      'one of the two rows gets built and the other quietly does not');
     check('warehouse', 'a member request has no bulk count box',
       !/whdone-0/.test(l2.innerHTML.slice(0, l2.innerHTML.indexOf('buffer stock'))),
       'a "houses finished" box on a single person invites the same over-count mistake');
@@ -19993,9 +20047,12 @@ suite('Suite 107. Pricing a re-quote from the popup');
   check('S107', 'Mark Done clears the top-up as well as the build flag',
     /needsLightBuild:false, buildTopUpFromFeet:null/.test(admin),
     'the single Mark Done button on the warehouse row');
-  check('S107', 'and so does marking a whole group done',
-    (admin.match(/buildTopUpFromFeet:null/g) || []).length >= 2,
-    'the bulk button writes its own update and would otherwise leave it behind');
+  /* ⚠ THE BULK BUTTON THAT ALSO WROTE THIS IS GONE (2026-08-21). The build list is
+     filed by person now, so a box that clears N houses by number has no home — every
+     house has its own Mark Done. One writer means one place this can be forgotten. */
+  check('S107', 'and only one control clears a finished build',
+    !/whcompletebtn/.test(admin),
+    'two buttons writing the same flag is how one of them starts leaving it behind');
   /* ⚠ IT MOVED WITH THE SPLIT. Clearing the add-on belongs to whichever button queues
      a WHOLE set, and after 2026-08-21 that is Build Them A New Set, not Recycle. */
   check('S107', 'and queueing a whole set by hand clears it too',
@@ -21128,21 +21185,13 @@ suite('Suite 116. Deleting the test records');
      without opening every group in turn. */
   {
     const render = extractFn(admin, 'renderWarehouseQueue');
-    check('S116', 'a build group names its houses on the closed heading',
-      /g\.houses\.map\(function\(h\)\{ return h\.data\.name/.test(render),
-      'names are what she is looking for, so they go on the outside');
-    /* ⚠ ONLY WHILE IT IS SHORT ENOUGH TO READ. Past a handful this is a wall of text
-       above a list of the same names, which is worse than the count it replaced. */
-    check('S116', 'and only while the group is short enough to read',
-      /g\.houses\.length <= WH_GROUP_NAMES_MAX/.test(render),
-      'a paragraph of names above the same names is worse than a count');
-    check('S116', 'and the ceiling is named once, not typed into the render',
-      /const WH_GROUP_NAMES_MAX = \d+;/.test(admin),
-      'a number written into a render is a number nobody can find to change');
-    check('S116', 'and an empty group names nobody',
-      /g\.houses\.length && g\.houses\.length <= WH_GROUP_NAMES_MAX/.test(render),
-      'a buffer-stock group has no houses at all, and an empty line under its heading ' +
-      'reads as a house with no name');
+  /* ⚠ THE CLOSED-HEADING NAMES WENT WITH THE HEADINGS THEMSELVES (2026-08-21). Naming
+     the houses on a collapsed colour group was a patch on filing people under colours;
+     the list is filed by person now, so every name is simply on screen. Suite 14 holds
+     that. */
+  check('S116', 'the build list needs no heading to be opened before names show',
+    !/WH_GROUP_NAMES_MAX/.test(admin),
+    'a list you have to expand before you can read it is a list somebody misses');
   }
 
   /* ⭐ SOMEBODY WHO MOVED IS ON BOTH LISTS, AND EACH ONE SAYS SO. Owner, 2026-08-21,
@@ -21177,9 +21226,11 @@ suite('Suite 116. Deleting the test records');
     /* All three rows that can carry it. */
     check('S116', 'the recycle row shows it',
       /whAlsoOnChip\(d, 'build'\)/.test(extractFn(admin, 'renderWarehouseRecycleQueue')));
+    /* ⚠ TWO PLACES, NOT THREE, SINCE THE LIST BECAME PEOPLE: the customer row and the
+       waiting-on-colours row. There is no longer a separate row inside a colour group. */
     check('S116', 'and both build rows show the other side',
-      (extractFn(admin, 'renderWarehouseQueue').match(/whAlsoOnChip\(h\.data, 'recycle'\)/g) || []).length === 2,
-      'the ordinary build row AND the waiting-on-colours row');
+      (extractFn(admin, 'renderWarehouseQueue').match(/whAlsoOnChip\((h\.data|d), 'recycle'\)/g) || []).length === 2,
+      'the customer row AND the waiting-on-colours row');
   }
 
   /* ⭐ AND THE BUILD TAB CAN BE ASKED ABOUT ONE HOUSE. Owner, 2026-08-21, having pressed
@@ -21732,9 +21783,8 @@ suite('Suite 112. The number on the bin');
     /binLabelNumber: null,/.test(admin),
     'a stale label would send somebody to a bin that is already back');
   check('S112', 'and finishing a build clears it too',
-    /needsLightBuild:false, buildTopUpFromFeet:null, binLabelNumber:null/.test(admin) &&
-    (admin.match(/binLabelNumber:null/g) || []).length >= 2,
-    'both the single Mark Done and the bulk one write their own update');
+    /needsLightBuild:false, buildTopUpFromFeet:null, binLabelNumber:null/.test(admin),
+    'a new bin has been made up under the number they hold now, so the old label is gone');
 
   /* ⭐ AND CONVERTING MOVES THE NUMBER WITHOUT ASKING. Owner: "when I click convert to
      customer, if the number changes that happens automatically so I dont have to manaily
