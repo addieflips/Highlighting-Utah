@@ -27771,9 +27771,14 @@ suite('Suite 128. The do-not-send list — automation emails only');
     /* ⚠ THE PANEL REPAINTS FROM THE CACHE, NOT FROM FIRESTORE. Without the mirror
        the row springs back and the office presses it again, putting two writes in
        flight for one decision. */
+    /* ⚠ THE PRESENCE TEST IS LOAD-BEARING, and this check was caught being vacuous
+       by its own red-check: with the mirror line DELETED, indexOf returns -1, and
+       -1 is less than the position of the await, so an ordering-only comparison
+       reported PASS against code that had no mirror at all. */
+    const mirrorAt = delegated.indexOf('member.data.noAutomationEmails = turnOn');
+    const awaitAt = delegated.indexOf('await updateDoc');
     check('S128', 'and mirrors into the local cache before awaiting the write',
-      delegated.indexOf('member.data.noAutomationEmails = turnOn') <
-      delegated.indexOf('await updateDoc'),
+      mirrorAt !== -1 && awaitAt !== -1 && mirrorAt < awaitAt,
       'this panel repaints from jobAddresses, so an unmirrored tick springs back');
     check('S128', 'a failed write puts it back',
       /member\.data\.noAutomationEmails = before/.test(delegated),
