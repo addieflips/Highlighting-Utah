@@ -22259,8 +22259,12 @@ suite('Suite 108. The Edit Customer save, actually run');
       const saved = handlerSrc;
       return null;
     })();
+    /* ⚠ COMMENTS STRIPPED. The old wording is quoted in a comment on the cancel path,
+       explaining that a ReferenceError there turned a clean "cancelled" message into
+       that one — exactly where somebody would next be tempted to reintroduce it. A
+       plain search finds the warning and reports it as the violation. */
     check('S108', 'the catch no longer swallows the error',
-      !/Something went wrong/.test(handlerSrc) &&
+      !/Something went wrong/.test(stripComments(handlerSrc)) &&
       /console\.error\('Edit Customer save failed:'/.test(handlerSrc) &&
       /Nothing was saved/.test(handlerSrc),
       'five grey words and no console line is not something anybody can act on, ' +
@@ -22358,8 +22362,16 @@ suite('Suite 108. The Edit Customer save, actually run');
     /* Cancelled — nothing at all is saved, not even the rest of the form. */
     const cancelled = await runSave({noRequote: true, lights: 'Red, Green', feeAnswer: 'cancel',
       cust: {lightsDescription: 'Warm White', invoiceEmailSent: false}});
-    check('S108', 'cancelling the fee popup saves nothing at all',
-      !cancelled.cust && !cancelled.writes.some(w => w.col === 'invoices'),
+    /* ⚠ THE MESSAGE IS PART OF THE ASSERTION, and that is not decoration. The first
+       version checked only that nothing was written — which is equally true when the
+       handler CANCELS cleanly and when it THROWS, so it sailed straight over a
+       ReferenceError on this exact path (a `btn.disabled = false` in a handler with
+       no `btn` in scope). The office would have been told the save went wrong when
+       they had simply cancelled. Asserting the status text is what tells the two
+       apart. */
+    check('S108', 'cancelling the fee popup saves nothing at all, and says so',
+      !cancelled.cust && !cancelled.writes.some(w => w.col === 'invoices') &&
+      /cancelled/i.test(cancelled.status) && !/went wrong/i.test(cancelled.status),
       'asking after the record has been written would leave the lights changed and ' +
       'the fee refused');
 
@@ -25764,6 +25776,53 @@ suite('Suite 117. The colour-change fee, actually charged');
     a !== -1 && b !== -1 && b > a,
     'renamed or moved — fix this slice rather than deleting the suite');
 
+  /* ⭐ FOUND IN THE SELF-AUDIT, 2026-08-21 — two things that were written and never
+     connected to anything. Both are the "who READS it?" question from the hole-hunt,
+     asked of my own work. */
+  {
+    const admin2 = read('admin.html');
+    /* ⚠ A CHARGE PARKED FOR NEXT SEASON WAS INVISIBLE. carryoverCharge was written by
+       the portal and by Edit Customer, and read ONLY by the nightly run — so nobody in
+       the office could see why next year's bill would be higher, answer a customer who
+       rang about it, or spot one added by mistake. It sits beside carryoverCredit,
+       which is where somebody already looks to answer "why is this number what it is". */
+    check('S117', 'a charge carried to next season is shown to the office',
+      /carryChargeForPanel/.test(admin2) &&
+      /Carried to NEXT season/.test(admin2),
+      'written by two paths and read only by the nightly run is money nobody can see');
+
+    /* ⚠ AND THE SCHEDULE MUST HONOUR THE 48 HOURS, not just Routes. Owner: "we won't
+       schedule them within that 48 hours so they can change there lights again if
+       they choose." customersMissingFromSeason is the ONE path that puts a brand-new
+       customer onto a day, and it checked only isOutForSeason — which stopped being
+       harmless the moment Add Customer began opening a window for every new customer.
+       Run, not read: the guard is what matters, not the words. */
+    const missSrc = extractFn(admin2, 'customersMissingFromSeason');
+    check('S117', 'the schedule adder is findable', !!missSrc);
+    if (missSrc) {
+      const soon = { toMillis: () => Date.now() + 3600000 };
+      const past = { toMillis: () => Date.now() - 3600000 };
+      const book = [
+        { id: 'free', data: {} },
+        { id: 'locked', data: { lightsLockedUntil: soon } },
+        { id: 'expired', data: { lightsLockedUntil: past } }
+      ];
+      const out = new Function('jobAddresses', 'seasonCustomerIds', 'isOutForSeason',
+        'isLightsLocked', missSrc + ';return customersMissingFromSeason();')(
+        book, () => new Set(), () => false,
+        (d) => !!(d.lightsLockedUntil && d.lightsLockedUntil.toMillis() > Date.now()));
+      check('S117', 'a customer inside their 48 hours is NOT put on a schedule day',
+        !out.some(x => x.id === 'locked'),
+        'the crew would hang a pattern that is still free to change — the exact thing ' +
+        'the window exists to prevent');
+      /* ⚠ HELD BACK, NOT DROPPED. This runs on every Recalculate everything, so they
+         must arrive by themselves once the window closes. */
+      check('S117', 'but is added once that window has closed',
+        out.some(x => x.id === 'expired') && out.some(x => x.id === 'free'),
+        'a customer held back for ever is worse than one scheduled early');
+    }
+  }
+
   const ruleSrc = extractFn(fns, 'applyLightChangeServer');
   const toMillisSrc = extractFn(fns, 'toMillis');
   check('S117', 'and the rule and the timestamp reader are both findable',
@@ -27112,6 +27171,10 @@ suite('Suite 126. One place a job is marked done');
         confirm: (m) => { asked.push(m); return ctx.answer !== false; },
         planTickCustomer: (h, done) => ticked.push({ id: h.id, done: done }),
         planAlreadyBilled: () => !!ctx.billed,
+        /* The real one reads h.isFix / h.isTakedown; the fixture sets those, so this
+           mirrors it rather than hard-coding 'install' — otherwise the takedown case
+           below would be testing nothing. */
+        planHouseKind: (h) => (h && h.isFix) ? 'fix' : ((h && h.isTakedown) ? 'takedown' : 'install'),
         renderAll: () => {},
         findHouse: (id) => ctx.house ? { house: ctx.house } : null,
         getDay: () => ctx.day
@@ -27163,6 +27226,25 @@ suite('Suite 126. One place a job is marked done');
       check('S126', 'while unticking an unbilled house asks nothing',
         untickPlain.asked.length === 0 && untickPlain.ticked.length === 1,
         'most unticks are an ordinary correction and must not be interrogated');
+
+      /* ⚠ THE INVOICE WARNING IS ABOUT THE INSTALL, AND ONLY THE INSTALL. One
+         listener and one row renderer serve all three tabs, so this branch also runs
+         for takedowns and fixes — where "you have already been invoiced for this" is
+         simply untrue: removal is not billed at all, and a fix is a visit rather
+         than a charge. Said on the two kinds where it would come up most often. */
+      const untickTakedown = runBranch(oneTick, {
+        t: { type: 'checkbox', checked: false, dataset: { id: '9' } },
+        house: { id: 9, name: 'T', done: true, isTakedown: true }, billed: true });
+      check('S126', 'unticking a TAKEDOWN never claims they were invoiced for it',
+        untickTakedown.asked.length === 0 && untickTakedown.ticked.length === 1,
+        'removal is not billed — warning about an invoice here is telling them ' +
+        'something that is not true');
+      const untickFix = runBranch(oneTick, {
+        t: { type: 'checkbox', checked: false, dataset: { id: '8' } },
+        house: { id: 8, name: 'F', done: true, isFix: true }, billed: true });
+      check('S126', 'and neither does unticking a FIX',
+        untickFix.asked.length === 0 && untickFix.ticked.length === 1,
+        'a fix is a visit, not a charge');
     }
 
     /* ⭐ INSTALL AND TAKEDOWN ARE INDEPENDENT ON THE CUSTOMER ROW TOO. */

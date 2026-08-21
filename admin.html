@@ -13451,6 +13451,20 @@ function renderInvoicesList(){
       const changeFeeNotesForPanel = Array.isArray(d.changeFeeNotes) ? d.changeFeeNotes : [];
       const matchedCustForPanel = jobAddresses.find(a => custInvoiceKey(a.data) === id);
       const carryoverForPanel = matchedCustForPanel ? (Number(matchedCustForPanel.data.carryoverCredit)||0) : 0;
+      /* ⭐ AND THE CHARGE CARRIED THE OTHER WAY (added 2026-08-21). A colour change
+         made after the invoice has already gone is parked on the CUSTOMER as
+         carryoverCharge and collected by the nightly run next season — nothing
+         re-opens a sent bill.
+
+         ⚠ IT WAS WRITTEN AND NEVER SHOWN. Until this line the field was written by
+         two paths and read only by the nightly run, so a $30 charge waiting for next
+         season was invisible to the office: nobody could see why a bill would be
+         higher, answer a customer who rang about it, or correct one added by mistake.
+         It sits beside the credit because that is where somebody already looks to
+         answer "why is this number what it is". */
+      const carryChargeForPanel = matchedCustForPanel ? (Number(matchedCustForPanel.data.carryoverCharge)||0) : 0;
+      const carryChargeNotesForPanel = (matchedCustForPanel && Array.isArray(matchedCustForPanel.data.carryoverChargeNotes))
+        ? matchedCustForPanel.data.carryoverChargeNotes : [];
       /* The houses this invoice covers. Derived live rather than from
          billedHouseIds, because that field is only written once the payer has
          actually been billed — before that a two-house payer would still show the
@@ -13523,6 +13537,12 @@ function renderInvoicesList(){
             ? creditNotesForPanel.map(function(c){ return '<div style="font-size:12.5px; color:var(--dusk); display:flex; justify-content:space-between; gap:8px;"><span>'+esc(c.reason||'Credit')+'</span><span>&minus;'+fmtMoney(Number(c.amount)||0)+'</span></div>'; }).join('')
             : '<div style="font-size:12px; color:var(--slate);">No credits on this invoice yet.</div>')+
           (carryoverForPanel ? '<div style="font-size:12px; color:var(--dusk); margin-top:4px; font-weight:600;">Credit on file toward next invoice: '+fmtMoney(carryoverForPanel)+'</div>' : '')+
+          /* Charged next season, not now — their bill for this year had already gone
+             out when the change was made, and nothing re-opens a sent invoice. Named
+             with its reason so it can be answered on the phone. */
+          (carryChargeForPanel ? '<div style="font-size:12px; color:var(--ember); margin-top:4px; font-weight:600;">Carried to NEXT season&rsquo;s invoice: '+fmtMoney(carryChargeForPanel)+
+            (carryChargeNotesForPanel.length ? ' <span style="font-weight:500; color:var(--slate);">('+esc(carryChargeNotesForPanel.map(function(n){ return (n && n.reason) || 'Light change'; }).join(', '))+')</span>' : '')+
+            '</div>' : '')+
           '<div class="form-grid-2" style="margin-top:8px;">'+
             '<div class="form-row"><label>Credit amount ($)</label><input type="number" class="ie-credit-amt" min="0" step="1" placeholder="25"></div>'+
             '<div class="form-row"><label>Reason</label><input type="text" class="ie-credit-reason" placeholder="e.g. Referral — Jane Doe"></div>'+
@@ -27689,8 +27709,16 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       const answer = await askLightChangeFee(newName || item.data.name || 'This customer',
         oldLightsForBuild, newLightsDescription, lightChange.feeDestination);
       if(answer === 'cancel'){
+        /* ⚠ NO `btn.disabled = false` HERE. This handler never disables a button —
+           there is no `btn` in its scope at all — so that line was a ReferenceError
+           on the one path nobody would test twice: it threw, the outer catch turned
+           the clean "cancelled" message into "Something went wrong", and the office
+           was told the save had failed when it had simply been cancelled.
+
+           ⚠ AND MY OWN CHECK PASSED THROUGH IT, because it asserted only that
+           nothing was written — which is equally true of a clean cancel and of a
+           throw. It asserts the message now. */
         statusEl.textContent = 'Nothing was saved — the light change was cancelled.';
-        btn.disabled = false;
         return;
       }
       lightFeeWaived = (answer === 'waive');
@@ -38277,6 +38305,21 @@ function customersMissingFromSeason(){
   jobAddresses.forEach(function(item){
     const d = (item && item.data) || {};
     if(typeof isOutForSeason === 'function' && isOutForSeason(d)) return;
+    /* ⭐ NOT WHILE THEIR 48 HOURS ARE STILL RUNNING (added 2026-08-21). Owner:
+       "48 hours will be from when they become a costumer and we won't schedule them
+       within that 48 hours so they can change there lights again if they choose."
+
+       ⚠ ROUTES ALREADY HONOURED THIS AND THE SCHEDULE DID NOT, which stopped
+       mattering the moment Add Customer began opening a window for EVERY new
+       customer: this is the one path that puts a brand-new customer onto a day, and
+       without this it could put them on tomorrow's — the crew then hangs a pattern
+       that is still free to change, which is the whole thing the window exists to
+       prevent. Before that change a lock was rare and only ever landed on somebody
+       already in the season, so this path never met one.
+
+       ⚠ HELD BACK, NOT DROPPED. This runs on every Recalculate everything, and the
+       window expires on its own, so they are added by the next run after it closes. */
+    if(typeof isLightsLocked === 'function' && isLightsLocked(d)) return;
     if(have.has(item.id)) return;
     out.push(item);
   });
@@ -38456,7 +38499,12 @@ RT.addEventListener('change',e=>{const t=e.target;
     /* ⚠ WARN BEFORE UNTICKING A HOUSE THAT HAS ALREADY BEEN BILLED. Unticking cannot
        un-send an invoice — invoiceEmailSent is only ever cleared by Start New Season —
        so without this the screen and the customer's inbox quietly disagree. */
-    if(!t.checked && planAlreadyBilled(f.house) &&
+    /* ⚠ INSTALLS ONLY. One listener and one row renderer serve all three tabs, so
+       this branch also runs for takedowns and fixes — and the invoice is about the
+       INSTALL. Removal is not billed at all, and a fix is a visit rather than a
+       charge, so warning "already been invoiced for this" while unticking either of
+       those is simply untrue, on the two kinds where it would be said most often. */
+    if(!t.checked && planHouseKind(f.house)==='install' && planAlreadyBilled(f.house) &&
        !confirm((f.house.name||'That customer')+' has already been invoiced for this.\n\n'+
                 'Unticking marks them not done again, but it cannot un-send the invoice '+
                 'they have already been sent.\n\nUntick anyway?')){ t.checked = true; return; }
@@ -39234,7 +39282,14 @@ function printCrewDay(){ return printInstallDaysAhead()[0] || null; }
 function printWarehouseDay(){ return printInstallDaysAhead()[1] || null; }
 function printDayLabel(day){
   if(!day) return '';
-  const l = dlabel(dayDate(day));
+  /* ⚠ dlabel() calls getDay() straight off its argument, so a day whose _date has
+     not been recomputed yet throws — and this is called while BUILDING a sheet, so
+     one dateless day would take the whole print down rather than losing one heading.
+     Print Whole Plan asks for a label per day rather than for one day, so it meets
+     any such day first. */
+  const dt = dayDate(day);
+  if(!dt || typeof dt.getDay !== 'function') return '';
+  const l = dlabel(dt);
   return l.wd + ', ' + l.full;
 }
 /* ---------- the buttons ---------- */
