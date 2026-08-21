@@ -20948,6 +20948,95 @@ suite('Suite 116. Deleting the test records');
       /found\.numbers = found\.customers/.test(src));
   }
 
+  /* ⭐ AN ARCHIVED RECORD NESTS THE CUSTOMER, and the sweep was reading the wrong
+     level. Owner, 2026-08-21, after running it: "Done. 6 things cleared. but the tests
+     in the recycle are still there."
+
+     ⚠ hlxRemoveCustomerToRecycle writes {customer: d, archivedAt, archivedBy, reason},
+     so the name, the phone and isTestRecord all live one level down. Asking
+     isTestRecordData about the OUTER document showed it no name and no phone, so it said
+     no to every archived row and skipped the whole collection — and the recycle queue
+     is mostly archived rows, which is exactly where she could still see them.
+
+     ⚠ RUN, NOT READ. A check that the word 'archivedCustomers' appears in the sweep
+     passed the whole time this was broken. */
+  {
+    const AsyncFn = Object.getPrototypeOf(async function(){}).constructor;
+    const find = new AsyncFn('getDocs', 'collection', 'getDoc', 'doc', 'db', 'console',
+      'TEST_PHONE',
+      extractFn(admin, 'isTestRecordData') + 'async ' + extractFn(admin, 'testSweepFind') +
+      'return testSweepFind();');
+    const snap = (rows) => ({forEach: (f) => rows.forEach(r => f({id: r.id, data: () => r.data}))});
+    const runFind = (archRows) => find(
+      async function(q){ return snap(q && q.col === 'archivedCustomers' ? archRows : []); },
+      function(db, col){ return {col: col}; },
+      async function(){ return {exists: function(){ return false; }}; },
+      function(db, c, i){ return {col: c, id: i}; }, {},
+      {error: function(){}, log: function(){}}, '3853912235');
+
+    pendingAsync.push((async () => {
+      const r = await runFind([
+        {id: 'arch1', data: {customer: {name: 'Test', phone: '3853912235',
+                                        isTestRecord: true}, reason: 'recycled'}},
+        {id: 'arch2', data: {customer: {name: 'Ashley Wray', phone: '8016160714'},
+                             reason: 'recycled'}}
+      ]);
+      check('S116', 'an archived test record is found, nested shape and all',
+        r.archived.length === 1 && r.archived[0].id === 'arch1',
+        'the recycle queue is mostly archived rows, so missing them is missing the ' +
+        'place she was looking');
+      check('S116', 'and a real archived customer is left alone',
+        r.archived.every(function(a){ return a.data.name === 'Test'; }),
+        'these are people who were deleted; taking one back out is not recoverable');
+
+      /* ⚠ AND A FLAT ROW STILL WORKS. One written before that shape existed, or by
+         anything else, has the fields at the top level. Reading only the nested half
+         is the same bug pointing the other way. */
+      const flat = await runFind([
+        {id: 'old1', data: {name: 'Test', phone: '3853912235', isTestRecord: true}}
+      ]);
+      check('S116', 'and an older flat archived row is found too',
+        flat.archived.length === 1 && flat.archived[0].id === 'old1');
+    })());
+  }
+
+  /* ⭐ AND THE BUILD TAB CAN BE ASKED ABOUT ONE HOUSE. Owner, 2026-08-21, having pressed
+     Build Them A New Set: "i clicked build ashley wray but shes not here." The list is
+     five collapsed headings, so "she is not here" and "she is here, inside the third
+     group" look identical until every one is opened.
+
+     ⚠ AND IT ASKS THE REAL GROUPING rather than re-deciding. A second copy of those
+     rules is how a screen starts confidently contradicting the list beside it. */
+  {
+    const status = new Function('item', 'jobAddresses', 'warehouseExtras', 'whGroupKey',
+      'houseBundleNeed',
+      extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whHouseBuildStatus') +
+      'return whHouseBuildStatus(item);');
+    const ask = function(d, extras){
+      const item = {id: 'a', data: d};
+      return status(item, [item], extras || [], function(p, w){ return p + '|' + (w || ''); },
+        function(){ return {bundles: 1}; });
+    };
+    check('S116', 'a house in a build group is reported as being there',
+      ask({name: 'A', needsLightBuild: true, lightsDescription: 'Warm White'}).state === 'building');
+    check('S116', 'one with no colours is reported as waiting on them',
+      ask({name: 'A', needsLightBuild: true}).state === 'blocked',
+      'that is a different problem with a different fix, and saying which is the point');
+    check('S116', 'one nobody queued is reported as not queued',
+      ask({name: 'A'}).state === 'notqueued',
+      'owner pressed a button and could not tell whether it had worked');
+    check('S116', 'and somebody sitting the season out says so',
+      ask({name: 'A', needsLightBuild: true, maybeNextYear: true}).state === 'nextyear');
+
+    const words = new Function('name', 'st', extractFn(admin, 'whBuildStatusText') +
+      'return whBuildStatusText(name, st);');
+    check('S116', 'and every state says what to do about it',
+      /Build Them A New Set/.test(words('A', {state: 'notqueued'})) &&
+      /Add their colours/.test(words('A', {state: 'blocked'})) &&
+      /Open that heading/.test(words('A', {state: 'building', where: 'Warm White'})),
+      'telling somebody where they are not is half an answer');
+  }
+
   /* ---- and what it does with them ---------------------------------------- */
   {
     const del = extractFn(admin, 'testSweepDelete');

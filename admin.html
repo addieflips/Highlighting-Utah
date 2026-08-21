@@ -3910,7 +3910,12 @@
         </div>
         <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
           <p class="form-note" style="margin:0;">The printed sheet is the same list in the same order, laid out as one row per line with a tick box &mdash; so it can be worked down on paper or opened in Excel.</p>
-          <button type="button" class="btn btn-outline btn-sm" id="whPrintBuildBtn" style="flex:0 0 auto;">Print Build Sheet</button>
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px;">
+          <label style="font-size:12.5px; color:var(--slate);">Is a house on this list?</label>
+          <input type="text" id="whFindInput" placeholder="Type a name, address or number" style="flex:1; min-width:200px; padding:7px 11px; border-radius:9px; border:1px solid var(--line); background:var(--snow); font-size:13px;">
+        </div>
+        <div id="whFindResult" style="font-size:13px; margin-bottom:12px;"></div>
+        <button type="button" class="btn btn-outline btn-sm" id="whPrintBuildBtn" style="flex:0 0 auto;">Print Build Sheet</button>
         </div>
         <div id="warehouseQueueList" class="row-list"><div class="empty-note">Loading&hellip;</div></div>
       </div>
@@ -7546,9 +7551,24 @@ async function testSweepFind(){
     }
   });
 
+  /* ⚠ AN ARCHIVED RECORD NESTS THE CUSTOMER. Owner, 2026-08-21, after running the
+     sweep: "Done. 6 things cleared. but the tests in the recycle are still there."
+
+     hlxRemoveCustomerToRecycle writes {customer: d, archivedAt, archivedBy, reason} — so
+     the name, the phone and isTestRecord all live one level down. Asking
+     isTestRecordData about the OUTER document showed it no name and no phone, so it said
+     no to every archived row and the sweep quietly skipped the entire collection. And
+     the recycle queue is mostly archived rows (see whArchivedPending, which unwraps it
+     the same way), which is exactly where she could still see them.
+
+     ⚠ AND `|| docSnap.data()` IS DELIBERATE, not belt and braces: a row written before
+     that shape existed, or by anything else, is flat. Reading only the nested half would
+     be the same bug pointing the other way. */
   const archSnap = await getDocs(collection(db,'archivedCustomers'));
   archSnap.forEach(function(docSnap){
-    if(isTestRecordData(docSnap.data())) found.archived.push({id: docSnap.id, data: docSnap.data()});
+    const raw = docSnap.data() || {};
+    const cust = raw.customer || raw;
+    if(isTestRecordData(cust)) found.archived.push({id: docSnap.id, data: cust});
   });
 
   /* Warehouse: an extra raised against a test customer, and anything stamped itself. */
@@ -24641,6 +24661,51 @@ function whBuildQueueGroups(){
   });
   return {groups: groups, keys: keys, timerHouses: timerHouses, blocked: blocked};
 }
+/* ⭐ WHY IS THIS HOUSE NOT ON THE BUILD LIST. Owner, 2026-08-21, having pressed Build
+   Them A New Set on Ashley Wray: "i clicked build ashley wray but shes not here."
+
+   ⚠ THE LIST IS FIVE COLLAPSED HEADINGS. Fifteen houses behind them, no names showing
+   until each is opened, and nothing anywhere that says whether somebody is on the list
+   at all. So "she is not here" and "she is here, inside the third group" look exactly
+   the same, and there was no way to tell them apart without opening every one.
+
+   ⚠ AND "NOT ON THE LIST" HAS FOUR DIFFERENT CAUSES, each with a different fix. Saying
+   which is the whole value of this: nothing queued a build; they are sitting the season
+   out; the build was already marked done; or they are queued but have no colours, which
+   is the Waiting block. Reported by asking the REAL grouping (whBuildQueueGroups), never
+   by a second copy of its rules — a second copy is how a screen starts confidently
+   contradicting the list beside it. */
+function whHouseBuildStatus(item){
+  const d = (item && item.data) || {};
+  const built = whBuildQueueGroups();
+  const id = item && item.id;
+  for(let i = 0; i < built.keys.length; i++){
+    const key = built.keys[i];
+    const g = built.groups[key];
+    if((g.houses || []).some(function(h){ return h.id === id; })){
+      return {state: 'building', where: g.title || key};
+    }
+    if((g.extras || []).some(function(e){ return e.data && e.data.customerId === id; })){
+      return {state: 'extra', where: g.title || key};
+    }
+  }
+  if((built.blocked || []).some(function(h){ return h.id === id; })){
+    return {state: 'blocked'};
+  }
+  if(d.maybeNextYear) return {state: 'nextyear'};
+  if(!d.needsLightBuild) return {state: 'notqueued'};
+  return {state: 'unknown'};
+}
+/* One sentence per state, and each one says what to do about it. */
+function whBuildStatusText(name, st){
+  const who = name || 'That customer';
+  if(st.state === 'building') return who + ' IS on the build list \u2014 under \u201c' + st.where + '\u201d. Open that heading to see them.';
+  if(st.state === 'extra') return who + ' is on the list as an extra request \u2014 under \u201c' + st.where + '\u201d.';
+  if(st.state === 'blocked') return who + ' is queued to build but has NO LIGHT COLOURS on file, so they are in \u201cWaiting on light colours\u201d at the top. Add their colours and they join a build group.';
+  if(st.state === 'nextyear') return who + ' is marked Back Next Year, so nothing is being built for them this season.';
+  if(st.state === 'notqueued') return who + ' is NOT on the build list \u2014 nothing has queued a build for them. Open their record and press \u201cBuild Them A New Set\u201d.';
+  return who + ' is queued to build but is not showing in any group. That should not happen \u2014 tell somebody.';
+}
 function renderWarehouseQueue(){
   const list = document.getElementById('warehouseQueueList');
   if(!list) return;
@@ -25443,6 +25508,38 @@ const WH_RECYCLE_COLUMNS = [
 /* Guarded like wireWhCancelEditExtra above — the warehouse render tests eval
    this block against a DOM holding only the queue list, and Suite 1 already
    fails if either id goes missing from the page. */
+/* Guarded like wireWhPrintButtons below — the render tests eval this block against a
+   DOM holding only the queue list, and an unguarded getElementById throws there. */
+(function wireWhFind(){
+  const box = document.getElementById('whFindInput');
+  const out = document.getElementById('whFindResult');
+  if(!box || !out) return;
+  box.addEventListener('input', function(){
+    const q = String(box.value || '').trim().toLowerCase();
+    if(q.length < 2){ out.textContent = ''; return; }
+    const digits = q.replace(/[^0-9]/g, '');
+    const hits = (jobAddresses || []).filter(function(a){
+      const d = a.data || {};
+      return String(d.name || '').toLowerCase().indexOf(q) !== -1 ||
+             String(d.address || '').toLowerCase().indexOf(q) !== -1 ||
+             (!!digits && String(d.customerNumber || '').trim() === digits);
+    });
+    if(!hits.length){
+      out.innerHTML = '<span style="color:var(--slate);">No customer matches that. This searches the whole book, not just the build list.</span>';
+      return;
+    }
+    /* ⚠ EVERY MATCH, NOT THE FIRST. Two customers really do share a name in this book,
+       and answering about the wrong one is worse than showing both. */
+    out.innerHTML = hits.slice(0, 6).map(function(a){
+      const st = whHouseBuildStatus(a);
+      const good = st.state === 'building' || st.state === 'extra';
+      return '<div style="padding:5px 0; color:' + (good ? '#2E6B3E' : (st.state === 'blocked' ? '#8A6100' : 'var(--slate)')) + ';">' +
+        esc(whBuildStatusText(a.data.name, st)) +
+        (a.data.customerNumber ? ' <span style="color:var(--slate);">#' + esc(String(a.data.customerNumber)) + '</span>' : '') +
+      '</div>';
+    }).join('') + (hits.length > 6 ? '<div style="color:var(--slate);">' + (hits.length - 6) + ' more match that — type a bit more.</div>' : '');
+  });
+})();
 (function wireWhPrintButtons(){
   const buildBtn = document.getElementById('whPrintBuildBtn');
   const recycleBtn = document.getElementById('whPrintRecycleBtn');
