@@ -281,3 +281,63 @@ at all").
 Blocks: **all of phase 1**, and therefore phases 2, 3 and 7 which depend on it.
 Answer:
 Resulting map change:
+
+---
+
+## Q-008 · intent · open · 2026-08-21
+On a health-check notice in the System inbox, what does **Deny** mean?
+
+Design agreed in conversation 2026-08-21: instead of findings sitting silently in
+the Health Check panel, a finding that needs a judgement call is delivered as a
+System notice, and the office approves or denies it there. Denying is how an
+exception gets made, which means Deny needs a defined lifetime. Three readings,
+and they behave very differently six months later:
+
+1. **Never again for this customer.** Simplest, and the most dangerous: deny
+   `sharedPhone` for the Andersons and you will never be told when a *fourth*,
+   wrong house joins that number.
+2. **Not until the data changes.** The notice carries a fingerprint of what it
+   excused; when the underlying values change, the fingerprint changes and a
+   fresh notice is raised. This is how `priceReviewed` already behaves — it goes
+   back to `false` on its own whenever a new price is auto-derived.
+3. **Not this season.** Clears on Start New Season, like an RSVP answer.
+
+(2) is the recommendation, because it is the only one that cannot silently go
+stale, and it already has a working precedent in this codebase. But it is a
+policy decision about money and customer data, so it is Addie's.
+
+Blocks: the approve/deny mechanism, and therefore the exception model for all
+twelve judgement-call checks.
+Answer:
+Resulting map change:
+
+---
+
+## Q-009 · intent · open · 2026-08-21
+Which health checks should raise a System notice at all?
+
+Not all nineteen, or the inbox becomes the thing nobody reads — which is the
+failure R-013 names. Two natural groups, from the panel's own data:
+
+- **Six have an auto-fix button** (`poolConflict`, `missingInvoice`,
+  `totalDrift`, `staleStatus`, `ghostStops`, `staleStops`). These have exactly
+  one correct answer, so a notice asking permission to do the obvious thing is
+  friction, not safety — unless the point is that nothing should auto-write
+  without being asked, which is a defensible position and Addie's to take.
+- **Twelve carry `fix: null`** with a note saying a human has to decide
+  (`dupNumbers`, `orphanExtra`, `noBundleBasis`, `lightsNotPicked`,
+  `orphanInvoice`, `lostQuotes`, `noContact`, `noEmail`, `sharedPhone`, `noPin`,
+  `nightlyBilling`, `badBillTo`). These are the natural candidates.
+
+⚠ Volume is the real constraint, not preference. Some of these have a large
+standing population — `noEmail` and `noPin` plausibly dozens of rows — and the
+`messages` collection refuses any create over 5,000 characters. That is not
+hypothetical: the routes reconcile note grew past that cap and failed silently
+for weeks, reported as "Missing or insufficient permissions" (see CLAUDE.md).
+So a notice has to be one-per-check-per-change with counts, never
+one-per-finding, and it has to be trimmed with what did not fit **counted**
+rather than cut.
+
+Blocks: how many notices the inbox gets on day one.
+Answer:
+Resulting map change:
