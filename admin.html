@@ -1473,6 +1473,15 @@
       </div>
 
       <div class="route-tab-panel" id="custtab-bulk">
+<div class="card">
+        <h3 style="margin:0 0 6px;">Delete every test record</h3>
+        <p style="font-size:13px; margin:0 0 12px;">Everything the <strong>Build Test Customer</strong> and <strong>Create Test Person</strong> buttons made &mdash; the customer, their quote, their invoice, their route stops, their place on the schedule and anything of theirs in the warehouse. Their customer number goes back in the pool. Nothing that is not a test record is touched.</p>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+          <button type="button" class="btn btn-outline btn-sm" id="cTestSweepDryBtn">Show me what would go</button>
+          <button type="button" class="btn btn-gold btn-sm" id="cTestSweepBtn" style="display:none;">Delete them</button>
+        </div>
+        <div id="cTestSweepReport" style="margin-top:12px; font-size:13px;"></div>
+      </div>
 <!-- Fill in a missing town from the map pin. Not a nice-to-have: every
      scheduling decision in this app is made per town, so a customer whose town
      is blank cannot go on a route at all, and the bulk import left ~374 of them
@@ -7488,6 +7497,210 @@ document.getElementById('qTmplSaveBtn')?.addEventListener('click', async functio
 /* Someone calls instead of using the website. A name is enough to start -
    everything else can be filled in later, and it cannot be sent until it has
    a price, same as any other quote. */
+/* ⭐ WHAT THE SWEEP WOULD TAKE, WITHOUT TAKING IT. CLAUDE.md §5: deleting customer
+   data at scale is irreversible, so it is prepared, shown, and then she presses the
+   button. The same shape as Assign in Bulk and Fill in missing towns.
+
+   ⚠ READ FRESH FROM FIRESTORE, NOT FROM THE CACHES. A sweep that misses a row leaves a
+   test customer on a crew sheet, and the local caches only hold what this tab has
+   subscribed to — archivedCustomers and warehouseExtras are not always among them. */
+async function testSweepFind(){
+  const found = {customers: [], quotes: [], invoices: [], archived: [], extras: [],
+                 routeStops: [], planHouses: [], numbers: []};
+  const custSnap = await getDocs(collection(db,'jobAddresses'));
+  custSnap.forEach(function(docSnap){
+    const d = docSnap.data();
+    if(isTestRecordData(d)) found.customers.push({id: docSnap.id, data: d});
+  });
+  const custIds = found.customers.map(function(c){ return c.id; });
+  found.numbers = found.customers
+    .map(function(c){ return String(c.data.customerNumber || '').trim(); })
+    .filter(Boolean);
+
+  const quoteSnap = await getDocs(collection(db,'quotes'));
+  quoteSnap.forEach(function(docSnap){
+    const d = docSnap.data();
+    /* A quote pointing at a test customer is a test quote even if nothing stamped it. */
+    if(isTestRecordData(d) || custIds.indexOf(d.existingCustomerId) !== -1){
+      found.quotes.push({id: docSnap.id, data: d});
+    }
+  });
+
+  /* Invoices are keyed by phone, or by lowercased email when there is no phone. */
+  const invSnap = await getDocs(collection(db,'invoices'));
+  invSnap.forEach(function(docSnap){
+    const d = docSnap.data();
+    const phone = String(d.phone || '').replace(/[^0-9]/g, '');
+    if(isTestRecordData(d) || phone === TEST_PHONE || docSnap.id === TEST_PHONE){
+      found.invoices.push({id: docSnap.id, data: d});
+    }
+  });
+
+  const archSnap = await getDocs(collection(db,'archivedCustomers'));
+  archSnap.forEach(function(docSnap){
+    if(isTestRecordData(docSnap.data())) found.archived.push({id: docSnap.id, data: docSnap.data()});
+  });
+
+  /* Warehouse: an extra raised against a test customer, and anything stamped itself. */
+  const exSnap = await getDocs(collection(db,'warehouseExtras'));
+  exSnap.forEach(function(docSnap){
+    const d = docSnap.data();
+    if(isTestRecordData(d) || custIds.indexOf(d.customerId) !== -1){
+      found.extras.push({id: docSnap.id, data: d});
+    }
+  });
+
+  /* Route stops carry a COPY of the customer taken when the route was built, so they
+     survive the customer being deleted and have to be pulled out by hand. */
+  const routeSnap = await getDocs(collection(db,'scheduledRoutes'));
+  routeSnap.forEach(function(docSnap){
+    const d = docSnap.data();
+    const stops = Array.isArray(d.stops) ? d.stops : [];
+    const keep = stops.filter(function(st){
+      return custIds.indexOf(st.id) === -1 && !isTestRecordData(st);
+    });
+    if(keep.length !== stops.length){
+      found.routeStops.push({id: docSnap.id, keep: keep, went: stops.length - keep.length});
+    }
+  });
+
+  /* The season plan is one document, and its houses carry 'cust-<id>' ids. */
+  try{
+    const planSnap = await getDoc(doc(db,'routeSchedule','plan'));
+    if(planSnap.exists()){
+      const plan = planSnap.data() || {};
+      const days = Array.isArray(plan.days) ? plan.days : [];
+      let hit = 0;
+      const nextDays = days.map(function(day){
+        const houses = Array.isArray(day.houses) ? day.houses : [];
+        const keep = houses.filter(function(h){
+          const id = String(h.id || '').replace(/^cust-/, '');
+          return custIds.indexOf(id) === -1 && !isTestRecordData(h);
+        });
+        hit += houses.length - keep.length;
+        return Object.assign({}, day, {houses: keep});
+      });
+      if(hit) found.planHouses.push({count: hit, plan: Object.assign({}, plan, {days: nextDays})});
+    }
+  }catch(err){ console.error('Could not read the season plan:', err); }
+  return found;
+}
+/* ⭐ AND THE DELETION. Numbers go back FIRST, because that is the half that is hard to
+   put right by hand: a customer document can be rebuilt from the button that made it,
+   whereas a number lost out of the pool is invisible until somebody is handed a bin
+   label that is already on a shelf.
+
+   ⚠ EACH PIECE IS GUARDED ON ITS OWN. A sweep that stops halfway through because one
+   route document would not write leaves half a test customer behind, which is worse than
+   either outcome — it looks finished and is not. What failed is counted and reported.
+
+   ⚠ AND THE ORDINARY DELETE PATH IS DELIBERATELY NOT USED. hlxRemoveCustomerToRecycle
+   ARCHIVES them and puts them on the Recycle sheet, which is right for a real customer
+   whose lights have to come back and exactly wrong for a row that never had any. */
+async function testSweepDelete(found){
+  const out = {done: 0, failed: 0, numbers: []};
+  const tryIt = async function(what, fn){
+    try{ await fn(); out.done++; }
+    catch(err){ out.failed++; console.error('Test sweep could not ' + what + ':', err); }
+  };
+  for(const n of found.numbers){
+    await tryIt('return #' + n + ' to the pool', async function(){
+      await setDoc(doc(db,'availableCustomerNumbers', n), {
+        type: parseInt(n, 10) >= 5000 ? 'double' : 'regular',
+        releasedAt: serverTimestamp(), releasedFrom: 'Test record'});
+      out.numbers.push(n);
+    });
+  }
+  for(const r of found.routeStops){
+    await tryIt('clear route ' + r.id, async function(){
+      await updateDoc(doc(db,'scheduledRoutes', r.id), {stops: r.keep});
+    });
+  }
+  for(const p of found.planHouses){
+    await tryIt('clear the schedule', async function(){
+      await setDoc(doc(db,'routeSchedule','plan'), p.plan);
+    });
+  }
+  const wipe = [['warehouseExtras', found.extras], ['invoices', found.invoices],
+                ['quotes', found.quotes], ['archivedCustomers', found.archived],
+                ['jobAddresses', found.customers]];
+  for(const pair of wipe){
+    for(const row of pair[1]){
+      await tryIt('delete ' + pair[0] + '/' + row.id, async function(){
+        await deleteDoc(doc(db, pair[0], row.id));
+      });
+    }
+  }
+  return out;
+}
+/* Plain English, so what is about to happen can be read before it happens. */
+function testSweepSummary(f){
+  const bits = [];
+  const add = function(n, one, many){ if(n) bits.push(n + ' ' + (n === 1 ? one : many)); };
+  add(f.customers.length, 'customer', 'customers');
+  add(f.quotes.length, 'quote', 'quotes');
+  add(f.invoices.length, 'invoice', 'invoices');
+  add(f.archived.length, 'archived record', 'archived records');
+  add(f.extras.length, 'warehouse item', 'warehouse items');
+  add(f.routeStops.reduce(function(n, r){ return n + r.went; }, 0), 'route stop', 'route stops');
+  add(f.planHouses.reduce(function(n, p){ return n + p.count; }, 0), 'day on the schedule', 'stops on the schedule');
+  return bits.length ? bits.join(', ') : 'nothing';
+}
+(function wireTestSweep(){
+  const dryBtn = document.getElementById('cTestSweepDryBtn');
+  const goBtn = document.getElementById('cTestSweepBtn');
+  const out = document.getElementById('cTestSweepReport');
+  if(!dryBtn || !goBtn || !out) return;
+  let pending = null;
+  dryBtn.addEventListener('click', async function(){
+    dryBtn.disabled = true;
+    out.textContent = 'Looking\u2026';
+    goBtn.style.display = 'none';
+    try{
+      pending = await testSweepFind();
+      const summary = testSweepSummary(pending);
+      if(summary === 'nothing'){
+        out.innerHTML = '<span style="color:var(--slate);">No test records anywhere. Nothing to delete.</span>';
+        pending = null;
+      } else {
+        out.innerHTML = '<div><strong>Would delete:</strong> ' + esc(summary) + '</div>' +
+          (pending.numbers.length
+            ? '<div style="margin-top:4px;">Back in the pool: ' +
+              pending.numbers.map(function(n){ return '#' + esc(n); }).join(', ') + '</div>'
+            : '') +
+          (pending.customers.length
+            ? '<div style="margin-top:6px; color:var(--slate); font-size:12.5px;">' +
+              pending.customers.map(function(c){
+                return esc(c.data.name || '(no name)') + ' \u2014 ' + esc(c.data.address || '');
+              }).join('<br>') + '</div>'
+            : '');
+        goBtn.style.display = '';
+      }
+    }catch(err){
+      console.error('Test sweep could not look:', err);
+      out.innerHTML = '<span style="color:var(--ember);">Could not look \u2014 ' + esc((err && err.message) || err) + '</span>';
+    }
+    dryBtn.disabled = false;
+  });
+  goBtn.addEventListener('click', async function(){
+    /* ⚠ ONLY EVER DELETES WHAT THE DRY RUN SHOWED. Re-finding here would delete rows
+       she never saw, which is the whole point of showing them first. */
+    if(!pending){ out.textContent = 'Press \u201cShow me what would go\u201d first.'; return; }
+    if(!confirm('Delete ' + testSweepSummary(pending) + '?\n\nThis cannot be undone.')) return;
+    goBtn.disabled = true;
+    out.textContent = 'Deleting\u2026';
+    const res = await testSweepDelete(pending);
+    out.innerHTML = '<div><strong>Done.</strong> ' + res.done + ' thing' + (res.done === 1 ? '' : 's') + ' cleared' +
+      (res.numbers.length ? ', ' + res.numbers.length + ' number' + (res.numbers.length === 1 ? '' : 's') + ' back in the pool' : '') + '.</div>' +
+      (res.failed
+        ? '<div style="color:var(--ember); margin-top:4px;">' + res.failed + ' would not go \u2014 the console says which. Press Show me what would go again to see what is left.</div>'
+        : '');
+    logActivity('Deleted test records: ' + testSweepSummary(pending), 'customers', '');
+    pending = null;
+    goBtn.style.display = 'none';
+    goBtn.disabled = false;
+  });
+})();
 /* ⚠ THE RE-QUOTES TAB NEEDS A CUSTOMER BEHIND THE CARD, so that one builds a test
    customer as well and links the two. Everywhere else a bare quote is the real thing. */
 document.getElementById('qBuildTestBtn').addEventListener('click', async function(){
@@ -8199,6 +8412,27 @@ function requoteLightsToCarry(quote, cust){
 
    ⚠ AND IT TAKES NO CUSTOMER NUMBER FROM THE POOL. Handing a real bin label to a
    record somebody is about to delete is how a live number goes missing. */
+/* ⭐ WHAT COUNTS AS A TEST RECORD. Owner, 2026-08-21: "there should be a button in bulk
+   updates for deleting all test customers from customers and quotes and invoices and
+   routes and schedule", and "it should also delete test customers from anywhere in the
+   warehouse."
+
+   ⚠ THE FLAG ALONE IS NOT ENOUGH. isTestRecord is written by the two buttons, but a
+   test customer walked through the real flow spawns records that were never stamped with
+   it — an invoice keyed on their phone, a route stop copied off them, a warehouse extra
+   raised against their id. So identity counts as well: the test phone number and the
+   test name together.
+
+   ⚠ AND BOTH, NEVER THE NAME ALONE. There is a real customer somewhere called Test
+   waiting to happen, and deleting the wrong person takes their invoice and their route
+   with them. The phone is the anchor. */
+const TEST_PHONE = '3853912235';
+function isTestRecordData(d){
+  const dd = d || {};
+  if(dd.isTestRecord === true) return true;
+  const phone = String(dd.phone || '').replace(/[^0-9]/g, '');
+  return phone === TEST_PHONE && String(dd.name || '').trim().toLowerCase() === 'test';
+}
 async function buildTestPerson(){
   const fields = {
     name: 'Test', phone: '3853912235', email: 'highlightingutah@gmail.com',

@@ -20340,6 +20340,139 @@ suite('Suite 115. A price change asks');
   }
 }
 
+/* ⭐ SUITE 116. TAKING THE TEST RECORDS BACK OUT. Owner, 2026-08-21: "there should be a
+   button in bulk updates for deleting all test customers from customers and quotes and
+   invoices and routes and schedule and put their number back in the system", and "it
+   should also delete test customers from anywhere in the warehouse." */
+suite('Suite 116. Deleting the test records');
+
+{
+  const isTest = new Function('d', 'TEST_PHONE',
+    extractFn(admin, 'isTestRecordData') + 'return isTestRecordData(d);');
+  const T = (d) => isTest(d, '3853912235');
+
+  check('S116', 'a row the buttons stamped is a test row',
+    T({isTestRecord: true, name: 'Anything'}) === true);
+  /* ⚠ THE FLAG ALONE IS NOT ENOUGH. A test customer walked through the real flow spawns
+     records nothing stamped — an invoice keyed on their phone, a route stop copied off
+     them — so identity counts too. */
+  check('S116', 'and so is one carrying the test name AND the test phone',
+    T({name: 'Test', phone: '(385) 391-2235'}) === true,
+    'the invoice and the route stop were never stamped');
+  /* ⚠ AND BOTH, NEVER THE NAME ALONE. There is a real customer called Test waiting to
+     happen, and deleting the wrong one takes their invoice and their route with them. */
+  check('S116', 'the name alone is NOT enough',
+    T({name: 'Test', phone: '8015551234'}) === false,
+    'a real person called Test must not be swept up by a cleanup button');
+  check('S116', 'and the phone alone is not either',
+    T({name: 'Someone Real', phone: '3853912235'}) === false,
+    'the office phone could legitimately end up on a record');
+  check('S116', 'and an ordinary customer is never one',
+    T({name: 'Ashley Wray', phone: '8016160714'}) === false && T({}) === false);
+
+  /* ---- what the sweep reaches ------------------------------------------- */
+  {
+    const src = extractFn(admin, 'testSweepFind');
+    check('S116', 'the finder exists', !!src);
+    ['jobAddresses', 'quotes', 'invoices', 'archivedCustomers', 'warehouseExtras',
+     'scheduledRoutes'].forEach(function(col){
+      check('S116', 'it looks in ' + col,
+        new RegExp("collection\\(db,'" + col + "'\\)").test(src),
+        'a sweep that misses a collection leaves a test customer on a sheet');
+    });
+    check('S116', 'and at the season plan, which is one document not a collection',
+      /doc\(db,'routeSchedule','plan'\)/.test(src),
+      'owner asked for the schedule by name');
+    check('S116', 'a quote pointing at a test customer counts, even unstamped',
+      /custIds\.indexOf\(d\.existingCustomerId\)/.test(src),
+      'the re-quote test builds the quote and the customer separately');
+    check('S116', 'and a warehouse item raised against one',
+      /custIds\.indexOf\(d\.customerId\)/.test(src),
+      'owner: "delete test customers from anywhere in the warehouse"');
+    check('S116', 'and an invoice keyed on the test phone',
+      /docSnap\.id === TEST_PHONE/.test(src),
+      'invoices are keyed by phone, so the document id IS the identity');
+    check('S116', 'and it reads fresh rather than trusting the caches',
+      !/jobAddresses\.forEach/.test(src) && /getDocs\(collection/.test(src),
+      'archivedCustomers and warehouseExtras are not always subscribed on this tab');
+    check('S116', 'and it collects the numbers to hand back',
+      /found\.numbers = found\.customers/.test(src));
+  }
+
+  /* ---- and what it does with them ---------------------------------------- */
+  {
+    const del = extractFn(admin, 'testSweepDelete');
+    check('S116', 'the deleter exists', !!del);
+    /* ⚠ NUMBERS GO BACK FIRST. A customer document can be rebuilt by the button that
+       made it; a number lost out of the pool is invisible until somebody is handed a bin
+       label that is already on a shelf. */
+    check('S116', 'the numbers go back before anything is deleted',
+      del.indexOf('availableCustomerNumbers') < del.indexOf("['warehouseExtras'") &&
+      /for\(const n of found\.numbers\)\{[\s\S]{0,400}availableCustomerNumbers/.test(del),
+      'the order is the point, not an accident of writing');
+    check('S116', 'and go back with a type, or the pool cannot hand them out',
+      /type: parseInt\(n, 10\) >= 5000 \? 'double' : 'regular'/.test(del),
+      'cnNextAvailable and the Customer Numbers panel both filter on type');
+    /* ⚠ EACH PIECE GUARDED. A sweep that stops halfway leaves half a test customer,
+       which looks finished and is not. */
+    check('S116', 'one failure does not stop the rest',
+      /catch\(err\)\{ out\.failed\+\+;/.test(del),
+      'half a sweep is worse than either outcome');
+    check('S116', 'and what failed is counted and said out loud',
+      /out\.failed/.test(del) && /would not go/.test(admin));
+    /* ⚠ AND NOT THE ORDINARY DELETE PATH, which archives them and puts them on the
+       Recycle sheet — right for a real customer, wrong for a row that never had lights. */
+    check('S116', 'it does not route test rows through the recycle path',
+      !/hlxRemoveCustomerToRecycle/.test(del),
+      'archiving a test record just moves it somewhere else');
+    check('S116', 'and it clears the archive too, for ones already sent there',
+      /'archivedCustomers', found\.archived/.test(del));
+  }
+
+  /* ---- the buttons, and the dry run first -------------------------------- */
+  {
+    const at = admin.indexOf('(function wireTestSweep(){');
+    const blk = at > 0 ? admin.slice(at, admin.indexOf('})();', at)) : '';
+    check('S116', 'the buttons are wired', !!blk &&
+      /cTestSweepDryBtn/.test(blk) && /cTestSweepBtn/.test(blk) &&
+      (blk.match(/addEventListener\('click'/g) || []).length === 2,
+      'a delete-everything button with no handler, or with one, are equally bad ways ' +
+      'to find out');
+    /* ⭐ CLAUDE.md §5: deleting customer data at scale is irreversible — prepare, show,
+       then let her press the button. */
+    check('S116', 'nothing is deleted until the dry run has been read',
+      /if\(!pending\)\{/.test(blk),
+      'the delete button is hidden until then, and a keyboard can still reach it');
+    check('S116', 'and it deletes exactly what was shown, not a fresh look',
+      !/await testSweepFind\(\)/.test(blk.slice(blk.indexOf('goBtn.addEventListener'))),
+      're-finding would delete rows she never saw, which is the whole point of showing');
+    check('S116', 'and it asks once more, naming what goes',
+      /confirm\('Delete ' \+ testSweepSummary\(pending\)/.test(blk));
+    check('S116', 'and says plainly when there is nothing to do',
+      /No test records anywhere/.test(blk),
+      'an empty report that looks like a failure sends somebody looking for a bug');
+  }
+
+  /* ---- and the double-check she asked for -------------------------------- */
+  /* ⭐ "the number going back into the system after someone gets deleted should be in
+     the system already, double check that". It is: hlxRemoveCustomerToRecycle writes it
+     back with its type and who released it. This check is here so it stays true. */
+  {
+    const rm = extractFn(admin, 'hlxRemoveCustomerToRecycle');
+    check('S116', 'deleting a real customer already returns their number',
+      /if\(num\)\{[\s\S]{0,80}setDoc\(doc\(db,'availableCustomerNumbers', num\)/.test(rm) &&
+      /releasedFrom/.test(rm),
+      'she asked me to check this rather than assume it, and it holds');
+    check('S116', 'with the type the pool filters on',
+      /type: parseInt\(num,10\) >= 5000 \? 'double' : 'regular'/.test(rm),
+      'a number written back without it is in the pool and invisible to every tool ' +
+      'that hands numbers out');
+    check('S116', 'and it takes their invoice and their route stops with them',
+      /deleteDoc\(doc\(db,'invoices',custKey\)\)/.test(rm) &&
+      /removeCustomerFromUpcomingRoutes\(item\.id\)/.test(rm));
+  }
+}
+
 suite('Suite 113. Build Test Customer');
 
 {
