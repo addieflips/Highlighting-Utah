@@ -4265,6 +4265,127 @@
           </div>
         </div>
       </div>
+      <!-- ============ MEASURE ROOF (from a quote) =======================
+           Type the address, the satellite picture of that house comes up,
+           and you trace the roofline straight on it. The footage is worked
+           out from the map's own geography - the real latitude and longitude
+           of each point you click - NOT from the picture, so zooming in or
+           out while you trace cannot change the answer.
+
+           The picture then goes straight onto the quote. It is fetched,
+           drawn on, cropped and uploaded entirely inside the browser, so it
+           is never saved to the computer on the way. Download is there as a
+           button for when you actually do want the file.
+
+           This is the same job Roof Line Pro does, on the same Google
+           satellite imagery, using the Maps key this app already loads. -->
+      <div class="editcust-popup-overlay" id="roofMeasureOverlay" style="display:none;">
+        <div class="editcust-popup" style="max-width:1120px;">
+          <style>
+            #roofMeasureOverlay .rm-typebtn{border:1px solid var(--line); background:#fff; border-radius:999px; padding:6px 13px; font-size:12.5px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:6px;}
+            #roofMeasureOverlay .rm-typebtn .rm-dot{width:9px; height:9px; border-radius:50%; display:inline-block;}
+            #roofMeasureOverlay .rm-typebtn.on{background:var(--ink); color:#fff; border-color:var(--ink);}
+            #roofMeasureOverlay .rm-panel{border:1px solid var(--line); border-radius:12px; padding:12px; background:var(--paper);}
+            #roofMeasureOverlay .rm-panel h4{margin:0 0 2px; font-size:13.5px; font-weight:700;}
+            #roofMeasureOverlay .rm-panel .rm-sub{margin:0 0 10px; font-size:11.5px; color:var(--slate);}
+            #roofMeasureOverlay .rm-resultrow{display:flex; justify-content:space-between; align-items:center; gap:8px; padding:5px 0; font-size:13px; border-bottom:1px dotted var(--line);}
+            #roofMeasureOverlay .rm-resultrow:last-child{border-bottom:0;}
+            #roofMeasureOverlay .rm-runrow{display:flex; justify-content:space-between; align-items:center; gap:6px; font-size:12px; padding:3px 0; color:var(--slate);}
+            #roofMeasureOverlay .rm-shot{position:relative; border:1px solid var(--line); border-radius:10px; overflow:hidden; width:132px; flex:0 0 auto; background:#000;}
+            #roofMeasureOverlay .rm-shot img{width:100%; display:block;}
+            #roofMeasureOverlay .rm-shot .rm-shotacts{position:absolute; top:4px; right:4px; display:flex; gap:4px;}
+            #roofMeasureOverlay .rm-shot .rm-shotacts button{border:0; border-radius:6px; width:22px; height:22px; cursor:pointer; font-size:12px; line-height:1; background:rgba(255,255,255,.92);}
+            #roofMeasureOverlay .rm-shot .rm-shotcap{position:absolute; left:0; right:0; bottom:0; background:rgba(0,0,0,.62); color:#fff; font-size:10.5px; padding:3px 5px;}
+          </style>
+          <h3 id="rmTitle" style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:19px;">Measure Roof</h3>
+          <p id="rmSubtitle" style="font-size:12.5px; color:var(--slate); margin:0 0 12px;">Trace the roofline on the satellite picture &mdash; the footage comes off the map, and the picture goes straight onto the quote.</p>
+
+          <!-- Address ------------------------------------------------- -->
+          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px;">
+            <input type="text" id="rmAddress" placeholder="Enter property address&hellip;" style="flex:1 1 320px; min-width:220px; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-size:13.5px;">
+            <button type="button" class="btn btn-gold" id="rmLoadBtn">Load Property</button>
+          </div>
+
+          <!-- Tools + map --------------------------------------------- -->
+          <div id="rmWorkStage" style="display:flex; gap:12px; align-items:flex-start; flex-wrap:wrap;">
+            <div style="flex:0 0 264px; min-width:230px; display:flex; flex-direction:column; gap:12px;">
+              <div class="rm-panel">
+                <h4>Measurement Tools</h4>
+                <p class="rm-sub">Pick what you are tracing, then click along it.</p>
+                <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px;">
+                  <button type="button" class="rm-typebtn on" data-rmtype="perimeter"><span class="rm-dot" style="background:#E0574B;"></span>Perimeter</button>
+                  <button type="button" class="rm-typebtn" data-rmtype="ridge"><span class="rm-dot" style="background:#3B82F6;"></span>Ridge</button>
+                  <button type="button" class="rm-typebtn" data-rmtype="ground"><span class="rm-dot" style="background:#16A34A;"></span>Ground</button>
+                </div>
+                <button type="button" class="btn btn-gold btn-sm" id="rmDrawBtn" style="width:100%; justify-content:center;">Start Measuring</button>
+                <div style="display:flex; gap:6px; margin-top:6px;">
+                  <button type="button" class="btn btn-outline btn-sm" id="rmUndoBtn" style="flex:1; justify-content:center;">Undo</button>
+                  <button type="button" class="btn btn-outline btn-sm" id="rmClearBtn" style="flex:1; justify-content:center;">Clear</button>
+                </div>
+                <p id="rmDrawHint" style="font-size:11.5px; color:var(--slate); margin:8px 0 0;">Load an address first.</p>
+              </div>
+
+              <div class="rm-panel">
+                <h4>Distance Results</h4>
+                <p class="rm-sub">Measured off the map, not the picture.</p>
+                <div id="rmResults"></div>
+                <div id="rmRuns" style="margin-top:8px;"></div>
+                <button type="button" class="btn btn-outline btn-sm" id="rmUseFeetBtn" style="width:100%; justify-content:center; margin-top:10px; display:none;">Use as Estimated Feet</button>
+              </div>
+
+              <div class="rm-panel" id="rmRoofFactsPanel" style="display:none;">
+                <h4>Roof Facts</h4>
+                <p class="rm-sub">From Google's roof model of this address.</p>
+                <div id="rmRoofFacts" style="font-size:12.5px;"></div>
+              </div>
+            </div>
+
+            <div style="flex:1 1 480px; min-width:320px;">
+              <div style="border:1px solid var(--line); border-radius:12px; overflow:hidden;">
+                <div style="padding:7px 11px; font-size:12.5px; font-weight:600; background:var(--paper); border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; gap:8px;">
+                  <span>Satellite View</span>
+                  <span id="rmMapNote" style="font-weight:400; color:var(--slate); font-size:11.5px;"></span>
+                </div>
+                <div id="rmMap" style="width:100%; height:520px; background:#e9eef2;"></div>
+              </div>
+              <div style="display:flex; gap:8px; align-items:center; margin-top:10px; flex-wrap:wrap;">
+                <button type="button" class="btn btn-gold" id="rmCaptureBtn" disabled>Capture This View</button>
+                <span style="font-size:11.5px; color:var(--slate);">Frame the house how you want it, then capture &mdash; you can capture more than once.</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Crop ----------------------------------------------------- -->
+          <div id="rmCropStage" style="display:none;">
+            <div class="rm-panel" style="margin-bottom:10px;">
+              <h4>Crop This Capture</h4>
+              <p class="rm-sub">Drag a box over the part you want. Leave it alone to keep the whole picture.</p>
+              <div id="rmCropWrap" style="position:relative; display:inline-block; max-width:100%; border:1px solid var(--line); border-radius:10px; overflow:hidden; user-select:none; touch-action:none; cursor:crosshair; background:#000;">
+                <img id="rmCropImg" style="display:block; max-width:100%; max-height:460px; pointer-events:none;">
+                <div id="rmCropBox" style="position:absolute; display:none; border:2px solid var(--gold-dim); background:rgba(244,190,85,.18); box-shadow:0 0 0 9999px rgba(0,0,0,.42); pointer-events:none;"></div>
+              </div>
+              <div style="display:flex; gap:8px; align-items:center; margin-top:10px; flex-wrap:wrap;">
+                <button type="button" class="btn btn-gold" id="rmCropUseBtn">Add to Quote List</button>
+                <button type="button" class="btn btn-outline" id="rmCropResetBtn">Reset Crop</button>
+                <button type="button" class="btn btn-outline" id="rmCropBackBtn">Back to Map</button>
+                <span id="rmCropStatus" style="font-size:12.5px; color:var(--slate);"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Staged captures ------------------------------------------ -->
+          <div id="rmStagedPanel" style="display:none; margin-top:12px;">
+            <div style="font-size:12.5px; font-weight:700; margin-bottom:6px;">Ready to attach <span id="rmStagedCount" style="font-weight:400; color:var(--slate);"></span></div>
+            <div id="rmStaged" style="display:flex; gap:8px; flex-wrap:wrap;"></div>
+          </div>
+
+          <div style="display:flex; gap:10px; align-items:center; margin-top:14px; flex-wrap:wrap; border-top:1px solid var(--line); padding-top:12px;">
+            <button type="button" class="btn btn-gold" id="rmAttachBtn" disabled>Attach to Quote</button>
+            <button type="button" class="btn btn-outline" id="rmCloseBtn">Close</button>
+            <span id="rmStatus" style="font-size:13px; color:var(--slate);"></span>
+          </div>
+        </div>
+      </div>
 <div class="toast" id="toast"></div>
 <script type="module">
 import {
@@ -9503,6 +9624,10 @@ function renderQuoteRows(filtered){
               : '')+
             '<label class="btn btn-outline btn-sm" style="cursor:pointer;">'+(photos.length ? 'Add More Photos' : 'Add Photo')+
               '<input type="file" accept="image/*" multiple class="quote-photo-input" data-photofor="'+item.id+'" style="display:none;"></label>'+
+            /* Straight to the satellite picture of this address: measure the
+               roofline on it and the picture lands in this same list, without
+               ever being downloaded to the computer on the way. */
+            '<button type="button" class="btn btn-outline btn-sm" data-measureroof="'+item.id+'" style="margin-left:6px;">Measure Roof</button>'+
             (cur
               ? '<button type="button" class="btn btn-outline btn-sm" data-markupphoto="'+item.id+'" style="margin-left:6px;">Mark Up This Photo</button>'+
                 '<label class="btn btn-outline btn-sm" style="cursor:pointer; margin-left:6px;">Replace This One'+
@@ -9892,6 +10017,9 @@ function renderQuoteRows(filtered){
       if(box) box.value = b.dataset.preset;
       saveQuotePhotoLabel(id, b.dataset.preset);
     });
+  });
+  list.querySelectorAll('[data-measureroof]').forEach(function(btn){
+    btn.addEventListener('click', function(){ openRoofMeasure(btn.dataset.measureroof); });
   });
   list.querySelectorAll('[data-markupphoto]').forEach(function(btn){
     btn.addEventListener('click', function(){
@@ -13937,6 +14065,620 @@ function qmFlattenToBlob(imageUrl){
     } catch(err){
       statusEl.textContent = 'Could not save the markup \u2014 try again.';
     }
+  });
+})();
+/* ================= MEASURE ROOF (from a quote) =====================
+ *
+ * What this is: the address goes in, Google's satellite picture of that
+ * house comes up, you click along the roofline, and the footage falls out.
+ * Then the picture itself goes onto the quote without ever being saved to
+ * the computer first.
+ *
+ * WHY THE FOOTAGE IS TRUSTWORTHY. Every point you click is stored as a real
+ * latitude and longitude, and the length is the great-circle distance
+ * between those points. It is never measured in screen pixels. That matters
+ * because it means zooming or panning while you are part-way through a line
+ * cannot change the number - which is exactly the trap a pixel-based
+ * measure falls into.
+ *
+ * WHY THE PICTURE IS FETCHED TWICE OVER. The map on screen is the
+ * interactive Maps JS map, and its tiles are a pile of separate cross-origin
+ * images - there is no way to read them back out as one picture. So the
+ * capture asks the Static Maps API for the same centre, the same zoom and
+ * the same shape as a single flat image, and the traced lines are then
+ * re-projected onto it with the same Web Mercator maths Google used to make
+ * it. The lines land exactly where they were drawn.
+ *
+ * The one outside thing this needs is the Maps Static API switched on for
+ * the key in Google Cloud Console. Everything else here is already paid for
+ * and already loaded. If it is off, the capture says so in those words
+ * rather than failing quietly.
+ */
+const RM_TYPES = {
+  perimeter: {label: 'Perimeter', color: '#E0574B'},
+  ridge:     {label: 'Ridge',     color: '#3B82F6'},
+  ground:    {label: 'Ground',    color: '#16A34A'}
+};
+const RM_STATIC_MAX = 640;   /* Static Maps caps a side at 640; scale=2 doubles the real pixels. */
+let rmQuoteId = null;
+let rmMap = null, rmHomeMarker = null;
+let rmType = 'perimeter';
+let rmDrawing = false;
+let rmRuns = [];            /* finished lines: {type, path:[LatLngLiteral], line, dots:[]} */
+let rmCurrent = null;       /* the line being drawn right now */
+let rmRubber = null;        /* the elastic segment that follows the cursor */
+let rmShots = [];           /* captured pictures waiting to go on the quote */
+let rmCrop = null;          /* {img, canvas, box:{x,y,w,h} in 0-1} */
+let rmCropDrag = null;
+
+/* The key is read back off the Maps script tag rather than written out
+   again here, so there is only ever one copy of it in this file. */
+function rmMapsKey(){
+  const s = document.querySelector('script[src*="maps.googleapis.com/maps/api/js"]');
+  if(!s) return '';
+  try{ return new URL(s.src).searchParams.get('key') || ''; } catch(err){ return ''; }
+}
+/* Great-circle distance in feet. */
+function rmFeetBetween(a, b){
+  const R = 20902231;                       /* earth radius in feet */
+  const toRad = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * toRad;
+  const dLng = (b.lng - a.lng) * toRad;
+  const s = Math.sin(dLat/2)*Math.sin(dLat/2) +
+            Math.cos(a.lat*toRad)*Math.cos(b.lat*toRad)*Math.sin(dLng/2)*Math.sin(dLng/2);
+  return 2 * R * Math.atan2(Math.sqrt(s), Math.sqrt(1-s));
+}
+function rmRunFeet(path){
+  let total = 0;
+  for(let i = 1; i < path.length; i++) total += rmFeetBetween(path[i-1], path[i]);
+  return total;
+}
+function rmTotals(){
+  const out = {perimeter: 0, ridge: 0, ground: 0, all: 0};
+  rmRuns.forEach(function(r){
+    const f = rmRunFeet(r.path);
+    out[r.type] += f;
+    out.all += f;
+  });
+  return out;
+}
+/* Web Mercator, the same projection the satellite image is drawn in.
+   Returns world coordinates on Google's 256px tile grid. */
+function rmProject(lat, lng){
+  const siny = Math.min(Math.max(Math.sin(lat * Math.PI/180), -0.9999), 0.9999);
+  return {
+    x: 256 * (0.5 + lng/360),
+    y: 256 * (0.5 - Math.log((1+siny)/(1-siny)) / (4*Math.PI))
+  };
+}
+/* Where a lat/lng lands, in real pixels, inside a static map of this
+   centre / zoom / size / scale. */
+function rmPointOnStatic(pt, center, zoom, w, h, scale){
+  const worldScale = Math.pow(2, zoom);
+  const c = rmProject(center.lat, center.lng);
+  const p = rmProject(pt.lat, pt.lng);
+  return {
+    x: ((p.x - c.x) * worldScale + w/2) * scale,
+    y: ((p.y - c.y) * worldScale + h/2) * scale
+  };
+}
+function rmSetType(type){
+  if(!RM_TYPES[type]) return;
+  rmType = type;
+  document.querySelectorAll('#roofMeasureOverlay .rm-typebtn').forEach(function(b){
+    b.classList.toggle('on', b.dataset.rmtype === type);
+  });
+}
+function rmClearMapDrawing(){
+  rmRuns.forEach(function(r){
+    if(r.line) r.line.setMap(null);
+    (r.dots || []).forEach(function(d){ d.setMap(null); });
+  });
+  rmRuns = [];
+  rmDropCurrent();
+}
+function rmDropCurrent(){
+  if(rmCurrent){
+    if(rmCurrent.line) rmCurrent.line.setMap(null);
+    (rmCurrent.dots || []).forEach(function(d){ d.setMap(null); });
+  }
+  rmCurrent = null;
+  if(rmRubber){ rmRubber.setMap(null); rmRubber = null; }
+}
+function rmDot(pos, color){
+  return new google.maps.Marker({
+    position: pos, map: rmMap, clickable: false, zIndex: 5,
+    icon: {path: google.maps.SymbolPath.CIRCLE, scale: 4.5, fillColor: '#fff',
+           fillOpacity: 1, strokeColor: color, strokeWeight: 2}
+  });
+}
+function rmStartRun(latLng){
+  const color = RM_TYPES[rmType].color;
+  rmCurrent = {
+    type: rmType,
+    path: [{lat: latLng.lat(), lng: latLng.lng()}],
+    dots: [rmDot(latLng, color)],
+    line: new google.maps.Polyline({
+      map: rmMap, clickable: false, path: [latLng], zIndex: 4,
+      strokeColor: color, strokeWeight: 4, strokeOpacity: 0.95
+    })
+  };
+  rmRubber = new google.maps.Polyline({
+    map: rmMap, clickable: false, path: [latLng, latLng], zIndex: 3,
+    strokeColor: color, strokeWeight: 3, strokeOpacity: 0.5
+  });
+}
+function rmAddPoint(latLng){
+  if(!rmCurrent){ rmStartRun(latLng); rmRenderResults(); return; }
+  rmCurrent.path.push({lat: latLng.lat(), lng: latLng.lng()});
+  rmCurrent.line.setPath(rmCurrent.path);
+  rmCurrent.dots.push(rmDot(latLng, RM_TYPES[rmCurrent.type].color));
+  rmRenderResults();
+}
+/* A line ends when you say it ends - double-click, Finish, or switching
+   type. Anything with only one point on it never becomes a measurement. */
+function rmFinishRun(){
+  if(rmCurrent && rmCurrent.path.length > 1){
+    rmRuns.push(rmCurrent);
+    rmCurrent = null;
+    if(rmRubber){ rmRubber.setMap(null); rmRubber = null; }
+  } else {
+    rmDropCurrent();
+  }
+  rmRenderResults();
+}
+function rmSetDrawing(on){
+  rmDrawing = !!on;
+  const btn = document.getElementById('rmDrawBtn');
+  const hint = document.getElementById('rmDrawHint');
+  if(!rmMap){
+    btn.textContent = 'Start Measuring';
+    hint.textContent = 'Load an address first.';
+    return;
+  }
+  if(rmDrawing){
+    btn.textContent = 'Finish Line';
+    hint.textContent = 'Click each corner along the line. Double-click, or press Finish Line, when that run is done. Drag the map to move around.';
+  } else {
+    rmFinishRun();
+    btn.textContent = 'Start Measuring';
+    hint.textContent = 'Press Start Measuring, then click along the roofline.';
+  }
+  if(rmMap) rmMap.setOptions({draggableCursor: rmDrawing ? 'crosshair' : null});
+}
+function rmFmtFeet(f){
+  if(!f) return '0 ft';
+  return (f >= 100 ? Math.round(f) : Math.round(f*10)/10) + ' ft';
+}
+function rmRenderResults(){
+  const box = document.getElementById('rmResults');
+  const runsBox = document.getElementById('rmRuns');
+  const t = rmTotals();
+  const live = rmCurrent && rmCurrent.path.length > 1 ? rmRunFeet(rmCurrent.path) : 0;
+  box.innerHTML = Object.keys(RM_TYPES).map(function(k){
+    return '<div class="rm-resultrow"><span><span class="rm-dot" style="display:inline-block; width:9px; height:9px; border-radius:50%; background:'+RM_TYPES[k].color+'; margin-right:6px;"></span>'+RM_TYPES[k].label+'</span><strong>'+rmFmtFeet(t[k])+'</strong></div>';
+  }).join('') +
+  '<div class="rm-resultrow" style="border-top:1px solid var(--line); margin-top:4px; padding-top:7px;"><span style="font-weight:700;">Total</span><strong style="font-size:15px;">'+rmFmtFeet(t.all)+'</strong></div>' +
+  (live ? '<div class="rm-runrow" style="color:var(--dusk);">drawing now&hellip; '+rmFmtFeet(live)+'</div>' : '');
+  runsBox.innerHTML = rmRuns.map(function(r, i){
+    return '<div class="rm-runrow"><span>'+RM_TYPES[r.type].label+' '+(i+1)+'</span><span>'+rmFmtFeet(rmRunFeet(r.path))+'</span></div>';
+  }).join('');
+  const useBtn = document.getElementById('rmUseFeetBtn');
+  useBtn.style.display = t.all > 0 ? 'inline-flex' : 'none';
+  useBtn.textContent = 'Use ' + rmFmtFeet(Math.round(t.all)) + ' as Estimated Feet';
+}
+function rmEnsureMap(center){
+  if(rmMap){
+    rmMap.setCenter(center);
+    rmMap.setZoom(20);
+    return;
+  }
+  rmMap = new google.maps.Map(document.getElementById('rmMap'), {
+    center: center, zoom: 20, mapTypeId: 'satellite', tilt: 0,
+    gestureHandling: 'greedy', streetViewControl: false, fullscreenControl: false,
+    mapTypeControl: false, rotateControl: false, keyboardShortcuts: false
+  });
+  /* tilt:0 again after the first idle - the 45-degree imagery kicks in on
+     its own at high zoom in some places, and a tilted picture is no good to
+     measure on. */
+  google.maps.event.addListenerOnce(rmMap, 'idle', function(){ rmMap.setTilt(0); });
+  rmMap.addListener('click', function(e){ if(rmDrawing) rmAddPoint(e.latLng); });
+  rmMap.addListener('dblclick', function(){ if(rmDrawing) rmFinishRun(); });
+  rmMap.addListener('mousemove', function(e){
+    if(rmDrawing && rmRubber && rmCurrent){
+      const last = rmCurrent.path[rmCurrent.path.length-1];
+      rmRubber.setPath([last, e.latLng]);
+    }
+  });
+}
+async function rmLoadAddress(){
+  const addr = document.getElementById('rmAddress').value.trim();
+  const status = document.getElementById('rmStatus');
+  if(!addr){ status.textContent = 'Type an address first.'; return; }
+  status.textContent = 'Finding that address…';
+  let coords;
+  try{
+    coords = await geocodeAddress(addr);
+  } catch(err){
+    /* Two very different failures wear the same coat here, and telling
+       someone to check their spelling when Google never loaded sends them
+       hunting for a typo that isn't there. */
+    status.textContent = /Maps not loaded/i.test((err && err.message) || '')
+      ? 'Google Maps did not load on this page — reload the admin page and try again.'
+      : 'Could not find that address on the map — check the spelling, or add the city.';
+    return;
+  }
+  const center = {lat: coords.lat, lng: coords.lng};
+  rmClearMapDrawing();
+  rmEnsureMap(center);
+  if(rmHomeMarker) rmHomeMarker.setMap(null);
+  rmHomeMarker = new google.maps.Marker({position: center, map: rmMap, clickable: false, zIndex: 1, opacity: 0.65});
+  document.getElementById('rmCaptureBtn').disabled = false;
+  document.getElementById('rmMapNote').textContent = 'Zoom 20 · drag to reframe';
+  rmSetDrawing(false);
+  rmRenderResults();
+  status.textContent = '';
+  /* Google's own roof model for the same address - square footage, how many
+     roof sections, and the steepest pitch, which is what decides difficulty.
+     Purely a bonus; if it is not available for this house, say nothing. */
+  const factsPanel = document.getElementById('rmRoofFactsPanel');
+  const facts = document.getElementById('rmRoofFacts');
+  factsPanel.style.display = 'none';
+  try{
+    const d = await fetchRoofDetails(coords.lat, coords.lng);
+    facts.innerHTML =
+      '<div class="rm-resultrow"><span>Roof area</span><strong>'+d.squareFeet.toLocaleString()+' sq ft</strong></div>'+
+      '<div class="rm-resultrow"><span>Roof sections</span><strong>'+d.peakCount+'</strong></div>'+
+      '<div class="rm-resultrow"><span>Steepest grade</span><strong>'+d.maxGrade+'%</strong></div>'+
+      '<div class="rm-resultrow"><span>Suggested difficulty</span><strong>'+esc(d.suggestedDifficulty)+'</strong></div>';
+    factsPanel.style.display = 'block';
+  } catch(err){ /* no roof model for this address - not worth a message */ }
+}
+/* Grabs the view as one flat picture and paints the traced lines onto it. */
+async function rmCapture(){
+  const status = document.getElementById('rmStatus');
+  const key = rmMapsKey();
+  if(!rmMap){ status.textContent = 'Load an address first.'; return; }
+  /* The key is read back off the Maps script tag. If that tag ever stops
+     carrying it, capture is the only thing that breaks - and it would break
+     looking like a map problem, which is a bad half-hour for whoever chases
+     it. Say what actually went wrong. */
+  if(!key){ status.textContent = 'Could not read the Google Maps key off this page, so the picture cannot be fetched. Measuring still works.'; return; }
+  rmFinishRun();
+  status.textContent = 'Capturing…';
+  const center = {lat: rmMap.getCenter().lat(), lng: rmMap.getCenter().lng()};
+  const zoom = Math.round(rmMap.getZoom());
+  const el = document.getElementById('rmMap');
+  const ratio = (el.clientWidth || 640) / (el.clientHeight || 520);
+  let w, h;
+  if(ratio >= 1){ w = RM_STATIC_MAX; h = Math.max(160, Math.round(RM_STATIC_MAX / ratio)); }
+  else { h = RM_STATIC_MAX; w = Math.max(160, Math.round(RM_STATIC_MAX * ratio)); }
+  const scale = 2;
+  const url = 'https://maps.googleapis.com/maps/api/staticmap'+
+    '?center='+center.lat.toFixed(7)+','+center.lng.toFixed(7)+
+    '&zoom='+zoom+'&size='+w+'x'+h+'&scale='+scale+'&maptype=satellite&format=jpg&key='+key;
+  let blob;
+  try{
+    const res = await fetch(url);
+    if(!res.ok){
+      const why = (await res.text()) || '';
+      status.textContent = /not authorized|not enabled/i.test(why)
+        ? 'Google will not hand over the picture: this project has the "Maps Static API" switched off. Turn it on at console.cloud.google.com → APIs & Services → Library → Maps Static API → Enable, then capture again. Measuring itself is unaffected and your lines are still here.'
+        : 'Google refused the picture (' + res.status + '). Measuring still works; only the capture is blocked.';
+      return;
+    }
+    blob = await res.blob();
+  } catch(err){
+    status.textContent = 'Could not reach Google for the picture — check the connection and try again.';
+    return;
+  }
+  const img = new Image();
+  const objUrl = URL.createObjectURL(blob);
+  const loaded = await new Promise(function(resolve){
+    img.onload = function(){ resolve(true); };
+    img.onerror = function(){ resolve(false); };
+    img.src = objUrl;
+  });
+  if(!loaded){ URL.revokeObjectURL(objUrl); status.textContent = 'The picture came back unreadable — try the capture again.'; return; }
+  const canvas = document.createElement('canvas');
+  canvas.width = img.naturalWidth;
+  canvas.height = img.naturalHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+  URL.revokeObjectURL(objUrl);
+  /* The traced lines, re-projected onto the flat picture. Drawn with a dark
+     halo underneath so a red line is still readable over a red-brown roof. */
+  rmRuns.forEach(function(r){
+    const pts = r.path.map(function(p){ return rmPointOnStatic(p, center, zoom, w, h, scale); });
+    if(pts.length < 2) return;
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    [{c:'rgba(0,0,0,.55)', lw:9}, {c:RM_TYPES[r.type].color, lw:5}].forEach(function(pass){
+      ctx.beginPath();
+      pts.forEach(function(p, i){ if(i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
+      ctx.strokeStyle = pass.c; ctx.lineWidth = pass.lw; ctx.stroke();
+    });
+    pts.forEach(function(p){
+      ctx.beginPath(); ctx.arc(p.x, p.y, 4.5, 0, Math.PI*2);
+      ctx.fillStyle = '#fff'; ctx.fill();
+      ctx.strokeStyle = RM_TYPES[r.type].color; ctx.lineWidth = 2.5; ctx.stroke();
+    });
+  });
+  rmCrop = {canvas: canvas, box: null};
+  document.getElementById('rmCropImg').src = canvas.toDataURL('image/jpeg', 0.92);
+  document.getElementById('rmCropBox').style.display = 'none';
+  document.getElementById('rmCropStatus').textContent = '';
+  document.getElementById('rmWorkStage').style.display = 'none';
+  document.getElementById('rmCropStage').style.display = 'block';
+  status.textContent = '';
+}
+/* The crop box, dragged out in fractions of the picture so it survives the
+   picture being shown at whatever size fits on screen. */
+function rmCropPoint(e){
+  const wrap = document.getElementById('rmCropWrap');
+  const r = wrap.getBoundingClientRect();
+  const cx = e.touches ? e.touches[0].clientX : e.clientX;
+  const cy = e.touches ? e.touches[0].clientY : e.clientY;
+  return {
+    x: Math.min(1, Math.max(0, (cx - r.left)/r.width)),
+    y: Math.min(1, Math.max(0, (cy - r.top)/r.height))
+  };
+}
+function rmPaintCropBox(){
+  const box = document.getElementById('rmCropBox');
+  if(!rmCrop || !rmCrop.box){ box.style.display = 'none'; return; }
+  const b = rmCrop.box;
+  box.style.display = 'block';
+  box.style.left = (b.x*100)+'%';
+  box.style.top = (b.y*100)+'%';
+  box.style.width = (b.w*100)+'%';
+  box.style.height = (b.h*100)+'%';
+}
+/* Turns whatever is on screen into the picture that will be uploaded. */
+function rmCroppedBlob(){
+  return new Promise(function(resolve){
+    if(!rmCrop){ resolve(null); return; }
+    const src = rmCrop.canvas;
+    const b = rmCrop.box;
+    if(!b || b.w < 0.02 || b.h < 0.02){ src.toBlob(function(bl){ resolve(bl); }, 'image/jpeg', 0.92); return; }
+    const sx = Math.round(b.x * src.width), sy = Math.round(b.y * src.height);
+    const sw = Math.max(1, Math.round(b.w * src.width)), sh = Math.max(1, Math.round(b.h * src.height));
+    const out = document.createElement('canvas');
+    out.width = sw; out.height = sh;
+    out.getContext('2d').drawImage(src, sx, sy, sw, sh, 0, 0, sw, sh);
+    out.toBlob(function(bl){ resolve(bl); }, 'image/jpeg', 0.92);
+  });
+}
+function rmRenderStaged(){
+  const panel = document.getElementById('rmStagedPanel');
+  const strip = document.getElementById('rmStaged');
+  const attach = document.getElementById('rmAttachBtn');
+  panel.style.display = rmShots.length ? 'block' : 'none';
+  document.getElementById('rmStagedCount').textContent = rmShots.length ? '— ' + rmShots.length + ' picture' + (rmShots.length === 1 ? '' : 's') : '';
+  strip.innerHTML = rmShots.map(function(s, i){
+    return '<div class="rm-shot"><img src="'+s.preview+'" alt="">'+
+      '<div class="rm-shotacts">'+
+        '<button type="button" data-rmshotdl="'+i+'" title="Download this one to the computer">&#8681;</button>'+
+        '<button type="button" data-rmshotdel="'+i+'" title="Remove">&#10005;</button>'+
+      '</div>'+
+      '<div class="rm-shotcap">'+esc(s.label)+'</div>'+
+    '</div>';
+  }).join('');
+  strip.querySelectorAll('[data-rmshotdel]').forEach(function(b){
+    b.addEventListener('click', function(){
+      const i = Number(b.dataset.rmshotdel);
+      URL.revokeObjectURL(rmShots[i].preview);
+      rmShots.splice(i, 1);
+      rmRenderStaged();
+    });
+  });
+  strip.querySelectorAll('[data-rmshotdl]').forEach(function(b){
+    b.addEventListener('click', function(){
+      const s = rmShots[Number(b.dataset.rmshotdl)];
+      const a = document.createElement('a');
+      a.href = s.preview;
+      a.download = (s.label || 'roof-measurement').replace(/[^a-z0-9]+/gi,'-').toLowerCase() + '.jpg';
+      document.body.appendChild(a); a.click(); a.remove();
+    });
+  });
+  attach.disabled = !rmShots.length;
+  attach.textContent = rmShots.length
+    ? 'Attach ' + rmShots.length + ' to Quote'
+    : 'Attach to Quote';
+}
+function rmBackToMap(){
+  document.getElementById('rmCropStage').style.display = 'none';
+  document.getElementById('rmWorkStage').style.display = 'flex';
+}
+function rmReset(){
+  rmClearMapDrawing();
+  rmShots.forEach(function(s){ URL.revokeObjectURL(s.preview); });
+  rmShots = [];
+  rmCrop = null;
+  rmCropDrag = null;
+  rmSetType('perimeter');
+  rmSetDrawing(false);
+  rmRenderStaged();
+  rmRenderResults();
+  rmBackToMap();
+  document.getElementById('rmStatus').textContent = '';
+  document.getElementById('rmRoofFactsPanel').style.display = 'none';
+  document.getElementById('rmCaptureBtn').disabled = !rmMap;
+}
+function openRoofMeasure(quoteId){
+  const item = quotesCache.find(function(q){ return q.id === quoteId; });
+  if(!item) return;
+  rmQuoteId = quoteId;
+  rmReset();
+  document.getElementById('rmTitle').textContent = 'Measure Roof — ' + (item.data.name || 'Quote');
+  document.getElementById('rmAddress').value = item.data.address || '';
+  document.getElementById('roofMeasureOverlay').style.display = 'flex';
+  /* The map cannot size itself while it is inside a hidden box, so it is
+     nudged once the overlay is actually on screen. */
+  if(rmMap) setTimeout(function(){ google.maps.event.trigger(rmMap, 'resize'); }, 60);
+  if(item.data.address) setTimeout(rmLoadAddress, 0);
+}
+(function wireRoofMeasure(){
+  const overlay = document.getElementById('roofMeasureOverlay');
+  if(!overlay) return;
+  document.querySelectorAll('#roofMeasureOverlay .rm-typebtn').forEach(function(b){
+    b.addEventListener('click', function(){
+      /* Switching what you are tracing ends the line you were on - a run is
+         one type all the way along, never half ridge and half perimeter. */
+      rmFinishRun();
+      rmSetType(b.dataset.rmtype);
+    });
+  });
+  document.getElementById('rmLoadBtn').addEventListener('click', rmLoadAddress);
+  document.getElementById('rmAddress').addEventListener('keydown', function(e){
+    if(e.key === 'Enter'){ e.preventDefault(); rmLoadAddress(); }
+  });
+  document.getElementById('rmDrawBtn').addEventListener('click', function(){
+    if(!rmMap){ document.getElementById('rmStatus').textContent = 'Load an address first.'; return; }
+    rmSetDrawing(!rmDrawing);
+  });
+  document.getElementById('rmUndoBtn').addEventListener('click', function(){
+    /* Undo peels back a point at a time while a line is open, and drops the
+       whole last line once it is closed. */
+    if(rmCurrent && rmCurrent.path.length){
+      rmCurrent.path.pop();
+      const dot = rmCurrent.dots.pop();
+      if(dot) dot.setMap(null);
+      if(!rmCurrent.path.length) rmDropCurrent();
+      else rmCurrent.line.setPath(rmCurrent.path);
+    } else {
+      const last = rmRuns.pop();
+      if(last){
+        last.line.setMap(null);
+        (last.dots || []).forEach(function(d){ d.setMap(null); });
+      }
+    }
+    rmRenderResults();
+  });
+  document.getElementById('rmClearBtn').addEventListener('click', function(){
+    rmClearMapDrawing();
+    rmRenderResults();
+  });
+  document.getElementById('rmCaptureBtn').addEventListener('click', rmCapture);
+  document.getElementById('rmCropBackBtn').addEventListener('click', rmBackToMap);
+  document.getElementById('rmCropResetBtn').addEventListener('click', function(){
+    if(rmCrop) rmCrop.box = null;
+    rmPaintCropBox();
+    document.getElementById('rmCropStatus').textContent = 'Crop cleared — the whole picture will be used.';
+  });
+  const cropWrap = document.getElementById('rmCropWrap');
+  function cropDown(e){
+    if(!rmCrop) return;
+    e.preventDefault();
+    const p = rmCropPoint(e);
+    rmCropDrag = p;
+    rmCrop.box = {x: p.x, y: p.y, w: 0, h: 0};
+    rmPaintCropBox();
+  }
+  function cropMove(e){
+    if(!rmCropDrag || !rmCrop) return;
+    e.preventDefault();
+    const p = rmCropPoint(e);
+    rmCrop.box = {
+      x: Math.min(rmCropDrag.x, p.x), y: Math.min(rmCropDrag.y, p.y),
+      w: Math.abs(p.x - rmCropDrag.x), h: Math.abs(p.y - rmCropDrag.y)
+    };
+    rmPaintCropBox();
+  }
+  function cropUp(){
+    if(!rmCropDrag) return;
+    rmCropDrag = null;
+    if(rmCrop && rmCrop.box && (rmCrop.box.w < 0.02 || rmCrop.box.h < 0.02)){
+      rmCrop.box = null;
+      rmPaintCropBox();
+    }
+    document.getElementById('rmCropStatus').textContent = rmCrop && rmCrop.box
+      ? 'Cropped. Drag again to change it, or Reset Crop for the whole picture.'
+      : '';
+  }
+  cropWrap.addEventListener('mousedown', cropDown);
+  window.addEventListener('mousemove', cropMove);
+  window.addEventListener('mouseup', cropUp);
+  cropWrap.addEventListener('touchstart', cropDown, {passive:false});
+  cropWrap.addEventListener('touchmove', cropMove, {passive:false});
+  window.addEventListener('touchend', cropUp);
+  document.getElementById('rmCropUseBtn').addEventListener('click', async function(){
+    const blob = await rmCroppedBlob();
+    if(!blob){ document.getElementById('rmCropStatus').textContent = 'Could not read that capture back — try capturing again.'; return; }
+    const t = rmTotals();
+    rmShots.push({
+      blob: blob,
+      preview: URL.createObjectURL(blob),
+      label: rmRuns.length ? ('Roofline — ' + rmFmtFeet(Math.round(t.all))) : 'Satellite view'
+    });
+    rmRenderStaged();
+    rmBackToMap();
+    document.getElementById('rmStatus').textContent = 'Added. Capture another view, or attach what you have.';
+  });
+  document.getElementById('rmUseFeetBtn').addEventListener('click', async function(){
+    if(!rmQuoteId) return;
+    const feet = Math.round(rmTotals().all);
+    const status = document.getElementById('rmStatus');
+    status.textContent = 'Saving the footage…';
+    try{
+      await updateDoc(doc(db, 'quotes', rmQuoteId), {estimatedFeet: feet});
+      const item = quotesCache.find(function(q){ return q.id === rmQuoteId; });
+      if(item) item.data.estimatedFeet = feet;
+      renderQuotesList();
+      status.textContent = 'Estimated Feet set to ' + feet + '.';
+    } catch(err){
+      status.textContent = 'Could not save the footage onto the quote — try again.';
+    }
+  });
+  /* Attach: every staged picture is uploaded and appended to the quote's
+     photo list. The list is re-read here rather than held from when the
+     window opened, because a photo could have been added on the card behind
+     this one in the meantime and writing a stale list back would drop it. */
+  document.getElementById('rmAttachBtn').addEventListener('click', async function(){
+    if(!rmQuoteId || !rmShots.length) return;
+    const btn = this;
+    const status = document.getElementById('rmStatus');
+    const item = quotesCache.find(function(q){ return q.id === rmQuoteId; });
+    if(!item){ status.textContent = 'That quote is no longer on screen — close this and try again.'; return; }
+    btn.disabled = true;
+    const photos = quotePhotoList(item.data);
+    const failed = [];
+    let added = 0;
+    for(let i = 0; i < rmShots.length; i++){
+      status.textContent = rmShots.length > 1 ? ('Uploading ' + (i+1) + ' of ' + rmShots.length + '…') : 'Uploading…';
+      try{
+        const file = new File([rmShots[i].blob], 'roof-measurement.jpg', {type: 'image/jpeg'});
+        const ready = await shrinkImageFileIfTooLarge(file, 9*1024*1024, 2000, 0.85);
+        const url = await uploadOneToCloudinary(ready);
+        photos.push({url: url, original: url, markup: [], label: rmShots[i].label});
+        added++;
+      } catch(err){ failed.push(i+1); }
+    }
+    if(!added){
+      status.textContent = 'Nothing uploaded — try again.';
+      btn.disabled = false;
+      return;
+    }
+    try{
+      const updates = quotePhotoUpdates(photos);
+      await updateDoc(doc(db, 'quotes', rmQuoteId), updates);
+      Object.assign(item.data, updates);
+      renderQuotesList();
+      rmShots.forEach(function(s){ URL.revokeObjectURL(s.preview); });
+      rmShots = [];
+      rmRenderStaged();
+      status.textContent = '';
+      toast(added === 1 ? 'Picture added to the quote' : (added + ' pictures added to the quote'));
+      if(failed.length) status.textContent = 'Could not upload ' + failed.length + ' of them.';
+      else document.getElementById('roofMeasureOverlay').style.display = 'none';
+    } catch(err){
+      status.textContent = 'Uploaded, but saving onto the quote failed — try Attach again.';
+      btn.disabled = false;
+    }
+  });
+  document.getElementById('rmCloseBtn').addEventListener('click', function(){
+    if(rmShots.length && !confirm('Close without attaching?\n\n' + rmShots.length + ' captured picture' + (rmShots.length === 1 ? '' : 's') + ' will be thrown away.')) return;
+    overlay.style.display = 'none';
+    rmSetDrawing(false);
   });
 })();
 /* ---------------- DASHBOARD & EXPENSES ---------------- */
