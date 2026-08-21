@@ -20229,6 +20229,108 @@ suite('Suite 107. Pricing a re-quote from the popup');
       'writing NaN into a money field is how a total goes blank');
   }
 
+  /* ⭐ A THIRD KIND: JUST THE PRICE, AND THE WAREHOUSE DOES NOTHING. Owner, 2026-08-21,
+     looking at the chooser: "you can also get a requote because you just changed the price
+     and when that happens nothing gets added to warehouse but it gives you the option to
+     explain why you changed the price."
+
+     ⚠ THE OTHER TWO BOTH IMPLY WORK. An addition builds the extra; a move recycles the
+     old set and builds a new one. A price change is the same house — same lights, same
+     feet, same street — so building or recycling would both be work nobody wants done,
+     and doing either would put a real bundle on a real shelf for no reason. */
+  {
+    const ask = extractFn(admin, 'askRequoteKind');
+    check('S118', 'the chooser offers all three',
+      /data-requotekind="price"/.test(ask) && /Just the price/.test(ask) &&
+      /Nothing goes to the warehouse/.test(ask),
+      'she asked for it in those words');
+    check('S118', 'and the note box says it can carry the reason for the price',
+      /why the price moved/.test(ask),
+      'owner: "it gives you the option to explain why you changed the price"');
+  }
+
+  {
+    const same = {id: 'cp', data: {name: 'Price Only', customerNumber: '7',
+                                   housePrice: 600, measuredFeet: 180,
+                                   address: '12 Main St'}};
+    const r = run({name: 'Price Only', estimatedFeet: 180, quotedPrice: 700,
+                   address: '12 Main St', requoteKind: 'price'}, same, 2);
+    check('S118', 'a price-only re-quote pre-selects doing nothing',
+      r.el('requoteBuildNone').checked === true &&
+      r.el('requoteBuildRecycle').checked === false,
+      'the house has not changed, so neither queue should hear about it');
+    check('S118', 'and says why that is the one',
+      /raised as a price change, so this is the one/.test(r.html()));
+
+    r.el('applyRequoteBtn').fire('click');
+    check('S118', 'and pressing it parks a warehouse choice of nothing',
+      !!r.choice() && r.choice().mode === 'none',
+      'it is not the same as no choice at all: she was asked and said nothing changed');
+    check('S118', 'while still applying the new price',
+      r.el('editCustHousePrice').value === 700);
+  }
+
+  /* ⚠ OFFERED, NOT FORCED. The office may raise it as a price change and then find
+     something else as well, so the other two answers stay pickable. */
+  {
+    const same = {id: 'cp2', data: {name: 'Changed Mind', customerNumber: '6',
+                                    housePrice: 600, measuredFeet: 180,
+                                    address: '12 Main St'}};
+    const r = run({name: 'Changed Mind', estimatedFeet: 300, quotedPrice: 700,
+                   address: '12 Main St', requoteKind: 'price'}, same, 2);
+    check('S118', 'the top-up is still there to pick on a price-only re-quote',
+      /Build only what they do not already have/.test(r.html()) &&
+      r.el('requoteBuildTopUp').checked === false,
+      'offered but not selected');
+    r.el('requoteBuildNone').checked = false;
+    r.el('requoteBuildTopUp').checked = true;
+    r.el('applyRequoteBtn').fire('click');
+    check('S118', 'and choosing it overrides the price-only default',
+      r.choice().mode === 'topup' && r.choice().extraFeet === 120,
+      'Nothing is a default, not a lock');
+  }
+
+  /* And an ordinary re-quote is unchanged: Nothing exists but is not selected. */
+  {
+    const moved = {id: 'cm2', data: {name: 'Moved', customerNumber: '5',
+                                     measuredFeet: 180, address: '12 Old St'}};
+    const r = run({name: 'Moved', estimatedFeet: 300, quotedPrice: 600,
+                   address: '99 New Rd', requoteKind: 'address'}, moved, 2);
+    check('S118', 'a move still recycles and rebuilds',
+      r.el('requoteBuildNone').checked === false &&
+      r.el('requoteBuildRecycle').checked === true);
+    r.el('applyRequoteBtn').fire('click');
+    check('S118', 'and parks recycle, not nothing',
+      r.choice().mode === 'recycle');
+  }
+
+  /* ⚠ AND THE SAVE LEAVES BOTH QUEUES ALONE. 'none' is not 'no answer' — the office was
+     asked and said the house had not changed, so whatever flags are already on the
+     record stay exactly as they are. */
+  {
+    const at = admin.indexOf('    if(requoteBuildChoice){');
+    const end = admin.indexOf('    /* Applied last so it beats the RSVP dropdown', at);
+    const blk = (at > 0 && end > at) ? admin.slice(at, end) : '';
+    check('S118', 'the block that carries the choice out was found', !!blk);
+    if (blk) {
+      const apply = new Function('requoteBuildChoice', 'addrUpdates', 'serverTimestamp',
+        blk + 'return requoteBuildChoice;');
+      const up = {};
+      const left = apply({mode: 'none'}, up, function(){ return 'NOW'; });
+      check('S118', 'nothing means neither queue is written to',
+        Object.keys(up).length === 0,
+        'building or recycling for a price change puts a real bundle on a real shelf ' +
+        'for no reason');
+      check('S118', 'and the choice is still cleared afterwards',
+        left === null,
+        'left set, the next customer saved would inherit it');
+    }
+  }
+
+  check('S118', 'and the card says the warehouse does nothing',
+    /Price only \\u2014 the house has not changed, so the warehouse does nothing/.test(admin),
+    'somebody picking the card up later has to know which job it is, including none');
+
   /* ---- and the card that started it says what it is showing ---------------- */
   /* ⚠ SCOPED TO THE BRANCH, because the phrase sits on TWO of them — the one that
      starts on their last price and the one that suggests from the footage. A bare

@@ -8557,10 +8557,18 @@ function askRequoteKind(who, d){
           '<span style="display:block; font-weight:500; font-size:12px; opacity:.85; margin-top:2px;">Another side, more lights. Same house \u2014 their old set stays in its bin and only the extra gets built.</span></button>'+
         '<button type="button" class="btn btn-gold" data-requotekind="address" style="text-align:left;">They changed address'+
           '<span style="display:block; font-weight:500; font-size:12px; opacity:.85; margin-top:2px;">They moved. Their old set comes back into stock and a whole new one is made for the new house.</span></button>'+
+        /* ⭐ AND THE THIRD ONE, WHERE THE WAREHOUSE DOES NOTHING. Owner, 2026-08-21: "you
+           can also get a requote because you just changed the price and when that happens
+           nothing gets added to warehouse but it gives you the option to explain why you
+           changed the price." The house is the same house — same lights, same feet, same
+           street — so there is nothing to build and nothing to pull back. Only the money
+           moved, and only the customer needs telling. */
+        '<button type="button" class="btn btn-outline" data-requotekind="price" style="text-align:left;">Just the price'+
+          '<span style="display:block; font-weight:500; font-size:12px; opacity:.85; margin-top:2px;">The house has not changed. Nothing goes to the warehouse &mdash; they are only being asked to approve the new number.</span></button>'+
       '</div>'+
       '<div class="form-row" style="margin-top:12px;">'+
         '<label style="font-size:11.5px;">Anything to add? (optional \u2014 it shows on the card)</label>'+
-        '<input type="text" id="requoteKindNote" placeholder="e.g. wants the back garage doing as well">'+
+        '<input type="text" id="requoteKindNote" placeholder="e.g. wants the back garage doing as well, or why the price moved">'+
       '</div>'+
       '<button type="button" class="btn btn-outline" id="requoteKindCancel" style="margin-top:10px; width:100%; text-align:center; color:var(--slate);">Cancel</button>'+
     '</div>';
@@ -8635,6 +8643,11 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
     : !!(quoteAddr && custAddr && quoteAddr !== custAddr);
   const topUpFeet = (oldFeet > 0 && newFeet > oldFeet) ? (newFeet - oldFeet) : 0;
   const canTopUp = topUpFeet > 0;
+  /* ⭐ A PRICE-ONLY RE-QUOTE ASKS THE WAREHOUSE FOR NOTHING. The house is unchanged, so
+     building a new set or pulling the old one back would both be work nobody wants done.
+     Offered as the selected answer rather than forced, because the office may have
+     raised it as a price change and then found something else as well. */
+  const priceOnly = statedKind === 'price';
   const savedPrice = typeof d.quotedPrice === 'number' ? d.quotedPrice : null;
   const feetPrice = (newFeet && perFootRate) ? Math.round(newFeet * perFootRate) : null;
   /* ⭐ AND THEIR LAST PRICE, WHICH IS THE ANSWER WHEN NOTHING ABOUT THE MONEY MOVED.
@@ -8693,8 +8706,15 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
        greyed-out option and no explanation is the dead end this popup already had once. */
     '<div style="margin-top:14px;">'+
       '<div style="font-size:12.5px; font-weight:600; margin-bottom:6px;">What the warehouse does</div>'+
+      /* The selected answer for a price-only re-quote, and the first one listed, because
+         it is the one that is right when nothing about the house moved. */
       '<label style="display:flex; gap:8px; align-items:flex-start; font-size:12.5px; cursor:pointer; padding:6px 0;">'+
-        '<input type="radio" name="requoteBuild" value="recycle" id="requoteBuildRecycle"'+((canTopUp && !movedHouse) ? '' : ' checked')+' style="width:auto; margin-top:3px;">'+
+        '<input type="radio" name="requoteBuild" value="none" id="requoteBuildNone"'+(priceOnly ? ' checked' : '')+' style="width:auto; margin-top:3px;">'+
+        '<span><strong>Nothing.</strong> The house has not changed, so there is nothing to build and nothing to pull back.'+
+          (priceOnly ? ' <span style="color:var(--slate);">This re-quote was raised as a price change, so this is the one.</span>' : '')+'</span>'+
+      '</label>'+
+      '<label style="display:flex; gap:8px; align-items:flex-start; font-size:12.5px; cursor:pointer; padding:6px 0;">'+
+        '<input type="radio" name="requoteBuild" value="recycle" id="requoteBuildRecycle"'+((priceOnly || (canTopUp && !movedHouse)) ? '' : ' checked')+' style="width:auto; margin-top:3px;">'+
         '<span><strong>Recycle their old set and build the new one.</strong> Their old lights come back into stock and a full '+(newFeet ? newFeet+' ft' : 'new')+' set is made up.'+
           (movedHouse
             ? (statedKind === 'address'
@@ -8706,7 +8726,7 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
       '</label>'+
       (canTopUp
         ? '<label style="display:flex; gap:8px; align-items:flex-start; font-size:12.5px; cursor:pointer; padding:6px 0;">'+
-            '<input type="radio" name="requoteBuild" value="topup" id="requoteBuildTopUp"'+((canTopUp && !movedHouse) ? ' checked' : '')+' style="width:auto; margin-top:3px;">'+
+            '<input type="radio" name="requoteBuild" value="topup" id="requoteBuildTopUp"'+((!priceOnly && canTopUp && !movedHouse) ? ' checked' : '')+' style="width:auto; margin-top:3px;">'+
             '<span><strong>Build only what they do not already have &mdash; '+topUpFeet+' ft.</strong> '+oldFeet+' ft stays in their bin and '+topUpFeet+' ft is added to it. The build sheet says whose bin it goes in.</span>'+
           '</label>'
         : '<div style="font-size:12px; color:var(--slate); padding:6px 0;">'+
@@ -8779,7 +8799,9 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
        drawn: what she last clicked is what the radio holds, and anything else here
        would be a second answer to the same question. */
     const topUpEl = document.getElementById('requoteBuildTopUp');
-    const wantsTopUp = !!(canTopUp && topUpEl && topUpEl.checked);
+    const noneEl = document.getElementById('requoteBuildNone');
+    const wantsNothing = !!(noneEl && noneEl.checked);
+    const wantsTopUp = !wantsNothing && !!(canTopUp && topUpEl && topUpEl.checked);
     close();
     openEditCustomerModal(existingItem.id);
     /* AFTER the modal fills itself from the record, or the record would write
@@ -8824,9 +8846,11 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
     /* Held until Save Changes rather than written now. She can still close the form
        without saving, and flagging the warehouse for a change that never happened is
        worse than making her press the button. */
-    requoteBuildChoice = wantsTopUp
-      ? {mode: 'topup', haveFeet: oldFeet, extraFeet: topUpFeet}
-      : {mode: 'recycle'};
+    requoteBuildChoice = wantsNothing
+      ? {mode: 'none'}
+      : (wantsTopUp
+        ? {mode: 'topup', haveFeet: oldFeet, extraFeet: topUpFeet}
+        : {mode: 'recycle'});
     requoteBeingConverted = quoteId;
     /* ⭐ AND THE SAVE BUTTON SAYS WHAT PRESSING IT FINISHES. "Save Changes" on a form
        that opened by itself does not read as the second half of a conversion, which is
@@ -8839,7 +8863,8 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
       saveBtn.textContent = 'Save Changes \u2014 finishes the re-quote';
     }
     toast(fmtMoney(price)+' filled in for '+(who)+' \u2014 '+
-      (wantsTopUp ? ('warehouse will build the extra '+topUpFeet+' ft') : 'old set recycles, new one gets built')+
+      (wantsNothing ? 'nothing for the warehouse'
+        : (wantsTopUp ? ('warehouse will build the extra '+topUpFeet+' ft') : 'old set recycles, new one gets built'))+
       (carry ? ', colours brought over from the quote' : '')+
       '. Press Save Changes.');
     /* ⚠ AND IF THERE ARE STILL NO COLOURS ANYWHERE, SAY IT NOW rather than letting the
@@ -9178,6 +9203,8 @@ function renderQuoteRows(filtered){
             (d.requoteKind
               ? '<div style="margin-top:4px;">'+(d.requoteKind === 'address'
                   ? 'Change of address \u2014 old set comes back, new one gets built.'
+                  : d.requoteKind === 'price'
+                  ? 'Price only \u2014 the house has not changed, so the warehouse does nothing.'
                   : 'Addition to the same house \u2014 their old set stays in its bin.')+'</div>'
               : '')+
             (d.requoteReason ? '<div style="margin-top:4px;">Why: '+esc(d.requoteReason)+'</div>' : '')+
@@ -27004,7 +27031,12 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     if(requoteBuildChoice){
       const choice = requoteBuildChoice;
       requoteBuildChoice = null;
-      if(choice.mode === 'topup'){
+      /* ⚠ 'none' TOUCHES NEITHER QUEUE, and that is the whole point of it. It is not the
+         same as no choice at all: the office was asked and said the house had not
+         changed, so the existing flags stay exactly as they are. */
+      if(choice.mode === 'none'){
+        /* nothing */
+      } else if(choice.mode === 'topup'){
         /* They keep the bin they have and the warehouse makes up the difference.
            What is stored is what they ALREADY HAVE, not the difference — see
            houseBundleNeed, which works the subtraction out fresh every time. */
