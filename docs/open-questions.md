@@ -279,6 +279,24 @@ are sold today that the software has no field for (plan §12, "not in the system
 at all").
 
 Blocks: **all of phase 1**, and therefore phases 2, 3 and 7 which depend on it.
+
+**Status 2026-08-21: a draft is ready for review at `docs/option-registry-draft.md`.**
+Fourteen options derived from the code — the `quoteDetailForm` submit handler
+(`index.html:2702`) settles the customer-facing list, `PORTAL_WRITE_FIELDS`
+settles what a member may change later, and `PRINT_COLUMNS` settles what actually
+reaches paper. Each row carries the evidence it came from, so a wrong line can be
+checked rather than taken on trust.
+
+That reduces this question to three things only Addie can answer, listed in §4 of
+the draft: whether anything is sold today that has no row (Plan §12's blind spot —
+invisible to every detector in the plan, permanently), whether anything other than
+feet and sides changes the price, and what the confirmation text should list.
+
+Building it surfaced four R-003 holes that no existing check could see, because
+each field is correctly written, stored and read — they are holes *between*
+artifacts: the gate code and which-outlet instructions never print, `useEaves`
+prints but is absent from the crew portal, and the side count reaches neither.
+
 Answer:
 Resulting map change:
 
