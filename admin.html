@@ -7500,7 +7500,7 @@ document.getElementById('qBuildTestBtn').addEventListener('click', async functio
     '\n\nIt is a real record so it behaves like the real thing. Delete it when you are done.')) return;
   btn.disabled = true;
   try{
-    const fields = testQuoteFieldsFor(stage);
+    const fields = testQuoteCreateFields();
     if(stage === 'requote'){
       /* Built first, because the quote has to point at it. */
       const cust = await addDoc(collection(db,'jobAddresses'), Object.assign({},
@@ -7510,7 +7510,12 @@ document.getElementById('qBuildTestBtn').addEventListener('click', async functio
       fields.existingCustomerNumber = '';
     }
     fields.createdAt = serverTimestamp();
-    await addDoc(collection(db,'quotes'), fields);
+    /* Created plain, because that is all the rules allow — see testQuoteCreateFields. */
+    const made = await addDoc(collection(db,'quotes'), fields);
+    const staged = testQuoteStageUpdates(stage);
+    if(Object.keys(staged).length){
+      await updateDoc(doc(db,'quotes', made.id), staged);
+    }
     toast('Test customer built in ' + label + '.');
     logActivity('Built a test quote in ' + label, 'quotes', '');
   }catch(err){
@@ -8619,9 +8624,29 @@ const TEST_QUOTE_BASE = {
 /* The fields that put the card in one folder rather than another. Kept apart from the
    writing so the staging can be read, argued with and tested without touching
    Firestore. Mirrors quoteStage/quoteFolder — if those change, this has to follow. */
-function testQuoteFieldsFor(stage){
-  const f = Object.assign({}, TEST_QUOTE_BASE);
-  /* Quotes: no price yet, which is exactly what quoteStage calls 'new'. */
+/* ⚠ AND A QUOTE CANNOT BE CREATED ALREADY PRICED. firestore.rules lets ANYBODY create
+   a quote — that is how the public form works — and stops the obvious abuse with a
+   deny list: status must be 'new', and quotedPrice, approvalStatus, convertedToCustomerAt
+   and quoteArchived must not be present. There is no `request.auth != null ||` escape on
+   create, so a signed-in admin is held to the same rule.
+
+   ⚠ WHICH IS WHY THE FIRST VERSION OF THIS BUTTON FAILED ON EVERY TAB. Owner,
+   2026-08-21: "in requotes it fails to build because it says its missing something", then
+   "actually it just says that on everyone." That message is Firestore's "Missing or
+   insufficient permissions". The Quotes tab failed because the fields carried no status
+   at all; the other four because they carried a price and an answer.
+
+   So it is created as a plain new quote and then moved into place, which is also exactly
+   what a real quote does — raised new, priced afterwards. update is staff-only and
+   unrestricted, so the second half is allowed. Split in two so each half can be read
+   against the rule it has to satisfy. */
+function testQuoteCreateFields(){
+  return Object.assign({}, TEST_QUOTE_BASE, {status: 'new'});
+}
+/* What moves the card out of Quotes and into its section. Empty for 'new', which is
+   where a freshly created quote already sits. */
+function testQuoteStageUpdates(stage){
+  const f = {};
   if(stage === 'new') return f;
   f.quotedPrice = 250;
   /* Awaiting Response: priced and sent, still waiting on them. */
@@ -8650,6 +8675,11 @@ function testQuoteFieldsFor(stage){
   f.approvalStatus = 'approved';
   f.status = 'closed';
   return f;
+}
+/* The whole card as it ends up, which is what quoteFolder has to file into the section
+   it was built from. Kept so the staging can be checked as one thing. */
+function testQuoteFieldsFor(stage){
+  return Object.assign({}, testQuoteCreateFields(), testQuoteStageUpdates(stage));
 }
 function showConvertQuoteChoice(quoteId, d){
   /* ⚠ A RE-QUOTE NEVER REACHES THE REST OF THIS FUNCTION. Everything below

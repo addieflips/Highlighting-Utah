@@ -20343,7 +20343,10 @@ suite('Suite 115. A price change asks');
 suite('Suite 113. Build Test Customer');
 
 {
+  /* All three, because the whole-card view is composed from the other two — created
+     plain and then staged, which is what the rules force. */
   const fields = new Function('stage', 'TEST_QUOTE_BASE',
+    extractFn(admin, 'testQuoteCreateFields') + extractFn(admin, 'testQuoteStageUpdates') +
     extractFn(admin, 'testQuoteFieldsFor') + 'return testQuoteFieldsFor(stage);');
   const folder = new Function('d', 'quoteAlreadyACustomer', 'quoteHasBeenSent',
     extractFn(admin, 'quoteStage') + extractFn(admin, 'isRequote') +
@@ -20371,6 +20374,65 @@ suite('Suite 113. Build Test Customer');
       return fields(st, base).quotedPrice === 250;
     }));
 
+  /* ⭐ AND THE CREATE HAS TO SATISFY THE FIRESTORE RULE. Owner, 2026-08-21: "in requotes
+     it fails to build because it says its missing something", then "actually it just says
+     that on everyone." That message is Firestore's "Missing or insufficient permissions".
+
+     ⚠ ANYBODY CAN CREATE A QUOTE — that is how the public form works — and the rule
+     stops the obvious abuse with a deny list: status must be 'new', and quotedPrice,
+     approvalStatus, convertedToCustomerAt and quoteArchived must not be present. There is
+     no `request.auth != null ||` escape on create, so a signed-in admin is held to it too.
+     Every real flow already obeys this — they raise a quote new and price it afterwards
+     — and the test button was the one thing that did not.
+
+     ⚠ READ FROM firestore.rules, NOT COPIED. A copy of the rule in a test is a second
+     rule, and it goes stale silently the day somebody tightens the real one. */
+  {
+    const rules = read('firestore.rules');
+    const at = rules.indexOf('match /quotes/{id} {');
+    const blk = at < 0 ? '' : rules.slice(at, rules.indexOf('}', rules.indexOf('allow read', at)));
+    check('S113', 'the quotes create rule was found to check against', !!blk);
+
+    /* The field names the rule forbids on create, taken out of the rule itself. */
+    const banned = (blk.match(/!\('([A-Za-z]+)' in request\.resource\.data\)/g) || [])
+      .map(function(m){ return /!\('([A-Za-z]+)'/.exec(m)[1]; });
+    check('S113', 'and it does forbid some fields on create', banned.length >= 3,
+      'if this ever empties, the rule was rewritten and these checks need rereading');
+
+    const created = new Function('TEST_QUOTE_BASE',
+      extractFn(admin, 'testQuoteCreateFields') + 'return testQuoteCreateFields();')(base);
+    check('S113', 'the test quote is created as a new one, as the rule demands',
+      created.status === 'new',
+      'no status at all is not status === new, which is why the Quotes tab failed too');
+    check('S113', 'and carries none of the fields the rule forbids',
+      banned.every(function(k){ return !(k in created); }),
+      'it carried ' + banned.filter(function(k){ return k in created; }).join(', '));
+
+    /* And the staging that follows must actually move it, or the button silently does
+       nothing on four of the five tabs. */
+    const staged = new Function('stage',
+      extractFn(admin, 'testQuoteStageUpdates') + 'return testQuoteStageUpdates(stage);');
+    check('S113', 'Quotes needs no second write, because that is where a new one lands',
+      Object.keys(staged('new')).length === 0);
+    check('S113', 'and every other section does move the card',
+      ['send', 'form', 'requote', 'closed'].every(function(st){
+        return Object.keys(staged(st)).length > 0;
+      }),
+      'a stage with no updates leaves the card sitting in Quotes');
+  }
+
+  {
+    const at = admin.indexOf("document.getElementById('qBuildTestBtn')");
+    const blk = at > 0 ? admin.slice(at, admin.indexOf("document.getElementById('qAddByHandBtn')", at)) : '';
+    check('S113', 'the button creates plain and then stages',
+      /const fields = testQuoteCreateFields\(\);/.test(blk) &&
+      /const staged = testQuoteStageUpdates\(stage\);/.test(blk) &&
+      /updateDoc\(doc\(db,'quotes', made\.id\), staged\)/.test(blk),
+      'creating it already priced is what Firestore refused');
+    check('S113', 'and skips the second write when there is nothing to move',
+      /if\(Object\.keys\(staged\)\.length\)/.test(blk),
+      'an empty update is a write for nothing');
+  }
   /* ⚠ AND THE ROUND TRIP. */
   const stages = ['new', 'send', 'form', 'requote', 'closed'];
   stages.forEach(function(st){
