@@ -4612,8 +4612,21 @@ if (!JSDOM) {
   const cardSrc = cardStart > -1 ? sectionFrom(admin, cardStart) : '';
   check('convert-dup', 'quote card render found in admin.html', cardStart > -1,
     'renamed or removed — update this test rather than deleting it');
+  /* ⚠ SLICED, NOT WINDOWED. This was a 300-character window between the guard and the
+     button, and it went red the moment a comment was added between them — a false alarm
+     about a guard that was perfectly intact, which is exactly the stale-window trap
+     CLAUDE.md §7 warns about. It now takes the ternary itself and asks which half the
+     button is in. */
+  const convAt = cardSrc.indexOf('(d.convertedToCustomerAt');
+  const convTern = convAt < 0 ? '' : cardSrc.slice(convAt, cardSrc.indexOf('data-archivequote', convAt));
+  /* The else-half of that ternary: a line that is only indentation and a colon. Written
+     with fromCharCode because a literal newline inside this string is what a shell
+     heredoc turns it into, and the file then does not parse. */
+  const elseAt = convTern.indexOf(String.fromCharCode(10) + '              : ');
   check('convert-dup', 'the Convert to Customer button no longer shows once a quote is converted',
-    /d\.convertedToCustomerAt[\s\S]{0,300}data-converttocust/.test(cardSrc),
+    convAt > -1 && elseAt > -1 &&
+    convTern.indexOf('data-converttocust') > elseAt &&
+    /Converted/.test(convTern.slice(0, elseAt)),
     'a converted quote still offered a live "Convert to Customer" button, inviting a second, duplicate conversion');
 
   const guardStart = admin.indexOf('dupCheckSnap');
@@ -19472,6 +19485,10 @@ suite('Suite 107. Pricing a re-quote from the popup');
            without this throws where the page would not, which hides the refusal being
            tested behind a crash. */
         focus: function(){ this.focused = true; },
+        /* The popup presses the Edit Customer save for her, so the stub has to be
+           pressable. Without this it throws where the page would not, and the one-press
+           behaviour cannot be tested at all. */
+        click: function(){ this.fire('click'); },
         remove: function(){ byId[id] = null; delete byId[id]; }
       };
       return byId[id];
@@ -20546,6 +20563,90 @@ suite('Suite 107. Pricing a re-quote from the popup');
     /Price only \\u2014 the house has not changed, so the warehouse does nothing/.test(admin),
     'somebody picking the card up later has to know which job it is, including none');
 
+  /* ⭐ FILLING THE POPUP IN IS THE JOB. Owner, 2026-08-21: "after I fill everything out I
+     just want to convert them... I just want it to happen after I fill the stuff out and
+     that doesnt happen."
+
+     ⚠ THE SECOND PRESS EXISTED FOR ONE REASON AND THAT REASON WAS GONE. It was there
+     because the customer-number rule could need a human answer — keep the old number or
+     move to the 5000 series — and applying it silently would have decided that for her.
+     Converting moves the number by itself now, so the question was already answered by
+     the time the button was pressed and the extra step bought nothing.
+
+     ⚠ IT STILL GOES THROUGH THE EDIT CUSTOMER SAVE. That form re-derives the bin count,
+     rebuilds the invoice, re-syncs saved route stops, queues the warehouse and closes the
+     quote. A write path of its own here would be the copy that quietly falls behind —
+     which is why the popup reused the form in the first place. Only who presses the
+     button has changed. */
+  {
+    const src = extractFn(admin, 'showApplyRequoteChoice');
+    check('S120', 'there is a button that applies it outright',
+      /applyRequoteNowBtn/.test(src) && /Apply it to/.test(src),
+      'she filled the whole popup in and then had to find and press a second button');
+    check('S120', 'and the review path is kept as the second one',
+      /Open their record first/.test(src),
+      'sometimes she does want to look before it lands');
+    check('S120', 'both go through one function, so they cannot drift',
+      /function applyRequote\(applyNow\)/.test(src) &&
+      /applyRequote\(false\)/.test(src) && /applyRequote\(true\)/.test(src),
+      'two copies of the fill-in-the-form step is two things to keep in step');
+    /* ⚠ AND IT PRESSES THE FORM'S OWN BUTTON, never a copy of what that button does. */
+    check('S120', 'applying presses the Edit Customer save rather than writing its own',
+      /getElementById\('editCustSaveBtn'\)[\s\S]{0,200}saveBtn\.click\(\)/.test(src),
+      'a second write path would have to redo the bins, the invoice, the routes and the ' +
+      'warehouse, and would be the copy that falls behind');
+    check('S120', 'and says what it is doing while it does it',
+      /Applying to '\+\(who\)/.test(src));
+
+    /* ⚠ AND BOTH BUTTONS ARE HELD WHILE THE PRICE IS BLANK. A second way through that is
+       still live is the same dead end wearing a new label. */
+    const r = run({name: 'Ashley Wray'},
+      {id: 'c894', data: {name: 'Ashley Wray', customerNumber: '894'}}, 2);
+    check('S120', 'with no price, neither button is live',
+      r.el('applyRequoteBtn').disabled === true &&
+      r.el('applyRequoteNowBtn').disabled === true);
+    r.el('requotePriceInput').value = '600';
+    r.el('requotePriceInput').fire('input');
+    check('S120', 'and typing one releases both',
+      r.el('applyRequoteBtn').disabled === false &&
+      r.el('applyRequoteNowBtn').disabled === false);
+
+    /* Pressing Apply parks the same answers as the review path, and then saves. */
+    let saved = false;
+    r.el('editCustSaveBtn').addEventListener('click', function(){ saved = true; });
+    r.el('applyRequoteNowBtn').fire('click');
+    check('S120', 'pressing Apply fills the record AND saves it',
+      r.el('editCustHousePrice').value === 600 && r.converting() === 'q1' && saved === true,
+      'this is the whole request: one press after the popup is filled in');
+
+    const r2 = run({name: 'Ashley Wray'},
+      {id: 'c894', data: {name: 'Ashley Wray', customerNumber: '894'}}, 2);
+    let saved2 = false;
+    r2.el('editCustSaveBtn').addEventListener('click', function(){ saved2 = true; });
+    r2.el('requotePriceInput').value = '600';
+    r2.el('requotePriceInput').fire('input');
+    r2.el('applyRequoteBtn').fire('click');
+    check('S120', 'and Open their record first still leaves it to her',
+      r2.el('editCustHousePrice').value === 600 && saved2 === false,
+      'the review path has to stay a review path');
+  }
+
+  /* ⭐ AND THE CARD STOPS CALLING IT CONVERTING. Owner: "I think the issue might be that
+     its converting them rather than updating them." The button has said Convert since
+     before re-quotes existed, and it is the only wording she sees before the popup — so
+     the popup then has to talk her out of what the button just told her. */
+  {
+    const at = admin.indexOf('A RE-QUOTE UPDATES SOMEBODY; IT DOES NOT CONVERT THEM');
+    const blk = at > 0 ? admin.slice(at, admin.indexOf('data-archivequote', at)) : '';
+    check('S120', 'a re-quote against a live customer says Apply Re-quote', !!blk &&
+      /'Apply Re-quote' : 'Convert to Customer'/.test(blk),
+      'the popup should not have to talk her out of what the button just said');
+    /* ⚠ CHECKED AGAINST THE LIVE BOOK, not the field alone: a customer really can have
+       been deleted since the re-quote was raised, and building them again IS converting. */
+    check('S120', 'and it asks the live book, the same way the popup does',
+      /jobAddresses \|\| \[\]\)\.some\(function\(a\)\{ return a\.id === d\.existingCustomerId; \}\)/.test(blk),
+      'the label and the behaviour must not disagree about the same quote');
+  }
   /* ---- and the card that started it says what it is showing ---------------- */
   /* ⚠ SCOPED TO THE BRANCH, because the phrase sits on TWO of them — the one that
      starts on their last price and the one that suggests from the footage. A bare
