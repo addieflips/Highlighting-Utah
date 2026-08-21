@@ -35717,6 +35717,22 @@ function houseStopPoint(h){
   const d=(cust&&cust.data)||{};
   return {ref:h, lat:(typeof d.lat==='number'?d.lat:null), lng:(typeof d.lng==='number'?d.lng:null)};
 }
+/* ⭐ AND THE ONES IT COULD NOT PLACE ARE COUNTED (added 2026-08-21). A house
+   with no map pin cannot be put in driving order — it has no position to be in
+   order relative to — so it rides on the end of its day. That is the right
+   thing to do with it and the wrong thing to do SILENTLY: a handful of houses
+   sitting at the bottom of every crew sheet looks exactly like the button
+   having failed, and the office has no way to tell the two apart.
+   ⚠ A HOUSE HAS NO PIN FOR TWO QUITE DIFFERENT REASONS, and the office can only
+   act on one of them: the plan row may not match a customer record at all (no
+   customer number, no phone), or the customer may match and never have been
+   geocoded. Both come out here as "not on the map yet", which is what the
+   office can actually see and check. */
+function houseHasPin(h){
+  const p=houseStopPoint(h);
+  return typeof p.lat==='number' && typeof p.lng==='number' &&
+         isFinite(p.lat) && isFinite(p.lng);
+}
 function orderHousesForDriving(list){
   const houses=(list||[]).slice();
   if(houses.length<2) return houses;
@@ -35761,7 +35777,7 @@ function generateDayRoutes(day){
 }
 /* Every day of the season, except the ones nobody may touch. */
 function generateAllRoutes(){
-  const res={days:0, stops:0, locked:0, started:0};
+  const res={days:0, stops:0, locked:0, started:0, nopin:0};
   (typeof SEASON==='undefined'?[]:SEASON).forEach(function(d){
     const dt=dayDate(d);
     /* ⭐ A DAY INSIDE 48 HOURS IS PRINTED, AND PRINTED IS FINISHED. Owner,
@@ -35775,7 +35791,12 @@ function generateAllRoutes(){
        Re-ordering what is left of it under them helps nobody. */
     if((d.houses||[]).some(function(h){ return h.done; })){ res.started++; return; }
     const n=generateDayRoutes(d);
-    if(n){ res.days++; res.stops+=n; }
+    if(n){
+      res.days++; res.stops+=n;
+      /* Counted only on the days it actually ordered. A house on a day left
+         alone for the 48-hour lock has not been parked anywhere by this. */
+      (d.houses||[]).forEach(function(h){ if(!houseHasPin(h)) res.nopin++; });
+    }
   });
   return res;
 }
@@ -37298,6 +37319,12 @@ RT.addEventListener('click',e=>{const t=e.target;
        one is the answer to "why is Rachel not in the schedule". */
     if(r.joined) parts.push(r.joined+' new customer'+(r.joined===1?'':'s')+' added to the plan');
     parts.push(routes.days?('routes generated for '+routes.days+' day'+(routes.days===1?'':'s')):'no routes needed generating');
+    /* ⭐ AND IT NAMES WHAT IT COULD NOT PUT IN ORDER. See houseHasPin: these are
+       on their day and on the sheet, just at the bottom of it, because there is
+       no map pin to order them against. Saying so is the difference between a
+       known gap and a button that looks broken. */
+    if(routes.nopin) parts.push(routes.nopin+' house'+(routes.nopin===1?'':'s')+
+      ' not on the map yet — left at the end of their day');
     /* ⭐ IT SAYS WHAT IT LEFT ALONE. A day inside 48 hours is printed, and the
        office has to know it was skipped deliberately rather than missed. */
     const held=Math.max(routes.locked||0,r.locked||0);

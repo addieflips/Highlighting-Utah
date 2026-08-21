@@ -24931,6 +24931,33 @@ suite('77. Schedule route generator');
       res.locked === 2 && res.days === 1,
       'a day skipped in silence looks like a day it forgot — got locked=' + res.locked + ' days=' + res.days);
 
+    /* ⭐ AND IT SAYS WHAT IT COULD NOT PUT IN ORDER (added 2026-08-21). A house
+       with no map pin has no position to be ordered against, so it rides on the
+       end of its day — which is right, and which looks exactly like the button
+       having failed if nobody is told. The office can act on this one: the house
+       is either not matched to a customer record or that customer has never been
+       geocoded, and both are fixable from All Customers. */
+    const bareOne = dayAt(30, 'bare');
+    bareOne.houses.push({ name: 'no-pin', city: 'Lehi', price: 1 });
+    gen.setSeason([bareOne]);
+    const bareRes = gen.all();
+    check('S77', 'a house with no map pin is counted, not silently parked',
+      bareRes.nopin === 1,
+      'got nopin=' + bareRes.nopin + ' — a handful of houses sitting at the bottom of ' +
+        'every sheet reads as a broken button, not as a known gap');
+    check('S77', 'and the rest of that day is still put in driving order',
+      bareOne.houses.slice(0, 3).map(h => h.name).join() === 'bare-a,bare-c,bare-b',
+      'the un-pinned house must not drag the pinned ones out of order — got [' +
+        bareOne.houses.map(h => h.name).join() + ']');
+    check('S77', 'and the un-pinned house is still on the day',
+      bareOne.houses.length === 4 && bareOne.houses[3].name === 'no-pin',
+      'it is a real customer somebody still has to drive to');
+
+    gen.setSeason([dayAt(30, 'clean')]);
+    check('S77', 'a season where everything is on the map reports none',
+      gen.all().nopin === 0,
+      'a count that is never zero is a count nobody reads');
+
     const started = dayAt(30, 'started');
     started.houses[0].done = true;
     gen.setSeason([started]);
@@ -25001,6 +25028,14 @@ suite('77. Schedule route generator');
   const syncStart = admin.indexOf('window.scheduleSyncFromCustomers=function(opts){');
   const syncEnd = admin.indexOf('function __startSyncTimer()', syncStart);
   const sync = (syncStart > -1 && syncEnd > syncStart) ? admin.slice(syncStart, syncEnd) : '';
+  {
+    const rc = admin.indexOf("if(t.id==='recalcBtn')");
+    const rcEnd = admin.indexOf("if(t.id==='undoRebuildBtn')", rc);
+    const press = (rc > -1 && rcEnd > rc) ? admin.slice(rc, rcEnd) : '';
+    check('S77', 'and the button SAYS how many it could not place',
+      /routes\.nopin/.test(press) && /not on the map yet/.test(press),
+      'counting it without printing it changes nothing the office can see');
+  }
   check('S77', 'the periodic sync re-orders the days it changed',
     /routes=generateAllRoutes\(\)/.test(sync),
     'enforceInstallTiming puts a moved house on the END of its new day');
