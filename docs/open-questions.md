@@ -23,10 +23,20 @@ Is there a third place money is computed?
 **amount owed**. The amount is what gets charged, displayed and disputed, and it
 is computed by hand at roughly a dozen sites across three files:
 
+> **⚠ CORRECTED 2026-08-21.** This entry first said `balanceDueAmount()` "is
+> called zero times — dead code". **That was wrong.** It has **12 call sites** in
+> `admin.html`. The claim came from a malformed grep (`balanceOf(`, which does
+> not match `balanceDueAmount(`) and it was not re-checked. The rest of the
+> finding stands and is if anything sharper: the helper *is* the house style in
+> admin, which makes the handful of places that bypass it, and the two other
+> files that have never heard of it, the actual defect. `docs/RULES.md`'s
+> amendment log carries the same correction.
+
 | Where | What it computes | Guarded? |
 |---|---|---|
-| `admin.html:5462` `balanceDueAmount()` | the canonical formula, as a helper | **called 0 times — dead code** |
-| `admin.html` ×8 (12885, 13131, 13207, 13229, 13237, 18824, 27990, 34092) | the same formula inlined by hand | no |
+| `admin.html:5459` `balanceDueAmount()` | the canonical formula, as a helper | **12 callers — the intended path, and it works** |
+| `admin.html` ×3 (12885, 13131, 13207) | the balance, inlined instead of calling it | no |
+| `admin.html` ×5 (13229, 13237, 18824, 27990, 34092) | gross, or gross-minus-credits, inlined | no |
 | `functions/index.js:337` `paypalCreateOrder` | `balanceDue` — **the real card charge** | no |
 | `functions/index.js` 112, 413, 2401, 2473 | gross/owed, inlined | no |
 | `index.html:3235` (member portal) | `totalDue`, shown to the customer | **no test anywhere references it** |
@@ -43,19 +53,24 @@ Two concrete consequences:
    office screen says *Paid in Full*, the customer's portal says *Balance Due*
    above an amount rendered `$0.00`, and the Venmo link offers to charge them
    `$0.00`.
-2. **`balanceDueAmount()` is the intended single source of truth and nothing
-   calls it.** That is R-010 (writer / reader / declaration) failing on the one
-   helper that would have made R-015 true.
+2. **`balanceDueAmount()` is the intended single source of truth in `admin.html`
+   and is used as one — but only there.** 12 callers inside `admin.html`; three
+   sites in the same file still inline the formula anyway (12885, 13131, 13207),
+   and neither `functions/index.js` nor `index.html` has any equivalent. So the
+   helper does not fail R-010; what fails is that the other two surfaces, which
+   are the ones that actually charge and actually face the customer, were never
+   given a copy of it.
 
 Guardrail §2 says "do not add a fourth place that computes money". There are
 already about twelve, and R-015's claim that money lives in exactly two
 parity-tested places is **false as written** for the amount owed.
 
-**Resulting map change:** `docs/RULES.md` R-015 needs amending to distinguish
-the *status* (2 places, parity-tested — accurate) from the *amount owed* (~12
-places, untested). New work item, not currently in any phase: collapse the
-amount onto `balanceDueAmount()` / a server twin, and extend
-`money-parity.test.js` to cover it. See "Phase order" note in the session report.
+**Resulting map change:** `docs/RULES.md` R-015 amended 2026-08-21 and marked
+TARGET, distinguishing the *status* (2 places, parity-tested — accurate) from
+the *amount owed* (~12 places, untested until now). Phase 0a step 1 —
+`money-parity.test.js` extended to compare every one of those sites against
+`balanceDueAmount()` — landed 2026-08-21; findings recorded there. Step 2, the
+consolidation itself, is not done.
 
 ---
 

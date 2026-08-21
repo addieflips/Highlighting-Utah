@@ -99,12 +99,14 @@ Bins, bundles, footage rates, price tiers. Tests import the same file production
 *Why:* duplicated constants are the number one cause of tests that contradict
 production — one missed edit and a test calls production wrong when it isn't.
 
-### R-015 · code
-**Money is computed in exactly two places, and they are parity-tested.**
-`js/money.js` and `functions/index.js`. A third implementation — a PayPal button
-amount, a quote render, an invoice display doing its own arithmetic — requires
-explicit approval and extends the parity test.
-*Why:* parity between two is only complete if there are exactly two.
+### R-015 · code — TARGET, NOT YET TRUE (see amendment log)
+The amount owed is computed by `balanceDueAmount()` and nowhere else.
+Every display, charge and link — admin, portal, PayPal, Venmo — calls it.
+Parity tests cover the amount, not only the status string and invoice key.
+
+Status 2026-08-21: ~12 hand-inlined implementations exist and
+balanceDueAmount() has zero callers. Phase 0a consolidates them.
+Until it lands, do not rely on this rule when reviewing a change.
 
 ### R-016 · read
 **Generation beats verification.**
@@ -148,7 +150,14 @@ Screenshot baselines cover that ground, and each automated test is maintenance f
 
 Not active. Do not follow until moved into the numbered set above.
 
-*(empty — Claude appends here using the format in `CLAUDE.md` §5)*
+### P-001 · proposed 2026-08-21
+Rule: A rule that asserts a safety property must be verified against the code
+      when written, and marked TARGET if the property does not yet hold.
+Why: R-015 claimed money parity covered the amount. It never did.
+Would have caught: R-015 and R-009 shipping as false statements of fact.
+Might wrongly block: adds a verification step to every new rule.
+Enforcement: read
+Tier: 3
 
 ---
 
@@ -167,3 +176,6 @@ Every change to this file gets a line. Never silently edit a rule.
 | Date | Change | Reason |
 |---|---|---|
 | 2026-08-21 | Created R-001 – R-022 | Initial rulebook, seeded from the data-integrity plan |
+| 2026-08-21 | Replaced R-015, and marked it TARGET | The rule asserted a guard that does not exist. It claimed money is computed in exactly two parity-tested places; `money-parity.test.js` compares only the invoice STATUS string and the invoice KEY, never the AMOUNT OWED. The amount is hand-inlined at ~12 sites across `admin.html`, `functions/index.js` and `index.html` — including the PayPal charge and the member portal. Reviewing a change against the old wording would have passed a fourth implementation as safe. See `docs/open-questions.md` Q-001. |
+| 2026-08-21 | Corrected the R-015 amendment above | It first said `balanceDueAmount()` "has zero callers". It has 12, all in `admin.html`. The error was a malformed grep that was not re-checked before being written down — which is exactly what P-001 exists to prevent, on the same day P-001 was proposed. The rule change itself stands: the helper is used properly in admin, and the defect is that `functions/index.js` and `index.html` have no equivalent at all. |
+| 2026-08-21 | Proposed P-001 | R-015 and R-009 both shipped as statements of fact about guards that were never in place. A rule asserting a safety property should be checked against the code when written, and marked TARGET when the property is still aspirational. |
