@@ -2038,8 +2038,18 @@
           </div>
           <div id="editCustStatus" style="font-size:13px; color:var(--slate); margin-top:8px; text-align:center;"></div>
           <div style="margin-top:18px; padding-top:14px; border-top:1px solid var(--line); text-align:center;">
-            <button type="button" class="btn btn-outline" id="editCustRecycleStayBtn" style="margin-bottom:10px;">Recycle Their Lights &mdash; They Are Staying</button>
-            <p style="font-size:12px; color:var(--slate); margin:0 0 14px;">For somebody who has MOVED. The old set goes on the warehouse recycle list, the new house goes on the build list, and they stay a customer with the same number.</p>
+            <!-- ⭐ TWO BUTTONS, NOT ONE (2026-08-21). Owner: "for this actually dont make
+                 it one button have one button for build and another for recycle."
+                 Somebody who moved needs both, and pressing them one after the other does
+                 exactly what the single button did. But the two are separate jobs and the
+                 combined one could not express either alone — a house whose old set is
+                 already back needs only a build, and a customer sitting out this season
+                 needs only a recycle. Neither had a button. -->
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:6px;">
+              <button type="button" class="btn btn-outline" id="editCustRecycleStayBtn">Recycle Their Old Set</button>
+              <button type="button" class="btn btn-outline" id="editCustBuildStayBtn">Build Them A New Set</button>
+            </div>
+            <p style="font-size:12px; color:var(--slate); margin:0 0 14px;">They stay a customer either way, and keep their number. <strong>Recycle</strong> puts their old set on the warehouse recycle list. <strong>Build</strong> puts them on the needs-to-be-built list. Somebody who has MOVED needs both &mdash; press one, then the other.</p>
             <button type="button" class="btn btn-outline" id="editCustDeleteBtn" style="color:var(--ember); border-color:#f0b3ac;">Delete This Customer</button>
             <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Removes them and their invoice. Their customer number goes back into the available pool so the bin can be reused. Money already collected stays on the Dashboard.</p>
           </div>
@@ -3621,6 +3631,12 @@
     <div class="panel" id="panel-schedule">
       <div class="panel-head"><div><h2>Schedule</h2><p>Adjustable route plan, fixes, new-member placement, and takedowns. Saves to your Firebase, synced across your devices.</p></div></div>
       <div id="scheduleHost"></div>
+      <!-- The crew maps. Deliberately OUT here in the ordinary page rather than
+           inside the schedule widget's shadow root: Google Maps puts its stylesheet
+           in document.head, which does not cross a shadow boundary, and a map in an
+           iframe fails the key's referrer check because its URL is about:srcdoc.
+           Out here it is the same document, origin and key as the Routes tab map. -->
+      <div id="scheduleMaps" style="margin:16px 0 0"></div>
     </div>
     <!-- TIME LOGS -->
     <div class="panel" id="panel-timelogs">
@@ -3900,7 +3916,12 @@
         </div>
         <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
           <p class="form-note" style="margin:0;">The printed sheet is the same list in the same order, laid out as one row per line with a tick box &mdash; so it can be worked down on paper or opened in Excel.</p>
-          <button type="button" class="btn btn-outline btn-sm" id="whPrintBuildBtn" style="flex:0 0 auto;">Print Build Sheet</button>
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px;">
+          <label style="font-size:12.5px; color:var(--slate);">Is a house on this list?</label>
+          <input type="text" id="whFindInput" placeholder="Type a name, address or number" style="flex:1; min-width:200px; padding:7px 11px; border-radius:9px; border:1px solid var(--line); background:var(--snow); font-size:13px;">
+        </div>
+        <div id="whFindResult" style="font-size:13px; margin-bottom:12px;"></div>
+        <button type="button" class="btn btn-outline btn-sm" id="whPrintBuildBtn" style="flex:0 0 auto;">Print Build Sheet</button>
         </div>
         <div id="warehouseQueueList" class="row-list"><div class="empty-note">Loading&hellip;</div></div>
       </div>
@@ -7579,7 +7600,7 @@ document.getElementById('qTmplSaveBtn')?.addEventListener('click', async functio
    subscribed to — archivedCustomers and warehouseExtras are not always among them. */
 async function testSweepFind(){
   const found = {customers: [], quotes: [], invoices: [], archived: [], extras: [],
-                 routeStops: [], planHouses: [], numbers: []};
+                 messages: [], routeStops: [], planHouses: [], numbers: []};
   const custSnap = await getDocs(collection(db,'jobAddresses'));
   custSnap.forEach(function(docSnap){
     const d = docSnap.data();
@@ -7609,9 +7630,38 @@ async function testSweepFind(){
     }
   });
 
+  /* ⚠ AN ARCHIVED RECORD NESTS THE CUSTOMER. Owner, 2026-08-21, after running the
+     sweep: "Done. 6 things cleared. but the tests in the recycle are still there."
+
+     hlxRemoveCustomerToRecycle writes {customer: d, archivedAt, archivedBy, reason} — so
+     the name, the phone and isTestRecord all live one level down. Asking
+     isTestRecordData about the OUTER document showed it no name and no phone, so it said
+     no to every archived row and the sweep quietly skipped the entire collection. And
+     the recycle queue is mostly archived rows (see whArchivedPending, which unwraps it
+     the same way), which is exactly where she could still see them.
+
+     ⚠ AND `|| docSnap.data()` IS DELIBERATE, not belt and braces: a row written before
+     that shape existed, or by anything else, is flat. Reading only the nested half would
+     be the same bug pointing the other way. */
   const archSnap = await getDocs(collection(db,'archivedCustomers'));
   archSnap.forEach(function(docSnap){
-    if(isTestRecordData(docSnap.data())) found.archived.push({id: docSnap.id, data: docSnap.data()});
+    const raw = docSnap.data() || {};
+    const cust = raw.customer || raw;
+    if(isTestRecordData(cust)) found.archived.push({id: docSnap.id, data: cust});
+  });
+
+  /* ⭐ AND THE INBOX. A test customer walked through the real flow leaves messages
+     behind — a Light Colour Change from the portal, an RSVP note — and none of them
+     carries isTestRecord, because the portal wrote them and knows nothing about tests.
+     Left there they are junk in the one list the office reads every morning.
+
+     ⚠ MATCHED ON IDENTITY, WHICH FOR A MESSAGE MEANS THE PHONE AND THE NAME TOGETHER.
+     A real customer's message is somebody asking for something, and deleting one loses a
+     request nobody else has a copy of. */
+  const msgSnap = await getDocs(collection(db,'messages'));
+  msgSnap.forEach(function(docSnap){
+    const d = docSnap.data() || {};
+    if(isTestRecordData(d)) found.messages.push({id: docSnap.id, data: d});
   });
 
   /* Warehouse: an extra raised against a test customer, and anything stamped itself. */
@@ -7694,7 +7744,8 @@ async function testSweepDelete(found){
       await setDoc(doc(db,'routeSchedule','plan'), p.plan);
     });
   }
-  const wipe = [['warehouseExtras', found.extras], ['invoices', found.invoices],
+  const wipe = [['warehouseExtras', found.extras], ['messages', found.messages],
+                ['invoices', found.invoices],
                 ['quotes', found.quotes], ['archivedCustomers', found.archived],
                 ['jobAddresses', found.customers]];
   for(const pair of wipe){
@@ -7713,7 +7764,14 @@ function testSweepSummary(f){
   add(f.customers.length, 'customer', 'customers');
   add(f.quotes.length, 'quote', 'quotes');
   add(f.invoices.length, 'invoice', 'invoices');
-  add(f.archived.length, 'archived record', 'archived records');
+  /* ⚠ NAMED AS THE LIST SHE IS LOOKING AT. Owner, 2026-08-21, reading "Would delete: 1
+     invoice" with two Test rows on the recycle queue in front of her: "it fails to see
+     it needs to delete a recycle." It was in fact failing to see them at all (see the
+     nested-archive fix), but even once found, "2 archived records" would not obviously
+     be the two rows on the Recycle screen. A report has to use the words on the screen
+     it is about. */
+  add(f.archived.length, 'entry on the recycle list', 'entries on the recycle list');
+  add(f.messages.length, 'message in the Inbox', 'messages in the Inbox');
   add(f.extras.length, 'warehouse item', 'warehouse items');
   add(f.routeStops.reduce(function(n, r){ return n + r.went; }, 0), 'route stop', 'route stops');
   add(f.planHouses.reduce(function(n, p){ return n + p.count; }, 0), 'day on the schedule', 'stops on the schedule');
@@ -8997,8 +9055,30 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
       '<input type="number" id="requotePriceInput" min="0" step="1" value="'+(newPrice !== null ? newPrice : '')+'" placeholder="e.g. 600">'+
     '</div>'+
     '<div style="display:flex; flex-direction:column; gap:9px; margin-top:14px;">'+
-      '<button type="button" class="btn btn-gold" id="applyRequoteBtn" style="text-align:left;">Open their record with this price'+
-        '<span style="display:block; font-weight:500; font-size:12px; opacity:.85; margin-top:2px;">Check it over, then press Save Changes. The re-quote closes itself.</span></button>'+
+      /* ⭐ FILLING THIS IN IS THE JOB. Owner, 2026-08-21: "after I fill everything out I
+         just want to convert them... I just want it to happen after I fill the stuff out
+         and that doesnt happen."
+
+         ⚠ THE SECOND PRESS EXISTED FOR ONE REASON AND THAT REASON IS GONE. It was there
+         because the customer-number rule could need a human answer — keep the old number,
+         or move to the 5000 series — and applying it silently would have made that
+         decision for her. Converting now moves the number by itself (see autoMove), so
+         the question is already answered by the time this button is pressed, and the
+         extra step buys nothing but a form she has to notice and press again.
+
+         ⚠ IT STILL GOES THROUGH THE EDIT CUSTOMER SAVE, by opening the form, filling it
+         in and pressing that form's own button. The form re-derives the bin count,
+         rebuilds the invoice, re-syncs saved route stops, queues the warehouse and closes
+         the quote. A write path of its own here would have to do all of that again and
+         would be the copy that quietly falls behind — which is why this popup reused the
+         form in the first place. Only who presses the button has changed.
+
+         The review path is kept as the second button, for when she does want to look
+         before it lands. */
+      '<button type="button" class="btn btn-gold" id="applyRequoteNowBtn" style="text-align:left;">Apply it to '+esc(who)+
+        '<span style="display:block; font-weight:500; font-size:12px; opacity:.85; margin-top:2px;">Updates their record and closes the re-quote. Nothing else to press.</span></button>'+
+      '<button type="button" class="btn btn-outline" id="applyRequoteBtn" style="text-align:left;">Open their record first'+
+        '<span style="display:block; font-weight:500; font-size:12px; opacity:.85; margin-top:2px;">Fills it in and leaves it open so you can check it, then press Save Changes yourself.</span></button>'+
       '<button type="button" class="btn btn-outline" id="applyRequoteCancelBtn" style="text-align:center; color:var(--slate);">Cancel</button>'+
     '</div>'+
   '</div>';
@@ -9021,9 +9101,14 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
   }
   function refreshGo(){
     const p = typedPrice();
-    goBtn.disabled = (p === null);
-    goBtn.style.opacity = (p === null) ? '.55' : '';
-    goBtn.style.cursor = (p === null) ? 'not-allowed' : '';
+    /* ⚠ BOTH BUTTONS, NOT JUST THE ONE THIS STARTED AS. A second way through that is
+       still live while the price is blank is the same dead end wearing a new label. */
+    [goBtn, document.getElementById('applyRequoteNowBtn')].forEach(function(b){
+      if(!b) return;
+      b.disabled = (p === null);
+      b.style.opacity = (p === null) ? '.55' : '';
+      b.style.cursor = (p === null) ? 'not-allowed' : '';
+    });
     if(echo) echo.textContent = (p === null) ? 'not set' : fmtMoney(p);
     if(delta){
       delta.textContent = (p === null) ? ''
@@ -9034,7 +9119,7 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
   }
   priceBox.addEventListener('input', refreshGo);
   refreshGo();
-  goBtn.addEventListener('click', function(){
+  function applyRequote(applyNow){
     const price = typedPrice();
     if(price === null){ toast('Type a price first \u2014 it can be 0, but it cannot be blank.'); return; }
     /* Write it back onto the re-quote as well. The quote is what the approval page
@@ -9150,11 +9235,23 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
       if(!saveBtn.dataset.plainLabel) saveBtn.dataset.plainLabel = saveBtn.textContent;
       saveBtn.textContent = 'Save Changes \u2014 finishes the re-quote';
     }
-    toast(fmtMoney(price)+' filled in for '+(who)+' \u2014 '+
-      (wantsNothing ? 'nothing for the warehouse'
-        : (wantsTopUp ? ('warehouse will build the '+addOn+' ft add-on') : 'old set recycles, new one gets built'))+
-      (carry ? ', colours brought over from the quote' : '')+
-      '. Press Save Changes.');
+    const didWhat = (wantsNothing ? 'nothing for the warehouse'
+      : (wantsTopUp ? ('warehouse will build the '+addOn+' ft add-on') : 'old set recycles, new one gets built'))+
+      (carry ? ', colours brought over from the quote' : '');
+    if(applyNow){
+      /* ⚠ THE FORM'S OWN BUTTON, never a copy of what it does. If it refuses — a name
+         missing, somebody else having edited the record since it opened — the form stays
+         open saying why, which is exactly what should happen. */
+      const saveBtn = document.getElementById('editCustSaveBtn');
+      if(saveBtn){
+        toast('Applying to '+(who)+' \u2014 '+didWhat+'\u2026');
+        saveBtn.click();
+      } else {
+        toast('Their record is open \u2014 press Save Changes to finish.');
+      }
+      return;
+    }
+    toast(fmtMoney(price)+' filled in for '+(who)+' \u2014 '+didWhat+'. Press Save Changes.');
     /* ⚠ AND IF THERE ARE STILL NO COLOURS ANYWHERE, SAY IT NOW rather than letting the
        warehouse find out. Nothing can be built without them, and the office is looking
        at the record this second. */
@@ -9162,7 +9259,10 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
       toast('\u26a0 '+(who)+' has no light colours on file and the quote has none either \u2014 '+
         'pick them on this form or the warehouse cannot build anything.');
     }
-  });
+  }
+  goBtn.addEventListener('click', function(){ applyRequote(false); });
+  const nowBtn = document.getElementById('applyRequoteNowBtn');
+  if(nowBtn) nowBtn.addEventListener('click', function(){ applyRequote(true); });
 }
 /* The popup that asks which way. */
 /* ⭐ A TEST QUOTE, IN WHICHEVER SECTION YOU ARE STANDING IN. Owner, 2026-08-21: "in the
@@ -9696,7 +9796,26 @@ function renderQuoteRows(filtered){
              the fix a person would actually notice). */
           : (d.convertedToCustomerAt
               ? '<span class="rtext" style="margin-right:6px; color:#2E6B3E; font-weight:600; font-size:11.5px;">&#10003; Converted'+(d.convertedToCustomerAt ? ' &mdash; '+fmtDate(d.convertedToCustomerAt) : '')+'</span>'
-              : '<button type="button" class="icon-btn" data-converttocust="'+item.id+'" title="Convert to Customer" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:var(--gold-dim);">Convert to Customer</button>')+
+              /* ⭐ A RE-QUOTE UPDATES SOMEBODY; IT DOES NOT CONVERT THEM. Owner, 2026-08-21,
+                 looking at a popup headed "Update Test" that she had reached by pressing
+                 Convert to Customer: "I think the issue might be that its converting them
+                 rather than updating them." The button has said Convert since before
+                 re-quotes existed, and it is the only wording she sees before the popup —
+                 so the popup then has to talk her out of what the button just told her.
+
+                 ⚠ CHECKED AGAINST THE LIVE BOOK, not the field alone: a customer really
+                 can have been deleted since the re-quote was raised, and building them
+                 again IS converting. Same test showConvertQuoteChoice makes before it
+                 diverts, so the label and the behaviour cannot disagree. */
+              : (function(){
+                  const stillOne = d.existingCustomerId &&
+                    (jobAddresses || []).some(function(a){ return a.id === d.existingCustomerId; });
+                  const label = stillOne ? 'Apply Re-quote' : 'Convert to Customer';
+                  const tip = stillOne
+                    ? 'Update the customer they already are'
+                    : 'Convert to Customer';
+                  return '<button type="button" class="icon-btn" data-converttocust="'+item.id+'" title="'+tip+'" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:var(--gold-dim);">'+label+'</button>';
+                })())+
             '<button type="button" class="icon-btn" data-archivequote="'+item.id+'" title="Archive this quote" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:var(--slate);">Archive</button>')+
         '<select data-id="'+item.id+'" class="quoteStatusSelect" style="border-radius:8px; border:1px solid var(--line); padding:6px 8px; font-size:12.5px;">'+
           '<option value="new"'+(status==='new'?' selected':'')+'>New</option>'+
@@ -24780,6 +24899,51 @@ function whBuildQueueGroups(){
   });
   return {groups: groups, keys: keys, timerHouses: timerHouses, blocked: blocked};
 }
+/* ⭐ WHY IS THIS HOUSE NOT ON THE BUILD LIST. Owner, 2026-08-21, having pressed Build
+   Them A New Set on Ashley Wray: "i clicked build ashley wray but shes not here."
+
+   ⚠ THE LIST IS FIVE COLLAPSED HEADINGS. Fifteen houses behind them, no names showing
+   until each is opened, and nothing anywhere that says whether somebody is on the list
+   at all. So "she is not here" and "she is here, inside the third group" look exactly
+   the same, and there was no way to tell them apart without opening every one.
+
+   ⚠ AND "NOT ON THE LIST" HAS FOUR DIFFERENT CAUSES, each with a different fix. Saying
+   which is the whole value of this: nothing queued a build; they are sitting the season
+   out; the build was already marked done; or they are queued but have no colours, which
+   is the Waiting block. Reported by asking the REAL grouping (whBuildQueueGroups), never
+   by a second copy of its rules — a second copy is how a screen starts confidently
+   contradicting the list beside it. */
+function whHouseBuildStatus(item){
+  const d = (item && item.data) || {};
+  const built = whBuildQueueGroups();
+  const id = item && item.id;
+  for(let i = 0; i < built.keys.length; i++){
+    const key = built.keys[i];
+    const g = built.groups[key];
+    if((g.houses || []).some(function(h){ return h.id === id; })){
+      return {state: 'building', where: g.title || key};
+    }
+    if((g.extras || []).some(function(e){ return e.data && e.data.customerId === id; })){
+      return {state: 'extra', where: g.title || key};
+    }
+  }
+  if((built.blocked || []).some(function(h){ return h.id === id; })){
+    return {state: 'blocked'};
+  }
+  if(d.maybeNextYear) return {state: 'nextyear'};
+  if(!d.needsLightBuild) return {state: 'notqueued'};
+  return {state: 'unknown'};
+}
+/* One sentence per state, and each one says what to do about it. */
+function whBuildStatusText(name, st){
+  const who = name || 'That customer';
+  if(st.state === 'building') return who + ' IS on the build list \u2014 under \u201c' + st.where + '\u201d. Open that heading to see them.';
+  if(st.state === 'extra') return who + ' is on the list as an extra request \u2014 under \u201c' + st.where + '\u201d.';
+  if(st.state === 'blocked') return who + ' is queued to build but has NO LIGHT COLOURS on file, so they are in \u201cWaiting on light colours\u201d at the top. Add their colours and they join a build group.';
+  if(st.state === 'nextyear') return who + ' is marked Back Next Year, so nothing is being built for them this season.';
+  if(st.state === 'notqueued') return who + ' is NOT on the build list \u2014 nothing has queued a build for them. Open their record and press \u201cBuild Them A New Set\u201d.';
+  return who + ' is queued to build but is not showing in any group. That should not happen \u2014 tell somebody.';
+}
 function renderWarehouseQueue(){
   const list = document.getElementById('warehouseQueueList');
   if(!list) return;
@@ -24877,7 +25041,17 @@ function renderWarehouseQueue(){
             '<span style="font-size:13.5px;">'+esc(h.data.name||'(no name)')+' &mdash; '+esc(h.data.address||'')+propLabelChip(h.data)+
               '<span style="display:block; font-size:12px; color:'+(need.unknown?'var(--ember)':'var(--slate)')+'; margin-top:2px;">'+esc(needTxt)+'</span>'+
               '<span style="display:block; margin-top:4px; line-height:1.9;">'+whHouseFactsHtml(h.data)+'</span>'+
-              (need.topUp ? '<span style="display:block; font-size:12px; font-weight:600; color:#8A6100; margin-top:4px;">When built, put into '+esc(whPutIntoLabel(h.data))+'</span>' : '')+
+              /* ⚠ A BADGE, NOT A LINE OF TEXT. It sits with the Timer and wire chips, which
+                 is where somebody building looks, rather than under the address where a
+                 sentence reads as a note about the customer. */
+              (need.topUp
+                ? '<span style="display:block; margin-top:4px;">'+
+                    '<span style="display:inline-block; background:#FFF4DC; color:#8A6100; border:1px solid #E4C77A; border-radius:999px; padding:2px 9px; font-size:11.5px; font-weight:700;">'+
+                      'ADD-ON \u2014 into the bin they already have'+
+                    '</span>'+
+                  '</span>'+
+                  '<span style="display:block; font-size:12px; font-weight:600; color:#8A6100; margin-top:3px;">When built, put into '+esc(whPutIntoLabel(h.data))+'</span>'
+                : '')+
               /* Notes last, because they are the long bit and the facts above
                  are what gets read at a glance while building. */
               (houseNotes ? '<span style="display:block; font-size:12px; color:var(--slate); margin-top:4px; white-space:pre-wrap;">'+esc(houseNotes)+'</span>' : '')+
@@ -25369,7 +25543,13 @@ function whSheetRowsForBuild(){
       rows.push({
         group: groupName,
         wire: whWireLabel(d.wireColor),
-        type: 'House',
+        /* ⭐ AN ADD-ON IS NOT A HOUSE. Owner, 2026-08-21: "when it builds an add on it
+           should somehow indicate to the warehouse that what they built needs to go into
+           a bin that already exists." The Put into column already named the bin, but the
+           row still read Type: House with a Feet of +120 — and Type is the column an eye
+           scans down. A bundle handed to somebody who thinks they are building a house
+           gets a new bin made for it, and then there are two bins with one number. */
+        type: need.topUp ? 'ADD-ON' : 'House',
         what: d.name || '(no name)',
         address: d.address || '',
         bin: d.customerNumber || '',
@@ -25379,7 +25559,12 @@ function whSheetRowsForBuild(){
         bundles: need.bundles,
         timer: String(d.outletTimer || '').trim() === 'Yes' ? 'YES' : '',
         putInto: whPutIntoLabel(d),
-        notes: (d.notes ? String(d.notes).trim() : '')
+        /* Said in words as well as in the Type column, because Notes is what gets read
+           when a row looks unusual. Their own note still travels with it. */
+        notes: (need.topUp
+          ? ('GOES INTO THE BIN THEY ALREADY HAVE' +
+             (d.notes ? ' \u2014 ' + String(d.notes).trim() : ''))
+          : (d.notes ? String(d.notes).trim() : ''))
       });
     });
     g.extras.forEach(function(e){
@@ -25561,6 +25746,38 @@ const WH_RECYCLE_COLUMNS = [
 /* Guarded like wireWhCancelEditExtra above — the warehouse render tests eval
    this block against a DOM holding only the queue list, and Suite 1 already
    fails if either id goes missing from the page. */
+/* Guarded like wireWhPrintButtons below — the render tests eval this block against a
+   DOM holding only the queue list, and an unguarded getElementById throws there. */
+(function wireWhFind(){
+  const box = document.getElementById('whFindInput');
+  const out = document.getElementById('whFindResult');
+  if(!box || !out) return;
+  box.addEventListener('input', function(){
+    const q = String(box.value || '').trim().toLowerCase();
+    if(q.length < 2){ out.textContent = ''; return; }
+    const digits = q.replace(/[^0-9]/g, '');
+    const hits = (jobAddresses || []).filter(function(a){
+      const d = a.data || {};
+      return String(d.name || '').toLowerCase().indexOf(q) !== -1 ||
+             String(d.address || '').toLowerCase().indexOf(q) !== -1 ||
+             (!!digits && String(d.customerNumber || '').trim() === digits);
+    });
+    if(!hits.length){
+      out.innerHTML = '<span style="color:var(--slate);">No customer matches that. This searches the whole book, not just the build list.</span>';
+      return;
+    }
+    /* ⚠ EVERY MATCH, NOT THE FIRST. Two customers really do share a name in this book,
+       and answering about the wrong one is worse than showing both. */
+    out.innerHTML = hits.slice(0, 6).map(function(a){
+      const st = whHouseBuildStatus(a);
+      const good = st.state === 'building' || st.state === 'extra';
+      return '<div style="padding:5px 0; color:' + (good ? '#2E6B3E' : (st.state === 'blocked' ? '#8A6100' : 'var(--slate)')) + ';">' +
+        esc(whBuildStatusText(a.data.name, st)) +
+        (a.data.customerNumber ? ' <span style="color:var(--slate);">#' + esc(String(a.data.customerNumber)) + '</span>' : '') +
+      '</div>';
+    }).join('') + (hits.length > 6 ? '<div style="color:var(--slate);">' + (hits.length - 6) + ' more match that — type a bit more.</div>' : '');
+  });
+})();
 (function wireWhPrintButtons(){
   const buildBtn = document.getElementById('whPrintBuildBtn');
   const recycleBtn = document.getElementById('whPrintRecycleBtn');
@@ -26936,40 +27153,82 @@ document.getElementById('editCustRecycleStayBtn').addEventListener('click', asyn
   if(!item) return;
   const d = item.data || {};
   const statusEl = document.getElementById('editCustStatus');
-  if(!confirm('Recycle the lights for ' + (d.name || 'this customer') + '?' +
-    '\n\nUse this when they have MOVED. Their old set goes on the warehouse recycle ' +
-    'list and their new house goes on the needs-to-be-built list.' +
+  if(!confirm('Recycle the old set for ' + (d.name || 'this customer') + '?' +
+    '\n\nTheir old lights go on the warehouse recycle list to be pulled back into stock.' +
+    '\n\nThis does NOT queue a new set. If they have moved, press Build Them A New Set ' +
+    'as well.' +
     '\n\nThey stay a customer' + (d.customerNumber ? ' and keep number #' + d.customerNumber : '') +
     '.')) return;
   const btn = document.getElementById('editCustRecycleStayBtn');
   if(btn) btn.disabled = true;
   if(statusEl) statusEl.textContent = 'Sending their lights back\u2026';
   try{
+    /* ⚠ THIS BUTTON NO LONGER QUEUES A BUILD (2026-08-21). It used to set both, because
+       it was the one button for somebody who had moved. Split in two, each does its own
+       half — and a button that quietly did the other one as well would make the pair
+       impossible to use for the cases they were split apart for. */
     await updateDoc(doc(db,'jobAddresses', editCustomerId), {
       needsLightRecycle: true,
       recycleKeepingCustomer: true,
-      /* ⚠ THE BUILD QUEUE ALSO WANTS A PATTERN. whRecycleGroups lists anybody
-         flagged even with no lights recorded, but the BUILD queue skips a house with no
-         lightsDescription — so a customer with nothing on file would go on one list and
-         silently not the other, which is the half of this she would notice last. */
-      needsLightBuild: true,
-      /* A full set is being made up from scratch, so anything left over from an
-         earlier "build only the difference" is wrong now. */
-      buildTopUpFromFeet: null,
       lightsRecycleRequestedAt: serverTimestamp()
     });
-    Object.assign(item.data, {needsLightRecycle: true, recycleKeepingCustomer: true,
-                             needsLightBuild: true});
-    if(statusEl) statusEl.textContent = (d.lightsDescription || (d.lightColors || []).length)
-      ? 'Done \u2014 on the recycle list and the build list. They are still a customer.'
-      : 'Done \u2014 on the recycle list. \u26a0 There are no light colours on file, so ' +
-        'the warehouse cannot build the new house until somebody fills those in.';
-    toast((d.name || 'They') + ' \u2014 lights recycling, customer kept');
-    logActivity('Recycled the lights for ' + (d.name || editCustomerId) +
-      ' (moved house, kept as a customer)', 'customers', editCustomerId);
+    Object.assign(item.data, {needsLightRecycle: true, recycleKeepingCustomer: true});
+    if(statusEl) statusEl.textContent = 'Done \u2014 their old set is on the recycle list. ' +
+      'They are still a customer. If they have moved, press Build Them A New Set too.';
+    toast((d.name || 'They') + ' \u2014 old set recycling, customer kept');
+    logActivity('Recycled the old set for ' + (d.name || editCustomerId) +
+      ' (kept as a customer)', 'customers', editCustomerId);
   }catch(err){
     if(btn) btn.disabled = false;
     if(statusEl) statusEl.textContent = 'Could not do that: ' + (err && err.message ? err.message : err);
+  }
+});
+/* ⭐ AND THE OTHER HALF: PUT THEM ON THE BUILD LIST. Owner, 2026-08-21: "for this
+   actually dont make it one button have one button for build and another for recycle."
+
+   Somebody who MOVED needs both, and pressing one then the other does exactly what the
+   single button did. But the two are different jobs, and the combined button could not
+   express either alone — a house whose old set is already back needs only a build, and
+   a customer sitting this season out needs only a recycle. Neither had a button.
+
+   ⚠ AND THE BUILD QUEUE SKIPS A HOUSE WITH NO COLOURS, so this says so on the spot
+   rather than letting the warehouse find out. It still sets the flag: the Waiting on
+   light colours block exists exactly so a house owed a build with nothing to build from
+   is visible instead of vanishing. */
+document.getElementById('editCustBuildStayBtn').addEventListener('click', async function(){
+  if(!editCustomerId) return;
+  const item = jobAddresses.find(function(it){ return it.id === editCustomerId; });
+  if(!item) return;
+  const d = item.data || {};
+  const statusEl = document.getElementById('editCustStatus');
+  const hasColours = !!(String(d.lightsDescription || '').trim() || (d.lightColors || []).length);
+  if(!confirm('Build a new set for ' + (d.name || 'this customer') + '?' +
+    '\n\nThey go on the warehouse needs-to-be-built list.' +
+    (hasColours ? '' : '\n\n\u26a0 There are no light colours on their record, so they will ' +
+      'sit under \u201cWaiting on light colours\u201d until somebody fills those in.') +
+    '\n\nThis does NOT recycle anything. If they have moved, press Recycle Their Old Set ' +
+    'as well.')) return;
+  const btn = document.getElementById('editCustBuildStayBtn');
+  if(btn) btn.disabled = true;
+  if(statusEl) statusEl.textContent = 'Adding them to the build list\u2026';
+  try{
+    await updateDoc(doc(db,'jobAddresses', editCustomerId), {
+      needsLightBuild: true,
+      /* ⚠ A WHOLE SET, so anything left from an earlier "build only the add-on" is
+         wrong now — left set, the sheet would ask for the difference instead. */
+      buildTopUpFromFeet: null
+    });
+    Object.assign(item.data, {needsLightBuild: true, buildTopUpFromFeet: null});
+    if(statusEl) statusEl.textContent = hasColours
+      ? 'Done \u2014 they are on the needs-to-be-built list.'
+      : 'Done \u2014 on the build list, under Waiting on light colours until somebody ' +
+        'fills their colours in.';
+    toast((d.name || 'They') + ' \u2014 on the build list');
+    logActivity('Queued a new set for ' + (d.name || editCustomerId), 'customers', editCustomerId);
+  }catch(err){
+    if(btn) btn.disabled = false;
+    console.error('Could not queue the build:', err);
+    if(statusEl) statusEl.textContent = 'Could not do that: ' + ((err && err.message) || err);
   }
 });
 document.getElementById('editCustDeleteBtn').addEventListener('click', async function(){
@@ -28002,7 +28261,10 @@ document.getElementById('allCustExportBtn').addEventListener('click', function()
   XLSX.utils.book_append_sheet(wb, ws, 'All Customers');
   XLSX.writeFile(wb, 'all-customers-'+toDateStr(new Date())+'.xlsx');
 });
-function twoOptImprove(ordered, startPoint){
+/* ⚠ endPoint IS OPTIONAL AND MUST STAY OPTIONAL. Every existing caller passes
+   two arguments and gets exactly the open-ended route it got before; only a
+   caller that names a finish is measured on the drive home. */
+function twoOptImprove(ordered, startPoint, endPoint){
   if(ordered.length < 4) return ordered;
   const n = ordered.length;
   function dist(a, b){ return haversine(a.lat, a.lng, b.lat, b.lng); }
@@ -28016,7 +28278,10 @@ function twoOptImprove(ordered, startPoint){
       if(!prev) continue; // no fixed start point and this is the anchor stop — can't move it
       for(let j = i + 1; j < n; j++){
         const a = ordered[i], b = ordered[j];
-        const next = j === n - 1 ? null : ordered[j+1];
+        /* The leg home is a real leg. Without it the last stop is chosen as
+           though the crew stopped there and went nowhere, which on a round trip
+           reliably ends the day on the far side of town. */
+        const next = j === n - 1 ? (endPoint || null) : ordered[j+1];
         const currentDist = dist(prev, a) + (next ? dist(b, next) : 0);
         const newDist = dist(prev, b) + (next ? dist(a, next) : 0);
         if(newDist < currentDist - 0.0005){
@@ -28029,7 +28294,7 @@ function twoOptImprove(ordered, startPoint){
   }
   return ordered;
 }
-function reorderFlatStops(flatStops, startPoint){
+function reorderFlatStops(flatStops, startPoint, endPoint){
   /* Two ways an unorderable list gets here, both from the reconcile sweep:
        - a day whose LAST stop has just come off (recycled, deleted, or a town
          corrected) is re-ordered with nothing left in it;
@@ -28043,11 +28308,32 @@ function reorderFlatStops(flatStops, startPoint){
      Routes simply stopped keeping themselves up to date.
      Holes only. A stop with no lat/lng is a REAL house that has not been
      geocoded yet — the bulk import creates those deliberately — so it stays on
-     the route and merely orders arbitrarily, exactly as it did before. */
-  let remaining = (flatStops || []).filter(Boolean);
+     the route and merely orders arbitrarily, exactly as it did before.
+
+     ⚠ AND IT MAY NOT DRAG THE REST OF THE DAY DOWN WITH IT (fixed 2026-08-21).
+     "Orders arbitrarily" was true of the un-pinned stop and FALSE of everybody
+     else. haversine() against a null coordinate is NaN, and `d < bestDist` is
+     false for NaN, so the moment an un-pinned stop became the anchor — which it
+     did whenever one happened to sit FIRST in the list — every remaining stop
+     measured NaN, the walk never found a nearest anything, and twoOptImprove
+     then reversed segments against NaN distances. The day came back SCRAMBLED
+     rather than merely unordered, and from the office's side that is
+     indistinguishable from the optimiser having run and chosen that order.
+     One house with no map pin was enough to ruin a whole crew's driving day.
+
+     Owner, 2026-08-21: "every crew should be organized based on the route for
+     the day for the most efficent driving time ... like what route xl does."
+     So the stops that CAN be placed are routed against each other, and the ones
+     that cannot ride along on the end. Nothing is dropped either way — the same
+     rule the whole re-order is built on. */
+  const all = (flatStops || []).filter(Boolean);
+  const hasPin = function(p){ return p && typeof p.lat === 'number' && typeof p.lng === 'number' &&
+                                     isFinite(p.lat) && isFinite(p.lng); };
+  const unpinned = all.filter(function(p){ return !hasPin(p); });
+  let remaining = all.filter(hasPin);
   let ordered = [];
   let current;
-  if(!remaining.length) return [];
+  if(!remaining.length) return unpinned;
   if(startPoint){
     current = startPoint;
   } else {
@@ -28065,7 +28351,7 @@ function reorderFlatStops(flatStops, startPoint){
     ordered.push(next);
     current = {lat:next.lat, lng:next.lng};
   }
-  return twoOptImprove(ordered, startPoint);
+  return twoOptImprove(ordered, startPoint, endPoint).concat(unpinned);
 }
 function nearestNeighborOrder(selectedAddresses, startPoint){
   const flat = selectedAddresses.map(function(item){ return {id:item.id, address:item.data.address, name:item.data.name||'', phone:item.data.phone||'', difficulty:item.data.difficulty, lat:item.data.lat, lng:item.data.lng, gateCode:item.data.gateCode||'', specificOutlet:item.data.specificOutlet||'', specificOutletNotes:item.data.specificOutletNotes||'', customerNumber:item.data.customerNumber||''}; });
@@ -28797,6 +29083,215 @@ function townCentres(byCity){
   });
   return out;
 }
+/* ================= A UTAH ADDRESS IS ALREADY A MAP REFERENCE =================
+   Owner, 2026-08-21: "try to use math for the ones without geocode by checking
+   their street address, if their street address isnt a word then its a number
+   and if its a number in utah that is a location so you can find it that way",
+   and "any that you just dont know where a house is still because its a word
+   not a number or something put all them at the end of whatever route they end
+   up in".
+
+   She is right, and it is worth more than it sounds. Measured on the real book
+   of 960 addresses: 350 (36.5%) carry BOTH grid numbers — "11528 S 840 W" is a
+   point, not a street name — and another 458 (47.7%) carry one of them, which
+   is a line. Only 152 (15.8%) are a name and nothing else.
+
+   ⚠ THE BLOCK SIZE IS NOT A CONSTANT AND MUST NOT BE WRITTEN DOWN. Every town
+   on the Wasatch Front has its own origin and its own idea of how many feet a
+   hundred address-units is, and several are rotated off true north. So nothing
+   here is hardcoded: each town's grid is LEARNED by least squares from the
+   houses in that town that already have a real pin AND a grid address, which
+   means it is calibrated against this business's own customers and improves on
+   its own as more of them get geocoded.
+
+   ⚠ AND IT REFUSES RATHER THAN GUESSES. A fit is used only when at least six
+   known houses back it and its median error against those houses is under a
+   quarter of a mile. A town whose addresses are not really a grid fails that
+   and gets no estimates at all — measured on a deliberately scrambled town it
+   comes back 1.85 mi and is rejected. An estimate nobody can trust is worse
+   than the honest "we do not know", because the honest one puts the house at
+   the end of the route where somebody will see it.
+
+   ⚠ AN ESTIMATE NEVER OVERWRITES A REAL PIN, and it is never written to the
+   customer record. It exists to put a house in the right place in a driving
+   order; the record still says the house has not been geocoded, because it
+   has not. */
+function utahGridOf(address){
+  const raw = String(address == null ? '' : address);
+  if(!raw) return null;
+  const t = raw.replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean);
+  let east = null, north = null;
+  const axisOf = function(letter){
+    const u = letter.toUpperCase();
+    if(u === 'N') return ['n', 1];
+    if(u === 'S') return ['n', -1];
+    if(u === 'E') return ['e', 1];
+    if(u === 'W') return ['e', -1];
+    return null;
+  };
+  const put = function(ax, v){
+    if(ax === 'e'){ if(east === null) east = v; }
+    else { if(north === null) north = v; }
+  };
+  /* Both orders turn up in the book: "247 W 1080 N" and "W 247 1080 N". The
+     FIRST value on an axis wins, so a unit or apartment number further along
+     cannot overwrite the street. */
+  let i = 0;
+  while(i < t.length - 1){
+    const a = t[i], b = t[i + 1];
+    const aNum = /^\d+$/.test(a), bNum = /^\d+$/.test(b);
+    const aDir = /^[NSEW]$/i.test(a) ? axisOf(a) : null;
+    const bDir = /^[NSEW]$/i.test(b) ? axisOf(b) : null;
+    if(aNum && bDir){ put(bDir[0], bDir[1] * Number(a)); i += 2; continue; }
+    if(aDir && bNum){ put(aDir[0], aDir[1] * Number(b)); i += 2; continue; }
+    i += 1;
+  }
+  if(east === null && north === null) return null;
+  return {east: east, north: north};
+}
+/* The named street, normalised, so "Willow Hills Drive" and "Willow Hills Dr"
+   are one street. Used to borrow the axis a half address does not give from a
+   house we DO know on the same street — worth 24% of the half addresses and,
+   more usefully, 31% of the ones that carry no number at all. */
+const STREET_SUFFIX = {drive:'dr', lane:'ln', circle:'cir', court:'ct', road:'rd',
+  street:'st', boulevard:'blvd', avenue:'ave', place:'pl', parkway:'pkwy',
+  terrace:'ter', cove:'cv', trail:'trl', point:'pt'};
+function streetNameKey(address){
+  let t = String(address == null ? '' : address).toLowerCase()
+    .replace(/[.,#]/g, ' ').split(/\s+/).filter(Boolean);
+  while(t.length && (/^\d+$/.test(t[0]) || /^[nsew]$/.test(t[0]))) t.shift();
+  if(!t.length) return '';
+  t = t.map(function(w){ return STREET_SUFFIX[w] || w; });
+  const key = t.join(' ');
+  /* "840 W" is a numbered street, which the grid already reads properly. */
+  return /^\d/.test(key) ? '' : key;
+}
+/* lat = a0 + a1*north + a2*east, and the same for lng. Three parameters each,
+   so a town whose grid is rotated off true north is handled as well as a square
+   one. Normal equations, solved 3x3 — no library, and the sample is small. */
+function gridSolve3(A, y){
+  const M = [[A[0][0],A[0][1],A[0][2],y[0]],
+             [A[1][0],A[1][1],A[1][2],y[1]],
+             [A[2][0],A[2][1],A[2][2],y[2]]];
+  for(let c = 0; c < 3; c++){
+    let p = c;
+    for(let r = c + 1; r < 3; r++) if(Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+    /* Every known house on one street, or all sharing a number — there is no
+       unique grid through them, and inventing one would place houses anywhere. */
+    if(Math.abs(M[p][c]) < 1e-12) return null;
+    const tmp = M[c]; M[c] = M[p]; M[p] = tmp;
+    for(let r = 0; r < 3; r++){
+      if(r === c) continue;
+      const f = M[r][c] / M[c][c];
+      for(let k = c; k < 4; k++) M[r][k] -= f * M[c][k];
+    }
+  }
+  return [M[0][3]/M[0][0], M[1][3]/M[1][1], M[2][3]/M[2][2]];
+}
+function gridLeastSquares(pts, valueOf){
+  const A = [[0,0,0],[0,0,0],[0,0,0]], y = [0,0,0];
+  pts.forEach(function(p){
+    const r = [1, p.north, p.east], v = valueOf(p);
+    for(let i = 0; i < 3; i++){
+      for(let j = 0; j < 3; j++) A[i][j] += r[i] * r[j];
+      y[i] += r[i] * v;
+    }
+  });
+  return gridSolve3(A, y);
+}
+const GRID_MIN_POINTS = 6;
+const GRID_MAX_MEDIAN_ERR = 0.25;   /* miles — see the refusal note above */
+function fitTownGrid(points){
+  const pts = (points || []).filter(function(p){
+    return p && typeof p.east === 'number' && typeof p.north === 'number' &&
+           typeof p.lat === 'number' && typeof p.lng === 'number';
+  });
+  if(pts.length < GRID_MIN_POINTS) return {ok:false, why:'only ' + pts.length + ' known houses'};
+  const la = gridLeastSquares(pts, function(p){ return p.lat; });
+  const ln = gridLeastSquares(pts, function(p){ return p.lng; });
+  if(!la || !ln) return {ok:false, why:'the known houses do not pin a grid down'};
+  const latOf = function(e, n){ return la[0] + la[1]*n + la[2]*e; };
+  const lngOf = function(e, n){ return ln[0] + ln[1]*n + ln[2]*e; };
+  const errs = pts.map(function(p){
+    return haversine(p.lat, p.lng, latOf(p.east, p.north), lngOf(p.east, p.north));
+  }).sort(function(a, b){ return a - b; });
+  const median = errs[Math.floor(errs.length / 2)];
+  if(!(median <= GRID_MAX_MEDIAN_ERR)){
+    return {ok:false, why:'the addresses in this town are not a grid (median ' +
+                          median.toFixed(2) + ' mi)'};
+  }
+  let e = 0, n = 0;
+  pts.forEach(function(p){ e += p.east; n += p.north; });
+  return {ok:true, n:pts.length, median:median, latOf:latOf, lngOf:lngOf,
+          mid:{east: e/pts.length, north: n/pts.length}};
+}
+/* Built fresh at the start of a recalculation rather than cached across the
+   session: the office edits addresses and new customers arrive, and a grid
+   learned an hour ago would quietly place houses from a book that has moved. */
+let TOWN_GRIDS = null;
+function refreshTownGrids(){
+  TOWN_GRIDS = {};
+  if(typeof jobAddresses === 'undefined' || typeof extractCleanCity !== 'function') return;
+  const byTown = {};
+  (jobAddresses || []).forEach(function(item){
+    const d = (item && item.data) || {};
+    const town = extractCleanCity(d.city);
+    if(!town) return;
+    const b = byTown[town] = byTown[town] || {pts: [], streets: {}};
+    /* ⚠ ONLY A HOUSE WITH A REAL PIN TEACHES THE GRID. Feeding an estimate back
+       in would let one bad guess drag every later one after it. */
+    if(typeof d.lat !== 'number' || typeof d.lng !== 'number' ||
+       !isFinite(d.lat) || !isFinite(d.lng)) return;
+    const g = utahGridOf(d.address);
+    if(g && typeof g.east === 'number' && typeof g.north === 'number'){
+      b.pts.push({east:g.east, north:g.north, lat:d.lat, lng:d.lng});
+    }
+    const k = streetNameKey(d.address);
+    if(k){
+      const s = b.streets[k] = b.streets[k] || {lat:0, lng:0, n:0};
+      s.lat += d.lat; s.lng += d.lng; s.n++;
+    }
+  });
+  Object.keys(byTown).forEach(function(town){
+    TOWN_GRIDS[town] = {fit: fitTownGrid(byTown[town].pts), streets: byTown[town].streets};
+  });
+}
+/* Best position we can work out for a house we have never geocoded, or null.
+   `how` says which rung of the ladder answered, because they are not equally
+   good and the office is told how many of each it used:
+     'grid'   both numbers, straight off the town's own grid    (~170 ft out)
+     'street' the missing half taken from a house on that street
+     'half'   one number, the other filled in from the town     (roughly right) */
+function estimatedPinFromAddress(address, town){
+  if(!TOWN_GRIDS || typeof extractCleanCity !== 'function') return null;
+  const t = extractCleanCity(town);
+  const rec = t && TOWN_GRIDS[t];
+  if(!rec) return null;
+  const fit = rec.fit && rec.fit.ok ? rec.fit : null;
+  const grid = utahGridOf(address);
+  const hasE = !!(grid && typeof grid.east === 'number');
+  const hasN = !!(grid && typeof grid.north === 'number');
+  const key = streetNameKey(address);
+  const st = (key && rec.streets[key] && rec.streets[key].n) ? rec.streets[key] : null;
+  const stLat = st ? st.lat / st.n : null, stLng = st ? st.lng / st.n : null;
+  if(fit && hasE && hasN){
+    return {lat: fit.latOf(grid.east, grid.north), lng: fit.lngOf(grid.east, grid.north), how:'grid'};
+  }
+  if(fit && (hasE || hasN)){
+    const e = hasE ? grid.east : fit.mid.east;
+    const n = hasN ? grid.north : fit.mid.north;
+    let lat = fit.latOf(e, n), lng = fit.lngOf(e, n), how = 'half';
+    /* The street knows the half the address left out, and knows it far better
+       than the middle of the town does. */
+    if(st){ if(!hasN) lat = stLat; if(!hasE) lng = stLng; how = 'street'; }
+    return {lat: lat, lng: lng, how: how};
+  }
+  /* No numbers at all — a name and nothing else. If we know that street from
+     somebody else's house, that is still an answer. */
+  if(st) return {lat: stLat, lng: stLng, how:'street'};
+  return null;
+}
+
 /* Towns the office has said are close enough to share a crew, town -> [towns].
    Owner, 2026-08-17: "you will need to input nearby towns as well because if
    there are under 20 houses in a city we need to fill it up with houses from a
@@ -28863,6 +29358,79 @@ function nearbyTowns(city, centres){
    in the same town on the same day. */
 function planNewCrewDays(waiting, taken, opts){
   const o = opts || {};
+  /* ⭐ A DAY IS A CLUSTER, NOT THE TOP OF A LIST (added 2026-08-21).
+     Owner: "in the schedule we want to try to organize it so in a city and
+     neighboring cities it picks houses for a day that are closer to each other
+     rather than miles apart although theyre technically in the same city."
+
+     A town is not a point. Provo is nine miles across, and the queue a day was
+     filled from is ordered by who has waited longest — so the twenty houses a
+     crew got could be twenty houses scattered over the whole town, and no amount
+     of re-ordering them afterwards can fix that. Driving order is only ever as
+     good as the SET of houses it is given: pick twenty that sit near each other
+     and the route is short, pick twenty at random across the town and the best
+     possible route is still a bad day. This picks the set.
+
+     ⚠ IT DOES NOT OVERRULE ANYTHING SHE HAS ALREADY DECIDED. Distance is the
+     LAST word, never the first:
+       - priority tier is absolute. October is emptied before November is touched,
+         exactly as before — this only ever chooses between houses the old code
+         considered equally urgent.
+       - a named day still goes first inside its tier ("try to do their house the
+         next possible chance after that", 2026-08-20).
+       - a house with no map pin is not punished for it. It cannot be clustered,
+         so it is taken last within its tier, in the queue's own order — the same
+         treatment reorderFlatStops gives it. It never blocks or scatters the rest.
+     With no anchor to start from, the first house is simply the front of the
+     queue, which is what the builder took before. So the CHOICE of who leads a
+     day is unchanged; what changed is who rides along with them. */
+  function pickClusteredFromQueue(queue, eligible, want, anchor){
+    const chosen = [];
+    const pool = (eligible || []).slice();
+    const pinOf = function(i){
+      const st = queue[i] && queue[i].stop;
+      return (st && typeof st.lat === 'number' && typeof st.lng === 'number' &&
+              isFinite(st.lat) && isFinite(st.lng)) ? st : null;
+    };
+    let cur = (anchor && typeof anchor.lat === 'number' && typeof anchor.lng === 'number')
+      ? {lat: anchor.lat, lng: anchor.lng} : null;
+    while(chosen.length < want && pool.length){
+      /* Only the most urgent tier still in the pool is ever in play, so the
+         geography below can never promote a November house over an October one. */
+      let urg = Infinity;
+      pool.forEach(function(i){ const p = queue[i].priority; if(p < urg) urg = p; });
+      let bestPos = -1, bestNamed = 0, bestDist = 0;
+      pool.forEach(function(i, pos){
+        const q = queue[i];
+        if(q.priority !== urg) return;
+        const named = q.named ? 0 : 1;
+        const pin = pinOf(i);
+        /* No anchor yet, or nothing to measure against: fall back to the queue's
+           own order, which is priority, then named, then longest waiting. */
+        const dist = cur ? (pin ? haversine(cur.lat, cur.lng, pin.lat, pin.lng) : Infinity) : pos;
+        if(bestPos === -1 || named < bestNamed || (named === bestNamed && dist < bestDist)){
+          bestPos = pos; bestNamed = named; bestDist = dist;
+        }
+      });
+      if(bestPos === -1) break;
+      const idx = pool.splice(bestPos, 1)[0];
+      chosen.push(idx);
+      const pin = pinOf(idx);
+      if(pin) cur = {lat: pin.lat, lng: pin.lng};
+    }
+    return chosen;
+  }
+  /* Where the day has got to on the map, so the neighbour town it borrows from
+     lends the houses on ITS side of the line rather than its longest-waiting
+     ones. Read before anything is spliced out of the queue. */
+  function lastPinOf(queue, idxs){
+    for(let k = (idxs || []).length - 1; k >= 0; k--){
+      const st = queue[idxs[k]] && queue[idxs[k]].stop;
+      if(st && typeof st.lat === 'number' && typeof st.lng === 'number' &&
+         isFinite(st.lat) && isFinite(st.lng)) return {lat: st.lat, lng: st.lng};
+    }
+    return null;
+  }
   const cap = o.cap || MAX_STOPS_PER_ROUTE;
   const crews = o.crews || CREWS_PER_DAY;
   const maxDays = o.maxDays == null ? 40 : o.maxDays;
@@ -29055,10 +29623,16 @@ function planNewCrewDays(waiting, taken, opts){
            leave a healthier last day was built, shown to her, and overruled — forty
            houses a day early matters more than fifteen at the end, and the short days
            fill themselves from what the crews do not finish. */
-        const take = eligible.slice(0, cap);
+        const take = pickClusteredFromQueue(queue, eligible, cap, null);
         if(!take.length) break;
         const ids = take.map(function(i){ return queue[i].id; });
-        for(let i = take.length - 1; i >= 0; i--) queue.splice(take[i], 1);
+        /* Where this crew ends up on the map, kept before the splice — the
+           neighbour it borrows from below lends from that end of the town. */
+        const anchor = lastPinOf(queue, take);
+        /* take comes back in PICK order, not index order, so the splice has to
+           work from the highest index down or it removes the wrong houses. */
+        take.slice().sort(function(a, b){ return b - a; })
+            .forEach(function(i){ queue.splice(i, 1); });
         /* Its own town first, always, and then AT MOST ONE other — see the note
            on the owner's "each crew is only doing one other city". The one
            chosen is the neighbour whose most urgent waiting house is the most
@@ -29081,13 +29655,21 @@ function planNewCrewDays(waiting, taken, opts){
             if(!borrow || best < borrow.best) borrow = {town: other, best: best, queue: oq};
           }
           if(borrow){
-            const lent = [];
-            for(let i = 0; i < borrow.queue.length && ids.length + lent.length < cap; i++){
-              if(borrow.queue[i].from <= ds) lent.push(i);
+            /* ⭐ AND THE NEIGHBOUR LENDS FROM THE NEAR SIDE. The borrowed houses
+               used to come off the front of that town's queue, which is the
+               longest-waiting ones wherever they happen to sit — so a crew that
+               had just finished the east end of Lehi could be sent to the far
+               side of American Fork. Anchored on where the day has actually got
+               to, the loan continues the run instead of restarting it. */
+            const oel = [];
+            for(let i = 0; i < borrow.queue.length; i++){
+              if(borrow.queue[i].from <= ds) oel.push(i);
             }
+            const lent = pickClusteredFromQueue(borrow.queue, oel, cap - ids.length, anchor);
             if(lent.length){
               lent.forEach(function(i){ ids.push(borrow.queue[i].id); });
-              for(let i = lent.length - 1; i >= 0; i--) borrow.queue.splice(lent[i], 1);
+              lent.slice().sort(function(a, b){ return b - a; })
+                  .forEach(function(i){ borrow.queue.splice(i, 1); });
               towns.push(borrow.town);
             }
           }
@@ -35267,6 +35849,29 @@ const TAKE_BASE_START=new Date(2027,0,4);
 function addDays(dt,n){const x=new Date(dt);x.setDate(x.getDate()+n);return x;}
 function daysBetween(a,b){return Math.round((a-b)/DAYMS);}
 function isWeekend(dt){const g=dt.getDay();return g===0||g===6;}
+/* ⭐ NOBODY WORKS THANKSGIVING, AND THE SCHEDULE HAS TO KNOW IT TOO (2026-08-21).
+   Owner: "as crews begin to not finish their entire day and we get more people
+   ... when we recaluclate it will create days between nov 20 and thanksgiving,
+   but we dont work on the day of thanksgiving."
+
+   ⚠ THE BUILDER ALREADY KNEW. `isWorkingDay` has excluded the holiday since
+   2026-08-18, so planNewCrewDays never puts a crew-day on it — measured on a
+   late-season rebuild it lays out Nov 20, 23, 24, 25 and steps over the 26th.
+   THIS side did not. The builder hands back days as OFFSETS, and layoutSequence
+   turns those back into real dates skipping weekends only, so the day the builder
+   had carefully placed on the 27th could be laid down on Thanksgiving itself. The
+   same hole was in every hand shift — Push later, Day off, a cascade — because
+   they all re-flow through here, and in nextWeekday, which places fixer routes.
+
+   ⚠ A PIN IS STILL A PIN. Force exact date deliberately overrides this, exactly
+   as it does for a weekend; it just says which kind of day off it landed on. */
+function isThanksgiving(dt){
+  return typeof isThanksgivingDay==='function' ? isThanksgivingDay(dt) : false;
+}
+function isDayOff(dt){ return isWeekend(dt)||isThanksgiving(dt); }
+function dayOffName(dt){
+  return isThanksgiving(dt) ? 'Thanksgiving' : (isWeekend(dt) ? 'weekend' : '');
+}
 function dlabel(dt){return{wd:WD[dt.getDay()],full:MO[dt.getMonth()+1]+' '+dt.getDate()};}
 function isoOf(dt){return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');}
 function esc(s){return(''+s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
@@ -35321,7 +35926,7 @@ function pinHorizon(){
   let d=new Date(); d.setHours(0,0,0,0);
   for(let i=0;i<PIN_HONOURED_BUSINESS_DAYS;i++){
     d=addDays(d,1);
-    while(isWeekend(d))d=addDays(d,1);
+    while(isDayOff(d))d=addDays(d,1);
   }
   return d;
 }
@@ -35338,8 +35943,8 @@ function layoutSequence(days){
     if(pin){day._date=new Date(pin);if(!cursor||day._date>cursor)cursor=new Date(day._date);continue;}
     let d=desired(day);
     if(cursor&&d<=cursor)d=addDays(cursor,1);
-    while(isWeekend(d))d=addDays(d,1);
-    while(cursor&&d<=cursor){d=addDays(d,1);while(isWeekend(d))d=addDays(d,1);}
+    while(isDayOff(d))d=addDays(d,1);
+    while(cursor&&d<=cursor){d=addDays(d,1);while(isDayOff(d))d=addDays(d,1);}
     day._date=d;cursor=d;
   }
 }
@@ -35672,6 +36277,21 @@ function unassignedHousesFor(day){
    ⚠ NOTHING IS EVER DROPPED BY RE-ORDERING. Every house that goes in comes back
    out, and a day that would come back a different length is left exactly as it
    was rather than written back short. A lost stop is a customer nobody visits. */
+/* Where a house actually is, in one place, so the day builder and the driving
+   order can never disagree about it. A real pin always wins; an address-derived
+   estimate is only ever consulted when there is no pin at all. */
+function houseGeoPoint(h, d){
+  const rec = d || {};
+  if(typeof rec.lat === 'number' && typeof rec.lng === 'number' &&
+     isFinite(rec.lat) && isFinite(rec.lng)){
+    return {lat: rec.lat, lng: rec.lng, estimated: false};
+  }
+  const est = (typeof estimatedPinFromAddress === 'function')
+    ? estimatedPinFromAddress(rec.address || (h && h.address), rec.city || (h && h.city))
+    : null;
+  if(est) return {lat: est.lat, lng: est.lng, estimated: true, how: est.how};
+  return {lat: null, lng: null, estimated: false};
+}
 function houseStopPoint(h){
   /* Coordinates live on the customer record — the imported plan rows carry none.
      A house that has never been geocoded keeps its place on the day and simply
@@ -35679,14 +36299,142 @@ function houseStopPoint(h){
      the crew's own routes. */
   const cust=customerForHouse(h);
   const d=(cust&&cust.data)||{};
-  return {ref:h, lat:(typeof d.lat==='number'?d.lat:null), lng:(typeof d.lng==='number'?d.lng:null)};
+  const p=houseGeoPoint(h,d);
+  return {ref:h, lat:p.lat, lng:p.lng, estimated:p.estimated, how:p.how};
+}
+/* ⭐ AND THE ONES IT COULD NOT PLACE ARE COUNTED (added 2026-08-21). A house
+   with no map pin cannot be put in driving order — it has no position to be in
+   order relative to — so it rides on the end of its day. That is the right
+   thing to do with it and the wrong thing to do SILENTLY: a handful of houses
+   sitting at the bottom of every crew sheet looks exactly like the button
+   having failed, and the office has no way to tell the two apart.
+   ⚠ A HOUSE HAS NO PIN FOR TWO QUITE DIFFERENT REASONS, and the office can only
+   act on one of them: the plan row may not match a customer record at all (no
+   customer number, no phone), or the customer may match and never have been
+   geocoded. Both come out here as "not on the map yet", which is what the
+   office can actually see and check. */
+function houseHasPin(h){
+  const p=houseStopPoint(h);
+  return typeof p.lat==='number' && typeof p.lng==='number' &&
+         isFinite(p.lat) && isFinite(p.lng);
+}
+/* ⭐ EVERY CREW LEAVES FROM THE YARD AND COMES BACK TO IT (added 2026-08-21).
+   Owner: "also calculate the route knowing the starting spot is always
+   209 S 850 W and the ending spot is alway 209 S 850 W as well."
+
+   Until now a day was ordered with no fixed start, so the optimiser was free to
+   begin at whichever house suited the shape of the cluster — and the crew's
+   first drive of the morning, out from the yard, was not counted at all. Nor was
+   the drive home. Those two legs are real, they are often the longest of the
+   day, and leaving them out is how a route that looks tight on screen ends with
+   the van forty minutes from the yard at five o'clock.
+
+   ⚠ IT IS AN ADDRESS, NOT A COORDINATE, ON PURPOSE. 209 S 850 W is a full Utah
+   grid reference, so the town grid learned above places it without anybody
+   having to geocode anything or paste in a latitude. If Lehi has too few known
+   houses to learn a grid from, this comes back null and the day is ordered the
+   old way — slightly worse, never broken. */
+const ROUTE_HOME_ADDRESS = '209 S 850 W';
+const ROUTE_HOME_CITY = 'Lehi';
+function routeHomePoint(){
+  /* A real customer record at the yard's address beats the estimate — same rule
+     as everywhere else: a measured pin always wins over a calculated one. */
+  if(typeof custByAddrKey !== 'undefined' && typeof custAddrKey === 'function'){
+    try{
+      const hit = custByAddrKey.get(custAddrKey(ROUTE_HOME_ADDRESS, ROUTE_HOME_CITY));
+      const d = hit && hit.data;
+      if(d && typeof d.lat === 'number' && typeof d.lng === 'number' &&
+         isFinite(d.lat) && isFinite(d.lng)) return {lat: d.lat, lng: d.lng};
+    }catch(err){ /* fall through to the grid */ }
+  }
+  const est = (typeof estimatedPinFromAddress === 'function')
+    ? estimatedPinFromAddress(ROUTE_HOME_ADDRESS, ROUTE_HOME_CITY) : null;
+  return est ? {lat: est.lat, lng: est.lng} : null;
+}
+/* ⭐ THE ONE THAT LIVES OUT ON ITS OWN GOES LAST, ON THE WAY HOME (added 2026-08-21).
+   Owner: "if there are people that are a little furthur out than everyone else
+   than they fall at the end of the route while still remembering 209 s 850 w is
+   the end point ... we dont want a long drive in the middle of the day we would
+   rather that be at the end of the day on their way back home."
+
+   ⚠ THIS IS DELIBERATELY NOT THE SHORTEST ROUTE, and that is the point. The
+   orderer minimises TOTAL miles, and the shortest tour is perfectly happy to
+   drive out to the far house at eleven in the morning and back into the cluster
+   afterwards. Same mileage, much worse day: the crew loses an hour in the middle
+   with twelve houses still to do, and every remaining stop is behind schedule.
+   Put the same leg at the end and it is the drive home they were making anyway.
+
+   So the day is split in two and ordered in two passes:
+     the cluster, from the yard, finishing on the side nearest the far houses;
+     then the far houses, ending at the yard.
+
+   ⚠ IT REFUSES TO FIRE ON A DAY THAT IS SIMPLY SPREAD OUT. "Further out than
+   everyone else" only means anything when there IS an everyone else, so if more
+   than a third of the day would be called far, nothing is — that is not an
+   outlier, that is the shape of the day, and splitting it would invent a
+   two-part route out of one ordinary one. */
+const OUTLIER_MIN_MILES = 2.5;    /* below this it is not "a long drive" at all */
+const OUTLIER_FACTOR = 2.5;       /* ...and it must be this much worse than normal */
+const OUTLIER_MAX_SHARE = 1 / 3;  /* more than this and the day is just spread out */
+
+function stopHasPin(p){
+  return !!p && typeof p.lat === 'number' && typeof p.lng === 'number' &&
+         isFinite(p.lat) && isFinite(p.lng);
+}
+/* The middle of the day, taken as the MEDIAN of each axis rather than the mean.
+   A mean is dragged towards the very houses we are trying to find, so a single
+   house forty miles out moves the "centre" a mile and a half towards itself and
+   starts making its neighbours look far too. */
+function stopsCentre(points){
+  const mid = function(a){ const s = a.slice().sort(function(x, y){ return x - y; });
+                           return s[Math.floor(s.length / 2)]; };
+  return {lat: mid(points.map(function(p){ return p.lat; })),
+          lng: mid(points.map(function(p){ return p.lng; }))};
+}
+function outlyingStops(points){
+  const none = {core: points, out: []};
+  if(points.length < 4) return none;
+  const c = stopsCentre(points);
+  const far = points.map(function(p){ return haversine(c.lat, c.lng, p.lat, p.lng); });
+  const sorted = far.slice().sort(function(a, b){ return a - b; });
+  const median = sorted[Math.floor(sorted.length / 2)];
+  /* Both tests have to pass. The factor alone calls a house half a mile out of a
+     very tight day an outlier; the mileage alone splits every rural day in two. */
+  const cut = Math.max(OUTLIER_MIN_MILES, median * OUTLIER_FACTOR);
+  const core = [], out = [];
+  points.forEach(function(p, i){ (far[i] > cut ? out : core).push(p); });
+  if(!out.length || !core.length) return none;
+  if(out.length > points.length * OUTLIER_MAX_SHARE) return none;
+  return {core: core, out: out};
 }
 function orderHousesForDriving(list){
   const houses=(list||[]).slice();
   if(houses.length<2) return houses;
   if(typeof reorderFlatStops!=='function') return houses;
   let ordered;
-  try{ ordered=reorderFlatStops(houses.map(houseStopPoint), null); }
+  const home=(typeof routeHomePoint==='function') ? routeHomePoint() : null;
+  try{
+    const points = houses.map(houseStopPoint);
+    /* Held back explicitly rather than left to reorderFlatStops, which would put
+       them on the end of whichever of the two passes ran last — i.e. in the
+       middle of the day. A house with no position at all belongs at the very
+       end, after even the far ones. */
+    const pinned = points.filter(stopHasPin);
+    const bare = points.filter(function(p){ return !stopHasPin(p); });
+    const split = outlyingStops(pinned);
+    if(!split.out.length){
+      ordered = reorderFlatStops(points, home, home);
+    } else {
+      /* The cluster is aimed at the far houses so it finishes on that side,
+         rather than finishing wherever and then crossing back over itself. */
+      const toward = stopsCentre(split.out);
+      const core = reorderFlatStops(split.core, home, toward);
+      const last = core.length ? core[core.length - 1] : null;
+      const tail = reorderFlatStops(split.out,
+        last ? {lat: last.lat, lng: last.lng} : home, home);
+      ordered = core.concat(tail, bare);
+    }
+  }
   catch(err){ console.error('Route order failed:', err); return houses; }
   const out=[], seen=new Set();
   (ordered||[]).forEach(function(s){
@@ -35725,7 +36473,11 @@ function generateDayRoutes(day){
 }
 /* Every day of the season, except the ones nobody may touch. */
 function generateAllRoutes(){
-  const res={days:0, stops:0, locked:0, started:0};
+  /* Learned fresh, not cached: the office edits addresses and adds customers,
+     and a grid worked out an hour ago would place houses from a book that has
+     since moved. Guarded because the suites lift this function on its own. */
+  if(typeof refreshTownGrids==='function') refreshTownGrids();
+  const res={days:0, stops:0, locked:0, started:0, nopin:0, guessed:0};
   (typeof SEASON==='undefined'?[]:SEASON).forEach(function(d){
     const dt=dayDate(d);
     /* ⭐ A DAY INSIDE 48 HOURS IS PRINTED, AND PRINTED IS FINISHED. Owner,
@@ -35739,7 +36491,15 @@ function generateAllRoutes(){
        Re-ordering what is left of it under them helps nobody. */
     if((d.houses||[]).some(function(h){ return h.done; })){ res.started++; return; }
     const n=generateDayRoutes(d);
-    if(n){ res.days++; res.stops+=n; }
+    if(n){
+      res.days++; res.stops+=n;
+      /* Counted only on the days it actually ordered. A house on a day left
+         alone for the 48-hour lock has not been parked anywhere by this. */
+      (d.houses||[]).forEach(function(h){
+        if(!houseHasPin(h)){ res.nopin++; return; }
+        if(houseStopPoint(h).estimated) res.guessed++;
+      });
+    }
   });
   return res;
 }
@@ -35800,7 +36560,7 @@ function sendFixToList(id){const f=findHouse(id);if(!f)return;f.day.houses=f.day
   FIXLIST.push({id:f.house.id,name:f.house.name,address:f.house.address,city:f.house.city,zip:f.house.zip,phone:f.house.phone,issue:f.house.issue,addedDate:f.house.addedDate});renderAll();toast(f.house.name+' moved to the fix list');}
 function addListFixToDay(id,dayId){const idx=FIXLIST.findIndex(x=>x.id===id);if(idx<0)return;const fx=FIXLIST[idx];const day=getDay(dayId);if(!day)return;
   const h=fixToHouse(fx);const l=dlabel(day._date);h.autoDay=l.wd+' '+l.full;h.autoReason='added by you';day.houses.push(h);FIXLIST.splice(idx,1);selSchedule=dayId;renderAll();toast(fx.name+' fix added to '+l.full);}
-function nextWeekday(dt){let d=new Date(dt);while(isWeekend(d))d=addDays(d,1);return d;}
+function nextWeekday(dt){let d=new Date(dt);while(isDayOff(d))d=addDays(d,1);return d;}
 function anchorToday(){return installDays().length?installDays()[0]._date:BASE_START;}
 function buildFixRoutes(){
   if(!FIXLIST.length){toast('Fix list is empty');return;}
@@ -35830,8 +36590,13 @@ function renderSeasonBar(){
   RT.getElementById('startDate').value=isoOf(addDays(BASE_START,globalDelta));
   const rd=RT.getElementById('shiftRead'), lab=dlabel(first), last=dlabel(installDays()[installDays().length-1]._date);
   rd.innerHTML=(globalDelta===0?'Plan runs ':'Shifted <b>'+(globalDelta>0?'+':'')+globalDelta+'d</b> — ')+'<b>'+lab.wd+' '+lab.full+'</b> → <b>'+last.full+'</b>.';
-  const bumped=SEASON.filter(d=>!d.isFixRoute&&!d.isTakedown&&!d.pin&&isWeekend(desired(d))).length, wk=RT.getElementById('wkNote');
-  if(bumped){wk.style.display='';wk.innerHTML='⤷ '+bumped+' route day'+(bumped===1?'':'s')+' landed on a weekend and moved to the next weekday.';}else wk.style.display='none';
+  const bumped=SEASON.filter(d=>!d.isFixRoute&&!d.isTakedown&&!d.pin&&isDayOff(desired(d))).length, wk=RT.getElementById('wkNote');
+  /* Named rather than lumped in as "a weekend": a day that moved off Thanksgiving
+     moved for a different reason, and the office should not have to work out which. */
+  const overTg=SEASON.filter(d=>!d.isFixRoute&&!d.isTakedown&&!d.pin&&isThanksgiving(desired(d))).length;
+  if(bumped){wk.style.display='';wk.innerHTML='⤷ '+bumped+' route day'+(bumped===1?'':'s')+
+    ' landed on a '+(overTg===bumped?'holiday':(overTg?'weekend or Thanksgiving':'weekend'))+
+    ' and moved to the next working day.';}else wk.style.display='none';
   /* ⭐ A SAVED PLAN DOES NOT CHANGE WHEN THE RULES DO.
      Owner, 2026-08-17, looking at a 1 October day still carrying seven towns
      on one crew: "we are breaking off to American Fork". The builder had
@@ -35934,6 +36699,309 @@ function stopHTML(h,n,dayId){
     '<div class="saddr"><a href="'+maps+'" target="_blank" rel="noopener">'+esc(h.address)+'</a></div>'+(line?'<div class="sline">'+line+'</div>':'')+(h.details?'<div class="sdetail">'+esc(h.details)+'</div>':'')+extra+'</div>'+
     '<div class="sprice">'+(typeof h.price==='number'&&h.price?'$'+h.price:'')+'</div></div>';
 }
+/* ⭐ THE DAY'S ROUTES, DRAWN (added 2026-08-21).
+   Owner: "at the bottom you should be able to see a picture of the route, or
+   both routes if theres two."
+
+   A numbered list tells you the order and nothing about the shape, so a route
+   that doubles back across town reads exactly like a good one. The picture is
+   the only thing that makes a bad day obvious at a glance.
+
+   ⚠ DRAWN, NOT FETCHED. This is a plain inline SVG built from the coordinates
+   already in hand: no Google Maps, no API key, no per-load billing, nothing to
+   fail when the network is slow — and it prints, which a live map does not.
+   It also works inside the shadow DOM the Schedule tab lives in, where the
+   Routes tab's map does not.
+
+   ⚠ ONE SOURCE FOR THE GROUPING. The picture, the numbered list on screen and
+   the printed sheet must agree about whose stop is whose and what number it
+   carries, so all of them go through dayRouteGroups. Drawing route two while
+   the list says route one is worse than not drawing anything. */
+function dayRouteGroups(day){
+  const out = [];
+  const houses = (day && day.houses) || [];
+  if(!day) return out;
+  if(day.isFixRoute){
+    if(houses.length) out.push({label: 'Fixer route', houses: houses.slice()});
+    return out;
+  }
+  const seen = new Set();
+  CREWS.forEach(function(c, i){
+    const mine = crewHousesFor(i, day).filter(function(x){ return !seen.has(x); });
+    mine.forEach(function(x){ seen.add(x); });
+    if(mine.length) out.push({label: crewName(i), houses: mine, crew: i});
+  });
+  const spare = houses.filter(function(x){ return !seen.has(x); });
+  if(spare.length) out.push({label: 'Not on either crew’s route', houses: spare, spare: true});
+  return out;
+}
+const ROUTE_PIC_COLOURS = ['var(--green)', 'var(--gold)', '#2b6cb0', '#7b3fa0'];
+function routePictureHTML(day){
+  const groups = dayRouteGroups(day);
+  if(!groups.length) return '';
+  const home = (typeof routeHomePoint === 'function') ? routeHomePoint() : null;
+  const all = [];
+  let missing = 0, estimated = 0;
+  const lines = groups.map(function(g, gi){
+    const seq = [];
+    g.houses.forEach(function(hh, k){
+      const p = houseStopPoint(hh);
+      const ok = typeof p.lat === 'number' && typeof p.lng === 'number' &&
+                 isFinite(p.lat) && isFinite(p.lng);
+      /* A house with no position is NOT drawn at the edge of the picture or at
+         nought-nought — an invented dot is a lie you cannot see through. It is
+         counted underneath instead, where it reads as the gap it is. */
+      if(!ok){ missing++; return; }
+      if(p.estimated) estimated++;
+      const pt = {lat: p.lat, lng: p.lng, n: k + 1, est: !!p.estimated,
+                  name: (hh && hh.name) || ''};
+      seq.push(pt); all.push(pt);
+    });
+    return {label: g.label, spare: !!g.spare, seq: seq,
+            colour: g.spare ? 'var(--red)' : ROUTE_PIC_COLOURS[(g.crew || 0) % ROUTE_PIC_COLOURS.length]};
+  }).filter(function(l){ return l.seq.length; });
+  if(all.length < 2) return '';
+  const bounds = all.slice();
+  if(home) bounds.push({lat: home.lat, lng: home.lng});
+
+  const W = 680, H = 380, PAD = 30;
+  let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
+  bounds.forEach(function(p){
+    if(p.lat < minLat) minLat = p.lat;
+    if(p.lat > maxLat) maxLat = p.lat;
+    if(p.lng < minLng) minLng = p.lng;
+    if(p.lng > maxLng) maxLng = p.lng;
+  });
+  /* Longitude degrees are narrower than latitude ones this far north, so they
+     are squeezed by cos(lat) — without it a route looks stretched sideways and
+     a tidy day reads as a sprawling one. */
+  const kx = Math.cos(((minLat + maxLat) / 2) * Math.PI / 180);
+  const spanX = Math.max((maxLng - minLng) * kx, 1e-9);
+  const spanY = Math.max(maxLat - minLat, 1e-9);
+  const scale = Math.min((W - 2 * PAD) / spanX, (H - 2 * PAD) / spanY);
+  const ox = (W - spanX * scale) / 2, oy = (H - spanY * scale) / 2;
+  const X = function(lng){ return ox + (lng - minLng) * kx * scale; };
+  const Y = function(lat){ return H - (oy + (lat - minLat) * scale); };
+  const n1 = function(v){ return Math.round(v * 10) / 10; };
+
+  let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" ' +
+            'style="display:block;border-radius:10px;background:var(--bg);border:1px solid var(--line)" ' +
+            'role="img" aria-label="Map of this day’s routes">';
+  lines.forEach(function(l){
+    const pts = l.seq.map(function(p){ return n1(X(p.lng)) + ',' + n1(Y(p.lat)); });
+    /* Out of the yard, round the houses, and back to the yard — the shape the
+       crew actually drives, including the two legs a stop list never shows. */
+    const path = (home ? [n1(X(home.lng)) + ',' + n1(Y(home.lat))] : [])
+      .concat(pts, home ? [n1(X(home.lng)) + ',' + n1(Y(home.lat))] : []);
+    svg += '<polyline points="' + path.join(' ') + '" fill="none" stroke="' + l.colour +
+           '" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" opacity="0.75"' +
+           (l.spare ? ' stroke-dasharray="5 4"' : '') + '></polyline>';
+  });
+  lines.forEach(function(l){
+    l.seq.forEach(function(p){
+      const x = n1(X(p.lng)), y = n1(Y(p.lat));
+      svg += '<circle cx="' + x + '" cy="' + y + '" r="10" fill="' + l.colour + '"' +
+             /* A calculated position is drawn hollow, so nobody reads an
+                estimate as a surveyed pin. */
+             (p.est ? ' stroke="var(--card)" stroke-width="2.5" stroke-dasharray="3 2"' : '') +
+             '><title>' + esc(p.name) + '</title></circle>' +
+             '<text x="' + x + '" y="' + (y + 3.5) + '" text-anchor="middle" ' +
+             'font-size="10" font-weight="700" fill="#fff">' + p.n + '</text>';
+    });
+  });
+  if(home){
+    const hx = n1(X(home.lng)), hy = n1(Y(home.lat));
+    svg += '<rect x="' + (hx - 8) + '" y="' + (hy - 8) + '" width="16" height="16" rx="3" ' +
+           'fill="var(--ink)"><title>The yard — ' + esc(ROUTE_HOME_ADDRESS) + '</title></rect>' +
+           '<text x="' + hx + '" y="' + (hy - 13) + '" text-anchor="middle" font-size="10" ' +
+           'font-weight="700" fill="var(--ink)">YARD</text>';
+  }
+  svg += '</svg>';
+
+  let key = lines.map(function(l){
+    return '<span style="display:inline-flex;align-items:center;gap:6px">' +
+      '<i style="width:12px;height:12px;border-radius:3px;background:' + l.colour + '"></i>' +
+      esc(l.label) + ' · ' + l.seq.length + ' stop' + (l.seq.length === 1 ? '' : 's') + '</span>';
+  }).join('');
+  if(home) key += '<span style="display:inline-flex;align-items:center;gap:6px">' +
+      '<i style="width:12px;height:12px;border-radius:3px;background:var(--ink)"></i>' +
+      'Yard · ' + esc(ROUTE_HOME_ADDRESS) + '</span>';
+  const notes = [];
+  if(estimated) notes.push(estimated + ' shown hollow — placed from their address, not measured');
+  if(missing) notes.push(missing + ' not shown — no map position at all, so ' +
+                         (missing === 1 ? 'it is' : 'they are') + ' last on the route');
+  return '<div class="routepic"><div class="routehead">Picture of ' +
+    (lines.length > 1 ? 'both routes' : 'the route') +
+    '<span>out of the yard and back</span></div>' +
+    '<div style="padding:10px 16px 14px">' + svg +
+    '<div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:8px;font-size:12px;' +
+    'font-weight:600;color:var(--muted)">' + key + '</div>' +
+    (notes.length ? '<div style="margin-top:6px;font-size:12px;color:var(--muted)">' +
+      notes.map(esc).join(' · ') + '</div>' : '') +
+    '</div></div>';
+}
+
+/* ⭐ A LIVE MAP PER CREW — IN THE ORDINARY PAGE, NOT AN IFRAME (rewritten 2026-08-21).
+   Owner: "there is two different maps for each crew, unless its a one crew day",
+   then, on the first version: "it says it didnt load google maps correctly".
+
+   ⚠ THE FIRST ATTEMPT PUT EACH MAP IN AN <iframe srcdoc>, TO DODGE THE SHADOW DOM,
+   AND THAT IS WHAT BROKE IT. A srcdoc frame's document URL is `about:srcdoc`, so
+   the Maps key's HTTP-referrer check has nothing to match and Google answers with
+   "This page didn't load Google Maps correctly". Do NOT reintroduce an iframe here
+   however tidy it looks: the styling problem it solved is smaller than the one it
+   caused, and it cannot be tested for from this machine.
+
+   So the maps are built exactly the way `renderRouteMap` on the Routes tab builds
+   its map, which demonstrably works: a plain div in the MAIN document, same origin,
+   same referrer, same key. That also disposes of the shadow-DOM styling problem
+   rather than dodging it, because these divs were never in the shadow root.
+
+   ⚠ AND THEY STILL LIVE OUTSIDE ANYTHING THAT GETS REBUILT. renderPanelInto
+   rewrites its innerHTML on every render — every tick of a house, every save — so
+   a map inside it would be destroyed and rebuilt constantly: billed per load, and
+   it would throw away wherever the office had panned to. `#scheduleMaps` sits in
+   the page next to the schedule widget and is never rewritten; panes are created
+   once and afterwards only have their markers swapped. */
+const DAY_MAP_COLOURS = ['#0f5132', '#c99a2e', '#2b6cb0', '#7b3fa0'];
+const dayMapPanes = [];
+
+/* The stops of one route, as a map needs them. Reads houseStopPoint, so the map,
+   the numbered list and the printed sheet cannot disagree about where a house is
+   or what number it carries. */
+function dayMapRoutes(day){
+  const out = [];
+  dayRouteGroups(day).forEach(function(g){
+    const stops = [];
+    let missing = 0;
+    g.houses.forEach(function(hh, k){
+      const p = houseStopPoint(hh);
+      const ok = typeof p.lat === 'number' && typeof p.lng === 'number' &&
+                 isFinite(p.lat) && isFinite(p.lng);
+      /* Never given an invented pin — counted in the heading instead, where it
+         reads as the gap it is. */
+      if(!ok){ missing++; return; }
+      stops.push({lat: p.lat, lng: p.lng, n: k + 1, est: !!p.estimated,
+        title: (k + 1) + '. ' + ((hh && hh.name) || '') +
+               ((hh && hh.address) ? ' — ' + hh.address : '') +
+               (p.estimated ? ' (placed from the address, not measured)' : '')});
+    });
+    if(stops.length) out.push({label: g.label, spare: !!g.spare, stops: stops, missing: missing,
+      colour: g.spare ? '#b02a37' : DAY_MAP_COLOURS[(g.crew || 0) % DAY_MAP_COLOURS.length]});
+  });
+  return out;
+}
+function dayMapWrap(){
+  return (typeof document === 'undefined') ? null : document.getElementById('scheduleMaps');
+}
+/* One pane, built once and then kept for the life of the page. */
+function dayMapPaneAt(wrap, i){
+  if(dayMapPanes[i]) return dayMapPanes[i];
+  const box = document.createElement('div');
+  box.className = 'daymappane';
+  box.style.cssText = 'background:#fff;border:1px solid var(--line,#e2e8e4);border-radius:12px;overflow:hidden';
+  const hd = document.createElement('div');
+  hd.style.cssText = 'display:flex;justify-content:space-between;align-items:baseline;gap:10px;' +
+    'padding:9px 13px;background:#eef1ef;border-bottom:1px solid var(--line,#e2e8e4);font-size:13px';
+  const canvas = document.createElement('div');
+  canvas.style.cssText = 'width:100%;height:330px';
+  box.appendChild(hd);
+  box.appendChild(canvas);
+  wrap.querySelector('.daymapgrid').appendChild(box);
+  const pane = {box: box, hd: hd, canvas: canvas, map: null, markers: [], line: null, key: ''};
+  dayMapPanes[i] = pane;
+  return pane;
+}
+function dayMapDraw(pane, route, home){
+  if(!pane.map){
+    pane.map = new google.maps.Map(pane.canvas, {
+      zoom: 12, center: {lat: route.stops[0].lat, lng: route.stops[0].lng},
+      mapTypeControl: false, streetViewControl: false, fullscreenControl: true
+    });
+  }
+  pane.markers.forEach(function(m){ m.setMap(null); });
+  pane.markers = [];
+  if(pane.line){ pane.line.setMap(null); pane.line = null; }
+  const bounds = new google.maps.LatLngBounds();
+  const path = [];
+  if(home){
+    pane.markers.push(new google.maps.Marker({
+      position: home, map: pane.map, zIndex: 99,
+      title: 'The yard — ' + ROUTE_HOME_ADDRESS,
+      label: {text: 'Y', color: '#fff', fontWeight: '700', fontSize: '11px'},
+      icon: {path: google.maps.SymbolPath.CIRCLE, fillColor: '#1c2621', fillOpacity: 1,
+             strokeColor: '#fff', strokeWeight: 2, scale: 11}
+    }));
+    path.push(home);
+    bounds.extend(home);
+  }
+  route.stops.forEach(function(s){
+    pane.markers.push(new google.maps.Marker({
+      position: {lat: s.lat, lng: s.lng}, map: pane.map, title: s.title,
+      label: {text: String(s.n), color: '#fff', fontWeight: '700', fontSize: '12px'},
+      /* A calculated position is drawn hollower and ringed, so an estimate never
+         reads as a surveyed pin. */
+      icon: {path: google.maps.SymbolPath.CIRCLE, fillColor: route.colour,
+             fillOpacity: s.est ? 0.55 : 1, strokeColor: '#fff',
+             strokeWeight: s.est ? 3 : 1.5, scale: 13}
+    }));
+    path.push({lat: s.lat, lng: s.lng});
+    bounds.extend({lat: s.lat, lng: s.lng});
+  });
+  if(home) path.push(home);
+  pane.line = new google.maps.Polyline({path: path, geodesic: true,
+    strokeColor: route.colour, strokeWeight: 3, strokeOpacity: 0.8, map: pane.map});
+  /* ⚠ ONLY RE-FRAME WHEN THE ROUTE ITSELF CHANGED. Ticking a house off redraws
+     the panel, and re-fitting the bounds every time would yank the map back from
+     wherever the office had just panned to. */
+  const key = route.stops.map(function(s){ return s.n + ':' + s.lat.toFixed(5) + ',' + s.lng.toFixed(5); }).join('|');
+  if(key !== pane.key){ pane.key = key; pane.map.fitBounds(bounds, 36); }
+}
+function renderDayMaps(day){
+  const wrap = dayMapWrap();
+  if(!wrap) return;
+  if(!wrap.querySelector('.daymapgrid')){
+    const head = document.createElement('div');
+    head.className = 'daymapshead';
+    head.style.cssText = 'font-size:13px;font-weight:800;color:#6b776f;margin:0 2px 8px';
+    const grid = document.createElement('div');
+    grid.className = 'daymapgrid';
+    wrap.appendChild(head);
+    wrap.appendChild(grid);
+  }
+  const head = wrap.querySelector('.daymapshead');
+  const grid = wrap.querySelector('.daymapgrid');
+  const routes = day ? dayMapRoutes(day) : [];
+  if(!routes.length){ wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  head.textContent = routes.length > 1
+    ? 'The ' + routes.length + ' routes for this day — drag or zoom either one'
+    : 'The route for this day — drag or zoom it';
+  grid.style.cssText = 'display:grid;gap:12px;grid-template-columns:' +
+    (routes.length > 1 ? 'repeat(auto-fit,minmax(320px,1fr))' : '1fr');
+  /* ⚠ NO GOOGLE, NO BLANK BOX. If the Maps script did not load, the drawing is
+     still better than an empty rectangle — and it is already built and tested. */
+  if(typeof google === 'undefined' || !google.maps || !google.maps.Map){
+    dayMapPanes.length = 0;
+    grid.innerHTML = (typeof routePictureHTML === 'function') ? routePictureHTML(day) : '';
+    return;
+  }
+  routes.forEach(function(r, i){
+    const pane = dayMapPaneAt(wrap, i);
+    pane.box.style.display = '';
+    pane.hd.innerHTML = '<b>' + (r.spare ? '' : 'Route ' + (i + 1) + ' · ') + esc(r.label) + '</b>' +
+      '<span style="font-weight:600;font-size:12px;color:#6b776f;white-space:nowrap">' +
+      r.stops.length + ' stop' + (r.stops.length === 1 ? '' : 's') +
+      (r.missing ? ' · ' + r.missing + ' not on the map' : '') + '</span>';
+    dayMapDraw(pane, r, (typeof routeHomePoint === 'function') ? routeHomePoint() : null);
+  });
+  /* Panes for routes this day does not have are hidden, never destroyed — the
+     map inside is worth keeping for the next day that needs it. */
+  for(let i = routes.length; i < dayMapPanes.length; i++){
+    if(dayMapPanes[i]) dayMapPanes[i].box.style.display = 'none';
+  }
+}
+
 function renderPanelInto(elId,day){
   const el=RT.getElementById(elId);
   if(!day){el.innerHTML='<div class="emptyday">'+(elId==='fixPanel'?'Pick a fixer route on the left, or build one from the fix list.':'No day selected.')+'</div>';return;}
@@ -35972,7 +37040,7 @@ function renderPanelInto(elId,day){
   else{h+=weekGuideHTML(day)+'<div class="daycontrols" style="padding:10px 16px">'+
       '<button class="mini" data-pull="'+day.id+'">◀ Pull this + rest earlier</button><button class="mini" data-push="'+day.id+'">Push this + rest later ▶</button>'+
       '<button class="mini warn" data-skip="'+day.id+'">✕ Day off (push rest later)</button><span class="lbl">Force exact date</span><input type="date" class="pin" data-pin="'+day.id+'" value="'+isoOf(dt)+'">'+
-      (day.pin?'<button class="mini" data-unpin="'+day.id+'">clear</button>':'')+'<span class="read">'+(shift!==0?'shifted '+(shift>0?'+':'')+shift+'d':'on plan date')+(day.pin?' · manual date'+(isWeekend(dt)?' (weekend)':''):'')+'</span></div>';}
+      (day.pin?'<button class="mini" data-unpin="'+day.id+'">clear</button>':'')+'<span class="read">'+(shift!==0?'shifted '+(shift>0?'+':'')+shift+'d':'on plan date')+(day.pin?' · manual date'+(dayOffName(dt)?' ('+dayOffName(dt)+')':''):'')+'</span></div>';}
   if(!n)h+='<div class="emptyday">No houses on this day.</div>';
   else if(fr)h+=day.houses.map((x,i)=>stopHTML(x,i+1,day.id)).join('');
   else{
@@ -35981,24 +37049,29 @@ function renderPanelInto(elId,day){
        the whole day reads as one route, so the crew counting down their
        printed sheet and the office counting down the screen were never
        looking at the same numbers. */
-    const seen=new Set();
-    CREWS.forEach(function(c,i){
-      const mine=crewHousesFor(i,day).filter(function(x){ return !seen.has(x); });
-      mine.forEach(function(x){ seen.add(x); });
-      if(!mine.length) return;
-      h+='<div class="routehead">Route '+(i+1)+' · '+esc(crewName(i))+
-         '<span>'+esc(crewCityFor(i,day)||'no town')+' · '+mine.length+' stop'+(mine.length===1?'':'s')+'</span></div>';
-      h+=mine.map(function(x,k){ return stopHTML(x,k+1,day.id); }).join('');
+    /* ⚠ THE LIST AND THE PICTURE READ ONE GROUPING (dayRouteGroups). They used
+       to work the crews out separately, which is two implementations of the
+       same rule and the pair most likely to drift — and a picture drawing
+       route two beside a list headed route one is worse than no picture. */
+    dayRouteGroups(day).forEach(function(g, gi){
+      if(g.spare){
+        /* Never swallowed: a house in neither crew's town is a house nobody is
+           holding a sheet for, and it has to stay on screen saying so. */
+        h+='<div class="routehead spare">Not on either crew\u2019s route<span>'+g.houses.length+' stop'+(g.houses.length===1?'':'s')+' · nobody is holding a sheet for '+(g.houses.length===1?'it':'them')+'</span></div>';
+      } else {
+        h+='<div class="routehead">Route '+((g.crew||0)+1)+' · '+esc(g.label)+
+           '<span>'+esc(crewCityFor(g.crew||0,day)||'no town')+' · '+g.houses.length+' stop'+(g.houses.length===1?'':'s')+'</span></div>';
+      }
+      h+=g.houses.map(function(x,k){ return stopHTML(x,k+1,day.id); }).join('');
     });
-    /* Never swallowed: a house in neither crew's town is a house nobody is
-       holding a sheet for, and it has to stay on screen saying so. */
-    const spare=day.houses.filter(function(x){ return !seen.has(x); });
-    if(spare.length){
-      h+='<div class="routehead spare">Not on either crew\u2019s route<span>'+spare.length+' stop'+(spare.length===1?'':'s')+' · nobody is holding a sheet for '+(spare.length===1?'it':'them')+'</span></div>';
-      h+=spare.map(function(x,k){ return stopHTML(x,k+1,day.id); }).join('');
-    }
   }
   el.innerHTML=h;
+  /* ⭐ AND THE MAPS UNDERNEATH IT. Deliberately NOT part of the html above:
+     these are live iframes, and re-parenting an iframe reloads it, so they live
+     in their own container below the panel and survive every redraw. Wrapped
+     because a map failing matters far less than the stops list rendering. */
+  try{ renderDayMaps(n ? day : null); }
+  catch(err){ console.error('Route maps failed:', err); }
 }
 function renderSearch(q){
   const hits=installDays().flatMap(d=>d.houses).filter(h=>[h.name,personName(h.name,h),h.address,h.city,h.phone,h.email,h.details].join(' ').toLowerCase().includes(q));
@@ -36007,14 +37080,15 @@ function renderSearch(q){
   if(!hits.length){h+='<div class="emptyday">No matches.</div>';RT.getElementById('panel').innerHTML=h;return;}
   h+='<div class="searchres">';byDay.forEach((hs,d)=>{const l=dlabel(dayDate(d));h+='<div class="daygrp"><div class="daygrp-h">'+l.wd+' '+l.full+' · '+esc(dayMainArea(d))+'</div>'+hs.map((x)=>stopHTML(x,d.houses.indexOf(x)+1,d.id)).join('')+'</div>';});
   RT.getElementById('panel').innerHTML=h+'</div>';
+  try{ renderDayMaps(null); }catch(err){ /* nothing to draw is not a failure */ }
 }
 function renderActive(){
   if(activeTab==='schedule'){renderSeasonBar();renderDayList('days',installDays(),selSchedule,'schedule');
     const q=RT.getElementById('q').value.trim().toLowerCase();
     if(q)renderSearch(q);else{let d=getDay(selSchedule);if(!d||d.isFixRoute||d.isTakedown)d=installDays()[0];selSchedule=d?d.id:null;renderPanelInto('panel',d);}}
   else if(activeTab==='fixes'){renderFixTray();const fr=fixerRoutes();if(!fr.find(d=>d.id===selFix))selFix=fr[0]?fr[0].id:null;renderDayList('fixDays',fr,selFix,'fix');renderPanelInto('fixPanel',getDay(selFix));}
-  else if(activeTab==='oneman'){renderOneMan();}
-  else if(activeTab==='printing'){renderPrinting();}
+  else if(activeTab==='oneman'){renderOneMan();renderDayMaps(null);}
+  else if(activeTab==='printing'){renderPrinting();renderDayMaps(null);}
   else{renderTakedownBar();const td=takedownDays();if(!td.find(d=>d.id===selTake))selTake=td[0]?td[0].id:null;renderDayList('takeDays',td,selTake,'take');renderPanelInto('takePanel',getDay(selTake));}
   renderCrewBar();
   renderLeftovers();
@@ -36426,6 +37500,9 @@ function houseInstallPriority(h, custData){
   return 2;                            // no preference — fills in behind October
 }
 function rebuildSeasonDays(){
+  /* Before anything is grouped: the clustering below measures distances, and a
+     house with no position at all cannot be clustered. */
+  if(typeof refreshTownGrids==='function') refreshTownGrids();
   if(typeof planNewCrewDays!=='function') return {error:'The day builder is not available on this page.'};
   const start=seasonStartDate();
   const startStr=isoOf(start);
@@ -36520,7 +37597,14 @@ function rebuildSeasonDays(){
             /* Coordinates come off the customer record — the imported rows have
                none — and only decide whether two towns are near enough to share
                a crew. A house without them still gets a day in its own town. */
-            stop:{lat:(typeof d.lat==='number'?d.lat:null), lng:(typeof d.lng==='number'?d.lng:null)}};
+            /* ⭐ AND AN ADDRESS-DERIVED POSITION COUNTS HERE TOO (2026-08-21).
+               This is what the day CLUSTERING measures, so a house left without
+               one is not merely last in the driving order — it is dropped into
+               whichever day the queue happened to reach, miles from the rest.
+               Guarded so the suites that lift this function alone still get
+               exactly the old behaviour. */
+            stop:(typeof houseGeoPoint==='function' ? houseGeoPoint(h,d)
+                  : {lat:(typeof d.lat==='number'?d.lat:null), lng:(typeof d.lng==='number'?d.lng:null)})};
   });
   const homeless=waiting.filter(function(w){return !w.city;});
   const placeable=waiting.filter(function(w){return w.city;});
@@ -37203,7 +38287,7 @@ RT.addEventListener('change',e=>{const t=e.target;
   }
   if(t.dataset.move){moveHouse(t.dataset.move,t.value);return;}
   if(t.dataset.fixadd&&t.value){addListFixToDay(t.dataset.fixadd,t.value);return;}
-  if(t.dataset.pin){const d=getDay(t.dataset.pin);if(d&&t.value){d.pin=new Date(t.value+'T00:00:00');renderAll();toast('Date set'+(isWeekend(d.pin)?' (weekend)':''));}return;}
+  if(t.dataset.pin){const d=getDay(t.dataset.pin);if(d&&t.value){d.pin=new Date(t.value+'T00:00:00');renderAll();toast('Date set'+(dayOffName(d.pin)?' ('+dayOffName(d.pin)+')':''));}return;}
 });
 RT.addEventListener('click',e=>{const t=e.target;
   const tab=t.closest('.tab');if(tab){switchTab(tab.dataset.tab);return;}
@@ -37262,6 +38346,18 @@ RT.addEventListener('click',e=>{const t=e.target;
        one is the answer to "why is Rachel not in the schedule". */
     if(r.joined) parts.push(r.joined+' new customer'+(r.joined===1?'':'s')+' added to the plan');
     parts.push(routes.days?('routes generated for '+routes.days+' day'+(routes.days===1?'':'s')):'no routes needed generating');
+    /* ⭐ AND IT NAMES WHAT IT COULD NOT PUT IN ORDER. See houseHasPin: these are
+       on their day and on the sheet, just at the bottom of it, because there is
+       no map pin to order them against. Saying so is the difference between a
+       known gap and a button that looks broken. */
+    /* ⭐ AND IT SAYS HOW MANY IT WORKED OUT FROM THE ADDRESS. These have never
+       been geocoded, but their address is a Utah grid reference, so the town's
+       own grid places them. Said out loud because it IS an estimate, however
+       good: the office should know the difference between a house we have
+       measured and one we have calculated. */
+    if(routes.guessed) parts.push(routes.guessed+' placed from their street address');
+    if(routes.nopin) parts.push(routes.nopin+' house'+(routes.nopin===1?'':'s')+
+      ' not on the map yet — left at the end of their day');
     /* ⭐ IT SAYS WHAT IT LEFT ALONE. A day inside 48 hours is printed, and the
        office has to know it was skipped deliberately rather than missed. */
     const held=Math.max(routes.locked||0,r.locked||0);
@@ -37705,7 +38801,11 @@ function printNeedsBuildList(){
               lights: printLightColor(d), wire: d.wireColor || '',
               timer: printYesNo(d.outletTimer),
               feet: isTopUp ? ('+' + need.feet) : ((d.measuredFeet === 0 || d.measuredFeet) ? d.measuredFeet : ''),
-              putInto: (isTopUp && typeof whPutIntoLabel === 'function') ? whPutIntoLabel(d) : ''};
+              /* Same wording as the warehouse sheet — see whSheetRowsForBuild. Two
+                 sheets of the same job saying it two ways is how one of them stops
+                 being read. */
+              putInto: (isTopUp && typeof whPutIntoLabel === 'function')
+                ? ('EXISTING BIN \u2014 ' + whPutIntoLabel(d)) : ''};
     })
     .sort(function(x, y){ return String(x.name).localeCompare(String(y.name)); });
 }

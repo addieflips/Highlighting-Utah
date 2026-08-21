@@ -4790,8 +4790,21 @@ if (!JSDOM) {
   const cardSrc = cardStart > -1 ? sectionFrom(admin, cardStart) : '';
   check('convert-dup', 'quote card render found in admin.html', cardStart > -1,
     'renamed or removed — update this test rather than deleting it');
+  /* ⚠ SLICED, NOT WINDOWED. This was a 300-character window between the guard and the
+     button, and it went red the moment a comment was added between them — a false alarm
+     about a guard that was perfectly intact, which is exactly the stale-window trap
+     CLAUDE.md §7 warns about. It now takes the ternary itself and asks which half the
+     button is in. */
+  const convAt = cardSrc.indexOf('(d.convertedToCustomerAt');
+  const convTern = convAt < 0 ? '' : cardSrc.slice(convAt, cardSrc.indexOf('data-archivequote', convAt));
+  /* The else-half of that ternary: a line that is only indentation and a colon. Written
+     with fromCharCode because a literal newline inside this string is what a shell
+     heredoc turns it into, and the file then does not parse. */
+  const elseAt = convTern.indexOf(String.fromCharCode(10) + '              : ');
   check('convert-dup', 'the Convert to Customer button no longer shows once a quote is converted',
-    /d\.convertedToCustomerAt[\s\S]{0,300}data-converttocust/.test(cardSrc),
+    convAt > -1 && elseAt > -1 &&
+    convTern.indexOf('data-converttocust') > elseAt &&
+    /Converted/.test(convTern.slice(0, elseAt)),
     'a converted quote still offered a live "Convert to Customer" button, inviting a second, duplicate conversion');
 
   const guardStart = admin.indexOf('dupCheckSnap');
@@ -7902,6 +7915,31 @@ suite('Suite 24. A day with nothing left in it does not abort the sweep');
     expectStops('and it is the un-geocoded house that was kept, not a placeholder', noPin,
       v => v.some(s => s && s.id === 'nopin'));
 
+    /* ⭐ AND IT MAY NOT SCRAMBLE THE DAY AROUND IT (added 2026-08-21).
+       "Stays on the route and orders arbitrarily" was only ever true of the
+       un-pinned house itself. haversine() against a null coordinate is NaN and
+       `d < bestDist` is false for NaN, so an un-pinned house sitting FIRST
+       became the anchor, every remaining stop measured NaN, and the day came
+       back in an order the optimiser had never chosen — while reporting that it
+       had. One un-geocoded customer ruined a whole crew's driving day.
+       ⚠ FIVE PINNED HOUSES, FED IN SCRAMBLED. With two or three the right answer
+       and the input order are the same and the check proves nothing. */
+    const poisoned = attempt(() => reorder(
+      [stop('nopin', null, null), stop('a', 40.00, -111), stop('e', 40.08, -111),
+       stop('c', 40.04, -111), stop('b', 40.02, -111), stop('d', 40.06, -111)], null));
+    expectStops('an un-pinned house at the FRONT does not scramble the rest', poisoned,
+      v => v.filter(s => s && s.id !== 'nopin').map(s => s.id).join() === 'a,b,c,d,e',
+      'got [' + (poisoned.ok ? poisoned.value.map(s => s && s.id).join() : poisoned.err) +
+        '] — every distance from an un-pinned anchor is NaN, so the walk never finds a nearest anything');
+    expectStops('and it still rides along, on the end', poisoned,
+      v => v.length === 6 && v[5] && v[5].id === 'nopin',
+      'it is a real customer; dropping it loses a visit');
+    const allBare = attempt(() => reorder(
+      [stop('x', null, null), stop('y', null, null), stop('z', null, null)], null));
+    expectStops('a day where NOTHING is geocoded still comes back whole', allBare,
+      v => v.map(s => s && s.id).join() === 'x,y,z',
+      'the bulk import creates these on purpose');
+
     // Ordinary behaviour must be untouched.
     const normal = attempt(() => reorder(
       [stop('far', 50, -111), stop('near', 40.1, -111), stop('start', 40, -111)], { lat: 40, lng: -111 }));
@@ -7913,7 +7951,12 @@ suite('Suite 24. A day with nothing left in it does not abort the sweep');
      of them are the ones seen failing, so fixing it at the call site would
      leave the other six able to throw the same way. */
   check('S24', 'the guard lives in reorderFlatStops, where every caller gets it',
-    /filter\(Boolean\)/.test(body) && /if\(!remaining\.length\) return \[\]/.test(body));
+    /filter\(Boolean\)/.test(body) && /if\(!remaining\.length\) return (\[\]|unpinned);/.test(body));
+  /* ⚠ THE SPLIT IS THE FIX, so it is pinned here as well as proved above: an
+     un-pinned stop must not be able to anchor the nearest-neighbour walk. */
+  check('S24', 'un-pinned stops are held aside rather than routed against',
+    /const unpinned = all\.filter\(/.test(body) && /\.concat\(unpinned\)/.test(body),
+    'ordering them alongside the rest is what made NaN the anchor');
   check('S24', 'the guard does NOT filter on having coordinates',
     !/filter\([^)]*typeof[^)]*lat/.test(body),
     'filtering on lat/lng would silently drop un-geocoded houses off their routes');
@@ -7956,6 +7999,13 @@ suite('Suite 25. A day is only SET if it is within two business days');
     const api = eval(
       'function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x;}\n' +
       'function isWeekend(d){const k=d.getDay();return k===0||k===6;}\n' +
+      /* ⚠ pinHorizon walks the calendar through isDayOff since 2026-08-21, so
+         the holiday rule has to come with it. Lifted from the real file rather
+         than stubbed, or the harness proves the horizon skips a day it does not. */
+      extractFn(admin, 'thanksgivingDate') + '\n' +
+      extractFn(admin, 'isThanksgivingDay') + '\n' +
+      extractFn(admin, 'isThanksgiving') + '\n' +
+      extractFn(admin, 'isDayOff') + '\n' +
       admin.slice(constStart, admin.indexOf('function pinHorizon')) +
       horizonSrc + '\n' + effSrc +
       '\n;({horizon: pinHorizon, eff: effectivePin, days: PIN_HONOURED_BUSINESS_DAYS})');
@@ -11799,10 +11849,17 @@ suite('Suite 48. Days within two working days are set');
     admin.indexOf('const worked=(dt&&dt<today)'),
     'a day that is set but has nothing done yet must be caught first, or it is treated as fair game');
 
+  /* ⚠ WORKING days, which since 2026-08-21 means Thanksgiving is not one of
+     them either. isDayOff is isWeekend plus the holiday, so this still asserts
+     the Friday-rebuild rule below and no longer goes red on the day the holiday
+     was added to it. */
   check('S48', 'it is measured in WORKING days',
     /PIN_HONOURED_BUSINESS_DAYS=2;/.test(admin) &&
-    /while\(isWeekend\(d\)\)d=addDays\(d,1\);/.test(fn('pinHorizon')),
+    /while\(isDayOff\(d\)\)d=addDays\(d,1\);/.test(fn('pinHorizon')),
     'a Friday rebuild must not quietly set Saturday and Sunday and leave Monday loose');
+  check('S48', 'and a working day is a weekday that is not the holiday',
+    /function isDayOff\(dt\)\{ return isWeekend\(dt\)\|\|isThanksgiving\(dt\); \}/.test(admin),
+    'nobody works Thanksgiving, so it cannot be one of the two business days either');
 
   check('S48', 'the rebuild reports how many it left alone',
     /locked:locked\.length,/.test(admin));
@@ -19581,9 +19638,12 @@ suite('Suite 106. Moving house, and withdrawing a re-quote');
       isOut({}) === false);
   }
 
-  /* ---- the button sets both queues and keeps the record ---- */
+  /* ---- the recycle button, on its own ----
+     ⚠ SLICED TO THE BUILD BUTTON, NOT TO DELETE. Since the split there is another
+     handler in between, so a slice reaching Delete swallows it and every check about
+     what recycle does NOT do reads the build button's code instead. */
   const btnBlock = admin.slice(admin.indexOf("getElementById('editCustRecycleStayBtn')"),
-                               admin.indexOf("getElementById('editCustDeleteBtn')"));
+                               admin.indexOf("getElementById('editCustBuildStayBtn')"));
   check('S106', 'the button exists in Edit Customer',
     admin.indexOf('editCustRecycleStayBtn') !== -1 && btnBlock.length > 0);
   check('S106', 'it puts them on the recycle list',
@@ -19592,9 +19652,15 @@ suite('Suite 106. Moving house, and withdrawing a re-quote');
      record — the panel repaints from jobAddresses rather than re-reading Firestore, so
      a write without the mirror leaves the old state on screen. Matching the text once
      passes with either half deleted, which is how two red-checks got through here. */
-  check('S106', 'and on the needs-to-be-built list, in the write AND the local copy',
-    (btnBlock.match(/needsLightBuild: true/g) || []).length === 2,
-    'owner: "but then also put her in the needs to be built section in the warehouse"');
+  /* ⚠ THE BUILD HALF MOVED TO ITS OWN BUTTON on 2026-08-21, so it is checked there —
+     see 'there is a button that only queues a build' below. The owner's original ask,
+     "but then also put her in the needs to be built section in the warehouse", is still
+     satisfied for a mover; it now takes the second press she asked for. The mirror rule
+     below still applies to BOTH buttons and is checked on each. */
+  check('S106', 'and the local copy is updated too, not just the write',
+    (btnBlock.match(/recycleKeepingCustomer: true/g) || []).length === 2,
+    'the panel repaints from jobAddresses rather than re-reading Firestore, so a write ' +
+    'without the mirror leaves the old state on screen');
   check('S106', 'and marks them as staying, in the write AND the local copy',
     (btnBlock.match(/recycleKeepingCustomer: true/g) || []).length === 2,
     'the flag is what keeps them in the season; the mirror is what keeps the screen ' +
@@ -19611,10 +19677,60 @@ suite('Suite 106. Moving house, and withdrawing a re-quote');
     btnBlock.indexOf('availableCustomerNumbers') === -1,
     'they still hold it; pooling it puts a live label on somebody else' +
     String.fromCharCode(8217) + 's bin');
-  check('S106', 'and says so when there are no colours on file to build from',
-    /no light colours on file/.test(btnBlock),
-    'the build queue skips a house with no lightsDescription, so they would go on ' +
-    'one list and silently not the other');
+  /* ⭐ SPLIT IN TWO (2026-08-21). Owner: "for this actually dont make it one button
+     have one button for build and another for recycle." Somebody who MOVED needs both,
+     and pressing one then the other does exactly what the single button did — but the
+     combined one could not express either alone: a house whose old set is already back
+     needs only a build, and a customer sitting this season out needs only a recycle.
+     Neither had a button.
+
+     ⚠ SO RECYCLE MUST NOT QUIETLY QUEUE A BUILD AS WELL, or the pair is impossible to
+     use for the two cases they were separated for. */
+  check('S106', 'recycling on its own does not queue a build',
+    btnBlock.indexOf('needsLightBuild') === -1,
+    'it used to set both, because it was the one button for somebody who had moved');
+  check('S106', 'and it says the other button is there, and to press it too',
+    /press Build Them A New Set[\s\S]{0,40}as well/.test(btnBlock),
+    'naming the button without saying to press it leaves a mover half done, which is ' +
+    'the one case the pair was split apart for');
+
+  /* And the build half, which is where the no-colours warning went. */
+  {
+    const at = admin.indexOf("document.getElementById('editCustBuildStayBtn')");
+    const bBlock = at > 0 ? admin.slice(at, admin.indexOf("document.getElementById('editCustDeleteBtn')", at)) : '';
+    check('S106', 'there is a button that only queues a build', !!bBlock &&
+      /needsLightBuild: true/.test(bBlock),
+      'a house whose old set is already back needs a build and nothing else');
+    check('S106', 'and it never recycles anything',
+      bBlock.indexOf('needsLightRecycle') === -1,
+      'pulling a set back that nobody asked to pull back is a real bundle off a shelf');
+    /* ⚠ TIED TO THE BRANCH THAT SHOWS IT. A search for the wording survived the
+       condition being switched off — the words sat there inside a branch that could
+       never run. */
+    check('S106', 'and it warns when there are no colours to build from',
+      /hasColours \? '' :[\s\S]{0,120}no light colours on their record/.test(bBlock),
+      'the build queue cannot group a house with no lightsDescription, so it lands in ' +
+      'the Waiting block rather than the queue');
+    check('S106', 'and works out hasColours from both fields',
+      /lightsDescription[\s\S]{0,60}lightColors/.test(bBlock),
+      'a repeating pattern lives in the description with an EMPTY colour list, so ' +
+      'reading one field calls an alternating house undecorated');
+    check('S106', 'and clears any leftover add-on, because this is a whole set',
+      /buildTopUpFromFeet: null/.test(bBlock),
+      'left set, the sheet would ask for the difference instead of the whole thing');
+    check('S106', 'and it does not delete or pool anything',
+      bBlock.indexOf('deleteDoc') === -1 &&
+      bBlock.indexOf('availableCustomerNumbers') === -1);
+    /* ⚠ THE MIRROR RULE APPLIES TO THIS BUTTON TOO: the panel repaints from
+       jobAddresses rather than re-reading Firestore, so a write without the local copy
+       leaves the old state on screen. */
+    check('S106', 'and it updates the local copy as well as writing',
+      (bBlock.match(/needsLightBuild: true/g) || []).length === 2,
+      'once in the write, once in the record the panel repaints from');
+    check('S106', 'and a failure says what failed',
+      /console\.error\('Could not queue the build:'/.test(bBlock),
+      'the same silence that hid the Edit Customer save for two days');
+  }
 
   /* ---- Mark Recycled keeps a mover ---- */
   const markBlock = admin.slice(admin.indexOf("list.querySelectorAll('[data-whrecycledone]')"),
@@ -19723,6 +19839,10 @@ suite('Suite 107. Pricing a re-quote from the popup');
            without this throws where the page would not, which hides the refusal being
            tested behind a crash. */
         focus: function(){ this.focused = true; },
+        /* The popup presses the Edit Customer save for her, so the stub has to be
+           pressable. Without this it throws where the page would not, and the one-press
+           behaviour cannot be tested at all. */
+        click: function(){ this.fire('click'); },
         remove: function(){ byId[id] = null; delete byId[id]; }
       };
       return byId[id];
@@ -20260,9 +20380,13 @@ suite('Suite 107. Pricing a re-quote from the popup');
   check('S107', 'and so does marking a whole group done',
     (admin.match(/buildTopUpFromFeet:null/g) || []).length >= 2,
     'the bulk button writes its own update and would otherwise leave it behind');
-  check('S107', 'and recycling by hand clears it too',
-    /buildTopUpFromFeet: null,\s*\r?\n\s*lightsRecycleRequestedAt/.test(admin),
-    'the Recycle button in Edit Customer builds a full set from scratch');
+  /* ⚠ IT MOVED WITH THE SPLIT. Clearing the add-on belongs to whichever button queues
+     a WHOLE set, and after 2026-08-21 that is Build Them A New Set, not Recycle. */
+  check('S107', 'and queueing a whole set by hand clears it too',
+    /needsLightBuild: true,[\s\S]{0,400}buildTopUpFromFeet: null/.test(
+      admin.slice(admin.indexOf("document.getElementById('editCustBuildStayBtn')"),
+                  admin.indexOf("document.getElementById('editCustDeleteBtn')"))),
+    'the Build button in Edit Customer makes a full set from scratch');
 
   /* ⚠ THERE ARE TWO BUILD SHEETS AND THEY BOTH NEED THE COLUMN. The Printing tab has
      one and the Warehouse tab has its own, older one. A red-check that deleted the
@@ -20793,6 +20917,90 @@ suite('Suite 107. Pricing a re-quote from the popup');
     /Price only \\u2014 the house has not changed, so the warehouse does nothing/.test(admin),
     'somebody picking the card up later has to know which job it is, including none');
 
+  /* ⭐ FILLING THE POPUP IN IS THE JOB. Owner, 2026-08-21: "after I fill everything out I
+     just want to convert them... I just want it to happen after I fill the stuff out and
+     that doesnt happen."
+
+     ⚠ THE SECOND PRESS EXISTED FOR ONE REASON AND THAT REASON WAS GONE. It was there
+     because the customer-number rule could need a human answer — keep the old number or
+     move to the 5000 series — and applying it silently would have decided that for her.
+     Converting moves the number by itself now, so the question was already answered by
+     the time the button was pressed and the extra step bought nothing.
+
+     ⚠ IT STILL GOES THROUGH THE EDIT CUSTOMER SAVE. That form re-derives the bin count,
+     rebuilds the invoice, re-syncs saved route stops, queues the warehouse and closes the
+     quote. A write path of its own here would be the copy that quietly falls behind —
+     which is why the popup reused the form in the first place. Only who presses the
+     button has changed. */
+  {
+    const src = extractFn(admin, 'showApplyRequoteChoice');
+    check('S120', 'there is a button that applies it outright',
+      /applyRequoteNowBtn/.test(src) && /Apply it to/.test(src),
+      'she filled the whole popup in and then had to find and press a second button');
+    check('S120', 'and the review path is kept as the second one',
+      /Open their record first/.test(src),
+      'sometimes she does want to look before it lands');
+    check('S120', 'both go through one function, so they cannot drift',
+      /function applyRequote\(applyNow\)/.test(src) &&
+      /applyRequote\(false\)/.test(src) && /applyRequote\(true\)/.test(src),
+      'two copies of the fill-in-the-form step is two things to keep in step');
+    /* ⚠ AND IT PRESSES THE FORM'S OWN BUTTON, never a copy of what that button does. */
+    check('S120', 'applying presses the Edit Customer save rather than writing its own',
+      /getElementById\('editCustSaveBtn'\)[\s\S]{0,200}saveBtn\.click\(\)/.test(src),
+      'a second write path would have to redo the bins, the invoice, the routes and the ' +
+      'warehouse, and would be the copy that falls behind');
+    check('S120', 'and says what it is doing while it does it',
+      /Applying to '\+\(who\)/.test(src));
+
+    /* ⚠ AND BOTH BUTTONS ARE HELD WHILE THE PRICE IS BLANK. A second way through that is
+       still live is the same dead end wearing a new label. */
+    const r = run({name: 'Ashley Wray'},
+      {id: 'c894', data: {name: 'Ashley Wray', customerNumber: '894'}}, 2);
+    check('S120', 'with no price, neither button is live',
+      r.el('applyRequoteBtn').disabled === true &&
+      r.el('applyRequoteNowBtn').disabled === true);
+    r.el('requotePriceInput').value = '600';
+    r.el('requotePriceInput').fire('input');
+    check('S120', 'and typing one releases both',
+      r.el('applyRequoteBtn').disabled === false &&
+      r.el('applyRequoteNowBtn').disabled === false);
+
+    /* Pressing Apply parks the same answers as the review path, and then saves. */
+    let saved = false;
+    r.el('editCustSaveBtn').addEventListener('click', function(){ saved = true; });
+    r.el('applyRequoteNowBtn').fire('click');
+    check('S120', 'pressing Apply fills the record AND saves it',
+      r.el('editCustHousePrice').value === 600 && r.converting() === 'q1' && saved === true,
+      'this is the whole request: one press after the popup is filled in');
+
+    const r2 = run({name: 'Ashley Wray'},
+      {id: 'c894', data: {name: 'Ashley Wray', customerNumber: '894'}}, 2);
+    let saved2 = false;
+    r2.el('editCustSaveBtn').addEventListener('click', function(){ saved2 = true; });
+    r2.el('requotePriceInput').value = '600';
+    r2.el('requotePriceInput').fire('input');
+    r2.el('applyRequoteBtn').fire('click');
+    check('S120', 'and Open their record first still leaves it to her',
+      r2.el('editCustHousePrice').value === 600 && saved2 === false,
+      'the review path has to stay a review path');
+  }
+
+  /* ⭐ AND THE CARD STOPS CALLING IT CONVERTING. Owner: "I think the issue might be that
+     its converting them rather than updating them." The button has said Convert since
+     before re-quotes existed, and it is the only wording she sees before the popup — so
+     the popup then has to talk her out of what the button just told her. */
+  {
+    const at = admin.indexOf('A RE-QUOTE UPDATES SOMEBODY; IT DOES NOT CONVERT THEM');
+    const blk = at > 0 ? admin.slice(at, admin.indexOf('data-archivequote', at)) : '';
+    check('S120', 'a re-quote against a live customer says Apply Re-quote', !!blk &&
+      /'Apply Re-quote' : 'Convert to Customer'/.test(blk),
+      'the popup should not have to talk her out of what the button just said');
+    /* ⚠ CHECKED AGAINST THE LIVE BOOK, not the field alone: a customer really can have
+       been deleted since the re-quote was raised, and building them again IS converting. */
+    check('S120', 'and it asks the live book, the same way the popup does',
+      /jobAddresses \|\| \[\]\)\.some\(function\(a\)\{ return a\.id === d\.existingCustomerId; \}\)/.test(blk),
+      'the label and the behaviour must not disagree about the same quote');
+  }
   /* ---- and the card that started it says what it is showing ---------------- */
   /* ⚠ SCOPED TO THE BRANCH, because the phrase sits on TWO of them — the one that
      starts on their last price and the one that suggests from the footage. A bare
@@ -21105,6 +21313,71 @@ suite('Suite 115. A price change asks');
    button in bulk updates for deleting all test customers from customers and quotes and
    invoices and routes and schedule and put their number back in the system", and "it
    should also delete test customers from anywhere in the warehouse." */
+/* ⭐ SUITE 119. THE RE-QUOTE'S OWN INSTALL FORM — THE OTHER SESSION'S WORK, GUARDED.
+   Owner, to the other session: "when an old house gets requoted I want them to choose
+   whether they want to fill out the form fresh or keep what's already there."
+
+   ⚠ THIS IS HERE BECAUSE THE TWO SESSIONS NEARLY DELETED EACH OTHER (2026-08-21). A
+   whole-file push of admin.html landed on main carrying that feature and, without meaning
+   to, six commits of mine went missing from it; my push would have taken hers back out
+   the same way. Both survived only because the merge was done by hand, function by
+   function. Nothing was checking hers, so nothing would have said a word.
+
+   ⚠ AND git merge-file GOT IT WRONG ON THIS FILE. It split one of my functions in half
+   and lost a closing brace — admin.html would not have parsed at all. CLAUDE.md §0 says
+   merge this file, never paste it; it is worth adding that an automatic 3-way merge is
+   not trustworthy here either. Verify the braces balance afterwards, every time. */
+suite('Suite 119. The re-quote install form');
+
+{
+  check('S119', 'the summary of what they filled in is still here',
+    !!extractFn(admin, 'requoteFormSummary'),
+    'a customer who fills the form in fresh after a remodel has to be read, or the ' +
+    'warehouse builds last year’s pattern');
+  check('S119', 'and the code that puts their answers on the form',
+    !!extractFn(admin, 'applyRequoteFormAnswers'));
+  check('S119', 'the apply popup shows what they said',
+    /requoteFormSummary\(d\)/.test(extractFn(admin, 'showApplyRequoteChoice')),
+    'shown BEFORE the record opens, because a change nobody announced is a change ' +
+    'nobody checks');
+  check('S119', 'and fills their answers in when it opens the record',
+    /applyRequoteFormAnswers\(d\)/.test(extractFn(admin, 'showApplyRequoteChoice')));
+
+  /* ⚠ AND HERS RUNS AFTER MINE. requoteLightsToCarry fills a BLANK from the old quote;
+     applyRequoteFormAnswers writes what the customer typed this week. If mine ran second
+     it would be filling a blank that is no longer blank, but the order still has to be
+     the right way round on purpose rather than by accident. */
+  {
+    const src = extractFn(admin, 'showApplyRequoteChoice');
+    check('S119', 'what the customer just told us is applied last',
+      src.indexOf('requoteLightsToCarry(d, ed)') < src.indexOf('applyRequoteFormAnswers(d)'),
+      'a form they filled in this week beats a value carried off last year’s record');
+  }
+
+  /* Her exact wording survives the checkbox order, which cannot hold one. */
+  {
+    const at = admin.indexOf("document.getElementById('editCustSaveBtn').addEventListener");
+    const body = at > 0 ? admin.slice(at, admin.indexOf('const newInstallPref', at)) : '';
+    check('S119', 'their typed pattern beats the ticked boxes when nothing was retouched',
+      /const keptRequotePattern = requoteLightsPattern/.test(body) &&
+      /\? requoteLightsPattern/.test(body),
+      '"White, White, Red" read back off the boxes becomes "Pure White, Red" — a ' +
+      'different set of lights from the one they asked for');
+  }
+  check('S119', 'and it is cleared once used, and on cancel',
+    (admin.match(/requoteLightsPattern = '';/g) || []).length >= 3,
+    'left set, the next customer saved inherits somebody else’s wording');
+
+  /* ⭐ AND HER FIX TO THE OTHER HALF OF THE BUILD-FLAG BUG. I fixed the Edit Customer
+     path (a blank colour field wiping needsLightBuild); she fixed the Add Customer path
+     (a new house from a quote with no colours never getting the flag at all). The two
+     together are what actually gets Ashley and Rachel into the warehouse. */
+  check('S119', 'a new house is flagged to build whether or not its colours are known',
+    /needsGeocode: pinFailed, needsLightBuild: true,/.test(admin),
+    'it read !!lightsDescription, so a quote converted without colours was in neither ' +
+    'the build queue nor the waiting block, and the tab said there was nothing to do');
+}
+
 suite('Suite 116. Deleting the test records');
 
 {
@@ -21141,6 +21414,23 @@ suite('Suite 116. Deleting the test records');
         new RegExp("collection\\(db,'" + col + "'\\)").test(src),
         'a sweep that misses a collection leaves a test customer on a sheet');
     });
+    /* ⭐ AND THE INBOX (2026-08-21). A test customer walked through the real flow leaves
+       messages behind — a Light Colour Change from the portal, an RSVP note — and none of
+       them carries isTestRecord, because the portal wrote them and knows nothing about
+       tests. Left there they are junk in the one list the office reads every morning. */
+    check('S116', 'it looks in the Inbox too',
+      /collection\(db,'messages'\)/.test(src),
+      'the portal writes messages that nothing stamps as a test');
+    check('S116', 'and deletes what it finds there',
+      /'messages', found\.messages/.test(extractFn(admin, 'testSweepDelete')),
+      'finding them and leaving them is worse than not looking');
+
+    /* ⚠ AND THE REPORT USES THE WORDS ON THE SCREEN IT IS ABOUT. Owner, reading "Would
+       delete: 1 invoice" with two Test rows on the recycle queue in front of her: "it
+       fails to see it needs to delete a recycle." */
+    check('S116', 'the report calls them entries on the recycle list',
+      /entry on the recycle list/.test(extractFn(admin, 'testSweepSummary')),
+      '"2 archived records" is not obviously the two rows on the Recycle screen');
     check('S116', 'and at the season plan, which is one document not a collection',
       /doc\(db,'routeSchedule','plan'\)/.test(src),
       'owner asked for the schedule by name');
@@ -21160,6 +21450,148 @@ suite('Suite 116. Deleting the test records');
       /found\.numbers = found\.customers/.test(src));
   }
 
+  /* ⭐ AN ARCHIVED RECORD NESTS THE CUSTOMER, and the sweep was reading the wrong
+     level. Owner, 2026-08-21, after running it: "Done. 6 things cleared. but the tests
+     in the recycle are still there."
+
+     ⚠ hlxRemoveCustomerToRecycle writes {customer: d, archivedAt, archivedBy, reason},
+     so the name, the phone and isTestRecord all live one level down. Asking
+     isTestRecordData about the OUTER document showed it no name and no phone, so it said
+     no to every archived row and skipped the whole collection — and the recycle queue
+     is mostly archived rows, which is exactly where she could still see them.
+
+     ⚠ RUN, NOT READ. A check that the word 'archivedCustomers' appears in the sweep
+     passed the whole time this was broken. */
+  {
+    const AsyncFn = Object.getPrototypeOf(async function(){}).constructor;
+    const find = new AsyncFn('getDocs', 'collection', 'getDoc', 'doc', 'db', 'console',
+      'TEST_PHONE',
+      extractFn(admin, 'isTestRecordData') + 'async ' + extractFn(admin, 'testSweepFind') +
+      'return testSweepFind();');
+    const snap = (rows) => ({forEach: (f) => rows.forEach(r => f({id: r.id, data: () => r.data}))});
+    const runFind = (archRows) => find(
+      async function(q){ return snap(q && q.col === 'archivedCustomers' ? archRows : []); },
+      function(db, col){ return {col: col}; },
+      async function(){ return {exists: function(){ return false; }}; },
+      function(db, c, i){ return {col: c, id: i}; }, {},
+      {error: function(){}, log: function(){}}, '3853912235');
+
+    pendingAsync.push((async () => {
+      const r = await runFind([
+        {id: 'arch1', data: {customer: {name: 'Test', phone: '3853912235',
+                                        isTestRecord: true}, reason: 'recycled'}},
+        {id: 'arch2', data: {customer: {name: 'Ashley Wray', phone: '8016160714'},
+                             reason: 'recycled'}}
+      ]);
+      check('S116', 'an archived test record is found, nested shape and all',
+        r.archived.length === 1 && r.archived[0].id === 'arch1',
+        'the recycle queue is mostly archived rows, so missing them is missing the ' +
+        'place she was looking');
+      check('S116', 'and a real archived customer is left alone',
+        r.archived.every(function(a){ return a.data.name === 'Test'; }),
+        'these are people who were deleted; taking one back out is not recoverable');
+
+      /* ⚠ AND A FLAT ROW STILL WORKS. One written before that shape existed, or by
+         anything else, has the fields at the top level. Reading only the nested half
+         is the same bug pointing the other way. */
+      const flat = await runFind([
+        {id: 'old1', data: {name: 'Test', phone: '3853912235', isTestRecord: true}}
+      ]);
+      check('S116', 'and an older flat archived row is found too',
+        flat.archived.length === 1 && flat.archived[0].id === 'old1');
+    })());
+  }
+
+  /* ⭐ AND THE BUILD TAB CAN BE ASKED ABOUT ONE HOUSE. Owner, 2026-08-21, having pressed
+     Build Them A New Set: "i clicked build ashley wray but shes not here." The list is
+     five collapsed headings, so "she is not here" and "she is here, inside the third
+     group" look identical until every one is opened.
+
+     ⚠ AND IT ASKS THE REAL GROUPING rather than re-deciding. A second copy of those
+     rules is how a screen starts confidently contradicting the list beside it. */
+  {
+    const status = new Function('item', 'jobAddresses', 'warehouseExtras', 'whGroupKey',
+      'houseBundleNeed',
+      extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whHouseBuildStatus') +
+      'return whHouseBuildStatus(item);');
+    const ask = function(d, extras){
+      const item = {id: 'a', data: d};
+      return status(item, [item], extras || [], function(p, w){ return p + '|' + (w || ''); },
+        function(){ return {bundles: 1}; });
+    };
+    check('S116', 'a house in a build group is reported as being there',
+      ask({name: 'A', needsLightBuild: true, lightsDescription: 'Warm White'}).state === 'building');
+    check('S116', 'one with no colours is reported as waiting on them',
+      ask({name: 'A', needsLightBuild: true}).state === 'blocked',
+      'that is a different problem with a different fix, and saying which is the point');
+    check('S116', 'one nobody queued is reported as not queued',
+      ask({name: 'A'}).state === 'notqueued',
+      'owner pressed a button and could not tell whether it had worked');
+    check('S116', 'and somebody sitting the season out says so',
+      ask({name: 'A', needsLightBuild: true, maybeNextYear: true}).state === 'nextyear');
+
+    const words = new Function('name', 'st', extractFn(admin, 'whBuildStatusText') +
+      'return whBuildStatusText(name, st);');
+    check('S116', 'and every state says what to do about it',
+      /Build Them A New Set/.test(words('A', {state: 'notqueued'})) &&
+      /Add their colours/.test(words('A', {state: 'blocked'})) &&
+      /Open that heading/.test(words('A', {state: 'building', where: 'Warm White'})),
+      'telling somebody where they are not is half an answer');
+  }
+
+  /* ⭐ RUN OVER A MIXED INBOX AND A MIXED RECYCLE LIST. Owner, 2026-08-21, reading
+     "Would delete: 1 invoice" with two Test rows on the recycle queue in front of her:
+     "it fails to see it needs to delete a recycle."
+
+     ⚠ CHECKS THAT THE COLLECTION IS MENTIONED PASSED THE WHOLE TIME IT WAS BROKEN, and
+     so did checks that the report has a line for it. Both of these run the real thing
+     and read what comes out. */
+  {
+    const AsyncFn = Object.getPrototypeOf(async function(){}).constructor;
+    const both = new AsyncFn('getDocs', 'collection', 'getDoc', 'doc', 'db', 'console',
+      'TEST_PHONE',
+      extractFn(admin, 'isTestRecordData') + 'async ' + extractFn(admin, 'testSweepFind') +
+      extractFn(admin, 'testSweepSummary') +
+      'const r = await testSweepFind(); return {r: r, text: testSweepSummary(r)};');
+    const snap = (rows) => ({forEach: (f) => rows.forEach(r => f({id: r.id, data: () => r.data}))});
+    /* Her actual screen: two Test rows on the recycle list, one invoice, and an Inbox
+       holding one message from the test customer and one from a real one. */
+    const world = {
+      archivedCustomers: [
+        {id: 'a1', data: {customer: {name: 'Test', phone: '3853912235', isTestRecord: true}}},
+        {id: 'a2', data: {customer: {name: 'Test', phone: '3853912235', isTestRecord: true}}}],
+      invoices: [{id: '3853912235', data: {name: 'Test', phone: '3853912235'}}],
+      messages: [
+        {id: 'm1', data: {name: 'Test', phone: '3853912235', topic: 'Light Color Change'}},
+        {id: 'm2', data: {name: 'Ashley Wray', phone: '8016160714', topic: 'Light Color Change'}}]
+    };
+    pendingAsync.push(both(
+      async function(q){ return snap(world[q.col] || []); },
+      function(db, col){ return {col: col}; },
+      async function(){ return {exists: function(){ return false; }}; },
+      function(db, c, i){ return {col: c, id: i}; }, {},
+      {error: function(){}, log: function(){}}, '3853912235'
+    ).then(function(o){
+      check('S116', 'the test customer\u2019s message is found in the Inbox',
+        o.r.messages.length === 1 && o.r.messages[0].id === 'm1',
+        'the portal writes these and knows nothing about tests, so nothing stamps them');
+      /* ⚠ AND A REAL CUSTOMER'S MESSAGE IS NOT. It is somebody asking for something,
+         and deleting one loses a request nobody else has a copy of. */
+      check('S116', 'and a real customer\u2019s message is left alone',
+        o.r.messages.every(function(m){ return m.data.name === 'Test'; }),
+        'the phone alone is not enough, and the name alone is certainly not');
+      check('S116', 'both recycle-list rows are found',
+        o.r.archived.length === 2);
+      /* ⚠ AND THE REPORT SAYS ALL OF IT, in the words on the screen it is about. */
+      check('S116', 'the report names the recycle list and the Inbox, not just the invoice',
+        /entries on the recycle list/.test(o.text) &&
+        /message in the Inbox/.test(o.text) && /invoice/.test(o.text),
+        'got \u201c' + o.text + '\u201d \u2014 she read \u201c1 invoice\u201d with two Test rows ' +
+        'on the recycle queue in front of her');
+      check('S116', 'and counts them properly rather than saying nothing',
+        /2 entries on the recycle list/.test(o.text) && /1 message in the Inbox/.test(o.text));
+    }));
+  }
   /* ---- and what it does with them ---------------------------------------- */
   {
     const del = extractFn(admin, 'testSweepDelete');
@@ -21478,6 +21910,82 @@ suite('Suite 112. The number on the bin');
       new Function('d', extractFn(admin, 'whBinNumberFor') + 'return whBinNumberFor(d);'),
       new Function('d', extractFn(admin, 'whBinNumberMoved') + 'return whBinNumberMoved(d);'),
       []).rows;
+  /* ⭐ AN ADD-ON HAS TO LOOK LIKE AN ADD-ON. Owner, 2026-08-21: "when it builds an add on
+     it should somehow indicate to the warehouse that what they built needs to go into a
+     bin that already exists." The Put into column already named the bin, but the row
+     still read Type: House with a Feet of +120 — and Type is the column an eye scans
+     down. A bundle handed to somebody who thinks they are building a house gets a new
+     bin made for it, and then two bins wear one number. */
+  {
+    const rows = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey',
+      'houseBundleNeed', 'whWireLabel', 'whPutIntoLabel', 'WH_BUILD_COLUMNS',
+      extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whSheetRowsForBuild') +
+      'return whSheetRowsForBuild();');
+    const build = function(cust){
+      return rows([{id: 'a1', data: cust}], [], (p, w) => p + '|' + (w || ''),
+        new Function('d', extractFn(admin, 'houseBundleNeed') + 'return houseBundleNeed(d);'),
+        (w) => String(w || 'white'),
+        new Function('d', extractFn(admin, 'houseBundleNeed') +
+          extractFn(admin, 'whPutIntoLabel') + 'return whPutIntoLabel(d);'),
+        []).rows.filter(function(r){ return r.type !== 'Blocked'; })[0];
+    };
+    const addOn = build({name: 'Ashley Wray', customerNumber: '894',
+      needsLightBuild: true, lightsDescription: 'Warm White',
+      measuredFeet: 300, buildTopUpFromFeet: 180});
+    check('S112', 'an add-on row says ADD-ON in the Type column',
+      !!addOn && addOn.type === 'ADD-ON',
+      'Type: House on a row that is not a house is how a second bin gets made');
+    check('S112', 'and says in words that it joins a bin they already have',
+      !!addOn && /GOES INTO THE BIN THEY ALREADY HAVE/.test(addOn.notes),
+      'Notes is what gets read when a row looks unusual');
+    check('S112', 'and still names whose bin, and how much to make',
+      !!addOn && addOn.putInto === 'Ashley Wray #894' && addOn.feet === '+120');
+    check('S112', 'and their own note is not thrown away for it',
+      /GOES INTO THE BIN[\s\S]*ladder round the back/.test(
+        build({name: 'A', customerNumber: '9', needsLightBuild: true,
+               lightsDescription: 'Warm White', measuredFeet: 300,
+               buildTopUpFromFeet: 180, notes: 'ladder round the back'}).notes),
+      'the crew still needs what the customer told them');
+
+    const ordinary = build({name: 'Plain', customerNumber: '5', needsLightBuild: true,
+      lightsDescription: 'Warm White', measuredFeet: 300});
+    check('S112', 'an ordinary build is untouched by any of this',
+      !!ordinary && ordinary.type === 'House' && ordinary.putInto === '' &&
+      !/GOES INTO THE BIN/.test(ordinary.notes),
+      'a marker on every row is a marker nobody sees');
+
+    /* ⚠ AND THE SCREEN SAYS IT TOO. The warehouse works off the tab as often as off the
+       paper, and a sabotage removing the badge broke nothing until this was written. */
+    check('S112', 'the warehouse tab badges an add-on row',
+      /ADD-ON \\u2014 into the bin they already have/.test(
+        extractFn(admin, 'renderWarehouseQueue')),
+      'it sits with the Timer and wire chips, where somebody building looks');
+    check('S112', 'and only on an add-on row',
+      /need\.topUp[\s\S]{0,600}ADD-ON/.test(extractFn(admin, 'renderWarehouseQueue')),
+      'a badge on every row is a badge nobody sees');
+
+    /* And the Printing tab's copy of the same list. */
+    {
+      const list = new Function('jobAddresses', 'printLightColor', 'printYesNo',
+        'houseBundleNeed', 'whPutIntoLabel',
+        extractFn(admin, 'printNeedsBuildList') + 'return printNeedsBuildList();');
+      const out = list(
+        [{id: 'x', data: {name: 'Ashley Wray', customerNumber: '894',
+                          needsLightBuild: true, measuredFeet: 300,
+                          buildTopUpFromFeet: 180}}],
+        () => 'Warm White', () => 'No',
+        new Function('d', extractFn(admin, 'houseBundleNeed') + 'return houseBundleNeed(d);'),
+        new Function('d', extractFn(admin, 'houseBundleNeed') +
+          extractFn(admin, 'whPutIntoLabel') + 'return whPutIntoLabel(d);'));
+      check('S112', 'the printed Needs Building list says EXISTING BIN',
+        out.length === 1 && /^EXISTING BIN/.test(out[0].putInto) &&
+        /Ashley Wray #894/.test(out[0].putInto),
+        'two sheets of the same job saying it two ways is how one stops being read');
+      check('S112', 'and marks the footage as an addition',
+        out[0].feet === '+120');
+    }
+  }
+
     check('S112', 'the printed warehouse sheet names the bin, not the record',
       out.length === 1 && out[0].bin === '894',
       'the sheet is what they carry to the shelf');
@@ -24880,7 +25388,11 @@ suite('77. Schedule route generator');
      and takes the whole run down with a stack trace that names neither. */
   const havStart = admin.indexOf('function haversine(lat1, lng1, lat2, lng2)');
   const havEnd = admin.indexOf('\n}', havStart) + 2;
-  const geoStart = admin.indexOf('function twoOptImprove(ordered, startPoint)');
+  /* ⚠ ANCHOR ON THE NAME, NOT THE SIGNATURE. Adding an optional argument to a
+     function is a normal, backwards-compatible change; pinning the full argument
+     list here turns it into a whole suite silently not running. That is exactly
+     what happened on 2026-08-21 when twoOptImprove gained an endPoint. */
+  const geoStart = admin.indexOf('function twoOptImprove(');
   const geoEnd = admin.indexOf('function nearestNeighborOrder(', geoStart);
   const lockStart = admin.indexOf('const ROUTE_LOCK_HOURS');
   const lockEnd = admin.indexOf('async function reconcileUpcomingRoutes(', lockStart);
@@ -25015,6 +25527,33 @@ suite('77. Schedule route generator');
       res.locked === 2 && res.days === 1,
       'a day skipped in silence looks like a day it forgot — got locked=' + res.locked + ' days=' + res.days);
 
+    /* ⭐ AND IT SAYS WHAT IT COULD NOT PUT IN ORDER (added 2026-08-21). A house
+       with no map pin has no position to be ordered against, so it rides on the
+       end of its day — which is right, and which looks exactly like the button
+       having failed if nobody is told. The office can act on this one: the house
+       is either not matched to a customer record or that customer has never been
+       geocoded, and both are fixable from All Customers. */
+    const bareOne = dayAt(30, 'bare');
+    bareOne.houses.push({ name: 'no-pin', city: 'Lehi', price: 1 });
+    gen.setSeason([bareOne]);
+    const bareRes = gen.all();
+    check('S77', 'a house with no map pin is counted, not silently parked',
+      bareRes.nopin === 1,
+      'got nopin=' + bareRes.nopin + ' — a handful of houses sitting at the bottom of ' +
+        'every sheet reads as a broken button, not as a known gap');
+    check('S77', 'and the rest of that day is still put in driving order',
+      bareOne.houses.slice(0, 3).map(h => h.name).join() === 'bare-a,bare-c,bare-b',
+      'the un-pinned house must not drag the pinned ones out of order — got [' +
+        bareOne.houses.map(h => h.name).join() + ']');
+    check('S77', 'and the un-pinned house is still on the day',
+      bareOne.houses.length === 4 && bareOne.houses[3].name === 'no-pin',
+      'it is a real customer somebody still has to drive to');
+
+    gen.setSeason([dayAt(30, 'clean')]);
+    check('S77', 'a season where everything is on the map reports none',
+      gen.all().nopin === 0,
+      'a count that is never zero is a count nobody reads');
+
     const started = dayAt(30, 'started');
     started.houses[0].done = true;
     gen.setSeason([started]);
@@ -25085,6 +25624,14 @@ suite('77. Schedule route generator');
   const syncStart = admin.indexOf('window.scheduleSyncFromCustomers=function(opts){');
   const syncEnd = admin.indexOf('function __startSyncTimer()', syncStart);
   const sync = (syncStart > -1 && syncEnd > syncStart) ? admin.slice(syncStart, syncEnd) : '';
+  {
+    const rc = admin.indexOf("if(t.id==='recalcBtn')");
+    const rcEnd = admin.indexOf("if(t.id==='undoRebuildBtn')", rc);
+    const press = (rc > -1 && rcEnd > rc) ? admin.slice(rc, rcEnd) : '';
+    check('S77', 'and the button SAYS how many it could not place',
+      /routes\.nopin/.test(press) && /not on the map yet/.test(press),
+      'counting it without printing it changes nothing the office can see');
+  }
   check('S77', 'the periodic sync re-orders the days it changed',
     /routes=generateAllRoutes\(\)/.test(sync),
     'enforceInstallTiming puts a moved house on the END of its new day');
@@ -25104,7 +25651,10 @@ suite('77. Schedule route generator');
 
 /* The panel draws the same two routes the sheet prints — RUN, not read. */
 {
-  const panelStart = admin.indexOf('function renderPanelInto(elId,day)');
+  /* ⚠ START AT dayRouteGroups, NOT AT THE RENDERER. The list and the picture
+     deliberately share one grouping function, so a slice that takes only the
+     renderer no longer has the thing the renderer is built on. */
+  const panelStart = admin.indexOf('function dayRouteGroups(day)');
   const panelEnd = admin.indexOf('function renderSearch(q)', panelStart);
   const crewStart = admin.indexOf('function cityOf(h)');
   const crewEnd = admin.indexOf('/* ---------- build from imported rows', crewStart);
@@ -25443,6 +25993,863 @@ suite('Suite 117. The colour-change fee, actually charged');
         'billing the invoice AND next season for one change is $60 for a $30 fee');
     })());
   }
+}
+
+/*
+ * Suite 120. A day is a cluster, not the top of a list.
+ *
+ * Owner, 2026-08-21: "in the schedule we want to try to organize it so in a
+ * city and neighboring cities it picks houses for a day that are closer to each
+ * other rather than miles apart although theyre technically in the same city."
+ *
+ * ⚠ THIS IS THE HALF NO AMOUNT OF RE-ORDERING CAN FIX. Suite 77 proves the
+ * houses ON a day come back in driving order. That is only ever as good as the
+ * SET of houses the day was given: twenty picked at random across a nine-mile
+ * town have no short route, however well they are sorted afterwards. The pick
+ * is what this suite guards.
+ *
+ * ⚠ AND IT MUST NOT HAVE BOUGHT THAT BY BREAKING HER ORDERING RULES. Distance
+ * is the LAST word, never the first — October still empties before November is
+ * touched. Both halves are checked below, because a version that clusters
+ * beautifully and sends October houses out in December is worse than no change
+ * at all.
+ */
+suite('120. A day is a cluster, not the top of a list');
+{
+  const start = admin.indexOf('function planNewCrewDays(waiting, taken, opts)');
+  const end = admin.indexOf('/* Top every day up to the cap.', start);
+  if (start === -1 || end < start) {
+    check('S120', 'the day builder is findable', false,
+      'renamed or removed — update this test rather than deleting it');
+  } else {
+    const LF_ = String.fromCharCode(10);
+    global.toDateStr = dt => dt.getFullYear() + '-' +
+      String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+    const consts = admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'),
+                               admin.indexOf('function installPriority'));
+    const prelude = ['const NEARBY_TOWN_LIST = {};',
+      extractFn(admin, 'haversine'), extractFn(admin, 'sameTownName'),
+      extractFn(admin, 'townCentres'), extractFn(admin, 'nearbyTowns'),
+      extractFn(admin, 'extractCleanCity'), extractFn(admin, 'thanksgivingDate')].join(LF_) + LF_;
+    const api = eval(prelude + consts + LF_ + extractFn(admin, 'installPriority') + LF_ +
+      admin.slice(start, end) + LF_ + ';({plan: planNewCrewDays, cap: MAX_STOPS_PER_ROUTE})');
+
+    /* ⚠ THE TWO ENDS OF TOWN INTERLEAVE IN THE QUEUE, which is the whole point of
+       the fixture. Clumped in the queue, "take the front twenty" gives a tidy day
+       by accident and this suite passes whether the clustering exists or not.
+       Interleaved, the old builder takes ten from each end — which is exactly the
+       seven-mile day the owner was looking at. */
+    const town = (n, latBase, tag) => {
+      const out = [];
+      for (let i = 0; i < n; i++) out.push({ id: tag + i, city: 'Provo', priority: 5,
+        named: false, from: '2026-10-01', until: '',
+        stop: { lat: latBase + i * 0.001, lng: -111.66 } });
+      return out;
+    };
+    const interleave = (a, b) => a.flatMap((x, i) => [x, b[i]]);
+    const spreadOf = (ids, pool) => {
+      const lats = ids.map(id => pool.find(w => w.id === id).stop.lat);
+      return (Math.max.apply(null, lats) - Math.min.apply(null, lats)) * 69;
+    };
+
+    const north = town(20, 40.30, 'N'), south = town(20, 40.20, 'S');
+    const pool = interleave(north, south);
+    const days = api.plan(pool.slice(), {}, { floorDate: '2026-10-01', maxDays: 10,
+      horizonDays: 60, pack: false });
+
+    check('S120', 'a town split across two ends gives one END a day, not a slice of both',
+      days.length >= 2 && days[0].ids.every(id => id[0] === days[0].ids[0][0]),
+      'got [' + (days[0] ? days[0].ids.join() : 'no day') + '] — ten from each end is the ' +
+        'seven-mile day this exists to stop');
+    check('S120', 'and the day it builds is a few miles across, not the whole town',
+      days.length && spreadOf(days[0].ids, pool) < 3,
+      'got ' + (days.length ? spreadOf(days[0].ids, pool).toFixed(1) : '?') + ' mi across');
+    check('S120', 'the other end is not stranded — it gets the next day',
+      days.length >= 2 && days[1].ids.length === 20 &&
+        days[1].ids.every(id => id[0] !== days[0].ids[0][0]),
+      'clustering must not cost anybody their place in the season');
+    check('S120', 'and nobody is lost or scheduled twice on the way',
+      (function () {
+        const seen = days.flatMap(d => d.ids);
+        return seen.length === new Set(seen).size && seen.length === 40;
+      })(),
+      'the pick splices out of a live queue — a mis-ordered splice removes the wrong houses');
+
+    /* ⭐ THE RULE THAT OUTRANKS DISTANCE. One October house at the FAR end of town
+       from where the clustering wants to be: it must still go out on day one.
+       Owner, 2026-08-18: "we need to get everyone who requested Oct done in Oct". */
+    const urgent = { id: 'OCT', city: 'Provo', priority: 1, named: false,
+      from: '2026-10-01', until: '', stop: { lat: 40.20, lng: -111.66 } };
+    const mixed = [urgent].concat(town(30, 40.30, 'N'));
+    const d2 = api.plan(mixed.slice(), {}, { floorDate: '2026-10-01', maxDays: 10,
+      horizonDays: 60, pack: false });
+    check('S120', 'a more urgent house is never left behind for being far away',
+      d2.length && d2[0].ids.indexOf('OCT') > -1,
+      'distance is the tiebreak INSIDE a priority tier, never a way out of one');
+
+    /* A named day still leads its tier — "try to do their house the next possible
+       chance after that" (2026-08-20) — and clustering may not quietly undo it. */
+    const named = { id: 'NAMED', city: 'Provo', priority: 5, named: true,
+      from: '2026-10-01', until: '', stop: { lat: 40.20, lng: -111.66 } };
+    const d3 = api.plan([named].concat(town(30, 40.30, 'N')), {},
+      { floorDate: '2026-10-01', maxDays: 10, horizonDays: 60, pack: false });
+    check('S120', 'somebody who named a day still leads their tier',
+      d3.length && d3[0].ids.indexOf('NAMED') > -1,
+      'they asked for that day; a shorter drive is not a reason to move them');
+
+    /* A house with no map pin cannot be clustered. It must still get a day, and
+       it must not drag the pinned ones out of their cluster on the way. */
+    const bare = { id: 'NOPIN', city: 'Provo', priority: 5, named: false,
+      from: '2026-10-01', until: '', stop: { lat: null, lng: null } };
+    const withBare = [bare].concat(interleave(town(20, 40.30, 'N'), town(20, 40.20, 'S')));
+    const d4 = api.plan(withBare.slice(), {}, { floorDate: '2026-10-01', maxDays: 10,
+      horizonDays: 60, pack: false });
+    const allIds = d4.flatMap(d => d.ids);
+    check('S120', 'a house with no map pin is still scheduled', allIds.indexOf('NOPIN') > -1,
+      'the bulk import creates these on purpose — it cannot be a reason to skip somebody');
+    check('S120', 'and it does not scatter the day it lands on',
+      d4.length && (function () {
+        const pinned = d4[0].ids.filter(id => id !== 'NOPIN');
+        return pinned.length > 1 && spreadOf(pinned, withBare) < 3;
+      })(),
+      'an un-clusterable house must be carried, not routed against');
+  }
+}
+
+/*
+ * Suite 121. A Utah address is already a map reference.
+ *
+ * Owner, 2026-08-21: "try to use math for the ones without geocode by checking
+ * their street address, if their street address isnt a word then its a number
+ * and if its a number in utah that is a location so you can find it that way",
+ * and "any that you just dont know where a house is still because its a word
+ * not a number or something put all them at the end of whatever route they end
+ * up in".
+ *
+ * Measured on the real book of 960 addresses: 350 carry both grid numbers, 458
+ * carry one, 152 carry none. So this is not a corner case — it is a third of
+ * the book placed exactly and another half placed roughly.
+ *
+ * ⚠ THE DANGEROUS DIRECTION IS A CONFIDENT WRONG ANSWER, not a missing one. A
+ * house left unplaced goes to the end of its route where somebody sees it; a
+ * house placed two miles out is silently driven past. So most of what is
+ * checked below is the REFUSALS.
+ */
+suite('121. A Utah address is already a map reference');
+{
+  const gridStart = admin.indexOf('function utahGridOf(address)');
+  const gridEnd = admin.indexOf('/* Towns the office has said are close enough', gridStart);
+  if (gridStart === -1 || gridEnd < gridStart) {
+    check('S121', 'the address maths is findable', false,
+      'renamed or removed — update this test rather than deleting it');
+  } else {
+    const LF_ = String.fromCharCode(10);
+    const api = eval(extractFn(admin, 'haversine') + LF_ + admin.slice(gridStart, gridEnd) +
+      LF_ + ';({grid: utahGridOf, street: streetNameKey, fit: fitTownGrid,' +
+      '   MINPTS: GRID_MIN_POINTS, MAXERR: GRID_MAX_MEDIAN_ERR, hav: haversine})');
+
+    /* ---- reading the address ---- */
+    const g1 = api.grid('11528 S 840 W');
+    check('S121', 'both numbers are read, with south and west going negative',
+      g1 && g1.north === -11528 && g1.east === -840,
+      'got ' + JSON.stringify(g1));
+    const g2 = api.grid('247 W 1080 N');
+    check('S121', 'and it does not care which axis is written first',
+      g2 && g2.east === -247 && g2.north === 1080,
+      'got ' + JSON.stringify(g2) + ' — the book writes it both ways round');
+    const g3 = api.grid('1093 E Ranchero Dr');
+    check('S121', 'a named street still gives up the one number it carries',
+      g3 && g3.east === 1093 && g3.north === null,
+      'that is a line, and a line is worth far more than nothing — got ' + JSON.stringify(g3));
+    check('S121', 'a street with no number at all reads as nothing',
+      api.grid('8387 Etienne Way') === null,
+      'inventing a position for one of these is the mistake this whole suite guards');
+    check('S121', 'and so does a blank',
+      api.grid('') === null && api.grid(null) === null);
+
+    /* ⚠ THE FIRST VALUE ON AN AXIS WINS. A unit number further along the line
+       must not overwrite the street the house is actually on. */
+    const g4 = api.grid('247 W 1080 N Apt 4 W');
+    check('S121', 'a unit number later in the line cannot overwrite the street',
+      g4 && g4.east === -247 && g4.north === 1080,
+      'got ' + JSON.stringify(g4));
+
+    /* ---- the street name, for borrowing the missing half ---- */
+    check('S121', 'street names are normalised so Drive and Dr are one street',
+      api.street('2387 Willow Hills Drive') === api.street('1450 N Willow Hills Dr') &&
+      api.street('2387 Willow Hills Drive') === 'willow hills dr',
+      'got "' + api.street('2387 Willow Hills Drive') + '" and "' +
+        api.street('1450 N Willow Hills Dr') + '"');
+    check('S121', 'a numbered street is not treated as a name',
+      api.street('11528 S 840 W') === '',
+      'the grid already reads those properly; naming them would group unrelated houses');
+
+    /* ---- learning a town's grid ---- */
+    /* Built from a REAL Utah grid — Lehi, Main & Center, about an eighth of a
+       mile per hundred address units — with 40 ft of noise on every house so the
+       fit is never handed a perfect answer. A QUARTER of them are held back and
+       the fit never sees them. */
+    const ORIGIN = { lat: 40.3916, lng: -111.8508 }, PER_UNIT_MI = 0.125 / 100;
+    const truth = (e, n, seed) => ({
+      lat: ORIGIN.lat + n * PER_UNIT_MI / 69 + ((seed * 37) % 11 - 5) * 0.00011,
+      lng: ORIGIN.lng + e * PER_UNIT_MI / (69 * Math.cos(ORIGIN.lat * Math.PI / 180)) +
+           ((seed * 53) % 11 - 5) * 0.00014 });
+    const known = [], held = [];
+    let seed = 0;
+    for (let n = -1200; n <= 1200; n += 200) {
+      for (let e = -1200; e <= 1200; e += 400) {
+        seed++;
+        const p = truth(e, n, seed);
+        (seed % 4 === 0 ? held : known).push({ east: e, north: n, lat: p.lat, lng: p.lng });
+      }
+    }
+    const fit = api.fit(known);
+    check('S121', 'a town on a grid is learned from the houses already pinned',
+      fit.ok === true, fit.why || '');
+    const errs = held.map(p => api.hav(p.lat, p.lng,
+      fit.latOf(p.east, p.north), fit.lngOf(p.east, p.north))).sort((a, b) => a - b);
+    const median = errs[Math.floor(errs.length / 2)];
+    /* 1/10 mile is 528 ft, about two houses. Well inside anything that changes
+       a driving order, and this fixture actually lands near 170 ft. */
+    check('S121', 'and it places houses it has never seen to within a tenth of a mile',
+      median < 0.1,
+      'median ' + (median * 5280).toFixed(0) + ' ft on ' + held.length + ' held-out houses');
+
+    /* ---- and now the refusals, which are the point ---- */
+    const scrambled = known.map((p, i) => ({ east: p.east, north: p.north,
+      lat: ORIGIN.lat + ((i * 17) % 40) * 0.002, lng: ORIGIN.lng + ((i * 29) % 40) * 0.002 }));
+    check('S121', 'a town whose addresses are NOT a grid is refused outright',
+      api.fit(scrambled).ok === false,
+      'this is the one that matters: a confident wrong position is driven past in silence');
+    check('S121', 'a town with only a few known houses is refused',
+      api.fit(known.slice(0, api.MINPTS - 1)).ok === false,
+      'four houses can be fitted perfectly by a grid that is nonsense');
+    check('S121', 'and every known house sitting on one street is refused',
+      api.fit([0, 1, 2, 3, 4, 5, 6].map(i => ({ east: 500, north: i * 100,
+        lat: ORIGIN.lat + i * 0.001, lng: ORIGIN.lng }))).ok === false,
+      'there is no unique grid through a single line, so the cross-axis is a guess');
+    check('S121', 'the refusal threshold is a quarter of a mile, and is not loosened quietly',
+      api.MAXERR === 0.25 && api.MINPTS === 6,
+      'these two numbers are the whole safety argument');
+  }
+
+  /* ---- wired into the things that actually order a day ---- */
+  {
+    const sp = sectionFrom(admin, admin.indexOf('function houseGeoPoint(h, d)'));
+    check('S121', 'a real pin always beats a calculated one',
+      sp.indexOf("typeof rec.lat === 'number'") < sp.indexOf('estimatedPinFromAddress'),
+      'an estimate overwriting a surveyed position is a straight downgrade');
+    check('S121', 'and an estimate is never written back to the customer',
+      !/updateDoc|setDoc/.test(sp),
+      'the record still says the house has not been geocoded, because it has not');
+    /* ⚠ sectionFrom, NOT a character window. The suite has its own rule against
+       fixed-length extraction windows and it is right: rebuildSeasonDays is long
+       enough that a 6000-character window already missed the line below. */
+    const rb = sectionFrom(admin, admin.indexOf('function rebuildSeasonDays()'));
+    check('S121', 'the day builder clusters on the same answer',
+      /stop:\(typeof houseGeoPoint==='function'/.test(rb),
+      'without this a house is not merely last in the order — it lands on the wrong day');
+    const ga = sectionFrom(admin, admin.indexOf('function generateAllRoutes()'));
+    check('S121', 'the grids are relearned at the start of a run, not cached',
+      /if\(typeof refreshTownGrids==='function'\) refreshTownGrids\(\);/.test(ga),
+      'a grid learned an hour ago places houses from a book that has moved');
+    const rt = sectionFrom(admin, admin.indexOf('function refreshTownGrids()'));
+    check('S121', 'only a really-pinned house ever teaches the grid',
+      /!isFinite\(d\.lat\) \|\| !isFinite\(d\.lng\)\) return;/.test(rt),
+      'feeding estimates back in lets one bad guess drag every later one after it');
+  }
+}
+
+/*
+ * Suite 122. Out of the yard and back to it, and a picture of what that looks like.
+ *
+ * Owner, 2026-08-21: "also calculate the route knowing the starting spot is
+ * always 209 S 850 W and the ending spot is alway 209 S 850 W as well", and
+ * "at the bottom you should be able to see a picture of the route, or both
+ * routes if theres two".
+ */
+suite('122. Out of the yard and back, and a picture of it');
+{
+  const LF_ = String.fromCharCode(10);
+  const havStart = admin.indexOf('function haversine(lat1, lng1, lat2, lng2)');
+  const havEnd = admin.indexOf(LF_ + '}', havStart) + 2;
+  const geoStart = admin.indexOf('function twoOptImprove(');
+  const geoEnd = admin.indexOf('function nearestNeighborOrder(', geoStart);
+  if (geoStart === -1 || geoEnd < geoStart) {
+    check('S122', 'the route orderer is findable', false, 'renamed — update this test');
+  } else {
+    const api = eval(admin.slice(havStart, havEnd) + LF_ + admin.slice(geoStart, geoEnd) +
+      LF_ + ';({reorder: reorderFlatStops, hav: haversine})');
+    const HOME = { lat: 40.3866, lng: -111.8616 };
+    const stops = [];
+    for (let i = 0; i < 20; i++) {
+      stops.push({ id: 'h' + i, lat: 40.40 + ((i * 7) % 20) * 0.004,
+                   lng: -111.87 + ((i * 11) % 20) * 0.004 });
+    }
+    const trip = list => {
+      let m = api.hav(HOME.lat, HOME.lng, list[0].lat, list[0].lng);
+      for (let i = 1; i < list.length; i++) m += api.hav(list[i-1].lat, list[i-1].lng, list[i].lat, list[i].lng);
+      return m + api.hav(list[list.length-1].lat, list[list.length-1].lng, HOME.lat, HOME.lng);
+    };
+    const open = api.reorder(stops.slice(), null);
+    const anchored = api.reorder(stops.slice(), HOME, HOME);
+    check('S122', 'anchoring the day at the yard shortens the real round trip',
+      trip(anchored) < trip(open),
+      'got ' + trip(anchored).toFixed(1) + ' mi against ' + trip(open).toFixed(1) + ' mi');
+    /* ⚠ THE END IS THE HALF THAT WAS MISSING. A start point alone was already
+       possible; what nothing counted was the drive home, which is why days
+       finished on the far side of town. */
+    check('S122', 'and the day no longer finishes on the far side of town',
+      api.hav(HOME.lat, HOME.lng, anchored[anchored.length-1].lat, anchored[anchored.length-1].lng) <
+      api.hav(HOME.lat, HOME.lng, open[open.length-1].lat, open[open.length-1].lng),
+      'the last leg of the day is a real drive and has to be paid for');
+    check('S122', 'nothing is dropped by anchoring it',
+      anchored.length === 20 && stops.every(s => anchored.indexOf(s) > -1));
+    /* An optional argument must stay optional: every other caller passes two. */
+    check('S122', 'a caller that names no finish gets exactly what it got before',
+      JSON.stringify(api.reorder(stops.slice(), null).map(s => s.id)) ===
+      JSON.stringify(open.map(s => s.id)),
+      'twoOptImprove gained a third argument; the old two-argument behaviour must not move');
+  }
+
+  const home = sectionFrom(admin, admin.indexOf('function routeHomePoint()'));
+  check('S122', 'the yard is 209 S 850 W, Lehi',
+    /ROUTE_HOME_ADDRESS = '209 S 850 W'/.test(admin) && /ROUTE_HOME_CITY = 'Lehi'/.test(admin));
+  check('S122', 'and it is found by ADDRESS, so nobody has to paste in a latitude',
+    /estimatedPinFromAddress\(ROUTE_HOME_ADDRESS, ROUTE_HOME_CITY\)/.test(home),
+    '209 S 850 W is itself a full grid reference — the town grid places it');
+  check('S122', 'a real customer record at the yard still wins over the estimate',
+    home.indexOf('custByAddrKey') < home.indexOf('estimatedPinFromAddress'),
+    'same rule as everywhere else: measured beats calculated');
+  const ord = sectionFrom(admin, admin.indexOf('function orderHousesForDriving(list)'));
+  /* ⚠ THE YARD IS BOTH ENDS ON BOTH PATHS. Since Suite 124 the day may be
+     ordered in two passes when somebody lives out on their own, and the SECOND
+     pass is the one that has to finish at the yard — checking only the simple
+     path would go green while every day with an outlier ended in the wrong place. */
+  check('S122', 'every crew route is ordered yard-to-yard',
+    /reorderFlatStops\(points, home, home\)/.test(ord),
+    'both legs, or the day still ends wherever the last cluster happened to be');
+  check('S122', 'and the far-houses pass finishes at the yard too',
+    /reorderFlatStops\(split\.out,[\s\S]{0,120}home\);/.test(ord),
+    'owner: "still remembering 209 s 850 w is the end point"');
+
+  /* ---- the picture ---- */
+  const pic = sectionFrom(admin, admin.indexOf('function routePictureHTML(day)'));
+  check('S122', 'the picture is drawn, not fetched',
+    !/google|maps\.|iframe|<img/i.test(pic) && /<svg/.test(pic),
+    'a live map costs money per load, needs a key, and does not print');
+  check('S122', 'longitude is squeezed by cos(lat) so the shape is honest',
+    /Math\.cos\(/.test(pic),
+    'without it a tidy day is drawn as a sprawling one and the picture misleads');
+  check('S122', 'a house with no position is left OUT and counted, never drawn',
+    /if\(!ok\)\{ missing\+\+; return; \}/.test(pic) && /not shown/.test(pic),
+    'a dot in an invented place is a lie you cannot see through');
+  check('S122', 'a calculated position is drawn differently from a measured one',
+    /p\.est \?/.test(pic) && /stroke-dasharray/.test(pic),
+    'the office should be able to see which pins are estimates');
+  check('S122', 'the route drawn starts and ends at the yard',
+    /home \? \[n1\(X\(home\.lng\)\)/.test(pic),
+    'the two legs a stop list never shows are exactly the ones worth drawing');
+  const panel = sectionFrom(admin, admin.indexOf('function renderPanelInto(elId,day)'));
+  /* ⭐ THE DRAWING IS NOW THE FALLBACK, NOT THE FEATURE (2026-08-21). Owner:
+     "the picture at the bottom isnt really what I want ... it should be a google
+     maps thing that you can click on and move". It is kept, and checked above,
+     because a blank rectangle when the Maps script fails to load is worse than
+     a drawing — but what the office sees normally is a live map. */
+  check('S122', 'the drawing is only reached when Google Maps is not',
+    /if\(typeof google === 'undefined' \|\| !google\.maps \|\| !google\.maps\.Map\)/
+      .test(sectionFrom(admin, admin.indexOf('function renderDayMaps(day)'))),
+    'offline, or a key problem, must still show something');
+  check('S122', 'and the maps are mounted after the panel is written',
+    panel.indexOf('renderDayMaps(') > panel.indexOf('el.innerHTML=h'),
+    'owner: "at the bottom you should be able to see a picture of the route"');
+  check('S122', 'a map that throws cannot take the day panel down with it',
+    /catch\(err\)\{ console\.error\('Route maps failed:'/.test(panel),
+    'the stops matter more than the drawing of them');
+  /* ---- the live maps ---- */
+  {
+    const maps = sectionFrom(admin, admin.indexOf('function renderDayMaps(day)'));
+    const pane = sectionFrom(admin, admin.indexOf('function dayMapPaneAt(wrap, i)'));
+    const doc = sectionFrom(admin, admin.indexOf('function dayMapDraw(pane, route, home)'));
+    const routes = sectionFrom(admin, admin.indexOf('function dayMapRoutes(day)'));
+
+    check('S122', 'one map per crew route, drawn from the same grouping as the list',
+      /dayRouteGroups\(day\)\.forEach/.test(routes) && /routes\.forEach\(function\(r, i\)/.test(maps),
+      'owner: "there is two different maps for each crew, unless its a one crew day"');
+    /* ⚠ THE ONE-CREW RULE IS NOT WRITTEN DOWN ANYWHERE, and that is deliberate:
+       dayRouteGroups already returns a single group for a one-crew day, so the
+       maps inherit it. A second copy of that rule here is a second thing to keep
+       in step with soloCrew. */
+    check('S122', 'and a one-crew day gets one map without a rule of its own',
+      !/soloCrew|oneCrew/.test(maps) && /routes\.length > 1 \?/.test(maps),
+      'the grouping already answers this; restating it is how the two drift apart');
+
+    /* ⚠ NO IFRAME. See Suite 123 — a srcdoc frame is `about:srcdoc`, which fails
+       the Maps key's referrer check, and that is exactly what the owner hit. */
+    check('S122', 'a map pane is a plain div in the ordinary document',
+      /createElement\('div'\)/.test(pane) && !/iframe|srcdoc/.test(pane),
+      'the Routes tab map works this way and has done for months');
+    check('S122', 'and it uses the page’s own Maps script, not a second load of it',
+      !/maps\.googleapis\.com/.test(pane) && !/maps\.googleapis\.com/.test(maps),
+      'a second script tag is a second map load to pay for');
+
+    /* ⚠ THE EXPENSIVE MISTAKE. renderPanelInto rebuilds its innerHTML on every
+       render, and re-parenting an iframe reloads it in every browser. Maps are
+       billed per load, and a reload also throws away wherever the office had
+       panned to. Both are avoided by keeping the maps out of that innerHTML. */
+    check('S122', 'the maps are NOT inside the html the panel rebuilds',
+      /<div id="scheduleMaps"/.test(admin) && !/h\+=.*renderDayMaps/.test(panel),
+      'a map that reloads on every tick costs money and loses where you had panned to');
+    check('S122', 'a pane is built once and then reused',
+      /if\(dayMapPanes\[i\]\) return dayMapPanes\[i\];/.test(pane),
+      'switching day must not rebuild a single map');
+    check('S122', 'a route this day does not have is hidden, not destroyed',
+      /box\.style\.display = 'none'/.test(maps),
+      'the map inside is worth keeping for the next day that needs it');
+
+    check('S122', 'the view is only re-framed when the route itself changed',
+      /if\(key !== pane\.key\)\{ pane\.key = key; pane\.map\.fitBounds/.test(doc),
+      'ticking a house off would otherwise yank the map back from wherever the ' +
+      'office had just panned to');
+
+    check('S122', 'a house with no position is never given an invented pin',
+      /if\(!ok\)\{ missing\+\+; return; \}/.test(routes) && /not on the map/.test(maps),
+      'it is counted in the heading instead, where it reads as the gap it is');
+    check('S122', 'a calculated position still looks different from a measured one',
+      /fillOpacity: s\.est \? 0\.55 : 1/.test(doc),
+      'the office should be able to see which pins are estimates');
+    check('S122', 'the map draws the drive out of the yard and the drive home',
+      /if\(home\) path\.push\(home\);/.test(doc) && /routeHomePoint/.test(maps),
+      'those two legs are the ones a stop list never shows');
+    check('S122', 'searching clears the maps rather than leaving yesterday’s up',
+      /renderDayMaps\(null\)/.test(admin),
+      'a map under a search result is about a day the office is no longer looking at');
+    /* A tab with no day panel never calls renderPanelInto, so nothing would take
+       the last day's maps down underneath it. */
+    check('S122', 'and so do the tabs that have no day at all',
+      /renderOneMan\(\);renderDayMaps\(null\)/.test(admin) &&
+      /renderPrinting\(\);renderDayMaps\(null\)/.test(admin),
+      'One Man Installs and Printing would otherwise sit under yesterday’s route');
+  }
+  check('S122', 'the list and the picture read ONE grouping',
+    /dayRouteGroups\(day\)\.forEach/.test(panel) && /dayRouteGroups\(day\)/.test(pic),
+    'a picture showing route two beside a list headed route one is worse than no picture');
+}
+
+/*
+ * Suite 123. The two crew maps, actually rendered.
+ *
+ * Owner, 2026-08-21: "there is two different maps for each crew, unless its a one
+ * crew day", then, on the first version shipped: "it says it didnt load google
+ * maps correctly".
+ *
+ * ⚠ WHY THAT HAPPENED, because it is the trap this suite exists to keep shut.
+ * The first version put each map in an <iframe srcdoc> to dodge the shadow DOM.
+ * A srcdoc frame's document URL is `about:srcdoc`, so the Maps key's HTTP-referrer
+ * check has nothing to match and Google refuses to load. Every check in the
+ * previous version of this suite passed, because jsdom neither loads the frame
+ * nor validates a referrer — the suite could not see the only thing that was
+ * wrong. It is checked here as a source rule instead: no iframe, in the ordinary
+ * document, exactly like the Routes tab map that demonstrably works.
+ *
+ * ⚠ AND IT STILL RUNS THE RENDERER. Google's classes are faked below, so the
+ * checks are about what gets DRAWN — how many maps, how many markers, whether the
+ * line goes home — not about what the source says.
+ */
+suite('123. The two crew maps, actually rendered');
+{
+  const noFrame = sectionFrom(admin, admin.indexOf('function dayMapPaneAt(wrap, i)'));
+  check('S123', 'a map is a plain div in the ordinary page, never an iframe',
+    !/iframe|srcdoc/.test(noFrame) && /createElement\('div'\)/.test(noFrame),
+    'a srcdoc frame is about:srcdoc, which fails the key\'s referrer check — ' +
+    'this is the bug the owner reported and it must not come back');
+  check('S123', 'and the container lives outside the shadow widget',
+    /<div id="scheduleMaps"/.test(admin) &&
+    admin.indexOf('<div id="scheduleMaps"') > admin.indexOf('<div id="scheduleHost">'),
+    'inside the shadow root the Maps stylesheet in document.head cannot reach it');
+
+  if (!JSDOM) {
+    note('jsdom not installed — skipping the crew-map render tests');
+  } else {
+    const mapStart = admin.indexOf('function dayRouteGroups(day)');
+    const mapEnd = admin.indexOf('function renderPanelInto(elId,day)', mapStart);
+    const crewStart = admin.indexOf('function cityOf(h)');
+    const crewEnd = admin.indexOf('/* ---------- build from imported rows', crewStart);
+    if (mapStart === -1 || mapEnd < mapStart) {
+      check('S123', 'the crew maps are findable', false,
+        'renamed or removed — update this test rather than deleting it');
+    } else {
+      const LF_ = String.fromCharCode(10);
+      const dom = new JSDOM('<!doctype html><body><div id="scheduleMaps"></div></body>');
+      const savedDoc = global.document, savedWin = global.window;
+      global.window = dom.window;
+      global.document = dom.window.document;
+
+      /* A stand-in for Google's classes. Records what was asked for, so the
+         checks below are about the map that gets built rather than the code. */
+      const built = [];
+      function FakeMap(el, opts){ this.el = el; this.opts = opts; this.fits = 0; built.push(this); }
+      FakeMap.prototype.fitBounds = function(){ this.fits++; };
+      function FakeMarker(o){ this.o = o; this.map = o.map; }
+      FakeMarker.prototype.setMap = function(m){ this.map = m; };
+      function FakeLine(o){ this.o = o; }
+      FakeLine.prototype.setMap = function(m){ this.map = m; };
+      function FakeBounds(){ this.pts = []; }
+      FakeBounds.prototype.extend = function(p){ this.pts.push(p); };
+      global.google = { maps: { Map: FakeMap, Marker: FakeMarker, Polyline: FakeLine,
+        LatLngBounds: FakeBounds, SymbolPath: { CIRCLE: 0 } } };
+
+      global.esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      global.dayDate = d => d._date;
+      global.isoOf = () => '2026-11-03';
+      global.dlabel = () => ({ wd: 'Mon', full: 'Nov 3' });
+      global.customerForHouse = h => (h && h._cust) ? { data: h._cust } : null;
+      global.estimatedPinFromAddress = () => null;
+
+      const api = eval(extractFn(admin, 'haversine') + LF_ + admin.slice(crewStart, crewEnd) +
+        LF_ + admin.slice(mapStart, mapEnd) + LF_ +
+        ';({maps: renderDayMaps, routes: dayMapRoutes, panes: dayMapPanes,' +
+        '  setCrews(l){ CREWS = normalizeCrews(l); }})');
+      api.setCrews([{ name: 'Dad + Ty', city: '' }, { name: 'Crew 2', city: '' }]);
+
+      const mk = (name, city, lat, lng) => ({ name, city, _cust: { lat, lng } });
+      const twoCrew = { id: 'd', _date: new Date(2026, 10, 3), houses: [] };
+      for (let i = 0; i < 10; i++) {
+        twoCrew.houses.push(mk('Lehi ' + i, 'Lehi', 40.38 + i * 0.004, -111.86 + i * 0.003));
+        twoCrew.houses.push(mk('Alpine ' + i, 'Alpine', 40.46 + i * 0.003, -111.78 + i * 0.003));
+      }
+      const wrap = dom.window.document.getElementById('scheduleMaps');
+      const boxes = () => Array.from(wrap.querySelectorAll('.daymappane'));
+      const visible = () => boxes().filter(b => b.style.display !== 'none');
+
+      api.maps(twoCrew);
+      check('S123', 'a two-crew day really does build two maps',
+        built.length === 2 && visible().length === 2,
+        'built ' + built.length + ', showing ' + visible().length);
+      check('S123', 'each map gets its own crew’s stops and nobody else’s',
+        api.panes[0].markers.length === 10 && api.panes[1].markers.length === 10,
+        'got ' + api.panes.map(p => p.markers.length).join(' and ') +
+        ' — no yard in this fixture, so ten each');
+      check('S123', 'the pins are numbered from 1 for each crew',
+        api.panes[0].markers[0].o.label.text === '1' &&
+        api.panes[1].markers[0].o.label.text === '1',
+        'a crew reads their own numbering, not their block of somebody else\'s');
+      check('S123', 'each route is drawn as a line',
+        !!api.panes[0].line && api.panes[0].line.o.path.length === 10);
+      check('S123', 'the headings name each crew',
+        /Route 1 . Dad \+ Ty/.test(boxes()[0].innerHTML) &&
+        /Route 2 . Crew 2/.test(boxes()[1].innerHTML),
+        boxes().map(b => b.textContent).join(' | '));
+
+      /* ⚠ THE EXPENSIVE ONE. renderPanelInto redraws on every tick of a checkbox.
+         Rebuilding the Map object is billed per load; re-fitting the bounds throws
+         away wherever the office had just panned to. Neither may happen. */
+      const fitsBefore = built.map(m => m.fits);
+      api.maps(twoCrew);
+      check('S123', 'a redraw does NOT build another map',
+        built.length === 2,
+        'got ' + built.length + ' — a map rebuilt on every checkbox is billed every time');
+      check('S123', 'and does not yank the view back when nothing moved',
+        built.map(m => m.fits).join() === fitsBefore.join(),
+        're-fitting the bounds throws away wherever the office had panned to');
+
+      /* But a route that really changed must re-frame. */
+      twoCrew.houses.push(mk('Lehi far', 'Lehi', 40.55, -111.95));
+      api.maps(twoCrew);
+      check('S123', 'a route that really changed does re-frame',
+        built[0].fits > fitsBefore[0],
+        'a new stop off the edge would otherwise never come into view');
+
+      const oneCrew = { id: 'e', _date: new Date(2026, 10, 4),
+        houses: twoCrew.houses.filter(h => h.city === 'Lehi') };
+      api.maps(oneCrew);
+      check('S123', 'a one-crew day shows ONE map',
+        visible().length === 1, 'got ' + visible().length);
+      check('S123', 'and the spare pane is hidden, not destroyed',
+        boxes().length === 2 && built.length === 2,
+        'the map inside is worth keeping for the next day that needs it');
+
+      const withBare = { id: 'f', _date: new Date(2026, 10, 5),
+        houses: oneCrew.houses.concat([{ name: 'Etienne Way', city: 'Lehi' }]) };
+      api.maps(withBare);
+      const r = api.routes(withBare);
+      check('S123', 'a house with no position is left off, not pinned somewhere invented',
+        r[0].missing === 1 && r[0].stops.length === oneCrew.houses.length,
+        'stops=' + r[0].stops.length + ' missing=' + r[0].missing);
+      check('S123', 'and the heading owns up to it',
+        /1 not on the map/.test(visible()[0].innerHTML),
+        visible()[0].textContent);
+
+      api.maps(null);
+      check('S123', 'no day means the whole block goes away',
+        wrap.style.display === 'none',
+        'an empty map under an empty panel is a loading spinner forever');
+
+      /* And with no Google at all, the drawing rather than a blank rectangle. */
+      const savedGoogle = global.google;
+      delete global.google;
+      api.panes.length = 0;
+      wrap.innerHTML = '';
+      api.maps(twoCrew);
+      check('S123', 'no Google Maps means the drawing, never an empty box',
+        /<svg/.test(wrap.innerHTML),
+        'this is what the owner would see if the key ever stopped working');
+      global.google = savedGoogle;
+
+      delete global.google;
+      global.document = savedDoc;
+      global.window = savedWin;
+    }
+  }
+}
+
+/*
+ * Suite 124. The house out on its own goes last, on the way home.
+ *
+ * Owner, 2026-08-21: "if there are people that are a little furthur out than
+ * everyone else than they fall at the end of the route while still remembering
+ * 209 s 850 w is the end point ... we dont want a long drive in the middle of
+ * the day we would rather that be at the end of the day on their way back home."
+ *
+ * ⚠ THIS IS DELIBERATELY NOT THE SHORTEST ROUTE. The orderer minimises total
+ * miles and is perfectly happy to nip out to the far house at eleven in the
+ * morning and come back into the cluster afterwards — same mileage, much worse
+ * day. Measured on the fixture below: the far house moves from stop 10 of 17 to
+ * last, the worst mid-day leg falls from 5.6 to 0.3 miles, and the whole day
+ * costs 1.1 miles more. That trade is the feature, so a check that only asserted
+ * "the route got shorter" would be asserting the opposite of what was asked for.
+ *
+ * ⚠ AND IT MUST REFUSE far more often than it fires. "Further out than everyone
+ * else" needs an everyone else; a day that is simply spread out has no outlier
+ * and splitting it would invent a two-part route out of one ordinary one. Most
+ * of what is checked below is the refusals.
+ */
+suite('124. The house out on its own goes last, on the way home');
+{
+  const crewStart = admin.indexOf('function cityOf(h)');
+  const crewEnd = admin.indexOf('/* ---------- build from imported rows', crewStart);
+  const geoStart = admin.indexOf('function twoOptImprove(');
+  const geoEnd = admin.indexOf('function nearestNeighborOrder(', geoStart);
+  if (crewStart === -1 || crewEnd < crewStart || geoStart === -1) {
+    check('S124', 'the route orderer is findable', false,
+      'renamed or removed — update this test rather than deleting it');
+  } else {
+    const LF_ = String.fromCharCode(10);
+    const HOME = { lat: 40.3866, lng: -111.8616 };        // 209 S 850 W, Lehi
+    global.dayDate = d => d._date;
+    global.isoOf = () => '2026-11-03';
+    global.dlabel = () => ({ wd: 'Mon', full: 'Nov 3' });
+    global.esc = s => String(s == null ? '' : s);
+    global.customerForHouse = h => (h && h._cust) ? { data: h._cust } : null;
+    global.estimatedPinFromAddress = () => HOME;          // so routeHomePoint answers
+
+    const api = eval(extractFn(admin, 'haversine') + LF_ + admin.slice(geoStart, geoEnd) +
+      LF_ + admin.slice(crewStart, crewEnd) + LF_ +
+      ';({order: orderHousesForDriving, plain: reorderFlatStops, hav: haversine,' +
+      '  split: outlyingStops, point: houseStopPoint, centre: stopsCentre,' +
+      '  setCrews(l){ CREWS = normalizeCrews(l); }})');
+
+    const mk = (name, lat, lng) => ({ name, city: 'Lehi', _cust: { lat, lng } });
+    /* ⚠ THE FIXTURE HAS TO MAKE THE SHORTEST TOUR PUT THE FAR HOUSE IN THE MIDDLE,
+       or the check passes whether the code does anything or not. Sixteen houses
+       along one street with the odd one out five miles north of the MIDDLE of it
+       does that: the cheapest detour is exactly halfway along. A far house off
+       one END is visited last by the plain orderer anyway, and the first version
+       of this fixture had precisely that flaw and proved nothing. */
+    const street = [];
+    for (let i = 0; i < 16; i++) street.push(mk('near' + i, 40.400, -111.900 + i * 0.0055));
+    const far = mk('FAR', 40.475, -111.860);
+    const day = street.concat([far]);
+
+    const legs = order => {
+      const out = [];
+      let prev = HOME;
+      order.forEach(h => { out.push(api.hav(prev.lat, prev.lng, h._cust.lat, h._cust.lng)); prev = h._cust; });
+      out.push(api.hav(prev.lat, prev.lng, HOME.lat, HOME.lng));
+      return out;
+    };
+    const worstMiddle = order => {
+      const L = legs(order).slice(1, -2);          // neither the drive out nor the drive home
+      return L.length ? Math.max.apply(null, L) : 0;
+    };
+    const total = order => legs(order).reduce((a, b) => a + b, 0);
+
+    const plain = api.plain(day.map(api.point), HOME, HOME).map(s => s.ref);
+    const held = api.order(day.slice());
+
+    check('S124', 'the plain shortest tour really does bury the far house mid-day',
+      plain.indexOf(far) > 2 && plain.indexOf(far) < plain.length - 2,
+      'the fixture proves nothing unless it does — got position ' + plain.indexOf(far));
+    check('S124', 'and the far house is now the last stop of the day',
+      held[held.length - 1] === far,
+      'got ' + held.map(h => h.name).join(',').slice(-40));
+    check('S124', 'the long drive is off the middle of the day',
+      worstMiddle(held) < worstMiddle(plain) / 2,
+      'worst mid-day leg ' + worstMiddle(plain).toFixed(1) + ' mi -> ' +
+        worstMiddle(held).toFixed(1) + ' mi');
+    /* ⚠ AND THE PRICE IS NAMED. It IS longer, on purpose. If this ever grows past
+       a mile or two on a fixture like this, the split has gone wrong rather than
+       the trade having changed. */
+    check('S124', 'and it costs a mile or so, not a detour of its own',
+      total(held) > total(plain) && total(held) - total(plain) < 3,
+      'cost ' + (total(held) - total(plain)).toFixed(1) + ' mi');
+    check('S124', 'nothing is dropped or visited twice by splitting the day',
+      held.length === day.length && day.every(h => held.indexOf(h) > -1) &&
+      new Set(held).size === held.length);
+
+    /* ---- the refusals ---- */
+    const spread = [];
+    for (let i = 0; i < 12; i++) spread.push(mk('s' + i, 40.30 + i * 0.02, -111.80 + i * 0.02));
+    check('S124', 'a day that is simply spread out has no outlier at all',
+      api.split(spread.map(api.point)).out.length === 0,
+      'that is the shape of the day, not a house out on its own');
+    const half = street.slice(0, 8).concat([
+      mk('f1', 40.475, -111.860), mk('f2', 40.478, -111.858), mk('f3', 40.472, -111.864),
+      mk('f4', 40.470, -111.866), mk('f5', 40.476, -111.862)]);
+    check('S124', 'and neither does a day that is half-and-half',
+      api.split(half.map(api.point)).out.length === 0,
+      'more than a third being "far" means there are two clusters, not one and a stray');
+    check('S124', 'a tiny day is left alone',
+      api.split(street.slice(0, 3).map(api.point)).out.length === 0,
+      'three stops have no "everyone else" to be further out than');
+    /* ⚠ THE FIXTURE HAS TO BE GENUINELY TIGHT or it tests nothing. On the street
+       above the median spread is already about a mile, so the factor alone puts the
+       cut near 2.75 miles and a half-mile house is never flagged either way — the
+       first version of this check was vacuous for exactly that reason. Sixteen
+       houses inside a fifth of a mile puts the factor-only cut at ~0.1 miles, so
+       ONLY the mileage floor keeps the half-mile house out of it. */
+    const culdesac = [];
+    for (let i = 0; i < 16; i++) culdesac.push(mk('c' + i, 40.4000 + i * 0.0002, -111.8600));
+    check('S124', 'a house half a mile out of a very tight day is not an outlier',
+      api.split(culdesac.concat([mk('n', 40.4072, -111.8600)]).map(api.point)).out.length === 0,
+      'the factor alone would flag it; the mileage floor is what stops that');
+
+    /* ⚠ THE CENTRE IS A MEDIAN, NOT A MEAN, and it matters: a mean is dragged
+       towards the very house being looked for, which then makes its neighbours
+       look far too. */
+    const pulled = street.concat([mk('miles', 41.9, -111.86)]);
+    const c = api.centre(pulled.map(api.point));
+    check('S124', 'one house far away does not drag the middle of the day towards it',
+      Math.abs(c.lat - 40.400) < 0.01,
+      'centre came out at ' + c.lat.toFixed(3) + ' — a mean would sit near 40.49');
+    check('S124', 'and only that house is called far, not half the street with it',
+      api.split(pulled.map(api.point)).out.length === 1);
+
+    /* A house with no position cannot be near or far; it stays after even the
+       far ones, which is where the owner asked for it. */
+    const withBare = day.concat([{ name: 'no pin', city: 'Lehi' }]);
+    const ordered = api.order(withBare);
+    check('S124', 'a house with no position at all is still the very last',
+      ordered[ordered.length - 1].name === 'no pin' &&
+      ordered[ordered.length - 2] === far,
+      'got ' + ordered.slice(-2).map(h => h.name).join(' then '));
+  }
+}
+
+/*
+ * Suite 125. The schedule keeps off Thanksgiving, not just off weekends.
+ *
+ * Owner, 2026-08-21: "as crews begin to not finish their entire day and we get
+ * more people ... when we recaluclate it will create days between nov 20 and
+ * thanksgiving, but we dont work on the day of thanksgiving."
+ *
+ * ⚠ HALF OF THIS ALREADY WORKED AND HALF OF IT DID NOT, which is why it went
+ * unnoticed. `isWorkingDay` has excluded the holiday since 2026-08-18, so
+ * planNewCrewDays never puts a crew-day on it — a late-season rebuild lays out
+ * Nov 20, 23, 24, 25 and steps over the 26th, and Suite 52 covers that. But the
+ * builder hands its days back as OFFSETS, and layoutSequence turns those into
+ * the dates the office actually sees while skipping weekends ONLY. Ten
+ * consecutive crew-days from Mon 16 Nov came out on 16,17,18,19,20,23,24,25,
+ * 26,27 — and the 26th is Thanksgiving. Every hand shift re-flows through the
+ * same function, and so do fixer routes through nextWeekday.
+ *
+ * So the checks below drive the LAYOUT, not the builder. A check on the builder
+ * passes today and proves nothing about the half that was broken.
+ */
+suite('125. The schedule keeps off Thanksgiving, not just off weekends');
+{
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+  const parts = ['isWeekend', 'isThanksgiving', 'isDayOff', 'dayOffName', 'addDays',
+                 'layoutSequence', 'nextWeekday', 'thanksgivingDate', 'isThanksgivingDay']
+    .map(pick).filter(Boolean).join(LF_);
+  if (!pick('layoutSequence') || !pick('isDayOff')) {
+    check('S125', 'the schedule’s date layout is findable', false,
+      'renamed or removed — update this test rather than deleting it');
+  } else {
+    const prelude = 'let BASE_START=new Date(2026,10,16), globalDelta=0, SEASON=[];' + LF_ +
+      'function daysBetween(a,b){return Math.round((a-b)/86400000);}' + LF_ +
+      'function deltaFor(){return globalDelta;}' + LF_ +
+      'function effectivePin(d){return d && d.pin ? d.pin : null;}' + LF_ +
+      'function desired(d){return addDays(BASE_START,d.base+d.cascade);}' + LF_;
+    const api = eval(prelude + parts + LF_ +
+      ';({layout: layoutSequence, next: nextWeekday, tg: thanksgivingDate,' +
+      '  off: isDayOff, name: dayOffName})');
+
+    const TG = api.tg(2026);
+    const iso = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') +
+      '-' + String(d.getDate()).padStart(2, '0');
+    check('S125', 'Thanksgiving 2026 is Thursday 26 November',
+      iso(TG) === '2026-11-26' && TG.getDay() === 4, 'got ' + iso(TG));
+
+    /* Ten consecutive crew-days from Mon 16 Nov. Skipping weekends alone puts
+       the ninth of them on the holiday — that is the bug, reproduced. */
+    const days = [];
+    for (let i = 0; i < 10; i++) days.push({ id: 'd' + i, base: i, cascade: 0, pin: null, houses: [] });
+    api.layout(days);
+    const dates = days.map(d => iso(d._date));
+    check('S125', 'no crew-day is ever laid down on Thanksgiving',
+      dates.indexOf('2026-11-26') === -1,
+      'got ' + dates.join(', '));
+    check('S125', 'the days either side of it are still worked',
+      dates.indexOf('2026-11-25') > -1 && dates.indexOf('2026-11-27') > -1,
+      'stepping over the holiday must not cost the whole week');
+    /* ⚠ THE OWNER'S ACTUAL ASK: the run-up week has to be USED, not skipped past.
+       A version that jumped the whole of Thanksgiving week would pass the check
+       above and be useless. */
+    check('S125', 'and the Nov 20 to Thanksgiving window is filled',
+      ['2026-11-20', '2026-11-23', '2026-11-24', '2026-11-25']
+        .every(d => dates.indexOf(d) > -1),
+      'got ' + dates.join(', '));
+    check('S125', 'weekends are still skipped',
+      !dates.some(d => ['2026-11-21', '2026-11-22', '2026-11-28', '2026-11-29'].indexOf(d) > -1),
+      'the older rule must survive the newer one');
+    check('S125', 'and nothing is lost or doubled up on one date',
+      days.length === 10 && new Set(dates).size === 10, dates.join(', '));
+
+    /* ⚠ A PIN IS STILL A PIN. Force exact date deliberately overrides weekends,
+       and must keep overriding — the office sometimes has to work a holiday. */
+    const pinned = [{ id: 'p', base: 0, cascade: 0, pin: new Date(2026, 10, 26), houses: [] }];
+    api.layout(pinned);
+    check('S125', 'but Force exact date can still put a day on it deliberately',
+      iso(pinned[0]._date) === '2026-11-26',
+      'the override exists for weekends and must work the same way here');
+    check('S125', 'and the screen names which kind of day off that is',
+      api.name(new Date(2026, 10, 26)) === 'Thanksgiving' &&
+      api.name(new Date(2026, 10, 21)) === 'weekend' &&
+      api.name(new Date(2026, 10, 24)) === '',
+      '"(weekend)" on a Thursday in late November would just be wrong');
+
+    /* Fixer routes are placed through nextWeekday, not through the layout. */
+    check('S125', 'a fixer route is not placed on Thanksgiving either',
+      iso(api.next(new Date(2026, 10, 26))) === '2026-11-27',
+      'got ' + iso(api.next(new Date(2026, 10, 26))));
+    check('S125', 'nextWeekday still steps over a weekend',
+      iso(api.next(new Date(2026, 10, 21))) === '2026-11-23');
+  }
+
+  /* The two-business-day "SET" lock walks the calendar too. A day nobody works
+     is not one of the two, or a Wednesday in Thanksgiving week reads as set
+     when the crew is not out again until Monday. */
+  const horizon = sectionFrom(admin, admin.indexOf('function pinHorizon()'));
+  check('S125', 'the two-business-day lock does not count Thanksgiving as a business day',
+    /while\(isDayOff\(d\)\)/.test(horizon),
+    'otherwise a day is frozen as SET on the strength of a day nobody works');
+  const bar = sectionFrom(admin, admin.indexOf('function renderSeasonBar()'));
+  check('S125', 'and the note explaining moved days names the holiday',
+    /isThanksgiving\(desired\(d\)\)/.test(bar) && /Thanksgiving/.test(bar),
+    'a day that moved off Thanksgiving moved for a different reason than a weekend');
 }
 
 // A check that scores after this summary is a check that cannot fail the build.
