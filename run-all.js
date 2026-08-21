@@ -15625,9 +15625,17 @@ suite('Suite 65. Re-quotes have their own folder and update the customer');
     /* ⚠ THE LOOP. Applying a re-quote whose whole point was new footage would
        trip the "feet changed - raise a re-quote" rule and raise another one for
        the same change, so the office never reaches the end of the list. */
+    /* ⭐ A PRICE CHANGE JOINED THAT CONDITION (2026-08-21) — owner: "when you go to edit
+       customer and change the price it gives you the option if you want to requote or
+       not requote." The guard itself is unchanged and is the point of this check: while
+       a re-quote is being APPLIED, the new price IS the answer to it, so raising another
+       for the change that just resolved the last one never terminates. */
     check('S65', 'applying a re-quote does not raise another one',
-      /if\(\(feetChanged \|\| addressChanged\) && !requoteBeingConverted\)/.test(body),
+      /if\(\(feetChanged \|\| addressChanged \|\| priceWantsRequote\) && !requoteBeingConverted\)/.test(body),
       'the re-quote in hand IS this change; raising another for it never terminates');
+    check('S65', 'and a price change is never even asked about while one is being applied',
+      /if\(priceChanged && !feetChanged && !addressChanged && !requoteBeingConverted\)/.test(body),
+      'a dialog on top of a conversion is a question she has already answered');
 
     check('S65', 'and the re-quote closes itself once the record is saved',
       /if\(requoteBeingConverted\)\{/.test(body) &&
@@ -20030,6 +20038,81 @@ suite('Suite 107. Pricing a re-quote from the popup');
     }
   }
 
+  /* ⭐ TWO KINDS OF RE-QUOTE, SAID RATHER THAN GUESSED. Owner, 2026-08-21: "in requote
+     I should have the option to have requote for addition to house, or for change
+     address."
+
+     ⚠ AND THEY ARE DIFFERENT JOBS. Something added at the same house means more feet
+     and the old set stays in its bin, which is what topping up is for. A change of
+     address means they moved: the old set comes back, a whole new one is made, and any
+     saved route stop is pointing at the wrong street.
+
+     ⚠ THE ADDRESS COMPARISON WAS A GUESS ABOUT TWO TYPED STRINGS. "9991 Red Cedar Ln"
+     against "9991 Red Cedar Lane" reads as a move that never happened. Stated, it is an
+     answer — and the guess stays only as the fallback for re-quotes raised before this
+     existed. */
+  {
+    const sameAddr = {id: 'c1', data: {name: 'Same House', customerNumber: '1',
+                                       measuredFeet: 180, address: '12 Main St, Lehi'}};
+    const stated = run({name: 'Same House', estimatedFeet: 300, quotedPrice: 600,
+                        address: '12 Main St, Lehi', requoteKind: 'address'}, sameAddr, 2);
+    check('S114', 'a stated change of address is believed, even at the same address',
+      stated.el('requoteBuildRecycle').checked === true &&
+      stated.el('requoteBuildTopUp').checked === false,
+      'she said they moved; the strings matching does not overrule her');
+    check('S114', 'and the popup says that is why',
+      /raised as a change of address/.test(stated.html()));
+
+    const movedAddr = {id: 'c2', data: {name: 'Typo', customerNumber: '2',
+                                        measuredFeet: 180, address: '9991 Red Cedar Ln'}};
+    const addition = run({name: 'Typo', estimatedFeet: 300, quotedPrice: 600,
+                          address: '9991 Red Cedar Lane', requoteKind: 'addition'},
+                         movedAddr, 2);
+    check('S114', 'a stated addition tops up, even when the addresses differ',
+      addition.el('requoteBuildTopUp').checked === true,
+      'Ln against Lane is a typing difference, not a house move, and the guess ' +
+      'could not tell');
+    check('S114', 'and says it was raised as an addition',
+      /Raised as an addition to the same house/.test(addition.html()));
+
+    /* Older re-quotes carry no kind, so the address comparison still decides. */
+    const legacy = run({name: 'Old One', estimatedFeet: 300, quotedPrice: 600,
+                        address: '99 New Rd'},
+                       {id: 'c3', data: {name: 'Old One', customerNumber: '3',
+                                         measuredFeet: 180, address: '12 Old St'}}, 2);
+    check('S114', 'a re-quote raised before this existed still falls back to the address',
+      legacy.el('requoteBuildRecycle').checked === true,
+      'the field cannot be backfilled onto cards already raised');
+  }
+
+  {
+    const ask = extractFn(admin, 'askRequoteKind');
+    check('S114', 'the chooser exists', !!ask);
+    check('S114', 'it offers both, by the words she used',
+      /data-requotekind="addition"/.test(ask) &&
+      /data-requotekind="address"/.test(ask) &&
+      /Something added to the house/.test(ask) && /They changed address/.test(ask));
+    check('S114', 'and backing out resolves rather than hanging',
+      (ask.match(/finish\(null\)/g) || []).length >= 2,
+      'a promise nobody resolves leaves the caller waiting on a popup that is gone');
+    check('S114', 'and the free-text note is kept, because it shows on the card',
+      /requoteKindNote/.test(ask));
+
+    const btn = admin.indexOf("list.querySelectorAll('[data-requote]')");
+    const blk = btn > 0 ? admin.slice(btn, admin.indexOf('quoteSentAt', btn)) : '';
+    check('S114', 'the Re-quote button asks before it does anything', !!blk &&
+      /const kind = await askRequoteKind\(who, d\)/.test(blk) && /if\(!kind\) return;/.test(blk),
+      'Cancel has to back out of the whole thing, as the prompt it replaced did');
+    check('S114', 'and the answer is stored on the quote',
+      /requoteKind: kind\.kind,/.test(blk),
+      'the popup that applies it reads this; an answer nothing stores is a free-text box');
+  }
+
+  check('S114', 'and the card says which kind it is',
+    /Change of address \\u2014 old set comes back/.test(admin) &&
+    /Addition to the same house/.test(admin),
+    'somebody picking the card up later has to know which job it is');
+
   /* ---- and the card that started it says what it is showing ---------------- */
   /* ⚠ SCOPED TO THE BRANCH, because the phrase sits on TWO of them — the one that
      starts on their last price and the one that suggests from the footage. A bare
@@ -20125,6 +20208,207 @@ suite('Suite 110. Approving it for them, with no email');
    5000-series. The bin on the shelf with her old set in it still says 894, because
    nobody has been to it. Sending somebody to find #5051 sends them to a bin that does
    not exist. */
+/* ⭐ SUITE 113. A TEST CARD THAT LANDS WHERE IT WAS BUILT. Owner, 2026-08-21: "in the
+   website on every section in quotes can you put a button on the right called build test
+   customer, name test phone number 3853912235, email highlightingutah@gmail.com $250 125
+   feet warm white."
+
+   One button rather than five, because only one section is on screen at a time and the
+   useful thing is a card that arrives HERE. Otherwise testing the Re-quotes tab means
+   walking a quote through three other tabs first.
+
+   ⚠ SO THE CHECK THAT MATTERS IS A ROUND TRIP, not a list of field values. The fields
+   are fed to the REAL quoteFolder, and it has to file the card back into the section it
+   was asked for. Assert the fields directly and the two drift apart the first time
+   anybody changes what a folder means. */
+/* ⭐ SUITE 115. CHANGING THE PRICE ASKS, AND CAN SAY WHY. Owner, 2026-08-21: "we need
+   to set up for price change so when you go to edit customer and change the price it
+   gives you the option if you want to requote or not requote", and "when theres a
+   requote because of a price change there should be a spot for explaing why you're
+   requoting them but it isnt a required field."
+
+   ⚠ FEET AND ADDRESS RAISE ONE WITHOUT ASKING, AND THAT STAYS. The house is measurably
+   different, so the price they agreed to no longer describes it. A price typed on its
+   own is not that — a typo, a discount agreed on the phone, a rounding — and raising a
+   card for every one of them fills the Quotes tab with work nobody has to do. */
+suite('Suite 115. A price change asks');
+
+{
+  const at = admin.indexOf("document.getElementById('editCustSaveBtn').addEventListener");
+  const body = at > 0 ? admin.slice(at, admin.indexOf("document.getElementById('editCustOverlay').style.display = 'none';", at)) : '';
+  check('S115', 'the save handler was found', !!body);
+
+  check('S115', 'a price on its own is what triggers the question',
+    /const priceChanged = Number\(d\.housePrice \|\| 0\) !== Number\(newHousePrice \|\| 0\);/.test(body),
+    'it has to compare against what was on the record, not against blank');
+  check('S115', 'and only when nothing else has already decided',
+    /if\(priceChanged && !feetChanged && !addressChanged && !requoteBeingConverted\)/.test(body),
+    'the feet or the address moving raises one anyway, so a second question about the ' +
+    'same edit is noise; and during a conversion the new price IS the answer');
+  check('S115', 'answering yes is what puts it on the re-quote condition',
+    /\(feetChanged \|\| addressChanged \|\| priceWantsRequote\)/.test(body));
+  check('S115', 'and the card records that it was the price that moved',
+    /\{what:'price', oldPrice:/.test(body) && /newPrice: Number\(newHousePrice \|\| 0\)/.test(body),
+    'a re-quote with the same feet and the same address and no reason is a card ' +
+    'nobody can act on');
+
+  /* ⚠ AND IT IS A POPUP, NOT A confirm(). A dialog has two buttons and nowhere to type,
+     which is exactly what the reason box needed. */
+  {
+    const ask = extractFn(admin, 'askPriceRequote');
+    check('S115', 'the price question exists on its own', !!ask);
+    check('S115', 'it offers both answers in plain words',
+      /Ask them to approve the new price/.test(ask) && /Just change it/.test(ask),
+      'owner: "if you want to requote or not requote"');
+    check('S115', 'and a box to say why, marked optional',
+      /priceRequoteNote/.test(ask) && /optional/.test(ask),
+      'owner: "it isnt a required field" \u2014 a box that must be filled in gets filled ' +
+      'with a full stop');
+    check('S115', 'backing out means just change it, which sends nothing',
+      /if\(e\.target === overlay\) finish\(false\)/.test(ask),
+      'a stray click must land on the option that raises nothing');
+    check('S115', 'and it shows what the price actually did',
+      /up ' \+ esc\(fmtMoney\(newPrice - oldPrice\)\)/.test(ask) &&
+      /down ' \+ esc\(fmtMoney\(oldPrice - newPrice\)\)/.test(ask),
+      'the office should not work the gap out in their head');
+
+    /* ⚠ AND A NOTE TYPED THEN NOT ASKED FOR IS DROPPED. Saying "just change it" means
+       no card exists to carry a reason. */
+    check('S115', 'the note only travels with a re-quote that is actually raised',
+      /resolve\(\{raise: raise, note: raise \? text : ''\}\)/.test(ask),
+      'storing it anyway leaves a reason attached to a change nobody was told about');
+  }
+
+  check('S115', 'and the card prints the reason when there is one',
+    /d\.changed\.why \? '<div style="margin-top:4px;">Why: '/.test(admin),
+    'optional means it may be blank, and a blank Why line is worse than none');
+
+  /* ⭐ AND A TEST PERSON TO TRY IT ON. Owner: "we should also have a create test person
+     button for this as well." */
+  {
+    const build = extractFn(admin, 'buildTestPerson');
+    check('S115', 'the test person builder exists', !!build);
+    const fields = new Function('addDoc', 'collection', 'db', 'serverTimestamp',
+      /* extractFn slices from `function`, dropping the `async` in front of it, so the
+         body's await lands in a plain function and new Function throws on it. */
+      'async ' + build + 'return buildTestPerson();');
+    let written = null;
+    pendingAsync.push(fields(async function(c, f){ written = f; return {id: 'test1'}; },      function(){ return {}; }, {}, function(){ return 'NOW'; })
+      .then(function(){
+        check('S115', 'the test person carries the details she gave',
+          written.name === 'Test' && written.phone === '3853912235' &&
+          written.email === 'highlightingutah@gmail.com' &&
+          written.housePrice === 250 && written.measuredFeet === 125 &&
+          written.lightsDescription === 'Warm White');
+        check('S115', 'and is a FINISHED customer, so the price edit can be tried on them',
+          written.rsvpStatus === 'yes' && written.needsLightBuild === true,
+          'a half-made record does not exercise what she is testing');
+        check('S115', 'and is marked as a test, and obviously not a house',
+          written.isTestRecord === true && /not a real house/i.test(written.address),
+          'a test row that cannot be told from a customer is a customer');
+        check('S115', 'and takes no customer number from the pool',
+          written.customerNumber === '',
+          'handing a real bin label to a record somebody is about to delete is how a ' +
+          'live number goes missing');
+      }));
+  }
+}
+
+suite('Suite 113. Build Test Customer');
+
+{
+  const fields = new Function('stage', 'TEST_QUOTE_BASE',
+    extractFn(admin, 'testQuoteFieldsFor') + 'return testQuoteFieldsFor(stage);');
+  const folder = new Function('d', 'quoteAlreadyACustomer', 'quoteHasBeenSent',
+    extractFn(admin, 'quoteStage') + extractFn(admin, 'isRequote') +
+    extractFn(admin, 'quoteFolder') + 'return quoteFolder(d);');
+
+  const base = (function(){
+    const at = admin.indexOf('const TEST_QUOTE_BASE = {');
+    const blk = admin.slice(at, admin.indexOf('};', at) + 2);
+    return new Function(blk + 'return TEST_QUOTE_BASE;')();
+  })();
+  check('S113', 'the test details are there to build from', !!base);
+
+  /* ⚠ THE DETAILS SHE GAVE, EXACTLY. */
+  check('S113', 'the name, phone and email are the ones asked for',
+    base.name === 'Test' && base.phone === '3853912235' &&
+    base.email === 'highlightingutah@gmail.com');
+  check('S113', 'and the footage and colour',
+    base.estimatedFeet === 125 &&
+    (base.lightColors || []).join(',') === 'Warm White' &&
+    base.lightsDescription === 'Warm White',
+    'without a description it would be saved with needsLightBuild false and never ' +
+    'reach the build queue, which is half of what she is testing');
+  check('S113', 'and every priced stage carries the $250',
+    ['send', 'form', 'requote', 'closed'].every(function(st){
+      return fields(st, base).quotedPrice === 250;
+    }));
+
+  /* ⚠ AND THE ROUND TRIP. */
+  const stages = ['new', 'send', 'form', 'requote', 'closed'];
+  stages.forEach(function(st){
+    const f = fields(st, base);
+    /* Re-quotes is the one that needs a customer behind it, which the button builds
+       first and links — a re-quote with nothing behind it is an ordinary quote. */
+    if(st === 'requote') f.existingCustomerId = 'c1';
+    check('S113', 'a test card built in ' + st + ' is filed in ' + st,
+      folder(f, function(){ return false; }, function(){ return true; }) === st,
+      'got ' + folder(f, function(){ return false; }, function(){ return true; }) +
+      ' \u2014 the point of the button is a card that arrives in the tab you are on');
+  });
+
+  /* ⚠ THE FOLDER IS NOT WHY THE CUSTOMER MATTERS. requoteCount alone files the card
+     under Re-quotes — isRequote takes either signal — so my first check here asserted
+     something untrue and went red, which is the check doing its job. What actually needs
+     the customer is CONVERTING: showConvertQuoteChoice only diverts to the update popup
+     when the quote still points at a live record, and without one the test card would
+     build a second customer instead of updating the first. That is the half of the
+     re-quote flow she would be testing. */
+  check('S113', 'the card is filed on the re-quote count alone',
+    folder(fields('requote', base), function(){ return false; }, function(){ return true; }) === 'requote',
+    'isRequote takes either the count or the customer link');
+  check('S113', 'but converting only updates when a live customer is behind it',
+    /const stillACustomer = d\.existingCustomerId/.test(extractFn(admin, 'showConvertQuoteChoice')) &&
+    /if\(stillACustomer\)\{ showApplyRequoteChoice/.test(admin),
+    'without the link the test card builds a SECOND customer, which is the mistake ' +
+    'that put ~944 duplicates in this book once already');
+
+  /* ⚠ AND EVERY ONE IS FINDABLE AGAIN. They are real documents in the real collection,
+     which is the whole point, so there has to be a way to sweep them up. */
+  check('S113', 'every test record is marked as one',
+    stages.every(function(st){ return fields(st, base).isTestRecord === true; }),
+    'a test row that cannot be told from a customer is a customer');
+  check('S113', 'and the address says out loud that it is not a house',
+    /not a real house/i.test(base.address),
+    'a plausible address gets routed, printed and driven to');
+
+  /* ---- and the button is there, and wired ---------------------------------- */
+  check('S113', 'the button is on the quotes tab',
+    /id="qBuildTestBtn"[^>]*>Build Test Customer</.test(admin) ||
+    /id="qBuildTestBtn"/.test(admin) && /Build Test Customer/.test(admin),
+    'she asked for it by that name');
+  {
+    const at = admin.indexOf("document.getElementById('qBuildTestBtn')");
+    const blk = at > 0 ? admin.slice(at, admin.indexOf("document.getElementById('qAddByHandBtn')", at)) : '';
+    check('S113', 'and something is listening to it', !!blk && /addEventListener\('click'/.test(blk),
+      'a button that does nothing looks exactly like one that works');
+    check('S113', 'it builds for the section that is open',
+      /const stage = quoteStageFilter;/.test(blk),
+      'one button on five tabs is only useful if it knows which one it is on');
+    check('S113', 'it asks first, naming the section',
+      /confirm\(/.test(blk) && /Build a test customer in/.test(blk),
+      'it writes a real record, so it says so before it does');
+    check('S113', 'and the Re-quotes one builds the customer it points at',
+      /if\(stage === 'requote'\)/.test(blk) && /jobAddresses/.test(blk) &&
+      /fields\.existingCustomerId = cust\.id;/.test(blk),
+      'a re-quote card with no customer behind it lands in the wrong tab');
+    check('S113', 'and a failure says what failed',
+      /console\.error\('Could not build the test customer:'/.test(blk),
+      'the same silence that hid the Edit Customer save for two days');
+  }
+}
+
 suite('Suite 112. The number on the bin');
 
 {

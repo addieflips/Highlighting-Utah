@@ -1207,7 +1207,8 @@
   <div class="main">
     <!-- ADD A CUSTOMER -->
     <div class="panel" id="panel-addcustomer">
-      <div class="panel-head"><div><h2>Customers</h2><p>Add new customers, and see everyone in one place &mdash; invoices, routes, and house maps together.</p></div></div>
+      <div class="panel-head" style="display:flex; align-items:flex-start; gap:12px;"><div><h2>Customers</h2><p>Add new customers, and see everyone in one place &mdash; invoices, routes, and house maps together.</p></div>
+        <button type="button" class="btn btn-outline btn-sm" id="cAddTestPersonBtn" style="margin-left:auto; flex:0 0 auto;">Create Test Person</button></div>
       <div class="route-tabs" id="custSectionTabs" style="margin-bottom:20px;">
         <button class="route-tab-btn active" data-custtab="add" draggable="true">Add a Customer</button>
         <button class="route-tab-btn" data-custtab="all" draggable="true">All Customers</button>
@@ -3068,6 +3069,7 @@
         <button type="button" class="btn btn-gold btn-sm" id="qAddByHandBtn">+ Add a quote by hand</button>
         <span style="font-size:12px; color:var(--slate);">for the ones who call instead of using the website</span>
         <button type="button" class="btn btn-outline btn-sm" id="qTemplateSetupBtn" style="margin-left:auto;">Quote email settings</button>
+        <button type="button" class="btn btn-outline btn-sm" id="qBuildTestBtn">Build Test Customer</button>
       </div>
       <div id="qTemplateSetup" style="display:none; margin-bottom:16px; border:1px solid var(--line); border-radius:10px; background:var(--paper); padding:14px 16px;">
         <div style="font-size:13px; font-weight:700; margin-bottom:4px;">Which template does each email use?</div>
@@ -7486,6 +7488,37 @@ document.getElementById('qTmplSaveBtn')?.addEventListener('click', async functio
 /* Someone calls instead of using the website. A name is enough to start -
    everything else can be filled in later, and it cannot be sent until it has
    a price, same as any other quote. */
+/* ⚠ THE RE-QUOTES TAB NEEDS A CUSTOMER BEHIND THE CARD, so that one builds a test
+   customer as well and links the two. Everywhere else a bare quote is the real thing. */
+document.getElementById('qBuildTestBtn').addEventListener('click', async function(){
+  const btn = this;
+  const stage = quoteStageFilter;
+  const label = ({new: 'Quotes', send: 'Awaiting Response', form: 'Ready to Convert',
+                  requote: 'Re-quotes', closed: 'Closed'})[stage] || stage;
+  if(!confirm('Build a test customer in ' + label + '?' + '\n\n' +
+    'Test \u00b7 3853912235 \u00b7 highlightingutah@gmail.com \u00b7 $250 \u00b7 125 ft \u00b7 Warm White' +
+    '\n\nIt is a real record so it behaves like the real thing. Delete it when you are done.')) return;
+  btn.disabled = true;
+  try{
+    const fields = testQuoteFieldsFor(stage);
+    if(stage === 'requote'){
+      /* Built first, because the quote has to point at it. */
+      const cust = await addDoc(collection(db,'jobAddresses'), Object.assign({},
+        TEST_QUOTE_BASE, {housePrice: 250, measuredFeet: 125, rsvpStatus: 'yes',
+          needsLightBuild: true, scheduled: false, createdAt: serverTimestamp()}));
+      fields.existingCustomerId = cust.id;
+      fields.existingCustomerNumber = '';
+    }
+    fields.createdAt = serverTimestamp();
+    await addDoc(collection(db,'quotes'), fields);
+    toast('Test customer built in ' + label + '.');
+    logActivity('Built a test quote in ' + label, 'quotes', '');
+  }catch(err){
+    console.error('Could not build the test customer:', err);
+    toast('Could not build it \u2014 ' + ((err && err.message) || err));
+  }
+  btn.disabled = false;
+});
 document.getElementById('qAddByHandBtn')?.addEventListener('click', async function(){
   const name = prompt('Name? (that is all you need \u2014 you can come back and finish it later)');
   if(!name || !name.trim()) return;
@@ -8144,6 +8177,161 @@ function requoteLightsToCarry(quote, cust){
   if(!text && !colors.length) return null;
   return {colors: colors, text: text};
 }
+/* ⭐ ASK WHICH KIND OF RE-QUOTE THIS IS. Two buttons, because the answer changes what
+   the warehouse is told later, and a free-text box cannot be read by anything.
+   Resolves to {kind, note} or null when it is backed out of. */
+/* ⭐ A TEST PERSON TO TRY THINGS ON. Owner, 2026-08-21, about the new price-change
+   question: "we should also have a create test person button for this as well."
+
+   Built as a real, finished customer — priced, measured, colours on file, RSVP yes —
+   because the thing being tested is what happens when an EXISTING customer's price is
+   edited, and a half-made record does not exercise that. Same details as the test quote
+   in Quotes, so the two are recognisably the same fictional person.
+
+   ⚠ MARKED isTestRecord, and the address says out loud that it is not a house. It is a
+   real row in the real book, which is the point — it has to behave like the real thing
+   — so it has to be findable and obviously fake on any sheet it reaches.
+
+   ⚠ AND IT TAKES NO CUSTOMER NUMBER FROM THE POOL. Handing a real bin label to a
+   record somebody is about to delete is how a live number goes missing. */
+async function buildTestPerson(){
+  const fields = {
+    name: 'Test', phone: '3853912235', email: 'highlightingutah@gmail.com',
+    address: '125 TEST ST (not a real house), Lehi, UT 84043',
+    street: '125 TEST ST (not a real house)', city: 'Lehi',
+    housePrice: 250, measuredFeet: 125,
+    lightColors: ['Warm White'], lightsDescription: 'Warm White', wireColor: 'White',
+    rsvpStatus: 'yes', numberOfBins: 1, needsLightBuild: true,
+    customerNumber: '', scheduled: false, isTestRecord: true,
+    createdAt: serverTimestamp()
+  };
+  const ref = await addDoc(collection(db,'jobAddresses'), fields);
+  return ref.id;
+}
+/* Guarded like wireWhPrintButtons — the render tests eval this block against a DOM
+   holding only part of the page, and an unguarded getElementById throws there and takes
+   the whole file with it. Suite 1 already fails if the id goes missing from the page. */
+(function wireTestPersonButton(){
+const _tpBtn = document.getElementById('cAddTestPersonBtn');
+if(!_tpBtn) return;
+_tpBtn.addEventListener('click', async function(){
+  const btn = this;
+  if(!confirm('Create a test person?\n\n' +
+    'Test \u00b7 3853912235 \u00b7 highlightingutah@gmail.com \u00b7 $250 \u00b7 125 ft \u00b7 Warm White' +
+    '\n\nA real customer record so it behaves like one \u2014 open them, change the price, and ' +
+    'you will be asked whether it goes back to them. Delete them when you are done.')) return;
+  btn.disabled = true;
+  try{
+    const id = await buildTestPerson();
+    toast('Test person created \u2014 opening their record.');
+    logActivity('Created a test person', 'customers', id);
+    /* Straight into the record, because the thing being tested is done in there and
+       finding a customer called Test in a book of nine hundred is its own errand. */
+    setTimeout(function(){ try{ openEditCustomerModal(id); }catch(e){ } }, 400);
+  }catch(err){
+    console.error('Could not create the test person:', err);
+    toast('Could not create it \u2014 ' + ((err && err.message) || err));
+  }
+  btn.disabled = false;
+});
+})();
+/* ⭐ WHY THE PRICE MOVED, WHEN THE OFFICE WANTS THEM ASKED. Owner, 2026-08-21: "when
+   theres a requote because of a price change there should be a spot for explaing why
+   you're requoting them but it isnt a required field."
+
+   ⚠ NOT REQUIRED, DELIBERATELY. A box that must be filled in is a box that gets filled
+   with a full stop. Empty is a real answer and the card simply does not carry a reason.
+
+   ⚠ AND IT IS NOT A confirm(). A dialog box has two buttons and nowhere to type, which
+   is what this replaced. Resolves {raise, note}; backing out means "just change it", the
+   same as Cancel did — it is the option that sends nothing and raises nothing. */
+function askPriceRequote(who, oldPrice, newPrice){
+  return new Promise(function(resolve){
+    const overlay = document.createElement('div');
+    overlay.className = 'needsfix-popup-overlay';
+    const up = newPrice > oldPrice;
+    overlay.innerHTML = '<div class="needsfix-popup" style="max-width:500px;">'+
+      '<h3 style="color:var(--dusk);">'+esc(who)+' \u2014 price changed</h3>'+
+      '<div style="background:var(--paper); border-radius:10px; padding:10px 13px; font-size:13px;">'+
+        '<strong>'+esc(fmtMoney(oldPrice))+'</strong> &rarr; <strong>'+esc(fmtMoney(newPrice))+'</strong>'+
+        '<span style="color:var(--slate); font-size:12px;"> \u2014 '+
+          (newPrice === oldPrice ? 'unchanged'
+            : (up ? 'up ' + esc(fmtMoney(newPrice - oldPrice)) : 'down ' + esc(fmtMoney(oldPrice - newPrice))))+
+        '</span>'+
+        '<div style="color:var(--slate); font-size:12px; margin-top:4px;">The house itself is unchanged \u2014 same feet, same address \u2014 so nothing needs rebuilding either way.</div>'+
+      '</div>'+
+      '<div class="form-row" style="margin-top:12px;">'+
+        '<label style="font-size:11.5px;">Why is the price changing? (optional \u2014 it shows on the card)</label>'+
+        '<input type="text" id="priceRequoteNote" placeholder="e.g. added the back garage on the phone">'+
+      '</div>'+
+      '<div style="display:flex; flex-direction:column; gap:9px; margin-top:14px;">'+
+        '<button type="button" class="btn btn-gold" id="priceRequoteYes" style="text-align:left;">Ask them to approve the new price'+
+          '<span style="display:block; font-weight:500; font-size:12px; opacity:.85; margin-top:2px;">Raises a re-quote. Their approval is cleared until they answer.</span></button>'+
+        '<button type="button" class="btn btn-outline" id="priceRequoteNo" style="text-align:left;">Just change it'+
+          '<span style="display:block; font-weight:500; font-size:12px; opacity:.85; margin-top:2px;">Nothing is sent and no card is raised. For a typo, or a price already agreed on the phone.</span></button>'+
+      '</div>'+
+    '</div>';
+    document.body.appendChild(overlay);
+    let done = false;
+    function finish(raise){
+      if(done) return;
+      done = true;
+      const note = overlay.querySelector('#priceRequoteNote');
+      const text = (note && note.value.trim()) || '';
+      overlay.remove();
+      resolve({raise: raise, note: raise ? text : ''});
+    }
+    overlay.addEventListener('click', function(e){ if(e.target === overlay) finish(false); });
+    overlay.querySelector('#priceRequoteYes').addEventListener('click', function(){ finish(true); });
+    overlay.querySelector('#priceRequoteNo').addEventListener('click', function(){ finish(false); });
+  });
+}
+function askRequoteKind(who, d){
+  return new Promise(function(resolve){
+    const overlay = document.createElement('div');
+    overlay.className = 'needsfix-popup-overlay';
+    overlay.innerHTML = '<div class="needsfix-popup" style="max-width:500px;">'+
+      '<h3 style="color:var(--dusk);">Re-quote '+esc(who)+'</h3>'+
+      '<p>Their price'+(typeof d.quotedPrice === 'number' ? ' ('+esc(fmtMoney(d.quotedPrice))+')' : '')+
+        (d.approvalStatus === 'approved' ? ' and their approval' : ' and their answer')+
+        ' are cleared, and the card goes back to Quotes for a new price. Photos, feet and everything else stay.</p>'+
+      (d.convertedToCustomerAt
+        ? '<p style="font-size:12.5px; color:var(--ember); background:#FDECEA; border:1px solid #F3C8C2; border-radius:9px; padding:8px 11px;">'+
+          'This one is already a customer. When they approve the new price it updates their record \u2014 they are not converted a second time.</p>'
+        : '')+
+      '<div style="font-size:12.5px; font-weight:600; margin-top:12px; margin-bottom:6px;">What changed?</div>'+
+      '<div style="display:flex; flex-direction:column; gap:9px;">'+
+        '<button type="button" class="btn btn-gold" data-requotekind="addition" style="text-align:left;">Something added to the house'+
+          '<span style="display:block; font-weight:500; font-size:12px; opacity:.85; margin-top:2px;">Another side, more lights. Same house \u2014 their old set stays in its bin and only the extra gets built.</span></button>'+
+        '<button type="button" class="btn btn-gold" data-requotekind="address" style="text-align:left;">They changed address'+
+          '<span style="display:block; font-weight:500; font-size:12px; opacity:.85; margin-top:2px;">They moved. Their old set comes back into stock and a whole new one is made for the new house.</span></button>'+
+      '</div>'+
+      '<div class="form-row" style="margin-top:12px;">'+
+        '<label style="font-size:11.5px;">Anything to add? (optional \u2014 it shows on the card)</label>'+
+        '<input type="text" id="requoteKindNote" placeholder="e.g. wants the back garage doing as well">'+
+      '</div>'+
+      '<button type="button" class="btn btn-outline" id="requoteKindCancel" style="margin-top:10px; width:100%; text-align:center; color:var(--slate);">Cancel</button>'+
+    '</div>';
+    document.body.appendChild(overlay);
+    let done = false;
+    function finish(value){
+      if(done) return;
+      done = true;
+      overlay.remove();
+      resolve(value);
+    }
+    /* Backing out has to resolve too, or the caller waits for ever on a popup that is
+       no longer on the screen. */
+    overlay.addEventListener('click', function(e){ if(e.target === overlay) finish(null); });
+    overlay.querySelector('#requoteKindCancel').addEventListener('click', function(){ finish(null); });
+    overlay.querySelectorAll('[data-requotekind]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        const note = overlay.querySelector('#requoteKindNote');
+        finish({kind: btn.dataset.requotekind, note: (note && note.value.trim()) || ''});
+      });
+    });
+  });
+}
 function showApplyRequoteChoice(quoteId, d, existingItem){
   const ed = existingItem.data || {};
   const who = ed.name || d.name || ('this customer');
@@ -8182,9 +8370,17 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
      somebody who MOVED, and their old set is coming back off the old house, so recycle
      is right even when the sums would allow a top-up. Same address and more feet is the
      case topping up exists for. Either can still be picked by hand. */
+  /* ⭐ WHAT SHE SAID, NOT WHAT THE ADDRESSES LOOK LIKE. requoteKind is set by
+     askRequoteKind when the re-quote is raised, and it is an answer rather than a guess
+     — comparing two typed strings reads "Red Cedar Ln" against "Red Cedar Lane" as a
+     move that never happened. Older re-quotes have no kind on them, so the address
+     comparison stays as the fallback. */
+  const statedKind = String(d.requoteKind || '').trim();
   const quoteAddr = String(d.address || d.street || '').trim().toLowerCase();
   const custAddr = String(ed.address || ed.street || '').trim().toLowerCase();
-  const movedHouse = !!(quoteAddr && custAddr && quoteAddr !== custAddr);
+  const movedHouse = statedKind
+    ? (statedKind === 'address')
+    : !!(quoteAddr && custAddr && quoteAddr !== custAddr);
   const topUpFeet = (oldFeet > 0 && newFeet > oldFeet) ? (newFeet - oldFeet) : 0;
   const canTopUp = topUpFeet > 0;
   const savedPrice = typeof d.quotedPrice === 'number' ? d.quotedPrice : null;
@@ -8235,7 +8431,13 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
       '<label style="display:flex; gap:8px; align-items:flex-start; font-size:12.5px; cursor:pointer; padding:6px 0;">'+
         '<input type="radio" name="requoteBuild" value="recycle" id="requoteBuildRecycle"'+((canTopUp && !movedHouse) ? '' : ' checked')+' style="width:auto; margin-top:3px;">'+
         '<span><strong>Recycle their old set and build the new one.</strong> Their old lights come back into stock and a full '+(newFeet ? newFeet+' ft' : 'new')+' set is made up.'+
-          (movedHouse ? ' <span style="color:#8A6100;">Their address changed, so this is almost certainly the one.</span>' : '')+'</span>'+
+          (movedHouse
+            ? (statedKind === 'address'
+              ? ' <span style="color:#8A6100;">This re-quote was raised as a change of address, so this is the one.</span>'
+              : ' <span style="color:#8A6100;">Their address changed, so this is almost certainly the one.</span>')
+            : (statedKind === 'addition'
+              ? ' <span style="color:var(--slate);">Raised as an addition to the same house.</span>'
+              : ''))+'</span>'+
       '</label>'+
       (canTopUp
         ? '<label style="display:flex; gap:8px; align-items:flex-start; font-size:12.5px; cursor:pointer; padding:6px 0;">'+
@@ -8366,6 +8568,64 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
   });
 }
 /* The popup that asks which way. */
+/* ⭐ A TEST QUOTE, IN WHICHEVER SECTION YOU ARE STANDING IN. Owner, 2026-08-21: "in the
+   website on every section in quotes can you put a button on the right called build test
+   customer, name test phone number 3853912235, email highlightingutah@gmail.com $250 125
+   feet warm white."
+
+   One button rather than five, because only one section is on screen at a time and the
+   useful thing is a card that lands HERE — in Ready to Convert it arrives approved, in
+   Closed it arrives closed, and so on. Otherwise testing the Re-quotes tab means walking
+   a quote through three other tabs first.
+
+   ⚠ EVERY ONE IS MARKED isTestRecord. They are real documents in the real quotes
+   collection — that is the whole point, they have to behave like the real thing — so
+   there has to be a way to find them all again. Health Check reads that field.
+
+   ⚠ AND THE ADDRESS IS OBVIOUSLY FAKE. A plausible one gets routed, printed and
+   driven to. */
+const TEST_QUOTE_BASE = {
+  name: 'Test', phone: '3853912235', email: 'highlightingutah@gmail.com',
+  address: '125 TEST ST (not a real house), Lehi, UT 84043',
+  street: '125 TEST ST (not a real house)', city: 'Lehi',
+  estimatedFeet: 125, lightColors: ['Warm White'], lightsDescription: 'Warm White',
+  wireColor: 'White', isTestRecord: true
+};
+/* The fields that put the card in one folder rather than another. Kept apart from the
+   writing so the staging can be read, argued with and tested without touching
+   Firestore. Mirrors quoteStage/quoteFolder — if those change, this has to follow. */
+function testQuoteFieldsFor(stage){
+  const f = Object.assign({}, TEST_QUOTE_BASE);
+  /* Quotes: no price yet, which is exactly what quoteStage calls 'new'. */
+  if(stage === 'new') return f;
+  f.quotedPrice = 250;
+  /* Awaiting Response: priced and sent, still waiting on them. */
+  if(stage === 'send'){
+    f.approvalStatus = 'pending';
+    f.quoteManuallySent = true;
+    return f;
+  }
+  /* Ready to Convert: approved, and the office answered for them so no form is
+     outstanding — the same override the Mark Approved button sets. */
+  if(stage === 'form'){
+    f.approvalStatus = 'approved';
+    f.approvedByOffice = true;
+    return f;
+  }
+  /* Re-quotes: needs a customer to point at, which the caller fills in — a re-quote
+     with no live customer behind it is an ordinary quote and lands in the wrong tab. */
+  if(stage === 'requote'){
+    f.approvalStatus = 'pending';
+    f.requoteCount = 1;
+    f.requoteFrom = {price: 250, status: 'approved'};
+    f.requoteReason = 'Test re-quote';
+    return f;
+  }
+  /* Closed: finished, however it finished. */
+  f.approvalStatus = 'approved';
+  f.status = 'closed';
+  return f;
+}
 function showConvertQuoteChoice(quoteId, d){
   /* ⚠ A RE-QUOTE NEVER REACHES THE REST OF THIS FUNCTION. Everything below
      builds a NEW customer, which for somebody already on the books is a second
@@ -8549,6 +8809,11 @@ function renderQuoteRows(filtered){
                 ((cnBinsForFeet(Number(d.changed.newFeet)) >= 2 && cnBinsForFeet(Number(d.changed.oldFeet)) < 2)
                   ? '<div style="margin-top:4px; color:#B91C1C; font-weight:700;">Now over '+CN_DOUBLE_BIN_FEET+' ft \u2014 needs '+cnBinsForFeet(Number(d.changed.newFeet))+' bins and a 5000-series number.</div>' : '')+
                 '</div>'
+              : d.changed.what === 'price'
+              ? '<div style="margin-top:4px;">Price changed <strong>'+fmtMoney(Number(d.changed.oldPrice)||0)+' &rarr; '+fmtMoney(Number(d.changed.newPrice)||0)+'</strong>. '+
+                'The house is unchanged — same feet, same address — so nothing needs rebuilding. '+
+                'This is here because the office said the new price should go back to them for approval.'+
+                (d.changed.why ? '<div style="margin-top:4px;">Why: '+esc(d.changed.why)+'</div>' : '')+'</div>'
               : d.changed.what === 'sides'
               ? '<div style="margin-top:4px;">Sides changed from <strong>'+esc(d.changed.oldSides || 'none recorded')+'</strong> to <strong>'+esc(d.changed.newSides || 'none')+'</strong>'+
                 (d.changed.oldPrice ? '. They were paying '+fmtMoney(d.changed.oldPrice)+'.' : '.')+
@@ -8589,6 +8854,11 @@ function renderQuoteRows(filtered){
                d.requoteFrom.status === 'declined' ? ', which they declined' :
                d.requoteFrom.status === 'maybe_next_year' ? ', and they said maybe next year' :
                ', still awaiting their answer')+'.</div>'+
+            (d.requoteKind
+              ? '<div style="margin-top:4px;">'+(d.requoteKind === 'address'
+                  ? 'Change of address \u2014 old set comes back, new one gets built.'
+                  : 'Addition to the same house \u2014 their old set stays in its bin.')+'</div>'
+              : '')+
             (d.requoteReason ? '<div style="margin-top:4px;">Why: '+esc(d.requoteReason)+'</div>' : '')+
             (quoteStage(d) === 'new' ? '<div style="margin-top:4px;">Add the new photo and price below, then send it for approval again.</div>' : '')+
             /* Converting a second time would build a second customer for the
@@ -9592,22 +9862,30 @@ function renderQuoteRows(filtered){
       const who = d.name || 'this customer';
       /* One box, not two: Cancel here backs out of the whole thing, and
          whatever is typed is only ever a note for her own card. */
-      const why = prompt('Re-quote ' + who + '?\n\n' +
-        'Their price (' + fmtMoney(d.quotedPrice) + ')' +
-        (d.approvalStatus === 'approved' ? ' and their approval' : ' and their answer') +
-        ' are cleared, and the card goes back to Quotes for a new price. ' +
-        'Photos, feet and everything else stay.\n\n' +
-        (d.convertedToCustomerAt
-          ? 'Heads up: this one is already a customer. When they approve the new price, change it on their customer record — do not convert them a second time.\n\n'
-          : '') +
-        'What changed? (optional — it shows on the card)',
-        'They asked for another side of the house quoted');
-      if(why === null) return;
+      /* ⭐ WHICH KIND OF RE-QUOTE. Owner, 2026-08-21: "in requote I should have the
+         option to have requote for addition to house, or for change address."
+
+         ⚠ AND THE TWO ARE DIFFERENT JOBS, not two labels for one. Something added at the
+         same house means more feet and the old set stays in its bin — that is what
+         topping up is for. A change of address means they MOVED: the old set comes back
+         off the old house, a whole new one is made, the address needs re-geocoding and
+         any saved route stop is now pointing at the wrong street.
+
+         ⚠ AND SAID, NOT GUESSED. showApplyRequoteChoice worked "did they move?" out by
+         comparing the quote's address with the customer's, which is a guess about two
+         strings a person typed — "9991 Red Cedar Ln" against "9991 Red Cedar Lane" reads
+         as a move that never happened. Asked here, it is an answer. */
+      const kind = await askRequoteKind(who, d);
+      if(!kind) return;
+      const why = kind.note;
       try{
         const updates = {
           requoteCount: (Number(d.requoteCount) || 0) + 1,
           requoteFrom: {price: Number(d.quotedPrice) || 0, status: d.approvalStatus || 'pending'},
           requoteReason: String(why || '').trim(),
+          /* 'addition' or 'address' — read by showApplyRequoteChoice to decide what the
+             warehouse is offered, and shown on the card. */
+          requoteKind: kind.kind,
           requotedAt: serverTimestamp(),
           /* The price genuinely has to go rather than just be flagged: it is
              what quoteStage reads, so leaving it there keeps the card sitting
@@ -26473,6 +26751,31 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        the ReQuotes wording instead of the new-customer one. */
     const feetChanged = Number(d.measuredFeet || 0) !== Number(newMeasuredFeet || 0);
     const addressChanged = String(d.address || '').trim().toLowerCase() !== String(newAddress || '').trim().toLowerCase();
+    /* ⭐ AND A PRICE CHANGE ASKS. Owner, 2026-08-21: "we need to set up for price change
+       so when you go to edit customer and change the price it gives you the option if you
+       want to requote or not requote."
+
+       ⚠ FEET AND ADDRESS RAISE ONE WITHOUT ASKING, AND THAT IS RIGHT — the house is
+       measurably different, so the price they agreed to no longer describes it. A price
+       typed on its own is not the same thing. Correcting a typo, applying a discount
+       already agreed on the phone, rounding to the nearest ten: none of those need the
+       customer asked again, and raising a card for every one of them is how the Quotes
+       tab fills with work nobody has to do.
+
+       ⚠ SO IT ASKS, AND ONLY WHEN NOTHING ELSE HAS ALREADY DECIDED. If the feet or the
+       address moved, a re-quote is going up anyway and a second question about the same
+       edit is noise. Nor while a re-quote is being APPLIED — the new price IS the answer
+       to a re-quote already in hand, and asking would raise one for the change that just
+       resolved the last, which never terminates. */
+    const priceChanged = Number(d.housePrice || 0) !== Number(newHousePrice || 0);
+    let priceWantsRequote = false;
+    let priceRequoteNote = '';
+    if(priceChanged && !feetChanged && !addressChanged && !requoteBeingConverted){
+      const answer = await askPriceRequote(newName || (d.name || 'this customer'),
+        Number(d.housePrice || 0), Number(newHousePrice || 0));
+      priceWantsRequote = !!(answer && answer.raise);
+      priceRequoteNote = (answer && answer.note) || '';
+    }
     /* ⭐ APPLYING A RE-QUOTE CONFIRMS THEM FOR THE SEASON. Owner, 2026-08-20: "new
        hangs color changes and requotes should be automatically updated into the yes
        sheet because obviously they are confirmed." They have just agreed a new price;
@@ -26542,14 +26845,19 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     }
     /* ⚠ NOT while a re-quote is being applied. The re-quote in hand IS this
        change; raising another for it is a loop the office cannot finish. */
-    if((feetChanged || addressChanged) && !requoteBeingConverted){
+    if((feetChanged || addressChanged || priceWantsRequote) && !requoteBeingConverted){
       try{
         const already = quotesCache.find(function(q){
           return q.data.existingCustomerId === editCustomerId && quoteStage(q.data) === 'new';
         });
         const changeNote = feetChanged
           ? {what:'feet', oldFeet: Number(d.measuredFeet || 0), newFeet: Number(newMeasuredFeet || 0), oldPrice: Number(d.housePrice || 0)}
-          : {what:'address', oldAddress: String(d.address || '')};
+          : addressChanged
+          ? {what:'address', oldAddress: String(d.address || '')}
+          /* A price on its own. The card has to say what moved, or somebody picking it
+             up sees a re-quote with the same feet and the same address and no reason. */
+          : {what:'price', oldPrice: Number(d.housePrice || 0), newPrice: Number(newHousePrice || 0),
+             why: priceRequoteNote};
         if(already){
           /* One open re-quote per customer - editing twice before sending it
              should update the card, not stack up a second one. */
