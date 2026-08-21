@@ -4637,6 +4637,20 @@ if (!JSDOM) {
   // fails if the actual formatting rule ever changes underneath it.
   const fmtMoneySrc = extractFn(money, 'fmtMoney');
 
+  /* The invoice prints the customer's contact preferences, so the sandbox needs
+     that helper. ⚠ LIFTED REAL, NOT STUBBED — a stub would make the printed line
+     untestable while reporting green (CLAUDE.md §3). CONTACT_PREFS is a const
+     array, so it is matched rather than extractFn'd. */
+  const contactPrefsConst = (admin.match(/const CONTACT_PREFS = \[[\s\S]*?\n\];/) || [''])[0];
+  const contactPrefsSrc = contactPrefsConst +
+    '\n' + (extractFn(admin, 'contactPrefsFor') || '') +
+    '\n' + (extractFn(admin, 'contactPrefsNote') || '');
+  check('invoice-doc', 'the contact-preferences helper is available to the invoice sandbox',
+    !!contactPrefsConst && /function contactPrefsFor/.test(contactPrefsSrc) &&
+    /function contactPrefsNote/.test(contactPrefsSrc),
+    'renamed or removed — the invoice prints this line, so supply the real one ' +
+    'rather than stubbing it');
+
   function makeInvoiceHarness(invoiceOverrides) {
     const ctx = {
       allInvoicesCache: [{
@@ -4661,7 +4675,7 @@ if (!JSDOM) {
     };
     const names = Object.keys(ctx);
     const fn = new Function(...names,
-      fmtMoneySrc + '\n' + biSrc + '\nreturn buildInvoiceDocHtml;'
+      fmtMoneySrc + '\n' + contactPrefsSrc + '\n' + biSrc + '\nreturn buildInvoiceDocHtml;'
     )(...names.map(n => ctx[n]));
     return fn;
   }
@@ -27786,7 +27800,74 @@ suite('Suite 128. The do-not-send list — automation emails only');
       'after being told they never would be');
   }
 
-  /* ---- 8. the four dead senders are still dead ---- */
+  /* ---- 8. the preference is VISIBLE where the office works ---- */
+  /* Owner: "we should be able to tick those in costumers and it should show on
+     invoice and costumers if there is a certain way they don't want to be
+     contacted." One array feeds all three screens, so a preference cannot show up
+     on one and be missing from another. */
+  {
+    const prefsFor = extractFn(admin, 'contactPrefsFor');
+    const note = extractFn(admin, 'contactPrefsNote');
+    const chips = extractFn(admin, 'contactPrefChips');
+    check('S128', 'the contact-preference helpers exist',
+      !!prefsFor && !!note && !!chips,
+      'renamed — the invoice, the customer row and Edit Customer all read these');
+
+    if (prefsFor && note && chips) {
+      const constSrc = (admin.match(/const CONTACT_PREFS = \[[\s\S]*?\n\];/) || [''])[0];
+      const run = new Function('esc',
+        constSrc + prefsFor + note + chips +
+        ';return {note: contactPrefsNote, chips: contactPrefChips};')(s => String(s == null ? '' : s));
+
+      check('S128', 'somebody who has asked for nothing gets no line at all',
+        run.note({}) === '' && run.chips({}) === '',
+        '"Contact preferences: none" on every invoice trains the eye to skip the ' +
+        'place the real ones appear');
+      check('S128', 'the no-texts preference is named',
+        /no text messages/.test(run.note({ smsOptedOut: true })),
+        'the owner asked for ANY way they do not want to be contacted, not just email');
+      check('S128', 'the no-marketing-email preference is named',
+        /no marketing emails/.test(run.note({ noAutomationEmails: true })),
+        'this is the flag the do-not-send list sets');
+      check('S128', 'and both together read as one sentence',
+        (run.note({ smsOptedOut: true, noAutomationEmails: true }).match(/no /g) || []).length === 2,
+        'somebody can refuse both, and the invoice has to say so once');
+      /* ⚠ THE WORDING IS THE SAFETY FEATURE HERE. The dangerous misreading of a
+         no-contact note on a BILL is that it stopped the bill. */
+      check('S128', 'the tickbox says what it does not stop',
+        /still get their invoice and account notices/.test(admin),
+        'the one dangerous misreading of this box is that it stops their bill too');
+    }
+
+    /* ⚠ THE INVOICE IS HANDED A STRING, NEVER THE FLAGS. This is what makes the
+       printed line structurally incapable of becoming a reason not to bill
+       somebody — the builder cannot branch on what it never receives. */
+    const invDoc2 = sectionFrom(admin, admin.indexOf('function buildInvoiceDocHtml'));
+    check('S128', 'the invoice prints the preference',
+      invDoc2.indexOf('contactPrefsNote(d)') !== -1,
+      'the owner asked for it to show on the invoice');
+    check('S128', 'and is never handed the raw flags to branch on',
+      invDoc2.indexOf('smsOptedOut') === -1 && invDoc2.indexOf('noAutomationEmails') === -1,
+      'a builder that can see the flag is a builder that can be made to gate a bill');
+
+    check('S128', 'the customer row shows it too',
+      sectionFrom(admin, admin.indexOf('function renderAllCustomersTable')).indexOf('contactPrefChips(r.d)') !== -1,
+      'a preference nobody can see from the customer list gets broken by whoever ' +
+      'is looking at the screen that does not say');
+
+    /* The tick the owner asked for, and the write behind it. */
+    check('S128', 'Edit Customer offers the tickbox',
+      admin.indexOf('id="editCustNoAutoEmails"') !== -1,
+      'owner: "we should be able to tick those in costumers"');
+    check('S128', 'it is filled in from the record when the form opens',
+      /editCustNoAutoEmails'\)\.checked = d\.noAutomationEmails === true/.test(admin),
+      'a box that never shows the saved value reads as the setting not sticking');
+    check('S128', 'and saving writes the same field the send panel reads',
+      /noAutomationEmails: newNoAutoEmails/.test(admin),
+      'two doors onto one fact — a second field here is the one that drifts');
+  }
+
+  /* ---- 9. the four dead senders are still dead ---- */
   /* ⚠ NOT DECORATION. sendRsvpEmailBtn, sendBulkUpdateEmailBtn and the two pib*
      buttons all send email to customers and NONE of them has any markup — every
      id is in KNOWN_MISSING_IDS, so the handlers return at their first line. That

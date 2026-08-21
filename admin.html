@@ -1838,6 +1838,17 @@
                 <span style="font-size:11.5px; color:var(--slate); font-weight:400;">Tick if they&rsquo;ve asked not to get texts. Email is unaffected.</span></label>
             </div>
             <div class="form-row"><label>Email</label><input type="email" id="editCustEmail"></div>
+            <!-- ⭐ THE SAME LIST THE SEND PANEL USES. Ticking here is identical to
+                 pressing "Don't send" beside their name in Automation Emails, and
+                 both write `noAutomationEmails` — one fact, two doors, never two
+                 fields drifting apart. The wording deliberately says what it does
+                 NOT stop, because the one dangerous misreading of this box is that
+                 it also stops their bill. -->
+            <div class="form-row" style="display:flex; align-items:flex-start; gap:8px;">
+              <input type="checkbox" id="editCustNoAutoEmails" style="width:auto; margin-top:3px;">
+              <label for="editCustNoAutoEmails" style="font-weight:500; line-height:1.45;">Don&rsquo;t send this customer marketing emails<br>
+                <span style="font-size:11.5px; color:var(--slate); font-weight:400;">Tick if they&rsquo;ve asked not to get RSVPs, nudges and the like. They still get their invoice and account notices.</span></label>
+            </div>
             <div class="form-row"><label>Secondary Email</label><input type="email" id="editCustEmail2"></div>
             <div class="form-row"><label>Enrolled Date</label><input type="date" id="editCustEnrolled"></div>
           </div>
@@ -11994,6 +12005,39 @@ function toJsDate(ts){
   const d = new Date(ts);
   return isNaN(d.getTime()) ? null : d;
 }
+/* ⭐ HOW SOMEBODY HAS ASKED NOT TO BE CONTACTED (added 2026-08-21). Owner: "it
+   should show on invoice and costumers if there is a certain way they don't want
+   to be contacted."
+   ⚠ ONE LIST, THREE SCREENS. The Edit Customer boxes, the All Customers row and the
+   printed invoice all read this one array, so a preference cannot appear on one
+   screen and be missing from another — which is how somebody gets texted by whoever
+   happened to be looking at the screen that did not say.
+   ⚠ IT REPORTS, IT NEVER DECIDES. These helpers hand back TEXT. `buildInvoiceDocHtml`
+   is given a finished string and never sees the flags themselves, so no future edit
+   in there can quietly make a contact preference gate a BILL — the failure this
+   whole feature has been shaped to avoid. Suite 128 asserts the invoice builder
+   names none of the fields directly, which is what keeps that true. */
+const CONTACT_PREFS = [
+  {field: 'smsOptedOut',        chip: 'No texts',            long: 'no text messages'},
+  {field: 'noAutomationEmails', chip: 'No marketing emails', long: 'no marketing emails'}
+];
+function contactPrefsFor(d){
+  const rec = d || {};
+  return CONTACT_PREFS.filter(p => rec[p.field] === true);
+}
+/* ⚠ BLANK WHEN THEY HAVE ASKED FOR NOTHING. "Contact preferences: none" is a line
+   nobody needs to read, and printing it on every invoice trains the eye to skip the
+   place the real ones appear. */
+function contactPrefsNote(d){
+  const on = contactPrefsFor(d);
+  if(!on.length) return '';
+  return 'Contact preferences: ' + on.map(p => p.long).join(' · ') + '.';
+}
+function contactPrefChips(d){
+  return contactPrefsFor(d).map(function(p){
+    return ' <span class="status-pill" style="background:#FDECEA; color:#B91C1C; font-weight:700;">'+esc(p.chip)+'</span>';
+  }).join('');
+}
 function buildInvoiceDocHtml(member){
   const d = member.data;
   const phoneDigits = (d.phone||'').replace(/\D/g,'');
@@ -12082,6 +12126,11 @@ function buildInvoiceDocHtml(member){
         '<p style="font-size:15px; font-weight:700; color:var(--ink); margin:0 0 4px;">'+esc(d.name||'(no name)')+'</p>'+
         '<p style="font-size:13px; color:var(--slate); margin:0;">'+esc(d.address||'')+'</p>'+
         '<p style="font-size:13px; color:var(--slate); margin:4px 0 0;">'+esc(d.phone||'')+'</p>'+
+        /* ⚠ A FINISHED STRING, and that is the safety argument. This line can print
+           a contact preference and structurally cannot act on one — the builder is
+           never handed the flags, so nothing here can grow into a reason not to
+           send somebody their bill. */
+        (contactPrefsNote(d) ? '<p style="font-size:12px; color:var(--slate); margin:6px 0 0; font-style:italic;">'+esc(contactPrefsNote(d))+'</p>' : '')+
       '</div>'+
       '<table style="width:100%; border-collapse:collapse; margin-bottom:20px;">'+
         '<thead><tr style="border-bottom:1px solid var(--line);">'+
@@ -26823,7 +26872,7 @@ function renderAllCustomersTable(){
          but it was neither shown here nor searchable, which meant the one
          identifier staff actually say out loud could not be used to find
          anybody. */
-      '<td style="padding:8px 10px;"><strong>'+esc(r.d.name||'(no name)')+'</strong>'+custNumChip(r.d)+binBadge+custSheetChips(r.d)+'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.address||'')+'</span>'+propLabelChip(r.d)+(r.d.phone?'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.phone)+'</span>':'')+'</td>'+
+      '<td style="padding:8px 10px;"><strong>'+esc(r.d.name||'(no name)')+'</strong>'+custNumChip(r.d)+binBadge+custSheetChips(r.d)+'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.address||'')+'</span>'+propLabelChip(r.d)+(r.d.phone?'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.phone)+'</span>':'')+contactPrefChips(r.d)+'</td>'+
       '<td style="padding:8px 10px; font-size:12.5px;">'+esc(r.enrolled||'—')+'</td>'+
       '<td style="padding:8px 10px;">'+routeCell+'</td>'+
       '<td style="padding:8px 10px; font-size:12.5px;">'+esc(timingLabel)+'</td>'+
@@ -26978,6 +27027,7 @@ function openEditCustomerModal(id){
   document.getElementById('editCustPhone').value = d.phone || '';
   document.getElementById('editCustPhone2').value = d.phone2 || '';
   document.getElementById('editCustNoTexts').checked = d.smsOptedOut === true;
+  document.getElementById('editCustNoAutoEmails').checked = d.noAutomationEmails === true;
   document.getElementById('editCustEmail').value = d.email || '';
   document.getElementById('editCustEmail2').value = d.email2 || '';
   document.getElementById('editCustAddress').value = d.address || '';
@@ -27794,7 +27844,8 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   statusEl.textContent = 'Saving…';
   try{
     const newNoTexts = document.getElementById('editCustNoTexts').checked;
-    const addrUpdates = {smsOptedOut: newNoTexts, name: newName, propertyLabel: newPropertyLabel, phone: newPhone, phone2: newPhone2, email: newEmail, email2: newEmail2, address: newAddress, city: newCity, customerNumber: newCustNumber, rsvpStatus: newRsvp, housePrice: newHousePrice, measuredFeet: newMeasuredFeet, wireColor: newWireColor, billToPhone: newBillTo, gateCode: newGateCode, outletTimer: newOutletTimer, useEaves: newUseEaves, specificOutlet: newSpecificOutlet, specificOutletNotes: newSpecificOutletNotes, numberOfBins: newBins, wantsMailedInvoice: newWantsMailed, wantsTextedInvoice: newWantsTexted, houseSides: newHouseSides, layoutMapUrl: editCustLayoutMapUrl, earliestInstallDate: newEarliestInstallStr ? new Date(newEarliestInstallStr + 'T00:00:00') : null};
+    const newNoAutoEmails = document.getElementById('editCustNoAutoEmails').checked;
+    const addrUpdates = {smsOptedOut: newNoTexts, noAutomationEmails: newNoAutoEmails, name: newName, propertyLabel: newPropertyLabel, phone: newPhone, phone2: newPhone2, email: newEmail, email2: newEmail2, address: newAddress, city: newCity, customerNumber: newCustNumber, rsvpStatus: newRsvp, housePrice: newHousePrice, measuredFeet: newMeasuredFeet, wireColor: newWireColor, billToPhone: newBillTo, gateCode: newGateCode, outletTimer: newOutletTimer, useEaves: newUseEaves, specificOutlet: newSpecificOutlet, specificOutletNotes: newSpecificOutletNotes, numberOfBins: newBins, wantsMailedInvoice: newWantsMailed, wantsTextedInvoice: newWantsTexted, houseSides: newHouseSides, layoutMapUrl: editCustLayoutMapUrl, earliestInstallDate: newEarliestInstallStr ? new Date(newEarliestInstallStr + 'T00:00:00') : null};
     /* Stamped on every customer save. Without these two the concurrent-edit
        check above has nothing to compare — a customer record carried no
        updatedAt at all, so "has anyone touched this since I opened it?" was
