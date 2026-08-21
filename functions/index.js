@@ -572,6 +572,18 @@ const PORTAL_READ_FIELDS = [
   'specificOutlet', 'specificOutletNotes', 'notes', 'rsvpStatus', 'houseSides',
   'seasonStatus', 'cancellationReason', 'housePhotoUrl', 'houseHighlights',
   'quoteDetailQuoteId',
+  /* The end of their current free-change window, which is also the window in
+     which they are deliberately not put on a route. The portal needs it BEFORE
+     a save so its confirm dialog can tell them whether this change costs $30 —
+     it used to warn about a fee even on a change that was still free, then
+     contradict itself in the note straight afterwards.
+
+     ⚠ THIS IS WHY IT COMES FROM THE CUSTOMER AND NOT THE INVOICE. portalInvoice
+     derives lightChangeFreeUntil from the invoice's lastLightChangeFeeAt, which
+     only exists once a fee has actually been charged — so a NEW customer, whose
+     window is opened by joining rather than by paying, looked to the portal like
+     somebody with no window at all and was warned about a fee they did not owe. */
+  'lightsLockedUntil',
   /* "When are you coming?" is the most-asked question of the season and the
      answer was already on the record, just never sent. The DATE only — never
      assignedCrew and never the stop order, which are internal and would turn
@@ -1149,83 +1161,139 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
     await removeCustomerFromUpcomingRoutes(match.id);
   }
 
-  // The Lights tab mirrors the description onto the invoice record AND enforces
-  // the $30 light-change fee. The customer gets a 48-hour free window after a
-  // charged change to keep tweaking; the first change once that window has
-  // closed charges another $30 and restarts the window. Decided here, on the
-  // server, using the server clock — the browser can't skip or fake it.
+  /* ⭐ THE LIGHTS TAB — one rule, and the $30 that now actually lands.
+     Rewritten 2026-08-21. Read applyLightChange in js/money.js for the rule
+     itself and the owner's words; this is only the plumbing around it.
+
+     ⚠ THE FEE WAS NEVER BEING CHARGED AT ALL, and that is what this rewrite
+     fixes first. Since 2026-08-19 this block ended with
+     `updates.chargeNewMemberFee = true` — but `updates` is written to Firestore
+     SIXTY-THREE LINES EARLIER, so the flag was set on an object nobody saved
+     again. It is not in PORTAL_READ_FIELDS either, so it never even reached the
+     browser. The only customer write left in this block set the lock and the
+     reassign flags and no fee. So every colour change a member made in their
+     own portal charged NOTHING, while the portal told them in red that "$30 was
+     added to your balance". Everything is written inside the transaction now,
+     which is the only place a decision and its write cannot drift apart.
+
+     ⚠ THE WINDOW IS READ FROM THE CUSTOMER, not from the invoice's
+     lastLightChangeFeeAt. A brand new customer's window has to exist before any
+     invoice does. Existing records carry lightsLockedUntil already — the old
+     code set it at the same moment it stamped lastLightChangeFeeAt — so nobody
+     mid-window loses it in the changeover. lastLightChangeFeeAt is still
+     stamped, because portalInvoice hands it to the portal as
+     lightChangeFreeUntil, but it no longer decides anything. */
   let lightFeeInfo = null;
-  if (section === 'lights' && oldKey && updates.lightsDescription !== undefined) {
-    const changed = updates.lightsDescription !== (oldData.lightsDescription || '');
-    const FEE = 30;
-    const WINDOW_MS = 48 * 60 * 60 * 1000;
+  if (section === 'lights' && updates.lightsDescription !== undefined) {
     const nowMs = Date.now();
-    let withinFreeWindow = false;
+    let decision = null;
     try {
-      const invRef = db.collection('invoices').doc(oldKey);
+      const custRef = db.collection('jobAddresses').doc(match.id);
+      const invRef = oldKey ? db.collection('invoices').doc(oldKey) : null;
       /* Read-decide-write, all inside one transaction. Two near-simultaneous
          portalSave('lights', ...) calls (a client-side retry, or a double
-         form-submit before the Save button's disabled state takes effect)
-         could otherwise both read the same pre-charge changeFees value and
-         each add $30, double-charging one intended change — recordPaypalPayment
-         already guards against exactly this class of race for payments; this
-         had no equivalent backstop. withinFreeWindow and lightFeeInfo are
-         recomputed from scratch on every attempt, so a Firestore-triggered
-         retry on contention can't carry over a stale decision from a
-         previous attempt. */
+         form-submit before the Save button's disabled state takes effect) could
+         otherwise both read the same pre-charge changeFees and each add $30,
+         double-charging one intended change. recordPaypalPayment guards the
+         same class of race for payments.
+
+         ⚠ A customer with no phone AND no email has no invoice document, so
+         there is nothing to charge — but they must still be LOCKED off the
+         routes while their pattern may move. That is why the invoice is
+         optional here and the customer write is not. */
       await db.runTransaction(async (t) => {
-        const invSnap = await t.get(invRef);
-        const inv = invSnap.exists ? invSnap.data() : {};
-        const lastAt = inv.lastLightChangeFeeAt && inv.lastLightChangeFeeAt.toMillis
-          ? inv.lastLightChangeFeeAt.toMillis() : 0;
-        withinFreeWindow = lastAt > 0 && (nowMs - lastAt) <= WINDOW_MS;
+        /* Reset per attempt. Firestore retries a contended transaction, and a
+           decision carried over from an abandoned attempt would be charged
+           against a balance that has since moved. */
+        decision = null;
+        const custSnap = await t.get(custRef);
+        const invSnap = invRef ? await t.get(invRef) : null;
+        const cust = (custSnap.exists ? custSnap.data() : null) || oldData;
+        const inv = (invSnap && invSnap.exists) ? invSnap.data() : {};
 
-        const invWrite = { lightsDescription: updates.lightsDescription };
-        // A real change to a non-empty pattern is the only thing that can charge.
-        if (changed && updates.lightsDescription) {
-          if (!withinFreeWindow) {
-            /* ⭐ A COLOUR CHANGE MAKES THEM A NEW CUSTOMER. Owner, 2026-08-19: "get rid
-               of color change fee and just make it new customer fee", and, asked whether
-               that should include going out first: "Its fine they can be treated as a
-               new customer do it."
+        const d = applyLightChangeServer({
+          oldLights: oldData.lightsDescription,
+          newLights: updates.lightsDescription,
+          lockedUntil: toMillis(cust.lightsLockedUntil),
+          invoiceSent: !!cust.invoiceEmailSent,
+          scheduled: !!oldData.scheduled,
+          nowMs: nowMs
+        });
+        decision = d;
 
-               So no separate light-change fee is written any more. chargeNewMemberFee
-               is set instead; the nightly run adds the new-member fee ONCE, guarded by
-               newMemberFeeApplied, and Routes shows the New Hang badge — which also puts
-               them at the head of the install queue, because a rebuilt house is a house
-               that has to be built.
+        const custWrite = {};
+        if (d.lightsLockedUntil) {
+          custWrite.lightsLockedUntil = admin.firestore.Timestamp.fromMillis(d.lightsLockedUntil);
+        }
+        if (d.setLightsChangedAt) {
+          custWrite.lightsChangedAt = admin.firestore.FieldValue.serverTimestamp();
+        }
+        if (d.feeAmount > 0 && d.feeDestination === 'nextSeason') {
+          /* ⭐ THE BILL HAS ALREADY GONE, SO THIS RIDES TO NEXT SEASON. Owner:
+             "if invoice has already been sent out but they change there lights
+             after invoice is sent out than the 30 dollars will be charged for
+             next season."
 
-               ⚠ THIS REPLACES THE FEE, IT DOES NOT ADD TO IT. Writing changeFees here
-               as well would charge $30 twice for one change, which is the exact bug the
-               transaction around this block exists to prevent.
+             ⚠ IT HAS TO LIVE ON THE CUSTOMER, NOT THE INVOICE. Start New Season
+             wipes changeFees, changeFeeNotes and lastLightChangeFeeAt on every
+             invoice, so a charge parked there is deleted rather than carried.
+             It touches only completed / invoiceEmailSent / scheduled /
+             scheduledDate / assignedCrew on the customer, which is exactly why
+             carryoverCredit already lives there and survives. This is that same
+             mechanism pointing the other way, and runInvoiceBatch folds it into
+             next season's invoice the night their lights go back up. */
+          custWrite.carryoverCharge = (Number(cust.carryoverCharge) || 0) + d.feeAmount;
+          custWrite.carryoverChargeNotes =
+            (Array.isArray(cust.carryoverChargeNotes) ? cust.carryoverChargeNotes : [])
+              .concat([{ amount: d.feeAmount, reason: d.feeReason,
+                         date: new Date(nowMs).toISOString() }]);
+        }
+        if (Object.keys(custWrite).length) t.set(custRef, custWrite, { merge: true });
 
-               ⚠ THE TIMESTAMP STAYS, and is now purely the change-window marker. The
-               48-hour lock below reads it to keep a customer off an install route while
-               their pattern may still move; that has nothing to do with the fee and
-               removing it would let a crew hang lights that are about to change. */
-            updates.chargeNewMemberFee = true;
+        if (invRef) {
+          const invWrite = { lightsDescription: updates.lightsDescription };
+          if (d.feeAmount > 0 && d.feeDestination === 'invoice') {
+            /* Its own line on the invoice, which is what changeFees has always
+               been for — and it is SEPARATE from the $30 new-member fee, which
+               the nightly run folds into `install`. A new member who changes
+               colours outside their window pays both. Owner: "new member fee and
+               change light fees are seperate ... which would put them at 6[0]
+               dollars." */
+            invWrite.changeFees = (Number(inv.changeFees) || 0) + d.feeAmount;
+            invWrite.changeFeeNotes =
+              (Array.isArray(inv.changeFeeNotes) ? inv.changeFeeNotes : [])
+                .concat([{ amount: d.feeAmount, reason: d.feeReason,
+                           date: new Date(nowMs).toISOString() }]);
+          }
+          if (d.feeAmount > 0) {
             invWrite.lastLightChangeFeeAt = admin.firestore.Timestamp.fromMillis(nowMs);
             invWrite.updatedAt = admin.firestore.FieldValue.serverTimestamp();
-            lightFeeInfo = { feeCharged: true, amount: FEE, asNewCustomer: true, freeWindowEndsAt: nowMs + WINDOW_MS };
-          } else {
-            // Still inside the 48-hour window — this change is free.
-            lightFeeInfo = { feeCharged: false, amount: 0, freeWindowEndsAt: lastAt + WINDOW_MS };
           }
+          t.set(invRef, invWrite, { merge: true });
         }
-        t.set(invRef, invWrite, { merge: true });
       });
 
-      // Assignment lock + reassign flag. A genuine change starts (or sits inside)
-      // the 48-hour window during which the pattern may still move, so the office
-      // must not assign them to an install route yet. If they were ALREADY on one,
-      // the crew would hang the wrong lights — flag it and drop a note in the Inbox.
-      const jobAddrLightUpdate = {};
-      if (changed && updates.lightsDescription && !withinFreeWindow) {
-        jobAddrLightUpdate.lightsLockedUntil = admin.firestore.Timestamp.fromMillis(nowMs + WINDOW_MS);
+      if (decision && decision.isChange) {
+        lightFeeInfo = {
+          feeCharged: decision.feeAmount > 0,
+          amount: decision.feeAmount,
+          /* The portal must not say "added to your balance" for a charge that
+             is going onto next year's bill — see showLightsFeeNote. */
+          chargedToNextSeason: decision.feeDestination === 'nextSeason',
+          freeWindowEndsAt: decision.windowEndsAt
+        };
       }
-      if (changed && updates.lightsDescription && oldData.scheduled) {
-        jobAddrLightUpdate.lightsChangedAfterAssign = true;
-        jobAddrLightUpdate.lightsChangedAfterAssignAt = admin.firestore.FieldValue.serverTimestamp();
+
+      /* They are already on a route, so the crew is holding a card that no
+         longer matches the house. Outside the transaction on purpose: the money
+         is already safely written, and a failed note must never roll it back. */
+      if (decision && decision.raiseReassignNote) {
+        try {
+          await db.collection('jobAddresses').doc(match.id).update({
+            lightsChangedAfterAssign: true,
+            lightsChangedAfterAssignAt: admin.firestore.FieldValue.serverTimestamp()
+          });
+        } catch (e) { console.error('[HU] reassign flag failed:', e); }
         try {
           await db.collection('messages').add({
             topic: 'Lights Changed After Assignment', folder: 'System',
@@ -1238,9 +1306,6 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
             createdAt: admin.firestore.FieldValue.serverTimestamp()
           });
         } catch (e) { console.error('[HU] reassign flag message failed:', e); }
-      }
-      if (Object.keys(jobAddrLightUpdate).length) {
-        await db.collection('jobAddresses').doc(match.id).update(jobAddrLightUpdate);
       }
     } catch (err) {
       console.error('[HU] invoice lights/fee sync failed:', err);
@@ -2216,6 +2281,50 @@ function computeInvoiceStatusServer(install, removal, deposit, credits, changeFe
   return 'Partial Payment';
 }
 
+/* ⭐ THE ONE LIGHT-CHANGE RULE — server copy (added 2026-08-21).
+ *
+ * ⚠ js/money.js has its own copy of this (applyLightChange). Change both, in
+ * the same push. money-parity.test.js feeds both the same inputs and fails the
+ * build if they disagree — the same protection computeInvoiceStatus gets, and
+ * for the same reason: the office screen and the customer's own portal must
+ * never charge two different amounts for one change.
+ *
+ * The full reasoning, the owner's words and the traps are written out once,
+ * over the browser copy in js/money.js. Read that before touching this. In
+ * short: the two $30 fees are separate and stack; the free window and the
+ * route lock are the same 48 hours; the window lives on the CUSTOMER, opened
+ * by becoming a customer and by a charged change; a first-time colour is not a
+ * change; and a fee lands on the current invoice unless it has already been
+ * sent, in which case it goes to next season. */
+const LIGHT_CHANGE_FEE = 30;
+const LIGHT_WINDOW_MS = 48 * 60 * 60 * 1000;
+
+function applyLightChangeServer(o) {
+  const opts = o || {};
+  const now = Number(opts.nowMs) || 0;
+  const oldLights = String(opts.oldLights == null ? '' : opts.oldLights);
+  const newLights = String(opts.newLights == null ? '' : opts.newLights);
+  const lockedUntil = Number(opts.lockedUntil) || 0;
+
+  const differs = newLights !== oldLights;
+  const isChange = differs && !!oldLights && !!newLights;
+  const withinFreeWindow = lockedUntil > now;
+  const charge = isChange && !withinFreeWindow;
+
+  return {
+    isChange: isChange,
+    withinFreeWindow: withinFreeWindow,
+    feeAmount: charge ? LIGHT_CHANGE_FEE : 0,
+    feeDestination: !charge ? 'none' : (opts.invoiceSent ? 'nextSeason' : 'invoice'),
+    feeReason: charge ? 'Light change' : '',
+    opensNewWindow: charge,
+    lightsLockedUntil: charge ? (now + LIGHT_WINDOW_MS) : 0,
+    windowEndsAt: charge ? (now + LIGHT_WINDOW_MS) : lockedUntil,
+    raiseReassignNote: differs && !!newLights && !!opts.scheduled,
+    setLightsChangedAt: isChange
+  };
+}
+
 async function runInvoiceBatch(triggeredBy) {
   const todayStr = todayStrInDenver();
   let sentCount = 0, skippedNeedsFix = 0, skippedNotDone = 0, errorCount = 0;
@@ -2391,6 +2500,57 @@ async function runInvoiceBatch(triggeredBy) {
         }
         if (inv.install == null) inv.install = groupSum;
 
+        /* ⭐ A LIGHT CHANGE MADE AFTER LAST SEASON'S BILL HAD ALREADY GONE OUT,
+           now falling due. Owner: "if invoice has already been sent out but they
+           change there lights after invoice is sent out than the 30 dollars will
+           be charged for next season."
+
+           Nothing re-opens a sent invoice — invoiceEmailSent is only cleared by
+           Start New Season — so portalSave parks the charge on the CUSTOMER as
+           carryoverCharge, which Start New Season does not touch, and it lands
+           here on the night their lights go back up. The exact mirror of
+           carryoverCredit below, and it is applied FIRST so a credit can be
+           drawn against the higher balance rather than against a total that is
+           about to grow.
+
+           ⚠ SUMMED ACROSS THE WHOLE GROUP, not read off the payer alone. The
+           person who changed their colours is not always the person who pays —
+           a child on a parent's bill is the ordinary case here — so a charge
+           read only from payer.data would silently never be collected. */
+        let chargesApplied = 0;
+        const chargeHouses = active.filter(function (h) {
+          return (Number(h.data.carryoverCharge) || 0) > 0;
+        });
+        if (chargeHouses.length) {
+          const carriedNotes = [];
+          chargeHouses.forEach(function (h) {
+            const amt = Number(h.data.carryoverCharge) || 0;
+            chargesApplied += amt;
+            /* Name the house on a multi-property bill, or the customer sees a
+               $30 line and no way to tell which of their houses it is for. */
+            const where = active.length > 1 ? (' — ' + (h.data.address || h.data.name || '')) : '';
+            const own = Array.isArray(h.data.carryoverChargeNotes) ? h.data.carryoverChargeNotes : [];
+            if (own.length) {
+              own.forEach(function (n) {
+                carriedNotes.push({
+                  amount: Number(n.amount) || 0,
+                  reason: (n.reason || 'Light change') + ' (carried from last season)' + where,
+                  date: n.date || new Date().toISOString()
+                });
+              });
+            } else {
+              carriedNotes.push({ amount: amt,
+                reason: 'Light change (carried from last season)' + where,
+                date: new Date().toISOString() });
+            }
+          });
+          if (chargesApplied > 0) {
+            inv.changeFees = (Number(inv.changeFees) || 0) + chargesApplied;
+            inv.changeFeeNotes = (Array.isArray(inv.changeFeeNotes) ? inv.changeFeeNotes : [])
+              .concat(carriedNotes);
+          }
+        }
+
         // Draw down any credit the customer carried over (e.g. a referral earned
         // while already paid up). Credit only reduces the balance to $0; whatever
         // is left keeps waiting on the customer for the next invoice. Carryover
@@ -2434,6 +2594,25 @@ async function runInvoiceBatch(triggeredBy) {
         if (!inv.invoicedAt) inv.invoicedAt = admin.firestore.Timestamp.now();
         inv.updatedAt = admin.firestore.FieldValue.serverTimestamp();
         await invRef.set(inv, { merge: true });
+
+        /* Clear the carried light-change charges off the houses that owed them,
+           immediately after the invoice write and for exactly the reason given
+           for the credit below: if this waited for a successful send and the
+           email failed, the invoice would keep the $30 while carryoverCharge
+           stayed set, and the next run would charge it a second time.
+
+           ⚠ Each house is cleared on its OWN record, because that is where the
+           charge was raised — clearing only the payer would leave a sibling
+           house owing it forever and billing it again every season. */
+        if (chargesApplied > 0) {
+          for (const h of chargeHouses) {
+            try {
+              await h.ref.update({ carryoverCharge: 0, carryoverChargeNotes: [] });
+            } catch (e) {
+              console.error('[HU] clearing a carried light-change charge failed for ' + h.id, e);
+            }
+          }
+        }
 
         // Draw the used carryover off the customer NOW, right after the invoice
         // write - NOT after the email. If it waited for a successful send and the

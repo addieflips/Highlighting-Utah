@@ -4248,7 +4248,13 @@
 <script type="module">
 import {
   CN_DOUBLE_BIN_FEET, cnBinsForFeet, fmtMoney,
-  computeInvoiceStatus, statusClass, enrollmentYearOf, custInvoiceKey
+  computeInvoiceStatus, statusClass, enrollmentYearOf, custInvoiceKey,
+  /* The colour-change rule. The SAME rule the portal runs — functions/index.js
+     carries applyLightChangeServer and money-parity.test.js fails the build if
+     the two ever disagree. The office changing somebody's colours on the phone
+     is the common case, and until 2026-08-21 it charged nothing, set no window
+     and told nobody. */
+  applyLightChange, LIGHT_CHANGE_FEE, LIGHT_WINDOW_MS
 } from './js/money.js';
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
@@ -8627,6 +8633,65 @@ function askPriceRequote(who, oldPrice, newPrice){
     overlay.addEventListener('click', function(e){ if(e.target === overlay) finish(false); });
     overlay.querySelector('#priceRequoteYes').addEventListener('click', function(){ finish(true); });
     overlay.querySelector('#priceRequoteNo').addEventListener('click', function(){ finish(false); });
+  });
+}
+/* ⭐ THE OFFICE IS ASKED, NOT CHARGED SILENTLY (added 2026-08-21).
+   The member portal has warned its own customer about the $30 for a long time.
+   The office had no equivalent — an office colour change wrote no fee at all —
+   and now that it does, whoever is on the phone deserves the same warning before
+   it lands on somebody's bill.
+
+   ⚠ THREE ANSWERS, NOT TWO, so it cannot be a confirm(). Most office changes are
+   a real change and should charge; some are the office correcting its own typo,
+   and that must be waivable AT THE POINT OF SAVING rather than afterwards
+   through the invoice panel — nobody goes back to undo a fee they did not mean
+   to add, so "waive it later" means "charge them by mistake".
+
+   ⚠ WAIVING STILL SETS THE 48-HOUR WINDOW. The lock is about the crew, not about
+   money: the pattern may still move, so they must not be routed either way.
+   Only the money is waived. */
+function askLightChangeFee(who, oldLights, newLights, dest){
+  return new Promise(function(resolve){
+    const overlay = document.createElement('div');
+    overlay.className = 'needsfix-popup-overlay';
+    const where = dest === 'nextSeason'
+      ? 'Their invoice for this season has already been sent, so this would go on <strong>next season’s bill</strong>.'
+      : 'This would be added to their <strong>current invoice</strong> as its own line.';
+    overlay.innerHTML = '<div class="needsfix-popup" style="max-width:520px;">'+
+      '<h3 style="color:var(--dusk);">'+esc(who)+' — changing their lights</h3>'+
+      '<div style="background:var(--paper); border-radius:10px; padding:10px 13px; font-size:13px;">'+
+        '<div style="color:var(--slate); font-size:12px;">From</div>'+
+        '<div><strong>'+esc(oldLights || '(nothing on file)')+'</strong></div>'+
+        '<div style="color:var(--slate); font-size:12px; margin-top:6px;">To</div>'+
+        '<div><strong>'+esc(newLights || '(nothing)')+'</strong></div>'+
+      '</div>'+
+      '<div style="font-size:12.5px; color:var(--slate); margin-top:10px;">'+
+        'A <strong>'+esc(fmtMoney(LIGHT_CHANGE_FEE))+' light-change fee</strong> applies. '+where+
+        '<br><br>Either way they will not be put on a route for the next 48 hours, so their '+
+        'pattern can still move without a crew hanging the old one.</div>'+
+      '<div style="display:flex; flex-direction:column; gap:9px; margin-top:14px;">'+
+        '<button type="button" class="btn btn-gold" id="lcfCharge" style="text-align:left;">Change it and charge '+esc(fmtMoney(LIGHT_CHANGE_FEE))+
+          '<span style="display:block; font-weight:500; font-size:12px; opacity:.85; margin-top:2px;">The normal answer — they asked for different lights.</span></button>'+
+        '<button type="button" class="btn btn-outline" id="lcfWaive" style="text-align:left;">Change it without charging'+
+          '<span style="display:block; font-weight:500; font-size:12px; opacity:.85; margin-top:2px;">For fixing our own mistake. They still cannot be routed for 48 hours.</span></button>'+
+        '<button type="button" class="btn btn-outline" id="lcfCancel" style="text-align:left;">Cancel'+
+          '<span style="display:block; font-weight:500; font-size:12px; opacity:.85; margin-top:2px;">Nothing is saved at all — not the lights, not anything else on the form.</span></button>'+
+      '</div>'+
+    '</div>';
+    document.body.appendChild(overlay);
+    let done = false;
+    function finish(answer){
+      if(done) return;
+      done = true;
+      overlay.remove();
+      resolve(answer);
+    }
+    /* ⚠ CLICKING THE BACKDROP CANCELS. It must not fall through to "charge" —
+       a stray click is not somebody agreeing to bill a customer. */
+    overlay.addEventListener('click', function(e){ if(e.target === overlay) finish('cancel'); });
+    overlay.querySelector('#lcfCharge').addEventListener('click', function(){ finish('charge'); });
+    overlay.querySelector('#lcfWaive').addEventListener('click', function(){ finish('waive'); });
+    overlay.querySelector('#lcfCancel').addEventListener('click', function(){ finish('cancel'); });
   });
 }
 function askRequoteKind(who, d){
@@ -16219,6 +16284,23 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
       housePhotoUrl: addCustPhotoUrl, housePhotoOriginal: addCustPhotoOriginal, housePhotoMarkup: addCustPhotoMarkup,
       houseHighlights: addCustHighlights, portalToken: generatePortalToken(), installPreference: installPreference,
       chargeNewMemberFee: chargeNewMemberFee,
+      /* ⭐ JOINING OPENS THEIR 48-HOUR WINDOW (added 2026-08-21). Owner: "48 hours
+         will be from when they become a costumer and we won't schedule them within
+         that 48 hours so they can change there lights again if they choose."
+
+         This is the same lightsLockedUntil a charged colour change sets, and it is
+         one field on purpose — the free window and the no-schedule window are the
+         same 48 hours said twice. isLightsLocked already keeps them out of the
+         install candidate pool, so nothing else has to learn about this.
+
+         ⚠ ONLY HERE, AND THAT IS DELIBERATE. Five other places create a
+         jobAddresses document — Bulk Updates, the sheet sync, Invoice Bulk Update
+         and the two test-record builders — and NONE of them may set this. Importing
+         the existing book of ~960 customers is not 960 people joining: locking them
+         all would take the entire season out of the scheduler for two days, and a
+         test record that cannot be routed cannot be used to test routing, which is
+         most of what a test record is for. */
+      lightsLockedUntil: new Date(Date.now() + LIGHT_WINDOW_MS),
       // Same field the route/dispatch note editor and the crew portal already
       // read and clear on completion — this used to be a differently-named
       // field (oneTimeNotes) that nothing downstream ever looked at.
@@ -27151,11 +27233,57 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     addrUpdates.chargeNewMemberFee = newChargeNewMemberFee;
     addrUpdates.referralCount = newReferralCount;
     const oldLightsForBuild = item.data.lightsDescription || '';
-    /* ⭐ AND WHETHER IT WAS A CHANGE, which is a different question from whether the
-       warehouse has work to do. Colours recorded for the FIRST time are not a colour
-       change, so this needs the old value to have been something. */
-    if(oldLightsForBuild && newLightsDescription && newLightsDescription !== oldLightsForBuild){
+    /* ⭐ THE SAME COLOUR-CHANGE RULE THE PORTAL RUNS (added 2026-08-21).
+       Owner: an office change now charges, locks and notifies exactly as a member's
+       own change does. Until today this path wrote lightsChangedAt and needsLightBuild
+       and NOTHING else — no fee, no 48-hour window, no note to the crew — which is the
+       common case and the only case now the crew portal is out of use.
+
+       ⚠ ONE RULE, TWO COPIES, ASSERTED IDENTICAL. applyLightChange here and
+       applyLightChangeServer in functions/index.js; money-parity.test.js runs both on
+       the same inputs and fails the build if they disagree. Change one, change the
+       other, ship them in the same push.
+
+       ⚠ DECIDED BEFORE ANYTHING IS WRITTEN, so the office can still cancel the whole
+       save. Asking after the customer record has been written would leave the lights
+       changed and the fee refused. */
+    const lightChange = applyLightChange({
+      oldLights: oldLightsForBuild,
+      newLights: newLightsDescription,
+      lockedUntil: lightsLockMillis(item.data),
+      invoiceSent: !!item.data.invoiceEmailSent,
+      scheduled: !!item.data.scheduled,
+      nowMs: Date.now()
+    });
+    let lightFeeWaived = false;
+    if(lightChange.feeAmount > 0){
+      const answer = await askLightChangeFee(newName || item.data.name || 'This customer',
+        oldLightsForBuild, newLightsDescription, lightChange.feeDestination);
+      if(answer === 'cancel'){
+        statusEl.textContent = 'Nothing was saved — the light change was cancelled.';
+        btn.disabled = false;
+        return;
+      }
+      lightFeeWaived = (answer === 'waive');
+    }
+    if(lightChange.setLightsChangedAt){
       addrUpdates.lightsChangedAt = serverTimestamp();
+    }
+    /* ⚠ THE LOCK IS SET EVEN WHEN THE FEE IS WAIVED. It is about the crew, not the
+       money — their pattern may still move, so they must not be routed either way. */
+    if(lightChange.lightsLockedUntil){
+      addrUpdates.lightsLockedUntil = new Date(lightChange.lightsLockedUntil);
+    }
+    /* Their bill has already gone out, so this cannot ride on it — nothing re-opens a
+       sent invoice. Parked on the CUSTOMER, which Start New Season does not wipe, and
+       collected by the nightly run next season. Written here with the rest of the
+       customer record rather than as a separate write, so it cannot half-happen. */
+    if(lightChange.feeAmount > 0 && !lightFeeWaived && lightChange.feeDestination === 'nextSeason'){
+      addrUpdates.carryoverCharge = (Number(item.data.carryoverCharge) || 0) + lightChange.feeAmount;
+      addrUpdates.carryoverChargeNotes =
+        (Array.isArray(item.data.carryoverChargeNotes) ? item.data.carryoverChargeNotes : [])
+          .concat([{amount: lightChange.feeAmount, reason: lightChange.feeReason,
+                    date: new Date().toISOString()}]);
     }
     /* ⭐ A BUILD THAT IS OWED IS NOT CANCELLED BY THE COLOURS BEING BLANK. Owner,
        2026-08-21, having converted Ashley Wray: "big problem, she went to the recycle
@@ -27663,9 +27791,78 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
         updatedAt: serverTimestamp()
       }, {merge:true});
     }
+    /* ⭐ THE LIGHT-CHANGE FEE, ON ITS OWN LINE (added 2026-08-21). LAST, on purpose:
+       syncPayerInvoice above rebuilds the invoice from the houses, so a fee written
+       before it would be written on top of a total that is about to be recalculated.
+
+       ⚠ THE BROWSER HAS NO TRANSACTION. portalSave wraps the same decision in
+       db.runTransaction precisely so a double submit cannot add $30 twice, and there
+       is no equivalent here — two people ARE in admin every day. The invoice is
+       therefore re-read immediately before it is written, so a stale read taken at the
+       top of a long save cannot be the basis of the addition.
+
+       ⚠ GUARDED ON ITS OWN, and it is the last thing in the handler. The established
+       rule here: a write that fails must not undo a save that already worked. The
+       customer record, the pool and the routes are all already written by this point;
+       a failed fee is reported and nothing else is lost. */
+    if(lightChange.feeAmount > 0 && !lightFeeWaived && lightChange.feeDestination === 'invoice'){
+      try{
+        const feeKey = custInvoiceKey(Object.assign({}, item.data, addrUpdates));
+        if(feeKey){
+          const fSnap = await getDoc(doc(db,'invoices', feeKey));
+          const fData = fSnap.exists() ? fSnap.data() : {};
+          const feeNotes = (Array.isArray(fData.changeFeeNotes) ? fData.changeFeeNotes : [])
+            .concat([{amount: lightChange.feeAmount, reason: lightChange.feeReason,
+                      date: new Date().toISOString()}]);
+          const feeTotal = (Number(fData.changeFees) || 0) + lightChange.feeAmount;
+          /* setDoc+merge for the same reason the fee migration above uses it: the
+             invoice document may not exist yet, and updateDoc would throw. */
+          await setDoc(doc(db,'invoices', feeKey), {
+            changeFees: feeTotal, changeFeeNotes: feeNotes,
+            lastLightChangeFeeAt: new Date(),
+            status: computeInvoiceStatus(fData.install || 0, fData.removal || 0,
+              fData.deposit || 0, fData.credits || 0, feeTotal),
+            updatedAt: serverTimestamp()
+          }, {merge:true});
+        }
+      }catch(e){
+        console.error('Light-change fee could not be added to the invoice', e);
+        toast('Saved — but the $30 light-change fee could not be added to their invoice. Add it by hand.');
+      }
+    }
+    /* ⭐ AND THE CREW IS TOLD, when they are already on a route. Same note the portal
+       raises, in the same folder, for the same reason: the crew is holding a card that
+       no longer matches the house. Guarded on its own — a failed note must not lose
+       the save that already worked. */
+    if(lightChange.raiseReassignNote){
+      try{
+        await updateDoc(doc(db,'jobAddresses', item.id), {
+          lightsChangedAfterAssign: true,
+          lightsChangedAfterAssignAt: serverTimestamp()
+        });
+      }catch(e){ console.error('Could not flag the reassign on the customer', e); }
+      try{
+        await addDoc(collection(db,'messages'), {
+          topic: 'Lights Changed After Assignment', folder: 'System',
+          name: newName || item.data.name || '', phone: newPhone || item.data.phone || '',
+          email: newEmail || item.data.email || '', contactMethod: '',
+          message: (newName || item.data.name || 'A customer') + ' had their lights changed to "' +
+            newLightsDescription + '" in the office after being assigned to an install route. ' +
+            'Remove them from that route and add them back once their 48-hour change window closes.',
+          autoQueuedToWarehouse: false, needsReassign: true,
+          createdAt: serverTimestamp()
+        });
+      }catch(e){ console.error('Could not raise the reassign note', e); }
+    }
     document.getElementById('editCustOverlay').style.display = 'none';
     editCustomerId = null;
-    toast(geocodeFailed ? 'Saved — but the new address could not be located on the map. Check it manually so routes stay accurate.' : 'Customer info updated.');
+    toast(geocodeFailed ? 'Saved — but the new address could not be located on the map. Check it manually so routes stay accurate.'
+      : (lightChange.feeAmount > 0 && !lightFeeWaived
+          ? ('Customer info updated — ' + fmtMoney(lightChange.feeAmount) + ' light-change fee ' +
+             (lightChange.feeDestination === 'nextSeason' ? 'carried to next season.' : 'added to their invoice.'))
+          : (lightChange.feeAmount > 0 && lightFeeWaived
+              ? 'Customer info updated — light change recorded, fee waived.'
+              : 'Customer info updated.')));
   } catch(err){
     /* ⭐ SAY WHAT WENT WRONG. Owner, 2026-08-20, on Ashley Wray: "the quote wont
        dissapear and warehouse isnt being updated", and before that "everything is still

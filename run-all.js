@@ -4877,9 +4877,19 @@ if (!JSDOM) {
   const psSrc = psStart > -1 ? sectionFrom(fnsSrc, psStart) : '';
   check('light-fee-race', 'portalSave found in functions/index.js', psStart > -1,
     'renamed or removed — update this test rather than deleting it');
+  /* ⚠ THE TRANSACTION NOW READS THE CUSTOMER TOO (2026-08-21). The free window
+     moved onto the customer record — see applyLightChange — so the decision needs
+     both documents, and both reads must still happen inside the transaction or
+     the race this suite exists for is back. The invoice read is conditional,
+     because a customer with no phone and no email has no invoice to charge but
+     must still be locked off the routes. */
   check('light-fee-race', 'the $30 light-change fee read-decide-write happens inside a transaction',
-    /db\.runTransaction\(async \(t\) => \{[\s\S]{0,50}const invSnap = await t\.get\(invRef\)/.test(psSrc),
+    /db\.runTransaction\(async \(t\) => \{[\s\S]{0,400}await t\.get\(custRef\)[\s\S]{0,200}await t\.get\(invRef\)/.test(psSrc),
     'a plain get()-then-set() lets two near-simultaneous saves both read the same pre-charge changeFees and each add $30');
+  check('light-fee-race', 'and the customer write is inside it as well',
+    /t\.set\(custRef, custWrite, \{ merge: true \}\)/.test(psSrc),
+    'the fee and the window that decides the NEXT fee have to be written together, ' +
+    'or a retry can charge against a window that was never opened');
   check('light-fee-race', 'the write inside the transaction uses t.set, not the outer invRef.set',
     /t\.set\(invRef, invWrite, \{ merge: true \}\);/.test(psSrc),
     'writing via invRef.set() instead of t.set() outside the transaction would defeat the whole point of wrapping it');
@@ -15902,23 +15912,40 @@ suite('Suite 69. A customer as a row of the master sheet');
   const admin = read("admin.html");
   const fns = read("functions/index.js");
 
-  /* ⭐ A COLOUR CHANGE IS A NEW CUSTOMER NOW. Owner, 2026-08-19: "get rid of color
-     change fee and just make it new customer fee", then, asked whether that should
-     include going out first: "Its fine they can be treated as a new customer do it." */
-  check('S69', 'a colour change charges the new-customer fee, not its own',
-    /updates\.chargeNewMemberFee = true;/.test(fns) &&
-    !/reason: .Light color change./.test(fns),
-    'two fees for one change is the money bug the transaction around it exists to prevent');
-  /* ⚠ AND IT MUST NOT ALSO WRITE changeFees. That would charge thirty dollars twice. */
-  check('S69', 'and does not also add a change fee',
-    !/invWrite\.changeFees = newFees;/.test(fns),
-    'this replaces the fee, it does not add to it');
+  /* ⭐ THE TWO FEES ARE SEPARATE AGAIN, AND THEY STACK (2026-08-21). This REVERSES
+     the 2026-08-19 decision above, on the owner's own instruction: "new member fee
+     and change light fees are seperate but should get charged seperetly for this so
+     if new member changes lights again after 48 hours of being a new member than
+     they should get charged for light change and new member fee which would put
+     them at 6[0] dollars."
+
+     ⚠ THESE CHECKS USED TO ASSERT THE OPPOSITE and were inverted rather than
+     deleted — the coverage is still wanted, it is the expectation that flipped. The
+     old wording is left in the comment above so nobody re-reverses it by accident. */
+  check('S69', 'a colour change charges its OWN fee, not the new-customer one',
+    /invWrite\.changeFees = \(Number\(inv\.changeFees\) \|\| 0\) \+ d\.feeAmount;/.test(fns) &&
+    !/updates\.chargeNewMemberFee = true;/.test(fns),
+    'the two $30 fees are separate and stack — a new member who changes colours ' +
+    'outside their window pays both');
+  /* ⚠ AND THE FEE MUST REACH FIRESTORE. The reason this was worth inverting rather
+     than deleting: the old line assigned to `updates`, an object written to the
+     database sixty-three lines EARLIER, so the portal charged nobody anything for
+     two days while telling them $30 had been added to their balance. */
+  /* ⚠ COMMENTS STRIPPED. Why the old line was wrong is written down in the code,
+     right where somebody would next be tempted to put it back — so a plain search
+     finds the explanation and reports it as the violation it is warning about. */
+  check('S69', 'and the fee is written inside the transaction, not onto a stale object',
+    !/updates\.chargeNewMemberFee/.test(stripComments(fns)) &&
+    /t\.set\(invRef, invWrite, \{ merge: true \}\)/.test(fns),
+    'assigning to `updates` after it has already been written charges nobody');
   /* ⚠ THE 48-HOUR ROUTE LOCK SURVIVES. It has nothing to do with the fee: it keeps a
      customer off an install route while their pattern may still move, and losing it
-     would let a crew hang lights that are about to change. */
+     would let a crew hang lights that are about to change. It moved from
+     jobAddrLightUpdate into the transaction's custWrite when the window moved onto
+     the customer record. */
   check('S69', 'and the route lock is untouched',
-    /jobAddrLightUpdate\.lightsLockedUntil/.test(fns) &&
-    /lightsChangedAfterAssign = true/.test(fns),
+    /custWrite\.lightsLockedUntil = admin\.firestore\.Timestamp\.fromMillis\(d\.lightsLockedUntil\)/.test(fns) &&
+    /lightsChangedAfterAssign: true/.test(fns),
     'the lock is about the crew, not about money');
 
   /* ⭐ PREPAID READS AS PAID. Owner, shown the Paid/Unpaid column: "change their tag
@@ -21409,6 +21436,8 @@ suite('Suite 108. The Edit Customer save, actually run');
       focus(){}, click(){}});
     const writes = [];
     const errs = [];
+    /* What the office was asked before anything was charged. */
+    const asked = [];
     const ctx = {
       document: {getElementById: elm, querySelectorAll: () => [], querySelector: () => null,
                  createElement: () => elm('_t')},
@@ -21450,14 +21479,31 @@ suite('Suite 108. The Edit Customer save, actually run');
       houseSideCount: () => 1, quoteStage: () => 'send',
       removeCustomerFromUpcomingRoutes: async () => {},
       resyncSavedRouteStops: async () => {}, syncPayerInvoice: async () => {},
-      requoteRestoreSaveLabel: () => {}
+      requoteRestoreSaveLabel: () => {},
+      /* ⭐ THE REAL COLOUR-CHANGE RULE, LIFTED OUT OF js/money.js — not a stub.
+         A stub here would make every fee branch below untestable while reporting
+         green, which is the failure mode this whole suite exists to avoid. The
+         same rule the portal runs; money-parity proves the two copies agree. */
+      applyLightChange: new Function('LIGHT_CHANGE_FEE', 'LIGHT_WINDOW_MS',
+        'return ' + extractFn(money, 'applyLightChange') + ';applyLightChange')(30, 48 * 3600000),
+      lightsLockMillis: new Function('return ' + extractFn(admin, 'lightsLockMillis') +
+        ';lightsLockMillis')(),
+      LIGHT_CHANGE_FEE: 30, LIGHT_WINDOW_MS: 48 * 3600000,
+      fmtMoney: (n) => '$' + (Number(n) || 0).toFixed(2),
+      /* The popup CANNOT be real — it waits for a click. Stubbed, but it records
+         that it was asked and what it was asked about, so the checks below can
+         prove the office is consulted rather than charged silently. */
+      askLightChangeFee: async (who, oldL, newL, dest) => {
+        asked.push({who: who, oldLights: oldL, newLights: newL, dest: dest});
+        return o.feeAnswer || 'charge';
+      }
     };
     const names = Object.keys(ctx);
     const fn = new AsyncFn(...names, handlerSrc);
     return fn(...names.map(n => ctx[n])).then(function(){
       const cust = writes.find(w => w.col === 'jobAddresses' && w.op === 'update');
       const quote = writes.find(w => w.col === 'quotes');
-      return {writes: writes, errs: errs, cust: cust, quote: quote,
+      return {writes: writes, errs: errs, cust: cust, quote: quote, asked: asked,
               status: (els.editCustStatus || {}).textContent || ''};
     });
   }
@@ -21541,6 +21587,124 @@ suite('Suite 108. The Edit Customer save, actually run');
     check('S108', 'and re-saving the same colours does not',
       !!same.cust && same.cust.payload.needsLightBuild !== true,
       'opening a record to fix a phone number must not re-queue their lights');
+
+    /* ⭐ THE OFFICE COLOUR CHANGE NOW CHARGES, LOCKS AND TELLS THE CREW
+       (added 2026-08-21). Until today this handler wrote lightsChangedAt and
+       needsLightBuild and nothing else — no fee, no 48-hour window, no note —
+       while the member portal did all four. The office doing it on the phone is
+       the common case, and the only case now the crew portal is out of use.
+
+       ⚠ RUN, NOT READ, and against the REAL rule lifted out of js/money.js. */
+    const feeRun = await runSave({noRequote: true, lights: 'Red, Green',
+      cust: {lightsDescription: 'Warm White', scheduled: true, invoiceEmailSent: false}});
+    const feeInv = feeRun.writes.find(w => w.col === 'invoices' && w.op === 'set' &&
+      w.payload && w.payload.changeFees);
+
+    check('S108', 'the office is ASKED before anybody is charged',
+      feeRun.asked.length === 1 && feeRun.asked[0].dest === 'invoice',
+      'the portal has warned its own customer for months; whoever is on the phone ' +
+      'deserves the same warning before it lands on a bill');
+    check('S108', 'a colour change adds the $30 to their invoice',
+      !!feeInv && feeInv.payload.changeFees === 30,
+      'this path wrote no fee at all until today');
+    check('S108', 'as its own line, not a silent movement in the total',
+      !!feeInv && Array.isArray(feeInv.payload.changeFeeNotes) &&
+      feeInv.payload.changeFeeNotes.length === 1 &&
+      feeInv.payload.changeFeeNotes[0].amount === 30,
+      'a $30 change in a total with no line against it is a support call');
+    check('S108', 'and sets the 48-hour window so they cannot be routed yet',
+      !!feeRun.cust && !!feeRun.cust.payload.lightsLockedUntil,
+      'owner: they must not be scheduled while their pattern may still move');
+    check('S108', 'and flags a customer who is ALREADY on a route',
+      feeRun.writes.some(w => w.col === 'jobAddresses' &&
+        w.payload && w.payload.lightsChangedAfterAssign === true),
+      'the crew is holding a card that no longer matches the house');
+    check('S108', 'and raises exactly one System note about it',
+      feeRun.writes.filter(w => w.col === 'messages' && w.op === 'add' &&
+        w.payload && w.payload.folder === 'System').length === 1,
+      'two notes for one change is how the System folder stops being read');
+
+    /* ⚠ THE FEE IS WRITTEN LAST, AFTER syncPayerInvoice. That resync rebuilds the
+       invoice from the houses, so a fee written before it is written on top of a
+       total that is about to be recalculated. */
+    check('S108', 'and the fee is written after the customer record, not before',
+      !!feeInv && feeRun.writes.indexOf(feeInv) >
+        feeRun.writes.indexOf(feeRun.writes.find(w => w.col === 'jobAddresses' && w.op === 'update')),
+      'syncPayerInvoice rebuilds the invoice; a fee written before it is overwritten');
+
+    /* Waived — for the office correcting its own typo. */
+    const waived = await runSave({noRequote: true, lights: 'Red, Green', feeAnswer: 'waive',
+      cust: {lightsDescription: 'Warm White', scheduled: true, invoiceEmailSent: false}});
+    check('S108', 'waiving the fee charges nothing',
+      !waived.writes.some(w => w.col === 'invoices' && w.payload && w.payload.changeFees),
+      'waivable at the point of saving — nobody goes back to undo a fee later');
+    check('S108', 'but STILL sets the window and still tells the crew',
+      !!waived.cust && !!waived.cust.payload.lightsLockedUntil &&
+      waived.writes.some(w => w.col === 'messages' && w.op === 'add'),
+      'the lock is about the crew, not about money — only the money is waived');
+
+    /* Cancelled — nothing at all is saved, not even the rest of the form. */
+    const cancelled = await runSave({noRequote: true, lights: 'Red, Green', feeAnswer: 'cancel',
+      cust: {lightsDescription: 'Warm White', invoiceEmailSent: false}});
+    check('S108', 'cancelling the fee popup saves nothing at all',
+      !cancelled.cust && !cancelled.writes.some(w => w.col === 'invoices'),
+      'asking after the record has been written would leave the lights changed and ' +
+      'the fee refused');
+
+    /* Their bill has already gone out, so it rides to next season instead. */
+    const billed = await runSave({noRequote: true, lights: 'Red, Green',
+      cust: {lightsDescription: 'Warm White', invoiceEmailSent: true}});
+    check('S108', 'once their bill has been sent the $30 goes to next season',
+      !!billed.cust && billed.cust.payload.carryoverCharge === 30 &&
+      !billed.writes.some(w => w.col === 'invoices' && w.payload && w.payload.changeFees),
+      'nothing re-opens a sent invoice, so a fee added there would never be posted');
+    check('S108', 'and the office is told which of the two it is',
+      billed.asked.length === 1 && billed.asked[0].dest === 'nextSeason',
+      'the popup names where the money is going, because the two are different answers');
+
+    /* Inside the window: free, and the window does not move. */
+    const inWindow = await runSave({noRequote: true, lights: 'Red, Green',
+      cust: {lightsDescription: 'Warm White', invoiceEmailSent: false,
+             lightsLockedUntil: {seconds: Math.floor((Date.now() + 5 * 3600000) / 1000)}}});
+    check('S108', 'a change inside the 48-hour window is free and asks nothing',
+      inWindow.asked.length === 0 &&
+      !inWindow.writes.some(w => w.col === 'invoices' && w.payload && w.payload.changeFees),
+      'they are still inside the window they already had');
+    check('S108', 'and does not push that window further out',
+      !!inWindow.cust && inWindow.cust.payload.lightsLockedUntil === undefined,
+      'a window that renews on every save never closes, and they are never scheduled');
+
+    /* First-time colours are not a change — the trap that once swept twelve
+       ordinary new customers onto the Color Changes sheet. */
+    const firstTime = await runSave({noRequote: true, lights: 'Warm White',
+      cust: {lightsDescription: '', invoiceEmailSent: false}});
+    check('S108', 'filling colours in for the first time charges nothing',
+      firstTime.asked.length === 0 &&
+      !firstTime.writes.some(w => w.col === 'invoices' && w.payload && w.payload.changeFees),
+      'charging somebody for filling in their own colours is what the non-empty ' +
+      'test on both sides exists to prevent');
+    check('S108', 'and is not marked as a colour change',
+      !!firstTime.cust && firstTime.cust.payload.lightsChangedAt === undefined,
+      'this is what put twelve ordinary new customers on the Color Changes sheet');
+    check('S108', 'but the warehouse is still told to build it',
+      !!firstTime.cust && firstTime.cust.payload.needsLightBuild === true,
+      'not a CHANGE is not the same as no WORK');
+
+    /* Saving the same colours must cost nothing and lock nobody. */
+    check('S108', 're-saving the same colours charges nothing and locks nobody',
+      same.asked.length === 0 && !!same.cust &&
+      same.cust.payload.lightsLockedUntil === undefined &&
+      same.cust.payload.lightsChangedAt === undefined,
+      'opening a record to fix a phone number must not cost the customer $30');
+
+    /* ⚠ THE HOUSE PHOTO IS NOT A FIX PHOTO AND IS NOT A LIGHT FIELD. None of the
+       above may touch it — it is what prints on the new-hang crew sheets, so
+       losing it shows up on paper rather than on screen. */
+    check('S108', 'and none of this touches the house photo',
+      !feeRun.cust.payload.hasOwnProperty('housePhotoUrl') &&
+      !feeRun.cust.payload.hasOwnProperty('housePhotos') &&
+      !waived.cust.payload.hasOwnProperty('housePhotoUrl'),
+      'the house photo prints on the crew sheet — losing it is discovered on paper');
 
     /* And somebody with no colours and no build owed does not acquire one. */
     const idle = await runSave({noRequest: true, noRequote: true, cust: {}});
@@ -24803,6 +24967,303 @@ suite('77. Schedule route generator');
       /routehead spare/.test(html) && html.indexOf('<stop>N1#1</stop>') > -1,
       'a stop nobody holds a sheet for is a stop nobody drives to');
     panel.setCrews(null);
+  }
+}
+
+
+/* ---------------------------------------------------------------------------
+ * Suite 117. The colour-change fee, actually charged
+ *
+ * Owner, 2026-08-21: "new member fee and change light fees are seperate but should
+ * get charged seperetly for this so if new member changes lights again after 48 hours
+ * of being a new member than they should get charged for light change and new member
+ * fee which would put them at 6[0] dollars. So new member should not be assigned on
+ * routes within 48 hours." And: "if invoice has already been sent out but they change
+ * there lights after invoice is sent out than the 30 dollars will be charged for next
+ * season but if invoice hasn't been sent out than it will be charged on there current
+ * invoice."
+ *
+ * ⚠ THE HOLE THIS CLOSES IS THAT THE FEE WAS NEVER CHARGED AT ALL. From 2026-08-19
+ * this block ended with `updates.chargeNewMemberFee = true`, and `updates` is written
+ * to Firestore sixty-three lines EARLIER — so the flag landed on an object nobody
+ * saved again, it is not in PORTAL_READ_FIELDS so it never reached the browser
+ * either, and every colour change a member made in their own portal charged nothing
+ * while the portal told them in red that $30 had been added to their balance.
+ *
+ * ⚠ AND EVERY CHECK THAT EXISTED PASSED THROUGHOUT, because they all read the source
+ * as text and the text was there. This suite RUNS the shipped block against a fake
+ * Firestore and reads the documents that came out. That is the only way this class of
+ * bug is visible: a write that never happens looks identical to one that does, from a
+ * regex.
+ * ------------------------------------------------------------------------- */
+suite('Suite 117. The colour-change fee, actually charged');
+
+{
+  const fns = read('functions/index.js');
+
+  /* The real shipped block, sliced between the same two anchors it lives between,
+     and run as-is. Not a paraphrase of it. */
+  const A = '  let lightFeeInfo = null;';
+  const B = "  // The Info tab also keeps the customer's invoice record in sync.";
+  const a = fns.indexOf(A), b = fns.indexOf(B);
+  check('S117', 'the lights block is where this suite expects it',
+    a !== -1 && b !== -1 && b > a,
+    'renamed or moved — fix this slice rather than deleting the suite');
+
+  const ruleSrc = extractFn(fns, 'applyLightChangeServer');
+  const toMillisSrc = extractFn(fns, 'toMillis');
+  check('S117', 'and the rule and the timestamp reader are both findable',
+    !!ruleSrc && !!toMillisSrc,
+    'extracted rather than stubbed on purpose: a stub would agree with itself');
+
+  if (a !== -1 && b > a && ruleSrc && toMillisSrc) {
+    const blockSrc = fns.slice(a, b);
+
+    /* A fake Firestore that records what was written. Deliberately small, and
+       deliberately NOT clever: every write is kept exactly as the code sent it, so
+       an assertion below reads the document the customer would really have. */
+    /* ⚠ SHALLOW-COPIED, NOT JSON ROUND-TRIPPED. A Firestore Timestamp is an
+       object with methods on it, and JSON.stringify throws those away — so a
+       seeded lightsLockedUntil arrived with no toMillis, the server's toMillis
+       helper read it as 0, and a customer sitting comfortably inside their free
+       window was charged $30 by the test harness. The bug was mine, but it is
+       exactly the shape of the real one, so the fake now keeps what Firestore
+       would hand back. */
+    function makeDb(seed) {
+      const docs = {};
+      Object.keys(seed || {}).forEach(function (k) { docs[k] = Object.assign({}, seed[k]); });
+      const messages = [];
+      const ref = (path) => ({
+        _path: path,
+        update: function (o) {
+          if (!docs[path]) return Promise.reject(new Error('no such doc ' + path));
+          Object.assign(docs[path], o);
+          return Promise.resolve();
+        }
+      });
+      const db = {
+        _docs: docs, _messages: messages,
+        collection: function (c) {
+          return {
+            doc: function (id) { return ref(c + '/' + id); },
+            add: function (o) { if (c === 'messages') messages.push(o); return Promise.resolve({}); }
+          };
+        },
+        runTransaction: function (fn) {
+          const t = {
+            get: function (r) {
+              return Promise.resolve({
+                exists: Object.prototype.hasOwnProperty.call(docs, r._path),
+                data: function () { return docs[r._path]; }
+              });
+            },
+            set: function (r, o) { docs[r._path] = Object.assign({}, docs[r._path] || {}, o); },
+            update: function (r, o) { docs[r._path] = Object.assign({}, docs[r._path] || {}, o); }
+          };
+          return Promise.resolve(fn(t));
+        }
+      };
+      return db;
+    }
+
+    const NOWISH = Date.now();
+    const HOUR = 3600000;
+    /* ⚠ A FAITHFUL FAKE TIMESTAMP, and it matters. The server reads a stored
+       timestamp through toMillis(), which tests toDate() and .seconds — the two
+       things a real Firestore Timestamp actually has. A fake carrying only a
+       toMillis() method read as 0, so a customer sitting inside their free window
+       looked to the harness like somebody who had never had one and was charged.
+       The production code was right; the fake was lying. Build fixtures from the
+       same helper the code under test would have been handed. */
+    const ts = function (m) {
+      return {
+        __ms: m,
+        seconds: Math.floor(m / 1000),
+        nanoseconds: (m % 1000) * 1e6,
+        toMillis: function () { return m; },
+        toDate: function () { return new Date(m); }
+      };
+    };
+    const fakeAdmin = {
+      firestore: {
+        Timestamp: { fromMillis: ts },
+        FieldValue: { serverTimestamp: function () { return '__SERVER_TS__'; } }
+      }
+    };
+
+    /* Runs the real block. `cust` and `inv` are the documents as they stand before
+       the save; `newLights` is what the member picked. */
+    const runLights = function (cust, inv, newLights) {
+      const seed = { 'jobAddresses/c1': Object.assign({}, cust) };
+      if (inv) seed['invoices/8015550100'] = Object.assign({}, inv);
+      const db = makeDb(seed);
+      const updates = { lightsDescription: newLights };
+      return new Function('db', 'admin', 'toMillis', 'section', 'updates', 'oldData',
+        'oldKey', 'match', 'console',
+        ruleSrc + '\nconst LIGHT_CHANGE_FEE = 30;\nconst LIGHT_WINDOW_MS = 48*60*60*1000;\n' +
+        'return (async function(){\n' + blockSrc + '\nreturn lightFeeInfo;\n})();')
+        (db, fakeAdmin, new Function('return ' + toMillisSrc + ';toMillis')(),
+         'lights', updates, cust, inv ? '8015550100' : '', { id: 'c1' }, console)
+        .then(function (info) {
+          return { info: info, cust: db._docs['jobAddresses/c1'],
+                   inv: db._docs['invoices/8015550100'], messages: db._messages };
+        });
+    };
+
+    pendingAsync.push((async function () {
+      /* ---- 1. A returning member changes colours, bill not yet sent ---- */
+      const r1 = await runLights(
+        { name: 'Returning', lightsDescription: 'Warm White', invoiceEmailSent: false },
+        { changeFees: 0, install: 400 }, 'Red, Green');
+
+      check('S117', 'a colour change actually writes the $30 to the invoice',
+        (r1.inv || {}).changeFees === 30,
+        'this is the bug: the old code set the flag on an object that had already ' +
+        'been written, so the fee never reached Firestore at all');
+      check('S117', 'and it lands as its own line, naming itself',
+        Array.isArray((r1.inv || {}).changeFeeNotes) &&
+        r1.inv.changeFeeNotes.length === 1 &&
+        r1.inv.changeFeeNotes[0].amount === 30,
+        'a $30 movement in a total with no line against it is a support call');
+      check('S117', 'and it does NOT set the new-member fee',
+        (r1.cust || {}).chargeNewMemberFee === undefined,
+        'the two fees are separate now — writing both would charge $60 for one change');
+      check('S117', 'and the 48-hour route lock is set on the customer',
+        !!(r1.cust || {}).lightsLockedUntil &&
+        r1.cust.lightsLockedUntil.__ms > NOWISH + 47 * HOUR,
+        'owner: they must not be scheduled while their pattern may still move');
+      check('S117', 'and they are marked as a colour change',
+        (r1.cust || {}).lightsChangedAt === '__SERVER_TS__',
+        'this is what puts them on the Color Changes sheet');
+      check('S117', 'and the portal is told the fee hit their current balance',
+        r1.info && r1.info.feeCharged === true && r1.info.chargedToNextSeason === false,
+        'the note the customer reads has to match the invoice they can open');
+
+      /* ---- 2. The same change, but their invoice has already gone out ---- */
+      const r2 = await runLights(
+        { name: 'Billed', lightsDescription: 'Warm White', invoiceEmailSent: true },
+        { changeFees: 0, install: 400 }, 'Red, Green');
+
+      check('S117', 'once the bill has been sent the $30 goes to NEXT season',
+        (r2.cust || {}).carryoverCharge === 30 && (r2.inv || {}).changeFees !== 30,
+        'nothing re-opens a sent invoice — invoiceEmailSent is only cleared by Start ' +
+        'New Season, so a fee added there would never be posted to anybody');
+      check('S117', 'and it is parked on the CUSTOMER, which Start New Season does not wipe',
+        Array.isArray((r2.cust || {}).carryoverChargeNotes) &&
+        r2.cust.carryoverChargeNotes.length === 1,
+        'Start New Season zeroes changeFees and changeFeeNotes on every invoice, so a ' +
+        'charge parked there is deleted rather than carried');
+      check('S117', 'and the portal says next season, not "added to your balance"',
+        r2.info && r2.info.chargedToNextSeason === true,
+        'they can open their invoice in thirty seconds and see the total has not moved');
+
+      /* ---- 3. Inside the window: free, and the window does not move ---- */
+      const lockAt = ts(NOWISH + 5 * HOUR);
+      const r3 = await runLights(
+        { name: 'New', lightsDescription: 'Warm White', invoiceEmailSent: false,
+          lightsLockedUntil: lockAt },
+        { changeFees: 0 }, 'Red, Green');
+
+      check('S117', 'a change inside the 48-hour window is free',
+        !((r3.inv || {}).changeFees) && !((r3.cust || {}).carryoverCharge),
+        'owner: "we won\'t schedule them within that 48 hours so they can change ' +
+        'there lights again if they choose"');
+      check('S117', 'and it does not push the window further out',
+        (r3.cust || {}).lightsLockedUntil.__ms === NOWISH + 5 * HOUR,
+        'a window that renews on every free save never closes, and they are never ' +
+        'scheduled at all');
+
+      /* ---- 4. First-time colours: not a change, no fee, no Color Changes row ---- */
+      const r4 = await runLights(
+        { name: 'Brand New', lightsDescription: '', invoiceEmailSent: false },
+        { changeFees: 0 }, 'Warm White');
+
+      check('S117', 'filling colours in for the first time is not charged',
+        !((r4.inv || {}).changeFees) && !((r4.cust || {}).carryoverCharge),
+        'today\'s code charged them, because it tested only that the value differed');
+      check('S117', 'and does not mark them as a colour change',
+        (r4.cust || {}).lightsChangedAt === undefined,
+        'this is what swept twelve ordinary new customers onto the Color Changes sheet');
+      check('S117', 'and does not lock them off the routes',
+        (r4.cust || {}).lightsLockedUntil === undefined,
+        'they have not changed anything — locking them delays a house for no reason');
+
+      /* ---- 5. Saving the same colours does nothing at all ---- */
+      const r5 = await runLights(
+        { name: 'Same', lightsDescription: 'Warm White', invoiceEmailSent: false },
+        { changeFees: 0 }, 'Warm White');
+      check('S117', 'saving the same colours charges nothing and locks nothing',
+        !((r5.inv || {}).changeFees) && (r5.cust || {}).lightsLockedUntil === undefined &&
+        (r5.cust || {}).lightsChangedAt === undefined,
+        'opening the Lights tab and pressing Save must not cost anybody $30');
+
+      /* ---- 6. Already on a route: exactly one System note ---- */
+      const r6 = await runLights(
+        { name: 'Routed', lightsDescription: 'Warm White', invoiceEmailSent: false,
+          scheduled: true },
+        { changeFees: 0 }, 'Red, Green');
+      check('S117', 'a customer already on a route gets exactly one System note',
+        r6.messages.length === 1 && r6.messages[0].folder === 'System' &&
+        r6.messages[0].needsReassign === true,
+        'the crew is holding a card that no longer matches the house');
+      check('S117', 'and is flagged on their own record too',
+        (r6.cust || {}).lightsChangedAfterAssign === true,
+        'the note is in the inbox; the badge is on the customer, and Routes reads it');
+      check('S117', 'while an unrouted customer gets no note at all',
+        r1.messages.length === 0,
+        'a note per colour change would make the System folder unreadable');
+
+      /* ---- 7. No invoice document at all — still locked ---- */
+      const r7 = await runLights(
+        { name: 'No Contact', lightsDescription: 'Warm White', invoiceEmailSent: false },
+        null, 'Red, Green');
+      check('S117', 'a customer with no invoice is still locked off the routes',
+        !!(r7.cust || {}).lightsLockedUntil,
+        'no phone and no email means nothing to charge — but their pattern is still ' +
+        'moving, and the lock is about the crew, not about money');
+
+      /* ---- 8. Joining opens the window — and ONLY joining ----
+         Owner: "48 hours will be from when they become a costumer and we won't
+         schedule them within that 48 hours so they can change there lights again
+         if they choose."
+
+         ⚠ THE SECOND HALF IS THE DANGEROUS ONE. Six places create a jobAddresses
+         document. If the bulk importers set this too, importing the existing book
+         of ~960 customers locks the ENTIRE season out of the scheduler for two
+         days — and it would look like the scheduler being broken, not like a
+         flag being set. Counted, so a sixth caller cannot be added quietly. */
+      const admin2 = read('admin.html');
+      /* ⚠ MATCHED ON THE VALUE, NOT ON ONE SYNTAX. The first version of this counted
+         the object-literal form only — `lightsLockedUntil: new Date(...)` — and a
+         red-check that added the very thing it guards against, as an assignment
+         (`doc2.lightsLockedUntil = new Date(...)`) in the bulk importer, sailed
+         straight through it. Anything that opens a FRESH window from the clock is
+         counted however it is spelled. The Edit Customer path is deliberately not
+         caught: it writes a window the rule already worked out, not a new one. */
+      const lockWrites = (admin2.match(/lightsLockedUntil[^\n]*Date\.now\(\)\s*\+\s*LIGHT_WINDOW_MS/g) || []).length;
+      check('S117', 'exactly one place opens the window on joining',
+        lockWrites === 1,
+        'the bulk importers, the sheet sync and the two test builders must never ' +
+        'set it — importing the book is not 960 people joining');
+      check('S117', 'and it is the Add Customer form, not an importer',
+        (function () {
+          const at = admin2.indexOf("lightsLockedUntil: new Date(Date.now() + LIGHT_WINDOW_MS)");
+          if (at === -1) return false;
+          const before = admin2.slice(0, at);
+          const form = before.lastIndexOf("document.getElementById('routeAddressForm')");
+          const bulk = Math.max(before.lastIndexOf("rbImportBtn"), before.lastIndexOf("ibImportBtn"),
+                                before.lastIndexOf("function rbApplyTickedAdds"),
+                                before.lastIndexOf("function buildTestPerson"));
+          return form > bulk;
+        })(),
+        'a test record that cannot be routed cannot be used to test routing');
+
+      /* ---- 9. A fee never lands in both places at once ---- */
+      check('S117', 'a fee is charged in exactly one place, never both',
+        ((r1.inv || {}).changeFees === 30 && (r1.cust || {}).carryoverCharge === undefined) &&
+        ((r2.cust || {}).carryoverCharge === 30 && !((r2.inv || {}).changeFees)),
+        'billing the invoice AND next season for one change is $60 for a $30 fee');
+    })());
   }
 }
 

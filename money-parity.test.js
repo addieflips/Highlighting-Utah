@@ -116,6 +116,27 @@ const digitsOnlySrc = extractFn(fnsSrc, 'digitsOnly');
 const clientCentsSrc = extractFn(moneySrc, 'centsOf');
 const serverCentsSrc = extractFn(fnsSrc, 'centsOf');
 
+/* The light-change rule, written twice for the same reason the status formula
+   is: one runs as a browser ES module in admin, the other on Node in the
+   portal's Cloud Function. Both decide whether somebody is charged $30, so a
+   drift between them charges the office screen and the customer's own portal
+   two different amounts for one change. */
+function extractConst(src, name) {
+  const re = new RegExp('(?:export\\s+)?const\\s+' + name + '\\s*=\\s*([^;]+);');
+  const m = re.exec(src);
+  return m ? ('const ' + name + ' = ' + m[1] + ';') : null;
+}
+const clientLightSrc = extractFn(moneySrc, 'applyLightChange');
+const serverLightSrc = extractFn(fnsSrc, 'applyLightChangeServer');
+/* Extracted rather than stubbed, on the same principle as centsOf above: if
+   either file's fee amount or window length is renamed or deleted, that has to
+   fail loudly here instead of this test quietly supplying a number of its own
+   and proving nothing. A stubbed $30 would agree with itself forever. */
+const clientFeeSrc = extractConst(moneySrc, 'LIGHT_CHANGE_FEE');
+const serverFeeSrc = extractConst(fnsSrc, 'LIGHT_CHANGE_FEE');
+const clientWinSrc = extractConst(moneySrc, 'LIGHT_WINDOW_MS');
+const serverWinSrc = extractConst(fnsSrc, 'LIGHT_WINDOW_MS');
+
 const found = {
   'js/money.js computeInvoiceStatus': clientStatusSrc,
   'functions/index.js computeInvoiceStatusServer': serverStatusSrc,
@@ -123,7 +144,13 @@ const found = {
   'functions/index.js invoiceKeyFor': serverKeySrc,
   'functions/index.js digitsOnly': digitsOnlySrc,
   'js/money.js centsOf': clientCentsSrc,
-  'functions/index.js centsOf': serverCentsSrc
+  'functions/index.js centsOf': serverCentsSrc,
+  'js/money.js applyLightChange': clientLightSrc,
+  'functions/index.js applyLightChangeServer': serverLightSrc,
+  'js/money.js LIGHT_CHANGE_FEE': clientFeeSrc,
+  'functions/index.js LIGHT_CHANGE_FEE': serverFeeSrc,
+  'js/money.js LIGHT_WINDOW_MS': clientWinSrc,
+  'functions/index.js LIGHT_WINDOW_MS': serverWinSrc
 };
 
 let missing = false;
@@ -145,6 +172,8 @@ const clientStatus = compile([clientCentsSrc, clientStatusSrc], 'computeInvoiceS
 const serverStatus = compile([serverCentsSrc, serverStatusSrc], 'computeInvoiceStatusServer');
 const clientKey = compile([clientKeySrc], 'custInvoiceKey');
 const serverKey = compile([digitsOnlySrc, serverKeySrc], 'invoiceKeyFor');
+const clientLight = compile([clientFeeSrc, clientWinSrc, clientLightSrc], 'applyLightChange');
+const serverLight = compile([serverFeeSrc, serverWinSrc, serverLightSrc], 'applyLightChangeServer');
 
 // ---------------------------------------------------------------------------
 // 2. Invoice status — sweep the whole realistic money space.
@@ -250,6 +279,143 @@ check('phone always wins over email when both exist (both copies)',
   clientKey({ phone: '801-555-0142', email: 'a@b.com' }) === '8015550142' &&
   serverKey({ phone: '801-555-0142', email: 'a@b.com' }) === '8015550142',
   'if one copy started preferring email, that customer would get a second, empty invoice');
+
+// ---------------------------------------------------------------------------
+// 4. The light-change rule — both copies must reach the same answer about
+//    whether somebody is charged $30, where that $30 lands, and whether they
+//    may be put on a route.
+//
+//    ⚠ PARITY ALONE IS NOT ENOUGH HERE. Two copies that are wrong in the same
+//    way agree perfectly. So the sweep below is followed by checks on what the
+//    answer actually IS, in the owner's own terms.
+// ---------------------------------------------------------------------------
+const NOW = 1755000000000;                       // a fixed clock; the rule takes it as input
+const HOUR = 60 * 60 * 1000;
+const LIGHTS = ['', 'Warm White', 'Red, Green', 'Pure White'];
+const WINDOWS = [
+  0,                       // never had one — an old customer
+  NOW - HOUR,              // expired an hour ago
+  NOW - 1,                 // expired a millisecond ago
+  NOW,                     // expires exactly now (must NOT count as inside)
+  NOW + 1,                 // one millisecond left
+  NOW + HOUR,              // inside
+  NOW + 47 * HOUR          // just opened
+];
+
+let lightCombos = 0, lightMismatch = null;
+for (const oldLights of LIGHTS) {
+  for (const newLights of LIGHTS) {
+    for (const lockedUntil of WINDOWS) {
+      for (const invoiceSent of [true, false]) {
+        for (const scheduled of [true, false]) {
+          lightCombos++;
+          const args = { oldLights, newLights, lockedUntil, invoiceSent, scheduled, nowMs: NOW };
+          const a = JSON.stringify(clientLight(args));
+          const b = JSON.stringify(serverLight(args));
+          if (a !== b && !lightMismatch) lightMismatch = { args, office: a, server: b };
+        }
+      }
+    }
+  }
+}
+
+check('the two light-change rules agree across ' + lightCombos.toLocaleString() + ' combinations',
+  !lightMismatch,
+  lightMismatch
+    ? JSON.stringify(lightMismatch.args) +
+      '  →  office ' + lightMismatch.office + ', portal ' + lightMismatch.server
+    : '');
+
+// Messy values, the same way the status formulas are swept.
+const LIGHT_JUNK = [null, undefined, '', 0, 'Warm White', '   ', NaN];
+let lightJunkMismatch = null;
+LIGHT_JUNK.forEach(oldLights => {
+  LIGHT_JUNK.forEach(newLights => {
+    [null, undefined, NaN, '', 0, NOW + HOUR].forEach(lockedUntil => {
+      const args = { oldLights, newLights, lockedUntil, invoiceSent: false,
+                     scheduled: false, nowMs: NOW };
+      const a = JSON.stringify(clientLight(args));
+      const b = JSON.stringify(serverLight(args));
+      if (a !== b && !lightJunkMismatch) lightJunkMismatch = { args, office: a, server: b };
+    });
+  });
+});
+check('the two light-change rules agree on blank / missing / broken values',
+  !lightJunkMismatch,
+  lightJunkMismatch
+    ? JSON.stringify(lightJunkMismatch.args) +
+      '  →  office ' + lightJunkMismatch.office + ', portal ' + lightJunkMismatch.server
+    : '');
+
+/* ---- and that the answer is the RIGHT one, in the owner's terms ---- */
+const ask = (o) => clientLight(Object.assign({ oldLights: 'Warm White', newLights: 'Red, Green',
+  lockedUntil: 0, invoiceSent: false, scheduled: false, nowMs: NOW }, o));
+
+check('a colour change outside the window charges $30',
+  ask({}).feeAmount === 30,
+  'owner: the light change fee is its own charge again, separate from the new-member fee');
+
+check('and it opens a fresh 48-hour window, so they cannot be routed yet',
+  ask({}).lightsLockedUntil === NOW + 48 * HOUR && ask({}).opensNewWindow === true,
+  'owner: "if an old costumer or a new costumer outside the 48 hour window changes ' +
+  'lights than they should not be scheduled for another 48 hours"');
+
+check('a change INSIDE the window is free',
+  ask({ lockedUntil: NOW + HOUR }).feeAmount === 0,
+  'owner: "we won\'t schedule them within that 48 hours so they can change there ' +
+  'lights again if they choose"');
+
+/* ⚠ A free change must not push the window out. Extending it on every save
+   would let somebody hold their own window open forever and never be routed. */
+check('and it does NOT extend the window',
+  ask({ lockedUntil: NOW + HOUR }).lightsLockedUntil === 0 &&
+  ask({ lockedUntil: NOW + HOUR }).opensNewWindow === false,
+  'a window that renews on every free save never closes, and they are never scheduled');
+
+check('a window that expires exactly now is closed, not open',
+  ask({ lockedUntil: NOW }).feeAmount === 30,
+  'an off-by-one here is a free change for somebody who should have been charged');
+
+/* Filling colours in for the first time. This is the one that has already gone
+   wrong once, sweeping twelve ordinary new customers onto the Color Changes
+   sheet — and today's server code charges them, because it tests only that the
+   value differs. */
+check('filling in colours for the FIRST time is not a change and is not charged',
+  ask({ oldLights: '', newLights: 'Warm White' }).feeAmount === 0 &&
+  ask({ oldLights: '', newLights: 'Warm White' }).isChange === false &&
+  ask({ oldLights: '', newLights: 'Warm White' }).setLightsChangedAt === false,
+  'charging somebody for filling in their own colours, and printing them as a colour ' +
+  'change, is what the non-empty test on BOTH sides exists to prevent');
+
+check('and clearing colours is not a change either',
+  ask({ oldLights: 'Warm White', newLights: '' }).feeAmount === 0 &&
+  ask({ oldLights: 'Warm White', newLights: '' }).isChange === false);
+
+check('saving the same colours changes nothing at all',
+  ask({ oldLights: 'Warm White', newLights: 'Warm White' }).feeAmount === 0 &&
+  ask({ oldLights: 'Warm White', newLights: 'Warm White' }).setLightsChangedAt === false &&
+  ask({ oldLights: 'Warm White', newLights: 'Warm White' }).lightsLockedUntil === 0,
+  'opening the Lights tab and pressing Save must not charge or re-queue anybody');
+
+/* Where the money goes — the answer to hole F. */
+check('a fee before the invoice is sent lands on the current invoice',
+  ask({ invoiceSent: false }).feeDestination === 'invoice',
+  'owner: "if invoice hasn\'t been sent out than it will be charged on there current invoice"');
+
+check('a fee after the invoice is sent goes to NEXT season',
+  ask({ invoiceSent: true }).feeDestination === 'nextSeason',
+  'owner: "if invoice has already been sent out ... than the 30 dollars will be ' +
+  'charged for next season". invoiceEmailSent is only cleared by Start New Season, ' +
+  'so a fee added to a sent invoice would never be posted to anybody');
+
+check('and no fee has no destination',
+  ask({ lockedUntil: NOW + HOUR }).feeDestination === 'none',
+  'a destination without a fee is a $0 line on somebody\'s bill');
+
+check('changing the lights of a customer already on a route raises the reassign note',
+  ask({ scheduled: true }).raiseReassignNote === true &&
+  ask({ scheduled: false }).raiseReassignNote === false,
+  'the crew would otherwise hang the pattern that was on their card this morning');
 
 // ---------------------------------------------------------------------------
 console.log(failures.length ? '' : '  PASS  every check below\n');
