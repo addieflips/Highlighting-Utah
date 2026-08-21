@@ -8129,6 +8129,27 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
      price field, which is a straight contradiction, and she reasonably believed it was
      priced. Said out loud on the card now, and the popup no longer depends on it:
      whatever is in the box HERE is what gets used, and it is saved on the way through. */
+  /* ⭐ WHAT THE WAREHOUSE DOES ABOUT IT. Owner, 2026-08-20: "after doing a requote it
+     should give the option recycle old build new or build what they dont already have,
+     for this one it will be recycle old build new but for the ones that says build what
+     they dont already have, it should take the number of feet they used to have and
+     subtract it by the new number of feet."
+
+     ⚠ TOPPING UP IS ONLY POSSIBLE WHEN THERE IS SOMETHING TO TOP UP. It needs a
+     known old footage AND a bigger new one. Ashley has no feet recorded at all, so
+     there is no difference to work out and the offer is not made — which is her own
+     "for this one it will be recycle old build new". Feet that went DOWN cannot be
+     topped up either: you cannot build minus forty feet.
+
+     ⚠ AND THE DEFAULT FOLLOWS THE ADDRESS. A re-quote carrying a new address is
+     somebody who MOVED, and their old set is coming back off the old house, so recycle
+     is right even when the sums would allow a top-up. Same address and more feet is the
+     case topping up exists for. Either can still be picked by hand. */
+  const quoteAddr = String(d.address || d.street || '').trim().toLowerCase();
+  const custAddr = String(ed.address || ed.street || '').trim().toLowerCase();
+  const movedHouse = !!(quoteAddr && custAddr && quoteAddr !== custAddr);
+  const topUpFeet = (oldFeet > 0 && newFeet > oldFeet) ? (newFeet - oldFeet) : 0;
+  const canTopUp = topUpFeet > 0;
   const savedPrice = typeof d.quotedPrice === 'number' ? d.quotedPrice : null;
   const feetPrice = (newFeet && perFootRate) ? Math.round(newFeet * perFootRate) : null;
   const newPrice = savedPrice !== null ? savedPrice : feetPrice;
@@ -8169,6 +8190,29 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
       ? (num && newFeet ? '<p style="font-size:12.5px; color:var(--slate);">Under '+CN_DOUBLE_BIN_FEET+' ft either way, so #'+esc(num)+' still fits and nothing else has to change.</p>' : '')
       : '<p style="font-size:12.5px; color:var(--ember); background:#FDECEA; border:1px solid #F3C8C2; border-radius:9px; padding:8px 11px;">'+
           '<strong>#'+esc(num)+' no longer matches the footage.</strong> '+newFeet+' ft is '+newBins+' bin'+(newBins === 1 ? '' : 's')+', which uses '+(newBins >= 2 ? 'a 5000-series' : 'a regular')+' number. Everything else is held \u2014 the form will ask about the number when you save.</p>')+
+    /* Two buttons, one of which is always right, and the reason the other one is not
+       offered is written where the second button would have been. A choice with a
+       greyed-out option and no explanation is the dead end this popup already had once. */
+    '<div style="margin-top:14px;">'+
+      '<div style="font-size:12.5px; font-weight:600; margin-bottom:6px;">What the warehouse does</div>'+
+      '<label style="display:flex; gap:8px; align-items:flex-start; font-size:12.5px; cursor:pointer; padding:6px 0;">'+
+        '<input type="radio" name="requoteBuild" value="recycle" id="requoteBuildRecycle"'+((canTopUp && !movedHouse) ? '' : ' checked')+' style="width:auto; margin-top:3px;">'+
+        '<span><strong>Recycle their old set and build the new one.</strong> Their old lights come back into stock and a full '+(newFeet ? newFeet+' ft' : 'new')+' set is made up.'+
+          (movedHouse ? ' <span style="color:#8A6100;">Their address changed, so this is almost certainly the one.</span>' : '')+'</span>'+
+      '</label>'+
+      (canTopUp
+        ? '<label style="display:flex; gap:8px; align-items:flex-start; font-size:12.5px; cursor:pointer; padding:6px 0;">'+
+            '<input type="radio" name="requoteBuild" value="topup" id="requoteBuildTopUp"'+((canTopUp && !movedHouse) ? ' checked' : '')+' style="width:auto; margin-top:3px;">'+
+            '<span><strong>Build only what they do not already have &mdash; '+topUpFeet+' ft.</strong> '+oldFeet+' ft stays in their bin and '+topUpFeet+' ft is added to it. The build sheet says whose bin it goes in.</span>'+
+          '</label>'
+        : '<div style="font-size:12px; color:var(--slate); padding:6px 0;">'+
+            (!oldFeet
+              ? 'There is no footage on their record, so there is nothing to work a difference out from &mdash; the whole set has to be built.'
+              : (!newFeet
+                ? 'The re-quote has no new footage on it, so there is nothing extra to build.'
+                : 'The new footage is not more than the ' + oldFeet + ' ft they already have, so there is nothing extra to build.'))+
+          '</div>')+
+    '</div>'+
     /* One box, always editable, always pre-filled with the best answer available.
        The old popup was a summary with nothing to type into, which is exactly why
        there was no way out of it when the summary said something was missing. */
@@ -8227,14 +8271,27 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
         toast('Saved the price on the customer, but not back onto the re-quote \u2014 check your connection.');
       });
     }
+    /* Read the choice off the buttons rather than from a variable set when they were
+       drawn: what she last clicked is what the radio holds, and anything else here
+       would be a second answer to the same question. */
+    const topUpEl = document.getElementById('requoteBuildTopUp');
+    const wantsTopUp = !!(canTopUp && topUpEl && topUpEl.checked);
     close();
     openEditCustomerModal(existingItem.id);
     /* AFTER the modal fills itself from the record, or the record would write
        straight back over the two fields this whole step exists to change. */
     document.getElementById('editCustHousePrice').value = price;
     if(newFeet) document.getElementById('editCustFeet').value = newFeet;
+    /* Held until Save Changes rather than written now. She can still close the form
+       without saving, and flagging the warehouse for a change that never happened is
+       worse than making her press the button. */
+    requoteBuildChoice = wantsTopUp
+      ? {mode: 'topup', haveFeet: oldFeet, extraFeet: topUpFeet}
+      : {mode: 'recycle'};
     requoteBeingConverted = quoteId;
-    toast(fmtMoney(price)+' filled in for '+(who)+' \u2014 check it over and press Save Changes.');
+    toast(fmtMoney(price)+' filled in for '+(who)+' \u2014 '+
+      (wantsTopUp ? ('warehouse will build the extra '+topUpFeet+' ft') : 'old set recycles, new one gets built')+
+      '. Press Save Changes.');
   });
 }
 /* The popup that asks which way. */
@@ -11537,6 +11594,21 @@ function estimateFeetFromPrice(price, rate){
 /* How many 40 ft bundles a house needs. Uses measured feet when we have them and
    falls back to the price-based estimate, so the warehouse gets a real number
    instead of just a headcount of houses. */
+/* ⭐ BUILD WHAT THEY DO NOT ALREADY HAVE. Owner, 2026-08-20: after a re-quote "it
+   should give the option recycle old build new or build what they dont already have...
+   it should take the number of feet they used to have and subtract it by the new number
+   of feet so they know how much more needs to be built and it goes to warehouse build
+   with the difference of the number of feet and should say to add it to their bin."
+
+   ⚠ IT STORES WHAT THEY ALREADY HAVE, NOT THE DIFFERENCE. Storing 120 ft would go
+   stale the moment the footage is edited again — re-quote 300 to 350 and the sheet
+   would still say build 120. Storing the 180 they hold means the difference is worked
+   out fresh every time it is read, by this one function, and corrects itself.
+
+   ⚠ AND IT STOPS BEING A TOP-UP WHEN THERE IS NOTHING LEFT TO TOP UP. If the feet
+   come back down to at or below what is already in the bin there is no extra to build,
+   so it falls back to the ordinary answer rather than printing a build of zero or,
+   worse, a negative one. */
 function houseBundleNeed(d){
   let feet = Number(d.measuredFeet) || 0;
   let estimated = false;
@@ -11544,8 +11616,25 @@ function houseBundleNeed(d){
     const price = Number(d.housePrice) || 0;
     if(price && perFootRate){ feet = estimateFeetFromPrice(price, perFootRate); estimated = true; }
   }
-  if(!feet) return {feet: 0, bundles: 1, estimated: false, unknown: true};
-  return {feet: feet, bundles: Math.ceil(feet / FEET_PER_BUNDLE), estimated: estimated, unknown: false};
+  const have = Number(d.buildTopUpFromFeet) || 0;
+  if(have > 0 && feet > have){
+    const extra = feet - have;
+    return {feet: extra, bundles: Math.ceil(extra / FEET_PER_BUNDLE), estimated: estimated,
+            unknown: false, topUp: true, have: have, total: feet};
+  }
+  if(!feet) return {feet: 0, bundles: 1, estimated: false, unknown: true, topUp: false};
+  return {feet: feet, bundles: Math.ceil(feet / FEET_PER_BUNDLE), estimated: estimated,
+          unknown: false, topUp: false};
+}
+/* Where a finished bundle goes. Blank for an ordinary build — it goes in a new bin
+   with their number on it, which is what the Bin column already says. On a top-up the
+   bundle joins a bin that is already on the shelf with lights in it, and a loose bundle
+   nobody can place is the thing that goes wrong in a warehouse. */
+function whPutIntoLabel(d){
+  const need = houseBundleNeed(d);
+  if(!need.topUp) return '';
+  const num = String(d.customerNumber || '').trim();
+  return (d.name || 'this customer') + (num ? ' #' + num : ' \u2014 no bin number yet');
 }
 function messageFeetEstimate(d){
   if(d.topic !== 'Light Color Change') return '';
@@ -23575,7 +23664,10 @@ function renderWarehouseQueue(){
       '<div id="'+listId+'" style="display:none; margin-top:12px; padding-top:12px; border-top:1px solid var(--line);">'+
         g.houses.map(function(h){
           const need = houseBundleNeed(h.data);
-          const needTxt = need.unknown
+          const needTxt = need.topUp
+            ? ('build ' + need.feet + ' ft more = ' + need.bundles + ' bundle' + (need.bundles===1?'':'s') +
+               ' \u2014 they already have ' + need.have + ' ft of their ' + need.total + ' ft')
+            : need.unknown
             ? 'no feet on file \u2014 assuming 1 bundle'
             : need.feet + ' ft = ' + need.bundles + ' bundle' + (need.bundles===1?'':'s') + (need.estimated ? ' (estimated from price)' : '');
           const houseNotes = (h.data.notes ? String(h.data.notes).trim() : '');
@@ -23583,6 +23675,7 @@ function renderWarehouseQueue(){
             '<span style="font-size:13.5px;">'+esc(h.data.name||'(no name)')+' &mdash; '+esc(h.data.address||'')+propLabelChip(h.data)+
               '<span style="display:block; font-size:12px; color:'+(need.unknown?'var(--ember)':'var(--slate)')+'; margin-top:2px;">'+esc(needTxt)+'</span>'+
               '<span style="display:block; margin-top:4px; line-height:1.9;">'+whHouseFactsHtml(h.data)+'</span>'+
+              (need.topUp ? '<span style="display:block; font-size:12px; font-weight:600; color:#8A6100; margin-top:4px;">When built, put into '+esc(whPutIntoLabel(h.data))+'</span>' : '')+
               /* Notes last, because they are the long bit and the facts above
                  are what gets read at a glance while building. */
               (houseNotes ? '<span style="display:block; font-size:12px; color:var(--slate); margin-top:4px; white-space:pre-wrap;">'+esc(houseNotes)+'</span>' : '')+
@@ -23653,7 +23746,11 @@ function renderWarehouseQueue(){
   list.querySelectorAll('[data-whdonehouse]').forEach(function(btn){
     btn.addEventListener('click', function(e){
       e.stopPropagation();
-      updateDoc(doc(db,'jobAddresses', btn.dataset.whdonehouse), {needsLightBuild:false}).catch(function(){});
+      /* ⚠ AND IT IS NO LONGER A TOP-UP. The extra bundle is in their bin, so the bin
+         now holds their full footage. Leaving buildTopUpFromFeet set would make every
+         future build for this house read as "they already have 180 ft" for ever. */
+      updateDoc(doc(db,'jobAddresses', btn.dataset.whdonehouse),
+        {needsLightBuild:false, buildTopUpFromFeet:null}).catch(function(){});
     });
   });
   /* Opens the ordinary Edit Customer popup, which is the one place these
@@ -23707,7 +23804,8 @@ function renderWarehouseQueue(){
       }
       for(const h of g.houses){
         if(remaining <= 0) break;
-        await updateDoc(doc(db,'jobAddresses', h.id), {needsLightBuild:false});
+        // Same clear as the single Mark Done above - see the note there.
+        await updateDoc(doc(db,'jobAddresses', h.id), {needsLightBuild:false, buildTopUpFromFeet:null});
         remaining--;
       }
       for(const ex of g.extras){
@@ -24052,9 +24150,10 @@ function whSheetRowsForBuild(){
         bin: d.customerNumber || '',
         // Blank rather than 0 when there are no feet — a 0 in a spreadsheet
         // column reads as a measurement, and this is the absence of one.
-        feet: need.unknown ? '' : (need.feet + (need.estimated ? ' est' : '')),
+        feet: need.unknown ? '' : ((need.topUp ? '+' : '') + need.feet + (need.estimated ? ' est' : '')),
         bundles: need.bundles,
         timer: String(d.outletTimer || '').trim() === 'Yes' ? 'YES' : '',
+        putInto: whPutIntoLabel(d),
         notes: (d.notes ? String(d.notes).trim() : '')
       });
     });
@@ -24070,6 +24169,7 @@ function whSheetRowsForBuild(){
         feet: '',
         bundles: Number(e.data.quantity) || 1,
         timer: isTimer ? 'YES' : '',
+        putInto: '',
         notes: ''
       });
     });
@@ -24210,6 +24310,14 @@ const WH_BUILD_COLUMNS = [
   {key:'feet', label:'Feet', num:true},
   {key:'bundles', label:'Bundles', num:true},
   {key:'timer', label:'Timer'},
+  /* ⚠ A COLUMN, NOT A NOTE IN THE BLANK ONE. The owner's first thought was to put
+     "when built put into Ashley Wray #909" in the blank column on the right, and then:
+     "or I dont know if you have a better idea for this because its a tricky situation."
+     The blank column is where the warehouse ticks a row off, so an instruction printed
+     there takes away the place to mark it done. A column of its own lines up down the
+     page, is empty on every ordinary row so the ones that need it stand out, and
+     survives the paste into Excel this sheet is built for. */
+  {key:'putInto', label:'When built, put into'},
   {key:'notes', label:'Notes'}
 ];
 const WH_RECYCLE_COLUMNS = [
@@ -25149,6 +25257,11 @@ let editCustomerId = null;
    footage immediately raises another re-quote for the same change, and the
    office never reaches the end of the list. */
 let requoteBeingConverted = null;
+/* What the warehouse is to do about the re-quote being applied: {mode:'recycle'} or
+   {mode:'topup', haveFeet, extraFeet}. Set when the office picks on the apply popup,
+   carried out by the Save Changes handler, and cleared there whether it worked or not
+   so the next customer opened does not inherit somebody else's answer. */
+let requoteBuildChoice = null;
 /* The record's updatedAt at the moment the Edit Customer modal was opened, so
    the save can tell whether anyone else has touched it since. */
 let editCustOpenedWithUpdatedAt = null;
@@ -25591,6 +25704,9 @@ document.getElementById('editCustRecycleStayBtn').addEventListener('click', asyn
          lightsDescription — so a customer with nothing on file would go on one list and
          silently not the other, which is the half of this she would notice last. */
       needsLightBuild: true,
+      /* A full set is being made up from scratch, so anything left over from an
+         earlier "build only the difference" is wrong now. */
+      buildTopUpFromFeet: null,
       lightsRecycleRequestedAt: serverTimestamp()
     });
     Object.assign(item.data, {needsLightRecycle: true, recycleKeepingCustomer: true,
@@ -25945,6 +26061,36 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        same situation. No number is taken from the pool automatically. */
     const rejoinedAfterRecycle = newRsvp === 'yes' && oldRsvpForRecycle === 'no' && !item.data.needsLightRecycle;
     if(rejoinedAfterRecycle) addrUpdates.needsLightBuild = true;
+    /* ⭐ AND WHAT THE WAREHOUSE WAS TOLD TO DO ABOUT THE RE-QUOTE. Applied after the
+       RSVP-derived flags above, because this is the explicit answer to a question
+       somebody was actually asked, and before Maybe Next Year below, which cancels
+       everything and has to keep winning.
+
+       ⚠ CLEARED WHETHER IT WORKED OR NOT. It is a module-level variable, so leaving
+       it set would apply this re-quote's answer to the next customer whose record gets
+       saved — which would put somebody who never moved on the recycle list. */
+    if(requoteBuildChoice){
+      const choice = requoteBuildChoice;
+      requoteBuildChoice = null;
+      if(choice.mode === 'topup'){
+        /* They keep the bin they have and the warehouse makes up the difference.
+           What is stored is what they ALREADY HAVE, not the difference — see
+           houseBundleNeed, which works the subtraction out fresh every time. */
+        addrUpdates.needsLightBuild = true;
+        addrUpdates.buildTopUpFromFeet = Number(choice.haveFeet) || 0;
+        addrUpdates.needsLightRecycle = false;
+        addrUpdates.recycleKeepingCustomer = false;
+      } else {
+        /* The whole old set comes back and a whole new one is made. Exactly what the
+           Recycle button in this form does, so it writes the same fields — a second
+           way of saying the same thing is the copy that falls behind. */
+        addrUpdates.needsLightRecycle = true;
+        addrUpdates.recycleKeepingCustomer = true;
+        addrUpdates.needsLightBuild = true;
+        addrUpdates.buildTopUpFromFeet = null;
+        addrUpdates.lightsRecycleRequestedAt = serverTimestamp();
+      }
+    }
     /* Applied last so it beats the RSVP dropdown and the build flag above:
        the toggle is the explicit statement about this season, and letting the
        two disagree is how someone ends up badged Maybe Next Year while still
@@ -35968,9 +36114,14 @@ const PRINT_COLUMNS = {
   recycle:   [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'}],
   colors:    [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'},
               {k: 'color', label: 'New color'}],
+  /* "When built, put into" is blank on every ordinary row and names the customer and
+     bin on a top-up — a bundle that joins a bin already on the shelf. It is a column
+     rather than a note written into the blank one on the right, because that blank is
+     where the warehouse ticks the row off. */
   build:     [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'},
               {k: 'lights', label: 'Light color'}, {k: 'wire', label: 'Wire color'},
-              {k: 'timer', label: 'Timer'}, {k: 'feet', label: 'Feet'}],
+              {k: 'timer', label: 'Timer'}, {k: 'feet', label: 'Feet'},
+              {k: 'putInto', label: 'When built, put into'}],
   warehouse: [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'}],
   /* ⭐ TIMER SITS BEFORE NOTES ON EVERY CREW SHEET (added 2026-08-20). Owner: "i
      forgot to include on everything crew related printing it need to include
@@ -36031,10 +36182,16 @@ function printNeedsBuildList(){
     })
     .map(function(a){
       const d = a.data || {};
+      /* The same top-up answer as the warehouse tab, worked out by the same function.
+         Two builders of the same list is how a printout starts disagreeing with the
+         screen it was printed from. */
+      const need = (typeof houseBundleNeed === 'function') ? houseBundleNeed(d) : null;
+      const isTopUp = !!(need && need.topUp);
       return {number: d.customerNumber || '', name: d.name || '',
               lights: printLightColor(d), wire: d.wireColor || '',
               timer: printYesNo(d.outletTimer),
-              feet: (d.measuredFeet === 0 || d.measuredFeet) ? d.measuredFeet : ''};
+              feet: isTopUp ? ('+' + need.feet) : ((d.measuredFeet === 0 || d.measuredFeet) ? d.measuredFeet : ''),
+              putInto: (isTopUp && typeof whPutIntoLabel === 'function') ? whPutIntoLabel(d) : ''};
     })
     .sort(function(x, y){ return String(x.name).localeCompare(String(y.name)); });
 }

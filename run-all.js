@@ -3967,6 +3967,9 @@ if (!JSDOM) {
        sandbox has to declare that cache. Without it the lifted function throws a
        ReferenceError and the whole file dies before a single check runs. */
     global.whArchivedPending = [];
+    /* Same again for the top-up label: whSheetRowsForBuild calls it, and it is
+       declared beside houseBundleNeed rather than inside the slices below. */
+    eval(extractFn(admin, 'houseBundleNeed') + '\n' + extractFn(admin, 'whPutIntoLabel'));
     eval(admin.slice(whStart, buildStart) + '\n' + admin.slice(buildStart, buildEnd) + '\n' +
          admin.slice(recycleStart, recycleEnd) + '\n' +
          (formEnd > formStart ? admin.slice(formStart, formEnd) : '') + '\n');
@@ -18539,9 +18542,17 @@ suite('Suite 104. The Printing tab');
       keys('colors') === 'number,name,color',
       'got ' + keys('colors'));
     check('S104', 'the build list carries everything the warehouse makes up',
-      keys('build') === 'number,name,lights,wire,timer,feet',
+      keys('build').indexOf('number,name,lights,wire,timer,feet') === 0,
       'got ' + keys('build') + ' — owner: "customer number, name, light color, ' +
       'wire color, time(yes/no), and feet of the house"');
+    /* ⭐ AND ONE MORE AFTER THEM (added 2026-08-20). A top-up build joins a bin that
+       is already on the shelf, and a finished bundle nobody can place is the thing that
+       goes wrong in a warehouse. It is blank on every ordinary row, so the ones that
+       need it stand out. NOT written into the blank column on the right, which is where
+       the warehouse ticks the row off. */
+    check('S104', 'and says whose bin a top-up bundle goes into',
+      keys('build') === 'number,name,lights,wire,timer,feet,putInto',
+      'got ' + keys('build'));
     check('S104', 'the daily warehouse list is only number and name',
       keys('warehouse') === 'number,name',
       'got ' + keys('warehouse') + ' — it is a pull list, not a spec sheet');
@@ -19309,13 +19320,20 @@ suite('Suite 107. Pricing a re-quote from the popup');
       remove: function(){},
       set innerHTML(v){
         lastHtml = v;
-        /* Declare every id the markup mentions, and give inputs their value= */
-        const re = /id="([a-zA-Z0-9_-]+)"([^>]*)/g;
-        let m;
-        while((m = re.exec(v))){
-          const e = el(m[1]);
-          const val = /value="([^"]*)"/.exec(m[2]);
+        /* Declare every id the markup mentions, and give each element the state its
+           own tag declares — the WHOLE tag, not the part after the id. value= sits
+           before id= on the radios, and reading only what followed made a checked
+           radio look unchecked, which would have let a wrong default pass. */
+        const tags = /<[a-z]+[^>]*>/g;
+        let t;
+        while((t = tags.exec(v))){
+          const tag = t[0];
+          const idm = /id="([a-zA-Z0-9_-]+)"/.exec(tag);
+          if(!idm) continue;
+          const e = el(idm[1]);
+          const val = /value="([^"]*)"/.exec(tag);
           if(val) e.value = val[1];
+          e.checked = / checked[ >]/.test(tag);
         }
       },
       get innerHTML(){ return lastHtml; }
@@ -19345,12 +19363,18 @@ suite('Suite 107. Pricing a re-quote from the popup');
       updateDoc: (ref, payload) => { writes.push(payload); return {catch: function(){}}; },
       doc: (a, b, c) => ({path: b + '/' + c}),
       db: {},
-      requoteBeingConverted: null
+      requoteBeingConverted: null,
+      requoteBuildChoice: null
     };
     const names = Object.keys(ctx);
-    const fn = new Function(...names, src + ';return showApplyRequoteChoice;')(...names.map(n => ctx[n]));
-    fn('q1', quote, customer);
+    /* The two globals the popup parks for the Save Changes handler are function
+       parameters in here, so the closure below is how their value is read back out. */
+    const made = new Function(...names, src +
+      ';return {fn: showApplyRequoteChoice, choice: function(){ return requoteBuildChoice; },' +
+      ' converting: function(){ return requoteBeingConverted; }};')(...names.map(n => ctx[n]));
+    made.fn('q1', quote, customer);
     return {dom: dom, writes: writes, toasts: toasts, opened: () => opened,
+            choice: made.choice, converting: made.converting,
             html: dom.html, el: dom.el};
   }
 
@@ -19502,6 +19526,272 @@ suite('Suite 107. Pricing a re-quote from the popup');
       !/unchanged/.test(r.html()) &&
       /180<\/strong> &rarr; <strong>300 ft/.test(r.html()),
       '180 ft to 300 ft is exactly the change this popup exists to show');
+  }
+
+  /* ⭐ AND WHAT THE WAREHOUSE DOES ABOUT IT. Owner, 2026-08-20: "after doing a requote
+     it should give the option recycle old build new or build what they dont already
+     have... it should take the number of feet they used to have and subtract it by the
+     new number of feet." And, separately: "just make sure to double check that if i
+     click a button the function that is supposed to happen actually does" — so these
+     press the real buttons and read what came out, rather than reading the markup. */
+  {
+    const grew = {id: 'c500', data: {name: 'Grew Bigger', customerNumber: '500',
+                                     housePrice: 400, measuredFeet: 180,
+                                     address: '12 Same St, Lehi, UT'}};
+    const r = run({name: 'Grew Bigger', estimatedFeet: 300, quotedPrice: 600,
+                   address: '12 Same St, Lehi, UT'}, grew, 2);
+    check('S107', 'more feet at the same house offers building only the difference',
+      /Build only what they do not already have/.test(r.html()) &&
+      /120 ft/.test(r.html()),
+      '300 less the 180 already in their bin is 120, which is the whole request');
+    check('S107', 'and that is the one already selected',
+      r.el('requoteBuildTopUp').checked === true &&
+      r.el('requoteBuildRecycle').checked === false,
+      'same address and more feet is exactly what topping up is for');
+
+    r.el('requoteBuildTopUp').checked = true;
+    r.el('applyRequoteBtn').fire('click');
+    check('S107', 'pressing Open actually parks the top-up for the save',
+      !!r.choice() && r.choice().mode === 'topup' &&
+      r.choice().haveFeet === 180 && r.choice().extraFeet === 120,
+      'the button has to do the thing, not just look like it offers it');
+    check('S107', 'and the re-quote is still marked as being converted',
+      r.converting() === 'q1');
+  }
+
+  {
+    const grew = {id: 'c500', data: {name: 'Grew Bigger', customerNumber: '500',
+                                     housePrice: 400, measuredFeet: 180,
+                                     address: '12 Same St, Lehi, UT'}};
+    const r = run({name: 'Grew Bigger', estimatedFeet: 300, quotedPrice: 600,
+                   address: '12 Same St, Lehi, UT'}, grew, 2);
+    r.el('requoteBuildTopUp').checked = false;
+    r.el('applyRequoteBtn').fire('click');
+    check('S107', 'and choosing recycle instead parks recycle',
+      !!r.choice() && r.choice().mode === 'recycle',
+      'the radio is read at the moment of the click, not when it was drawn');
+  }
+
+  /* ⚠ HER CASE: no footage on file, so there is nothing to subtract from. */
+  {
+    const r = run({name: 'Ashley Wray', estimatedFeet: 300, quotedPrice: 600},
+                  {id: 'c894', data: {name: 'Ashley Wray', customerNumber: '894',
+                                      housePrice: 600, measuredFeet: 0}}, 2);
+    check('S107', 'no old footage means no top-up offered',
+      !/Build only what they do not already have/.test(r.html()),
+      'her own words: "for this one it will be recycle old build new"');
+    check('S107', 'and it says WHY, where the second button would have been',
+      /nothing to work a difference out from/.test(r.html()),
+      'a missing option with no explanation is the dead end this popup already had');
+    r.el('applyRequoteBtn').fire('click');
+    check('S107', 'and the only thing it can do is what it does',
+      r.choice().mode === 'recycle');
+  }
+
+  /* Feet that went DOWN cannot be topped up: you cannot build minus forty feet. */
+  {
+    const r = run({name: 'Shrank', estimatedFeet: 140, quotedPrice: 300,
+                   address: '12 Same St'},
+                  {id: 'c1', data: {name: 'Shrank', customerNumber: '1',
+                                    measuredFeet: 180, address: '12 Same St'}}, 2);
+    check('S107', 'fewer feet than they already have offers no top-up',
+      !/Build only what they do not already have/.test(r.html()) &&
+      /not more than the 180 ft they already have/.test(r.html()));
+  }
+
+  /* ⚠ A NEW ADDRESS MEANS THEY MOVED, and their old set is coming off the old house. */
+  {
+    const r = run({name: 'Moved', estimatedFeet: 300, quotedPrice: 600,
+                   address: '99 New Rd, Lehi, UT'},
+                  {id: 'c2', data: {name: 'Moved', customerNumber: '2',
+                                    measuredFeet: 180, address: '12 Old St, Lehi, UT'}}, 2);
+    check('S107', 'a move still offers the top-up but does not pick it',
+      /Build only what they do not already have/.test(r.html()) &&
+      r.el('requoteBuildTopUp').checked === false &&
+      r.el('requoteBuildRecycle').checked === true,
+      'the sums allow it and the situation does not; the office can still override');
+    check('S107', 'and says why recycle is almost certainly right',
+      /address changed, so this is almost certainly the one/.test(r.html()));
+    r.el('applyRequoteBtn').fire('click');
+    check('S107', 'so the default really is recycle',
+      r.choice().mode === 'recycle');
+  }
+
+  /* ⭐ EVERY BUTTON ON THE POPUP HAS SOMETHING LISTENING. Owner: "just make sure to
+     double check that if i click a button the function that is supposed to happen
+     actually does." A control drawn with no handler looks identical to a working one
+     until somebody presses it. */
+  {
+    const r = run({name: 'Ashley Wray', estimatedFeet: 300, quotedPrice: 600},
+                  {id: 'c894', data: {name: 'Ashley Wray', customerNumber: '894'}}, 2);
+    const wired = (id, ev) => {
+      const e = r.el(id);
+      return !!(e && e._h && e._h[ev] && e._h[ev].length);
+    };
+    check('S107', 'Open their record listens for a click', wired('applyRequoteBtn', 'click'));
+    check('S107', 'Cancel listens for a click', wired('applyRequoteCancelBtn', 'click'));
+    check('S107', 'and the price box listens as it is typed in',
+      wired('requotePriceInput', 'input'),
+      'without this the figure at the top and the box below drift apart');
+    let closed = false;
+    r.dom.overlay.remove = function(){ closed = true; };
+    r.el('applyRequoteCancelBtn').fire('click');
+    check('S107', 'and Cancel really closes it', closed === true,
+      'a Cancel that does nothing leaves her stuck behind a popup');
+  }
+
+  /* ⭐ THE SUBTRACTION ITSELF, and it happens in ONE place. Owner: "it should take the
+     number of feet they used to have and subtract it by the new number of feet so they
+     know how much more needs to be built." The warehouse tab, the warehouse print sheet
+     and the Printing tab's Needs Building list all read houseBundleNeed, so they cannot
+     disagree about how much to make up. */
+  {
+    const need = new Function('d', 'FEET_PER_BUNDLE', 'perFootRate', 'estimateFeetFromPrice',
+      extractFn(admin, 'houseBundleNeed') + 'return houseBundleNeed(d);');
+    const N = (d) => need(d, 100, 2, (p, r) => Math.round(p / r));
+
+    const topUp = N({measuredFeet: 300, buildTopUpFromFeet: 180});
+    check('S107', 'a top-up asks for the difference, not the whole house',
+      topUp.topUp === true && topUp.feet === 120 && topUp.have === 180 && topUp.total === 300,
+      'building 300 ft for a house that already holds 180 is 180 ft of wasted work');
+    check('S107', 'and the bundles are counted off the difference too',
+      topUp.bundles === 2,
+      '120 ft at 100 ft a bundle is 2, not the 3 the whole house would need');
+
+    /* ⚠ IT STORES WHAT THEY HAVE, NOT THE DIFFERENCE, so editing the footage again
+       corrects itself instead of going stale. */
+    check('S107', 're-quoting again recalculates from what is in the bin',
+      N({measuredFeet: 350, buildTopUpFromFeet: 180}).feet === 170,
+      'storing 120 would have this still saying build 120 after a change to 350');
+
+    /* ⚠ AND IT STOPS BEING A TOP-UP WHEN THERE IS NOTHING LEFT TO TOP UP. */
+    check('S107', 'feet back down to what they hold is an ordinary build again',
+      N({measuredFeet: 180, buildTopUpFromFeet: 180}).topUp !== true &&
+      N({measuredFeet: 140, buildTopUpFromFeet: 180}).topUp !== true,
+      'a build of zero feet, or of minus forty, is not a thing the warehouse can make');
+    check('S107', 'and an ordinary house is untouched by any of this',
+      N({measuredFeet: 300}).feet === 300 && N({measuredFeet: 300}).topUp !== true &&
+      N({}).unknown === true,
+      'this must not change the answer for the houses that are not topping up');
+  }
+
+  /* ⭐ AND THE FINISHED BUNDLE HAS TO SAY WHOSE BIN IT GOES IN. Owner: "it should say
+     to add it to their bin", then "it should be a note that when you print it goes in
+     the blank column that says when built put into ashley wray #909 or whatever", and
+     "or I dont know if you have a better idea for this because its a tricky situation."
+
+     ⚠ IT IS A COLUMN OF ITS OWN, NOT THE BLANK ONE. The blank column on the right is
+     where the warehouse ticks a row off; an instruction printed there takes away the
+     place to mark it done. A real column lines up down the page, is empty on every
+     ordinary row so the ones that need it stand out, and survives the paste into Excel
+     this sheet is built for. */
+  {
+    const label = new Function('d', 'FEET_PER_BUNDLE', 'perFootRate', 'estimateFeetFromPrice',
+      extractFn(admin, 'houseBundleNeed') + extractFn(admin, 'whPutIntoLabel') +
+      'return whPutIntoLabel(d);');
+    const L = (d) => label(d, 100, 2, (p, r) => Math.round(p / r));
+
+    check('S107', 'a top-up names the customer and their bin',
+      L({name: 'Ashley Wray', customerNumber: '894', measuredFeet: 300,
+         buildTopUpFromFeet: 180}) === 'Ashley Wray #894',
+      'a loose bundle nobody can place is the thing that goes wrong in a warehouse');
+    check('S107', 'and an ordinary build says nothing, because it gets its own bin',
+      L({name: 'Ashley Wray', customerNumber: '894', measuredFeet: 300}) === '',
+      'a column that says something on every row says nothing at all');
+    check('S107', 'a top-up with no bin number says so rather than reading as blank',
+      /no bin number yet/.test(L({name: 'No Number', measuredFeet: 300,
+                                  buildTopUpFromFeet: 180})),
+      'putting a bundle "into nothing" is worse than the row being obviously wrong');
+  }
+
+  /* ⭐ AND SAVE CHANGES ACTUALLY CARRIES IT OUT. Owner: "just make sure to double check
+     that if i click a button the function that is supposed to happen actually does."
+     The popup only parks the answer; this block is the half that writes it. */
+  {
+    const at = admin.indexOf('    if(requoteBuildChoice){');
+    const end = admin.indexOf('    /* Applied last so it beats the RSVP dropdown', at);
+    const blk = (at > 0 && end > at) ? admin.slice(at, end) : '';
+    check('S107', 'the block that carries the choice out was found', !!blk);
+
+    if (blk) {
+      const apply = new Function('requoteBuildChoice', 'addrUpdates', 'serverTimestamp',
+        blk + 'return requoteBuildChoice;');
+      const stamp = () => 'NOW';
+
+      let up = {};
+      let left = apply({mode: 'topup', haveFeet: 180, extraFeet: 120}, up, stamp);
+      check('S107', 'topping up flags the build and records what they already hold',
+        up.needsLightBuild === true && up.buildTopUpFromFeet === 180,
+        'this is the field houseBundleNeed subtracts from');
+      check('S107', 'and it does NOT send their old set back to be recycled',
+        up.needsLightRecycle === false && up.recycleKeepingCustomer === false,
+        'the whole point of topping up is that the 180 ft stays in the bin');
+      check('S107', 'and the choice is cleared so the next customer saved is unaffected',
+        left === null,
+        'a module-level variable left set would put somebody who never moved on the ' +
+        'recycle list the next time any record is saved');
+
+      up = {};
+      apply({mode: 'recycle'}, up, stamp);
+      check('S107', 'recycling old and building new sets both queues',
+        up.needsLightRecycle === true && up.needsLightBuild === true,
+        'her old set has to come back AND a new one has to be made');
+      check('S107', 'and keeps them as a customer',
+        up.recycleKeepingCustomer === true,
+        'the recycle queue is otherwise only reached by deleting somebody');
+      check('S107', 'and clears any leftover top-up',
+        up.buildTopUpFromFeet === null,
+        'a full set is being made from scratch, so an earlier difference is wrong now');
+      check('S107', 'and stamps when it was asked for',
+        up.lightsRecycleRequestedAt === 'NOW');
+
+      up = {};
+      const untouched = apply(null, up, stamp);
+      check('S107', 'and an ordinary save writes none of it',
+        Object.keys(up).length === 0 && untouched === null,
+        'opening somebody’s record to fix a phone number must not touch the warehouse');
+    }
+  }
+
+  /* ⚠ AND A FINISHED BUILD IS NOT A TOP-UP ANY MORE. The extra bundle is in the bin,
+     so the bin holds their full footage. Left set, every future build for that house
+     would read as "they already have 180 ft" for ever. */
+  check('S107', 'Mark Done clears the top-up as well as the build flag',
+    /needsLightBuild:false, buildTopUpFromFeet:null/.test(admin),
+    'the single Mark Done button on the warehouse row');
+  check('S107', 'and so does marking a whole group done',
+    /needsLightBuild:false, buildTopUpFromFeet:null\}\)/.test(admin) &&
+    (admin.match(/buildTopUpFromFeet:null/g) || []).length >= 2,
+    'the bulk button writes its own update and would otherwise leave it behind');
+  check('S107', 'and recycling by hand clears it too',
+    /buildTopUpFromFeet: null,\s*\r?\n\s*lightsRecycleRequestedAt/.test(admin),
+    'the Recycle button in Edit Customer builds a full set from scratch');
+
+  /* ⚠ THERE ARE TWO BUILD SHEETS AND THEY BOTH NEED THE COLUMN. The Printing tab has
+     one and the Warehouse tab has its own, older one. A red-check that deleted the
+     column from the warehouse sheet passed, because the only check written was about
+     PRINT_COLUMNS — and the warehouse sheet is the one the people building the lights
+     actually print. */
+  {
+    const cols = admin.slice(admin.indexOf('const WH_BUILD_COLUMNS = ['),
+                             admin.indexOf('const WH_RECYCLE_COLUMNS = ['));
+    check('S107', 'the warehouse tab' + String.fromCharCode(8217) + 's own build sheet has the column too',
+      /key:'putInto'/.test(cols) && /When built, put into/.test(cols),
+      'this is the sheet the warehouse prints and builds off');
+    check('S107', 'and every row builder fills it in, so no row is short a cell',
+      (extractFn(admin, 'whSheetRowsForBuild').match(/putInto:/g) || []).length === 2,
+      'houses and extras both push rows onto that sheet');
+  }
+
+  /* And the Printing tab's list reads the same answer as the warehouse tab. */
+  {
+    const src = extractFn(admin, 'printNeedsBuildList');
+    check('S107', 'the printed Needs Building list asks the same function',
+      /houseBundleNeed\(d\)/.test(src) && /whPutIntoLabel\(d\)/.test(src),
+      'two builders of one list is how a printout starts disagreeing with the screen');
+    check('S107', 'and marks a top-up row with a plus so it cannot read as a whole house',
+      /'\+' \+ need\.feet/.test(src),
+      '120 in the Feet column of a 300 ft house is a wrong number, not a short one');
   }
 
   /* ---- and the card that started it says what it is showing ---------------- */
