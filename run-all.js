@@ -27559,6 +27559,244 @@ suite('Suite 127. Whether a house is done is the customer\'s answer');
     'an index nothing reads is just memory');
 }
 
+
+/* ---------------------------------------------------------------------------
+ * Suite 128. The do-not-send list — automation emails only.
+ *
+ * Owner, 2026-08-21: "This is only for automation emails filters. I should be
+ * able to choose who not to send it too."
+ *
+ * Every other filter in Preview & Send says who TO write to. This is the only
+ * one that says who never gets written to, whatever the other nine say — and it
+ * STICKS, which is the whole reason it exists. Unticking somebody already skips
+ * them for one send; the failure this closes is Select All quietly picking them
+ * back up on the next one.
+ *
+ * ⚠ THE SAFETY PROPERTY IS THE FIELD NAME. It is `noAutomationEmails`, not
+ * `emailOptedOut`, because the obvious name invites the next person to wire it
+ * into the nightly invoice run — and a customer who asked to stop being
+ * marketed at would silently stop being BILLED. Nobody chases an invoice that
+ * was never sent. The checks below assert that the billing and SMS paths have
+ * never heard of the field, which is the half that protects money.
+ *
+ * ⚠ THESE CHECKS RUN THE RENDERER. A regex proving the words are in the file is
+ * a weaker claim and this repo has been burned by it repeatedly — most recently
+ * the ledger row whose message was built correctly and then overwritten by a
+ * default on the line below (CLAUDE.md §5). The list is rendered against a fake
+ * DOM and the HTML it produces is what gets asserted.
+ * ------------------------------------------------------------------------- */
+suite('Suite 128. The do-not-send list — automation emails only');
+
+{
+  const flagSrc = extractFn(admin, 'etNoAutomationEmails');
+  const renderSrc = extractFn(admin, 'etRenderRecipientList');
+  check('S128', 'the flag reader and the recipient renderer are findable',
+    !!flagSrc && !!renderSrc,
+    'renamed or removed — update this suite rather than deleting it');
+
+  if (flagSrc && renderSrc) {
+    /* One builder, so every check runs the REAL renderer. The helpers stubbed
+       here (invoice status, billing group, "is new") are not what this suite is
+       about and every filter that reads them is left on 'all'; the do-not-send
+       logic itself is the shipped code, unmodified. */
+    const render = function (book, mode) {
+      const list = { innerHTML: '', querySelectorAll: () => [] };
+      const countEl = { textContent: '' };
+      const doc = {
+        getElementById: function (id) {
+          if (id === 'etRecipientList') return list;
+          if (id === 'etRecipientCount') return countEl;
+          return null;
+        }
+      };
+      const env = new Function('document', 'MEMBERS', 'MODE',
+        flagSrc +
+        'let etRecipientSearchTerm = "";' +
+        'let etFilterGateCode = "all", etFilterPayment = "all", etFilterRsvp = "all";' +
+        'let etFilterPaidLast = "all", etFilterOrderedLast = "all", etFilterNew = "all";' +
+        'let etFilterGroup = "all", etFilterOutlet = "all", etFilterInstalled = "all";' +
+        'let etRsvpAudienceAutoSet = false;' +
+        'let etFilterDoNotSend = MODE;' +
+        'function etGetMembers(){ return MEMBERS; }' +
+        'function etRsvpAnswered(){ return true; }' +
+        'function getLiveInvoiceStatus(){ return "Paid in Full"; }' +
+        'function audienceBillingGroup(){ return "own"; }' +
+        'function audienceIsNew(){ return false; }' +
+        'function audiencePaidLastYear(){ return "paid"; }' +
+        'function audienceHasLastSeason(){ return true; }' +
+        'function esc(s){ return String(s == null ? "" : s); }' +
+        renderSrc +
+        ';return etRenderRecipientList;');
+      env(doc, book, mode)();
+      return { html: list.innerHTML, count: countEl.textContent };
+    };
+
+    /* Ann is excluded, Bob is not. Both are otherwise identical and both have an
+       email, so nothing except the flag can account for a difference. */
+    const book = () => ([
+      { id: 'a1', data: { name: 'Ann Excluded', email: 'ann@x.com', phone: '8015550001', noAutomationEmails: true } },
+      { id: 'b2', data: { name: 'Bob Sendable', email: 'bob@x.com', phone: '8015550002' } }
+    ]);
+
+    /* ---- 1. the normal list leaves them out, and says that it did ---- */
+    {
+      const r = render(book(), 'hide');
+      check('S128', 'somebody on the do-not-send list is not in the normal list',
+        r.html.indexOf('Ann Excluded') === -1,
+        'the whole point — they must not be selectable, because Select All ticks ' +
+        'every row that renders');
+      check('S128', 'and everybody else still is',
+        r.html.indexOf('Bob Sendable') !== -1,
+        'the filter must not take out anyone it was not asked to');
+      /* ⚠ SILENTLY SHORTER IS THE FAILURE THIS PANEL ALREADY HAS with missing
+         email addresses. Left out, but never left unsaid. */
+      check('S128', 'the count line says how many it left out',
+        /1 left out: on the do-not-send list/.test(r.count),
+        'a list quietly shorter than expected is indistinguishable from a filter bug');
+      check('S128', 'and still reports the people who DID match',
+        /^1 member matches these filters\./.test(r.count),
+        'the exclusion note must not replace the count it is annotating');
+    }
+
+    /* ---- 2. the manage view shows exactly the other half ---- */
+    {
+      const r = render(book(), 'only');
+      check('S128', 'the manage view lists the excluded person',
+        r.html.indexOf('Ann Excluded') !== -1,
+        'there has to be a way to see who is on the list');
+      check('S128', 'and nobody else',
+        r.html.indexOf('Bob Sendable') === -1,
+        'it is a list of the excluded, not a list with them highlighted');
+      /* ⚠ THE SELECT ALL SAFETY. A tickable row in the manage view is one press
+         of Select All away from mailing exactly the people it records as never
+         to be mailed. */
+      check('S128', 'the manage view renders NO send checkbox',
+        r.html.indexOf('et-recipient-cb') === -1,
+        'a tickable row here is one Select All away from mailing the people on ' +
+        'the do-not-send list');
+      check('S128', 'and offers to put them back',
+        /data-dnsval="0"/.test(r.html),
+        'a list you cannot get off is a trap, not a feature');
+      check('S128', 'the manage count explains itself and disclaims the invoice',
+        /on the do-not-send list/.test(r.count) && /does not affect their invoice/.test(r.count),
+        'the office has to be able to tell this apart from stopping somebody being billed');
+    }
+
+    /* ---- 3. the control that adds somebody, and where it sits ---- */
+    {
+      const r = render(book(), 'hide');
+      check('S128', 'a normal row offers a way onto the list',
+        /data-dnsval="1"/.test(r.html),
+        'the owner asked to be able to choose who not to send to; this is that control');
+      /* ⚠ A BUTTON INSIDE A <label> TOGGLES THAT LABEL'S CHECKBOX. Nested, the
+         "Don't send" button would tick the very person it is removing on its way
+         out — which renders perfectly and is wrong. */
+      const label = r.html.slice(r.html.indexOf('<label'), r.html.indexOf('</label>'));
+      check('S128', 'and that control sits OUTSIDE the row label',
+        label.indexOf('data-dns') === -1,
+        'a button inside a label toggles that label checkbox, so excluding ' +
+        'somebody would tick them at the same time');
+    }
+  }
+
+  /* ---- 4. both LIVE senders honour it ---- */
+  /* ⚠ TWO DOORS, ONE LIST. Preview & Send and the older Send Template modal are
+     separate senders over the same customers, so a guard in only one means the
+     list works or not depending which button was pressed — and nobody would find
+     out which. */
+  {
+    const previewSend = sectionFrom(admin, admin.indexOf("document.getElementById('etSendToSelectedBtn')"));
+    const templateSend = sectionFrom(admin, admin.indexOf("document.getElementById('etSendConfirmBtn')"));
+    check('S128', 'Preview & Send refuses to mail somebody on the list',
+      /etNoAutomationEmails\(member\.data\)/.test(previewSend),
+      'the checkboxes are read out of the DOM at send time, so a row ticked just ' +
+      'before somebody was added to the list is still a ticked id');
+    check('S128', 'and counts them apart from real failures',
+      /optedOut\+\+/.test(previewSend) && /do-not-send list/.test(previewSend),
+      'a deliberate exclusion is not a failure, and reading it as one hides both');
+    check('S128', 'the Send Template modal refuses too',
+      /etNoAutomationEmails\(customer\.data\)/.test(templateSend),
+      'a guard on one of two doors is a list that works by accident');
+    check('S128', 'and its member list leaves them out to begin with',
+      /etNoAutomationEmails\(addr\.data\)/.test(sectionFrom(admin, admin.indexOf('function openEmailSendModal'))),
+      'being told after pressing send that they were skipped reads as a broken button');
+  }
+
+  /* ---- 5. THE MONEY GUARD: billing has never heard of the field ---- */
+  /* ⚠ THIS IS THE CHECK THAT PROTECTS THE BUSINESS, not the customer. If this
+     ever fails, somebody has wired a marketing preference into billing and a
+     customer has stopped being invoiced without anyone deciding that. */
+  {
+    const fns = read('functions/index.js');
+    check('S128', 'the server has never heard of noAutomationEmails',
+      fns.indexOf('noAutomationEmails') === -1,
+      'nightly invoicing, the quote nudge and the SMS path all live here — a ' +
+      'refusal to be marketed at is not a refusal to be told what you owe');
+    /* The invoice the customer is actually shown and emailed. Anchored on a
+       function that really exists, so this cannot pass by slicing nothing. */
+    const invDoc = sectionFrom(admin, admin.indexOf('function buildInvoiceDocHtml'));
+    check('S128', 'the invoice document builder is findable',
+      invDoc.length > 200,
+      'renamed — repoint this check rather than dropping it, it is the money guard');
+    check('S128', 'and no invoice path in admin consults it either',
+      invDoc.indexOf('noAutomationEmails') === -1,
+      'same reason — this list must never be able to stop a bill going out');
+  }
+
+  /* ---- 6. it opens honoured, every time ---- */
+  {
+    const openSrc = extractFn(admin, 'openSendModal');
+    check('S128', 'opening the modal resets the list filter to "hide", not "all"',
+      /etFilterDoNotSend = 'hide'/.test(openSrc || ''),
+      '"I forgot to re-apply it" must never be a way somebody on the list gets mailed');
+    check('S128', 'and it is kept out of the reset-everything-to-all loop',
+      !/'etFilterDoNotSend'[^\]]*\]\.forEach/.test(openSrc || '') &&
+      (openSrc || '').indexOf("'etFilterInstalled'].forEach") !== -1,
+      'that loop sets every id it names to "all"; there is no "all" here on purpose');
+  }
+
+  /* ---- 7. the control survives a re-render ---- */
+  /* ⚠ THE ROW IS REBUILT BY innerHTML ON EVERY KEYSTROKE. A listener bound to the
+     button is thrown away with the row it was attached to, leaving a button that
+     renders perfectly and does nothing — which has shipped in this file before
+     (the recycle "bin says" box, 2026-08-21). */
+  {
+    const delegated = sectionFrom(admin, admin.indexOf("document.getElementById('etRecipientList')?.addEventListener"));
+    check('S128', 'the add/remove control is delegated to the list container',
+      delegated.indexOf('[data-dns]') !== -1,
+      'a per-button listener dies with the row on the next keystroke');
+    check('S128', 'it writes the field the renderer reads',
+      /updateDoc\(doc\(db,'jobAddresses',id\), \{noAutomationEmails: turnOn\}\)/.test(delegated),
+      'something must write what something else reads — CLAUDE.md §1');
+    /* ⚠ THE PANEL REPAINTS FROM THE CACHE, NOT FROM FIRESTORE. Without the mirror
+       the row springs back and the office presses it again, putting two writes in
+       flight for one decision. */
+    check('S128', 'and mirrors into the local cache before awaiting the write',
+      delegated.indexOf('member.data.noAutomationEmails = turnOn') <
+      delegated.indexOf('await updateDoc'),
+      'this panel repaints from jobAddresses, so an unmirrored tick springs back');
+    check('S128', 'a failed write puts it back',
+      /member\.data\.noAutomationEmails = before/.test(delegated),
+      'a failed write that leaves the change on screen is how somebody gets mailed ' +
+      'after being told they never would be');
+  }
+
+  /* ---- 8. the four dead senders are still dead ---- */
+  /* ⚠ NOT DECORATION. sendRsvpEmailBtn, sendBulkUpdateEmailBtn and the two pib*
+     buttons all send email to customers and NONE of them has any markup — every
+     id is in KNOWN_MISSING_IDS, so the handlers return at their first line. That
+     is the only reason they need no guard. If one is ever built, this check fails
+     and whoever builds it has to decide about the do-not-send list first.
+     Same pattern as Suite 72 and for the same reason. */
+  {
+    ['sendRsvpEmailBtn', 'sendBulkUpdateEmailBtn', 'pibSendUnpaidBtn', 'pibSendPaidBtn'].forEach(function (id) {
+      check('S128', 'the dead sender ' + id + ' still has no markup',
+        admin.indexOf('id="' + id + '"') === -1,
+        'it sends email to customers. Building it means deciding whether the ' +
+        'do-not-send list applies — see this suite, section 4');
+    });
+  }
+}
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
