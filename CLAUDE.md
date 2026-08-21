@@ -1,33 +1,151 @@
-CLAUDE.md — Highlighting Utah operating manual for Claude Code
+# Operating protocol
 
-⚠ 2026-08-21 — THE TWO SESSIONS NEARLY DELETED EACH OTHER. A whole-file push of admin.html landed on main carrying the re-quote install form, and six commits of the other session went missing from it without anyone meaning that; pushing over it would have taken the install form back out the same way. Both survived only because the merge was done BY HAND, function by function.
-  - ⚠ AND `git merge-file` GOT IT WRONG ON THIS FILE. Given base/ours/theirs it produced only 3 conflicts and looked clean — but it split a function in half at a conflict boundary and dropped a closing brace, so admin.html would not have parsed at all. §0 says merge this file, never paste it: add that an automatic 3-way merge is not trustworthy here either. After ANY merge of admin.html: run `node verify-syntax.js`, scan the brace depth, and grep for the landmark functions of BOTH sides before committing.
-  - ⚠ NOTHING WAS CHECKING THE OTHER SESSION'S WORK, so nothing would have said a word if it had gone. Suite 119 guards it now. If you add a feature, add the check that says it is still there — that check is what protects it from the next merge, whoever does it.
-You are Claude Code working on the Highlighting Utah app (a Christmas-light business). This file is your standing brief. It loads automatically from the repo root. It was written after a full read-through and audit of main on 2026-08-07, updated 2026-08-08 after the P0-P3 work queue, and corrected 2026-08-13 (see §1 — the deploy instructions were wrong) — trust the code over this file where they disagree, and update this file when structure changes.
-Owner: Addie (non-coder). Prefers plain-English explanations, full working files, and no surprises with money or customer data. When something is ambiguous or risky, do the safe reversible thing and leave a note; escalate only real blockers.
-0. Rules of engagement (always)
-Pull first — and again right before you write. git pull origin main before touching anything. main is the source of truth. Netlify auto-deploys main.
-⭐ RESTATED AS A STANDING RULE, 2026-08-19: "dont paste anything into github because I have another session going, instead, assess everything in the admin and merge what you are doing with what the other session is doing." Same rule as the one below, said again after it had already cost her work once that day (see the named-day recovery in §2). Two things follow that are easy to skip:
-  - "Paste into GitHub" includes the GitHub **API/web** file-write path — `create_or_update_file`, `push_files`, editing a file in the browser. Every one of those uploads a WHOLE FILE built from a read that is already stale. Use git with targeted edits, or a real merge, and nothing else.
-  - "Assess everything in the admin" is not a formality. READ what is on disk now before deciding what to write, and expect a feature you are about to build to be half-there already — the portal's own multi-house panel was, and the useful work turned out to be finishing it rather than writing it.
-⭐ MERGE, NEVER PASTE, AND NEVER ASSUME THE FILE STOOD STILL (owner's instruction, 2026-08-15: "when changing code merge with code because i have multiple sessions going so dont think nothings changed in admin in the time it took you to think"). Several sessions and people work this repo at once. A read of admin.html goes stale DURING your turn — a long think or a slow test run is enough. So:
-  - git fetch immediately before your first edit AND immediately before pushing, not once at the start of the task. On 2026-08-15 main gained a commit in the middle of one small change.
-  - Check git status too, not just the remote. Another session's work often sits UNCOMMITTED in this checkout. If the tree is dirty with work that is not yours, do NOT switch branches here (it aborts, or worse, moves the file under a live session) — do the job in a `git worktree add` elsewhere and push that branch to main from there. Their checkout is never touched. Run the gates in the worktree with NODE_PATH pointing at this checkout's node_modules.
-  - ⭐ `git branch --show-current` IMMEDIATELY BEFORE `git add`, every time — not once at the start of the task (owner's instruction, 2026-08-15). The branch moves under you: another session commits, switches branch, or merges main into their own branch while you are thinking, testing, or waiting on a deploy. Checking at the start proves nothing about the state five minutes later. If the branch is not one you own, do the work in a worktree and push from there. Over one afternoon this checkout sat on `tab/routes`, then `tab/customers`, without this session doing anything to move it.
-  - Own your branch, and clean it up. Work on a `claude/...` branch you created, push it to main, then DELETE it (`git branch -d`, and `git worktree remove` first if it has one). One-off `claude/...` branches are disposable; the standing `tab/...` branches above are NOT yours and are never deleted. There are ~26 stale `claude/...` branches in this repo from earlier sessions that were never cleaned up — do not add to them.
-  - Targeted Edit/string-replacement or a real git merge only. Never Write a fresh copy of admin.html and never regenerate it wholesale: a paste built from a stale read silently destroys whatever landed in between, and at 1.5MB the loss is invisible in review. Targeted edits conflict loudly, which is what you want.
-  - If a script must rewrite part of a file, anchor it on exact surrounding text and assert it matched, rather than rebuilding the file.
-⭐ BRANCH AND WAIT — NEVER MERGE TO MAIN ON YOUR OWN (owner's instruction, 2026-08-19): "save everything in a seperate branch and only merge it with the admin when I tell you to, when I do that delete the branch you created for this and also assess all the changes in the admin because I have another session going so we need to merge your branch with the admin that doesnt break anything."
-  1. Work on a `claude/...` branch and push THE BRANCH. Netlify publishes main, so a branch changes nothing live — that is the point.
-  2. Do NOT merge to main. Wait to be told, every time. Report "pushed to branch X, say the word and I'll merge" rather than announcing a deploy.
-  3. When told: FIRST read what has changed in `admin.html` on main since the branch started — another session is working in that file — then merge so nothing of theirs breaks. On a genuine tie their version wins; keep only what is strictly additive and say which half was dropped.
-  4. Delete the branch afterwards.
-  ⚠ This supersedes the older "push to main freely" line in §5. The reason is concrete: on 2026-08-19 the other session pasted admin.html over a stale read and two commits vanished. Auto-merging puts your work in the path of that, and theirs in the path of yours.
-Verify before you commit. Run the verification gates in §3. Never commit a file that fails them.
-Never break money or delete customer data. Invoice math, prices, payments, customer numbers, and Firestore data are sacred. Changes here get extra verification and a written explanation.
-Money/portal changes ship as ONE push. If a change spans the website and Cloud Functions (or Firestore rules), deploy them together (see §5). A half-deploy means the nightly automation, PayPal, or the customer portal disagree with what the office sees.
-Don't rewrite or delete working features unless the task says so. Before assuming something is dead code, check every read/write site — a field that looks orphaned from one angle can be a live feature entered from another (see §9, frontPhotoUrl).
-Small, explained commits. One logical change per commit, message in plain English.
+Read this every session. It is short on purpose. The numbered domain rules live in
+`docs/RULES.md` — read that before any change that touches data, options, money,
+or a destructive operation.
+
+---
+
+## The one-line version
+
+**Never guess, never silently choose, never leave a field unconnected.**
+When two rules disagree, or a rule is missing, stop and ask.
+
+---
+
+## 1. Before finishing any change
+
+Check it against `docs/RULES.md`, `docs/data-map.md`, and `js/options.js`.
+
+If the change adds or modifies a field, option, collection, or state, verify all three:
+
+1. something **writes** it
+2. something **reads** it
+3. it is **declared** — in the option registry if customer-facing, in the map otherwise
+
+If any of the three is missing, stop and ask.
+
+**A field in the code but not in the map is an error, not a detail.**
+
+---
+
+## 2. Precedence — when rules collide
+
+Rules will eventually contradict each other. Resolve in this order, highest first:
+
+| | Tier | Beats everything below it |
+|---|---|---|
+| 1 | **Customer correctness** | Nobody gets something they didn't order, or misses something they did |
+| 2 | **Irreversibility** | Nothing destructive runs without a preview and a confirmation |
+| 3 | **Data integrity** | No orphans, no dead ends, no silent drift |
+| 4 | **Consistency** | One source of truth, generated not hand-written |
+| 5 | **Convenience** | Everything else |
+
+**Two rules in the same tier that contradict: STOP AND ASK.** Do not pick one.
+Do not pick the newer one, the more specific one, or the one that's easier.
+A same-tier contradiction means the rulebook is wrong, and only Addie can fix it.
+
+When it happens, say exactly this much:
+
+```
+RULE CONFLICT — R-004 vs R-011
+  R-004 says business constants live in exactly one file.
+  R-011 says generation beats verification.
+  Here, generating the pricing table would duplicate the constants.
+  Both are tier 4. Which wins here, and should the rulebook record the exception?
+```
+
+Then wait. The answer becomes an amendment to `docs/RULES.md`.
+
+---
+
+## 3. When to ask
+
+**Ask when:**
+
+- a new field has no consumer, or a new record type has no parent
+- a state transition has no exit
+- a form saves something the map doesn't know about
+- two rules contradict (section 2)
+- the change touches **Start New Season, the payment ledger, or nightly billing**
+- a customer-facing option would reach fewer than all six destinations
+- you're about to do something no rule covers and the wrong choice would be expensive
+
+**Don't ask about:** styling, copy, layout, or anything with no data path.
+**Don't ask what you can read.** If the code answers it, read the code.
+
+**How to ask:** one consolidated batch at the end of a change, not three
+interruptions mid-work. Every question cites the rule, map, or registry entry
+it comes from — *"the map says an approved quote produces a customer, and this
+path doesn't"* — never generic prompting.
+
+---
+
+## 4. Never guess
+
+If it can't be resolved from the code, append it to `docs/open-questions.md`.
+
+- **intent** — only Addie can answer (business rules, policy, what *should* happen)
+- **factual** — resolvable by reading code, so resolve it; it should never reach her
+
+**An unanswered `intent` question on a customer-facing data path blocks the change.**
+Do not ship around it. Do not pick a default and note it. The whole point of this
+system is that guessing is how holes get made.
+
+Every answer becomes a map, registry, or rule entry — so it's never asked twice.
+
+---
+
+## 5. Proposing new rules
+
+This is expected work, not an interruption. Propose a rule when:
+
+- **the same decision gets made three times** the same way — that's a rule nobody wrote down
+- **a near-miss happens** — something almost shipped wrong, and a rule would have caught it
+- **an answered question generalizes** — Addie's answer applies beyond the case that prompted it
+- **you find yourself wanting to ask** something a rule could have answered
+
+Format, appended to the `## Proposed` section of `docs/RULES.md`:
+
+```
+### P-00X · proposed 2026-08-21
+Rule: <one sentence, testable, in the imperative>
+Why: <what prompted it — the actual incident or repetition>
+Would have caught: <the specific failure>
+Might wrongly block: <the honest cost — every rule has one>
+Enforcement: code | hook | read
+Tier: 1–5
+```
+
+Proposed rules are **not active.** Do not follow them until Addie moves them into
+the numbered set. If she rejects one, it stays in the file marked rejected with
+the reason, so it doesn't get re-proposed.
+
+Do not propose more than three at a time. A flood gets ignored, which is worse
+than proposing nothing.
+
+---
+
+## 6. Rule promotion
+
+Every rule declares how it's enforced:
+
+- **code** — a test or audit fails. Cannot be forgotten.
+- **hook** — a hook checks it on stop. Reliable.
+- **read** — Claude must read and honor it. **Drifts.**
+
+**A `read` rule that gets violated twice must be promoted to `code` or `hook`.**
+Note the second violation, propose the promotion, and say what would enforce it.
+
+Text alone is not enforcement. It's a reminder that decays over a long session.
+
+---
+
+## 7. Amendments
+
+Any change to `docs/RULES.md` — new rule, exception, reorder, retirement — gets
+logged at the bottom of that file with the date and the reason. Never silently
+edit a rule. The history is what makes the rulebook trustworthy.Small, explained commits. One logical change per commit, message in plain English.
 Work on the branch for the area you are touching. There is a standing branch per part of the admin portal (created 2026-08-13), so parallel work — the owner's and her sister's included — doesn't pile onto one file:
   tab/customers   Add a Customer, All Customers, Bulk Updates, Danger Zone
   tab/quotes      Quote Requests: pricing, Send Email, convert, nudges, quote email settings
