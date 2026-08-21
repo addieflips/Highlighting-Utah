@@ -20220,6 +20220,46 @@ suite('Suite 112. The number on the bin');
       'two lists of the same job that name different bins is worse than one list');
   }
 
+  /* ⭐ AND THE BIN NUMBER IS CORRECTABLE BY HAND. binLabelNumber is only stamped when a
+     number moves from now on, so everybody whose number ALREADY moved has no label
+     recorded and falls back to the number on their record — which is the wrong one, and
+     which includes Ashley Wray, the customer this whole thing came from. A fix that
+     cannot reach the case that prompted it is not finished.
+
+     ⚠ AND THE CONTROL HAS TO BE WIRED. The first version of this rendered the input
+     and never attached the handler, because the patch that added the listener silently
+     did not apply — a box you can type in that saves nothing, which looks identical to
+     a working one. Owner has asked for exactly this check before: "just make sure to
+     double check that if i click a button the function that is supposed to happen
+     actually does." */
+  {
+    const render = extractFn(admin, 'renderWarehouseRecycleQueue');
+    check('S112', 'the recycle row has a box for what the bin actually says',
+      /data-whbinlabel=/.test(render),
+      'without it the ones who moved before this existed can never be corrected');
+    check('S112', 'and something is listening to it',
+      /querySelectorAll\('\[data-whbinlabel\]'\)/.test(render) &&
+      /addEventListener\('change'/.test(render),
+      'a box that saves nothing looks exactly like one that works');
+    check('S112', 'and it writes the field the recycle list reads',
+      /\{binLabelNumber: value\}/.test(render),
+      'writing anything else is a control that appears to work and does not');
+
+    /* ⚠ AND TO THE RIGHT COLLECTION. The queue lists people already removed alongside
+       people still on the book, and writing to jobAddresses for an archived record
+       changes nothing at all, silently. */
+    check('S112', 'and to the collection they are actually in',
+      /'archivedCustomers' : 'jobAddresses'/.test(render),
+      'the same trap Mark Recycled already has a branch for');
+
+    check('S112', 'a number that is not digits is refused rather than stored',
+      /!\/\^\[0-9\]\+\$\/\.test\(typed\)/.test(render),
+      'a bin label of "about 900" sends nobody anywhere');
+    check('S112', 'and typing their own number back stores no label at all',
+      /typed === onRecord\) \? null : typed/.test(render),
+      'a label saying the same as the record would read as a move that never happened');
+  }
+
   /* And it is cleared when the set actually comes back, or a new one is built. */
   check('S112', 'Mark Recycled clears the label, because the bin is empty now',
     /binLabelNumber: null,/.test(admin),

@@ -22452,7 +22452,17 @@ function renderWarehouseRecycleQueue(){
           ? '<span style="display:block; font-size:12px; color:#8A6100;">Bin is labelled '+esc(binNum)+' &mdash; their record now says #'+esc(String(d.customerNumber||''))+'</span>'
           : '')+
       '</span>'+
-      '<span style="display:flex; gap:6px; flex:0 0 auto;">'+
+      '<span style="display:flex; gap:6px; flex:0 0 auto; align-items:center;">'+
+        /* ⭐ AND IT CAN BE CORRECTED BY HAND. binLabelNumber is only stamped when a
+           number moves from now on, so everybody whose number ALREADY moved — Ashley
+           among them, which is the customer that started this — has no label recorded
+           and falls back to the number on their record, which is the wrong one. There
+           has to be a way to say what the bin actually says. Blank clears it. */
+        '<label style="font-size:11px; color:var(--slate); display:flex; align-items:center; gap:4px;">bin says'+
+          '<input type="text" inputmode="numeric" data-whbinlabel="'+h.id+'" value="'+esc(binNum)+'" '+
+            'style="width:64px; padding:3px 6px; font-size:12px; text-align:right; '+
+            'border:1px solid var(--line); border-radius:6px; font-variant-numeric:tabular-nums;">'+
+        '</label>'+
         '<button type="button" class="btn btn-outline btn-sm" data-wheditcust="'+h.id+'">Edit</button>'+
         '<button type="button" class="btn btn-outline btn-sm" data-whrecycledone="'+h.id+'">Mark Recycled</button>'+
       '</span>'+
@@ -22464,6 +22474,36 @@ function renderWarehouseRecycleQueue(){
     el.addEventListener('click', function(e){
       e.stopPropagation();
       whToggleGroup(el.dataset.whrecycletoggle);
+    });
+  });
+  /* ⚠ THE ROW MAY BE AN ARCHIVED ONE, so the write goes to whichever collection they
+     are actually in — the recycle queue lists people already removed alongside people
+     still on the book, and writing to jobAddresses for an archived record silently
+     changes nothing at all. */
+  list.querySelectorAll('[data-whbinlabel]').forEach(function(input){
+    input.addEventListener('change', function(){
+      const id = input.dataset.whbinlabel;
+      const typed = String(input.value || '').trim();
+      if(typed && !/^[0-9]+$/.test(typed)){
+        toast('A bin number is digits only \u2014 leave it blank if you do not know it.');
+        return;
+      }
+      const archived = (whArchivedPending || []).some(function(a){ return a.id === id; });
+      const col = archived ? 'archivedCustomers' : 'jobAddresses';
+      const rec = archived
+        ? (whArchivedPending || []).find(function(a){ return a.id === id; })
+        : (jobAddresses || []).find(function(a){ return a.id === id; });
+      const onRecord = String(((rec && rec.data) || {}).customerNumber || '').trim();
+      /* Storing the number they already hold would be a label that says nothing, and
+         whBinNumberMoved would then have to treat it as a move. Blank it instead. */
+      const value = (!typed || typed === onRecord) ? null : typed;
+      updateDoc(doc(db, col, id), {binLabelNumber: value}).then(function(){
+        if(rec && rec.data) rec.data.binLabelNumber = value;
+        toast(value ? ('Bin recorded as #' + value) : 'Bin number cleared \u2014 back to their own number.');
+        renderWarehouseRecycleQueue();
+      }).catch(function(){
+        toast('Could not save that \u2014 check your connection and try again.');
+      });
     });
   });
   list.querySelectorAll('[data-wheditcust]').forEach(function(btn){
