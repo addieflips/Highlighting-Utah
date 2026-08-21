@@ -1207,8 +1207,7 @@
   <div class="main">
     <!-- ADD A CUSTOMER -->
     <div class="panel" id="panel-addcustomer">
-      <div class="panel-head" style="display:flex; align-items:flex-start; gap:12px;"><div><h2>Customers</h2><p>Add new customers, and see everyone in one place &mdash; invoices, routes, and house maps together.</p></div>
-        <button type="button" class="btn btn-outline btn-sm" id="cAddTestPersonBtn" style="margin-left:auto; flex:0 0 auto;">Create Test Person</button></div>
+      <div class="panel-head"><div><h2>Customers</h2><p>Add new customers, and see everyone in one place &mdash; invoices, routes, and house maps together.</p></div></div>
       <div class="route-tabs" id="custSectionTabs" style="margin-bottom:20px;">
         <button class="route-tab-btn active" data-custtab="add" draggable="true">Add a Customer</button>
         <button class="route-tab-btn" data-custtab="all" draggable="true">All Customers</button>
@@ -1473,15 +1472,6 @@
       </div>
 
       <div class="route-tab-panel" id="custtab-bulk">
-<div class="card">
-        <h3 style="margin:0 0 6px;">Delete every test record</h3>
-        <p style="font-size:13px; margin:0 0 12px;">Everything the <strong>Build Test Customer</strong> and <strong>Create Test Person</strong> buttons made &mdash; the customer, their quote, their invoice, their route stops, their place on the schedule and anything of theirs in the warehouse. Their customer number goes back in the pool. Nothing that is not a test record is touched.</p>
-        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-          <button type="button" class="btn btn-outline btn-sm" id="cTestSweepDryBtn">Show me what would go</button>
-          <button type="button" class="btn btn-gold btn-sm" id="cTestSweepBtn" style="display:none;">Delete them</button>
-        </div>
-        <div id="cTestSweepReport" style="margin-top:12px; font-size:13px;"></div>
-      </div>
 <!-- Fill in a missing town from the map pin. Not a nice-to-have: every
      scheduling decision in this app is made per town, so a customer whose town
      is blank cannot go on a route at all, and the bulk import left ~374 of them
@@ -3078,7 +3068,6 @@
         <button type="button" class="btn btn-gold btn-sm" id="qAddByHandBtn">+ Add a quote by hand</button>
         <span style="font-size:12px; color:var(--slate);">for the ones who call instead of using the website</span>
         <button type="button" class="btn btn-outline btn-sm" id="qTemplateSetupBtn" style="margin-left:auto;">Quote email settings</button>
-        <button type="button" class="btn btn-outline btn-sm" id="qBuildTestBtn">Build Test Customer</button>
       </div>
       <div id="qTemplateSetup" style="display:none; margin-bottom:16px; border:1px solid var(--line); border-radius:10px; background:var(--paper); padding:14px 16px;">
         <div style="font-size:13px; font-weight:700; margin-bottom:4px;">Which template does each email use?</div>
@@ -7497,246 +7486,6 @@ document.getElementById('qTmplSaveBtn')?.addEventListener('click', async functio
 /* Someone calls instead of using the website. A name is enough to start -
    everything else can be filled in later, and it cannot be sent until it has
    a price, same as any other quote. */
-/* ⭐ WHAT THE SWEEP WOULD TAKE, WITHOUT TAKING IT. CLAUDE.md §5: deleting customer
-   data at scale is irreversible, so it is prepared, shown, and then she presses the
-   button. The same shape as Assign in Bulk and Fill in missing towns.
-
-   ⚠ READ FRESH FROM FIRESTORE, NOT FROM THE CACHES. A sweep that misses a row leaves a
-   test customer on a crew sheet, and the local caches only hold what this tab has
-   subscribed to — archivedCustomers and warehouseExtras are not always among them. */
-async function testSweepFind(){
-  const found = {customers: [], quotes: [], invoices: [], archived: [], extras: [],
-                 routeStops: [], planHouses: [], numbers: []};
-  const custSnap = await getDocs(collection(db,'jobAddresses'));
-  custSnap.forEach(function(docSnap){
-    const d = docSnap.data();
-    if(isTestRecordData(d)) found.customers.push({id: docSnap.id, data: d});
-  });
-  const custIds = found.customers.map(function(c){ return c.id; });
-  found.numbers = found.customers
-    .map(function(c){ return String(c.data.customerNumber || '').trim(); })
-    .filter(Boolean);
-
-  const quoteSnap = await getDocs(collection(db,'quotes'));
-  quoteSnap.forEach(function(docSnap){
-    const d = docSnap.data();
-    /* A quote pointing at a test customer is a test quote even if nothing stamped it. */
-    if(isTestRecordData(d) || custIds.indexOf(d.existingCustomerId) !== -1){
-      found.quotes.push({id: docSnap.id, data: d});
-    }
-  });
-
-  /* Invoices are keyed by phone, or by lowercased email when there is no phone. */
-  const invSnap = await getDocs(collection(db,'invoices'));
-  invSnap.forEach(function(docSnap){
-    const d = docSnap.data();
-    const phone = String(d.phone || '').replace(/[^0-9]/g, '');
-    if(isTestRecordData(d) || phone === TEST_PHONE || docSnap.id === TEST_PHONE){
-      found.invoices.push({id: docSnap.id, data: d});
-    }
-  });
-
-  const archSnap = await getDocs(collection(db,'archivedCustomers'));
-  archSnap.forEach(function(docSnap){
-    if(isTestRecordData(docSnap.data())) found.archived.push({id: docSnap.id, data: docSnap.data()});
-  });
-
-  /* Warehouse: an extra raised against a test customer, and anything stamped itself. */
-  const exSnap = await getDocs(collection(db,'warehouseExtras'));
-  exSnap.forEach(function(docSnap){
-    const d = docSnap.data();
-    if(isTestRecordData(d) || custIds.indexOf(d.customerId) !== -1){
-      found.extras.push({id: docSnap.id, data: d});
-    }
-  });
-
-  /* Route stops carry a COPY of the customer taken when the route was built, so they
-     survive the customer being deleted and have to be pulled out by hand. */
-  const routeSnap = await getDocs(collection(db,'scheduledRoutes'));
-  routeSnap.forEach(function(docSnap){
-    const d = docSnap.data();
-    const stops = Array.isArray(d.stops) ? d.stops : [];
-    const keep = stops.filter(function(st){
-      return custIds.indexOf(st.id) === -1 && !isTestRecordData(st);
-    });
-    if(keep.length !== stops.length){
-      found.routeStops.push({id: docSnap.id, keep: keep, went: stops.length - keep.length});
-    }
-  });
-
-  /* The season plan is one document, and its houses carry 'cust-<id>' ids. */
-  try{
-    const planSnap = await getDoc(doc(db,'routeSchedule','plan'));
-    if(planSnap.exists()){
-      const plan = planSnap.data() || {};
-      const days = Array.isArray(plan.days) ? plan.days : [];
-      let hit = 0;
-      const nextDays = days.map(function(day){
-        const houses = Array.isArray(day.houses) ? day.houses : [];
-        const keep = houses.filter(function(h){
-          const id = String(h.id || '').replace(/^cust-/, '');
-          return custIds.indexOf(id) === -1 && !isTestRecordData(h);
-        });
-        hit += houses.length - keep.length;
-        return Object.assign({}, day, {houses: keep});
-      });
-      if(hit) found.planHouses.push({count: hit, plan: Object.assign({}, plan, {days: nextDays})});
-    }
-  }catch(err){ console.error('Could not read the season plan:', err); }
-  return found;
-}
-/* ⭐ AND THE DELETION. Numbers go back FIRST, because that is the half that is hard to
-   put right by hand: a customer document can be rebuilt from the button that made it,
-   whereas a number lost out of the pool is invisible until somebody is handed a bin
-   label that is already on a shelf.
-
-   ⚠ EACH PIECE IS GUARDED ON ITS OWN. A sweep that stops halfway through because one
-   route document would not write leaves half a test customer behind, which is worse than
-   either outcome — it looks finished and is not. What failed is counted and reported.
-
-   ⚠ AND THE ORDINARY DELETE PATH IS DELIBERATELY NOT USED. hlxRemoveCustomerToRecycle
-   ARCHIVES them and puts them on the Recycle sheet, which is right for a real customer
-   whose lights have to come back and exactly wrong for a row that never had any. */
-async function testSweepDelete(found){
-  const out = {done: 0, failed: 0, numbers: []};
-  const tryIt = async function(what, fn){
-    try{ await fn(); out.done++; }
-    catch(err){ out.failed++; console.error('Test sweep could not ' + what + ':', err); }
-  };
-  for(const n of found.numbers){
-    await tryIt('return #' + n + ' to the pool', async function(){
-      await setDoc(doc(db,'availableCustomerNumbers', n), {
-        type: parseInt(n, 10) >= 5000 ? 'double' : 'regular',
-        releasedAt: serverTimestamp(), releasedFrom: 'Test record'});
-      out.numbers.push(n);
-    });
-  }
-  for(const r of found.routeStops){
-    await tryIt('clear route ' + r.id, async function(){
-      await updateDoc(doc(db,'scheduledRoutes', r.id), {stops: r.keep});
-    });
-  }
-  for(const p of found.planHouses){
-    await tryIt('clear the schedule', async function(){
-      await setDoc(doc(db,'routeSchedule','plan'), p.plan);
-    });
-  }
-  const wipe = [['warehouseExtras', found.extras], ['invoices', found.invoices],
-                ['quotes', found.quotes], ['archivedCustomers', found.archived],
-                ['jobAddresses', found.customers]];
-  for(const pair of wipe){
-    for(const row of pair[1]){
-      await tryIt('delete ' + pair[0] + '/' + row.id, async function(){
-        await deleteDoc(doc(db, pair[0], row.id));
-      });
-    }
-  }
-  return out;
-}
-/* Plain English, so what is about to happen can be read before it happens. */
-function testSweepSummary(f){
-  const bits = [];
-  const add = function(n, one, many){ if(n) bits.push(n + ' ' + (n === 1 ? one : many)); };
-  add(f.customers.length, 'customer', 'customers');
-  add(f.quotes.length, 'quote', 'quotes');
-  add(f.invoices.length, 'invoice', 'invoices');
-  add(f.archived.length, 'archived record', 'archived records');
-  add(f.extras.length, 'warehouse item', 'warehouse items');
-  add(f.routeStops.reduce(function(n, r){ return n + r.went; }, 0), 'route stop', 'route stops');
-  add(f.planHouses.reduce(function(n, p){ return n + p.count; }, 0), 'day on the schedule', 'stops on the schedule');
-  return bits.length ? bits.join(', ') : 'nothing';
-}
-(function wireTestSweep(){
-  const dryBtn = document.getElementById('cTestSweepDryBtn');
-  const goBtn = document.getElementById('cTestSweepBtn');
-  const out = document.getElementById('cTestSweepReport');
-  if(!dryBtn || !goBtn || !out) return;
-  let pending = null;
-  dryBtn.addEventListener('click', async function(){
-    dryBtn.disabled = true;
-    out.textContent = 'Looking\u2026';
-    goBtn.style.display = 'none';
-    try{
-      pending = await testSweepFind();
-      const summary = testSweepSummary(pending);
-      if(summary === 'nothing'){
-        out.innerHTML = '<span style="color:var(--slate);">No test records anywhere. Nothing to delete.</span>';
-        pending = null;
-      } else {
-        out.innerHTML = '<div><strong>Would delete:</strong> ' + esc(summary) + '</div>' +
-          (pending.numbers.length
-            ? '<div style="margin-top:4px;">Back in the pool: ' +
-              pending.numbers.map(function(n){ return '#' + esc(n); }).join(', ') + '</div>'
-            : '') +
-          (pending.customers.length
-            ? '<div style="margin-top:6px; color:var(--slate); font-size:12.5px;">' +
-              pending.customers.map(function(c){
-                return esc(c.data.name || '(no name)') + ' \u2014 ' + esc(c.data.address || '');
-              }).join('<br>') + '</div>'
-            : '');
-        goBtn.style.display = '';
-      }
-    }catch(err){
-      console.error('Test sweep could not look:', err);
-      out.innerHTML = '<span style="color:var(--ember);">Could not look \u2014 ' + esc((err && err.message) || err) + '</span>';
-    }
-    dryBtn.disabled = false;
-  });
-  goBtn.addEventListener('click', async function(){
-    /* ⚠ ONLY EVER DELETES WHAT THE DRY RUN SHOWED. Re-finding here would delete rows
-       she never saw, which is the whole point of showing them first. */
-    if(!pending){ out.textContent = 'Press \u201cShow me what would go\u201d first.'; return; }
-    if(!confirm('Delete ' + testSweepSummary(pending) + '?\n\nThis cannot be undone.')) return;
-    goBtn.disabled = true;
-    out.textContent = 'Deleting\u2026';
-    const res = await testSweepDelete(pending);
-    out.innerHTML = '<div><strong>Done.</strong> ' + res.done + ' thing' + (res.done === 1 ? '' : 's') + ' cleared' +
-      (res.numbers.length ? ', ' + res.numbers.length + ' number' + (res.numbers.length === 1 ? '' : 's') + ' back in the pool' : '') + '.</div>' +
-      (res.failed
-        ? '<div style="color:var(--ember); margin-top:4px;">' + res.failed + ' would not go \u2014 the console says which. Press Show me what would go again to see what is left.</div>'
-        : '');
-    logActivity('Deleted test records: ' + testSweepSummary(pending), 'customers', '');
-    pending = null;
-    goBtn.style.display = 'none';
-    goBtn.disabled = false;
-  });
-})();
-/* ⚠ THE RE-QUOTES TAB NEEDS A CUSTOMER BEHIND THE CARD, so that one builds a test
-   customer as well and links the two. Everywhere else a bare quote is the real thing. */
-document.getElementById('qBuildTestBtn').addEventListener('click', async function(){
-  const btn = this;
-  const stage = quoteStageFilter;
-  const label = ({new: 'Quotes', send: 'Awaiting Response', form: 'Ready to Convert',
-                  requote: 'Re-quotes', closed: 'Closed'})[stage] || stage;
-  if(!confirm('Build a test customer in ' + label + '?' + '\n\n' +
-    'Test \u00b7 3853912235 \u00b7 highlightingutah@gmail.com \u00b7 $250 \u00b7 125 ft \u00b7 Warm White' +
-    '\n\nIt is a real record so it behaves like the real thing. Delete it when you are done.')) return;
-  btn.disabled = true;
-  try{
-    const fields = testQuoteCreateFields();
-    if(stage === 'requote'){
-      /* Built first, because the quote has to point at it. */
-      const cust = await addDoc(collection(db,'jobAddresses'), Object.assign({},
-        TEST_QUOTE_BASE, {housePrice: 250, measuredFeet: 125, rsvpStatus: 'yes',
-          needsLightBuild: true, scheduled: false, createdAt: serverTimestamp()}));
-      fields.existingCustomerId = cust.id;
-      fields.existingCustomerNumber = '';
-    }
-    fields.createdAt = serverTimestamp();
-    /* Created plain, because that is all the rules allow — see testQuoteCreateFields. */
-    const made = await addDoc(collection(db,'quotes'), fields);
-    const staged = testQuoteStageUpdates(stage);
-    if(Object.keys(staged).length){
-      await updateDoc(doc(db,'quotes', made.id), staged);
-    }
-    toast('Test customer built in ' + label + '.');
-    logActivity('Built a test quote in ' + label, 'quotes', '');
-  }catch(err){
-    console.error('Could not build the test customer:', err);
-    toast('Could not build it \u2014 ' + ((err && err.message) || err));
-  }
-  btn.disabled = false;
-});
 document.getElementById('qAddByHandBtn')?.addEventListener('click', async function(){
   const name = prompt('Name? (that is all you need \u2014 you can come back and finish it later)');
   if(!name || !name.trim()) return;
@@ -8369,220 +8118,96 @@ function autoConvertQuoteToCustomer(quoteId, d){
    somebody did at the house, and the number rule (CN_DOUBLE_BIN_FEET) can need a
    human answer - keeping the old number or moving to the 5000 series. Applying it
    silently would make that decision for them. */
-/* ⭐ THE COLOURS THE QUOTE IS CARRYING, WHEN THE CUSTOMER HAS NONE. Owner, 2026-08-21:
-   "Ashley and Rachel should have lights in warehouse so we can build them."
+/* ⭐ WHAT THEY SAID ON THE RE-QUOTE'S OWN FORM. Owner, 2026-08-21: "when an old
+   house gets requoted I want them to choose whether they want to fill out the form
+   fresh or keep what's already there."
 
-   ⚠ CONVERTING A QUOTE INTO A NEW CUSTOMER HAS ALWAYS CARRIED THE COLOURS ACROSS
-   (showAddCustomerFromQuote does it, and the comment there spells out why: without a
-   description the customer is saved with needsLightBuild false and never reaches the
-   build queue at all). APPLYING A RE-QUOTE TO AN EXISTING CUSTOMER CARRIED THE PRICE
-   AND THE FOOTAGE AND NOTHING ELSE — so somebody quoted with colours on the quote and
-   none on their record came out the far end still having none, and the warehouse had
-   nothing to build.
+   index.html now offers a re-quoted member that third answer, and a fresh form lands
+   on the QUOTE, not on the customer. Which means without this the customer fills in
+   new colours after a remodel, the office applies the re-quote, and the warehouse
+   builds last year's pattern — the form would have been a survey nobody read.
 
-   ⚠ AND ONLY WHEN THE RECORD HAS NONE. A re-quote is usually about price or footage,
-   not colour. Writing the quote's colours over a customer who already has some would
-   quietly re-colour a house nobody asked to re-colour — and lightsChangedAt, the
-   warehouse and the printed sheets all key off that change. Filling a blank is safe;
-   overwriting an answer is not. */
-function requoteLightsToCarry(quote, cust){
-  const q = quote || {}, c = cust || {};
-  const already = String(c.lightsDescription || '').trim() ||
-                  ((c.lightColors || []).join(', ').trim());
-  if(already) return null;
-  const colors = (q.lightColors || []).filter(Boolean);
-  const text = String(q.lightsDescription || '').trim() || colors.join(', ');
-  if(!text && !colors.length) return null;
-  return {colors: colors, text: text};
+   ⚠ A BOX THEY LEFT BLANK IS NOT AN ANSWER. The gate code and the house notes are
+   never sent down to that form (a quote token is not a credential — see quoteRespond),
+   so both boxes start empty and the page says an empty one keeps what we hold. Blank
+   here therefore means "unchanged", and overwriting a gate code or wiping the crew's
+   permanent notes with it would be destroying something nobody asked to change. Their
+   note is APPENDED for the same reason: "ladder goes on the north side" is the crew's,
+   not theirs to replace. */
+function requoteFormSummary(d){
+  if(!d || !d.formCompleted) return null;
+  const colors = (Array.isArray(d.lightColors) && d.lightColors.length)
+    ? d.lightColors.slice()
+    : parseCustLights(d.lightsDescription || '').colors;
+  const bits = [];
+  const lights = String(d.lightsDescription || colors.join(', ')).trim();
+  if(lights) bits.push('Lights: ' + lights);
+  if(d.wireColor) bits.push('Wire: ' + d.wireColor);
+  if(d.outletTimer) bits.push('Timer: ' + d.outletTimer);
+  if(d.specificOutlet === 'Yes') bits.push('Outlet: ' + (String(d.specificOutletNotes || '').trim() || 'a specific one'));
+  if(d.installPreference) bits.push('Timing: ' + d.installPreference);
+  if(String(d.gateCode || '').trim()) bits.push('Gate code: ' + String(d.gateCode).trim());
+  if(String(d.notes || '').trim()) bits.push('Note: ' + String(d.notes).trim());
+  return bits.length ? bits : null;
 }
-/* ⭐ ASK WHICH KIND OF RE-QUOTE THIS IS. Two buttons, because the answer changes what
-   the warehouse is told later, and a free-text box cannot be read by anything.
-   Resolves to {kind, note} or null when it is backed out of. */
-/* ⭐ A TEST PERSON TO TRY THINGS ON. Owner, 2026-08-21, about the new price-change
-   question: "we should also have a create test person button for this as well."
-
-   Built as a real, finished customer — priced, measured, colours on file, RSVP yes —
-   because the thing being tested is what happens when an EXISTING customer's price is
-   edited, and a half-made record does not exercise that. Same details as the test quote
-   in Quotes, so the two are recognisably the same fictional person.
-
-   ⚠ MARKED isTestRecord, and the address says out loud that it is not a house. It is a
-   real row in the real book, which is the point — it has to behave like the real thing
-   — so it has to be findable and obviously fake on any sheet it reaches.
-
-   ⚠ AND IT TAKES NO CUSTOMER NUMBER FROM THE POOL. Handing a real bin label to a
-   record somebody is about to delete is how a live number goes missing. */
-/* ⭐ WHAT COUNTS AS A TEST RECORD. Owner, 2026-08-21: "there should be a button in bulk
-   updates for deleting all test customers from customers and quotes and invoices and
-   routes and schedule", and "it should also delete test customers from anywhere in the
-   warehouse."
-
-   ⚠ THE FLAG ALONE IS NOT ENOUGH. isTestRecord is written by the two buttons, but a
-   test customer walked through the real flow spawns records that were never stamped with
-   it — an invoice keyed on their phone, a route stop copied off them, a warehouse extra
-   raised against their id. So identity counts as well: the test phone number and the
-   test name together.
-
-   ⚠ AND BOTH, NEVER THE NAME ALONE. There is a real customer somewhere called Test
-   waiting to happen, and deleting the wrong person takes their invoice and their route
-   with them. The phone is the anchor. */
-const TEST_PHONE = '3853912235';
-function isTestRecordData(d){
-  const dd = d || {};
-  if(dd.isTestRecord === true) return true;
-  const phone = String(dd.phone || '').replace(/[^0-9]/g, '');
-  return phone === TEST_PHONE && String(dd.name || '').trim().toLowerCase() === 'test';
+/* Only sets a dropdown to a value it actually offers. The public form has an "Any"
+   wire colour and the Edit form does not — assigning it would leave the select on
+   nothing at all and save a blank wire colour over White. */
+function requoteSetSelect(id, value){
+  const el = document.getElementById(id);
+  const v = String(value == null ? '' : value).trim();
+  if(!el || !v) return;
+  const ok = Array.prototype.some.call(el.options, function(o){ return o.value === v; });
+  if(ok) el.value = v;
 }
-async function buildTestPerson(){
-  const fields = {
-    name: 'Test', phone: '3853912235', email: 'highlightingutah@gmail.com',
-    /* Same address as the test quote — see TEST_QUOTE_BASE for why it is a real one. */
-    address: '209 S 850 W, Lehi, UT 84043',
-    street: '209 S 850 W', city: 'Lehi',
-    housePrice: 250, measuredFeet: 125,
-    lightColors: ['Warm White'], lightsDescription: 'Warm White', wireColor: 'White',
-    rsvpStatus: 'yes', numberOfBins: 1, needsLightBuild: true,
-    customerNumber: '', scheduled: false, isTestRecord: true,
-    createdAt: serverTimestamp()
-  };
-  /* ⚠ AND IT NEEDS A PIN. Routing reads lat/lng, not the address text, so a test
-     person without one is unroutable — which is the half of the system most worth
-     testing on a fake customer. Guarded: a geocode failure must not stop the record
-     being made, and Health Check already reports a customer with needsGeocode set. */
-  try{
-    const coords = await geocodeAddress(fields.address);
-    fields.lat = coords.lat;
-    fields.lng = coords.lng;
-  }catch(err){
-    fields.needsGeocode = true;
-    console.error('Test person could not be geocoded:', err);
-  }
-  const ref = await addDoc(collection(db,'jobAddresses'), fields);
-  return ref.id;
-}
-/* Guarded like wireWhPrintButtons — the render tests eval this block against a DOM
-   holding only part of the page, and an unguarded getElementById throws there and takes
-   the whole file with it. Suite 1 already fails if the id goes missing from the page. */
-(function wireTestPersonButton(){
-const _tpBtn = document.getElementById('cAddTestPersonBtn');
-if(!_tpBtn) return;
-_tpBtn.addEventListener('click', async function(){
-  const btn = this;
-  if(!confirm('Create a test person?\n\n' +
-    'Test \u00b7 3853912235 \u00b7 highlightingutah@gmail.com \u00b7 $250 \u00b7 125 ft \u00b7 Warm White' +
-    '\n\nA real customer record so it behaves like one \u2014 open them, change the price, and ' +
-    'you will be asked whether it goes back to them. Delete them when you are done.')) return;
-  btn.disabled = true;
-  try{
-    const id = await buildTestPerson();
-    toast('Test person created \u2014 opening their record.');
-    logActivity('Created a test person', 'customers', id);
-    /* Straight into the record, because the thing being tested is done in there and
-       finding a customer called Test in a book of nine hundred is its own errand. */
-    setTimeout(function(){ try{ openEditCustomerModal(id); }catch(e){ } }, 400);
-  }catch(err){
-    console.error('Could not create the test person:', err);
-    toast('Could not create it \u2014 ' + ((err && err.message) || err));
-  }
-  btn.disabled = false;
-});
-})();
-/* ⭐ WHY THE PRICE MOVED, WHEN THE OFFICE WANTS THEM ASKED. Owner, 2026-08-21: "when
-   theres a requote because of a price change there should be a spot for explaing why
-   you're requoting them but it isnt a required field."
-
-   ⚠ NOT REQUIRED, DELIBERATELY. A box that must be filled in is a box that gets filled
-   with a full stop. Empty is a real answer and the card simply does not carry a reason.
-
-   ⚠ AND IT IS NOT A confirm(). A dialog box has two buttons and nowhere to type, which
-   is what this replaced. Resolves {raise, note}; backing out means "just change it", the
-   same as Cancel did — it is the option that sends nothing and raises nothing. */
-function askPriceRequote(who, oldPrice, newPrice){
-  return new Promise(function(resolve){
-    const overlay = document.createElement('div');
-    overlay.className = 'needsfix-popup-overlay';
-    const up = newPrice > oldPrice;
-    overlay.innerHTML = '<div class="needsfix-popup" style="max-width:500px;">'+
-      '<h3 style="color:var(--dusk);">'+esc(who)+' \u2014 price changed</h3>'+
-      '<div style="background:var(--paper); border-radius:10px; padding:10px 13px; font-size:13px;">'+
-        '<strong>'+esc(fmtMoney(oldPrice))+'</strong> &rarr; <strong>'+esc(fmtMoney(newPrice))+'</strong>'+
-        '<span style="color:var(--slate); font-size:12px;"> \u2014 '+
-          (newPrice === oldPrice ? 'unchanged'
-            : (up ? 'up ' + esc(fmtMoney(newPrice - oldPrice)) : 'down ' + esc(fmtMoney(oldPrice - newPrice))))+
-        '</span>'+
-        '<div style="color:var(--slate); font-size:12px; margin-top:4px;">The house itself is unchanged \u2014 same feet, same address \u2014 so nothing needs rebuilding either way.</div>'+
-      '</div>'+
-      '<div class="form-row" style="margin-top:12px;">'+
-        '<label style="font-size:11.5px;">Why is the price changing? (optional \u2014 it shows on the card)</label>'+
-        '<input type="text" id="priceRequoteNote" placeholder="e.g. added the back garage on the phone">'+
-      '</div>'+
-      '<div style="display:flex; flex-direction:column; gap:9px; margin-top:14px;">'+
-        '<button type="button" class="btn btn-gold" id="priceRequoteYes" style="text-align:left;">Ask them to approve the new price'+
-          '<span style="display:block; font-weight:500; font-size:12px; opacity:.85; margin-top:2px;">Raises a re-quote. Their approval is cleared until they answer.</span></button>'+
-        '<button type="button" class="btn btn-outline" id="priceRequoteNo" style="text-align:left;">Just change it'+
-          '<span style="display:block; font-weight:500; font-size:12px; opacity:.85; margin-top:2px;">Nothing is sent and no card is raised. For a typo, or a price already agreed on the phone.</span></button>'+
-      '</div>'+
-    '</div>';
-    document.body.appendChild(overlay);
-    let done = false;
-    function finish(raise){
-      if(done) return;
-      done = true;
-      const note = overlay.querySelector('#priceRequoteNote');
-      const text = (note && note.value.trim()) || '';
-      overlay.remove();
-      resolve({raise: raise, note: raise ? text : ''});
-    }
-    overlay.addEventListener('click', function(e){ if(e.target === overlay) finish(false); });
-    overlay.querySelector('#priceRequoteYes').addEventListener('click', function(){ finish(true); });
-    overlay.querySelector('#priceRequoteNo').addEventListener('click', function(){ finish(false); });
-  });
-}
-function askRequoteKind(who, d){
-  return new Promise(function(resolve){
-    const overlay = document.createElement('div');
-    overlay.className = 'needsfix-popup-overlay';
-    overlay.innerHTML = '<div class="needsfix-popup" style="max-width:500px;">'+
-      '<h3 style="color:var(--dusk);">Re-quote '+esc(who)+'</h3>'+
-      '<p>Their price'+(typeof d.quotedPrice === 'number' ? ' ('+esc(fmtMoney(d.quotedPrice))+')' : '')+
-        (d.approvalStatus === 'approved' ? ' and their approval' : ' and their answer')+
-        ' are cleared, and the card goes back to Quotes for a new price. Photos, feet and everything else stay.</p>'+
-      (d.convertedToCustomerAt
-        ? '<p style="font-size:12.5px; color:var(--ember); background:#FDECEA; border:1px solid #F3C8C2; border-radius:9px; padding:8px 11px;">'+
-          'This one is already a customer. When they approve the new price it updates their record \u2014 they are not converted a second time.</p>'
-        : '')+
-      '<div style="font-size:12.5px; font-weight:600; margin-top:12px; margin-bottom:6px;">What changed?</div>'+
-      '<div style="display:flex; flex-direction:column; gap:9px;">'+
-        '<button type="button" class="btn btn-gold" data-requotekind="addition" style="text-align:left;">Something added to the house'+
-          '<span style="display:block; font-weight:500; font-size:12px; opacity:.85; margin-top:2px;">Another side, more lights. Same house \u2014 their old set stays in its bin and only the extra gets built.</span></button>'+
-        '<button type="button" class="btn btn-gold" data-requotekind="address" style="text-align:left;">They changed address'+
-          '<span style="display:block; font-weight:500; font-size:12px; opacity:.85; margin-top:2px;">They moved. Their old set comes back into stock and a whole new one is made for the new house.</span></button>'+
-      '</div>'+
-      '<div class="form-row" style="margin-top:12px;">'+
-        '<label style="font-size:11.5px;">Anything to add? (optional \u2014 it shows on the card)</label>'+
-        '<input type="text" id="requoteKindNote" placeholder="e.g. wants the back garage doing as well">'+
-      '</div>'+
-      '<button type="button" class="btn btn-outline" id="requoteKindCancel" style="margin-top:10px; width:100%; text-align:center; color:var(--slate);">Cancel</button>'+
-    '</div>';
-    document.body.appendChild(overlay);
-    let done = false;
-    function finish(value){
-      if(done) return;
-      done = true;
-      overlay.remove();
-      resolve(value);
-    }
-    /* Backing out has to resolve too, or the caller waits for ever on a popup that is
-       no longer on the screen. */
-    overlay.addEventListener('click', function(e){ if(e.target === overlay) finish(null); });
-    overlay.querySelector('#requoteKindCancel').addEventListener('click', function(){ finish(null); });
-    overlay.querySelectorAll('[data-requotekind]').forEach(function(btn){
-      btn.addEventListener('click', function(){
-        const note = overlay.querySelector('#requoteKindNote');
-        finish({kind: btn.dataset.requotekind, note: (note && note.value.trim()) || ''});
-      });
+function applyRequoteFormAnswers(d){
+  if(!d || !d.formCompleted) return;
+  const colors = (Array.isArray(d.lightColors) && d.lightColors.length)
+    ? d.lightColors.slice()
+    : parseCustLights(d.lightsDescription || '').colors;
+  const boxes = Array.from(document.querySelectorAll('.editcust-color-check'));
+  const known = boxes.map(function(cb){ return cb.value; }).filter(function(v){ return colors.indexOf(v) !== -1; });
+  if(known.length){
+    boxes.forEach(function(cb){
+      cb.checked = known.indexOf(cb.value) !== -1;
+      const w = cb.closest('.pill-check'); if(w) w.classList.toggle('checked', cb.checked);
     });
-  });
+    /* The checkboxes hold a SET; "White, White, Red" is a sequence. Held aside and
+       used by the save handler unless the office re-ticks something — see
+       requoteLightsPattern. */
+    const typed = String(d.lightsDescription || '').trim();
+    const flat = known.join(', ');
+    requoteLightsPattern = (typed && typed !== flat) ? typed : '';
+    requoteColorsSnapshot = requoteLightsPattern ? known.slice() : null;
+  }
+  requoteSetSelect('editCustWireColor', d.wireColor);
+  requoteSetSelect('editCustOutletTimer', d.outletTimer);
+  requoteSetSelect('editCustSpecificOutlet', d.specificOutlet);
+  requoteSetSelect('editCustInstallPref', d.installPreference);
+  const outletNotes = String(d.specificOutletNotes || '').trim();
+  if(d.specificOutlet === 'Yes' && outletNotes){
+    const on = document.getElementById('editCustSpecificOutletNotes');
+    if(on) on.value = outletNotes;
+  }
+  if(typeof syncEditSpecificOutletNotes === 'function') syncEditSpecificOutletNotes();
+  const gate = String(d.gateCode || '').trim();
+  if(gate){
+    const g = document.getElementById('editCustGateCode');
+    if(g) g.value = gate;
+  }
+  const said = String(d.notes || '').trim();
+  if(said){
+    const box = document.getElementById('editCustNotes');
+    if(box){
+      const have = String(box.value || '').trim();
+      if(!have) box.value = said;
+      else if(have.indexOf(said) === -1) box.value = have + '\n' + said;
+    }
+  }
+  if(d.wantsMailedInvoice !== undefined){
+    const wm = document.getElementById('editCustWantsMailed');
+    if(wm) wm.checked = d.wantsMailedInvoice === true;
+  }
 }
 function showApplyRequoteChoice(quoteId, d, existingItem){
   const ed = existingItem.data || {};
@@ -8622,33 +8247,14 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
      somebody who MOVED, and their old set is coming back off the old house, so recycle
      is right even when the sums would allow a top-up. Same address and more feet is the
      case topping up exists for. Either can still be picked by hand. */
-  /* ⭐ WHAT SHE SAID, NOT WHAT THE ADDRESSES LOOK LIKE. requoteKind is set by
-     askRequoteKind when the re-quote is raised, and it is an answer rather than a guess
-     — comparing two typed strings reads "Red Cedar Ln" against "Red Cedar Lane" as a
-     move that never happened. Older re-quotes have no kind on them, so the address
-     comparison stays as the fallback. */
-  const statedKind = String(d.requoteKind || '').trim();
   const quoteAddr = String(d.address || d.street || '').trim().toLowerCase();
   const custAddr = String(ed.address || ed.street || '').trim().toLowerCase();
-  const movedHouse = statedKind
-    ? (statedKind === 'address')
-    : !!(quoteAddr && custAddr && quoteAddr !== custAddr);
+  const movedHouse = !!(quoteAddr && custAddr && quoteAddr !== custAddr);
   const topUpFeet = (oldFeet > 0 && newFeet > oldFeet) ? (newFeet - oldFeet) : 0;
   const canTopUp = topUpFeet > 0;
   const savedPrice = typeof d.quotedPrice === 'number' ? d.quotedPrice : null;
   const feetPrice = (newFeet && perFootRate) ? Math.round(newFeet * perFootRate) : null;
-  /* ⭐ AND THEIR LAST PRICE, WHICH IS THE ANSWER WHEN NOTHING ABOUT THE MONEY MOVED.
-     Owner, 2026-08-21: "if the price doesnt change from what it was it wont let you
-     convert them." Raising a re-quote CLEARS quotedPrice on purpose — it is what
-     quoteStage reads, so leaving it would keep the card sitting in Awaiting Response —
-     and it keeps the old number on requoteFrom. The card's own price box already starts
-     on that number; this popup ignored it, so a re-quote about an ADDRESS, where the
-     price is not moving at all, arrived here with an empty box and a held button.
-
-     ⚠ AFTER THE FEET ESTIMATE, not before. If the footage moved, the house is a
-     different size and their old price is the one number we know to be wrong. */
-  const lastPrice = Number((d.requoteFrom || {}).price) || null;
-  const newPrice = savedPrice !== null ? savedPrice : (feetPrice !== null ? feetPrice : lastPrice);
+  const newPrice = savedPrice !== null ? savedPrice : feetPrice;
   const oldBins = oldFeet ? cnBinsForFeet(oldFeet) : 0;
   const newBins = newFeet ? cnBinsForFeet(newFeet) : 0;
   const num = String(ed.customerNumber || '').trim();
@@ -8672,9 +8278,7 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
         '<span id="requotePriceDelta" style="font-weight:400; color:var(--slate); font-size:12px;"></span></div>'+
       (savedPrice === null && feetPrice !== null
         ? '<div style="color:#8A6100; font-size:12px;">Worked out from '+newFeet+' ft at '+fmtMoney(perFootRate)+'/ft. Nothing was saved on the re-quote, so check it.</div>'
-        : (savedPrice === null && lastPrice
-          ? '<div style="color:#8A6100; font-size:12px;">This is the price they were already on. Raising a re-quote clears the price, so nothing was saved on this one \u2014 check it, or type over it.</div>'
-          : ''))+
+        : '')+
       (newPrice === null
         ? '<div style="color:var(--ember); font-size:12px;">This re-quote has no price on it and no footage to work one out from — type it in below.</div>'
         : '')+
@@ -8684,6 +8288,16 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
             (oldFeet && oldFeet === newFeet ? '<span style="font-weight:400; color:var(--slate); font-size:12px;"> &mdash; unchanged</span>' : '')+'</div>'
         : '<div style="color:var(--slate);">No new footage on the re-quote &mdash; their '+(oldFeet ? oldFeet+' ft' : 'footage')+' stays as it is.</div>')+
     '</div>'+
+    /* What they answered, if they chose to answer. Shown BEFORE the record opens,
+       because the form that opens will already have it filled in and a change nobody
+       announced is a change nobody checks. */
+    (requoteFormSummary(d)
+      ? '<div style="margin-top:12px; background:#F2F7F3; border:1px solid #CFE0D4; border-radius:10px; padding:10px 13px; font-size:12.5px; line-height:1.6;">'+
+          '<strong>They filled their details in fresh'+(d.formCompletedAt ? ' on '+fmtDate(d.formCompletedAt) : '')+'.</strong>'+
+          '<div style="margin-top:5px;">'+requoteFormSummary(d).map(function(b){ return esc(b); }).join('<br>')+'</div>'+
+          '<div style="margin-top:6px; color:var(--slate);">Filled in for you on the next screen. Anything they left blank stays exactly as it is on their record.</div>'+
+        '</div>'
+      : '')+
     (numberStillFits
       ? (num && newFeet ? '<p style="font-size:12.5px; color:var(--slate);">Under '+CN_DOUBLE_BIN_FEET+' ft either way, so #'+esc(num)+' still fits and nothing else has to change.</p>' : '')
       : '<p style="font-size:12.5px; color:var(--ember); background:#FDECEA; border:1px solid #F3C8C2; border-radius:9px; padding:8px 11px;">'+
@@ -8696,13 +8310,7 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
       '<label style="display:flex; gap:8px; align-items:flex-start; font-size:12.5px; cursor:pointer; padding:6px 0;">'+
         '<input type="radio" name="requoteBuild" value="recycle" id="requoteBuildRecycle"'+((canTopUp && !movedHouse) ? '' : ' checked')+' style="width:auto; margin-top:3px;">'+
         '<span><strong>Recycle their old set and build the new one.</strong> Their old lights come back into stock and a full '+(newFeet ? newFeet+' ft' : 'new')+' set is made up.'+
-          (movedHouse
-            ? (statedKind === 'address'
-              ? ' <span style="color:#8A6100;">This re-quote was raised as a change of address, so this is the one.</span>'
-              : ' <span style="color:#8A6100;">Their address changed, so this is almost certainly the one.</span>')
-            : (statedKind === 'addition'
-              ? ' <span style="color:var(--slate);">Raised as an addition to the same house.</span>'
-              : ''))+'</span>'+
+          (movedHouse ? ' <span style="color:#8A6100;">Their address changed, so this is almost certainly the one.</span>' : '')+'</span>'+
       '</label>'+
       (canTopUp
         ? '<label style="display:flex; gap:8px; align-items:flex-start; font-size:12.5px; cursor:pointer; padding:6px 0;">'+
@@ -8786,41 +8394,9 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
        straight back over the two fields this whole step exists to change. */
     document.getElementById('editCustHousePrice').value = price;
     if(newFeet) document.getElementById('editCustFeet').value = newFeet;
-    /* ⭐ AND THE NEW ADDRESS, WHICH IS THE WHOLE POINT OF AN ADDRESS RE-QUOTE. Owner,
-       2026-08-21: "if they change address then they go to requote but... to the system it
-       looks like nothing changes."
-
-       ⚠ THIS STEP FILLED IN THE PRICE AND THE FEET AND NOTHING ELSE, so a re-quote raised
-       BECAUSE somebody moved opened their record still showing the old street. Save it and
-       the address never moved, the geocode never reran, and the saved route stops still
-       pointed at the old house — while the card closed itself as answered.
-
-       ⚠ ONLY WHEN THE QUOTE ACTUALLY CARRIES A DIFFERENT ONE. An ordinary re-quote about
-       price copies the address across unchanged, and writing it back would look like a
-       move to every rule that watches for one. */
-    const quoteAddress = String(d.address || '').trim();
-    if(quoteAddress && quoteAddress.toLowerCase() !== String(ed.address || '').trim().toLowerCase()){
-      const addrEl = document.getElementById('editCustAddress');
-      if(addrEl) addrEl.value = quoteAddress;
-      const cityEl = document.getElementById('editCustCity');
-      if(cityEl && d.city) cityEl.value = d.city;
-    }
-    /* ⭐ AND THE COLOURS, IF THEY HAVE NONE — see requoteLightsToCarry. Same reason the
-       price and the feet are set here: after the modal has filled itself, or the record
-       writes its own blank straight back over them. */
-    const carry = requoteLightsToCarry(d, ed);
-    if(carry){
-      document.querySelectorAll('.editcust-color-check').forEach(function(cb){
-        if(carry.colors.indexOf(cb.value) !== -1){
-          cb.checked = true;
-          const w = cb.closest('.pill-check'); if(w) w.classList.add('checked');
-        }
-      });
-      if(!String(ed.wireColor || '').trim() && d.wireColor){
-        const wire = document.getElementById('editCustWireColor');
-        if(wire) wire.value = d.wireColor;
-      }
-    }
+    /* And whatever they told us themselves. Nothing is written until Save Changes,
+       same as the price and the feet above. */
+    applyRequoteFormAnswers(d);
     /* Held until Save Changes rather than written now. She can still close the form
        without saving, and flagging the warehouse for a change that never happened is
        worse than making her press the button. */
@@ -8840,113 +8416,10 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
     }
     toast(fmtMoney(price)+' filled in for '+(who)+' \u2014 '+
       (wantsTopUp ? ('warehouse will build the extra '+topUpFeet+' ft') : 'old set recycles, new one gets built')+
-      (carry ? ', colours brought over from the quote' : '')+
       '. Press Save Changes.');
-    /* ⚠ AND IF THERE ARE STILL NO COLOURS ANYWHERE, SAY IT NOW rather than letting the
-       warehouse find out. Nothing can be built without them, and the office is looking
-       at the record this second. */
-    if(!carry && !String(ed.lightsDescription || '').trim() && !((ed.lightColors || []).length)){
-      toast('\u26a0 '+(who)+' has no light colours on file and the quote has none either \u2014 '+
-        'pick them on this form or the warehouse cannot build anything.');
-    }
   });
 }
 /* The popup that asks which way. */
-/* ⭐ A TEST QUOTE, IN WHICHEVER SECTION YOU ARE STANDING IN. Owner, 2026-08-21: "in the
-   website on every section in quotes can you put a button on the right called build test
-   customer, name test phone number 3853912235, email highlightingutah@gmail.com $250 125
-   feet warm white."
-
-   One button rather than five, because only one section is on screen at a time and the
-   useful thing is a card that lands HERE — in Ready to Convert it arrives approved, in
-   Closed it arrives closed, and so on. Otherwise testing the Re-quotes tab means walking
-   a quote through three other tabs first.
-
-   ⚠ EVERY ONE IS MARKED isTestRecord. They are real documents in the real quotes
-   collection — that is the whole point, they have to behave like the real thing — so
-   there has to be a way to find them all again. Health Check reads that field.
-
-   ⚠ AND THE ADDRESS IS OBVIOUSLY FAKE. A plausible one gets routed, printed and
-   driven to. */
-const TEST_QUOTE_BASE = {
-  name: 'Test', phone: '3853912235', email: 'highlightingutah@gmail.com',
-  /* ⭐ A REAL ADDRESS. Owner, 2026-08-21: "also test customers should be at 209 S 850 W
-     Lehi Utah."
-
-     ⚠ THIS REPLACES A DELIBERATELY FAKE ONE, and the trade is worth writing down. The
-     fake address could never be routed, scheduled or mapped, which is most of what a
-     test record is FOR — it would have failed to geocode and then behaved differently
-     from every real customer at exactly the moment somebody was testing routing. A real
-     address behaves like the real thing.
-
-     ⚠ SO THE NAME AND THE FLAG ARE NOW THE ONLY THINGS MARKING IT. They still are: every
-     one is called Test and carries isTestRecord. It can reach a crew sheet now, so
-     delete them when you are done rather than leaving them in the book. */
-  address: '209 S 850 W, Lehi, UT 84043',
-  street: '209 S 850 W', city: 'Lehi',
-  estimatedFeet: 125, lightColors: ['Warm White'], lightsDescription: 'Warm White',
-  wireColor: 'White', isTestRecord: true
-};
-/* The fields that put the card in one folder rather than another. Kept apart from the
-   writing so the staging can be read, argued with and tested without touching
-   Firestore. Mirrors quoteStage/quoteFolder — if those change, this has to follow. */
-/* ⚠ AND A QUOTE CANNOT BE CREATED ALREADY PRICED. firestore.rules lets ANYBODY create
-   a quote — that is how the public form works — and stops the obvious abuse with a
-   deny list: status must be 'new', and quotedPrice, approvalStatus, convertedToCustomerAt
-   and quoteArchived must not be present. There is no `request.auth != null ||` escape on
-   create, so a signed-in admin is held to the same rule.
-
-   ⚠ WHICH IS WHY THE FIRST VERSION OF THIS BUTTON FAILED ON EVERY TAB. Owner,
-   2026-08-21: "in requotes it fails to build because it says its missing something", then
-   "actually it just says that on everyone." That message is Firestore's "Missing or
-   insufficient permissions". The Quotes tab failed because the fields carried no status
-   at all; the other four because they carried a price and an answer.
-
-   So it is created as a plain new quote and then moved into place, which is also exactly
-   what a real quote does — raised new, priced afterwards. update is staff-only and
-   unrestricted, so the second half is allowed. Split in two so each half can be read
-   against the rule it has to satisfy. */
-function testQuoteCreateFields(){
-  return Object.assign({}, TEST_QUOTE_BASE, {status: 'new'});
-}
-/* What moves the card out of Quotes and into its section. Empty for 'new', which is
-   where a freshly created quote already sits. */
-function testQuoteStageUpdates(stage){
-  const f = {};
-  if(stage === 'new') return f;
-  f.quotedPrice = 250;
-  /* Awaiting Response: priced and sent, still waiting on them. */
-  if(stage === 'send'){
-    f.approvalStatus = 'pending';
-    f.quoteManuallySent = true;
-    return f;
-  }
-  /* Ready to Convert: approved, and the office answered for them so no form is
-     outstanding — the same override the Mark Approved button sets. */
-  if(stage === 'form'){
-    f.approvalStatus = 'approved';
-    f.approvedByOffice = true;
-    return f;
-  }
-  /* Re-quotes: needs a customer to point at, which the caller fills in — a re-quote
-     with no live customer behind it is an ordinary quote and lands in the wrong tab. */
-  if(stage === 'requote'){
-    f.approvalStatus = 'pending';
-    f.requoteCount = 1;
-    f.requoteFrom = {price: 250, status: 'approved'};
-    f.requoteReason = 'Test re-quote';
-    return f;
-  }
-  /* Closed: finished, however it finished. */
-  f.approvalStatus = 'approved';
-  f.status = 'closed';
-  return f;
-}
-/* The whole card as it ends up, which is what quoteFolder has to file into the section
-   it was built from. Kept so the staging can be checked as one thing. */
-function testQuoteFieldsFor(stage){
-  return Object.assign({}, testQuoteCreateFields(), testQuoteStageUpdates(stage));
-}
 function showConvertQuoteChoice(quoteId, d){
   /* ⚠ A RE-QUOTE NEVER REACHES THE REST OF THIS FUNCTION. Everything below
      builds a NEW customer, which for somebody already on the books is a second
@@ -9130,11 +8603,6 @@ function renderQuoteRows(filtered){
                 ((cnBinsForFeet(Number(d.changed.newFeet)) >= 2 && cnBinsForFeet(Number(d.changed.oldFeet)) < 2)
                   ? '<div style="margin-top:4px; color:#B91C1C; font-weight:700;">Now over '+CN_DOUBLE_BIN_FEET+' ft \u2014 needs '+cnBinsForFeet(Number(d.changed.newFeet))+' bins and a 5000-series number.</div>' : '')+
                 '</div>'
-              : d.changed.what === 'price'
-              ? '<div style="margin-top:4px;">Price changed <strong>'+fmtMoney(Number(d.changed.oldPrice)||0)+' &rarr; '+fmtMoney(Number(d.changed.newPrice)||0)+'</strong>. '+
-                'The house is unchanged — same feet, same address — so nothing needs rebuilding. '+
-                'This is here because the office said the new price should go back to them for approval.'+
-                (d.changed.why ? '<div style="margin-top:4px;">Why: '+esc(d.changed.why)+'</div>' : '')+'</div>'
               : d.changed.what === 'sides'
               ? '<div style="margin-top:4px;">Sides changed from <strong>'+esc(d.changed.oldSides || 'none recorded')+'</strong> to <strong>'+esc(d.changed.newSides || 'none')+'</strong>'+
                 (d.changed.oldPrice ? '. They were paying '+fmtMoney(d.changed.oldPrice)+'.' : '.')+
@@ -9175,11 +8643,6 @@ function renderQuoteRows(filtered){
                d.requoteFrom.status === 'declined' ? ', which they declined' :
                d.requoteFrom.status === 'maybe_next_year' ? ', and they said maybe next year' :
                ', still awaiting their answer')+'.</div>'+
-            (d.requoteKind
-              ? '<div style="margin-top:4px;">'+(d.requoteKind === 'address'
-                  ? 'Change of address \u2014 old set comes back, new one gets built.'
-                  : 'Addition to the same house \u2014 their old set stays in its bin.')+'</div>'
-              : '')+
             (d.requoteReason ? '<div style="margin-top:4px;">Why: '+esc(d.requoteReason)+'</div>' : '')+
             (quoteStage(d) === 'new' ? '<div style="margin-top:4px;">Add the new photo and price below, then send it for approval again.</div>' : '')+
             /* Converting a second time would build a second customer for the
@@ -9259,12 +8722,6 @@ function renderQuoteRows(filtered){
             /* On a re-quote the box starts on the old number, so she is adding
                to a price she can see rather than working one out from nothing. */
             ((d.quotedPrice == null && d.requoteFrom && Number(d.requoteFrom.price)) ? '<div class="rtext" style="color:var(--slate); margin-top:-4px;">Starts on their last price ('+fmtMoney(Number(d.requoteFrom.price))+') &mdash; type over it with the new one. <strong>Not saved until you click out of the box.</strong></div>' : '')+
-            /* ⭐ AND A WAY TO SAY "that price, unchanged". See the blur handler: with no
-               typing there is no change event, so the commonest re-quote of all — same
-               price, different address — could never be priced at all. */
-            ((d.quotedPrice == null && (Number((d.requoteFrom||{}).price) || (d.estimatedFeet && perFootRate)))
-              ? '<button type="button" class="btn btn-outline btn-sm" data-usequoteprice="'+item.id+'" style="margin-top:4px;">Use '+esc(fmtMoney(Number((d.requoteFrom||{}).price) || Math.round(d.estimatedFeet*perFootRate)))+' &mdash; unchanged</button>'
-              : '')+
             /* ⚠ AND SAY SO WHEN THE BOX IS SHOWING A SUGGESTION IT HAS NOT SAVED. The
                header two lines up reads "not priced yet" while a number sits in the
                price field, which is a straight contradiction, and the owner read the
@@ -10189,30 +9646,22 @@ function renderQuoteRows(filtered){
       const who = d.name || 'this customer';
       /* One box, not two: Cancel here backs out of the whole thing, and
          whatever is typed is only ever a note for her own card. */
-      /* ⭐ WHICH KIND OF RE-QUOTE. Owner, 2026-08-21: "in requote I should have the
-         option to have requote for addition to house, or for change address."
-
-         ⚠ AND THE TWO ARE DIFFERENT JOBS, not two labels for one. Something added at the
-         same house means more feet and the old set stays in its bin — that is what
-         topping up is for. A change of address means they MOVED: the old set comes back
-         off the old house, a whole new one is made, the address needs re-geocoding and
-         any saved route stop is now pointing at the wrong street.
-
-         ⚠ AND SAID, NOT GUESSED. showApplyRequoteChoice worked "did they move?" out by
-         comparing the quote's address with the customer's, which is a guess about two
-         strings a person typed — "9991 Red Cedar Ln" against "9991 Red Cedar Lane" reads
-         as a move that never happened. Asked here, it is an answer. */
-      const kind = await askRequoteKind(who, d);
-      if(!kind) return;
-      const why = kind.note;
+      const why = prompt('Re-quote ' + who + '?\n\n' +
+        'Their price (' + fmtMoney(d.quotedPrice) + ')' +
+        (d.approvalStatus === 'approved' ? ' and their approval' : ' and their answer') +
+        ' are cleared, and the card goes back to Quotes for a new price. ' +
+        'Photos, feet and everything else stay.\n\n' +
+        (d.convertedToCustomerAt
+          ? 'Heads up: this one is already a customer. When they approve the new price, change it on their customer record — do not convert them a second time.\n\n'
+          : '') +
+        'What changed? (optional — it shows on the card)',
+        'They asked for another side of the house quoted');
+      if(why === null) return;
       try{
         const updates = {
           requoteCount: (Number(d.requoteCount) || 0) + 1,
           requoteFrom: {price: Number(d.quotedPrice) || 0, status: d.approvalStatus || 'pending'},
           requoteReason: String(why || '').trim(),
-          /* 'addition' or 'address' — read by showApplyRequoteChoice to decide what the
-             warehouse is offered, and shown on the card. */
-          requoteKind: kind.kind,
           requotedAt: serverTimestamp(),
           /* The price genuinely has to go rather than just be flagged: it is
              what quoteStage reads, so leaving it there keeps the card sitting
@@ -10468,31 +9917,7 @@ function renderQuoteRows(filtered){
      and then quietly reverted on the next re-render. Blank is deliberately
      NOT saved as 0: clearing the box would wipe a real price and knock the
      card back to 'not priced yet', which is a money change nobody asked for. */
-  /* ⭐ A PRICE THAT IS NOT CHANGING STILL HAS TO BE SETTABLE. Owner, 2026-08-21: "if the
-     price doesnt change from what it was it wont let you convert them cause something has
-     to change... to the system it looks like nothing changes and because of that it wont
-     let me convert them to customer."
-
-     ⚠ THE BOX STARTS ON THEIR OLD PRICE, AND `change` ONLY FIRES IF A HUMAN EDITS THE
-     VALUE. So on a re-quote coming back at the SAME price there is nothing to type, no
-     event, and quotedPrice stays null — which leaves the card reading "not priced yet",
-     refusing to send, and sitting in the wrong folder. The one case where the office has
-     nothing to do was the one case they could not finish.
-
-     Blur commits it too, so clicking in and out is enough, and the button below says so
-     out loud for anybody who never touches the box. */
   list.querySelectorAll('.quotePriceInput').forEach(function(input){
-    input.addEventListener('blur', function(){
-      const item = quotesCache.find(q => q.id === input.dataset.id);
-      /* Only when there is no price stored. With one already there, blur firing on
-         every click-through would write the same number back over and over. */
-      if(item && typeof item.data.quotedPrice === 'number') return;
-      const raw = String(input.value).trim();
-      if(raw === '') return;
-      const price = Number(raw);
-      if(!isFinite(price) || price < 0) return;
-      input.dispatchEvent(new Event('change'));
-    });
     input.addEventListener('change', function(){
       const id = input.dataset.id;
       const item = quotesCache.find(q => q.id === id);
@@ -10516,25 +9941,6 @@ function renderQuoteRows(filtered){
       }).catch(function(){
         if(prev !== null) input.value = prev;
         toast('Could not save the price \u2014 check your connection and try again');
-      });
-    });
-  });
-  list.querySelectorAll('[data-usequoteprice]').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      const id = btn.dataset.usequoteprice;
-      const item = quotesCache.find(q => q.id === id);
-      if(!item) return;
-      const d = item.data || {};
-      const price = Number((d.requoteFrom || {}).price) ||
-        ((d.estimatedFeet && perFootRate) ? Math.round(d.estimatedFeet * perFootRate) : NaN);
-      if(!isFinite(price)){ toast('There is no price to use \u2014 type one in.'); return; }
-      btn.disabled = true;
-      updateDoc(doc(db,'quotes', id), {quotedPrice: price}).then(function(){
-        toast('Price set \u2014 ' + fmtMoney(price) + '. Nothing about it changed, which is fine.');
-      }).catch(function(err){
-        btn.disabled = false;
-        console.error('Could not set the price:', err);
-        toast('Could not save the price \u2014 ' + ((err && err.message) || err));
       });
     });
   });
@@ -16044,7 +15450,20 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
       rsvpStatus: addCustFromQuoteId ? 'yes' : '',
       contactMethod: (addCustFromQuoteId ? (addCustContactMethodFromQuote || '') : ''),
       wireColor: wireColor,
-      lat: coords.lat, lng: coords.lng, needsGeocode: pinFailed, needsLightBuild: !!lightsDescription,
+      /* ⭐ EVERY NEW HOUSE NEEDS A SET BUILT, WHETHER OR NOT ITS COLOURS ARE KNOWN YET.
+         Owner, 2026-08-21, on two customers who were nowhere in the warehouse: "Ashley
+         and Rachel should have lights in warehouse so we can build them."
+
+         ⚠ THIS USED TO READ `!!lightsDescription`, AND THAT IS WHY THEY VANISHED. A
+         customer converted from a quote whose colours were never filled in got the flag
+         set to false, so the build queue never listed them — and the "Waiting on light
+         colours" block cannot catch them either, because that block lists houses that ARE
+         flagged and have no colours. A house nobody flagged is in neither list and the
+         tab says there is nothing to build, which is a lie about work that is genuinely
+         outstanding. Flagged always: with colours it groups by pattern, without them it
+         sits in the waiting block until somebody in the office spends thirty seconds on
+         it. The warehouse clears the flag when the bundle is made. */
+      lat: coords.lat, lng: coords.lng, needsGeocode: pinFailed, needsLightBuild: true,
       scheduled: false, createdAt: serverTimestamp(), housePrice: price, measuredFeet: measuredFeet, gateCode: gateCode, outletTimer: outletTimer, useEaves: useEaves, specificOutlet: specificOutlet, specificOutletNotes: specificOutletNotes, notes: custNotes, wantsMailedInvoice: wantsMailedInvoice, numberOfBins: numberOfBins, houseSides: selectedSides, customerNumber: customerNumber
     }, billingElsewhere ? {billToPhone: billToPhone} : {}));
     // If this number was sitting in the available pool, it isn't available anymore.
@@ -23008,33 +22427,6 @@ function whWatchArchivedPending(){
     });
   } catch(err){ console.error("[HU] archived recycle watch failed", err); }
 }
-/* ⭐ THE NUMBER THAT IS PHYSICALLY ON THE BIN. Owner, 2026-08-21, looking at Ashley
-   Wray in the recycle queue: "as you can see this shows the updated cusotmer number not
-   the old one, we need the old one in the recycle section because thats how they find
-   it."
-
-   ⚠ A CUSTOMER NUMBER CAN MOVE AFTER THE BIN IS ALREADY LABELLED. Ashley re-measured
-   at 300 ft, which is two bins, so she moved from #894 to the 5000-series and the
-   record now says #5051. The bin sitting on the shelf with her old set in it still says
-   ’894’, because nobody has been to it. Sending somebody to find #5051 sends them to a
-   bin that does not exist.
-
-   ⚠ AND THE FIRST LABEL IS THE ONE THAT COUNTS. If the number moves twice before the
-   set comes back, the bin still wears the original — so binLabelNumber is written
-   once and not overwritten, and it is cleared when the set actually comes back (Mark
-   Recycled) or when a new one is built under the current number (Mark Done). */
-function whBinNumberFor(d){
-  const dd = d || {};
-  return String(dd.binLabelNumber || dd.customerNumber || '').trim();
-}
-/* True when the bin they are looking for is not the number on the record, which is the
-   case worth saying out loud on both the screen and the paper. */
-function whBinNumberMoved(d){
-  const dd = d || {};
-  const label = String(dd.binLabelNumber || '').trim();
-  const now = String(dd.customerNumber || '').trim();
-  return !!(label && now && label !== now);
-}
 function whRecycleGroups(){
   const groups = {};
   jobAddresses.forEach(function(item){
@@ -23061,97 +22453,44 @@ function whRecycleGroups(){
   keys.sort(function(a,b){ return groups[b].length - groups[a].length; });
   return {groups: groups, keys: keys};
 }
-/* ⭐ RECYCLING IS A NUMBER AND A NAME. Owner, 2026-08-21: "they dont need to know the
-   color here they just need the customer number and name."
-
-   ⚠ THIS USED TO BE GROUPED BY PATTERN AND WIRE, the same as the build queue, and it
-   reads as though it were one — "Warm White — White wire, Need 1". Nobody is making
-   anything here. They are walking to a shelf, finding the bin with a number on it and
-   bringing it back, and the colour inside is not how they find it. One flat list,
-   ordered by name, with the bin number beside it.
-
-   ⚠ AND THE NUMBER SHOWN IS THE ONE ON THE BIN, NOT THE ONE ON THE RECORD — see
-   whBinNumberFor. Ashley moved from #894 to #5051 when her footage changed; her bin
-   still says 894. */
 function renderWarehouseRecycleQueue(){
   const list = document.getElementById('warehouseRecycleQueueList');
   if(!list) return;
   const built = whRecycleGroups();
-  const houses = [];
-  built.keys.forEach(function(k){ (built.groups[k] || []).forEach(function(h){ houses.push(h); }); });
-  houses.sort(function(a, b){
-    return String((a.data||{}).name||'').localeCompare(String((b.data||{}).name||''));
-  });
-  if(!houses.length){ list.innerHTML = '<div class="empty-note">Nothing needs to be recycled right now.</div>'; return; }
-  let html = '<div class="row-item" style="display:block;">'+
-    '<div><strong style="font-size:15px;">'+houses.length+' to pull back into stock</strong>'+
-      '<div style="font-size:12.5px; color:var(--slate);">Find the bin by its number and bring it in.</div></div>'+
-    '<div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--line);">';
-  houses.forEach(function(h){
-    const d = h.data || {};
-    const binNum = whBinNumberFor(d);
-    html += '<div style="display:flex; justify-content:space-between; align-items:center; padding:7px 0; gap:10px;">'+
-      '<span style="font-size:13.5px;">'+
-        '<strong style="font-variant-numeric:tabular-nums;">'+esc(binNum || 'no number')+'</strong>'+
-        ' &mdash; '+esc(d.name||'(no name)')+propLabelChip(d)+
-        /* Said out loud, because somebody reading the customer record will see a
-           different number and think the list is wrong. */
-        (whBinNumberMoved(d)
-          ? '<span style="display:block; font-size:12px; color:#8A6100;">Bin is labelled '+esc(binNum)+' &mdash; their record now says #'+esc(String(d.customerNumber||''))+'</span>'
-          : '')+
-      '</span>'+
-      '<span style="display:flex; gap:6px; flex:0 0 auto; align-items:center;">'+
-        /* ⭐ AND IT CAN BE CORRECTED BY HAND. binLabelNumber is only stamped when a
-           number moves from now on, so everybody whose number ALREADY moved — Ashley
-           among them, which is the customer that started this — has no label recorded
-           and falls back to the number on their record, which is the wrong one. There
-           has to be a way to say what the bin actually says. Blank clears it. */
-        '<label style="font-size:11px; color:var(--slate); display:flex; align-items:center; gap:4px;">bin says'+
-          '<input type="text" inputmode="numeric" data-whbinlabel="'+h.id+'" value="'+esc(binNum)+'" '+
-            'style="width:64px; padding:3px 6px; font-size:12px; text-align:right; '+
-            'border:1px solid var(--line); border-radius:6px; font-variant-numeric:tabular-nums;">'+
-        '</label>'+
-        '<button type="button" class="btn btn-outline btn-sm" data-wheditcust="'+h.id+'">Edit</button>'+
-        '<button type="button" class="btn btn-outline btn-sm" data-whrecycledone="'+h.id+'">Mark Recycled</button>'+
-      '</span>'+
+  const groups = built.groups;
+  const keys = built.keys;
+  if(!keys.length){ list.innerHTML = '<div class="empty-note">Nothing needs to be recycled right now.</div>'; return; }
+  let html = '';
+  keys.forEach(function(pattern, gi){
+    const houses = groups[pattern];
+    const listId = 'whrecycle-' + gi;
+    html += '<div class="row-item" style="display:block;">'+
+      '<div style="display:flex; justify-content:space-between; align-items:center; gap:10px; cursor:pointer;" data-whrecycletoggle="'+listId+'">'+
+        '<div><strong style="font-size:15px;">'+esc(pattern)+'</strong><div style="font-size:12.5px; color:var(--slate);">Need '+houses.length+'</div></div>'+
+        whToggleBtn('whrecycletoggle', listId, 'Show '+houses.length+' house'+(houses.length===1?'':'s'))+
+      '</div>'+
+      '<div id="'+listId+'" style="display:none; margin-top:12px; padding-top:12px; border-top:1px solid var(--line);">'+
+        houses.map(function(h){
+          return '<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; gap:10px;">'+
+            /* The number is what comes off them and goes back in the pool, so it
+               is the one fact worth having on screen before pressing the button. */
+            '<span style="font-size:13.5px;">'+esc(h.data.name||'(no name)')+' &mdash; '+esc(h.data.address||'')+propLabelChip(h.data)+custNumChip(h.data)+'</span>'+
+            /* Same Edit as the Build tab — a house in here by mistake is fixed
+               by changing their RSVP on their own record, not from this list. */
+            '<span style="display:flex; gap:6px; flex:0 0 auto;">'+
+              '<button type="button" class="btn btn-outline btn-sm" data-wheditcust="'+h.id+'">Edit</button>'+
+              '<button type="button" class="btn btn-outline btn-sm" data-whrecycledone="'+h.id+'">Mark Recycled</button>'+
+            '</span>'+
+          '</div>';
+        }).join('')+
+      '</div>'+
     '</div>';
   });
-  html += '</div></div>';
   list.innerHTML = html;
   list.querySelectorAll('[data-whrecycletoggle]').forEach(function(el){
     el.addEventListener('click', function(e){
       e.stopPropagation();
       whToggleGroup(el.dataset.whrecycletoggle);
-    });
-  });
-  /* ⚠ THE ROW MAY BE AN ARCHIVED ONE, so the write goes to whichever collection they
-     are actually in — the recycle queue lists people already removed alongside people
-     still on the book, and writing to jobAddresses for an archived record silently
-     changes nothing at all. */
-  list.querySelectorAll('[data-whbinlabel]').forEach(function(input){
-    input.addEventListener('change', function(){
-      const id = input.dataset.whbinlabel;
-      const typed = String(input.value || '').trim();
-      if(typed && !/^[0-9]+$/.test(typed)){
-        toast('A bin number is digits only \u2014 leave it blank if you do not know it.');
-        return;
-      }
-      const archived = (whArchivedPending || []).some(function(a){ return a.id === id; });
-      const col = archived ? 'archivedCustomers' : 'jobAddresses';
-      const rec = archived
-        ? (whArchivedPending || []).find(function(a){ return a.id === id; })
-        : (jobAddresses || []).find(function(a){ return a.id === id; });
-      const onRecord = String(((rec && rec.data) || {}).customerNumber || '').trim();
-      /* Storing the number they already hold would be a label that says nothing, and
-         whBinNumberMoved would then have to treat it as a move. Blank it instead. */
-      const value = (!typed || typed === onRecord) ? null : typed;
-      updateDoc(doc(db, col, id), {binLabelNumber: value}).then(function(){
-        if(rec && rec.data) rec.data.binLabelNumber = value;
-        toast(value ? ('Bin recorded as #' + value) : 'Bin number cleared \u2014 back to their own number.');
-        renderWarehouseRecycleQueue();
-      }).catch(function(){
-        toast('Could not save that \u2014 check your connection and try again.');
-      });
     });
   });
   list.querySelectorAll('[data-wheditcust]').forEach(function(btn){
@@ -23206,9 +22545,6 @@ function renderWarehouseRecycleQueue(){
         try{
           await updateDoc(doc(db,'jobAddresses', custId), {
             needsLightRecycle: false, recycleKeepingCustomer: false,
-            /* The set is back and the bin is empty, so its old label means nothing
-               now. See whBinNumberFor. */
-            binLabelNumber: null,
             lightsRecycledAt: serverTimestamp() });
           toast((d.name || 'They') + ' recycled \u2014 still a customer.');
           logActivity('Recycled the old lights for ' + (d.name || custId) +
@@ -24606,11 +23942,8 @@ function renderWarehouseQueue(){
       /* ⚠ AND IT IS NO LONGER A TOP-UP. The extra bundle is in their bin, so the bin
          now holds their full footage. Leaving buildTopUpFromFeet set would make every
          future build for this house read as "they already have 180 ft" for ever. */
-      /* A new bin has been made up under the number they hold now, so the old label
-         is gone with the old set. See whBinNumberFor. */
       updateDoc(doc(db,'jobAddresses', btn.dataset.whdonehouse),
-        {needsLightBuild:false, buildTopUpFromFeet:null, binLabelNumber:null})
-        .catch(function(){});
+        {needsLightBuild:false, buildTopUpFromFeet:null}).catch(function(){});
     });
   });
   /* Opens the ordinary Edit Customer popup, which is the one place these
@@ -24665,8 +23998,7 @@ function renderWarehouseQueue(){
       for(const h of g.houses){
         if(remaining <= 0) break;
         // Same clear as the single Mark Done above - see the note there.
-        await updateDoc(doc(db,'jobAddresses', h.id),
-          {needsLightBuild:false, buildTopUpFromFeet:null, binLabelNumber:null});
+        await updateDoc(doc(db,'jobAddresses', h.id), {needsLightBuild:false, buildTopUpFromFeet:null});
         remaining--;
       }
       for(const ex of g.extras){
@@ -25072,17 +24404,14 @@ function whSheetRowsForRecycle(){
         address: d.address || '',
         // The number is the whole point of recycling a house — it comes off
         // them and goes back in the pool — so it gets its own column here too.
-        bin: whBinNumberFor(d),
+        bin: d.customerNumber || '',
         feet: '',
         bundles: '',
         timer: '',
-        notes: (whBinNumberMoved(d)
-          ? ('bin says ' + whBinNumberFor(d) + ', record says #' + String(d.customerNumber || ''))
-          : (d.notes ? String(d.notes).trim() : ''))
+        notes: (d.notes ? String(d.notes).trim() : '')
       });
     });
   });
-  rows.sort(function(x, y){ return String(x.what).localeCompare(String(y.what)); });
   return {rows: rows, columns: WH_RECYCLE_COLUMNS, groupCount: built.keys.length};
 }
 /* ⭐ NUMBERED ON THE LEFT, BLANK COLUMN ON THE RIGHT — THE SAME AS EVERY OTHER
@@ -25203,14 +24532,11 @@ const WH_BUILD_COLUMNS = [
   {key:'putInto', label:'When built, put into'},
   {key:'notes', label:'Notes'}
 ];
-/* ⚠ NO PATTERN COLUMN. Owner: "they dont need to know the color here they just need
-   the customer number and name." Nobody builds anything off this sheet — they find a
-   bin by its number and bring it in. The number is the one ON THE BIN (whBinNumberFor),
-   which is not always the one on the record. */
 const WH_RECYCLE_COLUMNS = [
-  {key:'bin', label:'Bin # to find', num:true},
+  {key:'group', label:'Pattern & Wire'},
   {key:'what', label:'Customer'},
   {key:'address', label:'Address'},
+  {key:'bin', label:'Bin # to reclaim', num:true},
   {key:'notes', label:'Notes'}
 ];
 /* Guarded like wireWhCancelEditExtra above — the warehouse render tests eval
@@ -26150,6 +25476,14 @@ let requoteBeingConverted = null;
    carried out by the Save Changes handler, and cleared there whether it worked or not
    so the next customer opened does not inherit somebody else's answer. */
 let requoteBuildChoice = null;
+/* The exact light pattern the customer typed on a re-quote's install form, plus the
+   colours it was built from. Same trick as addCustQuoteLightsPattern on the Add form and
+   for the same reason: the Edit Customer colour boxes cannot hold an ORDER, so reading
+   them back would turn "White, White, Red" into "Pure White, Red" — a different set of
+   lights from the one they asked for. Kept only while the office leaves the ticked
+   colours exactly as the form filled them in. */
+let requoteLightsPattern = '';
+let requoteColorsSnapshot = null;
 /* Puts the Save button's ordinary wording back. Called from both places that stop a
    re-quote being in hand — finishing it and abandoning it — because a button still
    promising to finish a re-quote on the NEXT customer somebody edits is worse than the
@@ -26775,6 +26109,8 @@ document.getElementById('editCustCancelBtn').addEventListener('click', function(
      build flags meant for THIS customer would be written onto the next person whose
      record anybody saved. */
   requoteBuildChoice = null;
+  requoteLightsPattern = '';
+  requoteColorsSnapshot = null;
   requoteRestoreSaveLabel();
   /* ⚠ AND IT SAYS SO, BECAUSE APPLYING A RE-QUOTE IS TWO STEPS AND THE SECOND ONE WAS
      SILENT. Owner, 2026-08-20: "I converted her but she hasnt left the requote secion",
@@ -26873,7 +26209,15 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const newWantsTexted = document.getElementById('editCustWantsTexted').checked;
   const newColors = Array.from(document.querySelectorAll('.editcust-color-check:checked')).map(el => el.value);
   const newHouseSides = houseSideCount((document.querySelector('.editcust-side-pick:checked') || {}).value);
-  const newLightsDescription = compileLightsDescription(newColors.join(', '), '');
+  /* See requoteLightsPattern: if this save is finishing a re-quote whose form the
+     customer filled in, and nobody has changed which colours are ticked since it was
+     filled in, their exact wording wins over the checkbox order. */
+  const keptRequotePattern = requoteLightsPattern && Array.isArray(requoteColorsSnapshot) &&
+    newColors.length === requoteColorsSnapshot.length &&
+    newColors.every(function(c){ return requoteColorsSnapshot.indexOf(c) !== -1; });
+  const newLightsDescription = keptRequotePattern
+    ? requoteLightsPattern
+    : compileLightsDescription(newColors.join(', '), '');
   const newInstallPref = document.getElementById('editCustInstallPref').value;
   const newHouseNotes = document.getElementById('editCustNotes').value.trim();
   if(!newName || (!newPhone && !newEmail)){ statusEl.textContent = 'Name plus a phone number or email are required.'; return; }
@@ -26943,23 +26287,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     if(oldLightsForBuild && newLightsDescription && newLightsDescription !== oldLightsForBuild){
       addrUpdates.lightsChangedAt = serverTimestamp();
     }
-    /* ⭐ A BUILD THAT IS OWED IS NOT CANCELLED BY THE COLOURS BEING BLANK. Owner,
-       2026-08-21, having converted Ashley Wray: "big problem, she went to the recycle
-       but not to the build."
-
-       ⚠ THIS USED TO END IN `: false`, so EVERY save of a customer with no colours on
-       file wiped needsLightBuild. Ashley has none. Converting her set both queues in one
-       write, and then the next save of her record — any save, for any reason — cleared
-       the build flag while leaving needsLightRecycle alone, because that one is only
-       touched on an RSVP change. Recycle yes, build no, which is exactly what she saw.
-
-       Blank colours means the build cannot be DONE yet, not that it is not OWED. That is
-       the whole reason the Waiting on light colours block exists on the warehouse tab.
-       A build is finished by the warehouse pressing Mark Done, or cancelled by Back Next
-       Year below — never by a field being empty. */
-    addrUpdates.needsLightBuild = newLightsDescription
-      ? (newLightsDescription !== oldLightsForBuild ? true : !!item.data.needsLightBuild)
-      : !!item.data.needsLightBuild;
+    addrUpdates.needsLightBuild = newLightsDescription ? (newLightsDescription !== oldLightsForBuild ? true : !!item.data.needsLightBuild) : false;
     /* "They said no" is a lasting fact; "their lights need pulling back into
        stock" is a job that gets finished. This used to be re-derived from the
        dropdown on EVERY save, so opening a recycled customer's record months
@@ -27004,6 +26332,8 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     if(requoteBuildChoice){
       const choice = requoteBuildChoice;
       requoteBuildChoice = null;
+      requoteLightsPattern = '';
+      requoteColorsSnapshot = null;
       if(choice.mode === 'topup'){
         /* They keep the bin they have and the warehouse makes up the difference.
            What is stored is what they ALREADY HAVE, not the difference — see
@@ -27072,31 +26402,8 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
           ' \u2014 but they hold #' + existingNum + ', ' + (isDoubleNum ? 'a 5000-series (2 bin)' : 'a regular (1 bin)') + ' number.\n\n' +
           'Their bin in the warehouse is labelled #' + existingNum + '. Moving them to #' + suggested + ' means relabelling it.\n\n' +
           'OK = move them to #' + suggested + '\nCancel = keep #' + existingNum;
-        /* ⭐ CONVERTING A RE-QUOTE MOVES THE NUMBER BY ITSELF. Owner, 2026-08-21: "what
-           I want is when I click convert to customer, if the number changes that happens
-           automatically so I dont have to manaully change the number, but before that
-           happens they put it in recycle while it still has the old number."
-
-           ⚠ THE PROMPT EXISTED FOR ONE REASON AND THAT REASON IS NOW HANDLED. It said
-           "their bin in the warehouse is physically labelled with this number, so a
-           change is flagged rather than made silently" — and the danger was that moving
-           the number left the warehouse hunting for a bin that does not exist.
-           binLabelNumber records what the bin actually says and the recycle queue sends
-           them to THAT, so the change is no longer silent, it is just no longer a
-           question. Said in a toast rather than a dialog.
-
-           ⚠ AND ONLY ON A CONVERSION. An ordinary edit that happens to change the
-           footage is not somebody working through a re-quote, and moving a live
-           customer's number underneath them without asking is a different thing. That
-           still asks. */
-        const autoMove = !!requoteBeingConverted;
-        if(autoMove || confirm(msg)){
+        if(confirm(msg)){
           addrUpdates.customerNumber = suggested;
-          if(autoMove){
-            toast('#' + existingNum + ' \u2192 #' + suggested + ' \u2014 ' + newMeasuredFeet +
-              ' ft needs ' + binsForFeet + ' bins. The recycle list still says #' +
-              existingNum + ', which is what their bin is labelled.');
-          }
           addrUpdates.numberOfBins = binsForFeet;
           /* ⚠ AND THE POOL BOOKKEEPING CANNOT BE ALLOWED TO LOSE THE SAVE. These two
              writes run BEFORE the customer is written and the first was unguarded, so
@@ -27121,31 +26428,6 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        the ReQuotes wording instead of the new-customer one. */
     const feetChanged = Number(d.measuredFeet || 0) !== Number(newMeasuredFeet || 0);
     const addressChanged = String(d.address || '').trim().toLowerCase() !== String(newAddress || '').trim().toLowerCase();
-    /* ⭐ AND A PRICE CHANGE ASKS. Owner, 2026-08-21: "we need to set up for price change
-       so when you go to edit customer and change the price it gives you the option if you
-       want to requote or not requote."
-
-       ⚠ FEET AND ADDRESS RAISE ONE WITHOUT ASKING, AND THAT IS RIGHT — the house is
-       measurably different, so the price they agreed to no longer describes it. A price
-       typed on its own is not the same thing. Correcting a typo, applying a discount
-       already agreed on the phone, rounding to the nearest ten: none of those need the
-       customer asked again, and raising a card for every one of them is how the Quotes
-       tab fills with work nobody has to do.
-
-       ⚠ SO IT ASKS, AND ONLY WHEN NOTHING ELSE HAS ALREADY DECIDED. If the feet or the
-       address moved, a re-quote is going up anyway and a second question about the same
-       edit is noise. Nor while a re-quote is being APPLIED — the new price IS the answer
-       to a re-quote already in hand, and asking would raise one for the change that just
-       resolved the last, which never terminates. */
-    const priceChanged = Number(d.housePrice || 0) !== Number(newHousePrice || 0);
-    let priceWantsRequote = false;
-    let priceRequoteNote = '';
-    if(priceChanged && !feetChanged && !addressChanged && !requoteBeingConverted){
-      const answer = await askPriceRequote(newName || (d.name || 'this customer'),
-        Number(d.housePrice || 0), Number(newHousePrice || 0));
-      priceWantsRequote = !!(answer && answer.raise);
-      priceRequoteNote = (answer && answer.note) || '';
-    }
     /* ⭐ APPLYING A RE-QUOTE CONFIRMS THEM FOR THE SEASON. Owner, 2026-08-20: "new
        hangs color changes and requotes should be automatically updated into the yes
        sheet because obviously they are confirmed." They have just agreed a new price;
@@ -27156,14 +26438,6 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        ⚠ AND NOT requotedAt, which already exists and lives on the QUOTE document.
        A tab reading customer data would never see it: a branch that looks right and
        can never run. */
-    /* ⭐ REMEMBER WHAT THE BIN SAYS BEFORE THE NUMBER MOVES. See whBinNumberFor: the
-       bin on the shelf keeps its old label until somebody physically goes to it, and
-       the recycle queue is how they are sent to find it. Written once — if the number
-       moves again before the set comes back, the bin still wears the first one. */
-    if(oldCustNumber && addrUpdates.customerNumber !== oldCustNumber &&
-       !String(d.binLabelNumber || '').trim()){
-      addrUpdates.binLabelNumber = oldCustNumber;
-    }
     if(requoteBeingConverted) addrUpdates.requoteAppliedAt = serverTimestamp();
     await updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates);
     /* Pool bookkeeping, after the record is safely written. Each half is
@@ -27215,19 +26489,14 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     }
     /* ⚠ NOT while a re-quote is being applied. The re-quote in hand IS this
        change; raising another for it is a loop the office cannot finish. */
-    if((feetChanged || addressChanged || priceWantsRequote) && !requoteBeingConverted){
+    if((feetChanged || addressChanged) && !requoteBeingConverted){
       try{
         const already = quotesCache.find(function(q){
           return q.data.existingCustomerId === editCustomerId && quoteStage(q.data) === 'new';
         });
         const changeNote = feetChanged
           ? {what:'feet', oldFeet: Number(d.measuredFeet || 0), newFeet: Number(newMeasuredFeet || 0), oldPrice: Number(d.housePrice || 0)}
-          : addressChanged
-          ? {what:'address', oldAddress: String(d.address || '')}
-          /* A price on its own. The card has to say what moved, or somebody picking it
-             up sees a re-quote with the same feet and the same address and no reason. */
-          : {what:'price', oldPrice: Number(d.housePrice || 0), newPrice: Number(newHousePrice || 0),
-             why: priceRequoteNote};
+          : {what:'address', oldAddress: String(d.address || '')};
         if(already){
           /* One open re-quote per customer - editing twice before sending it
              should update the card, not stack up a second one. */
@@ -37172,9 +36441,7 @@ function printRecycleList(){
   const rows = [];
   const add = function(d){
     if(!d) return;
-    /* The number on the BIN, not the one on the record — see whBinNumberFor. */
-    rows.push({number: (typeof whBinNumberFor === 'function')
-      ? whBinNumberFor(d) : (d.customerNumber || ''), name: d.name || ''});
+    rows.push({number: d.customerNumber || '', name: d.name || ''});
   };
   if(typeof jobAddresses !== 'undefined'){
     jobAddresses.forEach(function(a){
