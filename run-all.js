@@ -6704,190 +6704,56 @@ suite('22. Building the crew-days the season needs');
       rescueSrc.indexOf('const planned = addTowns[j]') !== -1,
       'without it the guard is right for one house at a time and wrong for the pair');
 
-    /* ⭐ TWO SHORT DAYS BEAT A FULL ONE AND A STUB (added 2026-08-20). Owner: "we
-       want to prioritze 1 crew over one man crew so at the begining of the season try
-       to fill up the days that would be 1 mans with a few people who said Any or blank
-       and preffered date and try to fill them up to 12-15 even if that means not every
-       day is at 40 before that."
+    /* ⭐ A FULL CREW-DAY, EVERY TIME (settled 2026-08-20). Owner, after two
+       different attempts at a tidier tail were built and shown to her: "actually no we
+       dont want to fill up 1 man days to 15 because we want to prioritize everyday
+       having 40 houses more than the ending days having 15 because the one man days
+       will fill up so it just needs to recalculate it so it turns to 1 or two crew
+       rather than staying one man."
 
-       Filling to the cap and moving on is what MAKES one-man days: twenty-eight waiting
-       gives twenty today and eight tomorrow, and eight is a morning for one person.
-       Fourteen and fourteen is two proper crew days out of the same houses and the same
-       number of mornings. */
+       ⚠ TWO MECHANISMS WERE REMOVED AND BOTH ARE MEANT TO STAY REMOVED. Reserving
+       flexible people for a town's late openers, and trimming a crew-day so the
+       leftover reached fifteen. Each produced a neater tail and a slower start, and the
+       start is what she cares about — forty houses a day early is how the season does
+       not fall behind.
+
+       A short day at the end is not the builder's problem to solve, because it FILLS
+       ITSELF: crews do not finish every house every day, the leftovers roll forward,
+       and the next recalculation lays them out again. These checks exist so nobody
+       rebuilds either mechanism thinking they are fixing something. */
     const sizesOf = (built) => built.map(d => d.ids.length).join();
 
-    let split = api.plan(who(28, 'Lehi'), {}, { floorDate: '2026-10-01' });
-    check('build', 'a town of 28 splits 14 and 14 rather than 20 and a stub of 8',
-      sizesOf(split) === '14,14',
-      'got ' + sizesOf(split) + ' — eight is one man on his own for a whole morning');
-    check('build', 'and nobody is lost in the split',
-      split.reduce((n, d) => n + d.ids.length, 0) === 28);
+    check('build', 'a town of 28 is a full crew-day and then eight',
+      sizesOf(api.plan(who(28, 'Lehi'), {}, { floorDate: '2026-10-01' })) === '20,8',
+      'the eight is not a bug — it is the end of the town, and it grows on its own ' +
+      'from whatever the crews do not finish');
+    check('build', 'and a town of 48 is 20, 20 and 8',
+      sizesOf(api.plan(who(48, 'Lehi'), {}, { floorDate: '2026-10-01' })) === '20,20,8');
+    check('build', 'nothing is trimmed to make the leftover look better',
+      sizesOf(api.plan(who(32, 'Lehi'), {}, { floorDate: '2026-10-01' })) === '20,12',
+      'seventeen and fifteen was tried and overruled');
 
-    split = api.plan(who(25, 'Lehi'), {}, { floorDate: '2026-10-01' });
-    check('build', 'twenty-five comes out 13 and 12, both inside her 12 to 15',
-      sizesOf(split) === '13,12',
-      'got ' + sizesOf(split));
-
-    /* ⚠ ONLY WHEN THE LEFTOVER WOULD ACTUALLY BE A ONE-MAN DAY. A remainder of
-       twelve is a one-crew day, and she is explicit that one crew is fine — reshaping
-       a day that was already going to work costs a full crew-day for nothing. */
-    split = api.plan(who(32, 'Lehi'), {}, { floorDate: '2026-10-01' });
-    check('build', 'a town of 32 still fills to twenty, because twelve is a fine day',
-      sizesOf(split) === '20,12',
-      'got ' + sizesOf(split) + ' — twelve is one crew, not one man');
-
-    /* And it keeps working down a long town rather than only fixing the first pair. */
-    split = api.plan(who(48, 'Lehi'), {}, { floorDate: '2026-10-01' });
-    check('build', 'a town of 48 comes out 20, 14, 14 rather than 20, 20 and 8',
-      sizesOf(split) === '20,14,14',
-      'got ' + sizesOf(split) + ' — the stub only appears on the last pair, so the ' +
-      'look-ahead has to run every day and not just the first');
-
-    /* ⭐ THE TAIL SHE ACTUALLY REPORTED. Owner, reading the end of her season: "Fri
-       Nov 20, 3 left, Provo... Tue Dec 1, 4 left... these days did not get filled up to
-       15 when they shouldve because thats the ideal number for one crew days and we
-       want one crews not one mans when possible."
-
-       ⚠ AND THE FIRST VERSION OF THE SPLIT COULD NOT SEE IT. It counted only what
-       was allowed out TODAY. A town of 43 where three of them said November has forty
-       allowed in October: the split saw forty, saw no stub coming, made two clean days
-       of twenty — and the three November houses opened afterwards with nobody left in
-       that town to share a day with. The arithmetic was right and the number was wrong.
-
-       This fixture is that town, and it is the one that matters: every other check in
-       this block has every house eligible from day one, so none of them can fail on it. */
-    const octLehi = who(40, 'Lehi');
-    const novLehi = Array.from({ length: 3 }, (_, k) => ({
-      id: 'nov-' + k, city: 'Lehi', priority: 3, from: '2026-11-01', named: false }));
-    const tail = api.plan(octLehi.concat(novLehi), {}, { floorDate: '2026-10-01' });
-    const smallest = Math.min.apply(null, tail.map(d => d.ids.length));
-
-    check('build', 'three November houses do not end up on a day of their own',
-      smallest > 8,
-      'got days of ' + sizesOf(tail) + ' — the smallest is ' + smallest + ', and ' +
-      'anything of eight or fewer is one man on his own for a morning');
-    check('build', 'and everybody is still scheduled',
-      tail.reduce((n, d) => n + d.ids.length, 0) === 43);
-
-    /* ⚠ THE PEOPLE HELD BACK ARE THE FLEXIBLE ONES, and nothing here chooses them.
-       Owner: "you can use pref date any or blank for that." The queue is priority
-       ordered, so taking from the front takes the urgent and leaves whoever minded
-       least — which is what ends up keeping the November houses company. */
-    const urgentFirst = api.plan(
-      Array.from({ length: 12 }, (_, k) => ({ id: 'oct-' + k, city: 'Lehi',
-        priority: 1, from: '2026-10-01', named: false })).concat(
-      Array.from({ length: 11 }, (_, k) => ({ id: 'any-' + k, city: 'Lehi',
-        priority: 2, from: '2026-10-01', named: false }))),
-      {}, { floorDate: '2026-10-01' });
-    check('build', 'the urgent ones go first and the flexible ones are what is held back',
-      urgentFirst[0].ids.filter(id => /^oct-/.test(id)).length === 12,
-      'got ' + urgentFirst[0].ids.filter(id => /^oct-/.test(id)).length + ' of the ' +
-      'twelve urgent on the first day — holding an October house back to keep a ' +
-      'November one company is robbing one to pay the other');
-
-    /* ⚠ A TOWN WHOSE LATE GROUP IS BIG IS LEFT ALONE. Twenty now and forty in
-       November is two full days and then two more — nothing is stranded, and shrinking
-       October to smooth a tail that does not exist costs a crew-day for nothing. */
-    const bigLater = api.plan(who(20, 'Lehi').concat(
-      Array.from({ length: 40 }, (_, k) => ({ id: 'lots-' + k, city: 'Lehi',
+    /* ⚠ AND NOBODY IS HELD BACK FOR A LATE GROUP. A town of forty where three said
+       November gives two full October days and a November day of three. That three is
+       exactly what she is content with: it will pick up the houses October did not
+       finish, and the rescue turns it into a real crew day when it does. */
+    const lateGroup = api.plan(who(40, 'Lehi').concat(
+      Array.from({ length: 3 }, (_, k) => ({ id: 'nov-' + k, city: 'Lehi',
         priority: 3, from: '2026-11-01', named: false }))),
       {}, { floorDate: '2026-10-01' });
-    check('build', 'a full October day is not shrunk for a November group that is fine',
-      bigLater[0].ids.length === 20,
-      'got ' + bigLater[0].ids.length + ' on the first day');
-
-    /* ⭐ AND IT ONLY EVER BORROWS FROM THE SAME CITY. Owner: "you only want to get
-       it up to 15 if its one city plus a neighboring, if its not then you just have a
-       day that doesnt qualify for one crew because it does to many cities and its a one
-       man and thats a bigger problem."
-
-       A three-house town with nobody else in it stays a three-house day. Topping it up
-       from a town down the road would buy a day of fifteen at the price of a crew
-       driving two cities that are not neighbours — which is not a one-crew day at all,
-       so the one-man day comes back AND the sheet is now undrivable. Better to leave it
-       small, list it under One Man Installs, and let the office see it. */
-    const twoTowns = api.plan(who(40, 'Lehi').concat(
-      Array.from({ length: 3 }, (_, k) => ({ id: 'orem-nov-' + k, city: 'Orem',
-        priority: 3, from: '2026-11-01', named: false }))),
-      {}, { floorDate: '2026-10-01' });
-    const oremDay = twoTowns.filter(d => d.ids.some(id => /^orem-nov-/.test(id)))[0];
-
-    check('build', 'a town with nobody to spare is left small rather than mixed',
-      !!oremDay && oremDay.ids.every(id => /^orem-nov-/.test(id)),
-      'got ' + (oremDay ? oremDay.ids.slice(0, 6).join(' ') : 'no day at all') + ' — ' +
-      'filling it from Lehi would hand a crew two towns that are not neighbours');
-    check('build', 'and the other town keeps all of its own people',
-      twoTowns.filter(d => d.ids.some(id => /^Lehi/.test(id)))
+    check('build', 'October is not shrunk to keep three November houses company',
+      lateGroup.filter(d => d.date < '2026-11-01')
         .reduce((n, d) => n + d.ids.length, 0) === 40,
-      'nobody is taken out of a town that had no problem to solve');
+      'got ' + sizesOf(lateGroup) + ' — every October house still goes out in October');
+    check('build', 'and everybody is still scheduled',
+      lateGroup.reduce((n, d) => n + d.ids.length, 0) === 43);
 
-    /* ⚠ AND A NAMED DAY IS NEVER THE ONE HELD BACK. They asked for a date; moving
-       them to keep somebody else company is the one thing this must not do. */
-    const withNamed = api.plan([
-      { id: 'named-1', city: 'Lehi', priority: 2, from: '2026-10-01', named: true },
-      { id: 'deadline-1', city: 'Lehi', priority: 2, from: '2026-10-01', until: '2026-10-31',
-        named: false }
-    ].concat(
-      Array.from({ length: 5 }, (_, k) => ({ id: 'nov-' + k, city: 'Lehi',
-        priority: 3, from: '2026-11-01', named: false }))),
-      {}, { floorDate: '2026-10-01' });
-    const octDay = withNamed.filter(d => d.date < '2026-11-01')[0];
-    check('build', 'somebody who named a day is not held back to fill a later one',
-      !!octDay && octDay.ids.indexOf('named-1') !== -1,
-      'they asked for that date, and this is explicitly below their timing');
-    check('build', 'and neither is anybody with a deadline',
-      !!octDay && octDay.ids.indexOf('deadline-1') !== -1,
-      'a house that must be done by the 31st cannot be parked in November');
-
-    /* ⚠ A LATE GROUP THAT IS ALREADY A FINE DAY IS LEFT ALONE. Ten in November is a
-       one-crew day and there is nothing to solve; reserving for it would shrink a full
-       October day to buy fifteen and fifteen, which is a crew-day spent on tidiness. */
-    const fineLater = api.plan(who(20, 'Lehi').concat(
-      Array.from({ length: 10 }, (_, k) => ({ id: 'nov10-' + k, city: 'Lehi',
-        priority: 3, from: '2026-11-01', named: false }))),
-      {}, { floorDate: '2026-10-01' });
-    check('build', 'nothing is reserved for a late group that is already a crew day',
-      fineLater.filter(d => d.date < '2026-11-01')
-        .reduce((n, d) => n + d.ids.length, 0) === 20,
-      'got ' + fineLater.map(d => d.ids.length).join() + ' — ten is one crew, not one man');
-
-    /* ⚠ AND IT NEVER LEAVES A STUB BEHIND EITHER. Ten flexible and eight in November:
-       taking the seven that reach fifteen would leave three in October, which is a
-       one-man day created to prevent a one-man day. All ten go instead, and the town
-       simply works one later day. */
-    const wouldStub = api.plan(
-      Array.from({ length: 10 }, (_, k) => ({ id: 'flex-' + k, city: 'Lehi',
-        priority: 3, from: '2026-10-01', named: false })).concat(
-      Array.from({ length: 8 }, (_, k) => ({ id: 'nov8-' + k, city: 'Lehi',
-        priority: 3, from: '2026-11-01', named: false }))),
-      {}, { floorDate: '2026-10-01' });
-    check('build', 'reserving never leaves a stub in the earlier group',
-      Math.min.apply(null, wouldStub.map(d => d.ids.length)) > 8,
-      'got ' + wouldStub.map(d => d.ids.length).join() + ' — three in October is the ' +
-      'same problem wearing a different date. ⚠ THIS ASSERTS THE OUTCOME, not the ' +
-      'guard: the near-empty rescue also sweeps a stub like that, so deleting the ' +
-      'guard leaves this green. It is kept as defence in depth, because the rescue ' +
-      'can only help when the town rules and the room allow');
-
-    /* ⭐ THE ONES HELD BACK ARE THE LEAST URGENT, and this is the only fixture that
-       can tell. Everywhere else the flexible people are the only candidates anyway, so
-       a red-check reversing the sort changes nothing — here half of October is urgent
-       and half is not, and only seven need to move. */
-    const mixedUrgency = api.plan(
-      Array.from({ length: 8 }, (_, k) => ({ id: 'urgent-' + k, city: 'Lehi',
-        priority: 1, from: '2026-10-01', named: false })).concat(
-      Array.from({ length: 8 }, (_, k) => ({ id: 'relaxed-' + k, city: 'Lehi',
-        priority: 3, from: '2026-10-01', named: false })),
-      Array.from({ length: 8 }, (_, k) => ({ id: 'nov-late-' + k, city: 'Lehi',
-        priority: 3, from: '2026-11-01', named: false }))),
-      {}, { floorDate: '2026-10-01' });
-    const novDay = mixedUrgency.filter(d => d.date >= '2026-11-01');
-    const urgentHeld = novDay.reduce((n, d) =>
-      n + d.ids.filter(id => /^urgent-/.test(id)).length, 0);
-    check('build', 'the people held back are the least urgent ones',
-      urgentHeld === 0,
-      'got ' + urgentHeld + ' urgent houses pushed into November — she ranked this ' +
-      'above doing Any people early, not above doing anybody at all early');
+    /* The near-empty-day rescue is what turns a short day into a crew day, and it is
+       still tuned to fire only on genuinely one-man ones. That is the half of all this
+       that survived. */
+    check('build', 'a wasted morning still means a one-man day, not a quiet one',
+      /ONE_MAN_MAX_HOUSES/.test(admin.slice(start, end)),
+      'this is the mechanism she is relying on to turn one-man days into crews');
 
     /* ⚠ A TOWN THAT FITS IN ONE DAY IS LEFT ALONE. There is no stub to avoid, and
        halving it would invent a second morning out of nothing. */
