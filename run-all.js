@@ -19929,6 +19929,224 @@ suite('Suite 107. Pricing a re-quote from the popup');
     'telling somebody what is wrong without telling them what to do is the dead end again');
 }
 
+/* ⭐ SUITE 108. THE EDIT CUSTOMER SAVE, RUN RATHER THAN READ. Owner, 2026-08-20, on
+   Ashley Wray: "everything is still not working", then "the quote wont dissapear and
+   warehouse isnt being updated."
+
+   Every check that existed read this handler as TEXT and every one of them passed. The
+   handler is thirty-six thousand characters long and its outer catch swallowed the
+   error whole — five grey words, no console line — so a failure looked exactly like a
+   button that does nothing. Running it against a fake page and a fake Firestore showed
+   it doing all three things correctly, which is what proved the fault was a runtime
+   error being hidden rather than the logic being wrong.
+
+   Same lesson as Suite 10 and syncPayerInvoice: a regex cannot catch an undefined
+   variable, or a write that throws. Executing the code can. */
+/* ⭐ MARKING IT APPROVED YOURSELF IS THE OVERRIDE. Owner, 2026-08-20: "there should be
+   an override where I dont have to email it to them, and that override is if i manually
+   click the they approved for them."
+
+   ⚠ AN APPROVED QUOTE USED TO SIT WAITING ON A FORM THE CUSTOMER WAS NEVER SENT.
+   Ready to Convert means approved AND the detail form done, which is right when they
+   answered through the portal — the form is how the details arrive. It is wrong when
+   the office took the answer on the phone and never emailed anything, and on a re-quote
+   the details are already on the customer record. */
+suite('Suite 110. Approving it for them, with no email');
+
+{
+  const stage = new Function('d', 'quoteAlreadyACustomer', 'quoteHasBeenSent',
+    extractFn(admin, 'quoteStage') + 'return quoteStage(d);');
+  const St = (d) => stage(d, () => false, () => false);
+
+  check('S110', 'approved through the portal with the form done is ready to convert',
+    St({quotedPrice: 600, approvalStatus: 'approved', formCompleted: true}) === 'form',
+    'nothing about the ordinary path changes');
+  check('S110', 'approved in the office is ready to convert too, with no form',
+    St({quotedPrice: 600, approvalStatus: 'approved', approvedByOffice: true}) === 'form',
+    'there is no form coming — nobody was ever emailed');
+  check('S110', 'but approved with neither still waits',
+    St({quotedPrice: 600, approvalStatus: 'approved'}) === 'send',
+    'a customer who approved through the portal and has not filled the form in yet ' +
+    'is genuinely not ready, and that is what the form stage is for');
+  check('S110', 'and the override does not rescue a declined quote',
+    St({quotedPrice: 600, approvalStatus: 'declined', approvedByOffice: true}) === 'closed',
+    'declined is closed however it got there');
+  check('S110', 'nor make an unpriced quote ready',
+    St({approvalStatus: 'approved', approvedByOffice: true}) === 'new',
+    'converting a quote with no price is the dead end this all started with');
+
+  /* ⚠ RECORDED, NOT INFERRED. "Approved but never sent" is not the same test: a quote
+     CAN be sent and then approved over the phone, and that is the same override. */
+  {
+    const at = admin.indexOf("list.querySelectorAll('[data-markapproval]')");
+    const blk = at > 0 ? admin.slice(at, admin.indexOf('});', admin.indexOf('toast(label)', at))) : '';
+    check('S110', 'the Mark Approved handler was found', !!blk);
+    check('S110', 'pressing Mark Approved records that the office answered',
+      /approvedByOffice = true/.test(blk) && /approvedByOfficeAt/.test(blk),
+      'inferring it from "never sent" would miss an answer taken on the phone after ' +
+      'the email went out');
+    check('S110', 'and records who',
+      /approvedByOfficeUser/.test(blk),
+      'four people share this dashboard');
+    check('S110', 'and changing the answer takes the override back with it',
+      /approvedByOffice = false/.test(blk),
+      'Maybe Next Year after an office approval must not stay ready to convert');
+  }
+
+  check('S110', 'and the card says the office answered, so nobody wonders later',
+    /Marked approved in the office/.test(admin) && /no email needed/.test(admin),
+    '"Approved" with no email ever sent is a question somebody asks later');
+}
+
+suite('Suite 108. The Edit Customer save, actually run');
+
+{
+  const at = admin.indexOf("document.getElementById('editCustSaveBtn').addEventListener('click', async function(){");
+  let brace = admin.indexOf('{', admin.indexOf('async function()', at));
+  let depth = 0, k = brace;
+  if (at > 0) {
+    for (;;) {
+      if (admin[k] === '{') depth++;
+      else if (admin[k] === '}') { depth--; if (!depth) break; }
+      k++;
+    }
+  }
+  const handlerSrc = at > 0 ? admin.slice(brace + 1, k) : '';
+  check('S108', 'the save handler was found to run', !!handlerSrc);
+
+  const AsyncFn = Object.getPrototypeOf(async function(){}).constructor;
+
+  /* Ashley's own situation: 300 ft against a regular number, a re-quote in hand, and
+     recycle-old-build-new chosen on the popup. */
+  function runSave(opts) {
+    const o = opts || {};
+    const FIELDS = {editCustName: 'Ashley Wray', editCustPhone: '8016160714',
+      editCustEmail: 'wraynash@gmail.com', editCustAddress: '9991 Red Cedar Ln, Highland, UT',
+      editCustHousePrice: '600', editCustFeet: '300', editCustNumber: '894',
+      editCustRsvp: 'yes'};
+    const els = {};
+    const elm = (id) => els[id] || (els[id] = {id: id,
+      value: FIELDS[id] !== undefined ? FIELDS[id] : '', textContent: '', innerHTML: '',
+      checked: false, disabled: false, style: {}, dataset: {},
+      classList: {add(){}, remove(){}, toggle(){}}, addEventListener(){},
+      querySelectorAll: () => [], querySelector: () => null, closest: () => null,
+      focus(){}, click(){}});
+    const writes = [];
+    const errs = [];
+    const ctx = {
+      document: {getElementById: elm, querySelectorAll: () => [], querySelector: () => null,
+                 createElement: () => elm('_t')},
+      doc: (db, col, id) => ({col: col, id: id}),
+      collection: (db, col) => ({col: col}),
+      updateDoc: async (r, p) => { writes.push({op:'update', col:r.col, id:r.id, payload:p}); },
+      setDoc: async (r, p) => {
+        if (o.breakPool && r.col === 'availableCustomerNumbers') throw new Error('Missing or insufficient permissions.');
+        writes.push({op:'set', col:r.col, id:r.id, payload:p});
+      },
+      deleteDoc: async (r) => { writes.push({op:'delete', col:r.col, id:r.id}); },
+      addDoc: async (r, p) => { writes.push({op:'add', col:r.col, payload:p}); return {id:'n1'}; },
+      getDoc: async () => ({exists: () => false, data: () => ({})}),
+      serverTimestamp: () => 'NOW', db: {},
+      editCustomerId: 'c894', editCustOpenedWithUpdatedAt: null,
+      requoteBeingConverted: o.noRequote ? null : 'q1',
+      requoteBuildChoice: o.noRequote ? null : {mode: 'recycle'},
+      editCustLayoutMapUrl: '',
+      jobAddresses: [{id: 'c894', data: {name: 'Ashley Wray', phone: '8016160714',
+        email: 'wraynash@gmail.com', address: '9991 Red Cedar Ln, Highland, UT',
+        customerNumber: '894', housePrice: 600, measuredFeet: 0, rsvpStatus: 'yes',
+        updatedAt: null}}],
+      quotesCache: [{id: 'q1', data: {existingCustomerId: 'c894', quotedPrice: 600}}],
+      allInvoicesCache: [], warehouseExtras: [], perFootRate: 2, FEET_PER_BUNDLE: 100,
+      CN_DOUBLE_BIN_FEET: 260,
+      confirm: () => true, alert: () => {},
+      toast: (t) => errs.push(t),
+      console: {error: (a, b) => errs.push(String(a) + ' ' + String(b && b.message || b)),
+                log: () => {}, warn: () => {}},
+      logActivity: () => {}, paymentLedgerUser: () => 'test',
+      cnBinsForFeet: (f) => (Number(f) >= 260 ? 2 : 1),
+      cnNextAvailable: () => ({number: '5001', fromPool: false}),
+      compileLightsDescription: () => '', computeInvoiceStatus: () => 'Unpaid',
+      custInvoiceKey: (d) => String(d.phone || '').replace(/[^0-9]/g, ''),
+      allCustInvoiceFor: () => null, contactIndexFields: () => ({}),
+      extractCleanCity: () => 'Highland', generatePortalToken: () => 'tok',
+      geocodeAddress: async () => ({lat: 40, lng: -111}),
+      houseSideCount: () => 1, quoteStage: () => 'send',
+      removeCustomerFromUpcomingRoutes: async () => {},
+      resyncSavedRouteStops: async () => {}, syncPayerInvoice: async () => {},
+      requoteRestoreSaveLabel: () => {}
+    };
+    const names = Object.keys(ctx);
+    const fn = new AsyncFn(...names, handlerSrc);
+    return fn(...names.map(n => ctx[n])).then(function(){
+      const cust = writes.find(w => w.col === 'jobAddresses' && w.op === 'update');
+      const quote = writes.find(w => w.col === 'quotes');
+      return {writes: writes, errs: errs, cust: cust, quote: quote,
+              status: (els.editCustStatus || {}).textContent || ''};
+    });
+  }
+
+  if (handlerSrc) pendingAsync.push((async () => {
+    const ok = await runSave({});
+    check('S108', 'an ordinary re-quote save writes the customer',
+      !!ok.cust && ok.cust.payload.measuredFeet === 300,
+      'the whole flow depends on this one write');
+    check('S108', 'and closes the re-quote card',
+      !!ok.quote && ok.quote.payload.status === 'closed',
+      'owner: "the quote wont dissapear"');
+    check('S108', 'and tells the warehouse',
+      !!ok.cust && ok.cust.payload.needsLightRecycle === true &&
+      ok.cust.payload.needsLightBuild === true,
+      'owner: "warehouse isnt being updated"');
+    check('S108', 'and moves them onto the number series the footage needs',
+      !!ok.cust && ok.cust.payload.customerNumber === '5001',
+      '300 ft is 2 bins, which is a 5000-series bin');
+
+    /* ⚠ AND ONE FAILING WRITE TO THE NUMBER POOL USED TO LOSE ALL OF IT. Those two
+       pool writes run BEFORE the customer is written and the first was unguarded, so a
+       dropped connection or an expired sign-in threw straight past the customer record,
+       the re-quote card and the warehouse flags — producing exactly the three symptoms
+       reported, and saying nothing at all. */
+    const broke = await runSave({breakPool: true});
+    check('S108', 'the customer is still saved when the number pool write fails',
+      !!broke.cust && broke.cust.payload.measuredFeet === 300,
+      'the pool is recoverable by hand from the Customer Numbers panel; a lost save ' +
+      'is not, and this is the exact shape of what the owner was seeing');
+    check('S108', 'and the re-quote still closes',
+      !!broke.quote && broke.quote.payload.status === 'closed');
+    check('S108', 'and the warehouse is still told',
+      !!broke.cust && broke.cust.payload.needsLightRecycle === true);
+    check('S108', 'and the pool failure is at least written to the console',
+      broke.errs.some(e => /pool/i.test(e)),
+      'silently losing the bin number is how two bins end up wearing one label');
+
+    /* ⭐ AND A SAVE THAT REALLY FAILS SAYS WHAT FAILED. */
+    const dead = await (async function(){
+      const saved = handlerSrc;
+      return null;
+    })();
+    check('S108', 'the catch no longer swallows the error',
+      !/Something went wrong/.test(handlerSrc) &&
+      /console\.error\('Edit Customer save failed:'/.test(handlerSrc) &&
+      /Nothing was saved/.test(handlerSrc),
+      'five grey words and no console line is not something anybody can act on, ' +
+      'here or on the phone');
+
+    /* Nothing about an ordinary save changes. */
+    const plain = await runSave({noRequote: true});
+    check('S108', 'an ordinary edit still saves and closes no card',
+      !!plain.cust && !plain.writes.some(w => w.col === 'quotes' && w.op === 'update'),
+      'opening somebody to fix a phone number must not close a card');
+    /* Changing the feet outside a re-quote RAISES one, which is the documented rule
+       and the reason requoteBeingConverted exists at all. */
+    check('S108', 'and changing the feet outside a re-quote raises one',
+      plain.writes.some(w => w.col === 'quotes' && w.op === 'add'),
+      'a new price has to go back to the customer for approval');
+    check('S108', 'and does not flag the warehouse',
+      !!plain.cust && plain.cust.payload.needsLightRecycle !== true,
+      'the recycle flag belongs to the re-quote choice, not to every save');
+  })());
+}
+
 suite('Suite 92. A day inside 48 hours is printed, and printed is finished');
 
 {

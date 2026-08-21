@@ -6908,7 +6908,18 @@ function quoteStage(d){
      Ready to Convert means approved AND the form is actually done, so nothing
      lands there half-filled. Anyone we are still waiting on, for either the
      answer or the form, sits in Awaiting Response. */
-  if(d.approvalStatus === 'approved' && d.formCompleted) return 'form';
+  /* ⭐ AND MARKING IT APPROVED YOURSELF IS THE OVERRIDE. Owner, 2026-08-20: "there
+     should be an override where I dont have to email it to them, and that override is
+     if i manually click the they approved for them."
+
+     ⚠ AN APPROVED QUOTE USED TO SIT HERE FOR EVER WAITING ON A FORM THE CUSTOMER WAS
+     NEVER SENT. Ready to Convert means approved AND the detail form done, which is
+     right when the customer answered through the portal — the form is how the details
+     arrive. It is wrong when the office took the answer on the phone and never emailed
+     anything: there is no form coming, and on a RE-QUOTE the details are already on the
+     customer record anyway. So the office saying yes on their behalf stands in for the
+     form, and the card moves on. */
+  if(d.approvalStatus === 'approved' && (d.formCompleted || d.approvedByOffice)) return 'form';
   return 'send';
 }
 /* Which of the three quote templates a card should use. Names are picked in
@@ -8664,7 +8675,11 @@ function renderQuoteRows(filtered){
                  the first and there is no way to tell which price they said yes
                  to. */
               const again = Number(d.requoteCount) > 0;
-              if(st === 'approved') return '<div class="rtext" style="margin-top:8px; color:#2E6B3E; font-weight:600;">&#10003; Approved'+(again ? ' again' : '')+(d.quoteRespondedAt ? ' &mdash; '+fmtDate(d.quoteRespondedAt) : '')+(again ? ' at '+fmtMoney(d.quotedPrice) : '')+'</div>';
+              if(st === 'approved') return '<div class="rtext" style="margin-top:8px; color:#2E6B3E; font-weight:600;">&#10003; Approved'+(again ? ' again' : '')+(d.quoteRespondedAt ? ' &mdash; '+fmtDate(d.quoteRespondedAt) : '')+(again ? ' at '+fmtMoney(d.quotedPrice) : '')+'</div>'+
+                /* Said out loud, because "Approved" with no email ever sent is a
+                   question somebody will ask later and nothing else on the card
+                   answers it. */
+                (d.approvedByOffice ? '<div class="rtext" style="color:var(--slate); margin-top:2px;">Marked approved in the office'+(d.approvedByOfficeUser ? ' by '+esc(d.approvedByOfficeUser) : '')+' &mdash; no email needed. Ready to convert.</div>' : '');
               if(st === 'declined') return '<div class="rtext" style="margin-top:8px; color:var(--ember); font-weight:600;">Declined'+(d.quoteRespondedAt ? ' &mdash; '+fmtDate(d.quoteRespondedAt) : '')+'</div>'+
                 '<button type="button" class="btn btn-outline btn-sm" data-markapproval="'+item.id+'" data-value="approved" style="margin-top:6px;">Actually, Mark Approved'+(again ? ' Again' : '')+'</button>';
               if(st === 'maybe_next_year') return '<div class="rtext" style="margin-top:8px; color:#8A6100; font-weight:600;">Maybe Next Year'+(d.quoteRespondedAt ? ' &mdash; '+fmtDate(d.quoteRespondedAt) : '')+'</div>'+
@@ -9613,6 +9628,19 @@ function renderQuoteRows(filtered){
       if(value === 'declined' && !confirm('Mark this quote as declined?\n\nIt will be archived \u2014 nothing is deleted, and you can restore it any time.')) return;
       try{
         const updates = {approvalStatus: value, quoteRespondedAt: serverTimestamp()};
+        /* ⭐ WHO SAID YES. An approval typed in by the office is not the same event as
+           one the customer clicked, and only this one stands in for the detail form
+           (see quoteStage). Recorded rather than inferred from "approved but never
+           sent", because a quote CAN be sent and then approved over the phone, and that
+           is the same override. */
+        if(value === 'approved'){
+          updates.approvedByOffice = true;
+          updates.approvedByOfficeAt = serverTimestamp();
+          updates.approvedByOfficeUser = (typeof paymentLedgerUser === 'function') ? paymentLedgerUser() : '';
+        } else {
+          /* Changing the answer to anything else takes the override back with it. */
+          updates.approvedByOffice = false;
+        }
         if(value === 'declined'){
           updates.quoteArchived = true;
           updates.quoteArchivedAt = serverTimestamp();
@@ -25971,6 +25999,9 @@ document.getElementById('editCustCancelBtn').addEventListener('click', function(
 document.getElementById('editCustSaveBtn').addEventListener('click', async function(){
   if(!editCustomerId) return;
   const statusEl = document.getElementById('editCustStatus');
+  /* A failure from the last attempt is still on screen in red; clear it, or a save
+     that works looks like the one that did not. */
+  statusEl.style.color = '';
   const item = jobAddresses.find(a => a.id === editCustomerId);
   if(!item) return;
   const d = item.data;
@@ -26237,7 +26268,18 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
         if(confirm(msg)){
           addrUpdates.customerNumber = suggested;
           addrUpdates.numberOfBins = binsForFeet;
-          await setDoc(doc(db,'availableCustomerNumbers', existingNum), {type: isDoubleNum ? 'double' : 'regular', releasedAt: serverTimestamp()});
+          /* ⚠ AND THE POOL BOOKKEEPING CANNOT BE ALLOWED TO LOSE THE SAVE. These two
+             writes run BEFORE the customer is written and the first was unguarded, so
+             anything going wrong in the number pool — a dropped connection, an expired
+             sign-in — threw straight past the customer record, the re-quote card and the
+             warehouse flags. Every other pool write in this handler is already guarded
+             for exactly this reason ('a pool write that fails must not undo a save that
+             already worked'); this branch was the one that was not. The pool is
+             recoverable by hand from the Customer Numbers panel. A lost save is not. */
+          try{
+            await setDoc(doc(db,'availableCustomerNumbers', existingNum),
+              {type: isDoubleNum ? 'double' : 'regular', releasedAt: serverTimestamp()});
+          }catch(e){ console.error('Could not return #' + existingNum + ' to the pool', e); }
           await deleteDoc(doc(db,'availableCustomerNumbers', suggested)).catch(function(){});
         }
       }
@@ -26536,7 +26578,24 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     editCustomerId = null;
     toast(geocodeFailed ? 'Saved — but the new address could not be located on the map. Check it manually so routes stay accurate.' : 'Customer info updated.');
   } catch(err){
-    statusEl.textContent = 'Something went wrong — try again.';
+    /* ⭐ SAY WHAT WENT WRONG. Owner, 2026-08-20, on Ashley Wray: "the quote wont
+       dissapear and warehouse isnt being updated", and before that "everything is still
+       not working."
+
+       ⚠ THIS CATCH USED TO SWALLOW THE ERROR WHOLE. Thirty-six thousand characters of
+       handler, any one of which can throw, and the entire report was five grey words
+       with no console line behind them. Nothing was saved, the re-quote stayed open and
+       the warehouse was never told — which from the office looks exactly like a button
+       that does nothing, and is impossible for anyone to diagnose, here or on the phone.
+
+       Running this handler against a fake page and a fake Firestore showed it doing all
+       three things correctly, which is what proved the fault was a runtime error being
+       hidden rather than the logic being wrong. */
+    console.error('Edit Customer save failed:', err);
+    const detail = (err && err.message) ? String(err.message) : String(err);
+    statusEl.textContent = 'Nothing was saved \u2014 ' + detail;
+    statusEl.style.color = 'var(--ember)';
+    toast('Nothing was saved for ' + (newName || 'this customer') + '. ' + detail);
   }
 });
 /* The dropdowns repaint immediately — one click, one render. Only the typed
