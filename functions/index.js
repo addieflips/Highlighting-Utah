@@ -1583,6 +1583,81 @@ async function quoteMatchesExistingCustomer(quoteData) {
   return null;
 }
 
+/* ⭐ NOTHING A CUSTOMER'S ANSWER SETS OFF MAY FAIL SILENTLY (added 2026-08-21).
+ *
+ * Owner: "for server call is there a way we can't have that fail silently?"
+ *
+ * Every write after a customer answers their quote is deliberately best-effort
+ * — the ANSWER is already recorded and must not be lost because a follow-on
+ * write failed. That is right, and it was also the whole problem: best-effort
+ * meant console.error, which goes to Cloud Logging, which nobody in the office
+ * reads. A recycle that never got flagged, or a house left on a route after a
+ * "no", was invisible until somebody physically noticed.
+ *
+ * Three layers, cheapest first:
+ *   1. tryFirestore   — retry once. A transient blip is the common failure and
+ *                       this clears most of them before anyone hears about it.
+ *   2. a lookup that FAILS instead of shrugging — see quoteCustomerRef.
+ *   3. flagQuoteFollowUp — write what did not happen onto the QUOTE, which is
+ *                       the one document known to be writable (it was written
+ *                       at the top of quoteRespond, and a failure THERE throws
+ *                       back to the customer, who sees an error and rings).
+ *                       The office sees it on the card and in the sidebar count.
+ *
+ * ⚠ WHAT THIS STILL CANNOT COVER, said plainly rather than pretended away: if
+ * Firestore is entirely unavailable the flag write fails too. Nothing
+ * server-side reaches the office in that case — but the customer's own page
+ * errors and tells them to call. */
+const HU_RETRY_PAUSE_MS = 400;
+async function tryFirestore(label, fn) {
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const value = await fn();
+      return { ok: true, value: value };
+    } catch (err) {
+      /* ⚠ A PERMISSION REFUSAL IS NOT WORTH RETRYING and never becomes
+         allowed on a second go — that includes the messages 5000-character cap,
+         which Firestore reports as permission-denied (CLAUDE.md). Retrying it
+         doubles the wait for an answer that will not change. */
+      const code = String((err && err.code) || '');
+      const fatal = code.indexOf('permission-denied') !== -1 ||
+                    code.indexOf('invalid-argument') !== -1 ||
+                    code.indexOf('not-found') !== -1;
+      if (attempt === 2 || fatal) {
+        console.error('[HU] ' + label + ' failed' + (fatal ? ' (not retried)' : ' twice') + ':', err);
+        return { ok: false, error: err, label: label };
+      }
+      await new Promise(r => setTimeout(r, HU_RETRY_PAUSE_MS));
+    }
+  }
+  return { ok: false, label: label };
+}
+
+/* ⭐ WHAT DID NOT HAPPEN IS WRITTEN WHERE THE OFFICE LOOKS.
+ *
+ * ⚠ ON THE QUOTE, not in a log and not in a new collection. The quote document
+ * was written successfully seconds earlier, so it is the write most likely to
+ * work when something else has not; and the Quotes tab is somewhere the office
+ * already opens every day, so this needs no new habit.
+ *
+ * ⚠ IT NEVER THROWS. This is the thing that reports failures — it cannot
+ * become a new way for the whole call to fail. */
+async function flagQuoteFollowUp(quoteId, problems) {
+  const list = (problems || []).filter(Boolean);
+  if (!quoteId || !list.length) return false;
+  try {
+    await db.collection('quotes').doc(String(quoteId)).update({
+      followUpNeeded: true,
+      followUpReason: list.join('; ').slice(0, 900),
+      followUpAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+    return true;
+  } catch (err) {
+    console.error('[HU] could not flag quote follow-up:', err);
+    return false;
+  }
+}
+
 /* ⭐ WHICH CUSTOMER A QUOTE IS ABOUT — one answer, for every action (added
    2026-08-21, hole A).
  *
@@ -1614,17 +1689,16 @@ async function quoteMatchesExistingCustomer(quoteData) {
  * quote must never fail because a lookup did. */
 async function quoteCustomerRef(quoteData) {
   const q = quoteData || {};
-  try {
-    const linkedId = q.convertedToCustomerId || q.existingCustomerId || '';
-    if (linkedId) {
-      const snap = await db.collection('jobAddresses').doc(String(linkedId)).get();
-      if (snap.exists) return { id: snap.id, data: snap.data() };
-    }
-    if (typeof q.quotedPrice === 'number') {
-      return await quoteMatchesExistingCustomer(q);
-    }
-  } catch (err) {
-    console.error('[HU] quoteCustomerRef failed:', err);
+  const linkedId = q.convertedToCustomerId || q.existingCustomerId || '';
+  if (linkedId) {
+    const snap = await db.collection('jobAddresses').doc(String(linkedId)).get();
+    if (snap.exists) return { id: snap.id, data: snap.data() };
+    /* The link points at somebody who has since been removed. That is an
+       ANSWER — there is no such customer — not a failure. */
+    return null;
+  }
+  if (typeof q.quotedPrice === 'number') {
+    return await quoteMatchesExistingCustomer(q);
   }
   return null;
 }
@@ -1648,11 +1722,26 @@ async function quoteCustomerRef(quoteData) {
  * ⚠ AND IT NEVER TOUCHES A NEW LEAD. Somebody who is not a customer yet has no
  * season to be pulled out of; quoteCustomerRef returns null and this does
  * nothing. */
-async function declineReachesCustomer(quoteData) {
-  const cust = await quoteCustomerRef(quoteData);
+async function declineReachesCustomer(quoteData, quoteId) {
+  const problems = [];
+  /* ⚠ "COULD NOT TELL" IS NOT "NOT A CUSTOMER", and until 2026-08-21 those were
+     the same line of code — the resolver caught its own read errors and returned
+     null, so a Firestore blip made a real member look like a first-time lead and
+     this did nothing at all, silently. They are opposite outcomes: one is
+     correct and needs no action, the other needs somebody told. */
+  let cust = null;
+  const look = await tryFirestore('decline customer lookup', () => quoteCustomerRef(quoteData));
+  if (!look.ok) {
+    await flagQuoteFollowUp(quoteId, ['could not look up the customer, so their ' +
+      'decline has NOT been applied to their record — check their RSVP, their ' +
+      'recycle flag and any upcoming route by hand']);
+    return { pulled: false, followUpFlagged: true };
+  }
+  cust = look.value;
   if (!cust) return { pulled: false };
-  try {
-    await db.collection('jobAddresses').doc(cust.id).update({
+  {
+    const wrote = await tryFirestore('decline customer update', () =>
+      db.collection('jobAddresses').doc(cust.id).update({
       rsvpStatus: 'no',
       rsvpRespondedAt: admin.firestore.FieldValue.serverTimestamp(),
       /* Their lights are coming back — the same thing an RSVP "no" means. */
@@ -1662,26 +1751,34 @@ async function declineReachesCustomer(quoteData) {
       scheduled: false,
       scheduledDate: null,
       assignedCrew: null
-    });
-  } catch (err) {
-    console.error('[HU] decline customer update failed:', err);
-    return { pulled: false };
+      }));
+    if (!wrote.ok) {
+      /* ⚠ NOTHING IS CLAIMED THAT DID NOT HAPPEN. Saying "we took them out of
+         the season" when we did not sends the office looking for a bin that is
+         not coming back — so no System note here, only the flag. */
+      await flagQuoteFollowUp(quoteId, [(cust.data && cust.data.name ? cust.data.name : 'A customer') +
+        ' declined but their record could NOT be updated — they still read as ' +
+        'in for the season. Mark them No and flag their lights by hand']);
+      return { pulled: false, followUpFlagged: true };
+    }
   }
   /* Off any route a crew has already been handed. Past routes are history and
      are left exactly as they are. */
   let removedFrom = 0;
-  try {
-    removedFrom = await removeCustomerFromUpcomingRoutes(cust.id);
-  } catch (err) {
-    console.error('[HU] decline route removal failed:', err);
+  {
+    const swept = await tryFirestore('decline route removal', () =>
+      removeCustomerFromUpcomingRoutes(cust.id));
+    if (swept.ok) removedFrom = swept.value || 0;
+    else problems.push('they could not be taken off their upcoming routes — a ' +
+      'crew may still be sent to a house that has said no');
   }
   /* ⚠ AND SOMEBODY IS TOLD. A decline arrives by email with nobody watching, and
      it has just taken a customer out of the season and flagged their lights for
      recycling. Without this the first anyone knows is a bin nobody collected.
      Best-effort: the customer's answer is already recorded and must not fail
      because a note could not be written. */
-  try {
-    await db.collection('messages').add({
+  const noted = await tryFirestore('decline note', () =>
+    db.collection('messages').add({
       topic: 'Quote Declined', folder: 'System',
       name: (cust.data && cust.data.name) || quoteData.name || '',
       phone: (cust.data && cust.data.phone) || quoteData.phone || '',
@@ -1696,9 +1793,135 @@ async function declineReachesCustomer(quoteData) {
       autoQueuedToWarehouse: false,
       needsReassign: false,
       createdAt: admin.firestore.FieldValue.serverTimestamp()
-    });
-  } catch (err) { console.error('[HU] decline note failed:', err); }
-  return { pulled: true, removedFromRoutes: removedFrom };
+    }));
+  if (!noted.ok) problems.push('the office could not be sent a note about this ' +
+    'decline, so nobody has been told');
+  await flagQuoteFollowUp(quoteId, problems);
+  return { pulled: true, removedFromRoutes: removedFrom, followUpFlagged: !!problems.length };
+}
+
+/* ⭐ WHAT KIND OF RE-QUOTE IS THIS — ONE ANSWER (added 2026-08-21).
+ *
+ * Owner: "in requote I should have the option to have requote for addition to
+ * house, or for change address", and later "you can also get a requote because
+ * you just changed the price". askRequoteKind in admin.html stores which, as
+ * requoteKind, when the re-quote is raised.
+ *
+ * An ADDITION is the one that changes what "no" means. Owner, 2026-08-21:
+ * "I don't want a decline on a garage to decline full quote just garage."
+ * Somebody being quoted for a back garage on a house that is already lit is
+ * answering a question about the GARAGE. The other two kinds are about the
+ * whole job — a move, or the price of the lot — so a no there is a no to the
+ * season, exactly as it has always been.
+ *
+ * ⚠ EXACTLY 'addition', NOT "anything with a linked customer". Every re-quote
+ * has a linked customer, so a looser test would quietly turn every decline into
+ * an add-on decline and nobody would ever leave the season again. */
+function quoteIsAddOn(quoteData) {
+  return String((quoteData || {}).requoteKind || '').trim().toLowerCase() === 'addition';
+}
+
+/* ⭐ THE THREE BUTTONS SAY WHAT THEY DO (added 2026-08-21).
+ *
+ * "Decline Quote" on an add-on reads as declining the whole thing, which is the
+ * very confusion this job exists to remove — the words have to match the
+ * behaviour or the behaviour may as well not have changed.
+ *
+ * ⚠ TWO COPIES, ASSERTED IDENTICAL. This one renders the nightly nudge; the
+ * browser copy (quoteButtonLabels in admin.html) renders the quote card, the
+ * bulk nudge and Automation Emails — the same four-senders/two-renderers split
+ * CLAUDE.md warns about for the photo block. Change one, change the other, in
+ * the same push; run-all.js runs both over every kind and fails if they ever
+ * disagree. */
+function quoteButtonLabelsServer(quoteData) {
+  return quoteIsAddOn(quoteData)
+    ? { approve: 'Yes, add it', maybe: 'Maybe Next Year', decline: 'No thanks — just my usual lights' }
+    : { approve: 'Approve Quote', maybe: 'Maybe Next Year', decline: 'Decline Quote' };
+}
+
+/* ⭐ DECLINING AN ADD-ON REFUSES THE ADD-ON, AND NOTHING ELSE (added
+   2026-08-21). Owner: "they can choose to say no to peice of there house or
+   keep all of it... I don't want a decline on a garage to decline full quote
+   just garage."
+ *
+ * ⚠ SO IT MUST NOT CALL declineReachesCustomer. That one is the right answer
+ * for every other decline and the wrong one here: it would mark them out for
+ * the season, flag lights that are staying up for recycling, and pull a house
+ * the crew is still hanging off its route — because they turned down a garage.
+ *
+ * What it DOES do is close the question. The portal sets seasonStatus to
+ * needs_changes (or address_changed) when it raises a re-quote, and that is
+ * resolved by ANSWERING the quote — "no thanks" is an answer. Without this they
+ * sit in Needs Changes for ever with nothing left anywhere to clear it, which
+ * is the same hole deleting a re-quote had.
+ *
+ * ⚠ ONLY THOSE TWO VALUES, exactly as QUOTE_RAISED_STATUSES says in
+ * admin.html. Anything else in seasonStatus was put there by something that is
+ * not this quote — a cancellation request in particular — and clearing it
+ * would be this reaching well past what it was pressed to do.
+ *
+ * ⚠ AND IT WRITES NOTHING TO THE WAREHOUSE. needsLightBuild and
+ * buildTopUpFromFeet are set when the office APPLIES a re-quote, which by
+ * definition has not happened to one that is being declined. Clearing them
+ * "to be safe" would cancel a build the customer never asked to cancel. */
+const QUOTE_RAISED_STATUSES_SERVER = ['needs_changes', 'address_changed'];
+async function declineAddOnOnly(quoteData, quoteId) {
+  const problems = [];
+  /* ⚠ SAME RULE AS THE SEASON DECLINE: a lookup that could not run is not the
+     same answer as "they are not a customer". See declineReachesCustomer. */
+  const look = await tryFirestore('add-on decline customer lookup', () => quoteCustomerRef(quoteData));
+  if (!look.ok) {
+    await flagQuoteFollowUp(quoteId, ['could not look up the customer, so their ' +
+      'add-on refusal has NOT been recorded — they may still be sitting in ' +
+      'Needs Changes, and nobody has been told the extra is off']);
+    return { addOnOnly: true, reached: false, followUpFlagged: true };
+  }
+  const cust = look.value;
+  if (!cust) return { addOnOnly: true, reached: false };
+
+  let cleared = false;
+  const was = String((cust.data || {}).seasonStatus || '');
+  if (QUOTE_RAISED_STATUSES_SERVER.indexOf(was) !== -1) {
+    const wrote = await tryFirestore('add-on decline seasonStatus clear', () =>
+      db.collection('jobAddresses').doc(cust.id).update({ seasonStatus: 'confirmed' }));
+    cleared = wrote.ok;
+    if (!wrote.ok) problems.push((cust.data && cust.data.name ? cust.data.name : 'A customer') +
+      ' turned down their add-on but their record still says Needs Changes — ' +
+      'set them back to Confirmed by hand');
+  }
+
+  /* ⚠ AND SOMEBODY IS TOLD, because nothing else about this customer moved.
+     A season decline is loud — they drop off routes, they appear on the recycle
+     list. This one leaves no trace anywhere, so without a note the office would
+     go on expecting a garage that is not coming. Best-effort: the answer is
+     already recorded and must not fail because a note could not be written. */
+  const who = (cust.data && cust.data.name) || quoteData.name || 'A customer';
+  const noted = await tryFirestore('add-on decline note', () =>
+    db.collection('messages').add({
+      topic: 'Add-On Declined', folder: 'System',
+      name: (cust.data && cust.data.name) || quoteData.name || '',
+      phone: (cust.data && cust.data.phone) || quoteData.phone || '',
+      email: (cust.data && cust.data.email) || quoteData.email || '',
+      contactMethod: '',
+      message: who + ' said no to the extra lights they were re-quoted for' +
+               (quoteData.requoteKindNote ? ' (' + quoteData.requoteKindNote + ')' : '') +
+               '. This is NOT a cancellation — they are still in for the season, ' +
+               'their existing lights are unchanged, and they stay on their route. ' +
+               'Nothing needs doing unless you had already started building the extra.',
+      autoQueuedToWarehouse: false,
+      needsReassign: false,
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    }));
+  /* ⚠ THIS ONE MATTERS MORE THAN THE SEASON DECLINE'S NOTE. An add-on refusal
+     leaves NO other trace anywhere — nothing drops off a route, nobody appears
+     on the recycle list — so if the note does not land there is genuinely
+     nothing for the office to notice. */
+  if (!noted.ok) problems.push(who + ' turned down their add-on and the office ' +
+    'could not be sent a note, so nobody has been told the extra is off');
+  await flagQuoteFollowUp(quoteId, problems);
+
+  return { addOnOnly: true, reached: true, seasonStatusCleared: cleared,
+           followUpFlagged: !!problems.length };
 }
 
 /* --- quoteRespond ---------------------------------------------------------
@@ -1758,9 +1981,18 @@ exports.quoteRespond = onCall({ cors: true }, async (request) => {
      rsvpStatus 'yes', was never recycled, stayed on the Yes sheet and stayed on
      any route already built — a crew drove to a house that had said no. */
   let declinedCustomer = false;
+  /* ⭐ UNLESS IT IS AN ADD-ON, IN WHICH CASE THE SEASON IS NOT THE QUESTION
+     (added 2026-08-21). Owner: "I don't want a decline on a garage to decline
+     full quote just garage." See declineAddOnOnly. */
+  let declinedAddOnOnly = false;
   if (action === 'decline') {
-    const res = await declineReachesCustomer(quoteData);
-    declinedCustomer = !!res.pulled;
+    if (quoteIsAddOn(quoteData)) {
+      await declineAddOnOnly(quoteData, quoteId);
+      declinedAddOnOnly = true;
+    } else {
+      const res = await declineReachesCustomer(quoteData, quoteId);
+      declinedCustomer = !!res.pulled;
+    }
   }
 
   if (action === 'maybe_next_year' || action === 'maybe') {
@@ -1778,8 +2010,14 @@ exports.quoteRespond = onCall({ cors: true }, async (request) => {
       }
     } catch (err) {
       /* Never let this sink the customer's answer - the quote is already
-         recorded, and the office can pull them off by hand. */
+         recorded, and the office can pull them off by hand. ⚠ BUT SAY SO: until
+         2026-08-21 this was the console line and nothing else, so a member who
+         chose "maybe next year" could stay on the routes for a season they had
+         declined with nobody any the wiser. */
       console.error('[HU] maybe-next-year customer update failed:', err);
+      await flagQuoteFollowUp(quoteId, ['they chose Maybe Next Year but their ' +
+        'record could NOT be updated — they may still be scheduled and on a ' +
+        'route for a season they have said no to']);
     }
   }
 
@@ -1938,7 +2176,13 @@ exports.quoteRespond = onCall({ cors: true }, async (request) => {
     /* Null when we know they are a member but not WHICH member - the
        convertedToCustomerAt path can say one without the other. The form still
        opens in that case, just empty, which is no worse than before it existed. */
-    memberDetails: (alreadyMember && memberRef) ? memberPrefill(memberRef.data) : null
+    memberDetails: (alreadyMember && memberRef) ? memberPrefill(memberRef.data) : null,
+    /* ⭐ SO THE PAGE CAN SAY THE RIGHT THING. The stock decline message is a
+       warm goodbye — "no hard feelings, merry Christmas" — which is exactly
+       wrong for somebody who has just turned down a garage and is still having
+       their house lit next week. The page reads this to pick its wording; the
+       DECISION was made above, from the quote's own requoteKind. */
+    addOnOnly: declinedAddOnOnly
   };
 });
 
@@ -3074,9 +3318,16 @@ async function runQuoteNudgeBatch(source) {
       const quotePhotos = quotePhotosServer(q);
       const photoHtml = quotePhotoEmailHtmlServer(quotePhotos);
       body = body.replace(/(?:\s|<br\s*\/?>)*\{\{photo\}\}(?:\s|<br\s*\/?>)*/gi, photoHtml || '<br>');
-      body = body.split('{{quote_yes_button}}').join('<a href="' + base + '&action=approve" style="' + btn + ' background:#2E6B3E; color:#ffffff;">Approve Quote</a>');
-      body = body.split('{{quote_maybe_button}}').join('<a href="' + base + '&action=maybe_next_year" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">Maybe Next Year</a>');
-      body = body.split('{{quote_decline_button}}').join('<a href="' + base + '&action=decline" style="' + btn + ' background:#8A8F9C; color:#ffffff;">Decline Quote</a>');
+      /* ⚠ THE WORDS DEPEND ON THE QUOTE, and the add-on decline carries
+         &addon=1 so the page can word its confirmation to match. That parameter
+         is COSMETIC ONLY — quoteRespond decides what a decline means from the
+         quote's own requoteKind, never from the link — so a forged one changes
+         nothing but the sentence a forger reads on their own screen. */
+      const qLabels = quoteButtonLabelsServer(q);
+      const qAddOn = quoteIsAddOn(q) ? '&addon=1' : '';
+      body = body.split('{{quote_yes_button}}').join('<a href="' + base + '&action=approve" style="' + btn + ' background:#2E6B3E; color:#ffffff;">' + qLabels.approve + '</a>');
+      body = body.split('{{quote_maybe_button}}').join('<a href="' + base + '&action=maybe_next_year" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">' + qLabels.maybe + '</a>');
+      body = body.split('{{quote_decline_button}}').join('<a href="' + base + '&action=decline' + qAddOn + '" style="' + btn + ' background:#8A8F9C; color:#ffffff;">' + qLabels.decline + '</a>');
       body = body.split('{{link}}').join(base);
       body = body.replace(/\n/g, '<br>');
 

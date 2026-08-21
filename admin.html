@@ -4856,6 +4856,34 @@ function quoteAlreadyACustomer(d){
    drift apart — and CLAUDE.md notes the big button is the one most customers
    actually press, so it is the one that matters most.
    Safety argument lives on quoteExistingCustomer: address PLUS contact. */
+/* ⭐ WHAT KIND OF RE-QUOTE IS THIS — ONE ANSWER (added 2026-08-21).
+   askRequoteKind stores it as requoteKind when the re-quote is raised.
+
+   An ADDITION is the one that changes what "no" means. Owner, 2026-08-21: "I
+   don't want a decline on a garage to decline full quote just garage." Somebody
+   quoted for a back garage on a house that is already lit is answering a
+   question about the GARAGE. The other two kinds — they moved, or the price
+   changed — are about the whole job, so a no there is a no to the season.
+
+   ⚠ EXACTLY 'addition', NOT "anything with a linked customer". EVERY re-quote
+   has one, so a looser test would turn every decline into an add-on decline and
+   nobody would ever leave the season again.
+
+   ⚠ THE SERVER HAS ITS OWN COPY (quoteIsAddOn in functions/index.js) because
+   this one cannot run there. Change one, change the other, in the same push —
+   run-all.js runs both over every kind and fails if they disagree. */
+function quoteIsAddOn(d){
+  return String((d || {}).requoteKind || '').trim().toLowerCase() === 'addition';
+}
+/* ⭐ THE THREE BUTTONS SAY WHAT THEY DO. "Decline Quote" on an add-on reads as
+   declining the whole thing, which is the confusion this exists to remove — the
+   words have to match the behaviour or the behaviour may as well not have
+   changed. Paired with quoteButtonLabelsServer; asserted identical. */
+function quoteButtonLabels(d){
+  return quoteIsAddOn(d)
+    ? {approve:'Yes, add it', maybe:'Maybe Next Year', decline:'No thanks \u2014 just my usual lights'}
+    : {approve:'Approve Quote', maybe:'Maybe Next Year', decline:'Decline Quote'};
+}
 function quotePortalParam(d){
   const c = quoteExistingCustomer(d);
   const t = c && c.data ? c.data.portalToken : '';
@@ -5776,13 +5804,20 @@ async function resolveLinkTokens(text, phone, amount, opts){
          email. A new lead has no customer record, so they simply get no `p` and
          nothing changes for them. */
       const qPortal = quotePortalParam(quote.data);
+      /* ⚠ THE ADD-ON DECLINE CARRIES &addon=1 so the page can word its
+         confirmation to match the button they pressed. COSMETIC ONLY —
+         quoteRespond decides what a decline means from the quote's own
+         requoteKind, never from the link, so a forged parameter changes nothing
+         but the sentence a forger reads on their own screen. */
+      const qLabels = quoteButtonLabels(quote.data);
+      const qAddOn = quoteIsAddOn(quote.data) ? '&addon=1' : '';
       const approveUrl = 'https://highlightingutah.com/#/quote-details?token='+quoteToken+qPortal+'&action=approve';
-      const declineUrl = 'https://highlightingutah.com/#/quote-details?token='+quoteToken+'&action=decline';
+      const declineUrl = 'https://highlightingutah.com/#/quote-details?token='+quoteToken+'&action=decline'+qAddOn;
       const maybeUrl = 'https://highlightingutah.com/#/quote-details?token='+quoteToken+'&action=maybe_next_year';
       const btnStyleQuote = 'display:inline-block; padding:11px 18px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:14px; margin:6px 4px;';
-      out = out.split('{{quote_yes_button}}').join('<a href="'+approveUrl+'" style="'+btnStyleQuote+' background:#2E6B3E; color:#ffffff;">Approve Quote</a>');
-      out = out.split('{{quote_decline_button}}').join('<a href="'+declineUrl+'" style="'+btnStyleQuote+' background:#8A8F9C; color:#ffffff;">Decline Quote</a>');
-      out = out.split('{{quote_maybe_button}}').join('<a href="'+maybeUrl+'" style="'+btnStyleQuote+' background:#D89F3D; color:#1E3B2C;">Maybe Next Year</a>');
+      out = out.split('{{quote_yes_button}}').join('<a href="'+approveUrl+'" style="'+btnStyleQuote+' background:#2E6B3E; color:#ffffff;">'+qLabels.approve+'</a>');
+      out = out.split('{{quote_decline_button}}').join('<a href="'+declineUrl+'" style="'+btnStyleQuote+' background:#8A8F9C; color:#ffffff;">'+qLabels.decline+'</a>');
+      out = out.split('{{quote_maybe_button}}').join('<a href="'+maybeUrl+'" style="'+btnStyleQuote+' background:#D89F3D; color:#1E3B2C;">'+qLabels.maybe+'</a>');
     } else {
       out = out.split('{{quote_yes_button}}').join('(quote token not found)');
       out = out.split('{{quote_decline_button}}').join('(quote token not found)');
@@ -7917,6 +7952,11 @@ function loadQuotes(){
     quotesCache.forEach(function(item){
       const stage = quoteStage(item.data);
       if(stage === 'new' || stage === 'form') newCount++;
+      /* ⭐ AND ANYTHING THE SERVER COULD NOT FINISH, whatever stage it is at.
+         A decline archives its quote, so a half-applied decline sits in Closed
+         where nobody looks — which is precisely the case this exists for. The
+         badge is what makes somebody open the tab at all. */
+      else if(item.data.followUpNeeded) newCount++;
     });
     document.getElementById('badgeQuotes').style.display = newCount ? 'inline-block' : 'none';
     document.getElementById('badgeQuotes').textContent = newCount;
@@ -9575,6 +9615,29 @@ function renderQuoteRows(filtered){
               : '<div style="margin-top:4px;">Address changed from <strong>'+esc(d.changed.oldAddress || '')+'</strong>. Needs re-geocoding, and any saved route still holds the old one.</div>')+
           '</div>'
         ) : '')+
+        // ---- Something the server could not finish -----------------------
+        /* ⭐ A CUSTOMER'S ANSWER THAT ONLY HALF LANDED SAYS SO HERE (added
+           2026-08-21). Owner: "for server call is there a way we can't have that
+           fail silently?"
+
+           Everything quoteRespond does AFTER recording the answer is
+           best-effort — the answer must never be lost because a follow-on
+           write failed — and best-effort used to mean console.error, which
+           goes to Cloud Logging, which nobody here reads. The server now writes
+           what it could not do onto the QUOTE, which is the one document known
+           to be writable, and this is where it surfaces.
+
+           ⚠ IT SAYS WHAT TO DO, not that something went wrong. "Error" sends
+           somebody to a developer; naming the record and the field to check
+           lets the office finish the job in a minute. */
+        (d.followUpNeeded ? (
+          '<div style="margin-top:10px; background:#FDECEA; border:1px solid #F3C8C2; border-radius:9px; padding:10px 12px; font-size:12.5px; color:#8A2318; line-height:1.55;">'+
+            '<strong>⚠ Their answer was recorded, but part of it did not go through.</strong>'+
+            '<div style="margin-top:4px;">'+esc(d.followUpReason || 'Something did not complete — check this customer\'s record by hand.')+'</div>'+
+            (d.followUpAt ? '<div style="margin-top:4px; opacity:.8;">'+fmtDate(d.followUpAt)+'</div>' : '')+
+            '<div style="margin-top:6px;"><button class="btn btn-outline btn-sm" data-clearfollowup="'+item.id+'">Done — clear this</button></div>'+
+          '</div>'
+        ) : '')+
         // ---- Re-quoted by hand -------------------------------------------
         /* What the old quote said, kept on screen after the price is cleared.
            Without it the card looks like a quote that was never priced, and
@@ -9827,6 +9890,32 @@ function renderQuoteRows(filtered){
     '</div>';
   });
   list.innerHTML = html;
+  /* ⭐ CLEARING A FOLLOW-UP FLAG IS THE OFFICE SAYING "I HAVE DONE IT BY HAND".
+     ⚠ It clears the flag and NOTHING else — it must never try to re-run the
+     thing that failed. The server could not reach that customer's record a
+     moment ago; guessing here at what half of it landed is how you recycle
+     somebody's lights twice, or un-decline a customer who declined. The strip
+     names the record and the field, a human checks it, and this button records
+     that they did. */
+  list.querySelectorAll('[data-clearfollowup]').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      const id = btn.dataset.clearfollowup;
+      btn.disabled = true;
+      try{
+        await updateDoc(doc(db,'quotes', id), {
+          followUpNeeded: false, followUpReason: '', followUpClearedAt: serverTimestamp()
+        });
+        /* The list repaints from the cache, not from Firestore. */
+        const it = quotesCache.find(function(x){ return x.id === id; });
+        if(it && it.data){ it.data.followUpNeeded = false; it.data.followUpReason = ''; }
+        toast('Cleared');
+        renderQuotesList();
+      }catch(err){
+        btn.disabled = false;
+        toast('Could not clear that \u2014 try again.');
+      }
+    });
+  });
   list.querySelectorAll('[data-previewquoteaddr]').forEach(function(btn){
     btn.addEventListener('click', function(){
       showMapPreviewByAddress('quoteListMap', btn.dataset.previewquoteaddr);

@@ -2184,6 +2184,14 @@ function navigate(){
        "Yes, I'd like to make a change" can let them straight in. Absent for a
        new lead, who has no portal to go to. */
     quoteLinkPortalToken = quoteParams.get('p') || null;
+    /* ⭐ WAS THIS AN ADD-ON QUOTE? Only ever used to pick WORDS. The decision
+       about what a decline actually does is made server-side from the quote's
+       own requoteKind, so a forged &addon=1 changes nothing but the sentence
+       the forger reads on their own screen. It exists because the "are you
+       sure?" step runs before any call — asking the server first would put a
+       spinner in front of a confirmation, and the page cannot read the quotes
+       collection itself. */
+    quoteLinkIsAddOn = quoteParams.get('addon') === '1';
     /* A TOKEN IS ENOUGH. This used to also require an action, and any link
        without one silently did nothing — which was most of the links customers
        actually get. The coloured buttons inside the email body carry
@@ -3871,14 +3879,26 @@ function confirmQuoteDecline(token){
   if(formWrap) formWrap.style.display = 'none';
   if(confirmWrap) confirmWrap.style.display = 'block';
   document.body.classList.add('quote-minimal');
-  if(confirmMsg) confirmMsg.textContent = 'Before we close this out \u2014 are you sure?';
-  setQuoteConfirmSub('No pressure either way, and nothing has been charged. If it\'s the price or the timing, just tell us \u2014 we can often work something out.');
+  /* ⭐ AN ADD-ON IS A DIFFERENT QUESTION, so it gets different words (added
+     2026-08-21). "Before we close this out" and "close it out" describe ending
+     the relationship, and this customer is having their house lit next week —
+     they are turning down a garage. Saying it the old way is how somebody
+     clicks away thinking they have just cancelled their season. */
+  if(quoteLinkIsAddOn){
+    if(confirmMsg) confirmMsg.textContent = 'Just the extra lights \u2014 is that right?';
+    setQuoteConfirmSub('Nothing has been charged. Saying no here only turns down the <b>extra</b> lights you were quoted for \u2014 your usual lights are going up exactly as planned, and nothing else about your season changes.');
+  } else {
+    if(confirmMsg) confirmMsg.textContent = 'Before we close this out \u2014 are you sure?';
+    setQuoteConfirmSub('No pressure either way, and nothing has been charged. If it\'s the price or the timing, just tell us \u2014 we can often work something out.');
+  }
   if(!actions) return;
   actions.style.display = 'block';
   actions.innerHTML =
-    '<button type="button" class="qbtn qbtn-gold" data-qd="approve">Actually, I\'d like to approve</button>'+
+    '<button type="button" class="qbtn qbtn-gold" data-qd="approve">'+
+      (quoteLinkIsAddOn ? 'Actually, add the extra lights' : 'Actually, I\'d like to approve')+'</button>'+
     '<button type="button" class="qbtn qbtn-plain" data-qd="maybe_next_year">Maybe next year instead</button>'+
-    '<button type="button" class="qbtn qbtn-quiet" data-qd="decline">No thanks \u2014 close it out</button>';
+    '<button type="button" class="qbtn qbtn-quiet" data-qd="decline">'+
+      (quoteLinkIsAddOn ? 'No thanks \u2014 just my usual lights' : 'No thanks \u2014 close it out')+'</button>';
   actions.querySelectorAll('[data-qd]').forEach(function(btn){
     btn.addEventListener('click', function(){
       actions.style.display = 'none';
@@ -3944,6 +3964,7 @@ function offerQuoteChoice(token){
    (handleRsvpLink's "Do you want to make any changes?"), so a member who
    arrives from either email is asked the same question the same way. */
 var quoteLinkPortalToken = null;
+var quoteLinkIsAddOn = false;
 function offerMemberChangeChoice(contactHint){
   var confirmWrap = document.getElementById('quoteLinkConfirm');
   var confirmMsg = document.getElementById('quoteLinkConfirmMsg');
@@ -4104,6 +4125,14 @@ function handleQuoteLink(token, action, confirmed){
     if(action === 'maybe_next_year'){
       if(confirmMsg) confirmMsg.textContent = 'Sounds good \u2014 we\'ll check back next year. \ud83c\udf84';
       setQuoteConfirmSub('We\'ve made a note so you don\'t have to remember, and your measurements are saved, which makes next season quicker. Nothing else to do.');
+    } else if(res.addOnOnly){
+      /* ⚠ THE SERVER'S ANSWER, NOT THE URL. The confirmation screen above uses
+         the link's marker because it has to run before any call; this runs
+         after, so it uses what the server actually DID. If those two ever
+         disagree, the one that wrote to the database is the one telling the
+         truth. */
+      if(confirmMsg) confirmMsg.textContent = 'Got it \u2014 just your usual lights. \ud83c\udf84';
+      setQuoteConfirmSub('We have taken the extra lights off. Everything else is unchanged: your usual lights are still going up, you are still on the schedule, and there is nothing else you need to do. If you change your mind, just give us a shout.');
     } else {
       if(confirmMsg) confirmMsg.textContent = 'Thanks for letting us know.';
       setQuoteConfirmSub('We appreciate you taking the time to consider us. If anything changes \u2014 this year or years from now \u2014 we\'d be glad to hear from you. There\'s no catch and no hard feelings.<br><br>Merry Christmas from all of us at Highlighting Utah.');

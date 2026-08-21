@@ -9242,8 +9242,15 @@ suite('Suite 33. One nudge template, one email, whoever sends it');
     'a rename here must fail loudly, never silently skip — a parity test that cannot find its target must not report green');
 
   // ---- lift the server renderer out of functions/index.js ----
+  /* ⚠ quoteIsAddOn AND quoteButtonLabelsServer JOINED THIS LIST 2026-08-21, in
+     the same commit that made the nudge renderer call them. This suite lifts
+     the renderer out by its anchors and runs it, so a helper missing from here
+     is a ReferenceError inside the sandbox — which is what the add-on work hit
+     on its first run, and is exactly the failure CLAUDE.md describes. Add the
+     helper, never a stub: a stub agrees with itself. */
   const serverParts = ['quotePhotosServer', 'cloudEmailPhotoServer', 'escServer',
-    'quotePhotoEmailHtmlServer', 'properNameServer']
+    'quotePhotoEmailHtmlServer', 'properNameServer',
+    'quoteIsAddOn', 'quoteButtonLabelsServer']
     .map(n => grabBrowser(n, fns));
   const bStart = fns.indexOf("      const quoteToken = q.quoteToken || '';");
   const bEnd = fns.indexOf('      const res = await fetch(', bStart);
@@ -27611,9 +27618,13 @@ suite('Suite 128. A decline reaches the customer, not just the quote');
 {
   const fns = read('functions/index.js');
 
+  /* ⚠ tryFirestore AND flagQuoteFollowUp JOINED THIS LIST 2026-08-21, in the
+     same commit that made the decline paths call them — the third time this
+     file has been bitten by a helper missing from an extraction list. */
   const NEEDED = ['declineReachesCustomer', 'quoteCustomerRef',
     'quoteMatchesExistingCustomer', 'quoteMatchAddressServer',
-    'removeCustomerFromUpcomingRoutes', 'digitsOnly', 'todayStrInDenver'];
+    'removeCustomerFromUpcomingRoutes', 'digitsOnly', 'todayStrInDenver',
+    'tryFirestore', 'flagQuoteFollowUp'];
   const src = {};
   NEEDED.forEach(n => { src[n] = extractFn(fns, n); });
   const missing = NEEDED.filter(n => !src[n]);
@@ -27628,7 +27639,8 @@ suite('Suite 128. A decline reaches the customer, not just the quote');
      another way: this file has been caught THREE times by that, and the third
      killed a whole suite with an unattributable "an async suite crashed". */
   const ASYNC = ['declineReachesCustomer', 'quoteCustomerRef',
-    'quoteMatchesExistingCustomer', 'removeCustomerFromUpcomingRoutes'];
+    'quoteMatchesExistingCustomer', 'removeCustomerFromUpcomingRoutes',
+    'tryFirestore', 'flagQuoteFollowUp'];
   ASYNC.forEach(n => {
     check('S128', n + ' is still async in the real file',
       new RegExp('async function ' + n + '\\(').test(fns),
@@ -27637,7 +27649,12 @@ suite('Suite 128. A decline reaches the customer, not just the quote');
   });
 
   if (!missing.length) {
-    const body = NEEDED.map(n =>
+    /* ⚠ THE REAL PAUSE IS 400ms AND THE RETRY FIRES ON EVERY FAILURE FIXTURE.
+       Left at its real value this suite alone would add seconds to a run that
+       has to stay under a minute (CLAUDE.md §9.8). Zeroed here, and asserted
+       non-zero in the real file separately — a retry with no pause is not a
+       retry, it is two attempts at the same instant. */
+    const body = 'const HU_RETRY_PAUSE_MS = 0;\n' + NEEDED.map(n =>
       (ASYNC.indexOf(n) !== -1 ? 'async ' : '') + src[n]).join('\n');
 
     /* ---- the fake ---------------------------------------------------
@@ -27947,7 +27964,7 @@ suite('Suite 128. A decline reaches the customer, not just the quote');
   /* ---- the wiring, which no fixture above can see -------------------- */
   const respondSrc = fns.slice(fns.indexOf('exports.quoteRespond = onCall'));
   check('S128', 'the decline branch actually calls it',
-    /await declineReachesCustomer\(quoteData\)/.test(stripComments(respondSrc)),
+    /await declineReachesCustomer\(quoteData, quoteId\)/.test(stripComments(respondSrc)),
     'the best-tested function in the world does nothing if the button does not ' +
     'press it');
 
@@ -27958,6 +27975,810 @@ suite('Suite 128. A decline reaches the customer, not just the quote');
   check('S128', 'a decline does not go through the back-next-year path',
     !/pullCustomerFromSeason/.test(declSrc),
     'that path clears needsLightRecycle — a decline has to set it');
+}
+
+/* =====================================================================
+ * Suite 129. Declining an add-on refuses the add-on, not the season
+ *
+ * Owner, 2026-08-21: "they can choose to say no to peice of there house or keep
+ * all of it... I don't want a decline on a garage to decline full quote just
+ * garage."
+ *
+ * Hole A (Suite 128) made a decline reach the customer record — mark them out
+ * for the season, flag their lights to come back, pull them off the routes.
+ * That is right for every decline EXCEPT an add-on: somebody quoted for a back
+ * garage on a house that is already lit is answering a question about the
+ * garage. Doing the season thing to them cancels a customer who is staying, and
+ * sends a crew's house to the recycle list while the crew is still going to it.
+ *
+ * ⚠ TWO COPIES OF THE KIND RULE, ONE ON EACH SIDE OF THE WIRE, and this suite
+ * RUNS both over every kind rather than reading either. Same reasoning as
+ * money-parity: the browser renders the quote card, the bulk nudge and
+ * Automation Emails; the server renders the nightly nudge; and the copy nobody
+ * looks at is the one on the email the customer actually gets.
+ * ===================================================================== */
+suite('Suite 129. Declining an add-on refuses the add-on, not the season');
+{
+  const fns = read('functions/index.js');
+  const admin = read('admin.html');
+  const idx = read('index.html');
+
+  const lift = (src, name) => {
+    const i = src.indexOf('function ' + name + '(');
+    if (i === -1) return null;
+    let d = 0;
+    for (let j = src.indexOf('{', i); j < src.length; j++) {
+      if (src[j] === '{') d++;
+      else if (src[j] === '}') { d--; if (!d) return src.slice(i, j + 1); }
+    }
+    return null;
+  };
+
+  /* ---- 1. the two copies of "is this an add-on" agree ----------------- */
+  const isAddOnB = lift(admin, 'quoteIsAddOn');
+  const isAddOnS = lift(fns, 'quoteIsAddOn');
+  const labelsB = lift(admin, 'quoteButtonLabels');
+  const labelsS = lift(fns, 'quoteButtonLabelsServer');
+  check('S129', 'both copies of the kind rule and the labels are findable',
+    !!isAddOnB && !!isAddOnS && !!labelsB && !!labelsS,
+    'renamed or moved — fix the lift rather than deleting the parity check');
+
+  if (isAddOnB && isAddOnS && labelsB && labelsS) {
+    const runB = new Function(isAddOnB + '\n' + labelsB +
+      '\nreturn {is: quoteIsAddOn, labels: quoteButtonLabels};')();
+    const runS = new Function(isAddOnS + '\n' + labelsS +
+      '\nreturn {is: quoteIsAddOn, labels: quoteButtonLabelsServer};')();
+
+    /* Every shape a real quote can arrive in, plus the ones that have caused
+       trouble in this file before: a missing field, a stray case, whitespace
+       from a paste, and a value nobody has invented yet. */
+    const KINDS = [
+      {}, { requoteKind: 'addition' }, { requoteKind: 'address' },
+      { requoteKind: 'price' }, { requoteKind: '' }, { requoteKind: null },
+      { requoteKind: 'ADDITION' }, { requoteKind: ' addition ' },
+      { requoteKind: 'Addition' }, { requoteKind: 'additional' },
+      { requoteKind: 'something-new' },
+      /* ⚠ A LINKED CUSTOMER IS NOT AN ADD-ON. Every re-quote has one, so a
+         looser test would turn every decline into an add-on decline and nobody
+         would ever leave the season again. */
+      { existingCustomerId: 'c1' },
+      { existingCustomerId: 'c1', convertedToCustomerAt: 'x' }
+    ];
+    const disagreed = KINDS.filter(q => runB.is(q) !== runS.is(q));
+    check('S129', 'the browser and the server agree what an add-on is',
+      !disagreed.length,
+      'disagreed on: ' + JSON.stringify(disagreed) + ' — the office would word ' +
+      'the email one way and the server would act the other');
+
+    const labelDiff = KINDS.filter(q =>
+      JSON.stringify(runB.labels(q)) !== JSON.stringify(runS.labels(q)));
+    check('S129', 'and they put the same words on the same three buttons',
+      !labelDiff.length,
+      'disagreed on: ' + JSON.stringify(labelDiff) + ' — the nightly nudge and ' +
+      'the office send are the SAME email to the customer');
+
+    /* ⚠ AND THE ANSWERS ARE RIGHT, not merely equal. Two copies wrong in the
+       same way agree perfectly — the lesson money-parity already carries. */
+    check('S129', 'only an addition counts',
+      runS.is({ requoteKind: 'addition' }) === true &&
+      runS.is({ requoteKind: 'address' }) === false &&
+      runS.is({ requoteKind: 'price' }) === false &&
+      runS.is({}) === false &&
+      runS.is({ existingCustomerId: 'c1' }) === false,
+      'a move and a price change are about the whole job, so a no there is a ' +
+      'no to the season, exactly as it has always been');
+    check('S129', 'and a stray case or a pasted space does not change the answer',
+      runS.is({ requoteKind: 'ADDITION' }) === true &&
+      runS.is({ requoteKind: ' addition ' }) === true &&
+      runS.is({ requoteKind: 'additional' }) === false,
+      'the value is written by one dropdown today, but a value that misses ' +
+      'silently cancels somebody\'s season');
+
+    check('S129', 'the add-on decline button says what it does',
+      /just my usual lights/.test(runS.labels({ requoteKind: 'addition' }).decline) &&
+      runS.labels({}).decline === 'Decline Quote',
+      '"Decline Quote" on an add-on reads as declining the whole thing — which ' +
+      'is the confusion this job exists to remove');
+    check('S129', 'and the approve button does too',
+      runS.labels({ requoteKind: 'addition' }).approve === 'Yes, add it' &&
+      runS.labels({}).approve === 'Approve Quote',
+      'they are approving an addition, not signing up');
+  }
+
+  /* ---- 2. declineAddOnOnly, RUN ---------------------------------------- */
+  const NEED = ['declineAddOnOnly', 'quoteCustomerRef', 'quoteMatchesExistingCustomer',
+    'quoteMatchAddressServer', 'digitsOnly', 'tryFirestore', 'flagQuoteFollowUp'];
+  const parts = {};
+  NEED.forEach(n => { parts[n] = lift(fns, n); });
+  const gone = NEED.filter(n => !parts[n]);
+  check('S129', 'every function the behaviour checks run is findable',
+    !gone.length, 'missing: ' + gone.join(', '));
+
+  /* The statuses list is read OUT of the file rather than retyped, so tightening
+     the real rule cannot leave this check agreeing with a stale copy. */
+  const statusDecl = fns.match(/const QUOTE_RAISED_STATUSES_SERVER = \[[^\]]*\];/);
+  check('S129', 'the quote-raised status list is findable', !!statusDecl);
+
+  if (!gone.length && statusDecl) {
+    const ASYNC = ['declineAddOnOnly', 'quoteCustomerRef', 'quoteMatchesExistingCustomer',
+      'tryFirestore', 'flagQuoteFollowUp'];
+    ASYNC.forEach(n => {
+      check('S129', n + ' is still async in the real file',
+        new RegExp('async function ' + n + '\\(').test(fns),
+        'the lift below puts the keyword back — if it stops being async there, ' +
+        'this suite is running a different shape from production');
+    });
+    const body = 'const HU_RETRY_PAUSE_MS = 0;\n' + statusDecl[0] + '\n' + NEED.map(n =>
+      (ASYNC.indexOf(n) !== -1 ? 'async ' : '') + parts[n]).join('\n');
+
+    function makeWorld(seed, opts) {
+      const o = opts || {};
+      const customers = {};
+      Object.keys(seed || {}).forEach(k => { customers[k] = Object.assign({}, seed[k]); });
+      const messages = [], errors = [];
+      const db = {
+        collection: (c) => {
+          if (c === 'jobAddresses') {
+            return {
+              doc: (id) => ({
+                get: () => Promise.resolve({
+                  exists: Object.prototype.hasOwnProperty.call(customers, id),
+                  id: id, data: () => customers[id]
+                }),
+                update: (patch) => {
+                  if (o.failUpdate) return Promise.reject(new Error('boom'));
+                  Object.assign(customers[id], patch);
+                  return Promise.resolve();
+                }
+              }),
+              /* where('phoneDigits','==',v) — THREE arguments. A fake that reads
+                 the second as the value compares everything against "==" and
+                 silently matches nobody; that cost a debugging round in Suite
+                 128 and is written down here so it does not cost another. */
+              where: (field, op, value) => ({
+                limit: () => ({
+                  get: () => Promise.resolve({
+                    docs: Object.keys(customers)
+                      .filter(k => customers[k][field] === value)
+                      .map(k => ({ id: k, data: () => customers[k] }))
+                  })
+                })
+              })
+            };
+          }
+          if (c === 'messages') {
+            return { add: (m) => { if (o.failMessage) return Promise.reject(new Error('too long')); messages.push(m); return Promise.resolve({}); } };
+          }
+          throw new Error('unexpected collection: ' + c);
+        }
+      };
+      const adminNs = { firestore: { FieldValue: { serverTimestamp: () => '@ts' } } };
+      const run = new Function('db', 'admin', 'console',
+        body + ';return declineAddOnOnly;')(db, adminNs,
+        { error: (...a) => errors.push(a.join(' ')), log: () => {} });
+      return { run, customers, messages, errors };
+    }
+
+    /* A customer mid-season with a garage on order: lights up, on a route, and
+       sitting in Needs Changes because the re-quote asked them a question. */
+    const inSeason = (extra) => Object.assign({
+      name: 'Rachel Oslund', phone: '(801) 555 0100', phoneDigits: '8015550100',
+      address: '209 S 850 W', rsvpStatus: 'yes', seasonStatus: 'needs_changes',
+      needsLightRecycle: false, needsLightBuild: true,
+      scheduled: true, scheduledDate: '2099-12-01', assignedCrew: 'Crew 1'
+    }, extra || {});
+
+    pendingAsync.push((async () => {
+
+      /* ---- the whole point: the season is untouched ------------------- */
+      {
+        const w = makeWorld({ c1: inSeason() });
+        const before = JSON.stringify(w.customers.c1);
+        const res = await w.run({ existingCustomerId: 'c1', requoteKind: 'addition' });
+
+        check('S129', 'the customer is still in for the season',
+          w.customers.c1.rsvpStatus === 'yes' && !w.customers.c1.rsvpRespondedAt,
+          'this is the whole job — turning down a garage must not cancel a ' +
+          'customer whose house is being lit next week');
+        check('S129', 'their lights are NOT flagged to come back',
+          w.customers.c1.needsLightRecycle === false,
+          'a set that is going up this season would be listed for collection');
+        check('S129', 'and their build is left alone',
+          w.customers.c1.needsLightBuild === true,
+          'needsLightBuild and buildTopUpFromFeet are written when the office ' +
+          'APPLIES a re-quote, which has not happened to one being declined — ' +
+          'clearing them "to be safe" cancels a build nobody cancelled');
+        check('S129', 'and they stay scheduled, on their crew, on their date',
+          w.customers.c1.scheduled === true &&
+          w.customers.c1.scheduledDate === '2099-12-01' &&
+          w.customers.c1.assignedCrew === 'Crew 1',
+          'the crew is still going to that house');
+
+        /* ---- but the question is closed --------------------------------- */
+        check('S129', 'the re-quote question is answered and cleared',
+          w.customers.c1.seasonStatus === 'confirmed' && res.seasonStatusCleared === true,
+          'the portal sets needs_changes when it raises a re-quote and only an ' +
+          'ANSWER clears it — "no thanks" is an answer. Left set they sit in ' +
+          'Needs Changes for ever with nothing anywhere to clear it');
+
+        /* Everything except seasonStatus is byte-identical to what we started
+           with. Stronger than naming the fields: it also catches a field added
+           later that nobody thought to assert. */
+        const after = JSON.parse(JSON.stringify(w.customers.c1));
+        const start = JSON.parse(before);
+        delete after.seasonStatus; delete start.seasonStatus;
+        check('S129', 'and NOTHING else on the record moved at all',
+          JSON.stringify(after) === JSON.stringify(start),
+          'seasonStatus is the only field an add-on decline may touch');
+
+        check('S129', 'exactly one System note is raised',
+          w.messages.length === 1 && w.messages[0].folder === 'System',
+          'nothing else about this customer moved, so without a note the office ' +
+          'goes on expecting a garage that is not coming');
+        check('S129', 'and it says plainly that this is not a cancellation',
+          /not a cancellation/i.test(w.messages[0].message || '') &&
+          /Rachel Oslund/.test(w.messages[0].message || ''),
+          'a note headed "declined" beside a customer who is staying is worse ' +
+          'than no note — somebody acts on it');
+      }
+
+      /* ---- address_changed is cleared too; a cancellation is NOT ------- */
+      {
+        const w = makeWorld({ c1: inSeason({ seasonStatus: 'address_changed' }) });
+        await w.run({ existingCustomerId: 'c1', requoteKind: 'addition' });
+        check('S129', 'address_changed is a quote-raised status and clears',
+          w.customers.c1.seasonStatus === 'confirmed',
+          'portalSave writes either of the two depending on what changed');
+      }
+      {
+        /* ⚠ ONLY THOSE TWO VALUES. A cancellation request was put there by
+           something that is not this quote, and clearing it would be this
+           reaching well past what it was pressed to do — it would silently
+           un-cancel somebody who asked to cancel. */
+        const w = makeWorld({ c1: inSeason({ seasonStatus: 'cancellation_requested' }) });
+        const res = await w.run({ existingCustomerId: 'c1', requoteKind: 'addition' });
+        check('S129', 'a cancellation request is NOT cleared',
+          w.customers.c1.seasonStatus === 'cancellation_requested' &&
+          res.seasonStatusCleared !== true,
+          'that was not put there by this quote — clearing it un-cancels ' +
+          'somebody who asked to cancel');
+      }
+      {
+        const w = makeWorld({ c1: inSeason({ seasonStatus: 'confirmed' }) });
+        await w.run({ existingCustomerId: 'c1', requoteKind: 'addition' });
+        check('S129', 'a customer with nothing to clear is not written to',
+          w.customers.c1.seasonStatus === 'confirmed' && w.messages.length === 1,
+          'the note still goes — the office needs telling either way');
+      }
+
+      /* ---- a new lead, and the best-effort guards ---------------------- */
+      {
+        const w = makeWorld({ c1: inSeason() });
+        const res = await w.run({ requoteKind: 'addition', phone: '801 555 0199', address: '1 New St' });
+        check('S129', 'a lead who is not a customer is not touched',
+          res.reached === false && !w.messages.length &&
+          w.customers.c1.seasonStatus === 'needs_changes',
+          'an add-on re-quote always has a customer behind it, but the resolver ' +
+          'must still answer safely when it cannot name one');
+      }
+      {
+        const w = makeWorld({ c1: inSeason() }, { failUpdate: true });
+        const res = await w.run({ existingCustomerId: 'c1', requoteKind: 'addition' })
+          .catch(err => ({ threw: (err && err.message) || 'threw' }));
+        check('S129', 'a failed status write still tells the office',
+          res.reached === true && res.seasonStatusCleared === false &&
+          w.messages.length === 1,
+          'the customer answered; a write that would not save must not swallow it');
+      }
+      {
+        const w = makeWorld({ c1: inSeason() }, { failMessage: true });
+        const res = await w.run({ existingCustomerId: 'c1', requoteKind: 'addition' })
+          .catch(err => ({ threw: (err && err.message) || 'threw' }));
+        check('S129', 'and a note that will not write does not sink it',
+          res.reached === true && w.customers.c1.seasonStatus === 'confirmed',
+          'the messages collection caps a body at 5000 characters and reports ' +
+          'the refusal as a permissions error — see CLAUDE.md');
+      }
+
+      /* ---- 3. the ROUTING, run rather than read ------------------------
+         The branch itself is what decides which of the two very different
+         answers a customer gets, and it is three lines that a regex would
+         happily pass while they did the opposite. Sliced out and run with the
+         two handlers replaced by spies — legitimate here because what is under
+         test is WHICH ONE IS CALLED; both are exercised for real above and in
+         Suite 128. */
+      {
+        /* ⚠ ANCHORED ON THE DECLARATION, NOT ON "if (action === 'decline')".
+           There are TWO of those inside quoteRespond — the first sets
+           quoteUpdates.quoteArchived — and taking the first one lifted a block
+           full of references this sandbox does not supply. It failed loudly,
+           which is the good direction, but the slice has to name the block it
+           means. */
+        const A = '  let declinedCustomer = false;';
+        const B = "  if (action === 'maybe_next_year' || action === 'maybe') {";
+        const a = fns.indexOf(A, fns.indexOf('exports.quoteRespond = onCall'));
+        const b = fns.indexOf(B, a);
+        check('S129', 'the decline branch is where this suite expects it',
+          a !== -1 && b > a,
+          'moved or renamed — fix the slice rather than deleting the check');
+        if (a !== -1 && b > a && isAddOnS) {
+          const branch = fns.slice(a, b);
+          const route = async (action, quoteData) => {
+            const called = [];
+            let declinedCustomer = false, declinedAddOnOnly = false;
+            const fn = new Function('action', 'quoteData', 'quoteId', 'called',
+              'declineAddOnOnly', 'declineReachesCustomer',
+              isAddOnS + '\nreturn (async () => {\n' +
+              'let declinedCustomer = false; let declinedAddOnOnly = false;\n' +
+              branch.replace(/^\s*let declined[\s\S]*?= false;\s*$/gm, '') +
+              '\nreturn {declinedCustomer, declinedAddOnOnly};})();');
+            /* ⚠ THE SPIES TAKE THE QUOTE ID TOO, and the routing block passes
+               it — that is how the office finds out when something did not
+               happen, so a version that dropped it would report nothing. */
+            const out = await fn(action, quoteData, 'q1', called,
+              async (q, id) => { called.push('addOnOnly:' + id); return { addOnOnly: true }; },
+              async (q, id) => { called.push('season:' + id); return { pulled: true }; });
+            return { called, out };
+          };
+
+          const addOn = await route('decline', { requoteKind: 'addition', existingCustomerId: 'c1' });
+          check('S129', 'an add-on decline goes to the add-on handler ONLY',
+            addOn.called.join(',') === 'addOnOnly:q1' &&
+            addOn.out.declinedAddOnOnly === true && addOn.out.declinedCustomer === false,
+            'calling both would refuse the garage AND cancel the season');
+
+          const move = await route('decline', { requoteKind: 'address', existingCustomerId: 'c1' });
+          check('S129', 'a move re-quote still declines the season',
+            move.called.join(',') === 'season:q1' && move.out.declinedCustomer === true,
+            'they moved and said no — that is the hole-A behaviour and must stay');
+
+          const plain = await route('decline', { name: 'A new lead' });
+          check('S129', 'and an ordinary quote still declines the season',
+            plain.called.join(',') === 'season:q1',
+            'a first-time quote has no requoteKind at all');
+
+          const appr = await route('approve', { requoteKind: 'addition' });
+          check('S129', 'approving calls neither',
+            appr.called.length === 0,
+            'the branch is guarded on the action, not just the kind');
+        }
+      }
+    })());
+  }
+
+  /* ---- 4. the link marker, in BOTH renderers -------------------------- */
+  check('S129', 'the office renderer marks an add-on decline link',
+    /quoteIsAddOn\(quote\.data\) \? '&addon=1'/.test(admin),
+    'the page cannot ask the server before showing "are you sure?", so the ' +
+    'link is what tells it which question it is asking');
+  check('S129', 'and so does the nightly nudge renderer',
+    /quoteIsAddOn\(q\) \? '&addon=1'/.test(fns),
+    'the nightly nudge is the same email — a customer who gets chased would ' +
+    'see the season wording on an add-on');
+  /* ⚠ COSMETIC ONLY, AND THAT IS THE SECURITY ARGUMENT. quoteRespond must
+     decide what a decline means from the QUOTE, never from the link — anybody
+     who can submit the public quote form can put anything in a URL. */
+  /* ⚠ sectionFrom, NOT slice-to-end-of-file. The first version ran to EOF and so
+     included the nudge renderer, which legitimately writes &addon=1 — the check
+     failed against perfectly correct code. Suite 70 uses the same helper for the
+     same reason. */
+  const respond = sectionFrom(fns, fns.indexOf('exports.quoteRespond = onCall'));
+  /* ⚠ SCOPED TO WHAT IT MEANS, not to the word. The first version was
+     /addon/i over the whole function and failed against correct code, because
+     the local flag `declinedAddOnOnly` contains "AddOn". What must never happen
+     is the server taking the DECISION from something the caller sent — so this
+     names the two places a caller's value can arrive from. */
+  check('S129', 'the server never reads the link marker',
+    !/\b(?:body|request\.data)\s*\.\s*addon/i.test(stripComments(respond)) &&
+    !/addon['"]\s*\]/i.test(stripComments(respond)),
+    'a decision taken from a URL parameter is a decision the customer can forge — ' +
+    'the kind must come off the quote document');
+  check('S129', 'and it decides from the quote document instead',
+    /quoteIsAddOn\(quoteData\)/.test(stripComments(respond)),
+    'reading the kind off anything the caller controls is the whole risk here');
+
+  /* ---- 5. what the customer is actually told -------------------------- */
+  if (!JSDOM) {
+    note('S129', 'jsdom missing — the confirmation-screen checks did not run');
+  } else {
+    const src = lift(idx, 'confirmQuoteDecline');
+    check('S129', 'the decline confirmation screen is findable', !!src);
+    if (src) {
+      const screen = (isAddOn) => {
+        const dom = new JSDOM(
+          '<div id="quoteLinkConfirm"></div><div id="quoteLinkConfirmMsg"></div>' +
+          '<div id="quoteLinkConfirmActions"></div><div id="quoteDetailFormWrap"></div>');
+        const d = dom.window.document;
+        let sub = '';
+        new Function('document', 'quoteLinkIsAddOn', 'setQuoteConfirmSub', 'handleQuoteLink',
+          src + ';confirmQuoteDecline("tok");')(
+          d, isAddOn, (t) => { sub = t; }, () => {});
+        return {
+          msg: d.getElementById('quoteLinkConfirmMsg').textContent,
+          sub: sub,
+          buttons: d.getElementById('quoteLinkConfirmActions').innerHTML
+        };
+      };
+      const on = screen(true), off = screen(false);
+
+      /* ⚠ RUN, NOT GREPPED. This repo has already shipped a correct message
+         that never reached the screen because a default overwrote it at the end
+         of the branch — "griner is a duplicate here but its not finding her",
+         a working detector behind a broken renderer. */
+      check('S129', 'an add-on is not asked whether to "close it out"',
+        !/close this out/i.test(on.msg) && !/close it out/i.test(on.buttons),
+        'that describes ending the relationship, and this customer is having ' +
+        'their house lit next week');
+      check('S129', 'it says the usual lights are unaffected',
+        /usual lights/i.test(on.sub + on.buttons) && /extra/i.test(on.sub),
+        'this is the sentence that stops somebody clicking away believing they ' +
+        'have just cancelled their season');
+      check('S129', 'and the ordinary decline screen is unchanged',
+        /close this out/i.test(off.msg) && /close it out/i.test(off.buttons) &&
+        !/usual lights/i.test(off.sub),
+        'the season decline is still a season decline');
+      check('S129', 'both screens still offer all three answers',
+        ['approve', 'maybe_next_year', 'decline'].every(a =>
+          on.buttons.indexOf('data-qd="' + a + '"') !== -1 &&
+          off.buttons.indexOf('data-qd="' + a + '"') !== -1),
+        'the second chance is the point of this screen');
+    }
+
+    /* The message AFTER the answer is recorded, run the same way. It reads the
+       SERVER's answer, not the link — if the two ever disagree, the one that
+       wrote to the database is the one telling the truth. */
+    const mStart = idx.indexOf("    if(action === 'maybe_next_year'){");
+    const mEnd = idx.indexOf('  }).catch(function(){', mStart);
+    check('S129', 'the after-answer message block is findable',
+      mStart !== -1 && mEnd > mStart);
+    if (mStart !== -1 && mEnd > mStart) {
+      const blk = idx.slice(mStart, mEnd);
+      /* ⚠ quoteLinkIsAddOn IS PASSED IN, set independently of res. That is what
+         makes the next three checks able to tell the two sources apart — and it
+         also stops a sabotage pointing at the link throwing ReferenceError,
+         which would kill the whole run with an unattributable stack instead of
+         failing as itself. */
+      const said = (action, res, linkFlag) => {
+        let msg = '', sub = '';
+        try {
+          new Function('action', 'res', 'quoteLinkIsAddOn', 'confirmMsg', 'setQuoteConfirmSub',
+            blk)(action, res, !!linkFlag, { set textContent(v) { msg = v; } }, (t) => { sub = t; });
+        } catch (err) { return 'threw: ' + (err && err.message); }
+        return msg + ' || ' + sub;
+      };
+      const addOnSaid = said('decline', { ok: true, addOnOnly: true }, false);
+      const seasonSaid = said('decline', { ok: true, addOnOnly: false }, false);
+      check('S129', 'an add-on decline is not sent a goodbye message',
+        !/hard feelings/i.test(addOnSaid) && /usual lights/i.test(addOnSaid),
+        '"no hard feelings, Merry Christmas" to somebody whose lights go up on ' +
+        'Tuesday reads as a cancellation they did not ask for');
+      check('S129', 'and a real decline still gets the warm goodbye',
+        /hard feelings/i.test(seasonSaid),
+        'that message is right for somebody who is actually leaving');
+      /* ⚠ THE TWO SOURCES ARE SET AGAINST EACH OTHER, deliberately. Comparing
+         two calls that differ only in res.addOnOnly proved NOTHING — a version
+         reading the link gives the same answer to both, so the check passed
+         either way. The red-check caught it. These two set the link flag
+         OPPOSITE to the server's answer, so only the right source gives the
+         right words. */
+      check('S129', 'the add-on wording comes from the SERVER answer',
+        /usual lights/i.test(addOnSaid),
+        'addOnOnly was true and the link said no — the link marker picks the ' +
+        'words BEFORE the call, but afterwards only what the server actually ' +
+        'did may decide');
+      check('S129', 'and a link marker alone cannot claim it was only an add-on',
+        /hard feelings/i.test(said('decline', { ok: true, addOnOnly: false }, true)),
+        'anybody can put addon=1 in a URL — telling a customer who really has ' +
+        'left "your usual lights are still going up" is the forgeable direction');
+      check('S129', 'maybe-next-year is untouched by any of it',
+        /check back next year/i.test(said('maybe_next_year', { ok: true, addOnOnly: true }, true)),
+        'a third branch added above it must not swallow the second');
+    }
+  }
+}
+
+/* =====================================================================
+ * Suite 130. Nothing a customer's answer sets off may fail silently
+ *
+ * Owner, 2026-08-21: "for server call is there a way we can't have that fail
+ * silently or what would you do?"
+ *
+ * Every write after a customer answers their quote is best-effort on purpose —
+ * the ANSWER is already recorded and must not be lost because a follow-on write
+ * failed. That was right, and it was also the whole problem: best-effort meant
+ * console.error, which goes to Cloud Logging, which nobody in the office reads.
+ * A recycle never flagged, or a house left on a route after a "no", was
+ * invisible until somebody physically noticed.
+ *
+ * ⚠ THE WORST CASE WAS NOT A FAILED WRITE, IT WAS A FAILED READ. quoteCustomerRef
+ * caught its own errors and returned null — the identical answer it gives for
+ * "this is a first-time lead". So a Firestore blip during a decline made a real
+ * member look like a stranger and NOTHING happened, with no error anywhere a
+ * human would see. Those are opposite outcomes and they shared a line of code.
+ * ===================================================================== */
+suite('Suite 130. Nothing a customer\'s answer sets off may fail silently');
+{
+  const fns = read('functions/index.js');
+  const lift = (name) => {
+    const i = fns.indexOf('function ' + name + '(');
+    if (i === -1) return null;
+    let d = 0;
+    for (let j = fns.indexOf('{', i); j < fns.length; j++) {
+      if (fns[j] === '{') d++;
+      else if (fns[j] === '}') { d--; if (!d) return fns.slice(i, j + 1); }
+    }
+    return null;
+  };
+
+  /* ---- 1. the retry ---------------------------------------------------- */
+  const trySrc = lift('tryFirestore');
+  const flagSrc = lift('flagQuoteFollowUp');
+  check('S130', 'the retry helper and the follow-up flag are findable',
+    !!trySrc && !!flagSrc,
+    'renamed or moved — fix the lift rather than deleting the suite');
+
+  /* ⚠ ZEROED IN THE SANDBOX, ASSERTED NON-ZERO HERE. Two attempts fired at the
+     same instant is not a retry — the point of the pause is to let a transient
+     blip pass. The suites run with it at 0 so a run stays under a minute
+     (CLAUDE.md §9.8), which is exactly why the real value needs its own check. */
+  const pause = fns.match(/const HU_RETRY_PAUSE_MS = (\d+);/);
+  check('S130', 'the retry actually pauses between attempts',
+    !!pause && Number(pause[1]) > 0,
+    'retrying instantly hits the same blip and reports the same failure, ' +
+    'having achieved nothing but a second write attempt');
+
+  if (trySrc && flagSrc) {
+    const mk = () => {
+      const errs = [];
+      return new Function('console', 'HU_RETRY_PAUSE_MS',
+        'async ' + trySrc + '\nreturn tryFirestore;')(
+        { error: (...a) => errs.push(a.join(' ')), log: () => {} }, 0);
+    };
+
+    pendingAsync.push((async () => {
+      const tryFn = mk();
+
+      /* A blip on the first attempt is the common case and must clear without
+         anybody hearing about it. */
+      {
+        let n = 0;
+        const r = await tryFn('x', async () => {
+          n++; if (n === 1) throw new Error('blip');
+          return 'value';
+        });
+        check('S130', 'a transient failure is retried and succeeds',
+          r.ok === true && r.value === 'value' && n === 2,
+          'a single blip is the commonest failure by far — flagging the office ' +
+          'for one is noise, and noise is how a real flag gets ignored');
+      }
+      {
+        let n = 0;
+        const r = await tryFn('x', async () => { n++; throw new Error('down'); });
+        check('S130', 'but it gives up after two and says it failed',
+          r.ok === false && n === 2,
+          'retrying for ever holds the customer\'s page open on a spinner');
+      }
+      /* ⚠ A REFUSAL IS NOT RETRIED. A permission-denied never becomes allowed on
+         a second go — and that INCLUDES the messages 5000-character cap, which
+         Firestore reports as permission-denied (CLAUDE.md). Retrying it just
+         doubles the wait for the same answer. */
+      {
+        let n = 0;
+        const err = new Error('nope'); err.code = 'permission-denied';
+        const r = await tryFn('x', async () => { n++; throw err; });
+        check('S130', 'a permission refusal is not retried',
+          r.ok === false && n === 1,
+          'it will never be allowed on a second attempt — including the ' +
+          'messages size cap, which Firestore reports this way');
+      }
+      {
+        let n = 0;
+        const err = new Error('nope'); err.code = 'unavailable';
+        const r = await tryFn('x', async () => {
+          n++; if (n === 1) throw err; return 1;
+        });
+        check('S130', 'but an ordinary outage code still is',
+          r.ok === true && n === 2,
+          '"unavailable" is precisely the transient one worth a second go');
+      }
+
+      /* ---- 2. the flag ------------------------------------------------- */
+      const mkFlag = (opts) => {
+        const o = opts || {};
+        const written = [];
+        const db = {
+          collection: (c) => ({
+            doc: (id) => ({
+              update: (patch) => {
+                if (o.fail) return Promise.reject(new Error('boom'));
+                written.push({ c, id, patch });
+                return Promise.resolve();
+              }
+            })
+          })
+        };
+        const fn = new Function('db', 'admin', 'console',
+          'async ' + flagSrc + '\nreturn flagQuoteFollowUp;')(db,
+          { firestore: { FieldValue: { serverTimestamp: () => '@ts' } } },
+          { error: () => {}, log: () => {} });
+        return { fn, written };
+      };
+      {
+        const w = mkFlag();
+        const ok = await w.fn('q1', ['route sweep failed', 'note failed']);
+        check('S130', 'what did not happen is written onto the quote',
+          ok === true && w.written.length === 1 && w.written[0].c === 'quotes' &&
+          w.written[0].id === 'q1' && w.written[0].patch.followUpNeeded === true,
+          'the quote is the one document known to be writable — it was written ' +
+          'seconds earlier, and a failure THERE throws back to the customer');
+        check('S130', 'and it names every thing that went wrong, not just the first',
+          /route sweep failed/.test(w.written[0].patch.followUpReason) &&
+          /note failed/.test(w.written[0].patch.followUpReason),
+          'fixing one problem and finding a second one you were never told ' +
+          'about is how somebody stops trusting the flag');
+      }
+      {
+        const w = mkFlag();
+        const ok = await w.fn('q1', []);
+        check('S130', 'nothing wrong writes no flag at all',
+          ok === false && !w.written.length,
+          'a flag on every quote is a flag on none of them');
+      }
+      {
+        /* ⚠ IT NEVER THROWS. This is the thing that REPORTS failures — it must
+           not become a new way for the whole call to fail. */
+        const w = mkFlag({ fail: true });
+        const ok = await w.fn('q1', ['something'])
+          .catch(() => 'THREW');
+        check('S130', 'and a flag that cannot be written does not throw',
+          ok === false,
+          'the reporter becoming the failure is the worst possible shape');
+      }
+
+      /* ---- 3. the read that used to shrug ------------------------------ */
+      const refSrc = lift('quoteCustomerRef');
+      check('S130', 'the resolver is findable', !!refSrc);
+      if (refSrc) {
+        /* ⚠ RUN, NOT GREPPED, and the distinction under test is between two
+           things that LOOK the same from outside: "there is no such customer"
+           and "I could not find out". Both used to return null. */
+        const mkRef = (mode) => {
+          const db = {
+            collection: () => ({
+              doc: () => ({
+                get: () => mode === 'boom'
+                  ? Promise.reject(new Error('unavailable'))
+                  : Promise.resolve({ exists: mode === 'found', id: 'c1', data: () => ({ name: 'R' }) })
+              })
+            })
+          };
+          return new Function('db', 'quoteMatchesExistingCustomer', 'console',
+            'async ' + refSrc + '\nreturn quoteCustomerRef;')(db,
+            async () => null, { error: () => {}, log: () => {} });
+        };
+        const found = await mkRef('found')({ existingCustomerId: 'c1' });
+        check('S130', 'a customer who exists still comes back',
+          !!found && found.id === 'c1',
+          'the ordinary path must be untouched by any of this');
+
+        const gone = await mkRef('missing')({ existingCustomerId: 'c1' })
+          .catch(err => ({ threw: (err && err.message) || 'threw' }));
+        check('S130', 'a link to a deleted customer is still a plain null',
+          gone === null,
+          'that is an ANSWER — there is no such customer — not a failure, and ' +
+          'flagging the office for it would cry wolf on every deleted record');
+
+        const blew = await mkRef('boom')({ existingCustomerId: 'c1' })
+          .then(v => ({ returned: v }), e => ({ threw: true }));
+        check('S130', 'but a read that could not run FAILS instead of shrugging',
+          blew.threw === true,
+          'this is the whole bug: it used to catch and return null, which is ' +
+          'the same answer as "not a customer" — so a blip made a real member ' +
+          'look like a stranger and the decline silently did nothing');
+      }
+    })());
+  }
+
+  /* ---- 4. the callers act on it --------------------------------------- */
+  const decl = stripComments(lift('declineReachesCustomer') || '');
+  const addOn = stripComments(lift('declineAddOnOnly') || '');
+  check('S130', 'both decline paths flag a lookup they could not run',
+    /flagQuoteFollowUp/.test(decl) && /flagQuoteFollowUp/.test(addOn) &&
+    /tryFirestore\('decline customer lookup'/.test(decl) &&
+    /tryFirestore\('add-on decline customer lookup'/.test(addOn),
+    'catching the error is only half of it — somebody has to be told');
+  /* ⚠ maybe_next_year SHARES THE RESOLVER, so it shared the silence. */
+  const respond = sectionFrom(fns, fns.indexOf('exports.quoteRespond = onCall'));
+  check('S130', 'maybe-next-year reports a failure too',
+    /flagQuoteFollowUp\(quoteId/.test(stripComments(respond)),
+    'a member who chose Maybe Next Year could stay on the routes for a season ' +
+    'they declined, with nobody any the wiser');
+
+  /* ⚠ NOTHING IS CLAIMED THAT DID NOT HAPPEN. When the customer write itself
+     fails there is no System note — saying "we took them out of the season"
+     when we did not sends the office looking for a bin that is not coming. */
+  check('S130', 'a failed customer write raises no note, only a flag',
+    /return \{ pulled: false, followUpFlagged: true \};/.test(decl),
+    'a note describing something that did not happen is worse than no note');
+
+  /* ---- 5. the office can see it --------------------------------------- */
+  const admin = read('admin.html');
+  /* ⚠ SCOPED TO THE CARD. A file-wide /followUpNeeded/ passed with the strip
+     switched off entirely, because the badge and the clear button mention the
+     same field — the red-check caught it. This reads the card render alone. */
+  const cardStart = admin.indexOf('// ---- Something the server could not finish');
+  const cardEnd = admin.indexOf('// ---- Re-quoted by hand', cardStart);
+  const cardStrip = cardStart !== -1 && cardEnd > cardStart ? admin.slice(cardStart, cardEnd) : '';
+  check('S130', 'the office sees the flag on the quote card',
+    /\(d\.followUpNeeded \? \(/.test(cardStrip) &&
+    /esc\(d\.followUpReason/.test(cardStrip) &&
+    /did not go through/.test(cardStrip),
+    'a field written by the server and read by nobody is the same silence in ' +
+    'a different place');
+  /* ⭐ THE BUTTON IS PRESSED, not read. Owner has asked for this class of check
+     by name: "just make sure to double check that if i click a button the
+     function that is supposed to happen actually does." A control that renders
+     perfectly and does nothing looks identical on screen to a working one, and
+     this repo has shipped exactly that — the bin-number box whose listener
+     patch silently did not apply. */
+  if (!JSDOM) {
+    note('S130', 'jsdom missing — the clear button was not actually clicked');
+  } else {
+    /* ⚠ ANCHORED ON list.innerHTML, NOT ON THE SELECTOR. Anchoring on
+       '[data-clearfollowup]' meant a sabotage that renamed the selector — the
+       exact "button with no listener" case this exists to catch — destroyed the
+       anchor, so a DIFFERENT check went red and this one never ran. */
+    const wStart = admin.indexOf('  list.innerHTML = html;') +
+      '  list.innerHTML = html;'.length;
+    const wEnd = admin.indexOf("  list.querySelectorAll('[data-previewquoteaddr]')", wStart);
+    check('S130', 'the clear-follow-up wiring is findable',
+      admin.indexOf('  list.innerHTML = html;') !== -1 && wEnd > wStart);
+    if (wStart !== -1 && wEnd > wStart) {
+      pendingAsync.push((async () => {
+        const dom = new JSDOM('<div id="l"><button data-clearfollowup="q1">Done</button></div>');
+        const list = dom.window.document.getElementById('l');
+        const wrote = [];
+        let repainted = 0;
+        const cache = [{ id: 'q1', data: { followUpNeeded: true, followUpReason: 'x' } }];
+        new Function('list', 'updateDoc', 'doc', 'db', 'serverTimestamp',
+          'quotesCache', 'toast', 'renderQuotesList',
+          admin.slice(wStart, wEnd))(
+          list,
+          (ref, patch) => { wrote.push({ ref, patch }); return Promise.resolve(); },
+          (dbArg, col, id) => col + '/' + id, {}, () => '@ts',
+          cache, () => {}, () => { repainted++; });
+
+        const btn = list.querySelector('[data-clearfollowup]');
+        check('S130', 'the clear button is actually listened to',
+          !!btn, 'the markup is there — this proves a handler was attached to it');
+        btn.dispatchEvent(new dom.window.Event('click'));
+        await new Promise(r => setTimeout(r, 0));
+
+        check('S130', 'clicking it writes the flag off, on the right quote',
+          wrote.length === 1 && wrote[0].ref === 'quotes/q1' &&
+          wrote[0].patch.followUpNeeded === false,
+          'a button that renders and does nothing looks identical on screen to ' +
+          'one that works');
+        /* ⚠ IT CLEARS THE FLAG AND NOTHING ELSE. It must never try to re-run
+           what failed: the server could not reach that record a moment ago, and
+           guessing which half landed is how somebody's lights get recycled
+           twice, or a real decline gets undone. */
+        check('S130', 'and it does not try to re-run whatever failed',
+          Object.keys(wrote[0].patch).every(k => /^followUp/.test(k)),
+          'wrote: ' + Object.keys(wrote[0].patch).join(', ') + ' — the office ' +
+          'has already fixed it by hand; this only records that they did');
+        check('S130', 'the local copy is mirrored so the card repaints',
+          cache[0].data.followUpNeeded === false && repainted === 1,
+          'the list draws from the cache, not from Firestore — without the ' +
+          'mirror the strip springs back and it reads as a button that failed');
+      })());
+    }
+  }
+
+  check('S130', 'and it is counted in the sidebar badge',
+    /followUpNeeded/.test(admin.slice(admin.indexOf('let newCount = 0;'),
+      admin.indexOf('renderQuotesList();', admin.indexOf('let newCount = 0;')))),
+    'the badge is what makes somebody open the tab in the first place');
 }
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
