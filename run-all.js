@@ -25562,20 +25562,20 @@ suite('122. Out of the yard and back, and a picture of it');
      because a blank rectangle when the Maps script fails to load is worse than
      a drawing — but what the office sees normally is a live map. */
   check('S122', 'the drawing is only reached when Google Maps is not',
-    /if\(!googleMapsKey\(\) \|\| typeof google === 'undefined' \|\| !google\.maps\)/
-      .test(sectionFrom(admin, admin.indexOf('function renderDayMaps(elId, day)'))),
+    /if\(typeof google === 'undefined' \|\| !google\.maps \|\| !google\.maps\.Map\)/
+      .test(sectionFrom(admin, admin.indexOf('function renderDayMaps(day)'))),
     'offline, or a key problem, must still show something');
   check('S122', 'and the maps are mounted after the panel is written',
-    panel.indexOf('renderDayMaps(elId') > panel.indexOf('el.innerHTML=h'),
+    panel.indexOf('renderDayMaps(') > panel.indexOf('el.innerHTML=h'),
     'owner: "at the bottom you should be able to see a picture of the route"');
   check('S122', 'a map that throws cannot take the day panel down with it',
     /catch\(err\)\{ console\.error\('Route maps failed:'/.test(panel),
     'the stops matter more than the drawing of them');
   /* ---- the live maps ---- */
   {
-    const maps = sectionFrom(admin, admin.indexOf('function renderDayMaps(elId, day)'));
-    const pane = sectionFrom(admin, admin.indexOf('function dayMapPane(grid, index)'));
-    const doc = sectionFrom(admin, admin.indexOf('function dayMapFrameDoc(key, id)'));
+    const maps = sectionFrom(admin, admin.indexOf('function renderDayMaps(day)'));
+    const pane = sectionFrom(admin, admin.indexOf('function dayMapPaneAt(wrap, i)'));
+    const doc = sectionFrom(admin, admin.indexOf('function dayMapDraw(pane, route, home)'));
     const routes = sectionFrom(admin, admin.indexOf('function dayMapRoutes(day)'));
 
     check('S122', 'one map per crew route, drawn from the same grouping as the list',
@@ -25586,52 +25586,55 @@ suite('122. Out of the yard and back, and a picture of it');
        maps inherit it. A second copy of that rule here is a second thing to keep
        in step with soloCrew. */
     check('S122', 'and a one-crew day gets one map without a rule of its own',
-      !/soloCrew|oneCrew/.test(maps) && /routes\.length === 1 \? ' one' : ''/.test(maps),
+      !/soloCrew|oneCrew/.test(maps) && /routes\.length > 1 \?/.test(maps),
       'the grouping already answers this; restating it is how the two drift apart');
 
-    check('S122', 'each map is an iframe, not a div in the shadow root',
-      /createElement\('iframe'\)/.test(pane) && /srcdoc/.test(pane),
-      'the Maps API puts its stylesheet in document.head, which does not cross a ' +
-      'shadow boundary — the tiles would draw and the controls would not');
-    check('S122', 'the frame is given the key the page already loads with',
-      /googleMapsKey\(\)/.test(pane),
-      'a second key pasted in here is a second key to rotate');
+    /* ⚠ NO IFRAME. See Suite 123 — a srcdoc frame is `about:srcdoc`, which fails
+       the Maps key's referrer check, and that is exactly what the owner hit. */
+    check('S122', 'a map pane is a plain div in the ordinary document',
+      /createElement\('div'\)/.test(pane) && !/iframe|srcdoc/.test(pane),
+      'the Routes tab map works this way and has done for months');
+    check('S122', 'and it uses the page’s own Maps script, not a second load of it',
+      !/maps\.googleapis\.com/.test(pane) && !/maps\.googleapis\.com/.test(maps),
+      'a second script tag is a second map load to pay for');
 
     /* ⚠ THE EXPENSIVE MISTAKE. renderPanelInto rebuilds its innerHTML on every
        render, and re-parenting an iframe reloads it in every browser. Maps are
        billed per load, and a reload also throws away wherever the office had
        panned to. Both are avoided by keeping the maps out of that innerHTML. */
     check('S122', 'the maps are NOT inside the html the panel rebuilds',
-      /<div class=\\"daymaps\\" id=\\"dayMaps\\"><\/div>/.test(admin) &&
-      !/h\+=.*renderDayMaps/.test(panel),
+      /<div id="scheduleMaps"/.test(admin) && !/h\+=.*renderDayMaps/.test(panel),
       'a map that reloads on every tick costs money and loses where you had panned to');
     check('S122', 'a pane is built once and then reused',
-      /let pane = DAY_MAP_PANES\[key\];/.test(pane) && /if\(pane\) return pane;/.test(pane),
-      'switching day must not reload a single map');
+      /if\(dayMapPanes\[i\]\) return dayMapPanes\[i\];/.test(pane),
+      'switching day must not rebuild a single map');
     check('S122', 'a route this day does not have is hidden, not destroyed',
       /box\.style\.display = 'none'/.test(maps),
       'the map inside is worth keeping for the next day that needs it');
 
-    check('S122', 'the route is sent to the frame, not rebuilt inside it',
-      /postMessage/.test(pane === '' ? '' : admin.slice(admin.indexOf('function dayMapSend'),
-        admin.indexOf('function dayMapRoutes'))) && /addEventListener\("message"/.test(doc),
-      'a second copy of any route rule inside the frame would drift from the real one');
-    check('S122', 'a frame says when it is ready, so nothing is sent into the void',
-      /hlxMapReady/.test(doc) && /pane\.ready = true/.test(admin),
-      'the first draw happens before the Maps script has finished loading');
+    check('S122', 'the view is only re-framed when the route itself changed',
+      /if\(key !== pane\.key\)\{ pane\.key = key; pane\.map\.fitBounds/.test(doc),
+      'ticking a house off would otherwise yank the map back from wherever the ' +
+      'office had just panned to');
 
     check('S122', 'a house with no position is never given an invented pin',
       /if\(!ok\)\{ missing\+\+; return; \}/.test(routes) && /not on the map/.test(maps),
       'it is counted in the heading instead, where it reads as the gap it is');
     check('S122', 'a calculated position still looks different from a measured one',
-      /s\.est\?0\.55:1/.test(doc),
+      /fillOpacity: s\.est \? 0\.55 : 1/.test(doc),
       'the office should be able to see which pins are estimates');
     check('S122', 'the map draws the drive out of the yard and the drive home',
-      /if\(d\.home\) path\.push\(d\.home\)/.test(doc) && /routeHomePoint/.test(maps),
+      /if\(home\) path\.push\(home\);/.test(doc) && /routeHomePoint/.test(maps),
       'those two legs are the ones a stop list never shows');
     check('S122', 'searching clears the maps rather than leaving yesterday’s up',
-      /renderDayMaps\('panel', null\)/.test(admin),
+      /renderDayMaps\(null\)/.test(admin),
       'a map under a search result is about a day the office is no longer looking at');
+    /* A tab with no day panel never calls renderPanelInto, so nothing would take
+       the last day's maps down underneath it. */
+    check('S122', 'and so do the tabs that have no day at all',
+      /renderOneMan\(\);renderDayMaps\(null\)/.test(admin) &&
+      /renderPrinting\(\);renderDayMaps\(null\)/.test(admin),
+      'One Man Installs and Printing would otherwise sit under yesterday’s route');
   }
   check('S122', 'the list and the picture read ONE grouping',
     /dayRouteGroups\(day\)\.forEach/.test(panel) && /dayRouteGroups\(day\)/.test(pic),
@@ -25641,24 +25644,35 @@ suite('122. Out of the yard and back, and a picture of it');
 /*
  * Suite 123. The two crew maps, actually rendered.
  *
- * Owner, 2026-08-21: "it should be a google maps thing that you can click on and
- * move if you want and there is two different maps for each crew, unless its a
- * one crew day."
+ * Owner, 2026-08-21: "there is two different maps for each crew, unless its a one
+ * crew day", then, on the first version shipped: "it says it didnt load google
+ * maps correctly".
  *
- * ⚠ THIS ONE HAS TO RUN, NOT READ. Suite 122 checks the source of these
- * functions and every one of those checks passed while the thing that actually
- * matters — two iframes appearing, and SURVIVING a redraw — was never exercised.
- * This repo has been caught three separate times by a text-only check sitting
- * green over code that could not run (see §5 of CLAUDE.md). So the renderer is
- * driven against a real DOM here.
+ * ⚠ WHY THAT HAPPENED, because it is the trap this suite exists to keep shut.
+ * The first version put each map in an <iframe srcdoc> to dodge the shadow DOM.
+ * A srcdoc frame's document URL is `about:srcdoc`, so the Maps key's HTTP-referrer
+ * check has nothing to match and Google refuses to load. Every check in the
+ * previous version of this suite passed, because jsdom neither loads the frame
+ * nor validates a referrer — the suite could not see the only thing that was
+ * wrong. It is checked here as a source rule instead: no iframe, in the ordinary
+ * document, exactly like the Routes tab map that demonstrably works.
  *
- * ⚠ THE EXPENSIVE FAILURE IS THE REDRAW. renderPanelInto rebuilds its innerHTML
- * on every tick of every checkbox, and re-parenting or re-srcdoc-ing an iframe
- * reloads it in every browser. That is billed per load AND throws away wherever
- * the office had panned to. Two checks below exist only for that.
+ * ⚠ AND IT STILL RUNS THE RENDERER. Google's classes are faked below, so the
+ * checks are about what gets DRAWN — how many maps, how many markers, whether the
+ * line goes home — not about what the source says.
  */
 suite('123. The two crew maps, actually rendered');
 {
+  const noFrame = sectionFrom(admin, admin.indexOf('function dayMapPaneAt(wrap, i)'));
+  check('S123', 'a map is a plain div in the ordinary page, never an iframe',
+    !/iframe|srcdoc/.test(noFrame) && /createElement\('div'\)/.test(noFrame),
+    'a srcdoc frame is about:srcdoc, which fails the key\'s referrer check — ' +
+    'this is the bug the owner reported and it must not come back');
+  check('S123', 'and the container lives outside the shadow widget',
+    /<div id="scheduleMaps"/.test(admin) &&
+    admin.indexOf('<div id="scheduleMaps"') > admin.indexOf('<div id="scheduleHost">'),
+    'inside the shadow root the Maps stylesheet in document.head cannot reach it');
+
   if (!JSDOM) {
     note('jsdom not installed — skipping the crew-map render tests');
   } else {
@@ -25671,19 +25685,25 @@ suite('123. The two crew maps, actually rendered');
         'renamed or removed — update this test rather than deleting it');
     } else {
       const LF_ = String.fromCharCode(10);
-      const dom = new JSDOM('<!doctype html><html><head>' +
-        '<script src="https://maps.googleapis.com/maps/api/js?key=TESTKEY123"></' + 'script>' +
-        '</head><body><div id="host"></div></body></html>');
+      const dom = new JSDOM('<!doctype html><body><div id="scheduleMaps"></div></body>');
       const savedDoc = global.document, savedWin = global.window;
       global.window = dom.window;
       global.document = dom.window.document;
-      /* The Maps script "loaded". Without this the fallback drawing is rendered
-         instead and none of the checks below are about maps at all. */
-      global.google = { maps: {} };
-      const host = dom.window.document.getElementById('host');
-      const shadow = host.attachShadow({ mode: 'open' });
-      shadow.innerHTML = '<div class="daymaps" id="dayMaps"></div>';
-      global.RT = shadow;
+
+      /* A stand-in for Google's classes. Records what was asked for, so the
+         checks below are about the map that gets built rather than the code. */
+      const built = [];
+      function FakeMap(el, opts){ this.el = el; this.opts = opts; this.fits = 0; built.push(this); }
+      FakeMap.prototype.fitBounds = function(){ this.fits++; };
+      function FakeMarker(o){ this.o = o; this.map = o.map; }
+      FakeMarker.prototype.setMap = function(m){ this.map = m; };
+      function FakeLine(o){ this.o = o; }
+      FakeLine.prototype.setMap = function(m){ this.map = m; };
+      function FakeBounds(){ this.pts = []; }
+      FakeBounds.prototype.extend = function(p){ this.pts.push(p); };
+      global.google = { maps: { Map: FakeMap, Marker: FakeMarker, Polyline: FakeLine,
+        LatLngBounds: FakeBounds, SymbolPath: { CIRCLE: 0 } } };
+
       global.esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c =>
         ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
       global.dayDate = d => d._date;
@@ -25694,7 +25714,8 @@ suite('123. The two crew maps, actually rendered');
 
       const api = eval(extractFn(admin, 'haversine') + LF_ + admin.slice(crewStart, crewEnd) +
         LF_ + admin.slice(mapStart, mapEnd) + LF_ +
-        ';({maps: renderDayMaps, routes: dayMapRoutes, setCrews(l){ CREWS = normalizeCrews(l); }})');
+        ';({maps: renderDayMaps, routes: dayMapRoutes, panes: dayMapPanes,' +
+        '  setCrews(l){ CREWS = normalizeCrews(l); }})');
       api.setCrews([{ name: 'Dad + Ty', city: '' }, { name: 'Crew 2', city: '' }]);
 
       const mk = (name, city, lat, lng) => ({ name, city, _cust: { lat, lng } });
@@ -25703,68 +25724,85 @@ suite('123. The two crew maps, actually rendered');
         twoCrew.houses.push(mk('Lehi ' + i, 'Lehi', 40.38 + i * 0.004, -111.86 + i * 0.003));
         twoCrew.houses.push(mk('Alpine ' + i, 'Alpine', 40.46 + i * 0.003, -111.78 + i * 0.003));
       }
-      const wrap = shadow.getElementById('dayMaps');
-      const panes = () => Array.from(wrap.querySelectorAll('.daymappane'));
-      const visible = () => panes().filter(p => p.style.display !== 'none');
-      const frames = () => Array.from(wrap.querySelectorAll('iframe'));
+      const wrap = dom.window.document.getElementById('scheduleMaps');
+      const boxes = () => Array.from(wrap.querySelectorAll('.daymappane'));
+      const visible = () => boxes().filter(b => b.style.display !== 'none');
 
-      api.maps('panel', twoCrew);
-      check('S123', 'a two-crew day really does draw two maps',
-        visible().length === 2, 'got ' + visible().length);
-      check('S123', 'and each one is a real iframe',
-        frames().length === 2, 'got ' + frames().length +
-        ' — a div in the shadow root would draw tiles with unstyled controls');
-      check('S123', 'the frames carry the page’s own Maps key, not a second one',
-        frames().every(f => (f.srcdoc || '').indexOf('key=TESTKEY123') > -1),
-        'a key pasted in here is a second key to rotate');
-      check('S123', 'each heading names its crew',
-        /Route 1 . Dad \+ Ty/.test(panes()[0].innerHTML) &&
-        /Route 2 . Crew 2/.test(panes()[1].innerHTML),
-        panes().map(p => p.querySelector('.hd').textContent).join(' | '));
-      check('S123', 'and says how many stops it is showing',
-        /10 stops/.test(panes()[0].innerHTML));
+      api.maps(twoCrew);
+      check('S123', 'a two-crew day really does build two maps',
+        built.length === 2 && visible().length === 2,
+        'built ' + built.length + ', showing ' + visible().length);
+      check('S123', 'each map gets its own crew’s stops and nobody else’s',
+        api.panes[0].markers.length === 10 && api.panes[1].markers.length === 10,
+        'got ' + api.panes.map(p => p.markers.length).join(' and ') +
+        ' — no yard in this fixture, so ten each');
+      check('S123', 'the pins are numbered from 1 for each crew',
+        api.panes[0].markers[0].o.label.text === '1' &&
+        api.panes[1].markers[0].o.label.text === '1',
+        'a crew reads their own numbering, not their block of somebody else\'s');
+      check('S123', 'each route is drawn as a line',
+        !!api.panes[0].line && api.panes[0].line.o.path.length === 10);
+      check('S123', 'the headings name each crew',
+        /Route 1 . Dad \+ Ty/.test(boxes()[0].innerHTML) &&
+        /Route 2 . Crew 2/.test(boxes()[1].innerHTML),
+        boxes().map(b => b.textContent).join(' | '));
 
-      /* ⚠ THE ONE THAT COSTS MONEY. */
-      const before = frames(), srcBefore = before.map(f => f.srcdoc);
-      api.maps('panel', twoCrew);
-      check('S123', 'a redraw reuses the very same frames',
-        frames().length === 2 && frames()[0] === before[0] && frames()[1] === before[1],
-        're-creating or re-parenting an iframe reloads the map: billed again, and ' +
-        'it throws away wherever the office had panned to');
-      check('S123', 'and does not rewrite their srcdoc either',
-        frames().map(f => f.srcdoc).join() === srcBefore.join(),
-        'rewriting srcdoc reloads it just as surely as moving it does');
+      /* ⚠ THE EXPENSIVE ONE. renderPanelInto redraws on every tick of a checkbox.
+         Rebuilding the Map object is billed per load; re-fitting the bounds throws
+         away wherever the office had just panned to. Neither may happen. */
+      const fitsBefore = built.map(m => m.fits);
+      api.maps(twoCrew);
+      check('S123', 'a redraw does NOT build another map',
+        built.length === 2,
+        'got ' + built.length + ' — a map rebuilt on every checkbox is billed every time');
+      check('S123', 'and does not yank the view back when nothing moved',
+        built.map(m => m.fits).join() === fitsBefore.join(),
+        're-fitting the bounds throws away wherever the office had panned to');
+
+      /* But a route that really changed must re-frame. */
+      twoCrew.houses.push(mk('Lehi far', 'Lehi', 40.55, -111.95));
+      api.maps(twoCrew);
+      check('S123', 'a route that really changed does re-frame',
+        built[0].fits > fitsBefore[0],
+        'a new stop off the edge would otherwise never come into view');
 
       const oneCrew = { id: 'e', _date: new Date(2026, 10, 4),
         houses: twoCrew.houses.filter(h => h.city === 'Lehi') };
-      api.maps('panel', oneCrew);
-      check('S123', 'a one-crew day draws ONE map',
-        visible().length === 1, 'got ' + visible().length +
-        ' — owner: "two different maps for each crew, unless its a one crew day"');
-      check('S123', 'the spare pane is hidden, never destroyed',
-        panes().length === 2 && frames().length === 2,
+      api.maps(oneCrew);
+      check('S123', 'a one-crew day shows ONE map',
+        visible().length === 1, 'got ' + visible().length);
+      check('S123', 'and the spare pane is hidden, not destroyed',
+        boxes().length === 2 && built.length === 2,
         'the map inside is worth keeping for the next day that needs it');
-      check('S123', 'and the single map goes full width',
-        /\bone\b/.test(wrap.querySelector('.daymapgrid').className));
 
       const withBare = { id: 'f', _date: new Date(2026, 10, 5),
         houses: oneCrew.houses.concat([{ name: 'Etienne Way', city: 'Lehi' }]) };
-      api.maps('panel', withBare);
+      api.maps(withBare);
       const r = api.routes(withBare);
-      check('S123', 'a house with no position is left off the map, not pinned somewhere invented',
-        r[0].stops.length === 10 && r[0].missing === 1,
+      check('S123', 'a house with no position is left off, not pinned somewhere invented',
+        r[0].missing === 1 && r[0].stops.length === oneCrew.houses.length,
         'stops=' + r[0].stops.length + ' missing=' + r[0].missing);
       check('S123', 'and the heading owns up to it',
         /1 not on the map/.test(visible()[0].innerHTML),
-        visible()[0].querySelector('.hd').textContent);
+        visible()[0].textContent);
 
-      api.maps('panel', null);
+      api.maps(null);
       check('S123', 'no day means the whole block goes away',
         wrap.style.display === 'none',
-        'an empty map frame under an empty panel is just a loading spinner forever');
+        'an empty map under an empty panel is a loading spinner forever');
+
+      /* And with no Google at all, the drawing rather than a blank rectangle. */
+      const savedGoogle = global.google;
+      delete global.google;
+      api.panes.length = 0;
+      wrap.innerHTML = '';
+      api.maps(twoCrew);
+      check('S123', 'no Google Maps means the drawing, never an empty box',
+        /<svg/.test(wrap.innerHTML),
+        'this is what the owner would see if the key ever stopped working');
+      global.google = savedGoogle;
 
       delete global.google;
-      delete global.RT;
       global.document = savedDoc;
       global.window = savedWin;
     }
