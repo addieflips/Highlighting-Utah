@@ -27852,11 +27852,32 @@ function reorderFlatStops(flatStops, startPoint){
      Routes simply stopped keeping themselves up to date.
      Holes only. A stop with no lat/lng is a REAL house that has not been
      geocoded yet — the bulk import creates those deliberately — so it stays on
-     the route and merely orders arbitrarily, exactly as it did before. */
-  let remaining = (flatStops || []).filter(Boolean);
+     the route and merely orders arbitrarily, exactly as it did before.
+
+     ⚠ AND IT MAY NOT DRAG THE REST OF THE DAY DOWN WITH IT (fixed 2026-08-21).
+     "Orders arbitrarily" was true of the un-pinned stop and FALSE of everybody
+     else. haversine() against a null coordinate is NaN, and `d < bestDist` is
+     false for NaN, so the moment an un-pinned stop became the anchor — which it
+     did whenever one happened to sit FIRST in the list — every remaining stop
+     measured NaN, the walk never found a nearest anything, and twoOptImprove
+     then reversed segments against NaN distances. The day came back SCRAMBLED
+     rather than merely unordered, and from the office's side that is
+     indistinguishable from the optimiser having run and chosen that order.
+     One house with no map pin was enough to ruin a whole crew's driving day.
+
+     Owner, 2026-08-21: "every crew should be organized based on the route for
+     the day for the most efficent driving time ... like what route xl does."
+     So the stops that CAN be placed are routed against each other, and the ones
+     that cannot ride along on the end. Nothing is dropped either way — the same
+     rule the whole re-order is built on. */
+  const all = (flatStops || []).filter(Boolean);
+  const hasPin = function(p){ return p && typeof p.lat === 'number' && typeof p.lng === 'number' &&
+                                     isFinite(p.lat) && isFinite(p.lng); };
+  const unpinned = all.filter(function(p){ return !hasPin(p); });
+  let remaining = all.filter(hasPin);
   let ordered = [];
   let current;
-  if(!remaining.length) return [];
+  if(!remaining.length) return unpinned;
   if(startPoint){
     current = startPoint;
   } else {
@@ -27874,7 +27895,7 @@ function reorderFlatStops(flatStops, startPoint){
     ordered.push(next);
     current = {lat:next.lat, lng:next.lng};
   }
-  return twoOptImprove(ordered, startPoint);
+  return twoOptImprove(ordered, startPoint).concat(unpinned);
 }
 function nearestNeighborOrder(selectedAddresses, startPoint){
   const flat = selectedAddresses.map(function(item){ return {id:item.id, address:item.data.address, name:item.data.name||'', phone:item.data.phone||'', difficulty:item.data.difficulty, lat:item.data.lat, lng:item.data.lng, gateCode:item.data.gateCode||'', specificOutlet:item.data.specificOutlet||'', specificOutletNotes:item.data.specificOutletNotes||'', customerNumber:item.data.customerNumber||''}; });
@@ -28672,6 +28693,79 @@ function nearbyTowns(city, centres){
    in the same town on the same day. */
 function planNewCrewDays(waiting, taken, opts){
   const o = opts || {};
+  /* ⭐ A DAY IS A CLUSTER, NOT THE TOP OF A LIST (added 2026-08-21).
+     Owner: "in the schedule we want to try to organize it so in a city and
+     neighboring cities it picks houses for a day that are closer to each other
+     rather than miles apart although theyre technically in the same city."
+
+     A town is not a point. Provo is nine miles across, and the queue a day was
+     filled from is ordered by who has waited longest — so the twenty houses a
+     crew got could be twenty houses scattered over the whole town, and no amount
+     of re-ordering them afterwards can fix that. Driving order is only ever as
+     good as the SET of houses it is given: pick twenty that sit near each other
+     and the route is short, pick twenty at random across the town and the best
+     possible route is still a bad day. This picks the set.
+
+     ⚠ IT DOES NOT OVERRULE ANYTHING SHE HAS ALREADY DECIDED. Distance is the
+     LAST word, never the first:
+       - priority tier is absolute. October is emptied before November is touched,
+         exactly as before — this only ever chooses between houses the old code
+         considered equally urgent.
+       - a named day still goes first inside its tier ("try to do their house the
+         next possible chance after that", 2026-08-20).
+       - a house with no map pin is not punished for it. It cannot be clustered,
+         so it is taken last within its tier, in the queue's own order — the same
+         treatment reorderFlatStops gives it. It never blocks or scatters the rest.
+     With no anchor to start from, the first house is simply the front of the
+     queue, which is what the builder took before. So the CHOICE of who leads a
+     day is unchanged; what changed is who rides along with them. */
+  function pickClusteredFromQueue(queue, eligible, want, anchor){
+    const chosen = [];
+    const pool = (eligible || []).slice();
+    const pinOf = function(i){
+      const st = queue[i] && queue[i].stop;
+      return (st && typeof st.lat === 'number' && typeof st.lng === 'number' &&
+              isFinite(st.lat) && isFinite(st.lng)) ? st : null;
+    };
+    let cur = (anchor && typeof anchor.lat === 'number' && typeof anchor.lng === 'number')
+      ? {lat: anchor.lat, lng: anchor.lng} : null;
+    while(chosen.length < want && pool.length){
+      /* Only the most urgent tier still in the pool is ever in play, so the
+         geography below can never promote a November house over an October one. */
+      let urg = Infinity;
+      pool.forEach(function(i){ const p = queue[i].priority; if(p < urg) urg = p; });
+      let bestPos = -1, bestNamed = 0, bestDist = 0;
+      pool.forEach(function(i, pos){
+        const q = queue[i];
+        if(q.priority !== urg) return;
+        const named = q.named ? 0 : 1;
+        const pin = pinOf(i);
+        /* No anchor yet, or nothing to measure against: fall back to the queue's
+           own order, which is priority, then named, then longest waiting. */
+        const dist = cur ? (pin ? haversine(cur.lat, cur.lng, pin.lat, pin.lng) : Infinity) : pos;
+        if(bestPos === -1 || named < bestNamed || (named === bestNamed && dist < bestDist)){
+          bestPos = pos; bestNamed = named; bestDist = dist;
+        }
+      });
+      if(bestPos === -1) break;
+      const idx = pool.splice(bestPos, 1)[0];
+      chosen.push(idx);
+      const pin = pinOf(idx);
+      if(pin) cur = {lat: pin.lat, lng: pin.lng};
+    }
+    return chosen;
+  }
+  /* Where the day has got to on the map, so the neighbour town it borrows from
+     lends the houses on ITS side of the line rather than its longest-waiting
+     ones. Read before anything is spliced out of the queue. */
+  function lastPinOf(queue, idxs){
+    for(let k = (idxs || []).length - 1; k >= 0; k--){
+      const st = queue[idxs[k]] && queue[idxs[k]].stop;
+      if(st && typeof st.lat === 'number' && typeof st.lng === 'number' &&
+         isFinite(st.lat) && isFinite(st.lng)) return {lat: st.lat, lng: st.lng};
+    }
+    return null;
+  }
   const cap = o.cap || MAX_STOPS_PER_ROUTE;
   const crews = o.crews || CREWS_PER_DAY;
   const maxDays = o.maxDays == null ? 40 : o.maxDays;
@@ -28864,10 +28958,16 @@ function planNewCrewDays(waiting, taken, opts){
            leave a healthier last day was built, shown to her, and overruled — forty
            houses a day early matters more than fifteen at the end, and the short days
            fill themselves from what the crews do not finish. */
-        const take = eligible.slice(0, cap);
+        const take = pickClusteredFromQueue(queue, eligible, cap, null);
         if(!take.length) break;
         const ids = take.map(function(i){ return queue[i].id; });
-        for(let i = take.length - 1; i >= 0; i--) queue.splice(take[i], 1);
+        /* Where this crew ends up on the map, kept before the splice — the
+           neighbour it borrows from below lends from that end of the town. */
+        const anchor = lastPinOf(queue, take);
+        /* take comes back in PICK order, not index order, so the splice has to
+           work from the highest index down or it removes the wrong houses. */
+        take.slice().sort(function(a, b){ return b - a; })
+            .forEach(function(i){ queue.splice(i, 1); });
         /* Its own town first, always, and then AT MOST ONE other — see the note
            on the owner's "each crew is only doing one other city". The one
            chosen is the neighbour whose most urgent waiting house is the most
@@ -28890,13 +28990,21 @@ function planNewCrewDays(waiting, taken, opts){
             if(!borrow || best < borrow.best) borrow = {town: other, best: best, queue: oq};
           }
           if(borrow){
-            const lent = [];
-            for(let i = 0; i < borrow.queue.length && ids.length + lent.length < cap; i++){
-              if(borrow.queue[i].from <= ds) lent.push(i);
+            /* ⭐ AND THE NEIGHBOUR LENDS FROM THE NEAR SIDE. The borrowed houses
+               used to come off the front of that town's queue, which is the
+               longest-waiting ones wherever they happen to sit — so a crew that
+               had just finished the east end of Lehi could be sent to the far
+               side of American Fork. Anchored on where the day has actually got
+               to, the loan continues the run instead of restarting it. */
+            const oel = [];
+            for(let i = 0; i < borrow.queue.length; i++){
+              if(borrow.queue[i].from <= ds) oel.push(i);
             }
+            const lent = pickClusteredFromQueue(borrow.queue, oel, cap - ids.length, anchor);
             if(lent.length){
               lent.forEach(function(i){ ids.push(borrow.queue[i].id); });
-              for(let i = lent.length - 1; i >= 0; i--) borrow.queue.splice(lent[i], 1);
+              lent.slice().sort(function(a, b){ return b - a; })
+                  .forEach(function(i){ borrow.queue.splice(i, 1); });
               towns.push(borrow.town);
             }
           }

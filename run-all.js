@@ -7714,6 +7714,31 @@ suite('Suite 24. A day with nothing left in it does not abort the sweep');
     expectStops('and it is the un-geocoded house that was kept, not a placeholder', noPin,
       v => v.some(s => s && s.id === 'nopin'));
 
+    /* ⭐ AND IT MAY NOT SCRAMBLE THE DAY AROUND IT (added 2026-08-21).
+       "Stays on the route and orders arbitrarily" was only ever true of the
+       un-pinned house itself. haversine() against a null coordinate is NaN and
+       `d < bestDist` is false for NaN, so an un-pinned house sitting FIRST
+       became the anchor, every remaining stop measured NaN, and the day came
+       back in an order the optimiser had never chosen — while reporting that it
+       had. One un-geocoded customer ruined a whole crew's driving day.
+       ⚠ FIVE PINNED HOUSES, FED IN SCRAMBLED. With two or three the right answer
+       and the input order are the same and the check proves nothing. */
+    const poisoned = attempt(() => reorder(
+      [stop('nopin', null, null), stop('a', 40.00, -111), stop('e', 40.08, -111),
+       stop('c', 40.04, -111), stop('b', 40.02, -111), stop('d', 40.06, -111)], null));
+    expectStops('an un-pinned house at the FRONT does not scramble the rest', poisoned,
+      v => v.filter(s => s && s.id !== 'nopin').map(s => s.id).join() === 'a,b,c,d,e',
+      'got [' + (poisoned.ok ? poisoned.value.map(s => s && s.id).join() : poisoned.err) +
+        '] — every distance from an un-pinned anchor is NaN, so the walk never finds a nearest anything');
+    expectStops('and it still rides along, on the end', poisoned,
+      v => v.length === 6 && v[5] && v[5].id === 'nopin',
+      'it is a real customer; dropping it loses a visit');
+    const allBare = attempt(() => reorder(
+      [stop('x', null, null), stop('y', null, null), stop('z', null, null)], null));
+    expectStops('a day where NOTHING is geocoded still comes back whole', allBare,
+      v => v.map(s => s && s.id).join() === 'x,y,z',
+      'the bulk import creates these on purpose');
+
     // Ordinary behaviour must be untouched.
     const normal = attempt(() => reorder(
       [stop('far', 50, -111), stop('near', 40.1, -111), stop('start', 40, -111)], { lat: 40, lng: -111 }));
@@ -7725,7 +7750,12 @@ suite('Suite 24. A day with nothing left in it does not abort the sweep');
      of them are the ones seen failing, so fixing it at the call site would
      leave the other six able to throw the same way. */
   check('S24', 'the guard lives in reorderFlatStops, where every caller gets it',
-    /filter\(Boolean\)/.test(body) && /if\(!remaining\.length\) return \[\]/.test(body));
+    /filter\(Boolean\)/.test(body) && /if\(!remaining\.length\) return (\[\]|unpinned);/.test(body));
+  /* ⚠ THE SPLIT IS THE FIX, so it is pinned here as well as proved above: an
+     un-pinned stop must not be able to anchor the nearest-neighbour walk. */
+  check('S24', 'un-pinned stops are held aside rather than routed against',
+    /const unpinned = all\.filter\(/.test(body) && /\.concat\(unpinned\)/.test(body),
+    'ordering them alongside the rest is what made NaN the anchor');
   check('S24', 'the guard does NOT filter on having coordinates',
     !/filter\([^)]*typeof[^)]*lat/.test(body),
     'filtering on lat/lng would silently drop un-geocoded houses off their routes');
@@ -24872,6 +24902,127 @@ suite('77. Schedule route generator');
       /routehead spare/.test(html) && html.indexOf('<stop>N1#1</stop>') > -1,
       'a stop nobody holds a sheet for is a stop nobody drives to');
     panel.setCrews(null);
+  }
+}
+
+/*
+ * Suite 120. A day is a cluster, not the top of a list.
+ *
+ * Owner, 2026-08-21: "in the schedule we want to try to organize it so in a
+ * city and neighboring cities it picks houses for a day that are closer to each
+ * other rather than miles apart although theyre technically in the same city."
+ *
+ * ⚠ THIS IS THE HALF NO AMOUNT OF RE-ORDERING CAN FIX. Suite 77 proves the
+ * houses ON a day come back in driving order. That is only ever as good as the
+ * SET of houses the day was given: twenty picked at random across a nine-mile
+ * town have no short route, however well they are sorted afterwards. The pick
+ * is what this suite guards.
+ *
+ * ⚠ AND IT MUST NOT HAVE BOUGHT THAT BY BREAKING HER ORDERING RULES. Distance
+ * is the LAST word, never the first — October still empties before November is
+ * touched. Both halves are checked below, because a version that clusters
+ * beautifully and sends October houses out in December is worse than no change
+ * at all.
+ */
+suite('120. A day is a cluster, not the top of a list');
+{
+  const start = admin.indexOf('function planNewCrewDays(waiting, taken, opts)');
+  const end = admin.indexOf('/* Top every day up to the cap.', start);
+  if (start === -1 || end < start) {
+    check('S120', 'the day builder is findable', false,
+      'renamed or removed — update this test rather than deleting it');
+  } else {
+    const LF_ = String.fromCharCode(10);
+    global.toDateStr = dt => dt.getFullYear() + '-' +
+      String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+    const consts = admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'),
+                               admin.indexOf('function installPriority'));
+    const prelude = ['const NEARBY_TOWN_LIST = {};',
+      extractFn(admin, 'haversine'), extractFn(admin, 'sameTownName'),
+      extractFn(admin, 'townCentres'), extractFn(admin, 'nearbyTowns'),
+      extractFn(admin, 'extractCleanCity'), extractFn(admin, 'thanksgivingDate')].join(LF_) + LF_;
+    const api = eval(prelude + consts + LF_ + extractFn(admin, 'installPriority') + LF_ +
+      admin.slice(start, end) + LF_ + ';({plan: planNewCrewDays, cap: MAX_STOPS_PER_ROUTE})');
+
+    /* ⚠ THE TWO ENDS OF TOWN INTERLEAVE IN THE QUEUE, which is the whole point of
+       the fixture. Clumped in the queue, "take the front twenty" gives a tidy day
+       by accident and this suite passes whether the clustering exists or not.
+       Interleaved, the old builder takes ten from each end — which is exactly the
+       seven-mile day the owner was looking at. */
+    const town = (n, latBase, tag) => {
+      const out = [];
+      for (let i = 0; i < n; i++) out.push({ id: tag + i, city: 'Provo', priority: 5,
+        named: false, from: '2026-10-01', until: '',
+        stop: { lat: latBase + i * 0.001, lng: -111.66 } });
+      return out;
+    };
+    const interleave = (a, b) => a.flatMap((x, i) => [x, b[i]]);
+    const spreadOf = (ids, pool) => {
+      const lats = ids.map(id => pool.find(w => w.id === id).stop.lat);
+      return (Math.max.apply(null, lats) - Math.min.apply(null, lats)) * 69;
+    };
+
+    const north = town(20, 40.30, 'N'), south = town(20, 40.20, 'S');
+    const pool = interleave(north, south);
+    const days = api.plan(pool.slice(), {}, { floorDate: '2026-10-01', maxDays: 10,
+      horizonDays: 60, pack: false });
+
+    check('S120', 'a town split across two ends gives one END a day, not a slice of both',
+      days.length >= 2 && days[0].ids.every(id => id[0] === days[0].ids[0][0]),
+      'got [' + (days[0] ? days[0].ids.join() : 'no day') + '] — ten from each end is the ' +
+        'seven-mile day this exists to stop');
+    check('S120', 'and the day it builds is a few miles across, not the whole town',
+      days.length && spreadOf(days[0].ids, pool) < 3,
+      'got ' + (days.length ? spreadOf(days[0].ids, pool).toFixed(1) : '?') + ' mi across');
+    check('S120', 'the other end is not stranded — it gets the next day',
+      days.length >= 2 && days[1].ids.length === 20 &&
+        days[1].ids.every(id => id[0] !== days[0].ids[0][0]),
+      'clustering must not cost anybody their place in the season');
+    check('S120', 'and nobody is lost or scheduled twice on the way',
+      (function () {
+        const seen = days.flatMap(d => d.ids);
+        return seen.length === new Set(seen).size && seen.length === 40;
+      })(),
+      'the pick splices out of a live queue — a mis-ordered splice removes the wrong houses');
+
+    /* ⭐ THE RULE THAT OUTRANKS DISTANCE. One October house at the FAR end of town
+       from where the clustering wants to be: it must still go out on day one.
+       Owner, 2026-08-18: "we need to get everyone who requested Oct done in Oct". */
+    const urgent = { id: 'OCT', city: 'Provo', priority: 1, named: false,
+      from: '2026-10-01', until: '', stop: { lat: 40.20, lng: -111.66 } };
+    const mixed = [urgent].concat(town(30, 40.30, 'N'));
+    const d2 = api.plan(mixed.slice(), {}, { floorDate: '2026-10-01', maxDays: 10,
+      horizonDays: 60, pack: false });
+    check('S120', 'a more urgent house is never left behind for being far away',
+      d2.length && d2[0].ids.indexOf('OCT') > -1,
+      'distance is the tiebreak INSIDE a priority tier, never a way out of one');
+
+    /* A named day still leads its tier — "try to do their house the next possible
+       chance after that" (2026-08-20) — and clustering may not quietly undo it. */
+    const named = { id: 'NAMED', city: 'Provo', priority: 5, named: true,
+      from: '2026-10-01', until: '', stop: { lat: 40.20, lng: -111.66 } };
+    const d3 = api.plan([named].concat(town(30, 40.30, 'N')), {},
+      { floorDate: '2026-10-01', maxDays: 10, horizonDays: 60, pack: false });
+    check('S120', 'somebody who named a day still leads their tier',
+      d3.length && d3[0].ids.indexOf('NAMED') > -1,
+      'they asked for that day; a shorter drive is not a reason to move them');
+
+    /* A house with no map pin cannot be clustered. It must still get a day, and
+       it must not drag the pinned ones out of their cluster on the way. */
+    const bare = { id: 'NOPIN', city: 'Provo', priority: 5, named: false,
+      from: '2026-10-01', until: '', stop: { lat: null, lng: null } };
+    const withBare = [bare].concat(interleave(town(20, 40.30, 'N'), town(20, 40.20, 'S')));
+    const d4 = api.plan(withBare.slice(), {}, { floorDate: '2026-10-01', maxDays: 10,
+      horizonDays: 60, pack: false });
+    const allIds = d4.flatMap(d => d.ids);
+    check('S120', 'a house with no map pin is still scheduled', allIds.indexOf('NOPIN') > -1,
+      'the bulk import creates these on purpose — it cannot be a reason to skip somebody');
+    check('S120', 'and it does not scatter the day it lands on',
+      d4.length && (function () {
+        const pinned = d4[0].ids.filter(id => id !== 'NOPIN');
+        return pinned.length > 1 && spreadOf(pinned, withBare) < 3;
+      })(),
+      'an un-clusterable house must be carried, not routed against');
   }
 }
 
