@@ -24796,7 +24796,11 @@ suite('77. Schedule route generator');
      and takes the whole run down with a stack trace that names neither. */
   const havStart = admin.indexOf('function haversine(lat1, lng1, lat2, lng2)');
   const havEnd = admin.indexOf('\n}', havStart) + 2;
-  const geoStart = admin.indexOf('function twoOptImprove(ordered, startPoint)');
+  /* ⚠ ANCHOR ON THE NAME, NOT THE SIGNATURE. Adding an optional argument to a
+     function is a normal, backwards-compatible change; pinning the full argument
+     list here turns it into a whole suite silently not running. That is exactly
+     what happened on 2026-08-21 when twoOptImprove gained an endPoint. */
+  const geoStart = admin.indexOf('function twoOptImprove(');
   const geoEnd = admin.indexOf('function nearestNeighborOrder(', geoStart);
   const lockStart = admin.indexOf('const ROUTE_LOCK_HOURS');
   const lockEnd = admin.indexOf('async function reconcileUpcomingRoutes(', lockStart);
@@ -25055,7 +25059,10 @@ suite('77. Schedule route generator');
 
 /* The panel draws the same two routes the sheet prints — RUN, not read. */
 {
-  const panelStart = admin.indexOf('function renderPanelInto(elId,day)');
+  /* ⚠ START AT dayRouteGroups, NOT AT THE RENDERER. The list and the picture
+     deliberately share one grouping function, so a slice that takes only the
+     renderer no longer has the thing the renderer is built on. */
+  const panelStart = admin.indexOf('function dayRouteGroups(day)');
   const panelEnd = admin.indexOf('function renderSearch(q)', panelStart);
   const crewStart = admin.indexOf('function cityOf(h)');
   const crewEnd = admin.indexOf('/* ---------- build from imported rows', crewStart);
@@ -25218,6 +25225,245 @@ suite('120. A day is a cluster, not the top of a list');
       })(),
       'an un-clusterable house must be carried, not routed against');
   }
+}
+
+/*
+ * Suite 121. A Utah address is already a map reference.
+ *
+ * Owner, 2026-08-21: "try to use math for the ones without geocode by checking
+ * their street address, if their street address isnt a word then its a number
+ * and if its a number in utah that is a location so you can find it that way",
+ * and "any that you just dont know where a house is still because its a word
+ * not a number or something put all them at the end of whatever route they end
+ * up in".
+ *
+ * Measured on the real book of 960 addresses: 350 carry both grid numbers, 458
+ * carry one, 152 carry none. So this is not a corner case — it is a third of
+ * the book placed exactly and another half placed roughly.
+ *
+ * ⚠ THE DANGEROUS DIRECTION IS A CONFIDENT WRONG ANSWER, not a missing one. A
+ * house left unplaced goes to the end of its route where somebody sees it; a
+ * house placed two miles out is silently driven past. So most of what is
+ * checked below is the REFUSALS.
+ */
+suite('121. A Utah address is already a map reference');
+{
+  const gridStart = admin.indexOf('function utahGridOf(address)');
+  const gridEnd = admin.indexOf('/* Towns the office has said are close enough', gridStart);
+  if (gridStart === -1 || gridEnd < gridStart) {
+    check('S121', 'the address maths is findable', false,
+      'renamed or removed — update this test rather than deleting it');
+  } else {
+    const LF_ = String.fromCharCode(10);
+    const api = eval(extractFn(admin, 'haversine') + LF_ + admin.slice(gridStart, gridEnd) +
+      LF_ + ';({grid: utahGridOf, street: streetNameKey, fit: fitTownGrid,' +
+      '   MINPTS: GRID_MIN_POINTS, MAXERR: GRID_MAX_MEDIAN_ERR, hav: haversine})');
+
+    /* ---- reading the address ---- */
+    const g1 = api.grid('11528 S 840 W');
+    check('S121', 'both numbers are read, with south and west going negative',
+      g1 && g1.north === -11528 && g1.east === -840,
+      'got ' + JSON.stringify(g1));
+    const g2 = api.grid('247 W 1080 N');
+    check('S121', 'and it does not care which axis is written first',
+      g2 && g2.east === -247 && g2.north === 1080,
+      'got ' + JSON.stringify(g2) + ' — the book writes it both ways round');
+    const g3 = api.grid('1093 E Ranchero Dr');
+    check('S121', 'a named street still gives up the one number it carries',
+      g3 && g3.east === 1093 && g3.north === null,
+      'that is a line, and a line is worth far more than nothing — got ' + JSON.stringify(g3));
+    check('S121', 'a street with no number at all reads as nothing',
+      api.grid('8387 Etienne Way') === null,
+      'inventing a position for one of these is the mistake this whole suite guards');
+    check('S121', 'and so does a blank',
+      api.grid('') === null && api.grid(null) === null);
+
+    /* ⚠ THE FIRST VALUE ON AN AXIS WINS. A unit number further along the line
+       must not overwrite the street the house is actually on. */
+    const g4 = api.grid('247 W 1080 N Apt 4 W');
+    check('S121', 'a unit number later in the line cannot overwrite the street',
+      g4 && g4.east === -247 && g4.north === 1080,
+      'got ' + JSON.stringify(g4));
+
+    /* ---- the street name, for borrowing the missing half ---- */
+    check('S121', 'street names are normalised so Drive and Dr are one street',
+      api.street('2387 Willow Hills Drive') === api.street('1450 N Willow Hills Dr') &&
+      api.street('2387 Willow Hills Drive') === 'willow hills dr',
+      'got "' + api.street('2387 Willow Hills Drive') + '" and "' +
+        api.street('1450 N Willow Hills Dr') + '"');
+    check('S121', 'a numbered street is not treated as a name',
+      api.street('11528 S 840 W') === '',
+      'the grid already reads those properly; naming them would group unrelated houses');
+
+    /* ---- learning a town's grid ---- */
+    /* Built from a REAL Utah grid — Lehi, Main & Center, about an eighth of a
+       mile per hundred address units — with 40 ft of noise on every house so the
+       fit is never handed a perfect answer. A QUARTER of them are held back and
+       the fit never sees them. */
+    const ORIGIN = { lat: 40.3916, lng: -111.8508 }, PER_UNIT_MI = 0.125 / 100;
+    const truth = (e, n, seed) => ({
+      lat: ORIGIN.lat + n * PER_UNIT_MI / 69 + ((seed * 37) % 11 - 5) * 0.00011,
+      lng: ORIGIN.lng + e * PER_UNIT_MI / (69 * Math.cos(ORIGIN.lat * Math.PI / 180)) +
+           ((seed * 53) % 11 - 5) * 0.00014 });
+    const known = [], held = [];
+    let seed = 0;
+    for (let n = -1200; n <= 1200; n += 200) {
+      for (let e = -1200; e <= 1200; e += 400) {
+        seed++;
+        const p = truth(e, n, seed);
+        (seed % 4 === 0 ? held : known).push({ east: e, north: n, lat: p.lat, lng: p.lng });
+      }
+    }
+    const fit = api.fit(known);
+    check('S121', 'a town on a grid is learned from the houses already pinned',
+      fit.ok === true, fit.why || '');
+    const errs = held.map(p => api.hav(p.lat, p.lng,
+      fit.latOf(p.east, p.north), fit.lngOf(p.east, p.north))).sort((a, b) => a - b);
+    const median = errs[Math.floor(errs.length / 2)];
+    /* 1/10 mile is 528 ft, about two houses. Well inside anything that changes
+       a driving order, and this fixture actually lands near 170 ft. */
+    check('S121', 'and it places houses it has never seen to within a tenth of a mile',
+      median < 0.1,
+      'median ' + (median * 5280).toFixed(0) + ' ft on ' + held.length + ' held-out houses');
+
+    /* ---- and now the refusals, which are the point ---- */
+    const scrambled = known.map((p, i) => ({ east: p.east, north: p.north,
+      lat: ORIGIN.lat + ((i * 17) % 40) * 0.002, lng: ORIGIN.lng + ((i * 29) % 40) * 0.002 }));
+    check('S121', 'a town whose addresses are NOT a grid is refused outright',
+      api.fit(scrambled).ok === false,
+      'this is the one that matters: a confident wrong position is driven past in silence');
+    check('S121', 'a town with only a few known houses is refused',
+      api.fit(known.slice(0, api.MINPTS - 1)).ok === false,
+      'four houses can be fitted perfectly by a grid that is nonsense');
+    check('S121', 'and every known house sitting on one street is refused',
+      api.fit([0, 1, 2, 3, 4, 5, 6].map(i => ({ east: 500, north: i * 100,
+        lat: ORIGIN.lat + i * 0.001, lng: ORIGIN.lng }))).ok === false,
+      'there is no unique grid through a single line, so the cross-axis is a guess');
+    check('S121', 'the refusal threshold is a quarter of a mile, and is not loosened quietly',
+      api.MAXERR === 0.25 && api.MINPTS === 6,
+      'these two numbers are the whole safety argument');
+  }
+
+  /* ---- wired into the things that actually order a day ---- */
+  {
+    const sp = sectionFrom(admin, admin.indexOf('function houseGeoPoint(h, d)'));
+    check('S121', 'a real pin always beats a calculated one',
+      sp.indexOf("typeof rec.lat === 'number'") < sp.indexOf('estimatedPinFromAddress'),
+      'an estimate overwriting a surveyed position is a straight downgrade');
+    check('S121', 'and an estimate is never written back to the customer',
+      !/updateDoc|setDoc/.test(sp),
+      'the record still says the house has not been geocoded, because it has not');
+    /* ⚠ sectionFrom, NOT a character window. The suite has its own rule against
+       fixed-length extraction windows and it is right: rebuildSeasonDays is long
+       enough that a 6000-character window already missed the line below. */
+    const rb = sectionFrom(admin, admin.indexOf('function rebuildSeasonDays()'));
+    check('S121', 'the day builder clusters on the same answer',
+      /stop:\(typeof houseGeoPoint==='function'/.test(rb),
+      'without this a house is not merely last in the order — it lands on the wrong day');
+    const ga = sectionFrom(admin, admin.indexOf('function generateAllRoutes()'));
+    check('S121', 'the grids are relearned at the start of a run, not cached',
+      /if\(typeof refreshTownGrids==='function'\) refreshTownGrids\(\);/.test(ga),
+      'a grid learned an hour ago places houses from a book that has moved');
+    const rt = sectionFrom(admin, admin.indexOf('function refreshTownGrids()'));
+    check('S121', 'only a really-pinned house ever teaches the grid',
+      /!isFinite\(d\.lat\) \|\| !isFinite\(d\.lng\)\) return;/.test(rt),
+      'feeding estimates back in lets one bad guess drag every later one after it');
+  }
+}
+
+/*
+ * Suite 122. Out of the yard and back to it, and a picture of what that looks like.
+ *
+ * Owner, 2026-08-21: "also calculate the route knowing the starting spot is
+ * always 209 S 850 W and the ending spot is alway 209 S 850 W as well", and
+ * "at the bottom you should be able to see a picture of the route, or both
+ * routes if theres two".
+ */
+suite('122. Out of the yard and back, and a picture of it');
+{
+  const LF_ = String.fromCharCode(10);
+  const havStart = admin.indexOf('function haversine(lat1, lng1, lat2, lng2)');
+  const havEnd = admin.indexOf(LF_ + '}', havStart) + 2;
+  const geoStart = admin.indexOf('function twoOptImprove(');
+  const geoEnd = admin.indexOf('function nearestNeighborOrder(', geoStart);
+  if (geoStart === -1 || geoEnd < geoStart) {
+    check('S122', 'the route orderer is findable', false, 'renamed — update this test');
+  } else {
+    const api = eval(admin.slice(havStart, havEnd) + LF_ + admin.slice(geoStart, geoEnd) +
+      LF_ + ';({reorder: reorderFlatStops, hav: haversine})');
+    const HOME = { lat: 40.3866, lng: -111.8616 };
+    const stops = [];
+    for (let i = 0; i < 20; i++) {
+      stops.push({ id: 'h' + i, lat: 40.40 + ((i * 7) % 20) * 0.004,
+                   lng: -111.87 + ((i * 11) % 20) * 0.004 });
+    }
+    const trip = list => {
+      let m = api.hav(HOME.lat, HOME.lng, list[0].lat, list[0].lng);
+      for (let i = 1; i < list.length; i++) m += api.hav(list[i-1].lat, list[i-1].lng, list[i].lat, list[i].lng);
+      return m + api.hav(list[list.length-1].lat, list[list.length-1].lng, HOME.lat, HOME.lng);
+    };
+    const open = api.reorder(stops.slice(), null);
+    const anchored = api.reorder(stops.slice(), HOME, HOME);
+    check('S122', 'anchoring the day at the yard shortens the real round trip',
+      trip(anchored) < trip(open),
+      'got ' + trip(anchored).toFixed(1) + ' mi against ' + trip(open).toFixed(1) + ' mi');
+    /* ⚠ THE END IS THE HALF THAT WAS MISSING. A start point alone was already
+       possible; what nothing counted was the drive home, which is why days
+       finished on the far side of town. */
+    check('S122', 'and the day no longer finishes on the far side of town',
+      api.hav(HOME.lat, HOME.lng, anchored[anchored.length-1].lat, anchored[anchored.length-1].lng) <
+      api.hav(HOME.lat, HOME.lng, open[open.length-1].lat, open[open.length-1].lng),
+      'the last leg of the day is a real drive and has to be paid for');
+    check('S122', 'nothing is dropped by anchoring it',
+      anchored.length === 20 && stops.every(s => anchored.indexOf(s) > -1));
+    /* An optional argument must stay optional: every other caller passes two. */
+    check('S122', 'a caller that names no finish gets exactly what it got before',
+      JSON.stringify(api.reorder(stops.slice(), null).map(s => s.id)) ===
+      JSON.stringify(open.map(s => s.id)),
+      'twoOptImprove gained a third argument; the old two-argument behaviour must not move');
+  }
+
+  const home = sectionFrom(admin, admin.indexOf('function routeHomePoint()'));
+  check('S122', 'the yard is 209 S 850 W, Lehi',
+    /ROUTE_HOME_ADDRESS = '209 S 850 W'/.test(admin) && /ROUTE_HOME_CITY = 'Lehi'/.test(admin));
+  check('S122', 'and it is found by ADDRESS, so nobody has to paste in a latitude',
+    /estimatedPinFromAddress\(ROUTE_HOME_ADDRESS, ROUTE_HOME_CITY\)/.test(home),
+    '209 S 850 W is itself a full grid reference — the town grid places it');
+  check('S122', 'a real customer record at the yard still wins over the estimate',
+    home.indexOf('custByAddrKey') < home.indexOf('estimatedPinFromAddress'),
+    'same rule as everywhere else: measured beats calculated');
+  const ord = sectionFrom(admin, admin.indexOf('function orderHousesForDriving(list)'));
+  check('S122', 'every crew route is ordered yard-to-yard',
+    /reorderFlatStops\(houses\.map\(houseStopPoint\), home, home\)/.test(ord),
+    'both legs, or the day still ends wherever the last cluster happened to be');
+
+  /* ---- the picture ---- */
+  const pic = sectionFrom(admin, admin.indexOf('function routePictureHTML(day)'));
+  check('S122', 'the picture is drawn, not fetched',
+    !/google|maps\.|iframe|<img/i.test(pic) && /<svg/.test(pic),
+    'a live map costs money per load, needs a key, and does not print');
+  check('S122', 'longitude is squeezed by cos(lat) so the shape is honest',
+    /Math\.cos\(/.test(pic),
+    'without it a tidy day is drawn as a sprawling one and the picture misleads');
+  check('S122', 'a house with no position is left OUT and counted, never drawn',
+    /if\(!ok\)\{ missing\+\+; return; \}/.test(pic) && /not shown/.test(pic),
+    'a dot in an invented place is a lie you cannot see through');
+  check('S122', 'a calculated position is drawn differently from a measured one',
+    /p\.est \?/.test(pic) && /stroke-dasharray/.test(pic),
+    'the office should be able to see which pins are estimates');
+  check('S122', 'the route drawn starts and ends at the yard',
+    /home \? \[n1\(X\(home\.lng\)\)/.test(pic),
+    'the two legs a stop list never shows are exactly the ones worth drawing');
+  const panel = sectionFrom(admin, admin.indexOf('function renderPanelInto(elId,day)'));
+  check('S122', 'and it sits at the BOTTOM of the day panel',
+    panel.indexOf('routePictureHTML(day)') > panel.indexOf('stopHTML'),
+    'owner: "at the bottom you should be able to see a picture of the route"');
+  check('S122', 'a picture that throws cannot take the day panel down with it',
+    /catch\(err\)\{ console\.error\('Route picture failed:'/.test(panel),
+    'the stops matter more than the drawing of them');
+  check('S122', 'the list and the picture read ONE grouping',
+    /dayRouteGroups\(day\)\.forEach/.test(panel) && /dayRouteGroups\(day\)/.test(pic),
+    'a picture showing route two beside a list headed route one is worse than no picture');
 }
 
 // A check that scores after this summary is a check that cannot fail the build.
