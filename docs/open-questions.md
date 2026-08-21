@@ -228,7 +228,7 @@ new scheduler, no N. The option list becomes a block in the existing RSVP email.
 
 ---
 
-## Q-006 · intent · open · 2026-08-21
+## Q-006 · intent · answered · 2026-08-21
 What happens to a job whose confirmation comes back disputed?
 
 Block the crew sheet? Flag and proceed? Who gets notified?
@@ -246,8 +246,40 @@ enforcement behind it. Three sub-questions that need separate answers:
    morning; the Twilio summary is the one that reaches a phone.
 
 Blocks: plan §4.2, §4.4, and the enforcement behind R-005.
-Answer:
-Resulting map change:
+
+**Answer (Addie, 2026-08-21): there is no disputed state. Retire the idea.**
+
+The question dissolved rather than being answered, and the reason is worth
+keeping. Q-005 established that the confirmation is not a separate pre-install
+message — it is the **RSVP email**. The RSVP accepts exactly three answers, and
+`portalRsvp` (`functions/index.js:1356`) rejects anything else outright:
+
+```js
+if (['yes', 'no', 'backnextyear'].indexOf(response) === -1) { ...reject... }
+```
+
+So `disputed` had nowhere to live. R-005 was a **tier-1 rule guarding a state the
+system cannot produce** — which is worse than having no rule, because it reads as
+protection while providing none. Retired in place 2026-08-21, logged in
+`docs/RULES.md`.
+
+**What was rejected, and why, so it is not rebuilt:** a catch-all "something is
+wrong" reply. It sounds safer and is not — an answer that sometimes means *don't
+come* and sometimes means *my colours are wrong* is how a crew skips a house that
+was fine. The two real cases already have homes: a customer with a problem calls
+the office, and a customer with a wrong detail fixes it in the portal, which is
+what the portal is for.
+
+**And showing the price is not the same as offering a way to argue with it.** The
+price line goes on the RSVP email under R-004 so there is a record that they saw
+it and said yes — that protects the business, it does not invite renegotiation.
+`housePrice` has never been in `PORTAL_WRITE_FIELDS` and this does not change
+that; a customer can only ever edit facts about their own house.
+
+**Resulting map change:** R-005 retired. Plan §4.2's `confirmationStatus`
+(`pending`/`confirmed`/`disputed`) and §4.4's *"a disputed reply visibly flags the
+job in admin"* are both superseded — the RSVP's own four states
+(`yes`/`no`/`backnextyear`/`unanswered`) are the whole vocabulary.
 
 ---
 
