@@ -78,11 +78,19 @@ require an explicit override.
 **What a destructive operation actually did gets logged, in a form that can be
 diffed against what it said it would do.**
 
-### R-009 · code
+### R-009 · code — **ENFORCED, verified 2026-08-21**
 **`main` cannot merge a failing build.**
-*Enforced by:* branch protection requiring the test workflow.
+*Enforced by:* branch protection on `main` requiring the `Tests` workflow —
+`Fast suite (no browser)` and `Browser tests (Playwright)`.
 *Why:* the site publishes from `main` regardless of test state. This is the only
 thing standing between a red commit and production.
+
+⚠ This rule shipped on 2026-08-21 as a **statement of fact that was false** —
+`main` was unprotected and nothing enforced it. Addie turned protection on the
+same day and the API now reports `main` as `protected: true`.
+*Scope of that check:* it confirms protection EXISTS, not which rules it carries.
+If this ever needs to be relied on absolutely, confirm by opening a PR with a
+deliberately failing check and watching the merge button refuse.
 
 ---
 
@@ -249,6 +257,7 @@ Every change to this file gets a line. Never silently edit a rule.
 | 2026-08-21 | Replaced R-015, and marked it TARGET | The rule asserted a guard that does not exist. It claimed money is computed in exactly two parity-tested places; `money-parity.test.js` compares only the invoice STATUS string and the invoice KEY, never the AMOUNT OWED. The amount is hand-inlined at ~12 sites across `admin.html`, `functions/index.js` and `index.html` — including the PayPal charge and the member portal. Reviewing a change against the old wording would have passed a fourth implementation as safe. See `docs/open-questions.md` Q-001. |
 | 2026-08-21 | Corrected R-015's own Status paragraph | The rule shipped hours earlier carrying the same "zero callers" error as the amendment below it. Left standing it would be a false fact inside a rule people read to decide things — which is what P-001, proposed the same day, exists to stop. The wording is otherwise Addie's, unchanged; only the factual clause moved. |
 | 2026-08-21 | Corrected the R-015 amendment above | It first said `balanceDueAmount()` "has zero callers". It has 12, all in `admin.html`. The error was a malformed grep that was not re-checked before being written down — which is exactly what P-001 exists to prevent, on the same day P-001 was proposed. The rule change itself stands: the helper is used properly in admin, and the defect is that `functions/index.js` and `index.html` have no equivalent at all. |
+| 2026-08-21 | R-009 marked ENFORCED | It shipped as a statement of fact that was false: it claimed branch protection was requiring the test workflow, and `main` was unprotected. Addie enabled protection on 2026-08-21 and `main` now reports `protected: true`. Noted in the rule what the check does and does not prove — that protection exists, not which rules it carries. Third rule this session found asserting a guard that did not exist (R-005, R-009, R-015), which is what P-001 was proposed for. |
 | 2026-08-21 | RETIRED R-005 | It required a `disputed` confirmation state that does not exist and is not being built. The confirmation turned out to be the RSVP email (Addie, 2026-08-21), which accepts only `yes`, `no` and `backnextyear` — `portalRsvp` rejects anything else. So R-005 was tier-1 protection against a condition the system cannot produce, which is worse than no rule: it reads as cover while providing none. The behaviour that mattered is already implemented without it — an answered `no` pulls them off upcoming routes and `isOutForSeason` keeps them off. Marked retired in place rather than deleted, so the numbering holds and the history stays readable. A catch-all "something is wrong" reply was considered and rejected in the same conversation. |
 | 2026-08-21 | Proposed P-003 | Addie, deriving the option registry: "Everything saved in crew should also print on the schedule sheet we print off." Three fields reach the crew portal and never print — the gate code and the which-outlet install notes among them. Tier 1, because a crew that cannot get through the gate does not install the lights. Noted in the proposal that it is one-directional and would not catch `useEaves`, which prints and is missing from the portal. |
 | 2026-08-21 | Revised P-002, and raised it from tier 3 to tier 2 | Q-008 and Q-009 answered. Two changes. Denial is PER MEMBER, so the decision cannot live on the notice — `messages` caps at 5,000 characters and a check with fifty rows could never offer per-member choice; it is keyed on check+member+fingerprint instead. And approving now RUNS the auto-fix, which turns a notice into a bulk write path: one click on "43 invoices have drifted" is 43 money writes, so R-006's preview, R-007's blast-radius cap and R-008's log all attach, and the rule moves to the irreversibility tier where those live. |
