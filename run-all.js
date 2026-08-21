@@ -2510,9 +2510,22 @@ suite('8. Quote decline / maybe next year');
   check('quoteresp', 'maybe next year pulls the customer from the season',
     /action === 'maybe_next_year'/.test(fns) && /pullCustomerFromSeason/.test(fns),
     'they would keep their routes and schedule for a season they said no to');
-  check('quoteresp', 'the customer is matched by phone',
-    /findByPhone\(digitsOnly\(quoteData\.phone\)\)/.test(fns),
-    'quotes carry no link to jobAddresses, so phone is the only join available');
+  /* ⚠ INVERTED 2026-08-21 (hole A). This used to assert the OPPOSITE — that
+     maybe_next_year resolved the customer with findByPhone(digitsOnly(...)) —
+     and its stated reason, "quotes carry no link to jobAddresses", was simply
+     out of date: a re-quote carries existingCustomerId and a converted quote
+     carries convertedToCustomerId. Phone alone is the trap this repo has
+     written down more than once — 17 numbers in the real book are shared and 14
+     of those are two genuinely different households — so a "no" answered on one
+     could recycle the other's lights and pull THEM off the crew's route.
+     All three actions go through quoteCustomerRef now. */
+  check('quoteresp', 'no quote action matches the customer by phone alone',
+    !/findByPhone\(digitsOnly\(quoteData\.phone\)\)/.test(stripComments(fns)),
+    'a shared phone number is two different households — the wrong one would be pulled from the season');
+  check('quoteresp', 'all three quote actions ask one resolver which customer this is',
+    /const cust = await quoteCustomerRef\(quoteData\)/.test(stripComments(fns)) &&
+    /memberRef = await quoteCustomerRef\(quoteData\)/.test(stripComments(fns)),
+    'a second answer to "which customer is this quote about" is the copy that lands on the wrong household');
   ['maybeNextYear', 'rsvpStatus', 'scheduled', 'needsLightBuild'].forEach(f => {
     check('quoteresp', 'pulling from the season clears ' + f,
       new RegExp(f + ':').test(fns.slice(fns.indexOf('async function pullCustomerFromSeason'),
@@ -24736,9 +24749,20 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
     /alreadyMember: alreadyMember/.test(respond) || /alreadyMember,/.test(respond),
     'without it the page cannot tell a member from a first-time customer');
 
+  /* ⚠ RESCOPED 2026-08-21 (hole A). existingCustomerId used to be read here
+     inside quoteRespond; it now lives in quoteCustomerRef, the ONE resolver the
+     approve, decline and maybe-next-year paths all share. Same rule, one copy —
+     so the record half of this check reads the resolver, and the flag half
+     stays on quoteRespond because alreadyMember is deliberately wider than the
+     record (convertedToCustomerAt says a customer was made without naming
+     which). Reading only the caller would go quietly green on a resolver that
+     had started matching by phone. */
+  const quoteCustSrc = extractFn(fns, 'quoteCustomerRef') || '';
   check('S70', 'the two signals are the explicit ones, not a phone match',
     /quoteData\.convertedToCustomerAt/.test(respond) &&
-    /quoteData\.existingCustomerId/.test(respond),
+    /existingCustomerId/.test(stripComments(quoteCustSrc)) &&
+    /convertedToCustomerId/.test(stripComments(quoteCustSrc)) &&
+    !/findByPhone/.test(stripComments(quoteCustSrc)),
     'convertedToCustomerAt is the owner’s "once they are created"; ' +
     'existingCustomerId is a re-quote against a live record');
 
@@ -27559,6 +27583,382 @@ suite('Suite 127. Whether a house is done is the customer\'s answer');
     'an index nothing reads is just memory');
 }
 
+
+/* =====================================================================
+ * Suite 128. A decline reaches the customer, not just the quote
+ *
+ * HOLE A, fixed 2026-08-21. Until now the decline branch of quoteRespond set
+ * quoteArchived / quoteArchivedAt / quoteArchivedReason and NOTHING else. An
+ * existing member who pressed Decline in their own email therefore:
+ *   - kept rsvpStatus 'yes', so they still read as coming this season
+ *   - was never flagged for recycling, so their bin sat on the shelf
+ *   - stayed on any route already built, so a crew drove to a house that had
+ *     said no
+ * and nobody in the office was told any of it.
+ *
+ * ⚠ THIS SUITE RUNS THE SHIPPED FUNCTION. Every check below calls the real
+ * declineReachesCustomer, lifted out of functions/index.js, against a fake
+ * Firestore — and reads the document the customer would really have been left
+ * with. A regex over the source proves the words exist, which is a weaker
+ * claim: this repo has already shipped a fee that was written 63 lines after
+ * the write that was supposed to save it, with every text check green.
+ *
+ * ⚠ AND NOTHING IS STUBBED. quoteCustomerRef, quoteMatchesExistingCustomer,
+ * quoteMatchAddressServer, removeCustomerFromUpcomingRoutes, digitsOnly and
+ * todayStrInDenver are all the real ones. A stub agrees with itself.
+ * ===================================================================== */
+suite('Suite 128. A decline reaches the customer, not just the quote');
+{
+  const fns = read('functions/index.js');
+
+  const NEEDED = ['declineReachesCustomer', 'quoteCustomerRef',
+    'quoteMatchesExistingCustomer', 'quoteMatchAddressServer',
+    'removeCustomerFromUpcomingRoutes', 'digitsOnly', 'todayStrInDenver'];
+  const src = {};
+  NEEDED.forEach(n => { src[n] = extractFn(fns, n); });
+  const missing = NEEDED.filter(n => !src[n]);
+  check('S128', 'every function this suite runs is findable',
+    !missing.length,
+    'missing: ' + missing.join(', ') + ' — fix the extraction list rather than ' +
+    'stubbing, or the suite passes on code it never supplied');
+
+  /* ⚠ THE async KEYWORD IS DROPPED BY extractFn (it searches for "function
+     NAME("), so five of these come back starting at `function` with bare
+     `await` inside — a parse error. Put it back rather than lifting them
+     another way: this file has been caught THREE times by that, and the third
+     killed a whole suite with an unattributable "an async suite crashed". */
+  const ASYNC = ['declineReachesCustomer', 'quoteCustomerRef',
+    'quoteMatchesExistingCustomer', 'removeCustomerFromUpcomingRoutes'];
+  ASYNC.forEach(n => {
+    check('S128', n + ' is still async in the real file',
+      new RegExp('async function ' + n + '\\(').test(fns),
+      'lifted with the keyword restored below — if it stops being async there, ' +
+      'this suite is running a different shape from production');
+  });
+
+  if (!missing.length) {
+    const body = NEEDED.map(n =>
+      (ASYNC.indexOf(n) !== -1 ? 'async ' : '') + src[n]).join('\n');
+
+    /* ---- the fake ---------------------------------------------------
+       Small on purpose. Every write is kept exactly as the code sent it, so an
+       assertion reads the document the customer would really have. */
+    function makeWorld(opts) {
+      const o = opts || {};
+      const customers = {};
+      Object.keys(o.customers || {}).forEach(k => {
+        customers[k] = Object.assign({}, o.customers[k]);
+      });
+      const routes = (o.routes || []).map(r => Object.assign({}, r,
+        { stops: (r.stops || []).slice() }));
+      const messages = [];
+      const errors = [];
+
+      const custDoc = (id) => ({
+        get: () => Promise.resolve({
+          exists: Object.prototype.hasOwnProperty.call(customers, id),
+          id: id,
+          data: () => customers[id]
+        }),
+        update: (patch) => {
+          if (!Object.prototype.hasOwnProperty.call(customers, id)) {
+            return Promise.reject(new Error('no such customer ' + id));
+          }
+          if (o.failCustomerUpdate) return Promise.reject(new Error('boom'));
+          Object.assign(customers[id], patch);
+          return Promise.resolve();
+        }
+      });
+
+      /* A query the same shape quoteMatchesExistingCustomer builds: where(),
+         then limit(), then get(). */
+      /* ⚠ THE OPERATOR IS AN ARGUMENT. where('phoneDigits', '==', phone) is
+         three of them, and a fake that reads the second as the value compares
+         every record against the string "==" — so it matches nobody, the
+         address fallback silently finds nothing, and the shared-phone check
+         below fails while production is perfectly correct. Caught exactly that
+         way on the first run. */
+      const query = (field, op, value) => ({
+        limit: () => ({
+          get: () => {
+            if (o.failQuery) return Promise.reject(new Error('no index'));
+            const docs = Object.keys(customers)
+              .filter(k => customers[k][field] === value)
+              .map(k => ({ id: k, data: () => customers[k] }));
+            return Promise.resolve({ docs: docs });
+          }
+        })
+      });
+
+      const db = {
+        collection: (c) => {
+          if (c === 'jobAddresses') {
+            return { doc: custDoc, where: query };
+          }
+          if (c === 'scheduledRoutes') {
+            return {
+              get: () => Promise.resolve({
+                docs: routes.map((r, i) => ({
+                  id: 'r' + i,
+                  data: () => r,
+                  ref: {
+                    update: (patch) => {
+                      if (o.failRouteUpdate) return Promise.reject(new Error('boom'));
+                      Object.assign(routes[i], patch);
+                      return Promise.resolve();
+                    }
+                  }
+                }))
+              })
+            };
+          }
+          if (c === 'messages') {
+            return {
+              add: (m) => {
+                if (o.failMessage) return Promise.reject(new Error('too long'));
+                messages.push(m);
+                return Promise.resolve({});
+              }
+            };
+          }
+          throw new Error('the fake was asked for an unexpected collection: ' + c);
+        }
+      };
+
+      const admin = {
+        firestore: { FieldValue: { serverTimestamp: () => '@ts' } }
+      };
+
+      const run = new Function('db', 'admin', 'console',
+        body + ';return declineReachesCustomer;')(db, admin,
+        { error: (...a) => errors.push(a.join(' ')), log: () => {} });
+
+      return { db, run, customers, routes, messages, errors };
+    }
+
+    /* A house the crew is already booked to visit, on a date safely in the
+       future so removeCustomerFromUpcomingRoutes treats it as upcoming. */
+    const FUTURE = String(new Date().getFullYear() + 3) + '-12-01';
+    const PAST = '2000-01-01';
+    const member = () => ({
+      name: 'Rachel Oslund', phone: '(801) 555 0100', phoneDigits: '8015550100',
+      address: '209 S 850 W', rsvpStatus: 'yes',
+      needsLightRecycle: false, needsLightBuild: true,
+      scheduled: true, scheduledDate: FUTURE, assignedCrew: 'Crew 1'
+    });
+
+    pendingAsync.push((async () => {
+
+      /* ---- 1. the explicit link, which is the ordinary case ----------- */
+      {
+        const w = makeWorld({
+          customers: { c1: member() },
+          routes: [{ date: FUTURE, stops: [{ id: 'c1' }, { id: 'other' }] }]
+        });
+        const res = await w.run({ existingCustomerId: 'c1', name: 'Rachel Oslund' });
+
+        check('S128', 'a decline reaches the linked customer record',
+          res.pulled === true,
+          'the whole hole: the quote was archived and the customer never heard about it');
+
+        check('S128', 'they are recorded as not coming this season',
+          w.customers.c1.rsvpStatus === 'no' && !!w.customers.c1.rsvpRespondedAt,
+          'they would keep reading as a Yes — on the Yes sheet, in the RSVP counts, ' +
+          'and in every list the office works from');
+
+        /* ⚠ THE TWO WAREHOUSE FLAGS POINT IN OPPOSITE DIRECTIONS AND BOTH MATTER.
+           Their lights come back (recycle), and there is nothing left to make for
+           a season they are not in (build). Getting the recycle wrong leaves a bin
+           on a shelf nobody collects; getting the build wrong has the warehouse
+           making a set for a house that said no. */
+        check('S128', 'their lights are flagged to come back',
+          w.customers.c1.needsLightRecycle === true,
+          'the bin sits on the shelf with nobody coming for it');
+        check('S128', 'and nothing is left queued to build for them',
+          w.customers.c1.needsLightBuild === false,
+          'the warehouse would build a set for a house that has said no');
+
+        check('S128', 'they are unscheduled',
+          w.customers.c1.scheduled === false &&
+          w.customers.c1.scheduledDate === null &&
+          w.customers.c1.assignedCrew === null,
+          'a stale crew and date is what puts them back on a printed sheet');
+
+        /* ⚠ AND OFF THE ROUTE THAT WAS ALREADY BUILT. Clearing `scheduled` on the
+           customer does NOT touch scheduledRoutes — the stop is a snapshot, so
+           the crew keeps driving to it. */
+        check('S128', 'and taken off an upcoming route the crew already has',
+          w.routes[0].stops.length === 1 && w.routes[0].stops[0].id === 'other',
+          'the customer record says no and the crew sheet still says go');
+        check('S128', 'the route removal is counted for the office',
+          res.removedFromRoutes === 1,
+          'the note tells somebody a printed sheet has changed underneath them');
+
+        /* ⚠ SOMEBODY IS TOLD. A decline arrives by email with nobody watching and
+           has just taken a customer out of the season. */
+        check('S128', 'exactly one System note is raised',
+          w.messages.length === 1 && w.messages[0].folder === 'System',
+          'a decline that changes a route and a warehouse queue in silence is how ' +
+          'the first anyone knows is a bin nobody collected');
+        check('S128', 'and it names the customer and says what was done',
+          /Rachel Oslund/.test(w.messages[0].message || '') &&
+          /recycl/i.test(w.messages[0].message || '') &&
+          /route/i.test(w.messages[0].message || ''),
+          'a note nobody can act on is a note nobody reads');
+      }
+
+      /* ---- 2. a past route is history --------------------------------- */
+      {
+        const w = makeWorld({
+          customers: { c1: member() },
+          routes: [{ date: PAST, stops: [{ id: 'c1' }] }]
+        });
+        const res = await w.run({ existingCustomerId: 'c1' });
+        check('S128', 'a route the crew has already worked is left alone',
+          w.routes[0].stops.length === 1 && res.removedFromRoutes === 0,
+          'rewriting a finished route changes what the crew actually did');
+      }
+
+      /* ---- 3. a new lead has no season to be pulled out of ------------- */
+      {
+        const w = makeWorld({ customers: { c1: member() }, routes: [] });
+        const res = await w.run({
+          name: 'Somebody New', phone: '801 555 0199', address: '1 New St'
+        });
+        check('S128', 'a first-time lead is not touched at all',
+          res.pulled === false && w.customers.c1.rsvpStatus === 'yes' &&
+          !w.messages.length,
+          'they are not a customer yet, so there is nothing to take them out of');
+      }
+
+      /* ---- 4. NEVER BY PHONE ALONE ------------------------------------
+         ⚠ THE SHARPEST EDGE IN THE WHOLE JOB, and the reason quoteCustomerRef
+         exists. 17 numbers in the real book are shared and 14 of those are two
+         genuinely DIFFERENT houses — a parent paying for a child's place. A
+         decline resolved on the phone number lands on whichever record comes
+         back first, and then recycles the wrong household's lights and pulls
+         THEM off the crew's route.
+
+         The fixture is built to make that mistake visible: one phone, two real
+         houses, and the quote is for the SECOND address. A resolver that
+         matched on phone would answer 'parent'. */
+      {
+        const w = makeWorld({
+          customers: {
+            parent: Object.assign(member(), { name: 'Parent', address: '10 Elm St' }),
+            child: Object.assign(member(), { name: 'Child', address: '99 Oak Ave' })
+          },
+          routes: []
+        });
+        const res = await w.run({
+          quotedPrice: 400, phone: '(801) 555-0100', address: '99 Oak Ave'
+        });
+        check('S128', 'a shared phone resolves by ADDRESS, not by whoever comes first',
+          res.pulled === true && w.customers.child.rsvpStatus === 'no' &&
+          w.customers.parent.rsvpStatus === 'yes',
+          'the parent would be recycled and pulled off their route for the ' +
+          "child's decline — two different households on one number");
+      }
+
+      /* ⚠ AND ONLY ON A QUOTE THE OFFICE HAS PRICED. firestore.rules stops a
+         public create from setting quotedPrice, so a price is proof staff
+         touched it. Without that gate the address fallback is a free "is this
+         address one of your customers?" oracle for anybody who can submit the
+         public quote form — and worse here than in the approve path, because
+         this one WRITES. */
+      {
+        const w = makeWorld({
+          customers: { c1: Object.assign(member(), { address: '99 Oak Ave' }) },
+          routes: []
+        });
+        const res = await w.run({ phone: '(801) 555-0100', address: '99 Oak Ave' });
+        check('S128', 'an unpriced quote cannot reach a customer by address',
+          res.pulled === false && w.customers.c1.rsvpStatus === 'yes',
+          'anyone can create a quote — an unpriced one must never be able to ' +
+          'write to a real customer record');
+      }
+
+      /* ---- 5. the customer's answer never fails because a lookup did ---
+         Everything after the customer write is best-effort. The answer is what
+         has to survive. */
+      {
+        const w = makeWorld({
+          customers: { c1: member() },
+          routes: [{ date: FUTURE, stops: [{ id: 'c1' }] }],
+          failRouteUpdate: true
+        });
+        const res = await w.run({ existingCustomerId: 'c1' })
+          .catch(err => ({ pulled: 'threw: ' + (err && err.message) }));
+        check('S128', 'a failed route write still leaves the answer recorded',
+          res.pulled === true && w.customers.c1.rsvpStatus === 'no',
+          'the customer told us no — that must not be lost because a route ' +
+          'document would not save');
+      }
+      {
+        const w = makeWorld({
+          customers: { c1: member() }, routes: [], failMessage: true
+        });
+        /* ⚠ CAUGHT, so this fails AS ITSELF. Every other best-effort step here
+           returns a value when it goes wrong; this one is the last statement
+           before the return, so dropping its catch makes the whole function
+           REJECT — and an unhandled rejection out of a pendingAsync suite prints
+           "an async suite crashed" with no clue which suite or which line. The
+           red-check hit exactly that. CLAUDE.md has the same lesson written down
+           from the workbook-writer suite. */
+        const res = await w.run({ existingCustomerId: 'c1' })
+          .catch(err => ({ pulled: 'threw: ' + (err && err.message) }));
+        check('S128', 'and a note that will not write does not sink it either',
+          res.pulled === true && w.customers.c1.rsvpStatus === 'no',
+          'the messages collection caps a body at 5000 characters and reports ' +
+          'the refusal as a permissions error — see CLAUDE.md');
+      }
+      {
+        /* ⚠ THE OTHER DIRECTION. If the CUSTOMER write itself fails there is
+           nothing to tell anybody about, and saying "we took them out of the
+           season" when we did not is worse than saying nothing. */
+        const w = makeWorld({
+          customers: { c1: member() }, routes: [], failCustomerUpdate: true
+        });
+        const res = await w.run({ existingCustomerId: 'c1' });
+        check('S128', 'but a failed customer write reports nothing done',
+          res.pulled === false && !w.messages.length,
+          'a note claiming a decline was actioned, when it was not, sends the ' +
+          'office looking for a bin that is not coming back');
+      }
+
+      /* ---- 6. a link pointing at a customer who is gone ---------------- */
+      {
+        const w = makeWorld({ customers: {}, routes: [] });
+        const res = await w.run({ existingCustomerId: 'deleted-since' });
+        /* ⚠ res.pulled ALONE PROVED NOTHING, and the red-check caught it: with
+           the `snap.exists` guard deleted the resolver returns a record whose
+           data is undefined, the update is rejected by the fake, and pulled
+           comes back false ANYWAY — the same answer by a much worse route. The
+           logged error is what separates the two. A link to a customer who has
+           since been removed is an ordinary situation, not a fault to report. */
+        check('S128', 'a link to a deleted customer is not an error',
+          res.pulled === false && !w.errors.length,
+          'a customer really can have been removed since the quote was raised — ' +
+          'that must be handled, not caught');
+      }
+    })());
+  }
+
+  /* ---- the wiring, which no fixture above can see -------------------- */
+  const respondSrc = fns.slice(fns.indexOf('exports.quoteRespond = onCall'));
+  check('S128', 'the decline branch actually calls it',
+    /await declineReachesCustomer\(quoteData\)/.test(stripComments(respondSrc)),
+    'the best-tested function in the world does nothing if the button does not ' +
+    'press it');
+
+  /* ⚠ IT IS NOT pullCustomerFromSeason. That one writes needsLightRecycle:FALSE,
+     which is right for "back next year" and exactly wrong here — it would clear a
+     recycle that was already owed and leave the bin on the shelf. */
+  const declSrc = stripComments(src.declineReachesCustomer || '');
+  check('S128', 'a decline does not go through the back-next-year path',
+    !/pullCustomerFromSeason/.test(declSrc),
+    'that path clears needsLightRecycle — a decline has to set it');
+}
 // A check that scores after this summary is a check that cannot fail the build.
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));

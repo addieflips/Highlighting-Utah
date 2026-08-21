@@ -1583,6 +1583,124 @@ async function quoteMatchesExistingCustomer(quoteData) {
   return null;
 }
 
+/* ⭐ WHICH CUSTOMER A QUOTE IS ABOUT — one answer, for every action (added
+   2026-08-21, hole A).
+ *
+ * ⚠ NEVER BY PHONE ALONE. This is the trap this codebase has written down more
+ * than once: 17 numbers in the real book are shared, and 14 of those are two
+ * GENUINELY DIFFERENT houses — a parent paying for a child's place. Resolving a
+ * quote to a customer by phone can therefore land on the wrong household, and
+ * for a decline that means recycling somebody else's lights and pulling THEM off
+ * the crew's route.
+ *
+ * The approve path already resolved this carefully; declining and "maybe next
+ * year" did not — maybe_next_year used findByPhone, which is exactly the unsafe
+ * shortcut above. This is that careful version, lifted out so all three actions
+ * ask the same question and get the same answer.
+ *
+ * In order:
+ *   1. an explicit link — convertedToCustomerId or existingCustomerId, on a
+ *      record that still exists. Exact; nothing to guess.
+ *   2. ADDRESS plus phone-or-email, via quoteMatchesExistingCustomer. The
+ *      address half is the whole safety argument — it is what keeps a parent and
+ *      a child on one phone apart.
+ *
+ * ⚠ AND ONLY ON A QUOTE THE OFFICE HAS PRICED. firestore.rules stops a public
+ * create from setting quotedPrice, so a price is proof staff touched it. Without
+ * that gate this is a free "is this address one of your customers?" oracle for
+ * anyone who can submit the public quote form.
+ *
+ * Returns the record, or null. Never throws: the customer's answer to their own
+ * quote must never fail because a lookup did. */
+async function quoteCustomerRef(quoteData) {
+  const q = quoteData || {};
+  try {
+    const linkedId = q.convertedToCustomerId || q.existingCustomerId || '';
+    if (linkedId) {
+      const snap = await db.collection('jobAddresses').doc(String(linkedId)).get();
+      if (snap.exists) return { id: snap.id, data: snap.data() };
+    }
+    if (typeof q.quotedPrice === 'number') {
+      return await quoteMatchesExistingCustomer(q);
+    }
+  } catch (err) {
+    console.error('[HU] quoteCustomerRef failed:', err);
+  }
+  return null;
+}
+
+/* ⭐ A DECLINE HAS TO REACH THE CUSTOMER, NOT JUST THE QUOTE (hole A, fixed
+   2026-08-21).
+ *
+ * ⚠ THE HARM: an existing member who declined kept rsvpStatus 'yes', was never
+ * recycled, stayed on the Yes sheet and stayed on any route already built — so
+ * a crew drove to a house that had said no. The quote was archived and nothing
+ * else happened at all.
+ *
+ * This is deliberately the SAME meaning "no" already has everywhere else in the
+ * app — portalRsvp('no') and the office's own toggle both write it: they are out
+ * for the season, their lights come back, and they come off the routes.
+ *
+ * ⚠ IT IS NOT pullCustomerFromSeason. That one writes needsLightRecycle:FALSE —
+ * right for "back next year", and exactly wrong here: it would clear a recycle
+ * that was already owed and leave the bin on the shelf with nobody coming for it.
+ *
+ * ⚠ AND IT NEVER TOUCHES A NEW LEAD. Somebody who is not a customer yet has no
+ * season to be pulled out of; quoteCustomerRef returns null and this does
+ * nothing. */
+async function declineReachesCustomer(quoteData) {
+  const cust = await quoteCustomerRef(quoteData);
+  if (!cust) return { pulled: false };
+  try {
+    await db.collection('jobAddresses').doc(cust.id).update({
+      rsvpStatus: 'no',
+      rsvpRespondedAt: admin.firestore.FieldValue.serverTimestamp(),
+      /* Their lights are coming back — the same thing an RSVP "no" means. */
+      needsLightRecycle: true,
+      /* Nothing left to build for a season they are not in. */
+      needsLightBuild: false,
+      scheduled: false,
+      scheduledDate: null,
+      assignedCrew: null
+    });
+  } catch (err) {
+    console.error('[HU] decline customer update failed:', err);
+    return { pulled: false };
+  }
+  /* Off any route a crew has already been handed. Past routes are history and
+     are left exactly as they are. */
+  let removedFrom = 0;
+  try {
+    removedFrom = await removeCustomerFromUpcomingRoutes(cust.id);
+  } catch (err) {
+    console.error('[HU] decline route removal failed:', err);
+  }
+  /* ⚠ AND SOMEBODY IS TOLD. A decline arrives by email with nobody watching, and
+     it has just taken a customer out of the season and flagged their lights for
+     recycling. Without this the first anyone knows is a bin nobody collected.
+     Best-effort: the customer's answer is already recorded and must not fail
+     because a note could not be written. */
+  try {
+    await db.collection('messages').add({
+      topic: 'Quote Declined', folder: 'System',
+      name: (cust.data && cust.data.name) || quoteData.name || '',
+      phone: (cust.data && cust.data.phone) || quoteData.phone || '',
+      email: (cust.data && cust.data.email) || quoteData.email || '',
+      contactMethod: '',
+      message: ((cust.data && cust.data.name) || 'A customer') + ' declined their quote, so they ' +
+               'have been marked as not coming this season and their lights are flagged for ' +
+               'recycling.' + (removedFrom ? ' They were taken off ' + removedFrom + ' upcoming route' +
+               (removedFrom === 1 ? '' : 's') + '.' : '') +
+               ' If they only meant to turn down an addition rather than the whole season, put ' +
+               'their RSVP back to Yes and clear the recycle flag.',
+      autoQueuedToWarehouse: false,
+      needsReassign: false,
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+  } catch (err) { console.error('[HU] decline note failed:', err); }
+  return { pulled: true, removedFromRoutes: removedFrom };
+}
+
 /* --- quoteRespond ---------------------------------------------------------
  * Input: { quoteToken, action }  where action = 'approve' | 'decline' | 'maybe_next_year'
  *
@@ -1635,9 +1753,25 @@ exports.quoteRespond = onCall({ cors: true }, async (request) => {
      no link to jobAddresses, so the phone number is the only join available,
      and it is the same one the rest of the app matches on. */
   let pulledFromSeason = false;
+  /* ⭐ A DECLINE REACHES THE CUSTOMER TOO (hole A, fixed 2026-08-21). It used to
+     archive the quote and stop, so an existing member who declined kept
+     rsvpStatus 'yes', was never recycled, stayed on the Yes sheet and stayed on
+     any route already built — a crew drove to a house that had said no. */
+  let declinedCustomer = false;
+  if (action === 'decline') {
+    const res = await declineReachesCustomer(quoteData);
+    declinedCustomer = !!res.pulled;
+  }
+
   if (action === 'maybe_next_year' || action === 'maybe') {
     try {
-      const cust = await findByPhone(digitsOnly(quoteData.phone));
+      /* ⚠ NOT findByPhone. This used to resolve the customer by phone alone —
+         the shared-number trap: 17 numbers in the real book are shared and 14 of
+         those are two different households, so it could pull the WRONG customer
+         out of the season. quoteCustomerRef uses the explicit link first and
+         ADDRESS plus contact as the fallback, which is what keeps a parent and a
+         child apart. Same answer the approve and decline paths get. */
+      const cust = await quoteCustomerRef(quoteData);
       if (cust) {
         await pullCustomerFromSeason(cust.id);
         pulledFromSeason = true;
@@ -1723,50 +1857,20 @@ exports.quoteRespond = onCall({ cors: true }, async (request) => {
   let memberRef = null;
   if (action === 'approve') {
     try {
-      const linkedId = quoteData.convertedToCustomerId || quoteData.existingCustomerId || '';
-      if (linkedId) {
-        const cSnap = await db.collection('jobAddresses').doc(String(linkedId)).get();
-        if (cSnap.exists) { memberRef = { id: cSnap.id, data: cSnap.data() }; }
-      }
-      if (memberRef) {
-        alreadyMember = true;
-      } else if (quoteData.convertedToCustomerAt) {
-        alreadyMember = true;
-      } else {
-        /* ⚠ THE TWO MARKS ABOVE ARE NOT RELIABLE ON REAL DATA, which is why
-           this third test exists. Both writes that set convertedToCustomerAt
-           are best-effort - the customer is already created by the time they
-           run, so admin.html catches a failure and toasts rather than rolling
-           the save back. admin.html says so itself, and stopped depending on
-           that write for its own "Already a customer" badge for the same
-           reason. A member whose card never closed was still being handed the
-           install-details form.
+      /* ⭐ THE SAME "which customer is this quote about" ANSWER the decline and
+         maybe-next-year paths use — see quoteCustomerRef. It is the explicit link
+         first, then ADDRESS plus contact on a priced quote, and never phone alone.
+         This used to be written out here in full; three copies of one rule about
+         which household a decision lands on is how one of them starts recycling
+         the wrong person's lights.
 
-           So this mirrors quoteAlreadyACustomer: ADDRESS plus phone-or-email.
-           ⚠ THE ADDRESS HALF IS NOT DECORATION - it is the whole safety
-           argument. 17 phone numbers in the real book are shared and 14 of
-           those are two genuinely different houses (a parent paying for a
-           child's place). Matching on contact alone would tell a brand-new
-           house it was already a member and never ask for its details. The
-           address is what keeps those two apart.
-
-           ⚠ AND ONLY ON A QUOTE THE OFFICE HAS PRICED. firestore.rules stops
-           a public create from setting quotedPrice, so pricing is proof staff
-           touched it. Without that gate this is a free "is this address one
-           of your customers?" oracle for anyone who can submit the quote
-           form. A member only ever gets a link after pricing, so it costs
-           nothing real. */
-        if (typeof quoteData.quotedPrice === 'number') {
-          memberRef = await quoteMatchesExistingCustomer(quoteData);
-          alreadyMember = !!memberRef;
-        }
-      }
-      /* The address match can still name the customer even when one of the
-         explicit marks already answered the question — worth doing, because
-         without a record we cannot mark them in for the season. */
-      if (alreadyMember && !memberRef && typeof quoteData.quotedPrice === 'number') {
-        memberRef = await quoteMatchesExistingCustomer(quoteData);
-      }
+         ⚠ alreadyMember IS STILL WIDER THAN memberRef, deliberately.
+         convertedToCustomerAt says "this quote HAS been made into a customer"
+         without saying which one, and that is enough to stop showing somebody the
+         new-customer form even when the record cannot be named. So the flag reads
+         from both; only the RECORD comes from the shared rule. */
+      memberRef = await quoteCustomerRef(quoteData);
+      alreadyMember = !!memberRef || !!quoteData.convertedToCustomerAt;
     } catch (err) {
       /* Never let this sink the approval - it is already recorded above. A
          member who wrongly gets the details form can still fill it in; a
