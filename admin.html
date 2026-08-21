@@ -14193,10 +14193,51 @@ let rmWallPts = [];
 let rmShots = [], rmCrop = null, rmCropDrag = null;
 let rmSkyReady = false, rmStreetReady = false;
 
-function rmMapsKey(){
+/* ⚠ THERE ARE TWO GOOGLE KEYS ON THIS PAGE AND THEY ARE NOT INTERCHANGEABLE.
+   The map loads from the key on the Maps script tag; Firebase carries its own
+   in firebaseConfig. They live in DIFFERENT Google Cloud projects.
+
+   On 2026-08-21 the two static-image APIs were switched on for the FIREBASE
+   key and not the map one. That is an easy mistake and a nasty one: the Cloud
+   console shows a single project holding a single key, the map's key is not in
+   it, so the console looks right while the capture keeps refusing. Worse, the
+   map went on rendering perfectly six inches above the error - so it read as a
+   bug in the capture rather than as a key one line away with the permissions
+   already on it. Measured at the time: the map key did Maps JS and Solar and
+   was refused Static; the Firebase key was refused nothing.
+
+   So rather than name a winner, try each key we have and keep whichever
+   Google accepts. Whichever one gets fixed later, this starts working on its
+   own with no edit here. */
+function rmMapsKeys(){
+  const out = [];
   const s = document.querySelector('script[src*="maps.googleapis.com/maps/api/js"]');
-  if(!s) return '';
-  try{ return new URL(s.src).searchParams.get('key') || ''; } catch(err){ return ''; }
+  if(s){
+    try{ const k = new URL(s.src).searchParams.get('key'); if(k) out.push(k); } catch(err){ /* malformed tag */ }
+  }
+  if(typeof firebaseConfig === 'object' && firebaseConfig && firebaseConfig.apiKey) out.push(firebaseConfig.apiKey);
+  return out.filter(function(k, i){ return k && out.indexOf(k) === i; });
+}
+/* The key that worked last time is tried first, so the second capture does
+   not pay for the first one's refusal all over again. */
+let rmGoodKey = null;
+async function rmFetchStatic(makeUrl){
+  const all = rmMapsKeys();
+  const keys = rmGoodKey ? [rmGoodKey].concat(all.filter(function(k){ return k !== rmGoodKey; })) : all;
+  if(!keys.length) return {error: 'nokey'};
+  let last = null;
+  for(let i = 0; i < keys.length; i++){
+    let res;
+    try{ res = await fetch(makeUrl(keys[i])); }
+    catch(err){ return {error: 'network'}; }
+    if(res.ok){ rmGoodKey = keys[i]; return {blob: await res.blob()}; }
+    last = {status: res.status, why: (await res.text()) || ''};
+    /* Only a PERMISSION refusal is worth spending another key on. A 404 (no
+       imagery at this spot) or a 400 (bad request) would say exactly the same
+       thing on every key we own, and retrying would just be slower. */
+    if(!/not authorized|not enabled/i.test(last.why)) break;
+  }
+  return {error: 'refused', status: last.status, why: last.why};
 }
 /* ---- the local frame -------------------------------------------------- */
 /* Metres per degree, properly - not the flat 111320 approximation. At this
@@ -14692,9 +14733,16 @@ function rmMapPixelToWorld(clientX, clientY, rect){
 /* ---- capture ----------------------------------------------------------- */
 function rmStaticFailMessage(which, res, why){
   if(/not authorized|not enabled/i.test(why)){
-    return 'Google will not hand over the picture: the key is not allowed to use the ' +
-      (which === 'street' ? 'Street View Static API' : 'Maps Static API') +
-      '. In Cloud Console open APIs & Services → Credentials → this key → API restrictions, and add it. Measuring is unaffected and your lines are still here.';
+    const api = which === 'street' ? 'Street View Static API' : 'Maps Static API';
+    /* Every key on the page has already been tried by the time this shows, so
+       naming the count matters - "the key" sends somebody to fix the one they
+       can see, which is exactly the trap that cost a round of this once. */
+    return 'Google will not hand over the picture: none of the ' + rmMapsKeys().length +
+      ' Google keys on this page is allowed to use the ' + api + '. ' +
+      '⚠ There is more than one key here and they sit in different Google Cloud projects — the map loads from the key on the Maps script tag, Firebase uses its own. ' +
+      'Adding the API to whichever key the console happens to show does nothing if it is the other one. ' +
+      'Cloud Console → APIs & Services → Credentials → open the key → API restrictions → add "' + api + '". ' +
+      'Measuring is unaffected and your lines are still here.';
   }
   if(res.status === 404 || /ZERO_RESULTS|NOT_FOUND/i.test(why)){
     return 'Google has no picture for this exact spot — nudge the view slightly and capture again.';
@@ -14703,8 +14751,6 @@ function rmStaticFailMessage(which, res, why){
 }
 async function rmCapture(which){
   const status = document.getElementById('rmStatus');
-  const key = rmMapsKey();
-  if(!key){ status.textContent = 'Could not read the Google Maps key off this page, so the picture cannot be fetched. Measuring still works.'; return; }
   rmFinishRun();
   status.textContent = 'Capturing…';
   const el = document.getElementById(which === 'street' ? 'rmPano' : 'rmMap');
@@ -14713,32 +14759,38 @@ async function rmCapture(which){
   if(ratio >= 1){ w = RM_STATIC_MAX; h = Math.max(160, Math.round(RM_STATIC_MAX/ratio)); }
   else { h = RM_STATIC_MAX; w = Math.max(160, Math.round(RM_STATIC_MAX*ratio)); }
   const scale = 2;
-  let url, center, zoom, pov, cam;
+  let makeUrl, center, zoom, pov, cam;
   if(which === 'street'){
     if(!rmPano || !rmStreetReady){ status.textContent = 'Street View is not available at this address.'; return; }
     pov = rmPanoPov();
     cam = rmCamLocal();
     const pos = rmPano.getPosition();
-    url = 'https://maps.googleapis.com/maps/api/streetview?size='+w+'x'+h+'&scale='+scale+
-      '&location='+pos.lat().toFixed(7)+','+pos.lng().toFixed(7)+
-      '&heading='+pov.heading.toFixed(2)+'&pitch='+pov.pitch.toFixed(2)+
-      '&fov='+rmFovDeg(pov.zoom).toFixed(2)+'&return_error_code=true&key='+key;
+    makeUrl = function(key){
+      return 'https://maps.googleapis.com/maps/api/streetview?size='+w+'x'+h+'&scale='+scale+
+        '&location='+pos.lat().toFixed(7)+','+pos.lng().toFixed(7)+
+        '&heading='+pov.heading.toFixed(2)+'&pitch='+pov.pitch.toFixed(2)+
+        '&fov='+rmFovDeg(pov.zoom).toFixed(2)+'&return_error_code=true&key='+key;
+    };
   } else {
     if(!rmMap){ status.textContent = 'Load an address first.'; return; }
     center = {lat: rmMap.getCenter().lat(), lng: rmMap.getCenter().lng()};
     zoom = Math.round(rmMap.getZoom());
-    url = 'https://maps.googleapis.com/maps/api/staticmap?center='+center.lat.toFixed(7)+','+center.lng.toFixed(7)+
-      '&zoom='+zoom+'&size='+w+'x'+h+'&scale='+scale+'&maptype=satellite&format=jpg&key='+key;
+    makeUrl = function(key){
+      return 'https://maps.googleapis.com/maps/api/staticmap?center='+center.lat.toFixed(7)+','+center.lng.toFixed(7)+
+        '&zoom='+zoom+'&size='+w+'x'+h+'&scale='+scale+'&maptype=satellite&format=jpg&key='+key;
+    };
   }
-  let blob;
-  try{
-    const res = await fetch(url);
-    if(!res.ok){ status.textContent = rmStaticFailMessage(which, res, (await res.text())||''); return; }
-    blob = await res.blob();
-  } catch(err){
+  const got = await rmFetchStatic(makeUrl);
+  if(got.error === 'nokey'){
+    status.textContent = 'Could not find a Google key on this page, so the picture cannot be fetched. Measuring still works.';
+    return;
+  }
+  if(got.error === 'network'){
     status.textContent = 'Could not reach Google for the picture — check the connection and try again.';
     return;
   }
+  if(got.error){ status.textContent = rmStaticFailMessage(which, {status: got.status}, got.why); return; }
+  const blob = got.blob;
   const img = new Image();
   const objUrl = URL.createObjectURL(blob);
   const loaded = await new Promise(function(resolve){

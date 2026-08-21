@@ -26269,6 +26269,32 @@ suite('126. Measure Roof — sky view and Street View are one set of points');
     /openRoofMeasure\(btn\.dataset\.measureroof\)/.test(wiring) && !!extractFn(admin, 'openRoofMeasure'),
     'a button with no handler, or a handler calling something that is not there');
 
+  /* ---- two keys, and the one that works wins ---------------------------
+     ⚠ THE BUG THIS EXISTS FOR. admin.html carries TWO Google keys in
+     different Cloud projects: the map's, on the Maps script tag, and
+     Firebase's own. On 2026-08-21 the static-image APIs were switched on for
+     the Firebase one and not the map one, so capture kept refusing while the
+     map rendered perfectly six inches above the error. Trying only one key
+     makes that unfixable from here. */
+  const keysFn = extractFn(admin, 'rmMapsKeys');
+  check('S126', 'both Google keys on the page are collected, not just the map one',
+    !!keysFn && /script\[src\*="maps\.googleapis/.test(keysFn) && /firebaseConfig/.test(keysFn),
+    'only one key is looked at, so a permission on the other is unreachable');
+  const fetchFn = extractFn(admin, 'rmFetchStatic');
+  check('S126', 'a refused key falls through to the next one',
+    !!fetchFn && /for\s*\(let i = 0; i < keys\.length/.test(fetchFn),
+    'the first refusal ends it, and the key that would have worked is never tried');
+  check('S126', 'but only a permission refusal is retried, not a 404',
+    !!fetchFn && /not authorized\|not enabled/.test(fetchFn) && /break/.test(fetchFn),
+    'retrying every failure on every key just makes a missing photo slower to report');
+  check('S126', 'and the key that worked is remembered for the next capture',
+    !!fetchFn && /rmGoodKey = keys\[i\]/.test(fetchFn),
+    'every capture pays for the refusal again');
+  const failMsg = extractFn(admin, 'rmStaticFailMessage');
+  check('S126', 'and the refusal message says there is more than one key',
+    !!failMsg && /more than one key/.test(failMsg) && /different Google Cloud projects/.test(failMsg),
+    'a message naming "the key" sends somebody to fix the one they can see — which is the trap that cost a round of this');
+
   /* ---- the freeze, which is the control complaint this was built for ---- */
   const setDrawing = extractFn(admin, 'rmSetDrawing');
   check('S126', 'starting a line freezes the sky view',
