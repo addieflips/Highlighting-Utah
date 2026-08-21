@@ -1,117 +1,125 @@
 # Option registry — draft for review
 
-**Status: DRAFT. Not active. Nothing imports this, and `js/options.js` is
-untouched.** This exists to turn Q-007 from an essay into ten minutes of ticking.
+**Status: DRAFT, revised 2026-08-21 with Addie's answers. Not active. Nothing
+imports this, and `js/options.js` is untouched.**
 
-Every row below was derived from the code, not invented. The `Evidence` column
-says where each one actually lives today, so you can check any line I got wrong.
-What I need from you is in **§4** — three questions, and the corrections you make
-to the table.
-
-Once this is signed off it becomes `js/options.js`, Phase 1 unblocks, and R-001
-starts being enforceable.
+Every row was derived from the code; the destinations in §2 are Addie's answers.
+Two things still need her — they are in §5, and one of them is a rule conflict.
 
 ---
 
 ## 1. Where this came from
 
-Four sources, in descending order of authority:
-
 | Source | What it settles |
 |---|---|
-| `quoteDetailForm` submit handler, `index.html:2702` | **the customer-facing list.** Exactly what a new customer is asked for after they approve a quote |
-| `PORTAL_WRITE_FIELDS` / `PORTAL_READ_FIELDS`, `functions/index.js:554` | what a member may change and see later — already grouped by save-section |
-| `PRINT_COLUMNS`, `admin.html` | what actually prints on the crew sheet and the build sheet |
-| Add Customer form (`addCust*` ids) | what the office can set that the customer never sees |
-
-The five consumers in the plan are `quote`, `confirmation`, `crewSheet`,
-`pullList`, `invoice`. ⚠ **Four of those exist. `confirmation` does not** — the
-confirmation text is Phase 2 and nothing sends one today. So that column is you
-deciding what a future message should say, not me describing something live.
+| `quoteDetailForm` submit handler, `index.html:2702` | **the customer-facing list** — what a new customer is actually asked for |
+| `PORTAL_WRITE_FIELDS` / `PORTAL_READ_FIELDS`, `functions/index.js:554` | what a member may change and see later |
+| `PRINT_COLUMNS`, `admin.html` | what actually reaches paper |
+| Add Customer form (`addCust*` ids) | what the office sets that the customer never sees |
 
 ---
 
-## 2. The draft registry
+## 2. The registry
 
-`Price?` = does this change what they are charged.
-`Quote` = asked at quote time · `Conf` = should appear on the confirmation text
-(Phase 2) · `Crew` = printed crew sheet · `Pull` = warehouse build sheet ·
-`Inv` = an invoice line.
+**⚠ EIGHT DESTINATIONS, NOT FIVE.** `js/options.js` ships a `CONSUMERS` list of
+five (`quote`, `confirmation`, `crewSheet`, `pullList`, `invoice`) and R-003
+names six, adding the customer record. Addie's answers name two more that are
+neither: **Routes** and **Schedule**, which are genuinely separate surfaces —
+Schedule is the season laid out day by day (`routeSchedule/plan`), Routes is the
+crew's driving order for one day (`scheduledRoutes`). `CONSUMERS` has to grow to
+eight, and `audit()` with it.
 
-**✓** = it does today · **✗** = it does not today · **?** = my proposal, needs your call
+| # | Option | Field | Price? | Quote | Conf | Cust | Crew | Pull | Route | Sched | Inv |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | Measured feet | `measuredFeet` | **YES** | ✓ | ⚠ §5 | ✓ | – | ✓ | – | – | ✓ |
+| 2 | Light colours / pattern | `lightsDescription`, `lightColors` | no | ✓ | ✓ | ✓ | – | ✓ | – | – | – |
+| 3 | Wire colour | `wireColor` | no | ✓ | ✓ | ✓ | – | ✓ | – | – | – |
+| 4 | Timer | `outletTimer` | no | ✓ | ✓ | ✓ | ✓ | ✓ | – | – | – |
+| 5 | Plugs / eaves | `useEaves` | no | ✓ | ⚠ §5 | ✓ | ✓ | – | – | – | – |
+| 6 | Which outlet | `specificOutlet`, `specificOutletNotes` | no | ✓ | ✓ | ✓ | **✓ new** | – | – | – | – |
+| 7 | Gate code | `gateCode` | no | ✓ | ✓ | ✓ | **✓ new** | – | – | – | – |
+| 8 | Sides of the house | `houseSides` | no¹ | ✓ | ✓ | ✓ | **✓ new** | – | **✓ new** | **✓ new** | – |
+| 9 | Install timing | `installPreference` | no | ✓ | ✓ | ✓ | – | – | – | ✓ | – |
+| 10 | Notes | `notes` | no | ✓ | – | ✓ | ✓ | – | **✓ new** | **✓ new** | – |
+| 11 | One-time note | `oneTimeNote` | no | – | – | ✓ | **✓ new** | – | **✓ new** | **✓ new** | – |
+| 12 | Mailed invoice | `wantsMailedInvoice` | no | ✓ | – | ✓ | – | – | – | – | **✓ new** |
+| 13 | Bins | `numberOfBins` | no | – | – | **✓ new** | – | ✓ | **✓ new** | **✓ new** | – |
+| 14 | Difficulty | `difficulty` | no | – | – | ✓ | – | – | **✓ new** | **✓ new** | – |
 
-| # | Option | Field | Type | Price? | Quote | Conf | Crew | Pull | Inv | Evidence |
-|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | Measured feet | `measuredFeet` | measure (ft) | **YES** | ✓ | ? | ✗ | ✓ | ✓ | `perFootRate × feet`; also drives bins, bundles, number series |
-| 2 | Light colours / pattern | `lightsDescription`, `lightColors` | text + list | no | ✓ | ? | ✗ | ✓ | ✗ | quote form; build sheet "Light color" |
-| 3 | Wire colour | `wireColor` | choice | no | ✓ | ? | ✗ | ✓ | ✗ | build sheet "Wire color" |
-| 4 | Timer | `outletTimer` | yes/no | no | ✓ | ? | ✓ | ✓ | ✗ | crew sheet "Timer"; build sheet "Timer" |
-| 5 | Plugs / eaves | `useEaves` | yes/no | no | ✓ | ? | ✓ | ✗ | ✗ | crew sheet "Plugs / eaves". ⚠ **not in the crew portal** |
-| 6 | Which outlet | `specificOutlet`, `specificOutletNotes` | yes/no + text | no | ✓ | ? | ✗ | ✗ | ✗ | ⚠ **crew portal only — never prints** |
-| 7 | Gate code | `gateCode` | text | no | ✓ | ? | ✗ | ✗ | ✗ | ⚠ **crew portal only — never prints** |
-| 8 | Sides of the house | `houseSides` / `houseSideCount` | count 1–4 | **YES** | ✓ | ? | ✗ | ✗ | ✗ | changing it raises a re-quote — `PORTAL_WRITE_FIELDS.sides` |
-| 9 | Install timing | `installPreference` | choice | no | ✓ | ? | ✗ | ✗ | ✗ | drives the season plan, not a crew instruction |
-| 10 | Permanent notes | `notes` | text | no | ✓ | ✗ | ✓ | ✗ | ✗ | crew sheet "Notes" |
-| 11 | One-time note | `oneTimeNote` | text | no | ✗ | ✗ | ✗ | ✗ | ✗ | ⚠ **crew portal only — never prints** |
-| 12 | Mailed invoice | `wantsMailedInvoice` | yes/no | no | ✓ | ? | ✗ | ✗ | ? | office-side billing preference |
-| 13 | Bins | `numberOfBins` | count | no | ✗ | ✗ | ✗ | ✓ | ✗ | internal — derived from feet, never asked |
-| 14 | Difficulty | `difficulty` | choice | no | ✗ | ✗ | ✗ | ✗ | ✗ | internal office rating. Shows in the crew *portal* (3 refs), never prints |
+**✓ new** = a destination Addie added that the option does not reach today.
+**–** = deliberately not there.
 
-**Rows 13 and 14 are internal**, so R-003's exception applies — they legitimately
-skip `quote`, `confirmation` and `invoice`. Everything else is customer-facing.
-
----
-
-## 3. Four holes this surfaced
-
-These fell out of building the table. All four are real; none is fixed.
-
-**a. The gate code never prints.** It shows on the crew portal as a tag
-(`employee.html:2729`) and nowhere else. A crew working off the printed sheet —
-which is the whole point of the Printing tab's "Print Today" — arrives at a gated
-house with no code.
-
-**b. `useEaves` is the exact opposite.** It prints on the crew sheet and does
-*not* appear in the crew portal at all (verified — the only "eave" matches in
-`employee.html` are the word "leave"). So the two surfaces the same crew uses
-each carry something the other is missing.
-
-**c. Which-outlet instructions never print either.** `specificOutletNotes` holds
-real install directions — "use lower outlet by door w/ timer" — and the printed
-sheet has no column for them.
-
-**d. Sides of the house reaches neither crew surface.** It changes the price and
-raises a re-quote, and then the people doing the work are never told the number.
-This may be fine — the bundle is already built to the footage — which is why it's
-a question in §4 rather than a bug report.
-
-⚠ Every one of these is invisible to the automated suite, and always would have
-been. Nothing is broken: each field is written, stored and read. They are holes
-between artifacts, which is exactly the class R-003 exists for and exactly what
-generating the five artifacts from one list makes impossible.
+¹ **Sides does not have its own price.** Changing it raises a re-quote because
+the *footage* changes, and the footage is what is charged. Recorded explicitly so
+nobody later adds a per-side surcharge: Addie, 2026-08-21 — *"Nothing but feet
+should affect price."* ⚠ The comment at `functions/index.js:1066` says changing
+sides "changes the PRICE", which is true only through feet. Do not read it as a
+second price input.
 
 ---
 
-## 4. What I need from you
+## 3. The crew rule
 
-**Q1 — Is this the right list?** Add anything sold today that has no row here.
-That is Plan §12's blind spot: an option the software has no field for is
-invisible to every detector in this document, permanently. It is the one thing I
-cannot find by reading code.
+> *"Everything saved in crew should also print on the schedule sheet we print off."*
+> — Addie, 2026-08-21
 
-**Q2 — Does anything besides feet and sides change the price?** I found only
-those two. If a timer, extra wreaths, a second building or a hard-access house
-carries a charge today, it is being priced by hand and no rule knows about it.
-
-**Q3 — Fill in the `Conf` column.** What should the confirmation text list?
-My proposal: rows 1–9 — everything the customer chose, including the ones that
-currently print as nothing. R-002 says each renders `none` rather than being
-omitted, so they can check the whole list at a glance. Rows 10–14 stay off it.
-
-And on the four holes in §3: (a), (b) and (c) look like straightforward
-omissions I would fix. (d) I would leave alone unless you say the crew needs it.
+That is a general invariant, not a per-option answer, and it closes three of the
+four holes in §4 by itself. Proposed as **P-003** in `docs/RULES.md`. It is
+testable — the printed sheet's columns can be checked against what the crew
+portal renders — so it can be `code`-enforced rather than remembered.
 
 ---
 
-*Derived 2026-08-21. Supersedes nothing — `js/options.js` still holds its original
-placeholder set and is still imported by nothing.*
+## 4. The four holes, and where they now stand
+
+| Hole | Status |
+|---|---|
+| **a.** Gate code shows in the crew portal, never prints | **Closed by the crew rule.** Row 7 gains Crew. |
+| **b.** `useEaves` prints, but is absent from the crew portal | **Still open** — this one runs the *other* way, so the crew rule does not reach it. The printed sheet is right; the portal is missing it. |
+| **c.** Which-outlet instructions never print | **Closed by the crew rule.** Row 6 gains Crew. |
+| **d.** Side count reaches neither crew surface | **Closed explicitly.** Addie: sides go to Routes and Schedule, and the crew rule carries it to paper. |
+
+---
+
+## 5. Two things still needed
+
+**① R-004 vs the confirmation list — a real conflict, tier 1, `code`-enforced.**
+
+Addie's confirmation list is: light colours, wire colour, which outlet, gate code,
+sides, install timing, and timer. It contains **no price and no footage.**
+
+R-004 says *"Anything the customer pays for must appear on the confirmation text"*,
+and it is enforced by `audit()` — an option with `affectsPrice` and no
+`confirmation` consumer **fails the build**. Measured feet is the only thing that
+affects price. So the list as given makes `audit()` refuse on day one of Phase 1.
+
+Two ways out, and it is Addie's call which:
+
+- **add a price/footage line to the confirmation** — keeps R-004 as written, and
+  the customer sees what they are being charged before the truck arrives; or
+- **amend R-004** to "anything the customer pays for must be shown *before* they
+  are billed", on the grounds that the quote already showed them the price and the
+  confirmation is about *what we are installing*, not what it costs.
+
+Both are defensible. The second is probably what she means — but R-004 is tier 1
+and guessing at a tier-1 rule is exactly what this system exists to prevent.
+
+**② Plugs / eaves is missing from the confirmation list.** Rows 2, 3, 4, 6, 7, 8
+and 9 were named; `useEaves` was not. It is a customer preference like the
+others, so this is likely an oversight rather than a decision — unless "which
+outlet" is meant to cover it, in which case the two should probably be one
+option rather than two.
+
+---
+
+## 6. Answered
+
+- **Anything sold that has no row?** No — the list is complete. The placeholder
+  `js/options.js` guessed at wreaths and walkways; neither exists in this
+  business. They come out when this replaces it.
+- **Anything but feet affecting price?** No. Feet only.
+
+---
+
+*Derived 2026-08-21, revised the same day with Addie's answers. `js/options.js`
+still holds its original placeholder set and is still imported by nothing.*
