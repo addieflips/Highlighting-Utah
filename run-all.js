@@ -4134,8 +4134,20 @@ if (!JSDOM) {
     check('warehouse', 'the sheet is a real table with a header row',
       /<thead>/.test(table) && />Bundles<\/th>/.test(table) && />Address<\/th>/.test(table),
       'without headers it is not a spreadsheet, it is a wall of text');
-    check('warehouse', 'every printed row starts with a tick box',
-      (table.match(/<td class="tick">/g) || []).length === sheet.rows.length,
+    /* ⭐ NUMBERED ON THE LEFT, TICK BOX ON THE RIGHT (changed 2026-08-20). Owner:
+       "every single list should be numbered 1- whatever on the left... and also a blank
+       column on the right". The number takes the first column — it is what somebody
+       reads out down the phone — and the box somebody ticks moves to the right, where
+       it is now the same blank column every other sheet has. */
+    check('warehouse', 'every printed row is numbered, from one',
+      (function(){ const body = table.split('<tbody>')[1] || '';
+        const rows = body.split('<tr').slice(1);
+        return rows.length === sheet.rows.length && rows.every(function(r){
+          return r.indexOf('<td class=' + JSON.stringify('num') + '>') === r.indexOf('<td');
+        }) && body.indexOf('>1</td>') !== -1; })(),
+      'a row nobody can name is a row nobody can talk about');
+    check('warehouse', 'and ends with something to tick',
+      (table.split('<td class=' + JSON.stringify('blank') + '></td>').length - 1) === sheet.rows.length,
       'the sheet is worked down on a clipboard — there has to be something to tick');
     check('warehouse', 'hostile text is escaped on the printed sheet too',
       !/<script>/.test(whSheetTable([{group:'g', what:'<script>alert(1)</script>', wire:'', type:'House',
@@ -5070,8 +5082,12 @@ suite('15. The printed schedule sheet');
   }
 }
 check('schedule', 'the crew name is the heading on their sheet',
-  /schedOpenPrint\(\s*\r?\n?\s*crewName\(i\)/.test(admin),
-  'the first thing anyone does with a printed sheet is work out whose it is');
+  /title: who \+/.test(extractFn(admin, 'printCrewSheetPage')) &&
+  /const who = /.test(extractFn(admin, 'printCrewSheetPage')),
+  'the first thing anyone does with a printed sheet is work out whose it is. ⭐ The ' +
+  'Scheduling button and the Printing tab share printCrewSheetPage now (2026-08-20), ' +
+  'so this asserts the heading where it is actually built rather than at one of the ' +
+  'two call sites');
 check('schedule', 'crew names and cities are saved with the plan',
   /crews:CREWS\.map/.test(admin) && /CREWS=normalizeCrews\(o\.crews\)/.test(admin),
   'a rename that does not survive a refresh is not a rename');
@@ -18725,8 +18741,139 @@ suite('Suite 104. The Printing tab');
     'they travel with the sheet they belong to, not on a page of their own');
   check('S104', 'and only new hangs with a picture on file are shown',
     /printIsNewHang/.test(extractFn(admin, 'printCrewPhotos')) &&
-    /if\(!url\) return;/.test(extractFn(admin, 'printCrewPhotos')),
+    /if\(!photos.length\) return;/.test(extractFn(admin, 'printCrewPhotos')),
     'a broken image frame is worse than no frame');
+
+  /* ⚠ EVERY PICTURE THEY HAVE, not just the front of the house. Owner: "make sure
+     if a new hang has multiple pictures you include all." The extra photos exist so the
+     crew can see the other sides — which is exactly what somebody standing in front of
+     it for the first time needs. */
+  check('S104', 'a new hang with three pictures prints all three',
+    /photos.forEach/.test(extractFn(admin, 'printCrewPhotos')),
+    'printing only photos[0] throws away the reason the others were uploaded');
+  check('S104', 'and they are told apart on the page',
+    /of:/.test(extractFn(admin, 'printCrewPhotos')) &&
+    /p.of/.test(extractFn(admin, 'printPhotosHtml')),
+    'four pictures of one house with identical captions is a puzzle, not a help');
+
+  /* ⚠ RUN, NOT READ. Every check above this point matched a pattern in the source,
+     and a red-check pass showed five of them staying green while the behaviour was
+     gone: slicing the photo list to one still contains photos.forEach, and swapping a
+     whole function body still contains the words the pattern was looking for. */
+  const photosOf = (houses, custs) => new Function('houses', 'custs',
+    'const crewHousesFor = function(){ return houses; };' +
+    'const customerForHouse = function(h){ return custs[h.id] ? {data: custs[h.id]} : null; };' +
+    'const customerPhotoList = function(d){ return d.housePhotos || []; };' +
+    extractFn(admin, 'printCustData') + extractFn(admin, 'printIsNewHang') +
+    extractFn(admin, 'printCrewPhotos') + 'return printCrewPhotos({}, 0);')(houses, custs);
+
+  const threeShots = photosOf([{id: 'a'}], {a: {name: 'Alice', customerNumber: '101',
+    chargeNewMemberFee: true,
+    housePhotos: [{url: 'u1'}, {url: 'u2'}, {url: 'u3'}]}});
+  check('S104', 'a new hang with three pictures gives three',
+    threeShots.length === 3,
+    'got ' + threeShots.length + ' — the extra photos are the other sides of the ' +
+    'house, which is exactly what somebody seeing it for the first time needs');
+  check('S104', 'and each says which one it is',
+    threeShots[0].of === '1 of 3' && threeShots[2].of === '3 of 3',
+    'got ' + JSON.stringify(threeShots.map(p => p.of)) + ' — four pictures of one ' +
+    'house with identical captions is a puzzle, not a help');
+  check('S104', 'a single picture is not labelled 1 of 1',
+    photosOf([{id: 'a'}], {a: {chargeNewMemberFee: true, housePhotos: [{url: 'u'}]}})[0].of === '',
+    'noise on every other sheet');
+  check('S104', 'a colour change contributes no pictures at all',
+    photosOf([{id: 'a'}], {a: {chargeNewMemberFee: true, lightsChangedAt: 'x',
+      housePhotos: [{url: 'u'}]}}).length === 0);
+
+  /* ⭐ THE RECYCLE SHEET IS MOSTLY PEOPLE WHO ARE NO LONGER CUSTOMERS. Owner:
+     "people in recycle should not exist as a customer" and "they are removed as a
+     customer and then recycled." Reading the customer book alone printed an EMPTY sheet
+     on a live book with lights sitting in a van — which is what this fixture is. */
+  const recycleWith = (book, archive) => new Function('jobAddresses', 'whArchivedPending',
+    extractFn(admin, 'printRecycleList') + 'return printRecycleList();')(book, archive);
+
+  const bothSources = recycleWith(
+    [{data: {name: 'Still Here', customerNumber: '5', needsLightRecycle: true}},
+     {data: {name: 'Ordinary', customerNumber: '6'}}],
+    [{data: {name: 'Already Gone', customerNumber: '7'}}]);
+  check('S104', 'the recycle sheet has the ones already removed',
+    bothSources.some(r => r.name === 'Already Gone'),
+    'their flag went with their record; the archive row is all that is left');
+  check('S104', 'and the ones flagged but not yet removed',
+    bothSources.some(r => r.name === 'Still Here'),
+    'an RSVP no the office has not got to yet — the lights are coming back either way');
+  check('S104', 'and nobody else',
+    bothSources.length === 2 && !bothSources.some(r => r.name === 'Ordinary'));
+
+  /* ⭐ THE TWO SCHEDULE BUTTONS PRINT THE SAME SHAPE AS THE PRINTING TAB. Owner:
+     "make sure you update what columns and any other format need to be in any print
+     buttons already existing." Run for real, capturing what would have been printed. */
+  const runSheet = function (which, day) {
+    const out = [];
+    new Function('which', 'day', 'out',
+      'const CREWS = [{}, {}];' +
+      'const esc = function(x){ return String(x == null ? \"\" : x); };' +
+      'const toast = function(){};' +
+      'const getDay = function(){ return day; };' +
+      'const crewName = function(i){ return \"Crew \" + (i + 1); };' +
+      'const crewCityFor = function(){ return \"Lehi\"; };' +
+      'const dlabel = function(){ return {wd: \"Mon\", full: \"Oct 12\"}; };' +
+      'const dayDate = function(d){ return d._date; };' +
+      'const dayMainArea = function(){ return \"Lehi\"; };' +
+      'const schedRouteRows = function(){ return (day.houses || []); };' +
+      'const unassignedHousesFor = function(){ return day.spare || []; };' +
+      'const crewHousesFor = function(i){ return (day.houses || [])' +
+      '  .filter(function(h){ return h.crew === i; }); };' +
+      'const customerForHouse = function(h){ return {data: h.cust || {}}; };' +
+      'const customerPhotoList = function(){ return []; };' +
+      'const schedOpenPrintPages = function(t, pages){ out.push({title: t, pages: pages}); };' +
+      extractFn(admin, 'printYesNo') + extractFn(admin, 'printCustData') +
+      extractFn(admin, 'printIsNewHang') + extractFn(admin, 'printCrewPhotos') +
+      extractFn(admin, 'printPhotosHtml') + extractFn(admin, 'printTableHtml') +
+      extractFn(admin, 'printCrewDayList') + extractFn(admin, 'printCrewSheetPage') +
+      extractFn(admin, 'printDayLabel') +
+      admin.slice(admin.indexOf('const PRINT_COLUMNS = {'),
+                  admin.indexOf(String.fromCharCode(10) + '};',
+                                admin.indexOf('const PRINT_COLUMNS = {')) + 3) +
+      extractFn(admin, 'printCrewSheet') + extractFn(admin, 'printDaySheet') +
+      'if(which === \"crew\") printCrewSheet(\"d1\", 1); else printDaySheet(\"d1\");')
+      (which, day, out);
+    return out;
+  };
+
+  const aDay = {_date: new Date(2026, 9, 12), houses: [
+    {crew: 0, id: 'h1', cust: {customerNumber: '11', name: 'A', street: '1 St', useEaves: true}},
+    {crew: 0, id: 'h2', cust: {customerNumber: '12', name: 'B', street: '2 St'}},
+    {crew: 1, id: 'h3', cust: {customerNumber: '21', name: 'C', street: '3 St'}}],
+    spare: [{id: 'h4', city: 'Levan', cust: {customerNumber: '31', name: 'D'}}]};
+
+  const crewOut = runSheet('crew', aDay);
+  const crewBody = ((crewOut[0] || {}).pages || [{}])[0].body || '';
+  check('S104', 'the Scheduling crew button prints the crew columns',
+    /Plugs \/ eaves/.test(crewBody) && /Cust #/.test(crewBody),
+    'it used to print Route, Stop, Phone, Type and Price instead');
+  check('S104', 'numbered from one, even for crew two',
+    crewBody.indexOf('<td class=' + JSON.stringify('num') + '>1</td>') !== -1,
+    'crew two pressed their own button and got crew one' + String.fromCharCode(8217) + 's numbering');
+  check('S104', 'and it ends in a blank column',
+    crewBody.indexOf('<td class=' + JSON.stringify('blank') + '></td>') !== -1);
+  check('S104', 'and it prints only that crew',
+    crewBody.indexOf('>21<') !== -1 && crewBody.indexOf('>11<') === -1,
+    'crew two got crew one' + String.fromCharCode(8217) + 's houses');
+
+  const dayOut = runSheet('day', aDay);
+  const dayBody = ((dayOut[0] || {}).pages || [{}])[0].body || '';
+  check('S104', 'the whole-day sheet is split into a block per crew',
+    (dayBody.split('<table>').length - 1) >= 2,
+    'this is the sheet that gets cut in half, so each half has to stand on its own');
+  check('S104', 'each block starts its numbering at one',
+    (dayBody.split('<td class=' + JSON.stringify('num') + '>1</td>').length - 1) >= 2,
+    'owner: \"always starting with 1 even if its crew 2\"');
+  check('S104', 'and a house in neither crew' + String.fromCharCode(8217) + 's city still gets printed',
+    dayBody.indexOf('>31<') !== -1,
+    'it is already reported on screen as nobody' + String.fromCharCode(8217) + 's; a sheet that drops it ' +
+    'silently is how it gets missed on the road');
+
 
   /* ---- the tab is wired up ---- */
   check('S104', 'the Printing tab is on the bar', /data-tab=..printing/.test(admin));
