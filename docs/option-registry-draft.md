@@ -1,7 +1,12 @@
 # Option registry — draft for review
 
-**Status: DRAFT, revised 2026-08-21 with Addie's answers. Not active. Nothing
-imports this, and `js/options.js` is untouched.**
+**Status: ADOPTED 2026-08-21. `js/options.js` now holds this registry and
+`options-audit.test.js` gates it in CI.**
+
+⚠ Adopted is not wired. Nothing imports `js/options.js` yet — plan §3.3, making
+the eight artifacts render from it, has not been done. Until then this is the
+SPEC and the artifacts are still hand-written, so a change here does not reach a
+screen. This document stays as the reasoning behind each row.
 
 Every row was derived from the code; the destinations in §2 are Addie's answers.
 §5 is settled. §7 carries one thing that must not be done yet.

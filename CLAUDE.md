@@ -179,6 +179,8 @@ run-all.js	Main test suite (see §3) — needs `npm install` once at repo root (
 money-parity.test.js	Proves the browser and server copies of the invoice maths still agree. See §9.2 — this is the one that stops the office and the nightly billing run disagreeing about a bill.
 verify-syntax.js	Verification gate A (inline JS parses, <div> tags balance). `npm run verify`. Lives at the REPO ROOT alongside run-all.js, not in a scripts/ folder.
 selector-contract.test.js	Checks every #id a browser spec uses still exists in the page it drives. `npm run test:selectors`. No browser needed — see §9.3.
+js/options.js	THE OPTION REGISTRY — one list of the 14 things a customer can ask for and which of eight artifacts each must reach. Derived from the code and corrected by the owner 2026-08-21; the working is in docs/option-registry-draft.md. ⚠ NOT WIRED YET (plan §3.3): nothing imports it, so it is the SPEC and the artifacts are still hand-written — a change here does not reach a screen. R-001 and R-003 rest on it.
+options-audit.test.js	The blocking gate for the registry. `npm run test:options`. Its own file rather than a run-all.js section, per R-018. ⚠ It proves the registry is COHERENT, not that any screen obeys it. A frozen AGREED map holds the owner's destination answers, because a red-check proved audit() cannot catch a destination being quietly dropped — `consumers` is the declaration, so deleting one is coherent and wrong. Change that map only when she changes her mind.
 playwright.config.js	Browser test config. Serves the repo statically on :4173, chromium, no retries.
 test/fixtures.js	The ONE set of fake customers and invoices (§9.5).
 test/firebase-stub.js	Fakes Firebase and BLOCKS every real backend call (§9.4).
@@ -695,7 +697,8 @@ The highest-value monitor already exists and predates all of this: the nightly b
 bash
 npm install                    # once per machine
 npx playwright install chromium # once per machine, ONLY for browser tests (~150MB)
-npm test                       # gate A + selectors + money parity + run-all.js. No browser. ~4 seconds.
+npm test                       # gate A + selectors + money parity + option audit + run-all.js. No browser. ~8 seconds.
+npm run test:options           # the option registry audit on its own
 npm run test:browser           # Playwright specs. Needs the chromium install above.
 npm run test:all               # both
 npm run test:browser:headed    # watch a browser test run, for debugging
