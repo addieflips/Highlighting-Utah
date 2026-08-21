@@ -37172,6 +37172,11 @@ function schedOpenPrint(title,summary,tableHtml,emptyNote){
     // Column names have to reappear on page two, or page two is unreadable.
     'thead{display:table-header-group;}tr{page-break-inside:avoid;}'+
     '.empty{font-size:13px;color:#555;}'+
+    /* The SAME photo rules the crew sheets use — see PRINT_PHOTO_CSS. This
+       stylesheet is a second copy of the sheet styling and had never carried them,
+       so a photo printed through this printer would have come out at its natural
+       size with the caption alongside it. */
+    PRINT_PHOTO_CSS+
     '@page{size:landscape;margin:10mm;}'+
     '</style></head><body><h1>'+esc(title)+'</h1>'+
     '<div class="sub">Printed '+esc(today)+(summary?' &middot; '+esc(summary):'')+'</div>'+
@@ -37525,22 +37530,21 @@ function printCrewPhotos(day, i){
    sixth of a landscape page: readable in the van, and four or five of them still leave
    room for the sheet. Do not let this grow "just a bit" — it is ink on every crew
    sheet, every morning, all season. */
-const PRINT_SHEET_CSS =
-  'body{font-family:Arial,Helvetica,sans-serif;margin:16px;color:#111;}' +
-  'h1{font-size:17px;margin:0 0 2px;}' +
-  '.sub{font-size:12px;color:#555;margin-bottom:12px;}' +
-  'table{width:100%;border-collapse:collapse;}' +
-  'th,td{border:1px solid #999;padding:4px 6px;font-size:11px;text-align:left;vertical-align:top;}' +
-  /* Twenty-one stops and up, then twenty-nine and up. See printDensityClass. */
-  'table.tight th,table.tight td{padding:2px 5px;font-size:10px;}' +
-  'table.tighter th,table.tighter td{padding:1px 4px;font-size:9px;}' +
-  'table.tight th,table.tighter th{font-size:9px;}' +
-  'th{background:#eee;font-size:10.5px;text-transform:uppercase;letter-spacing:.03em;}' +
-  'td.num,th.num{text-align:right;width:26px;}' +
-  'th.blank,td.blank{width:22%;}' +
-  'thead{display:table-header-group;}tr{page-break-inside:avoid;}' +
-  '.empty{font-size:13px;color:#555;}' +
-  '.sheet{page-break-after:always;}.sheet:last-child{page-break-after:auto;}' +
+/* ⭐ THE PHOTO RULES ARE THEIR OWN CONSTANT, BECAUSE THERE ARE TWO PRINTERS (added
+   2026-08-21). Every sheet in the Printing tab and the two Schedule day buttons are
+   built by schedOpenPrintPages, which styles them with PRINT_SHEET_CSS. Print Whole
+   Plan is built by schedOpenPrint, which carries its OWN copy of the stylesheet —
+   and that copy has never had the photo rules in it.
+
+   ⚠ SO EMITTING THE PHOTOS WAS ONLY HALF THE JOB. Without these rules the browser
+   falls back to its defaults: a full-size phone photo, several inches across, with the
+   caption running beside it — the "overlaps with words" and "uses a lot of ink" that
+   the sizing above was written to prevent, on the one sheet nobody had checked.
+
+   ⚠ AND IT MUST STAY ONE COPY. Pasting the rules into the second stylesheet would
+   have worked this morning and drifted by the next time the box size is tuned — the
+   owner has already had this size corrected once. One constant, both stylesheets. */
+const PRINT_PHOTO_CSS =
   '.photos{margin-top:14px;page-break-inside:avoid;}' +
   '.photos h2{font-size:12px;text-transform:uppercase;letter-spacing:.03em;margin:0 0 6px;}' +
   '.photos figure{display:inline-block;margin:0 10px 10px 0;vertical-align:top;' +
@@ -37559,7 +37563,24 @@ const PRINT_SHEET_CSS =
      That is her word for it — "cropped to be about an inch and a half long". */
   '.photos img{display:block;width:2.5in;height:1.5in;object-fit:cover;' +
   '  border:1px solid #999;background:#f2f2f2;}' +
-  '.photos figcaption{font-size:10px;margin-top:3px;width:2.5in;}' +
+  '.photos figcaption{font-size:10px;margin-top:3px;width:2.5in;}';
+const PRINT_SHEET_CSS =
+  'body{font-family:Arial,Helvetica,sans-serif;margin:16px;color:#111;}' +
+  'h1{font-size:17px;margin:0 0 2px;}' +
+  '.sub{font-size:12px;color:#555;margin-bottom:12px;}' +
+  'table{width:100%;border-collapse:collapse;}' +
+  'th,td{border:1px solid #999;padding:4px 6px;font-size:11px;text-align:left;vertical-align:top;}' +
+  /* Twenty-one stops and up, then twenty-nine and up. See printDensityClass. */
+  'table.tight th,table.tight td{padding:2px 5px;font-size:10px;}' +
+  'table.tighter th,table.tighter td{padding:1px 4px;font-size:9px;}' +
+  'table.tight th,table.tighter th{font-size:9px;}' +
+  'th{background:#eee;font-size:10.5px;text-transform:uppercase;letter-spacing:.03em;}' +
+  'td.num,th.num{text-align:right;width:26px;}' +
+  'th.blank,td.blank{width:22%;}' +
+  'thead{display:table-header-group;}tr{page-break-inside:avoid;}' +
+  '.empty{font-size:13px;color:#555;}' +
+  '.sheet{page-break-after:always;}.sheet:last-child{page-break-after:auto;}' +
+  PRINT_PHOTO_CSS +
   '@page{size:landscape;margin:10mm;}';
 /* One document, several sheets, a page break between each. Print Today is three pieces
    of paper and the office should press print once. */
@@ -37693,10 +37714,14 @@ function schedOpenPrintPages(docTitle, pages){
   w.document.write(html); w.document.close();
   setTimeout(function(){ w.focus(); w.print(); }, 300);
 }
-function printPhotosHtml(photos){
+/* `heading` is optional and every existing caller leaves it off, so a crew sheet still
+   says "New hangs on this sheet". Print Whole Plan is many days on one document, where
+   that wording would be repeated down the page saying nothing — it names the day
+   instead. One builder, one caption format; only the title above the block moves. */
+function printPhotosHtml(photos, heading){
 
   if(!photos || !photos.length) return '';
-  return '<div class="photos"><h2>New hangs on this sheet</h2>' +
+  return '<div class="photos"><h2>' + esc(heading || 'New hangs on this sheet') + '</h2>' +
     photos.map(function(p){
       return '<figure><img src="' + esc(p.url) + '" alt="">' +
         '<figcaption>' + esc((p.number ? '#' + p.number + ' ' : '') + p.name +
@@ -37704,14 +37729,46 @@ function printPhotosHtml(photos){
         '</figcaption></figure>';
     }).join('') + '</div>';
 }
+/* ⭐ AND THE NEW HANGS' PHOTOS, ONE BLOCK PER DAY (added 2026-08-21). The crew sheet,
+   the whole-day sheet and the Scheduling per-day button all carry them; Print Whole
+   Plan was the last printer that did not, so the one sheet that covers the season was
+   the one with no pictures on it.
+
+   ⚠ THE TABLE IS NOT BROKEN UP TO DO IT. The whole-plan sheet repeats the date and
+   route on every row deliberately — see SCHED_PLAN_COLUMNS — so it can be sorted and
+   filtered like a spreadsheet instead of relying on a heading above a block. Splitting
+   it into a table per day to hang photos underneath would have paid for the pictures
+   with the one property this sheet exists for. The photos go after the table, in a
+   block per day, each block naming its own date.
+
+   ⚠ ONE BUILDER. printCrewPhotos decides who counts as a new hang and printPhotosHtml
+   lays them out; both are reused exactly as the other sheets call them. A second photo
+   builder here is the copy that falls behind the next time the crop is tuned.
+
+   ⚠ A DAY WITH NO NEW HANGS PRINTS NOTHING AT ALL — no empty heading. Most days late
+   in the season have none, and a page of blank headings is what makes people stop
+   reading the sheet. printPhotosHtml already returns '' for an empty list; the guard
+   here is what stops the heading being built around it.
+
+   ⚠ KNOWN GAP, NOT FIXED HERE: a new hang sitting in neither crew's city has no crew
+   to be gathered under, so it has no photo on this sheet. That is the whole-day
+   sheet's behaviour too — its "In neither crew's city" block prints the row and no
+   picture — and making the two disagree would be worse than the gap. Raised
+   separately rather than repaired in passing. */
 function printWholePlan(){
 
   const days=orderedDays();
   const rows=days.reduce(function(a,d){ return a.concat(schedRouteRows(d)); },[]);
   const withHouses=days.filter(d=>d.houses.length).length;
+  const crews=(typeof CREWS!=='undefined'?CREWS:[0,1]);
+  const photos=days.map(function(d){
+    const mine=crews.reduce(function(a,c,i){ return a.concat(printCrewPhotos(d,i)); },[]);
+    if(!mine.length) return '';
+    return printPhotosHtml(mine,'New hangs · '+printDayLabel(d));
+  }).join('');
   schedOpenPrint('Schedule — Whole Plan',
     rows.length?(withHouses+' day'+(withHouses===1?'':'s')+' · '+rows.length+' stop'+(rows.length===1?'':'s')):'',
-    rows.length?schedSheetTable(rows,SCHED_PLAN_COLUMNS,'date'):'',
+    rows.length?(schedSheetTable(rows,SCHED_PLAN_COLUMNS,'date')+photos):'',
     'There is no route plan loaded yet.');
 }
 function exportCSV(){

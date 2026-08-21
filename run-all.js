@@ -18575,7 +18575,13 @@ suite('Suite 104. The Printing tab');
     admin.indexOf('printDaySheet(') !== -1);
 
   /* ---- the columns she asked for, list by list ---- */
-  const cssAt = admin.indexOf('const PRINT_SHEET_CSS =');
+  /* ⚠ THE SLICE STARTS AT PRINT_PHOTO_CSS, NOT PRINT_SHEET_CSS (widened 2026-08-21).
+     The photo rules were lifted out into their own constant so the whole-plan printer
+     — which carries a second copy of the stylesheet — could share them instead of
+     growing a third. They sit just above PRINT_SHEET_CSS, so a slice that still began
+     at PRINT_SHEET_CSS stopped containing the very rules these four checks are about,
+     and all four went red on a change that broke nothing. */
+  const cssAt = admin.indexOf('const PRINT_PHOTO_CSS =');
   const css = cssAt === -1 ? '' : admin.slice(cssAt,
     admin.indexOf('function schedOpenPrintPages(', cssAt));
   const colsAt = admin.indexOf('const PRINT_COLUMNS = {');
@@ -19039,6 +19045,135 @@ suite('Suite 104. The Printing tab');
   check('S104', 'the whole-day sheet puts each crew’s new hangs under their own block',
     /printPhotosHtml\(printCrewPhotos\(day,i\)\)/.test(extractFn(admin, 'printDaySheet')),
     'the half they are handed has to carry the houses on it');
+
+  /* ⭐ AND SO DOES PRINT WHOLE PLAN (added 2026-08-21). The crew sheet, the whole-day
+     sheet and the Scheduling per-day button all carry the new hangs' photos. Print
+     Whole Plan was the last printer without them, so the one sheet that covers the
+     whole season was the one with no pictures on it.
+
+     ⚠ RUN, NOT READ. The plan for this job says so in as many words, and this is
+     exactly the shape that has burned this repo: a check for `photos.forEach` survives
+     having the list sliced to nothing, and a check for the call survives the result
+     being dropped on the floor. Everything below reads the HTML that came out. */
+  const runWholePlan = function (days) {
+    const out = [];
+    new Function('days', 'out',
+      'const CREWS = [{}, {}];' +
+      'const esc = function(s){ return (\"\" + s).replace(/[&<>\"]/g, function(c){' +
+      '  return ({\"&\":\"&amp;\",\"<\":\"&lt;\",\">\":\"&gt;\",\"\\u0022\":\"&quot;\"})[c]; }); };' +
+      'const WD = [\"Sun\",\"Mon\",\"Tue\",\"Wed\",\"Thu\",\"Fri\",\"Sat\"];' +
+      'const MO = {10: \"Oct\", 11: \"Nov\"};' +
+      'const orderedDays = function(){ return days; };' +
+      'const dayDate = function(d){ return d._date; };' +
+      'const dlabel = function(dt){ return {wd: WD[dt.getDay()],' +
+      '  full: MO[dt.getMonth() + 1] + \" \" + dt.getDate()}; };' +
+      'const schedRouteRows = function(d){ return (d.houses || []).map(function(h){' +
+      '  return {date: \"x\", weekday: \"Mon\", route: \"R\", stop: 1, cu: h.cu || \"\",' +
+      '          name: (h.cust || {}).name || \"\", address: \"\", city: \"\", phone: \"\",' +
+      '          type: \"Install\", price: \"\", details: \"\", done: \"\"}; }); };' +
+      'const crewHousesFor = function(i, d){ return (d.houses || [])' +
+      '  .filter(function(h){ return h.crew === i; }); };' +
+      'const customerForHouse = function(h){ return {data: h.cust || {}}; };' +
+      'const customerPhotoList = function(d){ return d.photos || []; };' +
+      'const schedOpenPrint = function(t, s, body, empty){' +
+      '  out.push({title: t, summary: s, body: body, empty: empty}); };' +
+      admin.slice(admin.indexOf('const SCHED_DAY_COLUMNS=['),
+                  admin.indexOf('function schedSheetTable(')) +
+      extractFn(admin, 'schedSheetTable') +
+      extractFn(admin, 'printCustData') + extractFn(admin, 'printIsNewHang') +
+      extractFn(admin, 'printCrewPhotos') + extractFn(admin, 'printPhotosHtml') +
+      extractFn(admin, 'printDayLabel') + extractFn(admin, 'printWholePlan') +
+      'printWholePlan();')(days, out);
+    return (out[0] || {}).body || '';
+  };
+
+  /* ⚠ THE NEW HANG AND THE RETURNING HOUSE BOTH HAVE PHOTOS ON FILE. If only the new
+     hang had any, "the returning house's photo is absent" would pass against a builder
+     that printed every photo it could find, because there would be nothing else to
+     print. The whole question is whether printIsNewHang is being consulted. */
+  /* ⚠ THE PHOTOS HANG OFF THE CUSTOMER, NOT THE HOUSE. printCrewPhotos resolves the
+     house to its customer record with printCustData and asks customerPhotoList about
+     THAT. A fixture that puts them on the house returns no photos at all — and then
+     "the returning house's photo is absent" passes for the wrong reason. */
+  const planDays = [
+    {_date: new Date(2026, 9, 12), houses: [
+      {crew: 0, cu: '11', cust: {name: 'New Hang', customerNumber: '11',
+        chargeNewMemberFee: true, photos: [{url: 'http://x/new-hang.jpg'}]}},
+      {crew: 1, cu: '12', cust: {name: 'Returning', customerNumber: '12',
+        photos: [{url: 'http://x/returning.jpg'}]}}]},
+    /* A whole day of returning houses — the common case late in the season. */
+    {_date: new Date(2026, 9, 13), houses: [
+      {crew: 0, cu: '13', cust: {name: 'Also Returning', customerNumber: '13',
+        photos: [{url: 'http://x/also-returning.jpg'}]}}]}
+  ];
+  const planBody = runWholePlan(planDays);
+
+  check('S104', 'Print Whole Plan carries the new hangs’ photos',
+    planBody.indexOf('new-hang.jpg') !== -1,
+    'the sheet that covers the whole season was the only printer without them');
+  check('S104', 'and not the returning houses’',
+    planBody.indexOf('returning.jpg') === -1 && planBody.indexOf('also-returning.jpg') === -1,
+    'a photo of a house the crew has hung before is ink spent saying nothing');
+  check('S104', 'the photos come after the table, not instead of it',
+    planBody.indexOf('<table') !== -1 &&
+    planBody.indexOf('<table') < planBody.indexOf('class="photos"'),
+    'the table is the sheet; the photos are an appendix to it');
+  /* ⚠ THE ONE PROPERTY THIS SHEET EXISTS FOR. SCHED_PLAN_COLUMNS repeats the date and
+     route on every row so the whole plan can be sorted and filtered like a spreadsheet.
+     Breaking it into a table per day to hang photos under each would have paid for the
+     pictures with exactly that. */
+  check('S104', 'and the plan is still ONE sortable table',
+    (planBody.split('<table').length - 1) === 1,
+    'a table per day would have bought the photos with the sorting');
+  check('S104', 'each photo block names its own day',
+    planBody.indexOf('New hangs · Mon, Oct 12') !== -1,
+    'many days on one document — "New hangs on this sheet" repeated down the page ' +
+    'says nothing about which day');
+  /* ⚠ AN EMPTY HEADING IS WORSE THAN NO BLOCK. Most days late in the season have no
+     new hangs at all, and a page of blank headings is what makes people stop reading
+     the sheet. */
+  check('S104', 'and a day with no new hangs gets no heading at all',
+    planBody.indexOf('Oct 13') === -1,
+    'a run of empty headings is how a sheet trains people to skip it');
+
+  /* ⚠ EMITTING THE PHOTOS WAS ONLY HALF THE JOB. schedOpenPrint carries its OWN copy
+     of the stylesheet — it is not schedOpenPrintPages — and that copy had never had
+     the photo rules in it. Without them the browser falls back to its defaults: a
+     full-size phone photo with the caption running beside it, which is precisely the
+     "overlaps with words" and "uses a lot of ink" the sizing was written to prevent.
+     Run for real and read the <style> that came out. */
+  const wholePlanStyle = (function () {
+    let html = '';
+    new Function(
+      'const esc = function(s){ return \"\" + s; };' +
+      'const toast = function(){};' +
+      'const setTimeout = function(){};' +
+      'const window = {open: function(){ return {document: {' +
+      '  write: function(h){ globalThis.__huSheet = h; }, close: function(){}},' +
+      '  focus: function(){}, print: function(){}}; }};' +
+      admin.slice(admin.indexOf('const PRINT_PHOTO_CSS ='),
+                  admin.indexOf('const PRINT_SHEET_CSS =')) +
+      extractFn(admin, 'schedOpenPrint') +
+      'schedOpenPrint(\"t\", \"\", \"<table></table>\", \"\");')();
+    html = globalThis.__huSheet || '';
+    delete globalThis.__huSheet;
+    return html;
+  })();
+  /* ⚠ NOT whitespace-stripped. `.photos img{` collapses to `.photosimg{`, which no
+     selector-shaped regex then matches — the check goes red against a stylesheet that
+     is perfectly correct. */
+  check('S104', 'the whole-plan stylesheet carries the photo rules',
+    /\.photos img\{[^}]*height:1\.5in/.test(wholePlanStyle) &&
+    /\.photos img\{[^}]*width:2\.5in/.test(wholePlanStyle) &&
+    /\.photos figcaption\{/.test(wholePlanStyle),
+    'a second stylesheet with no photo rules prints a full-size phone photo with the ' +
+    'caption alongside it');
+  check('S104', 'and it is the SAME copy the crew sheets use',
+    admin.indexOf('const PRINT_PHOTO_CSS =') !== -1 &&
+    (admin.match(/PRINT_PHOTO_CSS/g) || []).length >= 3 &&
+    (admin.match(/height:1\.5in/g) || []).length === 1,
+    'two copies of the crop size is one copy drifting the next time it is tuned — ' +
+    'the owner has already had this size corrected once');
 
 
   /* ---- the tab is wired up ---- */
