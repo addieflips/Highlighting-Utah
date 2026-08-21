@@ -27447,20 +27447,50 @@ suite('Suite 127. Whether a house is done is the customer\'s answer');
         'every counter, the crew split and the printed sheets read this — an ' +
         'imported season must look exactly as it did');
 
-      /* ⚠ A MISSING FIELD IS NOT ALWAYS "NOT DONE", and this check caught me
-         getting that wrong. A fix is done when needsFix is FALSY, so a customer
-         with no needsFix at all reads as done — the inverse of the other two
-         kinds. That is correct (a house nobody has flagged does not need a fix),
-         but it means an absent field flips a fix row and not an install row. */
       check('S127', 'the refresh reports how many it actually changed',
         (function () {
           const S = season();
           const B = { a: { completed: true }, b: { completed: true } };
-          return build(B)(S, B, { n: 0 }).refresh() === 2;
+          return build(B)(S, B, { n: 0 }).refresh() === 1;
         })(),
-        'cust-a moves false->true, and the fix row moves false->true because its ' +
-        'customer has no needsFix; cust-b is already true and the takedown has no ' +
-        'removalDone, so neither moves');
+        'only cust-a moves (false->true); cust-b is already true, the takedown has ' +
+        'no removalDone, and the fix row is left alone because its customer carries ' +
+        'no needsFix at all');
+
+      /* ⭐ A PLAN-ONLY FIX KEEPS ITS OWN FLAG, and this is the sharpest edge in the
+         whole job. Job 3's plan says a fix derives from `!needsFix` — but that
+         assumes Job 4 has already made Schedule's fix list derive from that flag,
+         and it has not. Today a fix reaches the plan through FIXLIST, which is
+         plan-only: nothing in the Schedule module writes needsFix to a customer.
+
+         So the plain inversion would read `!undefined` as TRUE and render EVERY
+         outstanding fix as already done — out of the fix counters, out of
+         unfinishedOn, and off the printed fix sheets, silently. */
+      /* ⚠ THE TWO CASES START FROM OPPOSITE STORED FLAGS, and that is what makes
+         each one sensitive to its own sabotage. Both assert `false`, but for
+         different reasons: the first keeps a stored false (so the plain !needsFix
+         inversion, which returns true, flips it and goes red), the second overrides
+         a stored true (so returning null, which keeps it, goes red). Starting both
+         from the same flag left one of them green against the very bug it names. */
+      {
+        const S = season();                                     // fix row starts done:false
+        const B = { b: { completed: true } };                   // never flagged for a fix
+        build(B)(S, B, { n: 0 }).refresh();
+        check('S127', 'a fix whose customer was never flagged keeps the plan\'s flag',
+          S[0].houses.find(h => h.id === 'cust-f').done === false,
+          'the plain !needsFix inversion reads a missing field as DONE and hides ' +
+          'every outstanding fix on the schedule');
+      }
+      {
+        const S = season();
+        S[0].houses.find(h => h.id === 'cust-f').done = true;   // same starting point
+        const B = { b: { completed: true, needsFix: true } };
+        build(B)(S, B, { n: 0 }).refresh();
+        check('S127', 'but an explicitly flagged customer overrides it',
+          S[0].houses.find(h => h.id === 'cust-f').done === false,
+          'needsFix:true is a real answer and means there is still a fix outstanding, ' +
+          'whatever the plan had ticked');
+      }
     }
   }
 
@@ -27487,6 +27517,36 @@ suite('Suite 127. Whether a house is done is the customer\'s answer');
       !!tick && tick.indexOf("kind === 'takedown'") !== -1 &&
       tick.indexOf("kind === 'fix'") !== -1,
       'mirroring completed for a takedown tick shows the wrong row changing');
+  }
+
+  /* ⭐ THE BULK TICKS REPORT ONCE, NOT ONCE PER HOUSE. All done and the leftover
+     flow run planTickCustomer over every house on a day, and on an imported plan
+     that has not been through Recalculate everything NOTHING resolves — so a loud
+     toast per house was forty identical messages stacked for one press, which is
+     how a warning stops being read at all. The single tick stays loud: one house,
+     and the office is looking straight at it. */
+  {
+    const tick = extractFn(admin, 'planTickCustomer');
+    check('S127', 'planTickCustomer can be told to stay quiet, and reports back',
+      !!tick && /opts && opts\.quiet/.test(tick) && /return false;/.test(tick) &&
+      /return true;/.test(tick),
+      'a caller that runs it over forty houses needs to know how many missed');
+    const allBtn = admin.slice(admin.indexOf('if(t.dataset.allbtn)'),
+                               admin.indexOf('renderAll();return;}', admin.indexOf('if(t.dataset.allbtn)')));
+    check('S127', 'All done counts the unlinked stops and says it once',
+      /\{quiet:true\}/.test(allBtn) && /unlinked\+\+/.test(allBtn) &&
+      /if\(unlinked\)/.test(allBtn),
+      'forty identical toasts for one press is how a warning stops being read');
+    const leftover = extractFn(admin, 'applyLeftoverPicks');
+    check('S127', 'and so does the leftover flow',
+      !!leftover && /\{quiet:true\}/.test(leftover) && /leftoverUnlinked/.test(leftover),
+      'it runs over every house on the day, so it has the same problem');
+    /* ⚠ A FAILED WRITE IS STILL ALWAYS SAID. It is rare, and it means the money did
+       not move — only the "nobody behind this row" case is summarised. */
+    check('S127', 'but a failed write is never silenced',
+      !!tick && /could not be updated/.test(tick) &&
+      tick.indexOf('could not be updated') > tick.indexOf('opts.quiet'),
+      'a write that failed is rare and means the money did not move');
   }
 
   /* ---- the id index that keeps this cheap ---- */

@@ -37288,6 +37288,7 @@ function applyLeftoverPicks(dayId){
      saying which houses the crew MISSED, so the ones they did are marked done and the
      ones they did not are marked back to not-done. A one-way version silently leaves
      a house ticked that the crew never reached — and it would then be invoiced. */
+  let leftoverUnlinked=0;
   day.houses.forEach(function(h){ h.done=!leftoverPicked.has(String(h.id));
     /* ⚠ UNCONDITIONAL, not "only when the plan flag moved". The office is stating the
        final truth for this day, and the customer record may have been changed from
@@ -37295,7 +37296,12 @@ function applyLeftoverPicks(dayId){
        PLAN flag happens to be unchanged can still need the customer put right. A
        change-guard here looked like a cheap saving and silently left exactly those
        houses out of step. It is at most one write per house on one day. */
-    planTickCustomer(h,h.done); });
+    if(!planTickCustomer(h,h.done,{quiet:true})) leftoverUnlinked++; });
+  /* Same reason as All done: this runs over every house on the day, so an imported
+     plan would stack one identical message per house. Counted, said once, below. */
+  if(leftoverUnlinked) toast(leftoverUnlinked+' of '+day.houses.length+' stop'+(day.houses.length===1?'':'s')+
+    ' are not linked to a customer, so only the schedule was updated for '+
+    (leftoverUnlinked===1?'that one':'those')+' — nothing was billed. Press Recalculate everything to link them up.');
   const missed=day.houses.filter(h=>!h.done).length;
   leftoverMode='ask';
   renderAll();
@@ -37981,7 +37987,23 @@ function derivedDoneFor(h){
   if(!d) return null;                       // nobody behind it — keep the stored flag
   const kind = planHouseKind(h);
   if(kind === 'takedown') return !!d.removalDone;
-  if(kind === 'fix') return !d.needsFix;
+  /* ⚠ A FIX ONLY DERIVES WHEN THE CUSTOMER IS ACTUALLY FLAGGED, and getting this
+     wrong hides every outstanding fix on the schedule.
+
+     The plain inversion `!d.needsFix` is what Job 3's plan asks for — but it assumes
+     Job 4 has already made Schedule's fix list derive from needsFix, and it has not.
+     Today a fix reaches the plan through FIXLIST, which is plan-only: nothing in the
+     Schedule module writes needsFix to a customer at all. So the customer behind a
+     fix row normally has no needsFix property, `!undefined` is TRUE, and every
+     outstanding fix would render as already DONE — dropping out of the fix counters,
+     out of unfinishedOn, and off the printed fix sheets, with nothing on screen
+     saying so.
+
+     So: an explicit needsFix:true is a real answer and means NOT done. Anything else
+     leaves the plan's own flag alone, which is exactly the behaviour fixes had
+     before. When Job 4 makes the fix list derived, this becomes the full inversion
+     and this comment goes with it. */
+  if(kind === 'fix') return d.needsFix === true ? false : null;
   return !!d.completed;
 }
 /* Resolved ONCE PER RENDER, not once per read. A dozen callers ask h.done — the
@@ -38015,13 +38037,22 @@ function refreshDerivedDone(){
 /* Marks the customer behind a plan house, and SAYS SO when there is nobody behind it.
    A tick that wrote nothing looks exactly like one that worked, which is how a house
    gets driven to and never billed. */
-function planTickCustomer(h, done){
+/* Returns true when it reached a customer, false when there was nobody behind the
+   row. ⚠ THE BULK CALLERS PASS quiet AND REPORT ONCE. All done and the leftover flow
+   run this over every house on a day, and on an imported plan that has not been
+   through Recalculate everything NOTHING resolves — so a loud toast per house was
+   forty identical messages stacked on top of each other for one press, which is how
+   a warning stops being read at all. The single tick stays loud: it is one house and
+   the office is looking straight at it. */
+function planTickCustomer(h, done, opts){
   const cust = hlxResolvePlanHouse(h);
   if(!cust){
-    toast((h && h.name ? h.name : 'That stop') + ' is not linked to a customer, so ' +
-          'only the schedule was ticked — nothing was billed. Press Recalculate ' +
-          'everything to link them up.');
-    return;
+    if(!(opts && opts.quiet)){
+      toast((h && h.name ? h.name : 'That stop') + ' is not linked to a customer, so ' +
+            'only the schedule was ticked — nothing was billed. Press Recalculate ' +
+            'everything to link them up.');
+    }
+    return false;
   }
   const kind = planHouseKind(h);
   /* ⚠ MIRROR IT INTO THE LOCAL CACHE FIRST, before the write is awaited. Since
@@ -38041,8 +38072,11 @@ function planTickCustomer(h, done){
   }
   hlxMarkJobDone(cust, kind, done, {name: cust.data && cust.data.name, source: 'Schedule'})
     .then(function(res){
+      /* A failed WRITE is always said, bulk or not: it is rare, and it means the
+         money did not move. Only the "nobody behind this row" case is summarised. */
       if(!res.ok) toast('Ticked here, but the customer could not be updated — ' + res.why);
     });
+  return true;
 }
 function prefKey(p){
   const u = ('' + (p || '')).trim().toUpperCase();
@@ -38771,7 +38805,14 @@ RT.addEventListener('click',e=>{const t=e.target;
     if(!all && d.houses.length &&
        !confirm('Mark all '+d.houses.length+' house'+(d.houses.length===1?'':'s')+' on this day as done?\n\n'+
                 'Anyone whose whole job is finished will be invoiced automatically tonight.')) return;
-    d.houses.forEach(x=>{x.done=!all;planTickCustomer(x,!all);});renderAll();return;}
+    let unlinked=0;
+    d.houses.forEach(x=>{x.done=!all;if(!planTickCustomer(x,!all,{quiet:true}))unlinked++;});
+    /* Said ONCE, with a count. One message per unlinked house is forty messages for
+       one press on an imported plan, and nobody reads the fortieth. */
+    if(unlinked) toast(unlinked+' of '+d.houses.length+' stop'+(d.houses.length===1?'':'s')+
+      ' on this day are not linked to a customer, so only the schedule was ticked for '+
+      (unlinked===1?'that one':'those')+' — nothing was billed. Press Recalculate everything to link them up.');
+    renderAll();return;}
   if(t.dataset.pull){cascade(t.dataset.pull,-1);return;}
   if(t.dataset.push){cascade(t.dataset.push,1);return;}
   if(t.dataset.skip){cascade(t.dataset.skip,1,'Day off — pushed later');return;}
