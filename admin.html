@@ -2028,6 +2028,8 @@
           </div>
           <div id="editCustStatus" style="font-size:13px; color:var(--slate); margin-top:8px; text-align:center;"></div>
           <div style="margin-top:18px; padding-top:14px; border-top:1px solid var(--line); text-align:center;">
+            <button type="button" class="btn btn-outline" id="editCustRecycleStayBtn" style="margin-bottom:10px;">Recycle Their Lights &mdash; They Are Staying</button>
+            <p style="font-size:12px; color:var(--slate); margin:0 0 14px;">For somebody who has MOVED. The old set goes on the warehouse recycle list, the new house goes on the build list, and they stay a customer with the same number.</p>
             <button type="button" class="btn btn-outline" id="editCustDeleteBtn" style="color:var(--ember); border-color:#f0b3ac;">Delete This Customer</button>
             <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Removes them and their invoice. Their customer number goes back into the available pool so the bin can be reused. Money already collected stays on the Dashboard.</p>
           </div>
@@ -13905,7 +13907,22 @@ function isOutForSeason(d){
      nothing to hang. It is also what stops a ping-pong: the portal pulls them
      off upcoming routes the moment they answer, and without this the fill
      would put them straight back fifteen minutes later, for ever. */
-  if(d.needsLightRecycle) return true;
+  /* ⭐ UNLESS THEY ARE STAYING (added 2026-08-20). Owner: "I need a way to recycle
+     ashley wray without deleting her because she just moved and I already requoted her
+     so give me a button to recycle her, but then also put her in the needs to be built
+     section in the warehouse."
+
+     The rule below is about there being nothing to hang. Somebody who has MOVED is the
+     opposite case: the old set comes back off the old house and a new one is built for
+     the new one, so they are as much in the season as anybody.
+
+     ⚠ IT IS ITS OWN FLAG, and it has to be. The tempting shortcut is
+     "needsLightRecycle AND needsLightBuild means moving" — and it is wrong: adding a
+     customer sets needsLightBuild, the warehouse clears it only when the bundle is
+     actually made, so somebody who answers NO before the warehouse gets to them carries
+     both flags and would silently stay in the season. That is the one mistake here that
+     sends a crew to a house with no lights for it. */
+  if(d.needsLightRecycle && !d.recycleKeepingCustomer) return true;
   if(SEASON_ELIGIBILITY === 'confirmed-only'){
     return String(d.rsvpStatus || '').toLowerCase() !== 'yes';
   }
@@ -22165,6 +22182,25 @@ function renderWarehouseRecycleQueue(){
          The same path the Delete button uses, so the invoice, the number, the route
          stop and the Recycle sheet are all handled the one way. */
       const d = item.data || {};
+      /* ⭐ SOMEBODY WHO MOVED KEEPS THEIR RECORD. Marking them recycled closes off the
+         old set and nothing else: they are still a customer, still hold their number,
+         and are already waiting in the build queue for the new house. Sending them down
+         the removal path would delete the very customer the button was pressed to keep. */
+      if(d.recycleKeepingCustomer){
+        if(!confirm('Mark ' + (d.name || 'this customer') + ' recycled?' +
+          '\n\nTheir old set goes back into stock. They STAY a customer' +
+          (d.customerNumber ? ' and keep number #' + d.customerNumber : '') +
+          ', and their new house is still waiting in the build queue.')) return;
+        try{
+          await updateDoc(doc(db,'jobAddresses', custId), {
+            needsLightRecycle: false, recycleKeepingCustomer: false,
+            lightsRecycledAt: serverTimestamp() });
+          toast((d.name || 'They') + ' recycled \u2014 still a customer.');
+          logActivity('Recycled the old lights for ' + (d.name || custId) +
+            ' (moved house, kept as a customer)', 'customers', custId);
+        } catch(err){ toast('Could not finish that one \u2014 try again.'); }
+        return;
+      }
       if(!confirm('Mark ' + (d.name || 'this customer') + ' recycled?' +
         '\n\nTheir lights are back in stock, so they stop being a customer: the row goes ' +
         'onto the Recycle sheet and the record is removed.' +
@@ -25373,6 +25409,61 @@ async function hlxRemoveCustomerToRecycle(item, opts){
   logActivity('Removed ' + (d.name || item.id) + ' to Recycle' + (num ? ', number #' + num + ' back in the pool' : ''), 'customers', item.id);
   return {removed: true, wroteSheet: wroteSheet, number: num};
 }
+/* ⭐ RECYCLE WITHOUT DELETING (added 2026-08-20). Owner: "I need a way to recycle
+   ashley wray without deleting her because she just moved and I already requoted her so
+   give me a button to recycle her, but then also put her in the needs to be built
+   section in the warehouse."
+
+   Every route to the recycle queue until now ended with the customer being removed —
+   which is right for somebody who said no, and exactly wrong for somebody who moved.
+   Her old set has to come back off the old house AND a new one has to be made for the
+   new one, so this sets both queues at once and leaves the record alone.
+
+   ⚠ IT DOES NOT TOUCH THE NUMBER. They still hold it; handing it back to the pool
+   would put a live label on a bin somebody new is about to be given.
+
+   ⚠ NOR THE INVOICE, THE ROUTE OR THE RSVP. This says something about their LIGHTS
+   and nothing about their season. They are still coming; recycleKeepingCustomer is what
+   tells isOutForSeason so. */
+document.getElementById('editCustRecycleStayBtn').addEventListener('click', async function(){
+  if(!editCustomerId) return;
+  const item = jobAddresses.find(function(it){ return it.id === editCustomerId; });
+  if(!item) return;
+  const d = item.data || {};
+  const statusEl = document.getElementById('editCustStatus');
+  if(!confirm('Recycle the lights for ' + (d.name || 'this customer') + '?' +
+    '\n\nUse this when they have MOVED. Their old set goes on the warehouse recycle ' +
+    'list and their new house goes on the needs-to-be-built list.' +
+    '\n\nThey stay a customer' + (d.customerNumber ? ' and keep number #' + d.customerNumber : '') +
+    '.')) return;
+  const btn = document.getElementById('editCustRecycleStayBtn');
+  if(btn) btn.disabled = true;
+  if(statusEl) statusEl.textContent = 'Sending their lights back\u2026';
+  try{
+    await updateDoc(doc(db,'jobAddresses', editCustomerId), {
+      needsLightRecycle: true,
+      recycleKeepingCustomer: true,
+      /* ⚠ THE BUILD QUEUE ALSO WANTS A PATTERN. whRecycleGroups lists anybody
+         flagged even with no lights recorded, but the BUILD queue skips a house with no
+         lightsDescription — so a customer with nothing on file would go on one list and
+         silently not the other, which is the half of this she would notice last. */
+      needsLightBuild: true,
+      lightsRecycleRequestedAt: serverTimestamp()
+    });
+    Object.assign(item.data, {needsLightRecycle: true, recycleKeepingCustomer: true,
+                             needsLightBuild: true});
+    if(statusEl) statusEl.textContent = (d.lightsDescription || (d.lightColors || []).length)
+      ? 'Done \u2014 on the recycle list and the build list. They are still a customer.'
+      : 'Done \u2014 on the recycle list. \u26a0 There are no light colours on file, so ' +
+        'the warehouse cannot build the new house until somebody fills those in.';
+    toast((d.name || 'They') + ' \u2014 lights recycling, customer kept');
+    logActivity('Recycled the lights for ' + (d.name || editCustomerId) +
+      ' (moved house, kept as a customer)', 'customers', editCustomerId);
+  }catch(err){
+    if(btn) btn.disabled = false;
+    if(statusEl) statusEl.textContent = 'Could not do that: ' + (err && err.message ? err.message : err);
+  }
+});
 document.getElementById('editCustDeleteBtn').addEventListener('click', async function(){
   if(!editCustomerId) return;
   const item = jobAddresses.find(function(it){ return it.id === editCustomerId; });
@@ -33306,11 +33397,59 @@ async function runProjectTestSync(){
 }
 /* TEST_SEED lives in js/test-seed.js now — runProjectTestSync imports it on
    demand. See the header of that file for why. */
+/* ⭐ DELETING A RE-QUOTE DELETES THE QUOTE AND NOTHING ELSE (made explicit
+   2026-08-20). Owner: "also make sure that when i delete a requote they dont get
+   deleted as a customer."
+
+   It never did — this handler only ever removed the one document named on the button
+   — but the question is a fair one, because the message said "Delete this item?" and
+   left you to guess what an item was on a card showing somebody's name, address and
+   price. A re-quote card is a CUSTOMER's card in every way that matters to whoever is
+   reading it. It now says which of the two is going.
+
+   ⚠ AND IT CLEARS THE STATE THE QUOTE WAS HOLDING. The portal sets seasonStatus to
+   needs_changes (or address_changed) when it raises a re-quote, and that is resolved by
+   ANSWERING the quote. Delete the quote and the customer sits in Needs Changes for ever
+   with nothing left anywhere to resolve it — a badge on a card nobody can clear.
+   Deleting the question has to withdraw it, not leave it hanging.
+
+   ⚠ ONLY THOSE TWO VALUES. Anything else in seasonStatus was put there by something
+   that is not this quote, and clearing it would be this button reaching past what it
+   was pressed to do. */
+const QUOTE_RAISED_STATUSES = ['needs_changes', 'address_changed'];
 function attachDeleteHandlers(container){
   container.querySelectorAll('[data-del]').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      if(!confirm('Delete this item? This cannot be undone.')) return;
-      deleteDoc(doc(db, btn.dataset.del, btn.dataset.id)).then(()=> toast('Deleted'));
+    btn.addEventListener('click', async function(){
+      const kind = btn.dataset.del;
+      const id = btn.dataset.id;
+      if(kind !== 'quotes'){
+        if(!confirm('Delete this item? This cannot be undone.')) return;
+        deleteDoc(doc(db, kind, id)).then(()=> toast('Deleted'));
+        return;
+      }
+      const q = (typeof quotesCache !== 'undefined' ? quotesCache : [])
+        .find(function(x){ return x.id === id; });
+      const qd = (q && q.data) || {};
+      const linkedId = qd.existingCustomerId || '';
+      const cust = linkedId && typeof jobAddresses !== 'undefined'
+        ? jobAddresses.find(function(a){ return a.id === linkedId; }) : null;
+      const isRequote = !!cust;
+      if(!confirm(isRequote
+        ? ('Delete this re-quote for ' + ((cust.data && cust.data.name) || 'this customer') + '?' +
+           '\n\nThe QUOTE goes. They stay a customer, keep their number, their invoice ' +
+           'and their place on the schedule \u2014 nothing about them is deleted.' +
+           '\n\nThis cannot be undone.')
+        : 'Delete this quote? This cannot be undone.')) return;
+      try{
+        await deleteDoc(doc(db, 'quotes', id));
+        if(cust && QUOTE_RAISED_STATUSES.indexOf((cust.data || {}).seasonStatus) !== -1){
+          await updateDoc(doc(db,'jobAddresses', cust.id), {seasonStatus: 'confirmed'})
+            .catch(function(){ /* the quote is gone either way; say so below */ });
+        }
+        toast(isRequote ? 'Re-quote deleted \u2014 customer kept' : 'Deleted');
+      }catch(err){
+        toast('Could not delete that \u2014 try again.');
+      }
     });
   });
 }

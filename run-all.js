@@ -19043,6 +19043,133 @@ suite('Suite 105. Taking a photo back off a customer');
     'an orphaned file costs a little storage; a key in the page costs the account');
 }
 /* ---------------------------------------------------------------------------
+ * Suite 106. Moving house, and withdrawing a re-quote
+ *
+ * Owner, 2026-08-20: "I need a way to recycle ashley wray without deleting her because
+ * she just moved and I already requoted her so give me a button to recycle her, but
+ * then also put her in the needs to be built section in the warehouse", and "also make
+ * sure that when i delete a requote they dont get deleted as a customer."
+ *
+ * Every route to the recycle queue until now ended with the customer being removed.
+ * That is right for somebody who said no, and exactly wrong for somebody who moved:
+ * the old set comes off the old house and a new one is built for the new one.
+ * ------------------------------------------------------------------------- */
+suite('Suite 106. Moving house, and withdrawing a re-quote');
+
+{
+  /* ---- they are still in the season ---- */
+  const outSrc = extractFn(admin, 'isOutForSeason');
+  check('S106', 'the season rule is there to run', !!outSrc);
+
+  if (outSrc) {
+    const isOut = (d) => new Function('d',
+      "const SEASON_ELIGIBILITY = 'all-but-maybe-next-year';" + outSrc +
+      'return isOutForSeason(d);')(d);
+
+    check('S106', 'somebody whose lights are being recycled is still out',
+      isOut({needsLightRecycle: true}) === true,
+      'by the time a crew arrived there would be nothing to hang');
+
+    /* ⭐ UNLESS THEY MOVED. This is the whole point: the old set comes back and a
+       new one is built, so they are as much in the season as anybody. */
+    check('S106', 'but somebody who MOVED is still coming',
+      isOut({needsLightRecycle: true, recycleKeepingCustomer: true}) === false,
+      'owner: "recycle ashley wray without deleting her because she just moved"');
+
+    /* ⚠ THE TEMPTING SHORTCUT IS WRONG AND THIS IS WHY. "Recycling AND building"
+       looks like it means moving, but adding a customer sets needsLightBuild and the
+       warehouse only clears it when the bundle is actually made — so somebody who
+       answers NO before the warehouse reaches them carries both flags. Reading that
+       pair as "staying" sends a crew to a house with no lights for it. */
+    check('S106', 'and the build flag alone does NOT mean they are staying',
+      isOut({needsLightRecycle: true, needsLightBuild: true}) === true,
+      'a no answered before the warehouse got there carries both flags');
+
+    check('S106', 'Maybe Next Year still outranks everything',
+      isOut({maybeNextYear: true, recycleKeepingCustomer: true}) === true);
+    check('S106', 'and an ordinary customer is in',
+      isOut({}) === false);
+  }
+
+  /* ---- the button sets both queues and keeps the record ---- */
+  const btnBlock = admin.slice(admin.indexOf("getElementById('editCustRecycleStayBtn')"),
+                               admin.indexOf("getElementById('editCustDeleteBtn')"));
+  check('S106', 'the button exists in Edit Customer',
+    admin.indexOf('editCustRecycleStayBtn') !== -1 && btnBlock.length > 0);
+  check('S106', 'it puts them on the recycle list',
+    /needsLightRecycle: true/.test(btnBlock));
+  /* ⚠ TWICE, AND BOTH MATTER. Once in the write, once in the local copy of the
+     record — the panel repaints from jobAddresses rather than re-reading Firestore, so
+     a write without the mirror leaves the old state on screen. Matching the text once
+     passes with either half deleted, which is how two red-checks got through here. */
+  check('S106', 'and on the needs-to-be-built list, in the write AND the local copy',
+    (btnBlock.match(/needsLightBuild: true/g) || []).length === 2,
+    'owner: "but then also put her in the needs to be built section in the warehouse"');
+  check('S106', 'and marks them as staying, in the write AND the local copy',
+    (btnBlock.match(/recycleKeepingCustomer: true/g) || []).length === 2,
+    'the flag is what keeps them in the season; the mirror is what keeps the screen ' +
+    'honest until the listener catches up');
+
+  /* ⚠ IT MUST NOT DELETE, POOL THE NUMBER, OR TOUCH THE MONEY. Every other route
+     to the recycle queue does exactly those things, so the danger is somebody
+     "tidying" this one to match them. */
+  check('S106', 'it never deletes the customer',
+    btnBlock.indexOf('deleteDoc') === -1 &&
+    btnBlock.indexOf('hlxRemoveCustomerToRecycle') === -1,
+    'that is the entire request: recycle WITHOUT deleting');
+  check('S106', 'and never hands the number back to the pool',
+    btnBlock.indexOf('availableCustomerNumbers') === -1,
+    'they still hold it; pooling it puts a live label on somebody else' +
+    String.fromCharCode(8217) + 's bin');
+  check('S106', 'and says so when there are no colours on file to build from',
+    /no light colours on file/.test(btnBlock),
+    'the build queue skips a house with no lightsDescription, so they would go on ' +
+    'one list and silently not the other');
+
+  /* ---- Mark Recycled keeps a mover ---- */
+  const markBlock = admin.slice(admin.indexOf("list.querySelectorAll('[data-whrecycledone]')"),
+                                admin.indexOf('Every panel redraws off this one listener'));
+  check('S106', 'Mark Recycled has a branch for somebody who is staying',
+    /if\(d.recycleKeepingCustomer\)/.test(markBlock),
+    'sending a mover down the removal path deletes the very customer the other ' +
+    'button was pressed to keep');
+  check('S106', 'it clears both flags when the old set is back',
+    /needsLightRecycle: false, recycleKeepingCustomer: false/.test(markBlock),
+    'left set, they sit on the recycle list for ever');
+  check('S106', 'and it returns before reaching the removal path',
+    markBlock.indexOf('recycleKeepingCustomer') < markBlock.indexOf('hlxRemoveCustomerToRecycle'),
+    'a branch that falls through is the same as no branch');
+
+  /* ---- deleting a re-quote ---- */
+  const delSrc = extractFn(admin, 'attachDeleteHandlers');
+  check('S106', 'the delete handler is there', !!delSrc);
+  check('S106', 'deleting a quote only ever deletes the quote',
+    /deleteDoc\(doc\(db, 'quotes', id\)\)/.test(delSrc) &&
+    delSrc.indexOf("deleteDoc(doc(db,'jobAddresses'") === -1 &&
+    delSrc.indexOf('deleteDoc(doc(db, \'jobAddresses\'') === -1,
+    'owner: "make sure that when i delete a requote they dont get deleted as a customer"');
+  check('S106', 'and the question says which of the two is going',
+    /They stay a customer/.test(delSrc),
+    '"Delete this item?" on a card showing somebody' + String.fromCharCode(8217) +
+    's name, address and price is a question nobody can answer safely');
+
+  /* ⭐ AND IT WITHDRAWS THE QUESTION IT WAS ASKING. The portal sets seasonStatus to
+     needs_changes when it raises a re-quote, and that is resolved by ANSWERING the
+     quote. Delete the quote and the customer sits in Needs Changes for ever with
+     nothing left anywhere to clear it. */
+  check('S106', 'deleting the re-quote clears the state it put on the customer',
+    /seasonStatus: 'confirmed'/.test(delSrc) &&
+    /QUOTE_RAISED_STATUSES/.test(delSrc),
+    'a badge on a card that nothing can clear is worse than no badge');
+  check('S106', 'and only the two statuses a quote actually raises',
+    /QUOTE_RAISED_STATUSES = \['needs_changes', 'address_changed'\]/.test(admin),
+    'anything else was put there by something that is not this quote');
+
+  check('S106', 'a quote with no customer behind it still deletes plainly',
+    /Delete this quote\?/.test(delSrc),
+    'a first-time lead has no customer to reassure anybody about');
+}
+/* ---------------------------------------------------------------------------
  * Suite 92. A day inside 48 hours is printed, and printed is finished
  *
  * Owner, 2026-08-20: "not recalculate houses within two days cause weve already
