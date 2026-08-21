@@ -19295,7 +19295,9 @@ suite('Suite 106. Moving house, and withdrawing a re-quote');
 suite('Suite 107. Pricing a re-quote from the popup');
 
 {
-  const src = extractFn(admin, 'showApplyRequoteChoice');
+  /* requoteLightsToCarry comes along because the popup calls it. */
+  const src = extractFn(admin, 'requoteLightsToCarry') +
+    extractFn(admin, 'showApplyRequoteChoice');
   check('S107', 'showApplyRequoteChoice is still there', !!src);
 
   /* A DOM small enough to read. Elements are created from the ids the popup's own
@@ -19341,7 +19343,12 @@ suite('Suite 107. Pricing a re-quote from the popup');
     const document = {
       createElement: function(){ return overlay; },
       body: {appendChild: function(){}},
-      getElementById: function(id){ return el(id); }
+      getElementById: function(id){ return el(id); },
+      /* The popup ticks colour boxes with this. Without it here the harness
+         threw where the page would not, which hides a real failure behind a
+         crash. */
+      querySelectorAll: function(){ return []; },
+      querySelector: function(){ return null; }
     };
     return {document: document, el: el, overlay: overlay, html: function(){ return lastHtml; }};
   }
@@ -19910,6 +19917,91 @@ suite('Suite 107. Pricing a re-quote from the popup');
     check('S107', 'from both places that end one',
       (admin.match(/requoteRestoreSaveLabel\(\);/g) || []).length === 2,
       'finishing it and abandoning it both stop a re-quote being in hand');
+  }
+
+  /* ⭐ AND THE COLOURS THE QUOTE IS CARRYING REACH THE CUSTOMER. Owner, 2026-08-21:
+     "Ashley and Rachel should have lights in warehouse so we can build them."
+
+     ⚠ CONVERTING A QUOTE INTO A NEW CUSTOMER HAS ALWAYS CARRIED THEM. Applying a
+     re-quote to an existing customer carried the price and the footage and nothing
+     else, so somebody quoted with colours and holding none came out the far end still
+     holding none — and the build queue skips a house with no lightsDescription. */
+  {
+    const carry = new Function('quote', 'cust',
+      extractFn(admin, 'requoteLightsToCarry') + 'return requoteLightsToCarry(quote, cust);');
+
+    check('S111', 'a customer with no colours takes the ones off the quote',
+      (carry({lightColors: ['Warm White', 'Red']}, {name: 'Ashley'}) || {colors: []}).colors
+        .join(',') === 'Warm White,Red',
+      'without a description they are saved with needsLightBuild false and never ' +
+      'reach the build queue at all');
+    check('S111', 'and free-typed colours come across as words',
+      (carry({lightsDescription: 'warm white with red trim'}, {name: 'A'}) || {}).text ===
+      'warm white with red trim',
+      'a quote whose colours were typed rather than ticked has no lightColors to read');
+
+    /* ⚠ AND ONLY INTO A BLANK. A re-quote is usually about price or footage, not
+       colour; writing over a customer who already has some would quietly re-colour a
+       house nobody asked to re-colour, and lightsChangedAt, the warehouse and the
+       printed sheets all key off that change. */
+    check('S111', 'a customer who already has colours keeps them',
+      carry({lightColors: ['Blue']}, {lightsDescription: 'Warm White'}) === null,
+      'filling a blank is safe; overwriting an answer is not');
+    check('S111', 'and that holds when the colours are held as a list',
+      carry({lightColors: ['Blue']}, {lightColors: ['Green']}) === null);
+    check('S111', 'an empty description does not count as an answer',
+      !!carry({lightColors: ['Blue']}, {lightsDescription: '   ', lightColors: []}),
+      'whitespace on a record is a blank, and a blank is what this fills');
+    check('S111', 'and a quote with nothing on it carries nothing',
+      carry({}, {name: 'A'}) === null && carry({lightColors: []}, {}) === null,
+      'there is nothing to bring over, and the office has to be told instead');
+  }
+
+  {
+    const src = extractFn(admin, 'showApplyRequoteChoice');
+    check('S111', 'the popup asks for them when it opens the record',
+      /requoteLightsToCarry\(d, ed\)/.test(src),
+      'the rule being right is no use if nothing calls it');
+    check('S111', 'and ticks the boxes on the form',
+      /editcust-color-check/.test(src) && /cb\.checked = true/.test(src),
+      'the save reads the ticked boxes, not a variable');
+    check('S111', 'and takes the wire colour too, into a blank',
+      /!String\(ed\.wireColor \|\| ''\)\.trim\(\) && d\.wireColor/.test(src),
+      'the warehouse groups a build by pattern AND wire');
+    check('S111', 'and says it did it rather than changing colours silently',
+      /colours brought over from the quote/.test(src),
+      'a colour appearing by itself is a colour nobody can account for');
+    /* ⚠ PRESSED, NOT GREPPED. A search for the toast's wording survives switching
+       the condition that fires it off, which is the whole behaviour. */
+    {
+      const bare = run({name: 'Ashley Wray', estimatedFeet: 300, quotedPrice: 600},
+        {id: 'c894', data: {name: 'Ashley Wray', customerNumber: '894'}}, 2);
+      bare.el('applyRequoteBtn').fire('click');
+      check('S111', 'and when there are none anywhere it says so on the spot',
+        bare.toasts.some(function(t){ return /no light colours on file/.test(t); }),
+        'the office is looking at the record this second; the warehouse finds out ' +
+        'days later');
+      check('S111', 'and it points at the form they are already looking at',
+        bare.toasts.some(function(t){ return /pick them on this form/.test(t); }),
+        'telling somebody what is wrong without telling them what to do is a dead end');
+    }
+    {
+      /* And it does NOT nag when the colours came over, or when they already had some. */
+      const fine = run({name: 'Has Colours', estimatedFeet: 300, quotedPrice: 600,
+                        lightColors: ['Warm White']},
+        {id: 'c1', data: {name: 'Has Colours', customerNumber: '1'}}, 2);
+      fine.el('applyRequoteBtn').fire('click');
+      check('S111', 'and stays quiet when the quote had colours to bring over',
+        !fine.toasts.some(function(t){ return /no light colours on file/.test(t); }) &&
+        fine.toasts.some(function(t){ return /colours brought over/.test(t); }),
+        'a warning that fires when nothing is wrong is a warning nobody reads');
+      const held = run({name: 'Already', estimatedFeet: 300, quotedPrice: 600},
+        {id: 'c2', data: {name: 'Already', customerNumber: '2',
+                          lightsDescription: 'Warm White'}}, 2);
+      held.el('applyRequoteBtn').fire('click');
+      check('S111', 'and quiet when the customer already had their own',
+        !held.toasts.some(function(t){ return /no light colours on file/.test(t); }));
+    }
   }
 
   /* ---- and the card that started it says what it is showing ---------------- */

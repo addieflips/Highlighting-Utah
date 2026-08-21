@@ -8118,6 +8118,32 @@ function autoConvertQuoteToCustomer(quoteId, d){
    somebody did at the house, and the number rule (CN_DOUBLE_BIN_FEET) can need a
    human answer - keeping the old number or moving to the 5000 series. Applying it
    silently would make that decision for them. */
+/* ⭐ THE COLOURS THE QUOTE IS CARRYING, WHEN THE CUSTOMER HAS NONE. Owner, 2026-08-21:
+   "Ashley and Rachel should have lights in warehouse so we can build them."
+
+   ⚠ CONVERTING A QUOTE INTO A NEW CUSTOMER HAS ALWAYS CARRIED THE COLOURS ACROSS
+   (showAddCustomerFromQuote does it, and the comment there spells out why: without a
+   description the customer is saved with needsLightBuild false and never reaches the
+   build queue at all). APPLYING A RE-QUOTE TO AN EXISTING CUSTOMER CARRIED THE PRICE
+   AND THE FOOTAGE AND NOTHING ELSE — so somebody quoted with colours on the quote and
+   none on their record came out the far end still having none, and the warehouse had
+   nothing to build.
+
+   ⚠ AND ONLY WHEN THE RECORD HAS NONE. A re-quote is usually about price or footage,
+   not colour. Writing the quote's colours over a customer who already has some would
+   quietly re-colour a house nobody asked to re-colour — and lightsChangedAt, the
+   warehouse and the printed sheets all key off that change. Filling a blank is safe;
+   overwriting an answer is not. */
+function requoteLightsToCarry(quote, cust){
+  const q = quote || {}, c = cust || {};
+  const already = String(c.lightsDescription || '').trim() ||
+                  ((c.lightColors || []).join(', ').trim());
+  if(already) return null;
+  const colors = (q.lightColors || []).filter(Boolean);
+  const text = String(q.lightsDescription || '').trim() || colors.join(', ');
+  if(!text && !colors.length) return null;
+  return {colors: colors, text: text};
+}
 function showApplyRequoteChoice(quoteId, d, existingItem){
   const ed = existingItem.data || {};
   const who = ed.name || d.name || ('this customer');
@@ -8293,6 +8319,22 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
        straight back over the two fields this whole step exists to change. */
     document.getElementById('editCustHousePrice').value = price;
     if(newFeet) document.getElementById('editCustFeet').value = newFeet;
+    /* ⭐ AND THE COLOURS, IF THEY HAVE NONE — see requoteLightsToCarry. Same reason the
+       price and the feet are set here: after the modal has filled itself, or the record
+       writes its own blank straight back over them. */
+    const carry = requoteLightsToCarry(d, ed);
+    if(carry){
+      document.querySelectorAll('.editcust-color-check').forEach(function(cb){
+        if(carry.colors.indexOf(cb.value) !== -1){
+          cb.checked = true;
+          const w = cb.closest('.pill-check'); if(w) w.classList.add('checked');
+        }
+      });
+      if(!String(ed.wireColor || '').trim() && d.wireColor){
+        const wire = document.getElementById('editCustWireColor');
+        if(wire) wire.value = d.wireColor;
+      }
+    }
     /* Held until Save Changes rather than written now. She can still close the form
        without saving, and flagging the warehouse for a change that never happened is
        worse than making her press the button. */
@@ -8312,7 +8354,15 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
     }
     toast(fmtMoney(price)+' filled in for '+(who)+' \u2014 '+
       (wantsTopUp ? ('warehouse will build the extra '+topUpFeet+' ft') : 'old set recycles, new one gets built')+
+      (carry ? ', colours brought over from the quote' : '')+
       '. Press Save Changes.');
+    /* ⚠ AND IF THERE ARE STILL NO COLOURS ANYWHERE, SAY IT NOW rather than letting the
+       warehouse find out. Nothing can be built without them, and the office is looking
+       at the record this second. */
+    if(!carry && !String(ed.lightsDescription || '').trim() && !((ed.lightColors || []).length)){
+      toast('\u26a0 '+(who)+' has no light colours on file and the quote has none either \u2014 '+
+        'pick them on this form or the warehouse cannot build anything.');
+    }
   });
 }
 /* The popup that asks which way. */
