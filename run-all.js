@@ -19241,9 +19241,12 @@ suite('Suite 106. Moving house, and withdrawing a re-quote');
       isOut({}) === false);
   }
 
-  /* ---- the button sets both queues and keeps the record ---- */
+  /* ---- the recycle button, on its own ----
+     ⚠ SLICED TO THE BUILD BUTTON, NOT TO DELETE. Since the split there is another
+     handler in between, so a slice reaching Delete swallows it and every check about
+     what recycle does NOT do reads the build button's code instead. */
   const btnBlock = admin.slice(admin.indexOf("getElementById('editCustRecycleStayBtn')"),
-                               admin.indexOf("getElementById('editCustDeleteBtn')"));
+                               admin.indexOf("getElementById('editCustBuildStayBtn')"));
   check('S106', 'the button exists in Edit Customer',
     admin.indexOf('editCustRecycleStayBtn') !== -1 && btnBlock.length > 0);
   check('S106', 'it puts them on the recycle list',
@@ -19252,9 +19255,15 @@ suite('Suite 106. Moving house, and withdrawing a re-quote');
      record — the panel repaints from jobAddresses rather than re-reading Firestore, so
      a write without the mirror leaves the old state on screen. Matching the text once
      passes with either half deleted, which is how two red-checks got through here. */
-  check('S106', 'and on the needs-to-be-built list, in the write AND the local copy',
-    (btnBlock.match(/needsLightBuild: true/g) || []).length === 2,
-    'owner: "but then also put her in the needs to be built section in the warehouse"');
+  /* ⚠ THE BUILD HALF MOVED TO ITS OWN BUTTON on 2026-08-21, so it is checked there —
+     see 'there is a button that only queues a build' below. The owner's original ask,
+     "but then also put her in the needs to be built section in the warehouse", is still
+     satisfied for a mover; it now takes the second press she asked for. The mirror rule
+     below still applies to BOTH buttons and is checked on each. */
+  check('S106', 'and the local copy is updated too, not just the write',
+    (btnBlock.match(/recycleKeepingCustomer: true/g) || []).length === 2,
+    'the panel repaints from jobAddresses rather than re-reading Firestore, so a write ' +
+    'without the mirror leaves the old state on screen');
   check('S106', 'and marks them as staying, in the write AND the local copy',
     (btnBlock.match(/recycleKeepingCustomer: true/g) || []).length === 2,
     'the flag is what keeps them in the season; the mirror is what keeps the screen ' +
@@ -19271,10 +19280,60 @@ suite('Suite 106. Moving house, and withdrawing a re-quote');
     btnBlock.indexOf('availableCustomerNumbers') === -1,
     'they still hold it; pooling it puts a live label on somebody else' +
     String.fromCharCode(8217) + 's bin');
-  check('S106', 'and says so when there are no colours on file to build from',
-    /no light colours on file/.test(btnBlock),
-    'the build queue skips a house with no lightsDescription, so they would go on ' +
-    'one list and silently not the other');
+  /* ⭐ SPLIT IN TWO (2026-08-21). Owner: "for this actually dont make it one button
+     have one button for build and another for recycle." Somebody who MOVED needs both,
+     and pressing one then the other does exactly what the single button did — but the
+     combined one could not express either alone: a house whose old set is already back
+     needs only a build, and a customer sitting this season out needs only a recycle.
+     Neither had a button.
+
+     ⚠ SO RECYCLE MUST NOT QUIETLY QUEUE A BUILD AS WELL, or the pair is impossible to
+     use for the two cases they were separated for. */
+  check('S106', 'recycling on its own does not queue a build',
+    btnBlock.indexOf('needsLightBuild') === -1,
+    'it used to set both, because it was the one button for somebody who had moved');
+  check('S106', 'and it says the other button is there, and to press it too',
+    /press Build Them A New Set[\s\S]{0,40}as well/.test(btnBlock),
+    'naming the button without saying to press it leaves a mover half done, which is ' +
+    'the one case the pair was split apart for');
+
+  /* And the build half, which is where the no-colours warning went. */
+  {
+    const at = admin.indexOf("document.getElementById('editCustBuildStayBtn')");
+    const bBlock = at > 0 ? admin.slice(at, admin.indexOf("document.getElementById('editCustDeleteBtn')", at)) : '';
+    check('S106', 'there is a button that only queues a build', !!bBlock &&
+      /needsLightBuild: true/.test(bBlock),
+      'a house whose old set is already back needs a build and nothing else');
+    check('S106', 'and it never recycles anything',
+      bBlock.indexOf('needsLightRecycle') === -1,
+      'pulling a set back that nobody asked to pull back is a real bundle off a shelf');
+    /* ⚠ TIED TO THE BRANCH THAT SHOWS IT. A search for the wording survived the
+       condition being switched off — the words sat there inside a branch that could
+       never run. */
+    check('S106', 'and it warns when there are no colours to build from',
+      /hasColours \? '' :[\s\S]{0,120}no light colours on their record/.test(bBlock),
+      'the build queue cannot group a house with no lightsDescription, so it lands in ' +
+      'the Waiting block rather than the queue');
+    check('S106', 'and works out hasColours from both fields',
+      /lightsDescription[\s\S]{0,60}lightColors/.test(bBlock),
+      'a repeating pattern lives in the description with an EMPTY colour list, so ' +
+      'reading one field calls an alternating house undecorated');
+    check('S106', 'and clears any leftover add-on, because this is a whole set',
+      /buildTopUpFromFeet: null/.test(bBlock),
+      'left set, the sheet would ask for the difference instead of the whole thing');
+    check('S106', 'and it does not delete or pool anything',
+      bBlock.indexOf('deleteDoc') === -1 &&
+      bBlock.indexOf('availableCustomerNumbers') === -1);
+    /* ⚠ THE MIRROR RULE APPLIES TO THIS BUTTON TOO: the panel repaints from
+       jobAddresses rather than re-reading Firestore, so a write without the local copy
+       leaves the old state on screen. */
+    check('S106', 'and it updates the local copy as well as writing',
+      (bBlock.match(/needsLightBuild: true/g) || []).length === 2,
+      'once in the write, once in the record the panel repaints from');
+    check('S106', 'and a failure says what failed',
+      /console\.error\('Could not queue the build:'/.test(bBlock),
+      'the same silence that hid the Edit Customer save for two days');
+  }
 
   /* ---- Mark Recycled keeps a mover ---- */
   const markBlock = admin.slice(admin.indexOf("list.querySelectorAll('[data-whrecycledone]')"),
@@ -19920,9 +19979,13 @@ suite('Suite 107. Pricing a re-quote from the popup');
   check('S107', 'and so does marking a whole group done',
     (admin.match(/buildTopUpFromFeet:null/g) || []).length >= 2,
     'the bulk button writes its own update and would otherwise leave it behind');
-  check('S107', 'and recycling by hand clears it too',
-    /buildTopUpFromFeet: null,\s*\r?\n\s*lightsRecycleRequestedAt/.test(admin),
-    'the Recycle button in Edit Customer builds a full set from scratch');
+  /* ⚠ IT MOVED WITH THE SPLIT. Clearing the add-on belongs to whichever button queues
+     a WHOLE set, and after 2026-08-21 that is Build Them A New Set, not Recycle. */
+  check('S107', 'and queueing a whole set by hand clears it too',
+    /needsLightBuild: true,[\s\S]{0,400}buildTopUpFromFeet: null/.test(
+      admin.slice(admin.indexOf("document.getElementById('editCustBuildStayBtn')"),
+                  admin.indexOf("document.getElementById('editCustDeleteBtn')"))),
+    'the Build button in Edit Customer makes a full set from scratch');
 
   /* ⚠ THERE ARE TWO BUILD SHEETS AND THEY BOTH NEED THE COLUMN. The Printing tab has
      one and the Warehouse tab has its own, older one. A red-check that deleted the
@@ -20765,6 +20828,71 @@ suite('Suite 115. A price change asks');
    button in bulk updates for deleting all test customers from customers and quotes and
    invoices and routes and schedule and put their number back in the system", and "it
    should also delete test customers from anywhere in the warehouse." */
+/* ⭐ SUITE 119. THE RE-QUOTE'S OWN INSTALL FORM — THE OTHER SESSION'S WORK, GUARDED.
+   Owner, to the other session: "when an old house gets requoted I want them to choose
+   whether they want to fill out the form fresh or keep what's already there."
+
+   ⚠ THIS IS HERE BECAUSE THE TWO SESSIONS NEARLY DELETED EACH OTHER (2026-08-21). A
+   whole-file push of admin.html landed on main carrying that feature and, without meaning
+   to, six commits of mine went missing from it; my push would have taken hers back out
+   the same way. Both survived only because the merge was done by hand, function by
+   function. Nothing was checking hers, so nothing would have said a word.
+
+   ⚠ AND git merge-file GOT IT WRONG ON THIS FILE. It split one of my functions in half
+   and lost a closing brace — admin.html would not have parsed at all. CLAUDE.md §0 says
+   merge this file, never paste it; it is worth adding that an automatic 3-way merge is
+   not trustworthy here either. Verify the braces balance afterwards, every time. */
+suite('Suite 119. The re-quote install form');
+
+{
+  check('S119', 'the summary of what they filled in is still here',
+    !!extractFn(admin, 'requoteFormSummary'),
+    'a customer who fills the form in fresh after a remodel has to be read, or the ' +
+    'warehouse builds last year’s pattern');
+  check('S119', 'and the code that puts their answers on the form',
+    !!extractFn(admin, 'applyRequoteFormAnswers'));
+  check('S119', 'the apply popup shows what they said',
+    /requoteFormSummary\(d\)/.test(extractFn(admin, 'showApplyRequoteChoice')),
+    'shown BEFORE the record opens, because a change nobody announced is a change ' +
+    'nobody checks');
+  check('S119', 'and fills their answers in when it opens the record',
+    /applyRequoteFormAnswers\(d\)/.test(extractFn(admin, 'showApplyRequoteChoice')));
+
+  /* ⚠ AND HERS RUNS AFTER MINE. requoteLightsToCarry fills a BLANK from the old quote;
+     applyRequoteFormAnswers writes what the customer typed this week. If mine ran second
+     it would be filling a blank that is no longer blank, but the order still has to be
+     the right way round on purpose rather than by accident. */
+  {
+    const src = extractFn(admin, 'showApplyRequoteChoice');
+    check('S119', 'what the customer just told us is applied last',
+      src.indexOf('requoteLightsToCarry(d, ed)') < src.indexOf('applyRequoteFormAnswers(d)'),
+      'a form they filled in this week beats a value carried off last year’s record');
+  }
+
+  /* Her exact wording survives the checkbox order, which cannot hold one. */
+  {
+    const at = admin.indexOf("document.getElementById('editCustSaveBtn').addEventListener");
+    const body = at > 0 ? admin.slice(at, admin.indexOf('const newInstallPref', at)) : '';
+    check('S119', 'their typed pattern beats the ticked boxes when nothing was retouched',
+      /const keptRequotePattern = requoteLightsPattern/.test(body) &&
+      /\? requoteLightsPattern/.test(body),
+      '"White, White, Red" read back off the boxes becomes "Pure White, Red" — a ' +
+      'different set of lights from the one they asked for');
+  }
+  check('S119', 'and it is cleared once used, and on cancel',
+    (admin.match(/requoteLightsPattern = '';/g) || []).length >= 3,
+    'left set, the next customer saved inherits somebody else’s wording');
+
+  /* ⭐ AND HER FIX TO THE OTHER HALF OF THE BUILD-FLAG BUG. I fixed the Edit Customer
+     path (a blank colour field wiping needsLightBuild); she fixed the Add Customer path
+     (a new house from a quote with no colours never getting the flag at all). The two
+     together are what actually gets Ashley and Rachel into the warehouse. */
+  check('S119', 'a new house is flagged to build whether or not its colours are known',
+    /needsGeocode: pinFailed, needsLightBuild: true,/.test(admin),
+    'it read !!lightsDescription, so a quote converted without colours was in neither ' +
+    'the build queue nor the waiting block, and the tab said there was nothing to do');
+}
+
 suite('Suite 116. Deleting the test records');
 
 {
@@ -21138,6 +21266,82 @@ suite('Suite 112. The number on the bin');
       new Function('d', extractFn(admin, 'whBinNumberFor') + 'return whBinNumberFor(d);'),
       new Function('d', extractFn(admin, 'whBinNumberMoved') + 'return whBinNumberMoved(d);'),
       []).rows;
+  /* ⭐ AN ADD-ON HAS TO LOOK LIKE AN ADD-ON. Owner, 2026-08-21: "when it builds an add on
+     it should somehow indicate to the warehouse that what they built needs to go into a
+     bin that already exists." The Put into column already named the bin, but the row
+     still read Type: House with a Feet of +120 — and Type is the column an eye scans
+     down. A bundle handed to somebody who thinks they are building a house gets a new
+     bin made for it, and then two bins wear one number. */
+  {
+    const rows = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey',
+      'houseBundleNeed', 'whWireLabel', 'whPutIntoLabel', 'WH_BUILD_COLUMNS',
+      extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whSheetRowsForBuild') +
+      'return whSheetRowsForBuild();');
+    const build = function(cust){
+      return rows([{id: 'a1', data: cust}], [], (p, w) => p + '|' + (w || ''),
+        new Function('d', extractFn(admin, 'houseBundleNeed') + 'return houseBundleNeed(d);'),
+        (w) => String(w || 'white'),
+        new Function('d', extractFn(admin, 'houseBundleNeed') +
+          extractFn(admin, 'whPutIntoLabel') + 'return whPutIntoLabel(d);'),
+        []).rows.filter(function(r){ return r.type !== 'Blocked'; })[0];
+    };
+    const addOn = build({name: 'Ashley Wray', customerNumber: '894',
+      needsLightBuild: true, lightsDescription: 'Warm White',
+      measuredFeet: 300, buildTopUpFromFeet: 180});
+    check('S112', 'an add-on row says ADD-ON in the Type column',
+      !!addOn && addOn.type === 'ADD-ON',
+      'Type: House on a row that is not a house is how a second bin gets made');
+    check('S112', 'and says in words that it joins a bin they already have',
+      !!addOn && /GOES INTO THE BIN THEY ALREADY HAVE/.test(addOn.notes),
+      'Notes is what gets read when a row looks unusual');
+    check('S112', 'and still names whose bin, and how much to make',
+      !!addOn && addOn.putInto === 'Ashley Wray #894' && addOn.feet === '+120');
+    check('S112', 'and their own note is not thrown away for it',
+      /GOES INTO THE BIN[\s\S]*ladder round the back/.test(
+        build({name: 'A', customerNumber: '9', needsLightBuild: true,
+               lightsDescription: 'Warm White', measuredFeet: 300,
+               buildTopUpFromFeet: 180, notes: 'ladder round the back'}).notes),
+      'the crew still needs what the customer told them');
+
+    const ordinary = build({name: 'Plain', customerNumber: '5', needsLightBuild: true,
+      lightsDescription: 'Warm White', measuredFeet: 300});
+    check('S112', 'an ordinary build is untouched by any of this',
+      !!ordinary && ordinary.type === 'House' && ordinary.putInto === '' &&
+      !/GOES INTO THE BIN/.test(ordinary.notes),
+      'a marker on every row is a marker nobody sees');
+
+    /* ⚠ AND THE SCREEN SAYS IT TOO. The warehouse works off the tab as often as off the
+       paper, and a sabotage removing the badge broke nothing until this was written. */
+    check('S112', 'the warehouse tab badges an add-on row',
+      /ADD-ON \\u2014 into the bin they already have/.test(
+        extractFn(admin, 'renderWarehouseQueue')),
+      'it sits with the Timer and wire chips, where somebody building looks');
+    check('S112', 'and only on an add-on row',
+      /need\.topUp[\s\S]{0,600}ADD-ON/.test(extractFn(admin, 'renderWarehouseQueue')),
+      'a badge on every row is a badge nobody sees');
+
+    /* And the Printing tab's copy of the same list. */
+    {
+      const list = new Function('jobAddresses', 'printLightColor', 'printYesNo',
+        'houseBundleNeed', 'whPutIntoLabel',
+        extractFn(admin, 'printNeedsBuildList') + 'return printNeedsBuildList();');
+      const out = list(
+        [{id: 'x', data: {name: 'Ashley Wray', customerNumber: '894',
+                          needsLightBuild: true, measuredFeet: 300,
+                          buildTopUpFromFeet: 180}}],
+        () => 'Warm White', () => 'No',
+        new Function('d', extractFn(admin, 'houseBundleNeed') + 'return houseBundleNeed(d);'),
+        new Function('d', extractFn(admin, 'houseBundleNeed') +
+          extractFn(admin, 'whPutIntoLabel') + 'return whPutIntoLabel(d);'));
+      check('S112', 'the printed Needs Building list says EXISTING BIN',
+        out.length === 1 && /^EXISTING BIN/.test(out[0].putInto) &&
+        /Ashley Wray #894/.test(out[0].putInto),
+        'two sheets of the same job saying it two ways is how one stops being read');
+      check('S112', 'and marks the footage as an addition',
+        out[0].feet === '+120');
+    }
+  }
+
     check('S112', 'the printed warehouse sheet names the bin, not the record',
       out.length === 1 && out[0].bin === '894',
       'the sheet is what they carry to the shelf');

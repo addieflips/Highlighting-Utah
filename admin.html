@@ -2038,8 +2038,18 @@
           </div>
           <div id="editCustStatus" style="font-size:13px; color:var(--slate); margin-top:8px; text-align:center;"></div>
           <div style="margin-top:18px; padding-top:14px; border-top:1px solid var(--line); text-align:center;">
-            <button type="button" class="btn btn-outline" id="editCustRecycleStayBtn" style="margin-bottom:10px;">Recycle Their Lights &mdash; They Are Staying</button>
-            <p style="font-size:12px; color:var(--slate); margin:0 0 14px;">For somebody who has MOVED. The old set goes on the warehouse recycle list, the new house goes on the build list, and they stay a customer with the same number.</p>
+            <!-- ⭐ TWO BUTTONS, NOT ONE (2026-08-21). Owner: "for this actually dont make
+                 it one button have one button for build and another for recycle."
+                 Somebody who moved needs both, and pressing them one after the other does
+                 exactly what the single button did. But the two are separate jobs and the
+                 combined one could not express either alone — a house whose old set is
+                 already back needs only a build, and a customer sitting out this season
+                 needs only a recycle. Neither had a button. -->
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:6px;">
+              <button type="button" class="btn btn-outline" id="editCustRecycleStayBtn">Recycle Their Old Set</button>
+              <button type="button" class="btn btn-outline" id="editCustBuildStayBtn">Build Them A New Set</button>
+            </div>
+            <p style="font-size:12px; color:var(--slate); margin:0 0 14px;">They stay a customer either way, and keep their number. <strong>Recycle</strong> puts their old set on the warehouse recycle list. <strong>Build</strong> puts them on the needs-to-be-built list. Somebody who has MOVED needs both &mdash; press one, then the other.</p>
             <button type="button" class="btn btn-outline" id="editCustDeleteBtn" style="color:var(--ember); border-color:#f0b3ac;">Delete This Customer</button>
             <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Removes them and their invoice. Their customer number goes back into the available pool so the bin can be reused. Money already collected stays on the Dashboard.</p>
           </div>
@@ -24728,7 +24738,17 @@ function renderWarehouseQueue(){
             '<span style="font-size:13.5px;">'+esc(h.data.name||'(no name)')+' &mdash; '+esc(h.data.address||'')+propLabelChip(h.data)+
               '<span style="display:block; font-size:12px; color:'+(need.unknown?'var(--ember)':'var(--slate)')+'; margin-top:2px;">'+esc(needTxt)+'</span>'+
               '<span style="display:block; margin-top:4px; line-height:1.9;">'+whHouseFactsHtml(h.data)+'</span>'+
-              (need.topUp ? '<span style="display:block; font-size:12px; font-weight:600; color:#8A6100; margin-top:4px;">When built, put into '+esc(whPutIntoLabel(h.data))+'</span>' : '')+
+              /* ⚠ A BADGE, NOT A LINE OF TEXT. It sits with the Timer and wire chips, which
+                 is where somebody building looks, rather than under the address where a
+                 sentence reads as a note about the customer. */
+              (need.topUp
+                ? '<span style="display:block; margin-top:4px;">'+
+                    '<span style="display:inline-block; background:#FFF4DC; color:#8A6100; border:1px solid #E4C77A; border-radius:999px; padding:2px 9px; font-size:11.5px; font-weight:700;">'+
+                      'ADD-ON \u2014 into the bin they already have'+
+                    '</span>'+
+                  '</span>'+
+                  '<span style="display:block; font-size:12px; font-weight:600; color:#8A6100; margin-top:3px;">When built, put into '+esc(whPutIntoLabel(h.data))+'</span>'
+                : '')+
               /* Notes last, because they are the long bit and the facts above
                  are what gets read at a glance while building. */
               (houseNotes ? '<span style="display:block; font-size:12px; color:var(--slate); margin-top:4px; white-space:pre-wrap;">'+esc(houseNotes)+'</span>' : '')+
@@ -25220,7 +25240,13 @@ function whSheetRowsForBuild(){
       rows.push({
         group: groupName,
         wire: whWireLabel(d.wireColor),
-        type: 'House',
+        /* ⭐ AN ADD-ON IS NOT A HOUSE. Owner, 2026-08-21: "when it builds an add on it
+           should somehow indicate to the warehouse that what they built needs to go into
+           a bin that already exists." The Put into column already named the bin, but the
+           row still read Type: House with a Feet of +120 — and Type is the column an eye
+           scans down. A bundle handed to somebody who thinks they are building a house
+           gets a new bin made for it, and then there are two bins with one number. */
+        type: need.topUp ? 'ADD-ON' : 'House',
         what: d.name || '(no name)',
         address: d.address || '',
         bin: d.customerNumber || '',
@@ -25230,7 +25256,12 @@ function whSheetRowsForBuild(){
         bundles: need.bundles,
         timer: String(d.outletTimer || '').trim() === 'Yes' ? 'YES' : '',
         putInto: whPutIntoLabel(d),
-        notes: (d.notes ? String(d.notes).trim() : '')
+        /* Said in words as well as in the Type column, because Notes is what gets read
+           when a row looks unusual. Their own note still travels with it. */
+        notes: (need.topUp
+          ? ('GOES INTO THE BIN THEY ALREADY HAVE' +
+             (d.notes ? ' \u2014 ' + String(d.notes).trim() : ''))
+          : (d.notes ? String(d.notes).trim() : ''))
       });
     });
     g.extras.forEach(function(e){
@@ -26787,40 +26818,82 @@ document.getElementById('editCustRecycleStayBtn').addEventListener('click', asyn
   if(!item) return;
   const d = item.data || {};
   const statusEl = document.getElementById('editCustStatus');
-  if(!confirm('Recycle the lights for ' + (d.name || 'this customer') + '?' +
-    '\n\nUse this when they have MOVED. Their old set goes on the warehouse recycle ' +
-    'list and their new house goes on the needs-to-be-built list.' +
+  if(!confirm('Recycle the old set for ' + (d.name || 'this customer') + '?' +
+    '\n\nTheir old lights go on the warehouse recycle list to be pulled back into stock.' +
+    '\n\nThis does NOT queue a new set. If they have moved, press Build Them A New Set ' +
+    'as well.' +
     '\n\nThey stay a customer' + (d.customerNumber ? ' and keep number #' + d.customerNumber : '') +
     '.')) return;
   const btn = document.getElementById('editCustRecycleStayBtn');
   if(btn) btn.disabled = true;
   if(statusEl) statusEl.textContent = 'Sending their lights back\u2026';
   try{
+    /* ⚠ THIS BUTTON NO LONGER QUEUES A BUILD (2026-08-21). It used to set both, because
+       it was the one button for somebody who had moved. Split in two, each does its own
+       half — and a button that quietly did the other one as well would make the pair
+       impossible to use for the cases they were split apart for. */
     await updateDoc(doc(db,'jobAddresses', editCustomerId), {
       needsLightRecycle: true,
       recycleKeepingCustomer: true,
-      /* ⚠ THE BUILD QUEUE ALSO WANTS A PATTERN. whRecycleGroups lists anybody
-         flagged even with no lights recorded, but the BUILD queue skips a house with no
-         lightsDescription — so a customer with nothing on file would go on one list and
-         silently not the other, which is the half of this she would notice last. */
-      needsLightBuild: true,
-      /* A full set is being made up from scratch, so anything left over from an
-         earlier "build only the difference" is wrong now. */
-      buildTopUpFromFeet: null,
       lightsRecycleRequestedAt: serverTimestamp()
     });
-    Object.assign(item.data, {needsLightRecycle: true, recycleKeepingCustomer: true,
-                             needsLightBuild: true});
-    if(statusEl) statusEl.textContent = (d.lightsDescription || (d.lightColors || []).length)
-      ? 'Done \u2014 on the recycle list and the build list. They are still a customer.'
-      : 'Done \u2014 on the recycle list. \u26a0 There are no light colours on file, so ' +
-        'the warehouse cannot build the new house until somebody fills those in.';
-    toast((d.name || 'They') + ' \u2014 lights recycling, customer kept');
-    logActivity('Recycled the lights for ' + (d.name || editCustomerId) +
-      ' (moved house, kept as a customer)', 'customers', editCustomerId);
+    Object.assign(item.data, {needsLightRecycle: true, recycleKeepingCustomer: true});
+    if(statusEl) statusEl.textContent = 'Done \u2014 their old set is on the recycle list. ' +
+      'They are still a customer. If they have moved, press Build Them A New Set too.';
+    toast((d.name || 'They') + ' \u2014 old set recycling, customer kept');
+    logActivity('Recycled the old set for ' + (d.name || editCustomerId) +
+      ' (kept as a customer)', 'customers', editCustomerId);
   }catch(err){
     if(btn) btn.disabled = false;
     if(statusEl) statusEl.textContent = 'Could not do that: ' + (err && err.message ? err.message : err);
+  }
+});
+/* ⭐ AND THE OTHER HALF: PUT THEM ON THE BUILD LIST. Owner, 2026-08-21: "for this
+   actually dont make it one button have one button for build and another for recycle."
+
+   Somebody who MOVED needs both, and pressing one then the other does exactly what the
+   single button did. But the two are different jobs, and the combined button could not
+   express either alone — a house whose old set is already back needs only a build, and
+   a customer sitting this season out needs only a recycle. Neither had a button.
+
+   ⚠ AND THE BUILD QUEUE SKIPS A HOUSE WITH NO COLOURS, so this says so on the spot
+   rather than letting the warehouse find out. It still sets the flag: the Waiting on
+   light colours block exists exactly so a house owed a build with nothing to build from
+   is visible instead of vanishing. */
+document.getElementById('editCustBuildStayBtn').addEventListener('click', async function(){
+  if(!editCustomerId) return;
+  const item = jobAddresses.find(function(it){ return it.id === editCustomerId; });
+  if(!item) return;
+  const d = item.data || {};
+  const statusEl = document.getElementById('editCustStatus');
+  const hasColours = !!(String(d.lightsDescription || '').trim() || (d.lightColors || []).length);
+  if(!confirm('Build a new set for ' + (d.name || 'this customer') + '?' +
+    '\n\nThey go on the warehouse needs-to-be-built list.' +
+    (hasColours ? '' : '\n\n\u26a0 There are no light colours on their record, so they will ' +
+      'sit under \u201cWaiting on light colours\u201d until somebody fills those in.') +
+    '\n\nThis does NOT recycle anything. If they have moved, press Recycle Their Old Set ' +
+    'as well.')) return;
+  const btn = document.getElementById('editCustBuildStayBtn');
+  if(btn) btn.disabled = true;
+  if(statusEl) statusEl.textContent = 'Adding them to the build list\u2026';
+  try{
+    await updateDoc(doc(db,'jobAddresses', editCustomerId), {
+      needsLightBuild: true,
+      /* ⚠ A WHOLE SET, so anything left from an earlier "build only the add-on" is
+         wrong now — left set, the sheet would ask for the difference instead. */
+      buildTopUpFromFeet: null
+    });
+    Object.assign(item.data, {needsLightBuild: true, buildTopUpFromFeet: null});
+    if(statusEl) statusEl.textContent = hasColours
+      ? 'Done \u2014 they are on the needs-to-be-built list.'
+      : 'Done \u2014 on the build list, under Waiting on light colours until somebody ' +
+        'fills their colours in.';
+    toast((d.name || 'They') + ' \u2014 on the build list');
+    logActivity('Queued a new set for ' + (d.name || editCustomerId), 'customers', editCustomerId);
+  }catch(err){
+    if(btn) btn.disabled = false;
+    console.error('Could not queue the build:', err);
+    if(statusEl) statusEl.textContent = 'Could not do that: ' + ((err && err.message) || err);
   }
 });
 document.getElementById('editCustDeleteBtn').addEventListener('click', async function(){
@@ -37436,7 +37509,11 @@ function printNeedsBuildList(){
               lights: printLightColor(d), wire: d.wireColor || '',
               timer: printYesNo(d.outletTimer),
               feet: isTopUp ? ('+' + need.feet) : ((d.measuredFeet === 0 || d.measuredFeet) ? d.measuredFeet : ''),
-              putInto: (isTopUp && typeof whPutIntoLabel === 'function') ? whPutIntoLabel(d) : ''};
+              /* Same wording as the warehouse sheet — see whSheetRowsForBuild. Two
+                 sheets of the same job saying it two ways is how one of them stops
+                 being read. */
+              putInto: (isTopUp && typeof whPutIntoLabel === 'function')
+                ? ('EXISTING BIN \u2014 ' + whPutIntoLabel(d)) : ''};
     })
     .sort(function(x, y){ return String(x.name).localeCompare(String(y.name)); });
 }
