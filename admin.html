@@ -8917,8 +8917,30 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
       '<input type="number" id="requotePriceInput" min="0" step="1" value="'+(newPrice !== null ? newPrice : '')+'" placeholder="e.g. 600">'+
     '</div>'+
     '<div style="display:flex; flex-direction:column; gap:9px; margin-top:14px;">'+
-      '<button type="button" class="btn btn-gold" id="applyRequoteBtn" style="text-align:left;">Open their record with this price'+
-        '<span style="display:block; font-weight:500; font-size:12px; opacity:.85; margin-top:2px;">Check it over, then press Save Changes. The re-quote closes itself.</span></button>'+
+      /* ⭐ FILLING THIS IN IS THE JOB. Owner, 2026-08-21: "after I fill everything out I
+         just want to convert them... I just want it to happen after I fill the stuff out
+         and that doesnt happen."
+
+         ⚠ THE SECOND PRESS EXISTED FOR ONE REASON AND THAT REASON IS GONE. It was there
+         because the customer-number rule could need a human answer — keep the old number,
+         or move to the 5000 series — and applying it silently would have made that
+         decision for her. Converting now moves the number by itself (see autoMove), so
+         the question is already answered by the time this button is pressed, and the
+         extra step buys nothing but a form she has to notice and press again.
+
+         ⚠ IT STILL GOES THROUGH THE EDIT CUSTOMER SAVE, by opening the form, filling it
+         in and pressing that form's own button. The form re-derives the bin count,
+         rebuilds the invoice, re-syncs saved route stops, queues the warehouse and closes
+         the quote. A write path of its own here would have to do all of that again and
+         would be the copy that quietly falls behind — which is why this popup reused the
+         form in the first place. Only who presses the button has changed.
+
+         The review path is kept as the second button, for when she does want to look
+         before it lands. */
+      '<button type="button" class="btn btn-gold" id="applyRequoteNowBtn" style="text-align:left;">Apply it to '+esc(who)+
+        '<span style="display:block; font-weight:500; font-size:12px; opacity:.85; margin-top:2px;">Updates their record and closes the re-quote. Nothing else to press.</span></button>'+
+      '<button type="button" class="btn btn-outline" id="applyRequoteBtn" style="text-align:left;">Open their record first'+
+        '<span style="display:block; font-weight:500; font-size:12px; opacity:.85; margin-top:2px;">Fills it in and leaves it open so you can check it, then press Save Changes yourself.</span></button>'+
       '<button type="button" class="btn btn-outline" id="applyRequoteCancelBtn" style="text-align:center; color:var(--slate);">Cancel</button>'+
     '</div>'+
   '</div>';
@@ -8941,9 +8963,14 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
   }
   function refreshGo(){
     const p = typedPrice();
-    goBtn.disabled = (p === null);
-    goBtn.style.opacity = (p === null) ? '.55' : '';
-    goBtn.style.cursor = (p === null) ? 'not-allowed' : '';
+    /* ⚠ BOTH BUTTONS, NOT JUST THE ONE THIS STARTED AS. A second way through that is
+       still live while the price is blank is the same dead end wearing a new label. */
+    [goBtn, document.getElementById('applyRequoteNowBtn')].forEach(function(b){
+      if(!b) return;
+      b.disabled = (p === null);
+      b.style.opacity = (p === null) ? '.55' : '';
+      b.style.cursor = (p === null) ? 'not-allowed' : '';
+    });
     if(echo) echo.textContent = (p === null) ? 'not set' : fmtMoney(p);
     if(delta){
       delta.textContent = (p === null) ? ''
@@ -8954,7 +8981,7 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
   }
   priceBox.addEventListener('input', refreshGo);
   refreshGo();
-  goBtn.addEventListener('click', function(){
+  function applyRequote(applyNow){
     const price = typedPrice();
     if(price === null){ toast('Type a price first \u2014 it can be 0, but it cannot be blank.'); return; }
     /* Write it back onto the re-quote as well. The quote is what the approval page
@@ -9070,11 +9097,23 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
       if(!saveBtn.dataset.plainLabel) saveBtn.dataset.plainLabel = saveBtn.textContent;
       saveBtn.textContent = 'Save Changes \u2014 finishes the re-quote';
     }
-    toast(fmtMoney(price)+' filled in for '+(who)+' \u2014 '+
-      (wantsNothing ? 'nothing for the warehouse'
-        : (wantsTopUp ? ('warehouse will build the '+addOn+' ft add-on') : 'old set recycles, new one gets built'))+
-      (carry ? ', colours brought over from the quote' : '')+
-      '. Press Save Changes.');
+    const didWhat = (wantsNothing ? 'nothing for the warehouse'
+      : (wantsTopUp ? ('warehouse will build the '+addOn+' ft add-on') : 'old set recycles, new one gets built'))+
+      (carry ? ', colours brought over from the quote' : '');
+    if(applyNow){
+      /* ⚠ THE FORM'S OWN BUTTON, never a copy of what it does. If it refuses — a name
+         missing, somebody else having edited the record since it opened — the form stays
+         open saying why, which is exactly what should happen. */
+      const saveBtn = document.getElementById('editCustSaveBtn');
+      if(saveBtn){
+        toast('Applying to '+(who)+' \u2014 '+didWhat+'\u2026');
+        saveBtn.click();
+      } else {
+        toast('Their record is open \u2014 press Save Changes to finish.');
+      }
+      return;
+    }
+    toast(fmtMoney(price)+' filled in for '+(who)+' \u2014 '+didWhat+'. Press Save Changes.');
     /* ⚠ AND IF THERE ARE STILL NO COLOURS ANYWHERE, SAY IT NOW rather than letting the
        warehouse find out. Nothing can be built without them, and the office is looking
        at the record this second. */
@@ -9082,7 +9121,10 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
       toast('\u26a0 '+(who)+' has no light colours on file and the quote has none either \u2014 '+
         'pick them on this form or the warehouse cannot build anything.');
     }
-  });
+  }
+  goBtn.addEventListener('click', function(){ applyRequote(false); });
+  const nowBtn = document.getElementById('applyRequoteNowBtn');
+  if(nowBtn) nowBtn.addEventListener('click', function(){ applyRequote(true); });
 }
 /* The popup that asks which way. */
 /* ⭐ A TEST QUOTE, IN WHICHEVER SECTION YOU ARE STANDING IN. Owner, 2026-08-21: "in the
@@ -9616,7 +9658,26 @@ function renderQuoteRows(filtered){
              the fix a person would actually notice). */
           : (d.convertedToCustomerAt
               ? '<span class="rtext" style="margin-right:6px; color:#2E6B3E; font-weight:600; font-size:11.5px;">&#10003; Converted'+(d.convertedToCustomerAt ? ' &mdash; '+fmtDate(d.convertedToCustomerAt) : '')+'</span>'
-              : '<button type="button" class="icon-btn" data-converttocust="'+item.id+'" title="Convert to Customer" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:var(--gold-dim);">Convert to Customer</button>')+
+              /* ⭐ A RE-QUOTE UPDATES SOMEBODY; IT DOES NOT CONVERT THEM. Owner, 2026-08-21,
+                 looking at a popup headed "Update Test" that she had reached by pressing
+                 Convert to Customer: "I think the issue might be that its converting them
+                 rather than updating them." The button has said Convert since before
+                 re-quotes existed, and it is the only wording she sees before the popup —
+                 so the popup then has to talk her out of what the button just told her.
+
+                 ⚠ CHECKED AGAINST THE LIVE BOOK, not the field alone: a customer really
+                 can have been deleted since the re-quote was raised, and building them
+                 again IS converting. Same test showConvertQuoteChoice makes before it
+                 diverts, so the label and the behaviour cannot disagree. */
+              : (function(){
+                  const stillOne = d.existingCustomerId &&
+                    (jobAddresses || []).some(function(a){ return a.id === d.existingCustomerId; });
+                  const label = stillOne ? 'Apply Re-quote' : 'Convert to Customer';
+                  const tip = stillOne
+                    ? 'Update the customer they already are'
+                    : 'Convert to Customer';
+                  return '<button type="button" class="icon-btn" data-converttocust="'+item.id+'" title="'+tip+'" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:var(--gold-dim);">'+label+'</button>';
+                })())+
             '<button type="button" class="icon-btn" data-archivequote="'+item.id+'" title="Archive this quote" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:var(--slate);">Archive</button>')+
         '<select data-id="'+item.id+'" class="quoteStatusSelect" style="border-radius:8px; border:1px solid var(--line); padding:6px 8px; font-size:12.5px;">'+
           '<option value="new"'+(status==='new'?' selected':'')+'>New</option>'+
