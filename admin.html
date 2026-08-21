@@ -35585,6 +35585,29 @@ const TAKE_BASE_START=new Date(2027,0,4);
 function addDays(dt,n){const x=new Date(dt);x.setDate(x.getDate()+n);return x;}
 function daysBetween(a,b){return Math.round((a-b)/DAYMS);}
 function isWeekend(dt){const g=dt.getDay();return g===0||g===6;}
+/* ⭐ NOBODY WORKS THANKSGIVING, AND THE SCHEDULE HAS TO KNOW IT TOO (2026-08-21).
+   Owner: "as crews begin to not finish their entire day and we get more people
+   ... when we recaluclate it will create days between nov 20 and thanksgiving,
+   but we dont work on the day of thanksgiving."
+
+   ⚠ THE BUILDER ALREADY KNEW. `isWorkingDay` has excluded the holiday since
+   2026-08-18, so planNewCrewDays never puts a crew-day on it — measured on a
+   late-season rebuild it lays out Nov 20, 23, 24, 25 and steps over the 26th.
+   THIS side did not. The builder hands back days as OFFSETS, and layoutSequence
+   turns those back into real dates skipping weekends only, so the day the builder
+   had carefully placed on the 27th could be laid down on Thanksgiving itself. The
+   same hole was in every hand shift — Push later, Day off, a cascade — because
+   they all re-flow through here, and in nextWeekday, which places fixer routes.
+
+   ⚠ A PIN IS STILL A PIN. Force exact date deliberately overrides this, exactly
+   as it does for a weekend; it just says which kind of day off it landed on. */
+function isThanksgiving(dt){
+  return typeof isThanksgivingDay==='function' ? isThanksgivingDay(dt) : false;
+}
+function isDayOff(dt){ return isWeekend(dt)||isThanksgiving(dt); }
+function dayOffName(dt){
+  return isThanksgiving(dt) ? 'Thanksgiving' : (isWeekend(dt) ? 'weekend' : '');
+}
 function dlabel(dt){return{wd:WD[dt.getDay()],full:MO[dt.getMonth()+1]+' '+dt.getDate()};}
 function isoOf(dt){return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');}
 function esc(s){return(''+s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
@@ -35639,7 +35662,7 @@ function pinHorizon(){
   let d=new Date(); d.setHours(0,0,0,0);
   for(let i=0;i<PIN_HONOURED_BUSINESS_DAYS;i++){
     d=addDays(d,1);
-    while(isWeekend(d))d=addDays(d,1);
+    while(isDayOff(d))d=addDays(d,1);
   }
   return d;
 }
@@ -35656,8 +35679,8 @@ function layoutSequence(days){
     if(pin){day._date=new Date(pin);if(!cursor||day._date>cursor)cursor=new Date(day._date);continue;}
     let d=desired(day);
     if(cursor&&d<=cursor)d=addDays(cursor,1);
-    while(isWeekend(d))d=addDays(d,1);
-    while(cursor&&d<=cursor){d=addDays(d,1);while(isWeekend(d))d=addDays(d,1);}
+    while(isDayOff(d))d=addDays(d,1);
+    while(cursor&&d<=cursor){d=addDays(d,1);while(isDayOff(d))d=addDays(d,1);}
     day._date=d;cursor=d;
   }
 }
@@ -36273,7 +36296,7 @@ function sendFixToList(id){const f=findHouse(id);if(!f)return;f.day.houses=f.day
   FIXLIST.push({id:f.house.id,name:f.house.name,address:f.house.address,city:f.house.city,zip:f.house.zip,phone:f.house.phone,issue:f.house.issue,addedDate:f.house.addedDate});renderAll();toast(f.house.name+' moved to the fix list');}
 function addListFixToDay(id,dayId){const idx=FIXLIST.findIndex(x=>x.id===id);if(idx<0)return;const fx=FIXLIST[idx];const day=getDay(dayId);if(!day)return;
   const h=fixToHouse(fx);const l=dlabel(day._date);h.autoDay=l.wd+' '+l.full;h.autoReason='added by you';day.houses.push(h);FIXLIST.splice(idx,1);selSchedule=dayId;renderAll();toast(fx.name+' fix added to '+l.full);}
-function nextWeekday(dt){let d=new Date(dt);while(isWeekend(d))d=addDays(d,1);return d;}
+function nextWeekday(dt){let d=new Date(dt);while(isDayOff(d))d=addDays(d,1);return d;}
 function anchorToday(){return installDays().length?installDays()[0]._date:BASE_START;}
 function buildFixRoutes(){
   if(!FIXLIST.length){toast('Fix list is empty');return;}
@@ -36303,8 +36326,13 @@ function renderSeasonBar(){
   RT.getElementById('startDate').value=isoOf(addDays(BASE_START,globalDelta));
   const rd=RT.getElementById('shiftRead'), lab=dlabel(first), last=dlabel(installDays()[installDays().length-1]._date);
   rd.innerHTML=(globalDelta===0?'Plan runs ':'Shifted <b>'+(globalDelta>0?'+':'')+globalDelta+'d</b> — ')+'<b>'+lab.wd+' '+lab.full+'</b> → <b>'+last.full+'</b>.';
-  const bumped=SEASON.filter(d=>!d.isFixRoute&&!d.isTakedown&&!d.pin&&isWeekend(desired(d))).length, wk=RT.getElementById('wkNote');
-  if(bumped){wk.style.display='';wk.innerHTML='⤷ '+bumped+' route day'+(bumped===1?'':'s')+' landed on a weekend and moved to the next weekday.';}else wk.style.display='none';
+  const bumped=SEASON.filter(d=>!d.isFixRoute&&!d.isTakedown&&!d.pin&&isDayOff(desired(d))).length, wk=RT.getElementById('wkNote');
+  /* Named rather than lumped in as "a weekend": a day that moved off Thanksgiving
+     moved for a different reason, and the office should not have to work out which. */
+  const overTg=SEASON.filter(d=>!d.isFixRoute&&!d.isTakedown&&!d.pin&&isThanksgiving(desired(d))).length;
+  if(bumped){wk.style.display='';wk.innerHTML='⤷ '+bumped+' route day'+(bumped===1?'':'s')+
+    ' landed on a '+(overTg===bumped?'holiday':(overTg?'weekend or Thanksgiving':'weekend'))+
+    ' and moved to the next working day.';}else wk.style.display='none';
   /* ⭐ A SAVED PLAN DOES NOT CHANGE WHEN THE RULES DO.
      Owner, 2026-08-17, looking at a 1 October day still carrying seven towns
      on one crew: "we are breaking off to American Fork". The builder had
@@ -36748,7 +36776,7 @@ function renderPanelInto(elId,day){
   else{h+=weekGuideHTML(day)+'<div class="daycontrols" style="padding:10px 16px">'+
       '<button class="mini" data-pull="'+day.id+'">◀ Pull this + rest earlier</button><button class="mini" data-push="'+day.id+'">Push this + rest later ▶</button>'+
       '<button class="mini warn" data-skip="'+day.id+'">✕ Day off (push rest later)</button><span class="lbl">Force exact date</span><input type="date" class="pin" data-pin="'+day.id+'" value="'+isoOf(dt)+'">'+
-      (day.pin?'<button class="mini" data-unpin="'+day.id+'">clear</button>':'')+'<span class="read">'+(shift!==0?'shifted '+(shift>0?'+':'')+shift+'d':'on plan date')+(day.pin?' · manual date'+(isWeekend(dt)?' (weekend)':''):'')+'</span></div>';}
+      (day.pin?'<button class="mini" data-unpin="'+day.id+'">clear</button>':'')+'<span class="read">'+(shift!==0?'shifted '+(shift>0?'+':'')+shift+'d':'on plan date')+(day.pin?' · manual date'+(dayOffName(dt)?' ('+dayOffName(dt)+')':''):'')+'</span></div>';}
   if(!n)h+='<div class="emptyday">No houses on this day.</div>';
   else if(fr)h+=day.houses.map((x,i)=>stopHTML(x,i+1,day.id)).join('');
   else{
@@ -37995,7 +38023,7 @@ RT.addEventListener('change',e=>{const t=e.target;
   }
   if(t.dataset.move){moveHouse(t.dataset.move,t.value);return;}
   if(t.dataset.fixadd&&t.value){addListFixToDay(t.dataset.fixadd,t.value);return;}
-  if(t.dataset.pin){const d=getDay(t.dataset.pin);if(d&&t.value){d.pin=new Date(t.value+'T00:00:00');renderAll();toast('Date set'+(isWeekend(d.pin)?' (weekend)':''));}return;}
+  if(t.dataset.pin){const d=getDay(t.dataset.pin);if(d&&t.value){d.pin=new Date(t.value+'T00:00:00');renderAll();toast('Date set'+(dayOffName(d.pin)?' ('+dayOffName(d.pin)+')':''));}return;}
 });
 RT.addEventListener('click',e=>{const t=e.target;
   const tab=t.closest('.tab');if(tab){switchTab(tab.dataset.tab);return;}

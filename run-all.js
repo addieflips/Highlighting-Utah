@@ -7811,6 +7811,13 @@ suite('Suite 25. A day is only SET if it is within two business days');
     const api = eval(
       'function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x;}\n' +
       'function isWeekend(d){const k=d.getDay();return k===0||k===6;}\n' +
+      /* ⚠ pinHorizon walks the calendar through isDayOff since 2026-08-21, so
+         the holiday rule has to come with it. Lifted from the real file rather
+         than stubbed, or the harness proves the horizon skips a day it does not. */
+      extractFn(admin, 'thanksgivingDate') + '\n' +
+      extractFn(admin, 'isThanksgivingDay') + '\n' +
+      extractFn(admin, 'isThanksgiving') + '\n' +
+      extractFn(admin, 'isDayOff') + '\n' +
       admin.slice(constStart, admin.indexOf('function pinHorizon')) +
       horizonSrc + '\n' + effSrc +
       '\n;({horizon: pinHorizon, eff: effectivePin, days: PIN_HONOURED_BUSINESS_DAYS})');
@@ -11654,10 +11661,17 @@ suite('Suite 48. Days within two working days are set');
     admin.indexOf('const worked=(dt&&dt<today)'),
     'a day that is set but has nothing done yet must be caught first, or it is treated as fair game');
 
+  /* ⚠ WORKING days, which since 2026-08-21 means Thanksgiving is not one of
+     them either. isDayOff is isWeekend plus the holiday, so this still asserts
+     the Friday-rebuild rule below and no longer goes red on the day the holiday
+     was added to it. */
   check('S48', 'it is measured in WORKING days',
     /PIN_HONOURED_BUSINESS_DAYS=2;/.test(admin) &&
-    /while\(isWeekend\(d\)\)d=addDays\(d,1\);/.test(fn('pinHorizon')),
+    /while\(isDayOff\(d\)\)d=addDays\(d,1\);/.test(fn('pinHorizon')),
     'a Friday rebuild must not quietly set Saturday and Sunday and leave Monday loose');
+  check('S48', 'and a working day is a weekday that is not the holiday',
+    /function isDayOff\(dt\)\{ return isWeekend\(dt\)\|\|isThanksgiving\(dt\); \}/.test(admin),
+    'nobody works Thanksgiving, so it cannot be one of the two business days either');
 
   check('S48', 'the rebuild reports how many it left alone',
     /locked:locked\.length,/.test(admin));
@@ -25957,6 +25971,111 @@ suite('124. The house out on its own goes last, on the way home');
       ordered[ordered.length - 2] === far,
       'got ' + ordered.slice(-2).map(h => h.name).join(' then '));
   }
+}
+
+/*
+ * Suite 125. The schedule keeps off Thanksgiving, not just off weekends.
+ *
+ * Owner, 2026-08-21: "as crews begin to not finish their entire day and we get
+ * more people ... when we recaluclate it will create days between nov 20 and
+ * thanksgiving, but we dont work on the day of thanksgiving."
+ *
+ * ⚠ HALF OF THIS ALREADY WORKED AND HALF OF IT DID NOT, which is why it went
+ * unnoticed. `isWorkingDay` has excluded the holiday since 2026-08-18, so
+ * planNewCrewDays never puts a crew-day on it — a late-season rebuild lays out
+ * Nov 20, 23, 24, 25 and steps over the 26th, and Suite 52 covers that. But the
+ * builder hands its days back as OFFSETS, and layoutSequence turns those into
+ * the dates the office actually sees while skipping weekends ONLY. Ten
+ * consecutive crew-days from Mon 16 Nov came out on 16,17,18,19,20,23,24,25,
+ * 26,27 — and the 26th is Thanksgiving. Every hand shift re-flows through the
+ * same function, and so do fixer routes through nextWeekday.
+ *
+ * So the checks below drive the LAYOUT, not the builder. A check on the builder
+ * passes today and proves nothing about the half that was broken.
+ */
+suite('125. The schedule keeps off Thanksgiving, not just off weekends');
+{
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+  const parts = ['isWeekend', 'isThanksgiving', 'isDayOff', 'dayOffName', 'addDays',
+                 'layoutSequence', 'nextWeekday', 'thanksgivingDate', 'isThanksgivingDay']
+    .map(pick).filter(Boolean).join(LF_);
+  if (!pick('layoutSequence') || !pick('isDayOff')) {
+    check('S125', 'the schedule’s date layout is findable', false,
+      'renamed or removed — update this test rather than deleting it');
+  } else {
+    const prelude = 'let BASE_START=new Date(2026,10,16), globalDelta=0, SEASON=[];' + LF_ +
+      'function daysBetween(a,b){return Math.round((a-b)/86400000);}' + LF_ +
+      'function deltaFor(){return globalDelta;}' + LF_ +
+      'function effectivePin(d){return d && d.pin ? d.pin : null;}' + LF_ +
+      'function desired(d){return addDays(BASE_START,d.base+d.cascade);}' + LF_;
+    const api = eval(prelude + parts + LF_ +
+      ';({layout: layoutSequence, next: nextWeekday, tg: thanksgivingDate,' +
+      '  off: isDayOff, name: dayOffName})');
+
+    const TG = api.tg(2026);
+    const iso = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') +
+      '-' + String(d.getDate()).padStart(2, '0');
+    check('S125', 'Thanksgiving 2026 is Thursday 26 November',
+      iso(TG) === '2026-11-26' && TG.getDay() === 4, 'got ' + iso(TG));
+
+    /* Ten consecutive crew-days from Mon 16 Nov. Skipping weekends alone puts
+       the ninth of them on the holiday — that is the bug, reproduced. */
+    const days = [];
+    for (let i = 0; i < 10; i++) days.push({ id: 'd' + i, base: i, cascade: 0, pin: null, houses: [] });
+    api.layout(days);
+    const dates = days.map(d => iso(d._date));
+    check('S125', 'no crew-day is ever laid down on Thanksgiving',
+      dates.indexOf('2026-11-26') === -1,
+      'got ' + dates.join(', '));
+    check('S125', 'the days either side of it are still worked',
+      dates.indexOf('2026-11-25') > -1 && dates.indexOf('2026-11-27') > -1,
+      'stepping over the holiday must not cost the whole week');
+    /* ⚠ THE OWNER'S ACTUAL ASK: the run-up week has to be USED, not skipped past.
+       A version that jumped the whole of Thanksgiving week would pass the check
+       above and be useless. */
+    check('S125', 'and the Nov 20 to Thanksgiving window is filled',
+      ['2026-11-20', '2026-11-23', '2026-11-24', '2026-11-25']
+        .every(d => dates.indexOf(d) > -1),
+      'got ' + dates.join(', '));
+    check('S125', 'weekends are still skipped',
+      !dates.some(d => ['2026-11-21', '2026-11-22', '2026-11-28', '2026-11-29'].indexOf(d) > -1),
+      'the older rule must survive the newer one');
+    check('S125', 'and nothing is lost or doubled up on one date',
+      days.length === 10 && new Set(dates).size === 10, dates.join(', '));
+
+    /* ⚠ A PIN IS STILL A PIN. Force exact date deliberately overrides weekends,
+       and must keep overriding — the office sometimes has to work a holiday. */
+    const pinned = [{ id: 'p', base: 0, cascade: 0, pin: new Date(2026, 10, 26), houses: [] }];
+    api.layout(pinned);
+    check('S125', 'but Force exact date can still put a day on it deliberately',
+      iso(pinned[0]._date) === '2026-11-26',
+      'the override exists for weekends and must work the same way here');
+    check('S125', 'and the screen names which kind of day off that is',
+      api.name(new Date(2026, 10, 26)) === 'Thanksgiving' &&
+      api.name(new Date(2026, 10, 21)) === 'weekend' &&
+      api.name(new Date(2026, 10, 24)) === '',
+      '"(weekend)" on a Thursday in late November would just be wrong');
+
+    /* Fixer routes are placed through nextWeekday, not through the layout. */
+    check('S125', 'a fixer route is not placed on Thanksgiving either',
+      iso(api.next(new Date(2026, 10, 26))) === '2026-11-27',
+      'got ' + iso(api.next(new Date(2026, 10, 26))));
+    check('S125', 'nextWeekday still steps over a weekend',
+      iso(api.next(new Date(2026, 10, 21))) === '2026-11-23');
+  }
+
+  /* The two-business-day "SET" lock walks the calendar too. A day nobody works
+     is not one of the two, or a Wednesday in Thanksgiving week reads as set
+     when the crew is not out again until Monday. */
+  const horizon = sectionFrom(admin, admin.indexOf('function pinHorizon()'));
+  check('S125', 'the two-business-day lock does not count Thanksgiving as a business day',
+    /while\(isDayOff\(d\)\)/.test(horizon),
+    'otherwise a day is frozen as SET on the strength of a day nobody works');
+  const bar = sectionFrom(admin, admin.indexOf('function renderSeasonBar()'));
+  check('S125', 'and the note explaining moved days names the holiday',
+    /isThanksgiving\(desired\(d\)\)/.test(bar) && /Thanksgiving/.test(bar),
+    'a day that moved off Thanksgiving moved for a different reason than a weekend');
 }
 
 // A check that scores after this summary is a check that cannot fail the build.
