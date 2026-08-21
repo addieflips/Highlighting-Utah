@@ -8146,7 +8146,13 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
     '<h3 style="color:var(--dusk);">Update '+esc(who)+'</h3>'+
     '<p>They are already a customer'+(num ? ' on <strong>#'+esc(num)+'</strong>' : '')+', so this updates the record they already have. It does <strong>not</strong> add a second copy of them, and they keep their number, their invoice and their place on any route.</p>'+
     '<div style="background:var(--paper); border-radius:10px; padding:10px 13px; font-size:13px; line-height:1.6;">'+
-      '<div>Price <strong>'+fmtMoney(oldPrice)+'</strong> &rarr; <strong id="requotePriceEcho">'+(newPrice !== null ? fmtMoney(newPrice) : 'not set') +'</strong></div>'+
+      /* ⚠ AND AN ARROW POINTING AT THE SAME NUMBER IS A CHANGE THAT DID NOT HAPPEN.
+         Ashley's re-quote read 'Price $600.00 &rarr; $600.00': she is already on $600 and
+         the re-quote is about the footage, not the money. Glanced at, an arrow reads as a
+         rise. The marker is filled in by refreshGo, not here, because the box below is
+         editable and the two must never disagree. */
+      '<div>Price <strong>'+fmtMoney(oldPrice)+'</strong> &rarr; <strong id="requotePriceEcho">'+(newPrice !== null ? fmtMoney(newPrice) : 'not set') +'</strong>'+
+        '<span id="requotePriceDelta" style="font-weight:400; color:var(--slate); font-size:12px;"></span></div>'+
       (savedPrice === null && feetPrice !== null
         ? '<div style="color:#8A6100; font-size:12px;">Worked out from '+newFeet+' ft at '+fmtMoney(perFootRate)+'/ft. Nothing was saved on the re-quote, so check it.</div>'
         : '')+
@@ -8155,7 +8161,8 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
         : '')+
       (newFeet
         ? '<div>Feet <strong>'+(oldFeet || 'not recorded')+'</strong> &rarr; <strong>'+newFeet+' ft</strong>'+
-            (newBins ? ' &middot; '+newBins+' bin'+(newBins === 1 ? '' : 's') : '')+'</div>'
+            (newBins ? ' &middot; '+newBins+' bin'+(newBins === 1 ? '' : 's') : '')+
+            (oldFeet && oldFeet === newFeet ? '<span style="font-weight:400; color:var(--slate); font-size:12px;"> &mdash; unchanged</span>' : '')+'</div>'
         : '<div style="color:var(--slate);">No new footage on the re-quote &mdash; their '+(oldFeet ? oldFeet+' ft' : 'footage')+' stays as it is.</div>')+
     '</div>'+
     (numberStillFits
@@ -8182,6 +8189,7 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
   const priceBox = document.getElementById('requotePriceInput');
   const goBtn = document.getElementById('applyRequoteBtn');
   const echo = document.getElementById('requotePriceEcho');
+  const delta = document.getElementById('requotePriceDelta');
   /* A price the form cannot use must not be walked past. Blank or negative
      disables the button and says so, rather than opening the record and leaving
      the old price in place under a button that promised a new one. */
@@ -8197,6 +8205,12 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
     goBtn.style.opacity = (p === null) ? '.55' : '';
     goBtn.style.cursor = (p === null) ? 'not-allowed' : '';
     if(echo) echo.textContent = (p === null) ? 'not set' : fmtMoney(p);
+    if(delta){
+      delta.textContent = (p === null) ? ''
+        : (p === oldPrice ? '  \u2014 unchanged'
+          : (p > oldPrice ? '  \u2014 up ' + fmtMoney(p - oldPrice)
+                          : '  \u2014 down ' + fmtMoney(oldPrice - p)));
+    }
   }
   priceBox.addEventListener('input', refreshGo);
   refreshGo();

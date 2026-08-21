@@ -19451,6 +19451,59 @@ suite('Suite 107. Pricing a re-quote from the popup');
       'a rate of zero would price a 300 ft house at nothing');
   }
 
+  /* ⚠ AN ARROW POINTING AT THE SAME NUMBER IS A CHANGE THAT DID NOT HAPPEN. Ashley's
+     popup read 'Price $600.00 → $600.00': she is already on $600, and this re-quote is
+     about the footage, not the money. Glanced at, an arrow reads as a rise. */
+  {
+    const already600 = {id: 'c894', data: {name: 'Ashley Wray', customerNumber: '894',
+                                           housePrice: 600, measuredFeet: 0}};
+    const r = run({name: 'Ashley Wray', estimatedFeet: 300}, already600, 2);
+    check('S107', 'a price that did not move says so',
+      /unchanged/.test(r.el('requotePriceDelta').textContent),
+      'the same figure on both sides of an arrow is the thing being read wrong');
+
+    r.el('requotePriceInput').value = '725';
+    r.el('requotePriceInput').fire('input');
+    check('S107', 'and a rise is named as a rise, with the difference',
+      /up/.test(r.el('requotePriceDelta').textContent) &&
+      /125/.test(r.el('requotePriceDelta').textContent),
+      'the office should not have to work out the gap in their head');
+
+    r.el('requotePriceInput').value = '500';
+    r.el('requotePriceInput').fire('input');
+    check('S107', 'and a drop as a drop',
+      /down/.test(r.el('requotePriceDelta').textContent) &&
+      /100/.test(r.el('requotePriceDelta').textContent));
+
+    r.el('requotePriceInput').value = '';
+    r.el('requotePriceInput').fire('input');
+    check('S107', 'and an empty box says nothing rather than comparing against nothing',
+      r.el('requotePriceDelta').textContent === '',
+      'blank is not a price and "down $600.00" would be a lie about one');
+  }
+
+  /* The footage arrow had the same problem, and a re-quote raised over a price alone
+     carries the footage through unchanged — which is the commonest kind. */
+  {
+    const sameFeet = {id: 'c894', data: {name: 'Ashley Wray', customerNumber: '894',
+                                         housePrice: 600, measuredFeet: 300}};
+    const r = run({name: 'Ashley Wray', estimatedFeet: 300, quotedPrice: 650}, sameFeet, 2);
+    check('S107', 'footage that did not move says so too',
+      /300 ft<\/strong>[\s\S]{0,120}unchanged/.test(r.html()),
+      'a re-quote answered by a price alone leaves the feet exactly where they were');
+  }
+
+  /* And it must not claim a change did not happen when it did. */
+  {
+    const r = run({name: 'Ashley Wray', estimatedFeet: 300}, 
+      {id: 'c894', data: {name: 'Ashley Wray', customerNumber: '894',
+                          housePrice: 600, measuredFeet: 180}}, 2);
+    check('S107', 'footage that really moved is not marked unchanged',
+      !/unchanged/.test(r.html()) &&
+      /180<\/strong> &rarr; <strong>300 ft/.test(r.html()),
+      '180 ft to 300 ft is exactly the change this popup exists to show');
+  }
+
   /* ---- and the card that started it says what it is showing ---------------- */
   /* ⚠ SCOPED TO THE BRANCH, because the phrase sits on TWO of them — the one that
      starts on their last price and the one that suggests from the footage. A bare
