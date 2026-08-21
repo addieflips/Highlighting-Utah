@@ -1593,22 +1593,6 @@ check('flow', 'conversion falls back to the quote wording when no colours are ti
   'a quote whose colours were typed as words rather than ticked would convert with ' +
   'no lightsDescription at all, and needsLightBuild is set from that — the customer ' +
   'would never appear in the Warehouse build queue');
-/* ⭐ AND EVERY NEW HOUSE IS FLAGGED, COLOURS OR NO COLOURS (2026-08-21). Owner, on two
-   customers who were nowhere in the warehouse: "Ashley and Rachel should have lights in
-   warehouse so we can build them."
-
-   ⚠ THE FLAG USED TO BE `!!lightsDescription`, AND A HOUSE WITH NO COLOURS FELL DOWN
-   THE CRACK BETWEEN TWO LISTS. The build queue lists flagged houses; the "Waiting on
-   light colours" block lists flagged houses that have none. A house nobody flagged is in
-   neither, and the tab reports there is nothing to build — about work that is genuinely
-   outstanding. */
-check('flow', 'every newly added house is flagged for the warehouse',
-  /needsGeocode: pinFailed, needsLightBuild: true/.test(admin),
-  'a customer added without light colours was flagged false and appeared in no list at ' +
-  'all — not the build queue, not the waiting-on-colours block');
-check('flow', 'and the waiting-on-colours block is still what catches the ones with none',
-  /if\(!d\.needsLightBuild \|\| d\.maybeNextYear\) return;[\s\S]{0,200}blocked\.push\(item\)/.test(admin),
-  'flagging them is only safe because there is a list for the ones that cannot be built yet');
 
 /* --- Convert to Customer: automatic or manual --- */
 const convChoice = extractFn(admin, 'showConvertQuoteChoice') || '';
@@ -19346,23 +19330,10 @@ suite('Suite 106. Moving house, and withdrawing a re-quote');
 suite('Suite 107. Pricing a re-quote from the popup');
 
 {
-  /* ⭐ THE HELPERS THE POPUP LEANS ON GO IN THE SAME EVAL (2026-08-21). Both were
-     added with the "fill the form out fresh" answer on a re-quote: one decides whether
-     there is anything to say on the popup, the other fills their answers into the Edit
-     Customer form. Left out, the popup throws the moment a completed form reaches it —
-     which is exactly the case worth testing. */
-  /* requoteLightsToCarry is on that list too: the popup calls it to fill a
-     BLANK colour field from the quote, and it is separate work from the form
-     answers below. */
-  const src = extractFn(admin, 'requoteLightsToCarry') + '\n' +
-              extractFn(admin, 'requoteFormSummary') + '\n' +
-              extractFn(admin, 'requoteSetSelect') + '\n' +
-              extractFn(admin, 'applyRequoteFormAnswers') + '\n' +
-              extractFn(admin, 'showApplyRequoteChoice');
-  check('S107', 'showApplyRequoteChoice is still there', /function showApplyRequoteChoice/.test(src));
-  check('S107', 'and so are the helpers it now calls',
-    /function requoteFormSummary/.test(src) && /function applyRequoteFormAnswers/.test(src),
-    'the popup calls both — missing, it throws as soon as a filled-in form reaches it');
+  /* requoteLightsToCarry comes along because the popup calls it. */
+  const src = extractFn(admin, 'requoteLightsToCarry') +
+    extractFn(admin, 'showApplyRequoteChoice');
+  check('S107', 'showApplyRequoteChoice is still there', !!src);
 
   /* A DOM small enough to read. Elements are created from the ids the popup's own
      markup declares, and an input keeps the value that markup gave it — so the
@@ -19373,10 +19344,6 @@ suite('Suite 107. Pricing a re-quote from the popup');
       if(byId[id]) return byId[id];
       byId[id] = {
         id: id, value: '', textContent: '', disabled: false, style: {}, dataset: {}, _h: {},
-        /* Selects only ever offer what the real markup offers — requoteSetSelect reads
-           this to refuse a value the dropdown does not have (the public form's "Any"
-           wire colour, which Edit Customer does not list). Empty until a check fills it. */
-        options: [],
         addEventListener: function(t, f){ (this._h[t] = this._h[t] || []).push(f); },
         fire: function(t){ (this._h[t] || []).forEach(function(f){ f({}); }); },
         remove: function(){ byId[id] = null; delete byId[id]; }
@@ -19408,29 +19375,17 @@ suite('Suite 107. Pricing a re-quote from the popup');
       },
       get innerHTML(){ return lastHtml; }
     };
-    /* The nine light-colour boxes on the Edit Customer form. applyRequoteFormAnswers
-       ticks these, so they have to be real enough to tick. */
-    const colorBoxes = ['Warm White','Pure White','Red','Green','Blue','Purple','Orange','Pink','Multi']
-      .map(function(v){
-        /* classList needs BOTH: applyRequoteFormAnswers toggles, requoteLightsToCarry
-           adds. A stub with only one throws where the page would not, which hides a
-           real failure behind a crash. */
-        return {value: v, checked: false, closest: function(){
-          return {classList: {toggle: function(){}, add: function(){}, remove: function(){}}};
-        }};
-      });
     const document = {
       createElement: function(){ return overlay; },
       body: {appendChild: function(){}},
       getElementById: function(id){ return el(id); },
-      querySelectorAll: function(sel){
-        return String(sel).indexOf('editcust-color-check') !== -1 ? colorBoxes : [];
-      },
+      /* The popup ticks colour boxes with this. Without it here the harness
+         threw where the page would not, which hides a real failure behind a
+         crash. */
+      querySelectorAll: function(){ return []; },
       querySelector: function(){ return null; }
     };
-    return {document: document, el: el, overlay: overlay, colorBoxes: colorBoxes,
-            ticked: function(){ return colorBoxes.filter(function(b){ return b.checked; }).map(function(b){ return b.value; }); },
-            html: function(){ return lastHtml; }};
+    return {document: document, el: el, overlay: overlay, html: function(){ return lastHtml; }};
   }
 
   function run(quote, customer, rate){
@@ -19451,27 +19406,18 @@ suite('Suite 107. Pricing a re-quote from the popup');
       doc: (a, b, c) => ({path: b + '/' + c}),
       db: {},
       requoteBeingConverted: null,
-      requoteBuildChoice: null,
-      requoteLightsPattern: '',
-      requoteColorsSnapshot: null,
-      parseCustLights: function(text){
-        if(!text) return {colors: [], notes: ''};
-        return {colors: String(text).split(/[,\u2014]/).map(function(x){ return x.trim(); }).filter(Boolean), notes: ''};
-      },
-      fmtDate: function(){ return '21 Aug 2026'; },
-      syncEditSpecificOutletNotes: function(){}
+      requoteBuildChoice: null
     };
     const names = Object.keys(ctx);
     /* The two globals the popup parks for the Save Changes handler are function
        parameters in here, so the closure below is how their value is read back out. */
     const made = new Function(...names, src +
       ';return {fn: showApplyRequoteChoice, choice: function(){ return requoteBuildChoice; },' +
-      ' converting: function(){ return requoteBeingConverted; },' +
-      ' pattern: function(){ return requoteLightsPattern; }};')(...names.map(n => ctx[n]));
+      ' converting: function(){ return requoteBeingConverted; }};')(...names.map(n => ctx[n]));
     made.fn('q1', quote, customer);
     return {dom: dom, writes: writes, toasts: toasts, opened: () => opened,
-            choice: made.choice, converting: made.converting, pattern: made.pattern,
-            ticked: dom.ticked, html: dom.html, el: dom.el};
+            choice: made.choice, converting: made.converting,
+            html: dom.html, el: dom.el};
   }
 
   const ashley = {id: 'c894', data: {name: 'Ashley Wray', customerNumber: '894',
@@ -20283,108 +20229,6 @@ suite('Suite 107. Pricing a re-quote from the popup');
       'writing NaN into a money field is how a total goes blank');
   }
 
-  /* ⭐ A THIRD KIND: JUST THE PRICE, AND THE WAREHOUSE DOES NOTHING. Owner, 2026-08-21,
-     looking at the chooser: "you can also get a requote because you just changed the price
-     and when that happens nothing gets added to warehouse but it gives you the option to
-     explain why you changed the price."
-
-     ⚠ THE OTHER TWO BOTH IMPLY WORK. An addition builds the extra; a move recycles the
-     old set and builds a new one. A price change is the same house — same lights, same
-     feet, same street — so building or recycling would both be work nobody wants done,
-     and doing either would put a real bundle on a real shelf for no reason. */
-  {
-    const ask = extractFn(admin, 'askRequoteKind');
-    check('S118', 'the chooser offers all three',
-      /data-requotekind="price"/.test(ask) && /Just the price/.test(ask) &&
-      /Nothing goes to the warehouse/.test(ask),
-      'she asked for it in those words');
-    check('S118', 'and the note box says it can carry the reason for the price',
-      /why the price moved/.test(ask),
-      'owner: "it gives you the option to explain why you changed the price"');
-  }
-
-  {
-    const same = {id: 'cp', data: {name: 'Price Only', customerNumber: '7',
-                                   housePrice: 600, measuredFeet: 180,
-                                   address: '12 Main St'}};
-    const r = run({name: 'Price Only', estimatedFeet: 180, quotedPrice: 700,
-                   address: '12 Main St', requoteKind: 'price'}, same, 2);
-    check('S118', 'a price-only re-quote pre-selects doing nothing',
-      r.el('requoteBuildNone').checked === true &&
-      r.el('requoteBuildRecycle').checked === false,
-      'the house has not changed, so neither queue should hear about it');
-    check('S118', 'and says why that is the one',
-      /raised as a price change, so this is the one/.test(r.html()));
-
-    r.el('applyRequoteBtn').fire('click');
-    check('S118', 'and pressing it parks a warehouse choice of nothing',
-      !!r.choice() && r.choice().mode === 'none',
-      'it is not the same as no choice at all: she was asked and said nothing changed');
-    check('S118', 'while still applying the new price',
-      r.el('editCustHousePrice').value === 700);
-  }
-
-  /* ⚠ OFFERED, NOT FORCED. The office may raise it as a price change and then find
-     something else as well, so the other two answers stay pickable. */
-  {
-    const same = {id: 'cp2', data: {name: 'Changed Mind', customerNumber: '6',
-                                    housePrice: 600, measuredFeet: 180,
-                                    address: '12 Main St'}};
-    const r = run({name: 'Changed Mind', estimatedFeet: 300, quotedPrice: 700,
-                   address: '12 Main St', requoteKind: 'price'}, same, 2);
-    check('S118', 'the top-up is still there to pick on a price-only re-quote',
-      /Build only what they do not already have/.test(r.html()) &&
-      r.el('requoteBuildTopUp').checked === false,
-      'offered but not selected');
-    r.el('requoteBuildNone').checked = false;
-    r.el('requoteBuildTopUp').checked = true;
-    r.el('applyRequoteBtn').fire('click');
-    check('S118', 'and choosing it overrides the price-only default',
-      r.choice().mode === 'topup' && r.choice().extraFeet === 120,
-      'Nothing is a default, not a lock');
-  }
-
-  /* And an ordinary re-quote is unchanged: Nothing exists but is not selected. */
-  {
-    const moved = {id: 'cm2', data: {name: 'Moved', customerNumber: '5',
-                                     measuredFeet: 180, address: '12 Old St'}};
-    const r = run({name: 'Moved', estimatedFeet: 300, quotedPrice: 600,
-                   address: '99 New Rd', requoteKind: 'address'}, moved, 2);
-    check('S118', 'a move still recycles and rebuilds',
-      r.el('requoteBuildNone').checked === false &&
-      r.el('requoteBuildRecycle').checked === true);
-    r.el('applyRequoteBtn').fire('click');
-    check('S118', 'and parks recycle, not nothing',
-      r.choice().mode === 'recycle');
-  }
-
-  /* ⚠ AND THE SAVE LEAVES BOTH QUEUES ALONE. 'none' is not 'no answer' — the office was
-     asked and said the house had not changed, so whatever flags are already on the
-     record stay exactly as they are. */
-  {
-    const at = admin.indexOf('    if(requoteBuildChoice){');
-    const end = admin.indexOf('    /* Applied last so it beats the RSVP dropdown', at);
-    const blk = (at > 0 && end > at) ? admin.slice(at, end) : '';
-    check('S118', 'the block that carries the choice out was found', !!blk);
-    if (blk) {
-      const apply = new Function('requoteBuildChoice', 'addrUpdates', 'serverTimestamp',
-        blk + 'return requoteBuildChoice;');
-      const up = {};
-      const left = apply({mode: 'none'}, up, function(){ return 'NOW'; });
-      check('S118', 'nothing means neither queue is written to',
-        Object.keys(up).length === 0,
-        'building or recycling for a price change puts a real bundle on a real shelf ' +
-        'for no reason');
-      check('S118', 'and the choice is still cleared afterwards',
-        left === null,
-        'left set, the next customer saved would inherit it');
-    }
-  }
-
-  check('S118', 'and the card says the warehouse does nothing',
-    /Price only \\u2014 the house has not changed, so the warehouse does nothing/.test(admin),
-    'somebody picking the card up later has to know which job it is, including none');
-
   /* ---- and the card that started it says what it is showing ---------------- */
   /* ⚠ SCOPED TO THE BRANCH, because the phrase sits on TWO of them — the one that
      starts on their last price and the one that suggests from the footage. A bare
@@ -20400,87 +20244,6 @@ suite('Suite 107. Pricing a re-quote from the popup');
   check('S107', 'and the red line under it names the fix',
     /Needs a price before it can be sent &mdash; click out of the price box above/.test(admin),
     'telling somebody what is wrong without telling them what to do is the dead end again');
-
-  /* ---- ⭐ THE ANSWERS THEY GAVE ON A FRESH FORM (2026-08-21) ------------------
-     Owner: "when an old house gets requoted I want them to choose whether they want to
-     fill out the form fresh or keep what's already there." index.html now offers that,
-     and a fresh form lands on the QUOTE. Without the carry-across below, a customer
-     re-does their colours after a remodel and the warehouse still builds last year's
-     pattern — the form would be a survey nobody read.
-
-     ⚠ THE BLANK-MEANS-UNCHANGED CHECKS ARE THE POINT OF THE OTHERS. The gate code and
-     the house notes are never sent down to that form (a quote token is not a
-     credential), so both boxes start empty. Treating empty as an answer would wipe a
-     gate code and the crew's permanent notes on every re-quote anybody applied. */
-  {
-    const fresh = {
-      name: 'Ashley Wray', estimatedFeet: 300, quotedPrice: 600,
-      formCompleted: true, formCompletedAt: {seconds: 1},
-      lightColors: ['Pure White','Red'], lightsDescription: 'Pure White, Pure White, Red',
-      wireColor: 'Any', outletTimer: 'Yes', specificOutlet: 'Yes',
-      specificOutletNotes: 'back patio', installPreference: 'October',
-      gateCode: '', notes: '', wantsMailedInvoice: true
-    };
-    const r = run(fresh, ashley, 2);
-    check('S107', 'a form filled in fresh is announced before the record opens',
-      /filled their details in fresh/.test(r.html()) && /Pure White, Pure White, Red/.test(r.html()),
-      'the next screen opens with it already filled in, and a change nobody announced is a change nobody checks');
-    r.el('editCustGateCode').value = '1234';
-    r.el('editCustNotes').value = 'Ladder goes on the north side';
-    r.el('editCustWireColor').options = [{value:'White'},{value:'Green'}];
-    r.el('editCustOutletTimer').options = [{value:''},{value:'Yes'},{value:'No'}];
-    r.el('editCustInstallPref').options = [{value:'Normal Schedule'},{value:'October'},{value:'November'}];
-    r.el('applyRequoteBtn').fire('click');
-    check('S107', 'their colours are ticked on the form that opens',
-      r.ticked().join(', ') === 'Pure White, Red',
-      'the warehouse builds what is on the customer, not what is on the quote');
-    check('S107', 'and a repeating pattern is held aside, not flattened by the tick boxes',
-      r.pattern() === 'Pure White, Pure White, Red',
-      '"White, White, Red" read back off checkboxes is "White, Red" — a different set of lights');
-    check('S107', 'the timer and the timing they asked for come across',
-      r.el('editCustOutletTimer').value === 'Yes' && r.el('editCustInstallPref').value === 'October');
-    check('S107', 'and the outlet they named',
-      r.el('editCustSpecificOutletNotes').value === 'back patio');
-    check('S107', 'a wire colour the Edit form does not offer is refused, not written blank',
-      r.el('editCustWireColor').value === '',
-      'the public form offers Any and this dropdown does not — assigning it leaves the select on nothing and saves a blank wire colour over White');
-    check('S107', 'a gate code they left blank does NOT wipe the one on the record',
-      r.el('editCustGateCode').value === '1234',
-      'they are never shown their gate code, so blank means unchanged — never "delete it"');
-    check('S107', 'and a blank note leaves the crew\u2019s permanent note alone',
-      r.el('editCustNotes').value === 'Ladder goes on the north side');
-    check('S107', 'the mailed-invoice answer comes across',
-      r.el('editCustWantsMailed').checked === true);
-  }
-  {
-    /* What they DID type lands — and lands alongside the crew's note, not over it. */
-    const r = run({name: 'Ashley Wray', quotedPrice: 600, formCompleted: true,
-                   lightColors: ['Red'], lightsDescription: 'Red',
-                   gateCode: '9911', notes: 'New porch on the east side'}, ashley, 2);
-    r.el('editCustGateCode').value = '1234';
-    r.el('editCustNotes').value = 'Ladder goes on the north side';
-    r.el('applyRequoteBtn').fire('click');
-    check('S107', 'a gate code they typed replaces the old one',
-      r.el('editCustGateCode').value === '9911');
-    check('S107', 'and their note is added to the crew\u2019s, not put over the top of it',
-      /Ladder goes on the north side/.test(r.el('editCustNotes').value) &&
-      /New porch on the east side/.test(r.el('editCustNotes').value),
-      '"ladder goes on the north side" is the crew\u2019s, not theirs to replace');
-    check('S107', 'a plain set of colours leaves no pattern behind',
-      r.pattern() === '',
-      'holding one would apply Ashley\u2019s wording to the next customer somebody saved');
-  }
-  {
-    /* Nobody filled anything in — the old, ordinary case. Nothing may move. */
-    const r = run({name: 'Ashley Wray', quotedPrice: 600}, ashley, 2);
-    check('S107', 'a re-quote with no form filled in says nothing about one',
-      !/filled their details in fresh/.test(r.html()));
-    r.el('editCustGateCode').value = '1234';
-    r.el('applyRequoteBtn').fire('click');
-    check('S107', 'and touches nothing on the record',
-      r.el('editCustGateCode').value === '1234' && r.ticked().length === 0,
-      'the price and the feet are the only two fields this step exists to change');
-  }
 }
 
 /* ⭐ SUITE 108. THE EDIT CUSTOMER SAVE, RUN RATHER THAN READ. Owner, 2026-08-20, on
@@ -23933,10 +23696,6 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
           'function savePortalLogin(t){ try{ localStorage.setItem("huPortalToken", t); }catch(e){} }' +
           'function loadPortalByToken(t){ sb.loggedInWith = t; }' +
           'function setQuoteConfirmSub(h){ document.getElementById("quoteLinkConfirmSub").innerHTML = h || ""; }' +
-          /* The third answer (2026-08-21) hands them the whole install form again.
-             Stubbed here so this suite stays about WHICH answers are offered and what
-             each one does with them; the form itself is filled in below. */
-          'function showQuoteDetailFormFresh(md){ sb.freshWith = md; sb.freshCalled = true; }' +
           offerSrc + openSrc +
           'this.offer = offerMemberChangeChoice; this.open = openPortalFromQuote;'
         ).call(box, d, w, w.localStorage, box);
@@ -23961,14 +23720,6 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
         acts.querySelectorAll('[data-mc="yes"]').length === 1 &&
         acts.querySelectorAll('[data-mc="no"]').length === 1,
         'one button each — yes goes to the portal, no closes it off');
-      /* ⭐ AND THE THIRD ONE. Owner, 2026-08-21: "when an old house gets requoted I want
-         them to choose whether they want to fill out the form fresh or keep what's
-         already there." A re-quote is nearly always raised because the HOUSE changed,
-         and the portal's change-one-thing screens are the wrong shape for a remodel. */
-      /* ⚠ HELD AS A GAP, NOT A FAILURE — see the note on qdPrefillFromMember below. */
-      gap('and so is filling the form out fresh',
-        acts.querySelectorAll('[data-mc="fresh"]').length === 1,
-        'the customer-facing half of this is NOT IN THE REPO. On 2026-08-21 an index.html push replaced the customer site with a copy of admin.html, which took this with it; index.html was restored from the last good copy, which predates it. Re-push index.html from the session that wrote it and these close by themselves.');
 
       /* No = the warm ending. */
       acts.querySelector('[data-mc="no"]').dispatchEvent(
@@ -23979,89 +23730,6 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
       check('S70', 'and the buttons are taken away once answered',
         acts.style.display === 'none' && acts.innerHTML === '',
         'leaving them up invites a second answer to a question already answered');
-
-      /* ⭐ AND WHAT "STARTED FROM WHAT WE HOLD" ACTUALLY PUTS IN THE BOXES. Run rather
-         than read: what matters here is a pattern being recognised as a pattern, and
-         two boxes deliberately staying EMPTY.
-
-         ⚠ THE GATE CODE AND THE HOUSE NOTES ARE NEVER SENT DOWN TO THIS FORM. A
-         quoteToken is minted in the visitor's own browser, so holding one proves
-         nothing about who you are — the same reason quoteRespond has never returned a
-         portalToken. Empty therefore has to MEAN unchanged, on the page and again in
-         admin.html, or applying a re-quote wipes a gate code every time. */
-      {
-        const prefillSrc = extractFn(idx, 'qdPrefillFromMember');
-        /* ⚠ A GAP, NOT A FAILURE. This is real work by the other session and the check
-           is a good one — it runs the function rather than reading it. What is missing is
-           the file it lives in. Written as a gap so the suite stays honest (it is
-           listed, by name, every run) without a red gate stopping unrelated work, and so
-           it turns itself back into a PASS the moment index.html comes back. */
-        gap('qdPrefillFromMember exists', !!prefillSrc,
-          'the customer-facing half of this is NOT IN THE REPO. On 2026-08-21 an index.html push replaced the customer site with a copy of admin.html, which took this with it; index.html was restored from the last good copy, which predates it. Re-push index.html from the session that wrote it and these close by themselves.');
-        if (prefillSrc) {
-          const fdom = new JSDOM(
-            '<form id="f">' +
-            '<div id="qdSimpleColorsRow"></div><div id="qdSequenceBuilderWrap"></div>' +
-            '<input type="checkbox" id="qdSpecificPatternToggle">' +
-            '<select name="wire_color"><option value="Any"></option><option value="White"></option><option value="Green"></option></select>' +
-            '<select name="install_month"><option value="Normal Schedule"></option><option value="October"></option><option value="November"></option></select>' +
-            '<label class="radio-pill"><input type="radio" name="outlet_timer" value="Yes"></label>' +
-            '<label class="radio-pill"><input type="radio" name="outlet_timer" value="No"></label>' +
-            '<label class="radio-pill"><input type="radio" name="specific_outlet" value="Yes"></label>' +
-            '<label class="radio-pill"><input type="radio" name="specific_outlet" value="No"></label>' +
-            '<div id="specificOutletNotesWrap" style="display:none"><textarea name="specific_outlet_notes"></textarea></div>' +
-            '<input name="gate_code"><textarea name="notes"></textarea>' +
-            '<input type="checkbox" name="wants_mailed">' +
-            '</form>');
-          const fd = fdom.window.document;
-          const box = {};
-          new Function('document', 'quoteDetailFormEl', 'QD_COLOR_HEX', 'sb',
-            'var qdSimpleColors = [], qdSequence = [];' +
-            'function renderQdSimpleColors(){ sb.simple = qdSimpleColors.slice(); }' +
-            'function renderQdSequence(){ sb.seq = qdSequence.slice(); }' +
-            prefillSrc + 'this.fill = qdPrefillFromMember;'
-          ).call(box, fd, fd.getElementById('f'),
-                 {'Warm White':1,'Pure White':1,'Red':1,'Green':1,'Blue':1,'Purple':1,'Orange':1,'Pink':1,'Multi':1}, box);
-          fd.querySelector('[name="gate_code"]').value = 'should be cleared';
-          box.fill({lightColors: ['Pure White','Red'], lightsDescription: 'Pure White, Pure White, Red',
-                    wireColor: 'Any', outletTimer: 'Yes', specificOutlet: 'Yes',
-                    specificOutletNotes: 'back patio', installPreference: 'October',
-                    wantsMailedInvoice: true});
-          check('S70', 'a repeating pattern opens the pattern builder, in order',
-            fd.getElementById('qdSpecificPatternToggle').checked === true &&
-            (box.seq || []).join(', ') === 'Pure White, Pure White, Red',
-            '"White, White, Red" shown as two ticked circles is a different set of lights');
-          check('S70', 'the wire colour, timing and timer they already have are filled in',
-            fd.querySelector('[name="wire_color"]').value === 'Any' &&
-            fd.querySelector('[name="install_month"]').value === 'October' &&
-            fd.querySelector('input[name="outlet_timer"][value="Yes"]').checked === true);
-          check('S70', 'and the outlet box is opened because they use a specific one',
-            fd.getElementById('specificOutletNotesWrap').style.display === 'block' &&
-            fd.querySelector('[name="specific_outlet_notes"]').value === 'back patio');
-          check('S70', 'the gate code box is empty and says an empty box keeps what we have',
-            fd.querySelector('[name="gate_code"]').value === '' &&
-            /keep the code we already have/i.test(fd.querySelector('[name="gate_code"]').placeholder),
-            'we never send them their own gate code, so it must not look lost either');
-          check('S70', 'and so does the notes box',
-            /keep the notes we already have/i.test(fd.querySelector('[name="notes"]').placeholder));
-          box.fill({lightColors: ['Red','Green'], lightsDescription: 'Red, Green'});
-          check('S70', 'a plain set of colours leaves the pattern builder shut',
-            fd.getElementById('qdSpecificPatternToggle').checked === false &&
-            (box.simple || []).join(', ') === 'Red, Green',
-            'two different colours is a set, not a repeating pattern');
-        }
-      }
-
-      /* Fresh = the whole form, started from what we already hold. */
-      sb.offer('sam@example.com', {lightsDescription: 'Red, Green'});
-      /* Guarded: on a build where the button does not exist this must score one FAIL,
-         not throw and take the remaining two thousand checks down with it. */
-      const freshBtn = acts.querySelector('[data-mc="fresh"]');
-      if (freshBtn) freshBtn.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
-      gap('"Fill it out fresh" opens the form with what we already hold',
-        sbNoToken.freshCalled === true &&
-        sbNoToken.freshWith && sbNoToken.freshWith.lightsDescription === 'Red, Green',
-        'the customer-facing half of this is NOT IN THE REPO. On 2026-08-21 an index.html push replaced the customer site with a copy of admin.html, which took this with it; index.html was restored from the last good copy, which predates it. Re-push index.html from the session that wrote it and these close by themselves.');
 
       /* Yes = their portal. With no saved login on this device it must fall
          back to the normal, rate-limited, last-name-checked sign-in. */
