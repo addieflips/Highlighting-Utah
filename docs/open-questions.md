@@ -197,7 +197,7 @@ phase 5, not the front. R-019's tiering stays correct as written.
 
 ---
 
-## Q-005 · intent · open · 2026-08-21
+## Q-005 · intent · answered (moot) · 2026-08-21
 How many days before install should the confirmation text go out?
 
 Needs to be far enough ahead to fix problems, close enough that the customer
@@ -211,8 +211,20 @@ should be meaningfully larger than 2 days. The warehouse builds one working day
 ahead of the van, which pushes the practical floor further out again.
 
 Blocks: plan §4.2, the send scheduler.
-Answer:
-Resulting map change:
+
+**Answer (Addie, 2026-08-21): the question does not apply. There is no
+pre-install confirmation — it is the RSVP email, which goes out once at the start
+of the season.** *"This is for emails we don't have twillo and this would be for
+RSVP emails."*
+
+That is earlier than any N-days-before-install answer would have been, and
+therefore better: it lands before anything is built, while there is still time to
+change everything. It also means plan §4.2's Twilio path is wrong — the Twilio
+code exists but the service is not in use, and the RSVP email already goes out
+through Automation Emails.
+
+**Resulting map change:** plan §4.2 rewritten in effect — no new send path, no
+new scheduler, no N. The option list becomes a block in the existing RSVP email.
 
 ---
 
@@ -411,3 +423,45 @@ preview and no record. It is only an improvement if the preview is real.
 **Resulting map change:** P-002 rewritten. The six auto-fixes move from
 "button in the panel" to "runs on approval, from a notice that previewed it",
 and pick up R-006/R-007/R-008 on the way.
+
+---
+
+## Q-010 · intent · open · 2026-08-21
+"Straight yes only" — when should `SEASON_ELIGIBILITY` be flipped, and does a
+converted customer's assumed yes count?
+
+Addie, 2026-08-21: *"straight yes is the only thing to count for RSVP for the
+season."* The switch for this already exists and its `confirmed-only` branch is
+implemented and tested in both modes:
+
+```js
+const SEASON_ELIGIBILITY = 'all-but-maybe-next-year';   // or 'confirmed-only'
+```
+
+⚠ **It must not be flipped yet.** No RSVP has gone out, so nearly every customer
+is unanswered and `confirmed-only` puts every one of them out of the season — no
+routes, no builds, no installs. The comment already on that line says the same:
+flip it *"when the RSVP email is live and everyone has actually been asked."*
+
+**Q-010a — when?** After the first RSVP send, presumably with some window for
+replies. Addie's call, and it wants a deliberate date rather than a guess.
+
+**Q-010b — does an assumed yes count?** `confirmed-only` tests
+`rsvpStatus === 'yes'` alone. Converting a quote writes `rsvpStatus: 'yes'` with
+**no `rsvpRespondedAt`** — the office knows they want lights, but nobody has asked
+them about this season. So converted customers would pass as confirmed without
+answering.
+
+The stricter test already exists, in the Excel "Yes" tab
+(`admin.html:18476`): `if(said === 'yes' && d.rsvpRespondedAt) return true;`.
+**Two places decide "did they really say yes" and they disagree** — the season
+gate is loose, the sheet export is strict. If "straight yes" is literal,
+`isOutForSeason` needs the same `&& rsvpRespondedAt`, and that is a one-line
+change plus a test.
+
+⚠ Whichever way it goes, the two should agree afterwards. One rule, one answer.
+
+Blocks: the flip itself, which is tier 1 — getting it wrong means nobody is
+scheduled.
+Answer:
+Resulting map change:

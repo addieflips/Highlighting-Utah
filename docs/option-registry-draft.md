@@ -4,7 +4,7 @@
 imports this, and `js/options.js` is untouched.**
 
 Every row was derived from the code; the destinations in §2 are Addie's answers.
-Two things still need her — they are in §5, and one of them is a rule conflict.
+§5 is settled. §7 carries one thing that must not be done yet.
 
 ---
 
@@ -35,7 +35,7 @@ eight, and `audit()` with it.
 | 2 | Light colours / pattern | `lightsDescription`, `lightColors` | no | ✓ | ✓ | ✓ | – | ✓ | – | – | – |
 | 3 | Wire colour | `wireColor` | no | ✓ | ✓ | ✓ | – | ✓ | – | – | – |
 | 4 | Timer | `outletTimer` | no | ✓ | ✓ | ✓ | ✓ | ✓ | – | – | – |
-| 5 | Plugs / eaves | `useEaves` | no | ✓ | **cond. ⚠ §5** | ✓ | ✓ | – | – | – | – |
+| 5 | Plugs / eaves | `useEaves` | no | ✓ | – | ✓ | ✓ | – | – | – | – |
 | 6 | Which outlet | `specificOutlet`, `specificOutletNotes` | no | ✓ | ✓ | ✓ | **✓ new** | – | – | – | – |
 | 7 | Gate code | `gateCode` | no | ✓ | ✓ | ✓ | **✓ new** | – | – | – | – |
 | 8 | Sides of the house | `houseSides` | no¹ | ✓ | ✓ | ✓ | **✓ new** | – | **✓ new** | **✓ new** | – |
@@ -81,60 +81,85 @@ portal renders — so it can be `code`-enforced rather than remembered.
 
 ---
 
-## 5. Settled, and one wrinkle left
+## 5. The confirmation — settled
 
-**① R-004 upheld — the confirmation carries a price/footage line.**
-Addie, 2026-08-21: *"lets do put a price/footage line on the confirmation."*
-So R-004 stands as written, `measuredFeet` gains `confirmation`, and `audit()`
-passes. No amendment needed. The customer sees the footage and the charge before
-the truck arrives, which is the whole of R-004's reasoning.
+**① It is the RSVP email, not a new message, and it goes by EMAIL not SMS.**
+Addie, 2026-08-21: *"This is for emails we don't have twillo and this would be
+for RSVP emails."*
 
-**② Plugs / eaves goes on — but only when they said no. This collides with R-002.**
-Addie: *"We can put eaves on there if they said no to eaves."*
+⚠ **Plan §4.2 is wrong on both counts.** It says *"Send `confirmationText(customer)`
+via the existing Twilio path, N days before the scheduled install date."* The
+Twilio code exists (`sendSms`, `twilioSendRaw`) but the service is not in use, and
+the confirmation is not a separate pre-install message — it is the RSVP email
+that already goes out at the start of the season through Automation Emails.
 
-The intent is clear and sensible: "yes, use the eaves" is the ordinary case and
-printing it for everyone is noise; "no" is the exception the crew has to respect.
+Two consequences, both good:
 
-⚠ But R-002 is tier 1 and says an option with no value renders `none`, **never an
-omitted line** — because silence and "they didn't want it" must not look alike.
-Hiding the line for anyone who is not a "no" makes three different states
-identical on the page, and the real data says that matters here. The Up Plug
-column on the master sheet holds **112 yes, 98 "?", 61 no, 3 y** — so roughly
-*ninety-eight customers have never actually answered this question.* Under a
-show-only-if-no rule, those 98 look exactly like the 112 who said yes, and the
-one surface that could have got them to answer says nothing.
+- **Phase 2 shrinks a lot.** There is no new send path, no new template system and
+  no new scheduler. The RSVP email exists, has a token flow, and already carries
+  `{{houses_block}}`. The option list becomes a block inside it.
+- **Q-005 is moot.** "How many days before install?" was the wrong question — the
+  RSVP goes out once at season start, before anything is built, which is *earlier*
+  and therefore better: there is still time to change everything.
 
-CLAUDE.md already settled the same point for the importer: *"'?' is not a no:
-blank leaves the record alone, which is the honest answer to a question mark."*
+⚠ The one thing it does not do is catch a change made *after* the RSVP. A
+pre-install confirmation would. Recorded rather than argued — Addie decided, and
+the RSVP catches far more for far less work.
 
-**Proposal — gives Addie what she asked for without losing the 98:**
+**② Plugs / eaves comes off the confirmation entirely.**
+Addie: *"Okay lets get rid of eaves if it will cause more confusion."*
+Row 5's `Conf` is now `–`. **No R-002 exception is needed** — the rule is about
+an option that *is* on an artifact rendering `none` rather than a blank, not about
+which options appear at all. Cleanest possible resolution.
 
-| Their answer | Confirmation line |
-|---|---|
-| No | `Plugs / eaves: no — we will not use the eaves outlet` |
-| Blank / "?" | `Plugs / eaves: not answered — tell us in your portal` |
-| Yes | *omitted* |
-
-Only a clear **yes** is hidden, and a yes is the case where absence is genuinely
-unambiguous, because it is the default we would act on anyway.
-
-⚠ This still needs an **explicit R-002 exception logged**, because one option is
-now conditionally omitted where the rule says never. It also means `consumers`
-cannot stay a flat list for this row alone: the option declares `confirmation`
-(so R-003 and R-004 still see it) and carries a `confirmationWhen` predicate the
-renderer consults. `audit()` is unaffected.
-
-**Needs Addie: is the middle row right?** If she wants a strict
-show-only-when-no, that is her call and R-002 gets the exception either way —
-but the 98 unanswered stay unanswered, and nothing else in the system is going
-to ask them.
+---
 
 ## 6. Answered
 
 - **Anything sold that has no row?** No — the list is complete. The placeholder
-  `js/options.js` guessed at wreaths and walkways; neither exists in this
-  business. They come out when this replaces it.
+  `js/options.js` guessed at wreaths and walkways; neither exists in this business.
 - **Anything but feet affecting price?** No. Feet only.
+- **Confirmation list:** measured feet + price, light colours, wire colour, timer,
+  which outlet, gate code, sides, install timing. Not eaves, not notes, not the
+  internal rows.
+
+---
+
+## 7. ⚠ "Straight yes only" — already built, and DO NOT FLIP IT YET
+
+Addie, 2026-08-21: *"straight yes is the only thing to count for RSVP for the season."*
+
+**That switch already exists**, left by an earlier session for exactly this moment:
+
+```js
+const SEASON_ELIGIBILITY = 'all-but-maybe-next-year';   // or 'confirmed-only'
+```
+
+`isOutForSeason` already implements the `confirmed-only` branch, and `run-all.js`
+already tests BOTH modes so the branch cannot rot before it is switched on. The
+comment above it records the earlier instruction it was built for: *"for now we
+want anyone who isnt maybe next year to be on the list but we will change it to
+only confirmed on the scheduled list eventually."*
+
+**⚠ FLIPPING IT TODAY EMPTIES THE SEASON.** Nobody has been sent an RSVP yet, so
+almost every customer is unanswered, and `confirmed-only` puts every one of them
+out. No routes, no builds, no installs. The existing comment says it in as many
+words: flip it *"when the RSVP email is live and everyone has actually been
+asked."* The order is: send the RSVP → let people answer → then flip.
+
+**⚠ AND `confirmed-only` IS NOT CURRENTLY A *STRAIGHT* YES.** It tests
+`rsvpStatus === 'yes'` and nothing else. But converting a quote writes
+`rsvpStatus: 'yes'` at creation **with no `rsvpRespondedAt`** — the office knows
+they want lights; nobody has asked them about *this season*. So a converted
+customer would count as confirmed without ever answering.
+
+The stricter test already exists a few thousand lines away, in the Excel "Yes"
+tab: `if(said === 'yes' && d.rsvpRespondedAt) return true;` — with a comment
+saying precisely why the timestamp is needed. **Two places decide "did they
+really say yes" and they disagree.** If "straight yes" is meant literally,
+`isOutForSeason` needs the same `&& rsvpRespondedAt`.
+
+Raised as **Q-010**. Nothing has been changed.
 
 ---
 
