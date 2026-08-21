@@ -8637,7 +8637,18 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
   const canTopUp = topUpFeet > 0;
   const savedPrice = typeof d.quotedPrice === 'number' ? d.quotedPrice : null;
   const feetPrice = (newFeet && perFootRate) ? Math.round(newFeet * perFootRate) : null;
-  const newPrice = savedPrice !== null ? savedPrice : feetPrice;
+  /* ⭐ AND THEIR LAST PRICE, WHICH IS THE ANSWER WHEN NOTHING ABOUT THE MONEY MOVED.
+     Owner, 2026-08-21: "if the price doesnt change from what it was it wont let you
+     convert them." Raising a re-quote CLEARS quotedPrice on purpose — it is what
+     quoteStage reads, so leaving it would keep the card sitting in Awaiting Response —
+     and it keeps the old number on requoteFrom. The card's own price box already starts
+     on that number; this popup ignored it, so a re-quote about an ADDRESS, where the
+     price is not moving at all, arrived here with an empty box and a held button.
+
+     ⚠ AFTER THE FEET ESTIMATE, not before. If the footage moved, the house is a
+     different size and their old price is the one number we know to be wrong. */
+  const lastPrice = Number((d.requoteFrom || {}).price) || null;
+  const newPrice = savedPrice !== null ? savedPrice : (feetPrice !== null ? feetPrice : lastPrice);
   const oldBins = oldFeet ? cnBinsForFeet(oldFeet) : 0;
   const newBins = newFeet ? cnBinsForFeet(newFeet) : 0;
   const num = String(ed.customerNumber || '').trim();
@@ -8661,7 +8672,9 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
         '<span id="requotePriceDelta" style="font-weight:400; color:var(--slate); font-size:12px;"></span></div>'+
       (savedPrice === null && feetPrice !== null
         ? '<div style="color:#8A6100; font-size:12px;">Worked out from '+newFeet+' ft at '+fmtMoney(perFootRate)+'/ft. Nothing was saved on the re-quote, so check it.</div>'
-        : '')+
+        : (savedPrice === null && lastPrice
+          ? '<div style="color:#8A6100; font-size:12px;">This is the price they were already on. Raising a re-quote clears the price, so nothing was saved on this one \u2014 check it, or type over it.</div>'
+          : ''))+
       (newPrice === null
         ? '<div style="color:var(--ember); font-size:12px;">This re-quote has no price on it and no footage to work one out from — type it in below.</div>'
         : '')+
@@ -8773,6 +8786,25 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
        straight back over the two fields this whole step exists to change. */
     document.getElementById('editCustHousePrice').value = price;
     if(newFeet) document.getElementById('editCustFeet').value = newFeet;
+    /* ⭐ AND THE NEW ADDRESS, WHICH IS THE WHOLE POINT OF AN ADDRESS RE-QUOTE. Owner,
+       2026-08-21: "if they change address then they go to requote but... to the system it
+       looks like nothing changes."
+
+       ⚠ THIS STEP FILLED IN THE PRICE AND THE FEET AND NOTHING ELSE, so a re-quote raised
+       BECAUSE somebody moved opened their record still showing the old street. Save it and
+       the address never moved, the geocode never reran, and the saved route stops still
+       pointed at the old house — while the card closed itself as answered.
+
+       ⚠ ONLY WHEN THE QUOTE ACTUALLY CARRIES A DIFFERENT ONE. An ordinary re-quote about
+       price copies the address across unchanged, and writing it back would look like a
+       move to every rule that watches for one. */
+    const quoteAddress = String(d.address || '').trim();
+    if(quoteAddress && quoteAddress.toLowerCase() !== String(ed.address || '').trim().toLowerCase()){
+      const addrEl = document.getElementById('editCustAddress');
+      if(addrEl) addrEl.value = quoteAddress;
+      const cityEl = document.getElementById('editCustCity');
+      if(cityEl && d.city) cityEl.value = d.city;
+    }
     /* ⭐ AND THE COLOURS, IF THEY HAVE NONE — see requoteLightsToCarry. Same reason the
        price and the feet are set here: after the modal has filled itself, or the record
        writes its own blank straight back over them. */
@@ -9227,6 +9259,12 @@ function renderQuoteRows(filtered){
             /* On a re-quote the box starts on the old number, so she is adding
                to a price she can see rather than working one out from nothing. */
             ((d.quotedPrice == null && d.requoteFrom && Number(d.requoteFrom.price)) ? '<div class="rtext" style="color:var(--slate); margin-top:-4px;">Starts on their last price ('+fmtMoney(Number(d.requoteFrom.price))+') &mdash; type over it with the new one. <strong>Not saved until you click out of the box.</strong></div>' : '')+
+            /* ⭐ AND A WAY TO SAY "that price, unchanged". See the blur handler: with no
+               typing there is no change event, so the commonest re-quote of all — same
+               price, different address — could never be priced at all. */
+            ((d.quotedPrice == null && (Number((d.requoteFrom||{}).price) || (d.estimatedFeet && perFootRate)))
+              ? '<button type="button" class="btn btn-outline btn-sm" data-usequoteprice="'+item.id+'" style="margin-top:4px;">Use '+esc(fmtMoney(Number((d.requoteFrom||{}).price) || Math.round(d.estimatedFeet*perFootRate)))+' &mdash; unchanged</button>'
+              : '')+
             /* ⚠ AND SAY SO WHEN THE BOX IS SHOWING A SUGGESTION IT HAS NOT SAVED. The
                header two lines up reads "not priced yet" while a number sits in the
                price field, which is a straight contradiction, and the owner read the
@@ -10430,7 +10468,31 @@ function renderQuoteRows(filtered){
      and then quietly reverted on the next re-render. Blank is deliberately
      NOT saved as 0: clearing the box would wipe a real price and knock the
      card back to 'not priced yet', which is a money change nobody asked for. */
+  /* ⭐ A PRICE THAT IS NOT CHANGING STILL HAS TO BE SETTABLE. Owner, 2026-08-21: "if the
+     price doesnt change from what it was it wont let you convert them cause something has
+     to change... to the system it looks like nothing changes and because of that it wont
+     let me convert them to customer."
+
+     ⚠ THE BOX STARTS ON THEIR OLD PRICE, AND `change` ONLY FIRES IF A HUMAN EDITS THE
+     VALUE. So on a re-quote coming back at the SAME price there is nothing to type, no
+     event, and quotedPrice stays null — which leaves the card reading "not priced yet",
+     refusing to send, and sitting in the wrong folder. The one case where the office has
+     nothing to do was the one case they could not finish.
+
+     Blur commits it too, so clicking in and out is enough, and the button below says so
+     out loud for anybody who never touches the box. */
   list.querySelectorAll('.quotePriceInput').forEach(function(input){
+    input.addEventListener('blur', function(){
+      const item = quotesCache.find(q => q.id === input.dataset.id);
+      /* Only when there is no price stored. With one already there, blur firing on
+         every click-through would write the same number back over and over. */
+      if(item && typeof item.data.quotedPrice === 'number') return;
+      const raw = String(input.value).trim();
+      if(raw === '') return;
+      const price = Number(raw);
+      if(!isFinite(price) || price < 0) return;
+      input.dispatchEvent(new Event('change'));
+    });
     input.addEventListener('change', function(){
       const id = input.dataset.id;
       const item = quotesCache.find(q => q.id === id);
@@ -10454,6 +10516,25 @@ function renderQuoteRows(filtered){
       }).catch(function(){
         if(prev !== null) input.value = prev;
         toast('Could not save the price \u2014 check your connection and try again');
+      });
+    });
+  });
+  list.querySelectorAll('[data-usequoteprice]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      const id = btn.dataset.usequoteprice;
+      const item = quotesCache.find(q => q.id === id);
+      if(!item) return;
+      const d = item.data || {};
+      const price = Number((d.requoteFrom || {}).price) ||
+        ((d.estimatedFeet && perFootRate) ? Math.round(d.estimatedFeet * perFootRate) : NaN);
+      if(!isFinite(price)){ toast('There is no price to use \u2014 type one in.'); return; }
+      btn.disabled = true;
+      updateDoc(doc(db,'quotes', id), {quotedPrice: price}).then(function(){
+        toast('Price set \u2014 ' + fmtMoney(price) + '. Nothing about it changed, which is fine.');
+      }).catch(function(err){
+        btn.disabled = false;
+        console.error('Could not set the price:', err);
+        toast('Could not save the price \u2014 ' + ((err && err.message) || err));
       });
     });
   });

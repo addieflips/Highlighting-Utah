@@ -20113,6 +20113,122 @@ suite('Suite 107. Pricing a re-quote from the popup');
     /Addition to the same house/.test(admin),
     'somebody picking the card up later has to know which job it is');
 
+  /* ⭐ NOTHING CHANGING IS A REAL ANSWER. Owner, 2026-08-21: "if they change address then
+     they go to requote but if the price doesnt change from what it was it wont let you
+     convert them cause something has to change... to the system it looks like nothing
+     changes and because of that it wont let me convert them to customer."
+
+     ⚠ RAISING A RE-QUOTE CLEARS quotedPrice ON PURPOSE — it is what quoteStage reads,
+     so leaving it would keep the card in Awaiting Response looking like it is still out
+     with the customer. The old number is kept on requoteFrom, and the card's own price
+     box already starts on it. This popup ignored it, so a re-quote raised about an
+     ADDRESS — where the money is not moving at all — arrived with an empty box and a
+     held button. The one case with nothing to decide was the one that could not be
+     finished. */
+  {
+    const moved = {id: 'c9', data: {name: 'Moved House', customerNumber: '9',
+                                    housePrice: 600, measuredFeet: 0,
+                                    address: '12 Old St, Lehi'}};
+    const r = run({name: 'Moved House', address: '99 New Rd, Lehi',
+                   requoteKind: 'address', requoteFrom: {price: 600, status: 'approved'}},
+                  moved, 2);
+    check('S117', 'an address re-quote at the same price is priced from their last one',
+      r.el('requotePriceInput').value === '600',
+      'this is the commonest re-quote there is, and it could not be finished at all');
+    check('S117', 'so the button is live rather than held',
+      r.el('applyRequoteBtn').disabled === false,
+      'owner: "it wont let me convert them to customer"');
+    check('S117', 'and it says where that number came from',
+      /price they were already on/.test(r.html()),
+      'a figure that appears by itself has to say so');
+
+    r.el('applyRequoteBtn').fire('click');
+    check('S117', 'and pressing it carries that price through',
+      r.el('editCustHousePrice').value === 600 && r.converting() === 'q1');
+  }
+
+  /* ⚠ AFTER THE FEET ESTIMATE, NOT BEFORE. If the footage moved, the house is a different
+     size and their old price is the one number we know to be wrong. */
+  {
+    const grew = {id: 'c8', data: {name: 'Bigger', customerNumber: '8',
+                                   housePrice: 600, measuredFeet: 180,
+                                   address: '12 Main St'}};
+    const r = run({name: 'Bigger', estimatedFeet: 400, address: '12 Main St',
+                   requoteFrom: {price: 600, status: 'approved'}}, grew, 2);
+    check('S117', 'a re-quote with new footage prices from the footage, not the old price',
+      r.el('requotePriceInput').value === '800',
+      '400 ft at $2 is $800; their old 600 describes a smaller house');
+  }
+
+  /* ⭐ AND THE NEW ADDRESS ACTUALLY MOVES. This step filled in the price and the feet and
+     nothing else, so a re-quote raised BECAUSE somebody moved opened their record still
+     showing the old street — save it and the address never moved, the geocode never
+     reran, and the saved route stops still pointed at the old house, while the card
+     closed itself as answered. */
+  {
+    const src = extractFn(admin, 'showApplyRequoteChoice');
+    /* ⚠ PRESSED, NOT GREPPED. Both of these started as searches for the field names and
+       both survived the assignment being switched off — the names were still there. */
+    {
+      const mv = run({name: 'Moved', address: '99 New Rd, Lehi', city: 'Lehi',
+                      requoteKind: 'address', requoteFrom: {price: 600}},
+        {id: 'cm', data: {name: 'Moved', customerNumber: '9', housePrice: 600,
+                          address: '12 Old St, Lehi', city: 'Lehi'}}, 2);
+      mv.el('applyRequoteBtn').fire('click');
+      check('S117', 'the new address is filled into the form',
+        mv.el('editCustAddress').value === '99 New Rd, Lehi',
+        'owner: "to the system it looks like nothing changes" — saving without this ' +
+        'left the old street, the old pin and the old route stop, while the card ' +
+        'closed itself as answered');
+      check('S117', 'and the town comes with it, or they cannot be routed',
+        mv.el('editCustCity').value === 'Lehi',
+        'every route day is one town');
+    }
+    {
+      /* An ordinary re-quote copies the address across unchanged; writing it back would
+         look like a move to every rule that watches for one. */
+      const same = run({name: 'Same', address: '12 Old St, Lehi', requoteFrom: {price: 600}},
+        {id: 'cs', data: {name: 'Same', customerNumber: '8', housePrice: 600,
+                          address: '12 Old St, Lehi'}}, 2);
+      same.el('applyRequoteBtn').fire('click');
+      check('S117', 'and an unchanged address is not written at all',
+        same.el('editCustAddress').value === '',
+        'the form fills itself from the record; touching it would fake a change');
+    }
+    check('S117', 'and only when the quote really carries a different one',
+      /quoteAddress\.toLowerCase\(\) !== String\(ed\.address \|\| ''\)\.trim\(\)\.toLowerCase\(\)/.test(src),
+      'an ordinary re-quote copies the address across unchanged, and writing it back ' +
+      'would look like a move to every rule watching for one');
+  }
+
+  /* ⭐ AND ON THE CARD ITSELF: a price that is not moving can still be set. `change` only
+     fires if a human edits the value, and the box starts on their old price — so on a
+     re-quote coming back at the SAME price there is nothing to type, no event, and
+     quotedPrice stays null for ever. */
+  {
+    const at = admin.indexOf("list.querySelectorAll('.quotePriceInput')");
+    const blk = at > 0 ? admin.slice(at, admin.indexOf("list.querySelectorAll('[data-usequoteprice]')", at)) : '';
+    check('S117', 'the price box commits on blur as well as on change', !!blk &&
+      /addEventListener\('blur'/.test(blk),
+      'clicking in and out has to be enough');
+    check('S117', 'but only when nothing is stored yet',
+      /if\(item && typeof item\.data\.quotedPrice === 'number'\) return;/.test(blk),
+      'with a price already there, blur on every click-through would rewrite it');
+
+    const btnAt = admin.indexOf("list.querySelectorAll('[data-usequoteprice]')");
+    const btnBlk = btnAt > 0 ? admin.slice(btnAt, admin.indexOf("list.querySelectorAll('.quoteSetupFeeCheck')", btnAt)) : '';
+    check('S117', 'and there is a button that says "that price, unchanged"', !!btnBlk &&
+      /unchanged/.test(admin) && /addEventListener\('click'/.test(btnBlk),
+      'somebody who never touches the box still has to be able to finish');
+    check('S117', 'and it writes the price the box was showing',
+      /\{quotedPrice: price\}/.test(btnBlk) &&
+      /Number\(\(d\.requoteFrom \|\| \{\}\)\.price\)/.test(btnBlk),
+      'a button that sets a different number from the one on screen is worse than none');
+    check('S117', 'and refuses cleanly when there is no price to use',
+      /There is no price to use/.test(btnBlk),
+      'writing NaN into a money field is how a total goes blank');
+  }
+
   /* ---- and the card that started it says what it is showing ---------------- */
   /* ⚠ SCOPED TO THE BRANCH, because the phrase sits on TWO of them — the one that
      starts on their last price and the one that suggests from the footage. A bare
