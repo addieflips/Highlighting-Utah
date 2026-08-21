@@ -8395,6 +8395,97 @@ function requoteLightsToCarry(quote, cust){
   if(!text && !colors.length) return null;
   return {colors: colors, text: text};
 }
+/* ⭐ WHAT THEY SAID ON THE RE-QUOTE'S OWN FORM. Owner, 2026-08-21: "when an old
+   house gets requoted I want them to choose whether they want to fill out the form
+   fresh or keep what's already there."
+
+   index.html now offers a re-quoted member that third answer, and a fresh form lands
+   on the QUOTE, not on the customer. Which means without this the customer fills in
+   new colours after a remodel, the office applies the re-quote, and the warehouse
+   builds last year's pattern — the form would have been a survey nobody read.
+
+   ⚠ A BOX THEY LEFT BLANK IS NOT AN ANSWER. The gate code and the house notes are
+   never sent down to that form (a quote token is not a credential — see quoteRespond),
+   so both boxes start empty and the page says an empty one keeps what we hold. Blank
+   here therefore means "unchanged", and overwriting a gate code or wiping the crew's
+   permanent notes with it would be destroying something nobody asked to change. Their
+   note is APPENDED for the same reason: "ladder goes on the north side" is the crew's,
+   not theirs to replace. */
+function requoteFormSummary(d){
+  if(!d || !d.formCompleted) return null;
+  const colors = (Array.isArray(d.lightColors) && d.lightColors.length)
+    ? d.lightColors.slice()
+    : parseCustLights(d.lightsDescription || '').colors;
+  const bits = [];
+  const lights = String(d.lightsDescription || colors.join(', ')).trim();
+  if(lights) bits.push('Lights: ' + lights);
+  if(d.wireColor) bits.push('Wire: ' + d.wireColor);
+  if(d.outletTimer) bits.push('Timer: ' + d.outletTimer);
+  if(d.specificOutlet === 'Yes') bits.push('Outlet: ' + (String(d.specificOutletNotes || '').trim() || 'a specific one'));
+  if(d.installPreference) bits.push('Timing: ' + d.installPreference);
+  if(String(d.gateCode || '').trim()) bits.push('Gate code: ' + String(d.gateCode).trim());
+  if(String(d.notes || '').trim()) bits.push('Note: ' + String(d.notes).trim());
+  return bits.length ? bits : null;
+}
+/* Only sets a dropdown to a value it actually offers. The public form has an "Any"
+   wire colour and the Edit form does not — assigning it would leave the select on
+   nothing at all and save a blank wire colour over White. */
+function requoteSetSelect(id, value){
+  const el = document.getElementById(id);
+  const v = String(value == null ? '' : value).trim();
+  if(!el || !v) return;
+  const ok = Array.prototype.some.call(el.options, function(o){ return o.value === v; });
+  if(ok) el.value = v;
+}
+function applyRequoteFormAnswers(d){
+  if(!d || !d.formCompleted) return;
+  const colors = (Array.isArray(d.lightColors) && d.lightColors.length)
+    ? d.lightColors.slice()
+    : parseCustLights(d.lightsDescription || '').colors;
+  const boxes = Array.from(document.querySelectorAll('.editcust-color-check'));
+  const known = boxes.map(function(cb){ return cb.value; }).filter(function(v){ return colors.indexOf(v) !== -1; });
+  if(known.length){
+    boxes.forEach(function(cb){
+      cb.checked = known.indexOf(cb.value) !== -1;
+      const w = cb.closest('.pill-check'); if(w) w.classList.toggle('checked', cb.checked);
+    });
+    /* The checkboxes hold a SET; "White, White, Red" is a sequence. Held aside and
+       used by the save handler unless the office re-ticks something — see
+       requoteLightsPattern. */
+    const typed = String(d.lightsDescription || '').trim();
+    const flat = known.join(', ');
+    requoteLightsPattern = (typed && typed !== flat) ? typed : '';
+    requoteColorsSnapshot = requoteLightsPattern ? known.slice() : null;
+  }
+  requoteSetSelect('editCustWireColor', d.wireColor);
+  requoteSetSelect('editCustOutletTimer', d.outletTimer);
+  requoteSetSelect('editCustSpecificOutlet', d.specificOutlet);
+  requoteSetSelect('editCustInstallPref', d.installPreference);
+  const outletNotes = String(d.specificOutletNotes || '').trim();
+  if(d.specificOutlet === 'Yes' && outletNotes){
+    const on = document.getElementById('editCustSpecificOutletNotes');
+    if(on) on.value = outletNotes;
+  }
+  if(typeof syncEditSpecificOutletNotes === 'function') syncEditSpecificOutletNotes();
+  const gate = String(d.gateCode || '').trim();
+  if(gate){
+    const g = document.getElementById('editCustGateCode');
+    if(g) g.value = gate;
+  }
+  const said = String(d.notes || '').trim();
+  if(said){
+    const box = document.getElementById('editCustNotes');
+    if(box){
+      const have = String(box.value || '').trim();
+      if(!have) box.value = said;
+      else if(have.indexOf(said) === -1) box.value = have + '\n' + said;
+    }
+  }
+  if(d.wantsMailedInvoice !== undefined){
+    const wm = document.getElementById('editCustWantsMailed');
+    if(wm) wm.checked = d.wantsMailedInvoice === true;
+  }
+}
 /* ⭐ ASK WHICH KIND OF RE-QUOTE THIS IS. Two buttons, because the answer changes what
    the warehouse is told later, and a free-text box cannot be read by anything.
    Resolves to {kind, note} or null when it is backed out of. */
@@ -8701,6 +8792,20 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
       ? (num && newFeet ? '<p style="font-size:12.5px; color:var(--slate);">Under '+CN_DOUBLE_BIN_FEET+' ft either way, so #'+esc(num)+' still fits and nothing else has to change.</p>' : '')
       : '<p style="font-size:12.5px; color:var(--ember); background:#FDECEA; border:1px solid #F3C8C2; border-radius:9px; padding:8px 11px;">'+
           '<strong>#'+esc(num)+' no longer matches the footage.</strong> '+newFeet+' ft is '+newBins+' bin'+(newBins === 1 ? '' : 's')+', which uses '+(newBins >= 2 ? 'a 5000-series' : 'a regular')+' number. Everything else is held \u2014 the form will ask about the number when you save.</p>')+
+    /* What they answered, if they chose to answer. Shown BEFORE the record opens,
+       because the form that opens will already have it filled in and a change nobody
+       announced is a change nobody checks. */
+    (requoteFormSummary(d)
+      ? '<div style="margin-top:12px; background:#F2F7F3; border:1px solid #CFE0D4; border-radius:10px; padding:10px 13px; font-size:12.5px; line-height:1.6;">'+
+          '<strong>They filled their details in fresh'+(d.formCompletedAt ? ' on '+fmtDate(d.formCompletedAt) : '')+'.</strong>'+
+          '<div style="margin-top:5px;">'+requoteFormSummary(d).map(function(b){ return esc(b); }).join('<br>')+'</div>'+
+          '<div style="margin-top:6px; color:var(--slate);">Filled in for you on the next screen. Anything they left blank stays exactly as it is on their record.</div>'+
+        '</div>'
+      : '')+
+    (numberStillFits
+      ? (num && newFeet ? '<p style="font-size:12.5px; color:var(--slate);">Under '+CN_DOUBLE_BIN_FEET+' ft either way, so #'+esc(num)+' still fits and nothing else has to change.</p>' : '')
+      : '<p style="font-size:12.5px; color:var(--ember); background:#FDECEA; border:1px solid #F3C8C2; border-radius:9px; padding:8px 11px;">'+
+          '<strong>#'+esc(num)+' no longer matches the footage.</strong> '+newFeet+' ft is '+newBins+' bin'+(newBins === 1 ? '' : 's')+', which uses '+(newBins >= 2 ? 'a 5000-series' : 'a regular')+' number. Everything else is held \u2014 the form will ask about the number when you save.</p>')+
     /* Two buttons, one of which is always right, and the reason the other one is not
        offered is written where the second button would have been. A choice with a
        greyed-out option and no explanation is the dead end this popup already had once. */
@@ -8846,6 +8951,9 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
     /* Held until Save Changes rather than written now. She can still close the form
        without saving, and flagging the warehouse for a change that never happened is
        worse than making her press the button. */
+    /* And whatever they told us themselves. Nothing is written until Save Changes,
+       same as the price and the feet above. */
+    applyRequoteFormAnswers(d);
     requoteBuildChoice = wantsNothing
       ? {mode: 'none'}
       : (wantsTopUp
@@ -16071,7 +16179,20 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
       rsvpStatus: addCustFromQuoteId ? 'yes' : '',
       contactMethod: (addCustFromQuoteId ? (addCustContactMethodFromQuote || '') : ''),
       wireColor: wireColor,
-      lat: coords.lat, lng: coords.lng, needsGeocode: pinFailed, needsLightBuild: !!lightsDescription,
+      /* ⭐ EVERY NEW HOUSE NEEDS A SET BUILT, WHETHER OR NOT ITS COLOURS ARE KNOWN YET.
+         Owner, 2026-08-21, on two customers who were nowhere in the warehouse: "Ashley
+         and Rachel should have lights in warehouse so we can build them."
+
+         ⚠ THIS USED TO READ `!!lightsDescription`, AND THAT IS WHY THEY VANISHED. A
+         customer converted from a quote whose colours were never filled in got the flag
+         set to false, so the build queue never listed them — and the "Waiting on light
+         colours" block cannot catch them either, because that block lists houses that ARE
+         flagged and have no colours. A house nobody flagged is in neither list and the
+         tab says there is nothing to build, which is a lie about work that is genuinely
+         outstanding. Flagged always: with colours it groups by pattern, without them it
+         sits in the waiting block until somebody in the office spends thirty seconds on
+         it. The warehouse clears the flag when the bundle is made. */
+      lat: coords.lat, lng: coords.lng, needsGeocode: pinFailed, needsLightBuild: true,
       scheduled: false, createdAt: serverTimestamp(), housePrice: price, measuredFeet: measuredFeet, gateCode: gateCode, outletTimer: outletTimer, useEaves: useEaves, specificOutlet: specificOutlet, specificOutletNotes: specificOutletNotes, notes: custNotes, wantsMailedInvoice: wantsMailedInvoice, numberOfBins: numberOfBins, houseSides: selectedSides, customerNumber: customerNumber
     }, billingElsewhere ? {billToPhone: billToPhone} : {}));
     // If this number was sitting in the available pool, it isn't available anymore.
@@ -26177,6 +26298,14 @@ let requoteBeingConverted = null;
    carried out by the Save Changes handler, and cleared there whether it worked or not
    so the next customer opened does not inherit somebody else's answer. */
 let requoteBuildChoice = null;
+/* The exact light pattern the customer typed on a re-quote's install form, plus the
+   colours it was built from. Same trick as addCustQuoteLightsPattern on the Add form and
+   for the same reason: the Edit Customer colour boxes cannot hold an ORDER, so reading
+   them back would turn "White, White, Red" into "Pure White, Red" — a different set of
+   lights from the one they asked for. Kept only while the office leaves the ticked
+   colours exactly as the form filled them in. */
+let requoteLightsPattern = '';
+let requoteColorsSnapshot = null;
 /* Puts the Save button's ordinary wording back. Called from both places that stop a
    re-quote being in hand — finishing it and abandoning it — because a button still
    promising to finish a re-quote on the NEXT customer somebody edits is worse than the
@@ -26802,6 +26931,8 @@ document.getElementById('editCustCancelBtn').addEventListener('click', function(
      build flags meant for THIS customer would be written onto the next person whose
      record anybody saved. */
   requoteBuildChoice = null;
+  requoteLightsPattern = '';
+  requoteColorsSnapshot = null;
   requoteRestoreSaveLabel();
   /* ⚠ AND IT SAYS SO, BECAUSE APPLYING A RE-QUOTE IS TWO STEPS AND THE SECOND ONE WAS
      SILENT. Owner, 2026-08-20: "I converted her but she hasnt left the requote secion",
@@ -26900,7 +27031,15 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const newWantsTexted = document.getElementById('editCustWantsTexted').checked;
   const newColors = Array.from(document.querySelectorAll('.editcust-color-check:checked')).map(el => el.value);
   const newHouseSides = houseSideCount((document.querySelector('.editcust-side-pick:checked') || {}).value);
-  const newLightsDescription = compileLightsDescription(newColors.join(', '), '');
+  /* See requoteLightsPattern: if this save is finishing a re-quote whose form the
+     customer filled in, and nobody has changed which colours are ticked since it was
+     filled in, their exact wording wins over the checkbox order. */
+  const keptRequotePattern = requoteLightsPattern && Array.isArray(requoteColorsSnapshot) &&
+    newColors.length === requoteColorsSnapshot.length &&
+    newColors.every(function(c){ return requoteColorsSnapshot.indexOf(c) !== -1; });
+  const newLightsDescription = keptRequotePattern
+    ? requoteLightsPattern
+    : compileLightsDescription(newColors.join(', '), '');
   const newInstallPref = document.getElementById('editCustInstallPref').value;
   const newHouseNotes = document.getElementById('editCustNotes').value.trim();
   if(!newName || (!newPhone && !newEmail)){ statusEl.textContent = 'Name plus a phone number or email are required.'; return; }
@@ -27031,6 +27170,8 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     if(requoteBuildChoice){
       const choice = requoteBuildChoice;
       requoteBuildChoice = null;
+      requoteLightsPattern = '';
+      requoteColorsSnapshot = null;
       /* ⚠ 'none' TOUCHES NEITHER QUEUE, and that is the whole point of it. It is not the
          same as no choice at all: the office was asked and said the house had not
          changed, so the existing flags stay exactly as they are. */

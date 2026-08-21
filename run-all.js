@@ -19331,7 +19331,11 @@ suite('Suite 107. Pricing a re-quote from the popup');
 
 {
   /* requoteLightsToCarry comes along because the popup calls it. */
+  /* requoteLightsToCarry comes along because the popup calls it, and so do the two
+     the other session added on 2026-08-21 for the re-quote's own install form. */
   const src = extractFn(admin, 'requoteLightsToCarry') +
+    extractFn(admin, 'requoteFormSummary') +
+    extractFn(admin, 'applyRequoteFormAnswers') +
     extractFn(admin, 'showApplyRequoteChoice');
   check('S107', 'showApplyRequoteChoice is still there', !!src);
 
@@ -19396,6 +19400,8 @@ suite('Suite 107. Pricing a re-quote from the popup');
     const ctx = {
       document: dom.document,
       esc: (x) => String(x == null ? '' : x),
+      parseCustLights: () => ({colors: []}),
+      fmtDate: () => 'a date',
       fmtMoney: (n) => '$' + Number(n || 0).toFixed(2),
       cnBinsForFeet: (f) => (Number(f) >= 260 ? 2 : 1),
       CN_DOUBLE_BIN_FEET: 260,
@@ -20562,6 +20568,71 @@ suite('Suite 115. A price change asks');
    button in bulk updates for deleting all test customers from customers and quotes and
    invoices and routes and schedule and put their number back in the system", and "it
    should also delete test customers from anywhere in the warehouse." */
+/* ⭐ SUITE 119. THE RE-QUOTE'S OWN INSTALL FORM — THE OTHER SESSION'S WORK, GUARDED.
+   Owner, to the other session: "when an old house gets requoted I want them to choose
+   whether they want to fill out the form fresh or keep what's already there."
+
+   ⚠ THIS IS HERE BECAUSE THE TWO SESSIONS NEARLY DELETED EACH OTHER (2026-08-21). A
+   whole-file push of admin.html landed on main carrying that feature and, without meaning
+   to, six commits of mine went missing from it; my push would have taken hers back out
+   the same way. Both survived only because the merge was done by hand, function by
+   function. Nothing was checking hers, so nothing would have said a word.
+
+   ⚠ AND git merge-file GOT IT WRONG ON THIS FILE. It split one of my functions in half
+   and lost a closing brace — admin.html would not have parsed at all. CLAUDE.md §0 says
+   merge this file, never paste it; it is worth adding that an automatic 3-way merge is
+   not trustworthy here either. Verify the braces balance afterwards, every time. */
+suite('Suite 119. The re-quote install form');
+
+{
+  check('S119', 'the summary of what they filled in is still here',
+    !!extractFn(admin, 'requoteFormSummary'),
+    'a customer who fills the form in fresh after a remodel has to be read, or the ' +
+    'warehouse builds last year’s pattern');
+  check('S119', 'and the code that puts their answers on the form',
+    !!extractFn(admin, 'applyRequoteFormAnswers'));
+  check('S119', 'the apply popup shows what they said',
+    /requoteFormSummary\(d\)/.test(extractFn(admin, 'showApplyRequoteChoice')),
+    'shown BEFORE the record opens, because a change nobody announced is a change ' +
+    'nobody checks');
+  check('S119', 'and fills their answers in when it opens the record',
+    /applyRequoteFormAnswers\(d\)/.test(extractFn(admin, 'showApplyRequoteChoice')));
+
+  /* ⚠ AND HERS RUNS AFTER MINE. requoteLightsToCarry fills a BLANK from the old quote;
+     applyRequoteFormAnswers writes what the customer typed this week. If mine ran second
+     it would be filling a blank that is no longer blank, but the order still has to be
+     the right way round on purpose rather than by accident. */
+  {
+    const src = extractFn(admin, 'showApplyRequoteChoice');
+    check('S119', 'what the customer just told us is applied last',
+      src.indexOf('requoteLightsToCarry(d, ed)') < src.indexOf('applyRequoteFormAnswers(d)'),
+      'a form they filled in this week beats a value carried off last year’s record');
+  }
+
+  /* Her exact wording survives the checkbox order, which cannot hold one. */
+  {
+    const at = admin.indexOf("document.getElementById('editCustSaveBtn').addEventListener");
+    const body = at > 0 ? admin.slice(at, admin.indexOf('const newInstallPref', at)) : '';
+    check('S119', 'their typed pattern beats the ticked boxes when nothing was retouched',
+      /const keptRequotePattern = requoteLightsPattern/.test(body) &&
+      /\? requoteLightsPattern/.test(body),
+      '"White, White, Red" read back off the boxes becomes "Pure White, Red" — a ' +
+      'different set of lights from the one they asked for');
+  }
+  check('S119', 'and it is cleared once used, and on cancel',
+    (admin.match(/requoteLightsPattern = '';/g) || []).length >= 3,
+    'left set, the next customer saved inherits somebody else’s wording');
+
+  /* ⭐ AND HER FIX TO THE OTHER HALF OF THE BUILD-FLAG BUG. I fixed the Edit Customer
+     path (a blank colour field wiping needsLightBuild); she fixed the Add Customer path
+     (a new house from a quote with no colours never getting the flag at all). The two
+     together are what actually gets Ashley and Rachel into the warehouse. */
+  check('S119', 'a new house is flagged to build whether or not its colours are known',
+    /needsGeocode: pinFailed, needsLightBuild: true,/.test(admin),
+    'it read !!lightsDescription, so a quote converted without colours was in neither ' +
+    'the build queue nor the waiting block, and the tab said there was nothing to do');
+}
+
 suite('Suite 116. Deleting the test records');
 
 {
