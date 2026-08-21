@@ -19306,7 +19306,7 @@ suite('Suite 107. Pricing a re-quote from the popup');
     function el(id){
       if(byId[id]) return byId[id];
       byId[id] = {
-        id: id, value: '', textContent: '', disabled: false, style: {}, _h: {},
+        id: id, value: '', textContent: '', disabled: false, style: {}, dataset: {}, _h: {},
         addEventListener: function(t, f){ (this._h[t] = this._h[t] || []).push(f); },
         fire: function(t){ (this._h[t] || []).forEach(function(f){ f({}); }); },
         remove: function(){ byId[id] = null; delete byId[id]; }
@@ -19779,8 +19779,8 @@ suite('Suite 107. Pricing a re-quote from the popup');
       /key:'putInto'/.test(cols) && /When built, put into/.test(cols),
       'this is the sheet the warehouse prints and builds off');
     check('S107', 'and every row builder fills it in, so no row is short a cell',
-      (extractFn(admin, 'whSheetRowsForBuild').match(/putInto:/g) || []).length === 2,
-      'houses and extras both push rows onto that sheet');
+      (extractFn(admin, 'whSheetRowsForBuild').match(/putInto:/g) || []).length === 3,
+      'houses, extras and the blocked ones all push rows onto that sheet');
   }
 
   /* And the Printing tab's list reads the same answer as the warehouse tab. */
@@ -19792,6 +19792,124 @@ suite('Suite 107. Pricing a re-quote from the popup');
     check('S107', 'and marks a top-up row with a plus so it cannot read as a whole house',
       /'\+' \+ need\.feet/.test(src),
       '120 in the Feet column of a 300 ft house is a wrong number, not a short one');
+  }
+
+  /* ⭐ A HOUSE FLAGGED TO BUILD WITH NO COLOURS ON FILE USED TO VANISH. Owner, having
+     converted Ashley Wray: "i converted her but shes not in the build section."
+
+     ⚠ AND WITH NOTHING ELSE WAITING, THE TAB SAID "Nothing needs to be built right
+     now" — a lie about work that is genuinely outstanding. Worse, the Printing tab's
+     Needs Building list has never had that filter, so the two screens disagreed about
+     the same customer. */
+  {
+    const q = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey', 'houseBundleNeed',
+      'FEET_PER_BUNDLE', 'perFootRate', 'estimateFeetFromPrice',
+      extractFn(admin, 'whBuildQueueGroups') + 'return whBuildQueueGroups();');
+    const B = (book) => q(book, [], (p, w) => p + '|' + (w || ''),
+      (d) => ({feet: Number(d.measuredFeet) || 0, bundles: 1}), 100, 2, (p, r) => p / r);
+
+    const noColours = [{id: 'a894', data: {name: 'Ashley Wray', needsLightBuild: true,
+                                           measuredFeet: 300}}];
+    const out = B(noColours);
+    check('S107', 'somebody waiting to be built with no colours is still on the list',
+      out.blocked.length === 1 && out.blocked[0].id === 'a894',
+      'the tab said nothing needed building while she sat flagged and invisible');
+    check('S107', 'and they are NOT put in a pattern group, because there is no pattern',
+      out.keys.length === 0,
+      'grouping them by a blank pattern is how they end up mixed into real builds');
+
+    check('S107', 'a house with colours is untouched by any of this',
+      B([{id: 'b1', data: {name: 'Fine', needsLightBuild: true, lightsDescription: 'Warm',
+                          measuredFeet: 200}}]).blocked.length === 0);
+    check('S107', 'and sitting out the season still means nothing is built',
+      B([{id: 'c1', data: {name: 'Out', needsLightBuild: true, maybeNextYear: true}}]).blocked.length === 0,
+      'Back Next Year has always meant no work, and that must not change');
+    check('S107', 'and somebody not flagged at all is not on it either',
+      B([{id: 'd1', data: {name: 'Nothing to do'}}]).blocked.length === 0);
+  }
+
+  check('S107', 'the tab only says nothing needs building when nothing does',
+    /if\(!keys\.length && !blocked\.length\)/.test(extractFn(admin, 'renderWarehouseQueue')),
+    'the empty note used to be reached with people still waiting');
+  /* ⚠ RUN, NOT READ. Both of these were written as searches for the wording, and both
+     survived a sabotage that stopped the rows being produced at all — the string was
+     still sitting there in a loop over an empty list. */
+  {
+    const sheet = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey',
+      'houseBundleNeed', 'whWireLabel', 'whPutIntoLabel', 'WH_BUILD_COLUMNS',
+      extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whSheetRowsForBuild') +
+      'return whSheetRowsForBuild();');
+    const rows = sheet([{id: 'a894', data: {name: 'Ashley Wray', customerNumber: '894',
+                                            address: '9873 N Sunnybank Pl',
+                                            needsLightBuild: true, measuredFeet: 300}}],
+      [], (p, w) => p + '|' + (w || ''), (d) => ({feet: 0, bundles: 1}),
+      (w) => String(w || 'white'), () => '', []).rows;
+    const blockedRow = rows.filter(function(r){ return r.type === 'Blocked'; });
+    check('S107', 'and the printed sheet carries them too',
+      blockedRow.length === 1 && blockedRow[0].what === 'Ashley Wray',
+      'a sheet that leaves them off says the work is finished when it is not');
+    check('S107', 'and the row says why it cannot be built',
+      /NO LIGHT COLOURS ON FILE/.test(blockedRow[0] ? blockedRow[0].notes : ''),
+      'a row with a blank Bundles column and no reason reads as a mistake');
+    check('S107', 'and it still carries the bin number, so somebody can find them',
+      blockedRow[0] && blockedRow[0].bin === '894');
+  }
+
+  /* ⭐ AND APPLYING A RE-QUOTE IS TWO STEPS, THE SECOND OF WHICH WAS SILENT. Owner:
+     "I converted her but she hasnt left the requote secion", "shes not in the recycle
+     section", "shes not in the build section." All three are one thing — the popup
+     opens the record and NOTHING is written until Save Changes is pressed there. */
+  {
+    const cancel = admin.indexOf("document.getElementById('editCustCancelBtn').addEventListener");
+    const blk = cancel > 0 ? admin.slice(cancel, admin.indexOf('});', cancel)) : '';
+    check('S107', 'the Cancel handler was found', !!blk);
+    check('S107', 'closing the form says the re-quote was NOT applied',
+      /still open/.test(blk) && /Save Changes to finish/.test(blk),
+      'pressing the gold button reads as having converted them; closing the form after ' +
+      'that looked like finishing rather than abandoning');
+    check('S107', 'and it clears what the warehouse was told to do',
+      /requoteBuildChoice = null;/.test(blk),
+      'left set, this customer’s recycle and build flags get written onto the next ' +
+      'person whose record anybody saves');
+    check('S107', 'and it only says it when a re-quote really was in hand',
+      /const abandoned = !!requoteBeingConverted;/.test(blk) && /if\(abandoned\)/.test(blk),
+      'saying it on every closed form is noise, and noise gets ignored');
+  }
+
+  check('S107', 'the Save button says what pressing it finishes',
+    /finishes the re-quote/.test(admin),
+    '"Save Changes" on a form that opened by itself does not read as the second half ' +
+    'of a conversion');
+  {
+    const restore = extractFn(admin, 'requoteRestoreSaveLabel');
+    check('S107', 'the restore helper is there', !!restore);
+    /* ⚠ RUN, NOT READ — same trap as above. A search for dataset.plainLabel passed
+       with the assignment itself switched off. */
+    {
+      const btn = {textContent: 'Save Changes — finishes the re-quote',
+                   dataset: {plainLabel: 'Save Changes'}};
+      new Function('document', restore + 'return requoteRestoreSaveLabel();')(
+        {getElementById: function(){ return btn; }});
+      check('S107', 'and the plain wording comes back afterwards',
+        btn.textContent === 'Save Changes',
+        'a button still promising to finish a re-quote on the NEXT customer is worse ' +
+        'than the label it replaced');
+    }
+    {
+      /* Nothing stored means the button was never renamed, so there is nothing to put
+         back and it must not be blanked. */
+      const untouched = {textContent: 'Save Changes', dataset: {}};
+      new Function('document', restore + 'return requoteRestoreSaveLabel();')(
+        {getElementById: function(){ return untouched; }});
+      check('S107', 'and a button that was never renamed is left alone',
+        untouched.textContent === 'Save Changes');
+      new Function('document', restore + 'return requoteRestoreSaveLabel();')(
+        {getElementById: function(){ return null; }});
+      check('S107', 'and a form that is not on the page does not throw', true);
+    }
+    check('S107', 'from both places that end one',
+      (admin.match(/requoteRestoreSaveLabel\(\);/g) || []).length === 2,
+      'finishing it and abandoning it both stop a re-quote being in hand');
   }
 
   /* ---- and the card that started it says what it is showing ---------------- */

@@ -8289,6 +8289,16 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
       ? {mode: 'topup', haveFeet: oldFeet, extraFeet: topUpFeet}
       : {mode: 'recycle'};
     requoteBeingConverted = quoteId;
+    /* ⭐ AND THE SAVE BUTTON SAYS WHAT PRESSING IT FINISHES. "Save Changes" on a form
+       that opened by itself does not read as the second half of a conversion, which is
+       how a re-quote came to be left open with everything else waiting behind it. Put
+       back by the save handler and by Cancel, so it is only ever worded this way while
+       a re-quote really is in hand. */
+    const saveBtn = document.getElementById('editCustSaveBtn');
+    if(saveBtn){
+      if(!saveBtn.dataset.plainLabel) saveBtn.dataset.plainLabel = saveBtn.textContent;
+      saveBtn.textContent = 'Save Changes \u2014 finishes the re-quote';
+    }
     toast(fmtMoney(price)+' filled in for '+(who)+' \u2014 '+
       (wantsTopUp ? ('warehouse will build the extra '+topUpFeet+' ft') : 'old set recycles, new one gets built')+
       '. Press Save Changes.');
@@ -23551,11 +23561,26 @@ function whHouseFactsHtml(d){
 function whBuildQueueGroups(){
   const groups = {};
   const timerHouses = [];
+  /* ⭐ AND THE ONES THAT CANNOT BE BUILT YET ARE NOT DROPPED ON THE FLOOR. Owner,
+     2026-08-20, having converted Ashley Wray: "i converted her but shes not in the build
+     section."
+
+     ⚠ A HOUSE FLAGGED TO BUILD WITH NO LIGHT COLOURS ON FILE USED TO VANISH FROM THIS
+     LIST ENTIRELY, and with nothing else waiting the tab said "Nothing needs to be built
+     right now" — which is a lie about work that is genuinely outstanding. Worse, the
+     Printing tab's Needs Building list has never had that filter, so the two screens
+     disagreed about the same customer.
+
+     They still cannot be grouped by pattern, because there is no pattern. They get
+     their own block at the top saying what is missing, which is a job somebody in the
+     office can finish in thirty seconds. */
+  const blocked = [];
   jobAddresses.forEach(function(item){
     const d = item.data;
     /* Sitting out the season means nothing gets built for them, even if a
        needsLightBuild flag was already set before they answered. */
-    if(!d.needsLightBuild || !d.lightsDescription || d.maybeNextYear) return;
+    if(!d.needsLightBuild || d.maybeNextYear) return;
+    if(!d.lightsDescription){ blocked.push(item); return; }
     const key = whGroupKey(d.lightsDescription, d.wireColor);
     if(!groups[key]) groups[key] = {houses:[], extras:[]};
     groups[key].houses.push(item);
@@ -23599,15 +23624,38 @@ function whBuildQueueGroups(){
     const totalB = groups[b].houses.reduce(function(s,h){ return s+houseBundleNeed(h.data).bundles; },0) + groups[b].extras.reduce(function(s,e){ return s+(Number(e.data.quantity)||0); },0);
     return totalB - totalA;
   });
-  return {groups: groups, keys: keys, timerHouses: timerHouses};
+  return {groups: groups, keys: keys, timerHouses: timerHouses, blocked: blocked};
 }
 function renderWarehouseQueue(){
   const list = document.getElementById('warehouseQueueList');
   if(!list) return;
   const built = whBuildQueueGroups();
   const groups = built.groups, keys = built.keys, timerHouses = built.timerHouses;
-  if(!keys.length){ list.innerHTML = '<div class="empty-note">Nothing needs to be built right now.</div>'; return; }
+  const blocked = built.blocked || [];
+  if(!keys.length && !blocked.length){ list.innerHTML = '<div class="empty-note">Nothing needs to be built right now.</div>'; return; }
   let html = '';
+  /* ⚠ FIRST, because it is the only thing here that nobody in the warehouse can act
+     on — it needs the office. Everything below it can be picked up and built. */
+  if(blocked.length){
+    html += '<div class="row-item" style="display:block; border-left:3px solid var(--ember);">'+
+      '<div><strong style="font-size:15px;">Waiting on light colours</strong>'+
+        '<div style="font-size:12.5px; color:var(--slate);">'+blocked.length+' house'+(blocked.length===1?'':'s')+' '+
+        (blocked.length===1?'is':'are')+' waiting to be built, but '+(blocked.length===1?'has':'have')+' no colours on the record yet. Nothing can be made up until somebody fills them in.</div></div>'+
+      '<div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--line);">'+
+        blocked.map(function(h){
+          return '<div style="display:flex; justify-content:space-between; align-items:flex-start; padding:8px 0; gap:10px;">'+
+            '<span style="font-size:13.5px;">'+esc(h.data.name||'(no name)')+' &mdash; '+esc(h.data.address||'')+propLabelChip(h.data)+
+              '<span style="display:block; font-size:12px; color:var(--ember); margin-top:2px;">No light colours on file</span>'+
+              '<span style="display:block; margin-top:4px; line-height:1.9;">'+whHouseFactsHtml(h.data)+'</span>'+
+            '</span>'+
+            '<span style="display:flex; gap:6px; flex:0 0 auto;">'+
+              '<button type="button" class="btn btn-gold btn-sm" data-wheditcust="'+h.id+'">Add colours</button>'+
+            '</span>'+
+          '</div>';
+        }).join('')+
+      '</div>'+
+    '</div>';
+  }
   /* Timers, counted against the houses that asked for them. This is a roll-up of
      the same houses listed in the colour groups below, so it deliberately has no
      Mark Done of its own — marking the house done in its colour group is what
@@ -24133,6 +24181,25 @@ function whStartEditExtra(id){
 function whSheetRowsForBuild(){
   const built = whBuildQueueGroups();
   const rows = [];
+  /* The blocked ones go on the paper too, at the top, for the same reason they go at
+     the top of the tab: a sheet that quietly leaves them off is a sheet that says the
+     work is finished when it is not. */
+  (built.blocked || []).forEach(function(item){
+    const d = item.data;
+    rows.push({
+      group: 'Waiting on light colours',
+      wire: whWireLabel(d.wireColor),
+      type: 'Blocked',
+      what: d.name || '(no name)',
+      address: d.address || '',
+      bin: d.customerNumber || '',
+      feet: '',
+      bundles: '',
+      timer: String(d.outletTimer || '').trim() === 'Yes' ? 'YES' : '',
+      putInto: '',
+      notes: 'NO LIGHT COLOURS ON FILE ' + String.fromCharCode(8212) + ' cannot be built yet'
+    });
+  });
   built.keys.forEach(function(key){
     const g = built.groups[key];
     // A member's own request is headed by their name on screen; on paper the
@@ -24340,11 +24407,13 @@ function whPrintBuildSheet(){
   const sheet = whSheetRowsForBuild();
   const bundles = sheet.rows.reduce(function(s,r){ return s + (Number(r.bundles) || 0); }, 0);
   const houses = sheet.rows.filter(function(r){ return r.type === 'House'; }).length;
+  const blocked = sheet.rows.filter(function(r){ return r.type === 'Blocked'; }).length;
   const summary = sheet.rows.length
     ? sheet.groupCount + ' group' + (sheet.groupCount===1?'':'s') + ' · ' +
       houses + ' house' + (houses===1?'':'s') + ' · ' +
       bundles + ' bundle' + (bundles===1?'':'s') + ' · ' +
-      sheet.timerHouses.length + ' timer' + (sheet.timerHouses.length===1?'':'s')
+      sheet.timerHouses.length + ' timer' + (sheet.timerHouses.length===1?'':'s') +
+      (blocked ? ' \u00b7 ' + blocked + ' waiting on colours' : '')
     : '';
   whOpenPrintWindow('Warehouse — Build Sheet', summary,
     sheet.rows.length ? whSheetTable(sheet.rows, sheet.columns) : '',
@@ -25262,6 +25331,14 @@ let requoteBeingConverted = null;
    carried out by the Save Changes handler, and cleared there whether it worked or not
    so the next customer opened does not inherit somebody else's answer. */
 let requoteBuildChoice = null;
+/* Puts the Save button's ordinary wording back. Called from both places that stop a
+   re-quote being in hand — finishing it and abandoning it — because a button still
+   promising to finish a re-quote on the NEXT customer somebody edits is worse than the
+   plain label it replaced. */
+function requoteRestoreSaveLabel(){
+  const btn = document.getElementById('editCustSaveBtn');
+  if(btn && btn.dataset.plainLabel) btn.textContent = btn.dataset.plainLabel;
+}
 /* The record's updatedAt at the moment the Edit Customer modal was opened, so
    the save can tell whether anyone else has touched it since. */
 let editCustOpenedWithUpdatedAt = null;
@@ -25868,11 +25945,28 @@ document.getElementById('editCustTopClose')?.addEventListener('click', function(
 });
 document.getElementById('editCustCancelBtn').addEventListener('click', function(){
   document.getElementById('editCustOverlay').style.display = 'none';
+  const who = document.getElementById('editCustName');
+  const abandoned = !!requoteBeingConverted;
   editCustomerId = null;
   /* Cancelling leaves the re-quote OPEN and waiting, which is right - nothing
      was applied. Not clearing this would close it against the next customer
      somebody happens to edit. */
   requoteBeingConverted = null;
+  /* ⭐ AND THE SAME FOR WHAT THE WAREHOUSE WAS TOLD TO DO. Left set, the recycle and
+     build flags meant for THIS customer would be written onto the next person whose
+     record anybody saved. */
+  requoteBuildChoice = null;
+  requoteRestoreSaveLabel();
+  /* ⚠ AND IT SAYS SO, BECAUSE APPLYING A RE-QUOTE IS TWO STEPS AND THE SECOND ONE WAS
+     SILENT. Owner, 2026-08-20: "I converted her but she hasnt left the requote secion",
+     "shes not in the recycle section", "shes not in the build section." All three are
+     one thing: the popup opens the record and NOTHING is written until Save Changes is
+     pressed there. Pressing the big gold button reads as having converted them, so
+     closing the form afterwards looked like finishing rather than abandoning. */
+  if(abandoned){
+    toast('Nothing was applied to ' + ((who && who.value) || 'them') + ' \u2014 their re-quote ' +
+      'is still open. Reopen it and press Save Changes to finish.');
+  }
 });
 document.getElementById('editCustSaveBtn').addEventListener('click', async function(){
   if(!editCustomerId) return;
@@ -26262,6 +26356,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     if(requoteBeingConverted){
       const answeredQuoteId = requoteBeingConverted;
       requoteBeingConverted = null;
+      requoteRestoreSaveLabel();
       try{
         await updateDoc(doc(db,'quotes', answeredQuoteId), {
           status: 'closed', convertedToCustomerAt: serverTimestamp(),
