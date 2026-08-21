@@ -2290,11 +2290,27 @@ async function runInvoiceBatch(triggeredBy) {
           skippedNotDone++; continue;
         }
 
-        // The payer is the house the invoice key actually belongs to; a group
-        // made only of bill-to houses falls back to the first one.
-        const payer = active.find(function (h) {
+        /* The payer is the house the invoice key actually belongs to, and when
+           several of them are (four Anderson houses share one phone) THE LOWEST
+           CUSTOMER NUMBER WINS -- the longest-standing account, and so the likeliest
+           bill payer. Matches payerHouseOf in admin.html; the two must agree, because
+           this writes the name the customer reads on their invoice email and that one
+           writes the name the office reads on the screen.
+
+           This was a bare .find(), so the bill was addressed to whichever house came
+           back first and the greeting on a customer's invoice could change from one
+           night to the next. A group made only of bill-to houses still falls back to
+           the group, sorted the same way rather than taken in arrival order. */
+        const payerSort = function (a, b) {
+          const na = Number(a.data.customerNumber) || Infinity;
+          const nb = Number(b.data.customerNumber) || Infinity;
+          if (na !== nb) return na - nb;
+          return String(a.id).localeCompare(String(b.id));
+        };
+        const payerOwn = active.filter(function (h) {
           return !digitsOnly(h.data.billToPhone) && invoiceKeyFor(h.data) === invoiceKey;
-        }) || active[0];
+        });
+        const payer = (payerOwn.length ? payerOwn : active).slice().sort(payerSort)[0];
 
         const withEmail = active.find(function (h) { return !!h.data.email; });
         const email = payer.data.email || (withEmail ? withEmail.data.email : '');

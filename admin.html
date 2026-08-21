@@ -10417,14 +10417,55 @@ function billedHousesFor(who){
   if(!key) return [];
   return billingGroupsByPayer().get(key) || [];
 }
+/* ⭐ WHOSE NAME GOES ON A BILL, when several houses answer to one phone. THE
+   LOWEST CUSTOMER NUMBER WINS — the longest-standing account, and so the likeliest
+   bill payer. Four Anderson houses share 8013721805 in the live book (Heather #14,
+   Brit / Dani #20, Loren #27, Ryan #972) and the answer has to be Heather every time.
+
+   ⚠ THE POINT IS LESS WHICH RULE THAN THAT IT IS STABLE. This used to be a bare
+   .find(), so the bill was addressed to whichever house happened to come first, and
+   editing any one of them reordered the list and changed the name on the invoice for
+   no reason the office could see. Seventeen numbers in that book are shared this way.
+
+   ⚠ AND IT LIVES IN ONE PLACE ON PURPOSE (2026-08-20). The rule was fixed inside
+   syncPayerInvoice this morning and the copy here was left as a .find(), so the two
+   screens could disagree about the same four houses — which is exactly what the owner
+   then saw. A rule about who gets billed cannot have two implementations. */
+function payerHouseOf(key, houses){
+  const own = (houses||[]).filter(function(h){
+    const d = h.data || {};
+    return !String(d.billToPhone||'').replace(/\D/g,'') && custInvoiceKey(d) === key;
+  });
+  return own.slice().sort(function(a, b){
+    const na = Number((a.data || {}).customerNumber) || Infinity;
+    const nb = Number((b.data || {}).customerNumber) || Infinity;
+    if(na !== nb) return na - nb;
+    /* Neither has a number: fall back on the id, so it is still the same answer
+       every time rather than whatever order Firestore handed them over in. */
+    return String(a.id).localeCompare(String(b.id));
+  })[0] || null;
+}
 /* The payer's own record inside their group, when one of the houses is theirs.
    A group can have none — the office can bill three houses to a phone that is
    nobody's customer record, which Health Check already reports. */
 function billingGroupPayer(key, houses){
-  return (houses||[]).find(function(h){
-    const d = h.data || {};
-    return !String(d.billToPhone||'').replace(/\D/g,'') && custInvoiceKey(d) === key;
-  }) || null;
+  return payerHouseOf(key, houses);
+}
+/* The name to PRINT for an invoice. The stored name is only refreshed when
+   something resyncs that payer, so an invoice written before the rule above
+   existed keeps the wrong name on screen until an unrelated edit happens to
+   touch it. Derive it from the houses instead and it is right immediately.
+
+   ⚠ FALLS BACK TO THE STORED NAME, never to blank. An archived invoice, or one
+   whose houses have all been recycled, has no group left to derive from — and a
+   nameless row in the money list is worse than a stale one. */
+function invoiceDisplayName(key, stored){
+  const k = String(key||'').trim();
+  if(k){
+    const p = payerHouseOf(k, billedHousesFor(k));
+    if(p && p.data && p.data.name) return p.data.name;
+  }
+  return stored || '';
 }
 let etFilterGateCode = 'all';
 let etFilterPayment = 'all';
@@ -11940,7 +11981,12 @@ function renderInvoicesList(){
     : allInvoicesCache.filter(function(item){ return !(item.data || {}).archived; });
   if(invoiceSearchTerm){
     const t = invoiceSearchTerm.toLowerCase();
-    filtered = filtered.filter(item => (item.data.name||'').toLowerCase().indexOf(t) !== -1);
+    /* Search what is on the screen. Typing "heather" has to find Heather's bill even
+       on the day the stored name still says Brit / Dani. */
+    filtered = filtered.filter(function(item){
+      const shown = invoiceDisplayName(item.id, item.data.name).toLowerCase();
+      return shown.indexOf(t) !== -1 || (item.data.name||'').toLowerCase().indexOf(t) !== -1;
+    });
   }
   if(activeInvFilters.paid) filtered = filtered.filter(item => computeInvoiceStatus(item.data.install, item.data.removal, item.data.deposit, item.data.credits, item.data.changeFees) === 'Paid in Full');
   if(activeInvFilters.partial) filtered = filtered.filter(item => computeInvoiceStatus(item.data.install, item.data.removal, item.data.deposit, item.data.credits, item.data.changeFees) === 'Partial Payment');
@@ -11966,7 +12012,7 @@ function renderInvoicesList(){
     const billedNote = billedHouses.length ? '<div class="rtext" style="margin-top:2px;"><strong>Includes:</strong> '+billedHouses.join(', ')+'</div>' : '';
     html += '<div class="row-item">'+
       '<div class="rmain">'+
-        '<h4>'+esc(d.name)+' <span class="status-pill '+statusClass(liveStatus)+'">'+liveStatus+'</span>'+(overdue ? ' <span class="status-pill status-due">&#9888; Overdue</span>' : '')+(needsReview ? ' <span class="status-pill status-due">&#9888; Needs Price Review</span>' : '')+rsvpPill+'</h4>'+
+        '<h4>'+esc(invoiceDisplayName(item.id, d.name))+' <span class="status-pill '+statusClass(liveStatus)+'">'+liveStatus+'</span>'+(overdue ? ' <span class="status-pill status-due">&#9888; Overdue</span>' : '')+(needsReview ? ' <span class="status-pill status-due">&#9888; Needs Price Review</span>' : '')+rsvpPill+'</h4>'+
         '<div class="rmeta" style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">'+
           '<span>'+esc(d.phone)+'</span>'+(d.phone ? '<button type="button" class="copy-field-btn" data-copyval="'+esc(d.phone)+'" title="Copy phone number">'+copyIcon()+'</button>' : '')+
           (d.email ? ' &middot; <span>'+esc(d.email)+'</span><button type="button" class="copy-field-btn" data-copyval="'+esc(d.email)+'" title="Copy email">'+copyIcon()+'</button>' : '')+
@@ -14769,37 +14815,17 @@ async function syncPayerInvoice(payerKey){
     const existingSnap = await getDoc(doc(db,'invoices',key));
     if(existingSnap.exists()) existing = existingSnap.data();
   } catch(err){ /* no existing invoice yet, fine */ }
-  /* ⭐ WHOSE NAME GOES ON THE BILL, when several houses answer to the same phone.
-     Reported by the owner, 2026-08-20: an invoice covering four Anderson houses was
-     addressed to "Brit / Dani Anderson" when Heather Anderson is the one who pays.
-     "I edited brit/danis page so that might be why but it should still show heather".
-
-     Exactly why. FOUR Anderson houses share 8013721805 — Heather (#14), Brit / Dani
-     (#20), Loren (#27) and Ryan (#972) — and this was a .find(), so the bill was
-     addressed to whichever of them happened to come first. Editing any one of them
-     reorders the list and the name on the invoice changes for no reason the office
-     can see. Seventeen numbers in the real book are shared like this.
-
-     ⚠ THE LOWEST CUSTOMER NUMBER WINS: the longest-standing account, and so the
-     likeliest bill payer. On the Andersons that is Heather, which is the right answer
-     here. The point is less which rule than that it is STABLE — the same houses give
-     the same answer whatever order they arrive in, so nothing flips when a sibling
-     is edited.
+  /* Whose name goes on the bill when several houses answer to one phone: see
+     payerHouseOf. The rule was written here first and the copy in billingGroupPayer
+     was left as a .find(), so the money list and the Who Pays for Whom tab could
+     disagree about the same four houses. One rule now, read from one place.
 
      ⚠ AND DELIBERATELY NOT "KEEP THE NAME ALREADY ON THE INVOICE". That was the
      first version, and it is the trap: the name sitting there right now was put
      there by this bug, so preferring it would have preserved Brit / Dani for ever and
      called it respecting a decision. Nothing human is being overruled — there is no
      screen anywhere that sets an invoice name; it has always been derived. */
-  const payerCandidates = linked.filter(h => custInvoiceKey(h.data) === key && !h.data.billToPhone);
-  const payerHouse = payerCandidates.slice().sort(function(a, b){
-    const na = Number((a.data || {}).customerNumber) || Infinity;
-    const nb = Number((b.data || {}).customerNumber) || Infinity;
-    if(na !== nb) return na - nb;
-    /* Neither has a number: fall back on the id, so it is still the same answer
-       every time rather than whatever order Firestore handed them over in. */
-    return String(a.id).localeCompare(String(b.id));
-  })[0];
+  const payerHouse = payerHouseOf(key, linked);
   // Keep the $30 new-member fee that was already applied — the sum of house
   // prices doesn't include it, so rebuilding install without it would silently
   // undo the fee (and the Health Check total-drift test, which expects it, would

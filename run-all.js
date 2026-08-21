@@ -3643,7 +3643,11 @@ suite('13. Season prep — crew portal (§4)');
     return;
   }
   // Slice to the closing brace at column 0, the same way the text checks do.
-  const src = admin.slice(start, admin.indexOf('\n}', start) + 2);
+  // payerHouseOf comes along because syncPayerInvoice calls it: the rule about whose
+  // name goes on a shared bill lives in one place now, and running the function
+  // without it is running something that is not what ships.
+  const src = extractFn(admin, 'payerHouseOf') + '\n' +
+    admin.slice(start, admin.indexOf('\n}', start) + 2);
 
   // A tiny fake Firestore. Every call records what it was asked for; setDoc
   // captures the document that would have been written.
@@ -16783,7 +16787,7 @@ suite('Suite 68. Awaiting Response, the address check, and the route notice');
 suite('Suite 69. Who pays for whom');
 
 {
-  const billingSrc = ['billingGroupsByPayer', 'billedHousesFor', 'billingGroupPayer',
+  const billingSrc = ['billingGroupsByPayer', 'billedHousesFor', 'payerHouseOf', 'billingGroupPayer',
                       'billedHousesForContact', 'billedHousesRows', 'billedHousesEmailBlock',
                       'billedHousesPlainText', 'rsvpTemplateHasHouses',
                       'billingGroupRows', 'billingGroupMatches', 'renderBillingGroups']
@@ -16925,7 +16929,7 @@ suite('Suite 69. Who pays for whom');
 if (!JSDOM) {
   note('jsdom not installed — skipping the Who Pays for Whom render run');
 } else {
-  const renderSrc = ['billingGroupsByPayer', 'billingGroupPayer', 'billingGroupRows',
+  const renderSrc = ['billingGroupsByPayer', 'payerHouseOf', 'billingGroupPayer', 'billingGroupRows',
                      'billingGroupMatches', 'renderBillingGroups'].map(n => extractFn(admin, n));
   if (!renderSrc.every(Boolean)) {
     check('who-pays', 'the Who Pays for Whom renderer is findable', false,
@@ -20048,88 +20052,143 @@ suite('Suite 84. Seeing the customer form without making a customer');
 suite('Suite 83. Whose name goes on a shared bill');
 
 {
-  const src = extractFn(admin, 'syncPayerInvoice');
-  check('S83', 'syncPayerInvoice is still there', !!src);
+  /* ⭐ ONE RULE, READ FROM ONE PLACE. Four Anderson houses share 8013721805 in the
+     real book — Heather (#14), Brit / Dani (#20), Loren (#27), Ryan (#972) — and the
+     payer was picked with .find(), so the bill was addressed to whichever of them came
+     back first. Seventeen numbers in that book are shared this way.
 
-  /* The choosing is lifted out and run on its own: the rest of that function talks
-     to Firestore, and the bug was entirely in which record it picked. */
-  const at = src.indexOf('const payerCandidates =');
-  const blk = at < 0 ? '' : src.slice(at, src.indexOf('// Keep the $30', at));
-  check('S83', 'the payer-choosing block was found to run', !!blk);
+     ⚠ AND THE FIX WAS FIRST WRITTEN IN ONLY ONE OF THE THREE PLACES THAT ASK. It went
+     into syncPayerInvoice; billingGroupPayer and the server's nightly run were left as
+     .find(). The owner reported the result the same day: the money list said Brit / Dani
+     while the Who Pays for Whom tab said Heather, about the same four houses. */
+  const rule = extractFn(admin, 'payerHouseOf');
+  check('S83', 'the rule exists on its own, not buried in a caller', !!rule);
 
-  if (blk) {
-    const pick = new Function('linked', 'key', 'existing', 'custInvoiceKey', 'dupNormName',
-      blk + 'return payerHouse;');
-    const K = '8013721805';
-    const ck = (d) => String((d && d.phone) || '').replace(/[^0-9]/g, '');
-    const norm = (v) => String(v == null ? '' : v).toLowerCase()
-      .replace(/[^a-z0-9]+/g, ' ').split(' ').filter(Boolean).sort().join('');
+  const ck = (d) => String((d && d.phone) || '').replace(/[^0-9]/g, '');
+  const pick = new Function('houses', 'key', 'custInvoiceKey',
+    rule + 'return payerHouseOf(key, houses);');
+  const K = '8013721805';
+  const who = (list) => (pick(list, K, ck) || {}).id;
 
-    /* The four real Andersons, in the order that produced the wrong answer. */
-    const andersons = [
-      {id: 'britdani', data: {name: 'Anderson Brit / Dani', phone: K, customerNumber: '20'}},
-      {id: 'heather',  data: {name: 'Anderson Heather',     phone: K, customerNumber: '14'}},
-      {id: 'loren',    data: {name: 'Anderson Loren',       phone: K, customerNumber: '27'}},
-      {id: 'ryan',     data: {name: 'Anderson Ryan',        phone: K, customerNumber: '972'}}
-    ];
-    const who = (list, existing) => (pick(list, K, existing || {}, ck, norm) || {}).id;
+  /* The four real Andersons, in the order that produced the wrong answer. */
+  const andersons = [
+    {id: 'britdani', data: {name: 'Anderson Brit / Dani', phone: K, customerNumber: '20'}},
+    {id: 'heather',  data: {name: 'Anderson Heather',     phone: K, customerNumber: '14'}},
+    {id: 'loren',    data: {name: 'Anderson Loren',       phone: K, customerNumber: '27'}},
+    {id: 'ryan',     data: {name: 'Anderson Ryan',        phone: K, customerNumber: '972'}}
+  ];
 
-    check('S83', 'the four Andersons name Heather, who pays',
-      who(andersons, {}) === 'heather',
-      'the lowest customer number is the longest-standing account');
-    check('S83', 'and editing a sibling does not change it',
-      who(andersons.slice().reverse(), {}) === 'heather',
-      'this is the actual complaint: the list reordered and the bill changed name');
+  check('S83', 'the four Andersons name Heather, who pays',
+    who(andersons) === 'heather',
+    'the lowest customer number is the longest-standing account');
+  check('S83', 'and editing a sibling does not change it',
+    who(andersons.slice().reverse()) === 'heather' &&
+    who([andersons[2], andersons[0], andersons[3], andersons[1]]) === 'heather',
+    'this is the actual complaint: the list reordered and the bill changed name');
 
-    /* ⚠ AND THE NAME SITTING ON THE INVOICE DOES NOT GET A VOTE. The first version
-       of this preferred it, on the reasoning that somebody had chosen it. Nobody had:
-       there is no screen anywhere that sets an invoice name, it has always been
-       derived — so the value there right now is the one this bug put there, and
-       preferring it would have kept Brit / Dani for ever while calling that respect
-       for a decision. A red-check caught it, because the fixture could not tell the
-       two rules apart until one was written that could. */
-    check('S83', 'a wrong name already on the invoice is CORRECTED, not preserved',
-      who(andersons, {name: 'Anderson Brit / Dani'}) === 'heather',
-      'this is the owner\u2019s live invoice: it says Brit / Dani today, and the whole ' +
-      'point is that the next sync makes it say Heather');
+  const solo = [{id: 'a', data: {name: 'Solo Payer', phone: K, customerNumber: '500'}}];
+  check('S83', 'one house on the bill still names that house', who(solo) === 'a');
+  check('S83', 'and a house billed elsewhere is never the payer',
+    who([{id: 'billed', data: {name: 'Billed Away', phone: K, billToPhone: '8015559999'}},
+         {id: 'real',   data: {name: 'Real Payer',  phone: K, customerNumber: '900'}}]) === 'real',
+    'billToPhone means somebody else pays for them, which is the whole signal');
 
-    check('S83', 'with no invoice yet, the longest-standing account is chosen',
-      who(andersons, {}) === 'heather',
-      'the lowest customer number is the oldest account and the likeliest payer');
-    check('S83', 'and that answer does not depend on the order either',
-      who(andersons.slice().reverse(), {}) === 'heather' &&
-      who([andersons[2], andersons[0], andersons[3], andersons[1]], {}) === 'heather',
-      'the point is less which rule than that the same houses always give the same ' +
-      'answer, whatever order they arrive in');
+  /* ⚠ AND WHEN NOBODY HAS A NUMBER AT ALL. A red-check that removed the id tie-break
+     passed, because every other fixture had numbers to sort on. Two records with
+     neither would fall back on arrival order, which is the bug in a different hat. */
+  {
+    const noNums = [{id: 'zeta', data: {name: 'Zeta House', phone: K}},
+                    {id: 'alpha', data: {name: 'Alpha House', phone: K}}];
+    check('S83', 'two payers with no customer number still give one stable answer',
+      who(noNums) === 'alpha' && who(noNums.slice().reverse()) === 'alpha',
+      'without the id tie-break this is whatever order Firestore handed them over in');
+  }
 
-    check('S83', 'and so is a name belonging to nobody in the group',
-      who(andersons, {name: 'Somebody Else Entirely'}) === 'heather',
-      'a payer who has been deleted must not freeze the bill on a name nobody holds');
+  check('S83', 'and nobody eligible returns nothing rather than guessing',
+    pick([{id: 'x', data: {name: 'Away', phone: K, billToPhone: '8015559999'}}], K, ck) === null,
+    'the caller falls back to the name already on the invoice');
 
-    /* Nothing about the ordinary case changes. */
-    const solo = [{id: 'a', data: {name: 'Solo Payer', phone: K, customerNumber: '500'}}];
-    check('S83', 'one house on the bill still names that house',
-      who(solo, {}) === 'a');
-    check('S83', 'and a house billed elsewhere is never the payer',
-      who([{id: 'billed', data: {name: 'Billed Away', phone: K, billToPhone: '8015559999'}},
-           {id: 'real',   data: {name: 'Real Payer',  phone: K, customerNumber: '900'}}], {}) === 'real',
-      'billToPhone means somebody else pays for them, which is the whole signal');
+  /* ---- and all three callers ask the same question ---------------------- */
+  {
+    const sync = extractFn(admin, 'syncPayerInvoice');
+    check('S83', 'syncPayerInvoice reads the shared rule instead of its own copy',
+      /payerHouseOf\(key, linked\)/.test(sync) && !/payerCandidates/.test(sync),
+      'a second implementation is how the two screens came to disagree');
+  }
 
-    /* ⚠ AND WHEN NOBODY HAS A NUMBER AT ALL. A red-check that removed the id
-       tie-break passed, because every fixture above had numbers to sort on. Two
-       records with neither would fall back on arrival order, which is the bug. */
-    {
-      const noNums = [{id: 'zeta', data: {name: 'Zeta House', phone: K}},
-                      {id: 'alpha', data: {name: 'Alpha House', phone: K}}];
-      check('S83', 'two payers with no customer number still give one stable answer',
-        who(noNums, {}) === 'alpha' && who(noNums.slice().reverse(), {}) === 'alpha',
-        'without the id tie-break this is whatever order Firestore handed them over ' +
-        'in, which is the whole bug wearing a different hat');
+  {
+    const grp = new Function('houses', 'key', 'custInvoiceKey',
+      rule + extractFn(admin, 'billingGroupPayer') + 'return billingGroupPayer(key, houses);');
+    check('S83', 'the Who Pays for Whom tab gives the same answer, in any order',
+      (grp(andersons, K, ck) || {}).id === 'heather' &&
+      (grp(andersons.slice().reverse(), K, ck) || {}).id === 'heather',
+      'this one was still a .find() after the first fix, and it feeds the portal box ' +
+      'and the {{houses_block}} email token as well as the tab');
+  }
+
+  /* ⭐ AND THE MONEY LIST SHOWS THE DERIVED NAME, not the stored one. The stored name
+     is only rewritten when something happens to resync that payer, so an invoice
+     written before this rule existed keeps the wrong name on screen indefinitely —
+     which is precisely what the owner was looking at. */
+  {
+    const show = new Function('houses', 'key', 'stored', 'custInvoiceKey',
+      rule +
+      'function billedHousesFor(k){ return houses; }' +
+      extractFn(admin, 'invoiceDisplayName') +
+      'return invoiceDisplayName(key, stored);');
+    check('S83', 'a stale stored name is corrected on screen without waiting for a sync',
+      show(andersons, K, 'Anderson Brit / Dani', ck) === 'Anderson Heather',
+      'the invoice document still says Brit / Dani today; the screen must not');
+    check('S83', 'with no houses left to derive from it keeps the stored name',
+      show([], K, 'Anderson Brit / Dani', ck) === 'Anderson Brit / Dani' &&
+      show([], '', 'Someone', ck) === 'Someone',
+      'an archived invoice has no group left, and a nameless row in the money list ' +
+      'is worse than a stale one');
+  }
+
+  {
+    const listSrc = extractFn(admin, 'renderInvoicesList');
+    check('S83', 'the invoices list actually calls it',
+      /esc\(invoiceDisplayName\(item\.id, d\.name\)\)/.test(listSrc),
+      'the rule being right is no use if the screen still prints d.name');
+    check('S83', 'and searching finds the name that is on the screen',
+      /invoiceDisplayName\(item\.id, item\.data\.name\)/.test(listSrc),
+      'typing "heather" has to find Heather’s bill on the day the stored name ' +
+      'still says Brit / Dani');
+  }
+
+  /* ---- the server writes the name the customer reads ---------------------- */
+  {
+    const at = fnsSrc.indexOf('const payerSort = function');
+    const blk = at < 0 ? '' : fnsSrc.slice(at, fnsSrc.indexOf('const withEmail', at));
+    check('S83', 'the nightly run chooses a payer the same way', !!blk,
+      'runInvoiceBatch writes name onto a new invoice and greets the customer by it ' +
+      'in the invoice email');
+    if (blk) {
+      const srv = new Function('active', 'invoiceKey', 'digitsOnly', 'invoiceKeyFor',
+        blk + 'return payer;');
+      const d0 = (v) => String(v == null ? '' : v).replace(/[^0-9]/g, '');
+      const kf = (d) => d0(d.phone);
+      check('S83', 'and it names Heather too, in either order',
+        srv(andersons, K, d0, kf).id === 'heather' &&
+        srv(andersons.slice().reverse(), K, d0, kf).id === 'heather',
+        'the admin screen and the customer’s emailed invoice must agree');
+      check('S83', 'a group that is all bill-to houses still answers the same way twice',
+        srv([{id: 'zz', data: {name: 'Z', phone: K, billToPhone: '8015559999'}},
+             {id: 'aa', data: {name: 'A', phone: K, billToPhone: '8015559999'}}], K, d0, kf).id === 'aa' &&
+        srv([{id: 'aa', data: {name: 'A', phone: K, billToPhone: '8015559999'}},
+             {id: 'zz', data: {name: 'Z', phone: K, billToPhone: '8015559999'}}], K, d0, kf).id === 'aa',
+        'the old fallback was active[0], which is arrival order');
+      /* A group where one house is the payer and a lower-numbered one is billed to
+         them. Sorting the whole group rather than the payer's own houses picks the
+         house somebody else is paying for, which is the wrong name on the bill. */
+      check('S83', 'and a house billed elsewhere is never the payer server-side',
+        srv([{id: 'tenant', data: {name: 'Tenant', phone: K, customerNumber: '5',
+                                   billToPhone: '8015559999'}},
+             {id: 'owner',  data: {name: 'Owner',  phone: K, customerNumber: '900'}}],
+            K, d0, kf).id === 'owner',
+        'billToPhone means somebody else pays for them, which is the whole signal');
     }
-
-    check('S83', 'and nobody eligible returns nothing rather than guessing',
-      who([{id: 'x', data: {name: 'Away', phone: K, billToPhone: '8015559999'}}], {}) === undefined,
-      'the caller falls back to the name already on the invoice');
   }
 }
 
