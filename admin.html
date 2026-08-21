@@ -8943,9 +8943,13 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
           const w = cb.closest('.pill-check'); if(w) w.classList.add('checked');
         }
       });
+      /* ⚠ THROUGH requoteSetSelect, NOT BY ASSIGNMENT (2026-08-21). The public form
+         offers an "Any" wire colour and this dropdown does not, so writing it straight
+         in leaves the select on nothing at all and the save then puts a BLANK wire
+         colour over White. The other session hit the same edge and wrote the guard;
+         this used a bare assignment and their check caught it on the merge. */
       if(!String(ed.wireColor || '').trim() && d.wireColor){
-        const wire = document.getElementById('editCustWireColor');
-        if(wire) wire.value = d.wireColor;
+        requoteSetSelect('editCustWireColor', d.wireColor);
       }
     }
     /* Held until Save Changes rather than written now. She can still close the form

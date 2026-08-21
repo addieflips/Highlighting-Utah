@@ -1620,6 +1620,37 @@ exports.quoteRespond = onCall({ cors: true }, async (request) => {
    * page can fill in the sign-in box. Signing in is still last-name checked
    * and still rate limited.
    * ---------------------------------------------------------------------- */
+  /* --- What the "fill it out fresh" form is allowed to start from ----------
+   * Owner, 2026-08-21: a re-quoted member should be able to choose between
+   * keeping what we hold and going through the form again. Going through it
+   * again is only worth anything if it starts from their current answers -
+   * otherwise it is a re-typing exercise and half of it comes back blank.
+   *
+   * ⚠ THE GATE CODE AND THE HOUSE NOTES ARE DELIBERATELY NOT IN HERE.
+   * A quoteToken is generated in the visitor's own browser when the public quote
+   * form is submitted, so possessing one proves nothing about who you are - the
+   * same reason this function has never returned a portalToken. A gate code is
+   * the one field on the record that opens a physical gate, and the house notes
+   * routinely carry one in free text ("gate code 1234, dog in back"). Neither
+   * travels. index.html leaves both boxes empty and says an empty box keeps what
+   * we already have; admin.html will not overwrite a field the customer left
+   * blank. Nothing here is worth more to a stranger than the colour of somebody's
+   * Christmas lights.
+   * ---------------------------------------------------------------------- */
+  const memberPrefill = (data) => {
+    const m = data || {};
+    const str = (v, max) => String(v == null ? '' : v).slice(0, max || 200);
+    return {
+      lightColors: Array.isArray(m.lightColors) ? m.lightColors.slice(0, 20).map(c => str(c, 40)) : [],
+      lightsDescription: str(m.lightsDescription, 400),
+      wireColor: str(m.wireColor, 40),
+      outletTimer: str(m.outletTimer, 10),
+      specificOutlet: str(m.specificOutlet, 10),
+      specificOutletNotes: str(m.specificOutletNotes, 500),
+      installPreference: str(m.installPreference, 60),
+      wantsMailedInvoice: m.wantsMailedInvoice === true
+    };
+  };
   let alreadyMember = false;
   /* The record itself when we know WHICH customer — needed to mark them in for
      the season below. Null is normal: a converted quote can say "this became a
@@ -1734,7 +1765,11 @@ exports.quoteRespond = onCall({ cors: true }, async (request) => {
     alreadyMember: alreadyMember,
     memberContact: alreadyMember
       ? (quoteData.email || quoteData.phone || '')
-      : ''
+      : '',
+    /* Null when we know they are a member but not WHICH member - the
+       convertedToCustomerAt path can say one without the other. The form still
+       opens in that case, just empty, which is no worse than before it existed. */
+    memberDetails: (alreadyMember && memberRef) ? memberPrefill(memberRef.data) : null
   };
 });
 
