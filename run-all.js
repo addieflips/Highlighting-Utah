@@ -460,6 +460,62 @@ check('logic', 'admin preview and the nightly function agree on who is new',
   /chargeNewMemberFee === true/.test(admin) && /chargeNewMemberFee === true/.test(fnsSrc),
   'if these two drift apart, the office sees one invoice total and the customer is billed another');
 
+/* ⭐ WHO IS A NEW MEMBER: BY QUOTE, NOT BY DATE, NOT BY BULK (asserted 2026-08-21).
+   Owner: "since this is new and bulk report runs all the time we should not do new
+   members by dates right now. We should do it by who become a costumer through
+   quotes and not through bulk."
+
+   The date half is already covered by the createdAt check just above. These are the
+   other two halves, which nothing guarded — and the bulk one is the expensive one:
+   Bulk Updates runs constantly against the whole book, so a single line added to an
+   importer would hand a $30 fee to every customer in it. */
+{
+  /* ⚠ COUNTED, AND SCOPED TO THE IMPORTERS. A file-wide search for the field name
+     finds the two legitimate checkboxes and every place that READS it, so it would
+     pass with an importer writing it. This slices out the bulk region and looks for
+     a WRITE specifically. */
+  const bulkStart = admin.indexOf('async function rbApplyTickedAdds(');
+  const bulkEnd = admin.indexOf("document.getElementById('ibImportBtn')");
+  const bulkRegion = (bulkStart !== -1 && bulkEnd > bulkStart)
+    ? admin.slice(bulkStart, admin.indexOf('function', bulkEnd + 2000))
+    : '';
+  check('logic', 'the bulk region was found to scan', !!bulkRegion,
+    'renamed or moved — fix this slice rather than deleting the check');
+  check('logic', 'no bulk importer ever marks somebody a new member',
+    !!bulkRegion && !/chargeNewMemberFee\s*[:=][^=]/.test(bulkRegion),
+    'Bulk Updates runs against the whole book all season — one line here is a $30 ' +
+    'fee on every customer in it, which is the ~945-person overcharge in a new shape');
+
+  /* The "by quote" half, run rather than read. */
+  const setupSrc = extractFn(admin, 'quoteChargesSetupFee');
+  check('logic', 'the quote set-up fee rule exists as ONE function', !!setupSrc,
+    'it was four copies of the same money rule until 2026-08-21');
+  if (setupSrc) {
+    const charges = new Function('return ' + setupSrc + ';quoteChargesSetupFee')();
+    check('logic', 'a quote for somebody who is not yet a customer charges the fee',
+      charges({}) === true,
+      'this is "became a customer through quotes" — the default that makes a new ' +
+      'lead a new member without anybody having to remember a checkbox');
+    check('logic', 'a re-quote against an existing customer does NOT',
+      charges({ existingCustomerId: 'c1' }) === false,
+      'they joined years ago — charging a join fee for a re-quote is the mistake ' +
+      'this default exists to avoid');
+    /* ⚠ BOTH DIRECTIONS. Reading chargeSetupFee as a plain boolean rather than
+       testing !== undefined would silently re-charge every quote the office had
+       deliberately UNticked, and no single-direction check would notice. */
+    check('logic', 'and the office ticking it themselves always wins',
+      charges({ existingCustomerId: 'c1', chargeSetupFee: true }) === true &&
+      charges({ chargeSetupFee: false }) === false,
+      'a deliberate answer on the quote card beats the default in BOTH directions');
+    /* ⚠ THE DEFINITION IS EXCLUDED, or this check fails against its own function
+       body — which is the only place the raw expression is allowed to appear. */
+    check('logic', 'every caller uses that one function',
+      (admin.match(/quoteChargesSetupFee\(/g) || []).length >= 4 &&
+      !/chargeSetupFee !== undefined \?/.test(admin.split(setupSrc).join('')),
+      'a fifth copy is the copy that disagrees with the quote email they are holding');
+  }
+}
+
 /*
  * A separate tool reads a related but NOT identical signal: the Schedule tab's
  * own 🆕 New Members panel (a CSV-imported route-planning tool, isolated in a
@@ -1123,6 +1179,15 @@ if (JSDOM) {
   // renderQuoteRows also calls isRequote(d) — for the "Send updated quote"
   // button label and the re-quote wording. Mirrors the real one in admin.html.
   global.isRequote = d => !!(d && (d.existingCustomerId || Number(d.requoteCount) > 0));
+  /* ⚠ THE REAL FUNCTION, LIFTED — NOT A MIRROR LIKE THE TWO ABOVE. quoteStage and
+     isRequote decide a badge and a button label, so a hand-written copy that drifts
+     costs a wrong word on a card. quoteChargesSetupFee decides whether somebody is
+     charged $30, and a mirror of a money rule is a test that passes while the card
+     and the invoice disagree. Lifting it also means a rename fails loudly here
+     instead of this suite quietly testing a copy of a function that no longer
+     exists. */
+  global.quoteChargesSetupFee = new Function(
+    'return ' + extractFn(admin, 'quoteChargesSetupFee') + ';quoteChargesSetupFee')();
   // quoteAwaitsUs(d) — priced, open, unanswered and never SENT, which is the
   // card's "Priced — not sent yet" branch. Mirrors admin.html. Suite 5b below
   // runs the real one out of the file; this copy only has to keep the render
@@ -1584,8 +1649,13 @@ check('flow', 'found the quote to customer conversion block', conversion.length 
   check('flow', 'conversion carries ' + label, conversion.includes(marker),
     'quote data would be lost when converting to a customer');
 });
+/* ⚠ NOW GOES THROUGH THE ONE SHARED RULE. The four copies of
+   `d.chargeSetupFee !== undefined ? d.chargeSetupFee : !d.existingCustomerId`
+   became quoteChargesSetupFee on 2026-08-21 — owner: "we should do it by who
+   become a costumer through quotes and not through bulk." Matching the old
+   spelling would now go red against perfectly correct code. */
 check('flow', 'conversion carries the $30 set-up fee decision',
-  conversion.includes('addCustNewMemberFee') && /chargeSetupFee/.test(conversion),
+  conversion.includes('addCustNewMemberFee') && /quoteChargesSetupFee\(/.test(conversion),
   'the fee ticked on the quote must be the fee charged on the customer, or the ' +
   'bill disagrees with the quote email they are holding');
 check('flow', 'conversion falls back to the quote wording when no colours are ticked',
@@ -2628,6 +2698,114 @@ suite('10a. Start New Season keeps the books');
   check('season-reset', 'the snapshot is read back before the reset proceeds',
     /getDoc\(doc\(db,'yearlySnapshots'/.test(src) && /savedRows\.length !== snapRows\.length/.test(src),
     '"the write resolved" is not the same as "the data is there" — a silent failure would leave no books and no warning');
+
+  /* ⭐ AND THEY STOP BEING A NEW MEMBER. Owner, 2026-08-21: "if someone came from
+     quotes this year but we are in 2027 than they are no longer a new costumer."
+
+     ⚠ THIS WAS A REPEATING OVERCHARGE, not a tidy-up. The $30 join fee is one-time
+     and is guarded within a season by newMemberFeeApplied on the invoice — which
+     this very handler sets back to false. Nothing anywhere cleared
+     chargeNewMemberFee on the customer, so the guard was released every season while
+     the flag stayed true, and the nightly run charged the join fee again the night
+     their lights went back up. Every year, silently, for as long as they stayed. */
+  check('season-reset', 'a new member stops being new when the season is reset',
+    /chargeNewMemberFee: false/.test(src),
+    'the join fee is one-time; releasing newMemberFeeApplied without retiring this ' +
+    'flag is exactly what made it repeat every season');
+  /* ⚠ IN THE SAME WRITE as the rest of the customer reset, not a second pass. A
+     separate write can fail on its own and leave the guard released and the flag
+     still set — which is the overcharge back again, in a shape nobody would look
+     for a second time. */
+  /* ⚠ THE ACTUAL OBJECT LITERAL, not a proximity window. A regex measuring the
+     distance between the two field names cannot tell "in the same write" from
+     "in a second write a few lines below" — a red-check that moved the field into
+     its own updateDoc stayed green against a 300-character window, because the
+     text was still nearby. This takes the customer-reset object and asks whether
+     the field is inside it. */
+  {
+    const stripped = stripComments(src);
+    const callAt = stripped.indexOf("updateDoc(doc(db,'jobAddresses', a.id), {");
+    let obj = '';
+    if (callAt !== -1) {
+      const open = stripped.indexOf('{', callAt);
+      let depth = 0;
+      for (let i = open; i < stripped.length; i++) {
+        if (stripped[i] === '{') depth++;
+        else if (stripped[i] === '}') { depth--; if (!depth) { obj = stripped.slice(open, i + 1); break; } }
+      }
+    }
+    check('season-reset', 'and in the same write as the rest of the customer reset',
+      !!obj && /invoiceEmailSent:\s*false/.test(obj) && /chargeNewMemberFee:\s*false/.test(obj),
+      'a separate write can fail alone and leave the guard released with the flag set');
+  }
+  /* ⚠ AND IT IS IN THE DRY RUN. This button has no undo, and CLAUDE.md's rule for
+     it is that anything added has to appear in Check First or it is not finished.
+
+     ⚠ RUN, NOT GREPPED. The first version of this check searched the Check First
+     handler for the word "noLongerNew" — and a red-check that replaced the whole
+     conditional's test with `false` left the word standing further along the same
+     expression, so the report rendered nothing and the check stayed green. That is
+     the exact failure this repo has been bitten by repeatedly. It now presses the
+     button against a fake page and reads the HTML that came out. */
+  {
+    const checkStart = admin.indexOf("ssnCheckBtn')?.addEventListener('click'");
+    const checkSrc = checkStart === -1 ? '' : sectionFrom(admin, checkStart);
+    const body = checkSrc.slice(checkSrc.indexOf('{') + 1, checkSrc.lastIndexOf('}'));
+    check('season-reset', 'the Check First handler was found to run', !!body);
+    if (body) {
+      const els = {};
+      const el = (id) => els[id] || (els[id] = { id: id, innerHTML: '', textContent: '', style: {} });
+      const fakePlan = {
+        houses: [{ id: 'a' }, { id: 'b' }],
+        invoices: [{ id: '1', name: 'Someone', lastPaid: 0, newInstall: 100, removal: 0, fee: 0 }],
+        totalArchive: 0, totalOwed: 100,
+        noLongerNew: [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
+      };
+      new Function('ssnBuildPlan', 'document', 'esc', 'fmtMoney', body)(
+        () => fakePlan,
+        { getElementById: el },
+        (s) => String(s == null ? '' : s),
+        (n) => '$' + (Number(n) || 0).toFixed(2));
+      const html = (els.ssnReport || {}).innerHTML || '';
+      check('season-reset', 'and the dry run says how many people that is',
+        html.indexOf('3 customers stop counting as new members') !== -1,
+        'a change to what people are charged, on a button with no undo, has to be ' +
+        'visible before it is pressed');
+      /* ⚠ AND IT SAYS NOTHING WHEN THERE IS NOTHING TO SAY. A line claiming
+         "0 customers stop counting" on every reset is the kind of noise that
+         teaches the office to skip the report. */
+      fakePlan.noLongerNew = [];
+      els.ssnReport.innerHTML = '';
+      new Function('ssnBuildPlan', 'document', 'esc', 'fmtMoney', body)(
+        () => fakePlan,
+        { getElementById: el },
+        (s) => String(s == null ? '' : s),
+        (n) => '$' + (Number(n) || 0).toFixed(2));
+      check('season-reset', 'and stays quiet when nobody is affected',
+        ((els.ssnReport || {}).innerHTML || '').indexOf('stop counting as new') === -1,
+        'a nil line on every run is what trains people to stop reading the report');
+    }
+  }
+  /* Run the planner itself, rather than reading it — the count on screen has to be
+     the people who actually carry the flag. */
+  {
+    const planSrc = extractFn(admin, 'ssnBuildPlan');
+    check('season-reset', 'the season planner was found to run', !!planSrc);
+    if (planSrc) {
+      const plan = new Function('ssnScopeHouses', 'ssnInvoiceKeyForHouse', 'allInvoicesCache',
+        planSrc + ';return ssnBuildPlan();')(
+        () => [
+          { id: 'a', data: { chargeNewMemberFee: true, phone: '1' } },
+          { id: 'b', data: { phone: '2' } },
+          { id: 'c', data: { chargeNewMemberFee: false, phone: '3' } }
+        ],
+        (d) => d.phone, []);
+      check('season-reset', 'and it counts exactly the people carrying the flag',
+        plan.noLongerNew.length === 1 && plan.noLongerNew[0].id === 'a',
+        'an unticked box and a missing one are both "not a new member" — counting ' +
+        'them would promise the office a change that is not going to happen');
+    }
+  }
   check('season-reset', 'a snapshot too big to store stops the whole reset',
     /ssnSnapshotTooBig/.test(src) && /NOTHING has been changed/.test(src),
     'a truncated snapshot is worse than none: it would look like a complete record');

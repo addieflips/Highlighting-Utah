@@ -6071,7 +6071,25 @@ function ssnBuildPlan(){
     totalOwed += newInstall + removal;
     invoices.push({ id: k, name: inv.data.name || '', lastPaid: lastPaid, newInstall: newInstall, removal: removal, fee: fee });
   });
-  return { houses: houses, invoices: invoices, totalArchive: totalArchive, totalOwed: totalOwed };
+  /* ⭐ WHO STOPS BEING A NEW MEMBER TONIGHT (added 2026-08-21). Owner: "if someone
+     came from quotes this year but we are in 2027 than they are no longer a new
+     costumer."
+
+     ⚠ THIS WAS A LIVE, REPEATING OVERCHARGE. The $30 join fee is one-time, and it is
+     guarded within a season by newMemberFeeApplied on the invoice — which Start New
+     Season deliberately sets back to false. But NOTHING anywhere has ever cleared
+     chargeNewMemberFee on the customer: a search of admin.html and functions/index.js
+     for a write of false or null returned zero hits. So every customer who joined
+     through a quote kept the flag for ever, the guard was released every season, and
+     the nightly run charged them the join fee AGAIN the night their lights went back
+     up — every year, silently, for as long as they stayed a customer.
+
+     Cleared here because this is the one place a season actually ends, and it is
+     already where newMemberFeeApplied is released. The two belong together: releasing
+     the guard without retiring the flag is precisely what made it repeat. */
+  const noLongerNew = houses.filter(function(a){ return a.data.chargeNewMemberFee === true; });
+  return { houses: houses, invoices: invoices, totalArchive: totalArchive,
+           totalOwed: totalOwed, noLongerNew: noLongerNew };
 }
 /* ---- the season snapshot: the books, before they are wiped ----------------
  *
@@ -6145,6 +6163,16 @@ document.getElementById('ssnCheckBtn')?.addEventListener('click', function(){
   report.innerHTML =
     '<div style="font-weight:700; margin-bottom:4px;">Will reset '+plan.houses.length+' customer'+(plan.houses.length===1?'':'s')+' and '+plan.invoices.length+' invoice'+(plan.invoices.length===1?'':'s')+'.</div>'+
     '<div style="font-size:13px; margin-bottom:8px;">Banks '+fmtMoney(plan.totalArchive)+' of last year&rsquo;s payments to the Dashboard, then everyone owes this year&rsquo;s charge &mdash; '+fmtMoney(plan.totalOwed)+' total.</div>'+
+    /* ⭐ NAMED IN THE DRY RUN, because it is a change to what people are charged and
+       this button has no undo. It reads as good news and is worth seeing: these are
+       the customers who joined through a quote and would otherwise have been charged
+       the one-time $30 join fee a second time. */
+    (plan.noLongerNew.length
+      ? '<div style="font-size:13px; margin-bottom:8px; color:var(--dusk);">'+plan.noLongerNew.length+
+        ' customer'+(plan.noLongerNew.length===1?'':'s')+' stop'+(plan.noLongerNew.length===1?'s':'')+
+        ' counting as new member'+(plan.noLongerNew.length===1?'':'s')+', so nobody is charged the one-time '+
+        fmtMoney(30)+' join fee again next season.</div>'
+      : '')+
     '<div style="max-height:260px; overflow:auto; border:1px solid var(--line); border-radius:8px;"><table style="width:100%; border-collapse:collapse; font-size:12.5px;"><thead><tr style="background:var(--paper);"><th style="text-align:left; padding:6px 8px;">Customer</th><th style="text-align:right; padding:6px 8px;">Paid last year</th><th style="text-align:right; padding:6px 8px;">Owes this year</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>';
   document.getElementById('ssnRunBtn').style.display = 'inline-block';
   document.getElementById('ssnStatus').textContent = 'Nothing written yet — review the list, then press Start New Season.';
@@ -6227,7 +6255,14 @@ document.getElementById('ssnRunBtn')?.addEventListener('click', async function()
     for(const chunk of ssnChunk(plan.houses, 25)){
       await Promise.all(chunk.map(function(a){
         return updateDoc(doc(db,'jobAddresses', a.id), {
-          completed: false, invoiceEmailSent: false, scheduled: false, scheduledDate: null, assignedCrew: null
+          completed: false, invoiceEmailSent: false, scheduled: false, scheduledDate: null, assignedCrew: null,
+          /* ⭐ THEY ARE NOT A NEW CUSTOMER ANY MORE. Owner: "if someone came from
+             quotes this year but we are in 2027 than they are no longer a new
+             costumer." Nothing else in the app has ever cleared this, while the
+             invoice's newMemberFeeApplied guard IS released a few lines above — so
+             the one-time $30 join fee was charged again every single season. See
+             ssnBuildPlan for the full reasoning. */
+          chargeNewMemberFee: false
         });
       }));
       hdone += chunk.length;
@@ -6975,6 +7010,38 @@ function isRequote(d){
    ⚠ A re-quote must be in exactly ONE folder. It is subtracted from new/send/
    form rather than shown in both, because a card in two places is a job two
    people do, or - far more likely - nobody does. */
+/* ⭐ WHO IS A NEW MEMBER: THE QUOTE SAYS SO, NOT A DATE AND NOT AN IMPORT
+   (made one function 2026-08-21). Owner: "since this is new and bulk report runs
+   all the time we should not do new members by dates right now. We should do it
+   by who become a costumer through quotes and not through bulk."
+
+   All three halves of that were already true, and this is the function that keeps
+   them true:
+     - NOT BY DATE. The nightly run's looksLikeNewMember reads chargeNewMemberFee
+       and nothing else. It used to guess from the enrollment year, which after a
+       bulk import said "new member" for essentially the whole book — ~945 people
+       one $30 fee each. There is a check whose only job is to fail if createdAt
+       ever comes back into that decision.
+     - NOT BY BULK. Only two places write chargeNewMemberFee at all — the Add
+       Customer box and the Edit Customer box, both of them a person ticking
+       something. No importer writes it, and a check now counts that.
+     - BY QUOTE. This rule is the "by quote" half: a quote raised for somebody who
+       is NOT already a customer charges the set-up fee by default, and converting
+       that quote carries the answer onto the customer record.
+
+   ⚠ THE OFFICE'S OWN ANSWER ALWAYS WINS. `chargeSetupFee` set on the quote card is
+   a deliberate decision and beats the default in both directions — which is why
+   this tests `!== undefined` rather than truthiness. Reading it as a plain boolean
+   would silently re-charge every quote the office had deliberately UNticked.
+
+   ⚠ THIS WAS FOUR COPIES OF ONE MONEY RULE, in showAddCustomerFromQuote, in the
+   quote card's own checkbox, in the card renderer and in the automatic path. Four
+   copies of a rule about $30 is three chances for the card to promise one thing
+   and the invoice to do another. */
+function quoteChargesSetupFee(d){
+  const q = d || {};
+  return q.chargeSetupFee !== undefined ? !!q.chargeSetupFee : !q.existingCustomerId;
+}
 function quoteFolder(d){
   const stage = quoteStage(d);
   if(stage === 'closed') return 'closed';
@@ -8282,7 +8349,7 @@ function fillAddCustFromQuote(quoteId, d){
   // and the customer gets charged something different than what the
   // quote email actually told them. This is the $30 set-up fee, and it
   // carries on the automatic path for the same reason it carries here.
-  const chargesSetupFee = d.chargeSetupFee !== undefined ? d.chargeSetupFee : !d.existingCustomerId;
+  const chargesSetupFee = quoteChargesSetupFee(d);
   document.getElementById('addCustNewMemberFee').checked = chargesSetupFee;
   addCustFromQuoteId = quoteId;
   // Make the link visible the moment it is created — see the banner.
@@ -9204,7 +9271,7 @@ function showConvertQuoteChoice(quoteId, d){
     ? jobAddresses.find(function(a){ return a.id === d.existingCustomerId; }) : null;
   if(stillACustomer){ showApplyRequoteChoice(quoteId, d, stillACustomer); return; }
   const who = d.name || d.address || 'this quote';
-  const chargesSetupFee = d.chargeSetupFee !== undefined ? d.chargeSetupFee : !d.existingCustomerId;
+  const chargesSetupFee = quoteChargesSetupFee(d);
   /* What the automatic path would be missing, said out loud BEFORE it runs
      rather than as a warning after the customer is already saved. Same list
      the Add Customer form checks, asked of the quote instead of the form. */
@@ -9521,7 +9588,7 @@ function renderQuoteRows(filtered){
             /* Defaults on for a brand-new quote and off for a re-quote (an
                existing customer already paid this once) - but only until she
                actually sets it herself, at which point d.chargeSetupFee wins. */
-            '<label style="display:flex; align-items:center; gap:6px; margin-top:8px; font-size:12.5px; cursor:pointer;"><input type="checkbox" class="quoteSetupFeeCheck" data-id="'+item.id+'"'+((d.chargeSetupFee !== undefined ? d.chargeSetupFee : !d.existingCustomerId) ? ' checked' : '')+'> Charge $30 one-time set-up fee'+(d.existingCustomerId ? ' <span style="color:var(--slate);">(unusual for a re-quote)</span>' : '')+'</label>'+
+            '<label style="display:flex; align-items:center; gap:6px; margin-top:8px; font-size:12.5px; cursor:pointer;"><input type="checkbox" class="quoteSetupFeeCheck" data-id="'+item.id+'"'+(quoteChargesSetupFee(d) ? ' checked' : '')+'> Charge $30 one-time set-up fee'+(d.existingCustomerId ? ' <span style="color:var(--slate);">(unusual for a re-quote)</span>' : '')+'</label>'+
             '<button type="button" class="btn btn-gold btn-sm" data-getquotelink="'+item.id+'">'+
               (d.quoteManuallySent ? 'Send again' : (isRequote(d) ? 'Send updated quote' : 'Send quote email'))+'</button>'+
             '<button type="button" class="btn btn-outline btn-sm" data-copyquoteemail="'+item.id+'" style="margin-left:6px;">Preview first</button>'+
@@ -9861,7 +9928,7 @@ function renderQuoteRows(filtered){
        house photo rides along as an <img> pointing at the copy already on
        Cloudinary, so nothing is attached and it costs nothing extra. It sits
        BELOW the buttons because some mail apps hide images until tapped. */
-    const chargesSetupFee = d.chargeSetupFee !== undefined ? d.chargeSetupFee : !d.existingCustomerId;
+    const chargesSetupFee = quoteChargesSetupFee(d);
     let html = await resolveLinkTokens(body, d.phone, 0, {name: properName(d.name) || 'there', price: fmtMoney(d.quotedPrice), setupFeeLine: chargesSetupFee ? 'Plus a one-time $30 set-up fee.' : ''});
     /* The photo goes directly under the price and above the buttons - where it
        does its work, next to the number it justifies. It used to sit below the
