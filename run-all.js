@@ -20353,10 +20353,11 @@ suite('Suite 108. The Edit Customer save, actually run');
       requoteBeingConverted: o.noRequote ? null : 'q1',
       requoteBuildChoice: o.noRequote ? null : {mode: 'recycle'},
       editCustLayoutMapUrl: '',
-      jobAddresses: [{id: 'c894', data: {name: 'Ashley Wray', phone: '8016160714',
-        email: 'wraynash@gmail.com', address: '9991 Red Cedar Ln, Highland, UT',
+      jobAddresses: [{id: 'c894', data: Object.assign({name: 'Ashley Wray',
+        phone: '8016160714', email: 'wraynash@gmail.com',
+        address: '9991 Red Cedar Ln, Highland, UT',
         customerNumber: '894', housePrice: 600, measuredFeet: 0, rsvpStatus: 'yes',
-        updatedAt: null}}],
+        updatedAt: null}, o.cust || {})}],
       quotesCache: [{id: 'q1', data: {existingCustomerId: 'c894', quotedPrice: 600}}],
       allInvoicesCache: [], warehouseExtras: [], perFootRate: 2, FEET_PER_BUNDLE: 100,
       CN_DOUBLE_BIN_FEET: 260,
@@ -20367,7 +20368,7 @@ suite('Suite 108. The Edit Customer save, actually run');
       logActivity: () => {}, paymentLedgerUser: () => 'test',
       cnBinsForFeet: (f) => (Number(f) >= 260 ? 2 : 1),
       cnNextAvailable: () => ({number: '5001', fromPool: false}),
-      compileLightsDescription: () => '', computeInvoiceStatus: () => 'Unpaid',
+      compileLightsDescription: () => (o.lights || ''), computeInvoiceStatus: () => 'Unpaid',
       custInvoiceKey: (d) => String(d.phone || '').replace(/[^0-9]/g, ''),
       allCustInvoiceFor: () => null, contactIndexFields: () => ({}),
       extractCleanCity: () => 'Highland', generatePortalToken: () => 'tok',
@@ -20433,6 +20434,45 @@ suite('Suite 108. The Edit Customer save, actually run');
       'five grey words and no console line is not something anybody can act on, ' +
       'here or on the phone');
 
+    /* ⭐ A BUILD THAT IS OWED SURVIVES AN ORDINARY SAVE. Owner, 2026-08-21, having
+       converted Ashley Wray: "big problem, she went to the recycle but not to the
+       build."
+
+       ⚠ THE BUILD FLAG USED TO BE RE-DERIVED AS `: false` WHENEVER THE COLOURS WERE
+       BLANK. Ashley has none. Converting her set both queues in one write, and then the
+       next save of her record — any save, for any reason — cleared the build while
+       leaving needsLightRecycle alone, because that one is only touched on an RSVP
+       change. Recycle yes, build no, which is exactly what she was looking at.
+
+       Blank colours means the build cannot be DONE yet, not that it is not OWED — which
+       is the whole reason the Waiting on light colours block exists. */
+    const owed = await runSave({noRequote: true,
+      cust: {needsLightBuild: true, needsLightRecycle: true, recycleKeepingCustomer: true}});
+    check('S108', 'a customer with no colours keeps the build they are owed',
+      !!owed.cust && owed.cust.payload.needsLightBuild === true,
+      'a build is finished by Mark Done or cancelled by Back Next Year, never by a ' +
+      'field being empty');
+    check('S108', 'and is still on the recycle list as well',
+      !!owed.cust && owed.cust.payload.needsLightRecycle !== false,
+      'the two queues went out of step, which is what made this visible');
+
+    /* And a colour CHANGE still queues a build, which is what that branch is for. */
+    const changed = await runSave({noRequote: true, lights: 'Red, Green',
+      cust: {lightsDescription: 'Warm White'}});
+    check('S108', 'changing somebody’s colours queues the warehouse',
+      !!changed.cust && changed.cust.payload.needsLightBuild === true,
+      'a new pattern has to be made up, and this is the branch that says so');
+    const same = await runSave({noRequote: true, lights: 'Warm White',
+      cust: {lightsDescription: 'Warm White'}});
+    check('S108', 'and re-saving the same colours does not',
+      !!same.cust && same.cust.payload.needsLightBuild !== true,
+      'opening a record to fix a phone number must not re-queue their lights');
+
+    /* And somebody with no colours and no build owed does not acquire one. */
+    const idle = await runSave({noRequest: true, noRequote: true, cust: {}});
+    check('S108', 'and somebody owed nothing does not acquire a build',
+      !!idle.cust && idle.cust.payload.needsLightBuild !== true,
+      'keeping a flag that is set is not the same as setting one that is not');
     /* Nothing about an ordinary save changes. */
     const plain = await runSave({noRequote: true});
     check('S108', 'an ordinary edit still saves and closes no card',

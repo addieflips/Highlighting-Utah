@@ -26295,7 +26295,23 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     if(oldLightsForBuild && newLightsDescription && newLightsDescription !== oldLightsForBuild){
       addrUpdates.lightsChangedAt = serverTimestamp();
     }
-    addrUpdates.needsLightBuild = newLightsDescription ? (newLightsDescription !== oldLightsForBuild ? true : !!item.data.needsLightBuild) : false;
+    /* ⭐ A BUILD THAT IS OWED IS NOT CANCELLED BY THE COLOURS BEING BLANK. Owner,
+       2026-08-21, having converted Ashley Wray: "big problem, she went to the recycle
+       but not to the build."
+
+       ⚠ THIS USED TO END IN `: false`, so EVERY save of a customer with no colours on
+       file wiped needsLightBuild. Ashley has none. Converting her set both queues in one
+       write, and then the next save of her record — any save, for any reason — cleared
+       the build flag while leaving needsLightRecycle alone, because that one is only
+       touched on an RSVP change. Recycle yes, build no, which is exactly what she saw.
+
+       Blank colours means the build cannot be DONE yet, not that it is not OWED. That is
+       the whole reason the Waiting on light colours block exists on the warehouse tab.
+       A build is finished by the warehouse pressing Mark Done, or cancelled by Back Next
+       Year below — never by a field being empty. */
+    addrUpdates.needsLightBuild = newLightsDescription
+      ? (newLightsDescription !== oldLightsForBuild ? true : !!item.data.needsLightBuild)
+      : !!item.data.needsLightBuild;
     /* "They said no" is a lasting fact; "their lights need pulling back into
        stock" is a job that gets finished. This used to be re-derived from the
        dropdown on EVERY save, so opening a recycled customer's record months
