@@ -27623,8 +27623,12 @@ suite('Suite 128. The do-not-send list — automation emails only');
           return null;
         }
       };
+      /* ⚠ LIFTED REAL, NOT STUBBED. The renderer takes the no-email people out at the
+         end and counts them, and this is the rule that decides who those are — a stub
+         would make the count untestable while reporting green (CLAUDE.md §3). */
+      const canEmailSrc = extractFn(admin, 'custCanBeEmailed') || '';
       const env = new Function('document', 'MEMBERS', 'MODE',
-        flagSrc +
+        canEmailSrc + flagSrc +
         'let etRecipientSearchTerm = "";' +
         'let etFilterGateCode = "all", etFilterPayment = "all", etFilterRsvp = "all";' +
         'let etFilterPaidLast = "all", etFilterOrderedLast = "all", etFilterNew = "all";' +
@@ -27694,6 +27698,62 @@ suite('Suite 128. The do-not-send list — automation emails only');
       check('S128', 'the manage count explains itself and disclaims the invoice',
         /on the do-not-send list/.test(r.count) && /does not affect their invoice/.test(r.count),
         'the office has to be able to tell this apart from stopping somebody being billed');
+    }
+
+    /* ---- 2b. the people with no address to send to are COUNTED, not just gone ---- */
+    /* Owner asked for this to be said at the moment of sending rather than only being
+       findable in Customers. Excluding them is right; doing it silently meant an RSVP
+       could miss forty people and read exactly like one that reached everybody. */
+    {
+      const book2 = () => ([
+        { id: 'b2', data: { name: 'Bob Sendable',  email: 'bob@x.com',      phone: '2' } },
+        { id: 'c3', data: { name: 'Cara Noemail',                           phone: '3' } },
+        /* ⚠ NOTHING IN THE APP SENDS TO email2 — it exists so a customer can sign in
+           with it — so this person cannot be written to either, and the shared rule
+           has to say so here exactly as it does in the Customers filter. */
+        { id: 'd4', data: { name: 'Dan Secondary', email2: 'dan@x.com',     phone: '4' } }
+      ]);
+      const r = render(book2(), 'hide');
+      check('S128', 'somebody with no email is not offered as a recipient',
+        r.html.indexOf('Cara Noemail') === -1 && r.html.indexOf('Bob Sendable') !== -1,
+        'there is nothing to send to — excluding them is right, it is the silence ' +
+        'that was the bug');
+      check('S128', 'and so is somebody holding only a SECONDARY address',
+        r.html.indexOf('Dan Secondary') === -1,
+        'no sender in the app reads email2, so this person cannot be written to ' +
+        'either — the send panel and the Customers filter share one rule');
+      check('S128', 'the count line says how many were left out for that',
+        /2 left out: no email address on file/.test(r.count),
+        'the whole point: "312 members match" read the same whether it dropped ' +
+        'nobody or forty');
+      check('S128', 'and says where to go and fix it',
+        /Customers . Filters . Email/.test(r.count),
+        'a bare number says something is wrong and not what to do about it');
+      check('S128', 'the people who DID match are still counted correctly',
+        /^1 member matches these filters\./.test(r.count),
+        'the exclusion note annotates the count, it does not replace it');
+    }
+
+    /* ⚠ THE TRAP THIS GUARD EXISTS FOR. Somebody with no email who is ALSO on the
+       do-not-send list must still appear in the manage view, or they are stuck on
+       that list for ever with no screen able to release them. */
+    {
+      const r = render([
+        { id: 'e5', data: { name: 'Eve Stuck', phone: '5', noAutomationEmails: true } }
+      ], 'only');
+      check('S128', 'a no-email person on the list can still be taken off it',
+        r.html.indexOf('Eve Stuck') !== -1 && /data-dnsval="0"/.test(r.html),
+        'the manage view is not a send list; filtering it by sendability would hide ' +
+        'them from the one screen that could release them');
+    }
+
+    /* ⚠ AN EMPTY LIST WITH A REASON. "No members match these filters" is actively
+       untrue when they DID match and simply cannot be written to. */
+    {
+      const r = render([{ id: 'f6', data: { name: 'Fay Only', phone: '6' } }], 'hide');
+      check('S128', 'an empty list explains itself when everyone lacked an address',
+        /no email address on file/.test(r.html) && r.html.indexOf('No members match') === -1,
+        'they did match — saying they did not sends the office looking at the filters');
     }
 
     /* ---- 3. the control that adds somebody, and where it sits ---- */

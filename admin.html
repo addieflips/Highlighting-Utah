@@ -11864,7 +11864,13 @@ function etRenderRecipientList(){
   const countEl = document.getElementById('etRecipientCount');
   if(!list) return;
   const term = etRecipientSearchTerm.toLowerCase();
-  let members = etGetMembers().filter(m => (m.data.email) && (!term || (m.data.name||'').toLowerCase().indexOf(term) !== -1));
+  /* ⚠ NO-EMAIL PEOPLE ARE NOT DROPPED HERE ANY MORE. They used to be filtered out on
+     this line, before any of the ten filters ran — so they could never be counted
+     against the audience the office had actually chosen, and the count line said
+     "312 members match" whether it had quietly dropped nobody or forty. They now flow
+     through every filter and are taken out at the END, where the number that is
+     removed is a number worth printing. See the split below. */
+  let members = etGetMembers().filter(m => (!term || (m.data.name||'').toLowerCase().indexOf(term) !== -1));
   // Gate code
   if(etFilterGateCode === 'missing') members = members.filter(m => !m.data.gateCode);
   else if(etFilterGateCode === 'has') members = members.filter(m => !!m.data.gateCode);
@@ -11915,6 +11921,25 @@ function etRenderRecipientList(){
   const manageMode = (etFilterDoNotSend === 'only');
   members = members.filter(m => manageMode ? etNoAutomationEmails(m.data) : !etNoAutomationEmails(m.data));
   const doNotSendHidden = manageMode ? 0 : (beforeDoNotSend - members.length);
+  /* ⭐ AND THE ONES WITH NO ADDRESS TO SEND TO (added 2026-08-21). Owner asked for
+     this to be said at the moment of sending, not only findable in Customers: "the
+     count line". Excluding them is right — there is nothing to send to — but doing it
+     silently meant an RSVP could miss forty people and read exactly like an RSVP that
+     reached everybody.
+     ⚠ SAME RULE AS THE CUSTOMERS FILTER (`custCanBeEmailed`), deliberately shared, so
+     the number here and the list there can never disagree about who is reachable. It
+     also means somebody whose only address is in the SECONDARY field is counted here,
+     because nothing in the app sends to that field.
+     ⚠ NOT APPLIED IN THE MANAGE VIEW. That list exists to take people back OFF the
+     do-not-send list, and somebody with no email would otherwise be hidden from the
+     one screen that could release them — stuck on the list for ever with no way to
+     reach the button. */
+  let noEmailHidden = 0;
+  if(!manageMode){
+    const beforeNoEmail = members.length;
+    members = members.filter(m => custCanBeEmailed(m.data));
+    noEmailHidden = beforeNoEmail - members.length;
+  }
   const usingLastYear = (etFilterPaidLast !== 'all' || etFilterOrderedLast !== 'all');
   const lastYearMissing = usingLastYear && !audienceHasLastSeason();
   if(countEl){
@@ -11924,6 +11949,10 @@ function etRenderRecipientList(){
     } else {
       msg = members.length + ' member' + (members.length===1?'':'s') + ' match' + (members.length===1?'es':'') + ' these filters.';
       if(doNotSendHidden) msg += ' — ' + doNotSendHidden + ' left out: on the do-not-send list.';
+      /* ⚠ NAMES WHERE TO GO AND FIX IT. A bare number tells the office something is
+         wrong and not what to do about it; the filter that lists these people by name
+         already exists, so the sentence points at it. */
+      if(noEmailHidden) msg += ' — ' + noEmailHidden + ' left out: no email address on file. Find them under Customers → Filters → Email.';
       if(lastYearMissing) msg += ' — Note: no saved snapshot from last season yet, so the "last year" filters can\'t match anyone until Start New Season saves one.';
       if(etRsvpAudienceAutoSet && etFilterNew === 'returning'){
         msg += ' — New customers are left out automatically, because an RSVP asks whether they want lights AGAIN. Change "New vs returning" above to include them.';
@@ -11934,7 +11963,12 @@ function etRenderRecipientList(){
   if(!members.length){
     list.innerHTML = manageMode
       ? '<div class="empty-note">Nobody is on the do-not-send list. Use &ldquo;Don&rsquo;t send&rdquo; beside a name to add them.</div>'
-      : '<div class="empty-note">No members match this search and these filters.</div>';
+      /* ⚠ AN EMPTY LIST WITH A REASON. If everybody who matched was taken out for
+         having no address, "no members match these filters" is actively misleading —
+         they DID match, we just cannot write to them. */
+      : (noEmailHidden
+          ? '<div class="empty-note">No one left to send to. '+noEmailHidden+' matched these filters but '+(noEmailHidden===1?'has':'have')+' no email address on file — find '+(noEmailHidden===1?'them':'them')+' under Customers &rarr; Filters &rarr; Email.</div>'
+          : '<div class="empty-note">No members match this search and these filters.</div>');
     return;
   }
   const previouslyChecked = new Set(Array.from(list.querySelectorAll('input:checked')).map(el => el.value));
