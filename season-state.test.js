@@ -255,6 +255,81 @@ if (portalRsvp && updates) {
     'sends a crew to an empty bin');
 }
 
+/* ⭐ CHANGING YOUR MIND BEFORE THE RECYCLE HAS HAPPENED (added 2026-08-22). Owner:
+   "we won't recycle till end of year so shouldn't be taken apart."
+
+   ⚠ THAT MAKES THE MID-SEASON CASE THE NORMAL ONE, and it was the one case this
+   table did not cover. Somebody says no in September, changes their mind in October:
+   the warehouse has not been near their bin, so there is nothing to rebuild and
+   queueing a build would have the warehouse make a SECOND set for a house that
+   already has one sitting on the shelf under its own number.
+
+   ⚠ AND THE OTHER DIRECTION IS JUST AS WRONG. Once the recycle really has happened —
+   at year end — the bundle is gone, and putting them back on a route without
+   rebuilding sends a crew to an empty bin. So the answer cannot be a flat yes or no;
+   it turns on whether the flag is still standing.
+
+   ⚠ THE RULE IS WRITTEN TWICE, so both copies are run here against the same records.
+   The office dropdown and the portal disagreeing about this means one of the two
+   builds a set nobody needs, or skips one somebody does. */
+{
+  /* ⚠ LIFTED BY SHAPE, NOT BY EXACT TEXT — and that distinction was worth catching.
+     The first version matched both assignments character for character, which meant
+     ANY rewrite failed the lift before a single behavioural check ran: four sabotages
+     all "passed" on the presence check alone, and the checks below were never
+     exercised. Matching the assignment and running whatever expression it holds is
+     what makes a WRONG rewrite fail on its answers rather than on its spelling. */
+  const grab = (src, name) => {
+    const m = src.match(new RegExp('const ' + name + ' = ([^;]+);'));
+    return m ? m[1] : null;
+  };
+  const wasNoExpr = grab(server, 'wasNo');
+  const svrExpr = grab(server, 'rejoinedAfterRecycle');
+  const offExpr = grab(admin, 'rejoinedAfterRecycle');
+  check('the server still decides a rejoin, under that name',
+    !!wasNoExpr && !!svrExpr,
+    'renaming it means nothing runs this rule through a test again');
+  check('and the office dropdown has its own copy of the same decision',
+    !!offExpr, 'the two copies are what this section exists to compare');
+
+  if (svrExpr && offExpr && wasNoExpr) {
+    const svr = new Function('oldData', 'response',
+      'const wasNo = ' + wasNoExpr + '; return ' + svrExpr + ';');
+    const off = new Function('item', 'newRsvp',
+      "const oldRsvpForRecycle = String(item.data.rsvpStatus || '').toLowerCase(); " +
+      'return ' + offExpr + ';');
+    const both = (old, next) => {
+      const a = svr(old, next), b = off({ data: old }, next);
+      return { a: a, b: b, agree: a === b };
+    };
+
+    const midSeason = both({ rsvpStatus: 'no', needsLightRecycle: true }, 'yes');
+    check('a no changed back to yes BEFORE year end queues no rebuild',
+      midSeason.a === false && midSeason.agree,
+      'the warehouse has not been near their bin — a rebuild makes a second set ' +
+      'for a house whose lights are already on the shelf');
+
+    const afterRecycle = both({ rsvpStatus: 'no', needsLightRecycle: false }, 'yes');
+    check('but once the recycle really has happened, it does',
+      afterRecycle.a === true && afterRecycle.agree,
+      'their bundle is gone — putting them on a route without rebuilding sends a ' +
+      'crew to an empty bin');
+
+    /* ⚠ AND NEITHER OF THE OTHER ANSWERS REBUILDS. Back Next Year keeps their set in
+       their bin, and somebody who never said no has nothing to rejoin. */
+    check('and nothing else triggers a rebuild',
+      both({ rsvpStatus: 'no', needsLightRecycle: true }, 'backnextyear').a === false &&
+      both({ rsvpStatus: '', needsLightRecycle: false }, 'yes').a === false &&
+      both({ rsvpStatus: 'yes', needsLightRecycle: false }, 'yes').a === false);
+
+    check('the office and the portal agree on every one of them',
+      [['no', true], ['no', false], ['', false], ['yes', false], ['backnextyear', false]]
+        .every(([st, fl]) => ['yes', 'no', 'backnextyear']
+          .every(next => both({ rsvpStatus: st, needsLightRecycle: fl }, next).agree)),
+      'one of the two would build a set nobody needs, or skip one somebody does');
+  }
+}
+
 /* ⭐ Back Next Year clears both queues: nothing to build, and their set stays in
    their bin. Owner: "back next year ... won't go to recycle." */
 check('badging Back Next Year clears both warehouse queues',
