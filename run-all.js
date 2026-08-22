@@ -35096,6 +35096,71 @@ suite('157. Measure Roof - the house the system assumes, drawn before anything e
 
 /* ===== ROOFLINE SUITES - lanil-9d appends BELOW this line ===== */
 
+suite('166. Measure Roof - the roofline is read off the street photograph');
+{
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+
+  /* Owner: "we outline from street view not sky view which is clearly not what
+     your doing", and "also start getting the generated corners and you can
+     click the ones you want to keep."
+
+     ⚠ AND THE DEPTH MAP CANNOT DO THIS, which is why it is the photograph.
+     Suburban depth maps reach only 10-15 degrees above the horizon - measured
+     on eleven panoramas across ten states, Manhattan 84 degrees against Lehi
+     11.6. A house closer than about 16 m has its whole roofline above anything
+     recorded; a test house 5.7 m away was not in its own depth map, and every
+     corner offered there was the neighbours across the street. */
+  check('S166', 'the silhouette comes from the street photo',
+    /async function rmStreetSilhouette\(\)/.test(admin) &&
+    /maps\/api\/streetview\?size=/.test(admin));
+  check('S166', 'and the photo is asked for the heading the office is looking at',
+    /'&pano=' \+ encodeURIComponent\(id\) \+ '&heading=' \+ pov\.heading\.toFixed\(3\)/.test(admin),
+    'a column is only a direction if the image is the view it claims to be');
+
+  /* ⭐ THE ONE THAT WOULD FAIL SILENTLY. */
+  check('S166', 'every entry says plane: null explicitly',
+    /plane: null,/.test(admin) && /0 is a real plane index/.test(admin),
+    'omitting it, or using 0, reads as data - and a tree test that fires on the ' +
+    'ABSENCE of plane data then never fires at all, so every hedge comes back confident');
+
+  /* The sky boundary has to survive a gull. */
+  const sky = pick('rmPixelIsSky');
+  if (sky) {
+    const isSky = new Function(sky + LF_ + 'return rmPixelIsSky;')();
+    check('S166', 'bright blue is sky', isSky(150, 180, 230) === true);
+    check('S166', 'and white cloud is too', isSky(240, 240, 240) === true);
+    check('S166', 'a dark roof is not', isSky(70, 60, 55) === false);
+    check('S166', 'and nor is a brown gable against a bright sky', isSky(160, 130, 90) === false,
+      'the blue test is what separates a pale roof from the sky behind it');
+  }
+  check('S166', 'a single dark row does not end the sky',
+    /if\(run >= 3\)\{ v = y - 2; break; \}/.test(admin),
+    'a gull or a compression artefact would otherwise read as a roofline');
+
+  /* ⚠ HONEST ABOUT WHAT IS MEASURED AND WHAT IS MODELLED. */
+  check('S166', 'the bearing is measured and the depth is still modelled, and it says so',
+    /the photograph says which DIRECTION the roofline\s*\n?\s*is in; how far along that direction the house sits still comes from the/.test(admin),
+    'claiming the whole thing is street-derived would overstate it');
+  check('S166', 'a column with no house under it is a gap, not a zero',
+    /if\(!hit\)\{ line\.push\(null\); continue; \}/.test(admin),
+    'a zero-distance point would be a corner at the camera');
+
+  /* The photo leads; the model is the fallback and the office is told which. */
+  check('S166', 'the photo is tried before the roof model',
+    (function(){
+      const i = admin.indexOf('let list = null, source = ');
+      const j = admin.indexOf('rmStreetCornerCandidates()', i);
+      const k = admin.indexOf('rmCornerCandidates()', j);
+      return i !== -1 && j > i && k > j;
+    })());
+  check('S166', 'and the office is told which one answered',
+    /' from the street photo' : ' from the roof model'/.test(admin),
+    'a ring from the overhead model deserves less trust than one off the photo, ' +
+    'and only the label makes that visible');
+}
+
+
 suite('165. Measure Roof - loading an address forgets the last house');
 {
   /* Owner, after loading a few addresses: "well thats just completely wrong now."

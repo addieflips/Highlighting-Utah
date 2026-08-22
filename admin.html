@@ -4661,6 +4661,7 @@ import {
   applyLightChange, LIGHT_CHANGE_FEE, LIGHT_WINDOW_MS
 } from './js/money.js';
 import { fetchPano as rmFetchPano, cameraHeight as rmDepthCameraHeight } from './js/svdepth.js';
+import { roofCornerCandidates as rmRoofCornerCandidates } from './js/roofcorners.js';
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut
@@ -17304,6 +17305,92 @@ function rmRoofTopM(){
   return top;
 }
 
+/* ============ THE ROOFLINE AS THE PHOTOGRAPH SHOWS IT ===================
+   Owner: "we outline from street view not sky view", and "also start getting
+   the generated corners and you can click the ones you want to keep."
+
+   ⭐ THE SKY BOUNDARY IS THE ROOFLINE. Walk down each column of the street
+   photograph until the sky stops, and that is where the roof is against the
+   sky - the one edge of a house that a photograph states outright rather than
+   implying. Every column's TRUE WORLD HEADING is known, because the Static API
+   takes a heading and returns exactly that view, so a column is a direction and
+   not a guess.
+
+   ⚠ WHY THE PHOTOGRAPH AND NOT THE DEPTH MAP, which was the plan for most of a
+   day: suburban depth maps only reach 10-15 degrees above the horizon. Measured
+   on eleven panoramas across ten states - Manhattan gets 84 degrees, Lehi 11.6,
+   and nothing above it anywhere in between. A house closer than about
+       (roofHeight - cameraHeight) / tan(12 deg)  ~  16 m
+   has its ENTIRE ROOFLINE above everything the depth map recorded. A test house
+   5.7 m away was not in its own depth map at all, and every corner offered there
+   belonged to the neighbours across the street.
+   So the photograph is not a workaround for the compass problem we failed to
+   solve eight ways. It is the only source that has the roofline on it. */
+const RM_SIL_W = 640, RM_SIL_H = 400, RM_SIL_FOV = 70;
+
+/* Is this pixel sky? Bright, and never less blue than it is red or green. */
+function rmPixelIsSky(r, g, b){
+  return (r + g + b) / 3 > 115 && b >= r - 12 && b >= g - 12;
+}
+
+/* The roofline, one entry per column, in the shape the corner finder wants.
+   Null where the column has no house under it - a gap, not a zero. */
+async function rmStreetSilhouette(){
+  const cam = rmCamLocal();
+  const id = rmPano && rmPano.getPano && rmPano.getPano();
+  if(!cam || !id || !rmOrigin) return null;
+  const pov = rmPanoPov();
+  const got = await rmFetchStatic(function(key){
+    return 'https://maps.googleapis.com/maps/api/streetview?size=' + RM_SIL_W + 'x' + RM_SIL_H +
+           '&pano=' + encodeURIComponent(id) + '&heading=' + pov.heading.toFixed(3) +
+           '&pitch=0&fov=' + RM_SIL_FOV + '&key=' + key;
+  });
+  if(got.error) return null;
+  let px;
+  try{
+    const bmp = await createImageBitmap(got.blob);
+    const cv = document.createElement('canvas');
+    cv.width = RM_SIL_W; cv.height = RM_SIL_H;
+    const ctx = cv.getContext('2d');
+    ctx.drawImage(bmp, 0, 0);
+    px = ctx.getImageData(0, 0, RM_SIL_W, RM_SIL_H).data;
+  }catch(err){ return null; }
+
+  const focal = (RM_SIL_W / 2) / Math.tan(rmRad(RM_SIL_FOV) / 2);
+  const line = [];
+  for(let x = 0; x < RM_SIL_W; x++){
+    /* Down the column until the sky stops, and three rows deep so a gull or a
+       compression artefact does not read as a roof. */
+    let v = -1, run = 0;
+    for(let y = 0; y < RM_SIL_H; y++){
+      const i = (y * RM_SIL_W + x) * 4;
+      if(!rmPixelIsSky(px[i], px[i+1], px[i+2])){ run++; if(run >= 3){ v = y - 2; break; } }
+      else run = 0;
+    }
+    if(v < 0){ line.push(null); continue; }            /* sky all the way down */
+    const headDeg = pov.heading + rmDeg(Math.atan((x - RM_SIL_W / 2) / focal));
+    const elevDeg = rmDeg(Math.atan((RM_SIL_H / 2 - v) / focal));
+    const ce = Math.cos(rmRad(elevDeg));
+    const dir = {e: ce * Math.sin(rmRad(headDeg)), n: ce * Math.cos(rmRad(headDeg)),
+                 u: Math.sin(rmRad(elevDeg))};
+    /* ⭐ HOW FAR AWAY THAT IS. The photograph says which DIRECTION the roofline
+       is in; how far along that direction the house sits still comes from the
+       solid-cast. So a candidate's bearing is measured and its depth is
+       modelled, and that is worth saying out loud rather than implying. */
+    const hit = rmHouseHit(dir, cam);
+    if(!hit){ line.push(null); continue; }             /* not pointing at the house */
+    line.push({
+      x: x, y: v, distance: hit.t,
+      /* ⚠ null, EXPLICITLY. Not omitted, and never 0 - 0 is a real plane index
+         (it is sky) and would read as data. A tree test that fires on the
+         ABSENCE of plane data can only work if absence is stated. */
+      plane: null,
+      p: [hit.e - cam.e, hit.n - cam.n, hit.u - cam.u]
+    });
+  }
+  return line;
+}
+
 /* The corners worth offering: the ends of the walls the model believes are
    there, and the steps between them.
    ⚠ THIS IS AN INTERIM SOURCE AND IT IS SIGNED AS ONE. It comes from Google's
@@ -17356,8 +17443,39 @@ function rmKeepCandidate(i){
   return true;
 }
 
-function rmSuggestCorners(){
-  rmCandidates = rmCornerCandidates().filter(function(c){
+/* Corners read off the photograph, turned into places on the house. */
+async function rmStreetCornerCandidates(){
+  const cam = rmCamLocal();
+  if(!cam) return null;
+  const line = await rmStreetSilhouette();
+  if(!line) return null;
+  const seen = line.filter(Boolean).length;
+  if(seen < 8) return [];                    /* nothing of the house in frame */
+  let found;
+  try{
+    found = rmRoofCornerCandidates(null, {
+      skyline: line,
+      cameraHeightM: (rmCamHeightM !== null ? rmCamHeightM : RM_CAM_HEIGHT_M)
+    }) || [];
+  }catch(err){ return null; }
+  return found.map(function(c){
+    if(!c || !c.p) return null;
+    const w = rmToWorld({e: cam.e + c.p[0], n: cam.n + c.p[1], u: cam.u + c.p[2]});
+    return {lat: w.lat, lng: w.lng, h: cam.u + c.p[2], from: 'street',
+            confidence: c.confidence, why: c.why};
+  }).filter(Boolean);
+}
+
+async function rmSuggestCorners(){
+  /* ⭐ THE PHOTOGRAPH FIRST, the roof model only if it cannot answer. Owner:
+     "we outline from street view not sky view which is clearly not what your
+     doing." The model source stays as the fallback for a house with no street
+     photo at all, and says which it used rather than leaving the office to
+     guess how much to trust a ring. */
+  let list = null, source = 'street';
+  try{ list = await rmStreetCornerCandidates(); }catch(err){ list = null; }
+  if(list === null || !list.length){ list = rmCornerCandidates(); source = 'model'; }
+  rmCandidates = list.filter(function(c){
     /* Not one already kept - offering a corner that is already a dot is noise. */
     return !rmCorners.some(function(k){
       return Math.abs(k.lat - c.lat) < 2e-6 && Math.abs(k.lng - c.lng) < 2e-6;
@@ -17366,7 +17484,9 @@ function rmSuggestCorners(){
   rmPaintStreet();
   const note = document.getElementById('rmCornerNote');
   if(note) note.textContent = rmCandidates.length
-    ? rmCandidates.length + ' corners offered — click the ones you want. The rest are ignored.'
+    ? rmCandidates.length + ' corners offered' +
+      (source === 'street' ? ' from the street photo' : ' from the roof model') +
+      ' — click the ones you want. The rest are ignored.'
     : '⚠ No corners could be worked out for this house.';
   return rmCandidates.length;
 }
@@ -19628,6 +19748,8 @@ function openRoofMeasure(quoteId){
       const n = document.getElementById('rmCornerNote');
       if(n) n.textContent = 'Suggestions cleared. The dots you kept stay.';
       return; }
+    const n0 = document.getElementById('rmCornerNote');
+    if(n0) n0.textContent = 'Reading the roofline off the street photo…';
     rmSuggestCorners();
   });
   document.getElementById('rmModelBtn').addEventListener('click', function(){ rmSetShowModel(!rmShowModel); });
