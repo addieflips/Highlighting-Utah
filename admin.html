@@ -21883,7 +21883,12 @@ async function rbApplyTickedAdds(statusEl){
   const difficultyRaw = colOf('rbDifficultyArea'), feetRaw = colOf('rbFeetArea');
   const notesRaw = colOf('rbNotesArea');
   const amountsRaw = colOf('rbAmountsArea');
-  let done = 0, failed = 0, noPin = 0, updatedExisting = 0;
+  let done = 0, failed = 0, noPin = 0, updatedExisting = 0, numbered = 0;
+  /* ⚠ SEEDED ONCE, OUTSIDE THE LOOP. See cnAllocator — asking cnNextAvailable
+     inside the loop returns the same number every time, because it answers from
+     caches a Firestore listener refreshes and that listener does not fire
+     between iterations. */
+  const cnAlloc = cnAllocator();
   for(let n = 0; n < list.length; n++){
     const r = list[n], i = r.i;
     statusEl.textContent = 'Adding ' + (n+1) + ' of ' + list.length + '…';
@@ -21934,6 +21939,17 @@ async function rbApplyTickedAdds(statusEl){
         portalToken: generatePortalToken(),
         lat: coords.lat, lng: coords.lng, needsGeocode: coords.lat === null,
         scheduled: false,
+        /* ⭐ AND THE WAREHOUSE IS TOLD (hole B). Owner: "we want to build
+           everyone." Six places create a customer record and only Add Customer
+           set this, so somebody added from the master sheet — colours, wire and
+           all — never appeared in Needs Building and no bundle was ever made
+           for them. The crew arrives at a house with nothing for it.
+
+           ⚠ A row with no colours is NOT excluded here. whBuildQueueGroups puts
+           them in its own "Waiting on light colours" block at the top of the
+           tab, which is visible and actionable; leaving the flag off instead
+           makes them invisible, which is the bug this is fixing. */
+        needsLightBuild: true,
         createdAt: dateTypedIn ? Timestamp.fromDate(new Date(dateTypedIn)) : serverTimestamp()
       };
       if(r.cu){
@@ -21943,6 +21959,25 @@ async function rbApplyTickedAdds(statusEl){
       if(feetVal){
         doc2.measuredFeet = Number(feetVal);
         doc2.numberOfBins = cnBinsForFeet(Number(feetVal));
+      }
+      /* ⭐ EVERYONE NEW GETS A NUMBER (hole B). Owner: "everyone new should get a
+         number so we want to build everyone but everyone should also have a
+         number." The sheet's CU# column is usually filled in and is used as-is
+         above; a row without one used to arrive with no number at all, so there
+         was no label for their bin and nothing for the warehouse to write on it.
+
+         ⚠ THE SERIES FOLLOWS THE BIN COUNT, not the other way round: two bins or
+         more takes a 5000-series number. `>= 2`, never `=== 2` — a three-bin
+         house handed a regular number is labelled for a bin that does not
+         exist. Same rule as Add Customer, which is where this is copied from.
+
+         ⚠ AND ONLY ON AN ADD. A pairedSite row is an existing record being
+         corrected; renumbering somebody whose bin is already on a shelf under
+         their old label is exactly the harm binLabelNumber exists to describe. */
+      if(!doc2.customerNumber && !r.pairedSite){
+        const want = (Number(doc2.numberOfBins) || 1) >= 2 ? 'double' : 'regular';
+        doc2.customerNumber = cnAlloc.take(want).number;
+        numbered++;
       }
       /* ⭐ THE PRICE COMES ACROSS TOO. Owner, 2026-08-19: "when I sync it and add
          a full new customer to the website does it convert all of their info?"
@@ -22015,13 +22050,27 @@ async function rbApplyTickedAdds(statusEl){
         updatedExisting++;
       } else {
         await addDoc(collection(db,'jobAddresses'), doc2);
+        /* The customer exists now, so a number we minted for them is genuinely
+           spoken for and may come out of the pool. */
+        if(doc2.customerNumber) cnAlloc.confirm(doc2.customerNumber);
         done++;
       }
     } catch(err){ failed++; }
   }
   rbPendingAdds = null;
   if(done) logActivity('Added ' + done + ' customer(s) missing from the website', 'customers', '');
-  return {done: done, failed: failed, noPin: noPin, updatedExisting: updatedExisting, ran: true};
+  /* ⚠ THE POOL IS EMPTIED LAST, AND ONLY OF WHAT WAS REALLY USED. Deleting as
+     each number was handed out would lose a number whenever the customer write
+     that followed it failed — invisible until somebody is handed a bin label
+     that is already on a shelf. Every delete is guarded on its own: half a
+     sweep is still better than none, and a pool entry that survives is found
+     again by Find conflicts, whereas one deleted in error is simply gone. */
+  for(const h of cnAlloc.taken()){
+    await deleteDoc(doc(db, 'availableCustomerNumbers', h.number))
+      .catch(function(err){ console.error('[HU] could not take number ' + h.number + ' out of the pool', err); });
+  }
+  return {done: done, failed: failed, noPin: noPin, updatedExisting: updatedExisting,
+          numbered: numbered, ran: true};
 }
 function rbWireDiffButtons(report, statusEl){
   const picks = function(){ return Array.prototype.slice.call(document.querySelectorAll('.rb-diff-pick')); };
@@ -22146,7 +22195,13 @@ function rbWireDiffButtons(report, statusEl){
     rbPendingDiffs = null;
     logActivity('Synced ' + fields + ' field(s) from the master sheet onto ' + done + ' customer(s)', 'customers', '');
     report.innerHTML = '<div style="border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--paper); font-size:13px;">' +
-      (added.done ? added.done + ' customer(s) added' : '') +
+      (added.done ? added.done + ' customer(s) added' +
+        /* ⭐ SAY IT, because both are real work the office would otherwise only
+           find by opening two other tabs. A number handed out is a bin label
+           somebody has to write, and a build queued is a bundle somebody has to
+           make. Automatic is fine; invisible is not. */
+        ' (all queued for building' +
+        (added.numbered ? ', ' + added.numbered + ' given a customer number' : '') + ')' : '') +
       (added.updatedExisting ? (added.done ? ', ' : '') + added.updatedExisting + ' existing record(s) updated instead of copied' : '') +
       (added.failed ? ', ' + added.failed + ' add(s) failed' : '') +
       (added.noPin ? ', ' + added.noPin + ' without a map pin (All Customers → Filters → Map Pin → "Needs Pin")' : '') +
@@ -25581,6 +25636,70 @@ function cnShadowedPool(type){
   return availableCustomerNumbers
     .filter(function(n){ return n.data.type === type && cnNumberIsHeld(n.id); })
     .sort(function(a,b){ return parseInt(a.id,10) - parseInt(b.id,10); });
+}
+/* ⭐ HANDING OUT SEVERAL NUMBERS IN ONE RUN (added 2026-08-21, hole B).
+   Owner: "everyone new should get a number so we want to build everyone but
+   everyone should also have a number."
+
+   ⚠ cnNextAvailable CANNOT BE CALLED IN A LOOP. It answers from the caches —
+   availableCustomerNumbers and jobAddresses — and those are refreshed by a
+   Firestore listener, which does not fire between two iterations of a tight
+   loop. Call it twelve times in a row and it returns the SAME number twelve
+   times, so twelve customers are labelled for one bin. That is the single most
+   expensive mistake available here: the pool has no record of it and the
+   collision only shows up as two houses wearing one label on a shelf.
+
+   So the allocator is seeded ONCE from the same two sources cnNextAvailable
+   uses, and then hands out from its own copy — remembering what it has given
+   out so the next call cannot repeat it.
+
+   ⚠ IT DOES NOT WRITE ANYTHING. Taking a number out of the pool for real is a
+   delete on availableCustomerNumbers, and the caller does that only once the
+   customer has actually been written — a number removed from the pool for a
+   customer who then failed to save is a number lost with nothing on any screen
+   to explain it. `taken()` reports which ones need that delete. */
+function cnAllocator(){
+  const pool = {regular: cnFreePool('regular').map(function(n){ return n.id; }),
+                double:  cnFreePool('double').map(function(n){ return n.id; })};
+  const next = {regular: cnHighestAssigned('regular') + 1,
+                double:  cnHighestAssigned('double') + 1};
+  const handedOut = [], seen = {};
+  return {
+    take: function(type){
+      const t = (type === 'double') ? 'double' : 'regular';
+      let num = '';
+      while(pool[t].length){
+        const candidate = pool[t].shift();
+        if(!seen[candidate]){ num = candidate; break; }
+      }
+      const fromPool = !!num;
+      if(!num){
+        /* ⚠ SKIP ANYTHING THIS RUN HAS ALREADY GIVEN OUT, including a number
+           that happens to sit in the other series' pool. */
+        while(seen[String(next[t])]) next[t]++;
+        num = String(next[t]);
+        next[t]++;
+      }
+      seen[num] = true;
+      handedOut.push({number: num, fromPool: fromPool, saved: false});
+      return {number: num, fromPool: fromPool};
+    },
+    /* ⚠ TAKING A NUMBER AND KEEPING IT ARE TWO STEPS. The caller confirms only
+       after the customer has actually been written; a number pulled out of the
+       pool for a row that then failed to save is a number lost with nothing on
+       any screen to explain it.
+       ⚠ BUT `seen` STILL BLOCKS IT for the rest of the run. Re-offering the
+       number of a failed row would be safe in principle and is not worth the
+       risk of getting wrong — a wasted number costs the next number up, a
+       repeated one puts two houses on one bin label. */
+    confirm: function(number){
+      handedOut.forEach(function(h){ if(h.number === number) h.saved = true; });
+    },
+    /* The ones that came out of the pool AND ended up on a real customer, so
+       they need deleting from it. */
+    taken: function(){ return handedOut.filter(function(h){ return h.fromPool && h.saved; }); },
+    count: function(){ return handedOut.length; }
+  };
 }
 function cnNextAvailable(type){
   const pooled = cnFreePool(type);

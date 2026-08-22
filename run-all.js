@@ -14715,9 +14715,23 @@ suite('Suite 58. The sheet against the book, both ways round');
       !/setDoc\(doc\(db,'invoices'/.test(body) &&
       /no invoice was created or touched/.test(admin),
       'writing money is its own decision and belongs to the full Bulk Update');
+    /* ⚠ NARROWED 2026-08-21, and the guarantee is unchanged. This banned ANY
+       deleteDoc, which was a fair proxy while the function deleted nothing at
+       all; hole B gave it one legitimate delete — taking a minted number out of
+       availableCustomerNumbers once its customer has really been written. The
+       rule was never "no deletes", it was "never delete a CUSTOMER", so that is
+       what it now says, plus a positive check that the pool is the only thing
+       it may delete. A blanket ban would have been "fixed" by deleting the
+       check, which is how a real guarantee gets lost. */
     check('S58', 'the customers on the website but not on the sheet are only REPORTED',
-      !/deleteDoc/.test(body),
+      !/deleteDoc\(doc\(db, ?'jobAddresses'/.test(body) &&
+      !/deleteDoc\(doc\(db, ?'invoices'/.test(body),
       'deleting customers in bulk belongs to Danger Zone, behind its own confirmation');
+    check('S58', 'and the only thing it deletes is a number it minted itself',
+      (body.match(/deleteDoc\(/g) || []).length ===
+      (body.match(/deleteDoc\(doc\(db, ?'availableCustomerNumbers'/g) || []).length,
+      'every delete in this loop must be the pool cleanup — anything else is a ' +
+      'bulk tool quietly destroying records it was only asked to add to');
     /* ---- ⭐ the sync itself ---- */
     const sync = fn('rbWireDiffButtons');
     check('S58', 'rbWireDiffButtons exists', !!sync);
@@ -29681,6 +29695,176 @@ suite('Suite 133. A wire or timer change reaches the warehouse');
     iLights !== -1 && iWire > iLights,
     'that expression is what keeps a build OWED for a customer with no colours ' +
     'on file; running before it, or replacing it, loses that');
+}
+
+/* =====================================================================
+ * Suite 134. Everyone added from the sheet gets a number and a build
+ *
+ * Known hole B. Owner: "everyone new should get a number so we want to build
+ * everyone but everyone should also have a number."
+ *
+ * ⚠ SIX PLACES CREATE A CUSTOMER RECORD AND ONLY Add Customer SET
+ * needsLightBuild. Somebody added from the master sheet arrived with their
+ * colours, their wire and their feet, and never appeared in Needs Building — no
+ * bundle was ever made and the crew turns up at a house with nothing for it.
+ * A row with no CU# also arrived with no number at all, so there was no label
+ * for their bin.
+ *
+ * ⚠ THE DANGEROUS HALF IS THE NUMBERING, NOT THE FLAG. cnNextAvailable answers
+ * from the caches — availableCustomerNumbers and jobAddresses — refreshed by a
+ * Firestore listener that does NOT fire between two iterations of a tight loop.
+ * Called twelve times in a row it returns the SAME number twelve times, and
+ * twelve customers are labelled for one bin. The pool keeps no record of it and
+ * the collision surfaces only as two houses wearing one label on a shelf. That
+ * is what cnAllocator exists for and what most of this suite is about.
+ * ===================================================================== */
+suite('Suite 134. Everyone added from the sheet gets a number and a build');
+{
+  const admin = read('admin.html');
+  const allocSrc = extractFn(admin, 'cnAllocator');
+  check('S134', 'the allocator is findable', !!allocSrc,
+    'renamed or moved — fix the lift rather than deleting the suite');
+
+  if (allocSrc) {
+    /* Seeded through the same two helpers the real one uses, stubbed only as
+       DATA SOURCES — the allocation logic itself is the shipped code. */
+    const mk = (poolReg, poolDbl, highReg, highDbl) => new Function(
+      'cnFreePool', 'cnHighestAssigned',
+      allocSrc + ';return cnAllocator();')(
+      (t) => (t === 'double' ? poolDbl : poolReg).map(id => ({ id: String(id) })),
+      (t) => (t === 'double' ? highDbl : highReg));
+
+    /* ---- 1. the collision this exists to prevent -------------------- */
+    {
+      /* An empty pool is the ordinary case mid-season: numbers come from
+         highest+1, and THAT is where a cache that never refreshes bites. */
+      const a = mk([], [], 900, 5100);
+      const got = [a.take('regular').number, a.take('regular').number,
+                   a.take('regular').number, a.take('regular').number];
+      check('S134', 'four customers in one run get four different numbers',
+        new Set(got).size === 4,
+        'got ' + JSON.stringify(got) + ' — calling cnNextAvailable in a loop ' +
+        'returns the same number every time, and that is twelve houses on one ' +
+        'bin label with nothing recording it');
+      check('S134', 'and they run on from the highest already assigned',
+        got.join() === '901,902,903,904',
+        'starting anywhere else hands out a number somebody already holds');
+    }
+    {
+      const a = mk([481, 729], [], 900, 5100);
+      const got = [a.take('regular').number, a.take('regular').number, a.take('regular').number];
+      check('S134', 'the pool is emptied before any new number is minted',
+        got.join() === '481,729,901',
+        'got ' + JSON.stringify(got) + ' — a freed number left unused while new ' +
+        'ones are minted is how the series climbs for no reason');
+      check('S134', 'and each pooled number is handed out only once',
+        new Set(got).size === 3);
+    }
+    {
+      /* ⚠ THE TWO SERIES ARE SEPARATE, and a two-bin house must take a
+         5000-series number. `>= 2`, never `=== 2`. */
+      const a = mk([481], [5101], 900, 5100);
+      check('S134', 'a two-bin house takes a 5000-series number',
+        a.take('double').number === '5101' && a.take('regular').number === '481',
+        'a three-bin house handed a regular number is labelled for a bin that ' +
+        'does not exist');
+    }
+    {
+      /* ⚠ AND A NUMBER ALREADY GIVEN OUT THIS RUN IS SKIPPED even when the
+         counter would land on it — the two series can otherwise collide. */
+      const a = mk([], [], 5100, 5100);
+      const one = a.take('regular').number, two = a.take('double').number;
+      check('S134', 'the two series never hand out the same number',
+        one !== two,
+        'got ' + one + ' and ' + two + ' — both counters can sit on the same ' +
+        'value, and two bins wearing one label is the whole failure this file ' +
+        'keeps warning about');
+    }
+
+    /* ---- 2. taking a number and keeping it are two steps ------------- */
+    {
+      const a = mk([481, 729], [], 900, 5100);
+      const first = a.take('regular').number;
+      const second = a.take('regular').number;
+      a.confirm(first);
+      check('S134', 'only a number whose customer really saved leaves the pool',
+        a.taken().map(h => h.number).join() === String(first),
+        'a number pulled from the pool for a row that then failed to save is ' +
+        'a number lost, with nothing on any screen to explain it');
+      check('S134', 'but the failed one is still not offered again this run',
+        a.take('regular').number !== second,
+        'a wasted number costs the next number up; a repeated one puts two ' +
+        'houses on one bin label');
+      /* ⚠ A MINTED NUMBER WAS NEVER IN THE POOL, so it must never be deleted
+         from it — that delete would silently do nothing today and remove a
+         real entry the day the series wraps onto a freed number. */
+      const b = mk([], [], 900, 5100);
+      const minted = b.take('regular').number;
+      b.confirm(minted);
+      check('S134', 'a freshly minted number is not deleted from the pool',
+        b.taken().length === 0,
+        'it was never in it');
+    }
+
+    /* ---- 3. the loop uses it correctly ------------------------------- */
+    const body = extractFn(admin, 'rbApplyTickedAdds') || '';
+    check('S134', 'the sheet-add loop is findable', !!body);
+    if (body) {
+      const stripped = stripComments(body);
+      check('S134', 'the allocator is seeded once, outside the loop',
+        /const cnAlloc = cnAllocator\(\);/.test(stripped) &&
+        stripped.indexOf('const cnAlloc = cnAllocator();') < stripped.indexOf('for(let n = 0'),
+        'seeding it per row is the same bug as calling cnNextAvailable per row');
+      check('S134', 'and cnNextAvailable is never called in the loop',
+        !/cnNextAvailable/.test(stripped),
+        'that is the function that cannot be used here at all');
+      check('S134', 'a row that already has a CU# keeps it',
+        /if\(!doc2\.customerNumber && !r\.pairedSite\)/.test(stripped),
+        'the sheet is the office\'s own record of who holds which number');
+      /* ⚠ AND AN EXISTING RECORD IS NEVER RENUMBERED. A pairedSite row is a
+         correction to somebody already here, whose bin is on a shelf under
+         their old label. */
+      check('S134', 'and an existing record is never renumbered',
+        /&& !r\.pairedSite\)/.test(stripped),
+        'renumbering somebody whose bin is already labelled is exactly the harm ' +
+        'binLabelNumber exists to describe');
+      check('S134', 'the series follows the bin count',
+        /\(Number\(doc2\.numberOfBins\) \|\| 1\) >= 2 \? 'double' : 'regular'/.test(stripped),
+        'never === 2, or a three-bin house gets a regular number');
+      check('S134', 'every added customer is queued for building',
+        /needsLightBuild: true,/.test(stripped),
+        'owner: "we want to build everyone" — this is the hole, and without it ' +
+        'the crew arrives at a house with no bundle made for it');
+      /* ⚠ THE POOL CLEANUP RUNS AFTER THE LOOP, not inside it. */
+      check('S134', 'the pool is emptied after the loop, of confirmed numbers only',
+        /for\(const h of cnAlloc\.taken\(\)\)/.test(stripped) &&
+        stripped.indexOf('cnAlloc.taken()') > stripped.lastIndexOf('addDoc(collection(db,\'jobAddresses\')'),
+        'deleting as each number is handed out loses one whenever the write ' +
+        'that follows it fails');
+      check('S134', 'and it confirms only after the customer is written',
+        /await addDoc\(collection\(db,'jobAddresses'\), doc2\);\s*\r?\n\s*if\(doc2\.customerNumber\) cnAlloc\.confirm\(doc2\.customerNumber\);/
+          .test(stripped),
+        'confirming first would take the number out of the pool for a customer ' +
+        'who never existed');
+      check('S134', 'each pool delete is guarded on its own',
+        /cnAlloc\.taken\(\)[\s\S]{0,400}?\.catch\(/.test(stripped),
+        'half a cleanup is better than none, and a pool entry that survives is ' +
+        'found again by Find conflicts — one deleted in error is simply gone');
+    }
+  }
+
+  /* ---- 4. what the office is told -------------------------------------- */
+  /* ⚠ MATCHED AS ONE EXPRESSION, not as a loose phrase. A bare
+     /all queued for building/ passed with the whole thing wrapped in a
+     `(false ? ...)` — the words survive, unreachable. Comments are stripped
+     first and the concatenation must run straight on from the added.done
+     branch, so anything inserted between them breaks the match. */
+  check('S134', 'the report says they were queued and numbered',
+    /added\.done \+ ' customer\(s\) added' \+\s*' \(all queued for building'/
+      .test(stripComments(admin)) &&
+    /given a customer number/.test(admin),
+    'a number handed out is a bin label somebody has to write and a build ' +
+    'queued is a bundle somebody has to make — automatic is fine, invisible is not');
 }
 
 Promise.all(pendingAsync).then(function () {
