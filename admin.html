@@ -15195,8 +15195,30 @@ function isOutForSeason(d){
      both flags and would silently stay in the season. That is the one mistake here that
      sends a crew to a house with no lights for it. */
   if(d.needsLightRecycle && !d.recycleKeepingCustomer) return true;
+  /* ⭐ CONFIRMED MEANS THEY REPLIED, NOT THAT THE RECORD SAYS YES (2026-08-22).
+     Owner: "they need a reply either through email or approving through the button.
+     We should be able to approve for them in costumers as well."
+
+     ⚠ THIS BRANCH TESTED THE STATUS ALONE, AND THAT WOULD HAVE BROKEN THE FLIP ITSELF.
+     Converting a quote writes rsvpStatus 'yes' at creation with no rsvpRespondedAt —
+     an ASSUMED yes, the office knowing they want lights, nobody having asked them
+     about this season. On the status alone, turning this setting on would have kept in
+     the season precisely the people who have never answered, which is the one group
+     the setting exists to exclude. It would have looked like it worked.
+
+     ⚠ AND EVERY REAL REPLY DOES STAMP IT, so nobody who answered is lost: the RSVP
+     link and the portal button (portalRsvp), approving a quote by email
+     (quoteRespond), Maybe Next Year (pullCustomerFromSeason), and the office marking
+     it for them on the Edit Customer dropdown. That last one is her "approve for them
+     in costumers", and it is the reason the dropdown was taught to stamp the date —
+     an answer taken over the phone is still an answer.
+
+     ⚠ SAME TEST AS THE Yes SHEET, deliberately. That predicate has read
+     `said === 'yes' && d.rsvpRespondedAt` since the tab was built; this one read the
+     status alone. Two places answering "is this customer confirmed" two ways is how
+     the office and the crew end up holding different lists. */
   if(SEASON_ELIGIBILITY === 'confirmed-only'){
-    return String(d.rsvpStatus || '').toLowerCase() !== 'yes';
+    return !(String(d.rsvpStatus || '').toLowerCase() === 'yes' && !!d.rsvpRespondedAt);
   }
   return false;
 }

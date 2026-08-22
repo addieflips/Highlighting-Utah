@@ -6558,16 +6558,54 @@ suite('21. Everyone is in unless they said otherwise');
     'this the fill would put them straight back fifteen minutes later');
 
   // ---- the mode the owner plans to switch to ---------------------------
+  /* ⭐ CONFIRMED MEANS THEY REPLIED (2026-08-22). Owner: "they need a reply either
+     through email or approving through the button. We should be able to approve for
+     them in costumers as well." Every fixture below therefore carries the timestamp
+     the real reply routes stamp. */
+  const said = new Date('2026-09-01T00:00:00Z');
   check('season', 'confirmed-only lets ONLY a yes through',
-    strict.out({ rsvpStatus: 'yes' }) === false &&
+    strict.out({ rsvpStatus: 'yes', rsvpRespondedAt: said }) === false &&
     strict.out({ rsvpStatus: '' }) === true &&
     strict.out({ rsvpStatus: 'pending' }) === true &&
     strict.out({}) === true,
     'the branch the owner will turn on — tested now so it cannot rot until then');
+  /* ⚠ THE FLIP WOULD HAVE BROKEN ITSELF. Converting a quote writes rsvpStatus 'yes'
+     with no rsvpRespondedAt — the office knowing they want lights, nobody having asked
+     them about this season. On the status alone, turning the setting on would have kept
+     in exactly the people it exists to exclude, and looked like it worked. */
+  check('season', 'an ASSUMED yes is OUT — a converted quote is not a reply',
+    strict.out({ rsvpStatus: 'yes' }) === true,
+    'this is the one line in the app that writes yes without a reply, and it is ' +
+    'carried by most of the book the moment the switch is turned on');
+  /* ⚠ AND EVERY REAL REPLY IS STILL IN. portalRsvp, quoteRespond's approval and the
+     office dropdown all stamp the date — that last one is the owner's "approve for
+     them in costumers", and it is why the dropdown was taught to stamp at all. */
+  check('season', 'but every route that takes a real answer keeps them IN',
+    strict.out({ rsvpStatus: 'yes', rsvpRespondedAt: said }) === false &&
+    strict.out({ rsvpStatus: 'yes', rsvpRespondedAt: 1 }) === false,
+    'the RSVP link, the portal button and the office marking it for them over the ' +
+    'phone all stamp rsvpRespondedAt — none of those may be lost');
+  /* ⚠ ONE QUESTION, ONE ANSWER. The Yes sheet has tested the timestamp since it was
+     built and this branch tested the status alone; two places deciding "is this
+     customer confirmed" differently is how the office and the crew hold two lists. */
+  check('season', 'and it asks the same question the Yes sheet asks',
+    /said === 'yes' && d\.rsvpRespondedAt/.test(admin) &&
+    /rsvpStatus \|\| ''\)\.toLowerCase\(\) === 'yes' && !!d\.rsvpRespondedAt/.test(admin),
+    'the Yes sheet and the season list disagreeing about one customer is worse ' +
+    'than either being wrong alone');
+  /* ⚠ A REPLY IS NOT AN ACCEPTANCE. Somebody who answered no, or back next year,
+     replied — the timestamp is stamped for them too — and they are OUT. Testing the
+     date on its own would put every one of them back in the season. */
+  check('season', 'a reply saying no is still OUT, timestamp and all',
+    strict.out({ rsvpStatus: 'no', rsvpRespondedAt: said }) === true &&
+    strict.out({ rsvpStatus: 'backnextyear', rsvpRespondedAt: said }) === true &&
+    strict.out({ rsvpStatus: 'unanswered', rsvpRespondedAt: said }) === true,
+    'they answered, and the answer was not yes');
   check('season', 'confirmed-only still lets Maybe Next Year win',
-    strict.out({ maybeNextYear: true, rsvpStatus: 'yes' }) === true);
+    strict.out({ maybeNextYear: true, rsvpStatus: 'yes', rsvpRespondedAt: said }) === true);
   check('season', 'case does not decide whether somebody gets their lights',
-    strict.out({ rsvpStatus: 'YES' }) === false && strict.out({ rsvpStatus: 'Yes' }) === false);
+    strict.out({ rsvpStatus: 'YES', rsvpRespondedAt: said }) === false &&
+    strict.out({ rsvpStatus: 'Yes', rsvpRespondedAt: said }) === false);
   check('season', 'no record at all is OUT rather than quietly IN',
     api.out(null) === true && api.out(undefined) === true && strict.out(null) === true);
 }

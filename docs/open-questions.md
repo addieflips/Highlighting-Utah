@@ -458,7 +458,7 @@ and pick up R-006/R-007/R-008 on the way.
 
 ---
 
-## Q-010 · intent · open · 2026-08-21
+## Q-010 · intent · part answered 2026-08-22 · Q-010a still open
 "Straight yes only" — when should `SEASON_ELIGIBILITY` be flipped, and does a
 converted customer's assumed yes count?
 
@@ -478,25 +478,62 @@ flip it *"when the RSVP email is live and everyone has actually been asked."*
 **Q-010a — when?** After the first RSVP send, presumably with some window for
 replies. Addie's call, and it wants a deliberate date rather than a guess.
 
-**Q-010b — does an assumed yes count?** `confirmed-only` tests
-`rsvpStatus === 'yes'` alone. Converting a quote writes `rsvpStatus: 'yes'` with
-**no `rsvpRespondedAt`** — the office knows they want lights, but nobody has asked
-them about this season. So converted customers would pass as confirmed without
-answering.
+**Q-010b — does an assumed yes count? — ANSWERED, no.**
 
-The stricter test already exists, in the Excel "Yes" tab
-(`admin.html:18476`): `if(said === 'yes' && d.rsvpRespondedAt) return true;`.
-**Two places decide "did they really say yes" and they disagree** — the season
-gate is loose, the sheet export is strict. If "straight yes" is literal,
-`isOutForSeason` needs the same `&& rsvpRespondedAt`, and that is a one-line
-change plus a test.
+Addie, 2026-08-22: *"They need a reply either through email or approving through
+the button. We should be able to approve for them in costumers as well."*
 
-⚠ Whichever way it goes, the two should agree afterwards. One rule, one answer.
+`confirmed-only` tested `rsvpStatus === 'yes'` alone. Converting a quote writes
+`rsvpStatus: 'yes'` with **no `rsvpRespondedAt`** — the office knowing they want
+lights, nobody having asked them about this season. On the status alone, turning
+the setting on would have kept in the season precisely the people it exists to
+exclude, **and it would have looked like it worked**: the routes would fill, the
+list would look healthy, and every name on it would be somebody who never replied.
+
+Fixed 2026-08-22, `isOutForSeason`:
+
+```js
+if(SEASON_ELIGIBILITY === 'confirmed-only'){
+  return !(String(d.rsvpStatus || '').toLowerCase() === 'yes' && !!d.rsvpRespondedAt);
+}
+```
+
+This is now the same test the Excel "Yes" tab has always used
+(`said === 'yes' && d.rsvpRespondedAt`). Two places deciding "did they really say
+yes" and disagreeing is worse than either being wrong alone. **One rule, one
+answer** — and a check asserts both sites read it the same way.
+
+**All three of her routes stamp the date, so nobody who replied is lost:**
+
+| Route | Where | Stamps `rsvpRespondedAt` |
+|---|---|---|
+| the RSVP email link / portal button | `portalRsvp` | yes |
+| approving a quote by email | `quoteRespond` | yes |
+| Back Next Year | `pullCustomerFromSeason` | yes |
+| **the office marking it for them** | Edit Customer → RSVP Status | yes |
+
+That last row is her *"approve for them in costumers"* — it already exists, in the
+Edit Customer form, and it was taught to stamp the date for exactly this reason:
+an answer taken over the phone is still an answer, and without the stamp it could
+not be told apart from an assumed yes. The only `'yes'` written *without* a stamp
+is the one at conversion, which is the assumed one.
+
+⚠ It is dead code until the switch is flipped, which is why fixing it now costs
+nothing — and why it had to be fixed *before* the flip rather than after.
+
+⚠ **Still worth deciding (Q-010a's companion):** the Dashboard RSVP panel counts
+`rsvpStatus === 'yes'` — status alone — so assumed yeses are counted as confirmed
+there. That is the number most likely to be read when judging *"has everyone been
+asked yet"*, i.e. the input to Q-010a. Left alone rather than changed silently: it
+is a status tally, and whether it should show replies-only is a display decision,
+not a correctness one.
 
 Blocks: the flip itself, which is tier 1 — getting it wrong means nobody is
 scheduled.
-Answer:
-Resulting map change:
+Answer: Q-010b answered 2026-08-22 — a reply is required; assumed yes does not
+count. Q-010a (the date) still open.
+Resulting map change: `isOutForSeason`'s `confirmed-only` branch now requires
+`rsvpRespondedAt`; asserted against the Yes-tab predicate so the two cannot drift.
 
 ---
 
