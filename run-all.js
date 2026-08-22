@@ -33992,6 +33992,23 @@ suite('149. Measure Roof - corners are named, picked, added and reordered');
   check('S149', 'and it opens ready to place a dot, not ready to pick one',
     /let rmCornerMode = 'dot';/.test(admin),
     'nothing is drawn automatically any more, so picking has nothing to pick from');
+  /* ⚠ A CONTROL THAT LIES ABOUT ITS OWN STATE IS WORSE THAN NO CONTROL. The
+     strip was hidden until the first dot existed, so the line telling somebody
+     how to place one was invisible exactly when it was needed - and the label,
+     never redrawn, claimed to be PICKING while the tool was placing. */
+  check('S149', 'the mode strip is shown before there is anything in it',
+    /bar\.style\.display = rmStreetReady \|\| rmSkyReady \? 'block' : 'none';/.test(admin),
+    'the instructions were hidden exactly when somebody needed them');
+  /* indexOf rather than a regex spanning a newline - the backslash-n does not
+     survive every route into this file, and a degraded escape gives a broken
+     regex instead of a failing check. */
+  check('S149', 'and it is redrawn when the house loads, so the label is true',
+    (function(){
+      const a = admin.indexOf('rmRenderCornerBar();');
+      const b = admin.indexOf("status.textContent = 'Click along the roofline");
+      return a !== -1 && b !== -1 && b > a && (b - a) < 60;
+    })(),
+    'an unrefreshed label says PICKING while the tool is PLACING');
   check('S149', 'the map takes dots as well as the street view',
     /rmCornerMode === 'dot' && !rmDrawing/.test(admin) && /const skyLock = \(rmDrawing \|\| rmCornerMode === 'dot'\)/.test(admin),
     'from above a click is exact; from the street the height is what you can see');
