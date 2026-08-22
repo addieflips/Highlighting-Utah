@@ -32010,6 +32010,60 @@ suite('Suite 141. The grid the season is actually cut with');
     'the rebuild guards on typeof planSweeps, so importing the wrong name makes the ' +
     'grid silently never engage and leaves every suite green');
 
+  /* ⭐ AND THE HARDEST-FIRST TERM ACTUALLY MOVES HOUSES (added 2026-08-22).
+     Owner: "have the route generator form a petrol efficient route while still
+     doing hardest first."
+     ⚠ RUN, NOT READ. A weight that is wired up but never reaches the comparison is
+     invisible to any source check and leaves the feature purely decorative — which
+     is what it was for about ten minutes, because nothing set `hardness` on a stop.
+     So this drives the REAL orderer twice over the same stops and requires the
+     marked house to come out earlier the second time. */
+  {
+    const LF = String.fromCharCode(10);
+    const havS = admin.indexOf('function haversine(lat1, lng1, lat2, lng2)');
+    const havE = admin.indexOf(LF + '}', havS) + 2;
+    const ordS = admin.indexOf('function twoOptImprove(');
+    const ordE = admin.indexOf('function nearestNeighborOrder(', ordS);
+    const hardS = admin.indexOf('function stopHardness(');
+    const hardE = admin.indexOf(LF + '}', hardS) + 2;
+    if (havS === -1 || ordS === -1 || hardS === -1 || ordE < ordS) {
+      check('grid', 'the route orderer and its hardness rule are findable', false,
+        'renamed — update this test');
+    } else {
+      const api = eval(admin.slice(havS, havE) + LF + admin.slice(hardS, hardE) + LF +
+        admin.slice(ordS, ordE) + LF + ';({reorder: reorderFlatStops})');
+      const HOME = { lat: 40.3854, lng: -111.8627 };
+      const mk = (hardness) => {
+        const out = [];
+        for (let i = 0; i < 10; i++) {
+          out.push({ id: 's' + i, lat: 40.38 + i * 0.010, lng: -111.86 + i * 0.008,
+                     hardness: (i === 9 ? hardness : 0) });
+        }
+        return out;
+      };
+      const posOf = (list) => list.findIndex(x => x.id === 's9');
+      const plain = api.reorder(mk(0), HOME, HOME);
+      const hard  = api.reorder(mk(1), HOME, HOME);
+      check('grid', 'a hard house is driven earlier than it otherwise would be',
+        posOf(hard) < posOf(plain),
+        'the far house sat at place ' + posOf(plain) + ' on distance alone and ' +
+        posOf(hard) + ' once marked hard — if these are equal the weight never ' +
+        'reaches the comparison and hardest-first is decorative');
+      check('grid', 'and nothing is dropped to achieve it',
+        hard.length === 10 && new Set(hard.map(x => x.id)).size === 10,
+        'a lost stop is a customer nobody visits');
+      /* ⚠ AND IT STAYS A TIE-BREAKER. Fuel is the objective — a hard house must not
+         be worth crossing the valley for. With every stop equally hard the order
+         must be exactly the distance-only order again, because a constant hardness
+         cancels out of every comparison. */
+      const allHard = api.reorder(mk(1).map(s => Object.assign(s, { hardness: 1 })), HOME, HOME);
+      check('grid', 'hardness is a tie-breaker, not a second objective',
+        allHard.map(x => x.id).join() === plain.map(x => x.id).join(),
+        'when everybody is equally hard the route must be the petrol-efficient one — ' +
+        'got [' + allHard.map(x => x.id).join() + ']');
+    }
+  }
+
   pendingAsync.push((async () => {
     const grid = await import('./js/grid.js');
 

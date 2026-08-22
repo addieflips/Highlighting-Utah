@@ -38869,7 +38869,69 @@ function houseStopPoint(h){
   const cust=customerForHouse(h);
   const d=(cust&&cust.data)||{};
   const p=houseGeoPoint(h,d);
-  return {ref:h, lat:p.lat, lng:p.lng, estimated:p.estimated, how:p.how};
+  return {ref:h, lat:p.lat, lng:p.lng, estimated:p.estimated, how:p.how,
+          hardness: houseHardness(h, d)};
+}
+/* ⭐ HOW HARD THIS HOUSE WOULD BE TO DO ON ANY OTHER DAY, 0 to 1 (added 2026-08-22).
+   Owner: "make sure the route generator is organizing them in a way where they are
+   doing the best route but also doing the houses that would be hard to do any other
+   day first."
+
+   ⚠ THIS IS NOT PRIORITY, AND CONFUSING THE TWO WOULD BE A REAL BUG. Priority is
+   who deserves to go out soonest — a new hang, an October customer — and it is
+   already settled long before a route is ordered, by houseInstallPriority and the
+   builder. This is a different question asked of a day that has ALREADY been
+   chosen: if the crew runs out of daylight and half this sheet rolls to tomorrow,
+   which houses are the expensive ones to have left behind? Those go early.
+
+   Two things make a house expensive to leave:
+
+   1. A CLOSING WINDOW. A house with a deadline that is nearly here has almost
+      nowhere left to go — an October customer on 29 October cannot roll into
+      November, that is the whole rule. A house with no deadline can go out any day
+      for the rest of the season and costs nothing to postpone. Scaled over the last
+      three weeks so it climbs as the date nears rather than switching on.
+
+   2. NOBODY NEARBY. A house with plenty of company in its own grid cell will be on
+      somebody's day again within the week. One with almost none may not get another
+      chance for a fortnight, because a crew has to be sent out that way for it.
+      This is the same measure the eviction rule uses, and deliberately so: the
+      house that is cheapest to bump is the one that is cheapest to leave.
+
+   ⚠ WEIGHTED, NOT SUMMED TO WHATEVER. The two are capped at 1 together so the
+      exchange rate in HARD_FIRST_MILES_PER_PLACE means what it says: 1 is "worth a
+      fifth of a mile per place", and nothing can quietly become worth more.
+   ⚠ AND IT FAILS TO ZERO. Anything it cannot work out — no deadline field, no map
+      pin, no customer record behind the plan row — reads as "not hard", which
+      leaves the route ordered purely on distance. That is the old behaviour, which
+      is the right thing to fall back to. */
+function houseHardness(h, custData){
+  let deadline = 0, alone = 0;
+  try{
+    const until = (typeof houseDeadline === 'function') ? houseDeadline(h) : '';
+    if(until){
+      const now = new Date(); now.setHours(0,0,0,0);
+      const end = new Date(until.slice(0,4), Number(until.slice(5,7)) - 1, until.slice(8,10));
+      const daysLeft = Math.round((end - now) / 86400000);
+      /* Three weeks of runway is comfortable; the day itself is as tight as it gets.
+         Past the deadline stays at 1 rather than going negative — a house already
+         late is the most expensive one to leave behind, not the least. */
+      deadline = Math.max(0, Math.min(1, 1 - (daysLeft / 21)));
+    }
+  }catch(err){ deadline = 0; }
+  try{
+    const d = custData || {};
+    if(typeof replaceability === 'function' && typeof d.lat === 'number' && typeof d.lng === 'number'){
+      const pool = (typeof jobAddresses !== 'undefined' ? jobAddresses : []).map(function(c){
+        const cd = (c && c.data) || {};
+        return {lat: cd.lat, lng: cd.lng};
+      });
+      const company = replaceability({lat: d.lat, lng: d.lng}, pool);
+      /* Ten in the same square mile is plenty of company; none is as alone as it gets. */
+      alone = Math.max(0, Math.min(1, 1 - (company / 10)));
+    }
+  }catch(err){ alone = 0; }
+  return Math.max(0, Math.min(1, deadline * 0.6 + alone * 0.4));
 }
 /* ⭐ AND THE ONES IT COULD NOT PLACE ARE COUNTED (added 2026-08-21). A house
    with no map pin cannot be put in driving order — it has no position to be in
