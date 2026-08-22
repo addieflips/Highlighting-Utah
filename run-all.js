@@ -34330,8 +34330,20 @@ suite('151. Measure Roof - a clicked dot takes its depth from the wall, not the 
     })(),
     'a house is not a box - it is several parts at different depths');
   check('S151', 'a face only counts if the ray is at THAT face roof height there',
-    /Math\.abs\(pu - roofU\) > RM_FACE_EDGE_TOL_M/.test(pick('rmRoofEdgeHit') || ''),
+    /Math\.abs\(pu - roofU\) > tol/.test(pick('rmRoofEdgeHit') || '') &&
+    /RM_FACE_EDGE_TOL_M/.test(pick('rmRoofEdgeHit') || ''),
     'without it a ray flying over a low garage is placed on the garage front');
+  /* ⭐ A GUTTER RUNS ALONG ONE FACE. Measured on the test house: three dots
+     along one gutter came out at e -7.96, -7.96 and -7.93, and the fourth at
+     -5.63 - two and a third metres deeper into the house, because its ray was
+     matched to a different face's edge. In the street view all four look like
+     one line, because depth is the one thing that view cannot show. */
+  check('S151', 'the next dot prefers the face the last one landed on',
+    /const sameFace = \(rmLastFaceUsed === f\);/.test(pick('rmRoofEdgeHit') || '') &&
+    /const score = t \* \(sameFace \? 0\.6 : 1\);/.test(pick('rmRoofEdgeHit') || ''),
+    'one dot jumping to another face is invisible from the street and obvious from above');
+  check('S151', 'and a new strand forgets it, being a new part of the roof',
+    /rmLastFaceUsed = null;      \/\* a new strand is a new part of the roof \*\//.test(admin));
 }
 
 
