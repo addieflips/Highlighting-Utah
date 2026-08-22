@@ -38453,6 +38453,35 @@ function printCrewSheet(dayId,crewIndex){
    crew 2, and also a blank column on the right." Crew two's sheet is THEIR day, not a
    filtered copy of somebody else's numbering. The blank column is for whatever gets
    written on it in the van. Both live in printTableHtml so no list can forget. */
+/* A gate code, or a dash. ⚠ NOT the word "none": the record cannot tell "no gate"
+   from "there is a gate and nobody asked for the code", so printing a confident
+   "none" would claim a fact we do not have. A filled cell means there is a gate
+   and this is the way in; an empty one means we have nothing, whichever it is. */
+function printGateCode(d){
+  const g = ('' + ((d && d.gateCode) || '')).trim();
+  return g || '\u2014';
+}
+/* Always 1-4, never blank — houseSideCount defaults an unrecorded count to 1, and
+   the printed sheet must not disagree with the schedule about it. */
+function printSideCount(d){
+  return String(houseSideCount(d && d.houseSides));
+}
+/* ⚠ THE ACTIONABLE LINES COME FIRST. Notes is where prose goes, and the install
+   instruction and the one-time note are prose — but they are also the two things
+   that change what the crew DOES at that house, so they lead and the permanent
+   note follows. Buried under a paragraph about the dog, they may as well not be
+   printed. Both are prefixed, because an unlabelled sentence in the Notes column
+   reads as part of the standing note. */
+function printCrewNotes(d, h){
+  const bits = [];
+  const outlet = ('' + ((d && d.specificOutletNotes) || '')).trim();
+  if(outlet) bits.push('OUTLET: ' + outlet);
+  const once = ('' + ((d && d.oneTimeNote) || '')).trim();
+  if(once) bits.push('TODAY: ' + once);
+  const standing = ('' + ((d && d.notes) || (h && h.details) || '')).trim();
+  if(standing) bits.push(standing);
+  return bits.join('  \u00b7  ');
+}
 function printYesNo(v){
   if(v === true) return 'Yes';
   if(v === false || v == null || v === '') return 'No';
@@ -38520,8 +38549,22 @@ const PRINT_COLUMNS = {
      timer(yes/no), that should come before notes." Notes is the wide free-text column
      and anything put after it gets lost against a wall of writing, which is why the
      position is part of the instruction rather than a detail. */
+  /* ⭐ GATE AND SIDES ARE THEIR OWN COLUMNS (added 2026-08-21). Owner: "were not
+     using the employee portal this year... we are only printing on schedules and
+     warehouse." The gate code, the which-outlet instruction and the one-time note
+     lived ONLY in the crew portal, so with it out of use they reached nobody at
+     all — a crew arrives at a gated house with no code and nothing on the sheet.
+
+     ⚠ WHY TWO NARROW COLUMNS AND NOT THREE MORE. Notes is the wide free-text
+     column and anything put after it is lost against a wall of writing — the same
+     reason Timer was moved in front of it. A gate code is four characters and
+     decides whether the van gets in, so it has to be scannable, not buried in
+     prose. Sides is one digit. The outlet instruction and the one-time note ARE
+     prose, so they fold into Notes with a prefix instead of widening the sheet
+     to eleven columns nobody can read. */
   crew:      [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'},
               {k: 'address', label: 'Address'}, {k: 'city', label: 'City'},
+              {k: 'gate', label: 'Gate'}, {k: 'sides', label: 'Sides'},
               {k: 'eaves', label: 'Plugs / eaves'}, {k: 'timer', label: 'Timer'},
               {k: 'notes', label: 'Notes'}]
 };
@@ -38605,8 +38648,9 @@ function printCrewDayList(day, i){
     const d = printCustData(h);
     return {number: d.customerNumber || h.cu || '', name: d.name || h.name || '',
             address: d.street || h.address || '', city: h.city || d.city || '',
+            gate: printGateCode(d), sides: printSideCount(d),
             eaves: printYesNo(d.useEaves), timer: printYesNo(d.outletTimer),
-            notes: d.notes || h.details || ''};
+            notes: printCrewNotes(d, h)};
   });
 }
 /* ---------- the paper ---------- */

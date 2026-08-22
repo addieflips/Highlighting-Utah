@@ -18809,9 +18809,69 @@ suite('Suite 104. The Printing tab');
        related printing it need to include timer(yes/no), that should come before
        notes." Notes is the wide free-text column and anything after it is lost against
        a wall of writing, so the POSITION is asserted, not just the presence. */
+    /* ⭐ AND GATE AND SIDES JOINED THEM (2026-08-21). Owner: "were not using the
+       employee portal this year... we are only printing on schedules and warehouse."
+       The gate code, the outlet instruction and the one-time note lived ONLY in that
+       portal, so they reached nobody at all — a crew at a gated house with no code.
+       Gate and Sides are short enough to be their own columns; the two prose ones
+       fold into Notes rather than widening the sheet to eleven columns. */
     check('S104', 'the crew list carries what the van needs, timer before notes',
-      keys('crew') === 'number,name,address,city,eaves,timer,notes',
+      keys('crew') === 'number,name,address,city,gate,sides,eaves,timer,notes',
       'got ' + keys('crew'));
+    check('S104', 'gate and sides sit BEFORE the wide notes column',
+      keys('crew').indexOf('gate,sides') < keys('crew').indexOf('notes'),
+      'anything after Notes is lost against a wall of writing');
+  }
+
+  /* ---- the crew row builder, RUN rather than read ---- */
+  {
+    const need = ['printGateCode', 'printSideCount', 'printCrewNotes'];
+    const srcs = need.map(n => extractFn(admin, n));
+    check('S104', 'the crew-sheet helpers are all there', srcs.every(Boolean),
+      need.filter((n, i) => !srcs[i]).join(', ') + ' missing');
+
+    if (srcs.every(Boolean)) {
+      /* ⚠ houseSideCount LIFTED, not stubbed. A hand-written stub would not read the
+         old array shape, and "the sheet agrees with the schedule about sides" is
+         exactly the claim being made here — a stub of it proves nothing. */
+      const sb = new Function(
+        'const HOUSE_SIDES_DEFAULT = 1;' + extractFn(admin, 'houseSideCount') +
+        srcs.join('') + 'return {g: printGateCode, s: printSideCount, n: printCrewNotes};'
+      )();
+
+      check('S104', 'a gate code reaches the printed sheet',
+        sb.g({ gateCode: '4412' }) === '4412',
+        'this is the whole point — it lived only in the portal nobody is using');
+      /* ⚠ NOT the word "none". The record cannot tell "no gate" from "there is a
+         gate and nobody asked", so a confident "none" claims a fact we do not have. */
+      check('S104', 'no gate code prints a dash, not a confident "none"',
+        sb.g({}) === '\u2014' && sb.g({ gateCode: '  ' }) === '\u2014',
+        'got ' + JSON.stringify(sb.g({})));
+
+      check('S104', 'the side count always prints, and matches houseSideCount',
+        sb.s({ houseSides: 3 }) === '3' && sb.s({}) === '1' &&
+        sb.s({ houseSides: ['front', 'left'] }) === '2',
+        'the sheet disagreeing with the schedule about sides is two answers for one house');
+
+      const full = sb.n({ specificOutletNotes: 'lower outlet by door',
+                          oneTimeNote: 'ring the bell', notes: 'dog in the back' }, {});
+      check('S104', 'the outlet instruction and the one-time note reach the sheet',
+        full.indexOf('lower outlet by door') !== -1 && full.indexOf('ring the bell') !== -1,
+        'both lived only in the crew portal: ' + full);
+      /* ⚠ ORDER IS THE RULE, not presence. Both change what the crew DOES at the
+         house; buried under a paragraph about the dog they may as well not be there. */
+      check('S104', 'the two actionable lines lead, the standing note follows',
+        full.indexOf('OUTLET') < full.indexOf('dog') &&
+        full.indexOf('TODAY') < full.indexOf('dog'),
+        'got ' + full);
+      check('S104', 'both are labelled, so neither reads as part of the standing note',
+        full.indexOf('OUTLET:') !== -1 && full.indexOf('TODAY:') !== -1, full);
+      check('S104', 'a customer with nothing to say prints an empty note, not labels',
+        sb.n({}, {}) === '', 'got ' + JSON.stringify(sb.n({}, {})));
+      check('S104', 'the plan\'s own note is used when the record has none',
+        sb.n({}, { details: 'from the imported plan' }) === 'from the imported plan',
+        'an imported row carries its note in `details`');
+    }
   }
 
   /* ---- numbered from 1, blank column on the right, every single list ---- */
@@ -19155,6 +19215,13 @@ suite('Suite 104. The Printing tab');
       'const customerForHouse = function(h){ return {data: h.cust || {}}; };' +
       'const customerPhotoList = function(){ return []; };' +
       'const schedOpenPrintPages = function(t, pages){ out.push({title: t, pages: pages}); };' +
+      /* ⚠ LIFTED, NOT STUBBED (2026-08-21). printCrewDayList now fills Gate, Sides
+         and a folded Notes, and a stub of those is a stub of the fix that put the
+         gate code on paper at all. houseSideCount comes with them because
+         printSideCount reads it. */
+      extractFn(admin, 'printGateCode') + extractFn(admin, 'printSideCount') +
+      extractFn(admin, 'printCrewNotes') +
+      'const HOUSE_SIDES_DEFAULT = 1;' + extractFn(admin, 'houseSideCount') +
       extractFn(admin, 'printYesNo') + extractFn(admin, 'printCustData') +
       extractFn(admin, 'printIsNewHang') + extractFn(admin, 'printCrewPhotos') +
       extractFn(admin, 'printDensityClass') +
@@ -19174,7 +19241,9 @@ suite('Suite 104. The Printing tab');
     {crew: 0, id: 'h1', cust: {customerNumber: '11', name: 'A', street: '1 St',
       useEaves: true, outletTimer: 'Yes', notes: 'gate 4321'}},
     {crew: 0, id: 'h2', cust: {customerNumber: '12', name: 'B', street: '2 St'}},
-    {crew: 1, id: 'h3', cust: {customerNumber: '21', name: 'C', street: '3 St', outletTimer: 'Yes'}}],
+    {crew: 1, id: 'h3', cust: {customerNumber: '21', name: 'C', street: '3 St', outletTimer: 'Yes',
+      gateCode: '4412', houseSides: 3, specificOutletNotes: 'lower outlet by door',
+      oneTimeNote: 'ring the bell', notes: 'dog in the back'}}],
     spare: [{id: 'h4', city: 'Levan', cust: {customerNumber: '31', name: 'D',
       outletTimer: 'Yes'}}]};
 
@@ -19200,6 +19269,27 @@ suite('Suite 104. The Printing tab');
   check('S104', 'and it sits before the notes',
     crewBody.indexOf('<th>Timer</th>') < crewBody.indexOf('<th>Notes</th>'),
     'anything after Notes is lost against a wall of writing');
+
+  /* ⚠ SAME TRAP, SAME FIX, FOR THE NEW COLUMNS (2026-08-21). A red-check that
+     stopped printCrewDayList filling `gate` and `sides` left both headers standing
+     with empty cells under them and EVERY other check stayed green — including the
+     column-order one and the helpers' own unit checks, which call printGateCode
+     directly rather than going through the renderer. The sheet is what the crew
+     holds, so the sheet is what gets asserted. */
+  check('S104', 'the Gate column is actually filled in, not just present',
+    /<th>Gate<\/th>/.test(crewBody) && /<td>4412<\/td>/.test(crewBody),
+    'a Gate header with nothing under it is the crew still stuck at the gate');
+  check('S104', 'the Sides column is actually filled in',
+    /<th>Sides<\/th>/.test(crewBody) && /<td>3<\/td>/.test(crewBody),
+    'got a Sides header with nothing under it');
+  check('S104', 'the outlet instruction and the one-time note reach the printed page',
+    crewBody.indexOf('lower outlet by door') !== -1 &&
+    crewBody.indexOf('ring the bell') !== -1,
+    'both lived only in the crew portal, which is not in use this season');
+  check('S104', 'and they lead the standing note on the page itself',
+    crewBody.indexOf('OUTLET:') < crewBody.indexOf('dog in the back') &&
+    crewBody.indexOf('TODAY:') < crewBody.indexOf('dog in the back'),
+    'buried under a paragraph they may as well not be printed');
 
   const dayOut = runSheet('day', aDay);
   const dayBody = ((dayOut[0] || {}).pages || [{}])[0].body || '';
