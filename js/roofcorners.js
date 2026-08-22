@@ -40,19 +40,71 @@ import { rayDirection, distanceAt, cameraHeight } from './svdepth.js';
  * ⚠ A NULL IS AN HONEST GAP, never a filled-in guess: sky all the way down, or a surface
  * whose distance cannot be worked out. Joining across a gap would invent a corner where
  * there is only missing data. */
-export function skylineOf(depth){
+export const SKYLINE_MIN_HEIGHT_M = 2.0;   /* below this it is not a roof edge */
+export const SKYLINE_MAX_DISTANCE_M = 60;  /* past this a column is wider than the detail */
+
+/* Which plane record is the ground the camera stands on: the biggest horizontal one.
+ * Same rule cameraHeight() uses, and deliberately so — one ground, one answer. */
+export function groundPlaneIndex(depth){
+  const counts = new Array(depth.planeCount).fill(0);
+  for(let i = 0; i < depth.indices.length; i++) counts[depth.indices[i]]++;
+  let best = -1;
+  for(let i = 1; i < depth.planes.length; i++){
+    if(Math.abs(depth.planes[i].n[2]) < 0.9) continue;
+    if(best < 0 || counts[i] > counts[best]) best = i;
+  }
+  return best;
+}
+
+/* Is column x inside the caller's window? A window may wrap past column 0, because
+ * a house can straddle the seam of the panorama and nothing about that is exceptional. */
+export function inColumnWindow(x, width, win){
+  if(!win || win.from == null || win.to == null) return true;
+  const w = width, a = ((win.from % w) + w) % w, b = ((win.to % w) + w) % w;
+  return (a <= b) ? (x >= a && x <= b) : (x >= a || x <= b);
+}
+
+export function skylineOf(depth, opts){
+  const o = opts || {};
+  const win = o.columns || null;
+  const minH = o.minHeightM == null ? SKYLINE_MIN_HEIGHT_M : o.minHeightM;
+  const maxD = o.maxDistanceM == null ? SKYLINE_MAX_DISTANCE_M : o.maxDistanceM;
+  const camH = (o.cameraHeightM != null) ? Number(o.cameraHeightM) : cameraHeight(depth);
+  const ground = groundPlaneIndex(depth);
   const out = new Array(depth.width).fill(null);
   for(let x = 0; x < depth.width; x++){
+    if(!inColumnWindow(x, depth.width, win)) continue;
     let y = 0;
     while(y < depth.height && depth.indices[y * depth.width + x] === 0) y++;
     if(y >= depth.height) continue;
+    const idx = depth.indices[y * depth.width + x];
+    if(!depth.planes[idx]) continue;
+    /* ⚠ WHERE SKY MEETS GROUND IS THE HORIZON, NOT A ROOFLINE — the bug real data found
+       and every synthetic fixture missed. On the yard panorama the first non-sky row in
+       200-odd columns was the distant ground at the horizon: 81 m out, 0.1 m BELOW the
+       camera’s feet, dead smooth, all one plane. It scored 1.00 and swamped the list.
+
+       ⛔ AND DO NOT REJECT IT BY TILT. My first fix threw out any near-horizontal plane.
+       That is wrong and it is worth saying loudly, because it looks right: a 4/12 pitch
+       roof has |nz| = 0.95, FLATTER than the 0.9 bar. It threw away 304 of 512 columns
+       on the very panorama it was meant to fix — every low-pitch roof face in the frame.
+       There is no tilt that separates a roof from the ground, because there isn’t one.
+
+       What separates them is identity and position, both of which we can measure:
+         - the ground is ONE plane record. Reject that index, not a shape.
+         - the horizon sits at roughly zero height. A roof does not.
+         - past ~60 m a column is 0.74 m wide, so a corner is no longer resolvable
+           anyway; those are neighbours’ houses and hillsides, not the subject. */
+    if(idx === ground) continue;
     const t = distanceAt(depth, x, y);
-    if(t === null) continue;
+    if(t === null || t > maxD) continue;
     const v = rayDirection(x, y, depth.width, depth.height);
+    const up = v[2] * t;
+    if(camH != null && (camH + up) < minH) continue;
     out[x] = {
       x: x, y: y, distance: t,
-      plane: depth.indices[y * depth.width + x],
-      p: [v[0] * t, v[1] * t, v[2] * t]      /* metres, camera at the origin */
+      plane: idx,
+      p: [v[0] * t, v[1] * t, up]            /* metres, camera at the origin */
     };
   }
   return out;
@@ -172,6 +224,7 @@ export const SPIKE_WINDOW_COLS = 6;       /* narrow against a roofline that runs
 export const CHURN_WINDOW = 6;
 export const CHURN_LIMIT = 3;             /* distinct planes across the window before it reads as canopy */
 export const ROUGHNESS_LIMIT_M = 0.30;
+export const DEPTH_EDGE_RATIO = 1.3;      /* neighbours this far apart is an overlap, not a slope */
 
 /* ⭐ THE CORNERS THIS PANORAMA CAN OFFER, best first.
  *
@@ -182,6 +235,11 @@ export const ROUGHNESS_LIMIT_M = 0.30;
  *                   ⭐ THIS IS THE AGREED SEAM with lanil-9d's rmCornerCandidates:
  *                   { column, row, distanceM, heightM, spikeWidthCols } plus the
  *                   skyline array, and he supplies north from the rendered panorama.
+ *                   ⭐ TWO OPTIONS THE CALLER WILL WANT, both learned from real
+ *                   panoramas: `columns: {from, to}` restricts the search to the house
+ *                   being measured — a panorama is 360 degrees and without a window it
+ *                   offers twenty-odd rings including the neighbours' — and `limit: n`
+ *                   caps how many come back. The window may wrap past column 0.
  *   distanceM       measured, from the depth map
  *   heightM         measured, above the ground the camera stands on
  *   spikeWidthCols  how narrow the feature is — small means chimney, vent or aerial
@@ -200,7 +258,7 @@ export function roofCornerCandidates(depth, opts){
   const roughLimit = o.roughnessLimitM == null ? ROUGHNESS_LIMIT_M : o.roughnessLimitM;
   const camH = (o.cameraHeightM != null) ? Number(o.cameraHeightM) : cameraHeight(depth);
 
-  const line = (o.skyline) ? o.skyline : skylineOf(depth);
+  const line = (o.skyline) ? o.skyline : skylineOf(depth, o);
 
   /* Unbroken stretches only. A gap is a real discontinuity. */
   const runs = [];
@@ -217,7 +275,28 @@ export function roofCornerCandidates(depth, opts){
       /* The ends of a stretch are the edge of what is VISIBLE, not corners of the roof.
          Offering them puts a dot on the boundary of the picture. */
       if(i === 0 || i === run.length - 1) return;
-      const pt = run[i];
+
+      /* ⭐ WHEN TWO THINGS OVERLAP, THE CORNER BELONGS TO THE ONE IN FRONT.
+         40% of candidates on real panoramas sit where the silhouette steps in depth —
+         a roof ending against a further roof, a wall against a distant tree. The column
+         is a real corner either way, but its 3D point can be taken from either side, and
+         the two are metres apart. On the yard the best candidate of the whole set (0.95)
+         had 13.3 m on one side and 26.0 m on the other, and took 26.6 — putting the dot
+         on the neighbour's building, thirteen metres behind the roof it came from.
+         The near surface is the thing whose outline this is, so the near surface owns
+         the corner. Say so on the record too: an overlap is worth knowing about when
+         you are deciding whether to keep a suggestion. */
+      let pt = run[i];
+      let onDepthEdge = false;
+      const dl = run[i - 1] ? run[i - 1].distance : null;
+      const dr = run[i + 1] ? run[i + 1].distance : null;
+      if(dl != null && dr != null){
+        const near = Math.min(dl, dr), far = Math.max(dl, dr);
+        if(near > 0 && far / near > DEPTH_EDGE_RATIO){
+          onDepthEdge = true;
+          if(pt.distance > near * DEPTH_EDGE_RATIO) pt = (dl < dr) ? run[i - 1] : run[i + 1];
+        }
+      }
       const churn = planeChurn(run, i, CHURN_WINDOW);
       const rough = roughnessAt(run, i, CHURN_WINDOW);
 
@@ -257,8 +336,11 @@ export function roofCornerCandidates(depth, opts){
         why.push('only ' + width + ' columns wide — likely a chimney, vent or aerial ' +
                  'rather than a corner of the roof');
       }
+      if(onDepthEdge) why.push('the outline steps in depth here — two things overlap, ' +
+                               'so this point is taken from the nearer one');
       out.push({
         column: pt.x, col: pt.x, row: pt.y,
+        onDepthEdge: onDepthEdge,
         distanceM: pt.distance,
         heightM: (camH != null) ? camH + pt.p[2] : null,
         local: {x: pt.p[0], y: pt.p[1], up: pt.p[2]},
@@ -270,5 +352,6 @@ export function roofCornerCandidates(depth, opts){
       });
     });
   });
-  return out.sort(function(a, b){ return b.confidence - a.confidence; });
+  out.sort(function(a, b){ return b.confidence - a.confidence; });
+  return (o.limit > 0) ? out.slice(0, o.limit) : out;
 }

@@ -35246,6 +35246,96 @@ suite('251. The corners, offered rather than hunted');
   })());
 }
 
+/* ================= Suite 252. The silhouette against a real sky =====================
+   ⭐ EVERY CHECK HERE EXISTS BECAUSE A REAL PANORAMA FAILED IT AND SUITE 251 DID NOT.
+   251 feeds silhouettes in directly, which is right for the corner logic but means
+   skylineOf — where the house is actually found — went to real data untested. It got
+   two things wrong on the first panorama it ever saw, and both were invisible against
+   synthetic fixtures. So the fixture below is a small honest depth map instead: sky over
+   a ground plane, with a low-pitch roof standing in the middle of it. */
+suite('252. The silhouette against a real sky');
+{
+  pendingAsync.push((async () => {
+    const rc = await import('./js/roofcorners.js');
+    const sv = await import('./js/svdepth.js');
+    const W = 64, H = 32, CAM = 2.4;
+    /* ⚠ 4/12 PITCH. |nz| = 0.9487 — FLATTER than the 0.9 bar a first fix used to mean
+       "this is the ground". Ordinary American roofs live right here. */
+    const planes = [{ n: [0, 0, 1], d: 0 },
+                    { n: [0, 0, 1], d: -CAM },
+                    { n: [0.3162, 0, 0.9487], d: 0.9487 * 3.6 }];
+    const idx = new Uint8Array(W * H);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const band = x >= 8 && x < 24;
+      idx[y * W + x] = (y < (band ? 12 : H / 2)) ? 0 : (band && y < H / 2 ? 2 : 1);
+    }
+    const D = { width: W, height: H, indices: idx, planes: planes, planeCount: 3 };
+
+    check('skyline', 'the ground the camera stands on is identified as one plane',
+      rc.groundPlaneIndex(D) === 1 && sv.cameraHeight(D) === CAM);
+
+    const line = rc.skylineOf(D);
+    const kept = line.filter(Boolean);
+
+    /* ⛔ THE BUG THAT SHIPPED FIRST. On the yard panorama 200-odd columns had sky meeting
+       the distant GROUND at the horizon — 81 m out, 0.1 m below the camera's feet, dead
+       smooth, all one plane. It scored 1.00 confidence and filled the top of the list
+       with corners of nothing. Sky meeting ground is the horizon, never a roofline. */
+    check('skyline', 'where sky meets the ground, that is the horizon and not a roofline',
+      [0, 1, 2, 30, 40, 50, 63].every(x => line[x] === null),
+      'those columns see open ground to the horizon — offering a corner there puts a dot ' +
+      'on the skyline of the valley');
+
+    /* ⛔ AND THE OVER-CORRECTION, which is the more dangerous of the two because it looks
+       careful: rejecting any near-horizontal plane as ground threw away 304 of 512
+       columns on the very panorama it was written to fix — every low-pitch roof in the
+       frame. There is no tilt that separates a roof from the ground. */
+    check('skyline', 'a low-pitch roof is a roof, not the ground, flat though it is',
+      kept.length === 16 && kept.every(k => k.plane === 2),
+      'a 4/12 roof has |nz| = 0.95. Reject the ground by WHICH PLANE it is, never by ' +
+      'how flat it looks. got ' + kept.length + ' columns');
+
+    check('skyline', 'and every point on it is measured, above ground and in front',
+      kept.every(k => k.distance > 0 && (CAM + k.p[2]) > 2 && (CAM + k.p[2]) < 12));
+
+    /* Sparse detail past 60 m: one column is 0.74 m wide there, so a corner is no longer
+       a corner. The cap is measurement, not taste. */
+    check('skyline', 'and a distance ceiling keeps the neighbours out of it',
+      rc.skylineOf(D, { maxDistanceM: 10 }).filter(Boolean).length < kept.length);
+
+    /* The caller measures ONE house; the panorama holds 360 degrees of them. */
+    const win = rc.skylineOf(D, { columns: { from: 8, to: 15 } }).filter(Boolean);
+    check('skyline', 'the caller can ask for just the house it is measuring',
+      win.length === 8 && win.every(k => k.x >= 8 && k.x <= 15));
+    check('skyline', 'and a house straddling the seam of the panorama still works',
+      rc.inColumnWindow(2, 64, { from: 60, to: 4 }) === true &&
+      rc.inColumnWindow(30, 64, { from: 60, to: 4 }) === false,
+      'a window may wrap past column 0 — nothing about that is exceptional');
+
+    /* ⭐ WHEN TWO THINGS OVERLAP, THE CORNER BELONGS TO THE ONE IN FRONT. On the real
+       panoramas 40% of candidates sat on a depth step. The best candidate of the whole
+       set took 26.6 m where the near side was 13.3 — putting the dot on the neighbour's
+       building, thirteen metres behind the roof it came from. */
+    const step = [];
+    for (let i = 0; i < 64; i++)
+      step.push({ x: i, y: 0, distance: i < 32 ? 12 : 26, plane: 2,
+                  p: [i * 0.25, i < 32 ? 12 : 26, i < 32 ? 3 + i * 0.06 : 6.5] });
+    const edge = rc.roofCornerCandidates({ width: 64, height: 32, indices: new Uint8Array(0), planes: [], planeCount: 0 },
+      { skyline: step, cameraHeightM: CAM, toleranceM: 0.3 });
+    const onEdge = edge.filter(c => c.onDepthEdge);
+    check('skyline', 'a corner where two roofs overlap is taken from the nearer one',
+      onEdge.length > 0 && onEdge.every(c => c.distanceM <= 12.001),
+      'got ' + onEdge.map(c => c.col + '@' + c.distanceM).join(',') +
+      ' — the far side is a different building');
+    check('skyline', 'and it says so, because an overlap is worth knowing before you keep it',
+      onEdge.every(c => /steps in depth/.test(c.why)));
+
+    /* The office should not be handed 21 rings and asked to sort them out. */
+    check('skyline', 'the caller can cap how many suggestions it shows',
+      rc.roofCornerCandidates(D, { limit: 2 }).length <= 2);
+  })());
+}
+
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));
