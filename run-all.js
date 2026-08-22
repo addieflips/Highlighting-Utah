@@ -33545,9 +33545,14 @@ suite('147. Measure Roof - only the outside of the house, and all of it');
       .map(n => (admin.match(new RegExp('^const ' + n + '.*?;', 'm')) || [''])[0]);
     check('S147', 'every end-reach threshold was found in the page',
       consts.every(Boolean), 'missing: ' + consts.map((c, i) => c ? '' : i).filter(String).join(','));
-    const api = new Function('let rmOrigin={lat:40.2969,lng:-111.6946};' + LF_ +
+    /* rmEndReach now asks the footprint whether a point is still on the house,
+       so both of those come in too - and rmBuilding stays null here, which is
+       the "no footprint known" case the guard has to tolerate. */
+    const api = new Function('let rmOrigin={lat:40.2969,lng:-111.6946}; let rmBuilding=null;' + LF_ +
       consts.join(LF_) + LF_ +
-      ['rmMetresPerDeg','rmToLocal','rmToWorld','rmSkyMpp','rmSkyProject','rmCrossGrad'].map(pick).join(LF_) + LF_ +
+      (admin.match(/^const RM_STAY_ON_HOUSE_M.*?;/m) || [''])[0] + LF_ +
+      ['rmMetresPerDeg','rmToLocal','rmToWorld','rmSkyMpp','rmSkyProject','rmCrossGrad',
+       'rmFootprintBox','rmInsideFootprint'].map(pick).join(LF_) + LF_ +
       cont + LF_ + reach + LF_ + 'return {rmEndReach, rmSkyMpp};')();
     const mpp = api.rmSkyMpp(40.2969), W = 400, H = 400;
     const sky = {w: W, h: H, mpp: mpp, gx: new Float32Array(W*H), gy: new Float32Array(W*H), mag: new Float32Array(W*H)};
@@ -33565,6 +33570,34 @@ suite('147. Measure Roof - only the outside of the house, and all of it');
     check('S147', 'a line that stops short is grown out to the real corner',
       growB > 2.4 && growB < 3.6 && growA > 2.4 && growA < 3.6,
       'grew ' + growA.toFixed(2) + ' and ' + growB.toFixed(2) + ' m, the gutter runs 3 m past each end');
+    /* ⭐ AND IT MAY NEVER LEAVE THE BUILDING. On the test house a line grew
+       along the FENCE - in a satellite picture a fence is a long straight
+       bright-to-dark edge running the same way as a gutter, which is exactly
+       what the edge test looks for. The result was one line across the whole
+       front, sloping, ending over the lawn. No threshold fixes that; the
+       footprint does. */
+    const fpApi = new Function('let rmOrigin={lat:40.2969,lng:-111.6946}; let rmBuilding=null;' + LF_ +
+      (admin.match(/^const RM_STAY_ON_HOUSE_M.*?;/m) || [''])[0] + LF_ +
+      ['rmMetresPerDeg','rmToLocal','rmToWorld','rmFootprintBox','rmInsideFootprint'].map(pick).join(LF_) + LF_ +
+      'return {set:function(b){rmBuilding=b;}, box:rmFootprintBox, inside:rmInsideFootprint};')();
+    const c1 = world.toWorld({e: -6, n: -4, u: 0}), c2 = world.toWorld({e: 6, n: 4, u: 0});
+    fpApi.set({sw: {lat: c1.lat, lng: c1.lng}, ne: {lat: c2.lat, lng: c2.lng}});
+    const fbox = fpApi.box();
+    check('S147', 'a point on the roof is inside the footprint',
+      fpApi.inside({e: 0, n: 0}, fbox) === true);
+    check('S147', 'a point out on the fence is not',
+      fpApi.inside({e: -12, n: 0}, fbox) === false,
+      'this is the guard that stops a line growing along a fence');
+    check('S147', 'but the eaves overhang a little and are still allowed',
+      fpApi.inside({e: -6.4, n: 0}, fbox) === true,
+      'a gutter hangs past the wall it is fixed to');
+    check('S147', 'growing a line stops at the footprint, whatever the picture shows',
+      /if\(box && !rmInsideFootprint\(pt, box\)\) break;/.test(pick('rmEndReach') || ''),
+      'a fence is a perfect straight edge and will win every time otherwise');
+    check('S147', 'and sliding one sideways is clamped the same way',
+      /!rmInsideFootprint\(\{e: a\.e \+ off\.e/.test(pick('rmSnapLinesToSky') || ''),
+      'two metres sideways is enough to land a gutter on a driveway edge');
+
     /* ⚠ It must not invent gutter where there is none. */
     const bare = {w: W, h: H, mpp: mpp, gx: new Float32Array(W*H), gy: new Float32Array(W*H), mag: new Float32Array(W*H)};
     check('S147', 'and never grows a line into a blank picture',

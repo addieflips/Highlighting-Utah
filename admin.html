@@ -16039,8 +16039,31 @@ function rmSnapOffsetM(aLocal, bLocal, sky){
    on nothing. It cannot invent a gutter: every step has to be an edge as
    strong as the one the line was snapped to in the first place. */
 const RM_END_STEP_M = 0.25;
-const RM_END_MAX_GROW_M = 7;     /* a gutter is not thirty feet longer than the model thinks */
+/* ⚠ THREE METRES, NOT SEVEN. At seven a line could reach right off the
+   building, and on the test house one did: it grew along the FENCE, which in a
+   satellite picture is exactly what a gutter looks like - a long straight
+   bright-to-dark edge running the same way. The result was a line across the
+   whole front, sloping, ending over the lawn. */
+const RM_END_MAX_GROW_M = 3;
 const RM_END_MAX_TRIM_M = 2.5;
+/* ⭐ AND IT MAY NEVER LEAVE THE HOUSE. A gutter is on the building by
+   definition, so growth stops at the footprint however convincing the edge
+   beyond it looks. This is the guard that would have caught the fence, and it
+   is the one that does not depend on getting a threshold right. */
+const RM_STAY_ON_HOUSE_M = 0.8;   /* eaves do overhang the footprint a little */
+
+/* The building's own outline, in the local frame, with the overhang allowed. */
+function rmFootprintBox(){
+  if(!rmBuilding || !rmOrigin) return null;
+  const sw = rmToLocal(rmBuilding.sw.lat, rmBuilding.sw.lng, 0);
+  const ne = rmToLocal(rmBuilding.ne.lat, rmBuilding.ne.lng, 0);
+  const k = RM_STAY_ON_HOUSE_M;
+  return {minE: Math.min(sw.e, ne.e) - k, maxE: Math.max(sw.e, ne.e) + k,
+          minN: Math.min(sw.n, ne.n) - k, maxN: Math.max(sw.n, ne.n) + k};
+}
+function rmInsideFootprint(pt, box){
+  return pt.e >= box.minE && pt.e <= box.maxE && pt.n >= box.minN && pt.n <= box.maxN;
+}
 
 /* Is there still an edge, running the same way, at this spot? */
 function rmEdgeContinues(sky, pt, nx, ny){
@@ -16066,10 +16089,12 @@ function rmEndReach(a, b, sky, dir){
   if(pl < 4) return 0;
   const nx = -py / pl, ny = px / pl;
   const end = dir > 0 ? b : a;
-  /* GROW while the edge continues. */
+  /* GROW while the edge continues AND the point is still on the building. */
+  const box = rmFootprintBox();
   let grew = 0;
   for(let d = RM_END_STEP_M; d <= RM_END_MAX_GROW_M; d += RM_END_STEP_M){
     const pt = {e: end.e + ex * d * dir, n: end.n + ey * d * dir};
+    if(box && !rmInsideFootprint(pt, box)) break;
     if(!rmEdgeContinues(sky, pt, nx, ny)) break;
     grew = d;
   }
@@ -16099,6 +16124,13 @@ async function rmSnapLinesToSky(){
     const b = rmToLocal(r.path[1].lat, r.path[1].lng, 0);
     const off = rmSnapOffsetM(a, b, sky);
     if(!off){ left++; return; }
+    /* ⚠ SIDEWAYS IS CLAMPED TO THE BUILDING TOO. A two metre slide is enough
+       to take a gutter off the roof and onto a driveway edge or a fence, which
+       in a satellite picture look exactly like gutters. Same guard as growing
+       the ends, for the same reason. */
+    const fp = rmFootprintBox();
+    if(fp && (!rmInsideFootprint({e: a.e + off.e, n: a.n + off.n}, fp) ||
+              !rmInsideFootprint({e: b.e + off.e, n: b.n + off.n}, fp))){ left++; return; }
     /* Sideways first, so the ends are walked along a line that is already on
        the gutter rather than one running beside it. */
     const sa = {e: a.e + off.e, n: a.n + off.n};
