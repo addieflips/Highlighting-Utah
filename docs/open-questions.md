@@ -500,7 +500,7 @@ Resulting map change:
 
 ---
 
-## Q-011 · intent · open · 2026-08-21
+## Q-011 · intent · answered · 2026-08-21
 An admin sets "Before Thanksgiving" in Customers. Should that re-place them on
 the schedule — and is it worth what it costs?
 
@@ -562,6 +562,29 @@ room" answer as *report them stuck*, matching the existing branch, because a
 customer visibly stuck is fixable and a silently overfilled day is found on the
 road.
 
-Blocks: nothing shipping today; the behaviour Addie asked for is not built.
-Answer:
-Resulting map change:
+**Answer (Addie, 2026-08-21): yes to distinguishing the two, and (b) for the
+no-room case — leave them where they are and report them.** Both shipped the
+same day.
+
+- `prefKey` gives `'November - Before Thanksgiving'` its own key, `'prethx'`,
+  above the `NOV` prefix that used to swallow it. The spelling-variant collapse
+  the old behaviour existed for (OCT/October, NOV/November, THX/After
+  Thanksgiving) is untouched and still asserted.
+- `enforceInstallTiming` now reads `houseDeadline` and works a WINDOW rather than
+  a floor, so it moves a house that is past the day it asked to beat as well as
+  one scheduled too early — and never overshoots the ceiling in the process.
+- With nowhere legal to go, the house stays and is reported, matching what the
+  too-early branch has always done. The office toast now says which way they are
+  stuck; it used to say "no later day has room" to everybody, which is backwards
+  for a deadline miss.
+
+⚠ This also switches on the October deadline for the first time. `houseDeadline`
+has always returned 31 October for an October house and nothing read it, so
+"we need to get everyone who requested Oct done in Oct" (2026-08-18) was true of
+the builder and not of the saved plan. Any October customer sitting in November
+on the current plan will now be moved on the next sync, or reported if no
+October day has room.
+
+**Resulting map change:** none to the registry — this is scheduler behaviour.
+Covered by six new checks in run-all.js Suite 46 and a rewritten assertion in
+Suite 44.

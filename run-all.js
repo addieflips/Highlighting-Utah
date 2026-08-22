@@ -11047,13 +11047,28 @@ suite('Suite 44. The plan keeps up with the customer list');
       check('S44', 'running it again changes nothing', again.length === 0,
         'a sync that never settles would toast at the office every five minutes: ' + JSON.stringify(again));
 
-      /* OCT vs October must not read as a change. */
-      check('S44', '"OCT" and "October" are the same timing',
+      /* OCT vs October must not read as a change — the sheet and the record spell
+         the same answer differently, and treating that as a change would rewrite
+         every house on every tick. */
+      check('S44', 'the sheet\'s spelling and the record\'s are the same timing',
         sb.prefKey('OCT') === sb.prefKey('October') &&
-        sb.prefKey('NOV') === sb.prefKey('November - Before Thanksgiving') &&
+        sb.prefKey('NOV') === sb.prefKey('November') &&
         sb.prefKey('THX') === sb.prefKey('After Thanksgiving') &&
         sb.prefKey('') === sb.prefKey('Normal Schedule'),
         'the sheet and the record spell these differently; treating that as a change would rewrite every house on every tick');
+
+      /* ⭐ CHANGED 2026-08-21. This line used to read
+             sb.prefKey('NOV') === sb.prefKey('November - Before Thanksgiving')
+         and it was wrong — not as a spelling variant, which is what the check above
+         is for, but as a MEANING. Before Thanksgiving is a different answer from
+         plain November: it carries a deadline. Collapsing them meant the office
+         setting it in Customers read as no change and never reached the plan.
+         Owner, 2026-08-21: it "should go into reassign for that member". */
+      check('S44', 'before and after Thanksgiving and plain November are three answers',
+        sb.prefKey('November') !== sb.prefKey('November - Before Thanksgiving') &&
+        sb.prefKey('November - Before Thanksgiving') !== sb.prefKey('After Thanksgiving') &&
+        sb.prefKey('November') !== sb.prefKey('After Thanksgiving'),
+        'two opposite answers in nearly identical words - this file has collapsed them once before');
     }
   }
 
@@ -11288,11 +11303,17 @@ suite('Suite 46. Nobody is hung before the month they asked for');
     const build = (SEASON) => {
       const sb = {};
       new Function('SEASON', 'isoOf', 'seasonStartDate', 'dayDate', 'houseAllowedFrom',
-        'extractCleanCity', 'maxStopsPerWorkingDay',
+        'extractCleanCity', 'maxStopsPerWorkingDay', 'BASE_START', 'prefSpecificDate',
         /* ⚠ LIFTED, NOT STUBBED (2026-08-20). The sweep now asks how many towns a
            day already holds before it moves anybody onto it, and a stub of that is a
            stub of the fix itself. CREWS_PER_DAY is left to its own fallback of two. */
+        /* ⚠ houseDeadline is LIFTED, NOT STUBBED (2026-08-21). The sweep now moves a
+           house that is past the day it asked to beat, and a stub of the deadline is a
+           stub of that fix — it would report green over a branch that never ran. It
+           brings thanksgivingDate with it, and BASE_START/prefSpecificDate are supplied
+           below, because that is what the real function reads. */
         'const MAX_TOWNS_PER_CREW=' + (admin.match(/const MAX_TOWNS_PER_CREW = (\d+);/)||[])[1] + ';' + fn('dayTownList') + fn('dayTownCount') + fn('maxTownsPerDay') +
+        fn('thanksgivingDate') + fn('houseDeadline') +
         src + 'this.run = enforceInstallTiming;'
       ).call(sb, SEASON,
         (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'),
@@ -11304,7 +11325,10 @@ suite('Suite 46. Nobody is hung before the month they asked for');
           return startStr;
         },
         (c) => ('' + (c || '')).split(',')[0].trim(),
-        () => 40);
+        () => 40,
+        new Date(2026, 9, 1),
+        /* No named days in these fixtures; the real parser has its own suite. */
+        () => null);
       return sb.run;
     };
 
@@ -11353,6 +11377,116 @@ suite('Suite 46. Nobody is hung before the month they asked for');
         SEASON[0].houses.indexOf(nov) !== -1 && out.stuck.length === 1 &&
         out.stuck[0].notBefore === '2026-11-01',
         'dropping them off the plan silently is worse than leaving them visible');
+    }
+
+    /* ⭐ AND NOBODY IS LEFT PAST THE DAY THEY ASKED TO BEAT (added 2026-08-21).
+       The sweep only ever looked one way — it moved a house scheduled EARLIER than
+       allowed and had no idea a deadline existed. An October customer sitting in
+       November stayed in November. */
+    {
+      const late = { name: 'Late', pref: 'OCT', city: 'Draper' };
+      const SEASON = [
+        { _date: new Date(2026, 9, 20), houses: [] },
+        { _date: new Date(2026, 10, 12), houses: [late] }
+      ];
+      const out = build(SEASON)();
+      check('S46', 'a house past its deadline is moved EARLIER, not left there',
+        SEASON[0].houses.indexOf(late) !== -1 && SEASON[1].houses.indexOf(late) === -1 &&
+        out.moved.length === 1,
+        'an October customer hung in November is the thing this was asked to stop');
+    }
+
+    /* ⚠ AND WITH NOWHERE EARLIER, THEY STAY AND ARE REPORTED — the same answer the
+       too-early branch has always given. Owner chose this over crowding a full day:
+       a customer you can see is stuck gets a phone call, an overfilled day gets
+       found by a crew on the road. */
+    {
+      const late = { name: 'Nowhere', pref: 'OCT', city: 'Draper' };
+      const SEASON = [{ _date: new Date(2026, 10, 12), houses: [late] }];
+      const out = build(SEASON)();
+      check('S46', 'past its deadline with nowhere earlier, it stays and is reported',
+        SEASON[0].houses.indexOf(late) !== -1 && out.stuck.length === 1 &&
+        out.stuck[0].late === true && out.stuck[0].notAfter === '2026-10-31',
+        'forcing it onto a full day hides the problem until the crew is on the road');
+    }
+
+    /* ⚠ A HOUSE WITH NO DEADLINE IS NEVER DRAGGED EARLIER. A named day is a floor,
+       never a ceiling, and somebody with no opinion has neither. */
+    {
+      const easy = { name: 'Easy', pref: '', city: 'Draper' };
+      const SEASON = [
+        { _date: new Date(2026, 9, 20), houses: [] },
+        { _date: new Date(2026, 10, 12), houses: [easy] }
+      ];
+      const out = build(SEASON)();
+      check('S46', 'a house with no deadline is left exactly where it is',
+        SEASON[1].houses.indexOf(easy) !== -1 && out.moved.length === 0,
+        'moving somebody who never asked for anything is churn, not a fix');
+    }
+
+    /* ⚠ AND IT SETTLES. A house inside its window returns immediately, or the
+       five-minute timer would toast for ever. */
+    {
+      const ok = { name: 'Fine', pref: 'OCT', city: 'Draper' };
+      const SEASON = [
+        { _date: new Date(2026, 9, 20), houses: [ok] },
+        { _date: new Date(2026, 9, 21), houses: [] }
+      ];
+      const out = build(SEASON)();
+      check('S46', 'a house already inside its window is not moved',
+        SEASON[0].houses.indexOf(ok) !== -1 && out.moved.length === 0 && out.stuck.length === 0,
+        'a sweep that never settles toasts at the office every five minutes');
+    }
+
+    /* ⚠ AND A MOVE NEVER OVERSHOOTS THE DEADLINE. This one was MISSED by the first
+       round of red-checks: with the ceiling taken out of the candidate window, a
+       house sitting too EARLY was happily moved to a day past the day it asked to
+       beat — fixing one violation by creating the opposite one. Before Thanksgiving
+       opens 1 Nov and closes on the holiday (26 Nov in 2026), so a December day is
+       not a legal home however much room it has. */
+    {
+      const pre = { name: 'Pre', pref: 'November - Before Thanksgiving', city: 'Draper' };
+      const SEASON = [
+        { _date: new Date(2026, 9, 15), houses: [pre] },   // too early
+        { _date: new Date(2026, 11, 5), houses: [] }       // roomy, but past the holiday
+      ];
+      const out = build(SEASON)();
+      check('S46', 'a too-early house is never moved PAST its own deadline',
+        SEASON[0].houses.indexOf(pre) !== -1 && out.moved.length === 0 &&
+        out.stuck.length === 1,
+        'honouring the floor by breaking the ceiling is the same customer missed, the other way round');
+    }
+
+    /* And the legal day inside the window IS taken. */
+    {
+      const pre = { name: 'Pre2', pref: 'November - Before Thanksgiving', city: 'Draper' };
+      const SEASON = [
+        { _date: new Date(2026, 9, 15), houses: [pre] },
+        { _date: new Date(2026, 10, 20), houses: [] },     // inside the window
+        { _date: new Date(2026, 11, 5), houses: [] }
+      ];
+      build(SEASON)();
+      check('S46', 'and it does land on a day inside the window when one exists',
+        SEASON[1].houses.indexOf(pre) !== -1,
+        'refusing every day would be a sweep that never places anybody');
+    }
+
+    /* ⚠ AND IT NEVER LANDS ON ANOTHER DAY THAT IS STILL TOO EARLY. This is the
+       sweep's ORIGINAL guard, and a red-check found nothing covered it: every
+       too-early fixture happened to offer only legal days, so deleting the floor
+       from the candidate window changed no result. The refactor that added the
+       deadline ceiling moved that guard, so it needs a fixture of its own. */
+    {
+      const nov = { name: 'Floor', pref: 'NOV', city: 'Draper' };
+      const SEASON = [
+        { _date: new Date(2026, 9, 5), houses: [nov] },    // too early
+        { _date: new Date(2026, 9, 20), houses: [] },      // ALSO too early, and roomy
+        { _date: new Date(2026, 10, 5), houses: [] }       // the first legal day
+      ];
+      build(SEASON)();
+      check('S46', 'a too-early house is not moved to another too-early day',
+        SEASON[2].houses.indexOf(nov) !== -1 && SEASON[1].houses.indexOf(nov) === -1,
+        'the earliest day with room is not the same thing as the earliest day they are allowed on');
     }
 
     /* ⚠ A house already done is history. */
@@ -17785,6 +17919,13 @@ suite('Suite 98. The timing sweep is what was making the crowded days');
         'const maxStopsPerWorkingDay = function(){ return 40; };' +
         'const houseAllowedFrom = function(h){ return h.from || null; };' +
         'const extractCleanCity = function(c){ return String(c == null ? "" : c).trim(); };' +
+        /* ⚠ houseDeadline LIFTED, not stubbed (2026-08-21) — the sweep reads it now.
+           These fixtures carry no `pref`, so every house here has no deadline and the
+           town-limit behaviour this suite is about is unchanged; supplying the real
+           one keeps that true rather than assuming it. */
+        'const BASE_START = new Date(2026, 9, 1);' +
+        'const prefSpecificDate = function(){ return null; };' +
+        extractFn(admin, 'thanksgivingDate') + extractFn(admin, 'houseDeadline') +
         extractFn(admin, 'dayTownList') + extractFn(admin, 'dayTownCount') + lim + src +
         'return {report: enforceInstallTiming(), season: SEASON};')(season);
     };

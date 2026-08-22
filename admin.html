@@ -37452,6 +37452,28 @@ function prefKey(p){
   const u = ('' + (p || '')).trim().toUpperCase();
   if(!u) return 'any';
   if(u.indexOf('AFTER THANKS') !== -1 || u === 'THX') return 'thx';
+  /* ⭐ BEFORE THANKSGIVING IS ITS OWN ANSWER (added 2026-08-21). Owner: the two
+     Thanksgiving timings "should only be assigned by admins in admin portal through
+     customers and then that should go into reassign for that member".
+
+     ⚠ IT USED TO RETURN 'nov', because the NOV prefix below catches it, and the
+     sync compares timings THROUGH THIS FUNCTION — so an office setting Before
+     Thanksgiving on a November customer read as NO CHANGE and was silently dropped.
+     The house never moved and nothing said why.
+
+     ⚠ THE OLD BEHAVIOUR WAS DELIBERATE AND TESTED, and the reason still stands
+     for the case it was written for: the master sheet writes OCT/NOV/THX and the
+     record writes the long words, so comparing SPELLING would rewrite every house
+     on every five-minute tick. That is about spelling variants. Before Thanksgiving
+     is not a variant of November — it is a different answer with a deadline
+     attached — so it gets its own key and the spelling-variant collapse is
+     untouched. The sheet cannot say it at all, so a plan imported from the sheet
+     converges once and then agrees; it does not churn.
+
+     ⚠ AND IT MUST SIT ABOVE THE NOV PREFIX. Below it, the prefix wins and this
+     line is dead. The two Thanksgiving answers are opposite meanings in nearly
+     identical words and this file has collapsed them once before. */
+  if(u.indexOf('BEFORE THANKS') !== -1) return 'prethx';
   if(u.indexOf('OCT') === 0) return 'oct';
   if(u.indexOf('NOV') === 0) return 'nov';
   /* ⭐ A DAY IS A MONTH TOO. Owner, 2026-08-19: "there are two people who entered
@@ -37554,11 +37576,37 @@ function enforceInstallTiming(){
     (day.houses || []).slice().forEach(function(h){
       if(h.isFix || h.isTakedown || h.done) return;
       const from = houseAllowedFrom(h, startStr);
-      if(!from || here >= from) return;   // allowed to be here
+      /* ⭐ AND NOBODY IS HUNG AFTER THE DAY THEY ASKED TO BEAT (added 2026-08-21).
+         Owner: setting Before Thanksgiving in Customers "should go into reassign
+         for that member".
+
+         ⚠ THIS SWEEP ONLY EVER LOOKED ONE WAY. It moved a house scheduled EARLIER
+         than allowed and had no idea a deadline existed — houseDeadline was written
+         and read by nothing but the tail packer. So a Before-Thanksgiving customer
+         sitting on 10 December stayed there and missed the holiday they asked about,
+         and an October customer sitting in November stayed in November, which is the
+         very thing the owner asked for on 2026-08-18 ("we need to get everyone who
+         requested Oct done in Oct").
+
+         ⚠ ONE WINDOW, BOTH DIRECTIONS. A house belongs between `from` and `until`,
+         so the candidate filter is the window and the same code serves being too
+         early and too late. A house already inside it returns immediately, which is
+         what keeps the five-minute timer from toasting for ever.
+
+         ⚠ A HOUSE WITH NO DEADLINE IS UNCHANGED. `until` is '' for anyone who did
+         not name one — a named day is a FLOOR, never a ceiling — so this can never
+         drag somebody earlier who simply had no opinion. */
+      const until = houseDeadline(h);
+      const tooEarly = !!from && here < from;
+      const tooLate  = !!until && here > until;
+      if(!tooEarly && !tooLate) return;   // allowed to be here
       const town = extractCleanCity(h.city);
       const room = installs.filter(function(t){
         const ts = dayStr(t);
-        return ts && ts >= from && t !== day && (t.houses || []).length < cap;
+        if(!ts || t === day || (t.houses || []).length >= cap) return false;
+        if(from && ts < from) return false;
+        if(until && ts > until) return false;
+        return true;
       });
       /* A day already working this town first, so honouring the timing does not
          quietly break the one-town rule as well. */
@@ -37592,11 +37640,16 @@ function enforceInstallTiming(){
          fixable; a crew handed a six-town sheet finds out on the road. */
       const target = sameTown || roomy;
       if(!target){
-        stuck.push({name: h.name || '(no name)', pref: h.pref || '', notBefore: from});
+        /* `notBefore` is kept for the too-early case that has always been here;
+           `notAfter` and `late` are what the office needs to read a deadline miss,
+           which is a different sentence — "no EARLIER day has room", not later. */
+        stuck.push({name: h.name || '(no name)', pref: h.pref || '', notBefore: from,
+                    notAfter: until, late: tooLate});
         return;
       }
       if(!target){
-        stuck.push({name: h.name || '(no name)', pref: h.pref || '', notBefore: from});
+        stuck.push({name: h.name || '(no name)', pref: h.pref || '', notBefore: from,
+                    notAfter: until, late: tooLate});
         return;
       }
       day.houses = day.houses.filter(function(x){ return x !== h; });
@@ -38878,7 +38931,15 @@ function exportCSV(){
         ? (moved[0].name+"\u2019s "+moved[0].field+" changed")
         : (moved.length+" changes picked up from the customer list"));
       if(timing.moved.length) bits.push(timing.moved.length+" moved to a day their timing allows");
-      if(timing.stuck.length) bits.push(timing.stuck.length+" could not be moved \u2014 no later day has room");
+      if(timing.stuck.length){
+        /* ⚠ WHICH WAY THEY ARE STUCK IS THE WHOLE MESSAGE. This read "no later day
+           has room" for everybody, which is exactly backwards for a customer who has
+           missed a deadline and needs an EARLIER day. */
+        const lateN = timing.stuck.filter(function(x){ return x.late; }).length;
+        const earlyN = timing.stuck.length - lateN;
+        if(earlyN) bits.push(earlyN+" could not be moved \u2014 no later day has room");
+        if(lateN) bits.push(lateN+" past the day they asked for \u2014 no earlier day has room");
+      }
       /* Automatic is fine; invisible is not. If the driving order changed under
          somebody, the screen says which days. */
       if(routes.days) bits.push(routes.days+" day"+(routes.days===1?"":"s")+" re-ordered for driving");
