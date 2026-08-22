@@ -4436,7 +4436,7 @@
                   <div style="display:flex; gap:6px; margin-top:6px;">
                     <button type="button" class="btn btn-outline btn-sm" id="rmEndStrandBtn" style="padding:4px 10px; font-size:11px;">End this strand</button>
                     <button type="button" class="btn btn-outline btn-sm" id="rmClearDotsBtn" style="padding:4px 10px; font-size:11px;">Clear all dots</button>
-                    <button type="button" class="btn btn-outline btn-sm" id="rmModelBtn" style="padding:4px 10px; font-size:11px;">Hide assumed house</button>
+                    <button type="button" class="btn btn-outline btn-sm" id="rmModelBtn" style="padding:4px 10px; font-size:11px;">Show assumed house</button>
                   </div>
                 </div>
                 <div id="rmSidesBar" style="display:none; margin-top:10px;">
@@ -17189,7 +17189,29 @@ function rmHouseWireframe(camIn){
 /* Working the outline out means a grid and two passes over it, so it is done
    once per house rather than on every repaint. */
 let rmModelCache = null, rmModelKey = '';
-let rmShowModel = true;          /* the assumed house is shown by default */
+/* ⚠ OFF BY DEFAULT, AND THIS RECORDS WHY, because it was asked for the other
+   way round and should go back to being on once it is worth looking at.
+
+   Owner asked for it: "the first thing the system should do is draw the house
+   as if there were no obstacles using things like walls". Then, having seen it:
+   "we outline from street view not sky view which is clearly not what your
+   doing", and "double check that the lines are red".
+
+   Both are fair and both are true of it. It is built from Google's OVERHEAD
+   roof segments, which is the source she has ruled out. And looked at on two
+   real houses it is wrong in a way that matters: the segments are axis-aligned
+   BOUNDING boxes, so on a hip roof they overlap and their union runs past the
+   front of the house, which puts the drawn eave on a wall band well below any
+   gutter. On the test house it lands on the stone course under the garage,
+   where there is no gutter at all.
+
+   ⚠ AND IT WAS THE ONLY THING ON SCREEN. Opening the tool showed a cyan
+   outline and a yellow ground line and no red anywhere - so the scaffolding
+   read as the work. A wrong model drawn confidently is worse than no model.
+
+   The button keeps it one click away, and it comes back on by default when it
+   is built from the street rather than from above. */
+let rmShowModel = false;
 let rmModelLines = [];
 function rmModel(){
   const key = (rmFaces ? rmFaces.length : 0) + '|' +
@@ -18516,7 +18538,12 @@ function rmPaintStreet(){
         '" stroke="#5BC8F5" stroke-width="1.1" stroke-dasharray="5 4" opacity=".95"/>');
     });
   }
-  const shownWall = rmActiveWall();
+  /* ⚠ THE YELLOW GROUND LINE IS FOR PICKING A WALL, NOT FOR LOOKING AT. It is
+     the footprint drawn at ground level, and with dots being placed it sits
+     across the lawn and the driveway looking like a proposed run of lights
+     along the grass. It belongs to the wall picker, so it shows when that is
+     what somebody is doing and not otherwise. */
+  const shownWall = (rmWallPicking || rmCornerMode !== 'dot') ? rmActiveWall() : null;
   if(shownWall){
     const a = rmSvProject({lat:shownWall.a.lat, lng:shownWall.a.lng, h:0}, W, H, pov, cam);
     const b = rmSvProject({lat:shownWall.b.lat, lng:shownWall.b.lng, h:0}, W, H, pov, cam);
