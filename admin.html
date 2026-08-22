@@ -16338,6 +16338,19 @@ function rmCamOnRoad(){
   if(!c) return null;
   return Math.hypot(c.e, c.n) >= RM_ROAD_MIN_M ? c : null;
 }
+/* How far the house reaches to each side, measured across the front. */
+function rmHouseHalfWidth(along){
+  if(!rmBuilding || !rmOrigin) return 0;
+  const sw = rmToLocal(rmBuilding.sw.lat, rmBuilding.sw.lng, 0);
+  const ne = rmToLocal(rmBuilding.ne.lat, rmBuilding.ne.lng, 0);
+  let far = 0;
+  [[sw.e, sw.n], [ne.e, sw.n], [ne.e, ne.n], [sw.e, ne.n]].forEach(function(c){
+    const v = Math.abs(c[0] * along.e + c[1] * along.n);
+    if(v > far) far = v;
+  });
+  return far;
+}
+
 /* ⭐ WHERE THE ROAD IS, DECIDED ONCE AND THEN LEFT ALONE.
    Owner: "no matter what angle your looking at it should look at every angle
    to know where to put the lines, the angle we see is just so we can see it
@@ -16373,6 +16386,56 @@ function rmEaveSide(eave){
   const toRoad = {e: road.e, n: road.n};
   const lo = Math.hypot(outward.e, outward.n), lr = Math.hypot(toRoad.e, toRoad.n);
   if(lo < 0.5 || lr < 0.5) return 'front';
+  /* ⭐ A LINE THAT RUNS DEEP IS JUDGED BY WHERE IT SITS ACROSS THE HOUSE.
+     Owner: "when you have a line that runs deep have it check where its
+     located on the roof so it can check if its the left or right side because
+     if it is we dont want to inclide that on default."
+
+     A gutter runs ACROSS the front; a rake runs INTO the house, front to back.
+     Judging a rake the same way as a gutter - by which way its middle lies
+     from the centre of the house - gets it wrong, because a rake out on the
+     left flank still has its middle roughly in front of the centre. So a deep
+     line is sorted by how far ACROSS the house it sits: the ones near the
+     middle are the dormer and gable rakes on the front, and the ones out at
+     the edges are the flanks, which are the left and right sides and are not
+     switched on until somebody asks for them. */
+  const along = {e: -toRoad.n, n: toRoad.e};        /* across the front */
+  const dirE = eave.b.lng - eave.a.lng, dirN = eave.b.lat - eave.a.lat;
+  const dl = Math.hypot(dirE, dirN);
+  if(dl > 1e-12){
+    /* How much of this line runs INTO the house rather than across it. */
+    const d = rmToLocal(eave.b.lat, eave.b.lng, 0), c = rmToLocal(eave.a.lat, eave.a.lng, 0);
+    const ve = d.e - c.e, vn = d.n - c.n, vl = Math.hypot(ve, vn) || 1;
+    const deep = Math.abs((ve * toRoad.e + vn * toRoad.n) / vl);
+    if(deep > 0.7){
+      /* Its distance across the front, against how wide the house is. */
+      const across = mid.e * along.e + mid.n * along.n;
+      const half = rmHouseHalfWidth(along);
+      /* ⚠ WITH NO FOOTPRINT THIS FALLS THROUGH rather than answering "front".
+         "How far across the house" is meaningless without knowing how wide the
+         house is, and returning front for every deep line would switch on the
+         flanks of a house whose bounds Google did not give us - which is the
+         very thing this rule exists to stop. The positional rule below is the
+         weaker answer but it is still an answer. */
+      if(half > 0.5){
+        if(Math.abs(across) / half > 0.55) return across > 0 ? 'left' : 'right';
+        return 'front';
+      }
+    }
+  }
+  /* A line running ACROSS the house is a gutter, and which gutter it is
+     depends only on WHICH SIDE of the house it sits on - not on how far along
+     it sits. The front gutter of a wide house reaches the corners by
+     definition, and judging it by the angle from the centre calls its outer
+     end a side, which is how the front of a long house lost its ends. */
+  const halfDepth = rmHouseHalfWidth(toRoad);
+  if(halfDepth > 0.5){
+    const depthPos = (mid.e * toRoad.e + mid.n * toRoad.n) / halfDepth;
+    if(depthPos > 0.15) return 'front';
+    if(depthPos < -0.15) return 'back';
+    const acrossPos = mid.e * along.e + mid.n * along.n;
+    return acrossPos > 0 ? 'left' : 'right';
+  }
   const cos = (outward.e * toRoad.e + outward.n * toRoad.n) / (lo * lr);
   /* ⚠ FRONT MEANS FRONT, NOT "VISIBLE FROM THE ROAD". This was 0.45, which
      is sixty-three degrees either way - so a face turned sixty degrees off the
