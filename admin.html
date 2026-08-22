@@ -16527,6 +16527,57 @@ function rmCornersInPhoto(photo, mppAtHouse){
   return {corners: corners, runs: runs.length, spikesRemoved: spikes, trimmed: trimmed};
 }
 
+/* ============ HOW DEEP A CLICKED POINT IS ===============================
+   Owner: "its way off, the street view will look right but the sky view will
+   be way off."
+
+   ⚠ AND THAT IS THE SIGNATURE OF A DEPTH ERROR, not a drawing error. Every
+   point along the ray from the camera through a pixel projects back to THAT
+   SAME PIXEL, so a dot can sit perfectly on the gutter in the street view and
+   be ten feet into next door's garden on the map. The street view cannot show
+   the mistake; only the map can.
+
+   The depth was coming from Google's ROOF planes - horizontal-ish surfaces
+   whose height rests on the datum. A ray from the street meets one at a
+   shallow angle, so a foot of error in the height slides the crossing several
+   feet along the ray, and all of that error lands in the plan position.
+
+   THE FOOTPRINT IS THE BETTER SURFACE. Its walls are VERTICAL, so a ray from
+   the street meets them nearly square on and an error in height barely moves
+   the crossing at all. And the footprint's plan position is the thing Google
+   is most reliable about - it is the outline of the building, not a guess at
+   how the roof sits on it. A gutter runs above a wall, so a wall is where a
+   gutter's depth comes from. */
+function rmFootprintWallHit(dir, cam){
+  const box = rmFootprintBox();
+  if(!box) return null;
+  /* The four walls, each as a segment in plan. */
+  const sides = [
+    {a: {e: box.minE, n: box.minN}, b: {e: box.maxE, n: box.minN}},
+    {a: {e: box.maxE, n: box.minN}, b: {e: box.maxE, n: box.maxN}},
+    {a: {e: box.maxE, n: box.maxN}, b: {e: box.minE, n: box.maxN}},
+    {a: {e: box.minE, n: box.maxN}, b: {e: box.minE, n: box.minN}}
+  ];
+  let best = null;
+  sides.forEach(function(sd){
+    const se = sd.b.e - sd.a.e, sn = sd.b.n - sd.a.n;
+    /* Where the ray's plan direction crosses this segment's line. */
+    const den = dir.e * sn - dir.n * se;
+    if(Math.abs(den) < 1e-9) return;                 /* running along the wall */
+    const t = ((sd.a.e - cam.e) * sn - (sd.a.n - cam.n) * se) / den;
+    if(!(t > 0.5 && t < 200)) return;                /* behind, or a street away */
+    const pe = cam.e + dir.e * t, pn = cam.n + dir.n * t;
+    /* Is the crossing actually ON the wall, rather than past its end? */
+    const along = Math.abs(se) > Math.abs(sn) ? (pe - sd.a.e) / se : (pn - sd.a.n) / sn;
+    if(!(along >= -0.02 && along <= 1.02)) return;
+    const u = cam.u + dir.u * t;
+    /* A roofline is not underground and not on the fourth floor. */
+    if(!(u > 0.5 && u < 18)) return;
+    if(!best || t < best.t) best = {e: pe, n: pn, u: u, t: t};
+  });
+  return best;
+}
+
 /* ============ WHERE A CORNER IS, FROM THE STREET ALONE ==================
    Owner: "its using skyview to place corners which is bad it should use street
    view only to detect where corners are."
@@ -18585,16 +18636,24 @@ function openRoofMeasure(quoteId){
          "also have a way to add a corner... space bar toggles select from make
          a dot." The dormer corners that meet the main roof are not against the
          sky and can never be detected; this is how they get put in. */
-      const fp = rmFootprintBox();
-      let best = null;
-      (rmFaces || []).forEach(function(f){
-        const plane = rmFacePlane(f);
-        if(!plane) return;
-        const hit = rmPlaneHit3(dir, cam, plane);
-        if(!hit) return;
-        if(fp && !rmInsideFootprint(hit, fp)) return;
-        if(!best || hit.t < best.t) best = hit;
-      });
+      /* ⭐ THE WALL FIRST, the roof only if there is no footprint. A ray from
+         the street meets a vertical wall nearly square on, so the crossing
+         barely moves when the height is a little out; it meets a roof plane at
+         a shallow angle, where the same error slides the point yards along the
+         ray - and every yard of that lands in the plan position, which is the
+         one the map shows and the street view cannot. */
+      let best = rmFootprintWallHit(dir, cam);
+      if(!best){
+        const fp = rmFootprintBox();
+        (rmFaces || []).forEach(function(f){
+          const plane = rmFacePlane(f);
+          if(!plane) return;
+          const hit = rmPlaneHit3(dir, cam, plane);
+          if(!hit) return;
+          if(fp && !rmInsideFootprint(hit, fp)) return;
+          if(!best || hit.t < best.t) best = hit;
+        });
+      }
       const note = document.getElementById('rmCornerNote');
       if(!best){
         /* ⚠ REFUSING A CLICK IS WORSE THAN PLACING IT ROUGHLY. Google's roof
