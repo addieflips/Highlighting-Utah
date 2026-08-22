@@ -17116,19 +17116,43 @@ function rmHouseOutline(){
 /* How high the roof is over a spot on the outline - the gutter the system
    believes is there. Taken from the face patch nearest the spot, so a length
    of wall the trees hid still gets the height of the roof either side of it. */
-function rmOutlineEaveU(e, n){
+/* How high the GUTTER is over a spot on a wall. Owner: "double check that the
+   lines are red and line up with the gutter from every angle."
+
+   ⚠ THE OLD VERSION TOOK THE NEAREST ROOF FACE ANYWHERE, and on a real house
+   that is the wrong face. Looked at on the test house, the front wall was drawn
+   at 10 ft - level with the top of the garage door, nowhere near a gutter -
+   because the nearest patch by plain distance was a low roof round the side.
+   The front of that house is two storeys; its gutter is at 16-18 ft.
+
+   A WALL HOLDS UP A PARTICULAR ROOF, and that roof is the one whose patch
+   actually meets this wall. So the faces are asked in order: the ones that
+   touch this spot from the inside first, and only then anything nearby. Of the
+   ones that do touch, the LOWEST is the gutter - that is where a gutter sits,
+   at the bottom edge of the roof it drains, and where the lights go. */
+function rmOutlineEaveU(e, n, inward){
   if(!rmFaces || !rmFaces.length) return null;
-  let best = null, bd = Infinity;
+  /* A step INTO the house, so the face being asked is the one this wall holds
+     up rather than whatever happens to be nearest across the garden. */
+  const ie = e + (inward ? inward.e : 0), iN = n + (inward ? inward.n : 0);
+  let touching = null, nearest = null, bd = Infinity;
   rmFaces.forEach(function(f){
     if(!f.sw || !f.ne) return;
     const b = rmFaceBoxLocal(f);
-    const de = e < b.minE ? b.minE - e : (e > b.maxE ? e - b.maxE : 0);
-    const dn = n < b.minN ? b.minN - n : (n > b.maxN ? n - b.maxN : 0);
+    const inside = ie >= b.minE - RM_WALL_JOIN_M && ie <= b.maxE + RM_WALL_JOIN_M &&
+                   iN >= b.minN - RM_WALL_JOIN_M && iN <= b.maxN + RM_WALL_JOIN_M;
+    if(inside){
+      const u = rmFaceRoofUAt(f, e, n);
+      if(u !== null && isFinite(u) && (touching === null || u < touching)) touching = u;
+    }
+    const de = ie < b.minE ? b.minE - ie : (ie > b.maxE ? ie - b.maxE : 0);
+    const dn = iN < b.minN ? b.minN - iN : (iN > b.maxN ? iN - b.maxN : 0);
     const d = Math.hypot(de, dn);
-    if(d < bd){ bd = d; best = f; }
+    if(d < bd){ bd = d; nearest = f; }
   });
-  if(!best || bd > 6) return null;
-  return rmFaceRoofUAt(best, e, n);
+  if(touching !== null) return touching;
+  if(!nearest || bd > 6) return null;
+  return rmFaceRoofUAt(nearest, e, n);
 }
 
 const RM_OUTSIDE_STEP_M = 0.35;
@@ -17162,10 +17186,12 @@ function rmHouseWireframe(camIn){
      from a given standpoint without a live panorama. */
   const cam = camIn || (typeof rmPano !== 'undefined' && rmPano ? rmCamLocal() : null);
   return rmHouseOutline().map(function(sd){
-    const ua = rmOutlineEaveU(sd.a.e, sd.a.n);
-    const ub = rmOutlineEaveU(sd.b.e, sd.b.n);
-    if(ua === null || ub === null) return null;
     const out = rmWallOutward(sd);
+    /* Half a metre into the house, along this wall's own inward normal. */
+    const inw = out ? {e: -out.e * 1.6, n: -out.n * 1.6} : null;
+    const ua = rmOutlineEaveU(sd.a.e, sd.a.n, inw);
+    const ub = rmOutlineEaveU(sd.b.e, sd.b.n, inw);
+    if(ua === null || ub === null) return null;
     return {a: {e: sd.a.e, n: sd.a.n, u: ua}, b: {e: sd.b.e, n: sd.b.n, u: ub}, out: out};
   }).filter(Boolean).filter(function(sg){
     if(!sg.out) return true;                      /* nothing to judge it by */

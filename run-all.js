@@ -34998,6 +34998,52 @@ suite('157. Measure Roof - the house the system assumes, drawn before anything e
       wire.length > 0 && wire.every(sg => isFinite(sg.a.u) && isFinite(sg.b.u) &&
         sg.a.u > 0.5 && sg.a.u < 25),
       'got ' + wire.length + ' walls');
+    /* ⭐ THE GUTTER OF THE ROOF THIS WALL HOLDS UP, not the nearest roof
+       anywhere. Owner: "double check that the lines are red and line up with
+       the gutter from every angle."
+       ⚠ MEASURED ON THE TEST HOUSE: the front wall was being drawn at 10 ft,
+       level with the top of the garage door, because the nearest patch by plain
+       distance was a low roof round the side. That front is two storeys and its
+       gutter is at 16-18 ft. Nearest-by-distance is the wrong question. */
+    (function(){
+      /* ⚠ TWO SEPARATE THINGS ARE AT WORK AND EACH NEEDS ITS OWN CASE. An
+         earlier version of this test passed with the fix sabotaged, twice,
+         because both branches were reading from the same inward point and so
+         always agreed. Written out properly:
+
+         (a) READING FROM INSIDE is what picks the right face at all. Here the
+             LOW roof is nearer AT THE WALL (0.2 m against 0.5) and the TALL one
+             is nearer one step INSIDE, so only the inward read gets the
+             two-storey gutter. */
+      const TALL = F(-7.5, 0, -6, 6, 9);    /* two storeys, starting just inside */
+      const LOW  = F(-9, -8.2, -6, 6, 4);   /* a low roof just OUTSIDE the wall */
+      api.faces([TALL, LOW]);
+      const atWall = api.eave(-8, 0, null);
+      const inside = api.eave(-8, 0, {e: 1.6, n: 0});
+      check('S157', 'a wall takes the gutter of the roof it holds up',
+        inside !== null && Math.abs(inside - 10) < 0.7,
+        'got ' + (inside === null ? 'null' : inside.toFixed(2)) + ' m, wanted 10');
+      check('S157', 'and reading it from OUTSIDE gets the wrong roof, which is the bug',
+        atWall !== null && Math.abs(atWall - 5) < 0.7,
+        'without the inward step the nearest patch is the low roof across the garden - ' +
+        'measured on the real house this drew the front wall at 10 ft, level with the ' +
+        'top of the garage door');
+      check('S157', 'the wireframe passes that inward step',
+        /rmOutlineEaveU\(sd\.a\.e, sd\.a\.n, inw\)/.test(admin),
+        'without a direction there is no way to tell inside from outside');
+
+      /* (b) OF THE ROOFS THAT DO MEET THIS WALL, THE LOWEST IS THE GUTTER -
+             that is where a gutter sits, at the bottom edge of the roof it
+             drains, and it is where the lights go. Both of these contain the
+             inward point, so nearest-by-distance cannot separate them. */
+      api.faces([F(-8, 0, -6, 6, 9), F(-8, 0, -6, 6, 4)]);
+      const two = api.eave(-8, 0, {e: 1.6, n: 0});
+      check('S157', 'where two roofs meet one wall, the lower one is the gutter',
+        two !== null && Math.abs(two - 5) < 0.7,
+        'got ' + (two === null ? 'null' : two.toFixed(2)) + ' m; 10 is the ridge, not the gutter');
+    })();
+    api.faces([F(-8, -4,  2,  6, 5), F(-8, -4, -6, -2, 5), F(-4, 4, -6, 6, 9)]);
+
     check('S157', 'and the roof over the tree gap is the roof either side of it',
       Math.abs(api.eave(-8, 0) - 5) < 0.6,
       'got ' + api.eave(-8, 0));
