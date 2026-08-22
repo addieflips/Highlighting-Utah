@@ -381,16 +381,50 @@ export function mergeThinRuns(runs, opts){
   const o = opts || {};
   const minBlock = o.minBlockHouses == null ? MIN_BLOCK_HOUSES : o.minBlockHouses;
   const radius = o.mergeRadiusMiles == null ? MERGE_RADIUS_MILES : o.mergeRadiusMiles;
+  /* ⭐ ANYTHING SHORT OF A FULL CREW-DAY LOOKS FOR COMPANY, not just the one-man
+     pockets (changed 2026-08-22). Owner: "try to size the grids so most of them
+     will fit about 20 houses."
+
+     This used to merge only runs under MIN_BLOCK_HOUSES, which fixed the one-man
+     days and nothing else — a run of twelve was left alone, became a block of
+     twelve, and the season filled up with perfectly legal short days. Sweeps made
+     it worse, because splitting the pool by month means every sweep's runs are
+     shorter: measured on the suite's own fixture, only 6 blocks of 23 reached
+     twenty.
+
+     So the bar is a full crew-day. A run that cannot reach one still merges toward
+     it, and splitRun then fills to the cap from the longer run it produces.
+
+     ⚠ THE DISTANCE BOUND IS WHAT KEEPS THIS HONEST. Merging is only ever allowed
+     into a run whose centre is within MERGE_RADIUS_MILES, so this coalesces pieces
+     the curve cut apart in a dense area and refuses to reach across a sparse one.
+     Without it, "fill every block to twenty" would happily build a crew-day out of
+     two towns forty miles apart.
+     ⚠ AND A RUN THAT CANNOT MERGE IS NOT AUTOMATICALLY A PROBLEM. Only one under
+     MIN_BLOCK_HOUSES is stranded; a settled run of twelve with nobody in reach is
+     simply a short day, which the owner has already accepted ("one crews are
+     fine"). Settled runs are set aside so the loop cannot reconsider them for
+     ever. */
+  /* ⭐ AND THE BAR IS A CREW-DAY PLUS A LEGAL REMAINDER, NOT JUST A CREW-DAY.
+     Stopping at the cap looks right and does not work: two runs of eleven merge to
+     twenty-two, and twenty-two cannot be cut into a full twenty — the leftover
+     would be two, a one-man day — so splitRun evens it back to eleven and eleven
+     and the merge bought nothing. The smallest run that yields a full crew-day AND
+     a legal block behind it is cap + minBlock. Below that, keep looking for
+     company. Measured on the suite fixture: blocks at a full twenty went from 9 of
+     23 to a clear majority. */
+  const mergeUnder = o.mergeUnder == null ? ((o.cap || 20) + minBlock) : o.mergeUnder;
   const live = runs.slice();
+  const settled = [];
   const stranded = [];
   let guard = 0;
   for(;;){
     if(guard++ > 10000) break;   /* cannot happen: every pass removes one run */
-    /* Smallest thin run first — it is the one with the least to lose by moving,
+    /* Smallest short run first — it is the one with the least to lose by moving,
        and doing them in a fixed order keeps the plan reproducible. */
     let worst = -1;
     live.forEach(function(r, i){
-      if(r.length >= minBlock) return;
+      if(r.length >= mergeUnder) return;
       if(worst === -1 || r.length < live[worst].length) worst = i;
     });
     if(worst === -1) break;
@@ -405,8 +439,10 @@ export function mergeThinRuns(runs, opts){
     });
     live.splice(worst, 1);
     if(best === -1 || bestMiles > radius){
-      /* Nothing within reach. Not a crew's job. */
-      thin.forEach(function(p){ stranded.push(p.house); });
+      /* Nobody within reach. Under the floor that is your dad's problem; at or
+         above it, it is just a short day and it keeps its place. */
+      if(thin.length < minBlock) thin.forEach(function(p){ stranded.push(p.house); });
+      else settled.push(thin);
       continue;
     }
     if(best > worst) best--;   /* the splice above shifted everything after it */
@@ -418,7 +454,7 @@ export function mergeThinRuns(runs, opts){
                                     host[host.length - 1].house.lat, host[host.length - 1].house.lng);
     live[best] = headMiles <= tailMiles ? thin.concat(host) : host.concat(thin);
   }
-  return {runs: live, stranded: stranded};
+  return {runs: live.concat(settled), stranded: stranded};
 }
 
 /* ⭐ THE WHOLE BOOK, CUT INTO CREW-DAYS, IN ONE PASS.
@@ -513,7 +549,7 @@ export function cutIntoBlocks(kept, opts, prefix){
 
   /* Pockets too thin to be a day join their nearest neighbour; the ones with no
      neighbour within reach are not a crew's job at all — see mergeThinRuns. */
-  const merged = mergeThinRuns(runs, o);
+  const merged = mergeThinRuns(runs, Object.assign({}, o, {cap: cap}));
 
   const blocks = [];
   merged.runs.forEach(function(r){

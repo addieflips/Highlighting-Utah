@@ -8775,6 +8775,14 @@ suite('Suite 28. The Schedule season rebuilt from its houses');
       'const PIN_HONOURED_BUSINESS_DAYS=' + (admin.match(/const PIN_HONOURED_BUSINESS_DAYS=(d+);/)||[])[1] + ';' +
       fn('pinHorizon') +
       fn('seasonStartDate') + fn('prefSpecificDate') + fn('houseAllowedFrom') + fn('houseDeadline') + fn('houseInstallPriority') +
+      /* ⭐ WHICH SWEEP OF THE GRID A HOUSE RIDES (added 2026-08-22). rebuildSeasonDays
+         stamps it on every waiting house, so a lift without it throws on the first
+         one and takes the whole suite down — the exact shape CLAUDE.md warns about.
+         ⚠ planSweeps is deliberately NOT lifted: it is an imported ES module and the
+         rebuild guards on `typeof planSweeps !== 'function'`, so these sandboxes
+         exercise the FALLBACK path — the old town grouping — which is what keeps
+         every existing check in them meaningful. */
+      fn('houseSweepKey') +
       'function cityOf(h){return (h.city||"").trim();}' +
       'function sameCity(a,b){return (""+a).trim().toLowerCase()===(""+b).trim().toLowerCase();}' +
       /* ⚠ dayCrewTowns NOW CAPS A CREW AT TWO TOWNS and tests whether a second one
@@ -12491,6 +12499,14 @@ suite('Suite 48. Days within two working days are set');
       'function pinHorizon(){let d=new Date(__TODAY);d.setHours(0,0,0,0);' +
       'for(let i=0;i<PIN_HONOURED_BUSINESS_DAYS;i++){d=addDays(d,1);while(isWeekend(d))d=addDays(d,1);}return d;}' +
       fn('seasonStartDate') + fn('prefSpecificDate') + fn('houseAllowedFrom') + fn('houseDeadline') + fn('houseInstallPriority') +
+      /* ⭐ WHICH SWEEP OF THE GRID A HOUSE RIDES (added 2026-08-22). rebuildSeasonDays
+         stamps it on every waiting house, so a lift without it throws on the first
+         one and takes the whole suite down — the exact shape CLAUDE.md warns about.
+         ⚠ planSweeps is deliberately NOT lifted: it is an imported ES module and the
+         rebuild guards on `typeof planSweeps !== 'function'`, so these sandboxes
+         exercise the FALLBACK path — the old town grouping — which is what keeps
+         every existing check in them meaningful. */
+      fn('houseSweepKey') +
       /* ⚠ LIFTED, NOT STUBBED (2026-08-22). rebuildSeasonDays now drops houses whose
          customer has left the season, and the claim being made is that it asks the ONE
          shared definition rather than a second opinion of its own — a hand-written
@@ -31944,6 +31960,113 @@ suite('Suite 140. A finished fix takes its photo with it');
     !/housePhotoUrl|frontPhotoUrl/.test(stripComments(extractFn(admin, 'hlxRetireFixPhoto') || '')),
     'that one prints on the crew sheet and is not the office\'s to delete here');
 }
+
+
+/* ================= Suite 141. The grid the season is actually cut with =================
+   ⭐ THIS IS THE ONLY SUITE THAT RUNS THE REAL GRID. Every other harness that
+   touches rebuildSeasonDays lifts it into a sandbox WITHOUT planSweeps, so the
+   rebuild's own `typeof planSweeps !== 'function'` guard sends them down the
+   fallback path — the old town grouping. That is deliberate and it keeps those
+   checks meaningful, but it means the code the office will actually run is the one
+   path nothing exercised. On 2026-08-22 that gap hid a real bug for several
+   minutes: admin.html imported `planBlocks` while the rebuild called `planSweeps`,
+   so the grid would have silently never engaged in production and every test would
+   have stayed green.
+
+   js/grid.js is an ES module, so this IMPORTS it rather than lifting it — the
+   functions are run exactly as the browser will run them, with no extraction list
+   to fall out of step. */
+suite('Suite 141. The grid the season is actually cut with');
+{
+  check('grid', 'admin.html imports the sweep planner it actually calls',
+    /import \{[^}]*\bplanSweeps\b[^}]*\} from '\.\/js\/grid\.js'/.test(admin) &&
+    /planSweeps\(/.test(admin),
+    'the rebuild guards on typeof planSweeps, so importing the wrong name makes the ' +
+    'grid silently never engage and leaves every suite green');
+
+  pendingAsync.push((async () => {
+    const grid = await import('./js/grid.js');
+
+    /* A book shaped like the real one: a dense strip, a second cluster, a thin
+       tail, and one house on its own. Deterministic, so a failure is reproducible. */
+    let s = 4242;
+    const rnd = () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    const houses = [];
+    let n = 0;
+    const push = (lat, lng, sweep) => houses.push({ id: 'g' + (++n), lat, lng, sweep });
+    for (let i = 0; i < 240; i++) { const t = rnd();
+      push(40.20 + t * 0.22 + (rnd() - 0.5) * 0.02, -111.85 + t * 0.18 + (rnd() - 0.5) * 0.02,
+           i % 3 === 0 ? '2026-10' : '2026-11'); }
+    for (let i = 0; i < 90; i++)
+      push(40.55 + (rnd() - 0.5) * 0.12, -111.90 + (rnd() - 0.5) * 0.14, i % 2 ? '2026-10' : '2026-11');
+    for (let i = 0; i < 22; i++)
+      push(40.02 + (rnd() - 0.5) * 0.10, -111.68 + (rnd() - 0.5) * 0.10, '2026-11');
+    push(39.5547, -111.8607, '2026-11');            // Levan, alone
+    const lone = houses[houses.length - 1].id;
+
+    const res = grid.planSweeps(houses, { cap: 20, sweepOrder: ['2026-10', '2026-11'] });
+
+    check('grid', 'a house too far from everybody is not scheduled at all',
+      res.outliers.some(o => o.house.id === lone) &&
+      !res.blocks.some(b => b.ids.indexOf(lone) !== -1),
+      'the owner\'s "if a house is really that far out then its for my dad to do" — ' +
+      'scheduling it is a crew driving twenty miles for one house');
+
+    check('grid', 'every house is placed, an outlier, or named as a short day',
+      new Set(res.blocks.flatMap(b => b.ids)).size + res.outliers.length + res.thin.length
+        === houses.length,
+      'a house that is in none of the three is a customer nobody visits, and nothing ' +
+      'on screen would say so');
+
+    /* ⚠ THE ONE THAT MATTERS MOST. A block is worked as a unit, so a block holding
+       an October and a November house cannot be worked without breaking one of them. */
+    const sweepOf = {};
+    houses.forEach(h => { sweepOf[h.id] = h.sweep; });
+    check('grid', 'no block mixes two sweeps',
+      res.blocks.every(b => new Set(b.ids.map(id => sweepOf[id])).size === 1),
+      'timing is a hard gate — a mixed block is an October customer hung in November ' +
+      'or a November customer dragged forward');
+
+    check('grid', 'block ids never collide between sweeps',
+      new Set(res.blocks.map(b => b.id)).size === res.blocks.length,
+      'the builder GROUPS on the block id, so a collision silently welds an October ' +
+      'block onto a November one');
+
+    check('grid', 'no block is a one-man day',
+      res.blocks.every(b => b.count > 8),
+      'ONE_MAN_MAX_HOUSES is 8 — this whole design exists to stop the season ending ' +
+      'in a scatter of them');
+
+    check('grid', 'and none is over a crew-day',
+      res.blocks.every(b => b.count <= 20), 'MAX_STOPS_PER_ROUTE is twenty');
+
+    /* Owner, 2026-08-22: "try to size the grids so most of them will fit about 20
+       houses." Most, not all — a sweep's last block is allowed to be short. */
+    const full = res.blocks.filter(b => b.count === 20).length;
+    check('grid', 'most blocks are a full crew-day',
+      full * 2 >= res.blocks.length,
+      'only ' + full + ' of ' + res.blocks.length + ' reached twenty — splitRun should ' +
+      'fill to the cap and even only a one-man tail');
+
+    check('grid', 'the same book gives the same plan twice',
+      JSON.stringify(grid.planSweeps(houses, { cap: 20, sweepOrder: ['2026-10', '2026-11'] })
+        .blocks.map(b => b.ids)) === JSON.stringify(res.blocks.map(b => b.ids)),
+      'the office comparing two rebuilds should see real differences only');
+
+    /* Owner: "when you get furthur out where they become more sparse grid sizes can
+       change slightly too." */
+    check('grid', 'the curve cut stretches where the book is sparse',
+      grid.localJumpMiles({ id: 'a' }, { id: 'b' }, { a: 1.5, b: 1.5 }) >
+      grid.localJumpMiles({ id: 'a' }, { id: 'b' }, { a: 0.03, b: 0.03 }),
+      'a flat threshold is a town rule in different clothes — three miles is a real ' +
+      'break in Orem and the ordinary gap between neighbours past Santaquin');
+
+    check('grid', 'but never past the ceiling',
+      grid.localJumpMiles({ id: 'a' }, { id: 'b' }, { a: 99, b: 99 }) === grid.MAX_CURVE_JUMP_CEILING,
+      'one lonely pair must not drag a run across a county');
+  })());
+}
+
 
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
