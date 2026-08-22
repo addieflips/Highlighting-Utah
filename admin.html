@@ -16527,6 +16527,66 @@ function rmCornersInPhoto(photo, mppAtHouse){
   return {corners: corners, runs: runs.length, spikesRemoved: spikes, trimmed: trimmed};
 }
 
+/* ============ WHICH PART OF THE HOUSE A CLICK IS POINTING AT ============
+   Owner: "when I moved instead of staying at the gutter it came toward the
+   camera and started hovering."
+
+   ⚠ MEASURED ON THE TEST HOUSE, and the numbers say it plainly. The building's
+   bounding box runs from 8.0 m west of centre to 7.4 m east. The eleven roof
+   faces inside it do NOT: most stop about 4 m west, and only two reach the
+   full 8. So a click at a gutter on a set-back face was being placed on the
+   near face of the WHOLE-BUILDING box - up to four and a half metres in front
+   of the wall the gutter is actually on. From the spot it was placed at that
+   looks right; step sideways and it is floating in the garden.
+
+   A house is not a box. It is several parts at different depths, and Google
+   describes each of them separately. So the ray is tested against every roof
+   FACE, and a face only counts if the ray is at that face's own roof height
+   where it crosses it - which is what stops a ray flying OVER a low garage and
+   being placed on its front wall. The nearest face that really is under the
+   ray wins. */
+const RM_FACE_EDGE_TOL_M = 1.6;   /* how close to a face's roof the ray must pass */
+
+function rmRoofEdgeHit(dir, cam){
+  if(!rmFaces || !rmFaces.length || !rmOrigin) return null;
+  let best = null;
+  rmFaces.forEach(function(f){
+    if(!f.sw || !f.ne) return;
+    const plane = rmFacePlane(f);
+    if(!plane) return;
+    const sw = rmToLocal(f.sw.lat, f.sw.lng, 0);
+    const ne = rmToLocal(f.ne.lat, f.ne.lng, 0);
+    const minE = Math.min(sw.e, ne.e), maxE = Math.max(sw.e, ne.e);
+    const minN = Math.min(sw.n, ne.n), maxN = Math.max(sw.n, ne.n);
+    const sides = [
+      {a: {e: minE, n: minN}, b: {e: maxE, n: minN}},
+      {a: {e: maxE, n: minN}, b: {e: maxE, n: maxN}},
+      {a: {e: maxE, n: maxN}, b: {e: minE, n: maxN}},
+      {a: {e: minE, n: maxN}, b: {e: minE, n: minN}}
+    ];
+    sides.forEach(function(sd){
+      const se = sd.b.e - sd.a.e, sn = sd.b.n - sd.a.n;
+      const den = dir.e * sn - dir.n * se;
+      if(Math.abs(den) < 1e-9) return;
+      const t = ((sd.a.e - cam.e) * sn - (sd.a.n - cam.n) * se) / den;
+      if(!(t > 0.5 && t < 200)) return;
+      const pe = cam.e + dir.e * t, pn = cam.n + dir.n * t, pu = cam.u + dir.u * t;
+      const along = Math.abs(se) > Math.abs(sn) ? (pe - sd.a.e) / se : (pn - sd.a.n) / sn;
+      if(!(along >= -0.02 && along <= 1.02)) return;
+      if(!(pu > 0.5 && pu < 18)) return;
+      /* ⚠ THE TEST THAT MATTERS. How high is THIS face's roof where the ray
+         crosses its edge? If the ray is well above it, it is flying over this
+         part of the house on its way to something further back, and placing
+         the dot here is the hovering the owner saw. */
+      if(Math.abs(plane.normal.u) < 1e-9) return;
+      const roofU = (plane.d - (plane.normal.e * pe + plane.normal.n * pn)) / plane.normal.u;
+      if(Math.abs(pu - roofU) > RM_FACE_EDGE_TOL_M) return;
+      if(!best || t < best.t) best = {e: pe, n: pn, u: pu, t: t};
+    });
+  });
+  return best;
+}
+
 /* ============ HOW DEEP A CLICKED POINT IS ===============================
    Owner: "its way off, the street view will look right but the sky view will
    be way off."
@@ -18642,7 +18702,10 @@ function openRoofMeasure(quoteId){
          a shallow angle, where the same error slides the point yards along the
          ray - and every yard of that lands in the plan position, which is the
          one the map shows and the street view cannot. */
-      let best = rmFootprintWallHit(dir, cam);
+      /* The part of the house the ray is really pointing at comes first; the
+         whole-building outline is the fallback for a house Google has given no
+         roof faces for. */
+      let best = rmRoofEdgeHit(dir, cam) || rmFootprintWallHit(dir, cam);
       if(!best){
         const fp = rmFootprintBox();
         (rmFaces || []).forEach(function(f){
