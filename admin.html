@@ -16685,6 +16685,126 @@ const RM_FACE_EDGE_TOL_M = 1.6;   /* how close to a face's roof the ray must pas
    model trades one error for another. Seeing the corner from a second place is
    what removes the model - see rmPinCorner. */
 
+/* ============ THE HOUSE AS A SOLID, NOT AS ONE FLAT WALL ================
+   Owner: "it seems to be mixing up depth and height when i click a dot a
+   little deeper the sky view is saying its all a straight line so fix that
+   how when i click a spot on the house further back the map view knows where
+   that is", and "different angles still isnt working so its like im drawing
+   on a 2D picture."
+
+   ⚠ IT LITERALLY WAS A 2D PICTURE, and this is the whole bug. Every click was
+   crossed with ONE vertical plane - the front face of the whole-building
+   bounding box. ON A VERTICAL PLANE, CLICKING HIGHER CANNOT MOVE YOU BACKWARDS.
+   It can only move you UP. So depth never changed no matter where on the house
+   somebody clicked, every dot came out on the same line of longitude, and seen
+   from above the entire roof collapsed into a straight line. Height was doing
+   depth's job. That is the mix-up, said exactly.
+
+   And it is also why the dots would not hold still: a dot whose depth is wrong
+   projects back to the pixel it was placed at from the camera that placed it -
+   depth is the one thing that view cannot show - and slides as soon as you
+   stand anywhere else.
+
+   A HOUSE IS NOT ONE PLANE. Google describes it as a set of roof faces, each
+   with its own patch of ground beneath it, and the parts of a real house step
+   back from one another - on the test house the north half reaches e -7.9
+   while the south half stops at -4.2. So the ray is cast at the house as the
+   SOLID it is:
+
+     - each face's own sloping roof surface, bounded by ITS OWN patch
+     - each face's own vertical walls, standing under that patch up to it
+
+   and the nearest real surface wins. The gutter of a recessed entry is then a
+   wall three metres further back than the garage gutter, which is precisely
+   what makes the map put it three metres further back. */
+const RM_FACE_PAD_M = 0.6;    /* eaves overhang their face's patch a little */
+const RM_EAVE_TOL_M = 0.8;    /* how far above its roof a wall may still count */
+
+/* One roof face's own patch of ground, in the house's local frame. */
+function rmFaceBoxLocal(f){
+  const sw = rmToLocal(f.sw.lat, f.sw.lng, 0);
+  const ne = rmToLocal(f.ne.lat, f.ne.lng, 0);
+  return {minE: Math.min(sw.e, ne.e), maxE: Math.max(sw.e, ne.e),
+          minN: Math.min(sw.n, ne.n), maxN: Math.max(sw.n, ne.n)};
+}
+
+/* How high THIS face's roof is over a given spot. */
+function rmFaceRoofUAt(f, e, n){
+  const plane = rmFacePlane(f);
+  if(!plane || Math.abs(plane.normal.u) < 1e-9) return null;
+  return (plane.d - (plane.normal.e * e + plane.normal.n * n)) / plane.normal.u;
+}
+
+/* The walls, one set per face, each standing only under its own roof.
+   ⭐ THIS IS WHAT GIVES A CLICK ITS DEPTH. A vertical surface is met nearly
+   square on from the street, so where it crosses barely moves when the height
+   is a little out - and because every face brings its own walls at its own
+   set-back, clicking the recessed part of a house lands on the recessed part
+   instead of on the front of the building's bounding box. */
+function rmFaceWallHit(dir, cam){
+  if(!rmFaces || !rmFaces.length || !rmOrigin) return null;
+  let best = null;
+  rmFaces.forEach(function(f){
+    if(!f.sw || !f.ne) return;
+    const b = rmFaceBoxLocal(f);
+    const sides = [
+      {a: {e: b.minE, n: b.minN}, b: {e: b.maxE, n: b.minN}},
+      {a: {e: b.maxE, n: b.minN}, b: {e: b.maxE, n: b.maxN}},
+      {a: {e: b.maxE, n: b.maxN}, b: {e: b.minE, n: b.maxN}},
+      {a: {e: b.minE, n: b.maxN}, b: {e: b.minE, n: b.minN}}
+    ];
+    sides.forEach(function(sd){
+      const se = sd.b.e - sd.a.e, sn = sd.b.n - sd.a.n;
+      const den = dir.e * sn - dir.n * se;
+      if(Math.abs(den) < 1e-9) return;              /* ray runs along the wall */
+      const t = ((sd.a.e - cam.e) * sn - (sd.a.n - cam.n) * se) / den;
+      if(!(t > 0.5 && t < 200)) return;             /* behind, or a street away */
+      const pe = cam.e + dir.e * t, pn = cam.n + dir.n * t, pu = cam.u + dir.u * t;
+      const along = Math.abs(se) > Math.abs(sn) ? (pe - sd.a.e) / se : (pn - sd.a.n) / sn;
+      if(!(along >= -0.02 && along <= 1.02)) return;   /* past the end of it */
+      if(!(pu > 0.3)) return;                          /* underground */
+      /* ⚠ A WALL STOPS AT THE ROOF IT HOLDS UP. Without this, a ray that
+         clears a low garage is caught by the garage's own wall carried up into
+         the sky, and the dot lands metres in front of the thing it was aimed
+         at - the hovering reported earlier. */
+      const roofU = rmFaceRoofUAt(f, pe, pn);
+      if(roofU === null || pu > roofU + RM_EAVE_TOL_M) return;
+      if(!best || t < best.t) best = {e: pe, n: pn, u: pu, t: t, kind: 'wall'};
+    });
+  });
+  return best;
+}
+
+/* The sloping roof surfaces themselves, each kept inside its own patch.
+   ⚠ ITS OWN PATCH, NOT THE BUILDING'S. Bounding a face by the whole footprint
+   is what let a ray aimed at the recessed half of the house land on the front
+   half's plane carried backwards, which flattens every set-back there is. */
+function rmRoofSurfaceHit(dir, cam){
+  if(!rmFaces || !rmFaces.length || !rmOrigin) return null;
+  let best = null;
+  rmFaces.forEach(function(f){
+    if(!f.sw || !f.ne) return;
+    const plane = rmFacePlane(f);
+    if(!plane) return;
+    const hit = rmPlaneHit3(dir, cam, plane);
+    if(!hit) return;
+    const b = rmFaceBoxLocal(f);
+    if(hit.e < b.minE - RM_FACE_PAD_M || hit.e > b.maxE + RM_FACE_PAD_M) return;
+    if(hit.n < b.minN - RM_FACE_PAD_M || hit.n > b.maxN + RM_FACE_PAD_M) return;
+    if(!(hit.u > 0.3 && hit.u < 25)) return;
+    if(!best || hit.t < best.t) best = {e: hit.e, n: hit.n, u: hit.u, t: hit.t, kind: 'roof'};
+  });
+  return best;
+}
+
+/* Whatever the click is really pointing at: the nearest surface of the solid. */
+function rmHouseHit(dir, cam){
+  const wall = rmFaceWallHit(dir, cam);
+  const roof = rmRoofSurfaceHit(dir, cam);
+  if(wall && roof) return wall.t <= roof.t ? wall : roof;
+  return wall || roof || null;
+}
+
 function rmRoofEdgeHit(dir, cam){
   if(!rmFaces || !rmFaces.length || !rmOrigin) return null;
   let best = null;
@@ -17066,6 +17186,25 @@ const RM_FRAME_FILL = 0.55;    /* how much of the width the house should take */
    zoom back every time the camera nudges is unusable. */
 let rmFramed = false;
 const RM_ZOOM_MIN = 0.6, RM_ZOOM_MAX = 2.3;   /* ~36 degrees: close, never a keyhole */
+/* ⚠ THOSE TWO BOUND THE AUTOMATIC FRAMING, which has to stay wide enough not
+   to end up looking through a keyhole at a blank wall. A hand on the wheel is
+   a different thing - the office is looking at a particular corner and wants
+   to get right in on it - so scrolling is allowed much closer, and back out
+   far enough to see the whole house at once. */
+const RM_WHEEL_ZOOM_MIN = 0.4, RM_WHEEL_ZOOM_MAX = 4;
+/* How far the aim has to swing so the thing under the pointer stays under the
+   pointer while the view narrows. A point sitting at angle t off the axis is
+   drawn at focal*tan(t); the focal length is what zoom changes, so holding the
+   pixel still means shrinking t by exactly the ratio of the two half-angles.
+   Positive when zooming in (lean toward the pointer), negative when zooming
+   out, zero when nothing changes. */
+function rmZoomKeepPoint(fromZoom, toZoom){
+  const a = Math.tan(rmRad(rmFovDeg(fromZoom)) / 2);
+  const b = Math.tan(rmRad(rmFovDeg(toZoom)) / 2);
+  if(!(a > 0) || !isFinite(b)) return 0;
+  return 1 - b / a;
+}
+const RM_SKY_WHEEL_MIN = 17, RM_SKY_WHEEL_MAX = 22;
 function rmFrameHouseInStreet(){
   if(rmFramed) return null;
   if(!rmPano || !rmStreetReady || !rmBuilding || !rmOrigin) return null;
@@ -18865,18 +19004,7 @@ function openRoofMeasure(quoteId){
       /* The part of the house the ray is really pointing at comes first; the
          whole-building outline is the fallback for a house Google has given no
          roof faces for. */
-      let best = rmRoofEdgeHit(dir, cam) || rmFootprintWallHit(dir, cam);
-      if(!best){
-        const fp = rmFootprintBox();
-        (rmFaces || []).forEach(function(f){
-          const plane = rmFacePlane(f);
-          if(!plane) return;
-          const hit = rmPlaneHit3(dir, cam, plane);
-          if(!hit) return;
-          if(fp && !rmInsideFootprint(hit, fp)) return;
-          if(!best || hit.t < best.t) best = hit;
-        });
-      }
+      let best = rmHouseHit(dir, cam) || rmFootprintWallHit(dir, cam);
       const note = document.getElementById('rmCornerNote');
       if(!best){
         /* ⚠ REFUSING A CLICK IS WORSE THAN PLACING IT ROUGHLY. Google's roof
@@ -18991,6 +19119,55 @@ function openRoofMeasure(quoteId){
       if(i >= 0) rmToggleCorner(i);
     });
   });
+  /* ⭐ THE WHEEL ZOOMS, EVEN WHILE PLACING DOTS. Owner: "also add zoom
+     features so i can scroll with my mouse to zoom."
+     Both panes are covered by a transparent sheet while dots are being placed -
+     it is the only way to catch a click, because the map and the panorama
+     swallow their own - and that sheet was eating the wheel with everything
+     else. Google's own scrollwheel is switched off at the same moment, so
+     there was no way to get closer to a corner without leaving dot mode.
+
+     ⚠ AND IT ZOOMS AT THE POINTER, not at the middle. Zooming to the centre
+     throws whatever you were aiming at off the screen, which on a roof corner
+     means finding it again after every notch. */
+  document.getElementById('rmMapLock').addEventListener('wheel', function(e){
+    if(!rmMap) return;
+    e.preventDefault();
+    const z = rmMap.getZoom();
+    const nz = Math.max(RM_SKY_WHEEL_MIN, Math.min(RM_SKY_WHEEL_MAX, z + (e.deltaY < 0 ? 1 : -1)));
+    if(nz === z) return;
+    const r = this.getBoundingClientRect();
+    /* Where the pointer is, measured out from the middle of the pane. */
+    const dx = (e.clientX - r.left) - r.width / 2;
+    const dy = (e.clientY - r.top) - r.height / 2;
+    const scale = Math.pow(2, nz - z);
+    rmMap.setZoom(nz);
+    /* After the zoom that spot sits at dx*scale; pan it back to dx. */
+    rmMap.panBy(dx * (scale - 1), dy * (scale - 1));
+  }, {passive: false});
+
+  document.getElementById('rmPanoLock').addEventListener('wheel', function(e){
+    if(!rmPano) return;
+    e.preventDefault();
+    const pov = rmPanoPov();
+    const nz = Math.max(RM_WHEEL_ZOOM_MIN, Math.min(RM_WHEEL_ZOOM_MAX, pov.zoom + (e.deltaY < 0 ? 0.25 : -0.25)));
+    if(Math.abs(nz - pov.zoom) < 1e-6) return;
+    const r = this.getBoundingClientRect();
+    const {W, H} = rmPanoSize();
+    /* The world direction the pointer is on. Keeping THAT still is what makes
+       the zoom feel like leaning in rather than like the house running away. */
+    const d = rmRay(e.clientX - r.left, e.clientY - r.top, W, H, pov);
+    const wantH = rmDeg(Math.atan2(d.e, d.n));
+    const wantP = rmDeg(Math.asin(Math.max(-1, Math.min(1, d.u))));
+    /* How much narrower the view is about to get. The pointer's angle off the
+       axis has to shrink by the same ratio for it to stay on the same pixel. */
+    const k = rmZoomKeepPoint(pov.zoom, nz);
+    const dh = ((wantH - pov.heading) % 360 + 540) % 360 - 180;
+    rmPano.setZoom(nz);
+    rmPano.setPov({heading: pov.heading + dh * k,
+                   pitch: Math.max(-85, Math.min(85, pov.pitch + (wantP - pov.pitch) * k))});
+    rmPaintStreet();
+  }, {passive: false});
   document.getElementById('rmPanoLock').addEventListener('dblclick', function(){ if(rmDrawing) rmFinishRun(); });
   /* ⚠ DRAGGING USED TO WORK ONLY ON THE SKY VIEW, which is no use at all when
      Street View is where the work happens - a line an inch off the gutter

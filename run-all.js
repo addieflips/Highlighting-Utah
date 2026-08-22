@@ -34325,7 +34325,7 @@ suite('151. Measure Roof - a clicked dot takes its depth from the wall, not the 
      from where it was placed and floats in the garden from anywhere else. */
   check('S151', 'the part of the house the ray points at is tried first',
     (function(){
-      const i = admin.indexOf('let best = rmRoofEdgeHit(dir, cam) || rmFootprintWallHit(dir, cam);');
+      const i = admin.indexOf('let best = rmHouseHit(dir, cam) || rmFootprintWallHit(dir, cam);');
       return i !== -1;
     })(),
     'a house is not a box - it is several parts at different depths');
@@ -34493,6 +34493,157 @@ suite('153. Measure Roof - a set-back part of the house keeps its own depth');
     /DO NOT MAKE CONSECUTIVE DOTS PREFER THE FACE/.test(admin) &&
     /MEASURED THE CONSTRAINT IT HAD JUST IMPOSED/.test(admin),
     'a bare revert invites the same idea back next week');
+}
+
+
+suite('154. Measure Roof - clicking further back goes BACK, not UP');
+{
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+
+  /* Owner: "it seems to be mixing up depth and height when i click a dot a
+     little deeper the sky view is saying its all a straight line so fix that
+     how when i click a spot on the house further back the map view knows where
+     that is", and "different angles still isnt working so its like im drawing
+     on a 2D picture."
+
+     Every click used to be crossed with ONE vertical plane - the front of the
+     building's bounding box. On a vertical plane, clicking higher up the
+     picture cannot move you backwards, only UP. So depth never changed, every
+     dot shared one line of longitude, and from above the roof was a straight
+     line. These tests are that sentence, made checkable. */
+  const fn = pick('rmHouseHit');
+  if (!fn) {
+    check('S154', 'the solid-cast click path is findable', false, 'rmHouseHit missing');
+  } else {
+    const F = (minE, maxE, minN, maxN, hM) => ({
+      sw: {lat: 40 + minN/111132, lng: -111 + minE/85300},
+      ne: {lat: 40 + maxN/111132, lng: -111 + maxE/85300},
+      center: {lat: 40 + (minN+maxN)/2/111132, lng: -111 + (minE+maxE)/2/85300},
+      planeHeightM: hM, azimuth: 0, pitch: 0
+    });
+    const api = new Function(
+      'let rmOrigin = {lat: 40, lng: -111};' + LF_ +
+      'let rmFaces = []; let rmRoofDatumM = 4; let rmDatumSource = "test";' + LF_ +
+      ['RM_FACE_PAD_M','RM_EAVE_TOL_M'].map(n =>
+        (admin.match(new RegExp('^const ' + n + ' = [^;]*;', 'm')) || [''])[0]).join(LF_) + LF_ +
+      ['rmMetresPerDeg','rmToLocal','rmToWorld','rmFaceEaveM','rmLowestPlaneM','rmDatum',
+       'rmFacePlane','rmPlaneHit3','rmFaceBoxLocal','rmFaceRoofUAt',
+       'rmFaceWallHit','rmRoofSurfaceHit'].map(pick).join(LF_) + LF_ +
+      fn + LF_ +
+      'return {hit: rmHouseHit, faces: function(f){ rmFaces = f; }};')();
+
+    /* A garage that comes forward with the house behind it, both 6 m wide. */
+    const GARAGE = F(-8, -4, -3, 3, 4);      /* roof 4 m up */
+    const HOUSE  = F(-4,  4, -3, 3, 8);      /* roof 8 m up, four metres back */
+    api.faces([GARAGE, HOUSE]);
+    const cam = {e: -30, n: 0, u: 2.5};
+    const aim = t => { const d = {e: t.e-cam.e, n: t.n-cam.n, u: t.u-cam.u};
+      const l = Math.hypot(d.e,d.n,d.u); return {e:d.e/l, n:d.n/l, u:d.u/l}; };
+
+    const front = api.hit(aim({e: -8, n: 0, u: 4}), cam);
+    check('S154', 'the garage gutter lands on the garage',
+      front && Math.abs(front.e - (-8)) < 0.5,
+      front ? 'landed at e=' + front.e.toFixed(2) : 'hit nothing');
+
+    /* ⚠ THE ONE THE OWNER ASKED FOR. This ray clears the garage roof entirely
+       and is aimed at the gutter of the house behind it, four metres back. */
+    const back = api.hit(aim({e: -4, n: 0, u: 8}), cam);
+    check('S154', 'a gutter further back lands further back',
+      back && Math.abs(back.e - (-4)) < 0.5,
+      back ? 'landed at e=' + back.e.toFixed(2) +
+             ' (-8 means it was caught by the garage wall carried into the sky)' : 'hit nothing');
+    check('S154', 'so the two gutters are four metres apart on the map',
+      front && back && (back.e - front.e) > 3,
+      'got ' + (front && back ? (back.e - front.e).toFixed(2) : '?') +
+      ' m; if this is 0 the sky view draws them as one straight line');
+
+    /* ⚠ AND HEIGHT MUST STILL BE HEIGHT. Two clicks up the same wall differ in
+       height and NOT in depth - that half was never broken and must not be
+       "fixed" into depth by mistake. */
+    const lo = api.hit(aim({e: -8, n: 0, u: 2.0}), cam);
+    const hi = api.hit(aim({e: -8, n: 0, u: 3.5}), cam);
+    check('S154', 'clicking higher up one wall changes height, not depth',
+      lo && hi && Math.abs(hi.e - lo.e) < 0.3 && (hi.u - lo.u) > 1,
+      lo && hi ? 'depth moved ' + Math.abs(hi.e-lo.e).toFixed(2) + ' m, height moved ' +
+                 (hi.u-lo.u).toFixed(2) + ' m' : 'hit nothing');
+
+    /* Three dots across a stepped house are not collinear in plan. That is the
+       "sky view is saying its all a straight line" symptom, directly. */
+    const a1 = api.hit(aim({e: -8, n:  2, u: 4}), cam);
+    const a2 = api.hit(aim({e: -8, n: -2, u: 4}), cam);
+    const a3 = back;
+    const spread = [a1,a2,a3].every(Boolean)
+      ? Math.max(a1.e,a2.e,a3.e) - Math.min(a1.e,a2.e,a3.e) : -1;
+    check('S154', 'dots across a stepped house are not one straight line from above',
+      spread > 3, 'depth spread across the three is ' + spread.toFixed(2) + ' m');
+
+    /* A wall may not be used above the roof it holds up. */
+    check('S154', 'a wall stops at its own roof',
+      /pu > roofU \+ RM_EAVE_TOL_M/.test(pick('rmFaceWallHit') || ''),
+      'otherwise a ray clearing a low garage is caught by the garage front');
+    /* A face is bounded by its own patch, never the whole building. */
+    check('S154', 'a roof face is bounded by its own patch, not the building box',
+      !/rmInsideFootprint/.test(pick('rmRoofSurfaceHit') || '') &&
+      /rmFaceBoxLocal/.test(pick('rmRoofSurfaceHit') || ''),
+      'bounding a face by the whole footprint flattens every set-back');
+  }
+}
+
+
+suite('155. Measure Roof - the wheel zooms, at the pointer, while placing dots');
+{
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+
+  /* Owner: "also add zoom features so i can scroll with my mouse to zoom."
+     While dots are being placed both panes are covered by a transparent sheet -
+     the only way to catch a click, because the map and the panorama swallow
+     their own - and Google's scrollwheel is switched off at the same moment.
+     So there was no way to get closer to a corner without leaving dot mode. */
+  check('S155', 'the sky sheet takes the wheel',
+    /getElementById\('rmMapLock'\)\.addEventListener\('wheel'/.test(admin));
+  check('S155', 'the street sheet takes the wheel',
+    /getElementById\('rmPanoLock'\)\.addEventListener\('wheel'/.test(admin));
+  /* ⚠ A wheel listener that means to preventDefault MUST say passive:false, or
+     the browser ignores it and scrolls the page behind the tool instead. */
+  const wheelBlocks = (admin.match(/addEventListener\('wheel'[\s\S]*?\{passive: false\}\)/g) || []);
+  check('S155', 'both say passive:false, or the page scrolls instead',
+    wheelBlocks.length === 2, 'found ' + wheelBlocks.length + ' of 2');
+
+  const fn = pick('rmZoomKeepPoint');
+  if (!fn) {
+    check('S155', 'the pointer-anchor maths is findable', false, 'rmZoomKeepPoint missing');
+  } else {
+    const api = new Function(
+      'const rmRad = d => d*Math.PI/180;' + LF_ +
+      'function rmFovDeg(zoom){ return 180 / Math.pow(2, zoom); }' + LF_ +
+      fn + LF_ + 'return rmZoomKeepPoint;')();
+    /* ⭐ ZOOMING AT THE POINTER, not at the middle. Zooming to the centre
+       throws whatever you were aiming at off the screen, which on a roof
+       corner means hunting for it again after every notch. */
+    check('S155', 'zooming in leans the aim toward the pointer',
+      api(1, 1.25) > 0 && api(1, 1.25) < 1,
+      'got ' + api(1, 1.25).toFixed(3) + ' - must be a fraction of the way, never past it');
+    check('S155', 'zooming out leans it back the other way',
+      api(1.25, 1) < 0,
+      'the point under the pointer moves toward the middle as the view widens');
+    check('S155', 'and standing still moves nothing',
+      Math.abs(api(1, 1)) < 1e-12);
+    /* The swing must never overshoot the pointer, at any step size. */
+    let worst = 0;
+    for (let z = 0.4; z <= 4; z += 0.05) worst = Math.max(worst, api(z, Math.min(4, z + 0.25)));
+    check('S155', 'no step ever swings past the pointer',
+      worst < 1, 'the biggest swing was ' + worst.toFixed(3) + ' of the way');
+  }
+
+  /* The sky pan-back keeps the spot under the pointer after the zoom. */
+  check('S155', 'the map pans back by the amount the zoom moved the spot',
+    /rmMap\.panBy\(dx \* \(scale - 1\), dy \* \(scale - 1\)\)/.test(admin),
+    'without this the map zooms to its centre and the corner leaves the screen');
+  check('S155', 'the wheel is allowed closer than the automatic framing is',
+    /RM_WHEEL_ZOOM_MAX = 4/.test(admin) && /RM_ZOOM_MAX = 2\.3/.test(admin),
+    'the framing stays wide so it never ends up looking at a blank wall; a hand on the wheel is deliberate');
 }
 
 Promise.all(pendingAsync).then(function () {
