@@ -4436,6 +4436,7 @@
                   <div style="display:flex; gap:6px; margin-top:6px;">
                     <button type="button" class="btn btn-outline btn-sm" id="rmEndStrandBtn" style="padding:4px 10px; font-size:11px;">End this strand</button>
                     <button type="button" class="btn btn-outline btn-sm" id="rmClearDotsBtn" style="padding:4px 10px; font-size:11px;">Clear all dots</button>
+                    <button type="button" class="btn btn-outline btn-sm" id="rmSuggestBtn" style="padding:4px 10px; font-size:11px;">Suggest corners</button>
                     <button type="button" class="btn btn-outline btn-sm" id="rmModelBtn" style="padding:4px 10px; font-size:11px;">Show assumed house</button>
                   </div>
                 </div>
@@ -16290,6 +16291,14 @@ const rmDeg = r => r * 180 / Math.PI;
    string diagonally across a roof, so swapping a pair has to renumber
    everything after it, not just relabel two dots. */
 let rmCorners = [];              /* {lat, lng, h, on} in the order they join */
+/* ⭐ CORNERS THE SYSTEM OFFERS, which nobody has kept yet. Owner: "also start
+   getting the generated corners and you can click the ones you want to keep."
+   They are drawn faintly and small, they carry no number, and they count for
+   nothing until they are clicked - a suggestion that behaves like a decision is
+   worse than no suggestion. Clicking one turns it into a real corner in the
+   order it was clicked, so the office is choosing the run as well as the
+   corners. */
+let rmCandidates = [];
 let rmCornerMode = 'dot';        /* 'dot' places corners, 'select' picks them */
 let rmSwapFrom = null;           /* the first half of a shift-click swap */
 /* ⭐ WHICH STRAND IS BEING DRAWN. Owner: "give me a way to end the strand."
@@ -17290,6 +17299,73 @@ function rmRoofTopM(){
     if(top === null || plane.point.u > top) top = plane.point.u;
   });
   return top;
+}
+
+/* The corners worth offering: the ends of the walls the model believes are
+   there, and the steps between them.
+   ⚠ THIS IS AN INTERIM SOURCE AND IT IS SIGNED AS ONE. It comes from Google's
+   overhead roof segments, which the owner has ruled out for deciding where
+   anything goes - "we outline from street view not sky view". It is here
+   because the workflow she asked for, offer-and-pick, is worth having before
+   the street-side generator lands, and because SHE is the filter: a rough
+   suggestion she rejects costs one glance, where a rough line drawn as fact
+   costs a wrong quote. When the depth-map generator arrives this is the only
+   function that has to change. */
+function rmCornerCandidates(){
+  const wire = rmHouseWireframe();
+  if(!wire.length) return [];
+  const out = [];
+  const seen = [];
+  wire.forEach(function(sg){
+    [sg.a, sg.b].forEach(function(p){
+      /* One corner, however many walls meet at it. */
+      for(let i = 0; i < seen.length; i++){
+        if(Math.hypot(seen[i].e - p.e, seen[i].n - p.n) < 0.8 &&
+           Math.abs(seen[i].u - p.u) < 0.8) return;
+      }
+      seen.push(p);
+      const w = rmToWorld({e: p.e, n: p.n, u: p.u});
+      out.push({lat: w.lat, lng: w.lng, h: p.u, from: 'model'});
+    });
+  });
+  return out;
+}
+
+/* Which offered corner a click is for, if any. */
+function rmCandidateUnderClick(px, py, W, H, pov, cam){
+  let best = -1, bd = RM_PIN_GRAB_PX;
+  rmCandidates.forEach(function(c, i){
+    const q = rmSvProject({lat: c.lat, lng: c.lng, h: c.h}, W, H, pov, cam);
+    if(!q) return;
+    const d = Math.hypot(q.x - px, q.y - py);
+    if(d < bd){ bd = d; best = i; }
+  });
+  return best;
+}
+
+/* Keep one. It becomes a corner in the order it was clicked, and stops being
+   offered - it has been decided. */
+function rmKeepCandidate(i){
+  const c = rmCandidates[i];
+  if(!c) return false;
+  rmCandidates.splice(i, 1);
+  rmAddCorner({lat: c.lat, lng: c.lng, h: c.h});
+  return true;
+}
+
+function rmSuggestCorners(){
+  rmCandidates = rmCornerCandidates().filter(function(c){
+    /* Not one already kept - offering a corner that is already a dot is noise. */
+    return !rmCorners.some(function(k){
+      return Math.abs(k.lat - c.lat) < 2e-6 && Math.abs(k.lng - c.lng) < 2e-6;
+    });
+  });
+  rmPaintStreet();
+  const note = document.getElementById('rmCornerNote');
+  if(note) note.textContent = rmCandidates.length
+    ? rmCandidates.length + ' corners offered — click the ones you want. The rest are ignored.'
+    : '⚠ No corners could be worked out for this house.';
+  return rmCandidates.length;
 }
 
 /* Whatever the click is really pointing at: the nearest surface of the solid. */
@@ -18632,6 +18708,20 @@ function rmPaintStreet(){
       parts.push('<circle cx="'+p.x+'" cy="'+p.y+'" r="3" fill="#fff" stroke="'+colour+'" stroke-width="1.5"/>');
     });
   });
+  /* ⭐ THE CORNERS BEING OFFERED, drawn under the kept ones and much quieter.
+     Owner: "also start getting the generated corners and you can click the ones
+     you want to keep", and separately "the dots should look clean and small so
+     theyre not hindering the view of the house."
+     A suggestion has to be visible enough to aim at and quiet enough that it
+     never reads as a decision, so it is a small hollow ring with no number. The
+     click target is invisible and generous, which costs nothing on screen. */
+  rmCandidates.forEach(function(c, i){
+    const q = rmSvProject({lat: c.lat, lng: c.lng, h: c.h}, W, H, pov, cam);
+    if(!q) return;
+    parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="4" fill="none" stroke="rgba(0,0,0,.45)" stroke-width="2.5"/>');
+    parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="4" fill="none" stroke="#F4BE55" stroke-width="1.4"/>');
+    parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="11" fill="rgba(0,0,0,0)" style="pointer-events:none;"/>');
+  });
   /* ⭐ THE CORNERS, WITH THEIR NUMBERS ON. Drawn last so they sit above the
      lines, and drawn whether they are switched on or not - a corner you cannot
      see is a corner you cannot pick, which is the whole point of numbering
@@ -19307,6 +19397,7 @@ function rmReset(){
   document.getElementById('rmHeightPanel').style.display = 'none';
   document.getElementById('rmMaterialPanel').style.display = 'none';
   document.getElementById('rmPricePanel').style.display = 'none';
+  rmCandidates = [];
   rmRoofGrade = ''; rmRoofFacts = null; rmFaces = [];
   rmModelCache = null; rmModelKey = '';
   rmModelLines.forEach(function(l){ l.setMap(null); }); rmModelLines = [];
@@ -19416,6 +19507,13 @@ function openRoofMeasure(quoteId){
       rmToggleCorner(i);
     }
   });
+  document.getElementById('rmSuggestBtn').addEventListener('click', function(){
+    if(rmCandidates.length){ rmCandidates = []; rmPaintStreet();
+      const n = document.getElementById('rmCornerNote');
+      if(n) n.textContent = 'Suggestions cleared. The dots you kept stay.';
+      return; }
+    rmSuggestCorners();
+  });
   document.getElementById('rmModelBtn').addEventListener('click', function(){ rmSetShowModel(!rmShowModel); });
   document.getElementById('rmEndStrandBtn').addEventListener('click', function(){ rmEndStrand(); });
   document.getElementById('rmClearDotsBtn').addEventListener('click', function(){
@@ -19523,6 +19621,17 @@ function openRoofMeasure(quoteId){
          which is geometry rather than a model - so a second sighting of the
          same corner replaces the guess with the real thing, and a third
          narrows it further. */
+      /* ⭐ AN OFFERED CORNER IS TAKEN BY CLICKING IT, and that is checked before
+         anything else - somebody aiming at a ring means that ring, not a fresh
+         dot a few inches off it. */
+      const cand = rmCandidateUnderClick(e.clientX - r.left, e.clientY - r.top, W, H, rmPanoPov(), cam);
+      if(cand >= 0){
+        rmKeepCandidate(cand);
+        const cn = document.getElementById('rmCornerNote');
+        if(cn) cn.textContent = 'Kept — that is ' + rmCornerLabel(rmCorners.length - 1) + '. ' +
+          rmCandidates.length + ' still offered.';
+        return;
+      }
       const near = rmDotUnderClick(e.clientX - r.left, e.clientY - r.top, W, H, rmPanoPov(), cam);
       if(near >= 0){
         const res = rmPinCorner(near, {cam: {e: cam.e, n: cam.n, u: cam.u}, dir: dir});

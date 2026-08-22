@@ -35096,6 +35096,89 @@ suite('157. Measure Roof - the house the system assumes, drawn before anything e
 
 /* ===== ROOFLINE SUITES - lanil-9d appends BELOW this line ===== */
 
+suite('161. Measure Roof - corners are offered, and only the ones clicked count');
+{
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+
+  /* Owner: "also start getting the generated corners and you can click the ones
+     you want to keep."
+     ⚠ THE WHOLE POINT IS THAT A SUGGESTION IS NOT A DECISION. Every previous
+     attempt at automatic lines failed by drawing its guesses as facts, and the
+     office could not tell which was which. Offered corners carry no number,
+     count for nothing, and become real only when clicked. */
+  const NEED = ['rmCornerCandidates','rmCandidateUnderClick','rmKeepCandidate','rmSuggestCorners'];
+  const missing = NEED.filter(n => !pick(n));
+  if (missing.length) {
+    check('S161', 'the offer-and-pick path is findable', false, 'missing: ' + missing.join(', '));
+  } else {
+    const api = new Function(
+      'let rmCandidates = []; let rmCorners = []; let rmCurrentBand = 0;' + LF_ +
+      'let rmOrigin = {lat: 40, lng: -111};' + LF_ +
+      'function rmDatum(){ return {m: 3}; }' + LF_ +
+      'function rmCornersChanged(){}' + LF_ +
+      ['rmMetresPerDeg','rmToWorld','rmAddCorner','rmKeepCandidate'].map(pick).join(LF_) + LF_ +
+      'return {keep: rmKeepCandidate,' +
+      ' set: function(c){ rmCandidates = c; }, cands: function(){ return rmCandidates; },' +
+      ' corners: function(){ return rmCorners; }};')();
+
+    api.set([{lat: 40.0001, lng: -111.0001, h: 5, from: 'model'},
+             {lat: 40.0002, lng: -111.0002, h: 6, from: 'model'}]);
+    check('S161', 'an offered corner counts for nothing until it is clicked',
+      api.corners().length === 0 && api.cands().length === 2,
+      'a suggestion that behaves like a decision is worse than no suggestion');
+
+    api.keep(0);
+    check('S161', 'clicking one turns it into a real corner',
+      api.corners().length === 1 && Math.abs(api.corners()[0].h - 5) < 1e-9,
+      'and it keeps the height it was offered at');
+    check('S161', 'and it stops being offered, because it has been decided',
+      api.cands().length === 1,
+      'leaving it on screen invites keeping the same corner twice');
+    check('S161', 'the one not clicked is simply ignored',
+      api.cands().length === 1 && Math.abs(api.cands()[0].h - 6) < 1e-9,
+      'rejecting a suggestion costs one glance; that is the whole bargain');
+    check('S161', 'keeping something that is not there does nothing',
+      api.keep(99) === false && api.corners().length === 1);
+
+    /* ⭐ THE ORDER IS THE OFFICE'S, NOT THE MODEL'S. They join in the order they
+       were clicked, so picking the corners picks the run as well. */
+    const before = api.corners().length;
+    api.keep(0);
+    check('S161', 'they join in the order they were clicked',
+      api.corners().length === before + 1 &&
+      Math.abs(api.corners()[before].h - 6) < 1e-9,
+      'the office is choosing the strand, not just the corners');
+  }
+
+  /* Quiet on screen: a ring, no number, and drawn under the kept dots. */
+  check('S161', 'an offered corner is a small hollow ring with no number',
+    /rmCandidates\.forEach\(function\(c, i\)\{[\s\S]{0,600}fill="none"[\s\S]{0,300}#F4BE55/.test(admin) &&
+    !/rmCandidates\.forEach[\s\S]{0,600}<text/.test(admin),
+    'owner: "the dots should look clean and small so theyre not hindering the view"');
+  check('S161', 'and it is drawn before the kept corners, so it sits under them',
+    (function(){
+      const a = admin.indexOf('rmCandidates.forEach(function(c, i){');
+      const b = admin.indexOf('THE CORNERS, WITH THEIR NUMBERS ON');
+      return a !== -1 && b > a;
+    })());
+  /* A click on a ring means that ring. */
+  check('S161', 'a click on a ring takes it rather than dropping a new dot beside it',
+    (function(){
+      const a = admin.indexOf('const cand = rmCandidateUnderClick(');
+      const b = admin.indexOf('const near = rmDotUnderClick(', a);
+      const c = admin.indexOf('rmAddCorner({lat: w.lat', a);
+      return a !== -1 && b > a && c > a;      /* candidates checked first */
+    })(),
+    'aiming at a suggestion and getting a fresh dot an inch away is maddening');
+  /* Signed as interim, because the source is the one she ruled out. */
+  check('S161', 'the interim source says so, and says what replaces it',
+    /THIS IS AN INTERIM SOURCE AND IT IS SIGNED AS ONE/.test(admin) &&
+    /depth-map generator/.test(admin),
+    'it comes from overhead segments, which she ruled out for deciding placement');
+}
+
+
 suite('160. Measure Roof - a click on nothing is refused, and the scaffolding is quiet');
 {
   /* ⭐ CLICKING THE SKY USED TO PLACE A DOT. Found by the other session driving
