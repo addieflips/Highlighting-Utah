@@ -18879,30 +18879,45 @@ function openRoofMeasure(quoteId){
       if(rmWallPicking){ rmWallPicking = false; rmWallPts = []; rmSetDrawing(false); rmPaintStreet(); }
       else if(rmDrawing) rmSetDrawing(false);
       else document.getElementById('rmCloseBtn').click();
-    } else if(k === 'ArrowLeft' || k === 'ArrowRight'){
-      /* ⭐ LOOK ROUND. Owner: "I cant place dot from multiple angles make it so
-         I can use my arrow keys to do that." A corner hidden behind a tree from
-         one spot is in plain sight from ten metres along. */
+    } else if(k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp' || k === 'ArrowDown'){
+      /* ⭐ THE ARROWS MOVE, THEY DO NOT TURN. Owner: "the arrow keys are making
+         me turn, I want the arrow keys to make me move right and left."
+         Turning only changes what is in frame, and the frame is already aimed
+         at the house. What somebody needs when a corner is behind a tree is to
+         STAND SOMEWHERE ELSE, so left and right walk along the street and up
+         and down go toward the house and back.
+
+         ⚠ AND THE VIEW IS RE-AIMED AFTER EVERY STEP. Moving without turning
+         back toward the house leaves it off the edge of the frame within two
+         presses, and then the arrows feel broken rather than useful. */
       e.preventDefault();
-      if(!rmPano) return;
-      const pv = rmPanoPov();
-      rmPano.setPov({heading: pv.heading + (k === 'ArrowRight' ? 12 : -12), pitch: pv.pitch});
-    } else if(k === 'ArrowUp' || k === 'ArrowDown'){
-      /* ⚠ AND MOVE, not just turn. Turning changes what is in frame; only
-         MOVING changes what is hidden behind what. Google's own links are the
-         places it has actually stood, so stepping between them is the honest
-         way to get another angle on the same roof. */
-      e.preventDefault();
-      if(!rmPano) return;
+      if(!rmPano || !rmOrigin) return;
       const links = rmPano.getLinks() || [];
       if(!links.length) return;
-      const facing = rmPanoPov().heading + (k === 'ArrowUp' ? 0 : 180);
+      const toHouse = rmPanoPov().heading;         /* the frame is aimed at it */
+      const want = toHouse + (k === 'ArrowLeft' ? -90 : k === 'ArrowRight' ? 90
+                            : k === 'ArrowUp' ? 0 : 180);
       let best = null, bd = 999;
       links.forEach(function(l){
-        const d = Math.abs(((l.heading - facing) % 360 + 540) % 360 - 180);
+        const d = Math.abs(((l.heading - want) % 360 + 540) % 360 - 180);
         if(d < bd){ bd = d; best = l; }
       });
-      if(best && best.pano) rmPano.setPano(best.pano);
+      /* ⚠ Only if there really is a way that way. The nearest link to "left"
+         on a dead-end street is the one straight ahead, and stepping to it
+         when somebody pressed left is worse than not moving. */
+      if(!best || bd > 70) return;
+      const wasFramed = rmFramed;
+      rmPano.setPano(best.pano);
+      /* Re-aim once the new place is known. rmFramed is put back so the zoom
+         is left alone - the office has already framed this house. */
+      google.maps.event.addListenerOnce(rmPano, 'position_changed', function(){
+        const pos = rmPano.getPosition();
+        if(!pos) return;
+        rmPano.setPov({heading: rmHeadingTo(pos.lat(), pos.lng(), rmOrigin.lat, rmOrigin.lng),
+                       pitch: rmPanoPov().pitch});
+        rmFramed = wasFramed;
+        rmPaintStreet();
+      });
     } else if(k === 'Enter'){
       /* ⭐ END THE STRAND. Owner: "also give me a way to end the strand." The
          top of a house and the bottom are separate runs of string, so a dot has
