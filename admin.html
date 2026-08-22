@@ -39357,7 +39357,21 @@ function renderStats(){
   const done=installs.filter(h=>h.done).length, remaining=installs.length-done;
   const rev=installs.reduce((a,h)=>a+(typeof h.price==='number'?h.price:0),0), pct=installs.length?Math.round(done/installs.length*100):0;
   const fixesTotal=routedFixes().length+FIXLIST.length, fixesDone=routedFixes().filter(h=>h.done).length;
+  /* ⭐ THE SEASON'S DRIVING, on the same bar as everything else it should be
+     weighed against. Owner: "total mile per crew, per day, and per season."
+     Guarded so a page without the mileage helpers still renders the other five. */
+  let milesCell = '';
+  try{
+    if(typeof seasonMilesTotal === 'function'){
+      const sm = seasonMilesTotal();
+      milesCell = fmtMiles(sm.miles) +
+        (sm.total && sm.pinned < sm.total
+          ? ' <span style="font-size:14px;color:var(--muted)">/ ' + sm.pinned + ' of ' + sm.total + ' on the map</span>'
+          : '');
+    }
+  }catch(err){ milesCell = ''; }
   const s=[['Houses',installs.length,''],['Remaining',remaining,'remain'],['Completed',done+' <span style="font-size:14px;color:var(--muted)">/ '+pct+'%</span>','bar'],['Revenue','$'+rev.toLocaleString(),''],['New members',newHouses().length,''],['Fixes done',fixesDone+' <span style="font-size:14px;color:var(--muted)">/ '+fixesTotal+'</span>','']];
+  if(milesCell) s.push(['Season driving', milesCell, '']);
   RT.getElementById('stats').innerHTML=s.map(x=>'<div class="stat '+(x[2]==='remain'?'remain':'')+'"><div class="n">'+x[1]+'</div><div class="l">'+x[0]+'</div>'+(x[2]==='bar'?'<div class="obar"><i style="width:'+pct+'%"></i></div>':'')+'</div>').join('');
 }
 function renderSeasonBar(){
@@ -39509,6 +39523,93 @@ function dayRouteGroups(day){
   const spare = houses.filter(function(x){ return !seen.has(x); });
   if(spare.length) out.push({label: 'Not on either crew’s route', houses: spare, spare: true});
   return out;
+}
+/* ⭐ WHAT A DAY ACTUALLY COSTS IN MILES (added 2026-08-22).
+   Owner: "have it tell you total miles driven for the day for each crew so we can
+   track that", and "total mile per crew, per day, and per season."
+
+   ⚠ IT MEASURES THE ROUND TRIP, not the distance between the houses. The drive out
+   of the yard and the drive home are the two legs nobody was counting, and on this
+   book they are the MAJORITY of the mileage — measured 2026-08-22 over the whole
+   season: 749 of 1,385 miles, 54%. A figure that leaves them out would say a far
+   crew-day of eleven houses was cheap, when it is the most expensive kind there is.
+
+   ⚠ IT MEASURES THE ORDER THE CREW WILL ACTUALLY DRIVE, by asking the same
+   orderHousesForDriving the printed sheet uses. Measuring the day in whatever order
+   the houses happen to sit in would report a number nobody drives, and would drift
+   away from the sheet the moment the orderer changed.
+
+   ⚠ HOUSES WITH NO MAP PIN ARE SKIPPED, NOT GUESSED. They are real customers and
+   they are still on the sheet; there is simply no way to know what they add. So the
+   number is a floor, and `pinned` says how much of the day it covers — a mileage
+   figure that quietly ignored a third of a day would be worse than none.
+
+   Straight-line miles, deliberately: this is for comparing days and seasons against
+   each other, and every route asks the same tape measure. Real road miles would be
+   larger by roughly a fifth and would need a paid API call per leg. */
+function routeMilesForPoints(points){
+  const pts = (points || []).filter(function(p){
+    return p && typeof p.lat === 'number' && typeof p.lng === 'number' &&
+           isFinite(p.lat) && isFinite(p.lng);
+  });
+  if(!pts.length) return 0;
+  const home = (typeof routeHomePoint === 'function') ? routeHomePoint() : null;
+  let miles = 0;
+  if(home) miles += haversine(home.lat, home.lng, pts[0].lat, pts[0].lng);
+  for(let i = 1; i < pts.length; i++){
+    miles += haversine(pts[i-1].lat, pts[i-1].lng, pts[i].lat, pts[i].lng);
+  }
+  if(home) miles += haversine(pts[pts.length-1].lat, pts[pts.length-1].lng, home.lat, home.lng);
+  return miles;
+}
+/* One crew's day: the houses they hold, in the order they will drive them. */
+function crewDayMiles(day, i){
+  if(!day) return {miles: 0, pinned: 0, total: 0};
+  const mine = (typeof crewHousesFor === 'function') ? crewHousesFor(i, day) : [];
+  if(!mine.length) return {miles: 0, pinned: 0, total: 0};
+  const ordered = (typeof orderHousesForDriving === 'function') ? orderHousesForDriving(mine) : mine;
+  const pts = ordered.map(function(h){
+    return (typeof houseStopPoint === 'function') ? houseStopPoint(h) : null;
+  }).filter(Boolean);
+  const pinned = pts.filter(function(p){
+    return typeof p.lat === 'number' && isFinite(p.lat);
+  }).length;
+  return {miles: routeMilesForPoints(pts), pinned: pinned, total: mine.length};
+}
+/* The whole day — both crews, each driving their own round trip out of the yard.
+   ⚠ SUMMED PER CREW, never as one list. Two crews leave the yard separately and
+   come back separately, so a day of two crews pays the commute TWICE; treating the
+   day as a single tour would report about half the real cost. */
+function dayMilesTotal(day){
+  let miles = 0, pinned = 0, total = 0;
+  if(!day) return {miles: 0, pinned: 0, total: 0};
+  if(day.isFixRoute){
+    const one = crewDayMiles(day, 0);
+    return one.total ? one : {miles: routeMilesForPoints((day.houses || []).map(function(h){
+      return (typeof houseStopPoint === 'function') ? houseStopPoint(h) : null;
+    }).filter(Boolean)), pinned: 0, total: (day.houses || []).length};
+  }
+  (typeof CREWS !== 'undefined' ? CREWS : [0,1]).forEach(function(c, i){
+    const m = crewDayMiles(day, i);
+    miles += m.miles; pinned += m.pinned; total += m.total;
+  });
+  return {miles: miles, pinned: pinned, total: total};
+}
+/* Every install day of the season. Takedowns and fixer routes are their own trips
+   and are counted separately rather than folded in — a season total that silently
+   mixed hanging with taking down could not be compared with last year's. */
+function seasonMilesTotal(){
+  const days = (typeof installDays === 'function') ? installDays() : [];
+  let miles = 0, pinned = 0, total = 0;
+  days.forEach(function(d){
+    const m = dayMilesTotal(d);
+    miles += m.miles; pinned += m.pinned; total += m.total;
+  });
+  return {miles: miles, pinned: pinned, total: total, days: days.length};
+}
+function fmtMiles(m){
+  if(!isFinite(m) || m <= 0) return '0 mi';
+  return (m < 10 ? m.toFixed(1) : Math.round(m).toLocaleString()) + ' mi';
 }
 const ROUTE_PIC_COLOURS = ['var(--green)', 'var(--gold)', '#2b6cb0', '#7b3fa0'];
 function routePictureHTML(day){
@@ -39801,6 +39902,28 @@ function renderPanelInto(elId,day){
        straight to the two ways out. */
     ((n&&left>0)?'<button class="mini warn" data-leftover="'+day.id+'">'+(dc>0?left+' not done — reschedule…':'Not all of them got '+(td?'removed':'done')+'…')+'</button>':'')+
     '<button class="mini" data-printday="'+day.id+'">Print This Day</button>'+
+    /* ⭐ WHAT THIS DAY COSTS TO DRIVE, per crew and in total. Owner: "have it tell
+       you total miles driven for the day for each crew so we can track that."
+       Read-only, worked out at draw time, and never stored — it follows whatever
+       the day currently holds, so moving a house changes it immediately. */
+    (function(){
+      try{
+        if(typeof dayMilesTotal !== 'function') return '';
+        const dm = dayMilesTotal(day);
+        if(!dm.total) return '';
+        const perCrew = (day.isFixRoute || typeof CREWS === 'undefined') ? [] :
+          CREWS.map(function(c, i){
+            const m = crewDayMiles(day, i);
+            return m.total ? esc(crewName(i)) + ' ' + fmtMiles(m.miles) : '';
+          }).filter(Boolean);
+        return '<span class="read" style="margin-left:8px;font-weight:600" title="Out of the yard, round the day, and back — straight-line miles">' +
+          '⛽ ' + fmtMiles(dm.miles) +
+          (perCrew.length > 1 ? ' <span style="font-weight:500;color:var(--muted)">(' + perCrew.join(' · ') + ')</span>' : '') +
+          (dm.pinned < dm.total ? ' <span style="font-weight:500;color:var(--muted)">· ' +
+            (dm.total - dm.pinned) + ' not on the map</span>' : '') +
+          '</span>';
+      }catch(err){ return ''; }
+    })()+
     /* One sheet per crew, headed with that crew's name, so each gets only
        their own city's stops. Offered only when that crew actually has
        something on this day — a button that prints an empty page is worse
@@ -40582,7 +40705,13 @@ function rebuildSeasonDays(){
     try{
       return planSweeps(waiting.map(function(w){
         return {id:w.id, lat:(w.stop&&w.stop.lat), lng:(w.stop&&w.stop.lng), sweep:w.sweep};
-      }), {cap: MAX_STOPS_PER_ROUTE, sweepOrder: [...new Set(waiting.map(function(w){return w.sweep;}))].sort()});
+      }), {cap: MAX_STOPS_PER_ROUTE,
+           sweepOrder: [...new Set(waiting.map(function(w){return w.sweep;}))].sort(),
+           /* Where the vans leave from, so the grid can put the short block at the
+              end of a run nearest the yard rather than wherever it happened to fall
+              — see the depot note in cutIntoBlocks. Over half the season's mileage
+              is the commute, so which end is short is worth real fuel. */
+           depot: (typeof routeYardPoint === 'function') ? routeYardPoint() : null});
     }catch(err){ console.error('The grid could not be built — falling back to towns:', err); return null; }
   })();
   /* The ids handed to the grid ARE the waiting keys, so everything it gives back
@@ -41695,6 +41824,37 @@ RT.addEventListener('click',e=>{const t=e.target;
        un-print paper, and pretending otherwise is worse than saying so. */
     if(r.stillSet) parts.push(r.stillSet+' out for the season but still on a day that is set — check those by hand');
     parts.push(routes.days?('routes generated for '+routes.days+' day'+(routes.days===1?'':'s')):'no routes needed generating');
+    /* ⭐ AND WHAT THE SEASON NOW COSTS TO DRIVE. Owner, 2026-08-22: "total mile per
+       crew, per day, and per season", and "be sure that all this calculations happens
+       when you click the button recalculate everything."
+
+       ⚠ IT IS MEASURED HERE, AFTER generateAllRoutes, and that ordering is the whole
+       point: mileage depends on the ORDER the crews drive, so a figure taken before
+       the routes were regenerated would describe the plan that has just been thrown
+       away. Everything this button changes — the grid, the blocks, the crew split,
+       the driving order — is already done by the time this line runs.
+
+       ⚠ AND IT IS REPORTED RATHER THAN ONLY DRAWN. The number is on the stats bar
+       either way, but a season that quietly got 200 miles worse after a rebuild is
+       exactly the thing nobody notices on a bar they have stopped reading. Saying it
+       in the same sentence as "rebuilt 27 days" puts the cost next to the change
+       that caused it.
+       ⚠ The far-away list is named here for the same reason: those houses were taken
+       OUT of the schedule, and a customer silently leaving the plan is the one
+       outcome of this button nobody could otherwise explain. */
+    try{
+      if(typeof seasonMilesTotal === 'function'){
+        const sm = seasonMilesTotal();
+        if(sm.miles > 0){
+          parts.push('about ' + fmtMiles(sm.miles) + ' of driving across the season' +
+            (sm.total && sm.pinned < sm.total ? ' (' + (sm.total - sm.pinned) + ' not on the map)' : ''));
+        }
+      }
+      const nFar = (typeof SEASON_OUTLIERS !== 'undefined' && SEASON_OUTLIERS) ? SEASON_OUTLIERS.length : 0;
+      const nThin = (typeof SEASON_THIN !== 'undefined' && SEASON_THIN) ? SEASON_THIN.length : 0;
+      if(nFar) parts.push(nFar + ' too far out to schedule — see Far Away');
+      if(nThin) parts.push(nThin + ' on a short day — see Far Away');
+    }catch(err){ console.error('Could not total the season mileage:', err); }
     /* ⭐ AND IT NAMES WHAT IT COULD NOT PUT IN ORDER. See houseHasPin: these are
        on their day and on the sheet, just at the bottom of it, because there is
        no map pin to order them against. Saying so is the difference between a

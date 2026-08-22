@@ -549,6 +549,43 @@ export function cutIntoBlocks(kept, opts, prefix){
 
   /* Pockets too thin to be a day join their nearest neighbour; the ones with no
      neighbour within reach are not a crew's job at all — see mergeThinRuns. */
+  /* ⭐ THE SHORT BLOCK GOES WHERE THE COMMUTE IS CHEAPEST (added 2026-08-22).
+     Owner: "are there any changes you think we could make to have better fuel
+     optimization over the course of a season."
+
+     Measured on the real book first, because the answer was not the obvious one:
+     of 1,385 miles across the season, 749 — FIFTY-FOUR PER CENT — is the drive out
+     of the yard and back, not the driving between houses. So the mileage is decided
+     far more by how many trips there are and how far out they go than by how tidy
+     each route is.
+
+     And it was exactly backwards. The blocks furthest from the yard were the SHORT
+     ones: seven blocks averaging 14.4 houses on a 33.8-mile round trip, against 47
+     near blocks averaging 18.1 houses on 10.9 miles. The five worst were 43, 42, 41,
+     32 and 28-mile round trips carrying 13, 14, 16, 11 and 16 houses — a quarter of
+     all the commuting, spent on partly-empty vans.
+
+     Nothing in the code chose that; it fell out of splitRun always leaving its
+     remainder at the END of a run, wherever that happened to be. So each run is now
+     turned to face the yard: whichever end is nearer, that is the end the short
+     block lands on. The far end always gets a full crew-day.
+
+     ⚠ IT MOVES NOBODY AND COSTS NOTHING. Same houses, same blocks, same number of
+     days — only which end of the run is short changes. A block's contents are still
+     contiguous on the curve, and reversing a run cannot change that.
+     ⚠ WITHOUT A DEPOT IT DOES NOTHING, deliberately. run-all.js and any caller that
+     does not say where the yard is get exactly the old behaviour. */
+  if(o.depot && typeof o.depot.lat === 'number' && typeof o.depot.lng === 'number'){
+    runs.forEach(function(r){
+      if(r.length <= cap) return;                 /* one block: no remainder to place */
+      if(r.length % cap === 0) return;            /* divides evenly: no short block */
+      const head = r[0].house, tail = r[r.length - 1].house;
+      const dHead = distanceMiles(o.depot.lat, o.depot.lng, head.lat, head.lng);
+      const dTail = distanceMiles(o.depot.lat, o.depot.lng, tail.lat, tail.lng);
+      /* splitRun leaves the short block at the END, so the end must be the near one. */
+      if(dHead < dTail) r.reverse();
+    });
+  }
   const merged = mergeThinRuns(runs, Object.assign({}, o, {cap: cap}));
 
   const blocks = [];

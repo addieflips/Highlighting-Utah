@@ -32092,6 +32092,79 @@ suite('Suite 141. The grid the season is actually cut with');
       'there is no crew to pick on a list nobody is rostered for');
   }
 
+  /* ⭐ WHAT A DAY COSTS TO DRIVE (added 2026-08-22). Owner: "total mile per crew,
+     per day, and per season."
+     ⚠ RUN, NOT READ. The two mistakes here both UNDERSTATE, which is the dangerous
+     direction — a mileage figure that looks plausible and is 40% low is worse than
+     no figure, because it gets believed. */
+  {
+    const LF = String.fromCharCode(10);
+    const hs = admin.indexOf('function haversine(lat1, lng1, lat2, lng2)');
+    const he = admin.indexOf(LF + '}', hs) + 2;
+    const ms = admin.indexOf('function routeMilesForPoints(points){');
+    const me = admin.indexOf(LF + '}', ms) + 2;
+    if (hs === -1 || ms === -1) {
+      check('grid', 'the mileage maths is findable', false, 'renamed — update this test');
+    } else {
+      const HOME = { lat: 40.385409, lng: -111.862718 };
+      const api = eval(admin.slice(hs, he) + LF +
+        'function routeHomePoint(){return ' + JSON.stringify(HOME) + ';}' + LF +
+        admin.slice(ms, me) + LF + ';({miles: routeMilesForPoints, hav: haversine})');
+      const one = { lat: 40.42, lng: -111.86 };
+      const legOut = api.hav(HOME.lat, HOME.lng, one.lat, one.lng);
+      /* ⚠ THE ROUND TRIP IS THE POINT. Counting only the distance BETWEEN houses
+         reports a single-stop day as zero miles, and reports a far crew-day of
+         eleven houses as cheap when it is the most expensive kind there is. On the
+         real book these two legs are 54% of the whole season's driving. */
+      check('grid', 'a day is measured out of the yard and back, not house to house',
+        Math.abs(api.miles([one]) - legOut * 2) < 0.001,
+        'one stop must cost the drive there AND the drive home — got ' +
+        api.miles([one]).toFixed(2) + ' against ' + (legOut * 2).toFixed(2));
+      check('grid', 'houses with no map pin are skipped rather than guessed at',
+        Math.abs(api.miles([one, { lat: null, lng: null }]) - api.miles([one])) < 0.001,
+        'there is no way to know what they add, so the number is a floor and the ' +
+        'screen says how much of the day it covers');
+      check('grid', 'a day with nothing on the map is zero, not an error',
+        api.miles([{ lat: null, lng: null }]) === 0 && api.miles([]) === 0);
+      /* ⚠ TWO CREWS PAY THE COMMUTE TWICE. They leave the yard separately and come
+         back separately, so a day summed as ONE tour reports roughly half the real
+         cost. dayMilesTotal sums per crew for exactly this reason. */
+      const a = { lat: 40.42, lng: -111.86 }, b = { lat: 40.45, lng: -111.80 };
+      const asTwoCrews = api.miles([a]) + api.miles([b]);
+      const asOneTour = api.miles([a, b]);
+      check('grid', 'two crews on one day pay the drive out twice',
+        asTwoCrews > asOneTour + 1,
+        'summing a two-crew day as a single tour understates it badly — two crews ' +
+        asTwoCrews.toFixed(1) + ' mi against one tour ' + asOneTour.toFixed(1) + ' mi');
+      check('grid', 'and dayMilesTotal really does sum per crew',
+        /function dayMilesTotal[\s\S]{0,900}CREWS[\s\S]{0,200}crewDayMiles\(day, i\)/.test(admin),
+        'a single-tour implementation would pass every other check here');
+    }
+  }
+
+  /* ⭐ RECALCULATE EVERYTHING REALLY DOES RECALCULATE EVERYTHING (added 2026-08-22).
+     Owner: "be sure that all this calculations happens when you click the button
+     recalculate everything."
+     ⚠ THE ORDER IS THE CHECK, not merely the presence. Mileage depends on the ORDER
+     the crews drive, so a total taken BEFORE generateAllRoutes would describe the
+     plan that has just been thrown away — and it would look completely plausible. */
+  {
+    const btn = admin.indexOf("if(t.id==='recalcBtn'){");
+    const end = admin.indexOf('preRebuild=before;', btn);
+    const body = btn === -1 ? '' : admin.slice(btn, admin.indexOf('undoRebuildBtn', btn) + 4000);
+    check('grid', 'Recalculate rebuilds the season and regenerates the routes',
+      /rebuildSeasonDays\(\)/.test(body) && /generateAllRoutes\(\)/.test(body),
+      'the grid, the blocks and the crew split all happen inside rebuildSeasonDays');
+    check('grid', 'and totals the mileage AFTER the routes are regenerated',
+      body.indexOf('generateAllRoutes()') !== -1 &&
+      body.indexOf('seasonMilesTotal()') > body.indexOf('generateAllRoutes()'),
+      'measured first, it reports the mileage of the plan that was just replaced');
+    check('grid', 'and it names what came out of the schedule entirely',
+      /SEASON_OUTLIERS[\s\S]{0,400}too far out to schedule/.test(body),
+      'a customer silently leaving the plan is the one outcome of this button ' +
+      'nobody could otherwise explain');
+  }
+
   pendingAsync.push((async () => {
     const grid = await import('./js/grid.js');
 
