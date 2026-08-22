@@ -32270,17 +32270,27 @@ suite('130. Measure Roof — a triangle is not a flat line');
      used to be given one flat height for its whole length. */
   const LF_ = String.fromCharCode(10);
   const pick = n => extractFn(admin, n);
-  const NAMES = ['rmMetresPerDeg', 'rmToLocal', 'rmToWorld', 'rmFeetBetween', 'rmRoofHeightAt'];
+  /* ⚠ rmRoofHeightAt was SPLIT when the sea-level datum was removed: it now
+     calls rmRoofRelativeAt (the exact shape) and rmDatum (how high the lowest
+     eave is). Lifting only the outer one gave "rmRoofRelativeAt is not
+     defined" — the exact trap CLAUDE.md records. LIFT, never stub: a stub
+     would make the branch untestable while reporting green. */
+  const NAMES = ['rmMetresPerDeg', 'rmToLocal', 'rmToWorld', 'rmFeetBetween',
+                 'rmFaceEaveM', 'rmLowestPlaneM', 'rmDatum', 'rmRoofRelativeAt', 'rmRoofHeightAt'];
   const missing = NAMES.filter(n => !pick(n));
   if (missing.length) {
     check('S130', 'the roof-plane model is findable', false, 'missing: ' + missing.join(', '));
   } else {
     const api = new Function(
       'let rmOrigin={lat:40.2969,lng:-111.6946};' + LF_ +
-      'let rmFaces=[], rmGroundM=null;' + LF_ +
-      'const RM_M_TO_FT=3.280839895;' + LF_ +
+      'let rmFaces=[], rmRoofDatumM=null, rmDatumSource="";' + LF_ +
+      'const RM_M_TO_FT=3.280839895, RM_ASSUMED_EAVE_M=3;' + LF_ +
+      /* The datum is handed in as a "typed" height so these fixtures keep
+         asserting absolute heights the way they always did. */
+      'let __typed=0; function rmWorkingHeightM(){ return __typed; }' + LF_ +
       NAMES.map(pick).join(LF_) + LF_ +
-      'return {set:function(f,g){rmFaces=f; rmGroundM=g;}, rmRoofHeightAt, rmToLocal, rmToWorld, rmFeetBetween};')();
+      'return {set:function(f,groundToEave){rmFaces=f; __typed=groundToEave||0;},' +
+      ' rmRoofHeightAt, rmRoofRelativeAt, rmDatum, rmToLocal, rmToWorld, rmFeetBetween};')();
     const m = new Function('return ' + pick('rmMetresPerDeg').replace('function rmMetresPerDeg', 'function') + ';')()(40.2969);
     const ll = (e, n) => ({lat: 40.2969 + n / m.lat, lng: -111.6946 + e / m.lng});
 
@@ -32293,7 +32303,7 @@ suite('130. Measure Roof — a triangle is not a flat line');
       azimuth: 180, pitch: PITCH,
       center: ll(0, 0), planeHeightM: 1408, areaSqFt: 600
     };
-    api.set([face], 1400);
+    api.set([face], 8);   /* 8 m from ground to the lowest plane */
 
     const atRidge = api.rmRoofHeightAt(ll(0, 3).lat, ll(0, 3).lng);   /* 3 m uphill */
     const atEave  = api.rmRoofHeightAt(ll(0, -3).lat, ll(0, -3).lng); /* 3 m downhill */
@@ -32338,19 +32348,29 @@ suite('130. Measure Roof — a triangle is not a flat line');
     check('S130', 'the ridge sits above the eave', rh1 > h1 + 2);
 
     /* ---- it refuses rather than inventing -------------------------------- */
-    api.set([], 1400);
+    api.set([], 8);
     check('S130', 'with no roof model it returns null instead of a made-up height',
       api.rmRoofHeightAt(ll(0, 0).lat, ll(0, 0).lng) === null,
       'a guessed height silently changes every footage on the quote');
-    api.set([face], null);
-    check('S130', 'and with no ground level it also refuses',
-      api.rmRoofHeightAt(ll(0, 0).lat, ll(0, 0).lng) === null,
-      'plane heights are above SEA level — without the ground they are a number in the thousands');
+    /* ⚠ THIS CHECK WAS RETIRED ON PURPOSE, and its opposite is now asserted.
+       It used to demand that a missing GROUND ELEVATION make the height refuse
+       — which was right when heights were sea-level minus ground. That design
+       is the bug: the Elevation API refuses referrer-restricted keys, so the
+       ground never arrived and every line sat on the lawn. Needing no ground
+       at all is the fix, so the roof must still have a height without one. */
+    api.set([face], 0);
+    check('S130', 'with no measured or typed datum the roof is STILL off the ground',
+      api.rmRoofHeightAt(ll(0, 0).lat, ll(0, 0).lng) > 2,
+      'this is the regression that shipped: no ground elevation meant every point at h = 0');
     /* A nonsense plane must not produce a nonsense height. */
+    /* Two planes 80 m apart is not a house. Relative heights make this the
+       right test now — one plane alone carries no absolute claim. */
     api.set([{sw: ll(-8, -6), ne: ll(8, 6), azimuth: 180, pitch: PITCH,
-              center: ll(0, 0), planeHeightM: 1480, areaSqFt: 600}], 1400);
-    check('S130', 'an 80 m high "roof" is refused as nonsense',
-      api.rmRoofHeightAt(ll(0, 0).lat, ll(0, 0).lng) === null,
+              center: ll(0, 0), planeHeightM: 1400, areaSqFt: 600},
+             {sw: ll(-8, -6), ne: ll(8, 6), azimuth: 0, pitch: PITCH,
+              center: ll(0, 5), planeHeightM: 1480, areaSqFt: 600}], 8);
+    check('S130', 'a plane 80 m above the lowest one is refused as nonsense',
+      api.rmRoofHeightAt(ll(0, 5).lat, ll(0, 5).lng) === null,
       'a bad plane height would put a traced point 260 ft up and wreck the footage silently');
   }
 
@@ -32370,6 +32390,263 @@ suite('130. Measure Roof — a triangle is not a flat line');
   check('S130', 'and dragging a point up the roof updates its height',
     !!dot && /if\(dragH !== null\)\s*run\.path\[idx\]\.h = dragH;/.test(dot),
     'otherwise dragging a point from the eave to the ridge keeps the eave height');
+}
+
+
+suite('131. Measure Roof — the roof is never on the ground');
+{
+  /* ⚠ THE BUG THIS EXISTS FOR, reported off a real house: "when you did sky
+     view to guess where the lines should be the lines were on the ground."
+     Google's plane heights are metres above SEA LEVEL, and the old code asked
+     the Elevation API for the ground to subtract. That API refuses
+     referrer-restricted keys — "API keys with referer restrictions cannot be
+     used with this API" — and ours is referrer-locked, correctly. So the
+     ground never arrived, every height returned null, and every point fell
+     back to h = 0.
+
+     The fix removes the need for sea level entirely: face-to-face differences
+     are exact on their own, and the one missing number — how high the lowest
+     eave is — comes from Street View, from a typed height, or from an assumed
+     one-storey eave. NEVER from zero. */
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+  const NAMES = ['rmMetresPerDeg', 'rmToLocal', 'rmToWorld', 'rmFaceEaveM', 'rmLowestPlaneM',
+                 'rmDatum', 'rmRoofRelativeAt', 'rmRoofHeightAt', 'rmSetDatumFromStreet'];
+  const missing = NAMES.filter(n => !pick(n));
+  if (missing.length) {
+    check('S131', 'the roof-height model is findable', false, 'missing: ' + missing.join(', '));
+  } else {
+    const mk = typedFt => new Function(
+      'let rmOrigin={lat:40.2969,lng:-111.6946};' + LF_ +
+      'let rmFaces=[], rmRoofDatumM=null, rmDatumSource="";' + LF_ +
+      'const RM_ASSUMED_EAVE_M=3, RM_M_TO_FT=3.280839895;' + LF_ +
+      'function rmWorkingHeightM(){ return ' + (typedFt / 3.280839895) + '; }' + LF_ +
+      NAMES.map(pick).join(LF_) + LF_ +
+      'return {set:function(f){rmFaces=f;}, rmDatum, rmRoofRelativeAt, rmRoofHeightAt,' +
+      ' rmSetDatumFromStreet, rmLowestPlaneM, rmToWorld, rmToLocal,' +
+      ' datumSource:function(){return rmDatumSource;}};')();
+
+    const m = new Function('return ' + pick('rmMetresPerDeg').replace('function rmMetresPerDeg', 'function') + ';')()(40.2969);
+    const ll = (e, n) => ({lat: 40.2969 + n / m.lat, lng: -111.6946 + e / m.lng});
+    /* Two faces of one gable, straight off the shape of the real Solar data:
+       plane heights in the 1460s above sea level, a real pitch, real azimuths. */
+    const FACES = [
+      {sw: ll(-8, -6), ne: ll(8, 0), azimuth: 180, pitch: 26.5, center: ll(0, -3), planeHeightM: 1462.0},
+      {sw: ll(-8, 0), ne: ll(8, 6), azimuth: 0, pitch: 26.5, center: ll(0, 3), planeHeightM: 1462.0}
+    ];
+
+    /* ---- the shape is exact without sea level ------------------------- */
+    const api = mk(0);
+    api.set(FACES);
+    /* ⚠ NOT the plane's CENTRE height. The reference is the lowest real EAVE,
+       which sits below the centre by half the face's depth times the pitch -
+       three feet on an ordinary roof, and using the centre made every eave a
+       negative height and dragged the datum down with it. */
+    const lowest = api.rmLowestPlaneM();
+    const drop = 3 * Math.tan(26.5 * Math.PI / 180);   /* half of the 6 m face */
+    check('S131', 'the reference is the lowest EAVE, not the plane centre',
+      lowest !== null && Math.abs(lowest - (1462.0 - drop)) < 0.15,
+      'got ' + (lowest === null ? 'null' : lowest.toFixed(3)) + ', expected about ' +
+      (1462.0 - drop).toFixed(3) + ' - a centre-height reference is wrong by feet at the gutter');
+    const atEave = api.rmRoofRelativeAt(ll(0, -6).lat, ll(0, -6).lng);
+    const atRidge = api.rmRoofRelativeAt(ll(0, 0).lat, ll(0, 0).lng);
+    check('S131', 'the ridge is higher than the eave WITHOUT any ground elevation',
+      atEave !== null && atRidge !== null && atRidge > atEave + 1,
+      'eave ' + atEave + ' m, ridge ' + atRidge + ' m — this is the half that never needed sea level');
+
+    /* ---- ⚠ THE REGRESSION: nothing may land on the ground -------------- */
+    const noDatum = mk(0);            /* nothing typed, nothing measured */
+    noDatum.set(FACES);
+    const h = noDatum.rmRoofHeightAt(ll(0, -6).lat, ll(0, -6).lng);
+    check('S131', 'with NO datum at all the eave is still off the ground',
+      h !== null && h > 2,
+      'got ' + h + ' — this is the exact failure that shipped: every guessed line on the lawn');
+    check('S131', 'and it says the height is only assumed, not measured',
+      noDatum.rmDatum().source === 'assumed',
+      'a guessed height that presents itself as measured is worse than no height');
+    check('S131', 'a typed height beats the assumption',
+      mk(14).rmDatum().source === 'typed' && Math.abs(mk(14).rmDatum().m - 14 / 3.280839895) < 0.01);
+
+    /* ---- Street View pins it, and outranks both ----------------------- */
+    const sv = mk(14);
+    sv.set(FACES);
+    /* A point really observed on the eave, 11 ft up. */
+    const eaveLL = ll(0, -6);
+    const observed = {lat: eaveLL.lat, lng: eaveLL.lng, h: 11 / 3.280839895};
+    check('S131', 'one Street View measurement pins the whole roof',
+      sv.rmSetDatumFromStreet(observed) === true && sv.datumSource() === 'street',
+      'this is the "use street view to figure out where the lines go" half');
+    const pinned = sv.rmRoofHeightAt(eaveLL.lat, eaveLL.lng);
+    check('S131', 'and that point then reads back at the height it was measured at',
+      Math.abs(pinned - 11 / 3.280839895) < 0.05,
+      'got ' + (pinned * 3.280839895).toFixed(2) + ' ft, measured 11 ft');
+    const ridgeAfter = sv.rmRoofHeightAt(ll(0, 0).lat, ll(0, 0).lng);
+    check('S131', 'while the ridge rises above it by the roof’s own shape',
+      ridgeAfter > pinned + 1,
+      'ridge ' + (ridgeAfter * 3.280839895).toFixed(1) + ' ft vs eave ' + (pinned * 3.280839895).toFixed(1) + ' ft');
+
+    /* ---- a bad click must not drag the roof ---------------------------- */
+    const bad = mk(0);
+    bad.set(FACES);
+    check('S131', 'a click on the road does not become the datum',
+      bad.rmSetDatumFromStreet({lat: eaveLL.lat, lng: eaveLL.lng, h: 0.2}) === false,
+      'one stray click would otherwise put the whole roof underground');
+    check('S131', 'nor does a click on the sky',
+      bad.rmSetDatumFromStreet({lat: eaveLL.lat, lng: eaveLL.lng, h: 30}) === false);
+    check('S131', 'and after refusing, the assumed datum still stands',
+      bad.rmDatum().source === 'assumed' && bad.rmDatum().m > 2,
+      'a refused measurement must not leave the roof with no datum at all');
+  }
+
+  /* ---- the dead API is gone, not merely unused ---------------------- */
+  check('S131', 'the Elevation lookup is switched off, since it can never answer',
+    /if\(false\)\{/.test(admin) && /referrer-restricted key/.test(admin),
+    'asking an API that refuses our key on every load is a red herring in the console');
+  const build = extractFn(admin, 'rmBuildSuggestions');
+  /* ⚠ COMMENTS STRIPPED FIRST. The reason `?? 0` is forbidden is written down
+     right beside the code, so a plain search finds the EXPLANATION and calls it
+     a violation - which is exactly what happened here, and CLAUDE.md records
+     the same trap in Suite 58. */
+  const buildCode = (build || '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/[^\n]*/g, '');
+  check('S131', 'a suggested line never falls back to zero height',
+    !!build && !/\?\?\s*0\b/.test(buildCode) && /rmDatum\(\)\.m/.test(buildCode),
+    'the `?? 0` fallback is exactly how every guessed line ended up on the lawn');
+
+  /* ---- Street View is a working surface, not a picture --------------- */
+  check('S131', 'a point can be dragged in Street View, not only on the sky view',
+    /rmWallHit\(dir, cam, plane\)/.test(admin) && /streetMeasured/.test(admin),
+    'seeing a line an inch off the gutter and being unable to fix it there is the whole complaint');
+  const refresh = extractFn(admin, 'rmRefreshHeights');
+  check('S131', 'changing the datum moves every guessed line at once',
+    !!refresh && /rmRoofHeightAt/.test(refresh),
+    'a measured datum that does not reach the lines it should correct has done nothing');
+  check('S131', 'but a point measured in Street View is never re-derived over',
+    !!refresh && /if\(r\.streetMeasured\) return;/.test(refresh),
+    'throwing away a real observation to keep the guess tidy is backwards');
+  check('S131', 'and the panel says which datum is in force',
+    /id="rmDatumNote"/.test(admin) && /ASSUMED at/.test(admin),
+    'a height nobody can trace back is a height nobody can argue with');
+}
+
+
+suite('132. Measure Roof - both views feed one length, and the front is the default');
+{
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+
+  /* ================= ONE LENGTH, BOTH VIEWS =========================
+     Owner: "make sure that calculations use both views though, length, depth,
+     and height to calculate the actual length using both views."
+     Sky view knows where a point is on the ground exactly; Street View is the
+     only place its height can be observed. A length has to carry both, or a
+     roofline that climbs measures as its shadow. */
+  const NAMES = ['rmMetresPerDeg', 'rmToLocal', 'rmToWorld', 'rmFeetBetween'];
+  if (NAMES.some(n => !pick(n))) {
+    check('S132', 'the distance maths is findable', false, 'renamed or removed');
+  } else {
+    const api = new Function(
+      'let rmOrigin={lat:40.2969,lng:-111.6946};' + LF_ +
+      'const RM_M_TO_FT=3.280839895;' + LF_ +
+      NAMES.map(pick).join(LF_) + LF_ +
+      'return {rmToWorld, rmFeetBetween};')();
+    const FT = 3.280839895;
+    /* A run 8 m along the wall (sky view's answer), 5 m further from the road
+       (sky view again - depth), and climbing 4 m (only Street View can say). */
+    const a = api.rmToWorld({e: 0, n: 0, u: 3});
+    const b = api.rmToWorld({e: 8, n: 5, u: 7});
+    const got = api.rmFeetBetween(a, b);
+    const want = Math.hypot(8, 5, 4) * FT;
+    check('S132', 'length carries width, depth AND height in one number',
+      Math.abs(got - want) < 0.05,
+      'got ' + got.toFixed(2) + ' ft, expected ' + want.toFixed(2) +
+      ' - if these differ, one of the three is being dropped');
+    /* Each component must actually move the answer - a length that ignores any
+       one of them is the bug, and it is invisible unless tested separately. */
+    /* Asserted EXACTLY rather than against a threshold. The first version
+       demanded the climb add 3 ft; it adds 2.65, so a correct answer failed a
+       round number I had picked out of the air. The real claim is that the
+       flat run is exactly the horizontal hypotenuse and the full run is longer
+       - both of which can be stated without inventing a margin. */
+    const flat = api.rmFeetBetween(api.rmToWorld({e:0,n:0,u:3}), api.rmToWorld({e:8,n:5,u:3}));
+    check('S132', 'with the climb removed it is exactly the horizontal run',
+      Math.abs(flat - Math.hypot(8, 5) * FT) < 0.02,
+      'got ' + flat.toFixed(2) + ' ft, expected ' + (Math.hypot(8, 5) * FT).toFixed(2));
+    check('S132', 'and the real run is longer, so height really counts',
+      got > flat + 1,
+      'climbing ' + (4 * FT).toFixed(1) + ' ft adds ' + (got - flat).toFixed(2) +
+      ' ft - if it adds nothing, height is not reaching the length');
+    const noDepth = api.rmFeetBetween(api.rmToWorld({e:0,n:0,u:3}), api.rmToWorld({e:8,n:0,u:7}));
+    check('S132', 'and dropping the depth makes it shorter too',
+      got > noDepth + 1, 'depth is not reaching the length');
+    const noWidth = api.rmFeetBetween(api.rmToWorld({e:0,n:0,u:3}), api.rmToWorld({e:0,n:5,u:7}));
+    check('S132', 'and dropping the width as well',
+      got > noWidth + 2, 'width is not reaching the length');
+  }
+
+  /* ================= FRONT BY DEFAULT ================================
+     Owner: "you should only do it for front of house by default but there
+     should be buttons for multiple sides if they want multiple sides." */
+  const sideFn = pick('rmEaveSide');
+  if (!sideFn || !pick('rmToLocal')) {
+    check('S132', 'the side-of-house rule is findable', false, 'rmEaveSide renamed or removed');
+  } else {
+    const sapi = new Function(
+      'let rmOrigin={lat:40.2969,lng:-111.6946};' + LF_ +
+      'let __cam=null; function rmCamLocal(){ return __cam; }' + LF_ +
+      pick('rmMetresPerDeg') + LF_ + pick('rmToLocal') + LF_ + pick('rmToWorld') + LF_ + sideFn + LF_ +
+      'return {setCam:function(c){__cam=c;}, rmEaveSide, rmToWorld};')();
+    /* Camera due south of the house, i.e. the road is south. */
+    sapi.setCam({e: 0, n: -20, u: 2.5});
+    const eaveAt = (e, n) => ({a: sapi.rmToWorld({e: e - 3, n: n, u: 0}),
+                               b: sapi.rmToWorld({e: e + 3, n: n, u: 0})});
+    check('S132', 'the eave nearest the road is the FRONT',
+      sapi.rmEaveSide(eaveAt(0, -6)) === 'front',
+      'got ' + sapi.rmEaveSide(eaveAt(0, -6)));
+    check('S132', 'the far one is the BACK',
+      sapi.rmEaveSide(eaveAt(0, 6)) === 'back',
+      'got ' + sapi.rmEaveSide(eaveAt(0, 6)));
+    const east = sapi.rmEaveSide({a: sapi.rmToWorld({e: 6, n: -3, u: 0}), b: sapi.rmToWorld({e: 6, n: 3, u: 0})});
+    const west = sapi.rmEaveSide({a: sapi.rmToWorld({e: -6, n: -3, u: 0}), b: sapi.rmToWorld({e: -6, n: 3, u: 0})});
+    check('S132', 'and the two in between are left and right, not both the same',
+      (east === 'left' || east === 'right') && (west === 'left' || west === 'right') && east !== west,
+      'got ' + east + ' and ' + west + ' - sides are described from the road, the way a person would');
+    /* ⚠ The side names must be relative to the ROAD, not the compass: move the
+       camera and the same wall changes side. North means nothing in a driveway. */
+    sapi.setCam({e: 0, n: 20, u: 2.5});
+    check('S132', 'move the road and the front moves with it',
+      sapi.rmEaveSide(eaveAt(0, 6)) === 'front',
+      'sides are being named off the compass instead of off the road');
+  }
+  const facesFn = pick('rmFaceFacesTheRoad');
+  check('S132', 'only the front is switched on without being asked',
+    !!facesFn && /rmEaveSide\(eave\) === 'front'/.test(facesFn),
+    'anything else on by default is work to undo on every quote');
+  check('S132', 'and the other sides are offered as buttons, not hidden',
+    /data-rmside="left"/.test(admin) && /data-rmside="back"/.test(admin) && /id="rmAllSides"/.test(admin),
+    'a line nobody can see is a line nobody knows to ask for');
+  check('S132', 'each side button counts what it holds',
+    /mine\.length \? ' \(' \+ mine\.length \+ '\)' : ''/.test(admin),
+    'a button that appears to do nothing is worse than one that says it is empty');
+  check('S132', 'and a hand-traced line is never swept up by a side button',
+    /if\(!r\.suggested \|\| r\.side !== side\) return;/.test(admin),
+    'having your own work vanish because a side was toggled is its own small betrayal');
+
+  /* ================= NOT A FOOT OFF ==================================
+     Owner: "the lines should not look offset from the house by a single foot
+     so make sure to be very exact." Google's face boxes are AXIS-ALIGNED, so a
+     house turned off the compass gets a box bigger than its roof. */
+  const eaveFn = pick('rmFaceEave');
+  check('S132', 'the eave line is pulled in to the face true area',
+    !!eaveFn && /areaSqFt/.test(eaveFn) && /Math\.sqrt\(trueArea \/ boxArea\)/.test(eaveFn),
+    'used raw, an axis-aligned box hangs the line past the end of the house');
+  check('S132', 'but never shrunk past 70%',
+    !!eaveFn && /Math\.max\(0\.7,/.test(eaveFn),
+    'a complicated face would otherwise be pulled in until the line is far too short');
+  check('S132', 'and the honest limit is written down, not glossed',
+    !!eaveFn && /correction, not a cure/.test(eaveFn),
+    'a box cannot say which way a house is turned, and pretending otherwise is how a guess gets trusted too far');
 }
 
 Promise.all(pendingAsync).then(function () {

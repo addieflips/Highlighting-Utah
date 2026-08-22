@@ -4350,6 +4350,9 @@
             #roofMeasureOverlay .rm-typebtn{border:1px solid var(--line); background:#fff; border-radius:999px; padding:6px 13px; font-size:12.5px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:6px;}
             #roofMeasureOverlay .rm-typebtn .rm-dot{width:9px; height:9px; border-radius:50%; display:inline-block;}
             #roofMeasureOverlay .rm-typebtn.on{background:var(--ink); color:#fff; border-color:var(--ink);}
+            #roofMeasureOverlay .rm-sidebtn{border:1px solid var(--line); background:#fff; border-radius:8px; padding:5px 11px; font-size:11.5px; font-weight:600; cursor:pointer;}
+            #roofMeasureOverlay .rm-sidebtn.on{background:var(--gold-dim); border-color:var(--gold-dim);}
+            #roofMeasureOverlay .rm-sidebtn:disabled{opacity:.4; cursor:not-allowed;}
             #roofMeasureOverlay .rm-panel{border:1px solid var(--line); border-radius:12px; padding:12px; background:var(--paper);}
             #roofMeasureOverlay .rm-panel h4{margin:0 0 2px; font-size:13.5px; font-weight:700;}
             #roofMeasureOverlay .rm-panel .rm-sub{margin:0 0 10px; font-size:11.5px; color:var(--slate);}
@@ -4402,6 +4405,19 @@
                   <button type="button" class="btn btn-outline btn-sm" id="rmClearBtn" style="flex:1; justify-content:center;">Clear</button>
                 </div>
                 <p id="rmDrawHint" style="font-size:11.5px; color:var(--slate); margin:8px 0 0;">Load an address first.</p>
+                <!-- Front is on by default; the rest are one click each. The
+                     count on each button is what makes an empty side obvious
+                     rather than a button that appears to do nothing. -->
+                <div id="rmSidesBar" style="display:none; margin-top:10px;">
+                  <div style="font-size:11.5px; color:var(--slate); margin-bottom:5px;">Sides of the house</div>
+                  <div style="display:flex; gap:5px; flex-wrap:wrap;">
+                    <button type="button" class="rm-sidebtn on" data-rmside="front">Front</button>
+                    <button type="button" class="rm-sidebtn" data-rmside="left">Left</button>
+                    <button type="button" class="rm-sidebtn" data-rmside="right">Right</button>
+                    <button type="button" class="rm-sidebtn" data-rmside="back">Back</button>
+                    <button type="button" class="btn btn-outline btn-sm" id="rmAllSides" style="padding:4px 9px; font-size:11px;">All</button>
+                  </div>
+                </div>
                 <!-- Named on screen on purpose: a shortcut nobody can find is a
                      feature for one person. -->
                 <p style="font-size:10.5px; color:var(--slate); margin:8px 0 0; line-height:1.7;">
@@ -4427,6 +4443,7 @@
                   <button type="button" class="btn btn-outline btn-sm" data-rmheight="18" style="padding:4px 9px; font-size:11px;">2 storey</button>
                 </div>
                 <p id="rmHeightNote" style="font-size:11.5px; color:var(--slate); margin:8px 0 0;">Measure one eave in Street View and this fills itself in.</p>
+                <p id="rmDatumNote" style="font-size:11.5px; color:var(--dusk); margin:6px 0 0; font-weight:600;"></p>
               </div>
 
               <div class="rm-panel" id="rmImagePanel" style="display:none;">
@@ -15158,8 +15175,99 @@ function rmGroundHit(dir, cam){
  * from the centre, times the slope. Every point traced on the sky view carries
  * its own real height, and a rake comes out as the hypotenuse it is.
  */
-function rmRoofHeightAt(lat, lng){
-  if(!rmFaces || !rmFaces.length || rmGroundM === null) return null;
+/* HOW HIGH THE ROOF IS AT ANY ONE SPOT — AND WHERE THE DATUM COMES FROM.
+ *
+ * ⚠ THE BUG THIS REPLACES PUT EVERY GUESSED LINE ON THE LAWN, and it could
+ * never have fixed itself. Google's plane heights are metres above SEA LEVEL,
+ * so the first version subtracted the ground elevation to turn them into
+ * heights above the garden — and asked the Elevation API for that ground.
+ * That API REFUSES referrer-restricted keys outright:
+ *     "API keys with referer restrictions cannot be used with this API."
+ * Our Maps key is referrer-locked, correctly, because that is what stops it
+ * being stolen. So the ground was never going to arrive, every height came
+ * back null, and every point fell back to h = 0. Lines on the ground.
+ *
+ * THE FIX IS TO STOP NEEDING SEA LEVEL AT ALL. Face-to-face height
+ * DIFFERENCES are exact without it — subtract the lowest plane and the roof's
+ * whole shape survives, every ridge above every eave by exactly the right
+ * amount. All that is missing is one number: how high the lowest eave sits
+ * above the ground. That is the DATUM, and it comes from the best source we
+ * have rather than from an API that will not answer:
+ *
+ *   1. MEASURED IN STREET VIEW. Trace anything on the pinned wall and its
+ *      height is known from the camera geometry, so the whole roof model is
+ *      pinned to something really observed. This is the good one.
+ *   2. TYPED. The Working Height box, when the office knows the house.
+ *   3. ASSUMED — a one-storey eave. ⚠ NEVER ZERO. A line on the lawn is
+ *      obviously broken and wastes somebody's afternoon; a line two feet low
+ *      is a nudge. Falling back to the ground was the worst possible default
+ *      and it is the one that shipped.
+ */
+const RM_ASSUMED_EAVE_M = 3;      /* ~10 ft: an ordinary single-storey eave */
+let rmRoofDatumM = null;          /* metres from ground to the LOWEST roof plane */
+let rmDatumSource = '';           /* 'street' | 'typed' | 'assumed' */
+/* The lowest EAVE Google's model implies, in its own sea-level numbers.
+   Everything else is measured up from here, so sea level cancels out.
+
+   ⚠ IT IS NOT THE LOWEST planeHeightAtCenterMeters, and using that was wrong
+   by feet. That figure is the height at the face's CENTRE, so the face's own
+   downhill edge — the gutter, the thing lights hang on — sits BELOW it by half
+   the face's depth times the pitch. On a 6/12 roof twelve feet deep that is
+   three feet of error, and it made every relative height negative at the eaves
+   and dragged the datum with it. Dropping to each face's downhill edge first
+   makes the reference a real gutter line, so a datum of "ten feet" means the
+   gutter is ten feet up, which is what anybody would assume it meant. */
+function rmFaceEaveM(f){
+  if(!isFinite(f.planeHeightM)) return null;
+  const sw = rmToLocal(f.sw.lat, f.sw.lng, 0);
+  const ne = rmToLocal(f.ne.lat, f.ne.lng, 0);
+  const a = (Number(f.azimuth) || 0) * Math.PI / 180;
+  /* How far the centre is from the downhill edge, measured along the slope. */
+  const half = Math.abs(Math.sin(a)) * Math.abs(ne.e - sw.e) / 2 +
+               Math.abs(Math.cos(a)) * Math.abs(ne.n - sw.n) / 2;
+  return f.planeHeightM - half * Math.tan((Number(f.pitch) || 0) * Math.PI / 180);
+}
+function rmLowestPlaneM(){
+  let lo = null;
+  (rmFaces || []).forEach(function(f){
+    const e = rmFaceEaveM(f);
+    if(e === null || !isFinite(e)) return;
+    if(lo === null || e < lo) lo = e;
+  });
+  return lo;
+}
+/* What the roof is standing on. Street View beats a typed number beats a
+   guess, and it is recorded so the panel can say which one is in force -
+   a height nobody can trace back is a height nobody can argue with. */
+function rmDatum(){
+  if(rmRoofDatumM !== null) return {m: rmRoofDatumM, source: rmDatumSource || 'street'};
+  const typed = rmWorkingHeightM();
+  if(typed > 0.5) return {m: typed, source: 'typed'};
+  return {m: RM_ASSUMED_EAVE_M, source: 'assumed'};
+}
+/* Pin the whole roof from ONE height really measured in Street View. The point
+   carries its own face's height above the lowest plane, so subtracting that
+   leaves the datum. */
+function rmSetDatumFromStreet(worldPoint){
+  const lo = rmLowestPlaneM();
+  if(lo === null || !worldPoint) return false;
+  const rel = rmRoofRelativeAt(worldPoint.lat, worldPoint.lng);
+  if(rel === null) return false;
+  const datum = worldPoint.h - rel;
+  /* An eave underground, or one on the fourth floor, means the click was not
+     on the roof at all - a bush, the road, the sky. Refuse rather than drag
+     the whole roof model to a silly place off one bad click. */
+  if(!(datum > 0.8 && datum < 12)) return false;
+  rmRoofDatumM = datum;
+  rmDatumSource = 'street';
+  return true;
+}
+/* How far ABOVE THE LOWEST PLANE the roof is at this spot. Pure Solar data,
+   no datum, no sea level - this is the part that is always exact. */
+function rmRoofRelativeAt(lat, lng){
+  if(!rmFaces || !rmFaces.length) return null;
+  const lo = rmLowestPlaneM();
+  if(lo === null) return null;
   const p = rmToLocal(lat, lng, 0);
   let best = null;
   rmFaces.forEach(function(f){
@@ -15180,12 +15288,19 @@ function rmRoofHeightAt(lat, lng){
   /* How far downhill of the centre this point is, in metres. */
   const along = (p.e - best.c.e) * down.e + (p.n - best.c.n) * down.n;
   const rise = Math.tan((Number(best.f.pitch) || 0) * Math.PI / 180);
-  const aboveSea = best.f.planeHeightM - along * rise;
-  const h = aboveSea - rmGroundM;
-  /* A house is not underground and is not a tower block. A silly answer here
-     would put a traced point at a silly height and quietly wreck the footage,
-     so it is refused and the caller falls back to the working height. */
-  if(!(h > 0.5 && h < 20)) return null;
+  const rel = (best.f.planeHeightM - along * rise) - lo;
+  /* A roof is not 25 m tall and a face does not dip below the lowest plane by
+     more than a courtyard's worth. Nonsense here would wreck the footage
+     silently, so it is refused and the caller falls back. */
+  if(!(rel > -3 && rel < 15)) return null;
+  return rel;
+}
+/* Height above the ground: the exact relative shape, plus the datum. */
+function rmRoofHeightAt(lat, lng){
+  const rel = rmRoofRelativeAt(lat, lng);
+  if(rel === null) return null;
+  const h = rmDatum().m + rel;
+  if(!(h > 0.3 && h < 25)) return null;
   return h;
 }
 /* THE FRONT OF THE HOUSE, WORKED OUT RATHER THAN CLICKED.
@@ -15308,26 +15423,68 @@ function rmFaceEave(face){
      out - that guard could not fire and was doing nothing. */
   if(Number(face.pitch) < 5) return null;
   if(!best) return null;
+  /* ⚠ HOW FAR OUT THIS CAN BE, AND WHY IT IS PULLED IN.
+     Google gives each roof face an AXIS-ALIGNED bounding box - north/south,
+     east/west - and almost no house is square to the compass. A roof at 30
+     degrees to north has a box noticeably bigger than the roof, and its
+     corners stick out past the real gutter. Used raw, a suggested eave hangs
+     over the end of the house, which is exactly the "offset by a foot" the
+     owner reported.
+     The face's true AREA is also given, so the ratio between it and the box
+     says how much the box overstates, and the line is pulled in toward its own
+     middle by that much. It is a correction, not a cure: it fixes the LENGTH
+     well and the sideways position only partly, because a box cannot say which
+     way the house is turned. Dragging in Street View is what makes a line
+     exact, and this is what stops it starting badly wrong. */
+  const boxE = Math.abs(corners.e - corners.w), boxN = Math.abs(corners.n - corners.s);
+  const boxArea = boxE * boxN;
+  const trueArea = Number(face.areaSqFt) ? Number(face.areaSqFt) / 10.7639 : 0;
+  if(boxArea > 0.5 && trueArea > 0.5 && trueArea < boxArea){
+    /* Never shrink past 70%: below that the ratio is telling us the face is a
+       complicated shape, not a rotated rectangle, and a hard pull-in would
+       make the line far too short. */
+    const k = Math.max(0.7, Math.sqrt(trueArea / boxArea));
+    const mid = {e: (best.ed.a.e + best.ed.b.e) / 2, n: (best.ed.a.n + best.ed.b.n) / 2};
+    best.ed = {
+      name: best.ed.name,
+      a: {e: mid.e + (best.ed.a.e - mid.e) * k, n: mid.n + (best.ed.a.n - mid.n) * k},
+      b: {e: mid.e + (best.ed.b.e - mid.e) * k, n: mid.n + (best.ed.b.n - mid.n) * k}
+    };
+  }
   return {a: rmToWorld({e: best.ed.a.e, n: best.ed.a.n, u: 0}),
           b: rmToWorld({e: best.ed.b.e, n: best.ed.b.n, u: 0}),
           facing: best.ed.name};
 }
-/* Which suggestions to switch ON without being asked. Lights go on the sides
-   people SEE, so the faces pointing toward the road start on and the ones
-   round the back start off. The road is where the Street View camera is; with
-   no Street View to go on, everything starts on rather than nothing - too many
-   lines is a click to remove, too few is a line somebody has to draw. */
-function rmFaceFacesTheRoad(eave){
+/* WHICH SIDE OF THE HOUSE AN EAVE IS ON, relative to the road rather than to
+   the compass. "North" means nothing to somebody standing in a driveway; front,
+   left, right and back are what a quote is actually written in.
+
+   The road is where the Street View camera is, so the face whose outward
+   direction points most nearly at the camera is the FRONT, the opposite one is
+   the BACK, and the two in between are left and right as seen FROM the road -
+   which is how anybody describes a house they are looking at. */
+function rmEaveSide(eave){
   const cam = rmCamLocal();
-  if(!cam) return true;
+  if(!cam) return 'front';                     /* no road to reason from */
   const mid = rmToLocal((eave.a.lat + eave.b.lat) / 2, (eave.a.lng + eave.b.lng) / 2, 0);
-  const houseMid = {e: 0, n: 0};
-  const outward = {e: mid.e - houseMid.e, n: mid.n - houseMid.n};
-  const toRoad = {e: cam.e - houseMid.e, n: cam.n - houseMid.n};
+  const outward = {e: mid.e, n: mid.n};        /* the frame's origin IS the house */
+  const toRoad = {e: cam.e, n: cam.n};
   const lo = Math.hypot(outward.e, outward.n), lr = Math.hypot(toRoad.e, toRoad.n);
-  if(lo < 0.5 || lr < 0.5) return true;
-  return (outward.e * toRoad.e + outward.n * toRoad.n) / (lo * lr) > -0.2;
+  if(lo < 0.5 || lr < 0.5) return 'front';
+  const cos = (outward.e * toRoad.e + outward.n * toRoad.n) / (lo * lr);
+  if(cos > 0.45) return 'front';
+  if(cos < -0.45) return 'back';
+  /* Cross product sign puts it left or right of the line to the road. */
+  const cross = toRoad.e * outward.n - toRoad.n * outward.e;
+  return cross > 0 ? 'left' : 'right';
 }
+/* ⚠ FRONT ONLY, BY DEFAULT. Owner: "you should only do it for front of house
+   by default but there should be buttons for multiple sides if they want
+   multiple sides." Most jobs are the front, so anything else starts switched
+   off and visible rather than absent - the buttons below turn a side on in one
+   click, and a line nobody can see is a line nobody knows to ask for. */
+const RM_SIDES = ['front', 'left', 'right', 'back'];
+function rmFaceFacesTheRoad(eave){ return rmEaveSide(eave) === 'front'; }
 function rmBuildSuggestions(faces){
   /* Clear only the previous SUGGESTIONS - anything traced by hand stays. */
   rmRuns = rmRuns.filter(function(r){
@@ -15336,18 +15493,24 @@ function rmBuildSuggestions(faces){
     (r.dots || []).forEach(function(d){ d.setMap(null); });
     return false;
   });
-  const h = rmRoofM ? rmRoofM.eave : 0;
+  /* kept only as the argument to the ?? above; the datum is the real floor */
+  const h = rmDatum().m;
   let made = 0;
   (faces || []).forEach(function(face){
     const eave = rmFaceEave(face);
     if(!eave) return;
     const run = {
-      type: 'perimeter', suggested: true, on: rmFaceFacesTheRoad(eave), facing: eave.facing,
+      type: 'perimeter', suggested: true, on: rmFaceFacesTheRoad(eave),
+      facing: eave.facing, side: rmEaveSide(eave),
       /* Each END gets its own height. An eave is level so both usually agree,
          but a raked or stepped edge does not, and assuming it does is the same
          flat-line mistake one level down. */
-      path: [{lat: eave.a.lat, lng: eave.a.lng, h: rmRoofHeightAt(eave.a.lat, eave.a.lng) ?? h},
-             {lat: eave.b.lat, lng: eave.b.lng, h: rmRoofHeightAt(eave.b.lat, eave.b.lng) ?? h}],
+      /* Each end at the roof's real height there. ⚠ NEVER `?? 0` - that is
+         exactly how every suggested line ended up on the lawn. The datum
+         guarantees rmRoofHeightAt answers, and if it somehow does not, the
+         assumed one-storey eave is the floor. */
+      path: [{lat: eave.a.lat, lng: eave.a.lng, h: rmRoofHeightAt(eave.a.lat, eave.a.lng) ?? rmDatum().m},
+             {lat: eave.b.lat, lng: eave.b.lng, h: rmRoofHeightAt(eave.b.lat, eave.b.lng) ?? rmDatum().m}],
       line: null, dots: []
     };
     /* A sliver is noise, not a run somebody wants to see offered. */
@@ -15356,8 +15519,34 @@ function rmBuildSuggestions(faces){
     made++;
   });
   rmRuns.forEach(function(r){ if(r.suggested) rmSyncSky(r); });
+  if(window.rmRefreshSideButtons) window.rmRefreshSideButtons();
   rmRenderResults(); rmPaintStreet();
   return made;
+}
+/* Put every point back at the roof's height. Called when the datum changes,
+   because a datum is the one thing that moves EVERY line at once.
+   ⚠ A point somebody has dragged or measured in Street View is left alone -
+   re-deriving it would throw away the better answer to keep the guess tidy. */
+function rmRefreshHeights(){
+  rmRuns.forEach(function(r){
+    if(r.streetMeasured) return;
+    r.path.forEach(function(p){
+      const h = rmRoofHeightAt(p.lat, p.lng);
+      if(h !== null) p.h = h;
+    });
+    rmSyncSky(r);
+  });
+  rmRenderResults();
+  rmPaintStreet();
+  const note = document.getElementById('rmDatumNote');
+  if(note){
+    const d = rmDatum();
+    note.textContent = d.source === 'street'
+      ? 'Roof height measured in Street View — ' + Math.round(d.m * RM_M_TO_FT) + ' ft to the lowest eave.'
+      : (d.source === 'typed'
+          ? 'Roof height from the box above — ' + Math.round(d.m * RM_M_TO_FT) + ' ft. Trace anything in Street View to measure it properly.'
+          : 'Roof height ASSUMED at ' + Math.round(d.m * RM_M_TO_FT) + ' ft (one storey). Trace anything in Street View and it is measured instead.');
+  }
 }
 /* Clicking a suggested line switches it in or out. Works from either view,
    because both are drawing the same run. */
@@ -15887,6 +16076,7 @@ async function rmLoadAddress(){
        tracing. Re-run once the eave height arrives so they sit at the gutter
        rather than on the ground. */
     const guessed = rmBuildSuggestions(rmFaces);
+    rmRefreshHeights();
     document.getElementById('rmStatus').textContent = guessed
       ? guessed + ' roof edges found — the ones facing the road are already on. Click any line to add or drop it.'
       : 'Google has no roof outline for this house — trace it by hand with Start Measuring.';          /* the footprint the front wall comes from */
@@ -15895,7 +16085,11 @@ async function rmLoadAddress(){
        neither is a guess - and if the elevation lookup is unavailable the roof
        height is left unknown rather than invented, which keeps the working
        height at whatever the office last set instead of a made-up number. */
-    if(d.planeHeights && google.maps.ElevationService){
+    /* ⚠ THE ELEVATION LOOKUP IS GONE, not broken-and-left. It cannot work with
+       a referrer-restricted key and it is no longer needed: heights are built
+       from Solar's own relative planes plus a datum from Street View. Asking
+       anyway would fail on every load and put a red herring in the console. */
+    if(false){
       try{
         new google.maps.ElevationService().getElevationForLocations(
           {locations: [{lat: coords.lat, lng: coords.lng}]},
@@ -16311,7 +16505,7 @@ function rmReset(){
   document.getElementById('rmMaterialPanel').style.display = 'none';
   document.getElementById('rmPricePanel').style.display = 'none';
   rmRoofGrade = ''; rmRoofFacts = null; rmFaces = [];
-  rmGroundM = null;
+  rmGroundM = null; rmRoofDatumM = null; rmDatumSource = '';
   rmPhotoExtraFeet = 0; rmPhotoRuns = []; rmPhotoRef = null; rmPhotoRefPx = 0; rmPhotoBlob = null;
   document.getElementById('rmPhotoStage').style.display = 'none';
   document.getElementById('rmPhotoStatus').textContent = 'For the back of the house, or anywhere Street View cannot see.';
@@ -16366,6 +16560,45 @@ function openRoofMeasure(quoteId){
       document.getElementById('rmHeightFt').value = b.dataset.rmheight;
     });
   });
+  /* A side button switches every suggested eave on that side at once. It only
+     ever touches SUGGESTED runs - a line traced by hand belongs to whoever
+     drew it, and having it vanish because a side was toggled would be its own
+     small betrayal. */
+  function rmSetSide(side, on){
+    rmRuns.forEach(function(r){
+      if(!r.suggested || r.side !== side) return;
+      r.on = on; r.touched = true; rmSyncSky(r);
+    });
+    rmRefreshSideButtons();
+    rmRenderResults(); rmPaintStreet();
+  }
+  function rmRefreshSideButtons(){
+    const bar = document.getElementById('rmSidesBar');
+    const any = rmRuns.some(function(r){ return r.suggested; });
+    bar.style.display = any ? 'block' : 'none';
+    RM_SIDES.forEach(function(side){
+      const b = bar.querySelector('[data-rmside="' + side + '"]');
+      if(!b) return;
+      const mine = rmRuns.filter(function(r){ return r.suggested && r.side === side; });
+      const on = mine.length > 0 && mine.every(rmRunIsOn);
+      b.classList.toggle('on', on);
+      b.disabled = mine.length === 0;
+      b.textContent = side.charAt(0).toUpperCase() + side.slice(1) + (mine.length ? ' (' + mine.length + ')' : '');
+    });
+  }
+  document.querySelectorAll('#roofMeasureOverlay .rm-sidebtn').forEach(function(b){
+    b.addEventListener('click', function(){
+      const side = b.dataset.rmside;
+      const mine = rmRuns.filter(function(r){ return r.suggested && r.side === side; });
+      rmSetSide(side, !(mine.length && mine.every(rmRunIsOn)));
+    });
+  });
+  document.getElementById('rmAllSides').addEventListener('click', function(){
+    const sugg = rmRuns.filter(function(r){ return r.suggested; });
+    const allOn = sugg.length > 0 && sugg.every(rmRunIsOn);
+    RM_SIDES.forEach(function(sd){ rmSetSide(sd, !allOn); });
+  });
+  window.rmRefreshSideButtons = rmRefreshSideButtons;
   document.getElementById('rmDrawBtn').addEventListener('click', function(){ rmSetDrawing(!rmDrawing); });
   /* Clicks are read off the lock layers, which is what lets the views
      underneath be completely inert while a line is being drawn. */
@@ -16420,6 +16653,18 @@ function openRoofMeasure(quoteId){
       return;
     }
     const world = rmToWorld(hit);
+    /* ⚠ THE FIRST THING TRACED IN STREET VIEW PINS THE WHOLE ROOF.
+       Street View is the only place a height is really OBSERVED - the camera's
+       own geometry gives it - so one point on the wall is enough to place
+       Google's roof model vertically, and every guessed line jumps to where it
+       belongs. Only from an ASSUMED datum: a measurement already taken, or a
+       height the office typed, is not overwritten by a later click. */
+    if(rmDatumSource !== 'street' && rmSetDatumFromStreet(world)){
+      rmRefreshHeights();
+      document.getElementById('rmStatus').textContent =
+        'Roof height set from Street View — ' + Math.round(rmDatum().m * RM_M_TO_FT) +
+        ' ft to the lowest eave. Every line moved to match.';
+    }
     rmAddPoint(world);
     /* Street View just learned a height. Sky view cannot see height at all, so
        it inherits this one for its next click - which is exactly how measuring
@@ -16432,6 +16677,64 @@ function openRoofMeasure(quoteId){
     }
   });
   document.getElementById('rmPanoLock').addEventListener('dblclick', function(){ if(rmDrawing) rmFinishRun(); });
+  /* ⚠ DRAGGING USED TO WORK ONLY ON THE SKY VIEW, which is no use at all when
+     Street View is where the work happens - a line an inch off the gutter
+     could be seen and not fixed. Grabbing a dot here moves the point along the
+     pinned wall, so it keeps its real depth and its height comes from where it
+     lands rather than from where it started. */
+  (function(){
+    const layer = document.getElementById('rmSvLayer');
+    const pano = document.getElementById('rmPano');
+    let grab = null;
+    function nearestPoint(px, py){
+      const cam = rmCamLocal();
+      if(!cam) return null;
+      const {W, H} = rmPanoSize();
+      const pov = rmPanoPov();
+      let best = null;
+      rmRuns.forEach(function(r, ri){
+        r.path.forEach(function(p, pi){
+          const q = rmSvProject(p, W, H, pov, cam);
+          if(!q) return;
+          const d = Math.hypot(q.x - px, q.y - py);
+          if(d < 18 && (!best || d < best.d)) best = {ri: ri, pi: pi, d: d};
+        });
+      });
+      return best;
+    }
+    pano.addEventListener('mousedown', function(e){
+      if(rmDrawing || rmWallPicking) return;      /* drawing owns the clicks */
+      const r = pano.getBoundingClientRect();
+      const hit = nearestPoint(e.clientX - r.left, e.clientY - r.top);
+      if(!hit) return;
+      grab = hit;
+      e.preventDefault(); e.stopPropagation();
+      layer.style.cursor = 'grabbing';
+    }, true);
+    window.addEventListener('mousemove', function(e){
+      if(!grab) return;
+      const plane = rmWallPlane(), cam = rmCamLocal();
+      if(!plane || !cam) return;
+      const r = pano.getBoundingClientRect();
+      const {W, H} = rmPanoSize();
+      const dir = rmRay(e.clientX - r.left, e.clientY - r.top, W, H, rmPanoPov());
+      const p = rmWallHit(dir, cam, plane);
+      if(!p) return;
+      const run = rmRuns[grab.ri];
+      if(!run) return;
+      const w = rmToWorld(p);
+      run.path[grab.pi] = w;
+      run.touched = true;
+      run.streetMeasured = true;   /* a real observation now - do not re-derive it */
+      rmSyncSky(run);
+      rmRenderResults(); rmPaintStreet();
+    });
+    window.addEventListener('mouseup', function(){
+      if(!grab) return;
+      grab = null;
+      layer.style.cursor = '';
+    });
+  })();
   document.getElementById('rmWallBtn').addEventListener('click', function(){
     if(!rmStreetReady){ document.getElementById('rmWallStatus').textContent = 'No Street View at this address.'; return; }
     rmWallPicking = true; rmWallPts = []; rmWall = null;
