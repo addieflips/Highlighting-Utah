@@ -82,6 +82,45 @@ export const OUTLIER_MIN_COMPANY = 8;
  * that, and it is cheaper than detecting it afterwards. */
 export const MAX_CURVE_JUMP_MILES = 3;
 
+/* ⭐ AND THAT THREE MILES STRETCHES WHERE THE BOOK THINS OUT (added 2026-08-22).
+ * Owner: "when you get further out where they become more sparse grid sizes can
+ * change slightly too."
+ *
+ * A flat threshold is a town rule wearing different clothes: it asks "are these
+ * two houses close" and answers with one number for the whole service area. In
+ * Orem, houses sit a few hundred feet apart and three miles is an enormous gap
+ * that only ever means a real break. Out past Santaquin the same three miles is
+ * the ordinary distance between neighbours — so the curve got cut between every
+ * pair, every run came out thin, and the merge step then had to glue it all back
+ * together at a worse angle than if it had never been cut.
+ *
+ * So the allowance is a MULTIPLE of how far apart the houses actually are around
+ * here — SPARSE_JUMP_FACTOR times the local spacing — with the flat three miles as
+ * the floor, so nothing shrinks in dense areas. What the block covers therefore
+ * grows on its own where the book thins, which is exactly the effect asked for,
+ * and it does it from the data rather than from a list of which areas count as
+ * rural.
+ *
+ * ⚠ CEILINGED, or one lonely pair drags a whole run across a county. Past
+ * MAX_CURVE_JUMP_CEILING it is not a stretch any more, it is a different trip. */
+export const SPARSE_JUMP_FACTOR = 3;
+export const MAX_CURVE_JUMP_CEILING = 8;
+
+/* How big a gap is allowed between these two houses before the curve is cut.
+ * `spacing` maps a house id to its nearest-neighbour distance — see findOutliers. */
+export function localJumpMiles(a, b, spacing, opts){
+  const o = opts || {};
+  const base = o.maxCurveJumpMiles == null ? MAX_CURVE_JUMP_MILES : o.maxCurveJumpMiles;
+  const factor = o.sparseJumpFactor == null ? SPARSE_JUMP_FACTOR : o.sparseJumpFactor;
+  const ceiling = o.maxCurveJumpCeiling == null ? MAX_CURVE_JUMP_CEILING : o.maxCurveJumpCeiling;
+  const sp = spacing || {};
+  const na = sp[a && a.id], nb = sp[b && b.id];
+  /* The LOOSER of the two, so a dense house on the edge of a sparse patch does not
+     hold the whole neighbourhood to town spacing. */
+  const local = Math.max(typeof na === 'number' ? na : 0, typeof nb === 'number' ? nb : 0);
+  return Math.min(ceiling, Math.max(base, local * factor));
+}
+
 /* The smallest block worth sending anybody out for. ONE_MAN_MAX_HOUSES in
  * admin.html is 8 — at or below it you are sending one person out alone — so a
  * block has to reach nine to be a day. Anything thinner gets merged into its
@@ -233,17 +272,28 @@ export function findOutliers(houses, opts){
   const all = applyPinFallback(houses, o.pinFallback);
   const pinned = all.filter(hasPin);
   const unpinned = all.filter(function(h){ return !hasPin(h); });
-  const outliers = [], kept = [];
+  const outliers = [], kept = [], spacing = {};
   pinned.forEach(function(h){
-    let company = 0;
+    let company = 0, nearest = Infinity;
     for(let i = 0; i < pinned.length; i++){
       const other = pinned[i];
       if(other === h) continue;
-      if(distanceMiles(h.lat, h.lng, other.lat, other.lng) <= radius){
-        company++;
-        if(company >= minCompany) break;
-      }
+      const m = distanceMiles(h.lat, h.lng, other.lat, other.lng);
+      if(m < nearest) nearest = m;
+      if(m <= radius) company++;
     }
+    /* ⭐ HOW FAR APART THE HOUSES ARE AROUND HERE, kept for the curve to use.
+       Owner, 2026-08-22: "when you get further out where they become more sparse
+       grid sizes can change slightly too." This is what tells a sparse place from
+       a dense one — see localJumpMiles.
+       ⚠ MEASURED ONCE, OVER THE WHOLE BOOK, for the same reason the outlier test
+       is: spacing is a fact about where a house SITS, and recomputing it inside a
+       sweep would make the same street look sparse in November and dense in
+       October purely because fewer neighbours are out that month.
+       ⚠ AND THE SCAN NO LONGER STOPS EARLY. It used to break the moment it had
+       found enough company, which is correct for the outlier question and useless
+       for this one — the nearest neighbour might be the house it never reached. */
+    spacing[h.id] = isFinite(nearest) ? nearest : null;
     if(company >= minCompany) kept.push(h);
     else outliers.push({house: h, company: company, radius: radius});
   });
@@ -252,7 +302,7 @@ export function findOutliers(houses, opts){
      Check's "Customer with no map pin" is the row that catches these; on
      2026-08-22 it read all clear, so this list should normally be empty — and if
      it stops being empty, that is the signal to fill in the ladder hook above. */
-  return {kept: kept, outliers: outliers, unpinned: unpinned};
+  return {kept: kept, outliers: outliers, unpinned: unpinned, spacing: spacing};
 }
 
 /* ---------------- blocks ---------------- */
@@ -266,20 +316,31 @@ export function findOutliers(houses, opts){
  * "one crews are fine what we want to minimize the most is one man days".
  * So the number of blocks is decided first — as few as will hold the run — and
  * then the run is dealt out evenly between them. */
-export function splitRun(ids, cap){
+export function splitRun(ids, cap, minBlock){
   const size = cap || 20;
+  const floor = minBlock == null ? MIN_BLOCK_HOUSES : minBlock;
   const n = ids.length;
   if(!n) return [];
-  const blocks = Math.ceil(n / size);
-  const base = Math.floor(n / blocks);
-  let extra = n % blocks;   /* the first `extra` blocks carry one more */
+  /* Fill to the cap. Owner, 2026-08-22: "try to size the grids so most of them
+     will fit about 20 houses" — so a full crew-day is the target, and anything
+     smaller has to earn it. */
   const out = [];
-  let at = 0;
-  for(let b = 0; b < blocks; b++){
-    const take = base + (extra > 0 ? 1 : 0);
-    if(extra > 0) extra--;
-    out.push(ids.slice(at, at + take));
-    at += take;
+  for(let at = 0; at < n; at += size) out.push(ids.slice(at, at + size));
+  /* ⭐ AND ONLY THE LAST TWO ARE EVENED, ONLY WHEN THE TAIL IS A ONE-MAN DAY.
+     Greedy filling leaves the remainder: a run of 21 comes out 20 and 1, which
+     is a one-man day manufactured by the arithmetic rather than by the map. When
+     that happens the last two blocks are levelled between themselves — 21 becomes
+     11 and 10 — and everything before them stays at a full twenty.
+     ⚠ EVENING THE WHOLE RUN IS WHAT THIS REPLACED, and it was worse: it turned 41
+     into 14/14/13 when 20/11/10 keeps a full crew-day and still has no thin tail.
+     A run of 35 is left as 20 and 15, because fifteen is a perfectly good day and
+     levelling it to 18/17 would cost a full one for nothing. */
+  if(out.length > 1 && out[out.length - 1].length < floor){
+    const tail = out.pop().concat([]);
+    const prev = out.pop();
+    const both = prev.concat(tail);
+    const half = Math.ceil(both.length / 2);
+    out.push(both.slice(0, half), both.slice(half));
   }
   return out;
 }
@@ -378,14 +439,44 @@ export function planBlocks(houses, opts){
   const o = opts || {};
   const cap = o.cap || 20;
   const cellMiles = o.cellMiles == null ? GRID_CELL_MILES : o.cellMiles;
-  const maxJump = o.maxCurveJumpMiles == null ? MAX_CURVE_JUMP_MILES : o.maxCurveJumpMiles;
+
   /* The curve is walked at a FINER resolution than the identity grid, so houses
      inside one cell still come off it in a sensible order rather than in
      whatever order they arrived. A sixteenth of a mile is about a house. */
   const fine = cellMiles / 16;
 
   const split = findOutliers(houses, o);
-  const kept = split.kept;
+  const cut = cutIntoBlocks(split.kept, Object.assign({}, o, {spacing: split.spacing}), "");
+  return {
+    blocks: cut.blocks,
+    outliers: split.outliers.concat(cut.stranded.map(function(h){
+      return {house: h, company: null, radius: null, stranded: true};
+    })),
+    unpinned: split.unpinned
+  };
+}
+
+/* ⭐ THE CUTTING ITSELF, WITH THE OUTLIERS ALREADY TAKEN OUT.
+ * Split out from planBlocks on 2026-08-22 so the grid can be walked more than
+ * once — see planSweeps. It takes houses that are known to be keepable and
+ * returns the blocks they make, plus anybody the curve stranded.
+ *
+ * ⚠ IT DOES NO OUTLIER TEST OF ITS OWN, and must not gain one. Whether a house
+ * is too far from everybody is a property of the ADDRESS and is decided once
+ * against the whole book; deciding it again inside a sweep would make somebody an
+ * outlier in November purely because fewer of their neighbours are out that
+ * month. See the note on OUTLIER_RADIUS_MILES.
+ *
+ * `prefix` namespaces the block ids so two sweeps can never hand back the same
+ * one — a block id is what the builder groups on, so a collision would silently
+ * merge an October block with a November one. */
+export function cutIntoBlocks(kept, opts, prefix){
+  const o = opts || {};
+  const cap = o.cap || 20;
+  const cellMiles = o.cellMiles == null ? GRID_CELL_MILES : o.cellMiles;
+
+  const fine = cellMiles / 16;
+  const tag = prefix || '';
 
   /* Position on the curve, and the stable cell name, worked out once each. */
   const placed = kept.map(function(h){
@@ -410,7 +501,9 @@ export function planBlocks(houses, opts){
   placed.forEach(function(p, i){
     if(i > 0){
       const prev = placed[i - 1];
-      if(distanceMiles(prev.house.lat, prev.house.lng, p.house.lat, p.house.lng) > maxJump){
+      const gap = distanceMiles(prev.house.lat, prev.house.lng, p.house.lat, p.house.lng);
+      /* The allowance stretches where the book thins out — see localJumpMiles. */
+      if(gap > localJumpMiles(prev.house, p.house, o.spacing, o)){
         runs.push(run); run = [];
       }
     }
@@ -421,9 +514,6 @@ export function planBlocks(houses, opts){
   /* Pockets too thin to be a day join their nearest neighbour; the ones with no
      neighbour within reach are not a crew's job at all — see mergeThinRuns. */
   const merged = mergeThinRuns(runs, o);
-  const outliers = split.outliers.concat(merged.stranded.map(function(h){
-    return {house: h, company: null, radius: null, stranded: true};
-  }));
 
   const blocks = [];
   merged.runs.forEach(function(r){
@@ -442,7 +532,7 @@ export function planBlocks(houses, opts){
       const cells = [];
       part.forEach(function(p){ if(cells.indexOf(p.cell) === -1) cells.push(p.cell); });
       blocks.push({
-        id: 'blk' + blocks.length,
+        id: tag + 'blk' + blocks.length,
         ids: part.map(function(p){ return p.house.id; }),
         count: part.length,
         cells: cells,
@@ -455,7 +545,80 @@ export function planBlocks(houses, opts){
     });
   });
 
-  return {blocks: blocks, outliers: outliers, unpinned: split.unpinned};
+  return {blocks: blocks, stranded: merged.stranded};
+}
+
+/* ⭐ THE GRID IS WALKED ONCE PER SWEEP, NOT ONCE (added 2026-08-22).
+ * Owner: "make sure the grid is designed to be gone over twice, for november and
+ * october and also kinda a third for thanksgiving and special dates but try to get
+ * those in the November grid sweep if possible."
+ *
+ * WHY IT CANNOT BE ONE PASS. A block is worked as a unit, and timing is a HARD
+ * GATE that no distance rule may cross — an October customer is not hung in
+ * November and a November customer is not hung in October. Cut the whole book at
+ * once and a single block holds both, so working it either drags a November house
+ * forward or holds an October house back. Neither is allowed, so the block would
+ * have to be worked twice anyway, half each time — which is a sweep, done badly
+ * and without saying so.
+ *
+ * So the pool is partitioned by SWEEP first and the grid is walked inside each
+ * one. October's sweep covers the whole service area, then November's covers it
+ * again. Every block is timing-pure by construction, and the builder's existing
+ * urgency rules then order the blocks exactly as they always have.
+ *
+ * ⭐ THANKSGIVING AND NAMED DAYS RIDE NOVEMBER WHERE THEY CAN. Same instruction:
+ * "try to get those in the November grid sweep if possible." They are a third
+ * sweep only where their own floor makes that impossible — a house that cannot go
+ * out until the week of the holiday genuinely cannot be in a sweep that has
+ * already been driven. The CALLER decides which sweep a house belongs to and
+ * stamps it, because that is a timing rule and timing rules live in admin.html
+ * with the rest of them; this module only walks whatever partition it is handed.
+ *
+ * ⚠ THE OUTLIER TEST RUNS ONCE, ACROSS EVERY SWEEP. Deciding it per sweep would
+ * make somebody your dad's problem in November and a crew's in October, purely
+ * because fewer of their neighbours happen to be out that month. Outlier is a
+ * property of the address.
+ *
+ * ⚠ A HOUSE THE CURVE STRANDS INSIDE ITS SWEEP IS NOT AN OUTLIER AND IS NOT MOVED.
+ * It has plenty of company on the ground — just not company going out the same
+ * month. Moving it to the next sweep would break the timing gate this whole design
+ * exists to protect, so it stays where it is and is REPORTED as `thin`: a short
+ * day the office can see coming, which is the honest answer and the one the owner
+ * has already accepted elsewhere ("one crews are fine").
+ *
+ * houses: [{id, lat, lng, sweep}]. Returns
+ *   {sweeps: [{key, blocks, thin}], blocks, outliers, unpinned}
+ * `blocks` is every sweep's blocks in sweep order, for callers that just want the
+ * flat list. */
+export function planSweeps(houses, opts){
+  const o = opts || {};
+  const order = o.sweepOrder || [];
+  /* One outlier test, over everybody — see above. */
+  const split = findOutliers(houses, o);
+
+  const bySweep = {};
+  split.kept.forEach(function(h){
+    const key = (h && h.sweep) || 'any';
+    (bySweep[key] = bySweep[key] || []).push(h);
+  });
+  /* Caller-declared order first, then anything else alphabetically so an
+     unexpected sweep name still produces a stable plan rather than a random one. */
+  const keys = order.filter(function(k){ return bySweep[k]; })
+    .concat(Object.keys(bySweep).filter(function(k){ return order.indexOf(k) === -1; }).sort());
+
+  const sweeps = [], all = [], stranded = [];
+  keys.forEach(function(key){
+    const cut = cutIntoBlocks(bySweep[key], Object.assign({}, o, {spacing: split.spacing}), key + ':');
+    cut.blocks.forEach(function(b){ b.sweep = key; });
+    /* Stranded WITHIN a sweep: kept, reported, never promoted to an outlier and
+       never moved to another sweep. */
+    cut.stranded.forEach(function(h){ stranded.push({house: h, sweep: key}); });
+    sweeps.push({key: key, blocks: cut.blocks, thin: cut.stranded});
+    cut.blocks.forEach(function(b){ all.push(b); });
+  });
+
+  return {sweeps: sweeps, blocks: all, outliers: split.outliers,
+          unpinned: split.unpinned, thin: stranded};
 }
 
 /* How re-placeable one house is — the eviction rule, in one number.
