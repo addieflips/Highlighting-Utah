@@ -16249,22 +16249,35 @@ function rmRemoveLastCorner(){
 
 /* The switched-on corners, joined in order, ARE the run. */
 function rmCornersToRun(){
-  const on = rmCorners.filter(function(c){ return c.on; });
   rmRuns = rmRuns.filter(function(r){
     if(!r.fromCorners) return true;
     if(r.line) r.line.setMap(null);
     (r.dots || []).forEach(function(d){ d.setMap(null); });
     return false;
   });
-  if(on.length < 2) return null;
-  const run = {
-    type: 'perimeter', fromCorners: true, on: true, suggested: false, touched: true,
-    path: on.map(function(c){ return {lat: c.lat, lng: c.lng, h: c.h}; }),
-    line: null, dots: []
-  };
-  rmRuns.push(run);
-  rmSyncSky(run);
-  return run;
+  /* ⭐ ONE RUN PER ROOF LEVEL - one strand of string each. Joining the top of
+     the house to the bottom draws a line down the middle of the roof that
+     nobody will ever hang, and counts as footage somebody is charged for. */
+  const bands = {};
+  rmCorners.forEach(function(c){
+    if(!c.on) return;
+    const b = c.band || 0;
+    (bands[b] = bands[b] || []).push(c);
+  });
+  let first = null;
+  Object.keys(bands).forEach(function(b){
+    const on = bands[b];
+    if(on.length < 2) return;
+    const run = {
+      type: 'perimeter', fromCorners: true, on: true, suggested: false, touched: true,
+      path: on.map(function(c){ return {lat: c.lat, lng: c.lng, h: c.h}; }),
+      line: null, dots: []
+    };
+    rmRuns.push(run);
+    rmSyncSky(run);
+    if(!first) first = run;
+  });
+  return first;
 }
 
 function rmCornersChanged(){
@@ -16487,6 +16500,9 @@ const RM_TRI_MIN_BASE_M = 4;     /* two views closer than this cannot judge dept
    from two angles, not two features anybody would hang lights round
    separately. */
 const RM_TRI_MERGE_M = 1.5;      /* corners this close are the same corner */
+/* How far apart two roof levels have to be before they are hung separately.
+   Under this it is one roofline with a bit of a step in it. */
+const RM_STRAND_GAP_M = 1.6;
 
 /* Where two rays come closest, and how far apart they are there. */
 function rmRayClosest(ca, da, cb, db){
@@ -16653,14 +16669,60 @@ async function rmDetectCornersFromStreet(){
     kept.push(p);
   });
   if(kept.length < 2) return {ok: false, why: 'the views did not agree on any corner', views: views.length};
-  /* Left to right as the road sees them, so the numbers run the way somebody
-     standing in the street would count them. */
+  /* ⚠ THE ORDER FOLLOWS THE ROOFLINE, NOT THE STREET.
+     Owner, counting them on screen: "you have like 20 lines running deep",
+     against the three the house actually has. Sorting left to right sweeps
+     ACROSS the house, so consecutive corners jump between the near edge of the
+     roof and the far one and every jump becomes a line running deep. A
+     roofline is a path, not a ranking.
+
+     So the chain is walked instead: start at one end and go to the NEAREST
+     corner not yet used, over and over. That traces the outline the way string
+     would actually run, and a corner behind another one is picked up on the
+     way past rather than reached across the roof for. */
   const road = rmRoadDirection() || {e: 0, n: -1};
   const along = {e: -road.n, n: road.e};
-  kept.sort(function(a, b){ return (a.e * along.e + a.n * along.n) - (b.e * along.e + b.n * along.n); });
+  /* ⭐ TWO STRANDS, NOT ONE. Owner: "there are only two strands on the house so
+     the whole top should be connected and the whole bottom should be
+     connected." A house at two roof levels is hung as two runs of string, and
+     joining the top to the bottom draws a line down the middle of the roof
+     that nobody will ever hang.
+     Where the split falls is not guessed: the heights are sorted and the
+     BIGGEST GAP between them is the step from one roof to the other. A house
+     all on one level has no such gap and stays one strand. */
+  const byHeight = kept.slice().sort(function(a, b){ return a.u - b.u; });
+  let cut = -1, widest = 0;
+  for(let i = 1; i < byHeight.length; i++){
+    const gap = byHeight[i].u - byHeight[i - 1].u;
+    if(gap > widest){ widest = gap; cut = i; }
+  }
+  const bands = [];
+  if(cut > 0 && widest >= RM_STRAND_GAP_M){
+    bands.push(byHeight.slice(0, cut));    /* the lower roof */
+    bands.push(byHeight.slice(cut));       /* the upper roof */
+  } else {
+    bands.push(byHeight);
+  }
+  kept.length = 0;
+  bands.forEach(function(band, bi){
+    if(band.length < 2){ band.forEach(function(p){ p.band = bi; kept.push(p); }); return; }
+    const remaining = band.slice();
+    remaining.sort(function(a, b){ return (a.e * along.e + a.n * along.n) - (b.e * along.e + b.n * along.n); });
+    const chain = [remaining.shift()];
+    while(remaining.length){
+      const last = chain[chain.length - 1];
+      let bj = 0, bd = Infinity;
+      remaining.forEach(function(p, i){
+        const d = Math.hypot(p.e - last.e, p.n - last.n, p.u - last.u);
+        if(d < bd){ bd = d; bj = i; }
+      });
+      chain.push(remaining.splice(bj, 1)[0]);
+    }
+    chain.forEach(function(p){ p.band = bi; kept.push(p); });
+  });
   rmCorners = kept.slice(0, RM_CORNER_MAX).map(function(p){
     const w = rmToWorld(p);
-    return {lat: w.lat, lng: w.lng, h: p.u, on: true};
+    return {lat: w.lat, lng: w.lng, h: p.u, on: true, band: p.band || 0};
   });
   rmCornersChanged();
   return {ok: true, corners: rmCorners.length, views: views.length,
@@ -17606,12 +17668,20 @@ function rmPaintStreet(){
     const q = rmSvProject({lat: c.lat, lng: c.lng, h: c.h}, W, H, pov, cam);
     if(!q) return;
     const lit = !!c.on;
-    parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="8" fill="'+(lit ? '#E0574B' : 'rgba(255,255,255,.75)')+
-      '" stroke="'+(lit ? '#fff' : '#8b95a1')+'" stroke-width="1.6"/>');
-    parts.push('<text x="'+q.x+'" y="'+(q.y + 3.4)+'" text-anchor="middle" font-size="10" font-weight="800" ' +
-      'fill="'+(lit ? '#fff' : '#41505f')+'" style="pointer-events:none; font-family:system-ui,sans-serif;">' +
+    /* ⚠ SMALL. Owner: "the dots should look clean and small so theyre not
+       hindering the view of the house." A dot big enough to hold its number
+       comfortably is a dot big enough to hide the corner it is marking, which
+       defeats the whole purpose - you cannot judge whether a corner is in the
+       right place if the marker covers the place. So the dot is small and the
+       number sits BESIDE it, and the part that takes the click is invisible
+       and generous, which costs nothing on screen. */
+    parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="3.2" fill="'+(lit ? '#E0574B' : 'rgba(255,255,255,.8)')+
+      '" stroke="'+(lit ? 'rgba(255,255,255,.9)' : '#8b95a1')+'" stroke-width="1.1"/>');
+    parts.push('<text x="'+(q.x + 6)+'" y="'+(q.y - 5)+'" font-size="9" font-weight="700" ' +
+      'fill="'+(lit ? '#E0574B' : '#6b7683')+'" stroke="rgba(255,255,255,.85)" stroke-width="2.2" ' +
+      'paint-order="stroke" style="pointer-events:none; font-family:system-ui,sans-serif;">' +
       rmCornerLabel(i) + '</text>');
-    parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="13" fill="rgba(0,0,0,0)" ' +
+    parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="12" fill="rgba(0,0,0,0)" ' +
       'style="pointer-events:all; cursor:pointer;" data-rmcornerdot="'+i+'"></circle>');
   });
   svg.innerHTML = parts.join('');
