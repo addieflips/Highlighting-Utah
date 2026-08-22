@@ -1383,7 +1383,7 @@
               <div class="form-row"><label>Measured Feet</label><input type="number" id="addCustFeet" min="0" step="0.5" placeholder="0"></div>
               <div class="form-row"><label>Total Price ($)</label><input type="number" id="addCustPrice" min="0" step="1" placeholder="0"></div>
             </div>
-            <p id="addCustFeetNote" style="font-size:12px; margin:6px 0 0;">Enter Measured Feet to bill automatically at your Per Foot Pricing rate &mdash; you can still adjust Total Price by hand afterward. Deposit and removal fee can be added later from the Invoices tab if needed.</p>
+            <p id="addCustFeetNote" style="font-size:12px; margin:6px 0 0;">Enter Measured Feet to bill automatically at your Per Foot Pricing rate &mdash; you can still adjust Total Price by hand afterward. The amount they have paid can be recorded later from the Invoices tab.</p>
             <div class="form-grid-2" style="margin-top:14px;">
               <div class="form-row"><label>Bill To Phone (optional)</label><input type="tel" id="addCustBillTo" placeholder="Leave blank to bill this house"></div>
               <div class="form-row"><label>People They Referred</label><input type="number" id="addCustReferralCount" min="0" step="1" placeholder="0"></div>
@@ -2988,6 +2988,7 @@
                 <option value="no">No</option>
                 <option value="backnextyear">Back Next Year</option>
                 <option value="pending">Not answered yet (incl. Unanswered)</option>
+                <option value="declinedrequote">Declined a re-quote \u2014 ask about last year</option>
               </select>
             </div>
             <div class="form-row" style="margin:0;"><label style="font-size:11.5px;">Billing group</label>
@@ -3375,6 +3376,7 @@
                 <label><input type="checkbox" id="filterCompleted"> Done</label>
                 <label><input type="checkbox" id="filterNotCompleted"> Not Done Yet</label>
                 <label><input type="checkbox" id="filterNeedsRemoval"> Needs Removal</label>
+                <label><input type="checkbox" id="filterCannotBill"> Cannot Be Billed</label>
               </div>
               <button type="button" class="btn btn-gold btn-sm" id="applyFilterBtn" style="width:100%; margin-top:10px;">Apply</button>
             </div>
@@ -5103,6 +5105,34 @@ function quoteAlreadyACustomer(d){
    drift apart — and CLAUDE.md notes the big button is the one most customers
    actually press, so it is the one that matters most.
    Safety argument lives on quoteExistingCustomer: address PLUS contact. */
+/* ⭐ WHAT KIND OF RE-QUOTE IS THIS — ONE ANSWER (added 2026-08-21).
+   askRequoteKind stores it as requoteKind when the re-quote is raised.
+
+   An ADDITION is the one that changes what "no" means. Owner, 2026-08-21: "I
+   don't want a decline on a garage to decline full quote just garage." Somebody
+   quoted for a back garage on a house that is already lit is answering a
+   question about the GARAGE. The other two kinds — they moved, or the price
+   changed — are about the whole job, so a no there is a no to the season.
+
+   ⚠ EXACTLY 'addition', NOT "anything with a linked customer". EVERY re-quote
+   has one, so a looser test would turn every decline into an add-on decline and
+   nobody would ever leave the season again.
+
+   ⚠ THE SERVER HAS ITS OWN COPY (quoteIsAddOn in functions/index.js) because
+   this one cannot run there. Change one, change the other, in the same push —
+   run-all.js runs both over every kind and fails if they disagree. */
+function quoteIsAddOn(d){
+  return String((d || {}).requoteKind || '').trim().toLowerCase() === 'addition';
+}
+/* ⭐ THE THREE BUTTONS SAY WHAT THEY DO. "Decline Quote" on an add-on reads as
+   declining the whole thing, which is the confusion this exists to remove — the
+   words have to match the behaviour or the behaviour may as well not have
+   changed. Paired with quoteButtonLabelsServer; asserted identical. */
+function quoteButtonLabels(d){
+  return quoteIsAddOn(d)
+    ? {approve:'Yes, add it', maybe:'Maybe Next Year', decline:'No thanks \u2014 just my usual lights'}
+    : {approve:'Approve Quote', maybe:'Maybe Next Year', decline:'Decline Quote'};
+}
 function quotePortalParam(d){
   const c = quoteExistingCustomer(d);
   const t = c && c.data ? c.data.portalToken : '';
@@ -5879,6 +5909,104 @@ function billedHousesRows(houses){
 }
 /* Built with a table and inline styles for the same reason {{price_block}} is:
    Outlook ignores nearly all CSS. */
+/* ⭐ AN OUTSTANDING ADD-ON RIDES ALONG WITH THE RSVP (added 2026-08-21).
+   Owner: "Can we have an approve or decline button for RSVP for add ons to?"
+
+   The RSVP is the one email everybody gets each season, so it is the natural
+   place to settle a garage they were quoted for and never answered. They say
+   yes or no to the season at the top and yes or no to the extra underneath.
+
+   ⚠ RESOLVED BY THE EXPLICIT LINK, NEVER BY PHONE. This is the same trap the
+   decline path was fixed for, and it is WORSE here: 17 numbers in the real book
+   are shared and 14 of those are two genuinely different households, so a
+   phone match would print a child's quote and price inside a parent's RSVP
+   email — and hand the parent buttons that answer it. A re-quote is always
+   raised against a live record (existingCustomerId), so the exact link is
+   always available and there is nothing to guess. */
+function pendingAddOnFor(customerId){
+  if(!customerId || typeof quotesCache === 'undefined') return null;
+  return quotesCache.find(function(q){
+    const d = q.data || {};
+    if(!quoteIsAddOn(d)) return false;
+    /* Priced and still waiting. quoteStage is the ONE answer to "where is this
+       quote up to" — an unpriced one has no number to show, and an answered or
+       archived one must not be asked again. */
+    if(quoteStage(d) !== 'send') return false;
+    return String(d.existingCustomerId || d.convertedToCustomerId || '') === String(customerId);
+  }) || null;
+}
+/* Does the saved template already place the add-on block itself? Read by BOTH
+   the send and the preview, so they cannot disagree about whether it gets
+   appended — the same reasoning as rsvpTemplateHasHouses. */
+function rsvpTemplateHasAddOn(template){
+  return String(template||'').indexOf('{{addon_block}}') !== -1;
+}
+/* The block itself. Empty string for the ordinary customer with nothing
+   outstanding, exactly like billedHousesEmailBlock — a paragraph saying "you
+   have no outstanding add-ons" is noise on nine hundred emails. */
+async function addOnEmailBlock(customerId){
+  const q = pendingAddOnFor(customerId);
+  if(!q) return '';
+  /* The buttons are useless without a token, and this block is not covered by
+     the send's own quote-button token generator, which finds a quote by PHONE
+     and so could mint one on the wrong household's. Done here, for the quote we
+     actually resolved.
+     ⚠ NO UNBALANCED BRACES IN THIS COMMENT, not even inside quotes. Suites lift
+     this function by counting braces from the signature, so a stray opening
+     pair in a comment runs the count off the end: the function reads as
+     MISSING and the suite skips rather than failing. Name email tokens in prose
+     here. This warning cost two debugging rounds, the second because the
+     warning itself was first written with the offending characters in it. */
+  if(!q.data.quoteToken){
+    try{
+      const token = 'qt_' + Math.random().toString(36).substr(2,16) + '_' + Date.now();
+      await updateDoc(doc(db,'quotes', q.id), {quoteToken: token});
+      q.data.quoteToken = token;
+    }catch(err){
+      /* No token, no working buttons — and a block whose buttons do nothing is
+         worse than no block. The RSVP itself still goes. */
+      console.error('[HU] add-on block token write failed', err);
+      return '';
+    }
+  }
+  const labels = quoteButtonLabels(q.data);
+  const base = 'https://highlightingutah.com/#/quote-details?token=' + q.data.quoteToken;
+  const yes = base + quotePortalParam(q.data) + '&action=approve';
+  const no  = base + '&action=decline&addon=1';
+  const btn = 'display:inline-block; padding:11px 18px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:14px; margin:6px 4px;';
+  const note = String(q.data.requoteKindNote || q.data.requoteReason || '').trim();
+  /* ⚠ quotedPrice ON A RE-QUOTE IS THE NEW TOTAL FOR THE HOUSE, NOT THE
+     ADDITION — showApplyRequoteChoice compares it against their current
+     housePrice to say "up $X". Printing it as "+$180" would tell a customer on
+     $600 that the garage costs $780. Say both numbers and let them read it. */
+  const newPrice = typeof q.data.quotedPrice === 'number' ? q.data.quotedPrice : null;
+  const cust = (typeof jobAddresses !== 'undefined'
+    ? jobAddresses.find(function(a){ return a.id === String(q.data.existingCustomerId || q.data.convertedToCustomerId || ''); })
+    : null);
+  const oldPrice = cust && cust.data ? Number(cust.data.housePrice || 0) : 0;
+  let priceLine = '';
+  if(newPrice !== null){
+    priceLine = oldPrice && oldPrice !== newPrice
+      ? 'Your price for the season would be <strong>' + esc(fmtMoney(newPrice)) +
+        '</strong>, instead of ' + esc(fmtMoney(oldPrice)) + '.'
+      : 'Your price for the season would be <strong>' + esc(fmtMoney(newPrice)) + '</strong>.';
+  }
+  return '<div style="margin-top:22px; padding:16px 18px; background:#F6F3EA; border:1px solid #E2D9C3; border-radius:10px; font-family:Arial,sans-serif; font-size:14px; color:#1E3B2C; line-height:1.6;">'+
+      '<div style="font-weight:bold; margin-bottom:6px;">One more thing \u2014 the extra lights you asked about</div>'+
+      (note ? '<div style="margin-bottom:6px;">' + esc(note) + '</div>' : '')+
+      (priceLine ? '<div style="margin-bottom:10px;">' + priceLine + '</div>' : '')+
+      '<div>'+
+        '<a href="' + yes + '" style="' + btn + ' background:#2E6B3E; color:#ffffff;">' + esc(labels.approve) + '</a>'+
+        '<a href="' + no + '" style="' + btn + ' background:#8A8F9C; color:#ffffff;">' + esc(labels.decline) + '</a>'+
+      '</div>'+
+      /* ⚠ SAID IN WORDS, because the whole point of the add-on work is that a
+         no here is not a no to the season. Two sets of yes/no buttons in one
+         email is exactly where somebody would assume otherwise. */
+      '<div style="margin-top:10px; font-size:12.5px; color:#5A6B60;">'+
+        'Saying no to this only turns down the extra lights \u2014 it does not change your answer above.'+
+      '</div>'+
+    '</div>';
+}
 function billedHousesEmailBlock(phone){
   const rows = billedHousesRows(billedHousesForContact(phone));
   if(!rows.length) return '';
@@ -5972,6 +6100,12 @@ async function resolveLinkTokens(text, phone, amount, opts){
      use it; the RSVP send appends it by itself when the template does not, so
      nobody has to know the token exists to get the answer. Resolves to nothing
      at all for the ordinary one-house customer. */
+  /* {{addon_block}} offers an outstanding add-on alongside the season answer.
+     Resolves to nothing at all when they have none. Needs opts.customerId —
+     the explicit link, never the phone (see pendingAddOnFor). */
+  if(out.indexOf('{{addon_block}}') !== -1){
+    out = out.split('{{addon_block}}').join(opts.customerId ? await addOnEmailBlock(opts.customerId) : '');
+  }
   if(out.indexOf('{{houses_block}}') !== -1 || out.indexOf('{{houses_list}}') !== -1){
     out = out.split('{{houses_block}}').join(billedHousesEmailBlock(phone));
     out = out.split('{{houses_list}}').join(billedHousesPlainText(phone).trim());
@@ -6023,13 +6157,20 @@ async function resolveLinkTokens(text, phone, amount, opts){
          email. A new lead has no customer record, so they simply get no `p` and
          nothing changes for them. */
       const qPortal = quotePortalParam(quote.data);
+      /* ⚠ THE ADD-ON DECLINE CARRIES &addon=1 so the page can word its
+         confirmation to match the button they pressed. COSMETIC ONLY —
+         quoteRespond decides what a decline means from the quote's own
+         requoteKind, never from the link, so a forged parameter changes nothing
+         but the sentence a forger reads on their own screen. */
+      const qLabels = quoteButtonLabels(quote.data);
+      const qAddOn = quoteIsAddOn(quote.data) ? '&addon=1' : '';
       const approveUrl = 'https://highlightingutah.com/#/quote-details?token='+quoteToken+qPortal+'&action=approve';
-      const declineUrl = 'https://highlightingutah.com/#/quote-details?token='+quoteToken+'&action=decline';
+      const declineUrl = 'https://highlightingutah.com/#/quote-details?token='+quoteToken+'&action=decline'+qAddOn;
       const maybeUrl = 'https://highlightingutah.com/#/quote-details?token='+quoteToken+'&action=maybe_next_year';
       const btnStyleQuote = 'display:inline-block; padding:11px 18px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:14px; margin:6px 4px;';
-      out = out.split('{{quote_yes_button}}').join('<a href="'+approveUrl+'" style="'+btnStyleQuote+' background:#2E6B3E; color:#ffffff;">Approve Quote</a>');
-      out = out.split('{{quote_decline_button}}').join('<a href="'+declineUrl+'" style="'+btnStyleQuote+' background:#8A8F9C; color:#ffffff;">Decline Quote</a>');
-      out = out.split('{{quote_maybe_button}}').join('<a href="'+maybeUrl+'" style="'+btnStyleQuote+' background:#D89F3D; color:#1E3B2C;">Maybe Next Year</a>');
+      out = out.split('{{quote_yes_button}}').join('<a href="'+approveUrl+'" style="'+btnStyleQuote+' background:#2E6B3E; color:#ffffff;">'+qLabels.approve+'</a>');
+      out = out.split('{{quote_decline_button}}').join('<a href="'+declineUrl+'" style="'+btnStyleQuote+' background:#8A8F9C; color:#ffffff;">'+qLabels.decline+'</a>');
+      out = out.split('{{quote_maybe_button}}').join('<a href="'+maybeUrl+'" style="'+btnStyleQuote+' background:#D89F3D; color:#1E3B2C;">'+qLabels.maybe+'</a>');
     } else {
       out = out.split('{{quote_yes_button}}').join('(quote token not found)');
       out = out.split('{{quote_decline_button}}').join('(quote token not found)');
@@ -8173,6 +8314,11 @@ function loadQuotes(){
     quotesCache.forEach(function(item){
       const stage = quoteStage(item.data);
       if(stage === 'new' || stage === 'form') newCount++;
+      /* ⭐ AND ANYTHING THE SERVER COULD NOT FINISH, whatever stage it is at.
+         A decline archives its quote, so a half-applied decline sits in Closed
+         where nobody looks — which is precisely the case this exists for. The
+         badge is what makes somebody open the tab at all. */
+      else if(item.data.followUpNeeded) newCount++;
     });
     document.getElementById('badgeQuotes').style.display = newCount ? 'inline-block' : 'none';
     document.getElementById('badgeQuotes').textContent = newCount;
@@ -9831,6 +9977,29 @@ function renderQuoteRows(filtered){
               : '<div style="margin-top:4px;">Address changed from <strong>'+esc(d.changed.oldAddress || '')+'</strong>. Needs re-geocoding, and any saved route still holds the old one.</div>')+
           '</div>'
         ) : '')+
+        // ---- Something the server could not finish -----------------------
+        /* ⭐ A CUSTOMER'S ANSWER THAT ONLY HALF LANDED SAYS SO HERE (added
+           2026-08-21). Owner: "for server call is there a way we can't have that
+           fail silently?"
+
+           Everything quoteRespond does AFTER recording the answer is
+           best-effort — the answer must never be lost because a follow-on
+           write failed — and best-effort used to mean console.error, which
+           goes to Cloud Logging, which nobody here reads. The server now writes
+           what it could not do onto the QUOTE, which is the one document known
+           to be writable, and this is where it surfaces.
+
+           ⚠ IT SAYS WHAT TO DO, not that something went wrong. "Error" sends
+           somebody to a developer; naming the record and the field to check
+           lets the office finish the job in a minute. */
+        (d.followUpNeeded ? (
+          '<div style="margin-top:10px; background:#FDECEA; border:1px solid #F3C8C2; border-radius:9px; padding:10px 12px; font-size:12.5px; color:#8A2318; line-height:1.55;">'+
+            '<strong>⚠ Their answer was recorded, but part of it did not go through.</strong>'+
+            '<div style="margin-top:4px;">'+esc(d.followUpReason || 'Something did not complete — check this customer\'s record by hand.')+'</div>'+
+            (d.followUpAt ? '<div style="margin-top:4px; opacity:.8;">'+fmtDate(d.followUpAt)+'</div>' : '')+
+            '<div style="margin-top:6px;"><button class="btn btn-outline btn-sm" data-clearfollowup="'+item.id+'">Done — clear this</button></div>'+
+          '</div>'
+        ) : '')+
         // ---- Re-quoted by hand -------------------------------------------
         /* What the old quote said, kept on screen after the price is cleared.
            Without it the card looks like a quote that was never priced, and
@@ -10087,6 +10256,32 @@ function renderQuoteRows(filtered){
     '</div>';
   });
   list.innerHTML = html;
+  /* ⭐ CLEARING A FOLLOW-UP FLAG IS THE OFFICE SAYING "I HAVE DONE IT BY HAND".
+     ⚠ It clears the flag and NOTHING else — it must never try to re-run the
+     thing that failed. The server could not reach that customer's record a
+     moment ago; guessing here at what half of it landed is how you recycle
+     somebody's lights twice, or un-decline a customer who declined. The strip
+     names the record and the field, a human checks it, and this button records
+     that they did. */
+  list.querySelectorAll('[data-clearfollowup]').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      const id = btn.dataset.clearfollowup;
+      btn.disabled = true;
+      try{
+        await updateDoc(doc(db,'quotes', id), {
+          followUpNeeded: false, followUpReason: '', followUpClearedAt: serverTimestamp()
+        });
+        /* The list repaints from the cache, not from Firestore. */
+        const it = quotesCache.find(function(x){ return x.id === id; });
+        if(it && it.data){ it.data.followUpNeeded = false; it.data.followUpReason = ''; }
+        toast('Cleared');
+        renderQuotesList();
+      }catch(err){
+        btn.disabled = false;
+        toast('Could not clear that \u2014 try again.');
+      }
+    });
+  });
   list.querySelectorAll('[data-previewquoteaddr]').forEach(function(btn){
     btn.addEventListener('click', function(){
       showMapPreviewByAddress('quoteListMap', btn.dataset.previewquoteaddr);
@@ -11831,7 +12026,10 @@ function etResolveVars(item){
   }
   if(!price) price = '—';
   const link = d.portalToken ? ('https://highlightingutah.com/#/payment?token='+d.portalToken) : '';
-  return {name: d.name || 'there', price: price, phone: d.phone || '', link: link, linkLabel: 'Log Into Your Portal'};
+  /* ⚠ THE RECORD ID TRAVELS WITH THE VARS, so {{addon_block}} can resolve the
+     add-on by its explicit link instead of by phone — which on a shared number
+     would put one household's quote and price in another's email. */
+  return {name: d.name || 'there', price: price, phone: d.phone || '', link: link, linkLabel: 'Log Into Your Portal', customerId: item.id};
 }
 function getLiveInvoiceStatus(phone){
   const phoneDigits = (phone||'').replace(/\D/g,'');
@@ -11880,9 +12078,15 @@ async function etUpdatePreview(){
   /* autoPlace false: only a template that actually asks for {{photo}} gets the
      photos. A billing or RSVP template never mentioned one and must not
      suddenly grow a picture of the house. */
+  /* ⚠ THE PREVIEW APPENDS IT ON THE SAME CONDITION THE SEND DOES. What is on
+     screen has to be what goes out — an offer that appears only in the real
+     email is one nobody proof-read. Both ask rsvpTemplateHasAddOn, which is why
+     that helper exists rather than the test being written twice. */
+  const addOnBlock = (etTemplateIsRsvp(template) && !rsvpTemplateHasAddOn(template.data.body))
+    ? await addOnEmailBlock(member.id) : '';
   box.innerHTML = applyQuotePhotoBlock(
     await resolveLinkTokens(template.data.body, vars.phone, 0, vars),
-    quotePhotosForPhone(vars.phone), false);
+    quotePhotosForPhone(vars.phone), false) + addOnBlock;
 }
 /* ---- Audience filters: shared helpers for the Preview & Send picker --------
    Each answers one real-life question about a member from data already on their
@@ -12118,6 +12322,17 @@ function etRenderRecipientList(){
      nobody at all, on the one send where the whole list needs it.
      A send to nobody looks exactly like a send that worked. */
   else if(etFilterRsvp === 'pending') members = members.filter(m => !etRsvpAnswered(m.data));
+  /* ⭐ THE PEOPLE WAITING ON ONE QUESTION (added 2026-08-21). Owner: "if an
+     existing costumer denies a requote, than can we mark them as email or
+     something like that were we can ask them if they just want us to do what we
+     did last year of there house", and "we can email them asking them if they
+     want to do there normal lights with there normal bill instead."
+
+     Set by the server when a member declines a re-quote. It is deliberately NOT
+     an rsvpStatus of its own: they have not answered the season question at all,
+     and giving them a status would take them out of the Pending list they still
+     belong in. Cleared the moment they RSVP — that answer IS them telling us. */
+  else if(etFilterRsvp === 'declinedrequote') members = members.filter(m => !!m.data.askSameAsLastYear);
   // Paid last year (from last season's saved snapshot)
   if(etFilterPaidLast === 'paid') members = members.filter(m => audiencePaidLastYear(m.data) === 'paid');
   else if(etFilterPaidLast === 'unpaid') members = members.filter(m => audiencePaidLastYear(m.data) === 'unpaid');
@@ -12699,9 +12914,16 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
     const vars = etResolveVars(member);
     /* Same treatment as the preview above, so what was on screen is what goes
        out. */
+    /* Appended rather than left to a token, so the saved RSVP template does not
+       have to be edited for anyone to get it — and skipped when the template
+       DOES place the token itself, or the offer would appear twice. Only on an
+       RSVP: an add-on offer at the bottom of an invoice or a receipt is not
+       what either email is for. */
+    const addOnBlock = (etTemplateIsRsvp(template) && !rsvpTemplateHasAddOn(template.data.body))
+      ? await addOnEmailBlock(member.id) : '';
     const message = applyQuotePhotoBlock(
       await resolveLinkTokens(template.data.body, vars.phone, 0, vars),
-      quotePhotosForPhone(vars.phone), false);
+      quotePhotosForPhone(vars.phone), false) + addOnBlock;
     statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + selectedIds.length + '…';
     try{
       await emailjs.send(serviceId, templateJsId, { to_email: member.data.email, to_name: member.data.name || '', message: message });
@@ -12771,7 +12993,9 @@ document.getElementById('etSendTestBtn').addEventListener('click', async functio
       await updateDoc(doc(db,'quotes', quote.id), {quoteToken: token});
     }
   }
-  const message = '[TEST EMAIL — sample data below]<br><br>' + await resolveLinkTokens(template.data.body, vars.phone||'', 0, vars);
+  const testAddOn = (member && etTemplateIsRsvp(template) && !rsvpTemplateHasAddOn(template.data.body))
+    ? await addOnEmailBlock(member.id) : '';
+  const message = '[TEST EMAIL — sample data below]<br><br>' + await resolveLinkTokens(template.data.body, vars.phone||'', 0, vars) + testAddOn;
   try{
     emailjs.init(publicKey);
     await emailjs.send(serviceId, templateJsId, { to_email: testEmail, to_name: 'Test', message: message });
@@ -12816,6 +13040,7 @@ const IC_CODES = {
     {token:'{{link}}', label:'Quote link (plain URL)'},
     {token:'{{link_button}}', label:'Quote link (button)'},
     {token:'{{quote_yes_button}}', label:'Quote Approve (button)'},
+    {token:'{{addon_block}}', label:'Outstanding add-on: offer + Yes/No (block)'},
     {token:'{{quote_maybe_button}}', label:'Quote Maybe Next Year (button)'},
     {token:'{{quote_decline_button}}', label:'Quote Decline (button)'}
   ]
@@ -18261,7 +18486,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
     addCustQuoteColorsSnapshot = [];
     document.getElementById('addCustWantsMailed').checked = false;
     document.getElementById('addCustFeet').value = '';
-    document.getElementById('addCustFeetNote').textContent = 'Enter Measured Feet to bill automatically at your Per Foot Pricing rate — you can still adjust Total Price by hand afterward. Deposit and removal fee can be added later from the Invoices tab if needed.';
+    document.getElementById('addCustFeetNote').textContent = 'Enter Measured Feet to bill automatically at your Per Foot Pricing rate — you can still adjust Total Price by hand afterward. The amount they have paid can be recorded later from the Invoices tab.';
     document.getElementById('addCustEmail').value = '';
     document.getElementById('addCustPropertyLabel').value = '';
     document.getElementById('addCustPhone2').value = '';
@@ -22006,7 +22231,12 @@ async function rbApplyTickedAdds(statusEl){
   const difficultyRaw = colOf('rbDifficultyArea'), feetRaw = colOf('rbFeetArea');
   const notesRaw = colOf('rbNotesArea');
   const amountsRaw = colOf('rbAmountsArea');
-  let done = 0, failed = 0, noPin = 0, updatedExisting = 0;
+  let done = 0, failed = 0, noPin = 0, updatedExisting = 0, numbered = 0;
+  /* ⚠ SEEDED ONCE, OUTSIDE THE LOOP. See cnAllocator — asking cnNextAvailable
+     inside the loop returns the same number every time, because it answers from
+     caches a Firestore listener refreshes and that listener does not fire
+     between iterations. */
+  const cnAlloc = cnAllocator();
   for(let n = 0; n < list.length; n++){
     const r = list[n], i = r.i;
     statusEl.textContent = 'Adding ' + (n+1) + ' of ' + list.length + '…';
@@ -22057,6 +22287,17 @@ async function rbApplyTickedAdds(statusEl){
         portalToken: generatePortalToken(),
         lat: coords.lat, lng: coords.lng, needsGeocode: coords.lat === null,
         scheduled: false,
+        /* ⭐ AND THE WAREHOUSE IS TOLD (hole B). Owner: "we want to build
+           everyone." Six places create a customer record and only Add Customer
+           set this, so somebody added from the master sheet — colours, wire and
+           all — never appeared in Needs Building and no bundle was ever made
+           for them. The crew arrives at a house with nothing for it.
+
+           ⚠ A row with no colours is NOT excluded here. whBuildQueueGroups puts
+           them in its own "Waiting on light colours" block at the top of the
+           tab, which is visible and actionable; leaving the flag off instead
+           makes them invisible, which is the bug this is fixing. */
+        needsLightBuild: true,
         createdAt: dateTypedIn ? Timestamp.fromDate(new Date(dateTypedIn)) : serverTimestamp()
       };
       if(r.cu){
@@ -22066,6 +22307,25 @@ async function rbApplyTickedAdds(statusEl){
       if(feetVal){
         doc2.measuredFeet = Number(feetVal);
         doc2.numberOfBins = cnBinsForFeet(Number(feetVal));
+      }
+      /* ⭐ EVERYONE NEW GETS A NUMBER (hole B). Owner: "everyone new should get a
+         number so we want to build everyone but everyone should also have a
+         number." The sheet's CU# column is usually filled in and is used as-is
+         above; a row without one used to arrive with no number at all, so there
+         was no label for their bin and nothing for the warehouse to write on it.
+
+         ⚠ THE SERIES FOLLOWS THE BIN COUNT, not the other way round: two bins or
+         more takes a 5000-series number. `>= 2`, never `=== 2` — a three-bin
+         house handed a regular number is labelled for a bin that does not
+         exist. Same rule as Add Customer, which is where this is copied from.
+
+         ⚠ AND ONLY ON AN ADD. A pairedSite row is an existing record being
+         corrected; renumbering somebody whose bin is already on a shelf under
+         their old label is exactly the harm binLabelNumber exists to describe. */
+      if(!doc2.customerNumber && !r.pairedSite){
+        const want = (Number(doc2.numberOfBins) || 1) >= 2 ? 'double' : 'regular';
+        doc2.customerNumber = cnAlloc.take(want).number;
+        numbered++;
       }
       /* ⭐ THE PRICE COMES ACROSS TOO. Owner, 2026-08-19: "when I sync it and add
          a full new customer to the website does it convert all of their info?"
@@ -22138,13 +22398,27 @@ async function rbApplyTickedAdds(statusEl){
         updatedExisting++;
       } else {
         await addDoc(collection(db,'jobAddresses'), doc2);
+        /* The customer exists now, so a number we minted for them is genuinely
+           spoken for and may come out of the pool. */
+        if(doc2.customerNumber) cnAlloc.confirm(doc2.customerNumber);
         done++;
       }
     } catch(err){ failed++; }
   }
   rbPendingAdds = null;
   if(done) logActivity('Added ' + done + ' customer(s) missing from the website', 'customers', '');
-  return {done: done, failed: failed, noPin: noPin, updatedExisting: updatedExisting, ran: true};
+  /* ⚠ THE POOL IS EMPTIED LAST, AND ONLY OF WHAT WAS REALLY USED. Deleting as
+     each number was handed out would lose a number whenever the customer write
+     that followed it failed — invisible until somebody is handed a bin label
+     that is already on a shelf. Every delete is guarded on its own: half a
+     sweep is still better than none, and a pool entry that survives is found
+     again by Find conflicts, whereas one deleted in error is simply gone. */
+  for(const h of cnAlloc.taken()){
+    await deleteDoc(doc(db, 'availableCustomerNumbers', h.number))
+      .catch(function(err){ console.error('[HU] could not take number ' + h.number + ' out of the pool', err); });
+  }
+  return {done: done, failed: failed, noPin: noPin, updatedExisting: updatedExisting,
+          numbered: numbered, ran: true};
 }
 function rbWireDiffButtons(report, statusEl){
   const picks = function(){ return Array.prototype.slice.call(document.querySelectorAll('.rb-diff-pick')); };
@@ -22269,7 +22543,13 @@ function rbWireDiffButtons(report, statusEl){
     rbPendingDiffs = null;
     logActivity('Synced ' + fields + ' field(s) from the master sheet onto ' + done + ' customer(s)', 'customers', '');
     report.innerHTML = '<div style="border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--paper); font-size:13px;">' +
-      (added.done ? added.done + ' customer(s) added' : '') +
+      (added.done ? added.done + ' customer(s) added' +
+        /* ⭐ SAY IT, because both are real work the office would otherwise only
+           find by opening two other tabs. A number handed out is a bin label
+           somebody has to write, and a build queued is a bundle somebody has to
+           make. Automatic is fine; invisible is not. */
+        ' (all queued for building' +
+        (added.numbered ? ', ' + added.numbered + ' given a customer number' : '') + ')' : '') +
       (added.updatedExisting ? (added.done ? ', ' : '') + added.updatedExisting + ' existing record(s) updated instead of copied' : '') +
       (added.failed ? ', ' + added.failed + ' add(s) failed' : '') +
       (added.noPin ? ', ' + added.noPin + ' without a map pin (All Customers → Filters → Map Pin → "Needs Pin")' : '') +
@@ -24113,6 +24393,26 @@ let activeNeedsFixFilter = false;
 let activeUnscheduledFilter = false;
 let activeCompletedFilter = false;
 let activeNotCompletedFilter = false;
+/* ⭐ WHO COULD NOT BE BILLED LAST NIGHT (hole H, 2026-08-21).
+   The nightly run sets cannotBillNoEmail when there is no email anywhere on a
+   payer's bill — an installed house that cannot be invoiced.
+
+   ⚠ THE STORED FLAG IS ONLY HALF THE ANSWER. It is written once a night, so on
+   its own the tag would sit there all day after somebody typed an email in.
+   Checking live that they STILL have no email makes it disappear the moment the
+   gap is closed, while the flag stays the thing that decided it — stored fact,
+   derived display, the same shape as derivedDoneFor.
+
+   ⚠ AND IT NEVER SHOWS FOR SOMEBODY WHO SIMPLY HAS NO EMAIL YET. The flag is
+   what says the nightly run actually tried and failed; ~960 customers have no
+   email on some record somewhere, and tagging all of them would bury the dozen
+   that matter. */
+function custCannotBeBilled(d){
+  const dd = d || {};
+  if(!dd.cannotBillNoEmail) return false;
+  return !String(dd.email || '').trim() && !String(dd.email2 || '').trim();
+}
+let activeCannotBillFilter = false;
 let activeNeedsRemovalFilter = false;
 let activeCityFilter = 'all';
 let searchTerm = '';
@@ -24356,7 +24656,7 @@ function buildAddressRowHtml(item){
       timingBadgesHtml+
       '<button type="button" class="fix-toggle-btn" data-toggledetails="'+item.id+'" style="margin-top:8px;">Show Details &#9662;</button>'+
       '<div id="rowdetails-'+item.id+'" style="display:none; margin-top:10px;">'+
-        '<div style="margin-bottom:8px;"><span class="status-pill diff-'+diff+'">'+diff+'</span>'+(d.scheduled ? ' <span class="status-pill status-paid">Install Scheduled</span>' : '')+(needsFix ? ' <span class="status-pill diff-Fix">Needs Fix</span>'+(d.fixScheduled ? ' <span class="status-pill status-paid">Fix Scheduled</span>' : '') : '')+(completed ? ' <span class="status-pill status-paid">&#10003; Done</span>' : '')+(needsRemoval ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Needs Removal</span>' : '')+(d.removalDone ? ' <span class="status-pill status-paid">&#10003; Removed</span>' : '')+(seasonStatusLabel ? ' <span class="status-pill '+seasonStatusClasses[d.seasonStatus]+'">'+seasonStatusLabel+'</span>' : '')+(needsQuote ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Needs Quote</span>' : '')+'</div>'+
+        '<div style="margin-bottom:8px;"><span class="status-pill diff-'+diff+'">'+diff+'</span>'+(d.scheduled ? ' <span class="status-pill status-paid">Install Scheduled</span>' : '')+(needsFix ? ' <span class="status-pill diff-Fix">Needs Fix</span>'+(d.fixScheduled ? ' <span class="status-pill status-paid">Fix Scheduled</span>' : '') : '')+(completed ? ' <span class="status-pill status-paid">&#10003; Done</span>' : '')+(needsRemoval ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Needs Removal</span>' : '')+(d.removalDone ? ' <span class="status-pill status-paid">&#10003; Removed</span>' : '')+(seasonStatusLabel ? ' <span class="status-pill '+seasonStatusClasses[d.seasonStatus]+'">'+seasonStatusLabel+'</span>' : '')+(d.askSameAsLastYear ? ' <span class="status-pill" style="background:#FDECEA; color:#8A2318;">Ask about last year</span>' : '')+(custCannotBeBilled(d) ? ' <span class="status-pill" style="background:#FDECEA; color:#8A2318;">Cannot Be Billed \u2014 no email</span>' : '')+(needsQuote ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Needs Quote</span>' : '')+'</div>'+
         (d.phone ? '<div class="row-phone-line">'+esc(d.phone)+'</div>' : '')+
         priceLine+
         (crewLines.length ? '<div class="row-phone-line">'+crewLines.join(' &middot; ')+'</div>' : '')+
@@ -24896,6 +25196,7 @@ function renderRouteAddressList(){
   if(activeCompletedFilter) filtered = filtered.filter(a => a.data.completed);
   if(activeNotCompletedFilter) filtered = filtered.filter(a => !a.data.completed);
   if(activeNeedsRemovalFilter) filtered = filtered.filter(a => a.data.completed && !a.data.removalDone);
+  if(activeCannotBillFilter) filtered = filtered.filter(a => custCannotBeBilled(a.data));
   if(searchTerm){
     const t = searchTerm.toLowerCase();
     filtered = filtered.filter(a =>
@@ -24985,6 +25286,7 @@ document.getElementById('applyFilterBtn').addEventListener('click', function(){
   activeCompletedFilter = document.getElementById('filterCompleted').checked;
   activeNotCompletedFilter = document.getElementById('filterNotCompleted').checked;
   activeNeedsRemovalFilter = document.getElementById('filterNeedsRemoval').checked;
+  activeCannotBillFilter = document.getElementById('filterCannotBill').checked;
   const parts = [];
   if(activeDiffFilters.length) parts.push(activeDiffFilters.join('/'));
   if(activeNeedsFixFilter) parts.push('Needs Fix');
@@ -24992,6 +25294,7 @@ document.getElementById('applyFilterBtn').addEventListener('click', function(){
   if(activeCompletedFilter) parts.push('Done');
   if(activeNotCompletedFilter) parts.push('Not Done');
   if(activeNeedsRemovalFilter) parts.push('Needs Removal');
+  if(activeCannotBillFilter) parts.push('Cannot Be Billed');
   document.getElementById('activeFilterSummary').textContent = parts.length ? parts.join(', ') : '';
   document.getElementById('filterDropdown').classList.remove('open');
   renderRouteAddressList();
@@ -25704,6 +26007,70 @@ function cnShadowedPool(type){
   return availableCustomerNumbers
     .filter(function(n){ return n.data.type === type && cnNumberIsHeld(n.id); })
     .sort(function(a,b){ return parseInt(a.id,10) - parseInt(b.id,10); });
+}
+/* ⭐ HANDING OUT SEVERAL NUMBERS IN ONE RUN (added 2026-08-21, hole B).
+   Owner: "everyone new should get a number so we want to build everyone but
+   everyone should also have a number."
+
+   ⚠ cnNextAvailable CANNOT BE CALLED IN A LOOP. It answers from the caches —
+   availableCustomerNumbers and jobAddresses — and those are refreshed by a
+   Firestore listener, which does not fire between two iterations of a tight
+   loop. Call it twelve times in a row and it returns the SAME number twelve
+   times, so twelve customers are labelled for one bin. That is the single most
+   expensive mistake available here: the pool has no record of it and the
+   collision only shows up as two houses wearing one label on a shelf.
+
+   So the allocator is seeded ONCE from the same two sources cnNextAvailable
+   uses, and then hands out from its own copy — remembering what it has given
+   out so the next call cannot repeat it.
+
+   ⚠ IT DOES NOT WRITE ANYTHING. Taking a number out of the pool for real is a
+   delete on availableCustomerNumbers, and the caller does that only once the
+   customer has actually been written — a number removed from the pool for a
+   customer who then failed to save is a number lost with nothing on any screen
+   to explain it. `taken()` reports which ones need that delete. */
+function cnAllocator(){
+  const pool = {regular: cnFreePool('regular').map(function(n){ return n.id; }),
+                double:  cnFreePool('double').map(function(n){ return n.id; })};
+  const next = {regular: cnHighestAssigned('regular') + 1,
+                double:  cnHighestAssigned('double') + 1};
+  const handedOut = [], seen = {};
+  return {
+    take: function(type){
+      const t = (type === 'double') ? 'double' : 'regular';
+      let num = '';
+      while(pool[t].length){
+        const candidate = pool[t].shift();
+        if(!seen[candidate]){ num = candidate; break; }
+      }
+      const fromPool = !!num;
+      if(!num){
+        /* ⚠ SKIP ANYTHING THIS RUN HAS ALREADY GIVEN OUT, including a number
+           that happens to sit in the other series' pool. */
+        while(seen[String(next[t])]) next[t]++;
+        num = String(next[t]);
+        next[t]++;
+      }
+      seen[num] = true;
+      handedOut.push({number: num, fromPool: fromPool, saved: false});
+      return {number: num, fromPool: fromPool};
+    },
+    /* ⚠ TAKING A NUMBER AND KEEPING IT ARE TWO STEPS. The caller confirms only
+       after the customer has actually been written; a number pulled out of the
+       pool for a row that then failed to save is a number lost with nothing on
+       any screen to explain it.
+       ⚠ BUT `seen` STILL BLOCKS IT for the rest of the run. Re-offering the
+       number of a failed row would be safe in principle and is not worth the
+       risk of getting wrong — a wasted number costs the next number up, a
+       repeated one puts two houses on one bin label. */
+    confirm: function(number){
+      handedOut.forEach(function(h){ if(h.number === number) h.saved = true; });
+    },
+    /* The ones that came out of the pool AND ended up on a real customer, so
+       they need deleting from it. */
+    taken: function(){ return handedOut.filter(function(h){ return h.fromPool && h.saved; }); },
+    count: function(){ return handedOut.length; }
+  };
 }
 function cnNextAvailable(type){
   const pooled = cnFreePool(type);
@@ -26434,6 +26801,52 @@ function whNormalizeLights(text){
     return a.toLowerCase().localeCompare(b.toLowerCase());
   });
   return sorted.join(', ') + (notes ? ' (' + notes + ')' : '');
+}
+/* ⭐ WHAT THE WAREHOUSE ACTUALLY BUILDS FROM — ONE ANSWER (added 2026-08-21,
+   known holes C and D). Owner: "Can you make sure it hits the warehouse that is
+   very important."
+
+ * ⚠ THE HOLE: only a COLOUR change ever reached the build queue. A member could
+ * change their WIRE COLOUR or their TIMER in their own portal, the record
+ * updated, an inbox message went up — and needsLightBuild was never set, so they
+ * never appeared in Needs Building. The office side was no better: Edit
+ * Customer computed needsLightBuild from lightsDescription alone.
+ *
+ * ⚠ AND BOTH GENUINELY CHANGE WHAT GETS MADE, which is why this is not cosmetic:
+ *   - WIRE IS PART OF THE GROUP KEY. whGroupKey(lightsDescription, wireColor) —
+ *     the same pattern on white wire and on green wire are two different
+ *     bundles on two different shelves. A bundle already made on the old wire
+ *     is simply the wrong bundle.
+ *   - THE TIMERS LIST IS DERIVED FROM THE BUILD. whBuildQueueGroups collects
+ *     timerHouses while walking the queue, so somebody not IN the queue is not
+ *     on the timer list — add a timer after their bundle is finished and no
+ *     timer is ever put in it.
+ *
+ * ⚠ hasOwnProperty ON THE INCOMING OBJECT IS LOAD-BEARING. Every caller here
+ * sends a PARTIAL update — the portal's preferences section carries no
+ * lightsDescription at all — and reading an absent field as "" would report a
+ * cleared pattern on every single save, re-queueing the whole book.
+ *
+ * ⚠ A BLANK TIMER IS "NO", not a third state. index.html has always compared it
+ * as (outletTimer || 'No'), so treating blank and No as different would make an
+ * untouched record look changed for ever.
+ *
+ * ⚠ ONE RULE, TWO COPIES, ASSERTED IDENTICAL — the browser cannot run the
+ * server's. run-all.js runs both over the same table of cases and fails if they
+ * ever disagree, the money-parity pattern. */
+const WAREHOUSE_BUILD_FIELDS = ['lightsDescription', 'wireColor', 'outletTimer'];
+function warehouseRebuildFields(oldData, newData) {
+  const o = oldData || {}, n = newData || {};
+  const norm = function (field, d) {
+    const raw = String(d[field] == null ? '' : d[field]).trim().toLowerCase();
+    /* Blank means no timer; see above. */
+    if (field === 'outletTimer') return raw === 'yes' ? 'yes' : 'no';
+    return raw;
+  };
+  return WAREHOUSE_BUILD_FIELDS.filter(function (f) {
+    if (!Object.prototype.hasOwnProperty.call(n, f)) return false;
+    return norm(f, n) !== norm(f, o);
+  });
 }
 function whGroupKey(lightsDescription, wire){
   return whNormalizeLights(lightsDescription) + ' \u2014 ' + whWireLabel(wire) + ' wire';
@@ -29469,6 +29882,13 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     addrUpdates.needsLightBuild = newLightsDescription
       ? (newLightsDescription !== oldLightsForBuild ? true : !!item.data.needsLightBuild)
       : !!item.data.needsLightBuild;
+    /* ⭐ AND THE OFFICE CHANGING THE WIRE OR THE TIMER RE-QUEUES TOO (holes C
+       and D). Same rule as the portal, asserted identical. AFTER the line above
+       and only ever turning the flag ON: that expression carries its own hard-won
+       rule that blank colours mean the build cannot be DONE yet rather than not
+       owed, and overwriting it would bring back the bug where saving a customer
+       with no colours silently cleared their build. */
+    if(warehouseRebuildFields(item.data, addrUpdates).length) addrUpdates.needsLightBuild = true;
     /* "They said no" is a lasting fact; "their lights need pulling back into
        stock" is a job that gets finished. This used to be re-derived from the
        dropdown on EVERY save, so opening a recycled customer's record months
@@ -29491,7 +29911,15 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     }
     if(newRsvp === 'no' && oldRsvpForRecycle !== 'no'){
       addrUpdates.needsLightRecycle = true;
-    } else if(newRsvp !== 'no' && oldRsvpForRecycle === 'no' && item.data.needsLightRecycle){
+    } else if(newRsvp !== 'no' && newRsvp !== 'backnextyear' &&
+              oldRsvpForRecycle === 'no' && item.data.needsLightRecycle){
+      /* Undoing their own no: they are coming back IN this season, so the
+         recycle that the no created is cancelled with it.
+
+         ⚠ BUT NOT FOR BACK NEXT YEAR — the same hole G bug by another route.
+         'no' and 'backnextyear' are two ways of saying not this season, so
+         moving between them changes nothing about whether their lights need
+         collecting. Only coming back in does. */
       addrUpdates.needsLightRecycle = false;
     }
     /* ⭐ AND COMING BACK IN EARNS THE NEXT SLOT GOING (2026-08-22). Owner: "The ones
@@ -29565,12 +29993,39 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       if(!item.data.maybeNextYear) addrUpdates.maybeNextYearAt = serverTimestamp();
       addrUpdates.rsvpStatus = 'backnextyear';
       addrUpdates.rsvpRespondedAt = serverTimestamp();
-      addrUpdates.needsLightRecycle = false;
+      /* ⭐ BACK NEXT YEAR NEITHER CREATES A RECYCLE NOR DESTROYS ONE (hole G,
+     fixed 2026-08-21). Owner, asked what happens to their bin: keep it made up.
+
+     ⚠ SO THIS MUST NOT WRITE needsLightRecycle AT ALL. It used to write FALSE
+     unconditionally, which is not the same thing as "do not create one" — it
+     silently CANCELLED a recycle that was already owed. The way in: somebody
+     answers no (the recycle is set, the warehouse is queued to collect their
+     bin), then changes to Back Next Year. The flag is wiped, the bin stays on
+     the shelf, and nobody is ever told to collect it — a set of lights lost for
+     a year with nothing on any screen to say why.
+
+     Leaving the field alone gets both cases right: an owed collection still
+     happens, and a customer whose bin is intact keeps it made up for next
+     season, which is what was asked for. needsLightBuild IS still cleared —
+     you do not build a set for somebody sitting the season out.
+
+         ⚠ AND THIS IS A THIRD COPY of a decision setCustomerSeason calls itself
+         "the one place that flips a customer between Confirmed and Maybe Next
+         Year". It is not. That duplication is why this bug had to be fixed in
+         three files, and it is worth collapsing — but not in the same change
+         that fixes the bug. */
       addrUpdates.needsLightBuild = false;
       addrUpdates.scheduled = false;
       addrUpdates.scheduledDate = null;
       addrUpdates.assignedCrew = null;
     } else if(item.data.maybeNextYear){
+      /* ⭐ THE FLAG ITSELF, not just its timestamp (fixed 2026-08-21). This
+         branch is "the office has unticked Back Next Year", and it nulled
+         maybeNextYearAt while leaving maybeNextYear true — so unticking it did
+         not actually untick it. They stayed off the Yes sheet and stayed on
+         Contact 2027, with the badge saying Confirmed. Only setCustomerSeason
+         ever cleared this flag, which is why it went unnoticed. */
+      addrUpdates.maybeNextYear = false;
       addrUpdates.maybeNextYearAt = null;
       /* Coming back in with the dropdown still reading Back Next Year would
          leave them unroutable behind a Confirmed badge, so reset it to
@@ -33386,9 +33841,24 @@ async function removeCustomerFromUpcomingRoutes(customerId){
    already done. */
 async function setCustomerSeason(id, toMaybe){
   const updates = toMaybe
+    /* ⭐ BACK NEXT YEAR NEITHER CREATES A RECYCLE NOR DESTROYS ONE (hole G,
+     fixed 2026-08-21). Owner, asked what happens to their bin: keep it made up.
+
+     ⚠ SO THIS MUST NOT WRITE needsLightRecycle AT ALL. It used to write FALSE
+     unconditionally, which is not the same thing as "do not create one" — it
+     silently CANCELLED a recycle that was already owed. The way in: somebody
+     answers no (the recycle is set, the warehouse is queued to collect their
+     bin), then changes to Back Next Year. The flag is wiped, the bin stays on
+     the shelf, and nobody is ever told to collect it — a set of lights lost for
+     a year with nothing on any screen to say why.
+
+     Leaving the field alone gets both cases right: an owed collection still
+     happens, and a customer whose bin is intact keeps it made up for next
+     season, which is what was asked for. needsLightBuild IS still cleared —
+     you do not build a set for somebody sitting the season out. */
     ? { maybeNextYear: true, maybeNextYearAt: serverTimestamp(),
         rsvpStatus: 'backnextyear', rsvpRespondedAt: serverTimestamp(),
-        needsLightRecycle: false, needsLightBuild: false,
+        needsLightBuild: false,
         scheduled: false, scheduledDate: null, assignedCrew: null }
     : { maybeNextYear: false, maybeNextYearAt: null,
         rsvpStatus: '', rsvpRespondedAt: null };

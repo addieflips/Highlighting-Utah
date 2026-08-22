@@ -270,13 +270,24 @@ if (yesSrc) {
   check('and the date the badge was raised goes with it',
     yes({ maybeNextYear: true }).maybeNextYearAt === null,
     'not-sitting-out with a sitting-out date on it is two answers on one record');
-  /* ⚠ AND ONLY WHEN THERE IS ONE TO CLEAR. Writing false onto every yes is a field
-     touched on ~960 records for nothing, and it makes the write look like a decision
-     where none was made. */
-  check('but it does not touch the badge when there is none',
-    !('maybeNextYear' in yes({ rsvpStatus: '' })) &&
-    !('maybeNextYearAt' in yes({ rsvpStatus: 'no' })),
-    'writing false onto everybody is a decision written where none was made');
+  /* ⚠ AND UNCONDITIONALLY, WHICH REVERSES A NARROWER VERSION OF THIS CHECK. It used
+     to assert the badge was left alone when none was set, on the reasoning that
+     writing false onto ~960 records is a decision written where none was made. A
+     parallel session proved that wrong from the other end on the same day: the RSVP
+     reset sweep leaves maybeNextYear standing while moving everyone to 'unanswered',
+     so the flag and the status drift apart and "is there a badge to clear" stops being
+     answerable from the record alone. Two fields describing one fact are written
+     together, on every answer, everywhere. */
+  check('and it writes the badge on every yes, not only when one is set',
+    yes({ rsvpStatus: '' }).maybeNextYear === false &&
+    yes({ rsvpStatus: 'no' }).maybeNextYearAt === null,
+    'the reset sweep leaves the flag standing while the status moves — the two have ' +
+    'to be written together or they drift');
+  /* ⚠ AND AN RSVP ANSWER CLOSES THE "ask them what they want" QUESTION. Without it
+     they stay on that list for ever and get mailed again after replying. */
+  check('and an answer closes the ask-them-again question',
+    yes({}).askSameAsLastYear === false,
+    'an RSVP answer IS them telling us');
 
   /* ⭐ ALL THREE DOORS GO THROUGH IT. A helper nothing calls is the most expensive
      kind of green — this repo has shipped exactly that. */
@@ -304,11 +315,25 @@ if (yesSrc) {
    either direction. */
 if (portalRsvp) {
   check('portalRsvp writes whatever they now say, so no is never sticky',
-    /rsvpStatus: response,\n\s*rsvpRespondedAt/.test(portalRsvp),
+    /rsvpStatus: response,/.test(portalRsvp),
     'a customer who cannot change their mind is a customer who rings the office');
-  check('and a no through the link still queues the recycle',
-    /needsLightRecycle: response === 'no'/.test(portalRsvp),
+  /* ⭐ AND THE RECYCLE IS WRITTEN PER ANSWER, NOT FROM A VARIABLE (hole G's fifth
+     path, closed by a parallel session 2026-08-21). `needsLightRecycle: response ===
+     'no'` reads as harmless and quietly writes FALSE for backnextyear, wiping a
+     collection that was already owed: the bin stays on the shelf and nobody is ever
+     told to fetch it. A yes cancels one — that lives in seasonYesUpdates. Back next
+     year says nothing either way. */
+  check('and a no through the link queues the recycle',
+    /if \(response === 'no'\) updates\.needsLightRecycle = true;/.test(portalRsvp),
     'that is the half of the answer the warehouse acts on');
+  /* ⚠ WITH COMMENTS STRIPPED. The rule is WRITTEN DOWN in the code — the note above
+     that line quotes the bad expression to explain why it is gone — so a plain search
+     finds the explanation and calls it a violation. This file already carries that
+     lesson for Suite 58; it caught this check on its first run. */
+  const noComments = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  check('and back next year neither creates one nor destroys one',
+    !/needsLightRecycle: response === 'no'/.test(noComments(portalRsvp)),
+    'that expression writes FALSE for backnextyear and cancels an owed collection');
 }
 
 /* ⭐ CHANGING YOUR MIND BEFORE THE RECYCLE HAS HAPPENED (added 2026-08-22). Owner:
@@ -532,12 +557,24 @@ if (portalRsvp) {
     'visiting is the thing the town rules exist to prevent');
 }
 
-/* ⭐ Back Next Year clears both queues: nothing to build, and their set stays in
-   their bin. Owner: "back next year ... won't go to recycle." */
-check('badging Back Next Year clears both warehouse queues',
-  /rsvpStatus = 'backnextyear';[\s\S]{0,400}needsLightRecycle = false;[\s\S]{0,120}needsLightBuild = false;/
-    .test(admin),
-  'their bundle is staying in their bin for next season');
+/* ⭐ BACK NEXT YEAR CLEARS THE BUILD AND LEAVES THE RECYCLE ALONE (corrected
+   2026-08-22 by the merge with hole G).
+
+   ⚠ THIS CHECK ASSERTED THE BUG. It required the office badge path to write
+   `needsLightRecycle = false`, which is exactly what a parallel session removed the
+   day before: "do not create one" and "write false" are not the same thing, and the
+   unconditional false silently CANCELLED a collection that was already owed. Somebody
+   answers no — the warehouse is queued to fetch their bin — then changes to Back Next
+   Year, and the flag is wiped with nothing on any screen to say why. A set of lights
+   lost for a year.
+
+   The owner's "back next year won't go to recycle" is still honoured: that path does
+   not CREATE one. It just no longer destroys one that was already owed. */
+check('badging Back Next Year clears the build but not the recycle',
+  /rsvpStatus = 'backnextyear';[\s\S]{0,1800}needsLightBuild = false;/.test(admin) &&
+  !/rsvpStatus = 'backnextyear';[\s\S]{0,1800}needsLightRecycle = false;[\s\S]{0,200}needsLightBuild = false;/.test(admin),
+  'you do not build for somebody sitting the season out, and you do not cancel a ' +
+  'collection that was already owed');
 
 // ---------------------------------------------------------------------------
 const w = (s, n) => { s = String(s); return s.length >= n ? s.slice(0, n - 1) + ' ' : s + ' '.repeat(n - s.length); };
