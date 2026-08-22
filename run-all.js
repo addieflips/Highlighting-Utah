@@ -4167,12 +4167,22 @@ if (!JSDOM) {
     check('warehouse', 'the sheet is in the same order as the tab',
       sheet.rows[0].group === sheet.rows[1].group && sheet.rows[2].group !== sheet.rows[0].group,
       'the two houses share a colour group and must stay together, buffer stock after');
-    check('warehouse', 'a house with no feet on file leaves the Feet cell empty',
-      sheet.rows.find(r => r.what === 'Owen Hale').feet === '',
-      'a 0 in a Feet column reads as a measurement — this is the absence of one');
+    /* ⭐ FEET CAME OFF THIS SHEET, 2026-08-21. Owner: "I don't think we need feet
+       and bundles. I think how many bundles is fine for warehouse." The Bundles cell
+       now carries what Feet used to say about itself — the "+" for an add-on and
+       " est" where the count was worked back from the price rather than measured. */
+    check('warehouse', 'a house with no feet on file still gets a bundle count',
+      sheet.rows.find(r => r.what === 'Owen Hale').bundles === '1',
+      'somebody has to make something, and the tab shows the same number');
     check('warehouse', 'the bundle count on paper is the same one on screen',
-      sheet.rows.find(r => r.what === 'Nadia Brooks').bundles === 6,
+      sheet.rows.find(r => r.what === 'Nadia Brooks').bundles === '6',
       'a printout that disagrees with the tab is worse than no printout');
+    /* ⚠ THE SUMMARY MUST STILL ADD UP once the cell can carry a marker. Number("3 est")
+       is NaN, which would drop that house out of the morning's total silently. */
+    check('warehouse', 'a marked bundle count still totals correctly',
+      (parseInt('+3', 10) || 0) === 3 && (parseInt('3 est', 10) || 0) === 3 &&
+      /parseInt\(r\.bundles, 10\)/.test(extractFn(admin, 'whPrintBuildSheet')),
+      'the build sheet summary reads the Bundles cell with parseInt, not Number');
     check('warehouse', 'a house that wants a timer says YES in the timer column',
       sheet.rows.find(r => r.what === 'Nadia Brooks').timer === 'YES');
     check('warehouse', 'buffer stock prints its label and quantity',
@@ -20323,9 +20333,18 @@ suite('Suite 107. Pricing a re-quote from the popup');
     check('S107', 'the printed Needs Building list asks the same function',
       /houseBundleNeed\(d\)/.test(src) && /whPutIntoLabel\(d\)/.test(src),
       'two builders of one list is how a printout starts disagreeing with the screen');
+    /* ⚠ This builder names the flag `isTopUp`; the warehouse tab's names it
+       need.topUp. Matching the warehouse's spelling here failed even though the
+       behaviour was right — a reminder that these two source-shape checks are
+       reading two different functions. */
     check('S107', 'and marks a top-up row with a plus so it cannot read as a whole house',
-      /'\+' \+ need\.bundles/.test(src),
+      /isTopUp \? '\+' : ''/.test(src) && /need\.bundles/.test(src),
       '3 in the Bundles column of a 300 ft house is a wrong number, not a short one');
+    /* ⚠ AND SAYS WHEN THE COUNT IS A GUESS. With no measured footage the number is
+       worked back from the price; a warehouse told "3" makes 3 and finds out later. */
+    check('S107', 'and marks an estimated count as an estimate',
+      /need\.estimated \? ' est' : ''/.test(src),
+      'dropping the Feet column dropped this warning with it, once');
   }
 
   /* ⭐ A HOUSE FLAGGED TO BUILD WITH NO COLOURS ON FILE USED TO VANISH. Owner, having
@@ -21851,8 +21870,11 @@ suite('Suite 112. The number on the bin');
     check('S112', 'and says in words that it joins a bin they already have',
       !!addOn && /GOES INTO THE BIN THEY ALREADY HAVE/.test(addOn.notes),
       'Notes is what gets read when a row looks unusual');
+    /* ⚠ 120 extra feet is 3 bundles — houseBundleNeed does the subtraction, so this
+       is the add-on's count and not the whole house's. */
     check('S112', 'and still names whose bin, and how much to make',
-      !!addOn && addOn.putInto === 'Ashley Wray #894' && addOn.feet === '+120');
+      !!addOn && addOn.putInto === 'Ashley Wray #894' && addOn.bundles === '+3',
+      'got ' + JSON.stringify(addOn && addOn.bundles));
     check('S112', 'and their own note is not thrown away for it',
       /GOES INTO THE BIN[\s\S]*ladder round the back/.test(
         build({name: 'A', customerNumber: '9', needsLightBuild: true,

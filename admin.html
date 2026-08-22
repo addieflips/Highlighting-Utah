@@ -25406,8 +25406,15 @@ function whSheetRowsForBuild(){
         bin: d.customerNumber || '',
         // Blank rather than 0 when there are no feet — a 0 in a spreadsheet
         // column reads as a measurement, and this is the absence of one.
-        feet: need.unknown ? '' : ((need.topUp ? '+' : '') + need.feet + (need.estimated ? ' est' : '')),
-        bundles: need.bundles,
+        /* ⚠ THE MARKERS MOVED HERE WITH THE COLUMN (2026-08-21). Feet came off this
+           sheet — owner: "I don't think we need feet and bundles" — and it was
+           carrying two things the bundle count was not: the "+" that marks an
+           add-on, and " est" where there is no measured footage and the number was
+           worked back from the price. Dropping the column silently dropped the
+           warning that the count is a guess, which is how somebody makes three
+           bundles for a house that needs four. ⚠ Type still says House/ADD-ON
+           exactly, because the summary counts houses by matching that string. */
+        bundles: (need.topUp ? '+' : '') + need.bundles + (need.estimated ? ' est' : ''),
         timer: String(d.outletTimer || '').trim() === 'Yes' ? 'YES' : '',
         putInto: whPutIntoLabel(d),
         /* Said in words as well as in the Type column, because Notes is what gets read
@@ -25641,7 +25648,12 @@ const WH_RECYCLE_COLUMNS = [
 })();
 function whPrintBuildSheet(){
   const sheet = whSheetRowsForBuild();
-  const bundles = sheet.rows.reduce(function(s,r){ return s + (Number(r.bundles) || 0); }, 0);
+  /* ⚠ parseInt, NOT Number. The Bundles cell carries markers now — "+3" for an
+     add-on and "3 est" where the footage was worked back from the price — and
+     Number("3 est") is NaN, which would silently drop that house out of the total
+     and under-report the morning's work. parseInt reads the leading number from
+     both. */
+  const bundles = sheet.rows.reduce(function(s,r){ return s + (parseInt(r.bundles, 10) || 0); }, 0);
   const houses = sheet.rows.filter(function(r){ return r.type === 'House'; }).length;
   const blocked = sheet.rows.filter(function(r){ return r.type === 'Blocked'; }).length;
   const summary = sheet.rows.length
@@ -38642,7 +38654,9 @@ function printNeedsBuildList(){
                  whole house's — houseBundleNeed does that subtraction. The + marks it
                  as an addition to a bin that already exists, which the Type column and
                  the put-into column also say. */
-              bundles: need ? (isTopUp ? ('+' + need.bundles) : String(need.bundles)) : '',
+              bundles: need
+                ? ((isTopUp ? '+' : '') + need.bundles + (need.estimated ? ' est' : ''))
+                : '',
               /* Same wording as the warehouse sheet — see whSheetRowsForBuild. Two
                  sheets of the same job saying it two ways is how one of them stops
                  being read. */
