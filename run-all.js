@@ -34080,6 +34080,50 @@ suite('150. Measure Roof - a corner is placed from the street, by two views agre
 
   /* ---- and the placement no longer asks the roof model -------------- */
   const det = pick('rmDetectCornersFromStreet');
+  /* ---- the order is a path, not a ranking -------------------------- */
+  /* ⚠ Owner, counting them on screen: "you have like 20 lines running deep",
+     against the three the house has. Sorting corners left to right sweeps
+     ACROSS the house, so consecutive corners jump between the near edge of the
+     roof and the far one, and every jump is a line running deep. */
+  check('S150', 'corners are chained to the nearest, not sorted across the view',
+    !!det && /remaining\.splice\(bj, 1\)/.test(det) && /let bj = 0, bd = Infinity;/.test(det),
+    'a roofline is a path somebody walks, not a ranking left to right');
+  /* ⭐ AND THE HOUSE IS HUNG AS TWO STRANDS, NOT ONE. Owner: "there are only
+     two strands on the house so the whole top should be connected and the
+     whole bottom should be connected." Joining the top to the bottom draws a
+     line down the middle of the roof that nobody will ever hang - and charges
+     for it. Where the split falls is not guessed: the biggest gap in the
+     heights IS the step from one roof to the other. */
+  check('S150', 'corners are split into roof levels by the biggest gap in height',
+    !!det && /widest >= RM_STRAND_GAP_M/.test(det) && /const RM_STRAND_GAP_M/.test(admin),
+    'a house at two levels is two runs of string');
+  check('S150', 'and a house all on one level stays a single strand',
+    !!det && /bands\.push\(byHeight\);/.test(det),
+    'splitting a flat roofline in two invents a join that is not there');
+  check('S150', 'each level becomes its own run',
+    /ONE RUN PER ROOF LEVEL/.test(admin) && /const b = c\.band \|\| 0;/.test(admin),
+    'one run through both levels is the line down the middle of the roof');
+  {
+    /* Four corners round a rectangle. Sorted across, the order zigzags front to
+       back; chained, it goes round. */
+    const pts = [{e:-5,n:-4,u:5},{e:5,n:-4,u:5},{e:5,n:4,u:5},{e:-5,n:4,u:5}];
+    const along = {e: 1, n: 0};
+    const sorted = pts.slice().sort((a,b)=>(a.e*along.e+a.n*along.n)-(b.e*along.e+b.n*along.n));
+    const chain = [sorted.shift()];
+    while (sorted.length) {
+      const last = chain[chain.length-1];
+      let bi = 0, bd = Infinity;
+      sorted.forEach((p,i)=>{ const d=Math.hypot(p.e-last.e,p.n-last.n,p.u-last.u); if(d<bd){bd=d;bi=i;} });
+      chain.push(sorted.splice(bi,1)[0]);
+    }
+    const legLen = c => { let t=0; for(let i=1;i<c.length;i++) t+=Math.hypot(c[i].e-c[i-1].e,c[i].n-c[i-1].n); return t; };
+    const acrossOrder = pts.slice().sort((a,b)=>(a.e*along.e+a.n*along.n)-(b.e*along.e+b.n*along.n));
+    check('S150', 'and chaining really is shorter than sorting across',
+      legLen(chain) < legLen(acrossOrder),
+      'chained ' + legLen(chain).toFixed(1) + ' m vs sorted ' + legLen(acrossOrder).toFixed(1) +
+      ' m - the extra is the zigzag, and every leg of it reads as a line running deep');
+  }
+
   check('S150', 'corner placement never consults the roof planes',
     !!det && !/rmFacePlane/.test(det),
     'a corner found in the street and placed from above is a sky-view corner in a street-view coat');
