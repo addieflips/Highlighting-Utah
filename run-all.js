@@ -26651,8 +26651,17 @@ suite('77. Schedule route generator');
 
     const day = mkDay();
     const n = gen.day(day);
+    /* ⚠ ORDER CHANGED 2026-08-22 AND THE TOUR DID NOT. routeHomePoint now carries
+       a verified pin for the yard instead of coming back null in this sandbox, so
+       these days are anchored at 209 S 850 W at BOTH ends — which is what the
+       owner asked for twice. Every expectation below is the exact REVERSE of what
+       it was: the same tour, driven in the direction that is cheaper to leave from
+       and come back to. That reversal is the evidence the change is right rather
+       than a scramble; if one of these ever changes to something that is NOT a
+       clean reversal, the orderer is broken and this comment is the thing to
+       re-read. */
     check('S77', 'a day comes back as two routes, one town each, in driving order',
-      day.houses.map(h => h.name).join() === 'L1,L3,L4,L2,A1,A3,A2',
+      day.houses.map(h => h.name).join() === 'L2,L4,L3,L1,A2,A3,A1',
       'got [' + day.houses.map(h => h.name).join() + '] — a crew handed the input order drives the town twice');
     check('S77', 'the crews are not interleaved',
       day.houses.slice(0, 4).every(h => h.city === 'Lehi') &&
@@ -26673,7 +26682,7 @@ suite('77. Schedule route generator');
        different length, which the guard turns into "leave the day alone". Only
        the full order tells those two apart. */
     check('S77', 'a house in neither crew\'s town is kept, on the end, and the day is still ordered',
-      d2.houses.map(h => h.name).join() === 'L1,L3,L4,L2,A1,A3,A2,Nowhere',
+      d2.houses.map(h => h.name).join() === 'L2,L4,L3,L1,A2,A3,A1,Nowhere',
       'it still has to be driven to — got [' + d2.houses.map(h => h.name).join() + ']');
 
     /* A plan imported today has no coordinates on anything. It must come back
@@ -26705,7 +26714,7 @@ suite('77. Schedule route generator');
       soon.houses.map(h => h.name).join() === 'soon-a,soon-b,soon-c',
       'the crew is already holding that sheet on paper');
     check('S77', 'a day further out is ordered',
-      later.houses.map(h => h.name).join() === 'later-a,later-c,later-b',
+      later.houses.map(h => h.name).join() === 'later-b,later-c,later-a',
       'got [' + later.houses.map(h => h.name).join() + ']');
     check('S77', 'a day already gone is left alone too',
       past.houses.map(h => h.name).join() === 'past-a,past-b,past-c',
@@ -26729,7 +26738,7 @@ suite('77. Schedule route generator');
       'got nopin=' + bareRes.nopin + ' — a handful of houses sitting at the bottom of ' +
         'every sheet reads as a broken button, not as a known gap');
     check('S77', 'and the rest of that day is still put in driving order',
-      bareOne.houses.slice(0, 3).map(h => h.name).join() === 'bare-a,bare-c,bare-b',
+      bareOne.houses.slice(0, 3).map(h => h.name).join() === 'bare-b,bare-c,bare-a',
       'the un-pinned house must not drag the pinned ones out of order — got [' +
         bareOne.houses.map(h => h.name).join() + ']');
     check('S77', 'and the un-pinned house is still on the day',
@@ -27764,16 +27773,33 @@ suite('123. The two crew maps, actually rendered');
       check('S123', 'a two-crew day really does build two maps',
         built.length === 2 && visible().length === 2,
         'built ' + built.length + ', showing ' + visible().length);
-      check('S123', 'each map gets its own crew’s stops and nobody else’s',
-        api.panes[0].markers.length === 10 && api.panes[1].markers.length === 10,
+      /* ⭐ TEN HOUSES AND THE YARD (changed 2026-08-22). This expected ten, with a
+         comment saying "no yard in this fixture" — true when routeHomePoint could
+         come back null, which it did here because the sandbox has neither a customer
+         record at the yard nor enough Lehi houses to estimate a grid from. It now
+         carries a verified pin for 209 S 850 W and can no longer return null, so the
+         yard is drawn on every route map. That is the point of it: the owner asked
+         twice for the day to start and end there, and a map that omits the one fixed
+         end of the trip is showing a shape the crew never drives. */
+      check('S123', 'each map gets its own crew’s stops, nobody else’s, and the yard',
+        api.panes[0].markers.length === 11 && api.panes[1].markers.length === 11,
         'got ' + api.panes.map(p => p.markers.length).join(' and ') +
-        ' — no yard in this fixture, so ten each');
+        ' — ten houses plus the yard is eleven');
+      /* ⚠ markers[0] IS THE YARD NOW, not the first house (changed 2026-08-22 -
+         see the marker-count check above). So this asks the question it always
+         meant to ask: of the pins that carry a STOP number, does each crew's
+         numbering start at one? Reading markers[0] would now be testing the
+         depot's label, which is not a stop and is not numbered. */
+      const stopLabels = pane => pane.markers
+        .map(m => m.o && m.o.label && m.o.label.text)
+        .filter(t => /^[0-9]+$/.test(String(t)));
       check('S123', 'the pins are numbered from 1 for each crew',
-        api.panes[0].markers[0].o.label.text === '1' &&
-        api.panes[1].markers[0].o.label.text === '1',
-        'a crew reads their own numbering, not their block of somebody else\'s');
-      check('S123', 'each route is drawn as a line',
-        !!api.panes[0].line && api.panes[0].line.o.path.length === 10);
+        stopLabels(api.panes[0])[0] === '1' && stopLabels(api.panes[1])[0] === '1',
+        'each crew reads their own numbering, not a block of somebody elses');
+      check('S123', 'each route is drawn as a line, out of the yard and back',
+        !!api.panes[0].line && api.panes[0].line.o.path.length === 12,
+        'ten houses, with the yard at both ends of the line — got ' +
+        (api.panes[0].line ? api.panes[0].line.o.path.length : 'no line'));
       check('S123', 'the headings name each crew',
         /Route 1 . Dad \+ Ty/.test(boxes()[0].innerHTML) &&
         /Route 2 . Crew 2/.test(boxes()[1].innerHTML),

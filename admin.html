@@ -30670,6 +30670,12 @@ document.getElementById('allCustExportBtn').addEventListener('click', function()
    two arguments and gets exactly the open-ended route it got before; only a
    caller that names a finish is measured on the drive home. */
 function twoOptImprove(ordered, startPoint, endPoint){
+  /* ⚠ SELF-CONTAINED ON PURPOSE. Several suites lift this function out of the file
+     and run it in a sandbox, where any name from the surrounding page is a
+     ReferenceError that takes the whole suite down rather than failing one check.
+     The typeof guard keeps a lifted orderer behaving exactly like the shipped one. */
+  const hardRate = (typeof HARD_FIRST_MILES_PER_PLACE === 'number') ? HARD_FIRST_MILES_PER_PLACE : 0.2;
+  const hardOf = function(p){ return (typeof stopHardness === 'function') ? stopHardness(p) : 0; };
   if(ordered.length < 4) return ordered;
   const n = ordered.length;
   function dist(a, b){ return haversine(a.lat, a.lng, b.lat, b.lng); }
@@ -30689,7 +30695,26 @@ function twoOptImprove(ordered, startPoint, endPoint){
         const next = j === n - 1 ? (endPoint || null) : ordered[j+1];
         const currentDist = dist(prev, a) + (next ? dist(b, next) : 0);
         const newDist = dist(prev, b) + (next ? dist(a, next) : 0);
-        if(newDist < currentDist - 0.0005){
+        /* ⭐ AND WHAT THE REVERSAL DOES TO THE ORDER THE HARD HOUSES ARE DONE IN.
+           Owner, 2026-08-22: "have the route generator form a petrol efficient
+           route while still doing hardest first."
+
+           Reversing the segment [i..j] sends the stop at position p to position
+           (i + j - p), so the change in "how late the hard houses are" is exact
+           and costs one pass of the segment to compute — no need to re-price the
+           whole route. Positive means the swap pushes hard work later.
+
+           Priced in MILES through HARD_FIRST_MILES_PER_PLACE so the two aims are
+           in one currency and the optimiser can actually trade them: a reversal
+           that saves real driving still wins, and one that saves almost nothing
+           while delaying the house nobody can reschedule now loses. */
+        let lateDelta = 0;
+        for(let p = i; p <= j; p++){
+          const hard = hardOf(ordered[p]);
+          if(hard) lateDelta += hard * ((i + j - p) - p);
+        }
+        const cost = (newDist - currentDist) + lateDelta * hardRate;
+        if(cost < -0.0005){
           const segment = ordered.slice(i, j+1).reverse();
           ordered.splice(i, j - i + 1, ...segment);
           improved = true;
@@ -30699,7 +30724,58 @@ function twoOptImprove(ordered, startPoint, endPoint){
   }
   return ordered;
 }
+/* ⭐ THE YARD, IN MAIN-APP SCOPE (added 2026-08-22).
+   Owner: "have it remember the starting position is 209 S 850 W and the end
+   position is 209 S 850 W Lehi Utah."
+
+   ⚠ IT LIVES HERE, NOT IN THE SCHEDULE WIDGET, and that placement is the whole
+   point. `routeHomePoint` is declared inside the widget, so the main app cannot
+   call it — a call from out here throws "is not defined" and kills whatever
+   handler it was in. run-all.js has a check whose only job is to catch exactly
+   that leak, and it caught this one. The coordinate therefore sits in the outer
+   scope where BOTH can read it, and the widget's routeHomePoint uses it as its
+   verified fallback rather than carrying a second copy.
+
+   Geocoded 2026-08-22 through the same Maps geocoder the app uses: ROOFTOP
+   accuracy, and both spellings of the address returned the identical point.
+   ⚠ IF THE YARD MOVES, RE-GEOCODE AND CHANGE IT HERE — and keep it in step with
+   ROUTE_HOME_ADDRESS in the widget, which is the human-readable half. */
+const YARD_POINT = {lat: 40.385409, lng: -111.862718};
+function routeYardPoint(){ return {lat: YARD_POINT.lat, lng: YARD_POINT.lng}; }
+
+/* ⭐ HOW MUCH A HARD HOUSE IS WORTH IN MILES (added 2026-08-22).
+   Owner: "have the route generator form a petrol efficient route while still
+   doing hardest first."
+
+   Those two pull against each other, so one has to be expressed in the other's
+   units or there is nothing to trade. This is the exchange rate: moving a
+   maximally hard house one place earlier is worth this many miles of extra
+   driving, and no more.
+
+   ⚠ SMALL ON PURPOSE. Fuel is the objective; hardest-first is the tie-breaker
+   among routes that cost about the same. At a fifth of a mile a hard house wins
+   every near-tie and never sends a crew across town for the privilege — which is
+   what "while still" means in her sentence. Raise it and the route stops being
+   petrol efficient; drop it to zero and the order is pure distance again. */
+const HARD_FIRST_MILES_PER_PLACE = 0.2;
+
+/* What makes a stop hard to do on any other day, 0 (easy) to 1 (hard).
+   ⚠ SUPPLIED BY THE CALLER, never worked out here. Hardness is a scheduling
+   question — deadlines, how much company a house has, whether its named day has
+   already passed — and those rules live with the rest of the scheduling rules.
+   This keeps the orderer pure geometry plus one number, which is what lets
+   run-all.js lift it into a sandbox and drive a whole season through it. */
+function stopHardness(p){
+  const h = p && p.hardness;
+  return (typeof h === 'number' && isFinite(h)) ? Math.max(0, Math.min(1, h)) : 0;
+}
 function reorderFlatStops(flatStops, startPoint, endPoint){
+  /* ⚠ SELF-CONTAINED ON PURPOSE. Several suites lift this function out of the file
+     and run it in a sandbox, where any name from the surrounding page is a
+     ReferenceError that takes the whole suite down rather than failing one check.
+     The typeof guard keeps a lifted orderer behaving exactly like the shipped one. */
+  const hardRate = (typeof HARD_FIRST_MILES_PER_PLACE === 'number') ? HARD_FIRST_MILES_PER_PLACE : 0.2;
+  const hardOf = function(p){ return (typeof stopHardness === 'function') ? stopHardness(p) : 0; };
   /* Two ways an unorderable list gets here, both from the reconcile sweep:
        - a day whose LAST stop has just come off (recycled, deleted, or a town
          corrected) is re-ordered with nothing left in it;
@@ -30749,7 +30825,11 @@ function reorderFlatStops(flatStops, startPoint, endPoint){
   while(remaining.length){
     let bestIdx = 0, bestDist = Infinity;
     remaining.forEach(function(p,i){
-      const d = haversine(current.lat, current.lng, p.lat, p.lng);
+      /* Nearest, with a hard house counted as slightly nearer than it is — the
+         same exchange rate the 2-opt below trades at, so the seed and the
+         improver cannot disagree about what a good day looks like. */
+      const d = haversine(current.lat, current.lng, p.lat, p.lng)
+              - hardOf(p) * hardRate;
       if(d < bestDist){ bestDist = d; bestIdx = i; }
     });
     const next = remaining.splice(bestIdx,1)[0];
@@ -32905,7 +32985,11 @@ async function reconcileUpcomingRoutes(){
       for(let i = 0; i < newDays.length; i++){
         const nd = newDays[i];
         const docId = nd.date + '_install_' + nd.crew;
-        const stops = reorderFlatStops(nd.ids.map(function(id){ return stopById[id]; }), null);
+        /* Out of the yard and back to it — see routeHomePoint. A day built here
+           used to be ordered with no fixed ends at all, so the drive out and the
+           drive home were the two legs nobody counted. */
+        const ndHome = (typeof routeYardPoint === 'function') ? routeYardPoint() : null;
+        const stops = reorderFlatStops(nd.ids.map(function(id){ return stopById[id]; }), ndHome, ndHome);
         try{
           await setDoc(doc(db,'scheduledRoutes', docId), {
             date: nd.date, type: 'install', crew: nd.crew, stops: stops,
@@ -38832,6 +38916,29 @@ function routeHomePoint(){
          isFinite(d.lat) && isFinite(d.lng)) return {lat: d.lat, lng: d.lng};
     }catch(err){ /* fall through to the grid */ }
   }
+  /* ⭐ AND A VERIFIED PIN FOR THE YARD, SO THIS CAN NO LONGER COME BACK NULL
+     (added 2026-08-22). Owner, asking for it a second time: "have it remember the
+     starting position is 209 S 850 W and the end position is 209 S 850 W Lehi
+     Utah."
+
+     The note above says a null here is "slightly worse, never broken" — true of one
+     day, and not true of a season. Null means the day is ordered with no fixed
+     start OR end, which is exactly the failure that comment describes: the drive
+     out and the drive home stop being counted and the van finishes on the far side
+     of the valley. And the grid estimate it depended on needs enough known houses
+     in Lehi to learn from, which is not a thing this should be betting the whole
+     route generator on.
+
+     ⚠ IT RANKS ABOVE THE GRID ESTIMATE AND BELOW A REAL RECORD, which is the same
+     rule the block above states — a measured pin beats a calculated one. This IS a
+     measured pin: geocoded 2026-08-22 through the same Maps geocoder the app uses,
+     ROOFTOP accuracy, and both spellings of the address returned the identical
+     point. The grid estimate stays underneath it as the answer for a yard that has
+     moved and not been re-geocoded.
+     ⚠ IF THE YARD MOVES, RE-GEOCODE AND CHANGE IT HERE, in step with
+     ROUTE_HOME_ADDRESS above. */
+  const known = (typeof routeYardPoint === 'function') ? routeYardPoint() : null;
+  if(known && isFinite(known.lat) && isFinite(known.lng)) return known;
   const est = (typeof estimatedPinFromAddress === 'function')
     ? estimatedPinFromAddress(ROUTE_HOME_ADDRESS, ROUTE_HOME_CITY) : null;
   return est ? {lat: est.lat, lng: est.lng} : null;
